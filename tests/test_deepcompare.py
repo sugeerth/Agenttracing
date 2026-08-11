@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
+import io
 import json
 import sys
 import tempfile
@@ -844,6 +846,124 @@ class TestSemantic(unittest.TestCase):
                 self.assertIn(key, sp[side])
         self.assertTrue(sp["narrative"])
         self.assertEqual(aggregate([])["semantic_profile"], {})
+
+
+class TestCounterfactual(unittest.TestCase):
+    def test_retrieval_pair_counterfactual(self):
+        report = compare(*retrieval_pair())
+        cf = report["counterfactual"]
+        self.assertIsNotNone(cf)
+        self.assertIn("step 2", cf["premise"])
+        self.assertEqual(cf["splice"], {"prefix_steps": [0, 1],
+                                        "adopted_from": "a",
+                                        "adopted_steps": [2, 3, 4]})
+        est = cf["estimate"]
+        self.assertEqual(est["outcome"], "success")
+        self.assertEqual(est["steps"], 5)
+        self.assertEqual(est["steps_delta"], 0)
+        # B prefix 100+100 tokens + A suffix 3x100 = 500 vs B's real 800
+        self.assertEqual(est["tokens"], 500)
+        self.assertEqual(est["tokens_delta"], -300)
+        self.assertEqual(cf["confidence"], "high")
+        self.assertIn("ends in success", cf["narrative"])
+
+    def test_null_when_not_applicable(self):
+        self.assertIsNone(compare(*detour_pair())["counterfactual"])
+        self.assertIsNone(compare(*identical_pair())["counterfactual"])
+        self.assertIsNone(
+            compare(*identical_pair("tf0", success=False))["counterfactual"]
+        )
+
+    def test_medium_confidence_with_drifted_prefix(self):
+        from deepcompare.counterfactual import counterfactual
+        a, b = retrieval_pair()
+        report = compare(a, b)
+        report["alignment"][1]["op"] = "drift"  # constructed drifted prefix
+        cf = counterfactual(report, a, b)
+        self.assertEqual(cf["confidence"], "medium")
+
+
+class TestGate(unittest.TestCase):
+    @staticmethod
+    def _write(dirpath, trajectories):
+        dirpath.mkdir(parents=True, exist_ok=True)
+        for t in trajectories:
+            path = dirpath / f"{t.task.id}__{t.agent.name}.json"
+            path.write_text(json.dumps(t.to_dict()), encoding="utf-8")
+
+    @staticmethod
+    def _run(argv):
+        from deepcompare.cli import main
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = main(argv)
+        return code
+
+    def _pairs(self, regress):
+        a1, b1 = retrieval_pair("g1") if regress else identical_pair("g1")
+        a2, b2 = identical_pair("g2")
+        for t in (a1, a2):
+            t.agent.name = "base-v1"
+        for t in (b1, b2):
+            t.agent.name = "cand-v2"
+        return [a1, a2], [b1, b2]
+
+    def test_gate_fail_with_regression(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base, cand = self._pairs(regress=True)
+            self._write(root / "base", base)
+            self._write(root / "cand", cand)
+            code = self._run(["gate", str(root / "base"), str(root / "cand"),
+                              "-o", str(root / "out"), "--markdown", "gate.md"])
+            self.assertEqual(code, 1)
+            gate = json.loads((root / "out" / "gate.json").read_text())
+            self.assertEqual(gate["verdict"], "fail")
+            by_name = {c["name"]: c for c in gate["checks"]}
+            self.assertFalse(by_name["success_rate_drop"]["pass"])
+            self.assertFalse(by_name["new_failure_modes"]["pass"])
+            self.assertIn("retrieval", by_name["new_failure_modes"]["candidate"])
+            self.assertTrue(
+                [s for s in gate["reports_summary"]
+                 if s["task"] == "g1" and s["regressed"]]
+            )
+            md = (root / "out" / "gate.md").read_text(encoding="utf-8")
+            self.assertIn("FAIL", md)
+            self.assertIn("g1", md)
+            self.assertIn("Counterfactual:", md)
+            self.assertIn("estimated run", md)
+
+    def test_gate_fail_allows_new_modes_but_still_fails_on_success(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base, cand = self._pairs(regress=True)
+            self._write(root / "base", base)
+            self._write(root / "cand", cand)
+            code = self._run(["gate", str(root / "base"), str(root / "cand"),
+                              "-o", str(root / "out"), "--allow-new-failure-modes"])
+            self.assertEqual(code, 1)
+            gate = json.loads((root / "out" / "gate.json").read_text())
+            by_name = {c["name"]: c for c in gate["checks"]}
+            self.assertTrue(by_name["new_failure_modes"]["pass"])
+            self.assertIn("disabled", by_name["new_failure_modes"]["detail"])
+
+    def test_gate_pass_when_equivalent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base, cand = self._pairs(regress=False)
+            self._write(root / "base", base)
+            self._write(root / "cand", cand)
+            code = self._run(["gate", str(root / "base"), str(root / "cand"),
+                              "-o", str(root / "out")])
+            self.assertEqual(code, 0)
+            gate = json.loads((root / "out" / "gate.json").read_text())
+            self.assertEqual(gate["verdict"], "pass")
+            self.assertTrue(all(c["pass"] for c in gate["checks"]))
+
+    def test_gate_usage_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code = self._run(["gate", str(Path(tmp) / "missing"), tmp, "-o", tmp])
+            self.assertEqual(code, 2)
 
 
 class TestFleet(unittest.TestCase):

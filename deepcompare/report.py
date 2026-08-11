@@ -15,6 +15,7 @@ from typing import Optional, Union
 
 from .align import align
 from .attribution import attribute
+from .counterfactual import counterfactual
 from .divergence import find_divergences
 from .metrics import metrics_delta
 from .semantic import semantic_analysis
@@ -103,6 +104,7 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
     }
     report["success_analysis"] = success_analysis(report, a, b)
     report["semantic"] = semantic_analysis(report, a, b)
+    report["counterfactual"] = counterfactual(report, a, b)
     return report
 
 
