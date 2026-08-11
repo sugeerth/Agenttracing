@@ -29,6 +29,11 @@
     --warn:          #8a5800;           /* drift amber, legible on light */
     --warn-tint:     rgba(250,178,25,0.14);
     --warn-line:     #d99a12;
+    /* v6 success accent — teal, deliberately distinct from pass-✓ green */
+    --win:           #0b6e5f;
+    --win-line:      #159581;
+    --win-tint:      rgba(21,149,129,0.11);
+    --win-soft:      rgba(21,149,129,0.5);
 
     --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
     --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
@@ -59,6 +64,10 @@
       --warn:          #fab219;
       --warn-tint:     rgba(250,178,25,0.12);
       --warn-line:     #b98410;
+      --win:           #3fc6a6;
+      --win-line:      #2a9c82;
+      --win-tint:      rgba(63,198,166,0.13);
+      --win-soft:      rgba(63,198,166,0.5);
       --shadow: none;
     }
   }
@@ -86,6 +95,10 @@
     --warn:          #fab219;
     --warn-tint:     rgba(250,178,25,0.12);
     --warn-line:     #b98410;
+    --win:           #3fc6a6;
+    --win-line:      #2a9c82;
+    --win-tint:      rgba(63,198,166,0.13);
+    --win-soft:      rgba(63,198,166,0.5);
     --shadow: none;
   }
 
@@ -530,7 +543,7 @@
   }
   .rec-find { font-size: 13px; line-height: 1.55; margin: 0; max-width: 72ch; }
   .rec-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  .rec-row .rk { color: var(--muted); text-transform: uppercase; font-size: 10px; letter-spacing: 0.07em; font-weight: 600; margin-right: 2px; }
+  .rec-row .rk, .pb-ev .rk { color: var(--muted); text-transform: uppercase; font-size: 10px; letter-spacing: 0.07em; font-weight: 600; margin-right: 2px; }
   .ev-chip {
     font-family: var(--mono); font-size: 11px; border: 1px solid var(--line-strong);
     background: var(--surface-2); border-radius: 5px; padding: 1.5px 8px; cursor: pointer;
@@ -550,6 +563,65 @@
     margin: 0; padding: 9px 11px; font-family: var(--mono); font-size: 11.5px; line-height: 1.55;
     white-space: pre-wrap; word-break: break-word; color: var(--ink-2);
   }
+
+  /* ---------- v6 success framing ---------- */
+  .verdict-duo {
+    margin-top: 26px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    align-items: start;
+  }
+  .verdict-duo > .verdict { margin-top: 0; }
+  @media (max-width: 860px) { .verdict-duo { grid-template-columns: minmax(0, 1fr); } }
+  .verdict.verdict-win { border-left-color: var(--win); }
+  .basis-badge {
+    font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+    border-radius: 5px; padding: 1px 8px; color: var(--win); background: var(--win-tint);
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .wd-list {
+    list-style: none; margin: 0; padding: 0;
+    display: flex; flex-direction: column; gap: 10px; counter-reset: wd;
+  }
+  .wd-item {
+    display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px;
+    padding: 8px 11px 9px; background: var(--bg);
+    border: 1px solid var(--line); border-left: 3px solid var(--win-line);
+    border-radius: 0 8px 8px 0;
+  }
+  .wd-item::before {
+    counter-increment: wd; content: counter(wd);
+    font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--win);
+    padding-top: 3px;
+  }
+  .wd-main { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+  .wd-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+  .wd-decision { font-size: 12.8px; font-weight: 550; }
+  .wd-counter { font-size: 12px; color: var(--muted); }
+  .wd-counter .ik { font-style: italic; }
+  .wd-why { font-size: 12.3px; color: var(--ink-2); }
+  .win-chip {
+    font-family: var(--mono); font-size: 10.5px; font-weight: 650;
+    font-variant-numeric: tabular-nums; color: var(--win); background: var(--win-tint);
+    border-radius: 5px; padding: 1px 7px; white-space: nowrap;
+  }
+  .win-chip.star { border: 1px solid var(--win-line); }
+  .chain-chip.win:hover { border-color: var(--win); color: var(--win); }
+  .step.win-step { border-left-color: var(--win-soft); border-right-color: var(--win-soft); border-bottom-color: var(--win-soft); }
+  .right-tag {
+    font-family: var(--mono); font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--win); background: var(--win-tint);
+    border: 1px solid var(--win-soft); border-radius: 4px; padding: 0.5px 6px;
+  }
+  .tl.srail-a { padding-left: 32px; }
+  .tl.srail-b { padding-right: 32px; }
+  /* playbook (duo overview) */
+  .pb-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); }
+  .pb-card {
+    background: var(--surface); border: 1px solid var(--line); border-top: 3px solid var(--win-line);
+    border-radius: 10px; padding: 13px 16px 14px; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: 9px; min-width: 0;
+  }
+  .pb-habit { font-size: 13.5px; font-weight: 650; margin: 0; line-height: 1.45; text-wrap: balance; }
+  .pb-ev { font-size: 12.3px; color: var(--ink-2); display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 
   .hidden { display: none !important; }
 
@@ -924,7 +996,7 @@
     .conn-sim { top: calc(50% + 4px); }
     .gutter .only-tag { top: 2px; }
     .rail-svg { display: none; }
-    .tl.rail-a, .tl.rail-b { padding-left: 0; padding-right: 0; }
+    .tl.rail-a, .tl.rail-b, .tl.srail-a, .tl.srail-b { padding-left: 0; padding-right: 0; }
     .wh-cols { grid-template-columns: minmax(0, 1fr); }
   }
   /* phones: the multi-line strip would eat the viewport if sticky */
@@ -1027,6 +1099,12 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     <div id="sec-recs" class="hidden">
       <h2 class="sec">Outcomes &amp; recommendations</h2>
       <div class="rec-grid" id="rec-list"></div>
+    </div>
+
+    <div id="sec-playbook" class="hidden">
+      <h2 class="sec">Playbook — what good looks like</h2>
+      <p class="sec-sub">Winning habits extracted from head-to-head evidence. Click a task to see the decision play out.</p>
+      <div class="pb-grid" id="pb-list"></div>
     </div>
   </div>
 
@@ -1432,6 +1510,58 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     return { A: A, B: B };
   }
 
+  /* ---------------- success analysis (v6) ---------------- */
+  function successAnalysisOf(r) {
+    var sa = r && r.success_analysis;
+    if (!sa || typeof sa !== "object") return null;
+    var w = (sa.winner === "a" || sa.winner === "b") ? sa.winner : null;
+    if (!w) return null; /* null winner = equivalent trajectories — nothing to celebrate */
+    return {
+      winner: w,
+      basis: sa.basis === "efficiency" ? "efficiency" : "outcome",
+      decisions: (Array.isArray(sa.winning_decisions) ? sa.winning_decisions : [])
+        .filter(function (d) { return d && typeof d === "object"; }),
+      narrative: typeof sa.narrative === "string" ? sa.narrative : ""
+    };
+  }
+  function winDecSide(sa, d) {
+    if (d && typeof d.agent === "string") {
+      if (d.agent === agentName("a")) return "a";
+      if (d.agent === agentName("b")) return "b";
+      if (d.agent === "a" || d.agent === "b") return d.agent;
+    }
+    return sa.winner;
+  }
+  /* winner-side winning-decision step indices, sorted */
+  function winStepSet(sa) {
+    var set = {};
+    if (!sa) return set;
+    sa.decisions.forEach(function (d) {
+      if (winDecSide(sa, d) === sa.winner && num(d.step_index) !== null) set[d.step_index] = d;
+    });
+    return set;
+  }
+  function winImpactChips(imp) {
+    if (!imp || typeof imp !== "object") return "";
+    var chips = [];
+    var st = num(imp.avoided_extra_steps);
+    if (st) chips.push("avoided +" + fmtInt(Math.abs(st)) + " steps");
+    var tk = num(imp.avoided_tokens);
+    if (tk) chips.push("saved " + fmtTok(Math.abs(tk)) + " tok");
+    var lt = num(imp.avoided_latency_s);
+    if (lt) chips.push("saved " + fmtLat(Math.abs(lt)));
+    var html = chips.map(function (c) { return '<span class="win-chip">' + esc(c) + "</span>"; }).join("");
+    if (imp.avoided_failure === true) html += '<span class="win-chip star">avoided failure ★</span>';
+    return html;
+  }
+  /* is this side's final answer judged correct(ish) by the answer eval? */
+  function answerCorrect(r, side) {
+    var v = get(r, ["answer_eval", side + "_vs_expected", "verdict"]);
+    if (v === "match" || v === "partial") return true;
+    if (v === "mismatch") return false;
+    return successOf(r, side) === true; /* no eval — fall back to outcome */
+  }
+
   /* ---------------- header ---------------- */
   function renderHeader() {
     var el = document.getElementById("hdr-agents");
@@ -1598,6 +1728,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   function renderSubway(r, rows, fdRow) {
     var n = rows.length;
     if (!n) return '<div class="none-note">No aligned steps.</div>';
+    var sa = successAnalysisOf(r);
+    var winSet = winStepSet(sa);
     var dx = 56, x0 = 56, H = 158, cy = 88;
     var W = x0 + (n - 1) * dx + 64;
     function ys(row) {
@@ -1646,9 +1778,15 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         if (!step) return;
         var x = pts[i][0], y = pts[i][1];
         var idx = num(step.index);
+        var winDec = (sa && side === sa.winner && idx !== null && winSet[idx]) ? winSet[idx] : null;
         var tipHtml = "<strong>" + esc(step.name || step.type || "step") + "</strong>" +
           '<div class="tip-sub">' + esc(step.type || "") +
-          (num(step.tokens) !== null ? " · " + fmtTok(step.tokens) + " tok" : "") + "</div>";
+          (num(step.tokens) !== null ? " · " + fmtTok(step.tokens) + " tok" : "") + "</div>" +
+          (winDec ? '<div class="tip-sub" style="color:var(--win)">✓ winning decision: ' + esc(winDec.decision || "") + "</div>" : "");
+        var winRing = winDec
+          ? '<circle cx="' + x + '" cy="' + y + '" r="12.5" style="fill:var(--win-line);fill-opacity:.16"></circle>' +
+            '<circle cx="' + x + '" cy="' + y + '" r="9.5" fill="none" style="stroke:var(--win-line)" stroke-width="2"></circle>'
+          : "";
         var inner;
         if (step.type === "answer") {
           var ok = successOf(r, side);
@@ -1662,7 +1800,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
           inner = ring + '<circle class="sw-core" cx="' + x + '" cy="' + y + '" r="5.5" fill="' + typeColor(step.type) + '" style="stroke:var(--surface)" stroke-width="1.5"></circle>';
         }
         out += '<g class="sw-node" tabindex="0" role="button" data-side="' + side + '" data-step="' + (idx === null ? "" : idx) + '" data-tip="' + esc(tipHtml) + '">' +
-          '<circle cx="' + x + '" cy="' + y + '" r="12" fill="transparent"></circle>' + inner + "</g>";
+          '<circle cx="' + x + '" cy="' + y + '" r="12" fill="transparent"></circle>' + winRing + inner + "</g>";
       });
       return out;
     }
@@ -1953,12 +2091,11 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       "</div></article>";
   }
 
-  /* propagation rail overlay */
+  /* propagation rail overlay (red — failure side) */
   function drawRail(r) {
     var tl = document.getElementById("tl");
     if (!tl) return;
-    var old = tl.querySelector(".rail-svg");
-    if (old) old.remove();
+    Array.prototype.forEach.call(tl.querySelectorAll(".rail-svg.fail-rail"), function (s) { s.remove(); });
     var att = r.attribution || {};
     var side = att.failed_agent === "a" ? "a" : att.failed_agent === "b" ? "b" : null;
     var chain = Array.isArray(att.chain) ? att.chain.filter(function (v) { return num(v) !== null; }) : [];
@@ -1995,7 +2132,56 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       var lx = side === "b" ? x + 11 : x - 11;
       parts.push('<text x="' + lx + '" y="' + midY + '" font-size="10" font-weight="700" letter-spacing="1.5" style="fill:var(--bad);pointer-events:auto;cursor:help" text-anchor="middle" transform="rotate(' + (side === "b" ? 90 : -90) + " " + lx + " " + midY + ')">PROPAGATION<title>error propagation path — the chain of steps the root cause corrupted</title></text>');
       tl.insertAdjacentHTML("beforeend",
-        '<svg class="rail-svg" width="' + tl.clientWidth + '" height="' + tl.scrollHeight + '" aria-hidden="true">' + parts.join("") + "</svg>");
+        '<svg class="rail-svg fail-rail" width="' + tl.clientWidth + '" height="' + tl.scrollHeight + '" aria-hidden="true">' + parts.join("") + "</svg>");
+    });
+  }
+
+  /* winning-path rail overlay (v6, green — winner side); coexists with the red rail */
+  function drawWinRail(r) {
+    var tl = document.getElementById("tl");
+    if (!tl) return;
+    Array.prototype.forEach.call(tl.querySelectorAll(".rail-svg.win-rail"), function (s) { s.remove(); });
+    var sa = successAnalysisOf(r);
+    var side = sa ? sa.winner : null;
+    var chain = [];
+    if (sa) {
+      Object.keys(winStepSet(sa)).forEach(function (k) { chain.push(+k); });
+      chain.sort(function (u, v) { return u - v; });
+      /* extend the path to the winner's final answer so a single decision still draws a route */
+      var steps = get(r, [side, "steps"]);
+      if (Array.isArray(steps) && steps.length) {
+        var lastIdx = num(steps[steps.length - 1].index);
+        if (lastIdx !== null && chain.indexOf(lastIdx) < 0) chain.push(lastIdx);
+      }
+    }
+    tl.classList.toggle("srail-a", side === "a" && chain.length > 1);
+    tl.classList.toggle("srail-b", side === "b" && chain.length > 1);
+    if (!side || chain.length < 2) return;
+    requestAnimationFrame(function () {
+      var tlRect = tl.getBoundingClientRect();
+      var els = chain.map(function (ix) { return document.getElementById("step-" + side + "-" + ix); })
+        .filter(Boolean);
+      if (els.length < 2) return;
+      var x = side === "b" ? tl.clientWidth - 20 : 20;
+      var boxes = els.map(function (el) {
+        var b = el.getBoundingClientRect();
+        return { top: b.top - tlRect.top, bottom: b.bottom - tlRect.top, left: b.left - tlRect.left, right: b.right - tlRect.left };
+      });
+      var y1 = boxes[0].top + 8, y2 = boxes[boxes.length - 1].bottom - 8;
+      var parts = [];
+      parts.push('<line x1="' + x + '" y1="' + y1 + '" x2="' + x + '" y2="' + y2 + '" style="stroke:var(--win-line)" stroke-width="2" stroke-linecap="round" opacity="0.8"></line>');
+      /* ticks from rail to each winning card; ✓ node at each joint */
+      boxes.forEach(function (b) {
+        var edge = side === "b" ? b.right : b.left;
+        var ty = b.top + 14;
+        parts.push('<line x1="' + x + '" y1="' + ty + '" x2="' + edge + '" y2="' + ty + '" style="stroke:var(--win-line)" stroke-width="1.5" opacity="0.55"></line>');
+        parts.push('<circle cx="' + x + '" cy="' + ty + '" r="3" style="fill:var(--win-line)"></circle>');
+      });
+      var midY = (y1 + y2) / 2;
+      var lx = side === "b" ? x + 11 : x - 11;
+      parts.push('<text x="' + lx + '" y="' + midY + '" font-size="10" font-weight="700" letter-spacing="1.5" style="fill:var(--win);pointer-events:auto;cursor:help" text-anchor="middle" transform="rotate(' + (side === "b" ? 90 : -90) + " " + lx + " " + midY + ')">WINNING PATH<title>the winner’s decisive steps — the choices that won this task</title></text>');
+      tl.insertAdjacentHTML("beforeend",
+        '<svg class="rail-svg win-rail" width="' + tl.clientWidth + '" height="' + tl.scrollHeight + '" aria-hidden="true">' + parts.join("") + "</svg>");
     });
   }
 
@@ -2248,6 +2434,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     var failSide = att.failed_agent === "a" ? "a" : att.failed_agent === "b" ? "b" : null;
     var chainSet = {};
     (Array.isArray(att.chain) ? att.chain : []).forEach(function (ix) { chainSet[ix] = true; });
+    /* v6: the positive mirror */
+    var sa = successAnalysisOf(r);
+    var winSet = winStepSet(sa);
 
     /* U3/U6: sticky strip — task, outcomes, jump buttons, pair switcher */
     var stripBits = [];
@@ -2351,10 +2540,14 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         if (op === "drift") cls += " hl-drift";
         if ((op === "a_only" && side === "a") || (op === "b_only" && side === "b")) cls += " hl-only";
         if (step && failSide === side && chainSet[step.index]) cls += " chain-step";
+        if (step && sa && sa.winner === side && winSet[step.index]) cls += " win-step";
         return cls + divCls;
       }
       function tagFor(side, step) {
         if (step && failSide === side && step.type === "answer") return '<span class="wrong-tag">✗ wrong answer</span>';
+        if (step && step.type === "answer" && sa && sa.winner === side && sa.basis === "outcome" && answerCorrect(r, side)) {
+          return '<span class="right-tag">✓ correct answer</span>';
+        }
         return "";
       }
       var aCard, bCard, gut;
@@ -2392,9 +2585,10 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     /* final answer evaluation (v5) — sits above the verdict block */
     renderAnswerEval(r);
 
-    /* verdict */
+    /* verdicts: green "why the winner won" (v6) beside the red/neutral divergence verdict */
     var vs = document.getElementById("verdict-slot");
     var fd = divs.length ? divs[0] : null;
+    var failHtml = "";
     if (att && (att.explanation || att.category || (Array.isArray(att.chain) && att.chain.length))) {
       var side = failSide || "b";
       var title = failSide ? "Why " + esc(agentName(failSide)) + " failed" : "Divergence verdict";
@@ -2406,7 +2600,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
               '<button class="chain-chip" type="button" data-side="' + side + '" data-step="' + esc(ix) + '">step ' + esc(ix) + "</button>";
           }).join("") + "</div>"
         : "";
-      vs.innerHTML = '<div class="verdict' + (failSide ? " verdict-fail" : "") + '">' +
+      failHtml = '<div class="verdict' + (failSide ? " verdict-fail" : "") + '">' +
         "<h3>" + title +
         (att.category ? '<span class="cat"><span class="kdot dot" style="width:7px;height:7px;background:' + kindColor(att.category) + '"></span>' + esc(kindLabel(att.category)) + "</span>" : "") +
         (num(att.root_cause_step) !== null ? '<span class="cat">root cause: step ' + esc(att.root_cause_step) + "</span>" : "") +
@@ -2414,21 +2608,51 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         (att.explanation ? '<p class="expl">' + esc(att.explanation) + "</p>" : "") +
         chainHtml +
         "</div>";
-      Array.prototype.forEach.call(vs.querySelectorAll(".chain-chip"), function (chip) {
-        chip.addEventListener("click", function () {
-          flashStep(chip.getAttribute("data-side"), chip.getAttribute("data-step"));
-        });
-      });
     } else if (fd) {
-      vs.innerHTML = '<div class="verdict"><h3>Divergence verdict' +
+      failHtml = '<div class="verdict"><h3>Divergence verdict' +
         (fd.kind ? '<span class="cat"><span class="kdot dot" style="width:7px;height:7px;background:' + kindColor(fd.kind) + '"></span>' + esc(kindLabel(fd.kind)) + "</span>" : "") +
         '</h3><p class="expl">' + esc(fd.summary || "The trajectories diverged, but no failure attribution was produced (both agents may have succeeded).") + "</p></div>";
     } else {
-      vs.innerHTML = '<div class="verdict"><h3>No divergence</h3><p class="expl">Both trajectories stayed aligned end to end.</p></div>';
+      failHtml = '<div class="verdict"><h3>No divergence</h3><p class="expl">Both trajectories stayed aligned end to end.</p></div>';
     }
+    var winHtml = "";
+    if (sa) {
+      var wName = agentName(sa.winner);
+      var decsHtml = sa.decisions.map(function (d) {
+        var dSide = winDecSide(sa, d);
+        var stepIx = num(d.step_index);
+        return '<li class="wd-item"><div class="wd-main">' +
+          '<div class="wd-row">' +
+            (stepIx !== null
+              ? '<button class="chain-chip win" type="button" data-side="' + dSide + '" data-step="' + stepIx + '">step ' + stepIx + "</button>" : "") +
+            (d.kind ? '<span class="kind-badge"><span class="kdot" style="background:' + kindColor(d.kind) + '"></span>' + esc(kindLabel(d.kind)) + "</span>" : "") +
+          "</div>" +
+          (d.decision ? '<div class="wd-decision">' + esc(d.decision) + "</div>" : "") +
+          (d.counterpart ? '<div class="wd-counter"><span class="ik">instead of:</span> ' + esc(d.counterpart) + "</div>" : "") +
+          (d.why ? '<div class="wd-why">' + esc(d.why) + "</div>" : "") +
+          (winImpactChips(d.impact) ? '<div class="wd-row">' + winImpactChips(d.impact) + "</div>" : "") +
+          "</div></li>";
+      }).join("");
+      winHtml = '<div class="verdict verdict-win">' +
+        '<h3>Why ' + esc(wName) + " won" +
+        '<span class="basis-badge"><span class="dot ' + sa.winner + '" style="width:7px;height:7px"></span>won on ' + esc(sa.basis) + "</span>" +
+        "</h3>" +
+        (sa.narrative ? '<p class="expl">' + esc(sa.narrative) + "</p>" : "") +
+        (decsHtml ? '<ol class="wd-list">' + decsHtml + "</ol>" : "") +
+        "</div>";
+    }
+    vs.innerHTML = winHtml
+      ? '<div class="verdict-duo">' + winHtml + failHtml + "</div>"
+      : failHtml;
+    Array.prototype.forEach.call(vs.querySelectorAll(".chain-chip"), function (chip) {
+      chip.addEventListener("click", function () {
+        flashStep(chip.getAttribute("data-side"), chip.getAttribute("data-step"));
+      });
+    });
 
     drawRail(r);
-    currentRedraw = function () { drawRail(r); };
+    drawWinRail(r);
+    currentRedraw = function () { drawRail(r); drawWinRail(r); };
   }
 
   function flashStep(side, idx) {
@@ -2902,6 +3126,79 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       btn.addEventListener("click", function () {
         var rec = recs[parseInt(btn.getAttribute("data-rec"), 10)];
         copyText(String((rec && rec.suggested_prompt) || ""), btn);
+      });
+    });
+  }
+
+  /* ---------------- playbook (v6) ---------------- */
+  function escapeReg(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+  function taskChipMap() {
+    /* full id AND short prefix ("t01") → report index */
+    var map = {};
+    reports().forEach(function (r, i) {
+      var id = get(r, ["task", "id"]);
+      if (id == null) return;
+      map[String(id)] = i;
+      var short = taskShort(id);
+      if (short && map[short] == null) map[short] = i;
+    });
+    return map;
+  }
+  function evidenceHtml(evidence, map) {
+    var s = String(evidence == null ? "" : evidence);
+    if (!s) return "";
+    var keys = Object.keys(map).sort(function (u, v) { return v.length - u.length; });
+    if (!keys.length) return esc(s);
+    var re = new RegExp("(" + keys.map(escapeReg).join("|") + ")", "g");
+    var out = "", last = 0, m;
+    while ((m = re.exec(s)) !== null) {
+      out += esc(s.slice(last, m.index));
+      out += '<button class="ev-chip" type="button" data-task="' + map[m[1]] + '">' + esc(m[1]) + "</button>";
+      last = m.index + m[1].length;
+    }
+    out += esc(s.slice(last));
+    return out;
+  }
+  function impactChipsHtml(impact) {
+    if (impact && typeof impact === "object") return winImpactChips(impact);
+    var s = String(impact == null ? "" : impact).trim();
+    if (!s) return "";
+    return s.split(/,\s+(?=[a-z])/i).map(function (frag) {
+      frag = frag.trim();
+      return frag ? '<span class="win-chip">' + esc(frag) + "</span>" : "";
+    }).join("");
+  }
+  function renderPlaybook() {
+    var sec = document.getElementById("sec-playbook");
+    var list = document.getElementById("pb-list");
+    if (!sec || !list) return;
+    var pb = aggregate().playbook;
+    pb = Array.isArray(pb) ? pb.filter(function (h) { return h && typeof h === "object"; }) : [];
+    if (!pb.length) { sec.classList.add("hidden"); list.innerHTML = ""; return; }
+    sec.classList.remove("hidden");
+    var map = taskChipMap();
+    list.innerHTML = pb.map(function (h) {
+      var agents = Array.isArray(h.agents) ? h.agents.filter(Boolean)
+        : (typeof h.agents === "string" && h.agents ? [h.agents] : []);
+      var agentChips = agents.map(function (nm) {
+        var side = nm === agentName("a") ? "a" : nm === agentName("b") ? "b" : null;
+        return '<span class="agent-chip">' + (side ? '<span class="dot ' + side + '"></span>' : "") + esc(nm) + "</span>";
+      }).join("");
+      var evHtml = evidenceHtml(h.evidence, map);
+      var impHtml = impactChipsHtml(h.impact);
+      return '<article class="pb-card">' +
+        (h.habit ? '<p class="pb-habit">' + esc(h.habit) + "</p>" : "") +
+        '<div class="rec-row">' +
+          (h.kind ? '<span class="kind-badge"><span class="kdot" style="background:' + kindColor(h.kind) + '"></span>' + esc(kindLabel(h.kind)) + "</span>" : "") +
+          agentChips +
+        "</div>" +
+        (evHtml ? '<div class="pb-ev"><span class="rk">Evidence</span><span>' + evHtml + "</span></div>" : "") +
+        (impHtml ? '<div class="rec-row"><span class="rk">Impact</span>' + impHtml + "</div>" : "") +
+        "</article>";
+    }).join("");
+    Array.prototype.forEach.call(list.querySelectorAll(".ev-chip[data-task]"), function (chip) {
+      chip.addEventListener("click", function () {
+        openCompare(parseInt(chip.getAttribute("data-task"), 10));
       });
     });
   }
@@ -3803,6 +4100,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     renderRegressions();
     renderTaskList();
     renderRecommendations();
+    renderPlaybook();
     if (state.view === "cmp" && reports().length) { show("cmp"); renderCompare(); }
     else show("list");
     renderDeepDive();
