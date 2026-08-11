@@ -103,7 +103,11 @@ def _same_tool_drift(region: list[dict], a: Trajectory, b: Trajectory) -> bool:
 
 
 def _summary(
-    region: list[dict], a: Trajectory, b: Trajectory, kind: str
+    region: list[dict],
+    a: Trajectory,
+    b: Trajectory,
+    kind: str,
+    failed: Optional[str] = None,
 ) -> str:
     """Human-readable one-line summary of a divergence region."""
     first = region[0]
@@ -134,14 +138,27 @@ def _summary(
             )
         return f"Agent A {_describe(a_step)} while Agent B {_describe(b_step)}."
 
+    # One-sided regions: when exactly one agent failed, phrase the divergence
+    # from the failing agent's perspective — an omission by the failing side
+    # must never read as the successful side's mistake.
     if a_step is not None:
         count = sum(1 for e in region if e["op"] == "a_only")
+        if failed == "b":
+            return (
+                f"Agent B skipped {count} step(s) that Agent A performed, "
+                f"where Agent A {_describe(a_step)}."
+            )
         return (
             f"Agent A took {count} extra step(s) not mirrored by Agent B, "
             f"starting where it {_describe(a_step)}."
         )
     count = sum(1 for e in region if e["op"] == "b_only")
     assert b_step is not None
+    if failed == "a":
+        return (
+            f"Agent A skipped {count} step(s) that Agent B performed, "
+            f"where Agent B {_describe(b_step)}."
+        )
     return (
         f"Agent B took {count} extra step(s) not mirrored by Agent A, "
         f"starting where it {_describe(b_step)}."
@@ -154,6 +171,7 @@ def _downstream(
     a: Trajectory,
     b: Trajectory,
     caused_failure: bool,
+    failed: Optional[str] = None,
 ) -> dict:
     """Extra steps/tokens/latency the more expensive side spends from the
     divergence point to its answer, relative to the other side."""
@@ -175,12 +193,14 @@ def _downstream(
             "extra_tokens_b": tokens_b - tokens_a,
             "extra_latency_s_b": round(lat_b - lat_a, 4),
             "caused_failure": caused_failure,
+            "failed_agent": failed,
         }
     return {
         "extra_steps_a": steps_a - steps_b,
         "extra_tokens_a": tokens_a - tokens_b,
         "extra_latency_s_a": round(lat_a - lat_b, 4),
         "caused_failure": caused_failure,
+        "failed_agent": failed,
     }
 
 
@@ -205,6 +225,9 @@ def find_divergences(a: Trajectory, b: Trajectory, alignment: list[dict]) -> lis
         regions.append(current)
 
     one_failed = a.outcome.success != b.outcome.success
+    failed: Optional[str] = None
+    if one_failed:
+        failed = "a" if not a.outcome.success else "b"
     divergences: list[dict] = []
     for rank, region in enumerate(regions, start=1):
         is_trailing = alignment.index(region[-1]) >= len(alignment) - 2
@@ -216,8 +239,10 @@ def find_divergences(a: Trajectory, b: Trajectory, alignment: list[dict]) -> lis
                 "a_index": _first_index(region, "a_index"),
                 "b_index": _first_index(region, "b_index"),
                 "kind": kind,
-                "summary": _summary(region, a, b, kind),
-                "downstream": _downstream(region, alignment, a, b, caused),
+                "summary": _summary(region, a, b, kind, failed if caused else None),
+                "downstream": _downstream(
+                    region, alignment, a, b, caused, failed if caused else None
+                ),
             }
         )
     return divergences
