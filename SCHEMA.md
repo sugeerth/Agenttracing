@@ -172,3 +172,35 @@ Each alignment entry pairing two `tool_call` (or `search`) steps may carry:
 
 `args_*` parsed heuristically from `name(k=v, ...)` style inputs; `raw_diff`
 is a token-level LCS diff of the raw inputs as a fallback for unparseable args.
+
+## Step-level evaluation detail (pairwise reports, v5)
+
+Every alignment entry pairing two present steps carries an `eval` object:
+
+```json
+"eval": {
+  "similarity": {"type_match": true, "name_jaccard": 0.5, "input_jaccard": 0.82},
+  "delta": {"tokens": 40, "latency_s": 1.2, "cost_usd": 0.0006},
+  "quality": {"a": "good", "b": "bad", "verdict": "equal | a_degraded | b_degraded"},
+  "propagation": {"a": 0.0, "b": 0.45}
+}
+```
+
+`delta` is B minus A. `propagation` (only when one agent failed) is the word
+Jaccard between this step's input and the root divergent step's output on each
+side — how much of the root mistake's content this step carries forward.
+
+Report-level answer evaluation:
+
+```json
+"answer_eval": {
+  "expected": "string|null",
+  "diff_ab": [["eq", "..."], ["del", "..."], ["ins", "..."]],
+  "a_vs_expected": {"jaccard": 0.8, "verdict": "match | partial | mismatch"},
+  "b_vs_expected": {"jaccard": 0.2, "verdict": "mismatch"}
+}
+```
+
+`diff_ab` is the token-level diff of A's final answer against B's.
+Verdicts: `match` >= 0.6 jaccard against expected, `partial` >= 0.3, else
+`mismatch`; `null` expected gives verdict "unknown".
