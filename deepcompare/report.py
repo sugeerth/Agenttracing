@@ -18,6 +18,7 @@ from .attribution import attribute
 from .divergence import find_divergences
 from .metrics import metrics_delta
 from .steps_eval import answer_eval, step_eval
+from .success import success_analysis
 from .tooldiff import TOOLISH_TYPES, tool_diff
 from .trace import Trajectory
 
@@ -79,7 +80,7 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
         evaluation = step_eval(entry, a, b, root_output_a, root_output_b)
         if evaluation is not None:
             entry["eval"] = evaluation
-    return {
+    report = {
         "task": {"id": a.task.id, "prompt": a.task.prompt},
         "a": {
             "agent": a.agent.to_dict(),
@@ -99,6 +100,8 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
         "answer_eval": answer_eval(a, b),
         "metrics_delta": metrics_delta(a, b),
     }
+    report["success_analysis"] = success_analysis(report, a, b)
+    return report
 
 
 def render_html(

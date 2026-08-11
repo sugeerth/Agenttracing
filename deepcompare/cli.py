@@ -78,6 +78,11 @@ def _print_summary(report: dict) -> None:
         print(f"  category: {attribution['category']}")
     print(f"  {attribution['explanation']}")
 
+    sa = report.get("success_analysis")
+    if sa:
+        print("Success analysis:")
+        print(f"  {sa['narrative']}")
+
     recs = recommend([report])
     if recs:
         print("Recommendations:")
@@ -182,6 +187,12 @@ def _cmd_batch(args: argparse.Namespace) -> int:
         print("Recommendations:")
         for rec in agg["recommendations"]:
             print(f"  [{rec['severity']}/{rec['category']}] {rec['agent']} — {rec['finding']}")
+    if agg["playbook"]:
+        print("Playbook — what good looks like:")
+        for habit in agg["playbook"]:
+            agents = ", ".join(habit["agents"])
+            print(f"  [{habit['kind']}] {agents}: {habit['habit']} — "
+                  f"{habit['evidence']}; {habit['impact']}")
     return 0
 
 

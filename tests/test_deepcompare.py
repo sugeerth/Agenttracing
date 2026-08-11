@@ -614,6 +614,70 @@ class TestStepEval(unittest.TestCase):
         self.assertEqual(ae["b_vs_expected"], {"coverage": None, "verdict": "unknown"})
 
 
+class TestSuccessAnalysis(unittest.TestCase):
+    def test_outcome_winner_on_retrieval_pair(self):
+        report = compare(*retrieval_pair())
+        sa = report["success_analysis"]
+        self.assertIsNotNone(sa)
+        self.assertEqual(sa["winner"], "a")
+        self.assertEqual(sa["basis"], "outcome")
+        self.assertTrue(sa["winning_decisions"])
+        d0 = sa["winning_decisions"][0]
+        self.assertEqual(d0["agent"], "agent-a")
+        self.assertEqual(d0["kind"], "retrieval")
+        self.assertEqual(d0["step_index"], 2)
+        # impact mirrors the divergence downstream (loser B side)
+        self.assertEqual(d0["impact"]["avoided_extra_steps"], 0)
+        self.assertEqual(d0["impact"]["avoided_tokens"], 300)
+        self.assertTrue(d0["impact"]["avoided_failure"])
+        self.assertIn("(agent-b)", d0["counterpart"])
+        self.assertIn("won on outcome", sa["narrative"])
+        self.assertIn("300", sa["narrative"])
+
+    def test_efficiency_winner_on_detour_pair(self):
+        report = compare(*detour_pair())
+        sa = report["success_analysis"]
+        self.assertIsNotNone(sa)
+        self.assertEqual(sa["winner"], "a")
+        self.assertEqual(sa["basis"], "efficiency")
+        d0 = sa["winning_decisions"][0]
+        # one-sided region: winner has no step there
+        self.assertTrue(d0["decision"].startswith("proceeded directly"))
+        self.assertEqual(d0["kind"], "stopping")
+        self.assertEqual(d0["impact"]["avoided_extra_steps"], 2)
+        self.assertEqual(d0["impact"]["avoided_tokens"], 800)
+        self.assertFalse(d0["impact"]["avoided_failure"])
+        self.assertIn("won on efficiency", sa["narrative"])
+
+    def test_null_when_equivalent_or_both_failed(self):
+        report = compare(*identical_pair())
+        self.assertIsNone(report["success_analysis"])
+        report2 = compare(*identical_pair("t9", success=False))
+        self.assertIsNone(report2["success_analysis"])
+
+    def test_playbook_groups_and_ordering(self):
+        from deepcompare.success import playbook
+        reports = [compare(*retrieval_pair("t1")), compare(*detour_pair("t5"))]
+        habits = playbook(reports)
+        self.assertEqual(len(habits), 2)
+        # avoided-failures-first ordering: retrieval (1 failure) before stopping
+        self.assertEqual(habits[0]["kind"], "retrieval")
+        self.assertEqual(habits[0]["agents"], ["agent-a"])
+        self.assertIn("t1", habits[0]["evidence"])
+        self.assertIn("avoided 1 failure(s)", habits[0]["impact"])
+        self.assertIn("300 tokens", habits[0]["impact"])
+        self.assertEqual(habits[1]["kind"], "stopping")
+        self.assertIn("800 tokens", habits[1]["impact"])
+        self.assertIn("corroborate at most twice", habits[1]["habit"])
+
+    def test_aggregate_carries_playbook(self):
+        reports = [compare(*retrieval_pair("t1"))]
+        agg = aggregate(reports)
+        self.assertIn("playbook", agg)
+        self.assertTrue(agg["playbook"])
+        self.assertEqual(aggregate([])["playbook"], [])
+
+
 class TestFleet(unittest.TestCase):
     def test_ranking_and_pareto(self):
         result = fleet_analysis(fleet_fixture())

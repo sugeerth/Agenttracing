@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .recommend import recommend
+from .success import playbook
 from .trace import Trajectory
 
 #: metric key -> human label used in regression messages.
@@ -90,6 +91,7 @@ def aggregate(reports: list[dict]) -> dict:
             "failure_origins": {},
             "regressions": [],
             "recommendations": [],
+            "playbook": [],
         }
 
     name_a = reports[0]["a"]["agent"]["name"]
@@ -148,4 +150,5 @@ def aggregate(reports: list[dict]) -> dict:
         "failure_origins": failure_origins,
         "regressions": regressions,
         "recommendations": recommend(reports),
+        "playbook": playbook(reports),
     }
