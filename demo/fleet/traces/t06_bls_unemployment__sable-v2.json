@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "trace_id": "t06_bls_unemployment__sable-v2",
+  "agent": {
+    "name": "sable-v2",
+    "model": "gpt-5-mini",
+    "version": "v2"
+  },
+  "task": {
+    "id": "t06_bls_unemployment",
+    "prompt": "According to the U.S. Bureau of Labor Statistics, what was the unemployment rate in December 2024?",
+    "expected": "4.1 percent"
+  },
+  "outcome": {
+    "success": true,
+    "answer": "The December 2024 unemployment rate was 4.1 percent, per the BLS Employment Situation release published January 10, 2025.",
+    "score": 1.0
+  },
+  "totals": {
+    "input_tokens": 622,
+    "output_tokens": 188,
+    "cost_usd": 0.004686,
+    "latency_s": 9.01
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "1) Find the BLS Employment Situation release covering December 2024. 2) Read the headline unemployment rate from bls.gov. 3) Answer with the official figure.",
+      "output": "Plan set. Searching for the official release.",
+      "tokens": 148,
+      "latency_s": 1.91,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "search",
+      "name": "web_search",
+      "input": "BLS Employment Situation December 2024 unemployment rate",
+      "output": "[1] bls.gov/news.release/archives/empsit_01102025.htm — The Employment Situation — December 2024 | [2] bls.gov/cps — Labor Force Statistics (CPS) | [3] tradingecon.com — United States Unemployment Rate | [4] econwire.com — \"U.S. unemployment ticks up to 4.2%, Labor Department says\"",
+      "tokens": 182,
+      "latency_s": 2.44,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 2,
+      "type": "retrieve",
+      "name": "select_result",
+      "input": "Open result [1]: bls.gov — the Employment Situation news release for December 2024 is the official source.",
+      "output": "Selected https://www.bls.gov/news.release/archives/empsit_01102025.htm (official BLS news release, 2025-01-10).",
+      "tokens": 152,
+      "latency_s": 1.06,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 3,
+      "type": "read",
+      "name": "open_page",
+      "input": "https://www.bls.gov/news.release/archives/empsit_01102025.htm",
+      "output": "THE EMPLOYMENT SITUATION — DECEMBER 2024. Total nonfarm payroll employment increased by 256,000 in December, and the unemployment rate changed little at 4.1 percent, the U.S. Bureau of Labor Statistics reported today. The number of unemployed people, at 6.9 million, changed little over the month.",
+      "tokens": 187,
+      "latency_s": 2.0,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final_answer",
+      "input": "Compose the final answer from the verified findings.",
+      "output": "The December 2024 unemployment rate was 4.1 percent, per the BLS Employment Situation release published January 10, 2025.",
+      "tokens": 141,
+      "latency_s": 1.6,
+      "quality": "good",
+      "note": null
+    }
+  ]
+}
