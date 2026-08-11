@@ -1128,6 +1128,68 @@
   @media (max-width: 600px) {
     .cmp-strip { position: static; }
   }
+
+  /* ---------- v8: counterfactual panel + ghost route ---------- */
+  .cf-panel {
+    margin-top: 12px; border: 1px solid var(--warn-line); border-left: 4px solid var(--viol);
+    background: var(--surface); border-radius: 9px; padding: 14px 18px 15px; box-shadow: var(--shadow);
+  }
+  .cf-panel:hover { border-color: var(--viol); }
+  .cf-panel h3 { margin: 0 0 8px; font-size: 13px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .cf-panel h3 .cf-glyph { font-size: 14px; }
+  .cf-conf {
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    border-radius: 999px; padding: 2px 9px; cursor: help;
+  }
+  .cf-conf.high   { color: var(--good); background: var(--good-tint); }
+  .cf-conf.medium { color: var(--warn); background: var(--warn-tint); }
+  .cf-conf.low    { color: var(--muted); background: var(--surface-2); border: 1px solid var(--line-strong); }
+  .cf-ghost-btn {
+    margin-left: auto; border: 1px dashed var(--viol); background: none; border-radius: 999px;
+    padding: 2px 11px; font-size: 11px; color: var(--viol); cursor: pointer; white-space: nowrap;
+  }
+  .cf-ghost-btn:hover { background: var(--surface-2); }
+  .cf-ghost-btn.pinned { background: var(--viol); color: var(--surface); border-style: solid; }
+  .cf-premise { margin: 0 0 10px; font-size: 13.5px; font-weight: 550; max-width: 78ch; }
+  .cf-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .cf-chip {
+    border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+    padding: 6px 12px 7px; display: flex; flex-direction: column; gap: 2px; min-width: 92px;
+  }
+  .cf-chip .cf-k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 600; }
+  .cf-chip .cf-v {
+    font-family: var(--mono); font-size: 14.5px; font-weight: 650; font-variant-numeric: tabular-nums;
+    display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap;
+  }
+  .cf-chip .cf-delta { font-size: 11px; font-weight: 600; }
+  .cf-chip .cf-delta.save  { color: var(--good); }
+  .cf-chip .cf-delta.worse { color: var(--bad); }
+  .cf-chip.cf-outcome.ok { border-color: var(--good); background: var(--good-tint); }
+  .cf-chip.cf-outcome.ok .cf-v { color: var(--good); }
+  .cf-chip.cf-outcome.no { border-color: var(--bad-soft); background: var(--bad-tint); }
+  .cf-chip.cf-outcome.no .cf-v { color: var(--bad); }
+  .cf-narr { margin: 0; font-size: 12.8px; line-height: 1.6; color: var(--ink-2); max-width: 84ch; }
+  .ghost-route { opacity: 0; transition: opacity 0.25s; pointer-events: none; }
+  .subway-wrap.cf-on .ghost-route { opacity: 1; }
+
+  /* ---------- v8: trajectory replay ---------- */
+  #view-cmp.replaying .tl .step { opacity: 0.22; transition: opacity 0.3s; }
+  #view-cmp.replaying .tl .step.rp-lit { opacity: 1; }
+  #view-cmp.replaying .sw-node { opacity: 0.15; transition: opacity 0.2s; }
+  #view-cmp.replaying .sw-node.rp-lit { opacity: 1; }
+  .rp-dot {
+    position: absolute; width: 11px; height: 11px; border-radius: 50%; z-index: 6;
+    pointer-events: none; transition: top 0.35s ease, left 0.35s ease;
+  }
+  .rp-dot.a { background: var(--agent-a); box-shadow: 0 0 0 4px var(--agent-a-tint); }
+  .rp-dot.b { background: var(--agent-b); box-shadow: 0 0 0 4px var(--agent-b-tint); }
+  .rp-finish {
+    margin-left: 8px; font-family: var(--mono); font-size: 10.5px; font-weight: 600;
+    border-radius: 999px; padding: 0.5px 8px; white-space: nowrap;
+    color: var(--muted); border: 1px solid var(--line-strong);
+  }
+  .rp-finish.first { color: var(--good); border-color: var(--good); background: var(--good-tint); }
+  .strip-btn.copied { color: var(--good); border-color: var(--good); }
 </style>
 
 <script>
@@ -1313,7 +1375,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     <div id="semantic-slot"></div>
     <div id="answer-slot"></div>
     <div id="verdict-slot"></div>
-    <p class="kbd-hint"><kbd>←</kbd> <kbd>→</kbd> switch task &nbsp;·&nbsp; <kbd>Esc</kbd> back to task list &nbsp;·&nbsp; click a truncated input/output to expand</p>
+    <p class="kbd-hint"><kbd>←</kbd> <kbd>→</kbd> switch task &nbsp;·&nbsp; <kbd>Esc</kbd> stop replay / back to task list &nbsp;·&nbsp; click a truncated input/output to expand</p>
   </div>
 </main>
 
@@ -1333,7 +1395,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     sort: { key: "rank", dir: 1 },
     pins: [],
     mxCluster: false, mxSize: false,
-    wpanelOpen: false
+    wpanelOpen: false,
+    cfGhost: false            /* v8: what-if ghost route pinned on the trajectory map */
   };
 
   /* Kind + step-type palettes — disjoint from agent-A blue / agent-B orange and
@@ -1551,6 +1614,13 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   function successOf(r, side) {
     var v = get(r, [side, "outcome", "success"]);
     return typeof v === "boolean" ? v : null;
+  }
+  /* v8: counterfactual replay object, defensively */
+  function counterfactualOf(r) {
+    var c = r && r.counterfactual;
+    if (!c || typeof c !== "object" || Array.isArray(c)) return null;
+    if (!c.premise && !c.narrative && !(c.estimate && typeof c.estimate === "object")) return null;
+    return c;
   }
 
   /* aggregate with computed fallbacks; keys may be agent names or "a"/"b" */
@@ -1936,12 +2006,46 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       });
       return out;
     }
+    /* v8: what-if ghost route — the failing agent's rail up to the root
+       divergence, then crossing over onto the winner's suffix. Revealed by
+       hovering (or pinning via) the counterfactual panel. */
+    var ghost = "";
+    var cf = counterfactualOf(r);
+    if (cf) {
+      var winSide = get(cf, ["splice", "adopted_from"]) === "b" ? "b" : "a";
+      var loseSide = winSide === "a" ? "b" : "a";
+      var adopted = Array.isArray(get(cf, ["splice", "adopted_steps"])) ? cf.splice.adopted_steps : [];
+      var crossRow = null;
+      if (adopted.length) {
+        for (var gi = 0; gi < rows.length; gi++) {
+          if ((winSide === "a" ? rows[gi].aIdx : rows[gi].bIdx) === adopted[0]) { crossRow = gi; break; }
+        }
+      }
+      if (crossRow === null) crossRow = fdRow;
+      if (crossRow !== null) {
+        var pWin = winSide === "a" ? pa : pb, pLose = loseSide === "a" ? pa : pb;
+        var lastWin = -1;
+        rows.forEach(function (row, i2) { if (winSide === "a" ? row.aStep : row.bStep) lastWin = i2; });
+        var gp = [];
+        for (var g2 = 0; g2 < crossRow && g2 < rows.length; g2++) gp.push(pLose[g2]);
+        for (var g3 = Math.max(0, crossRow); g3 <= lastWin; g3++) gp.push(pWin[g3]);
+        if (gp.length > 1) {
+          var cxp = gp[Math.max(0, Math.min(gp.length - 1, crossRow))];
+          ghost = '<g class="ghost-route" aria-hidden="true">' +
+            '<path d="' + railPath(gp) + '" fill="none" style="stroke:var(--viol)" stroke-width="2.5" stroke-dasharray="6 5" stroke-linecap="round"></path>' +
+            '<circle cx="' + cxp[0] + '" cy="' + cxp[1] + '" r="4" fill="none" style="stroke:var(--viol)" stroke-width="2"></circle>' +
+            '<text x="' + cxp[0] + '" y="' + (H - 4) + '" font-size="9.5" font-weight="700" text-anchor="middle" style="fill:var(--viol)">👻 what-if</text>' +
+            "</g>";
+        }
+      }
+    }
     return '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="trajectory map of both agents">' +
       halos + flag +
       '<text x="' + (x0 - 32) + '" y="' + (pa[0][1] + 3.5) + '" font-size="11" font-weight="700" text-anchor="end" style="fill:var(--agent-a)">A</text>' +
       '<text x="' + (x0 - 32) + '" y="' + (pb[0][1] + 3.5) + '" font-size="11" font-weight="700" text-anchor="end" style="fill:var(--agent-b)">B</text>' +
       '<path d="' + railPath(pa) + '" fill="none" style="stroke:var(--agent-a)" stroke-width="2.5" stroke-linecap="round"></path>' +
       '<path d="' + railPath(pb) + '" fill="none" style="stroke:var(--agent-b)" stroke-width="2.5" stroke-linecap="round"></path>' +
+      ghost +
       nodes("a", pa) + nodes("b", pb) +
       "</svg>";
   }
@@ -2510,6 +2614,281 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       : aeHtml;
   }
 
+  /* ---------------- counterfactual panel (v8) ---------------- */
+  function sentenceCase(s) {
+    s = String(s || "").trim();
+    if (!s) return s;
+    s = s.charAt(0).toUpperCase() + s.slice(1);
+    return /[.!?…]$/.test(s) ? s : s + ".";
+  }
+  var CF_CONF_TIPS = {
+    high: "High confidence — the shared prefix was identical (every aligned row before the root divergence matched) and the divergence is the attributed cause; the estimate splices the winner’s actual post-divergence steps onto the failing agent’s prefix.",
+    medium: "Medium confidence — the shared prefix contains drift, so splicing the winner’s post-divergence steps onto the failing agent’s prefix is an approximation.",
+    low: "Low confidence — prefix alignment was weak; treat the spliced estimate as directional only."
+  };
+  function cfPanelHtml(cf) {
+    var est = (cf.estimate && typeof cf.estimate === "object") ? cf.estimate : {};
+    var conf = String(cf.confidence || "").toLowerCase();
+    if (conf !== "high" && conf !== "medium" && conf !== "low") conf = null;
+    function chip(label, val, delta, fmtV, unit) {
+      if (num(val) === null && num(delta) === null) return "";
+      var d = num(delta);
+      var dHtml = d === null ? "" :
+        '<span class="cf-delta ' + (d < 0 ? "save" : d > 0 ? "worse" : "") + '">' +
+        esc(signed(fmtV(Math.abs(d)) + (unit || ""), d)) + "</span>";
+      return '<div class="cf-chip"><span class="cf-k">' + esc(label) + '</span>' +
+        '<span class="cf-v">' + esc(num(val) === null ? "—" : fmtV(val) + (unit || "")) + dHtml + "</span></div>";
+    }
+    var outcome = est.outcome != null ? String(est.outcome) : "";
+    var outChip = outcome
+      ? '<div class="cf-chip cf-outcome ' + (outcome === "success" ? "ok" : "no") + '">' +
+        '<span class="cf-k">estimated outcome</span><span class="cf-v">' +
+        (outcome === "success" ? "✓ success" : "✗ " + esc(outcome)) + "</span></div>"
+      : "";
+    return '<div class="cf-panel" id="cf-panel">' +
+      '<h3><span class="cf-glyph" aria-hidden="true">👻</span>What if — counterfactual replay' +
+      (conf ? '<span class="cf-conf ' + conf + '" title="' + esc(CF_CONF_TIPS[conf]) + '">' + conf + " confidence</span>" : "") +
+      '<button class="cf-ghost-btn' + (state.cfGhost ? " pinned" : "") + '" id="cf-ghost-btn" type="button" role="switch"' +
+        ' aria-pressed="' + (state.cfGhost ? "true" : "false") + '"' +
+        ' title="pin the what-if ghost route on the trajectory map (it also lights up while you hover this panel)">👻 ghost route</button>' +
+      "</h3>" +
+      (cf.premise ? '<p class="cf-premise">' + esc(sentenceCase(cf.premise)) + "</p>" : "") +
+      '<div class="cf-chips">' + outChip +
+        chip("steps", est.steps, est.steps_delta, fmtInt, "") +
+        chip("tokens", est.tokens, est.tokens_delta, fmtTok, "") +
+        chip("latency", est.latency_s, est.latency_delta_s, fmtLat, "") +
+        chip("cost", est.cost_usd, est.cost_delta_usd, fmtCost, "") +
+      "</div>" +
+      (cf.narrative ? '<p class="cf-narr">' + esc(cf.narrative) + "</p>" : "") +
+      "</div>";
+  }
+  function bindCfPanel() {
+    var panel = document.getElementById("cf-panel");
+    var sw = document.getElementById("subway");
+    if (!panel || !sw) return;
+    function apply(hover) { sw.classList.toggle("cf-on", !!hover || state.cfGhost); }
+    panel.addEventListener("mouseenter", function () { apply(true); });
+    panel.addEventListener("mouseleave", function () { apply(false); });
+    var pin = document.getElementById("cf-ghost-btn");
+    if (pin) pin.addEventListener("click", function () {
+      state.cfGhost = !state.cfGhost;
+      pin.setAttribute("aria-pressed", state.cfGhost ? "true" : "false");
+      pin.classList.toggle("pinned", state.cfGhost);
+      apply(false);
+    });
+    apply(false);
+  }
+
+  /* ---------------- trajectory replay (v8) ---------------- */
+  var replay = { on: false, timers: [] };
+  function stopReplay() {
+    replay.on = false;
+    replay.timers.forEach(clearTimeout);
+    replay.timers = [];
+    var cmpEl = document.getElementById("view-cmp");
+    if (cmpEl) cmpEl.classList.remove("replaying");
+    Array.prototype.forEach.call(document.querySelectorAll(".rp-lit"), function (el) { el.classList.remove("rp-lit"); });
+    Array.prototype.forEach.call(document.querySelectorAll(".rp-dot, .rp-finish"), function (el) { el.remove(); });
+    var btn = document.getElementById("st-replay");
+    if (btn) { btn.textContent = "▶ Replay"; btn.setAttribute("aria-pressed", "false"); }
+  }
+  function startReplay() {
+    stopReplay();
+    var r = curReport();
+    var tl = document.getElementById("tl");
+    if (!r || !tl) return;
+    var seqs = {}, totals = {};
+    ["a", "b"].forEach(function (side) {
+      var steps = get(r, [side, "steps"]);
+      seqs[side] = Array.isArray(steps) ? steps.filter(Boolean) : [];
+      totals[side] = seqs[side].reduce(function (acc, s) { return acc + Math.max(0, num(s.latency_s) || 0); }, 0);
+    });
+    if (!seqs.a.length && !seqs.b.length) return;
+    replay.on = true;
+    var cmpEl = document.getElementById("view-cmp");
+    cmpEl.classList.add("replaying");
+    var btn = document.getElementById("st-replay");
+    if (btn) { btn.textContent = "■ Stop"; btn.setAttribute("aria-pressed", "true"); }
+    /* normalize the SLOWER agent's wall clock to ~6s; ≥120ms per step */
+    var scale = 6000 / Math.max(totals.a, totals.b, 0.001);
+    var heads = document.querySelectorAll("#tl .tl-head .col-h");
+    var finished = 0;
+    ["a", "b"].forEach(function (side) {
+      if (!seqs[side].length) return;
+      var dot = document.createElement("span");
+      dot.className = "rp-dot " + side;
+      dot.setAttribute("aria-hidden", "true");
+      tl.appendChild(dot);
+      var t = 0;
+      seqs[side].forEach(function (s, i) {
+        t += Math.max(120, (num(s.latency_s) || 0) * scale);
+        replay.timers.push(setTimeout(function () {
+          if (!replay.on) return;
+          var idx = num(s.index);
+          var card = document.getElementById("step-" + side + "-" + (idx === null ? "x" : idx));
+          if (card) {
+            card.classList.add("rp-lit");
+            var tlRect = tl.getBoundingClientRect(), cRect = card.getBoundingClientRect();
+            dot.style.top = (cRect.top - tlRect.top + 10) + "px";
+            dot.style.left = (side === "a" ? cRect.left - tlRect.left - 16 : cRect.right - tlRect.left + 5) + "px";
+          }
+          var node = idx === null ? null :
+            document.querySelector('#subway .sw-node[data-side="' + side + '"][data-step="' + idx + '"]');
+          if (node) node.classList.add("rp-lit");
+          if (i === seqs[side].length - 1) {
+            finished++;
+            var head = heads[side === "a" ? 0 : heads.length - 1];
+            if (head) {
+              var stamp = document.createElement("span");
+              stamp.className = "rp-finish" + (finished === 1 ? " first" : "");
+              stamp.textContent = (finished === 1 ? "🏁 " : "⏱ ") + fmtLat(totals[side]);
+              stamp.title = agentName(side) + " finished " + (finished === 1 ? "first" : "second") +
+                " — total trajectory latency " + fmtLat(totals[side]);
+              head.appendChild(stamp);
+            }
+          }
+        }, Math.round(t)));
+      });
+    });
+  }
+
+  /* ---------------- copy summary (v8) ---------------- */
+  function decisiveConflict(r, sem) {
+    var cons = conflictsOf(sem);
+    if (!cons.length) return null;
+    var byId = {};
+    semClaimsOf(sem).forEach(function (c) { byId[c.id] = c; });
+    for (var i = 0; i < cons.length; i++) {
+      var ca = byId[cons[i].a_claim], cb = byId[cons[i].b_claim];
+      if ((ca && claimAtAnswer(r, "a", ca)) || (cb && claimAtAnswer(r, "b", cb))) return cons[i];
+    }
+    return cons[0];
+  }
+  function divImpactText(r, d) {
+    var dn = (d && d.downstream) || {};
+    function pick(base) {
+      if (num(dn[base + "_b"]) !== null) return num(dn[base + "_b"]);
+      if (num(dn[base + "_a"]) !== null) return num(dn[base + "_a"]);
+      return null;
+    }
+    var parts = [];
+    var es = pick("extra_steps"); if (es) parts.push(signed(fmtInt(Math.abs(es)) + " steps", es));
+    var et = pick("extra_tokens"); if (et) parts.push(signed(fmtTok(Math.abs(et)) + " tokens", et));
+    var el = pick("extra_latency_s"); if (el) parts.push(signed(fmtLat(Math.abs(el)), el));
+    return parts.join(", ");
+  }
+  function summaryMarkdown(r) {
+    var L = [];
+    var aN = agentName("a"), bN = agentName("b");
+    L.push("## DeepCompare — " + (get(r, ["task", "id"]) || "task") + ": " + aN + " vs " + bN);
+    var prompt = get(r, ["task", "prompt"]);
+    if (prompt) L.push("> " + prompt);
+    L.push("");
+    function ocTxt(side) { var s = successOf(r, side); return s === null ? "outcome unknown" : s ? "✓ success" : "✗ failure"; }
+    L.push("**Outcomes:** " + aN + " " + ocTxt("a") + " · " + bN + " " + ocTxt("b"));
+    var md = r.metrics_delta || {};
+    function mv(key, side, fb) { var v = num(get(md, [key, side])); return v !== null ? v : (fb ? fb(r, side) : null); }
+    var mParts = [];
+    function mpair(label, key, fmt, fb) {
+      var va = mv(key, "a", fb), vb = mv(key, "b", fb);
+      if (num(va) === null && num(vb) === null) return;
+      mParts.push(label + " " + fmt(va) + " / " + fmt(vb));
+    }
+    mpair("steps", "steps", fmtInt, stepCount);
+    mpair("tokens", "tokens", fmtTok, trajTokens);
+    mpair("cost", "cost_usd", fmtCost, function (rr, s) { return num(get(rr, [s, "totals", "cost_usd"])); });
+    mpair("latency", "latency_s", fmtLat, function (rr, s) { return num(get(rr, [s, "totals", "latency_s"])); });
+    if (mParts.length) L.push("**Metrics (" + aN + " / " + bN + "):** " + mParts.join(" · "));
+    var fd = firstDivergence(r);
+    if (fd) {
+      var loc = [];
+      if (fd.a_index != null) loc.push("a" + fd.a_index);
+      if (fd.b_index != null) loc.push("b" + fd.b_index);
+      var imp = divImpactText(r, fd);
+      L.push("**First divergence** (" + (kindLabel(fd.kind) || "unknown") + (loc.length ? " @ step " + loc.join("/") : "") + "): " +
+        (fd.summary || "trajectories diverged here") +
+        (imp ? " — downstream impact: " + imp : "") +
+        (get(fd, ["downstream", "caused_failure"]) ? " (caused the failure)" : ""));
+    }
+    var att = r.attribution || {};
+    if (att.explanation || att.category) {
+      L.push("**Attribution" + (att.category ? " (" + kindLabel(att.category) + ")" : "") + ":** " +
+        (att.explanation || "") +
+        (num(att.root_cause_step) !== null ? " _(root cause: step " + att.root_cause_step + ")_" : ""));
+    }
+    var cf = counterfactualOf(r);
+    if (cf && (cf.narrative || cf.premise)) {
+      L.push("**What if:** " + (cf.narrative || sentenceCase(cf.premise)) +
+        (cf.confidence ? " _(" + cf.confidence + " confidence)_" : ""));
+    }
+    var sem = semanticOf(r);
+    if (sem) {
+      var con = decisiveConflict(r, sem);
+      if (con && con.summary) L.push("**Decisive semantic conflict:** " + con.summary);
+      var circ = independenceOf(sem).filter(function (e) { return e && e.circular; })[0];
+      if (circ) {
+        var cSide = sideOfAgentField(circ.agent);
+        L.push("**Circular corroboration:** " + (cSide ? agentName(cSide) + " — " : "") +
+          (circ.evidence || "a corroborating source cites the original source — two quotes, one voice"));
+      }
+    }
+    var sa = successAnalysisOf(r);
+    if (sa && sa.decisions.length) {
+      var d0 = sa.decisions[0];
+      L.push("**" + agentName(sa.winner) + "’s key decision:** " + (d0.decision || "") +
+        (num(d0.step_index) !== null ? " (step " + d0.step_index + ")" : "") +
+        (d0.why ? " — " + d0.why : ""));
+    }
+    L.push("");
+    L.push("— Generated by DeepCompare");
+    return L.join("\n");
+  }
+
+  /* ---------------- permalinks (v8) ---------------- */
+  function parseHashParams() {
+    var raw = String(location.hash || "").replace(/^#/, "");
+    var out = {};
+    raw.split("&").forEach(function (kv) {
+      if (!kv) return;
+      var i = kv.indexOf("=");
+      var k = i < 0 ? kv : kv.slice(0, i), v = i < 0 ? "" : kv.slice(i + 1);
+      try { out[k] = decodeURIComponent(v); } catch (e) { out[k] = v; }
+    });
+    return out;
+  }
+  function writeHash() {
+    var h = "";
+    if (state.view === "cmp") {
+      var tid = get(curReport(), ["task", "id"]);
+      if (tid != null) h = "#task=" + encodeURIComponent(String(tid));
+    } else if (state.view === "fleet") {
+      h = "#view=fleet" + (state.fleetTab && state.fleetTab !== "board" ? "&tab=" + encodeURIComponent(state.fleetTab) : "");
+    } else if (state.view === "list") {
+      h = "#view=list";
+    }
+    if (!h || location.hash === h) return;
+    try { history.replaceState(null, "", h); }
+    catch (e) { location.hash = h.slice(1); } /* fallback: adds one history entry */
+  }
+  function applyHash() {
+    var h = parseHashParams();
+    if (h.task != null && h.task !== "") {
+      if (state.view === "cmp" && String(get(curReport(), ["task", "id"])) === h.task) return;
+      var rs = reports();
+      for (var i = 0; i < rs.length; i++) {
+        if (String(get(rs[i], ["task", "id"])) === h.task) { openCompare(i); return; }
+      }
+      return; /* unknown task id → ignore gracefully */
+    }
+    if (h.view === "fleet" && fleetMode()) {
+      if (h.tab === "board" || h.tab === "pareto" || h.tab === "matrix") state.fleetTab = h.tab;
+      state.pair = null;
+      show("fleet"); renderHeader(); renderFleet(); writeHash();
+    } else if (h.view === "list" && !fleetMode() && state.view === "cmp") {
+      backToList();
+    }
+  }
+
   /* ---------------- compare view ---------------- */
   var currentRedraw = null;
   function cmpList() {
@@ -2523,6 +2902,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     var rs = reports();
     var r = rs[state.idx];
     if (!r) return;
+    stopReplay(); /* v8: never leak replay timers across renders/tasks */
     var list = cmpList();
     var pos = list.indexOf(state.idx);
     if (pos < 0) { list = [state.idx]; pos = 0; }
@@ -2619,6 +2999,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     if (att.explanation || att.category || divs.length) {
       stripBits.push('<button class="strip-btn" id="st-verdict" type="button">▼ verdict</button>');
     }
+    stripBits.push('<button class="strip-btn" id="st-replay" type="button" aria-pressed="false" title="animate both trajectories in normalized wall-clock time — the faster agent finishes first">▶ Replay</button>');
+    stripBits.push('<button class="strip-btn" id="st-copy" type="button" data-label="⧉ copy summary" title="copy a paste-ready markdown digest of this comparison (outcomes, metrics, divergence, attribution, what-if)">⧉ copy summary</button>');
     if (inFleet && state.pair && list.length > 1) {
       stripBits.push('<span class="pair-switch"><span class="ps-k">tasks in pair</span>' +
         list.map(function (ri, i) {
@@ -2631,8 +3013,17 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     stripEl.innerHTML = stripBits.join("");
     var stDiv = document.getElementById("st-div");
     if (stDiv) stDiv.addEventListener("click", scrollToDivergence);
+    var stReplay = document.getElementById("st-replay");
+    if (stReplay) stReplay.addEventListener("click", function () {
+      if (replay.on) stopReplay(); else startReplay();
+    });
+    var stCopy = document.getElementById("st-copy");
+    if (stCopy) stCopy.addEventListener("click", function () {
+      copyText(summaryMarkdown(r), stCopy);
+    });
     var stEval = document.getElementById("st-eval");
     if (stEval) stEval.addEventListener("click", function () {
+      stopReplay(); /* v8: card positions shift — replay geometry would go stale */
       state.evalDetail = !state.evalDetail;
       stEval.setAttribute("aria-pressed", state.evalDetail ? "true" : "false");
       cmpEl.classList.toggle("eval-on", state.evalDetail);
@@ -2809,9 +3200,12 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         (decsHtml ? '<ol class="wd-list">' + decsHtml + "</ol>" : "") +
         "</div>";
     }
-    vs.innerHTML = winHtml
+    /* v8: counterfactual replay panel — directly under the verdict duo */
+    var cf = counterfactualOf(r);
+    vs.innerHTML = (winHtml
       ? '<div class="verdict-duo">' + winHtml + failHtml + "</div>"
-      : failHtml;
+      : failHtml) + (cf ? cfPanelHtml(cf) : "");
+    if (cf) bindCfPanel();
     Array.prototype.forEach.call(vs.querySelectorAll(".chain-chip"), function (chip) {
       chip.addEventListener("click", function () {
         flashStep(chip.getAttribute("data-side"), chip.getAttribute("data-step"));
@@ -3853,10 +4247,11 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     return (s === "critical" || s === "moderate" || s === "minor") ? s : "minor";
   }
   function copyText(txt, btn) {
+    var prev = btn.getAttribute("data-label") || btn.textContent;
     function done() {
       btn.textContent = "Copied ✓";
       btn.classList.add("copied");
-      setTimeout(function () { btn.textContent = "Copy"; btn.classList.remove("copied"); }, 1600);
+      setTimeout(function () { btn.textContent = prev; btn.classList.remove("copied"); }, 1600);
     }
     function fallback() {
       var ta = document.createElement("textarea");
@@ -4166,6 +4561,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       if (!b) return;
       state.fleetTab = b.getAttribute("data-tab");
       renderFleet();
+      writeHash();
     });
 
     /* cross-view agent hover highlight */
@@ -4856,6 +5252,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     show("cmp");
     renderCompare();
     window.scrollTo({ top: 0 });
+    writeHash();
   }
   /* fleet: open a report inside a named pair context (its report list) */
   function openComparePair(pair, pos) {
@@ -4872,10 +5269,12 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     openCompare(list[np]);
   }
   function backToList() {
-    if (fleetMode()) { state.pair = null; show("fleet"); renderHeader(); renderFleet(); return; }
+    stopReplay();
+    if (fleetMode()) { state.pair = null; show("fleet"); renderHeader(); renderFleet(); writeHash(); return; }
     show("list");
     /* charts may have been (re)drawn while the list was hidden — fix widths */
     renderDeepDive();
+    writeHash();
   }
   function measureTopbar() {
     var tb = document.querySelector("header.topbar");
@@ -4990,10 +5389,13 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   document.addEventListener("keydown", function (e) {
     if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
     if (state.view !== "cmp") return;
-    if (e.key === "Escape") { backToList(); e.preventDefault(); }
+    if (e.key === "Escape") { if (replay.on) stopReplay(); else backToList(); e.preventDefault(); }
     else if (e.key === "ArrowLeft") { navCmp(-1); e.preventDefault(); }
     else if (e.key === "ArrowRight") { navCmp(1); e.preventDefault(); }
   });
+
+  /* v8: hand-edited or link-followed fragment navigation (replaceState writes never fire this) */
+  window.addEventListener("hashchange", applyHash);
 
   /* re-render on theme flip so node/dot/chart colors track the mode */
   if (window.matchMedia) {
@@ -5020,5 +5422,6 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   /* ---------------- boot ---------------- */
   state.data = normalize(window.DEEPCOMPARE_DATA) || { reports: [], aggregate: {} };
   render();
+  applyHash(); /* v8: restore #task=<id> / #view=… permalinks (file:// included) */
 })();
 </script>
