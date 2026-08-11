@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from .metrics import aggregate as build_aggregate
+from .recommend import recommend
 from .report import compare, render_html
 from .trace import Trajectory
 
@@ -71,6 +72,14 @@ def _print_summary(report: dict) -> None:
         print(f"  chain: {attribution['chain']}")
         print(f"  category: {attribution['category']}")
     print(f"  {attribution['explanation']}")
+
+    recs = recommend([report])
+    if recs:
+        print("Recommendations:")
+        for rec in recs:
+            print(f"  [{rec['severity']}/{rec['category']}] {rec['agent']} — {rec['finding']}")
+            print(f"    suggested prompt: {rec['suggested_prompt']}")
+            print(f"    expected gain: {rec['expected_gain']}")
 
 
 def _cmd_compare(args: argparse.Namespace) -> int:
@@ -169,6 +178,10 @@ def _cmd_batch(args: argparse.Namespace) -> int:
     )
     for flag in agg["regressions"]:
         print(f"  regression: {flag}")
+    if agg["recommendations"]:
+        print("Recommendations:")
+        for rec in agg["recommendations"]:
+            print(f"  [{rec['severity']}/{rec['category']}] {rec['agent']} — {rec['finding']}")
     return 0
 
 

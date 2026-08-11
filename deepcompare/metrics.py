@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from .recommend import recommend
 from .trace import Trajectory
 
 #: metric key -> human label used in regression messages.
@@ -76,9 +77,9 @@ def aggregate(reports: list[dict]) -> dict:
 
     Returns success rate and mean tokens/cost/latency/steps per agent,
     failure-origin percentages by divergence ``kind`` across tasks where a
-    failure was attributed, and human-readable regression flags for cases
-    where agent B improves success rate but worsens another metric by more
-    than 10%.
+    failure was attributed, human-readable regression flags for cases where
+    agent B improves success rate but worsens another metric by more than
+    10%, and evidence-based recommendations (see ``deepcompare.recommend``).
     """
     if not reports:
         return {
@@ -88,6 +89,7 @@ def aggregate(reports: list[dict]) -> dict:
             "means": {"a": {}, "b": {}},
             "failure_origins": {},
             "regressions": [],
+            "recommendations": [],
         }
 
     name_a = reports[0]["a"]["agent"]["name"]
@@ -145,4 +147,5 @@ def aggregate(reports: list[dict]) -> dict:
         "means": means,
         "failure_origins": failure_origins,
         "regressions": regressions,
+        "recommendations": recommend(reports),
     }

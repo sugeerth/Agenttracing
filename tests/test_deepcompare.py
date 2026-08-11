@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from deepcompare import Trajectory, compare
 from deepcompare.align import align, step_similarity
 from deepcompare.metrics import aggregate, metrics_delta
+from deepcompare.recommend import recommend
 from deepcompare.report import render_html
 
 
@@ -123,6 +124,28 @@ def same_tool_bad_args_pair(task_id="t4"):
     ]
     a = Trajectory.from_json(make_traj("agent-a", task_id, False, "wrong", a_steps))
     b = Trajectory.from_json(make_traj("agent-b", task_id, True, "right", b_steps))
+    return a, b
+
+
+def detour_pair(task_id="t5"):
+    """Both agents succeed, but B runs two redundant trailing searches before
+    answering — a non-fatal stopping detour."""
+    a_steps = [
+        make_step(0, "plan", "plan", "find the answer"),
+        make_step(1, "search", "web_search", "the answer"),
+        make_step(2, "answer", "final", "done"),
+    ]
+    b_steps = [
+        make_step(0, "plan", "plan", "find the answer"),
+        make_step(1, "search", "web_search", "the answer"),
+        make_step(2, "search", "web_search", "double-check corroborating sources",
+                  tokens=400, latency_s=3.0),
+        make_step(3, "search", "web_search", "triple-check yet more sources",
+                  tokens=400, latency_s=3.0),
+        make_step(4, "answer", "final", "done"),
+    ]
+    a = Trajectory.from_json(make_traj("agent-a", task_id, True, "done", a_steps))
+    b = Trajectory.from_json(make_traj("agent-b", task_id, True, "done", b_steps))
     return a, b
 
 
@@ -376,6 +399,58 @@ class TestReportRendering(unittest.TestCase):
         _, b = identical_pair("tY")
         with self.assertRaisesRegex(ValueError, "different tasks"):
             compare(a, b)
+
+
+class TestRecommend(unittest.TestCase):
+    def test_retrieval_failure_recommendation(self):
+        a, b = retrieval_pair("t1")
+        recs = recommend([compare(a, b)])
+        self.assertTrue(recs)
+        rec = recs[0]
+        self.assertEqual(rec["category"], "retrieval")
+        self.assertEqual(rec["agent"], "agent-b")
+        self.assertEqual(rec["severity"], "critical")
+        self.assertIn("t1", rec["finding"])
+        self.assertEqual(rec["evidence_tasks"], ["t1"])
+        self.assertTrue(rec["suggested_prompt"])
+        # instantiated with the real bad/good source names from the steps
+        self.assertIn("blog", rec["suggested_prompt"])
+        self.assertIn("annual_report", rec["suggested_prompt"])
+        self.assertIn("wasted tokens", rec["expected_gain"])
+
+    def test_efficiency_recommendation_for_detour(self):
+        a, b = detour_pair("t5")
+        recs = recommend([compare(a, b)])
+        self.assertTrue(recs)
+        rec = recs[0]
+        self.assertEqual(rec["category"], "efficiency")
+        self.assertEqual(rec["agent"], "agent-b")
+        self.assertEqual(rec["severity"], "moderate")  # 800 extra tokens > 500
+        self.assertIn("t5", rec["finding"])
+        self.assertIn("800", rec["finding"])
+        self.assertIn("search", rec["suggested_prompt"].lower())
+        self.assertIn("800", rec["expected_gain"])
+
+    def test_identical_pair_yields_no_recommendations(self):
+        a, b = identical_pair("t3")
+        self.assertEqual(recommend([compare(a, b)]), [])
+        self.assertEqual(recommend([]), [])
+
+    def test_aggregate_contains_recommendations(self):
+        reports = []
+        for maker, tid in ((retrieval_pair, "t1"), (tool_pair, "t2"),
+                           (identical_pair, "t3"), (detour_pair, "t5")):
+            x, y = maker(tid)
+            reports.append(compare(x, y))
+        agg = aggregate(reports)
+        self.assertIn("recommendations", agg)
+        recs = agg["recommendations"]
+        self.assertTrue(recs)
+        # critical failure recs sort before efficiency detours
+        self.assertEqual(recs[0]["severity"], "critical")
+        severities = [r["severity"] for r in recs]
+        self.assertEqual(severities, sorted(severities, key=["critical", "moderate", "minor"].index))
+        self.assertEqual(aggregate([])["recommendations"], [])
 
 
 if __name__ == "__main__":
