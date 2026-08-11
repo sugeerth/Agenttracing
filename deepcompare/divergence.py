@@ -80,8 +80,26 @@ def _classify_kind(region: list[dict], a: Trajectory, b: Trajectory, is_trailing
             types.add(b.steps[entry["b_index"]].type)
     for kind, family in _KIND_PRIORITY:
         if types & family:
+            if kind == "tool_selection" and _same_tool_drift(region, a, b):
+                return "tool_execution"
             return kind
     return "reasoning"
+
+
+def _same_tool_drift(region: list[dict], a: Trajectory, b: Trajectory) -> bool:
+    """True when the region's tool_call drift pairs the *same* tool on both
+    sides — the agents picked the same tool but used it differently, which is
+    an execution problem, not a selection problem."""
+    saw_tool_pair = False
+    for entry in region:
+        if entry["a_index"] is None or entry["b_index"] is None:
+            continue
+        sa, sb = a.steps[entry["a_index"]], b.steps[entry["b_index"]]
+        if sa.type == "tool_call" or sb.type == "tool_call":
+            if sa.name != sb.name:
+                return False
+            saw_tool_pair = True
+    return saw_tool_pair
 
 
 def _summary(

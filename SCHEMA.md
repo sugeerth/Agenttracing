@@ -76,7 +76,7 @@ the same task are the unit of comparison.
     {
       "rank": 1,
       "a_index": 2, "b_index": 2,
-      "kind": "retrieval | tool_selection | planning | reasoning | stopping",
+      "kind": "retrieval | tool_selection | tool_execution | planning | reasoning | stopping",
       "summary": "Agent B selected a lower-quality source.",
       "downstream": {
         "extra_steps_b": 4, "extra_tokens_b": 1210,

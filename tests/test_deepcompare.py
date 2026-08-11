@@ -104,6 +104,28 @@ def tool_pair(task_id="t2"):
     return a, b
 
 
+def same_tool_bad_args_pair(task_id="t4"):
+    """A pair that is lexically near-identical: same tool at step 1, subtly
+    wrong arguments on A's side (annotated bad).  A fails."""
+    a_steps = [
+        make_step(0, "plan", "plan", "extract the first fatal error from the log"),
+        make_step(1, "tool_call", "regex_extract",
+                  "regex_extract(pattern='(Warning|Error)', source=log, first_match=true)",
+                  output="DeprecationWarning: old api", quality="bad"),
+        make_step(2, "answer", "final", "the DeprecationWarning is the cause"),
+    ]
+    b_steps = [
+        make_step(0, "plan", "plan", "extract the first fatal error from the log"),
+        make_step(1, "tool_call", "regex_extract",
+                  "regex_extract(pattern='^E\\\\s+\\\\w+Error', source=log)",
+                  output="E ImportError: no module named foo", quality="good"),
+        make_step(2, "answer", "final", "the ImportError is the cause"),
+    ]
+    a = Trajectory.from_json(make_traj("agent-a", task_id, False, "wrong", a_steps))
+    b = Trajectory.from_json(make_traj("agent-b", task_id, True, "right", b_steps))
+    return a, b
+
+
 def identical_pair(task_id="t3", success=True):
     steps = [
         make_step(0, "plan", "plan", "do the thing"),
@@ -222,6 +244,22 @@ class TestDivergence(unittest.TestCase):
         a, b = identical_pair()
         report = compare(a, b)
         self.assertEqual(report["divergences"], [])
+
+    def test_quality_demotion_catches_semantic_divergence(self):
+        # Lexically the tool_call steps align as a match; the bad-quality
+        # annotation on A's side must demote the pair to drift and classify
+        # the divergence as tool_execution (same tool, different usage).
+        a, b = same_tool_bad_args_pair()
+        alignment = align(a, b)
+        pair = next(e for e in alignment if e["a_index"] == 1 and e["b_index"] == 1)
+        self.assertEqual(pair["op"], "drift")
+        report = compare(a, b)
+        self.assertGreaterEqual(len(report["divergences"]), 1)
+        first = report["divergences"][0]
+        self.assertEqual(first["kind"], "tool_execution")
+        self.assertTrue(first["downstream"]["caused_failure"])
+        self.assertEqual(report["attribution"]["failed_agent"], "a")
+        self.assertEqual(report["attribution"]["category"], "tool_execution")
 
 
 class TestAttribution(unittest.TestCase):

@@ -19,6 +19,9 @@ GAP_PENALTY = -0.4
 MATCH_THRESHOLD = 0.75
 DRIFT_THRESHOLD = 0.25
 
+#: quality annotations that mark a step as behaviorally poor.
+_POOR_QUALITY = frozenset({"weak", "bad"})
+
 #: search and retrieve are treated as adjacent step types.
 _ADJACENT_TYPES = frozenset({"search", "retrieve"})
 
@@ -131,4 +134,16 @@ def align(a: Union[Trajectory, list[Step]], b: Union[Trajectory, list[Step]]) ->
             )
         else:
             result.append(e)
+
+    # Quality demotion: lexical similarity can miss a semantic divergence
+    # (same tool, same wording, subtly wrong arguments).  When one side of an
+    # aligned "match" is annotated weak/bad and the other side is not, the
+    # pair is behaviorally divergent regardless of text overlap — demote it
+    # to "drift" so divergence detection picks it up.
+    for e in result:
+        if e["op"] == "match":
+            qa = steps_a[e["a_index"]].quality
+            qb = steps_b[e["b_index"]].quality
+            if (qa in _POOR_QUALITY) != (qb in _POOR_QUALITY):
+                e["op"] = "drift"
     return result

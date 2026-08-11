@@ -1,0 +1,1070 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeepCompare — Git diff for AI agents</title>
+<style>
+  /* ---------- design tokens ---------- */
+  :root {
+    color-scheme: light;
+    --bg:            #f6f6f4;
+    --surface:       #fcfcfb;
+    --surface-2:     #f0efeb;
+    --ink:           #16150f;
+    --ink-2:         #52514e;
+    --muted:         #898781;
+    --line:          #e3e2db;
+    --line-strong:   #c6c5bc;
+    --ring:          rgba(11,11,11,0.10);
+
+    --agent-a:       #2a78d6;
+    --agent-a-tint:  rgba(42,120,214,0.09);
+    --agent-b:       #eb6834;
+    --agent-b-tint:  rgba(235,104,52,0.09);
+
+    --viol:          #4a3aa7;           /* failure-origin bars */
+    --good:          #006300;
+    --good-tint:     rgba(12,163,12,0.10);
+    --bad:           #b32d2d;
+    --bad-tint:      rgba(208,59,59,0.10);
+    --warn:          #8a5800;           /* drift amber, legible on light */
+    --warn-tint:     rgba(250,178,25,0.14);
+    --warn-line:     #d99a12;
+
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --shadow: 0 1px 2px rgba(11,11,11,0.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --bg:            #0d0d0d;
+      --surface:       #1a1a19;
+      --surface-2:     #232322;
+      --ink:           #f4f3ee;
+      --ink-2:         #c3c2b7;
+      --muted:         #8f8e88;
+      --line:          #2c2c2a;
+      --line-strong:   #45443f;
+      --ring:          rgba(255,255,255,0.10);
+      --agent-a:       #3987e5;
+      --agent-a-tint:  rgba(57,135,229,0.13);
+      --agent-b:       #d95926;
+      --agent-b-tint:  rgba(217,89,38,0.14);
+      --viol:          #9085e9;
+      --good:          #0ca30c;
+      --good-tint:     rgba(12,163,12,0.14);
+      --bad:           #e66767;
+      --bad-tint:      rgba(230,103,103,0.13);
+      --warn:          #fab219;
+      --warn-tint:     rgba(250,178,25,0.12);
+      --warn-line:     #b98410;
+      --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg:            #0d0d0d;
+    --surface:       #1a1a19;
+    --surface-2:     #232322;
+    --ink:           #f4f3ee;
+    --ink-2:         #c3c2b7;
+    --muted:         #8f8e88;
+    --line:          #2c2c2a;
+    --line-strong:   #45443f;
+    --ring:          rgba(255,255,255,0.10);
+    --agent-a:       #3987e5;
+    --agent-a-tint:  rgba(57,135,229,0.13);
+    --agent-b:       #d95926;
+    --agent-b-tint:  rgba(217,89,38,0.14);
+    --viol:          #9085e9;
+    --good:          #0ca30c;
+    --good-tint:     rgba(12,163,12,0.14);
+    --bad:           #e66767;
+    --bad-tint:      rgba(230,103,103,0.13);
+    --warn:          #fab219;
+    --warn-tint:     rgba(250,178,25,0.12);
+    --warn-line:     #b98410;
+    --shadow: none;
+  }
+
+  /* ---------- base ---------- */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.5 var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--agent-a); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px 72px; }
+
+  /* ---------- header ---------- */
+  header.topbar {
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+    position: sticky; top: 0; z-index: 20;
+  }
+  .topbar-inner {
+    max-width: 1180px; margin: 0 auto; padding: 12px 20px;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  .mark { display: flex; align-items: baseline; gap: 10px; }
+  .mark .name { font-family: var(--mono); font-size: 16px; font-weight: 700; letter-spacing: -0.02em; }
+  .mark .name::before { content: "±"; color: var(--muted); font-weight: 400; margin-right: 7px; }
+  .mark .tag { color: var(--muted); font-size: 12.5px; letter-spacing: 0.01em; }
+  .topbar .agents { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .agent-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    border: 1px solid var(--line); border-radius: 999px;
+    padding: 3px 11px 3px 8px; background: var(--bg);
+    font-size: 12.5px;
+  }
+  .agent-chip .model { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .dot.a { background: var(--agent-a); }
+  .dot.b { background: var(--agent-b); }
+  .vs { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .load-btn {
+    border: 1px solid var(--line); background: none; border-radius: 6px;
+    padding: 4px 10px; font-size: 12.5px; color: var(--ink-2); cursor: pointer;
+  }
+  .load-btn:hover { border-color: var(--line-strong); color: var(--ink); }
+
+  /* ---------- section headings ---------- */
+  h2.sec {
+    font-size: 12px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.09em; color: var(--muted);
+    margin: 34px 0 12px;
+  }
+  h2.sec .n { color: var(--ink-2); font-family: var(--mono); font-weight: 400; }
+
+  /* ---------- empty state ---------- */
+  .empty {
+    margin: 56px auto 0; max-width: 560px; text-align: center;
+    border: 1.5px dashed var(--line-strong); border-radius: 12px;
+    padding: 52px 32px; background: var(--surface);
+  }
+  .empty.dragging { border-color: var(--agent-a); background: var(--agent-a-tint); }
+  .empty h1 { font-size: 19px; margin: 0 0 8px; font-weight: 650; }
+  .empty p { color: var(--ink-2); margin: 0 0 20px; }
+  .empty code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); padding: 1px 6px; border-radius: 4px; }
+  .empty .pick {
+    border: 1px solid var(--line-strong); background: var(--surface-2);
+    border-radius: 7px; padding: 7px 16px; cursor: pointer; font-weight: 550;
+  }
+  .empty .pick:hover { background: var(--line); }
+
+  /* ---------- scoreboard ---------- */
+  .tiles {
+    display: grid; gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(178px, 1fr));
+  }
+  .tile {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px 11px; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .tile .t-label { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 600; }
+  .tile .t-rows { display: flex; flex-direction: column; gap: 5px; }
+  .tile .t-row { display: flex; align-items: baseline; gap: 8px; }
+  .tile .t-row .dot { align-self: center; }
+  .tile .t-val { font-family: var(--mono); font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tile .t-who { color: var(--muted); font-size: 11px; margin-left: auto; }
+  .delta {
+    display: inline-flex; align-items: center; gap: 4px; align-self: flex-start;
+    font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums;
+    border-radius: 5px; padding: 1.5px 7px; font-weight: 600;
+  }
+  .delta.good { color: var(--good); background: var(--good-tint); }
+  .delta.bad  { color: var(--bad);  background: var(--bad-tint); }
+  .delta.flat { color: var(--muted); background: var(--surface-2); }
+
+  /* ---------- attribution panel ---------- */
+  .attr-grid { display: grid; grid-template-columns: minmax(300px, 3fr) minmax(260px, 2fr); gap: 12px; }
+  @media (max-width: 760px) { .attr-grid { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; box-shadow: var(--shadow);
+  }
+  .panel h3 { margin: 0 0 12px; font-size: 13px; font-weight: 650; }
+  .panel h3 .sub { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 6px; }
+  .bars { display: flex; flex-direction: column; gap: 10px; }
+  .bar-row { display: grid; grid-template-columns: 110px 1fr 46px; gap: 10px; align-items: center; }
+  .bar-row .b-name { font-size: 12.5px; color: var(--ink-2); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-row .b-track { display: block; height: 12px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+  .bar-row .b-fill { display: block; height: 100%; background: var(--viol); border-radius: 0 4px 4px 0; min-width: 2px; }
+  .bar-row .b-pct { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; color: var(--ink); }
+  .reg-list { display: flex; flex-direction: column; gap: 8px; }
+  .reg-chip {
+    border-left: 3px solid var(--warn-line); background: var(--warn-tint);
+    border-radius: 0 7px 7px 0; padding: 7px 12px; font-size: 12.8px; color: var(--ink);
+  }
+  .none-note { color: var(--muted); font-size: 12.5px; }
+
+  /* ---------- task list ---------- */
+  .task-table { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; box-shadow: var(--shadow); }
+  .task-head, .task-row {
+    display: grid; gap: 14px; align-items: center;
+    grid-template-columns: minmax(180px, 1fr) 150px 130px 110px;
+    padding: 10px 16px;
+  }
+  .task-head {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line);
+    background: var(--surface-2);
+  }
+  .task-row { border-bottom: 1px solid var(--line); cursor: pointer; background: none; border-left: 0; border-right: 0; border-top: 0; text-align: left; width: 100%; }
+  .task-row:last-child { border-bottom: 0; }
+  .task-row:hover { background: var(--surface-2); }
+  .task-row .prompt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .task-row .prompt .tid { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-right: 8px; }
+  .oc-pair { display: flex; gap: 6px; }
+  .oc {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 12px;
+    border-radius: 5px; padding: 1px 8px; font-weight: 600; font-family: var(--mono);
+  }
+  .oc.pass { color: var(--good); background: var(--good-tint); }
+  .oc.fail { color: var(--bad); background: var(--bad-tint); }
+  .kind-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px;
+    font-size: 11.5px; color: var(--ink-2); background: var(--bg); white-space: nowrap;
+  }
+  .kind-badge .kdot { width: 7px; height: 7px; border-radius: 50%; }
+  .mini-delta { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+  .mini-delta.good { color: var(--good); }
+  .mini-delta.bad { color: var(--bad); }
+  .mini-delta.flat { color: var(--muted); }
+  .list-scroll { overflow-x: auto; }
+  .list-scroll .task-table { min-width: 640px; }
+
+  /* ---------- compare view ---------- */
+  .cmp-top { display: flex; align-items: flex-start; gap: 14px; margin: 26px 0 6px; flex-wrap: wrap; }
+  .back-btn {
+    border: 1px solid var(--line); background: var(--surface); border-radius: 7px;
+    padding: 5px 12px; cursor: pointer; font-size: 12.5px; color: var(--ink-2); flex: none;
+  }
+  .back-btn:hover { color: var(--ink); border-color: var(--line-strong); }
+  .cmp-title { min-width: 240px; flex: 1; }
+  .cmp-title .tid { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .cmp-title h1 { font-size: 17px; line-height: 1.4; margin: 2px 0 0; font-weight: 600; text-wrap: balance; }
+  .cmp-nav { display: flex; gap: 6px; align-items: center; flex: none; }
+  .cmp-nav .pos { font-family: var(--mono); font-size: 12px; color: var(--muted); margin: 0 4px; }
+  .cmp-nav button { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  .cmp-nav button:disabled { opacity: 0.4; cursor: default; }
+  .cmp-meta { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 8px; align-items: center; }
+  .stat-pill {
+    display: inline-flex; gap: 7px; align-items: baseline;
+    border: 1px solid var(--line); border-radius: 7px; background: var(--surface);
+    padding: 3px 10px; font-size: 12px;
+  }
+  .stat-pill .k { color: var(--muted); }
+  .stat-pill .v { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .stat-pill .va { color: var(--agent-a); font-weight: 650; }
+  .stat-pill .vb { color: var(--agent-b); font-weight: 650; }
+
+  /* timeline */
+  .tl-wrap { overflow-x: auto; margin-top: 14px; }
+  .tl { min-width: 720px; display: flex; flex-direction: column; gap: 0; }
+  .tl-head {
+    display: grid; grid-template-columns: minmax(0,1fr) 56px minmax(0,1fr); gap: 0;
+    background: var(--bg);
+    padding: 8px 0; border-bottom: 1px solid var(--line); margin-bottom: 14px;
+  }
+  .tl-head .col-h { display: flex; align-items: center; gap: 8px; font-weight: 650; font-size: 13px; }
+  .tl-head .col-h .model { color: var(--muted); font-family: var(--mono); font-size: 11px; font-weight: 400; }
+  .tl-head .col-h.right { justify-content: flex-start; }
+  .tl-row {
+    display: grid; grid-template-columns: minmax(0,1fr) 56px minmax(0,1fr);
+    align-items: start; padding: 5px 0; position: relative;
+  }
+  .gutter { position: relative; align-self: stretch; min-height: 40px; }
+  .conn { position: absolute; left: 0; right: 0; top: 24px; border-top: 2px solid var(--line-strong); }
+  .conn.drift { border-top-style: dashed; border-top-color: var(--warn-line); }
+  .conn-sim {
+    position: absolute; top: 28px; left: 50%; transform: translateX(-50%);
+    font-family: var(--mono); font-size: 10px; color: var(--muted);
+    background: var(--bg); padding: 0 3px;
+  }
+  .gutter .only-tag {
+    position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+    font-family: var(--mono); font-size: 10px; color: var(--muted);
+    border: 1px dashed var(--line-strong); border-radius: 4px; padding: 1px 5px; background: var(--bg);
+    white-space: nowrap;
+  }
+  .ghost {
+    border: 1.5px dashed var(--line); border-radius: 9px; min-height: 44px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 11px; font-style: italic;
+  }
+
+  /* step card */
+  .step {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 9px;
+    box-shadow: var(--shadow); overflow: hidden;
+  }
+  .step.side-a { border-top: 2px solid var(--agent-a); }
+  .step.side-b { border-top: 2px solid var(--agent-b); }
+  .step.hl-drift { background: var(--warn-tint); border-color: var(--warn-line); }
+  .step.hl-only.side-a { background: var(--agent-a-tint); }
+  .step.hl-only.side-b { background: var(--agent-b-tint); }
+  .step.div-mark { box-shadow: 0 0 0 2px var(--warn-line); }
+  .step-head { display: flex; align-items: center; gap: 8px; padding: 7px 11px 5px; flex-wrap: wrap; }
+  .step-idx { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+  .type-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-family: var(--mono); font-size: 10.5px; font-weight: 600;
+    border: 1px solid var(--line); border-radius: 4px; padding: 0.5px 6px;
+    background: var(--bg); color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .type-badge .kdot { width: 6px; height: 6px; border-radius: 50%; }
+  .step-name { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+  .step-metrics { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .q-chip { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-radius: 4px; padding: 0.5px 6px; }
+  .q-chip.weak { color: var(--warn); background: var(--warn-tint); }
+  .q-chip.bad { color: var(--bad); background: var(--bad-tint); }
+  .q-chip.good { color: var(--good); background: var(--good-tint); }
+  .step-body { padding: 0 11px 9px; display: flex; flex-direction: column; gap: 6px; }
+  .io { margin: 0; }
+  .io .io-k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
+  .io pre {
+    margin: 0; font-family: var(--mono); font-size: 11.5px; line-height: 1.5;
+    white-space: pre-wrap; word-break: break-word;
+    background: var(--surface-2); border-radius: 6px; padding: 6px 8px;
+    color: var(--ink-2); position: relative;
+  }
+  .io.clampable pre { max-height: 66px; overflow: hidden; cursor: pointer; }
+  .io.clampable pre::after {
+    content: "⌄ expand"; position: absolute; right: 6px; bottom: 3px;
+    font-size: 10px; color: var(--muted); background: var(--surface-2); padding: 0 4px;
+  }
+  .io.clampable.open pre { max-height: none; }
+  .io.clampable.open pre::after { content: "⌃ collapse"; }
+  .step-note { font-size: 11.5px; color: var(--warn); font-style: italic; }
+  .step.flash { animation: flash-ring 1.4s ease-out; }
+  @keyframes flash-ring {
+    0%   { box-shadow: 0 0 0 4px var(--warn-line); }
+    100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
+  }
+
+  /* first divergence banner */
+  .div-banner {
+    grid-column: 1 / -1;
+    border: 1.5px solid var(--warn-line); border-left-width: 4px;
+    background: var(--warn-tint); border-radius: 9px;
+    padding: 10px 14px; margin: 10px 0 8px;
+    display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: baseline;
+  }
+  .div-banner .db-label {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--warn); white-space: nowrap;
+  }
+  .div-banner .db-sum { font-size: 13px; font-weight: 550; flex: 1 1 260px; }
+  .impact {
+    display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap;
+    font-family: var(--mono); font-size: 11.5px; font-variant-numeric: tabular-nums;
+  }
+  .impact .imp-chip { border: 1px solid var(--warn-line); border-radius: 5px; padding: 1px 7px; background: var(--surface); color: var(--ink); }
+  .impact .imp-chip.fail { color: var(--bad); border-color: var(--bad); font-weight: 700; }
+
+  /* verdict */
+  .verdict {
+    margin-top: 26px; border: 1px solid var(--line); border-left: 4px solid var(--viol);
+    background: var(--surface); border-radius: 9px; padding: 16px 18px; box-shadow: var(--shadow);
+  }
+  .verdict.verdict-fail { border-left-color: var(--bad); }
+  .verdict h3 { margin: 0 0 8px; font-size: 13px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .verdict .cat {
+    font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+    border-radius: 5px; padding: 1px 8px; background: var(--surface-2); color: var(--ink-2);
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .verdict p.expl { margin: 0 0 12px; font-size: 13.5px; line-height: 1.6; max-width: 72ch; }
+  .chain { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .chain .ch-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 600; margin-right: 2px; }
+  .chain .arrow { color: var(--muted); font-family: var(--mono); }
+  .chain-chip {
+    font-family: var(--mono); font-size: 11.5px; font-weight: 650;
+    border: 1px solid var(--line-strong); border-radius: 5px; padding: 2px 9px;
+    background: var(--surface-2); cursor: pointer;
+  }
+  .chain-chip:hover { border-color: var(--viol); color: var(--viol); }
+  .kbd-hint { margin-top: 22px; text-align: center; color: var(--muted); font-size: 11.5px; }
+  .kbd-hint kbd {
+    font-family: var(--mono); font-size: 10.5px; border: 1px solid var(--line-strong);
+    border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--surface);
+  }
+
+  .hidden { display: none !important; }
+</style>
+
+<script>
+window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
+</script>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="mark">
+      <span class="name">DeepCompare</span>
+      <span class="tag">Git diff for AI agents</span>
+    </div>
+    <div class="agents" id="hdr-agents"></div>
+    <button class="load-btn" id="btn-load" type="button">Load report JSON</button>
+    <input type="file" id="file-input" accept=".json,application/json" class="hidden">
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="view-empty" class="hidden">
+    <div class="empty" id="dropzone">
+      <h1>No comparison data loaded</h1>
+      <p>This page is normally populated by the DeepCompare engine
+        (it injects <code>window.DEEPCOMPARE_DATA</code>).<br>
+        You can also drop an <code>aggregate.json</code> or a single comparison
+        report anywhere on this page.</p>
+      <button class="pick" id="btn-pick" type="button">Choose a JSON file…</button>
+    </div>
+  </div>
+
+  <div id="view-list" class="hidden">
+    <h2 class="sec">Scoreboard</h2>
+    <div class="tiles" id="tiles"></div>
+
+    <h2 class="sec">Failure attribution</h2>
+    <div class="attr-grid">
+      <div class="panel">
+        <h3>Where failures originate <span class="sub">share of diverging failures by category</span></h3>
+        <div class="bars" id="origin-bars"></div>
+      </div>
+      <div class="panel">
+        <h3>Regressions flagged</h3>
+        <div class="reg-list" id="reg-list"></div>
+      </div>
+    </div>
+
+    <h2 class="sec">Tasks <span class="n" id="task-count"></span></h2>
+    <div class="list-scroll">
+      <div class="task-table" id="task-table"></div>
+    </div>
+  </div>
+
+  <div id="view-cmp" class="hidden">
+    <div class="cmp-top">
+      <button class="back-btn" id="btn-back" type="button">← All tasks</button>
+      <div class="cmp-title" id="cmp-title"></div>
+      <div class="cmp-nav">
+        <button id="btn-prev" type="button" aria-label="Previous task">←</button>
+        <span class="pos" id="cmp-pos"></span>
+        <button id="btn-next" type="button" aria-label="Next task">→</button>
+      </div>
+    </div>
+    <div class="cmp-meta" id="cmp-meta"></div>
+    <div class="tl-wrap">
+      <div class="tl" id="tl"></div>
+    </div>
+    <div id="verdict-slot"></div>
+    <p class="kbd-hint"><kbd>←</kbd> <kbd>→</kbd> switch task &nbsp;·&nbsp; <kbd>Esc</kbd> back to task list &nbsp;·&nbsp; click a truncated input/output to expand</p>
+  </div>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------------- state ---------------- */
+  var state = { data: null, view: "list", idx: 0 };
+
+  var KIND_COLORS = {
+    retrieval: "#4a3aa7", tool_selection: "#1baf7a", tool_execution: "#2a78d6",
+    planning: "#eda100", reasoning: "#e87ba4", stopping: "#e34948"
+  };
+  var KIND_COLORS_DARK = {
+    retrieval: "#9085e9", tool_selection: "#199e70", tool_execution: "#5b9bdd",
+    planning: "#c98500", reasoning: "#d55181", stopping: "#e66767"
+  };
+  var TYPE_COLORS = {
+    plan: "#eda100", search: "#2a78d6", retrieve: "#4a3aa7", read: "#1baf7a",
+    tool_call: "#e87ba4", reason: "#898781", answer: "#008300"
+  };
+
+  function isDark() {
+    var t = document.documentElement.getAttribute("data-theme");
+    if (t === "dark") return true;
+    if (t === "light") return false;
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+  function kindColor(kind) {
+    var m = isDark() ? KIND_COLORS_DARK : KIND_COLORS;
+    return m[kind] || "#898781";
+  }
+
+  /* ---------------- helpers ---------------- */
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+  function num(v) { return (typeof v === "number" && isFinite(v)) ? v : null; }
+  function get(o, path) {
+    var cur = o;
+    for (var i = 0; i < path.length; i++) {
+      if (cur == null) return null;
+      cur = cur[path[i]];
+    }
+    return cur == null ? null : cur;
+  }
+  function fmtInt(v) {
+    v = num(v); if (v === null) return "—";
+    return Math.round(v).toLocaleString("en-US");
+  }
+  function fmtTok(v) {
+    v = num(v); if (v === null) return "—";
+    if (Math.abs(v) >= 10000) return (v / 1000).toFixed(1) + "k";
+    return Math.round(v).toLocaleString("en-US");
+  }
+  function fmtCost(v) {
+    v = num(v); if (v === null) return "—";
+    return "$" + (Math.abs(v) < 0.1 ? v.toFixed(4) : v.toFixed(2));
+  }
+  function fmtLat(v) {
+    v = num(v); if (v === null) return "—";
+    return (Math.abs(v) >= 100 ? Math.round(v) : +v.toFixed(1)) + "s";
+  }
+  function fmtPct(v) {
+    v = num(v); if (v === null) return "—";
+    if (Math.abs(v) <= 1) v = v * 100;
+    return (Math.round(v * 10) / 10) + "%";
+  }
+  function signed(str, v) { return (v > 0 ? "+" : v < 0 ? "−" : "±") + str.replace(/^-/, ""); }
+  function mean(arr) {
+    var xs = arr.filter(function (v) { return num(v) !== null; });
+    if (!xs.length) return null;
+    return xs.reduce(function (a, b) { return a + b; }, 0) / xs.length;
+  }
+  function kindLabel(k) { return String(k || "").replace(/_/g, " "); }
+
+  /* ---------------- data access ---------------- */
+  function reports() { return (state.data && Array.isArray(state.data.reports)) ? state.data.reports : []; }
+  function aggregate() { return (state.data && state.data.aggregate && typeof state.data.aggregate === "object") ? state.data.aggregate : {}; }
+
+  function agentOf(side) {
+    var rs = reports();
+    for (var i = 0; i < rs.length; i++) {
+      var ag = get(rs[i], [side, "agent"]);
+      if (ag && (ag.name || ag.model)) return ag;
+    }
+    var sr = aggregate().success_rate;
+    if (sr && typeof sr === "object") {
+      var keys = Object.keys(sr);
+      if (keys.length >= 2) return { name: side === "a" ? keys[0] : keys[1] };
+      if (keys.length === 1 && side === "a") return { name: keys[0] };
+    }
+    return { name: side === "a" ? "agent A" : "agent B" };
+  }
+  function agentName(side) { return agentOf(side).name || (side === "a" ? "agent A" : "agent B"); }
+
+  function stepTokens(r, side) {
+    var t = get(r, [side, "totals"]);
+    if (t) {
+      var it = num(t.input_tokens), ot = num(t.output_tokens);
+      if (it !== null || ot !== null) return (it || 0) + (ot || 0);
+    }
+    return num(get(r, ["metrics_delta", "tokens", side]));
+  }
+  function stepCount(r, side) {
+    var s = get(r, [side, "steps"]);
+    if (Array.isArray(s)) return s.length;
+    return num(get(r, ["metrics_delta", "steps", side]));
+  }
+  function toolCalls(r, side) {
+    var v = num(get(r, ["metrics_delta", "tool_calls", side]));
+    if (v !== null) return v;
+    var s = get(r, [side, "steps"]);
+    if (Array.isArray(s)) return s.filter(function (st) { return st && st.type === "tool_call"; }).length;
+    return null;
+  }
+  function successOf(r, side) {
+    var v = get(r, [side, "outcome", "success"]);
+    return typeof v === "boolean" ? v : null;
+  }
+
+  /* aggregate with computed fallbacks */
+  function aggMetric(side, key) {
+    var A = aggregate();
+    var name = agentName(side);
+    var m = get(A, ["means", name]);
+    if (m && num(m[key]) !== null) return num(m[key]);
+    // also try side letter keys just in case
+    m = get(A, ["means", side]);
+    if (m && num(m[key]) !== null) return num(m[key]);
+    var rs = reports();
+    switch (key) {
+      case "tokens":    return mean(rs.map(function (r) { return stepTokens(r, side); }));
+      case "cost_usd":  return mean(rs.map(function (r) { return num(get(r, [side, "totals", "cost_usd"])); }));
+      case "latency_s": return mean(rs.map(function (r) { return num(get(r, [side, "totals", "latency_s"])); }));
+      case "steps":     return mean(rs.map(function (r) { return stepCount(r, side); }));
+      case "tool_calls":return mean(rs.map(function (r) { return toolCalls(r, side); }));
+    }
+    return null;
+  }
+  function aggSuccess(side) {
+    var A = aggregate();
+    var sr = A.success_rate;
+    if (sr && typeof sr === "object") {
+      var v = num(sr[agentName(side)]);
+      if (v !== null) return v;
+      v = num(sr[side]);
+      if (v !== null) return v;
+    }
+    var flags = reports().map(function (r) { return successOf(r, side); })
+      .filter(function (v) { return typeof v === "boolean"; });
+    if (!flags.length) return null;
+    return flags.filter(Boolean).length / flags.length;
+  }
+
+  /* ---------------- header ---------------- */
+  function renderHeader() {
+    var el = document.getElementById("hdr-agents");
+    if (!reports().length && !Object.keys(aggregate()).length) { el.innerHTML = ""; return; }
+    var a = agentOf("a"), b = agentOf("b");
+    el.innerHTML =
+      '<span class="agent-chip"><span class="dot a"></span><strong>' + esc(a.name || "agent A") + "</strong>" +
+      (a.model ? '<span class="model">' + esc(a.model) + "</span>" : "") + "</span>" +
+      '<span class="vs">vs</span>' +
+      '<span class="agent-chip"><span class="dot b"></span><strong>' + esc(b.name || "agent B") + "</strong>" +
+      (b.model ? '<span class="model">' + esc(b.model) + "</span>" : "") + "</span>";
+  }
+
+  /* ---------------- scoreboard ---------------- */
+  function deltaChip(a, b, lowerBetter, fmt, unit) {
+    a = num(a); b = num(b);
+    if (a === null || b === null) return "";
+    var d = b - a;
+    var cls = "flat", txt;
+    if (Math.abs(d) > 1e-9) cls = ((d < 0) === !!lowerBetter) ? "good" : "bad";
+    txt = signed(fmt(Math.abs(d)), d);
+    var word = cls === "good" ? "B better" : cls === "bad" ? "B worse" : "even";
+    return '<span class="delta ' + cls + '" title="' + esc(agentName("b")) + " vs " + esc(agentName("a")) + '">' +
+      esc(txt) + (unit ? " " + esc(unit) : "") + " · " + word + "</span>";
+  }
+  function tile(label, aVal, bVal, fmt, lowerBetter, unit) {
+    return '<div class="tile">' +
+      '<div class="t-label">' + esc(label) + "</div>" +
+      '<div class="t-rows">' +
+        '<div class="t-row"><span class="dot a"></span><span class="t-val">' + esc(fmt(aVal)) + '</span><span class="t-who">' + esc(agentName("a")) + "</span></div>" +
+        '<div class="t-row"><span class="dot b"></span><span class="t-val">' + esc(fmt(bVal)) + '</span><span class="t-who">' + esc(agentName("b")) + "</span></div>" +
+      "</div>" +
+      deltaChip(aVal, bVal, lowerBetter, fmt, unit) +
+      "</div>";
+  }
+  function renderScoreboard() {
+    var el = document.getElementById("tiles");
+    el.innerHTML =
+      tile("Success rate", aggSuccess("a"), aggSuccess("b"), fmtPct, false, "pts") +
+      tile("Mean tokens / task", aggMetric("a", "tokens"), aggMetric("b", "tokens"), fmtTok, true, "tok") +
+      tile("Mean cost / task", aggMetric("a", "cost_usd"), aggMetric("b", "cost_usd"), fmtCost, true, "") +
+      tile("Mean latency / task", aggMetric("a", "latency_s"), aggMetric("b", "latency_s"), fmtLat, true, "") +
+      tile("Mean steps / task", aggMetric("a", "steps"), aggMetric("b", "steps"), function (v) {
+        v = num(v); return v === null ? "—" : (Math.round(v * 10) / 10).toString();
+      }, true, "steps") +
+      tile("Mean tool calls / task", aggMetric("a", "tool_calls"), aggMetric("b", "tool_calls"), function (v) {
+        v = num(v); return v === null ? "—" : (Math.round(v * 10) / 10).toString();
+      }, true, "calls");
+  }
+
+  /* ---------------- failure attribution panel ---------------- */
+  function renderOrigins() {
+    var el = document.getElementById("origin-bars");
+    var fo = aggregate().failure_origins;
+    if (!fo || typeof fo !== "object" || !Object.keys(fo).length) {
+      el.innerHTML = '<div class="none-note">No failure-origin data in this run.</div>';
+      return;
+    }
+    var entries = Object.keys(fo).map(function (k) {
+      var v = num(fo[k]); if (v === null) v = 0;
+      if (v > 1) v = v / 100;
+      return { k: k, v: v };
+    }).sort(function (x, y) { return y.v - x.v; });
+    var max = Math.max.apply(null, entries.map(function (e) { return e.v; }).concat([0.0001]));
+    el.innerHTML = entries.map(function (e) {
+      return '<div class="bar-row">' +
+        '<span class="b-name" title="' + esc(kindLabel(e.k)) + '">' + esc(kindLabel(e.k)) + "</span>" +
+        '<span class="b-track"><span class="b-fill" style="width:' + (e.v / max * 100).toFixed(1) + '%"></span></span>' +
+        '<span class="b-pct">' + fmtPct(e.v) + "</span>" +
+        "</div>";
+    }).join("");
+  }
+  function renderRegressions() {
+    var el = document.getElementById("reg-list");
+    var regs = aggregate().regressions;
+    if (!Array.isArray(regs) || !regs.length) {
+      el.innerHTML = '<div class="none-note">No regressions flagged.</div>';
+      return;
+    }
+    el.innerHTML = regs.map(function (r) {
+      return '<div class="reg-chip">' + esc(r) + "</div>";
+    }).join("");
+  }
+
+  /* ---------------- task list ---------------- */
+  function firstDivergence(r) {
+    var ds = Array.isArray(r.divergences) ? r.divergences.slice() : [];
+    if (!ds.length) return null;
+    ds.sort(function (x, y) { return (num(x.rank) || 999) - (num(y.rank) || 999); });
+    return ds[0];
+  }
+  function ocChip(r, side) {
+    var s = successOf(r, side);
+    var name = esc(agentName(side));
+    if (s === null) return '<span class="oc" style="color:var(--muted)" title="' + name + '">?</span>';
+    return '<span class="oc ' + (s ? "pass" : "fail") + '" title="' + name + " " + (s ? "succeeded" : "failed") + '">' +
+      (side === "a" ? "A" : "B") + " " + (s ? "✓" : "✗") + "</span>";
+  }
+  function renderTaskList() {
+    var el = document.getElementById("task-table");
+    var rs = reports();
+    document.getElementById("task-count").textContent = "(" + rs.length + ")";
+    var head = '<div class="task-head"><span>Task</span><span>Outcome</span><span>First divergence</span><span style="text-align:right">Δ tokens (B−A)</span></div>';
+    el.innerHTML = head + rs.map(function (r, i) {
+      var d = firstDivergence(r);
+      var kind = d && d.kind ? d.kind : null;
+      var ta = stepTokens(r, "a"), tb = stepTokens(r, "b");
+      var dt = (num(ta) !== null && num(tb) !== null) ? tb - ta : null;
+      var dcls = dt === null ? "flat" : dt > 0 ? "bad" : dt < 0 ? "good" : "flat";
+      return '<button class="task-row" type="button" data-idx="' + i + '">' +
+        '<span class="prompt"><span class="tid">' + esc(get(r, ["task", "id"]) || "t" + (i + 1)) + "</span>" +
+          esc(get(r, ["task", "prompt"]) || "(no prompt)") + "</span>" +
+        '<span class="oc-pair">' + ocChip(r, "a") + ocChip(r, "b") + "</span>" +
+        "<span>" + (kind
+          ? '<span class="kind-badge"><span class="kdot" style="background:' + kindColor(kind) + '"></span>' + esc(kindLabel(kind)) + "</span>"
+          : '<span class="none-note">none</span>') + "</span>" +
+        '<span class="mini-delta ' + dcls + '">' + (dt === null ? "—" : esc(signed(fmtTok(Math.abs(dt)), dt))) + "</span>" +
+        "</button>";
+    }).join("");
+    Array.prototype.forEach.call(el.querySelectorAll(".task-row"), function (row) {
+      row.addEventListener("click", function () {
+        openCompare(parseInt(row.getAttribute("data-idx"), 10));
+      });
+    });
+  }
+
+  /* ---------------- compare view ---------------- */
+  function alignmentOf(r) {
+    var al = Array.isArray(r.alignment) ? r.alignment.filter(Boolean) : [];
+    if (al.length) return al;
+    // fallback: zip by index
+    var as = Array.isArray(get(r, ["a", "steps"])) ? r.a.steps : [];
+    var bs = Array.isArray(get(r, ["b", "steps"])) ? r.b.steps : [];
+    var n = Math.max(as.length, bs.length), out = [];
+    for (var i = 0; i < n; i++) {
+      if (i < as.length && i < bs.length) out.push({ a_index: i, b_index: i, op: "match" });
+      else if (i < as.length) out.push({ a_index: i, op: "a_only" });
+      else out.push({ b_index: i, op: "b_only" });
+    }
+    return out;
+  }
+  function stepAt(r, side, idx) {
+    var s = get(r, [side, "steps"]);
+    if (!Array.isArray(s) || idx == null) return null;
+    for (var i = 0; i < s.length; i++) {
+      if (s[i] && s[i].index === idx) return s[i];
+    }
+    return s[idx] || null;
+  }
+  function ioBlock(label, text) {
+    if (text == null || text === "") return "";
+    var t = String(text);
+    var clampable = t.length > 140 || t.split("\n").length > 3;
+    return '<div class="io' + (clampable ? " clampable" : "") + '">' +
+      '<div class="io-k">' + esc(label) + "</div><pre>" + esc(t) + "</pre></div>";
+  }
+  function stepCard(step, side, extra) {
+    if (!step) return '<div class="ghost">no step</div>';
+    var idx = num(step.index);
+    var cls = "step side-" + side + (extra ? " " + extra : "");
+    var metrics = [];
+    if (num(step.tokens) !== null) metrics.push(fmtTok(step.tokens) + " tok");
+    if (num(step.latency_s) !== null) metrics.push(fmtLat(step.latency_s));
+    var q = step.quality && step.quality !== "good" ? step.quality : null;
+    return '<article class="' + cls + '" id="step-' + side + "-" + (idx === null ? "x" : idx) + '">' +
+      '<div class="step-head">' +
+        '<span class="step-idx">#' + (idx === null ? "?" : idx) + "</span>" +
+        '<span class="type-badge"><span class="kdot" style="background:' + (TYPE_COLORS[step.type] || "#898781") + '"></span>' + esc(step.type || "step") + "</span>" +
+        '<span class="step-name">' + esc(step.name || "") + "</span>" +
+        (q ? '<span class="q-chip ' + esc(q) + '">' + esc(q) + "</span>" : "") +
+        (metrics.length ? '<span class="step-metrics">' + esc(metrics.join(" · ")) + "</span>" : "") +
+      "</div>" +
+      '<div class="step-body">' +
+        ioBlock("input", step.input) +
+        ioBlock("output", step.output) +
+        (step.note ? '<div class="step-note">' + esc(step.note) + "</div>" : "") +
+      "</div></article>";
+  }
+  function impactChips(d) {
+    var dn = d.downstream || {};
+    var chips = [];
+    var es = num(dn.extra_steps_b), et = num(dn.extra_tokens_b), el = num(dn.extra_latency_s_b);
+    if (es !== null && es !== 0) chips.push(signed(fmtInt(Math.abs(es)) + " steps", es));
+    if (et !== null && et !== 0) chips.push(signed(fmtTok(Math.abs(et)) + " tokens", et));
+    if (el !== null && el !== 0) chips.push(signed(fmtLat(Math.abs(el)), el));
+    var html = chips.map(function (c) { return '<span class="imp-chip">' + esc(c) + "</span>"; }).join("");
+    if (dn.caused_failure) html += '<span class="imp-chip fail">caused failure</span>';
+    if (!html) return "";
+    return '<span class="impact"><span style="color:var(--muted);font-family:var(--sans)">impact on ' +
+      esc(agentName("b")) + ":</span>" + html + "</span>";
+  }
+  function renderCompare() {
+    var rs = reports();
+    var r = rs[state.idx];
+    if (!r) return;
+    document.getElementById("cmp-pos").textContent = (state.idx + 1) + " / " + rs.length;
+    document.getElementById("btn-prev").disabled = state.idx === 0;
+    document.getElementById("btn-next").disabled = state.idx >= rs.length - 1;
+    document.getElementById("cmp-title").innerHTML =
+      '<div class="tid">' + esc(get(r, ["task", "id"]) || "task " + (state.idx + 1)) + "</div>" +
+      "<h1>" + esc(get(r, ["task", "prompt"]) || "(no prompt)") + "</h1>";
+
+    /* per-task metric strip */
+    var md = r.metrics_delta || {};
+    function pill(k, va, vb, fmt) {
+      if (num(va) === null && num(vb) === null) return "";
+      return '<span class="stat-pill"><span class="k">' + esc(k) + '</span>' +
+        '<span class="v va">' + esc(fmt(va)) + '</span><span class="k">/</span>' +
+        '<span class="v vb">' + esc(fmt(vb)) + "</span></span>";
+    }
+    var meta =
+      ocChip(r, "a") + ocChip(r, "b") +
+      pill("steps", get(md, ["steps", "a"]) != null ? md.steps.a : stepCount(r, "a"),
+                    get(md, ["steps", "b"]) != null ? md.steps.b : stepCount(r, "b"),
+        function (v) { return fmtInt(v); }) +
+      pill("tokens", get(md, ["tokens", "a"]) != null ? md.tokens.a : stepTokens(r, "a"),
+                     get(md, ["tokens", "b"]) != null ? md.tokens.b : stepTokens(r, "b"), fmtTok) +
+      pill("cost", get(md, ["cost_usd", "a"]), get(md, ["cost_usd", "b"]), fmtCost) +
+      pill("latency", get(md, ["latency_s", "a"]), get(md, ["latency_s", "b"]), fmtLat) +
+      pill("tool calls", get(md, ["tool_calls", "a"]), get(md, ["tool_calls", "b"]), fmtInt);
+    document.getElementById("cmp-meta").innerHTML = meta;
+
+    /* timeline */
+    var al = alignmentOf(r);
+    var fd = firstDivergence(r);
+    var a = agentOf("a"), b = agentOf("b");
+    var html = '<div class="tl-head">' +
+      '<div class="col-h"><span class="dot a"></span>' + esc(a.name || "agent A") +
+        (a.model ? '<span class="model">' + esc(a.model) + "</span>" : "") + "</div>" +
+      "<div></div>" +
+      '<div class="col-h right"><span class="dot b"></span>' + esc(b.name || "agent B") +
+        (b.model ? '<span class="model">' + esc(b.model) + "</span>" : "") + "</div>" +
+      "</div>";
+
+    var bannerPlaced = false;
+    al.forEach(function (row) {
+      var op = row.op || "match";
+      var isDivRow = !!fd && !bannerPlaced &&
+        ((fd.a_index != null && fd.a_index === row.a_index) ||
+         (fd.b_index != null && fd.b_index === row.b_index));
+      if (isDivRow) {
+        bannerPlaced = true;
+        html += '<div class="tl-row"><div class="div-banner">' +
+          '<span class="db-label">⚠ First divergence</span>' +
+          '<span class="db-sum">' + esc(fd.summary || kindLabel(fd.kind) || "Trajectories diverge here.") + "</span>" +
+          impactChips(fd) +
+          "</div></div>";
+      }
+      var aCard = "", bCard = "", gut = "";
+      var divCls = isDivRow ? " div-mark" : "";
+      if (op === "match" || op === "drift") {
+        var drift = op === "drift";
+        aCard = stepCard(stepAt(r, "a", row.a_index), "a", (drift ? "hl-drift" : "") + divCls);
+        bCard = stepCard(stepAt(r, "b", row.b_index), "b", (drift ? "hl-drift" : "") + divCls);
+        gut = '<div class="conn' + (drift ? " drift" : "") + '"></div>' +
+          (drift && num(row.similarity) !== null
+            ? '<span class="conn-sim">' + Math.round(row.similarity * 100) + "%</span>" : "");
+      } else if (op === "a_only") {
+        aCard = stepCard(stepAt(r, "a", row.a_index), "a", "hl-only" + divCls);
+        bCard = '<div class="ghost">' + esc(agentName("b")) + " has no matching step</div>";
+        gut = '<span class="only-tag">A only</span>';
+      } else if (op === "b_only") {
+        aCard = '<div class="ghost">' + esc(agentName("a")) + " has no matching step</div>";
+        bCard = stepCard(stepAt(r, "b", row.b_index), "b", "hl-only" + divCls);
+        gut = '<span class="only-tag">B only</span>';
+      }
+      html += '<div class="tl-row">' +
+        "<div>" + aCard + "</div>" +
+        '<div class="gutter">' + gut + "</div>" +
+        "<div>" + bCard + "</div>" +
+        "</div>";
+    });
+    document.getElementById("tl").innerHTML = html;
+
+    /* verdict */
+    var vs = document.getElementById("verdict-slot");
+    var att = r.attribution;
+    if (att && (att.explanation || att.category || (Array.isArray(att.chain) && att.chain.length))) {
+      var failed = att.failed_agent === "a" ? "a" : att.failed_agent === "b" ? "b" : null;
+      var side = failed || "b";
+      var title = failed
+        ? "Why " + esc(agentName(failed)) + " failed"
+        : "Divergence verdict";
+      var chain = Array.isArray(att.chain) ? att.chain : [];
+      var chainHtml = chain.length
+        ? '<div class="chain"><span class="ch-label">Causal chain</span>' +
+          chain.map(function (ix, i) {
+            return (i ? '<span class="arrow">→</span>' : "") +
+              '<button class="chain-chip" type="button" data-side="' + side + '" data-step="' + esc(ix) + '">step ' + esc(ix) + "</button>";
+          }).join("") + "</div>"
+        : "";
+      vs.innerHTML = '<div class="verdict' + (failed ? " verdict-fail" : "") + '">' +
+        "<h3>" + title +
+        (att.category ? '<span class="cat"><span class="kdot dot" style="width:7px;height:7px;background:' + kindColor(att.category) + '"></span>' + esc(kindLabel(att.category)) + "</span>" : "") +
+        (num(att.root_cause_step) !== null ? '<span class="cat">root cause: step ' + esc(att.root_cause_step) + "</span>" : "") +
+        "</h3>" +
+        (att.explanation ? '<p class="expl">' + esc(att.explanation) + "</p>" : "") +
+        chainHtml +
+        "</div>";
+      Array.prototype.forEach.call(vs.querySelectorAll(".chain-chip"), function (chip) {
+        chip.addEventListener("click", function () {
+          flashStep(chip.getAttribute("data-side"), chip.getAttribute("data-step"));
+        });
+      });
+    } else if (fd) {
+      vs.innerHTML = '<div class="verdict"><h3>Divergence verdict' +
+        (fd.kind ? '<span class="cat"><span class="kdot dot" style="width:7px;height:7px;background:' + kindColor(fd.kind) + '"></span>' + esc(kindLabel(fd.kind)) + "</span>" : "") +
+        '</h3><p class="expl">' + esc(fd.summary || "The trajectories diverged, but no failure attribution was produced (both agents may have succeeded).") + "</p></div>";
+    } else {
+      vs.innerHTML = "";
+    }
+  }
+
+  function flashStep(side, idx) {
+    var el = document.getElementById("step-" + side + "-" + idx) ||
+             document.getElementById("step-" + (side === "a" ? "b" : "a") + "-" + idx);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.remove("flash");
+    void el.offsetWidth; /* restart animation */
+    el.classList.add("flash");
+  }
+
+  /* ---------------- view switching ---------------- */
+  function show(view) {
+    state.view = view;
+    document.getElementById("view-empty").classList.toggle("hidden", view !== "empty");
+    document.getElementById("view-list").classList.toggle("hidden", view !== "list");
+    document.getElementById("view-cmp").classList.toggle("hidden", view !== "cmp");
+  }
+  function openCompare(i) {
+    var rs = reports();
+    if (!rs.length) return;
+    state.idx = Math.max(0, Math.min(rs.length - 1, i));
+    renderCompare();
+    show("cmp");
+    window.scrollTo({ top: 0 });
+  }
+  function backToList() {
+    show("list");
+  }
+  function render() {
+    renderHeader();
+    var hasData = reports().length > 0 || Object.keys(aggregate()).length > 0;
+    if (!hasData) { show("empty"); return; }
+    renderScoreboard();
+    renderOrigins();
+    renderRegressions();
+    renderTaskList();
+    if (state.view === "cmp" && reports().length) renderCompare();
+    else show("list");
+  }
+
+  /* ---------------- data loading ---------------- */
+  function normalize(parsed) {
+    if (!parsed || typeof parsed !== "object") return null;
+    if (Array.isArray(parsed)) return { reports: parsed, aggregate: {} };
+    if (Array.isArray(parsed.reports)) return { reports: parsed.reports, aggregate: parsed.aggregate || {} };
+    if (parsed.task && (parsed.a || parsed.b)) return { reports: [parsed], aggregate: {} };
+    if (parsed.aggregate) return { reports: [], aggregate: parsed.aggregate };
+    return null;
+  }
+  function loadText(text) {
+    var parsed;
+    try { parsed = JSON.parse(text); }
+    catch (e) { alert("Could not parse JSON: " + e.message); return; }
+    var d = normalize(parsed);
+    if (!d) { alert("Unrecognized JSON shape — expected {reports:[…], aggregate:{…}} or a single comparison report."); return; }
+    state.data = d;
+    state.view = "list";
+    state.idx = 0;
+    render();
+  }
+  function loadFile(file) {
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () { loadText(String(reader.result)); };
+    reader.readAsText(file);
+  }
+
+  /* ---------------- events ---------------- */
+  document.getElementById("btn-back").addEventListener("click", backToList);
+  document.getElementById("btn-prev").addEventListener("click", function () { openCompare(state.idx - 1); });
+  document.getElementById("btn-next").addEventListener("click", function () { openCompare(state.idx + 1); });
+  document.getElementById("btn-load").addEventListener("click", function () {
+    document.getElementById("file-input").click();
+  });
+  document.getElementById("btn-pick").addEventListener("click", function () {
+    document.getElementById("file-input").click();
+  });
+  document.getElementById("file-input").addEventListener("change", function (e) {
+    loadFile(e.target.files && e.target.files[0]);
+    e.target.value = "";
+  });
+
+  window.addEventListener("dragover", function (e) {
+    e.preventDefault();
+    var dz = document.getElementById("dropzone");
+    if (dz) dz.classList.add("dragging");
+  });
+  window.addEventListener("dragleave", function (e) {
+    if (e.relatedTarget === null) {
+      var dz = document.getElementById("dropzone");
+      if (dz) dz.classList.remove("dragging");
+    }
+  });
+  window.addEventListener("drop", function (e) {
+    e.preventDefault();
+    var dz = document.getElementById("dropzone");
+    if (dz) dz.classList.remove("dragging");
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) loadFile(f);
+  });
+
+  /* expand/collapse truncated io */
+  document.addEventListener("click", function (e) {
+    var pre = e.target.closest ? e.target.closest(".io.clampable pre") : null;
+    if (pre) pre.parentElement.classList.toggle("open");
+  });
+
+  /* keyboard */
+  document.addEventListener("keydown", function (e) {
+    if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    if (state.view !== "cmp") return;
+    if (e.key === "Escape") { backToList(); e.preventDefault(); }
+    else if (e.key === "ArrowLeft" && state.idx > 0) { openCompare(state.idx - 1); e.preventDefault(); }
+    else if (e.key === "ArrowRight" && state.idx < reports().length - 1) { openCompare(state.idx + 1); e.preventDefault(); }
+  });
+
+  /* re-render on theme flip so kind-dot colors track the mode */
+  if (window.matchMedia) {
+    try {
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+    } catch (e) { /* older engines */ }
+  }
+
+  /* ---------------- boot ---------------- */
+  state.data = normalize(window.DEEPCOMPARE_DATA) || { reports: [], aggregate: {} };
+  render();
+})();
+</script>
