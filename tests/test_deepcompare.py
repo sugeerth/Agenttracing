@@ -678,6 +678,174 @@ class TestSuccessAnalysis(unittest.TestCase):
         self.assertEqual(aggregate([])["playbook"], [])
 
 
+def circular_pair(task_id="t7c"):
+    """B corroborates its answer with a second source that merely cites the
+    first — circular corroboration; A cites the primary source."""
+    a_steps = [
+        make_step(0, "search", "web_search", "acme revenue official filing"),
+        make_step(1, "retrieve", "select_result", "open the official filing",
+                  output="Selected https://ir.acmecorp.com/results — revenue $4.82 billion"),
+        make_step(2, "answer", "final", "$4.82 billion", output="$4.82 billion"),
+    ]
+    b_steps = [
+        make_step(0, "search", "web_search", "acme revenue"),
+        make_step(1, "retrieve", "select_result", "open blog result",
+                  output="financeblog.net says revenue was $4.5 billion"),
+        make_step(2, "read", "open_page", "open second source",
+                  output="moneymirror.com repeats: financeblog.net reported $4.5 billion"),
+        make_step(3, "answer", "final", "$4.5 billion", output="$4.5 billion"),
+    ]
+    a = Trajectory.from_json(make_traj("agent-a", task_id, True, "$4.82 billion", a_steps))
+    b = Trajectory.from_json(make_traj("agent-b", task_id, False, "$4.5 billion", b_steps))
+    return a, b
+
+
+class TestSemantic(unittest.TestCase):
+    def test_claim_extraction_kinds_and_normalization(self):
+        from deepcompare.semantic import extract_from_text
+
+        def kinds(text):
+            return extract_from_text(text)
+
+        self.assertIn(("money", "$4.82 billion", "4.82e9"), kinds("$4.82 billion"))
+        self.assertIn(("money", "$4.5B", "4.5e9"), kinds("about $4.5B in 2025"))
+        money = [c for c in kinds("costs $11,700/yr today") if c[0] == "money"]
+        self.assertEqual(money[0][2], "11700")
+        self.assertIn(("percent", "4.1%", "4.1"), kinds("grew 4.1% YoY"))
+        self.assertEqual([c[2] for c in kinds("about 4.1 percent") if c[0] == "percent"],
+                         ["4.1"])
+        self.assertEqual([c[2] for c in kinds("took 23 hours 45 minutes") if c[0] == "duration"],
+                         ["1425"])
+        self.assertEqual([c[2] for c in kinds("flight time 11h45m") if c[0] == "duration"],
+                         ["705"])
+        self.assertIn(("version", "2.14.1", "2.14.1"), kinds("libfoo 2.14.1 fixed it"))
+        self.assertIn(("cve", "CVE-2025-1234", "CVE-2025-1234"), kinds("see CVE-2025-1234"))
+        urls = [c[2] for c in kinds("per financeblog.net and https://ir.acmecorp.com/news")
+                if c[0] == "url"]
+        self.assertIn("financeblog.net", urls)
+        self.assertIn("ir.acmecorp.com", urls)
+        dates = [c[2] for c in kinds("on 10 June 2025, then 2025-05-22, then December 2024")
+                 if c[0] == "date"]
+        self.assertEqual(dates, ["2025-05-22", "2025-06-10", "2024-12"])
+        self.assertEqual([c[2] for c in kinds("checked 3 sources") if c[0] == "number"],
+                         ["3"])
+        self.assertEqual(kinds("the answer is 42"), [])  # bare number: no claim
+
+    def test_circular_corroboration_detected(self):
+        report = compare(*circular_pair())
+        entries = [e for e in report["semantic"]["independence"]
+                   if e["agent"] == "b" and e["circular"]]
+        self.assertTrue(entries)
+        entry = entries[0]
+        self.assertEqual(entry["sources"], ["financeblog.net", "moneymirror.com"])
+        self.assertIn("financeblog.net", entry["evidence"])
+        # A cites one primary source only: no multi-source entry, no circularity
+        self.assertFalse([e for e in report["semantic"]["independence"]
+                          if e["agent"] == "a"])
+
+    def test_grounding_flags_ungrounded_claim(self):
+        a, b = circular_pair("t7g")
+        a.outcome.answer = "$4.82 billion with 7.5% growth"  # 7.5% never observed
+        report = compare(a, b)
+        g = report["semantic"]["grounding"]["a"]
+        self.assertEqual(g["claims_total"], 2)
+        self.assertEqual(g["claims_grounded"], 1)
+        self.assertEqual(g["score"], 0.5)
+        self.assertEqual(len(g["ungrounded"]), 1)
+        self.assertIn("7.5%", g["ungrounded"][0]["value"])
+        # B's $4.5 billion is grounded in its own step outputs
+        self.assertEqual(report["semantic"]["grounding"]["b"]["score"], 1.0)
+
+    def test_intent_classification_and_missing(self):
+        a_steps = [
+            make_step(0, "plan", "plan", "outline the approach"),
+            make_step(1, "search", "web_search", "double-check the revenue figure"),
+            make_step(2, "retrieve", "select_result", "Open result [1]: choose the filing"),
+            make_step(3, "tool_call", "calculator", "4.82 * 1e9"),
+            make_step(4, "answer", "final", "done"),
+        ]
+        b_steps = [
+            make_step(0, "plan", "plan", "outline the approach"),
+            make_step(1, "search", "web_search", "acme revenue"),
+            make_step(2, "answer", "final", "done"),
+        ]
+        a = Trajectory.from_json(make_traj("agent-a", "ti", True, "done", a_steps))
+        b = Trajectory.from_json(make_traj("agent-b", "ti", True, "done", b_steps))
+        semantic = compare(a, b)["semantic"]
+        a_intents = [e["intent"] for e in semantic["intents"]["a"]]
+        self.assertEqual(a_intents, ["frame", "verify", "decide", "transform", "commit"])
+        b_intents = [e["intent"] for e in semantic["intents"]["b"]]
+        self.assertEqual(b_intents, ["frame", "acquire", "commit"])
+        self.assertIn("verify", semantic["intents"]["missing"]["b"])
+        self.assertIn("acquire", semantic["intents"]["missing"]["a"])
+
+    def test_conflicts_on_retrieval_pair(self):
+        semantic = compare(*retrieval_pair())["semantic"]
+        money = [c for c in semantic["conflicts"] if c["kind"] == "money"]
+        self.assertTrue(money)
+        summary = money[0]["summary"]
+        self.assertIn("5.2 billion", summary)
+        self.assertIn("12 billion", summary)
+        self.assertIn("expected: 5.2 billion", summary)
+        by_norm = {c["normalized"]: c for c in semantic["claims"]}
+        self.assertTrue(by_norm["5.2e9"]["matches_expected"])
+        self.assertFalse(by_norm["1.2e10"]["matches_expected"])
+
+    def test_rows_and_first_semantic_break(self):
+        semantic = compare(*retrieval_pair())["semantic"]
+        self.assertEqual(len(semantic["rows"]), 5)
+        row0 = semantic["rows"][0]
+        self.assertEqual(row0["lexical"], 1.0)
+        self.assertEqual(row0["semantic"], 1.0)
+        for row in semantic["rows"]:
+            self.assertGreaterEqual(row["semantic"], 0.0)
+            self.assertLessEqual(row["semantic"], 1.0)
+        self.assertIsNotNone(semantic["first_semantic_break"])
+        self.assertGreaterEqual(semantic["first_semantic_break"], 2)
+        clean = compare(*identical_pair())["semantic"]
+        self.assertIsNone(clean["first_semantic_break"])
+
+    def test_contradiction_vs_comparison(self):
+        # B asserts $5 billion in reasoning but answers $7 billion: contradiction.
+        b_steps = [
+            make_step(0, "reason", "reason", "estimate the total",
+                      output="the total is $5 billion"),
+            make_step(1, "answer", "final", "$7 billion", output="$7 billion"),
+        ]
+        a_steps = [
+            make_step(0, "reason", "reason", "estimate the total",
+                      output="the total is $7 billion"),
+            make_step(1, "answer", "final", "$7 billion", output="$7 billion"),
+        ]
+        a = Trajectory.from_json(make_traj("agent-a", "tc", True, "$7 billion", a_steps))
+        b = Trajectory.from_json(make_traj("agent-b", "tc", False, "$7 billion", b_steps))
+        semantic = compare(a, b)["semantic"]
+        found = [c for c in semantic["contradictions"] if c["agent"] == "b"]
+        self.assertTrue(found)
+        self.assertEqual(found[0]["kind"], "money")
+        # values co-mentioned in one step are a comparison, not a contradiction
+        c_steps = [
+            make_step(0, "reason", "reason", "compare tiers",
+                      output="plans cost $39 and $49 per month"),
+            make_step(1, "answer", "final", "$39 and $49", output="$39 and $49"),
+        ]
+        c = Trajectory.from_json(make_traj("agent-a", "td", True, "$39 and $49", c_steps))
+        d = Trajectory.from_json(make_traj("agent-b", "td", True, "$39 and $49",
+                                           copy.deepcopy(c_steps)))
+        semantic2 = compare(c, d)["semantic"]
+        self.assertEqual(semantic2["contradictions"], [])
+
+    def test_semantic_profile_in_aggregate(self):
+        agg = aggregate([compare(*retrieval_pair())])
+        sp = agg["semantic_profile"]
+        for side in ("a", "b"):
+            for key in ("verification_rate", "grounding",
+                        "circular_incidents", "contradictions"):
+                self.assertIn(key, sp[side])
+        self.assertTrue(sp["narrative"])
+        self.assertEqual(aggregate([])["semantic_profile"], {})
+
+
 class TestFleet(unittest.TestCase):
     def test_ranking_and_pareto(self):
         result = fleet_analysis(fleet_fixture())

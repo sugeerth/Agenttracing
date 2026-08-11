@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .recommend import recommend
+from .semantic import semantic_profile
 from .success import playbook
 from .trace import Trajectory
 
@@ -92,6 +93,7 @@ def aggregate(reports: list[dict]) -> dict:
             "regressions": [],
             "recommendations": [],
             "playbook": [],
+            "semantic_profile": {},
         }
 
     name_a = reports[0]["a"]["agent"]["name"]
@@ -151,4 +153,5 @@ def aggregate(reports: list[dict]) -> dict:
         "regressions": regressions,
         "recommendations": recommend(reports),
         "playbook": playbook(reports),
+        "semantic_profile": semantic_profile(reports),
     }
