@@ -25,6 +25,7 @@
     --good-tint:     rgba(12,163,12,0.10);
     --bad:           #b32d2d;
     --bad-tint:      rgba(208,59,59,0.10);
+    --bad-soft:      rgba(179,45,45,0.45);
     --warn:          #8a5800;           /* drift amber, legible on light */
     --warn-tint:     rgba(250,178,25,0.14);
     --warn-line:     #d99a12;
@@ -54,6 +55,7 @@
       --good-tint:     rgba(12,163,12,0.14);
       --bad:           #e66767;
       --bad-tint:      rgba(230,103,103,0.13);
+      --bad-soft:      rgba(230,103,103,0.5);
       --warn:          #fab219;
       --warn-tint:     rgba(250,178,25,0.12);
       --warn-line:     #b98410;
@@ -80,6 +82,7 @@
     --good-tint:     rgba(12,163,12,0.14);
     --bad:           #e66767;
     --bad-tint:      rgba(230,103,103,0.13);
+    --bad-soft:      rgba(230,103,103,0.5);
     --warn:          #fab219;
     --warn-tint:     rgba(250,178,25,0.12);
     --warn-line:     #b98410;
@@ -210,7 +213,7 @@
   .task-table { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; box-shadow: var(--shadow); }
   .task-head, .task-row {
     display: grid; gap: 14px; align-items: center;
-    grid-template-columns: minmax(180px, 1fr) 150px 130px 110px;
+    grid-template-columns: minmax(170px, 1fr) 130px 140px 100px 96px;
     padding: 10px 16px;
   }
   .task-head {
@@ -234,14 +237,16 @@
     display: inline-flex; align-items: center; gap: 6px;
     border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px;
     font-size: 11.5px; color: var(--ink-2); background: var(--bg); white-space: nowrap;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis;
   }
-  .kind-badge .kdot { width: 7px; height: 7px; border-radius: 50%; }
+  .kind-badge .kdot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .spark { display: block; }
   .mini-delta { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
   .mini-delta.good { color: var(--good); }
   .mini-delta.bad { color: var(--bad); }
   .mini-delta.flat { color: var(--muted); }
   .list-scroll { overflow-x: auto; }
-  .list-scroll .task-table { min-width: 640px; }
+  .list-scroll .task-table { min-width: 700px; }
 
   /* ---------- compare view ---------- */
   .cmp-top { display: flex; align-items: flex-start; gap: 14px; margin: 26px 0 6px; flex-wrap: wrap; }
@@ -268,9 +273,40 @@
   .stat-pill .va { color: var(--agent-a); font-weight: 650; }
   .stat-pill .vb { color: var(--agent-b); font-weight: 650; }
 
+  /* ---------- viz strip: subway + fan ---------- */
+  .cmp-viz { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 12px; margin: 8px 0 4px; }
+  @media (max-width: 940px) { .cmp-viz { grid-template-columns: minmax(0, 1fr); } }
+  .viz-panel { padding: 12px 16px 10px; min-width: 0; }
+  .viz-panel h3 { margin: 0 0 6px; }
+  .subway-wrap { overflow-x: auto; overflow-y: hidden; }
+  .subway-wrap svg { display: block; }
+  .sw-node { cursor: pointer; }
+  .sw-node:hover .sw-core { stroke-width: 2.5; }
+  .fan-head { display: flex; align-items: baseline; gap: 10px; }
+  .fan-toggle { margin-left: auto; display: flex; gap: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .fan-toggle button {
+    border: 0; background: none; padding: 2px 10px; font-size: 11.5px; cursor: pointer; color: var(--ink-2);
+  }
+  .fan-toggle button[aria-pressed="true"] { background: var(--surface-2); color: var(--ink); font-weight: 650; }
+  #fan-box { min-height: 120px; }
+  #fan-box svg { display: block; max-width: 100%; }
+
+  /* shared tooltip */
+  .tip {
+    position: fixed; z-index: 60; pointer-events: none;
+    transform: translate(-50%, calc(-100% - 10px));
+    background: var(--surface); border: 1px solid var(--line-strong); border-radius: 6px;
+    padding: 5px 9px; font-size: 11.5px; color: var(--ink);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.18); max-width: 280px;
+  }
+  .tip .tip-sub { color: var(--muted); font-family: var(--mono); font-size: 10.5px; }
+
   /* timeline */
   .tl-wrap { overflow-x: auto; margin-top: 14px; }
-  .tl { min-width: 720px; display: flex; flex-direction: column; gap: 0; }
+  .tl { min-width: 720px; display: flex; flex-direction: column; gap: 0; position: relative; }
+  .tl.rail-a { padding-left: 32px; }
+  .tl.rail-b { padding-right: 32px; }
+  .rail-svg { position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; }
   .tl-head {
     display: grid; grid-template-columns: minmax(0,1fr) 56px minmax(0,1fr); gap: 0;
     background: var(--bg);
@@ -314,6 +350,7 @@
   .step.hl-only.side-a { background: var(--agent-a-tint); }
   .step.hl-only.side-b { background: var(--agent-b-tint); }
   .step.div-mark { box-shadow: 0 0 0 2px var(--warn-line); }
+  .step.chain-step { border-left-color: var(--bad-soft); border-right-color: var(--bad-soft); border-bottom-color: var(--bad-soft); }
   .step-head { display: flex; align-items: center; gap: 8px; padding: 7px 11px 5px; flex-wrap: wrap; }
   .step-idx { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
   .type-badge {
@@ -329,6 +366,11 @@
   .q-chip.weak { color: var(--warn); background: var(--warn-tint); }
   .q-chip.bad { color: var(--bad); background: var(--bad-tint); }
   .q-chip.good { color: var(--good); background: var(--good-tint); }
+  .wrong-tag {
+    font-family: var(--mono); font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--bad); background: var(--bad-tint);
+    border: 1px solid var(--bad-soft); border-radius: 4px; padding: 0.5px 6px;
+  }
   .step-body { padding: 0 11px 9px; display: flex; flex-direction: column; gap: 6px; }
   .io { margin: 0; }
   .io .io-k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
@@ -352,23 +394,48 @@
     100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
   }
 
-  /* first divergence banner */
-  .div-banner {
+  /* what-happened panel */
+  .wh-panel {
     grid-column: 1 / -1;
     border: 1.5px solid var(--warn-line); border-left-width: 4px;
-    background: var(--warn-tint); border-radius: 9px;
-    padding: 10px 14px; margin: 10px 0 8px;
-    display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: baseline;
+    background: var(--surface); border-radius: 10px;
+    margin: 12px 0 10px; padding: 12px 16px 14px;
   }
-  .div-banner .db-label {
+  .wh-panel.fatal { border-color: var(--bad-soft); border-left-color: var(--bad); }
+  .wh-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .wh-flag {
     font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
     color: var(--warn); white-space: nowrap;
   }
-  .div-banner .db-sum { font-size: 13px; font-weight: 550; flex: 1 1 260px; }
+  .wh-panel.fatal .wh-flag { color: var(--bad); }
+  .wh-sum { font-size: 13px; font-weight: 550; flex: 1 1 260px; }
+  .wh-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+  @media (max-width: 820px) { .wh-cols { grid-template-columns: 1fr; } }
+  .wh-col { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 9px 11px 10px; min-width: 0; }
+  .wh-col.side-a { border-top: 2px solid var(--agent-a); }
+  .wh-col.side-b { border-top: 2px solid var(--agent-b); }
+  .wh-col-h { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 650; margin-bottom: 7px; }
+  .wh-col-h .did { color: var(--muted); font-weight: 400; }
+  .wh-steprow { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 7px; }
+  .wh-ghost { color: var(--muted); font-size: 12.5px; font-style: italic; padding: 6px 0 2px; }
+  .wh-why {
+    margin-top: 10px; font-size: 12.8px;
+    border-left: 3px solid var(--warn-line); background: var(--warn-tint);
+    border-radius: 0 7px 7px 0; padding: 7px 12px;
+  }
+  .wh-why .why-k { font-weight: 700; text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.07em; color: var(--warn); margin-right: 6px; }
+  .wh-verdict { margin-top: 10px; display: flex; align-items: baseline; gap: 8px 10px; flex-wrap: wrap; font-size: 12.8px; }
+  .wh-verdict .wh-v-label {
+    font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--muted); white-space: nowrap;
+  }
+  .wh-verdict.fatal .wh-v-label { color: var(--bad); }
+  .wh-verdict .wh-v-text { flex: 1 1 260px; }
   .impact {
     display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap;
     font-family: var(--mono); font-size: 11.5px; font-variant-numeric: tabular-nums;
   }
+  .impact .imp-k { color: var(--muted); font-family: var(--sans); }
   .impact .imp-chip { border: 1px solid var(--warn-line); border-radius: 5px; padding: 1px 7px; background: var(--surface); color: var(--ink); }
   .impact .imp-chip.fail { color: var(--bad); border-color: var(--bad); font-weight: 700; }
 
@@ -464,6 +531,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       </div>
     </div>
     <div class="cmp-meta" id="cmp-meta"></div>
+    <div class="cmp-viz" id="cmp-viz"></div>
     <div class="tl-wrap">
       <div class="tl" id="tl"></div>
     </div>
@@ -472,12 +540,14 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   </div>
 </main>
 
+<div id="tip" class="tip hidden"></div>
+
 <script>
 (function () {
   "use strict";
 
   /* ---------------- state ---------------- */
-  var state = { data: null, view: "list", idx: 0 };
+  var state = { data: null, view: "list", idx: 0, fanMode: "tokens" };
 
   var KIND_COLORS = {
     retrieval: "#4a3aa7", tool_selection: "#1baf7a", tool_execution: "#2a78d6",
@@ -491,6 +561,10 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     plan: "#eda100", search: "#2a78d6", retrieve: "#4a3aa7", read: "#1baf7a",
     tool_call: "#e87ba4", reason: "#898781", answer: "#008300"
   };
+  var TYPE_COLORS_DARK = {
+    plan: "#c98500", search: "#3987e5", retrieve: "#9085e9", read: "#199e70",
+    tool_call: "#d55181", reason: "#8f8e88", answer: "#0ca30c"
+  };
 
   function isDark() {
     var t = document.documentElement.getAttribute("data-theme");
@@ -501,6 +575,10 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   function kindColor(kind) {
     var m = isDark() ? KIND_COLORS_DARK : KIND_COLORS;
     return m[kind] || "#898781";
+  }
+  function typeColor(type) {
+    var m = isDark() ? TYPE_COLORS_DARK : TYPE_COLORS;
+    return m[type] || "#898781";
   }
 
   /* ---------------- helpers ---------------- */
@@ -548,6 +626,16 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   }
   function kindLabel(k) { return String(k || "").replace(/_/g, " "); }
 
+  /* tooltip */
+  var tipEl = document.getElementById("tip");
+  function showTip(html, x, y) {
+    tipEl.innerHTML = html;
+    tipEl.classList.remove("hidden");
+    tipEl.style.left = Math.max(120, Math.min(window.innerWidth - 120, x)) + "px";
+    tipEl.style.top = Math.max(46, y) + "px";
+  }
+  function hideTip() { tipEl.classList.add("hidden"); }
+
   /* ---------------- data access ---------------- */
   function reports() { return (state.data && Array.isArray(state.data.reports)) ? state.data.reports : []; }
   function aggregate() { return (state.data && state.data.aggregate && typeof state.data.aggregate === "object") ? state.data.aggregate : {}; }
@@ -558,17 +646,19 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       var ag = get(rs[i], [side, "agent"]);
       if (ag && (ag.name || ag.model)) return ag;
     }
+    var an = get(aggregate(), ["agents", side]);
+    if (typeof an === "string" && an) return { name: an };
+    if (an && typeof an === "object" && (an.name || an.model)) return an;
     var sr = aggregate().success_rate;
     if (sr && typeof sr === "object") {
-      var keys = Object.keys(sr);
+      var keys = Object.keys(sr).filter(function (k) { return k !== "a" && k !== "b"; });
       if (keys.length >= 2) return { name: side === "a" ? keys[0] : keys[1] };
-      if (keys.length === 1 && side === "a") return { name: keys[0] };
     }
     return { name: side === "a" ? "agent A" : "agent B" };
   }
   function agentName(side) { return agentOf(side).name || (side === "a" ? "agent A" : "agent B"); }
 
-  function stepTokens(r, side) {
+  function trajTokens(r, side) {
     var t = get(r, [side, "totals"]);
     if (t) {
       var it = num(t.input_tokens), ot = num(t.output_tokens);
@@ -593,18 +683,14 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     return typeof v === "boolean" ? v : null;
   }
 
-  /* aggregate with computed fallbacks */
+  /* aggregate with computed fallbacks; keys may be agent names or "a"/"b" */
   function aggMetric(side, key) {
     var A = aggregate();
-    var name = agentName(side);
-    var m = get(A, ["means", name]);
-    if (m && num(m[key]) !== null) return num(m[key]);
-    // also try side letter keys just in case
-    m = get(A, ["means", side]);
+    var m = get(A, ["means", agentName(side)]) || get(A, ["means", side]);
     if (m && num(m[key]) !== null) return num(m[key]);
     var rs = reports();
     switch (key) {
-      case "tokens":    return mean(rs.map(function (r) { return stepTokens(r, side); }));
+      case "tokens":    return mean(rs.map(function (r) { return trajTokens(r, side); }));
       case "cost_usd":  return mean(rs.map(function (r) { return num(get(r, [side, "totals", "cost_usd"])); }));
       case "latency_s": return mean(rs.map(function (r) { return num(get(r, [side, "totals", "latency_s"])); }));
       case "steps":     return mean(rs.map(function (r) { return stepCount(r, side); }));
@@ -613,18 +699,75 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     return null;
   }
   function aggSuccess(side) {
-    var A = aggregate();
-    var sr = A.success_rate;
+    var sr = aggregate().success_rate;
     if (sr && typeof sr === "object") {
       var v = num(sr[agentName(side)]);
-      if (v !== null) return v;
-      v = num(sr[side]);
+      if (v === null) v = num(sr[side]);
       if (v !== null) return v;
     }
     var flags = reports().map(function (r) { return successOf(r, side); })
       .filter(function (v) { return typeof v === "boolean"; });
     if (!flags.length) return null;
     return flags.filter(Boolean).length / flags.length;
+  }
+
+  /* ---------------- alignment / divergence access ---------------- */
+  function alignmentOf(r) {
+    var al = Array.isArray(r.alignment) ? r.alignment.filter(Boolean) : [];
+    if (al.length) return al;
+    var as = Array.isArray(get(r, ["a", "steps"])) ? r.a.steps : [];
+    var bs = Array.isArray(get(r, ["b", "steps"])) ? r.b.steps : [];
+    var n = Math.max(as.length, bs.length), out = [];
+    for (var i = 0; i < n; i++) {
+      if (i < as.length && i < bs.length) out.push({ a_index: i, b_index: i, op: "match" });
+      else if (i < as.length) out.push({ a_index: i, op: "a_only" });
+      else out.push({ b_index: i, op: "b_only" });
+    }
+    return out;
+  }
+  function stepAt(r, side, idx) {
+    var s = get(r, [side, "steps"]);
+    if (!Array.isArray(s) || idx == null) return null;
+    for (var i = 0; i < s.length; i++) {
+      if (s[i] && s[i].index === idx) return s[i];
+    }
+    return s[idx] || null;
+  }
+  function buildRows(r) {
+    return alignmentOf(r).map(function (al) {
+      var aIdx = al.a_index == null ? null : al.a_index;
+      var bIdx = al.b_index == null ? null : al.b_index;
+      return {
+        op: al.op || "match",
+        aIdx: aIdx, bIdx: bIdx,
+        similarity: num(al.similarity),
+        aStep: aIdx == null ? null : stepAt(r, "a", aIdx),
+        bStep: bIdx == null ? null : stepAt(r, "b", bIdx)
+      };
+    });
+  }
+  function divergencesOf(r) {
+    var ds = Array.isArray(r.divergences) ? r.divergences.filter(Boolean) : [];
+    ds = ds.slice().sort(function (x, y) { return (num(x.rank) || 999) - (num(y.rank) || 999); });
+    return ds;
+  }
+  function firstDivergence(r) { var ds = divergencesOf(r); return ds.length ? ds[0] : null; }
+  function rowIndexFor(rows, d) {
+    if (!d) return null;
+    for (var i = 0; i < rows.length; i++) {
+      if ((d.a_index != null && rows[i].aIdx === d.a_index) ||
+          (d.b_index != null && rows[i].bIdx === d.b_index)) return i;
+    }
+    return null;
+  }
+  function cumSeries(rows, key) {
+    var A = [], B = [], ca = 0, cb = 0;
+    rows.forEach(function (row) {
+      if (row.aStep) ca += num(key === "latency" ? row.aStep.latency_s : row.aStep.tokens) || 0;
+      if (row.bStep) cb += num(key === "latency" ? row.bStep.latency_s : row.bStep.tokens) || 0;
+      A.push(ca); B.push(cb);
+    });
+    return { A: A, B: B };
   }
 
   /* ---------------- header ---------------- */
@@ -662,19 +805,15 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       deltaChip(aVal, bVal, lowerBetter, fmt, unit) +
       "</div>";
   }
+  function fmt1(v) { v = num(v); return v === null ? "—" : (Math.round(v * 10) / 10).toString(); }
   function renderScoreboard() {
-    var el = document.getElementById("tiles");
-    el.innerHTML =
+    document.getElementById("tiles").innerHTML =
       tile("Success rate", aggSuccess("a"), aggSuccess("b"), fmtPct, false, "pts") +
       tile("Mean tokens / task", aggMetric("a", "tokens"), aggMetric("b", "tokens"), fmtTok, true, "tok") +
       tile("Mean cost / task", aggMetric("a", "cost_usd"), aggMetric("b", "cost_usd"), fmtCost, true, "") +
       tile("Mean latency / task", aggMetric("a", "latency_s"), aggMetric("b", "latency_s"), fmtLat, true, "") +
-      tile("Mean steps / task", aggMetric("a", "steps"), aggMetric("b", "steps"), function (v) {
-        v = num(v); return v === null ? "—" : (Math.round(v * 10) / 10).toString();
-      }, true, "steps") +
-      tile("Mean tool calls / task", aggMetric("a", "tool_calls"), aggMetric("b", "tool_calls"), function (v) {
-        v = num(v); return v === null ? "—" : (Math.round(v * 10) / 10).toString();
-      }, true, "calls");
+      tile("Mean steps / task", aggMetric("a", "steps"), aggMetric("b", "steps"), fmt1, true, "steps") +
+      tile("Mean tool calls / task", aggMetric("a", "tool_calls"), aggMetric("b", "tool_calls"), fmt1, true, "calls");
   }
 
   /* ---------------- failure attribution panel ---------------- */
@@ -711,13 +850,35 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     }).join("");
   }
 
-  /* ---------------- task list ---------------- */
-  function firstDivergence(r) {
-    var ds = Array.isArray(r.divergences) ? r.divergences.slice() : [];
-    if (!ds.length) return null;
-    ds.sort(function (x, y) { return (num(x.rank) || 999) - (num(y.rank) || 999); });
-    return ds[0];
+  /* ---------------- sparkline (mini fan) ---------------- */
+  function sparkSvg(r) {
+    var rows = buildRows(r);
+    var n = rows.length;
+    if (n < 2) return '<span class="none-note">—</span>';
+    var cs = cumSeries(rows, "tokens");
+    var fdRow = rowIndexFor(rows, firstDivergence(r));
+    var w = 90, h = 24, p = 2;
+    var maxV = Math.max(cs.A[n - 1], cs.B[n - 1], 1);
+    var x = function (i) { return p + i * (w - 2 * p) / (n - 1); };
+    var y = function (v) { return h - p - v / maxV * (h - 2 * p); };
+    var ptsOf = function (arr) {
+      return arr.map(function (v, i) { return x(i).toFixed(1) + "," + y(v).toFixed(1); }).join(" ");
+    };
+    var gap = "";
+    if (fdRow != null && fdRow < n - 1) {
+      var fwd = [], back = [];
+      for (var i = fdRow; i < n; i++) fwd.push(x(i).toFixed(1) + "," + y(cs.A[i]).toFixed(1));
+      for (var j = n - 1; j >= fdRow; j--) back.push(x(j).toFixed(1) + "," + y(cs.B[j]).toFixed(1));
+      gap = '<polygon points="' + fwd.concat(back).join(" ") + '" style="fill:var(--warn-line);fill-opacity:.22"></polygon>';
+    }
+    return '<svg class="spark" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + " " + h + '" role="img" aria-label="cumulative token divergence">' +
+      gap +
+      '<polyline points="' + ptsOf(cs.A) + '" fill="none" style="stroke:var(--agent-a)" stroke-width="1.5" stroke-linejoin="round"></polyline>' +
+      '<polyline points="' + ptsOf(cs.B) + '" fill="none" style="stroke:var(--agent-b)" stroke-width="1.5" stroke-linejoin="round"></polyline>' +
+      "</svg>";
   }
+
+  /* ---------------- task list ---------------- */
   function ocChip(r, side) {
     var s = successOf(r, side);
     var name = esc(agentName(side));
@@ -729,11 +890,11 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     var el = document.getElementById("task-table");
     var rs = reports();
     document.getElementById("task-count").textContent = "(" + rs.length + ")";
-    var head = '<div class="task-head"><span>Task</span><span>Outcome</span><span>First divergence</span><span style="text-align:right">Δ tokens (B−A)</span></div>';
+    var head = '<div class="task-head"><span>Task</span><span>Outcome</span><span>First divergence</span><span title="Cumulative tokens per aligned row; amber = gap after first divergence">Detour</span><span style="text-align:right">Δ tokens (B−A)</span></div>';
     el.innerHTML = head + rs.map(function (r, i) {
       var d = firstDivergence(r);
       var kind = d && d.kind ? d.kind : null;
-      var ta = stepTokens(r, "a"), tb = stepTokens(r, "b");
+      var ta = trajTokens(r, "a"), tb = trajTokens(r, "b");
       var dt = (num(ta) !== null && num(tb) !== null) ? tb - ta : null;
       var dcls = dt === null ? "flat" : dt > 0 ? "bad" : dt < 0 ? "good" : "flat";
       return '<button class="task-row" type="button" data-idx="' + i + '">' +
@@ -743,6 +904,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         "<span>" + (kind
           ? '<span class="kind-badge"><span class="kdot" style="background:' + kindColor(kind) + '"></span>' + esc(kindLabel(kind)) + "</span>"
           : '<span class="none-note">none</span>') + "</span>" +
+        "<span>" + sparkSvg(r) + "</span>" +
         '<span class="mini-delta ' + dcls + '">' + (dt === null ? "—" : esc(signed(fmtTok(Math.abs(dt)), dt))) + "</span>" +
         "</button>";
     }).join("");
@@ -753,37 +915,296 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     });
   }
 
-  /* ---------------- compare view ---------------- */
-  function alignmentOf(r) {
-    var al = Array.isArray(r.alignment) ? r.alignment.filter(Boolean) : [];
-    if (al.length) return al;
-    // fallback: zip by index
-    var as = Array.isArray(get(r, ["a", "steps"])) ? r.a.steps : [];
-    var bs = Array.isArray(get(r, ["b", "steps"])) ? r.b.steps : [];
-    var n = Math.max(as.length, bs.length), out = [];
-    for (var i = 0; i < n; i++) {
-      if (i < as.length && i < bs.length) out.push({ a_index: i, b_index: i, op: "match" });
-      else if (i < as.length) out.push({ a_index: i, op: "a_only" });
-      else out.push({ b_index: i, op: "b_only" });
+  /* ---------------- subway map ---------------- */
+  function renderSubway(r, rows, fdRow) {
+    var n = rows.length;
+    if (!n) return '<div class="none-note">No aligned steps.</div>';
+    var dx = 56, x0 = 56, H = 158, cy = 88;
+    var W = x0 + (n - 1) * dx + 64;
+    function ys(row) {
+      switch (row.op) {
+        case "drift":  return { a: cy - 26, b: cy + 26 };
+        case "a_only": return { a: cy - 32, b: cy + 8 };
+        case "b_only": return { a: cy - 8,  b: cy + 32 };
+        default:       return { a: cy - 8,  b: cy + 8 };
+      }
     }
-    return out;
-  }
-  function stepAt(r, side, idx) {
-    var s = get(r, [side, "steps"]);
-    if (!Array.isArray(s) || idx == null) return null;
-    for (var i = 0; i < s.length; i++) {
-      if (s[i] && s[i].index === idx) return s[i];
+    var pa = [], pb = [];
+    rows.forEach(function (row, i) {
+      var y = ys(row);
+      pa.push([x0 + i * dx, y.a]);
+      pb.push([x0 + i * dx, y.b]);
+    });
+    function railPath(p) {
+      var d = "M " + (p[0][0] - 26) + " " + p[0][1] + " L " + p[0][0] + " " + p[0][1];
+      for (var i = 1; i < p.length; i++) {
+        var u = p[i - 1], v = p[i];
+        d += u[1] === v[1]
+          ? " L " + v[0] + " " + v[1]
+          : " C " + (u[0] + dx * 0.55) + " " + u[1] + " " + (v[0] - dx * 0.55) + " " + v[1] + " " + v[0] + " " + v[1];
+      }
+      return d;
     }
-    return s[idx] || null;
+    var halos = rows.map(function (row, i) {
+      if (row.op !== "drift") return "";
+      var x = x0 + i * dx;
+      return '<rect x="' + (x - 18) + '" y="' + (cy - 38) + '" width="36" height="76" rx="10" style="fill:var(--warn-line);fill-opacity:.12"></rect>';
+    }).join("");
+    var flag = "";
+    if (fdRow != null) {
+      var fx = x0 + fdRow * dx;
+      var anchorEnd = fx + 116 > W;
+      flag =
+        '<line x1="' + fx + '" y1="20" x2="' + fx + '" y2="' + (H - 10) + '" style="stroke:var(--warn-line)" stroke-width="1.5" stroke-dasharray="3 4"></line>' +
+        '<text x="' + (fx + (anchorEnd ? -7 : 7)) + '" y="15" font-size="10" font-weight="700" style="fill:var(--warn);text-transform:uppercase" text-anchor="' + (anchorEnd ? "end" : "start") + '">⚑ first divergence</text>';
+    }
+    function nodes(side, pts) {
+      var out = "";
+      rows.forEach(function (row, i) {
+        var step = side === "a" ? row.aStep : row.bStep;
+        if (!step) return;
+        var x = pts[i][0], y = pts[i][1];
+        var idx = num(step.index);
+        var tipHtml = "<strong>" + esc(step.name || step.type || "step") + "</strong>" +
+          '<div class="tip-sub">' + esc(step.type || "") +
+          (num(step.tokens) !== null ? " · " + fmtTok(step.tokens) + " tok" : "") + "</div>";
+        var inner;
+        if (step.type === "answer") {
+          var ok = successOf(r, side);
+          inner = '<circle class="sw-core" cx="' + x + '" cy="' + y + '" r="8" style="fill:var(--' + (ok === false ? "bad" : "good") + ');stroke:var(--surface)" stroke-width="1.5"></circle>' +
+            '<text x="' + x + '" y="' + (y + 3.5) + '" font-size="9" font-weight="700" fill="#ffffff" text-anchor="middle">' + (ok === false ? "✗" : "✓") + "</text>";
+        } else {
+          var q = step.quality;
+          var ring = (q === "bad" || q === "weak")
+            ? '<circle cx="' + x + '" cy="' + y + '" r="9" fill="none" style="stroke:var(--' + (q === "bad" ? "bad" : "warn-line") + ')" stroke-width="1.5"></circle>'
+            : "";
+          inner = ring + '<circle class="sw-core" cx="' + x + '" cy="' + y + '" r="5.5" fill="' + typeColor(step.type) + '" style="stroke:var(--surface)" stroke-width="1.5"></circle>';
+        }
+        out += '<g class="sw-node" tabindex="0" role="button" data-side="' + side + '" data-step="' + (idx === null ? "" : idx) + '" data-tip="' + esc(tipHtml) + '">' +
+          '<circle cx="' + x + '" cy="' + y + '" r="12" fill="transparent"></circle>' + inner + "</g>";
+      });
+      return out;
+    }
+    return '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="trajectory map of both agents">' +
+      halos + flag +
+      '<text x="' + (x0 - 32) + '" y="' + (pa[0][1] + 3.5) + '" font-size="11" font-weight="700" text-anchor="end" style="fill:var(--agent-a)">A</text>' +
+      '<text x="' + (x0 - 32) + '" y="' + (pb[0][1] + 3.5) + '" font-size="11" font-weight="700" text-anchor="end" style="fill:var(--agent-b)">B</text>' +
+      '<path d="' + railPath(pa) + '" fill="none" style="stroke:var(--agent-a)" stroke-width="2.5" stroke-linecap="round"></path>' +
+      '<path d="' + railPath(pb) + '" fill="none" style="stroke:var(--agent-b)" stroke-width="2.5" stroke-linecap="round"></path>' +
+      nodes("a", pa) + nodes("b", pb) +
+      "</svg>";
   }
-  function ioBlock(label, text) {
+  function bindSubway(container) {
+    container.addEventListener("click", function (e) {
+      var g = e.target.closest ? e.target.closest(".sw-node") : null;
+      if (!g) return;
+      var stepId = g.getAttribute("data-step");
+      if (stepId !== "") flashStep(g.getAttribute("data-side"), stepId);
+    });
+    container.addEventListener("mouseover", function (e) {
+      var g = e.target.closest ? e.target.closest(".sw-node") : null;
+      if (!g) return;
+      var rect = g.getBoundingClientRect();
+      showTip(g.getAttribute("data-tip"), rect.left + rect.width / 2, rect.top);
+    });
+    container.addEventListener("mouseout", function (e) {
+      if (e.target.closest && e.target.closest(".sw-node")) hideTip();
+    });
+  }
+
+  /* ---------------- cumulative fan chart ---------------- */
+  function fanSvg(r, rows, fdRow, mode, width) {
+    var n = rows.length;
+    if (n < 2) return '<div class="none-note">Not enough aligned steps to chart.</div>';
+    var cs = cumSeries(rows, mode);
+    var W = Math.max(280, width || 320), H = 132;
+    var padL = 8, padR = 100, padT = 16, padB = 20;
+    var iw = W - padL - padR, ih = H - padT - padB;
+    var maxV = Math.max(cs.A[n - 1], cs.B[n - 1], 1e-9);
+    var x = function (i) { return padL + i * iw / (n - 1); };
+    var y = function (v) { return padT + ih - v / maxV * ih; };
+    var ptsOf = function (arr) {
+      return arr.map(function (v, i) { return x(i).toFixed(1) + "," + y(v).toFixed(1); }).join(" ");
+    };
+    var gap = "";
+    if (fdRow != null && fdRow < n - 1) {
+      var fwd = [], back = [];
+      for (var i = fdRow; i < n; i++) fwd.push(x(i).toFixed(1) + "," + y(cs.A[i]).toFixed(1));
+      for (var j = n - 1; j >= fdRow; j--) back.push(x(j).toFixed(1) + "," + y(cs.B[j]).toFixed(1));
+      gap = '<polygon points="' + fwd.concat(back).join(" ") + '" style="fill:var(--warn-line);fill-opacity:.14"></polygon>' +
+        '<line x1="' + x(fdRow) + '" y1="' + padT + '" x2="' + x(fdRow) + '" y2="' + (H - padB) + '" style="stroke:var(--warn-line)" stroke-width="1" stroke-dasharray="3 4"></line>';
+    }
+    var fm = mode === "latency" ? fmtLat : fmtTok;
+    var unit = mode === "latency" ? "" : " tok";
+    var delta = cs.B[n - 1] - cs.A[n - 1];
+    var deltaColor = delta > 0 ? "var(--bad)" : delta < 0 ? "var(--good)" : "var(--muted)";
+    /* right-edge label slots, spread to avoid collisions */
+    var slots = [
+      { k: "a", y: y(cs.A[n - 1]) },
+      { k: "b", y: y(cs.B[n - 1]) },
+      { k: "d", y: (y(cs.A[n - 1]) + y(cs.B[n - 1])) / 2 + 15 }
+    ].sort(function (u, v) { return u.y - v.y; });
+    for (var s = 1; s < slots.length; s++) {
+      if (slots[s].y - slots[s - 1].y < 14) slots[s].y = slots[s - 1].y + 14;
+    }
+    var sy = {};
+    slots.forEach(function (sl) { sy[sl.k] = Math.min(H - 6, Math.max(10, sl.y)); });
+    var xe = x(n - 1);
+    var labels =
+      '<circle cx="' + (xe + 10) + '" cy="' + (sy.a - 3.5) + '" r="4" style="fill:var(--agent-a)"></circle>' +
+      '<text x="' + (xe + 18) + '" y="' + sy.a + '" font-size="10.5" style="fill:var(--ink-2)">' + esc(agentName("a")) + "</text>" +
+      '<circle cx="' + (xe + 10) + '" cy="' + (sy.b - 3.5) + '" r="4" style="fill:var(--agent-b)"></circle>' +
+      '<text x="' + (xe + 18) + '" y="' + sy.b + '" font-size="10.5" style="fill:var(--ink-2)">' + esc(agentName("b")) + "</text>" +
+      '<text x="' + (xe + 10) + '" y="' + sy.d + '" font-size="11" font-weight="700" font-family="var(--mono)" style="fill:' + deltaColor + '">' +
+        esc(signed(fm(Math.abs(delta)) + unit, delta)) + "</text>";
+    return '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="cumulative ' + esc(mode) + ' per aligned row">' +
+      '<line x1="' + padL + '" y1="' + (H - padB) + '" x2="' + (xe + 4) + '" y2="' + (H - padB) + '" style="stroke:var(--line-strong)" stroke-width="1"></line>' +
+      '<text x="' + padL + '" y="' + (H - 6) + '" font-size="9.5" style="fill:var(--muted)">step 0</text>' +
+      '<text x="' + xe + '" y="' + (H - 6) + '" font-size="9.5" text-anchor="end" style="fill:var(--muted)">answer</text>' +
+      '<text x="' + padL + '" y="' + (padT - 5) + '" font-size="9.5" style="fill:var(--muted)">' + fm(maxV) + esc(unit) + "</text>" +
+      gap +
+      '<polyline points="' + ptsOf(cs.A) + '" fill="none" style="stroke:var(--agent-a)" stroke-width="2" stroke-linejoin="round"></polyline>' +
+      '<polyline points="' + ptsOf(cs.B) + '" fill="none" style="stroke:var(--agent-b)" stroke-width="2" stroke-linejoin="round"></polyline>' +
+      '<circle cx="' + xe + '" cy="' + y(cs.A[n - 1]) + '" r="3" style="fill:var(--agent-a)"></circle>' +
+      '<circle cx="' + xe + '" cy="' + y(cs.B[n - 1]) + '" r="3" style="fill:var(--agent-b)"></circle>' +
+      labels +
+      '<line id="fan-cross" x1="0" y1="' + padT + '" x2="0" y2="' + (H - padB) + '" style="stroke:var(--line-strong)" stroke-width="1" visibility="hidden"></line>' +
+      "</svg>";
+  }
+  function updateFan(r, rows, fdRow) {
+    var box = document.getElementById("fan-box");
+    if (!box) return;
+    var mode = state.fanMode;
+    box.innerHTML = fanSvg(r, rows, fdRow, mode, box.clientWidth);
+    var lbl = document.getElementById("fan-title-mode");
+    if (lbl) lbl.textContent = mode === "latency" ? "latency" : "tokens";
+    Array.prototype.forEach.call(document.querySelectorAll(".fan-toggle button"), function (btn) {
+      btn.setAttribute("aria-pressed", btn.getAttribute("data-mode") === mode ? "true" : "false");
+    });
+    var svg = box.querySelector("svg");
+    if (!svg) return;
+    var n = rows.length;
+    var cs = cumSeries(rows, mode);
+    var padL = 8, padR = 100;
+    var fm = mode === "latency" ? fmtLat : fmtTok;
+    svg.addEventListener("mousemove", function (e) {
+      var rect = svg.getBoundingClientRect();
+      var iw = rect.width - padL - padR;
+      if (iw <= 0) return;
+      var i = Math.round((e.clientX - rect.left - padL) / (iw / (n - 1)));
+      i = Math.max(0, Math.min(n - 1, i));
+      var cx = padL + i * iw / (n - 1);
+      var cross = svg.querySelector("#fan-cross");
+      if (cross) {
+        cross.setAttribute("x1", cx); cross.setAttribute("x2", cx);
+        cross.setAttribute("visibility", "visible");
+      }
+      showTip("<strong>row " + i + "</strong>" +
+        '<div class="tip-sub">A ' + fm(cs.A[i]) + " · B " + fm(cs.B[i]) + "</div>",
+        rect.left + cx, rect.top + 10);
+    });
+    svg.addEventListener("mouseleave", function () {
+      var cross = svg.querySelector("#fan-cross");
+      if (cross) cross.setAttribute("visibility", "hidden");
+      hideTip();
+    });
+  }
+
+  /* ---------------- what-happened panel ---------------- */
+  function impactChips(d, prefixLabel) {
+    var dn = d.downstream || {};
+    function pick(base) {
+      if (num(dn[base + "_b"]) !== null) return { v: num(dn[base + "_b"]), side: "b" };
+      if (num(dn[base + "_a"]) !== null) return { v: num(dn[base + "_a"]), side: "a" };
+      return null;
+    }
+    var es = pick("extra_steps"), et = pick("extra_tokens"), el = pick("extra_latency_s");
+    var side = (es && es.side) || (et && et.side) || (el && el.side) || "b";
+    var chips = [];
+    if (es && es.v !== 0) chips.push(signed(fmtInt(Math.abs(es.v)) + " steps", es.v));
+    if (et && et.v !== 0) chips.push(signed(fmtTok(Math.abs(et.v)) + " tokens", et.v));
+    if (el && el.v !== 0) chips.push(signed(fmtLat(Math.abs(el.v)), el.v));
+    var html = chips.map(function (c) { return '<span class="imp-chip">' + esc(c) + "</span>"; }).join("");
+    if (dn.caused_failure) html += '<span class="imp-chip fail">caused failure</span>';
+    if (!html) return "";
+    var label = prefixLabel == null ? "impact on " + esc(agentName(side)) + ":" : esc(prefixLabel);
+    return '<span class="impact">' + (label ? '<span class="imp-k">' + label + "</span>" : "") + html + "</span>";
+  }
+  function firstSentence(s) {
+    s = String(s || "");
+    var m = s.match(/^.*?\.(\s|$)/);
+    return m ? m[0].trim() : s;
+  }
+  function whPanel(r, d, ordinal, rows, rowIdx) {
+    var att = r.attribution || {};
+    var fatal = !!get(d, ["downstream", "caused_failure"]);
+    var failSide = att.failed_agent === "a" ? "a" : att.failed_agent === "b" ? "b" : null;
+    var aStep = d.a_index != null ? stepAt(r, "a", d.a_index) : null;
+    var bStep = d.b_index != null ? stepAt(r, "b", d.b_index) : null;
+
+    function proceededText(side) {
+      for (var j = rowIdx; j < rows.length; j++) {
+        var st = side === "a" ? rows[j].aStep : rows[j].bStep;
+        if (st) {
+          return "No step here — proceeded directly to " + (st.type ? kindLabel(st.type) : "step") +
+            (st.name ? " “" + st.name + "”" : "") +
+            (num(st.index) !== null ? " (step " + st.index + ")" : "");
+        }
+      }
+      return "No step here — its trajectory had already ended.";
+    }
+    function col(side, step) {
+      var name = agentName(side);
+      var inner;
+      if (step) {
+        var q = step.quality && step.quality !== "good" ? step.quality : null;
+        inner =
+          '<div class="wh-steprow">' +
+            '<span class="step-idx">#' + (num(step.index) === null ? "?" : step.index) + "</span>" +
+            '<span class="type-badge"><span class="kdot" style="background:' + typeColor(step.type) + '"></span>' + esc(step.type || "step") + "</span>" +
+            '<span class="step-name">' + esc(step.name || "") + "</span>" +
+            (q ? '<span class="q-chip ' + esc(q) + '">' + esc(q) + "</span>" : "") +
+          "</div>" +
+          ioBlock("input", step.input, "full") +
+          ioBlock("key output", step.output, "auto");
+      } else {
+        inner = '<div class="wh-ghost">' + esc(proceededText(side)) + "</div>";
+      }
+      return '<div class="wh-col side-' + side + '"><div class="wh-col-h"><span class="dot ' + side + '"></span>' +
+        esc(name) + ' <span class="did">did</span></div>' + inner + "</div>";
+    }
+    var whyStep = failSide === "a" ? aStep : failSide === "b" ? bStep : null;
+    var why = (whyStep && whyStep.note) || (bStep && bStep.note) || (aStep && aStep.note) || null;
+    var verdict;
+    if (fatal) {
+      var root = firstSentence(att.explanation) || d.summary || "This divergence caused the failure.";
+      verdict = '<div class="wh-verdict fatal"><span class="wh-v-label">Root cause</span>' +
+        '<span class="wh-v-text">' + esc(root) + "</span>" + impactChips(d, null) + "</div>";
+    } else {
+      verdict = '<div class="wh-verdict"><span class="wh-v-label">Cost of this detour</span>' +
+        (impactChips(d, "") || '<span class="none-note">negligible</span>') + "</div>";
+    }
+    return '<div class="wh-panel' + (fatal ? " fatal" : "") + '">' +
+      '<div class="wh-head">' +
+        '<span class="wh-flag">' + (ordinal === 1 ? "⚑ First divergence" : "Divergence " + ordinal) + "</span>" +
+        (d.kind ? '<span class="kind-badge"><span class="kdot" style="background:' + kindColor(d.kind) + '"></span>' + esc(kindLabel(d.kind)) + "</span>" : "") +
+        '<span class="wh-sum">' + esc(d.summary || "What happened here") + "</span>" +
+      "</div>" +
+      '<div class="wh-cols">' + col("a", aStep) + col("b", bStep) + "</div>" +
+      (why ? '<div class="wh-why"><span class="why-k">Why</span>' + esc(why) + "</div>" : "") +
+      verdict +
+      "</div>";
+  }
+
+  /* ---------------- step cards & timeline ---------------- */
+  function ioBlock(label, text, mode) {
     if (text == null || text === "") return "";
     var t = String(text);
-    var clampable = t.length > 140 || t.split("\n").length > 3;
+    var clampable = mode === "full" ? false : (t.length > 140 || t.split("\n").length > 3);
     return '<div class="io' + (clampable ? " clampable" : "") + '">' +
       '<div class="io-k">' + esc(label) + "</div><pre>" + esc(t) + "</pre></div>";
   }
-  function stepCard(step, side, extra) {
+  function stepCard(step, side, extra, tagHtml) {
     if (!step) return '<div class="ghost">no step</div>';
     var idx = num(step.index);
     var cls = "step side-" + side + (extra ? " " + extra : "");
@@ -794,30 +1215,67 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     return '<article class="' + cls + '" id="step-' + side + "-" + (idx === null ? "x" : idx) + '">' +
       '<div class="step-head">' +
         '<span class="step-idx">#' + (idx === null ? "?" : idx) + "</span>" +
-        '<span class="type-badge"><span class="kdot" style="background:' + (TYPE_COLORS[step.type] || "#898781") + '"></span>' + esc(step.type || "step") + "</span>" +
+        '<span class="type-badge"><span class="kdot" style="background:' + typeColor(step.type) + '"></span>' + esc(step.type || "step") + "</span>" +
         '<span class="step-name">' + esc(step.name || "") + "</span>" +
         (q ? '<span class="q-chip ' + esc(q) + '">' + esc(q) + "</span>" : "") +
+        (tagHtml || "") +
         (metrics.length ? '<span class="step-metrics">' + esc(metrics.join(" · ")) + "</span>" : "") +
       "</div>" +
       '<div class="step-body">' +
-        ioBlock("input", step.input) +
-        ioBlock("output", step.output) +
+        ioBlock("input", step.input, "auto") +
+        ioBlock("output", step.output, "auto") +
         (step.note ? '<div class="step-note">' + esc(step.note) + "</div>" : "") +
       "</div></article>";
   }
-  function impactChips(d) {
-    var dn = d.downstream || {};
-    var chips = [];
-    var es = num(dn.extra_steps_b), et = num(dn.extra_tokens_b), el = num(dn.extra_latency_s_b);
-    if (es !== null && es !== 0) chips.push(signed(fmtInt(Math.abs(es)) + " steps", es));
-    if (et !== null && et !== 0) chips.push(signed(fmtTok(Math.abs(et)) + " tokens", et));
-    if (el !== null && el !== 0) chips.push(signed(fmtLat(Math.abs(el)), el));
-    var html = chips.map(function (c) { return '<span class="imp-chip">' + esc(c) + "</span>"; }).join("");
-    if (dn.caused_failure) html += '<span class="imp-chip fail">caused failure</span>';
-    if (!html) return "";
-    return '<span class="impact"><span style="color:var(--muted);font-family:var(--sans)">impact on ' +
-      esc(agentName("b")) + ":</span>" + html + "</span>";
+
+  /* propagation rail overlay */
+  function drawRail(r) {
+    var tl = document.getElementById("tl");
+    if (!tl) return;
+    var old = tl.querySelector(".rail-svg");
+    if (old) old.remove();
+    var att = r.attribution || {};
+    var side = att.failed_agent === "a" ? "a" : att.failed_agent === "b" ? "b" : null;
+    var chain = Array.isArray(att.chain) ? att.chain.filter(function (v) { return num(v) !== null; }) : [];
+    tl.classList.toggle("rail-a", side === "a" && chain.length > 1);
+    tl.classList.toggle("rail-b", side === "b" && chain.length > 1);
+    if (!side || chain.length < 2) return;
+    requestAnimationFrame(function () {
+      var tlRect = tl.getBoundingClientRect();
+      var els = chain.map(function (ix) { return document.getElementById("step-" + side + "-" + ix); })
+        .filter(Boolean);
+      if (els.length < 2) return;
+      var x = side === "b" ? tl.clientWidth - 20 : 20;
+      var boxes = els.map(function (el) {
+        var b = el.getBoundingClientRect();
+        return { top: b.top - tlRect.top, bottom: b.bottom - tlRect.top, left: b.left - tlRect.left, right: b.right - tlRect.left };
+      });
+      var y1 = boxes[0].top + 8, y2 = boxes[boxes.length - 1].bottom - 8;
+      var parts = [];
+      parts.push('<line x1="' + x + '" y1="' + y1 + '" x2="' + x + '" y2="' + y2 + '" style="stroke:var(--bad)" stroke-width="2" stroke-linecap="round" opacity="0.75"></line>');
+      /* ticks from rail to each chain card */
+      boxes.forEach(function (b) {
+        var edge = side === "b" ? b.right : b.left;
+        var ty = b.top + 14;
+        parts.push('<line x1="' + x + '" y1="' + ty + '" x2="' + edge + '" y2="' + ty + '" style="stroke:var(--bad)" stroke-width="1.5" opacity="0.5"></line>');
+      });
+      /* arrowheads between consecutive cards */
+      for (var i = 1; i < boxes.length; i++) {
+        var my = (boxes[i - 1].bottom + boxes[i].top) / 2;
+        if (my <= y1 + 6 || my >= y2 - 6) my = boxes[i].top - 6;
+        parts.push('<polygon points="' + (x - 4.5) + "," + (my - 5) + " " + (x + 4.5) + "," + (my - 5) + " " + x + "," + (my + 2) +
+          '" style="fill:var(--bad)" opacity="0.85"></polygon>');
+      }
+      var midY = (y1 + y2) / 2;
+      var lx = side === "b" ? x + 11 : x - 11;
+      parts.push('<text x="' + lx + '" y="' + midY + '" font-size="10" font-weight="700" letter-spacing="1.5" style="fill:var(--bad)" text-anchor="middle" transform="rotate(' + (side === "b" ? 90 : -90) + " " + lx + " " + midY + ')">PROPAGATION</text>');
+      tl.insertAdjacentHTML("beforeend",
+        '<svg class="rail-svg" width="' + tl.clientWidth + '" height="' + tl.scrollHeight + '" aria-hidden="true">' + parts.join("") + "</svg>");
+    });
   }
+
+  /* ---------------- compare view ---------------- */
+  var currentRedraw = null;
   function renderCompare() {
     var rs = reports();
     var r = rs[state.idx];
@@ -837,21 +1295,60 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         '<span class="v va">' + esc(fmt(va)) + '</span><span class="k">/</span>' +
         '<span class="v vb">' + esc(fmt(vb)) + "</span></span>";
     }
-    var meta =
+    document.getElementById("cmp-meta").innerHTML =
       ocChip(r, "a") + ocChip(r, "b") +
       pill("steps", get(md, ["steps", "a"]) != null ? md.steps.a : stepCount(r, "a"),
-                    get(md, ["steps", "b"]) != null ? md.steps.b : stepCount(r, "b"),
-        function (v) { return fmtInt(v); }) +
-      pill("tokens", get(md, ["tokens", "a"]) != null ? md.tokens.a : stepTokens(r, "a"),
-                     get(md, ["tokens", "b"]) != null ? md.tokens.b : stepTokens(r, "b"), fmtTok) +
+                    get(md, ["steps", "b"]) != null ? md.steps.b : stepCount(r, "b"), fmtInt) +
+      pill("tokens", get(md, ["tokens", "a"]) != null ? md.tokens.a : trajTokens(r, "a"),
+                     get(md, ["tokens", "b"]) != null ? md.tokens.b : trajTokens(r, "b"), fmtTok) +
       pill("cost", get(md, ["cost_usd", "a"]), get(md, ["cost_usd", "b"]), fmtCost) +
       pill("latency", get(md, ["latency_s", "a"]), get(md, ["latency_s", "b"]), fmtLat) +
       pill("tool calls", get(md, ["tool_calls", "a"]), get(md, ["tool_calls", "b"]), fmtInt);
-    document.getElementById("cmp-meta").innerHTML = meta;
+
+    /* rows, divergences */
+    var rows = buildRows(r);
+    var divs = divergencesOf(r);
+    var fdRow = divs.length ? rowIndexFor(rows, divs[0]) : null;
+    var panelByRow = {};
+    divs.forEach(function (d, i) {
+      var ri = rowIndexFor(rows, d);
+      if (ri === null) return;
+      while (panelByRow[ri]) ri++;
+      if (ri < rows.length + 1) panelByRow[ri] = { d: d, ordinal: i + 1 };
+    });
+    var att = r.attribution || {};
+    var failSide = att.failed_agent === "a" ? "a" : att.failed_agent === "b" ? "b" : null;
+    var chainSet = {};
+    (Array.isArray(att.chain) ? att.chain : []).forEach(function (ix) { chainSet[ix] = true; });
+
+    /* viz strip: subway + fan */
+    var viz = document.getElementById("cmp-viz");
+    if (rows.length) {
+      viz.classList.remove("hidden");
+      viz.innerHTML =
+        '<div class="panel viz-panel"><h3>Trajectory map <span class="sub">click a node to jump to its step</span></h3>' +
+          '<div class="subway-wrap" id="subway">' + renderSubway(r, rows, fdRow) + "</div></div>" +
+        '<div class="panel viz-panel"><div class="fan-head"><h3>Cumulative <span id="fan-title-mode">tokens</span>' +
+          ' <span class="sub">per aligned row</span></h3>' +
+          '<div class="fan-toggle" role="group" aria-label="fan chart series">' +
+            '<button type="button" data-mode="tokens" aria-pressed="true">tokens</button>' +
+            '<button type="button" data-mode="latency" aria-pressed="false">latency</button>' +
+          "</div></div>" +
+          '<div id="fan-box"></div></div>';
+      bindSubway(document.getElementById("subway"));
+      updateFan(r, rows, fdRow);
+      Array.prototype.forEach.call(viz.querySelectorAll(".fan-toggle button"), function (btn) {
+        btn.addEventListener("click", function () {
+          state.fanMode = btn.getAttribute("data-mode") === "latency" ? "latency" : "tokens";
+          updateFan(r, rows, fdRow);
+        });
+      });
+    } else {
+      viz.classList.add("hidden");
+      viz.innerHTML = "";
+    }
 
     /* timeline */
-    var al = alignmentOf(r);
-    var fd = firstDivergence(r);
     var a = agentOf("a"), b = agentOf("b");
     var html = '<div class="tl-head">' +
       '<div class="col-h"><span class="dot a"></span>' + esc(a.name || "agent A") +
@@ -861,37 +1358,40 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         (b.model ? '<span class="model">' + esc(b.model) + "</span>" : "") + "</div>" +
       "</div>";
 
-    var bannerPlaced = false;
-    al.forEach(function (row) {
-      var op = row.op || "match";
-      var isDivRow = !!fd && !bannerPlaced &&
-        ((fd.a_index != null && fd.a_index === row.a_index) ||
-         (fd.b_index != null && fd.b_index === row.b_index));
-      if (isDivRow) {
-        bannerPlaced = true;
-        html += '<div class="tl-row"><div class="div-banner">' +
-          '<span class="db-label">⚠ First divergence</span>' +
-          '<span class="db-sum">' + esc(fd.summary || kindLabel(fd.kind) || "Trajectories diverge here.") + "</span>" +
-          impactChips(fd) +
-          "</div></div>";
+    rows.forEach(function (row, ri) {
+      if (panelByRow[ri]) {
+        html += '<div class="tl-row">' + whPanel(r, panelByRow[ri].d, panelByRow[ri].ordinal, rows, ri) + "</div>";
       }
-      var aCard = "", bCard = "", gut = "";
+      var op = row.op;
+      var isDivRow = fdRow === ri;
       var divCls = isDivRow ? " div-mark" : "";
-      if (op === "match" || op === "drift") {
-        var drift = op === "drift";
-        aCard = stepCard(stepAt(r, "a", row.a_index), "a", (drift ? "hl-drift" : "") + divCls);
-        bCard = stepCard(stepAt(r, "b", row.b_index), "b", (drift ? "hl-drift" : "") + divCls);
-        gut = '<div class="conn' + (drift ? " drift" : "") + '"></div>' +
-          (drift && num(row.similarity) !== null
-            ? '<span class="conn-sim">' + Math.round(row.similarity * 100) + "%</span>" : "");
-      } else if (op === "a_only") {
-        aCard = stepCard(stepAt(r, "a", row.a_index), "a", "hl-only" + divCls);
+      function extraFor(side, step) {
+        var cls = "";
+        if (op === "drift") cls += " hl-drift";
+        if ((op === "a_only" && side === "a") || (op === "b_only" && side === "b")) cls += " hl-only";
+        if (step && failSide === side && chainSet[step.index]) cls += " chain-step";
+        return cls + divCls;
+      }
+      function tagFor(side, step) {
+        if (step && failSide === side && step.type === "answer") return '<span class="wrong-tag">✗ wrong answer</span>';
+        return "";
+      }
+      var aCard, bCard, gut;
+      if (op === "a_only") {
+        aCard = stepCard(row.aStep, "a", extraFor("a", row.aStep), tagFor("a", row.aStep));
         bCard = '<div class="ghost">' + esc(agentName("b")) + " has no matching step</div>";
         gut = '<span class="only-tag">A only</span>';
       } else if (op === "b_only") {
         aCard = '<div class="ghost">' + esc(agentName("a")) + " has no matching step</div>";
-        bCard = stepCard(stepAt(r, "b", row.b_index), "b", "hl-only" + divCls);
+        bCard = stepCard(row.bStep, "b", extraFor("b", row.bStep), tagFor("b", row.bStep));
         gut = '<span class="only-tag">B only</span>';
+      } else {
+        var drift = op === "drift";
+        aCard = stepCard(row.aStep, "a", extraFor("a", row.aStep), tagFor("a", row.aStep));
+        bCard = stepCard(row.bStep, "b", extraFor("b", row.bStep), tagFor("b", row.bStep));
+        gut = '<div class="conn' + (drift ? " drift" : "") + '"></div>' +
+          (drift && row.similarity !== null
+            ? '<span class="conn-sim">' + Math.round(row.similarity * 100) + "%</span>" : "");
       }
       html += '<div class="tl-row">' +
         "<div>" + aCard + "</div>" +
@@ -903,13 +1403,10 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
 
     /* verdict */
     var vs = document.getElementById("verdict-slot");
-    var att = r.attribution;
+    var fd = divs.length ? divs[0] : null;
     if (att && (att.explanation || att.category || (Array.isArray(att.chain) && att.chain.length))) {
-      var failed = att.failed_agent === "a" ? "a" : att.failed_agent === "b" ? "b" : null;
-      var side = failed || "b";
-      var title = failed
-        ? "Why " + esc(agentName(failed)) + " failed"
-        : "Divergence verdict";
+      var side = failSide || "b";
+      var title = failSide ? "Why " + esc(agentName(failSide)) + " failed" : "Divergence verdict";
       var chain = Array.isArray(att.chain) ? att.chain : [];
       var chainHtml = chain.length
         ? '<div class="chain"><span class="ch-label">Causal chain</span>' +
@@ -918,7 +1415,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
               '<button class="chain-chip" type="button" data-side="' + side + '" data-step="' + esc(ix) + '">step ' + esc(ix) + "</button>";
           }).join("") + "</div>"
         : "";
-      vs.innerHTML = '<div class="verdict' + (failed ? " verdict-fail" : "") + '">' +
+      vs.innerHTML = '<div class="verdict' + (failSide ? " verdict-fail" : "") + '">' +
         "<h3>" + title +
         (att.category ? '<span class="cat"><span class="kdot dot" style="width:7px;height:7px;background:' + kindColor(att.category) + '"></span>' + esc(kindLabel(att.category)) + "</span>" : "") +
         (num(att.root_cause_step) !== null ? '<span class="cat">root cause: step ' + esc(att.root_cause_step) + "</span>" : "") +
@@ -936,8 +1433,11 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         (fd.kind ? '<span class="cat"><span class="kdot dot" style="width:7px;height:7px;background:' + kindColor(fd.kind) + '"></span>' + esc(kindLabel(fd.kind)) + "</span>" : "") +
         '</h3><p class="expl">' + esc(fd.summary || "The trajectories diverged, but no failure attribution was produced (both agents may have succeeded).") + "</p></div>";
     } else {
-      vs.innerHTML = "";
+      vs.innerHTML = '<div class="verdict"><h3>No divergence</h3><p class="expl">Both trajectories stayed aligned end to end.</p></div>';
     }
+
+    drawRail(r);
+    currentRedraw = function () { drawRail(r); };
   }
 
   function flashStep(side, idx) {
@@ -961,8 +1461,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     var rs = reports();
     if (!rs.length) return;
     state.idx = Math.max(0, Math.min(rs.length - 1, i));
-    renderCompare();
     show("cmp");
+    renderCompare();
     window.scrollTo({ top: 0 });
   }
   function backToList() {
@@ -976,7 +1476,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     renderOrigins();
     renderRegressions();
     renderTaskList();
-    if (state.view === "cmp" && reports().length) renderCompare();
+    if (state.view === "cmp" && reports().length) { show("cmp"); renderCompare(); }
     else show("list");
   }
 
@@ -1041,10 +1541,13 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     if (f) loadFile(f);
   });
 
-  /* expand/collapse truncated io */
+  /* expand/collapse truncated io; card heights change, so redraw the rail */
   document.addEventListener("click", function (e) {
     var pre = e.target.closest ? e.target.closest(".io.clampable pre") : null;
-    if (pre) pre.parentElement.classList.toggle("open");
+    if (pre) {
+      pre.parentElement.classList.toggle("open");
+      if (state.view === "cmp" && currentRedraw) currentRedraw();
+    }
   });
 
   /* keyboard */
@@ -1056,12 +1559,19 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     else if (e.key === "ArrowRight" && state.idx < reports().length - 1) { openCompare(state.idx + 1); e.preventDefault(); }
   });
 
-  /* re-render on theme flip so kind-dot colors track the mode */
+  /* re-render on theme flip so node/dot colors track the mode */
   if (window.matchMedia) {
     try {
       window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
     } catch (e) { /* older engines */ }
   }
+  /* re-render compare on resize (fan width, rail geometry) */
+  var resizeT = null;
+  window.addEventListener("resize", function () {
+    if (state.view !== "cmp") return;
+    clearTimeout(resizeT);
+    resizeT = setTimeout(function () { renderCompare(); }, 160);
+  });
 
   /* ---------------- boot ---------------- */
   state.data = normalize(window.DEEPCOMPARE_DATA) || { reports: [], aggregate: {} };

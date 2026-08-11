@@ -82,6 +82,8 @@ the same task are the unit of comparison.
         "extra_steps_b": 4, "extra_tokens_b": 1210,
         "extra_latency_s_b": 23.0, "caused_failure": false
       }
+      // downstream keys use the `_a` suffix instead (extra_steps_a, ...) when
+      // agent A is the side spending more from the divergence point onward
     }
   ],
   "attribution": {
@@ -99,5 +101,17 @@ the same task are the unit of comparison.
 }
 ```
 
-Multi-run aggregate report (`aggregate.json`): list of per-task reports plus
-rollups — success rates, failure-origin percentages by category, regression flags.
+Multi-run aggregate report (`aggregate.json`): rollups keyed by side, with the
+side→agent-name mapping in `agents`:
+
+```json
+{
+  "tasks": 8,
+  "agents": {"a": "agent-a", "b": "agent-b"},
+  "success_rate": {"a": 0.875, "b": 0.625},
+  "means": {"a": {"tokens": 0, "cost_usd": 0.0, "latency_s": 0.0,
+                  "steps": 0, "tool_calls": 0, "searches": 0}, "b": {"...": 0}},
+  "failure_origins": {"retrieval": 0.5, "tool_selection": 0.25, "...": 0.25},
+  "regressions": ["human-readable regression strings"]
+}
+```
