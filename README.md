@@ -1,11 +1,11 @@
-# DeepCompare AI
+# AgentDiff
 
 **Git diff for AI agents.**
 
 Two agents hit the same success rate on your benchmark. Are they the same agent?
 Almost never. One burns 61% more tokens re-searching after picking a bad source;
 the other fails only in tool execution. Aggregate metrics hide this.
-DeepCompare makes it visible — and attributable.
+AgentDiff makes it visible — and attributable.
 
 Give it two trajectories on the same task — Agent v1 vs v2, Claude vs GPT,
 architecture A vs B — and it tells you not just *that* they differ, but **where
@@ -75,7 +75,7 @@ SCHEMA.md      the trace + report JSON contract
 ## Why this is a research direction, not just a dashboard
 
 Agent evaluation today is dominated by outcome metrics; recent work is moving
-toward trajectory-level diagnosis. The open problem DeepCompare targets:
+toward trajectory-level diagnosis. The open problem AgentDiff targets:
 
 > When two agents achieve similar task-level results, how can we automatically
 > **discover, explain, and attribute** the differences in their behavior?

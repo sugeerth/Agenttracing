@@ -1,4 +1,4 @@
-# DeepCompare Trace Schema (v1)
+# AgentDiff Trace Schema (v1)
 
 Every agent run is captured as a **Trajectory** — a JSON file. Two trajectories on
 the same task are the unit of comparison.
