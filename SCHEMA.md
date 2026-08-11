@@ -390,3 +390,57 @@ compares them, and evaluates gate checks:
 Exit code 0 = pass, 1 = gate failed, 2 = usage/data error. `gate.json` and an
 optional shareable `gate.md` summary (verdict table, per-check numbers, top
 divergences with attributions and counterfactual savings) are written to `-o`.
+
+## Multi-run stability (v9)
+
+Trajectories may carry an optional `"run_id"` (default `"r1"`); multi-run
+trace files are named `<task_id>__<agent_name>__<run_id>.json`. With N runs
+per (agent, task), the batch payload gains:
+
+```json
+"stability": {
+  "runs_per_agent": {"atlas-v2": 3, "bolt-v3": 3},
+  "per_task": [
+    {"task": "t01_acme_revenue",
+     "a": {"successes": 3, "runs": 3, "verdict": "stable-pass | stable-fail | flaky",
+           "token_cv": 0.04, "latency_cv": 0.09},
+     "b": {"successes": 0, "runs": 3, "verdict": "stable-fail",
+           "token_cv": 0.12, "latency_cv": 0.15},
+     "divergence_reproducibility": {"rate": 1.0, "kind": "retrieval",
+                                    "verdict": "systematic | variable | none"}}
+  ],
+  "flaky_tasks": {"atlas-v2": [], "bolt-v3": ["t02_cve_libfoo"]},
+  "medoid_runs": {"t01_acme_revenue": {"a": "r2", "b": "r1"}},
+  "narrative": "which failures reproduce, which are noise"
+}
+```
+
+- `verdict`: stable-pass (all runs succeed), stable-fail (none), flaky (mixed).
+- `divergence_reproducibility`: over all run-pair comparisons for the task,
+  the fraction whose FIRST divergence agrees in kind (and roughly location);
+  `systematic` >= 0.8, `variable` >= 0.3, else `none`.
+- `medoid_runs`: the most-representative run per side (minimum summed
+  step-type-sequence distance to that side's other runs) — the pair shown in
+  the compare view; `token_cv`/`latency_cv` are coefficients of variation.
+
+## Task signal (aggregate, v9)
+
+```json
+"task_signal": [
+  {"task": "t06_bls_unemployment", "difficulty": 0.5,
+   "discrimination": 1.0, "note": "separates the agents: one side always fails it"}
+]
+```
+
+`difficulty` = 1 − mean success across sides/runs; `discrimination` = how
+strongly the task separates the two agents (success gap, plus normalized
+cost/latency gap when successes tie). Sorted most-discriminating first.
+
+## Trace adapters (CLI, v9)
+
+`python -m deepcompare convert --format otel|openai IN.json -o OUT_DIR/`
+converts foreign trace formats to SCHEMA trajectories: `otel` reads OpenTelemetry
+GenAI-convention spans (gen_ai.* attributes), `openai` reads a chat-completions
+style message array with tool calls; both use heuristic step typing
+(tool name / content cues → search/retrieve/read/tool_call/reason) and emit
+warnings for unmapped items rather than failing.
