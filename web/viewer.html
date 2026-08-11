@@ -10,7 +10,7 @@
     --surface-2:     #f0efeb;
     --ink:           #16150f;
     --ink-2:         #52514e;
-    --muted:         #898781;
+    --muted:         #6c6a64;
     --line:          #e3e2db;
     --line-strong:   #c6c5bc;
     --ring:          rgba(11,11,11,0.10);
@@ -213,9 +213,11 @@
   .task-table { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; box-shadow: var(--shadow); }
   .task-head, .task-row {
     display: grid; gap: 14px; align-items: center;
-    grid-template-columns: minmax(170px, 1fr) 130px 140px 100px 96px;
+    grid-template-columns: minmax(170px, 1fr) 130px 140px 100px 96px 74px;
     padding: 10px 16px;
   }
+  .row-chev { font-size: 11.5px; color: var(--muted); white-space: nowrap; text-align: right; }
+  .task-row:hover .row-chev, .task-row:focus-visible .row-chev { color: var(--ink); }
   .task-head {
     font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em;
     color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line);
@@ -247,6 +249,18 @@
   .mini-delta.flat { color: var(--muted); }
   .list-scroll { overflow-x: auto; }
   .list-scroll .task-table { min-width: 700px; }
+  /* below 600px the task table becomes stacked cards */
+  @media (max-width: 600px) {
+    .list-scroll .task-table { min-width: 0; }
+    .task-head { display: none; }
+    .task-row {
+      grid-template-columns: 1fr auto; gap: 6px 10px; padding: 12px 14px;
+    }
+    .task-row .prompt { grid-column: 1 / -1; white-space: normal; }
+    .task-row .spark-cell { display: none; }
+    .task-row .mini-delta { text-align: left; }
+    .task-row .row-chev { grid-column: 2; grid-row: 3; }
+  }
 
   /* ---------- compare view ---------- */
   .cmp-top { display: flex; align-items: flex-start; gap: 14px; margin: 26px 0 6px; flex-wrap: wrap; }
@@ -380,13 +394,21 @@
     background: var(--surface-2); border-radius: 6px; padding: 6px 8px;
     color: var(--ink-2); position: relative;
   }
-  .io.clampable pre { max-height: 66px; overflow: hidden; cursor: pointer; }
+  .io.clampable { cursor: pointer; }
+  .io.clampable pre { max-height: 66px; overflow: hidden; }
+  .io.clampable pre::before {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 26px;
+    background: linear-gradient(to bottom, transparent, var(--surface-2));
+    pointer-events: none;
+  }
   .io.clampable pre::after {
-    content: "⌄ expand"; position: absolute; right: 6px; bottom: 3px;
-    font-size: 10px; color: var(--muted); background: var(--surface-2); padding: 0 4px;
+    content: "⌄ show more"; position: absolute; right: 6px; bottom: 3px;
+    font-size: 10px; color: var(--ink-2); background: var(--surface-2); padding: 0 4px;
+    border-radius: 3px;
   }
   .io.clampable.open pre { max-height: none; }
-  .io.clampable.open pre::after { content: "⌃ collapse"; }
+  .io.clampable.open pre::before { display: none; }
+  .io.clampable.open pre::after { content: "⌃ show less"; }
   .step-note { font-size: 11.5px; color: var(--warn); font-style: italic; }
   .step.flash { animation: flash-ring 1.4s ease-out; }
   @keyframes flash-ring {
@@ -526,6 +548,297 @@
   }
 
   .hidden { display: none !important; }
+
+  /* ---------- compare sticky strip (U3/U6) ---------- */
+  .cmp-strip {
+    position: sticky; top: var(--topbar-h, 49px); z-index: 15;
+    display: flex; flex-direction: column; gap: 2px;
+    background: var(--bg); border-bottom: 1px solid var(--line);
+    padding: 7px 0 6px; margin: 2px 0 8px;
+  }
+  .strip-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .cmp-strip .cmp-meta { margin: 2px 0 0; }
+  .cmp-strip .st-task {
+    font-size: 12.5px; font-weight: 600; min-width: 0; flex: 1 1 160px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .cmp-strip .st-task .tid { font-family: var(--mono); font-weight: 400; font-size: 11px; color: var(--muted); margin-right: 7px; }
+  .cmp-strip .st-agents { display: inline-flex; gap: 6px; align-items: center; font-size: 11.5px; color: var(--ink-2); }
+  .cmp-strip .st-agents .nm { max-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .strip-btn {
+    border: 1px solid var(--line-strong); background: var(--surface); border-radius: 6px;
+    padding: 2.5px 10px; font-size: 11.5px; cursor: pointer; color: var(--ink-2); white-space: nowrap;
+  }
+  .strip-btn:hover { color: var(--ink); border-color: var(--ink-2); }
+  .strip-btn.div-jump { color: var(--warn); border-color: var(--warn-line); }
+  .aligned-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; font-weight: 650; color: var(--good); background: var(--good-tint);
+    border-radius: 999px; padding: 2px 10px; white-space: nowrap;
+  }
+  .aligned-note {
+    border-left: 3px solid var(--good); background: var(--good-tint);
+    border-radius: 0 7px 7px 0; padding: 7px 12px; font-size: 12.5px; margin: 10px 0 2px;
+  }
+  .pair-switch { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+  .pair-switch .ps-k { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+  .pair-switch button {
+    font-family: var(--mono); font-size: 10.5px; border: 1px solid var(--line);
+    background: var(--surface); border-radius: 5px; padding: 1.5px 7px; cursor: pointer; color: var(--ink-2);
+  }
+  .pair-switch button[aria-pressed="true"] { border-color: var(--ink-2); color: var(--ink); font-weight: 700; background: var(--surface-2); }
+  .kbd-inline { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+  .kbd-inline kbd { font-family: var(--mono); border: 1px solid var(--line-strong); border-radius: 3px; padding: 0 3px; font-size: 9.5px; background: var(--surface); }
+
+  /* wh-panel failed-side attachment (U2) */
+  .wh-col.fail-col { border-color: var(--bad-soft); box-shadow: inset 0 0 0 1px var(--bad-soft); }
+  .fail-tag {
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--bad); background: var(--bad-tint); border-radius: 4px; padding: 1px 6px; margin-left: auto;
+  }
+
+  /* ---------- tool-call diff ---------- */
+  .tool-diff {
+    grid-column: 1 / -1; margin: 6px 8% 4px;
+    border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface);
+    font-family: var(--mono); font-size: 11.5px; overflow: hidden;
+  }
+  @media (max-width: 700px) { .tool-diff { margin: 4px 0; } }
+  .td-head {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 5px 10px; background: var(--surface-2); border-bottom: 1px solid var(--line);
+  }
+  .td-label { font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em; color: var(--muted); font-family: var(--sans); }
+  .td-tool { font-weight: 650; color: var(--ink); }
+  .td-tool.differ { color: var(--bad); }
+  .td-body { padding: 7px 10px 8px; display: flex; flex-direction: column; gap: 5px; }
+  .td-row { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .td-key { color: var(--muted); flex: none; }
+  .td-vals { min-width: 0; word-break: break-word; }
+  .td-del { color: var(--bad); background: var(--bad-tint); text-decoration: line-through; text-decoration-thickness: 1px; border-radius: 3px; padding: 0 2px; }
+  .td-ins { color: var(--good); background: var(--good-tint); box-shadow: inset 0 -2px 0 var(--good); border-radius: 3px; padding: 0 2px; }
+  .td-only { color: var(--ink-2); }
+  .td-only .side-k { font-weight: 700; }
+  .td-same-tag {
+    grid-column: 1 / -1; justify-self: center; margin: 2px 0;
+    font-family: var(--mono); font-size: 10px; color: var(--good);
+    border: 1px dashed var(--good); border-radius: 999px; padding: 0.5px 8px; opacity: 0.85;
+  }
+  .td-raw { white-space: pre-wrap; word-break: break-word; line-height: 1.6; }
+
+  /* ---------- fleet dashboard ---------- */
+  .fleet-hero { margin-top: 26px; display: flex; flex-direction: column; gap: 6px; }
+  .fleet-hero .fh-counts {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); font-weight: 600; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+  }
+  .fleet-hero .fh-counts .star { color: var(--warn); }
+  .fleet-hero h1 { font-size: 18px; font-weight: 650; margin: 0; line-height: 1.45; max-width: 88ch; text-wrap: balance; }
+  .fleet-hero h1 .champ { font-family: var(--mono); }
+  .weights-pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface);
+    padding: 3px 6px 3px 12px; font-size: 11.5px; cursor: pointer; color: var(--ink-2);
+  }
+  .weights-pill:hover { border-color: var(--ink-2); color: var(--ink); }
+  .weights-pill .wv { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .weights-pill .edited { color: var(--warn); font-weight: 700; }
+  .weights-pill .wp-reset {
+    border: 0; background: var(--surface-2); border-radius: 999px; padding: 1px 8px;
+    font-size: 10.5px; cursor: pointer; color: var(--ink-2);
+  }
+  .weights-pill .wp-reset:hover { color: var(--bad); }
+
+  .fleet-tabs { display: flex; gap: 2px; margin: 18px 0 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .fleet-tabs button {
+    border: 0; background: none; cursor: pointer; padding: 7px 14px 8px;
+    font-size: 13px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .fleet-tabs button[aria-selected="true"] { color: var(--ink); font-weight: 650; border-bottom-color: var(--ink); }
+  .fleet-tabs button:hover { color: var(--ink); }
+
+  .fleet-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 14px; }
+  .fleet-body.with-panel { grid-template-columns: minmax(0, 1fr) 250px; }
+  @media (max-width: 900px) { .fleet-body.with-panel { grid-template-columns: minmax(0, 1fr); } }
+
+  /* weights side panel */
+  .wpanel { align-self: start; position: sticky; top: calc(var(--topbar-h, 49px) + 10px); }
+  .wpanel h3 { margin: 0 0 4px; }
+  .wpanel .wp-sub { color: var(--muted); font-size: 11.5px; margin: 0 0 12px; }
+  .wrow { display: grid; grid-template-columns: 92px 1fr 34px; gap: 8px; align-items: center; margin-bottom: 9px; }
+  .wrow label { font-size: 12px; color: var(--ink-2); }
+  .wrow input[type="range"] { width: 100%; min-width: 0; accent-color: var(--agent-a); }
+  .wrow .wnum { font-family: var(--mono); font-size: 11.5px; text-align: right; font-variant-numeric: tabular-nums; }
+  .wpanel .wp-note { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+  .wp-actions { display: flex; gap: 8px; margin-top: 10px; }
+
+  /* leaderboard */
+  .board-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); }
+  .board { min-width: 1010px; }
+  .b-row, .b-head {
+    display: grid; align-items: center; gap: 10px;
+    grid-template-columns: 44px minmax(148px, 1.2fr) minmax(150px, 1.5fr)
+      repeat(5, minmax(58px, 0.7fr)) 118px minmax(72px, 0.9fr) 26px;
+    padding: 0 12px;
+  }
+  .b-head {
+    height: 44px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--muted); font-weight: 650; border-bottom: 1px solid var(--line);
+    background: var(--surface-2); border-radius: 10px 10px 0 0;
+  }
+  .b-head .bh {
+    cursor: pointer; user-select: none; display: flex; flex-direction: column; gap: 1px;
+    background: none; border: 0; padding: 0; text-align: left;
+    font-size: inherit; text-transform: inherit; letter-spacing: inherit; color: inherit; font-weight: inherit;
+  }
+  .b-head .bh:hover { color: var(--ink); }
+  .b-head .bh .sub { font-size: 8.5px; letter-spacing: 0.02em; color: var(--muted); font-weight: 500; text-transform: none; }
+  .b-head .bh.sorted { color: var(--ink); }
+  .b-head .bh .arr { font-size: 8px; }
+  .b-row {
+    height: 26px; border-bottom: 1px solid var(--line); position: relative;
+    background: var(--surface); cursor: default; font-size: 12px;
+  }
+  .b-row:last-child { border-bottom: 0; border-radius: 0 0 10px 10px; }
+  .b-row:hover, .b-row.hot { background: var(--surface-2); }
+  .b-row.tier-start { border-top: 2px solid var(--line-strong); }
+  .b-row .rank-cell { display: flex; align-items: center; gap: 5px; font-family: var(--mono); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .stab-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; cursor: help; }
+  .stab-dot.s-ok { background: var(--good); }
+  .stab-dot.s-mid { background: var(--warn-line); }
+  .stab-dot.s-bad { background: var(--bad); }
+  .agent-cell { display: flex; align-items: center; gap: 7px; min-width: 0; cursor: pointer; background: none; border: 0; padding: 0; text-align: left; font-size: inherit; }
+  .agent-cell .sw { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+  .agent-cell .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+  .agent-cell .star { color: var(--warn); font-size: 10px; flex: none; }
+  .score-cell { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .score-bar { flex: 1; height: 12px; display: flex; border-radius: 3px; overflow: hidden; background: var(--surface-2); min-width: 0; }
+  .score-bar .seg { height: 100%; }
+  .score-bar .seg + .seg { border-left: 1.5px solid var(--surface); }
+  .score-cell .sv { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--ink); flex: none; }
+  .dim-cell { position: relative; height: 12px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
+  .dim-cell .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 0 2px 2px 0; opacity: 0.75; }
+  .dim-cell .ci { position: absolute; top: 50%; height: 2px; transform: translateY(-50%); background: var(--ink); opacity: 0.65; }
+  .dim-cell .ci::before, .dim-cell .ci::after {
+    content: ""; position: absolute; top: -2.5px; width: 1.5px; height: 7px; background: var(--ink);
+  }
+  .dim-cell .ci::before { left: 0; } .dim-cell .ci::after { right: 0; }
+  .tstrip { display: flex; gap: 2.5px; }
+  .tcell {
+    width: 11px; height: 11px; border-radius: 2.5px; flex: none; cursor: pointer;
+    border: 0; padding: 0; position: relative;
+  }
+  .tcell.pass { background: var(--good); opacity: 0.55; }
+  .tcell.fail { background: var(--bad); opacity: 0.9; }
+  .tcell:hover { opacity: 1; outline: 1px solid var(--ink); }
+  .fp-bar { display: flex; height: 11px; border-radius: 3px; overflow: hidden; background: none; }
+  .fp-bar .fs { height: 100%; cursor: pointer; }
+  .fp-bar .fs + .fs { border-left: 1px solid var(--surface); }
+  .fp-none { color: var(--muted); font-size: 11px; }
+  .pareto-cell { text-align: center; color: var(--warn); font-size: 12px; }
+  .b-row.reordering { transition: transform 0.4s cubic-bezier(0.25, 0.8, 0.35, 1); }
+
+  /* scatter (trade-offs) */
+  .scatter-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 12px; align-items: start; }
+  @media (max-width: 940px) { .scatter-grid { grid-template-columns: minmax(0, 1fr); } }
+  .scatter-box { overflow-x: auto; }
+  .scatter-box svg { display: block; }
+  .pin-box { display: flex; flex-direction: column; gap: 10px; }
+  .pin-chips { display: flex; flex-direction: column; gap: 6px; }
+  .pin-chip { display: flex; align-items: center; gap: 7px; font-size: 12.5px; }
+  .pin-chip .sw { width: 10px; height: 10px; border-radius: 3px; }
+  .pin-chip .x { margin-left: auto; border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 13px; padding: 0 4px; }
+  .pin-chip .x:hover { color: var(--bad); }
+  .pin-cta {
+    border: 1px solid var(--agent-a); color: var(--agent-a); background: var(--agent-a-tint);
+    border-radius: 7px; padding: 6px 12px; font-size: 12.5px; font-weight: 650; cursor: pointer;
+  }
+  .pin-cta:hover { filter: brightness(1.05); }
+  .pin-hint { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+  .pin-hint code { font-family: var(--mono); font-size: 10.5px; background: var(--surface-2); border-radius: 4px; padding: 1px 5px; }
+  .trap-callout {
+    border: 1px solid var(--warn-line); border-left-width: 4px; background: var(--warn-tint);
+    border-radius: 8px; padding: 10px 14px; font-size: 12.5px; line-height: 1.55;
+  }
+  .trap-callout .tk { font-weight: 700; text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.07em; color: var(--warn); display: block; margin-bottom: 3px; }
+
+  /* matrix */
+  .mx-controls { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; font-size: 12px; color: var(--ink-2); }
+  .mx-controls label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+  .mx-scroll { overflow-x: auto; }
+  .mx { border-collapse: separate; border-spacing: 2px; }
+  .mx th { font-weight: 500; }
+  .mx .mx-corner { min-width: 150px; }
+  .mx .mx-col { font-family: var(--mono); font-size: 10px; color: var(--muted); padding: 0 2px 4px; vertical-align: bottom; text-align: center; cursor: help; }
+  .mx .mx-col .diff-bar { height: 4px; border-radius: 2px; background: var(--surface-2); margin-top: 3px; position: relative; overflow: hidden; }
+  .mx .mx-col .diff-bar span { position: absolute; left: 0; top: 0; bottom: 0; background: var(--bad); opacity: 0.8; }
+  .mx .mx-agent {
+    text-align: right; padding-right: 8px; font-size: 11px; color: var(--ink-2);
+    white-space: nowrap; cursor: default;
+  }
+  .mx .mx-agent .rk { font-family: var(--mono); font-size: 9.5px; color: var(--muted); margin-right: 4px; }
+  .mx .mx-agent .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-left: 6px; vertical-align: baseline; }
+  .mx tr.hot .mx-agent, .mx tr:hover .mx-agent { color: var(--ink); font-weight: 600; }
+  .mx td.cell { width: 22px; height: 18px; border-radius: 3px; position: relative; }
+  .mx td.cell.pass { background: var(--good-tint); }
+  .mx td.cell.fail { background: var(--bad-tint); box-shadow: inset 0 0 0 1px var(--bad-soft); }
+  .mx td.cell .tok { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border-radius: 2px; }
+  .mx td.cell.pass .tok { background: var(--good); opacity: 0.55; }
+  .mx td.cell.fail .tok { background: var(--bad); opacity: 0.7; }
+
+  /* spotlight + regression cards */
+  .spot-strip { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(285px, 100%), 1fr)); margin-top: 14px; }
+  .spot-card {
+    text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    padding: 11px 13px 12px; box-shadow: var(--shadow); cursor: pointer;
+    display: flex; flex-direction: column; gap: 7px; font: inherit; color: inherit; min-width: 0;
+  }
+  .spot-card:hover { border-color: var(--line-strong); background: var(--surface-2); }
+  .spot-vs { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 12.5px; font-weight: 650; }
+  .spot-vs .sw { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+  .spot-vs .vs { color: var(--muted); font-size: 10px; font-weight: 400; }
+  .spot-why { font-size: 11.8px; color: var(--ink-2); line-height: 1.5; margin: 0; }
+  .spot-mini { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-family: var(--mono); font-size: 10.5px; }
+  .spot-mini .m { border: 1px solid var(--line); border-radius: 5px; padding: 1px 7px; color: var(--ink-2); background: var(--bg); }
+  .spot-mini .m.good { color: var(--good); border-color: var(--good); }
+  .spot-mini .m.bad { color: var(--bad); border-color: var(--bad); }
+  .spot-mini .open { margin-left: auto; color: var(--muted); font-family: var(--sans); font-size: 11px; }
+  .spot-card:hover .open { color: var(--ink); }
+  .reg-strip { display: flex; gap: 3px; align-items: center; }
+  .reg-strip .rc { width: 13px; height: 13px; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; font-size: 8.5px; font-weight: 700; }
+  .reg-strip .rc.same-pass { background: var(--good-tint); }
+  .reg-strip .rc.same-fail { background: var(--bad-tint); }
+  .reg-strip .rc.flip-down { background: var(--bad); color: #fff; }
+  .reg-strip .rc.flip-up { background: var(--good); color: #fff; }
+  .sec-sub { color: var(--muted); font-size: 12px; margin: -6px 0 10px; }
+
+  /* fleet mode: hovered-agent cross-view highlight */
+  [data-agent].hot { outline: 2px solid var(--ink); outline-offset: 1px; }
+  .b-row[data-agent].hot, tr[data-agent].hot { outline: none; }
+  .mx tr.hot td.cell { filter: brightness(0.94); }
+  #scatter-box .sc-dot.hot { stroke: var(--ink); stroke-width: 2.5; fill-opacity: 1; }
+  .wh-panel.flash { animation: flash-ring 1.4s ease-out; }
+
+  /* U1: below 700px the compare pair grid stacks to ONE column — no sideways
+     scroll (kept last so it wins the cascade over the base timeline rules) */
+  @media (max-width: 700px) {
+    .tl { min-width: 0; }
+    .tl-head { grid-template-columns: minmax(0, 1fr); }
+    .tl-head .col-h.right { margin-top: 4px; }
+    .tl-head > div:nth-child(2) { display: none; }
+    .tl-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+    .gutter { min-height: 20px; align-self: auto; }
+    .conn { top: 50%; left: 30%; right: 30%; }
+    .conn-sim { top: calc(50% + 4px); }
+    .gutter .only-tag { top: 2px; }
+    .rail-svg { display: none; }
+    .tl.rail-a, .tl.rail-b { padding-left: 0; padding-right: 0; }
+    .wh-cols { grid-template-columns: minmax(0, 1fr); }
+  }
+  /* phones: the multi-line strip would eat the viewport if sticky */
+  @media (max-width: 600px) {
+    .cmp-strip { position: static; }
+  }
 </style>
 
 <script>
@@ -579,6 +892,11 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       </div>
     </div>
 
+    <h2 class="sec">Tasks <span class="n" id="task-count"></span></h2>
+    <div class="list-scroll">
+      <div class="task-table" id="task-table"></div>
+    </div>
+
     <div id="sec-deepdive" class="hidden">
       <h2 class="sec">Process deep-dive</h2>
       <div class="dd-grid">
@@ -618,10 +936,57 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       <h2 class="sec">Outcomes &amp; recommendations</h2>
       <div class="rec-grid" id="rec-list"></div>
     </div>
+  </div>
 
-    <h2 class="sec">Tasks <span class="n" id="task-count"></span></h2>
-    <div class="list-scroll">
-      <div class="task-table" id="task-table"></div>
+  <div id="view-fleet" class="hidden">
+    <div class="fleet-hero">
+      <div class="fh-counts" id="fh-counts"></div>
+      <h1 id="fh-hero"></h1>
+    </div>
+
+    <h2 class="sec">Spotlight comparisons</h2>
+    <p class="sec-sub">Engine-chosen pairs whose step-level diffs explain the ranking — plus detected version regressions. Click a card to open the diff.</p>
+    <div class="spot-strip" id="spot-strip"></div>
+
+    <div class="fleet-tabs" role="tablist" id="fleet-tabs">
+      <button type="button" role="tab" data-tab="board" aria-selected="true">Leaderboard</button>
+      <button type="button" role="tab" data-tab="pareto" aria-selected="false">Trade-offs</button>
+      <button type="button" role="tab" data-tab="matrix" aria-selected="false">Matrix</button>
+    </div>
+
+    <div class="fleet-body" id="fleet-body">
+      <div id="fleet-main">
+        <div id="tab-board">
+          <div class="board-scroll"><div class="board" id="board"></div></div>
+        </div>
+        <div id="tab-pareto" class="hidden">
+          <div class="scatter-grid">
+            <div class="panel viz-panel">
+              <h3>Success vs cost <span class="sub">dot size = mean latency · log cost axis · ★ = Pareto frontier</span></h3>
+              <div class="scatter-box" id="scatter-box"></div>
+            </div>
+            <div class="pin-box" id="pin-box"></div>
+          </div>
+        </div>
+        <div id="tab-matrix" class="hidden">
+          <div class="panel">
+            <div class="mx-controls">
+              <label><input type="checkbox" id="mx-cluster"> Cluster rows <span class="sub" style="color:var(--muted)">(group agents that fail the same tasks)</span></label>
+              <label><input type="checkbox" id="mx-size"> Size cells by tokens</label>
+            </div>
+            <div class="mx-scroll" id="mx-scroll"></div>
+          </div>
+        </div>
+      </div>
+      <aside class="panel wpanel hidden" id="wpanel">
+        <h3>Score weights</h3>
+        <p class="wp-sub">Re-weight the composite live. Dimension scores are fleet-normalized (1 = best).</p>
+        <div id="wrows"></div>
+        <div class="wp-actions">
+          <button class="strip-btn" id="w-reset" type="button">Reset to engine defaults</button>
+        </div>
+        <p class="wp-note">Rank-stability dot: each agent’s rank range under ±20% weight perturbation (50 seeded samples). Green = moves ≤2 places.</p>
+      </aside>
     </div>
   </div>
 
@@ -633,9 +998,13 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         <button id="btn-prev" type="button" aria-label="Previous task">←</button>
         <span class="pos" id="cmp-pos"></span>
         <button id="btn-next" type="button" aria-label="Next task">→</button>
+        <span class="kbd-inline"><kbd>←</kbd><kbd>→</kbd></span>
       </div>
     </div>
-    <div class="cmp-meta" id="cmp-meta"></div>
+    <div class="cmp-strip" id="cmp-strip">
+      <div class="strip-row" id="strip-main"></div>
+      <div class="cmp-meta" id="cmp-meta"></div>
+    </div>
     <div class="cmp-viz" id="cmp-viz"></div>
     <div class="tl-wrap">
       <div class="tl" id="tl"></div>
@@ -652,23 +1021,41 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   "use strict";
 
   /* ---------------- state ---------------- */
-  var state = { data: null, view: "list", idx: 0, fanMode: "tokens" };
+  var state = {
+    data: null, view: "list", idx: 0, fanMode: "tokens",
+    pair: null,               /* fleet compare context: {label, list:[report idx], pos} */
+    fleetTab: "board",
+    weights: null,            /* current weights (fleet mode) */
+    sort: { key: "rank", dir: 1 },
+    pins: [],
+    mxCluster: false, mxSize: false,
+    wpanelOpen: false
+  };
 
+  /* Kind + step-type palettes — disjoint from agent-A blue / agent-B orange and
+     pass-green / fail-red; validated (OKLab CVD adjacency) in both themes. */
   var KIND_COLORS = {
-    retrieval: "#4a3aa7", tool_selection: "#1baf7a", tool_execution: "#2a78d6",
-    planning: "#eda100", reasoning: "#e87ba4", stopping: "#e34948"
+    retrieval: "#6a45c4", tool_selection: "#1899bb", tool_execution: "#9c2f7f",
+    planning: "#b07c00", reasoning: "#d5568c", stopping: "#6f7d1a"
   };
   var KIND_COLORS_DARK = {
-    retrieval: "#9085e9", tool_selection: "#199e70", tool_execution: "#5b9bdd",
-    planning: "#c98500", reasoning: "#d55181", stopping: "#e66767"
+    retrieval: "#8f79e0", tool_selection: "#2aa5c2", tool_execution: "#b23392",
+    planning: "#b5831a", reasoning: "#cf5688", stopping: "#7f8f2a"
   };
   var TYPE_COLORS = {
-    plan: "#eda100", search: "#2a78d6", retrieve: "#4a3aa7", read: "#1baf7a",
-    tool_call: "#e87ba4", reason: "#898781", answer: "#008300"
+    plan: "#b07c00", search: "#1899bb", retrieve: "#6a45c4", read: "#96562b",
+    tool_call: "#9c2f7f", reason: "#898781", answer: "#008300"
   };
   var TYPE_COLORS_DARK = {
-    plan: "#c98500", search: "#3987e5", retrieve: "#9085e9", read: "#199e70",
-    tool_call: "#d55181", reason: "#8f8e88", answer: "#0ca30c"
+    plan: "#b5831a", search: "#2aa5c2", retrieve: "#8f79e0", read: "#b06336",
+    tool_call: "#b23392", reason: "#8f8e88", answer: "#0ca30c"
+  };
+  /* identity colors: one hue per model family, per-agent hue/lightness steps */
+  var FAMILY_HUES = {
+    "gpt-5": [196, 62, 33], "gpt-5-mini": [173, 52, 34],
+    "claude-sonnet-5": [24, 70, 42], "claude-opus-5": [18, 78, 35],
+    "gemini-3-pro": [244, 55, 55], "gemini-3-flash": [270, 48, 55],
+    "mistral-large-3": [335, 52, 45], "llama-4-70b": [84, 58, 32]
   };
 
   function isDark() {
@@ -684,6 +1071,49 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   function typeColor(type) {
     var m = isDark() ? TYPE_COLORS_DARK : TYPE_COLORS;
     return m[type] || "#898781";
+  }
+
+  /* ---- per-agent identity color (fleet mode): family hue + per-agent step ---- */
+  function hashStr(s) {
+    var h = 0;
+    for (var i = 0; i < s.length; i++) { h = ((h << 5) - h + s.charCodeAt(i)) | 0; }
+    return Math.abs(h);
+  }
+  var familyIdx = null; /* model -> {name -> step index} */
+  function buildFamilyIdx() {
+    familyIdx = {};
+    fleetAgents().forEach(function (a) {
+      var m = a.model || "?";
+      if (!familyIdx[m]) familyIdx[m] = { n: 0, byName: {} };
+      if (familyIdx[m].byName[a.name] == null) familyIdx[m].byName[a.name] = familyIdx[m].n++;
+    });
+  }
+  function agentColor(name, model) {
+    if (name == null) return isDark() ? "#8f8e88" : "#898781";
+    if (!familyIdx) buildFamilyIdx();
+    var base = FAMILY_HUES[model];
+    var step = 0;
+    if (base && familyIdx[model] && familyIdx[model].byName[name] != null) {
+      step = familyIdx[model].byName[name];
+    } else if (!base) {
+      base = [hashStr(String(model || name)) % 360, 42, 40];
+      step = hashStr(String(name)) % 3;
+    }
+    var h = (base[0] + step * 14) % 360;
+    var s = base[1];
+    var l = base[2] + (step % 3) * 5;
+    if (isDark()) { l = Math.min(74, l + 22); }
+    else { l = Math.max(28, Math.min(48, l)); }
+    return "hsl(" + h + "," + s + "%," + l + "%)";
+  }
+  function agentColorOf(ag) { return agentColor(ag && ag.name, ag && ag.model); }
+  function tintOf(color, alpha) {
+    /* hsl(...) or #hex -> hsla/rgba tint */
+    if (/^hsl\(/.test(color)) return color.replace(/^hsl\(/, "hsla(").replace(/\)$/, "," + alpha + ")");
+    var m = /^#([0-9a-f]{6})$/i.exec(color);
+    if (!m) return color;
+    var v = parseInt(m[1], 16);
+    return "rgba(" + (v >> 16) + "," + ((v >> 8) & 255) + "," + (v & 255) + "," + alpha + ")";
   }
 
   /* ---------------- helpers ---------------- */
@@ -744,8 +1174,39 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   /* ---------------- data access ---------------- */
   function reports() { return (state.data && Array.isArray(state.data.reports)) ? state.data.reports : []; }
   function aggregate() { return (state.data && state.data.aggregate && typeof state.data.aggregate === "object") ? state.data.aggregate : {}; }
+  function fleet() {
+    var f = state.data && state.data.fleet;
+    return (f && typeof f === "object" && Array.isArray(f.agents) && f.agents.length) ? f : null;
+  }
+  function fleetMode() { return !!fleet(); }
+  function fleetAgents() { var f = fleet(); return f ? f.agents.filter(Boolean) : []; }
+  function fleetTasks() {
+    var f = fleet();
+    if (f && Array.isArray(f.tasks) && f.tasks.length) return f.tasks.filter(Boolean);
+    /* fall back to union of per_task keys */
+    var seen = {}, out = [];
+    fleetAgents().forEach(function (a) {
+      Object.keys(a.per_task || {}).forEach(function (t) {
+        if (!seen[t]) { seen[t] = 1; out.push({ id: t, prompt: "" }); }
+      });
+    });
+    return out;
+  }
+  function fleetAgent(name) {
+    var ags = fleetAgents();
+    for (var i = 0; i < ags.length; i++) if (ags[i].name === name) return ags[i];
+    return null;
+  }
+  function curReport() { return reports()[state.idx] || null; }
 
   function agentOf(side) {
+    /* fleet mode: agents differ per report — always read the open report */
+    if (fleetMode()) {
+      var cr = curReport();
+      var cag = cr && get(cr, [side, "agent"]);
+      if (cag && (cag.name || cag.model)) return cag;
+      return { name: side === "a" ? "agent A" : "agent B" };
+    }
     var rs = reports();
     for (var i = 0; i < rs.length; i++) {
       var ag = get(rs[i], [side, "agent"]);
@@ -846,6 +1307,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         op: al.op || "match",
         aIdx: aIdx, bIdx: bIdx,
         similarity: num(al.similarity),
+        toolDiff: (al.tool_diff && typeof al.tool_diff === "object") ? al.tool_diff : null,
         aStep: aIdx == null ? null : stepAt(r, "a", aIdx),
         bStep: bIdx == null ? null : stepAt(r, "b", bIdx)
       };
@@ -878,6 +1340,22 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   /* ---------------- header ---------------- */
   function renderHeader() {
     var el = document.getElementById("hdr-agents");
+    if (fleetMode()) {
+      if (state.view === "cmp" && curReport()) {
+        var fa = agentOf("a"), fb = agentOf("b");
+        el.innerHTML =
+          '<span class="agent-chip"><span class="dot" style="background:' + agentColorOf(fa) + '"></span><strong>' + esc(fa.name || "agent A") + "</strong>" +
+          (fa.model ? '<span class="model">' + esc(fa.model) + "</span>" : "") + "</span>" +
+          '<span class="vs">vs</span>' +
+          '<span class="agent-chip"><span class="dot" style="background:' + agentColorOf(fb) + '"></span><strong>' + esc(fb.name || "agent B") + "</strong>" +
+          (fb.model ? '<span class="model">' + esc(fb.model) + "</span>" : "") + "</span>";
+      } else {
+        var nP = fleetAgents().filter(function (a2) { return a2.pareto === true; }).length;
+        el.innerHTML = '<span class="agent-chip"><strong>' + fleetAgents().length + " agents</strong>" +
+          '<span class="model">' + fleetTasks().length + " tasks · " + nP + " on Pareto frontier</span></span>";
+      }
+      return;
+    }
     if (!reports().length && !Object.keys(aggregate()).length) { el.innerHTML = ""; return; }
     var a = agentOf("a"), b = agentOf("b");
     el.innerHTML =
@@ -900,8 +1378,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     return '<span class="delta ' + cls + '" title="' + esc(agentName("b")) + " vs " + esc(agentName("a")) + '">' +
       esc(txt) + (unit ? " " + esc(unit) : "") + " · " + word + "</span>";
   }
-  function tile(label, aVal, bVal, fmt, lowerBetter, unit) {
-    return '<div class="tile">' +
+  function tile(label, aVal, bVal, fmt, lowerBetter, unit, titleAttr) {
+    return '<div class="tile"' + (titleAttr ? ' title="' + esc(titleAttr) + '"' : "") + ">" +
       '<div class="t-label">' + esc(label) + "</div>" +
       '<div class="t-rows">' +
         '<div class="t-row"><span class="dot a"></span><span class="t-val">' + esc(fmt(aVal)) + '</span><span class="t-who">' + esc(agentName("a")) + "</span></div>" +
@@ -914,7 +1392,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   function renderScoreboard() {
     document.getElementById("tiles").innerHTML =
       tile("Success rate", aggSuccess("a"), aggSuccess("b"), fmtPct, false, "pts") +
-      tile("Mean tokens / task", aggMetric("a", "tokens"), aggMetric("b", "tokens"), fmtTok, true, "tok") +
+      tile("Mean tokens / task", aggMetric("a", "tokens"), aggMetric("b", "tokens"), fmtTok, true, "tok", "input + output tokens") +
       tile("Mean cost / task", aggMetric("a", "cost_usd"), aggMetric("b", "cost_usd"), fmtCost, true, "") +
       tile("Mean latency / task", aggMetric("a", "latency_s"), aggMetric("b", "latency_s"), fmtLat, true, "") +
       tile("Mean steps / task", aggMetric("a", "steps"), aggMetric("b", "steps"), fmt1, true, "steps") +
@@ -938,7 +1416,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     el.innerHTML = entries.map(function (e) {
       return '<div class="bar-row">' +
         '<span class="b-name" title="' + esc(kindLabel(e.k)) + '">' + esc(kindLabel(e.k)) + "</span>" +
-        '<span class="b-track"><span class="b-fill" style="width:' + (e.v / max * 100).toFixed(1) + '%"></span></span>' +
+        '<span class="b-track"><span class="b-fill" style="width:' + (e.v / max * 100).toFixed(1) + "%;background:" + kindColor(e.k) + '"></span></span>' +
         '<span class="b-pct">' + fmtPct(e.v) + "</span>" +
         "</div>";
     }).join("");
@@ -995,7 +1473,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     var el = document.getElementById("task-table");
     var rs = reports();
     document.getElementById("task-count").textContent = "(" + rs.length + ")";
-    var head = '<div class="task-head"><span>Task</span><span>Outcome</span><span>First divergence</span><span title="Cumulative tokens per aligned row; amber = gap after first divergence">Detour</span><span style="text-align:right">Δ tokens (B−A)</span></div>';
+    var head = '<div class="task-head"><span>Task</span><span>Outcome</span><span>First divergence</span><span title="Cumulative tokens per aligned row; amber = gap after first divergence">Detour</span><span style="text-align:right">Δ tokens (B−A)</span><span></span></div>';
     el.innerHTML = head + rs.map(function (r, i) {
       var d = firstDivergence(r);
       var kind = d && d.kind ? d.kind : null;
@@ -1009,8 +1487,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         "<span>" + (kind
           ? '<span class="kind-badge"><span class="kdot" style="background:' + kindColor(kind) + '"></span>' + esc(kindLabel(kind)) + "</span>"
           : '<span class="none-note">none</span>') + "</span>" +
-        "<span>" + sparkSvg(r) + "</span>" +
+        '<span class="spark-cell">' + sparkSvg(r) + "</span>" +
         '<span class="mini-delta ' + dcls + '">' + (dt === null ? "—" : esc(signed(fmtTok(Math.abs(dt)), dt))) + "</span>" +
+        '<span class="row-chev">open diff →</span>' +
         "</button>";
     }).join("");
     Array.prototype.forEach.call(el.querySelectorAll(".task-row"), function (row) {
@@ -1061,7 +1540,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       var anchorEnd = fx + 116 > W;
       flag =
         '<line x1="' + fx + '" y1="20" x2="' + fx + '" y2="' + (H - 10) + '" style="stroke:var(--warn-line)" stroke-width="1.5" stroke-dasharray="3 4"></line>' +
-        '<text x="' + (fx + (anchorEnd ? -7 : 7)) + '" y="15" font-size="10" font-weight="700" style="fill:var(--warn);text-transform:uppercase" text-anchor="' + (anchorEnd ? "end" : "start") + '">⚑ first divergence</text>';
+        '<g class="sw-flagbtn" role="button" tabindex="0" style="cursor:pointer">' +
+        '<title>Jump to the divergence panel</title>' +
+        '<text x="' + (fx + (anchorEnd ? -7 : 7)) + '" y="15" font-size="10" font-weight="700" style="fill:var(--warn);text-transform:uppercase" text-anchor="' + (anchorEnd ? "end" : "start") + '">⚑ first divergence</text></g>';
     }
     function nodes(side, pts) {
       var out = "";
@@ -1099,8 +1580,18 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       nodes("a", pa) + nodes("b", pb) +
       "</svg>";
   }
+  function scrollToDivergence() {
+    var el = document.querySelector("#tl .wh-panel");
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.remove("flash");
+    void el.offsetWidth;
+    el.classList.add("flash");
+  }
   function bindSubway(container) {
     container.addEventListener("click", function (e) {
+      var fb = e.target.closest ? e.target.closest(".sw-flagbtn") : null;
+      if (fb) { scrollToDivergence(); return; }
       var g = e.target.closest ? e.target.closest(".sw-node") : null;
       if (!g) return;
       var stepId = g.getAttribute("data-step");
@@ -1216,7 +1707,25 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   }
 
   /* ---------------- what-happened panel ---------------- */
-  function impactChips(d, prefixLabel) {
+  /* U2: side blamed for a fatal divergence — downstream.failed_agent when the
+     engine provides it, else the report-level attribution; never the merely-
+     heavier side. */
+  function divFailSide(r, d) {
+    var fa = get(d, ["downstream", "failed_agent"]);
+    if (fa === "a" || fa === "b") return fa;
+    if (get(d, ["downstream", "caused_failure"])) {
+      var att = (r && r.attribution) || {};
+      if (att.failed_agent === "a" || att.failed_agent === "b") return att.failed_agent;
+    }
+    return null;
+  }
+  /* U6: no per-step cost exists — derive $ from tokens via the report totals' cost/token ratio */
+  function costPerToken(r) {
+    var cost = (num(get(r, ["a", "totals", "cost_usd"])) || 0) + (num(get(r, ["b", "totals", "cost_usd"])) || 0);
+    var tok = (num(trajTokens(r, "a")) || 0) + (num(trajTokens(r, "b")) || 0);
+    return tok > 0 && cost > 0 ? cost / tok : null;
+  }
+  function impactChips(r, d, prefixLabel) {
     var dn = d.downstream || {};
     function pick(base) {
       if (num(dn[base + "_b"]) !== null) return { v: num(dn[base + "_b"]), side: "b" };
@@ -1229,8 +1738,16 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     if (es && es.v !== 0) chips.push(signed(fmtInt(Math.abs(es.v)) + " steps", es.v));
     if (et && et.v !== 0) chips.push(signed(fmtTok(Math.abs(et.v)) + " tokens", et.v));
     if (el && el.v !== 0) chips.push(signed(fmtLat(Math.abs(el.v)), el.v));
+    var cpt = et && r ? costPerToken(r) : null;
+    if (et && et.v !== 0 && cpt !== null) {
+      var xc = et.v * cpt;
+      if (Math.abs(xc) >= 0.00005) chips.push(signed("~" + fmtCost(Math.abs(xc)), xc));
+    }
     var html = chips.map(function (c) { return '<span class="imp-chip">' + esc(c) + "</span>"; }).join("");
-    if (dn.caused_failure) html += '<span class="imp-chip fail">caused failure</span>';
+    if (dn.caused_failure) {
+      var fs = divFailSide(r, d);
+      html += '<span class="imp-chip fail">✗ caused ' + (fs ? esc(agentName(fs)) + "’s " : "") + "failure</span>";
+    }
     if (!html) return "";
     var label = prefixLabel == null ? "impact on " + esc(agentName(side)) + ":" : esc(prefixLabel);
     return '<span class="impact">' + (label ? '<span class="imp-k">' + label + "</span>" : "") + html + "</span>";
@@ -1243,7 +1760,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   function whPanel(r, d, ordinal, rows, rowIdx) {
     var att = r.attribution || {};
     var fatal = !!get(d, ["downstream", "caused_failure"]);
-    var failSide = att.failed_agent === "a" ? "a" : att.failed_agent === "b" ? "b" : null;
+    /* U2: blame side comes from downstream.failed_agent (fallback: attribution) */
+    var failSide = fatal ? divFailSide(r, d)
+      : (att.failed_agent === "a" ? "a" : att.failed_agent === "b" ? "b" : null);
     var aStep = d.a_index != null ? stepAt(r, "a", d.a_index) : null;
     var bStep = d.b_index != null ? stepAt(r, "b", d.b_index) : null;
 
@@ -1275,19 +1794,25 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       } else {
         inner = '<div class="wh-ghost">' + esc(proceededText(side)) + "</div>";
       }
-      return '<div class="wh-col side-' + side + '"><div class="wh-col-h"><span class="dot ' + side + '"></span>' +
-        esc(name) + ' <span class="did">did</span></div>' + inner + "</div>";
+      var isFail = fatal && failSide === side;
+      return '<div class="wh-col side-' + side + (isFail ? " fail-col" : "") + '"><div class="wh-col-h"><span class="dot ' + side + '"></span>' +
+        esc(name) + ' <span class="did">did</span>' +
+        (isFail ? '<span class="fail-tag">✗ caused failure</span>' : "") +
+        "</div>" + inner + "</div>";
     }
     var whyStep = failSide === "a" ? aStep : failSide === "b" ? bStep : null;
     var why = (whyStep && whyStep.note) || (bStep && bStep.note) || (aStep && aStep.note) || null;
     var verdict;
     if (fatal) {
+      /* U2: root-cause framing is named after the failing agent; the panel
+         headline (wh-sum above) is the engine summary */
       var root = firstSentence(att.explanation) || d.summary || "This divergence caused the failure.";
-      verdict = '<div class="wh-verdict fatal"><span class="wh-v-label">Root cause</span>' +
-        '<span class="wh-v-text">' + esc(root) + "</span>" + impactChips(d, null) + "</div>";
+      verdict = '<div class="wh-verdict fatal"><span class="wh-v-label">Root cause' +
+        (failSide ? " — " + esc(agentName(failSide)) : "") + "</span>" +
+        '<span class="wh-v-text">' + esc(root) + "</span>" + impactChips(r, d, null) + "</div>";
     } else {
       verdict = '<div class="wh-verdict"><span class="wh-v-label">Cost of this detour</span>' +
-        (impactChips(d, "") || '<span class="none-note">negligible</span>') + "</div>";
+        (impactChips(r, d, "") || '<span class="none-note">negligible</span>') + "</div>";
     }
     return '<div class="wh-panel' + (fatal ? " fatal" : "") + '">' +
       '<div class="wh-head">' +
@@ -1373,23 +1898,100 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       }
       var midY = (y1 + y2) / 2;
       var lx = side === "b" ? x + 11 : x - 11;
-      parts.push('<text x="' + lx + '" y="' + midY + '" font-size="10" font-weight="700" letter-spacing="1.5" style="fill:var(--bad)" text-anchor="middle" transform="rotate(' + (side === "b" ? 90 : -90) + " " + lx + " " + midY + ')">PROPAGATION</text>');
+      parts.push('<text x="' + lx + '" y="' + midY + '" font-size="10" font-weight="700" letter-spacing="1.5" style="fill:var(--bad);pointer-events:auto;cursor:help" text-anchor="middle" transform="rotate(' + (side === "b" ? 90 : -90) + " " + lx + " " + midY + ')">PROPAGATION<title>error propagation path — the chain of steps the root cause corrupted</title></text>');
       tl.insertAdjacentHTML("beforeend",
         '<svg class="rail-svg" width="' + tl.clientWidth + '" height="' + tl.scrollHeight + '" aria-hidden="true">' + parts.join("") + "</svg>");
     });
   }
 
+  /* ---------------- tool-call diff ---------------- */
+  function tdVal(v) {
+    if (v == null) return "";
+    return typeof v === "string" ? v : JSON.stringify(v);
+  }
+  function toolDiffBlock(td) {
+    if (!td || typeof td !== "object") return "";
+    if (td.identical) return '<div class="td-same-tag" title="both agents called this tool with identical arguments">args identical ✓</div>';
+    var sameTool = td.same_tool !== false && !(td.name_a && td.name_b && td.name_a !== td.name_b);
+    var head = sameTool
+      ? '<span class="td-tool">' + esc(td.name_a || td.name_b || "tool") + "</span>"
+      : '<span class="td-tool differ">' + esc(td.name_a || "?") + " ≠ " + esc(td.name_b || "?") + "</span>" +
+        '<span class="td-only" style="font-family:var(--sans);font-size:10.5px">different tool chosen</span>';
+    var body = [];
+    var changed = Array.isArray(td.changed) ? td.changed.filter(Boolean) : [];
+    changed.forEach(function (c) {
+      body.push('<div class="td-row"><span class="td-key">' + esc(c.key) + "</span>" +
+        '<span class="td-vals"><span class="td-del">' + esc(tdVal(c.a)) + "</span> → " +
+        '<span class="td-ins">' + esc(tdVal(c.b)) + "</span></span></div>");
+    });
+    function onlyRow(keys, args, sideLabel, cls) {
+      keys = Array.isArray(keys) ? keys.filter(Boolean) : [];
+      if (!keys.length) return;
+      var parts = keys.map(function (k) {
+        var v = args && args[k] != null ? "=" + tdVal(args[k]) : "";
+        return '<span class="' + cls + '">' + esc(k + v) + "</span>";
+      });
+      body.push('<div class="td-row td-only"><span class="td-key side-k">only in ' + sideLabel + "</span>" +
+        '<span class="td-vals">' + parts.join(" ") + "</span></div>");
+    }
+    onlyRow(td.only_a, td.args_a, "A", "td-del");
+    onlyRow(td.only_b, td.args_b, "B", "td-ins");
+    if (!body.length && Array.isArray(td.raw_diff) && td.raw_diff.length) {
+      var spans = td.raw_diff.map(function (op) {
+        if (!Array.isArray(op) || op.length < 2) return "";
+        var cls2 = op[0] === "del" ? "td-del" : op[0] === "ins" ? "td-ins" : "";
+        return cls2 ? '<span class="' + cls2 + '">' + esc(op[1]) + "</span>" : esc(op[1]);
+      }).join("");
+      body.push('<div class="td-raw">' + spans + "</div>");
+    }
+    if (!body.length) body.push('<div class="td-only">arguments differ (no parseable detail)</div>');
+    return '<div class="tool-diff"><div class="td-head"><span class="td-label">TOOL DIFF</span>' +
+      head + "</div>" + '<div class="td-body">' + body.join("") + "</div></div>";
+  }
+
   /* ---------------- compare view ---------------- */
   var currentRedraw = null;
+  function cmpList() {
+    /* the report indices ←/→ moves across: pair reports in fleet mode, all in duo */
+    if (fleetMode() && state.pair && Array.isArray(state.pair.list) && state.pair.list.length) {
+      return state.pair.list;
+    }
+    return reports().map(function (_r, i) { return i; });
+  }
   function renderCompare() {
     var rs = reports();
     var r = rs[state.idx];
     if (!r) return;
-    document.getElementById("cmp-pos").textContent = (state.idx + 1) + " / " + rs.length;
-    document.getElementById("btn-prev").disabled = state.idx === 0;
-    document.getElementById("btn-next").disabled = state.idx >= rs.length - 1;
+    var list = cmpList();
+    var pos = list.indexOf(state.idx);
+    if (pos < 0) { list = [state.idx]; pos = 0; }
+    var inFleet = fleetMode();
+
+    /* fleet mode: this pair's identity colors drive the whole compare view */
+    var cmpEl = document.getElementById("view-cmp");
+    if (inFleet) {
+      var aAg = get(r, ["a", "agent"]) || {}, bAg = get(r, ["b", "agent"]) || {};
+      var ca = agentColorOf(aAg), cb = agentColorOf(bAg);
+      cmpEl.style.setProperty("--agent-a", ca);
+      cmpEl.style.setProperty("--agent-b", cb);
+      cmpEl.style.setProperty("--agent-a-tint", tintOf(ca, 0.11));
+      cmpEl.style.setProperty("--agent-b-tint", tintOf(cb, 0.11));
+    } else {
+      cmpEl.style.removeProperty("--agent-a");
+      cmpEl.style.removeProperty("--agent-b");
+      cmpEl.style.removeProperty("--agent-a-tint");
+      cmpEl.style.removeProperty("--agent-b-tint");
+    }
+    renderHeader();
+
+    document.getElementById("btn-back").textContent = inFleet ? "← Fleet dashboard" : "← All tasks";
+    document.getElementById("cmp-pos").textContent = (pos + 1) + " / " + list.length +
+      (inFleet && state.pair ? " in pair" : "");
+    document.getElementById("btn-prev").disabled = pos === 0;
+    document.getElementById("btn-next").disabled = pos >= list.length - 1;
     document.getElementById("cmp-title").innerHTML =
-      '<div class="tid">' + esc(get(r, ["task", "id"]) || "task " + (state.idx + 1)) + "</div>" +
+      '<div class="tid">' + esc(get(r, ["task", "id"]) || "task " + (state.idx + 1)) +
+      (inFleet && state.pair && state.pair.label ? " · " + esc(state.pair.label) : "") + "</div>" +
       "<h1>" + esc(get(r, ["task", "prompt"]) || "(no prompt)") + "</h1>";
 
     /* per-task metric strip */
@@ -1425,6 +2027,45 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     var failSide = att.failed_agent === "a" ? "a" : att.failed_agent === "b" ? "b" : null;
     var chainSet = {};
     (Array.isArray(att.chain) ? att.chain : []).forEach(function (ix) { chainSet[ix] = true; });
+
+    /* U3/U6: sticky strip — task, outcomes, jump buttons, pair switcher */
+    var stripBits = [];
+    stripBits.push('<span class="st-task"><span class="tid">' + esc(get(r, ["task", "id"]) || "task") + "</span>" +
+      esc(get(r, ["task", "prompt"]) || "") + "</span>");
+    stripBits.push('<span class="st-agents"><span class="dot a"></span><span class="nm">' + esc(agentName("a")) + "</span>" + ocChip(r, "a") + "</span>");
+    stripBits.push('<span class="st-agents"><span class="dot b"></span><span class="nm">' + esc(agentName("b")) + "</span>" + ocChip(r, "b") + "</span>");
+    if (divs.length) {
+      stripBits.push('<button class="strip-btn div-jump" id="st-div" type="button">⚑ jump to divergence</button>');
+    } else {
+      stripBits.push('<span class="aligned-chip" title="every aligned step-pair matched">✓ fully aligned — no divergence</span>');
+    }
+    if (att.explanation || att.category || divs.length) {
+      stripBits.push('<button class="strip-btn" id="st-verdict" type="button">▼ verdict</button>');
+    }
+    if (inFleet && state.pair && list.length > 1) {
+      stripBits.push('<span class="pair-switch"><span class="ps-k">tasks in pair</span>' +
+        list.map(function (ri, i) {
+          var rr = rs[ri];
+          return '<button type="button" data-cmp-pos="' + i + '" aria-pressed="' + (i === pos ? "true" : "false") + '">' +
+            esc(shortId(get(rr, ["task", "id"]) || "r" + (ri + 1))) + "</button>";
+        }).join("") + "</span>");
+    }
+    var stripEl = document.getElementById("strip-main");
+    stripEl.innerHTML = stripBits.join("");
+    var stDiv = document.getElementById("st-div");
+    if (stDiv) stDiv.addEventListener("click", scrollToDivergence);
+    var stVer = document.getElementById("st-verdict");
+    if (stVer) stVer.addEventListener("click", function () {
+      var v = document.getElementById("verdict-slot");
+      if (v) v.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    Array.prototype.forEach.call(stripEl.querySelectorAll("[data-cmp-pos]"), function (btn) {
+      btn.addEventListener("click", function () {
+        var p = parseInt(btn.getAttribute("data-cmp-pos"), 10);
+        var l = cmpList();
+        if (l[p] != null) openCompare(l[p]);
+      });
+    });
 
     /* viz strip: subway + fan */
     var viz = document.getElementById("cmp-viz");
@@ -1496,14 +2137,18 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         bCard = stepCard(row.bStep, "b", extraFor("b", row.bStep), tagFor("b", row.bStep));
         gut = '<div class="conn' + (drift ? " drift" : "") + '"></div>' +
           (drift && row.similarity !== null
-            ? '<span class="conn-sim">' + Math.round(row.similarity * 100) + "%</span>" : "");
+            ? '<span class="conn-sim">' + Math.round(row.similarity * 100) + "% similar</span>" : "");
       }
       html += '<div class="tl-row">' +
         "<div>" + aCard + "</div>" +
         '<div class="gutter">' + gut + "</div>" +
         "<div>" + bCard + "</div>" +
+        (row.toolDiff ? toolDiffBlock(row.toolDiff) : "") +
         "</div>";
     });
+    if (!divs.length && rows.length) {
+      html += '<div class="aligned-note">✓ Fully aligned — both agents took the same path on this task; no divergence to explain.</div>';
+    }
     document.getElementById("tl").innerHTML = html;
 
     /* verdict */
@@ -1746,7 +2391,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     }
     leg.innerHTML =
       '<span class="lg">' + sw(opFill.match, 0.9) + "match</span>" +
-      '<span class="lg">' + sw(opFill.drift, 0.9) + "drift</span>" +
+      '<span class="lg" title="same position, different content">' + sw(opFill.drift, 0.9) + "drift (same position, different content)</span>" +
       '<span class="lg">' + sw(opFill.a_only, 0.55) + esc(agentName("a")) + " only</span>" +
       '<span class="lg">' + sw(opFill.b_only, 0.55) + esc(agentName("b")) + " only</span>" +
       '<span class="lg">⚑ first divergence</span>';
@@ -2020,11 +2665,853 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     });
   }
 
+  /* ================= fleet dashboard ================= */
+  var DIMS = ["success", "cost", "latency", "tool_discipline", "step_economy"];
+  var DIM_LABELS = {
+    success: "success", cost: "cost", latency: "latency",
+    tool_discipline: "tool discipline", step_economy: "step economy"
+  };
+  function dimColor(d) {
+    switch (d) {
+      case "success": return cssVar("--good");
+      case "cost": return kindColor("planning");
+      case "latency": return kindColor("tool_selection");
+      case "tool_discipline": return kindColor("tool_execution");
+      case "step_economy": return kindColor("retrieval");
+    }
+    return cssVar("--muted");
+  }
+  function defaultWeights() {
+    var w = get(fleet(), ["scoring", "weights"]) || {};
+    var out = {};
+    DIMS.forEach(function (d) {
+      var v = num(w[d]);
+      out[d] = v === null ? 0.2 : v;
+    });
+    return out;
+  }
+  function curWeights() {
+    if (!state.weights) state.weights = defaultWeights();
+    return state.weights;
+  }
+  function weightsEdited() {
+    var d = defaultWeights(), w = curWeights();
+    return DIMS.some(function (k) { return Math.abs((w[k] || 0) - (d[k] || 0)) > 1e-6; });
+  }
+  function compositeOf(a, w) {
+    var ds = a.dimension_scores || {};
+    var sum = 0, wsum = 0;
+    DIMS.forEach(function (k) {
+      var wv = num(w[k]) || 0;
+      var dv = num(ds[k]);
+      if (dv === null) dv = 0;
+      sum += wv * dv; wsum += wv;
+    });
+    return wsum > 0 ? sum / wsum : 0;
+  }
+  function rankedAgents(w) {
+    var list = fleetAgents().slice();
+    list.forEach(function (a) { a._score = compositeOf(a, w); });
+    list.sort(function (x, y) { return y._score - x._score || String(x.name).localeCompare(String(y.name)); });
+    list.forEach(function (a, i) { a._rank = i + 1; });
+    return list;
+  }
+  function wilson(p, n) {
+    p = num(p); if (p === null || !n) return null;
+    var z = 1.96, z2 = z * z;
+    var denom = 1 + z2 / n;
+    var center = (p + z2 / (2 * n)) / denom;
+    var half = z * Math.sqrt(p * (1 - p) / n + z2 / (4 * n * n)) / denom;
+    return { lo: Math.max(0, center - half), hi: Math.min(1, center + half) };
+  }
+  function ciOverlap(a, b, n) {
+    var ca = wilson(get(a, ["metrics", "success_rate"]), n);
+    var cb = wilson(get(b, ["metrics", "success_rate"]), n);
+    if (!ca || !cb) return false;
+    return ca.lo <= cb.hi && cb.lo <= ca.hi;
+  }
+  function mulberry32(seed) {
+    var t0 = seed >>> 0;
+    return function () {
+      t0 = (t0 + 0x6D2B79F5) | 0;
+      var t = Math.imul(t0 ^ (t0 >>> 15), 1 | t0);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  /* rank range per agent under ±20% weight perturbation — seeded, deterministic.
+     Works on local copies so it never disturbs the displayed _score/_rank. */
+  function stabilityRanges(w) {
+    var rng = mulberry32(0x5eed42);
+    var ags = fleetAgents();
+    var ranges = {};
+    ags.forEach(function (a) { ranges[a.name] = [Infinity, -Infinity]; });
+    for (var s = 0; s < 50; s++) {
+      var w2 = {};
+      DIMS.forEach(function (k) { w2[k] = (num(w[k]) || 0) * (0.8 + 0.4 * rng()); });
+      var scored = ags.map(function (a) { return { name: a.name, s: compositeOf(a, w2) }; });
+      scored.sort(function (x, y) { return y.s - x.s || String(x.name).localeCompare(String(y.name)); });
+      scored.forEach(function (e, i) {
+        var r = ranges[e.name];
+        var rk = i + 1;
+        if (rk < r[0]) r[0] = rk;
+        if (rk > r[1]) r[1] = rk;
+      });
+    }
+    return ranges;
+  }
+  function taskShort(id) {
+    id = String(id == null ? "" : id);
+    var m = /^(t?\d+)/.exec(id);
+    return m ? m[1] : shortId(id);
+  }
+  function fpCounts(a, nTasks) {
+    var fp = a.failure_fingerprint || {};
+    var sr = num(get(a, ["metrics", "success_rate"]));
+    var nf = sr === null ? 0 : Math.round((1 - sr) * nTasks);
+    return Object.keys(fp).map(function (k) {
+      var share = num(fp[k]) || 0;
+      return { kind: k, share: share, count: Math.round(share * nf) };
+    }).sort(function (x, y) { return y.share - x.share; });
+  }
+  function reportsForAgents(x, y) {
+    var out = [];
+    reports().forEach(function (r, i) {
+      var an = get(r, ["a", "agent", "name"]), bn = get(r, ["b", "agent", "name"]);
+      if ((an === x && bn === y) || (an === y && bn === x)) out.push(i);
+    });
+    return out;
+  }
+  function spotPairs() {
+    var f = fleet();
+    var raw = (f && Array.isArray(f.spotlight_pairs)) ? f.spotlight_pairs.filter(Boolean) : [];
+    var nr = reports().length;
+    return raw.map(function (p) {
+      var list = (Array.isArray(p.report_indices) ? p.report_indices : [])
+        .filter(function (i) { return num(i) !== null && i >= 0 && i < nr; });
+      if (!list.length) list = reportsForAgents(p.a, p.b);
+      return { a: p.a, b: p.b, why: p.why || "", list: list, label: (p.a || "?") + " vs " + (p.b || "?") };
+    }).filter(function (p) { return p.list.length; });
+  }
+  function pairForReport(idx) {
+    var ps = spotPairs();
+    for (var i = 0; i < ps.length; i++) {
+      if (ps[i].list.indexOf(idx) >= 0) return ps[i];
+    }
+    return null;
+  }
+  /* same name-prefix, different -vN suffix → version pairs (lowest vs highest) */
+  function versionPairs() {
+    var groups = {};
+    fleetAgents().forEach(function (a) {
+      var m = /^(.*)-v(\d+)$/.exec(String(a.name || ""));
+      if (!m) return;
+      (groups[m[1]] = groups[m[1]] || []).push({ agent: a, v: parseInt(m[2], 10) });
+    });
+    var out = [];
+    Object.keys(groups).sort().forEach(function (pre) {
+      var g = groups[pre];
+      if (g.length < 2) return;
+      g.sort(function (x, y) { return x.v - y.v; });
+      out.push({ prefix: pre, older: g[0].agent, newer: g[g.length - 1].agent,
+                 olderV: "v" + g[0].v, newerV: "v" + g[g.length - 1].v });
+    });
+    return out;
+  }
+
+  var fleetBound = false;
+  function bindFleet() {
+    if (fleetBound) return;
+    fleetBound = true;
+    var root = document.getElementById("view-fleet");
+
+    /* tabs */
+    document.getElementById("fleet-tabs").addEventListener("click", function (e) {
+      var b = e.target.closest ? e.target.closest("button[data-tab]") : null;
+      if (!b) return;
+      state.fleetTab = b.getAttribute("data-tab");
+      renderFleet();
+    });
+
+    /* cross-view agent hover highlight */
+    root.addEventListener("mouseover", function (e) {
+      var el = e.target.closest ? e.target.closest("[data-agent]") : null;
+      if (!el) return;
+      var name = el.getAttribute("data-agent");
+      Array.prototype.forEach.call(root.querySelectorAll("[data-agent]"), function (n) {
+        var on = n.getAttribute("data-agent") === name;
+        if (n.classList) n.classList.toggle("hot", on);
+      });
+    });
+    root.addEventListener("mouseout", function (e) {
+      if (e.target.closest && e.target.closest("[data-agent]")) {
+        Array.prototype.forEach.call(root.querySelectorAll("[data-agent].hot"), function (n) {
+          n.classList.remove("hot");
+        });
+      }
+    });
+
+    /* generic data-tip tooltips */
+    root.addEventListener("mouseover", function (e) {
+      var el = e.target.closest ? e.target.closest("[data-tip]") : null;
+      if (!el) return;
+      var rect = el.getBoundingClientRect();
+      showTip(el.getAttribute("data-tip"), rect.left + rect.width / 2, rect.top);
+    });
+    root.addEventListener("mouseout", function (e) {
+      if (e.target.closest && e.target.closest("[data-tip]")) hideTip();
+    });
+
+    /* matrix toggles */
+    document.getElementById("mx-cluster").addEventListener("change", function (e) {
+      state.mxCluster = !!e.target.checked; renderMatrix();
+    });
+    document.getElementById("mx-size").addEventListener("change", function (e) {
+      state.mxSize = !!e.target.checked; renderMatrix();
+    });
+
+    /* weights reset */
+    document.getElementById("w-reset").addEventListener("click", function () {
+      state.weights = defaultWeights();
+      renderWeightsPanel(); renderHero(); renderBoard(true);
+      if (state.fleetTab === "pareto") renderScatter();
+    });
+  }
+
+  /* ---------- hero ---------- */
+  function renderHero() {
+    var f = fleet();
+    var ags = rankedAgents(curWeights());
+    var nP = ags.filter(function (a) { return a.pareto === true; }).length;
+    var champ = ags[0];
+    var w = curWeights();
+    var pill =
+      '<button class="weights-pill" id="weights-pill" type="button" title="composite score weights — click to adjust">' +
+        "⚖ weights " +
+        '<span class="wv' + (weightsEdited() ? " edited" : "") + '">' +
+        DIMS.map(function (d) { return Math.round((num(w[d]) || 0) * 100); }).join("·") + "</span>" +
+        (weightsEdited() ? '<span class="wp-reset" id="pill-reset" role="button" title="reset to engine defaults">reset</span>' : "") +
+      "</button>";
+    document.getElementById("fh-counts").innerHTML =
+      "<span>" + ags.length + " agents</span><span>·</span><span>" + fleetTasks().length + " tasks</span><span>·</span>" +
+      '<span><span class="star">★</span> ' + nP + " on Pareto frontier</span>" + pill;
+    document.getElementById("fh-hero").innerHTML = champ
+      ? '<span class="champ" style="color:' + agentColorOf(champ) + '">#1 ' + esc(champ.name) + "</span> — " +
+        esc(champ.rationale || ("composite score " + (Math.round(champ._score * 100) / 100)))
+      : "No agents in fleet data.";
+    var wp = document.getElementById("weights-pill");
+    if (wp) wp.addEventListener("click", function (e) {
+      if (e.target && e.target.id === "pill-reset") {
+        e.stopPropagation();
+        state.weights = defaultWeights();
+        renderWeightsPanel(); renderHero(); renderBoard(true);
+        if (state.fleetTab === "pareto") renderScatter();
+        return;
+      }
+      state.wpanelOpen = !state.wpanelOpen;
+      renderWpanelVisibility();
+    });
+  }
+  function renderWpanelVisibility() {
+    document.getElementById("wpanel").classList.toggle("hidden", !state.wpanelOpen);
+    document.getElementById("fleet-body").classList.toggle("with-panel", state.wpanelOpen);
+  }
+
+  /* ---------- weights panel ---------- */
+  function renderWeightsPanel() {
+    var w = curWeights();
+    var el = document.getElementById("wrows");
+    el.innerHTML = DIMS.map(function (d) {
+      var v = Math.round((num(w[d]) || 0) * 100);
+      return '<div class="wrow"><label for="w-' + d + '">' + esc(DIM_LABELS[d]) + "</label>" +
+        '<input type="range" id="w-' + d + '" data-dim="' + d + '" min="0" max="100" step="5" value="' + v + '">' +
+        '<span class="wnum" id="wn-' + d + '">' + v + "%</span></div>";
+    }).join("");
+    Array.prototype.forEach.call(el.querySelectorAll("input[type=range]"), function (sl) {
+      sl.addEventListener("input", function () {
+        var d = sl.getAttribute("data-dim");
+        curWeights()[d] = parseInt(sl.value, 10) / 100;
+        document.getElementById("wn-" + d).textContent = sl.value + "%";
+        renderHero();
+        renderBoard(true);
+        clearTimeout(renderWeightsPanel._t);
+        renderWeightsPanel._t = setTimeout(function () {
+          if (state.fleetTab === "pareto") renderScatter();
+        }, 250);
+      });
+    });
+  }
+
+  /* ---------- leaderboard ---------- */
+  function boardSortKey() { return state.sort && state.sort.key ? state.sort.key : "rank"; }
+  function sortBoard(list) {
+    var key = boardSortKey(), dir = (state.sort && state.sort.dir) || 1;
+    var arr = list.slice();
+    function by(fn, mul) {
+      arr.sort(function (x, y) {
+        var vx = fn(x), vy = fn(y);
+        if (vx === vy) return x._rank - y._rank;
+        if (vx == null) return 1;
+        if (vy == null) return -1;
+        return (vx < vy ? -1 : 1) * mul;
+      });
+    }
+    if (key === "rank" || key === "score") by(function (a) { return -a._score; }, dir);
+    else if (key === "name") by(function (a) { return String(a.name || ""); }, dir);
+    else if (key === "success") by(function (a) { return -(num(get(a, ["metrics", "success_rate"])) || 0); }, dir);
+    else if (key.indexOf("d:") === 0) {
+      var dk = key.slice(2);
+      by(function (a) { return -(num(get(a, ["dimension_scores", dk])) || 0); }, dir);
+    } else if (key.indexOf("fp:") === 0) {
+      var fk = key.slice(3);
+      by(function (a) { return -(num(get(a, ["failure_fingerprint", fk])) || 0); }, dir);
+    } else if (key === "tasks") {
+      by(function (a) { return -(num(get(a, ["metrics", "success_rate"])) || 0); }, dir);
+    } else if (key === "pareto") by(function (a) { return a.pareto === true ? 0 : 1; }, dir);
+    return arr;
+  }
+  function setSort(key) {
+    if (state.sort.key === key) state.sort.dir = -state.sort.dir;
+    else state.sort = { key: key, dir: 1 };
+    renderBoard(true);
+  }
+  function renderBoard(animate) {
+    var el = document.getElementById("board");
+    if (!el) return;
+    var nTasks = fleetTasks().length || 8;
+    var ranked = rankedAgents(curWeights());
+    var list = sortBoard(ranked);
+    var maxScore = Math.max.apply(null, ranked.map(function (a) { return a._score; }).concat([1e-9]));
+    var stab = stabilityRanges(curWeights());
+    var tasks = fleetTasks();
+    var w = curWeights();
+
+    /* FLIP capture */
+    var oldTops = {};
+    if (animate) {
+      Array.prototype.forEach.call(el.querySelectorAll(".b-row"), function (row) {
+        oldTops[row.getAttribute("data-agent")] = row.getBoundingClientRect().top;
+      });
+    }
+
+    /* tiers: consecutive composites within 0.02 AND overlapping success CIs are "tied" */
+    var tierStart = {};
+    if (boardSortKey() === "rank" || boardSortKey() === "score") {
+      for (var i = 1; i < list.length; i++) {
+        var tied = Math.abs(list[i - 1]._score - list[i]._score) <= 0.02 && ciOverlap(list[i - 1], list[i], nTasks);
+        if (!tied) tierStart[list[i].name] = true;
+      }
+    }
+
+    function hdr(key, label, sub) {
+      var sorted = boardSortKey() === key;
+      return '<button class="bh' + (sorted ? " sorted" : "") + '" type="button" data-sort="' + esc(key) + '">' +
+        "<span>" + esc(label) + (sorted ? ' <span class="arr">' + (state.sort.dir === 1 ? "▼" : "▲") + "</span>" : "") + "</span>" +
+        (sub ? '<span class="sub">' + esc(sub) + "</span>" : "") + "</button>";
+    }
+    var head = '<div class="b-head">' +
+      hdr("rank", "rank", "") +
+      hdr("name", "agent", "swatch = model family") +
+      hdr("score", "composite score", "stacked by weighted dimension") +
+      hdr("d:success", "success", "Wilson 95% CI, n=" + nTasks) +
+      hdr("d:cost", "cost", "lower is better") +
+      hdr("d:latency", "latency", "lower is better") +
+      hdr("d:tool_discipline", "tool disc.", "wasted calls") +
+      hdr("d:step_economy", "step econ.", "steps/task") +
+      hdr("tasks", "per-task", "click a cell for its diff") +
+      hdr("fp:retrieval", "failure modes", "click a color to sort") +
+      hdr("pareto", "★", "") +
+      "</div>";
+
+    var rowsHtml = list.map(function (a) {
+      var name = a.name || "?";
+      var col = agentColorOf(a);
+      var rng = stab[name] || [a._rank, a._rank];
+      var range = rng[1] - rng[0];
+      var scls = range <= 2 ? "s-ok" : range <= 5 ? "s-mid" : "s-bad";
+      var stTip = "rank #" + rng[0] + "–#" + rng[1] + " under weight perturbation (±20%)";
+      /* composite stacked bar */
+      var segs = DIMS.map(function (d) {
+        var contrib = (num(w[d]) || 0) * (num(get(a, ["dimension_scores", d])) || 0);
+        var wsum = DIMS.reduce(function (s, k) { return s + (num(w[k]) || 0); }, 0) || 1;
+        contrib = contrib / wsum;
+        var pct = contrib / maxScore * 100;
+        if (pct <= 0.2) return "";
+        return '<span class="seg" style="width:' + pct.toFixed(2) + "%;background:" + dimColor(d) +
+          '" data-tip="<strong>' + esc(DIM_LABELS[d]) + "</strong><div class='tip-sub'>weight " +
+          Math.round((num(w[d]) || 0) * 100) + "% × score " + (Math.round((num(get(a, ["dimension_scores", d])) || 0) * 100) / 100) +
+          " → +" + (Math.round(contrib * 1000) / 1000) + '</div>"></span>';
+      }).join("");
+      /* dimension cells */
+      var m = a.metrics || {};
+      function dimCell(d, rawTxt) {
+        var v = num(get(a, ["dimension_scores", d]));
+        if (d === "success") v = num(m.success_rate);
+        if (v === null) return '<div class="dim-cell" data-tip="no data"></div>';
+        var ciHtml = "";
+        if (d === "success") {
+          var ci = wilson(v, nTasks);
+          if (ci) ciHtml = '<span class="ci" style="left:' + (ci.lo * 100).toFixed(1) + "%;width:" + ((ci.hi - ci.lo) * 100).toFixed(1) + '%"></span>';
+        }
+        return '<div class="dim-cell" data-tip="<strong>' + esc(DIM_LABELS[d]) + "</strong><div class='tip-sub'>" + esc(rawTxt) + '</div>">' +
+          '<span class="fill" style="width:' + (v * 100).toFixed(1) + "%;background:" + dimColor(d) + '"></span>' + ciHtml + "</div>";
+      }
+      /* per-task strip */
+      var strip = tasks.map(function (t) {
+        var pt = get(a, ["per_task", t.id]) || {};
+        var ok = pt.success === true;
+        return '<button class="tcell ' + (ok ? "pass" : "fail") + '" type="button" data-task="' + esc(t.id) + '" data-agent-name="' + esc(name) + '"' +
+          ' data-tip="<strong>' + esc(t.id) + "</strong><div class='tip-sub'>" + (ok ? "✓ pass" : "✗ fail") +
+          (num(pt.tokens) !== null ? " · " + fmtTok(pt.tokens) + " tok" : "") + '</div>" aria-label="' + esc(t.id) + '"></button>';
+      }).join("");
+      /* fingerprint */
+      var fps = fpCounts(a, nTasks);
+      var fpHtml = fps.length
+        ? '<div class="fp-bar">' + fps.map(function (f2) {
+            return '<span class="fs" style="width:' + (f2.share * 100).toFixed(1) + "%;background:" + kindColor(f2.kind) +
+              '" data-fpkind="' + esc(f2.kind) + '" data-tip="<strong>' + esc(kindLabel(f2.kind)) + "</strong><div class='tip-sub'>" +
+              f2.count + " of its failures (" + Math.round(f2.share * 100) + '%)</div>"></span>';
+          }).join("") + "</div>"
+        : '<span class="fp-none">no failures</span>';
+      return '<div class="b-row' + (tierStart[name] ? " tier-start" : "") + '" data-agent="' + esc(name) + '">' +
+        '<span class="rank-cell"><span class="stab-dot ' + scls + '" data-tip="' + esc(stTip) + '"></span>#' + a._rank + "</span>" +
+        '<button class="agent-cell" type="button" data-tip="<strong>' + esc(name) + "</strong><div class='tip-sub'>" +
+          esc(a.model || "") + (a.archetype ? " · " + esc(a.archetype) : "") + '</div>">' +
+          '<span class="sw" style="background:' + col + '"></span><span class="nm">' + esc(name) + "</span>" +
+          (a.pareto === true ? '<span class="star">★</span>' : "") + "</button>" +
+        '<span class="score-cell"><span class="score-bar">' + segs + '</span><span class="sv">' + (Math.round(a._score * 100) / 100).toFixed(2) + "</span></span>" +
+        dimCell("success", fmtPct(m.success_rate) + " success") +
+        dimCell("cost", fmtCost(m.mean_cost_usd) + " / task") +
+        dimCell("latency", fmtLat(m.mean_latency_s) + " / task") +
+        dimCell("tool_discipline", (num(m.wasted_tool_calls) !== null ? m.wasted_tool_calls + " wasted tool calls / task" : "")) +
+        dimCell("step_economy", (num(m.mean_steps) !== null ? m.mean_steps + " steps / task" : "")) +
+        '<span class="tstrip">' + strip + "</span>" +
+        fpHtml +
+        '<span class="pareto-cell">' + (a.pareto === true ? "★" : "") + "</span>" +
+        "</div>";
+    }).join("");
+    el.innerHTML = head + rowsHtml;
+
+    /* header sorting */
+    Array.prototype.forEach.call(el.querySelectorAll(".bh[data-sort]"), function (b) {
+      b.addEventListener("click", function () { setSort(b.getAttribute("data-sort")); });
+    });
+    /* fingerprint segment → sort by that failure mode share */
+    Array.prototype.forEach.call(el.querySelectorAll(".fs[data-fpkind]"), function (s) {
+      s.addEventListener("click", function () { setSort("fp:" + s.getAttribute("data-fpkind")); });
+    });
+    /* per-task cell → best available diff */
+    Array.prototype.forEach.call(el.querySelectorAll(".tcell"), function (c) {
+      c.addEventListener("click", function (ev) {
+        openTaskDiff(c.getAttribute("data-agent-name"), c.getAttribute("data-task"), ev);
+      });
+    });
+
+    /* FLIP animate */
+    if (animate) {
+      var rows2 = el.querySelectorAll(".b-row");
+      Array.prototype.forEach.call(rows2, function (row) {
+        var name = row.getAttribute("data-agent");
+        var was = oldTops[name];
+        if (was == null) return;
+        var d = was - row.getBoundingClientRect().top;
+        if (!d) return;
+        row.style.transform = "translateY(" + d + "px)";
+        row.style.transition = "none";
+        requestAnimationFrame(function () {
+          row.classList.add("reordering");
+          row.style.transition = "";
+          row.style.transform = "";
+          setTimeout(function () { row.classList.remove("reordering"); }, 450);
+        });
+      });
+    }
+  }
+  function openTaskDiff(agentName2, taskId, ev) {
+    var found = null;
+    reports().forEach(function (r, i) {
+      if (found !== null) return;
+      if (get(r, ["task", "id"]) !== taskId) return;
+      if (get(r, ["a", "agent", "name"]) === agentName2 || get(r, ["b", "agent", "name"]) === agentName2) found = i;
+    });
+    if (found === null) {
+      showTip("<strong>no spotlight diff for this pair</strong><div class='tip-sub'>run: python -m deepcompare compare " + esc(agentName2) + " &lt;other&gt;</div>",
+        ev.clientX, ev.clientY - 6);
+      setTimeout(hideTip, 2200);
+      return;
+    }
+    var pair = pairForReport(found);
+    state.pair = pair || { label: null, list: [found], pos: 0 };
+    openCompare(found);
+  }
+
+  /* ---------- trade-offs scatter ---------- */
+  function renderScatter() {
+    var box = document.getElementById("scatter-box");
+    if (!box || !HAS_D3) return;
+    box.innerHTML = "";
+    var ranked = rankedAgents(curWeights());
+    var nTasks = fleetTasks().length || 8;
+    var pts = ranked.filter(function (a) {
+      return num(get(a, ["metrics", "mean_cost_usd"])) !== null && num(get(a, ["metrics", "success_rate"])) !== null;
+    });
+    if (!pts.length) { box.innerHTML = '<div class="dd-note">No cost/success data.</div>'; return; }
+    var W = Math.max(520, box.clientWidth || 620), H = 430;
+    var padL = 46, padR = 30, padT = 34, padB = 44;
+    var costs = pts.map(function (a) { return Math.max(1e-6, a.metrics.mean_cost_usd); });
+    var x = d3.scaleLog().domain([d3.min(costs) * 0.82, d3.max(costs) * 1.22]).range([padL, W - padR]);
+    var y = d3.scaleLinear().domain([0, 1.04]).range([H - padB, padT]);
+    var lat = pts.map(function (a) { return num(a.metrics.mean_latency_s) || 0; });
+    var rr = d3.scaleSqrt().domain([Math.max(0, d3.min(lat)), Math.max(1, d3.max(lat))]).range([4.5, 13]);
+    var svg = d3.select(box).append("svg")
+      .attr("width", W).attr("height", H).attr("viewBox", "0 0 " + W + " " + H)
+      .attr("role", "img").attr("aria-label", "success rate vs mean cost per task; dot size = mean latency");
+
+    /* frontier */
+    var frontier = pts.filter(function (a) { return a.pareto === true; })
+      .sort(function (u, v) { return u.metrics.mean_cost_usd - v.metrics.mean_cost_usd; });
+    if (frontier.length) {
+      var fx = function (a) { return x(Math.max(1e-6, a.metrics.mean_cost_usd)); };
+      var fy = function (a) { return y(a.metrics.success_rate); };
+      /* dominated region: right-and-below the staircase */
+      var dPath = "M " + fx(frontier[0]) + " " + fy(frontier[0]);
+      for (var i = 1; i < frontier.length; i++) {
+        dPath += " L " + fx(frontier[i]) + " " + fy(frontier[i - 1]) + " L " + fx(frontier[i]) + " " + fy(frontier[i]);
+      }
+      var last = frontier[frontier.length - 1];
+      svg.append("path")
+        .attr("d", dPath + " L " + (W - padR) + " " + fy(last) + " L " + (W - padR) + " " + y(0) + " L " + fx(frontier[0]) + " " + y(0) + " Z")
+        .attr("fill", cssVar("--line")).attr("fill-opacity", 0.28).attr("stroke", "none");
+      svg.append("path")
+        .attr("d", dPath + " L " + (W - padR) + " " + fy(last))
+        .attr("fill", "none").attr("stroke", cssVar("--warn-line")).attr("stroke-width", 1.5)
+        .attr("stroke-dasharray", "5 4");
+    }
+
+    /* axes */
+    var xAxis = d3.axisBottom(x).ticks(5, function (v) { return fmtCost(v); }).tickSizeOuter(0);
+    var gx = svg.append("g").attr("transform", "translate(0," + (H - padB) + ")").call(xAxis);
+    var gy = svg.append("g").attr("transform", "translate(" + padL + ",0)")
+      .call(d3.axisLeft(y).ticks(5, "%").tickSizeOuter(0));
+    [gx, gy].forEach(function (g) {
+      g.selectAll("text").attr("fill", cssVar("--muted")).attr("font-size", 10);
+      g.selectAll("path,line").attr("stroke", cssVar("--line-strong"));
+    });
+    svg.append("text").attr("x", W - padR).attr("y", H - 8).attr("text-anchor", "end")
+      .attr("font-size", 10.5).attr("fill", cssVar("--muted")).text("mean cost / task (log) →");
+    svg.append("text").attr("x", padL).attr("y", 14).attr("font-size", 10.5)
+      .attr("fill", cssVar("--muted")).text("↑ success rate");
+    svg.append("text").attr("x", padL + 8).attr("y", padT + 4).attr("font-size", 11)
+      .attr("font-weight", 700).attr("fill", cssVar("--warn")).text("best value ↖");
+
+    /* dots */
+    var byScore = ranked.slice().sort(function (u, v) { return v._score - u._score; });
+    var top3 = {};
+    byScore.slice(0, 3).forEach(function (a) { top3[a.name] = true; });
+    var dots = svg.append("g").selectAll("circle").data(pts).join("circle")
+      .attr("class", "sc-dot")
+      .attr("data-agent", function (a) { return a.name; })
+      .attr("cx", function (a) { return x(Math.max(1e-6, a.metrics.mean_cost_usd)); })
+      .attr("cy", function (a) { return y(a.metrics.success_rate); })
+      .attr("r", function (a) { return rr(num(a.metrics.mean_latency_s) || 0); })
+      .attr("fill", function (a) { return agentColorOf(a); })
+      .attr("fill-opacity", function (a) { return a.pareto === true ? 0.95 : 0.4; })
+      .attr("stroke", function (a) { return state.pins.indexOf(a.name) >= 0 ? cssVar("--ink") : cssVar("--surface"); })
+      .attr("stroke-width", function (a) { return state.pins.indexOf(a.name) >= 0 ? 2.5 : 1; })
+      .style("cursor", "pointer");
+    dots.on("mouseover", function (ev, a) {
+        showTip("<strong>" + esc(a.name) + (a.pareto === true ? " ★" : "") + "</strong>" +
+          '<div class="tip-sub">' + esc(a.model || "") + " · rank #" + a._rank + "</div>" +
+          '<div class="tip-sub">' + fmtPct(a.metrics.success_rate) + " success · " + fmtCost(a.metrics.mean_cost_usd) +
+          "/task · " + fmtLat(a.metrics.mean_latency_s) + "</div>",
+          ev.clientX, ev.clientY - 10);
+      })
+      .on("mouseout", hideTip)
+      .on("click", function (ev, a) { togglePin(a.name); });
+
+    /* permanent labels: frontier + top-3 composite (greedy de-overlap) */
+    var labeled = pts.filter(function (a) { return a.pareto === true || top3[a.name]; })
+      .sort(function (u, v) { return u.metrics.mean_cost_usd - v.metrics.mean_cost_usd; });
+    var placedL = [];
+    labeled.forEach(function (a) {
+      var lx = x(Math.max(1e-6, a.metrics.mean_cost_usd)) + rr(num(a.metrics.mean_latency_s) || 0) + 4;
+      var ly = y(a.metrics.success_rate) + 3.5;
+      var guard = 0;
+      while (guard++ < 20 && placedL.some(function (p) { return Math.abs(p.x - lx) < 76 && Math.abs(p.y - ly) < 12; })) {
+        ly -= 13;
+      }
+      if (ly < 12) ly = 12;
+      placedL.push({ x: lx, y: ly });
+      a._lx = lx; a._ly = ly;
+    });
+    svg.append("g").selectAll("text").data(labeled).join("text")
+      .attr("x", function (a) { return a._lx; })
+      .attr("y", function (a) { return a._ly; })
+      .attr("font-size", 10.5).attr("font-family", cssVar("--mono"))
+      .attr("fill", cssVar("--ink-2"))
+      .attr("stroke", cssVar("--surface")).attr("stroke-width", 3)
+      .attr("paint-order", "stroke").attr("stroke-linejoin", "round")
+      .text(function (a) { return a.name; });
+
+    /* size legend */
+    var lg = svg.append("g").attr("transform", "translate(" + (W - padR - 128) + "," + (padT - 22) + ")");
+    [{ v: d3.min(lat), t: fmtLat(d3.min(lat)) }, { v: d3.max(lat), t: fmtLat(d3.max(lat)) }].forEach(function (d, i2) {
+      lg.append("circle").attr("cx", i2 * 64).attr("cy", 8).attr("r", rr(d.v))
+        .attr("fill", "none").attr("stroke", cssVar("--muted"));
+      lg.append("text").attr("x", i2 * 64 + 16).attr("y", 12).attr("font-size", 9.5)
+        .attr("fill", cssVar("--muted")).text(d.t);
+    });
+    lg.append("text").attr("x", -6).attr("y", -6).attr("font-size", 9.5)
+      .attr("fill", cssVar("--muted")).text("dot size = mean latency");
+
+    renderPinBox();
+    renderTrapCallout();
+  }
+  function togglePin(name) {
+    var i = state.pins.indexOf(name);
+    if (i >= 0) state.pins.splice(i, 1);
+    else {
+      state.pins.push(name);
+      if (state.pins.length > 2) state.pins.shift();
+    }
+    renderScatter();
+  }
+  function renderPinBox() {
+    var box = document.getElementById("pin-box");
+    if (!box) return;
+    var html = ['<div class="panel"><h3>Pinned agents <span class="sub">click dots to pin up to two</span></h3><div class="pin-chips">'];
+    if (!state.pins.length) html.push('<span class="none-note">Nothing pinned yet.</span>');
+    state.pins.forEach(function (n) {
+      var a = fleetAgent(n);
+      html.push('<span class="pin-chip" data-agent="' + esc(n) + '"><span class="sw" style="background:' +
+        agentColor(n, a && a.model) + '"></span>' + esc(n) +
+        (a ? '<span class="none-note">#' + (a._rank || a.rank || "?") + "</span>" : "") +
+        '<button class="x" type="button" data-unpin="' + esc(n) + '" aria-label="unpin ' + esc(n) + '">×</button></span>');
+    });
+    html.push("</div>");
+    if (state.pins.length === 2) {
+      var idxs = reportsForAgents(state.pins[0], state.pins[1]);
+      if (idxs.length) {
+        html.push('<button class="pin-cta" id="pin-compare" type="button">Compare these two →</button>');
+      } else {
+        html.push('<div class="pin-hint">no precomputed diff — run:<br><code>python -m deepcompare compare ' +
+          esc(state.pins[0]) + " " + esc(state.pins[1]) + "</code></div>");
+      }
+    }
+    html.push("</div>");
+    box.innerHTML = html.join("");
+    Array.prototype.forEach.call(box.querySelectorAll("[data-unpin]"), function (b) {
+      b.addEventListener("click", function () { togglePin(b.getAttribute("data-unpin")); });
+    });
+    var cta = document.getElementById("pin-compare");
+    if (cta) cta.addEventListener("click", function () {
+      var idxs = reportsForAgents(state.pins[0], state.pins[1]);
+      if (!idxs.length) return;
+      var pair = pairForReport(idxs[0]) || { label: state.pins[0] + " vs " + state.pins[1], list: idxs };
+      openComparePair(pair, 0);
+    });
+  }
+  function renderTrapCallout() {
+    var box = document.getElementById("pin-box");
+    if (!box) return;
+    var ranked = rankedAgents(curWeights());
+    var nTasks = fleetTasks().length || 8;
+    var srs = ranked.map(function (a) { return num(get(a, ["metrics", "success_rate"])); })
+      .filter(function (v) { return v !== null; }).sort(function (u, v) { return u - v; });
+    if (!srs.length) return;
+    var median = srs[Math.floor(srs.length / 2)];
+    var traps = ranked.filter(function (a) {
+      var sr = num(get(a, ["metrics", "success_rate"]));
+      return a.pareto === true && sr !== null && (median - sr) > 0.20;
+    });
+    traps.forEach(function (a) {
+      var sr = a.metrics.success_rate;
+      var fails = Math.round((1 - sr) * nTasks);
+      box.insertAdjacentHTML("beforeend",
+        '<div class="trap-callout" data-agent="' + esc(a.name) + '"><span class="tk">frontier ≠ good</span>' +
+        "<strong>" + esc(a.name) + "</strong> sits on the Pareto frontier only because it is the cheapest — at " +
+        fmtPct(sr) + " success it fails " + fails + "/" + nTasks + " tasks (fleet median " + fmtPct(median) + "). " +
+        "Cheap and wrong is still wrong.</div>");
+    });
+  }
+
+  /* ---------- matrix ---------- */
+  function seriationOrder(list) {
+    /* greedy similarity chain on per-task success vectors */
+    var tasks = fleetTasks();
+    function vec(a) {
+      return tasks.map(function (t) { return get(a, ["per_task", t.id, "success"]) === true ? 1 : 0; });
+    }
+    var rest = list.slice(), out = [];
+    if (!rest.length) return out;
+    var cur = rest.shift();
+    out.push(cur);
+    while (rest.length) {
+      var cv = vec(cur), best = 0, bestSim = -1;
+      for (var i = 0; i < rest.length; i++) {
+        var v2 = vec(rest[i]), sim = 0;
+        for (var j = 0; j < cv.length; j++) if (cv[j] === v2[j]) sim++;
+        if (sim > bestSim) { bestSim = sim; best = i; }
+      }
+      cur = rest.splice(best, 1)[0];
+      out.push(cur);
+    }
+    return out;
+  }
+  function renderMatrix() {
+    var box = document.getElementById("mx-scroll");
+    if (!box) return;
+    var ranked = rankedAgents(curWeights());
+    var tasks = fleetTasks().slice();
+    var nAg = ranked.length || 1;
+    /* column difficulty = fleet-wide failure count; hardest right */
+    var failCount = {};
+    tasks.forEach(function (t) {
+      failCount[t.id] = ranked.filter(function (a) {
+        return get(a, ["per_task", t.id, "success"]) !== true;
+      }).length;
+    });
+    tasks.sort(function (u, v) { return failCount[u.id] - failCount[v.id]; });
+    var rows = state.mxCluster ? seriationOrder(ranked) : ranked;
+    var maxTok = 1;
+    ranked.forEach(function (a) {
+      tasks.forEach(function (t) {
+        var tk = num(get(a, ["per_task", t.id, "tokens"]));
+        if (tk !== null && tk > maxTok) maxTok = tk;
+      });
+    });
+    var html = ['<table class="mx"><thead><tr><th class="mx-corner"></th>'];
+    tasks.forEach(function (t) {
+      html.push('<th class="mx-col" data-tip="<strong>' + esc(t.id) + "</strong><div class='tip-sub'>" +
+        failCount[t.id] + "/" + nAg + ' agents fail this task</div>">' + esc(taskShort(t.id)) +
+        '<div class="diff-bar"><span style="width:' + (failCount[t.id] / nAg * 100).toFixed(0) + '%"></span></div></th>');
+    });
+    html.push("</tr></thead><tbody>");
+    rows.forEach(function (a) {
+      var clause = String(a.rationale || "").split(/[.;:]\s/)[0] || "";
+      html.push('<tr data-agent="' + esc(a.name) + '"><td class="mx-agent" data-tip="<strong>#' +
+        (a._rank || a.rank || "?") + " " + esc(a.name) + "</strong><div class='tip-sub'>score " +
+        (Math.round(a._score * 100) / 100).toFixed(2) + "</div><div class='tip-sub'>" + esc(clause) + '</div>">' +
+        '<span class="rk">#' + (a._rank || a.rank || "?") + "</span>" + esc(a.name) +
+        '<span class="sw" style="background:' + agentColorOf(a) + '"></span></td>');
+      tasks.forEach(function (t) {
+        var pt = get(a, ["per_task", t.id]) || {};
+        var ok = pt.success === true;
+        var inner = "";
+        if (state.mxSize && num(pt.tokens) !== null) {
+          var s = Math.max(3, Math.sqrt(pt.tokens / maxTok) * 15);
+          inner = '<span class="tok" style="width:' + s.toFixed(1) + "px;height:" + s.toFixed(1) + 'px"></span>';
+        }
+        html.push('<td class="cell ' + (ok ? "pass" : "fail") + '" data-tip="<strong>' + esc(a.name) + " · " + esc(t.id) +
+          "</strong><div class='tip-sub'>" + (ok ? "✓ pass" : "✗ fail") +
+          (num(pt.tokens) !== null ? " · " + fmtTok(pt.tokens) + " tok" : "") +
+          (num(pt.steps) !== null ? " · " + pt.steps + " steps" : "") +
+          (num(pt.latency_s) !== null ? " · " + fmtLat(pt.latency_s) : "") + '</div>">' + inner + "</td>");
+      });
+      html.push("</tr>");
+    });
+    html.push("</tbody></table>");
+    box.innerHTML = html.join("");
+  }
+
+  /* ---------- spotlight + regression cards ---------- */
+  function renderSpotlights() {
+    var el = document.getElementById("spot-strip");
+    if (!el) return;
+    var tasks = fleetTasks();
+    var cards = [];
+    spotPairs().forEach(function (p, pi) {
+      var aA = fleetAgent(p.a), aB = fleetAgent(p.b);
+      var mini = [];
+      if (aA && aB) {
+        var dsr = (num(get(aA, ["metrics", "success_rate"])) || 0) - (num(get(aB, ["metrics", "success_rate"])) || 0);
+        if (Math.abs(dsr) > 0.001) mini.push('<span class="m ' + (dsr > 0 ? "good" : "bad") + '">' + esc(signed(Math.abs(Math.round(dsr * 100)) + "pt success", dsr)) + "</span>");
+        var dc = (num(get(aB, ["metrics", "mean_cost_usd"])) || 0) - (num(get(aA, ["metrics", "mean_cost_usd"])) || 0);
+        if (Math.abs(dc) >= 0.00005) mini.push('<span class="m">' + esc(signed(fmtCost(Math.abs(dc)) + "/task", dc)) + " cost</span>");
+      }
+      cards.push('<button class="spot-card" type="button" data-spot="' + pi + '">' +
+        '<span class="spot-vs"><span class="sw" style="background:' + agentColor(p.a, aA && aA.model) + '"></span>' + esc(p.a) +
+        '<span class="vs">vs</span><span class="sw" style="background:' + agentColor(p.b, aB && aB.model) + '"></span>' + esc(p.b) + "</span>" +
+        '<p class="spot-why">' + esc(p.why) + "</p>" +
+        '<span class="spot-mini">' + mini.join("") +
+        '<span class="m">' + p.list.length + " task diff" + (p.list.length === 1 ? "" : "s") + '</span><span class="open">open diff →</span></span>' +
+        "</button>");
+    });
+    /* computed version regressions */
+    versionPairs().forEach(function (vp, vi) {
+      var o = vp.older, n2 = vp.newer;
+      var dsr = (num(get(n2, ["metrics", "success_rate"])) || 0) - (num(get(o, ["metrics", "success_rate"])) || 0);
+      var isReg = dsr < -0.001;
+      var idxs = reportsForAgents(o.name, n2.name);
+      var stripHtml = tasks.map(function (t) {
+        var op = get(o, ["per_task", t.id, "success"]) === true;
+        var np = get(n2, ["per_task", t.id, "success"]) === true;
+        var cls = op && np ? "same-pass" : !op && !np ? "same-fail" : op && !np ? "flip-down" : "flip-up";
+        var sym = op && !np ? "↓" : !op && np ? "↑" : "";
+        return '<span class="rc ' + cls + '" data-tip="<strong>' + esc(t.id) + "</strong><div class='tip-sub'>" +
+          esc(vp.olderV) + " " + (op ? "✓" : "✗") + " → " + esc(vp.newerV) + " " + (np ? "✓" : "✗") + '</div>">' + sym + "</span>";
+      }).join("");
+      cards.push('<' + (idxs.length ? 'button type="button"' : "div") + ' class="spot-card" data-vreg="' + vi + '">' +
+        '<span class="spot-vs"><span class="sw" style="background:' + agentColorOf(o) + '"></span>' + esc(o.name) +
+        '<span class="vs">→</span><span class="sw" style="background:' + agentColorOf(n2) + '"></span>' + esc(n2.name) +
+        (isReg
+          ? '<span class="m bad" style="font-family:var(--mono);font-size:10.5px;border:1px solid var(--bad);border-radius:5px;padding:0 6px;color:var(--bad)">version regression</span>'
+          : '<span class="m" style="font-family:var(--mono);font-size:10.5px;border:1px solid var(--line-strong);border-radius:5px;padding:0 6px;color:var(--ink-2)">version change</span>') + "</span>" +
+        '<p class="spot-why">' + esc(vp.newerV) + ": " +
+        (Math.abs(dsr) < 0.001 ? "same success rate" : esc(signed(Math.abs(Math.round(dsr * 100)) + "pt success", dsr))) +
+        " vs " + esc(vp.olderV) + " — which tasks flipped:</p>" +
+        '<span class="reg-strip">' + stripHtml + "</span>" +
+        '<span class="spot-mini">' + (idxs.length ? '<span class="open">open diff →</span>'
+          : '<span class="open" style="margin-left:0">no precomputed diff for this pair</span>') + "</span>" +
+        "</" + (idxs.length ? "button" : "div") + ">");
+    });
+    el.innerHTML = cards.join("") || '<span class="none-note">No spotlight pairs in fleet data.</span>';
+    Array.prototype.forEach.call(el.querySelectorAll("[data-spot]"), function (c) {
+      c.addEventListener("click", function () {
+        var p = spotPairs()[parseInt(c.getAttribute("data-spot"), 10)];
+        if (p) openComparePair(p, 0);
+      });
+    });
+    Array.prototype.forEach.call(el.querySelectorAll("button[data-vreg]"), function (c) {
+      c.addEventListener("click", function (ev) {
+        if (ev.target.closest && ev.target.closest(".rc")) return;
+        var vp = versionPairs()[parseInt(c.getAttribute("data-vreg"), 10)];
+        if (!vp) return;
+        var idxs = reportsForAgents(vp.older.name, vp.newer.name);
+        if (idxs.length) openComparePair({ label: vp.older.name + " → " + vp.newer.name, list: idxs }, 0);
+      });
+    });
+  }
+
+  /* ---------- fleet root render ---------- */
+  function renderFleet() {
+    if (!fleetMode()) return;
+    bindFleet();
+    buildFamilyIdx();
+    renderHero();
+    renderWeightsPanel();
+    renderWpanelVisibility();
+    renderSpotlights();
+    var tab = state.fleetTab || "board";
+    Array.prototype.forEach.call(document.querySelectorAll("#fleet-tabs button"), function (b) {
+      b.setAttribute("aria-selected", b.getAttribute("data-tab") === tab ? "true" : "false");
+    });
+    document.getElementById("tab-board").classList.toggle("hidden", tab !== "board");
+    document.getElementById("tab-pareto").classList.toggle("hidden", tab !== "pareto");
+    document.getElementById("tab-matrix").classList.toggle("hidden", tab !== "matrix");
+    var cb = document.getElementById("mx-cluster"); if (cb) cb.checked = !!state.mxCluster;
+    var sb = document.getElementById("mx-size"); if (sb) sb.checked = !!state.mxSize;
+    renderBoard(false);
+    if (tab === "pareto") renderScatter();
+    if (tab === "matrix") renderMatrix();
+  }
+
   /* ---------------- view switching ---------------- */
   function show(view) {
     state.view = view;
     document.getElementById("view-empty").classList.toggle("hidden", view !== "empty");
     document.getElementById("view-list").classList.toggle("hidden", view !== "list");
+    document.getElementById("view-fleet").classList.toggle("hidden", view !== "fleet");
     document.getElementById("view-cmp").classList.toggle("hidden", view !== "cmp");
   }
   function openCompare(i) {
@@ -2035,15 +3522,41 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     renderCompare();
     window.scrollTo({ top: 0 });
   }
+  /* fleet: open a report inside a named pair context (its report list) */
+  function openComparePair(pair, pos) {
+    if (!pair || !Array.isArray(pair.list) || !pair.list.length) return;
+    state.pair = pair;
+    openCompare(pair.list[Math.max(0, Math.min(pair.list.length - 1, pos || 0))]);
+  }
+  function navCmp(delta) {
+    var list = cmpList();
+    var pos = list.indexOf(state.idx);
+    if (pos < 0) pos = 0;
+    var np = pos + delta;
+    if (np < 0 || np >= list.length) return;
+    openCompare(list[np]);
+  }
   function backToList() {
+    if (fleetMode()) { state.pair = null; show("fleet"); renderHeader(); renderFleet(); return; }
     show("list");
     /* charts may have been (re)drawn while the list was hidden — fix widths */
     renderDeepDive();
   }
+  function measureTopbar() {
+    var tb = document.querySelector("header.topbar");
+    if (tb) document.documentElement.style.setProperty("--topbar-h", tb.offsetHeight + "px");
+  }
   function render() {
+    familyIdx = null;
     renderHeader();
-    var hasData = reports().length > 0 || Object.keys(aggregate()).length > 0;
+    measureTopbar();
+    var hasData = reports().length > 0 || Object.keys(aggregate()).length > 0 || fleetMode();
     if (!hasData) { show("empty"); return; }
+    if (fleetMode()) {
+      if (state.view === "cmp" && curReport()) { show("cmp"); renderCompare(); }
+      else { show("fleet"); renderFleet(); }
+      return;
+    }
     renderScoreboard();
     renderOrigins();
     renderRegressions();
@@ -2058,6 +3571,14 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   function normalize(parsed) {
     if (!parsed || typeof parsed !== "object") return null;
     if (Array.isArray(parsed)) return { reports: parsed, aggregate: {} };
+    if (parsed.fleet && typeof parsed.fleet === "object" && Array.isArray(parsed.fleet.agents) && parsed.fleet.agents.length) {
+      return { reports: Array.isArray(parsed.reports) ? parsed.reports : [],
+               aggregate: parsed.aggregate || {}, fleet: parsed.fleet };
+    }
+    /* a bare fleet.json dropped straight in */
+    if (Array.isArray(parsed.agents) && parsed.agents.length && (parsed.scoring || parsed.spotlight_pairs || parsed.tasks)) {
+      return { reports: [], aggregate: {}, fleet: parsed };
+    }
     if (Array.isArray(parsed.reports)) return { reports: parsed.reports, aggregate: parsed.aggregate || {} };
     if (parsed.task && (parsed.a || parsed.b)) return { reports: [parsed], aggregate: {} };
     if (parsed.aggregate) return { reports: [], aggregate: parsed.aggregate };
@@ -2068,10 +3589,14 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     try { parsed = JSON.parse(text); }
     catch (e) { alert("Could not parse JSON: " + e.message); return; }
     var d = normalize(parsed);
-    if (!d) { alert("Unrecognized JSON shape — expected {reports:[…], aggregate:{…}} or a single comparison report."); return; }
+    if (!d) { alert("Unrecognized JSON shape — expected {reports:[…], aggregate:{…}} (optionally with a fleet key), a fleet.json, or a single comparison report."); return; }
     state.data = d;
-    state.view = "list";
+    state.view = d.fleet ? "fleet" : "list";
     state.idx = 0;
+    state.pair = null;
+    state.weights = null;
+    state.pins = [];
+    state.sort = { key: "rank", dir: 1 };
     render();
   }
   function loadFile(file) {
@@ -2083,8 +3608,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
 
   /* ---------------- events ---------------- */
   document.getElementById("btn-back").addEventListener("click", backToList);
-  document.getElementById("btn-prev").addEventListener("click", function () { openCompare(state.idx - 1); });
-  document.getElementById("btn-next").addEventListener("click", function () { openCompare(state.idx + 1); });
+  document.getElementById("btn-prev").addEventListener("click", function () { navCmp(-1); });
+  document.getElementById("btn-next").addEventListener("click", function () { navCmp(1); });
   document.getElementById("btn-load").addEventListener("click", function () {
     document.getElementById("file-input").click();
   });
@@ -2117,9 +3642,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
 
   /* expand/collapse truncated io; card heights change, so redraw the rail */
   document.addEventListener("click", function (e) {
-    var pre = e.target.closest ? e.target.closest(".io.clampable pre") : null;
-    if (pre) {
-      pre.parentElement.classList.toggle("open");
+    var io = e.target.closest ? e.target.closest(".io.clampable") : null;
+    if (io) {
+      io.classList.toggle("open");
       if (state.view === "cmp" && currentRedraw) currentRedraw();
     }
   });
@@ -2129,8 +3654,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
     if (state.view !== "cmp") return;
     if (e.key === "Escape") { backToList(); e.preventDefault(); }
-    else if (e.key === "ArrowLeft" && state.idx > 0) { openCompare(state.idx - 1); e.preventDefault(); }
-    else if (e.key === "ArrowRight" && state.idx < reports().length - 1) { openCompare(state.idx + 1); e.preventDefault(); }
+    else if (e.key === "ArrowLeft") { navCmp(-1); e.preventDefault(); }
+    else if (e.key === "ArrowRight") { navCmp(1); e.preventDefault(); }
   });
 
   /* re-render on theme flip so node/dot/chart colors track the mode */
@@ -2148,8 +3673,10 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   window.addEventListener("resize", function () {
     clearTimeout(resizeT);
     resizeT = setTimeout(function () {
+      measureTopbar();
       if (state.view === "cmp") renderCompare();
       else if (state.view === "list") renderDeepDive();
+      else if (state.view === "fleet") renderFleet();
     }, 160);
   });
 
