@@ -250,3 +250,45 @@ Aggregate-level playbook — winning habits generalized across tasks:
 
 Derived by grouping winning decisions by kind across a batch; only habits
 with non-trivial impact are emitted.
+
+## Semantic analysis (pairwise reports, v7)
+
+Lexical alignment measures wording; the `semantic` object measures meaning,
+via two complementary approaches: corpus-weighted similarity (TF-IDF cosine
+over both trajectories' step texts) and claim-level provenance (typed,
+meaning-bearing facts traced through the steps).
+
+```json
+"semantic": {
+  "methods": ["tfidf_cosine", "claim_provenance"],
+  "rows": [
+    {"row": 0, "a_index": 0, "b_index": 0, "lexical": 0.93, "semantic": 0.97}
+  ],
+  "first_semantic_break": 2,
+  "claims": [
+    {"id": "c1", "kind": "money | percent | duration | version | cve | url | date | number",
+     "value": "$4.82 billion", "normalized": "4.82e9",
+     "matches_expected": true,
+     "a_steps": [2, 3, 4], "b_steps": [],
+     "origin": {"agent": "a", "step": 2, "source": "ir.acmecorp.com"}}
+  ],
+  "conflicts": [
+    {"kind": "money", "a_claim": "c1", "b_claim": "c2",
+     "summary": "A carried $4.82 billion (from ir.acmecorp.com); B carried $4.5 billion (from financeblog.net); expected: $4.82 billion."}
+  ],
+  "narrative": "2-3 sentences: where meaning (not just wording) diverged and which claims decided the outcome"
+}
+```
+
+- `rows`: one entry per alignment row with both sides present; `lexical` is
+  the alignment similarity, `semantic` the TF-IDF cosine of the paired step
+  texts. A large lexical-semantic gap flags "same words, different meaning"
+  (or the reverse).
+- `first_semantic_break`: first row where semantic similarity < 0.5, null if none.
+- `claims`: deduplicated typed facts found in step inputs/outputs and answers;
+  `a_steps`/`b_steps` list the step indices carrying the claim; `origin` is
+  the earliest carrying step (with URL domain when extractable);
+  `matches_expected` non-null only when the expected answer contains a
+  comparable claim of the same kind.
+- `conflicts`: pairs of same-kind claims where the agents carried different
+  values into their answers.
