@@ -331,8 +331,12 @@
   .tl-head .col-h.right { justify-content: flex-start; }
   .tl-row {
     display: grid; grid-template-columns: minmax(0,1fr) 56px minmax(0,1fr);
+    grid-auto-flow: dense;
     align-items: start; padding: 5px 0; position: relative;
   }
+  /* the B cell is pinned to column 3 so the eval strip can sit between the
+     cells in DOM order (a, gutter, strip, b) — dense flow backfills row 1 */
+  .tl-row > .tl-b { grid-column: 3; }
   .gutter { position: relative; align-self: stretch; min-height: 40px; }
   .conn { position: absolute; left: 0; right: 0; top: 24px; border-top: 2px solid var(--line-strong); }
   .conn.drift { border-top-style: dashed; border-top-color: var(--warn-line); }
@@ -625,6 +629,94 @@
     border: 1px dashed var(--good); border-radius: 999px; padding: 0.5px 8px; opacity: 0.85;
   }
   .td-raw { white-space: pre-wrap; word-break: break-word; line-height: 1.6; }
+
+  /* ---------- step evaluation strip (v5) ---------- */
+  .eval-toggle { display: inline-flex; align-items: center; gap: 7px; }
+  .eval-toggle .sw-track {
+    width: 22px; height: 12px; border-radius: 999px; background: var(--line-strong);
+    position: relative; flex: none; transition: background 0.15s;
+  }
+  .eval-toggle .sw-track::after {
+    content: ""; position: absolute; top: 1.5px; left: 2px; width: 9px; height: 9px;
+    border-radius: 50%; background: var(--surface); transition: left 0.15s;
+  }
+  .eval-toggle[aria-pressed="true"] { color: var(--ink); border-color: var(--viol); }
+  .eval-toggle[aria-pressed="true"] .sw-track { background: var(--viol); }
+  .eval-toggle[aria-pressed="true"] .sw-track::after { left: 11px; }
+  .eval-strip {
+    grid-column: 1 / -1; display: none;
+    margin: 4px 8% 2px; position: relative;
+    align-items: center; gap: 10px;
+    border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2);
+    padding: 4px 12px; min-height: 26px;
+    font-family: var(--mono); font-size: 10.5px; font-variant-numeric: tabular-nums;
+    color: var(--ink-2); white-space: nowrap; overflow-x: auto; overflow-y: hidden;
+  }
+  #view-cmp.eval-on .eval-strip { display: flex; }
+  @media (max-width: 700px) {
+    .eval-strip { margin: 2px 0 4px; }
+    .tl-row > .tl-b { grid-column: auto; }
+  }
+  .es-item { display: inline-flex; align-items: center; gap: 5px; flex: none; }
+  .es-k {
+    font-family: var(--sans); font-size: 9.5px; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--muted); font-weight: 650;
+  }
+  .es-bar { width: 44px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; flex: none; }
+  .es-fill { display: block; height: 100%; border-radius: 3px; background: var(--ink-2); }
+  .es-fill.prop { background: var(--bad-soft); }
+  .es-badge { border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 5px; background: var(--surface); flex: none; cursor: help; }
+  .es-badge.ok { color: var(--good); border-color: var(--good); }
+  .es-badge.no { color: var(--bad); border-color: var(--bad-soft); }
+  .es-badge.mid { color: var(--warn); border-color: var(--warn-line); }
+  .es-delta { border-radius: 4px; padding: 0 6px; font-weight: 650; flex: none; cursor: help; }
+  .es-delta.good { color: var(--good); background: var(--good-tint); }
+  .es-delta.bad { color: var(--bad); background: var(--bad-tint); }
+  .es-delta.flat { color: var(--muted); background: var(--surface); }
+  .es-verd { font-weight: 700; flex: none; cursor: help; letter-spacing: 0.02em; }
+  .es-verd.eq { color: var(--muted); }
+  .es-verd.weak { color: var(--warn); }
+  .es-verd.bad { color: var(--bad); }
+  .es-sep { color: var(--line-strong); flex: none; user-select: none; }
+  .es-prop { cursor: help; }
+  /* red edge tick on high-propagation rows — echoes the propagation rail */
+  .eval-strip.prop-hot-a::before, .eval-strip.prop-hot-b::after {
+    content: ""; position: absolute; top: 4px; bottom: 4px; width: 3px;
+    border-radius: 2px; background: var(--bad); opacity: 0.7;
+  }
+  .eval-strip.prop-hot-a::before { left: 0; }
+  .eval-strip.prop-hot-b::after { right: 0; }
+
+  /* ---------- final answer evaluation (v5) ---------- */
+  .ae-panel { margin-top: 26px; }
+  .ae-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .ae-head h3 { margin: 0; }
+  .ae-legend { display: inline-flex; gap: 12px; margin-left: auto; font-size: 11px; color: var(--muted); align-items: baseline; }
+  .ae-verdicts { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .ae-chip {
+    font-family: var(--mono); font-size: 11.5px; font-weight: 650;
+    font-variant-numeric: tabular-nums; border-radius: 5px; padding: 2px 9px; cursor: help;
+  }
+  .ae-chip.match { color: var(--good); background: var(--good-tint); }
+  .ae-chip.partial { color: var(--warn); background: var(--warn-tint); }
+  .ae-chip.mismatch { color: var(--bad); background: var(--bad-tint); }
+  .ae-chip.unknown { color: var(--muted); background: var(--surface-2); }
+  .ae-diff {
+    font-family: var(--mono); font-size: 12px; line-height: 1.9;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; word-break: break-word;
+  }
+  .ae-del { color: var(--agent-a); background: var(--agent-a-tint); box-shadow: inset 0 -2px 0 var(--agent-a); border-radius: 2px; padding: 0 2px; }
+  .ae-ins { color: var(--agent-b); background: var(--agent-b-tint); box-shadow: inset 0 -2px 0 var(--agent-b); border-radius: 2px; padding: 0 2px; }
+  .ae-expected {
+    margin: 10px 0 0; border-left: 3px solid var(--line-strong);
+    padding: 7px 12px 8px; color: var(--ink-2); font-size: 12.5px;
+    background: var(--surface-2); border-radius: 0 7px 7px 0;
+  }
+  .ae-expected .ae-k {
+    display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--muted); font-weight: 650; margin-bottom: 2px;
+  }
 
   /* ---------- fleet dashboard ---------- */
   .fleet-hero { margin-top: 26px; display: flex; flex-direction: column; gap: 6px; }
@@ -1009,6 +1101,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     <div class="tl-wrap">
       <div class="tl" id="tl"></div>
     </div>
+    <div id="answer-slot"></div>
     <div id="verdict-slot"></div>
     <p class="kbd-hint"><kbd>←</kbd> <kbd>→</kbd> switch task &nbsp;·&nbsp; <kbd>Esc</kbd> back to task list &nbsp;·&nbsp; click a truncated input/output to expand</p>
   </div>
@@ -1023,6 +1116,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   /* ---------------- state ---------------- */
   var state = {
     data: null, view: "list", idx: 0, fanMode: "tokens",
+    evalDetail: false,        /* v5 eval-detail toggle — remembered for the session */
     pair: null,               /* fleet compare context: {label, list:[report idx], pos} */
     fleetTab: "board",
     weights: null,            /* current weights (fleet mode) */
@@ -1308,6 +1402,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         aIdx: aIdx, bIdx: bIdx,
         similarity: num(al.similarity),
         toolDiff: (al.tool_diff && typeof al.tool_diff === "object") ? al.tool_diff : null,
+        evalDetail: (al.eval && typeof al.eval === "object") ? al.eval : null,
         aStep: aIdx == null ? null : stepAt(r, "a", aIdx),
         bStep: bIdx == null ? null : stepAt(r, "b", bIdx)
       };
@@ -1949,6 +2044,132 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       head + "</div>" + '<div class="td-body">' + body.join("") + "</div></div>";
   }
 
+  /* ---------------- step-level evaluation detail (v5) ---------------- */
+  function simBreakdown(ev) {
+    /* "type ✓ · name 40% · input 55%" — alignment-transparency tooltip */
+    if (!ev || !ev.similarity || typeof ev.similarity !== "object") return "";
+    var s = ev.similarity, parts = [];
+    if (typeof s.type_match === "boolean") parts.push("type " + (s.type_match ? "✓" : "✗"));
+    if (num(s.name_jaccard) !== null) parts.push("name " + Math.round(s.name_jaccard * 100) + "%");
+    if (num(s.input_jaccard) !== null) parts.push("input " + Math.round(s.input_jaccard * 100) + "%");
+    return parts.join(" · ");
+  }
+  function esDelta(v, what, absTxt) {
+    v = num(v); if (v === null) return "";
+    var cls = v > 0 ? "bad" : v < 0 ? "good" : "flat";
+    var dir = v > 0 ? "B spent " + absTxt(Math.abs(v)) + " more than A on this step"
+            : v < 0 ? "B spent " + absTxt(Math.abs(v)) + " less than A on this step"
+            : "A and B spent the same on this step";
+    return '<span class="es-delta ' + cls + '" title="Δ ' + esc(what) + " = B − A. " + esc(dir) + '">' +
+      esc(signed(absTxt(Math.abs(v)), v)) + "</span>";
+  }
+  function qRank(q) { return q === "bad" ? 0 : q === "weak" ? 1 : 2; }
+  function evalStripHtml(row, failSide) {
+    var ev = row.evalDetail;
+    if (!ev || !row.aStep || !row.bStep) return "";
+    var bits = [];
+    var sim = (ev.similarity && typeof ev.similarity === "object") ? ev.similarity : {};
+    /* input similarity mini bar */
+    var ij = num(sim.input_jaccard);
+    if (ij !== null) {
+      var ip = Math.round(Math.max(0, Math.min(1, ij)) * 100);
+      bits.push('<span class="es-item" title="input similarity — shared words (Jaccard) between the two steps’ inputs">' +
+        '<span class="es-k">input sim</span>' +
+        '<span class="es-bar"><span class="es-fill" style="width:' + ip + '%"></span></span>' +
+        "<span>" + ip + "%</span></span>");
+    }
+    /* type / name match badges */
+    if (typeof sim.type_match === "boolean") {
+      bits.push('<span class="es-badge ' + (sim.type_match ? "ok" : "no") + '" title="step types ' +
+        (sim.type_match ? "match" : "differ") + " (A: " + esc(row.aStep.type || "?") + ", B: " + esc(row.bStep.type || "?") + ')">type ' +
+        (sim.type_match ? "✓" : "✗") + "</span>");
+    }
+    var nj = num(sim.name_jaccard);
+    if (nj !== null) {
+      var ncls = nj >= 0.99 ? "ok" : nj >= 0.5 ? "mid" : "no";
+      bits.push('<span class="es-badge ' + ncls + '" title="step-name word overlap (Jaccard): “' +
+        esc(row.aStep.name || "?") + "” vs “" + esc(row.bStep.name || "?") + '”">name ' + Math.round(nj * 100) + "%</span>");
+    }
+    /* delta chips, B − A */
+    var del = (ev.delta && typeof ev.delta === "object") ? ev.delta : {};
+    var dHtml = esDelta(del.tokens, "tokens", function (v) { return fmtTok(v) + " tok"; }) +
+                esDelta(del.latency_s, "latency", function (v) { return (Math.abs(v) >= 100 ? Math.round(v) : Math.abs(v) >= 0.095 ? +v.toFixed(1) : +v.toFixed(2)) + "s"; }) +
+                esDelta(del.cost_usd, "cost", function (v) {
+                  return "$" + (Math.abs(v) >= 0.1 ? v.toFixed(2) : Math.abs(v) >= 0.0001 ? v.toFixed(4) : v.toFixed(6));
+                });
+    if (dHtml) bits.push('<span class="es-sep">│</span><span class="es-item">' + dHtml + "</span>");
+    /* quality verdict */
+    var q = (ev.quality && typeof ev.quality === "object") ? ev.quality : {};
+    var verd = q.verdict === "a_degraded" || q.verdict === "b_degraded" || q.verdict === "equal"
+      ? q.verdict
+      : (q.a || q.b) ? (qRank(q.a) < qRank(q.b) ? "a_degraded" : qRank(q.b) < qRank(q.a) ? "b_degraded" : "equal") : null;
+    if (verd) {
+      var vt, vc;
+      if (verd === "equal") {
+        vt = "="; vc = "eq";
+      } else {
+        var side = verd === "a_degraded" ? "a" : "b";
+        vt = side.toUpperCase() + "↓";
+        vc = (q[side] === "bad") ? "bad" : "weak";
+      }
+      bits.push('<span class="es-sep">│</span>' +
+        '<span class="es-verd ' + vc + '" title="quality verdict: ' + esc(kindLabel(verd)) +
+        " (A: " + esc(q.a || "good") + ", B: " + esc(q.b || "good") + ')">' + vt + "</span>");
+    }
+    /* propagation mini-bars per side */
+    var prop = (ev.propagation && typeof ev.propagation === "object") ? ev.propagation : {};
+    var pHtml = "", hot = "";
+    ["a", "b"].forEach(function (side) {
+      var p = num(prop[side]);
+      if (p === null || p <= 0) return;
+      var pp = Math.round(Math.max(0, Math.min(1, p)) * 100);
+      pHtml += '<span class="es-item es-prop" title="' + esc(agentName(side)) + "’s step carries " + pp +
+        "% of the root mistake’s content — word overlap between this step’s input and the root divergent step’s output\">" +
+        '<span class="es-k">' + side + " carries</span>" +
+        '<span class="es-bar"><span class="es-fill prop" style="width:' + pp + '%"></span></span>' +
+        "<span>" + pp + "%</span></span>";
+      if (failSide === side && p > 0.3) hot = " prop-hot-" + side;
+    });
+    if (pHtml) bits.push('<span class="es-sep">│</span>' + pHtml);
+    if (!bits.length) return "";
+    return '<div class="eval-strip' + hot + '">' + bits.join("") + "</div>";
+  }
+  function aeChip(sideLabel, vv) {
+    if (!vv || typeof vv !== "object") return "";
+    var verdict = (vv.verdict === "match" || vv.verdict === "partial" || vv.verdict === "mismatch") ? vv.verdict : "unknown";
+    var cov = num(vv.coverage);
+    if (cov === null) cov = num(vv.jaccard); /* pre-v5.1 payloads */
+    return '<span class="ae-chip ' + verdict + '" title="expected-answer coverage — fraction of the expected answer’s tokens present in ' +
+      sideLabel + "’s final answer (a wrong numeric token caps the verdict at partial)\">" +
+      sideLabel + " vs expected: " + verdict + (cov !== null ? " (" + cov.toFixed(2) + ")" : "") + "</span>";
+  }
+  function renderAnswerEval(r) {
+    var el = document.getElementById("answer-slot");
+    if (!el) return;
+    var ae = r && r.answer_eval;
+    if (!ae || typeof ae !== "object") { el.innerHTML = ""; return; }
+    var diffHtml = "";
+    if (Array.isArray(ae.diff_ab) && ae.diff_ab.length) {
+      diffHtml = ae.diff_ab.map(function (op) {
+        if (!Array.isArray(op) || op.length < 2 || op[1] == null) return "";
+        var cls = op[0] === "del" ? "ae-del" : op[0] === "ins" ? "ae-ins" : "";
+        return cls ? '<span class="' + cls + '">' + esc(op[1]) + "</span>" : esc(op[1]);
+      }).join("");
+    }
+    var chips = aeChip("A", ae.a_vs_expected) + aeChip("B", ae.b_vs_expected);
+    if (!diffHtml && !chips && ae.expected == null) { el.innerHTML = ""; return; }
+    el.innerHTML = '<div class="panel ae-panel">' +
+      '<div class="ae-head"><h3>Final answer evaluation' +
+        ' <span class="sub">both final answers merged as one word-level diff</span></h3>' +
+        '<span class="ae-legend" aria-hidden="true"><span><span class="ae-del">A only</span></span>' +
+        '<span><span class="ae-ins">B only</span></span><span>shared</span></span></div>' +
+      (chips ? '<div class="ae-verdicts">' + chips + "</div>" : "") +
+      (diffHtml ? '<div class="ae-diff">' + diffHtml + "</div>" : "") +
+      (ae.expected != null && ae.expected !== ""
+        ? '<blockquote class="ae-expected"><span class="ae-k">Expected answer</span>' + esc(ae.expected) + "</blockquote>" : "") +
+      "</div>";
+  }
+
   /* ---------------- compare view ---------------- */
   var currentRedraw = null;
   function cmpList() {
@@ -2039,6 +2260,13 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     } else {
       stripBits.push('<span class="aligned-chip" title="every aligned step-pair matched">✓ fully aligned — no divergence</span>');
     }
+    var hasEval = rows.some(function (row) { return !!row.evalDetail; });
+    cmpEl.classList.toggle("eval-on", hasEval && state.evalDetail);
+    if (hasEval) {
+      stripBits.push('<button class="strip-btn eval-toggle" id="st-eval" type="button" role="switch" aria-pressed="' +
+        (state.evalDetail ? "true" : "false") + '" title="show per-step-pair evaluation: similarity, Δ cost, quality verdict, error propagation">' +
+        'Eval detail<span class="sw-track" aria-hidden="true"></span></button>');
+    }
     if (att.explanation || att.category || divs.length) {
       stripBits.push('<button class="strip-btn" id="st-verdict" type="button">▼ verdict</button>');
     }
@@ -2054,6 +2282,13 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     stripEl.innerHTML = stripBits.join("");
     var stDiv = document.getElementById("st-div");
     if (stDiv) stDiv.addEventListener("click", scrollToDivergence);
+    var stEval = document.getElementById("st-eval");
+    if (stEval) stEval.addEventListener("click", function () {
+      state.evalDetail = !state.evalDetail;
+      stEval.setAttribute("aria-pressed", state.evalDetail ? "true" : "false");
+      cmpEl.classList.toggle("eval-on", state.evalDetail);
+      if (currentRedraw) currentRedraw(); /* strip visibility changes card positions → reposition rail */
+    });
     var stVer = document.getElementById("st-verdict");
     if (stVer) stVer.addEventListener("click", function () {
       var v = document.getElementById("verdict-slot");
@@ -2135,14 +2370,17 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         var drift = op === "drift";
         aCard = stepCard(row.aStep, "a", extraFor("a", row.aStep), tagFor("a", row.aStep));
         bCard = stepCard(row.bStep, "b", extraFor("b", row.bStep), tagFor("b", row.bStep));
+        var simTip = simBreakdown(row.evalDetail);
         gut = '<div class="conn' + (drift ? " drift" : "") + '"></div>' +
           (drift && row.similarity !== null
-            ? '<span class="conn-sim">' + Math.round(row.similarity * 100) + "% similar</span>" : "");
+            ? '<span class="conn-sim"' + (simTip ? ' title="' + esc(simTip) + '" style="cursor:help"' : "") + '>' +
+              Math.round(row.similarity * 100) + "% similar</span>" : "");
       }
       html += '<div class="tl-row">' +
-        "<div>" + aCard + "</div>" +
+        '<div class="tl-a">' + aCard + "</div>" +
         '<div class="gutter">' + gut + "</div>" +
-        "<div>" + bCard + "</div>" +
+        evalStripHtml(row, failSide) +
+        '<div class="tl-b">' + bCard + "</div>" +
         (row.toolDiff ? toolDiffBlock(row.toolDiff) : "") +
         "</div>";
     });
@@ -2150,6 +2388,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       html += '<div class="aligned-note">✓ Fully aligned — both agents took the same path on this task; no divergence to explain.</div>';
     }
     document.getElementById("tl").innerHTML = html;
+
+    /* final answer evaluation (v5) — sits above the verdict block */
+    renderAnswerEval(r);
 
     /* verdict */
     var vs = document.getElementById("verdict-slot");
