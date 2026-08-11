@@ -13,9 +13,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from deepcompare import Trajectory, compare
 from deepcompare.align import align, step_similarity
+from deepcompare.fleet import fleet_analysis
 from deepcompare.metrics import aggregate, metrics_delta
 from deepcompare.recommend import recommend
 from deepcompare.report import render_html
+from deepcompare.tooldiff import parse_args, token_diff, tool_diff
 
 
 def make_step(index, type, name="", input="", output="", tokens=100,
@@ -451,6 +453,172 @@ class TestRecommend(unittest.TestCase):
         severities = [r["severity"] for r in recs]
         self.assertEqual(severities, sorted(severities, key=["critical", "moderate", "minor"].index))
         self.assertEqual(aggregate([])["recommendations"], [])
+
+
+def fleet_traj(agent, task_id, success, cost, latency, tokens,
+               extra_searches=0, bad_retrieve=False):
+    steps = [
+        make_step(0, "plan", "plan", f"solve {task_id}"),
+        make_step(1, "search", "web_search", f"query for {task_id}"),
+    ]
+    if bad_retrieve:
+        steps.append(make_step(2, "retrieve", "sketchy_forum",
+                               "open forum result thread",
+                               output="forum claims xyz", quality="bad"))
+    else:
+        steps.append(make_step(2, "retrieve", "official_site",
+                               "open official result",
+                               output="official data value", quality="good"))
+    idx = 3
+    for k in range(extra_searches):
+        steps.append(make_step(idx, "search", "web_search",
+                               f"re-check source number {k}"))
+        idx += 1
+    steps.append(make_step(idx, "answer", "final", "right" if success else "wrong"))
+    return Trajectory.from_json(make_traj(
+        agent, task_id, success, "right" if success else "wrong", steps,
+        input_tokens=tokens, output_tokens=0, cost_usd=cost, latency_s=latency))
+
+
+def fleet_fixture():
+    """4 agents x 2 tasks with a known ranking: alpha (cheap, all-success),
+    charlie (cheapest/fastest but fails f1), bravo (all-success but costly and
+    undisciplined), delta (fails everything)."""
+    tasks = ("f1", "f2")
+    return {
+        "alpha": [fleet_traj("alpha", t, True, 0.01, 5.0, 700) for t in tasks],
+        "bravo": [fleet_traj("bravo", t, True, 0.05, 20.0, 3000,
+                             extra_searches=2) for t in tasks],
+        "charlie": [
+            fleet_traj("charlie", "f1", False, 0.008, 4.0, 600, bad_retrieve=True),
+            fleet_traj("charlie", "f2", True, 0.008, 4.0, 600),
+        ],
+        "delta": [fleet_traj("delta", t, False, 0.02, 10.0, 900,
+                             extra_searches=1, bad_retrieve=True) for t in tasks],
+    }
+
+
+class TestToolDiff(unittest.TestCase):
+    def test_parse_args_well_formed(self):
+        parsed = parse_args("regex_extract(pattern='(Warning|Error)', source=log, first_match=true)")
+        self.assertEqual(parsed, {"pattern": "(Warning|Error)",
+                                  "source": "log", "first_match": "true"})
+
+    def test_parse_args_quoted_comma(self):
+        self.assertEqual(parse_args('send(msg="a, b", n=2)'), {"msg": "a, b", "n": "2"})
+
+    def test_parse_args_non_call(self):
+        self.assertIsNone(parse_args("search the web for acme revenue"))
+        self.assertIsNone(parse_args(""))
+        self.assertIsNone(parse_args("f(1, 2)"))  # positional args: not k=v
+        self.assertEqual(parse_args("noop()"), {})
+
+    def test_token_diff_roundtrip(self):
+        a = "select the annual report now"
+        b = "select the blog post now"
+        diff = token_diff(a, b)
+        self.assertTrue(all(op in ("eq", "del", "ins") for op, _ in diff))
+        self.assertEqual("".join(t for op, t in diff if op in ("eq", "del")), a)
+        self.assertEqual("".join(t for op, t in diff if op in ("eq", "ins")), b)
+        # consecutive same-op runs are merged
+        for prev, cur in zip(diff, diff[1:]):
+            self.assertNotEqual(prev[0], cur[0])
+        self.assertEqual(token_diff("same", "same"), [["eq", "same"]])
+
+    def test_tool_diff_same_tool_bad_args(self):
+        a, b = same_tool_bad_args_pair()
+        td = tool_diff(a.steps[1], b.steps[1])
+        self.assertIsNotNone(td)
+        self.assertTrue(td["same_tool"])
+        self.assertEqual(td["name_a"], "regex_extract")
+        changed_keys = [c["key"] for c in td["changed"]]
+        self.assertIn("pattern", changed_keys)
+        self.assertEqual(td["only_a"], ["first_match"])
+        self.assertTrue(len(td["raw_diff"]) > 1)
+
+    def test_tool_diff_none_for_non_toolish(self):
+        a, b = identical_pair()
+        self.assertIsNone(tool_diff(a.steps[0], b.steps[0]))  # plan vs plan
+
+    def test_compare_wires_tool_diff(self):
+        report = compare(*same_tool_bad_args_pair())
+        entry = next(e for e in report["alignment"] if e["a_index"] == 1)
+        self.assertIn("tool_diff", entry)
+        self.assertTrue(entry["tool_diff"]["same_tool"])
+        # identical tool-ish steps get the cheap identical marker
+        report2 = compare(*identical_pair())
+        entry2 = next(e for e in report2["alignment"] if e["a_index"] == 1)
+        self.assertEqual(entry2["tool_diff"], {"same_tool": True, "identical": True})
+
+
+class TestFleet(unittest.TestCase):
+    def test_ranking_and_pareto(self):
+        result = fleet_analysis(fleet_fixture())
+        fleet, reports = result["fleet"], result["reports"]
+        agents = {a["name"]: a for a in fleet["agents"]}
+        self.assertEqual([a["name"] for a in fleet["agents"]],
+                         ["alpha", "charlie", "bravo", "delta"])
+        self.assertEqual([a["rank"] for a in fleet["agents"]], [1, 2, 3, 4])
+        self.assertTrue(agents["alpha"]["pareto"])
+        self.assertTrue(agents["charlie"]["pareto"])
+        self.assertFalse(agents["bravo"]["pareto"])
+        self.assertEqual(agents["bravo"]["dominated_by"], 1)
+        self.assertEqual(agents["delta"]["dominated_by"], 2)
+        # dimension scores bounded and best-in-fleet success at 1.0
+        for a in fleet["agents"]:
+            for score in a["dimension_scores"].values():
+                self.assertGreaterEqual(score, 0.0)
+                self.assertLessEqual(score, 1.0)
+        self.assertEqual(agents["alpha"]["dimension_scores"]["success"], 1.0)
+        # wasted tool calls vs the leanest successful run (1 search/task)
+        self.assertEqual(agents["bravo"]["metrics"]["wasted_tool_calls"], 2.0)
+        self.assertEqual(agents["alpha"]["metrics"]["wasted_tool_calls"], 0.0)
+        # rationales cite rank drivers and the success gap
+        self.assertIn("Ranked #1", agents["alpha"]["rationale"])
+        self.assertIn("Ranked #2", agents["charlie"]["rationale"])
+        self.assertIn("below the success leader", agents["charlie"]["rationale"])
+        # failure fingerprints
+        self.assertEqual(agents["charlie"]["failure_fingerprint"], {"retrieval": 1.0})
+        self.assertEqual(agents["alpha"]["failure_fingerprint"], {})
+        # spotlight pairs reference valid report indices
+        self.assertTrue(fleet["spotlight_pairs"])
+        names = set(agents)
+        for pair in fleet["spotlight_pairs"]:
+            self.assertIn(pair["a"], names)
+            self.assertIn(pair["b"], names)
+            self.assertTrue(pair["why"])
+            for idx in pair["report_indices"]:
+                self.assertGreaterEqual(idx, 0)
+                self.assertLess(idx, len(reports))
+        self.assertTrue(reports)
+
+    def test_weights_override_changes_ranking(self):
+        cost_only = {"success": 0.0, "cost": 1.0, "latency": 0.0,
+                     "tool_discipline": 0.0, "step_economy": 0.0}
+        result = fleet_analysis(fleet_fixture(), weights=cost_only)
+        self.assertEqual(result["fleet"]["agents"][0]["name"], "charlie")
+
+    def test_single_agent_fleet(self):
+        solo = {"solo": [fleet_traj("solo", "f1", True, 0.01, 5.0, 700),
+                         fleet_traj("solo", "f2", True, 0.01, 5.0, 700)]}
+        result = fleet_analysis(solo)
+        fleet = result["fleet"]
+        self.assertEqual(len(fleet["agents"]), 1)
+        agent = fleet["agents"][0]
+        self.assertEqual(agent["rank"], 1)
+        self.assertAlmostEqual(agent["score"], 1.0, places=4)
+        self.assertTrue(agent["pareto"])
+        self.assertEqual(agent["failure_fingerprint"], {})
+        self.assertEqual(fleet["spotlight_pairs"], [])
+        self.assertEqual(result["reports"], [])
+
+    def test_mismatched_task_sets_rejected(self):
+        bad = {
+            "one": [fleet_traj("one", "f1", True, 0.01, 5.0, 700)],
+            "two": [fleet_traj("two", "f2", True, 0.01, 5.0, 700)],
+        }
+        with self.assertRaisesRegex(ValueError, "task set"):
+            fleet_analysis(bad)
 
 
 if __name__ == "__main__":

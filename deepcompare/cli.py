@@ -4,11 +4,15 @@ Usage::
 
     python -m deepcompare compare a.json b.json -o report.json
     python -m deepcompare batch tracesdir/ -o out/ [--template web/viewer.html]
+    python -m deepcompare fleet tracesdir/ -o out/ [--weights success=0.5,...]
 
 ``compare`` diffs a single pair of traces and prints a terminal summary
 (first divergence + attribution).  ``batch`` pairs traces by task id across
 the two agent names found in a directory, writes per-task reports,
 ``aggregate.json``, and ``report.html`` rendered from the viewer template.
+``fleet`` auto-discovers all agents in a directory, ranks them (composite
+score, Pareto frontier, failure fingerprints), and writes ``fleet.json``
+plus a fleet ``report.html`` with spotlight pairwise reports.
 """
 
 from __future__ import annotations
@@ -20,6 +24,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from .fleet import DEFAULT_WEIGHTS, fleet_analysis
 from .metrics import aggregate as build_aggregate
 from .recommend import recommend
 from .report import compare, render_html
@@ -109,12 +114,7 @@ def _cmd_batch(args: argparse.Namespace) -> int:
         print(f"error: {traces_dir} is not a directory", file=sys.stderr)
         return 2
 
-    trajectories: list[Trajectory] = []
-    for path in sorted(traces_dir.glob("*.json")):
-        try:
-            trajectories.append(Trajectory.from_json(path))
-        except ValueError as exc:
-            print(f"warning: skipping invalid trace: {exc}", file=sys.stderr)
+    trajectories = _load_traces_dir(traces_dir)
     if not trajectories:
         print("error: no valid traces found", file=sys.stderr)
         return 2
@@ -185,6 +185,131 @@ def _cmd_batch(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_traces_dir(traces_dir: Path) -> list[Trajectory]:
+    """Load all valid trajectory JSON files in a directory (sorted, with
+    warnings to stderr for invalid ones)."""
+    trajectories: list[Trajectory] = []
+    for path in sorted(traces_dir.glob("*.json")):
+        try:
+            trajectories.append(Trajectory.from_json(path))
+        except ValueError as exc:
+            print(f"warning: skipping invalid trace: {exc}", file=sys.stderr)
+    return trajectories
+
+
+def _parse_weights(spec: Optional[str]) -> Optional[dict[str, float]]:
+    """Parse a --weights spec like 'success=0.45,cost=0.15' into a dict."""
+    if not spec:
+        return None
+    weights: dict[str, float] = {}
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        key, sep, value = part.partition("=")
+        key = key.strip()
+        if not sep or key not in DEFAULT_WEIGHTS:
+            raise ValueError(
+                f"bad --weights entry {part!r}; expected one of "
+                f"{', '.join(sorted(DEFAULT_WEIGHTS))} as key=value"
+            )
+        try:
+            weights[key] = float(value)
+        except ValueError as exc:
+            raise ValueError(f"bad --weights value in {part!r}") from exc
+    return weights or None
+
+
+def _cmd_fleet(args: argparse.Namespace) -> int:
+    traces_dir = Path(args.tracesdir)
+    if not traces_dir.is_dir():
+        print(f"error: {traces_dir} is not a directory", file=sys.stderr)
+        return 2
+    try:
+        weights = _parse_weights(args.weights)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    trajectories = _load_traces_dir(traces_dir)
+    if not trajectories:
+        print("error: no valid traces found", file=sys.stderr)
+        return 2
+
+    by_agent: dict[str, dict[str, Trajectory]] = {}
+    for t in trajectories:
+        by_agent.setdefault(t.agent.name, {}).setdefault(t.task.id, t)
+
+    all_tasks = sorted({tid for tasks in by_agent.values() for tid in tasks})
+    complete: dict[str, list[Trajectory]] = {}
+    for name in sorted(by_agent):
+        missing = [tid for tid in all_tasks if tid not in by_agent[name]]
+        if missing:
+            print(
+                f"warning: agent {name!r} is missing task(s) "
+                f"{', '.join(missing)}; skipped",
+                file=sys.stderr,
+            )
+            continue
+        complete[name] = [by_agent[name][tid] for tid in all_tasks]
+    if len(complete) < 2:
+        print(
+            f"error: fleet mode needs at least 2 complete agents, "
+            f"found {len(complete)}",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        result = fleet_analysis(complete, weights=weights)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    fleet, reports = result["fleet"], result["reports"]
+
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    payload = {"fleet": fleet, "reports": reports, "aggregate": {}}
+    fleet_path = out_dir / "fleet.json"
+    fleet_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    print(f"Wrote {fleet_path}")
+
+    template = Path(args.template) if args.template else DEFAULT_TEMPLATE
+    if template.is_file():
+        try:
+            html_path = render_html(reports, {}, template, out_dir / "report.html", fleet=fleet)
+            print(f"Wrote {html_path}")
+        except ValueError as exc:
+            print(f"warning: could not render HTML: {exc}", file=sys.stderr)
+    else:
+        print(f"warning: viewer template not found at {template}; skipping report.html",
+              file=sys.stderr)
+
+    agents = fleet["agents"]
+    print(f"Fleet: {len(agents)} agents x {len(fleet['tasks'])} tasks")
+    header = f"{'rank':>4}  {'agent':<24} {'score':>6} {'success':>8} {'tokens':>9} {'calls':>6}  pareto"
+    print(header)
+    print("-" * len(header))
+    for a in agents:
+        m = a["metrics"]
+        calls = m["mean_tool_calls"] + m["mean_searches"]
+        star = "*" if a["pareto"] else ""
+        print(
+            f"{a['rank']:>4}  {a['name']:<24} {a['score']:>6.2f} "
+            f"{m['success_rate']:>8.0%} {m['mean_tokens']:>9.0f} {calls:>6.1f}  {star}"
+        )
+    print("Top rationales:")
+    for a in agents[:3]:
+        print(f"  #{a['rank']} {a['name']}: {a['rationale']}")
+    print("Spotlight pairs:")
+    for pair in fleet["spotlight_pairs"]:
+        print(f"  {pair['a']} vs {pair['b']} — {pair['why']} "
+              f"(reports {pair['report_indices']})")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the deepcompare argument parser."""
     parser = argparse.ArgumentParser(
@@ -206,6 +331,20 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"viewer HTML template (default: {DEFAULT_TEMPLATE})",
     )
     p_batch.set_defaults(func=_cmd_batch)
+
+    p_fleet = sub.add_parser("fleet", help="rank and cross-compare N agents on a shared task set")
+    p_fleet.add_argument("tracesdir", help="directory of trajectory *.json files (all agents)")
+    p_fleet.add_argument("-o", "--output", default="out", help="output directory (default: out)")
+    p_fleet.add_argument(
+        "--template",
+        help=f"viewer HTML template (default: {DEFAULT_TEMPLATE})",
+    )
+    p_fleet.add_argument(
+        "--weights",
+        help="composite weight overrides, e.g. success=0.45,cost=0.15 "
+        f"(defaults: {', '.join(f'{k}={v}' for k, v in DEFAULT_WEIGHTS.items())})",
+    )
+    p_fleet.set_defaults(func=_cmd_fleet)
     return parser
 
 
