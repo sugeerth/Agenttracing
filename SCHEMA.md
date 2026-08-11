@@ -292,3 +292,57 @@ meaning-bearing facts traced through the steps).
   comparable claim of the same kind.
 - `conflicts`: pairs of same-kind claims where the agents carried different
   values into their answers.
+
+### Extended semantic suite (v7, continued)
+
+The `semantic` object additionally carries:
+
+```json
+"intents": {
+  "a": [{"step": 0, "intent": "frame | acquire | verify | transform | decide | commit"}],
+  "b": [{"step": 0, "intent": "frame"}],
+  "missing": {"a": [], "b": ["verify"]}
+},
+"grounding": {
+  "a": {"claims_total": 2, "claims_grounded": 2, "score": 1.0, "ungrounded": []},
+  "b": {"claims_total": 2, "claims_grounded": 1, "score": 0.5,
+        "ungrounded": [{"claim": "c3", "value": "..."}]}
+},
+"independence": [
+  {"claim": "c2", "agent": "b", "sources": ["financeblog.net", "moneymirror.com"],
+   "circular": true,
+   "evidence": "the corroborating source's text cites financeblog.net itself"}
+],
+"contradictions": [
+  {"agent": "b", "steps": [7, 8], "kind": "money",
+   "values": ["$4.5 billion", "$4.82 billion"],
+   "summary": "bolt-v3 carried conflicting money values within its own trajectory"}
+]
+```
+
+- `intents`: every step classified by *what it does for the process* —
+  frame (plan/scope), acquire (search/retrieve/read), verify (cross-check,
+  confirm, validate), transform (compute/convert), decide (select/judge),
+  commit (final answer). Derived from step type + text cues. `missing` lists
+  intents absent from one side but present in the other — "B never verified"
+  is a process-grammar finding, not a wording one.
+- `grounding`: for each side, the fraction of its final-answer claims that
+  trace to some step output (provenance exists). Ungrounded answer claims are
+  hallucination flags.
+- `independence`: when a side corroborates a claim with a second source,
+  checks whether that source's text itself cites the first (circular
+  corroboration — two quotes, one voice).
+- `contradictions`: same-kind claims with different values inside ONE agent's
+  trajectory — internal inconsistency the agent never resolved.
+
+Aggregate gains a per-agent semantic profile:
+
+```json
+"semantic_profile": {
+  "a": {"verification_rate": 0.875, "grounding": 0.95,
+        "circular_incidents": 0, "contradictions": 0},
+  "b": {"verification_rate": 0.25, "grounding": 0.71,
+        "circular_incidents": 1, "contradictions": 1},
+  "narrative": "cross-task semantic comparison in plain language"
+}
+```
