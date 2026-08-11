@@ -34,6 +34,13 @@
     --win-line:      #159581;
     --win-tint:      rgba(21,149,129,0.11);
     --win-soft:      rgba(21,149,129,0.5);
+    /* v7 intent scale (validated all-pairs, light surface) */
+    --int-frame:     #274f9e;
+    --int-acquire:   #0f95bb;
+    --int-verify:    #1a651a;
+    --int-transform: #9553dd;
+    --int-decide:    #e0509a;
+    --int-commit:    #b8830a;
 
     --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
     --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
@@ -68,6 +75,12 @@
       --win-line:      #2a9c82;
       --win-tint:      rgba(63,198,166,0.13);
       --win-soft:      rgba(63,198,166,0.5);
+      --int-frame:     #4b5be0;
+      --int-acquire:   #17a3cd;
+      --int-verify:    #128a60;
+      --int-transform: #aa6ef5;
+      --int-decide:    #e85596;
+      --int-commit:    #c98500;
       --shadow: none;
     }
   }
@@ -99,6 +112,12 @@
     --win-line:      #2a9c82;
     --win-tint:      rgba(63,198,166,0.13);
     --win-soft:      rgba(63,198,166,0.5);
+    --int-frame:     #4b5be0;
+    --int-acquire:   #17a3cd;
+    --int-verify:    #128a60;
+    --int-transform: #aa6ef5;
+    --int-decide:    #e85596;
+    --int-commit:    #c98500;
     --shadow: none;
   }
 
@@ -983,6 +1002,112 @@
   #scatter-box .sc-dot.hot { stroke: var(--ink); stroke-width: 2.5; fill-opacity: 1; }
   .wh-panel.flash { animation: flash-ring 1.4s ease-out; }
 
+  /* ---------- v7 semantic analysis ---------- */
+  .sem-seg {
+    margin-top: 26px; border: 1px solid var(--line); border-left: 4px solid var(--viol);
+    background: var(--surface); border-radius: 10px; padding: 16px 18px 18px; box-shadow: var(--shadow);
+  }
+  .sem-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .sem-head h3 { margin: 0; font-size: 13px; font-weight: 650; }
+  .sem-head .sub { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 6px; }
+  .sem-methods { margin-left: auto; display: inline-flex; gap: 5px; flex-wrap: wrap; }
+  .sem-methods span {
+    font-family: var(--mono); font-size: 10px; color: var(--muted);
+    border: 1px solid var(--line); border-radius: 999px; padding: 0.5px 8px; white-space: nowrap;
+  }
+  .sem-narr { margin: 8px 0 0; font-size: 13.2px; line-height: 1.6; max-width: 78ch; }
+  .sem-flags { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .contra-chip {
+    display: inline-flex; align-items: baseline; gap: 6px; text-align: left;
+    font-size: 12px; color: var(--bad); background: var(--bad-tint);
+    border: 1px solid var(--bad-soft); border-radius: 7px; padding: 4px 11px; cursor: pointer;
+  }
+  .contra-chip:hover { border-color: var(--bad); }
+  .contra-chip .cc-val { font-family: var(--mono); font-weight: 650; }
+  .sem-grid { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+  .sem-card { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 11px 13px 12px; min-width: 0; }
+  .sem-card h4 { margin: 0; font-size: 12.5px; font-weight: 650; }
+  .sem-card .dd-sub { margin: 2px 0 8px; }
+
+  /* claim provenance tracks */
+  .trk-body { display: grid; grid-template-columns: 186px minmax(0, 1fr); gap: 0; }
+  @media (max-width: 700px) { .trk-body { grid-template-columns: 132px minmax(0, 1fr); } }
+  .trk-rail { border-right: 1px solid var(--line); min-width: 0; }
+  .trk-lane-label {
+    display: flex; flex-direction: column; justify-content: center; gap: 2px;
+    padding: 0 10px 0 2px; cursor: default; border-radius: 6px 0 0 6px; min-width: 0;
+  }
+  .trk-lane-label .ck-top { display: flex; align-items: center; gap: 5px; min-width: 0; }
+  .ck-kind {
+    font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--ink-2); background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; flex: none;
+  }
+  .trk-lane-label .ck-val { font-family: var(--mono); font-size: 11px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .ck-exp { font-family: var(--mono); font-size: 9.5px; font-weight: 700; border-radius: 4px; padding: 0 5px; align-self: flex-start; white-space: nowrap; }
+  .ck-exp.ok { color: var(--good); background: var(--good-tint); }
+  .ck-exp.no { color: var(--bad); background: var(--bad-tint); }
+  .trk-lane-label.lane-hot, .trk-lane-label:hover { background: var(--surface-2); }
+  .trk-scroll { overflow-x: auto; overflow-y: hidden; }
+  .trk-scroll svg { display: block; }
+  .trk-more { color: var(--muted); font-size: 11px; margin-top: 6px; }
+  .lane .lane-bg { fill: transparent; }
+  .lane .lane-bg.tint-good { fill: var(--good-tint); }
+  .lane .lane-bg.tint-bad { fill: var(--bad-tint); }
+  .lane.lane-hot .lane-bg, .lane:hover .lane-bg { stroke: var(--viol); stroke-width: 1.5; }
+  .trk-dot { cursor: pointer; }
+
+  /* cross-highlight: claim hover glows the carrying step cards */
+  .step.sem-hot { box-shadow: 0 0 0 2px var(--viol); }
+  .claim-row { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+  .claim-chip {
+    display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
+    font-family: var(--mono); font-size: 10px; font-weight: 650;
+    border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface);
+    padding: 0.5px 6px; color: var(--ink-2); max-width: 100%;
+  }
+  .claim-chip:hover { border-color: var(--viol); color: var(--viol); }
+  .claim-chip .ck-kind { border: 0; padding: 0 2px 0 0; background: none; color: var(--muted); }
+  .claim-more { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+
+  /* intent ribbons */
+  .rib-seg { cursor: pointer; }
+  .miss-chips { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 9px; }
+  .miss-chip {
+    font-size: 11.5px; color: var(--warn); background: var(--warn-tint);
+    border: 1px solid var(--warn-line); border-radius: 999px; padding: 2px 10px;
+  }
+
+  /* grounding meters (sits beside final answer evaluation) */
+  .ans-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 12px; align-items: start; margin-top: 26px; }
+  .ans-grid > .panel, .ans-grid > .ae-panel { margin-top: 0; }
+  @media (max-width: 860px) { .ans-grid { grid-template-columns: minmax(0, 1fr); } }
+  .gr-panel h3 { margin: 0 0 12px; }
+  .gr-rows { display: flex; flex-direction: column; gap: 12px; }
+  .gr-row { display: grid; grid-template-columns: auto minmax(64px, auto) 1fr auto; gap: 8px; align-items: center; }
+  .gr-row .nm { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gr-meter { height: 10px; border-radius: 4px; background: var(--surface-2); overflow: hidden; min-width: 56px; cursor: help; }
+  .gr-meter span { display: block; height: 100%; border-radius: 4px; min-width: 2px; }
+  .gr-txt { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--ink-2); white-space: nowrap; }
+  .gr-bad-list { margin: 2px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+  .gr-bad-list li { font-size: 12px; color: var(--bad); display: flex; gap: 6px; align-items: baseline; cursor: help; flex-wrap: wrap; }
+  .gr-bad-list .val { font-family: var(--mono); font-size: 11.5px; font-weight: 650; }
+  .gr-bad-list .why { color: var(--muted); font-size: 11px; }
+
+  /* semantic profile (duo overview) */
+  .semp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 760px) { .semp-grid { grid-template-columns: 1fr; } }
+  .semp-col { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 10px 12px 11px; min-width: 0; }
+  .semp-col.side-a { border-top: 2px solid var(--agent-a); }
+  .semp-col.side-b { border-top: 2px solid var(--agent-b); }
+  .semp-h { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 650; margin-bottom: 6px; }
+  .semp-row { display: flex; align-items: baseline; gap: 8px; padding: 3.5px 0; font-size: 12px; color: var(--ink-2); }
+  .semp-row .v { margin-left: auto; font-family: var(--mono); font-size: 12.5px; font-weight: 650; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .semp-flag { font-size: 10px; font-weight: 700; border-radius: 4px; padding: 0.5px 6px; white-space: nowrap; }
+  .semp-flag.warn { color: var(--warn); background: var(--warn-tint); }
+  .semp-flag.bad { color: var(--bad); background: var(--bad-tint); }
+  .semp-narr { font-size: 12.8px; color: var(--ink-2); margin: 12px 0 0; max-width: 84ch; line-height: 1.55; }
+
   /* U1: below 700px the compare pair grid stacks to ONE column — no sideways
      scroll (kept last so it wins the cascade over the base timeline rules) */
   @media (max-width: 700px) {
@@ -1106,6 +1231,12 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       <p class="sec-sub">Winning habits extracted from head-to-head evidence. Click a task to see the decision play out.</p>
       <div class="pb-grid" id="pb-list"></div>
     </div>
+
+    <div id="sec-semprofile" class="hidden">
+      <h2 class="sec">Semantic profile</h2>
+      <p class="sec-sub">How each agent handles meaning across the batch — verification habits, evidence grounding, source independence.</p>
+      <div class="panel" id="semp-panel"></div>
+    </div>
   </div>
 
   <div id="view-fleet" class="hidden">
@@ -1179,6 +1310,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     <div class="tl-wrap">
       <div class="tl" id="tl"></div>
     </div>
+    <div id="semantic-slot"></div>
     <div id="answer-slot"></div>
     <div id="verdict-slot"></div>
     <p class="kbd-hint"><kbd>←</kbd> <kbd>→</kbd> switch task &nbsp;·&nbsp; <kbd>Esc</kbd> back to task list &nbsp;·&nbsp; click a truncated input/output to expand</p>
@@ -2075,7 +2207,19 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     if (num(step.tokens) !== null) metrics.push(fmtTok(step.tokens) + " tok");
     if (num(step.latency_s) !== null) metrics.push(fmtLat(step.latency_s));
     var q = step.quality && step.quality !== "good" ? step.quality : null;
-    return '<article class="' + cls + '" id="step-' + side + "-" + (idx === null ? "x" : idx) + '">' +
+    /* v7: claim chips — the meaning this step carries */
+    var claims = (semClaimIdx && idx !== null) ? semClaimIdx[side + ":" + idx] : null;
+    var claimAttr = "", claimRow = "";
+    if (claims && claims.length) {
+      claimAttr = ' data-claims="' + claims.map(function (c) { return safeId(c.id); }).join(" ") + '"';
+      claimRow = '<div class="claim-row">' + claims.slice(0, 3).map(function (c) {
+        return '<button class="claim-chip" type="button" data-claim-hot="' + safeId(c.id) +
+          '" title="claim carried by this step — hover to trace it through both timelines and the provenance tracks">' +
+          '<span class="ck-kind">' + esc(c.kind || "fact") + "</span>" + esc(clipTxt(c.value, 30)) + "</button>";
+      }).join("") +
+      (claims.length > 3 ? '<span class="claim-more">+' + (claims.length - 3) + "</span>" : "") + "</div>";
+    }
+    return '<article class="' + cls + '"' + claimAttr + ' id="step-' + side + "-" + (idx === null ? "x" : idx) + '">' +
       '<div class="step-head">' +
         '<span class="step-idx">#' + (idx === null ? "?" : idx) + "</span>" +
         '<span class="type-badge"><span class="kdot" style="background:' + typeColor(step.type) + '"></span>' + esc(step.type || "step") + "</span>" +
@@ -2088,6 +2232,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         ioBlock("input", step.input, "auto") +
         ioBlock("output", step.output, "auto") +
         (step.note ? '<div class="step-note">' + esc(step.note) + "</div>" : "") +
+        claimRow +
       "</div></article>";
   }
 
@@ -2332,28 +2477,37 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   function renderAnswerEval(r) {
     var el = document.getElementById("answer-slot");
     if (!el) return;
-    var ae = r && r.answer_eval;
-    if (!ae || typeof ae !== "object") { el.innerHTML = ""; return; }
-    var diffHtml = "";
-    if (Array.isArray(ae.diff_ab) && ae.diff_ab.length) {
-      diffHtml = ae.diff_ab.map(function (op) {
-        if (!Array.isArray(op) || op.length < 2 || op[1] == null) return "";
-        var cls = op[0] === "del" ? "ae-del" : op[0] === "ins" ? "ae-ins" : "";
-        return cls ? '<span class="' + cls + '">' + esc(op[1]) + "</span>" : esc(op[1]);
-      }).join("");
+    var ae = (r && r.answer_eval && typeof r.answer_eval === "object") ? r.answer_eval : null;
+    var aeHtml = "";
+    if (ae) {
+      var diffHtml = "";
+      if (Array.isArray(ae.diff_ab) && ae.diff_ab.length) {
+        diffHtml = ae.diff_ab.map(function (op) {
+          if (!Array.isArray(op) || op.length < 2 || op[1] == null) return "";
+          var cls = op[0] === "del" ? "ae-del" : op[0] === "ins" ? "ae-ins" : "";
+          return cls ? '<span class="' + cls + '">' + esc(op[1]) + "</span>" : esc(op[1]);
+        }).join("");
+      }
+      var chips = aeChip("A", ae.a_vs_expected) + aeChip("B", ae.b_vs_expected);
+      if (diffHtml || chips || ae.expected != null) {
+        aeHtml = '<div class="panel ae-panel">' +
+          '<div class="ae-head"><h3>Final answer evaluation' +
+            ' <span class="sub">both final answers merged as one word-level diff</span></h3>' +
+            '<span class="ae-legend" aria-hidden="true"><span><span class="ae-del">A only</span></span>' +
+            '<span><span class="ae-ins">B only</span></span><span>shared</span></span></div>' +
+          (chips ? '<div class="ae-verdicts">' + chips + "</div>" : "") +
+          (diffHtml ? '<div class="ae-diff">' + diffHtml + "</div>" : "") +
+          (ae.expected != null && ae.expected !== ""
+            ? '<blockquote class="ae-expected"><span class="ae-k">Expected answer</span>' + esc(ae.expected) + "</blockquote>" : "") +
+          "</div>";
+      }
     }
-    var chips = aeChip("A", ae.a_vs_expected) + aeChip("B", ae.b_vs_expected);
-    if (!diffHtml && !chips && ae.expected == null) { el.innerHTML = ""; return; }
-    el.innerHTML = '<div class="panel ae-panel">' +
-      '<div class="ae-head"><h3>Final answer evaluation' +
-        ' <span class="sub">both final answers merged as one word-level diff</span></h3>' +
-        '<span class="ae-legend" aria-hidden="true"><span><span class="ae-del">A only</span></span>' +
-        '<span><span class="ae-ins">B only</span></span><span>shared</span></span></div>' +
-      (chips ? '<div class="ae-verdicts">' + chips + "</div>" : "") +
-      (diffHtml ? '<div class="ae-diff">' + diffHtml + "</div>" : "") +
-      (ae.expected != null && ae.expected !== ""
-        ? '<blockquote class="ae-expected"><span class="ae-k">Expected answer</span>' + esc(ae.expected) + "</blockquote>" : "") +
-      "</div>";
+    /* v7: grounding meters live beside the answer evaluation — they judge the same artifact */
+    var grHtml = groundingPanelHtml(r, semanticOf(r));
+    if (!aeHtml && !grHtml) { el.innerHTML = ""; return; }
+    el.innerHTML = grHtml
+      ? '<div class="ans-grid">' + (aeHtml || "") + grHtml + "</div>"
+      : aeHtml;
   }
 
   /* ---------------- compare view ---------------- */
@@ -2437,6 +2591,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     /* v6: the positive mirror */
     var sa = successAnalysisOf(r);
     var winSet = winStepSet(sa);
+    /* v7: claim chips on step cards come from the semantic layer */
+    var sem = semanticOf(r);
+    semClaimIdx = buildClaimIdx(sem);
 
     /* U3/U6: sticky strip — task, outcomes, jump buttons, pair switcher */
     var stripBits = [];
@@ -2455,6 +2612,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       stripBits.push('<button class="strip-btn eval-toggle" id="st-eval" type="button" role="switch" aria-pressed="' +
         (state.evalDetail ? "true" : "false") + '" title="show per-step-pair evaluation: similarity, Δ cost, quality verdict, error propagation">' +
         'Eval detail<span class="sw-track" aria-hidden="true"></span></button>');
+    }
+    if (sem) {
+      stripBits.push('<button class="strip-btn" id="st-sem" type="button" title="jump to the semantic analysis — claims, intents, meaning vs wording">◆ semantic</button>');
     }
     if (att.explanation || att.category || divs.length) {
       stripBits.push('<button class="strip-btn" id="st-verdict" type="button">▼ verdict</button>');
@@ -2482,6 +2642,11 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     if (stVer) stVer.addEventListener("click", function () {
       var v = document.getElementById("verdict-slot");
       if (v) v.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    var stSem = document.getElementById("st-sem");
+    if (stSem) stSem.addEventListener("click", function () {
+      var s = document.querySelector("#semantic-slot .sem-seg");
+      if (s) s.scrollIntoView({ behavior: "smooth", block: "start" });
     });
     Array.prototype.forEach.call(stripEl.querySelectorAll("[data-cmp-pos]"), function (btn) {
       btn.addEventListener("click", function () {
@@ -2582,6 +2747,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     }
     document.getElementById("tl").innerHTML = html;
 
+    /* v7: semantic segment — below the what-happened panels, above the answer eval */
+    renderSemantic(r, rows);
+
     /* final answer evaluation (v5) — sits above the verdict block */
     renderAnswerEval(r);
 
@@ -2663,6 +2831,635 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     el.classList.remove("flash");
     void el.offsetWidth; /* restart animation */
     el.classList.add("flash");
+  }
+
+  /* ---------------- semantic analysis (v7) ---------------- */
+  var INTENTS = ["frame", "acquire", "verify", "transform", "decide", "commit"];
+  var INTENT_GLYPH = { frame: "F", acquire: "A", verify: "V", transform: "T", decide: "D", commit: "C" };
+  function intentVar(intent) {
+    return INTENTS.indexOf(intent) >= 0 ? "var(--int-" + intent + ")" : "var(--muted)";
+  }
+  function safeId(s) { return String(s == null ? "" : s).replace(/[^-\w]/g, "_"); }
+  function clipTxt(s, n) { s = String(s == null ? "" : s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+
+  function semanticOf(r) {
+    var s = r && r.semantic;
+    return (s && typeof s === "object" && !Array.isArray(s)) ? s : null;
+  }
+  function semRowsOf(sem) {
+    if (!sem || !Array.isArray(sem.rows)) return [];
+    return sem.rows.filter(function (d) {
+      return d && num(d.row) !== null && num(d.lexical) !== null && num(d.semantic) !== null;
+    }).slice().sort(function (u, v) { return u.row - v.row; });
+  }
+  function semClaimsOf(sem) {
+    if (!sem || !Array.isArray(sem.claims)) return [];
+    return sem.claims.filter(function (c) { return c && typeof c === "object" && c.id != null; });
+  }
+  function claimStepList(c, side) {
+    var v = c[side + "_steps"];
+    return Array.isArray(v) ? v.filter(function (i) { return num(i) !== null; }) : [];
+  }
+  function sideOfAgentField(v) {
+    if (v === "a" || v === "b") return v;
+    if (v != null && v === agentName("a")) return "a";
+    if (v != null && v === agentName("b")) return "b";
+    return null;
+  }
+  function lastAnswerIdx(r, side) {
+    var steps = get(r, [side, "steps"]);
+    if (!Array.isArray(steps) || !steps.length) return null;
+    for (var i = steps.length - 1; i >= 0; i--) {
+      if (steps[i] && steps[i].type === "answer") return num(steps[i].index);
+    }
+    return steps[steps.length - 1] ? num(steps[steps.length - 1].index) : null;
+  }
+  function claimAtAnswer(r, side, c) {
+    var last = lastAnswerIdx(r, side);
+    return last !== null && claimStepList(c, side).indexOf(last) >= 0;
+  }
+  function maxStepIdx(r) {
+    var mx = 0;
+    ["a", "b"].forEach(function (side) {
+      var steps = get(r, [side, "steps"]);
+      if (Array.isArray(steps)) steps.forEach(function (s) {
+        var v = num(s && s.index);
+        if (v !== null && v > mx) mx = v;
+      });
+    });
+    return mx;
+  }
+  function intentListOf(sem, side) {
+    var arr = get(sem, ["intents", side]);
+    if (!Array.isArray(arr)) return [];
+    return arr.filter(function (d) { return d && num(d.step) !== null && d.intent; })
+      .slice().sort(function (u, v) { return u.step - v.step; });
+  }
+  function conflictsOf(sem) {
+    return (sem && Array.isArray(sem.conflicts)) ? sem.conflicts.filter(Boolean) : [];
+  }
+  function independenceOf(sem) {
+    return (sem && Array.isArray(sem.independence)) ? sem.independence.filter(Boolean) : [];
+  }
+  function contradictionsOf(sem) {
+    return (sem && Array.isArray(sem.contradictions)) ? sem.contradictions.filter(Boolean) : [];
+  }
+
+  /* claim index for step-card chips: "a:3" -> [claims] */
+  var semClaimIdx = null;
+  function buildClaimIdx(sem) {
+    if (!sem) return null;
+    var idx = {};
+    semClaimsOf(sem).forEach(function (c) {
+      ["a", "b"].forEach(function (side) {
+        claimStepList(c, side).forEach(function (s) {
+          var k = side + ":" + s;
+          (idx[k] = idx[k] || []).push(c);
+        });
+      });
+    });
+    return Object.keys(idx).length ? idx : null;
+  }
+
+  /* lanes: conflict pairs first (kept adjacent), then answer-reaching claims, cap 8 */
+  function chooseLanes(r, sem) {
+    var claims = semClaimsOf(sem);
+    var byId = {};
+    claims.forEach(function (c) { byId[String(c.id)] = c; });
+    var chosen = [], seen = {};
+    function push(id) {
+      var c = byId[String(id)];
+      if (c && !seen[String(c.id)]) { seen[String(c.id)] = true; chosen.push(c); }
+    }
+    conflictsOf(sem).forEach(function (cf) { push(cf.a_claim); push(cf.b_claim); });
+    claims.slice().sort(function (u, v) {
+      var ua = (claimAtAnswer(r, "a", u) || claimAtAnswer(r, "b", u)) ? 1 : 0;
+      var va = (claimAtAnswer(r, "a", v) || claimAtAnswer(r, "b", v)) ? 1 : 0;
+      if (ua !== va) return va - ua;
+      var uc = claimStepList(u, "a").length + claimStepList(u, "b").length;
+      var vc = claimStepList(v, "a").length + claimStepList(v, "b").length;
+      return vc - uc;
+    }).forEach(function (c) { push(c.id); });
+    return { lanes: chosen.slice(0, 8), extra: Math.max(0, chosen.length - 8) };
+  }
+
+  /* cross-highlight: any [data-claim-hot] hover lights every carrier + its lane */
+  function setClaimHot(id, on) {
+    if (!id) return;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-claims~="' + id + '"]'), function (el) {
+      el.classList.toggle("sem-hot", !!on);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-lane="' + id + '"]'), function (el) {
+      el.classList.toggle("lane-hot", !!on);
+    });
+  }
+  var semHotBound = false;
+  function bindSemHot() {
+    if (semHotBound) return;
+    semHotBound = true;
+    document.addEventListener("mouseover", function (e) {
+      var t = e.target.closest ? e.target.closest("[data-claim-hot]") : null;
+      if (t) setClaimHot(t.getAttribute("data-claim-hot"), true);
+    });
+    document.addEventListener("mouseout", function (e) {
+      var t = e.target.closest ? e.target.closest("[data-claim-hot]") : null;
+      if (t) setClaimHot(t.getAttribute("data-claim-hot"), false);
+    });
+  }
+
+  function semReduced() {
+    return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+  /* shared step-index x scale so the tracks and the ribbons line up */
+  function semXW(r, boxW) {
+    var maxI = maxStepIdx(r);
+    var W = Math.max(boxW || 320, (maxI + 2) * 30 + 40);
+    return { maxI: maxI, W: W };
+  }
+
+  /* 1) meaning vs wording curve */
+  function drawSemCurve(r, sem, rows) {
+    var box = document.getElementById("sem-curve");
+    if (!box) return;
+    box.innerHTML = "";
+    var data = semRowsOf(sem);
+    if (!HAS_D3 || data.length < 2) {
+      box.innerHTML = '<div class="dd-note">Not enough paired rows for a similarity curve.</div>';
+      return;
+    }
+    var W = chartWidth(box, 320), H = 168;
+    var m = { t: 16, r: 74, b: 26, l: 34 };
+    var svg = d3.select(box).append("svg").attr("width", W).attr("height", H)
+      .attr("role", "img").attr("aria-label", "lexical vs semantic similarity per aligned row");
+    var x = d3.scaleLinear().domain(d3.extent(data, function (d) { return d.row; })).range([m.l, W - m.r]);
+    var y = d3.scaleLinear().domain([0, 1]).range([H - m.b, m.t]);
+    /* recessive grid + axes */
+    [0, 0.5, 1].forEach(function (v) {
+      svg.append("line").attr("x1", m.l).attr("x2", W - m.r).attr("y1", y(v)).attr("y2", y(v))
+        .style("stroke", "var(--line)").attr("stroke-width", 1);
+      svg.append("text").attr("x", m.l - 6).attr("y", y(v) + 3).attr("text-anchor", "end")
+        .attr("font-size", 9.5).style("fill", "var(--muted)").text(v);
+    });
+    var xAxis = svg.append("g").attr("transform", "translate(0," + (H - m.b) + ")")
+      .call(d3.axisBottom(x).ticks(Math.min(data.length, 12)).tickFormat(d3.format("d")).tickSize(3));
+    xAxis.select(".domain").style("stroke", "var(--line-strong)");
+    xAxis.selectAll("line").style("stroke", "var(--line-strong)");
+    xAxis.selectAll("text").style("fill", "var(--muted)").attr("font-size", 9.5);
+    svg.append("text").attr("x", W - m.r).attr("y", H - 4).attr("text-anchor", "end")
+      .attr("font-size", 9).style("fill", "var(--muted)").text("aligned row →");
+    /* amber band where meaning and wording disagree */
+    svg.append("path").datum(data)
+      .attr("d", d3.area()
+        .defined(function (d) { return Math.abs(d.lexical - d.semantic) > 0.15; })
+        .x(function (d) { return x(d.row); })
+        .y0(function (d) { return y(d.lexical); })
+        .y1(function (d) { return y(d.semantic); }))
+      .style("fill", "var(--warn-line)").attr("fill-opacity", 0.18);
+    var lineLex = d3.line().x(function (d) { return x(d.row); }).y(function (d) { return y(d.lexical); });
+    var lineSem = d3.line().x(function (d) { return x(d.row); }).y(function (d) { return y(d.semantic); });
+    var pLex = svg.append("path").datum(data).attr("d", lineLex).attr("fill", "none")
+      .style("stroke", "var(--ink-2)").attr("stroke-width", 1.6).attr("stroke-dasharray", "5,3");
+    var pSem = svg.append("path").datum(data).attr("d", lineSem).attr("fill", "none")
+      .style("stroke", "var(--viol)").attr("stroke-width", 2).attr("stroke-linejoin", "round");
+    if (!semReduced()) {
+      [pLex, pSem].forEach(function (p) {
+        p.attr("opacity", 0).transition().duration(420).attr("opacity", 1);
+      });
+    }
+    /* direct labels at the line ends */
+    var last = data[data.length - 1];
+    svg.append("text").attr("x", x(last.row) + 6).attr("y", y(last.lexical) + 3)
+      .attr("font-size", 10).style("fill", "var(--ink-2)").text("wording");
+    svg.append("text").attr("x", x(last.row) + 6).attr("y", y(last.semantic) + 3)
+      .attr("font-size", 10).attr("font-weight", 700).style("fill", "var(--viol)").text("meaning");
+    /* first semantic break marker */
+    var brk = num(sem.first_semantic_break);
+    if (brk !== null) {
+      var bd = null;
+      data.forEach(function (d) { if (d.row === brk) bd = d; });
+      var bx = bd ? x(bd.row) : (brk >= x.domain()[0] && brk <= x.domain()[1] ? x(brk) : null);
+      if (bx !== null) {
+        svg.append("line").attr("x1", bx).attr("x2", bx).attr("y1", m.t - 4).attr("y2", H - m.b)
+          .style("stroke", "var(--bad)").attr("stroke-width", 1.5).attr("stroke-dasharray", "3,3");
+        svg.append("text").attr("x", bx).attr("y", m.t - 6).attr("text-anchor", bx > W - 150 ? "end" : "middle")
+          .attr("font-size", 9.5).attr("font-weight", 700).style("fill", "var(--bad)")
+          .style("paint-order", "stroke").style("stroke", "var(--bg)").attr("stroke-width", 3)
+          .text("⚑ semantic break · row " + brk);
+      }
+    }
+    /* widest-gap annotation */
+    var widest = null;
+    data.forEach(function (d) {
+      var g = Math.abs(d.lexical - d.semantic);
+      if (g > 0.15 && (!widest || g > Math.abs(widest.lexical - widest.semantic))) widest = d;
+    });
+    if (widest) {
+      var wx = x(widest.row), wy = (y(widest.lexical) + y(widest.semantic)) / 2;
+      var wordsSame = widest.semantic < widest.lexical;
+      var anchorEnd = wx > (m.l + W - m.r) / 2;
+      svg.append("text").attr("x", wx + (anchorEnd ? -8 : 8)).attr("y", wy + 3)
+        .attr("text-anchor", anchorEnd ? "end" : "start")
+        .attr("font-size", 10).attr("font-style", "italic").style("fill", "var(--warn)")
+        .style("paint-order", "stroke").style("stroke", "var(--bg)").attr("stroke-width", 3)
+        .text(wordsSame ? "“same words, different meaning”" : "“different words, same meaning”");
+    }
+    /* hover crosshair + click-to-step */
+    var hover = svg.append("g").style("display", "none").attr("pointer-events", "none");
+    hover.append("line").attr("y1", m.t).attr("y2", H - m.b).style("stroke", "var(--line-strong)").attr("stroke-width", 1);
+    var dotL = hover.append("circle").attr("r", 3.5).style("fill", "var(--ink-2)").style("stroke", "var(--surface)").attr("stroke-width", 1.5);
+    var dotS = hover.append("circle").attr("r", 3.5).style("fill", "var(--viol)").style("stroke", "var(--surface)").attr("stroke-width", 1.5);
+    function nearest(mx) {
+      var best = data[0], bd2 = Infinity;
+      data.forEach(function (d) {
+        var dd = Math.abs(x(d.row) - mx);
+        if (dd < bd2) { bd2 = dd; best = d; }
+      });
+      return best;
+    }
+    svg.append("rect").attr("x", m.l).attr("y", m.t).attr("width", W - m.l - m.r).attr("height", H - m.t - m.b)
+      .attr("fill", "transparent").style("cursor", "pointer")
+      .on("mousemove", function (e) {
+        var mx = d3.pointer(e, svg.node())[0];
+        var d = nearest(mx);
+        hover.style("display", null);
+        hover.select("line").attr("x1", x(d.row)).attr("x2", x(d.row));
+        dotL.attr("cx", x(d.row)).attr("cy", y(d.lexical));
+        dotS.attr("cx", x(d.row)).attr("cy", y(d.semantic));
+        var pair = (d.a_index != null ? "A#" + d.a_index : "") + (d.b_index != null ? " ↔ B#" + d.b_index : "");
+        showTip("<strong>row " + esc(d.row) + "</strong>" + (pair ? " · " + esc(pair) : "") +
+          "<br>wording " + Math.round(d.lexical * 100) + "% · meaning " + Math.round(d.semantic * 100) + "%" +
+          '<div class="tip-sub">click to jump to this step row</div>', e.clientX, e.clientY);
+      })
+      .on("mouseleave", function () { hover.style("display", "none"); hideTip(); })
+      .on("click", function (e) {
+        var d = nearest(d3.pointer(e, svg.node())[0]);
+        hideTip();
+        var ai = d.a_index, bi = d.b_index;
+        if (ai == null && bi == null && rows && rows[d.row]) { ai = rows[d.row].aIdx; bi = rows[d.row].bIdx; }
+        if (ai != null) flashStep("a", ai);
+        else if (bi != null) flashStep("b", bi);
+      });
+  }
+
+  /* 2) claim provenance tracks — the hero */
+  function drawClaimTracks(r, sem, pick) {
+    var box = document.getElementById("sem-tracks");
+    var railEl = document.getElementById("sem-tracks-rail");
+    if (!box || !railEl || !HAS_D3) return;
+    box.innerHTML = "";
+    var lanes = pick.lanes;
+    var laneH = 46, axisH = 24;
+    var sx = semXW(r, chartWidth(box, 300));
+    var W = sx.W, maxI = sx.maxI;
+    var x = d3.scaleLinear().domain([0, maxI + 1]).range([6, W - 26]);
+    var cxOf = function (i) { return (x(i) + x(i + 1)) / 2; };
+    var H = lanes.length * laneH + axisH;
+    var conflicts = conflictsOf(sem);
+    var laneIndex = {};
+    lanes.forEach(function (c, i) { laneIndex[String(c.id)] = i; });
+    /* which lanes are conflict losers (their counterpart matches expected)? */
+    var loser = {}, conflictOf = {};
+    conflicts.forEach(function (cf) {
+      var ca = String(cf.a_claim), cb = String(cf.b_claim);
+      conflictOf[ca] = cf; conflictOf[cb] = cf;
+      var A = lanes[laneIndex[ca]], B = lanes[laneIndex[cb]];
+      if (A && A.matches_expected === true && B) loser[cb] = true;
+      if (B && B.matches_expected === true && A) loser[ca] = true;
+    });
+
+    railEl.innerHTML = lanes.map(function (c) {
+      var mexp = typeof c.matches_expected === "boolean" ? c.matches_expected : null;
+      return '<div class="trk-lane-label" style="height:' + laneH + 'px" data-lane="' + safeId(c.id) +
+        '" data-claim-hot="' + safeId(c.id) + '" title="' + esc((c.kind || "fact") + " claim: " + (c.value || "")) + '">' +
+        '<div class="ck-top"><span class="ck-kind">' + esc(c.kind || "fact") + "</span>" +
+        '<span class="ck-val">' + esc(c.value || "(claim)") + "</span></div>" +
+        (mexp !== null ? '<span class="ck-exp ' + (mexp ? "ok" : "no") + '">' +
+          (mexp ? "✓ matches expected" : "✗ vs expected") + "</span>" : "") +
+        "</div>";
+    }).join("") + '<div style="height:' + axisH + 'px"></div>';
+
+    var svg = d3.select(box).append("svg").attr("width", W).attr("height", H)
+      .attr("role", "img").attr("aria-label", "claim provenance tracks");
+    var indep = independenceOf(sem);
+    function circFor(c, side) {
+      for (var i = 0; i < indep.length; i++) {
+        var e = indep[i];
+        if (e && e.circular && String(e.claim) === String(c.id) && sideOfAgentField(e.agent) === side) return e;
+      }
+      return null;
+    }
+
+    lanes.forEach(function (c, li) {
+      var y0 = li * laneH;
+      var idSafe = safeId(c.id);
+      var g = svg.append("g").attr("class", "lane")
+        .attr("data-lane", idSafe).attr("data-claim-hot", idSafe);
+      var tint = c.matches_expected === true ? " tint-good"
+        : (c.matches_expected === false || loser[String(c.id)]) ? " tint-bad" : "";
+      g.append("rect").attr("class", "lane-bg" + tint)
+        .attr("x", 1).attr("y", y0 + 2).attr("width", W - 16).attr("height", laneH - 4).attr("rx", 6);
+      g.append("line").attr("x1", x(0)).attr("x2", x(maxI + 1)).attr("y1", y0 + laneH / 2).attr("y2", y0 + laneH / 2)
+        .style("stroke", "var(--line)").attr("stroke-width", 1);
+      ["a", "b"].forEach(function (side) {
+        var steps = claimStepList(c, side);
+        var cy = y0 + laneH / 2 + (side === "a" ? -9 : 9);
+        var origin = (c.origin && typeof c.origin === "object" && sideOfAgentField(c.origin.agent) === side)
+          ? num(c.origin.step) : null;
+        var circ = circFor(c, side);
+        var reach = claimAtAnswer(r, side, c);
+        var lastIx = lastAnswerIdx(r, side);
+        if (steps.length > 1) {
+          g.append("line")
+            .attr("x1", cxOf(Math.min.apply(null, steps))).attr("x2", cxOf(Math.max.apply(null, steps)))
+            .attr("y1", cy).attr("y2", cy)
+            .style("stroke", "var(--agent-" + side + ")").attr("stroke-width", 1.2).attr("opacity", 0.4);
+        }
+        steps.forEach(function (s) {
+          var isOrigin = origin !== null && s === origin;
+          var st = stepAt(r, side, s);
+          var isCircDot = !!circ && (st && (st.type === "read" || st.type === "retrieve"));
+          var dot = g.append("g").attr("class", "trk-dot")
+            .attr("transform", "translate(" + cxOf(s) + "," + cy + ")");
+          if (isOrigin) {
+            dot.append("circle").attr("r", 7.5).attr("fill", "none")
+              .style("stroke", "var(--agent-" + side + ")").attr("stroke-width", 1.3).attr("opacity", 0.8);
+          }
+          dot.append("circle").attr("r", 4.2)
+            .style("fill", "var(--agent-" + side + ")")
+            .style("stroke", "var(--surface)").attr("stroke-width", 1.5);
+          if (isCircDot) {
+            dot.append("text").attr("x", 0).attr("y", side === "a" ? -9 : 15).attr("text-anchor", "middle")
+              .attr("font-size", 11).attr("font-weight", 700).style("fill", "var(--bad)")
+              .style("paint-order", "stroke").style("stroke", "var(--bg)").attr("stroke-width", 2.5)
+              .text("↻");
+          }
+          if (isOrigin && c.origin.source) {
+            g.append("text").attr("x", cxOf(s) + 9).attr("y", cy + (side === "a" ? -7 : 13))
+              .attr("font-size", 8.5).attr("font-family", "var(--mono)").style("fill", "var(--muted)")
+              .style("paint-order", "stroke").style("stroke", "var(--bg)").attr("stroke-width", 2.5)
+              .text(clipTxt(c.origin.source, 22));
+          }
+          dot.on("mousemove", function (e) {
+            var bits = ["<strong>" + esc(c.value || c.id) + "</strong> · " + esc(c.kind || "fact"),
+              esc(agentName(side)) + " · step #" + s + (st && st.name ? " (" + esc(st.name) + ")" : "")];
+            if (isOrigin) bits.push("origin" + (c.origin.source ? " — " + esc(c.origin.source) : ""));
+            if (isCircDot) bits.push('<span style="color:var(--bad)">↻ circular corroboration — two quotes, one voice</span>' +
+              (circ.evidence ? '<div class="tip-sub">' + esc(circ.evidence) + "</div>" : ""));
+            showTip(bits.join("<br>"), e.clientX, e.clientY);
+          }).on("mouseleave", hideTip)
+            .on("click", function () { hideTip(); flashStep(side, s); });
+        });
+        if (reach && lastIx !== null) {
+          var tg = g.append("g")
+            .attr("transform", "translate(" + (cxOf(lastIx) + 10) + "," + cy + ")")
+            .style("cursor", "help");
+          tg.append("path").attr("d", "M0,-4.5 L6,0 L0,4.5 Z")
+            .style("fill", "var(--agent-" + side + ")");
+          tg.append("title").text("reaches " + agentName(side) + "'s final answer");
+        }
+      });
+    });
+
+    /* red conflict brackets linking paired lanes */
+    conflicts.forEach(function (cf) {
+      var ia = laneIndex[String(cf.a_claim)], ib = laneIndex[String(cf.b_claim)];
+      if (ia == null || ib == null) return;
+      var ya = ia * laneH + laneH / 2, yb = ib * laneH + laneH / 2;
+      var bx = W - 10;
+      var path = "M" + (bx - 6) + "," + ya + " H" + bx + " V" + yb + " H" + (bx - 6);
+      svg.append("path").attr("d", path).attr("fill", "none")
+        .style("stroke", "var(--bad)").attr("stroke-width", 2).attr("stroke-linecap", "round");
+      var mid = (ya + yb) / 2;
+      svg.append("text").attr("x", bx - 13).attr("y", mid + 3.5).attr("text-anchor", "middle")
+        .attr("font-size", 10).attr("font-weight", 700).style("fill", "var(--bad)")
+        .style("paint-order", "stroke").style("stroke", "var(--bg)").attr("stroke-width", 3)
+        .text("≠");
+      svg.append("path").attr("d", path).attr("fill", "none")
+        .attr("stroke", "transparent").attr("stroke-width", 14).style("cursor", "help")
+        .on("mousemove", function (e) {
+          showTip('<strong style="color:var(--bad)">conflicting ' + esc(cf.kind || "") + " claims</strong><br>" +
+            esc(cf.summary || "the two agents carried different values into their answers"), e.clientX, e.clientY);
+        }).on("mouseleave", hideTip);
+    });
+
+    /* step axis */
+    var ax = svg.append("g").attr("transform", "translate(0," + (lanes.length * laneH + 4) + ")");
+    for (var i = 0; i <= maxI; i++) {
+      ax.append("text").attr("x", cxOf(i)).attr("y", 10).attr("text-anchor", "middle")
+        .attr("font-size", 9).style("fill", "var(--muted)").text(i);
+    }
+    ax.append("text").attr("x", x(maxI + 1) + 4).attr("y", 10)
+      .attr("font-size", 8.5).style("fill", "var(--muted)").text("step");
+  }
+
+  /* 3) intent ribbons */
+  function drawIntentRibbons(r, sem) {
+    var box = document.getElementById("sem-ribbons");
+    if (!box || !HAS_D3) return;
+    box.innerHTML = "";
+    var sx = semXW(r, chartWidth(box, 300));
+    var W = sx.W, maxI = sx.maxI;
+    var x = d3.scaleLinear().domain([0, maxI + 1]).range([6, W - 26]);
+    var ribH = 20, rowGap = 40, top = 14;
+    var H = top + 2 * rowGap + 16;
+    var svg = d3.select(box).append("svg").attr("width", W).attr("height", H)
+      .attr("role", "img").attr("aria-label", "process intent per step, per agent");
+    ["a", "b"].forEach(function (side, si) {
+      var y0 = top + si * rowGap;
+      svg.append("circle").attr("cx", 10).attr("cy", y0 - 6).attr("r", 4)
+        .style("fill", "var(--agent-" + side + ")");
+      svg.append("text").attr("x", 18).attr("y", y0 - 2.5).attr("font-size", 10.5).attr("font-weight", 650)
+        .style("fill", "var(--ink)").text(agentName(side));
+      var list = intentListOf(sem, side);
+      list.forEach(function (d) {
+        var st = stepAt(r, side, d.step);
+        var xw = x(d.step + 1) - x(d.step) - 2;
+        if (xw <= 0) return;
+        var seg = svg.append("g").attr("class", "rib-seg");
+        seg.append("rect").attr("x", x(d.step) + 1).attr("y", y0).attr("width", xw).attr("height", ribH)
+          .attr("rx", 3).style("fill", intentVar(d.intent));
+        if (xw >= 13 && INTENT_GLYPH[d.intent]) {
+          seg.append("text").attr("x", x(d.step) + 1 + xw / 2).attr("y", y0 + ribH / 2 + 3.5)
+            .attr("text-anchor", "middle").attr("font-size", 9.5).attr("font-weight", 700)
+            .style("fill", "var(--surface)").attr("pointer-events", "none")
+            .text(INTENT_GLYPH[d.intent]);
+        }
+        seg.on("mousemove", function (e) {
+          showTip("<strong>" + esc(d.intent) + "</strong> · " + esc(agentName(side)) + " step #" + d.step +
+            (st ? '<div class="tip-sub">' + esc((st.type || "") + (st.name ? " · " + st.name : "")) + "</div>" : ""),
+            e.clientX, e.clientY);
+        }).on("mouseleave", hideTip)
+          .on("click", function () { hideTip(); flashStep(side, d.step); });
+      });
+    });
+    /* shared step axis */
+    var ay = top + 2 * rowGap + 8;
+    for (var i = 0; i <= maxI; i++) {
+      svg.append("text").attr("x", (x(i) + x(i + 1)) / 2).attr("y", ay).attr("text-anchor", "middle")
+        .attr("font-size", 9).style("fill", "var(--muted)").text(i);
+    }
+    svg.append("text").attr("x", x(maxI + 1) + 4).attr("y", ay)
+      .attr("font-size", 8.5).style("fill", "var(--muted)").text("step");
+  }
+
+  /* grounding meters — sits beside the final-answer evaluation */
+  function groundingPanelHtml(r, sem) {
+    var g = sem && sem.grounding && typeof sem.grounding === "object" ? sem.grounding : null;
+    if (!g) return "";
+    var body = ["a", "b"].map(function (side) {
+      var gs = g[side] || g[agentName(side)];
+      if (!gs || typeof gs !== "object") return "";
+      var tot = num(gs.claims_total), grd = num(gs.claims_grounded);
+      var score = num(gs.score);
+      if (score === null && tot !== null && tot > 0 && grd !== null) score = grd / tot;
+      var pct = score === null ? 0 : Math.round(Math.max(0, Math.min(1, score)) * 100);
+      var ung = Array.isArray(gs.ungrounded) ? gs.ungrounded.filter(Boolean) : [];
+      return '<div class="gr-row">' +
+        '<span class="dot ' + side + '"></span><span class="nm">' + esc(agentName(side)) + "</span>" +
+        '<div class="gr-meter" title="answer grounding — share of ' + esc(agentName(side)) +
+          "’s final-answer claims that trace to some step output\">" +
+          '<span style="width:' + pct + "%;background:var(--agent-" + side + ')"></span></div>' +
+        '<span class="gr-txt">' + (grd !== null && tot !== null ? grd + "/" + tot + " claims" : pct + "%") + "</span>" +
+        "</div>" +
+        (ung.length ? '<ul class="gr-bad-list">' + ung.map(function (u) {
+          return '<li title="unsupported — no step output contains this claim">✗ <span class="val">' +
+            esc(u.value || u.claim || "claim") + '</span><span class="why">ungrounded — possible hallucination</span></li>';
+        }).join("") + "</ul>" : "");
+    }).join("");
+    if (!body) return "";
+    return '<div class="panel gr-panel"><h3>Answer grounding <span class="sub">claims traced to step evidence</span></h3>' +
+      '<div class="gr-rows">' + body + "</div></div>";
+  }
+
+  /* the compare-view semantic segment */
+  function renderSemantic(r, rows) {
+    var slot = document.getElementById("semantic-slot");
+    if (!slot) return;
+    var sem = semanticOf(r);
+    if (!sem) { slot.innerHTML = ""; return; }
+    bindSemHot();
+    var pick = chooseLanes(r, sem);
+    var contras = contradictionsOf(sem);
+    var curveData = semRowsOf(sem);
+    var haveIntents = intentListOf(sem, "a").length || intentListOf(sem, "b").length;
+    var methods = Array.isArray(sem.methods) ? sem.methods.filter(Boolean) : [];
+    var missing = get(sem, ["intents", "missing"]) || {};
+    var missChips = "";
+    ["a", "b"].forEach(function (side) {
+      var mm = missing[side] || missing[agentName(side)];
+      (Array.isArray(mm) ? mm : []).forEach(function (intent) {
+        missChips += '<span class="miss-chip" title="' + esc(agentName(side)) +
+          " has no step classified as “" + esc(intent) + "” — the other agent does\">⚠ " +
+          esc(agentName(side)) + ": no " + esc(intent) + " step</span>";
+      });
+    });
+    var html = '<section class="sem-seg" aria-label="Semantic analysis">' +
+      '<div class="sem-head"><h3>Semantic analysis <span class="sub">meaning, not wording — typed claims traced through both runs</span></h3>' +
+        (methods.length ? '<span class="sem-methods">' + methods.map(function (mth) {
+          return "<span>" + esc(kindLabel(mth)) + "</span>";
+        }).join("") + "</span>" : "") +
+      "</div>" +
+      (sem.narrative ? '<p class="sem-narr">' + esc(sem.narrative) + "</p>" : "") +
+      (contras.length ? '<div class="sem-flags">' + contras.map(function (c, i) {
+        var vals = Array.isArray(c.values) ? c.values.filter(Boolean) : [];
+        var who = c.agent != null ? String(c.agent) : "agent";
+        return '<button class="contra-chip" type="button" data-ci="' + i + '" title="' +
+          esc(c.summary || "internal inconsistency — click to flash the involved steps") + '">⚠ <span>' +
+          esc(who) + " internally inconsistent" +
+          (vals.length ? ': <span class="cc-val">' + esc(vals.join(" vs ")) + "</span>" : "") + "</span></button>";
+      }).join("") + "</div>" : "") +
+      '<div class="sem-grid">' +
+      (pick.lanes.length ?
+        '<div class="sem-card"><h4>Claim provenance</h4>' +
+        '<p class="dd-sub">Each meaning-bearing fact as a lane — where it entered (' + "ring = origin + source" +
+          '), who carried it (A above the line, B below), and whether it reached a final answer (▶). Red bracket = the agents disagree.</p>' +
+        '<div class="trk-body"><div class="trk-rail" id="sem-tracks-rail"></div>' +
+        '<div class="trk-scroll" id="sem-tracks"></div></div>' +
+        (pick.extra ? '<div class="trk-more">+' + pick.extra + " more claim" + (pick.extra > 1 ? "s" : "") + " not shown</div>" : "") +
+        "</div>" : "") +
+      (haveIntents ?
+        '<div class="sem-card"><h4>Process intents</h4>' +
+        '<p class="dd-sub">What each step does for the process — a missing color is a missing habit.</p>' +
+        '<div class="trk-scroll" id="sem-ribbons"></div>' +
+        '<div class="dd-legend">' + INTENTS.map(function (it) {
+          return '<span class="lg"><span class="sw" style="background:' + intentVar(it) + '"></span>' + esc(it) + "</span>";
+        }).join("") + "</div>" +
+        (missChips ? '<div class="miss-chips">' + missChips + "</div>" : "") +
+        "</div>" : "") +
+      (curveData.length >= 2 ?
+        '<div class="sem-card"><h4>Meaning vs wording</h4>' +
+        '<p class="dd-sub">Similarity per aligned row, two ways — the amber band is where the two measures disagree. Click a point to jump to that step row.</p>' +
+        '<div class="dd-chart" id="sem-curve"></div>' +
+        '<div class="dd-legend"><span class="lg"><svg width="18" height="6" aria-hidden="true"><line x1="0" y1="3" x2="18" y2="3" style="stroke:var(--ink-2)" stroke-width="2" stroke-dasharray="4,3"></line></svg>wording (lexical overlap)</span>' +
+        '<span class="lg"><svg width="18" height="6" aria-hidden="true"><line x1="0" y1="3" x2="18" y2="3" style="stroke:var(--viol)" stroke-width="2.5"></line></svg>meaning (semantic similarity)</span></div>' +
+        "</div>" : "") +
+      "</div></section>";
+    slot.innerHTML = html;
+    if (pick.lanes.length) drawClaimTracks(r, sem, pick);
+    if (haveIntents) drawIntentRibbons(r, sem);
+    if (curveData.length >= 2) drawSemCurve(r, sem, rows);
+    Array.prototype.forEach.call(slot.querySelectorAll(".contra-chip"), function (chip) {
+      chip.addEventListener("click", function () {
+        var c = contras[parseInt(chip.getAttribute("data-ci"), 10)];
+        if (!c) return;
+        var side = sideOfAgentField(c.agent) || "b";
+        var steps = Array.isArray(c.steps) ? c.steps.filter(function (v) { return num(v) !== null; }) : [];
+        if (!steps.length) return;
+        flashStep(side, steps[0]);
+        steps.slice(1).forEach(function (s) {
+          var el = document.getElementById("step-" + side + "-" + s);
+          if (el) { el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash"); }
+        });
+      });
+    });
+  }
+
+  /* duo-overview semantic profile card */
+  function renderSemProfile() {
+    var sec = document.getElementById("sec-semprofile");
+    var panel = document.getElementById("semp-panel");
+    if (!sec || !panel) return;
+    var sp = aggregate().semantic_profile;
+    if (!sp || typeof sp !== "object") { sec.classList.add("hidden"); panel.innerHTML = ""; return; }
+    var profs = {};
+    ["a", "b"].forEach(function (side) {
+      var p = sp[side] || sp[agentName(side)];
+      if (p && typeof p === "object") profs[side] = p;
+    });
+    if (!profs.a && !profs.b) { sec.classList.add("hidden"); panel.innerHTML = ""; return; }
+    sec.classList.remove("hidden");
+    function statRow(label, valTxt, flagHtml, title) {
+      return '<div class="semp-row"' + (title ? ' title="' + esc(title) + '"' : "") + "><span>" + esc(label) + "</span>" +
+        (flagHtml || "") + '<span class="v">' + valTxt + "</span></div>";
+    }
+    var va = num(profs.a && profs.a.verification_rate), vb = num(profs.b && profs.b.verification_rate);
+    function lowVerify(side) {
+      var mine = side === "a" ? va : vb, other = side === "a" ? vb : va;
+      if (mine === null) return false;
+      return mine === 0 || (other !== null && other > 0 && mine < other / 2);
+    }
+    panel.innerHTML = '<div class="semp-grid">' + ["a", "b"].map(function (side) {
+      var p = profs[side];
+      if (!p) return "";
+      var vr = num(p.verification_rate), gr = num(p.grounding);
+      var ci = num(p.circular_incidents), co = num(p.contradictions);
+      return '<div class="semp-col side-' + side + '"><div class="semp-h"><span class="dot ' + side + '"></span>' +
+        esc(agentName(side)) + "</div>" +
+        statRow("verification rate", vr === null ? "—" : fmtPct(vr),
+          lowVerify(side) ? '<span class="semp-flag warn">⚠ rarely verifies</span>' : "",
+          "share of tasks where this agent ran at least one verify-intent step") +
+        statRow("mean answer grounding", gr === null ? "—" : fmtPct(gr),
+          gr !== null && gr < 0.8 ? '<span class="semp-flag warn">⚠ ungrounded claims</span>' : "",
+          "average share of final-answer claims traced to step evidence") +
+        statRow("circular corroboration", ci === null ? "—" : fmtInt(ci),
+          ci !== null && ci > 0 ? '<span class="semp-flag warn">↻ two quotes, one voice</span>' : "",
+          "incidents where a corroborating source itself cites the first source") +
+        statRow("internal contradictions", co === null ? "—" : fmtInt(co),
+          co !== null && co > 0 ? '<span class="semp-flag bad">⚠ unresolved</span>' : "",
+          "same-kind claims with different values inside this agent’s own trajectory") +
+        "</div>";
+    }).join("") + "</div>" +
+      (sp.narrative ? '<p class="semp-narr">' + esc(sp.narrative) + "</p>" : "");
   }
 
   /* ---------------- process deep-dive (d3) ---------------- */
@@ -4101,6 +4898,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     renderTaskList();
     renderRecommendations();
     renderPlaybook();
+    renderSemProfile();
     if (state.view === "cmp" && reports().length) { show("cmp"); renderCompare(); }
     else show("list");
     renderDeepDive();
