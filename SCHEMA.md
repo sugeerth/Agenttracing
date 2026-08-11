@@ -115,3 +115,60 @@ side→agent-name mapping in `agents`:
   "regressions": ["human-readable regression strings"]
 }
 ```
+
+## Fleet report (`fleet.json`, N-agent mode)
+
+When comparing many agents, the injected payload becomes
+`{"fleet": {...}, "reports": [spotlight pairwise reports], "aggregate": {...}}`.
+
+```json
+{
+  "tasks": [{"id": "...", "prompt": "..."}],
+  "scoring": {
+    "weights": {"success": 0.45, "cost": 0.15, "latency": 0.10,
+                "tool_discipline": 0.15, "step_economy": 0.15},
+    "method": "min-max normalized per dimension across the fleet; composite = weighted sum"
+  },
+  "agents": [
+    {
+      "name": "...", "model": "...", "version": "...", "archetype": "...",
+      "rank": 1, "score": 0.87, "pareto": true, "dominated_by": 0,
+      "metrics": {"success_rate": 0.9, "mean_tokens": 0, "mean_cost_usd": 0.0,
+                  "mean_latency_s": 0.0, "mean_steps": 0, "mean_tool_calls": 0.0,
+                  "wasted_tool_calls": 0.0, "mean_searches": 0.0,
+                  "bad_steps": 0, "weak_steps": 0},
+      "dimension_scores": {"success": 1.0, "cost": 0.6, "latency": 0.7,
+                           "tool_discipline": 0.8, "step_economy": 0.5},
+      "failure_fingerprint": {"retrieval": 0.5, "tool_execution": 0.5},
+      "rationale": "plain-language ranking explanation with numbers",
+      "per_task": {"t01": {"success": true, "tokens": 0, "latency_s": 0.0,
+                            "steps": 0, "tool_calls": 0}}
+    }
+  ],
+  "spotlight_pairs": [
+    {"a": "...", "b": "...", "why": "why this pair is informative",
+     "report_indices": [0, 1]}
+  ]
+}
+```
+
+`dimension_scores` are 0-1 (1 = best in fleet) so a client can re-weight the
+composite live. `wasted_tool_calls`/extra steps = steps in divergence regions
+that did not change the outcome.
+
+## Tool-call diff (added to pairwise reports)
+
+Each alignment entry pairing two `tool_call` (or `search`) steps may carry:
+
+```json
+"tool_diff": {
+  "name_a": "regex_extract", "name_b": "regex_extract", "same_tool": true,
+  "args_a": {"pattern": "..."}, "args_b": {"pattern": "..."},
+  "changed": [{"key": "pattern", "a": "...", "b": "..."}],
+  "only_a": ["first_match"], "only_b": [],
+  "raw_diff": [["eq", "text "], ["del", "old"], ["ins", "new"]]
+}
+```
+
+`args_*` parsed heuristically from `name(k=v, ...)` style inputs; `raw_diff`
+is a token-level LCS diff of the raw inputs as a fallback for unparseable args.
