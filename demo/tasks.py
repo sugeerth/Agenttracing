@@ -12,7 +12,7 @@ TASKS = [
             "Find ACME Corp's total revenue for fiscal year 2025. "
             "Report a single dollar figure and say where it came from."
         ),
-        "expected": "$4.82 billion (FY2025 results press release, investor relations)",
+        "expected": "$4.82 billion",
     },
     {
         "id": "t02_cve_libfoo",

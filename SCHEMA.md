@@ -196,11 +196,14 @@ Report-level answer evaluation:
 "answer_eval": {
   "expected": "string|null",
   "diff_ab": [["eq", "..."], ["del", "..."], ["ins", "..."]],
-  "a_vs_expected": {"jaccard": 0.8, "verdict": "match | partial | mismatch"},
-  "b_vs_expected": {"jaccard": 0.2, "verdict": "mismatch"}
+  "a_vs_expected": {"coverage": 0.8, "verdict": "match | partial | mismatch"},
+  "b_vs_expected": {"coverage": 0.2, "verdict": "mismatch"}
 }
 ```
 
 `diff_ab` is the token-level diff of A's final answer against B's.
-Verdicts: `match` >= 0.6 jaccard against expected, `partial` >= 0.3, else
-`mismatch`; `null` expected gives verdict "unknown".
+`coverage` is the fraction of expected-answer tokens present in the answer
+(numeric tokens like "4.82" kept whole). Verdicts: `match` >= 0.6 coverage
+with every digit-bearing expected token present (a wrong number caps the
+verdict at `partial`), `partial` >= 0.3, else `mismatch`; `null` expected
+gives verdict "unknown".

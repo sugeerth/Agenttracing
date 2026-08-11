@@ -551,6 +551,69 @@ class TestToolDiff(unittest.TestCase):
         self.assertEqual(entry2["tool_diff"], {"same_tool": True, "identical": True})
 
 
+class TestStepEval(unittest.TestCase):
+    def test_eval_present_with_delta_arithmetic(self):
+        report = compare(*retrieval_pair())
+        entry0 = report["alignment"][0]  # identical plan steps, matched
+        self.assertIn("eval", entry0)
+        ev = entry0["eval"]
+        self.assertTrue(ev["similarity"]["type_match"])
+        self.assertEqual(ev["similarity"]["name_jaccard"], 1.0)
+        self.assertEqual(ev["similarity"]["input_jaccard"], 1.0)
+        # both steps 100 tokens, 1.0s; cost = 100*(0.02/1200) - 100*(0.01/700)
+        self.assertEqual(ev["delta"]["tokens"], 0)
+        self.assertEqual(ev["delta"]["latency_s"], 0.0)
+        self.assertEqual(ev["delta"]["cost_usd"], 0.000238)
+        self.assertEqual(ev["quality"]["verdict"], "equal")
+
+    def test_eval_divergent_step_quality_and_delta(self):
+        report = compare(*retrieval_pair())
+        ev = report["alignment"][2]["eval"]  # A annual_report vs B blog
+        self.assertEqual(ev["quality"], {"a": "good", "b": "bad", "verdict": "b_degraded"})
+        # B step 200 tokens vs A 100: cost = 200*(0.02/1200) - 100*(0.01/700)
+        self.assertEqual(ev["delta"]["tokens"], 100)
+        self.assertEqual(ev["delta"]["cost_usd"], 0.001905)
+        self.assertEqual(ev["similarity"]["name_jaccard"], 0.0)
+
+    def test_propagation_bounds_and_ordering(self):
+        report = compare(*retrieval_pair())
+        for entry in report["alignment"]:
+            prop = entry.get("eval", {}).get("propagation")
+            self.assertIsNotNone(prop)  # one agent failed, root set
+            for side in ("a", "b"):
+                self.assertGreaterEqual(prop[side], 0.0)
+                self.assertLessEqual(prop[side], 1.0)
+        pre = report["alignment"][0]["eval"]["propagation"]["b"]
+        after_root = report["alignment"][3]["eval"]["propagation"]["b"]
+        self.assertGreater(after_root, pre)
+        self.assertEqual(after_root, 1.0)  # B step 3 input == B root output
+        # no propagation key when both agents succeeded
+        clean = compare(*identical_pair())
+        for entry in clean["alignment"]:
+            self.assertNotIn("propagation", entry["eval"])
+
+    def test_answer_eval_verdicts_and_diff(self):
+        report = compare(*retrieval_pair())
+        ae = report["answer_eval"]
+        self.assertEqual(ae["expected"], "5.2 billion")
+        self.assertEqual(ae["a_vs_expected"], {"coverage": 1.0, "verdict": "match"})
+        # B answered "12 billion": covers {billion} of {5.2, billion} = 0.5,
+        # but the numeric token 5.2 is missing so the verdict caps at partial.
+        self.assertEqual(ae["b_vs_expected"], {"coverage": 0.5, "verdict": "partial"})
+        diff = ae["diff_ab"]
+        self.assertEqual("".join(t for op, t in diff if op in ("eq", "del")), "5.2 billion")
+        self.assertEqual("".join(t for op, t in diff if op in ("eq", "ins")), "12 billion")
+
+    def test_answer_eval_expected_none_unknown(self):
+        a, b = identical_pair()
+        a.task.expected = None
+        from deepcompare.steps_eval import answer_eval
+        ae = answer_eval(a, b)
+        self.assertIsNone(ae["expected"])
+        self.assertEqual(ae["a_vs_expected"], {"coverage": None, "verdict": "unknown"})
+        self.assertEqual(ae["b_vs_expected"], {"coverage": None, "verdict": "unknown"})
+
+
 class TestFleet(unittest.TestCase):
     def test_ranking_and_pareto(self):
         result = fleet_analysis(fleet_fixture())

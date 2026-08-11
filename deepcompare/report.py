@@ -17,6 +17,7 @@ from .align import align
 from .attribution import attribute
 from .divergence import find_divergences
 from .metrics import metrics_delta
+from .steps_eval import answer_eval, step_eval
 from .tooldiff import TOOLISH_TYPES, tool_diff
 from .trace import Trajectory
 
@@ -50,6 +51,34 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
             entry["tool_diff"] = {"same_tool": True, "identical": True}
         else:
             entry["tool_diff"] = tool_diff(step_a, step_b)
+
+    # Step-level evaluation (SCHEMA.md v5).  Root outputs for propagation:
+    # the failing side's root_cause_step output, and — for the other side —
+    # the output of its aligned counterpart step (None if there is none,
+    # which yields propagation 0.0 for that side).
+    root_output_a: Optional[str] = None
+    root_output_b: Optional[str] = None
+    failed_side = attribution["failed_agent"]
+    root = attribution["root_cause_step"]
+    if failed_side is not None and root is not None:
+        own_key = f"{failed_side}_index"
+        other_side = "b" if failed_side == "a" else "a"
+        other_key = f"{other_side}_index"
+        failed_traj, other_traj = (a, b) if failed_side == "a" else (b, a)
+        failed_out: Optional[str] = failed_traj.steps[root].output
+        other_out: Optional[str] = None
+        for entry in alignment:
+            if entry[own_key] == root and entry[other_key] is not None:
+                other_out = other_traj.steps[entry[other_key]].output
+                break
+        if failed_side == "a":
+            root_output_a, root_output_b = failed_out, other_out
+        else:
+            root_output_a, root_output_b = other_out, failed_out
+    for entry in alignment:
+        evaluation = step_eval(entry, a, b, root_output_a, root_output_b)
+        if evaluation is not None:
+            entry["eval"] = evaluation
     return {
         "task": {"id": a.task.id, "prompt": a.task.prompt},
         "a": {
@@ -67,6 +96,7 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
         "alignment": alignment,
         "divergences": divergences,
         "attribution": attribution,
+        "answer_eval": answer_eval(a, b),
         "metrics_delta": metrics_delta(a, b),
     }
 
