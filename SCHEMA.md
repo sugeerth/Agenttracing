@@ -346,3 +346,47 @@ Aggregate gains a per-agent semantic profile:
   "narrative": "cross-task semantic comparison in plain language"
 }
 ```
+
+## Counterfactual replay (pairwise reports, v8)
+
+When a failure was attributed, the report estimates the counterfactual: the
+failing agent adopts the winner's decision at the root divergence and inherits
+its suffix.
+
+```json
+"counterfactual": {
+  "premise": "had bolt-v3 made atlas-v2's decision at step 2",
+  "splice": {"prefix_steps": [0, 1], "adopted_from": "a", "adopted_steps": [2, 3, 4]},
+  "estimate": {
+    "outcome": "success",
+    "steps": 5, "steps_delta": -5,
+    "tokens": 840, "tokens_delta": -682,
+    "latency_s": 9.95, "latency_delta_s": -8.47,
+    "cost_usd": 0.0051, "cost_delta_usd": -0.0039
+  },
+  "confidence": "high | medium | low",
+  "narrative": "plain-language what-if with the numbers"
+}
+```
+
+`confidence`: high when the shared prefix is identical (all match rows before
+the root) and the divergence is the attributed cause; medium when the prefix
+contains drift; low otherwise. Estimates come from splicing the winner's
+post-divergence suffix onto the failing agent's prefix (token/latency/cost
+summed from the actual steps).
+
+## Regression gate (CLI, v8)
+
+`python -m deepcompare gate BASELINE_DIR CANDIDATE_DIR [thresholds] [-o out/] [--markdown gate.md]`
+
+Pairs traces by task id across two directories (e.g. agent v1 vs v2 runs),
+compares them, and evaluates gate checks:
+
+- success rate must not drop more than `--max-success-drop` (default 0)
+- mean cost must not rise more than `--max-cost-increase` (fraction, default 0.10)
+- mean latency must not rise more than `--max-latency-increase` (default 0.25)
+- no NEW failure-origin category may appear (disable with `--allow-new-failure-modes`)
+
+Exit code 0 = pass, 1 = gate failed, 2 = usage/data error. `gate.json` and an
+optional shareable `gate.md` summary (verdict table, per-check numbers, top
+divergences with attributions and counterfactual savings) are written to `-o`.
