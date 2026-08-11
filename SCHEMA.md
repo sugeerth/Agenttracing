@@ -207,3 +207,46 @@ Report-level answer evaluation:
 with every digit-bearing expected token present (a wrong number caps the
 verdict at `partial`), `partial` >= 0.3, else `mismatch`; `null` expected
 gives verdict "unknown".
+
+## Success analysis (pairwise reports, v6) — the positive mirror
+
+Failure attribution explains what went wrong; `success_analysis` explains what
+the winner did *right*, decision by decision.
+
+```json
+"success_analysis": {
+  "winner": "a | b | null",
+  "basis": "outcome | efficiency",
+  "winning_decisions": [
+    {
+      "step_index": 2, "agent": "atlas-v2", "kind": "retrieval",
+      "decision": "selected the official investor-relations release",
+      "counterpart": "selected a commentary blog (bolt-v3)",
+      "why": "primary source held the correct figure; avoided circular corroboration",
+      "impact": {"avoided_extra_steps": 5, "avoided_tokens": 682,
+                 "avoided_latency_s": 8.5, "avoided_failure": true}
+    }
+  ],
+  "narrative": "plain-language explanation of why the winner won"
+}
+```
+
+`winner`: the successful agent when exactly one failed (`basis: "outcome"`);
+the leaner side when both succeeded but diverged (`basis: "efficiency"`);
+null when trajectories are equivalent. One winning decision per divergence
+region, from the winner's side of it; `impact` is the loser's downstream
+extras re-read as what the winner avoided.
+
+Aggregate-level playbook — winning habits generalized across tasks:
+
+```json
+"playbook": [
+  {"habit": "Prefer primary/official sources over commentary",
+   "kind": "retrieval", "agents": ["atlas-v2"],
+   "evidence": "decided 3 tasks (t01, t02, t06)",
+   "impact": "avoided 2 failures, saved 2,745 tokens and 34.8s"}
+]
+```
+
+Derived by grouping winning decisions by kind across a batch; only habits
+with non-trivial impact are emitted.
