@@ -681,6 +681,8 @@ earlier ones created. `report["shapley"]` allocates the gap fairly instead:
 ```json
 "shapley": {
   "available": true, "metric": "tokens", "method": "exact",
+  "_note": "splice-Shapley: exact with respect to the splice surrogate, not
+            with respect to the agent — see below",
   "loser": "bolt-v3", "winner": "atlas-v2", "regions": 2,
   "total_saving": 691.0,
   "allocations": [
@@ -705,6 +707,13 @@ numerically on every report.
 
 Exact enumeration runs while there are ≤ 12 regions; beyond that the field
 reports `available: false` with a reason rather than silently sampling.
+
+The honest name for this is **splice-Shapley**: the allocation is exact with
+respect to the splice surrogate (adopting the reference path at a decision
+yields the steps the reference actually took), not with respect to the agent,
+which would require re-running it. Rigorous causal replay for agents does
+exist in the literature but re-executes the agent, which this engine — seeing
+only logged traces — deliberately does not do.
 
 `outcome_attributable` is true **only** when exactly one divergence was
 causal. Splitting a binary outcome across several decisions would require
@@ -732,12 +741,31 @@ Which *behavioural attributes* travel with failure across a corpus:
 }
 ```
 
+Each row also carries a **stratified** lift, and this is a guard rather than a
+refinement:
+
+```json
+"stratified": {"lift": -0.65, "strata": 6,
+               "method": "Mantel-Haenszel pooled within-task risk difference"},
+"reverses_under_stratification": false
+```
+
+Task difficulty confounds every marginal association: hard tasks both provoke
+different behavior and cause more failures, and the trajectory-length signal in
+agent traces is documented to *reverse* once difficulty is controlled. The
+stratified figure compares runs only **within the same task**, pooling strata
+with Mantel-Haenszel weights (`n_with · n_without / n`); strata where every run
+falls on one side carry no information and are skipped. An attribute whose sign
+flips is flagged, forced to `notable: false`, and named in the narrative —
+reported **whether or not anything else was notable**, since "the only strong
+signal is an artifact" is precisely when the reader needs telling.
+
 Attributes are binary predicates over a trajectory (no verification step, no
 plan step, a weak/bad step, a low-confidence step, many tool calls, a long
-trajectory, repeated searches). `lift` is the failure-rate difference between
-runs that have the attribute and runs that do not; `notable` requires |lift| ≥
-0.25 **and** at least 2 runs on each side, so tiny groups cannot produce
-confident findings. A predicate returning None (e.g. confidence on a run with
+trajectory, repeated searches). `lift` is the raw failure-rate difference
+between runs that have the attribute and runs that do not; `notable` requires
+|lift| ≥ 0.25 **and** at least 2 runs on each side, so tiny groups cannot
+produce confident findings. A predicate returning None (e.g. confidence on a run with
 no telemetry) excludes that run from that attribute rather than counting it as
 false.
 

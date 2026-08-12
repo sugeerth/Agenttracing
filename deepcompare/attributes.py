@@ -13,12 +13,21 @@ bootstrap interval — because the alternatives (regression, uplift models)
 would add dependencies and, on the sample sizes eval suites actually have,
 would dress up the same evidence in heavier machinery.
 
-**These are associations, not causes.**  An attribute can travel with failure
-because it causes it, because a third factor causes both, or because the hard
-tasks happen to provoke it.  Every finding is reported as a lift with its
-sample size and interval, and the module never uses causal language.  The
-honest use is triage: attributes that separate strongly are where to look and
-what to test next, not conclusions to act on blindly.
+Every attribute is scored twice: raw across the corpus, and **stratified
+within each task**.  That second number is not a refinement, it is a guard.
+Task difficulty confounds every marginal association here — hard tasks both
+provoke different behaviour and cause more failures — and the trajectory-
+length signal in agent traces is documented to *reverse* once difficulty is
+controlled.  An attribute whose sign flips under stratification is reported
+with a ``reverses_under_stratification`` flag and is never counted as a
+finding, because its raw association is an artifact of which tasks provoke it.
+
+**These are associations, not causes.**  Even a stratified lift can arise
+because the attribute causes failure, because a third factor causes both, or
+because of something the task id does not capture.  Every finding carries its
+sample sizes and intervals, and the module never uses causal language.  The
+honest use is triage: where to look and what to test next, not a conclusion to
+act on blindly.
 """
 
 from __future__ import annotations
@@ -99,6 +108,61 @@ ATTRIBUTES: dict[str, tuple[Callable[[Trajectory], Optional[bool]], str]] = {
 }
 
 
+def _stratified_lift(
+    trajectories: list[Trajectory],
+    predicate: Callable[[Trajectory], Optional[bool]],
+) -> Optional[dict]:
+    """Pooled within-task lift, controlling for task difficulty.
+
+    A raw lift across a corpus confounds the attribute with task difficulty:
+    hard tasks both provoke different behaviour and cause more failures, so
+    the marginal association can point the wrong way entirely (Simpson's
+    paradox — documented for trajectory length in agent traces).  Comparing
+    only *within* a task removes difficulty from the comparison.
+
+    Strata where every run has the attribute (or none does) carry no
+    information and are skipped.  Pooling uses Mantel-Haenszel weights
+    ``n_with * n_without / n``, which weight a stratum by how balanced it is.
+    Returns None when no stratum can contribute.
+    """
+    by_task: dict[str, list[Trajectory]] = {}
+    for trajectory in trajectories:
+        by_task.setdefault(trajectory.task.id, []).append(trajectory)
+
+    numerator = 0.0
+    weight_total = 0.0
+    strata_used = 0
+    for task in sorted(by_task):
+        with_fail = with_n = without_fail = without_n = 0
+        for trajectory in by_task[task]:
+            value = predicate(trajectory)
+            if value is None:
+                continue
+            failed = not trajectory.outcome.success
+            if value:
+                with_n += 1
+                with_fail += 1 if failed else 0
+            else:
+                without_n += 1
+                without_fail += 1 if failed else 0
+        if with_n == 0 or without_n == 0:
+            continue
+        total = with_n + without_n
+        weight = (with_n * without_n) / total
+        difference = with_fail / with_n - without_fail / without_n
+        numerator += weight * difference
+        weight_total += weight
+        strata_used += 1
+
+    if weight_total <= 0:
+        return None
+    return {
+        "lift": round(numerator / weight_total, 4),
+        "strata": strata_used,
+        "method": "Mantel-Haenszel pooled within-task risk difference",
+    }
+
+
 def _lift_row(name: str, phrasing: str, with_fail: int, with_n: int,
               without_fail: int, without_n: int) -> dict:
     rate_with = with_fail / with_n if with_n else 0.0
@@ -157,10 +221,29 @@ def attribute_analysis(trajectories: list[Trajectory]) -> dict:
                 without_fail += 1 if failed else 0
         if with_n == 0 and without_n == 0:
             continue
-        rows.append(_lift_row(name, phrasing, with_fail, with_n,
-                              without_fail, without_n))
+        row = _lift_row(name, phrasing, with_fail, with_n,
+                        without_fail, without_n)
+        stratified = _stratified_lift(trajectories, predicate)
+        row["stratified"] = stratified
+        # A marginal association that flips sign once task difficulty is
+        # controlled is an artifact of the task mix, not a property of the
+        # attribute.  Flag it loudly and never call it notable.
+        reverses = bool(
+            stratified
+            and abs(row["lift"]) >= 0.05
+            and abs(stratified["lift"]) >= 0.05
+            and (row["lift"] > 0) != (stratified["lift"] > 0)
+        )
+        row["reverses_under_stratification"] = reverses
+        if reverses:
+            row["notable"] = False
+        rows.append(row)
 
-    rows.sort(key=lambda r: (not r["notable"], -abs(r["lift"]), r["attribute"]))
+    def strength(row: dict) -> float:
+        stratified = row.get("stratified")
+        return abs(stratified["lift"]) if stratified else abs(row["lift"])
+
+    rows.sort(key=lambda r: (not r["notable"], -strength(r), r["attribute"]))
 
     notable = [r for r in rows if r["notable"]]
     failures = sum(1 for t in trajectories if not t.outcome.success)
@@ -172,17 +255,37 @@ def attribute_analysis(trajectories: list[Trajectory]) -> dict:
         )
     else:
         top = notable[0]
-        direction = "more" if top["lift"] > 0 else "less"
+        stratified = top.get("stratified")
+        headline = stratified["lift"] if stratified else top["lift"]
+        direction = "more" if headline > 0 else "less"
         narrative = (
             f"Of {len(trajectories)} run(s) with {failures} failure(s), the "
+            f"strongest association is that {top['phrasing']}: within the same "
+            f"task, such runs fail {abs(headline):.0%} {direction} often"
+            if stratified else
+            f"Of {len(trajectories)} run(s) with {failures} failure(s), the "
             f"strongest association is that {top['phrasing']}: such runs fail "
-            f"{abs(top['lift']):.0%} {direction} often "
-            f"({top['with']['failure_rate']:.0%} of {top['with']['runs']} versus "
-            f"{top['without']['failure_rate']:.0%} of {top['without']['runs']}). "
-            f"This is an association, not a cause."
+            f"{abs(headline):.0%} {direction} often"
+        )
+        narrative += (
+            f" (raw {top['with']['failure_rate']:.0%} of {top['with']['runs']} "
+            f"versus {top['without']['failure_rate']:.0%} of "
+            f"{top['without']['runs']}). This is an association, not a cause."
         )
         if len(notable) > 1:
             narrative += f" {len(notable) - 1} other attribute(s) also separate."
+
+    # Reversals are reported whether or not anything else was notable: the
+    # case where the only strong-looking signal turns out to be an artifact
+    # is exactly when the reader most needs to be told.
+    flipped = [r for r in rows if r.get("reverses_under_stratification")]
+    if flipped:
+        names = ", ".join(r["attribute"] for r in flipped)
+        narrative += (
+            f" {len(flipped)} attribute(s) reverse sign once task difficulty "
+            f"is controlled ({names}) — their raw association is an artifact of "
+            f"which tasks provoke them, and they are not reported as findings."
+        )
 
     return {
         "runs": len(trajectories),

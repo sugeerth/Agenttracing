@@ -266,3 +266,98 @@ class TestAgainstRealFleet(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestStratification(unittest.TestCase):
+    """Task difficulty confounds every marginal association; the stratified
+    figure is the guard against reporting an artifact as a finding."""
+
+    def simpsons_corpus(self):
+        """A textbook reversal.
+
+        Hard tasks are attempted mostly WITH the attribute and fail often;
+        easy tasks mostly WITHOUT it and rarely fail.  Marginally the
+        attribute looks harmful, but within each task it is protective.
+        """
+        runs = []
+        # Hard task: with-attribute fails 5/8; without fails 3/4 (worse).
+        for i in range(8):
+            runs.append(traj("a", "hard", i >= 5, [
+                step(0, "plan", "plan"), step(1, "search", "s"),
+                step(2, "retrieve", "r"), step(3, "read", "p"),
+                step(4, "answer", "final"),
+            ]))
+        for i in range(4):
+            runs.append(traj("a", "hard", i >= 3, [
+                step(0, "plan", "plan"), step(1, "answer", "final"),
+            ]))
+        # Easy task: with-attribute never fails; without fails 1/8.
+        for i in range(4):
+            runs.append(traj("a", "easy", True, [
+                step(0, "plan", "plan"), step(1, "search", "s"),
+                step(2, "retrieve", "r"), step(3, "read", "p"),
+                step(4, "answer", "final"),
+            ]))
+        for i in range(8):
+            runs.append(traj("a", "easy", i >= 1, [
+                step(0, "plan", "plan"), step(1, "answer", "final"),
+            ]))
+        return runs
+
+    def test_stratified_lift_is_computed_per_task(self):
+        result = attribute_analysis(self.simpsons_corpus())
+        row = next(r for r in result["attributes"]
+                   if r["attribute"] == "many_tool_calls")
+        self.assertIsNotNone(row["stratified"])
+        self.assertEqual(row["stratified"]["strata"], 2)
+
+    def test_reversal_is_detected_and_never_reported_as_a_finding(self):
+        result = attribute_analysis(self.simpsons_corpus())
+        row = next(r for r in result["attributes"]
+                   if r["attribute"] == "many_tool_calls")
+        if row["reverses_under_stratification"]:
+            self.assertFalse(row["notable"])
+            self.assertIn("reverse sign", result["narrative"])
+
+    def test_stratification_skips_uninformative_strata(self):
+        # A task where every run has the attribute contributes nothing.
+        runs = [traj("a", "same", i % 2 == 0, [
+            step(0, "plan", "plan"), step(1, "search", "s"),
+            step(2, "retrieve", "r"), step(3, "read", "p"),
+            step(4, "answer", "final"),
+        ]) for i in range(4)]
+        result = attribute_analysis(runs)
+        row = next(r for r in result["attributes"]
+                   if r["attribute"] == "many_tool_calls")
+        self.assertIsNone(row["stratified"])
+
+    def test_agreeing_signals_survive_stratification(self):
+        # poor_quality_step tracks failure within every task, so it must not
+        # be flagged as reversing.
+        runs = []
+        for task in ("t1", "t2"):
+            for i in range(3):
+                runs.append(traj("a", task, True, REFERENCE))
+                runs.append(traj("a", task, False, [
+                    step(0, "plan", "plan"), step(1, "search", "web_search"),
+                    step(2, "retrieve", "select_result", "blog", quality="bad"),
+                    step(3, "answer", "final"),
+                ]))
+        result = attribute_analysis(runs)
+        row = next(r for r in result["attributes"]
+                   if r["attribute"] == "poor_quality_step")
+        self.assertFalse(row["reverses_under_stratification"])
+        self.assertGreater(row["stratified"]["lift"], 0.0)
+
+    def test_narrative_quotes_the_within_task_figure(self):
+        runs = []
+        for task in ("t1", "t2"):
+            for i in range(3):
+                runs.append(traj("a", task, True, REFERENCE))
+                runs.append(traj("a", task, False, [
+                    step(0, "plan", "plan"), step(1, "search", "web_search"),
+                    step(2, "retrieve", "select_result", "blog", quality="bad"),
+                    step(3, "answer", "final"),
+                ]))
+        result = attribute_analysis(runs)
+        self.assertIn("within the same task", result["narrative"])
