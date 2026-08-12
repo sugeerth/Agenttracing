@@ -16,6 +16,7 @@ from .success import playbook
 from .trace import Trajectory
 from .uncertainty import calibration_profile
 from .issues import build_issues
+from .attributes import attribute_analysis
 
 #: metric key -> human label used in regression messages.
 _REGRESSION_METRICS = {
@@ -220,6 +221,37 @@ def aggregate(reports: list[dict]) -> dict:
         "playbook": playbook(reports),
         "calibration": calibration_profile(reports),
         "issues": build_issues(reports),
+        # Attribute analysis needs whole trajectories; reconstruct the
+        # corpus from both sides of every report.
+        "attributes": attribute_analysis(_corpus_from_reports(reports)),
         "semantic_profile": semantic_profile(reports),
         "task_signal": task_signal(reports),
     }
+
+
+def _corpus_from_reports(reports: list[dict]) -> list:
+    """Rebuild Trajectory objects from both sides of each report.
+
+    ``aggregate`` only receives reports, but attribute analysis is defined
+    over runs; each report carries both runs in full, so the corpus can be
+    reconstructed without changing the aggregate() signature.
+    """
+    from .trace import Trajectory
+    corpus = []
+    for report in reports:
+        for side in ("a", "b"):
+            payload = {
+                "schema_version": 1,
+                "trace_id": f"{report['task']['id']}-{side}",
+                "agent": report[side]["agent"],
+                "task": {"id": report["task"]["id"],
+                         "prompt": report["task"]["prompt"], "expected": None},
+                "outcome": report[side]["outcome"],
+                "totals": report[side]["totals"],
+                "steps": report[side]["steps"],
+            }
+            try:
+                corpus.append(Trajectory.from_json(payload))
+            except ValueError:
+                continue
+    return corpus
