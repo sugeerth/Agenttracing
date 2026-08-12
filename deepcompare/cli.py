@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Optional
 
 from .adapters import from_openai_messages, from_otel_genai
+from .registry import convert as registry_convert, dry_run, formats
 from .issues import build_issues, load_suppressions, render_issues_markdown
 from .conformance import check_suite, render_conformance_markdown
 from .routing import routing_analysis
@@ -625,6 +626,11 @@ def _cmd_check(args: argparse.Namespace) -> int:
 
 
 def _cmd_convert(args: argparse.Namespace) -> int:
+    if args.list_formats:
+        print("Known trace formats:")
+        for entry in formats():
+            print(f"  {entry['name']:<12} {entry['description']}")
+        return 0
     in_path = Path(args.input)
     if not in_path.is_file():
         print(f"error: {in_path} is not a file", file=sys.stderr)
@@ -634,6 +640,39 @@ def _cmd_convert(args: argparse.Namespace) -> int:
     except json.JSONDecodeError as exc:
         print(f"error: {in_path}: not valid JSON: {exc}", file=sys.stderr)
         return 2
+
+    if args.list_formats:
+        print("Known trace formats:")
+        for entry in formats():
+            print(f"  {entry['name']:<12} {entry['description']}")
+        return 0
+
+    if args.dry_run:
+        report = dry_run(data, None if args.format == "auto" else args.format)
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        return 0 if report.get("ok") else 2
+
+    if args.format == "auto":
+        try:
+            result = registry_convert(data, None)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        trajectory, warnings = result["trajectory"], result["warnings"]
+        print(f"Detected format: {result['format']} "
+              f"(confidence {result['confidence']:.0%})")
+        for warning in warnings:
+            print(f"warning: {warning}", file=sys.stderr)
+        out_dir = Path(args.output)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        tid = _safe_name(trajectory["task"]["id"])
+        agent = _safe_name(trajectory["agent"]["name"])
+        out_path = out_dir / f"{tid}__{agent}.json"
+        out_path.write_text(
+            json.dumps(trajectory, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8")
+        print(f"Wrote {out_path}")
+        return 0
 
     try:
         if args.format == "otel":
@@ -775,11 +814,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_convert = sub.add_parser(
         "convert", help="convert foreign trace formats to SCHEMA trajectories"
     )
-    p_convert.add_argument("--format", required=True, choices=("otel", "openai"),
+    p_convert.add_argument("--format", default="auto",
+                           choices=("auto", "otel", "openai", "anthropic", "schema"),
                            help="input format")
-    p_convert.add_argument("input", help="input JSON file")
+    p_convert.add_argument("input", nargs="?", default="",
+                           help="input JSON file")
     p_convert.add_argument("-o", "--output", default="out",
                            help="output directory (default: out)")
+    p_convert.add_argument("--dry-run", action="store_true",
+                           help="report what the conversion would produce, "
+                                "including fidelity counters, without writing")
+    p_convert.add_argument("--list-formats", action="store_true",
+                           help="list the known trace formats and exit")
     p_convert.set_defaults(func=_cmd_convert)
     return parser
 

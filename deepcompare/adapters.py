@@ -29,6 +29,18 @@ _TOOL_NAME_CUES: list[tuple[tuple[str, ...], str]] = [
 
 _CHAT_OPS = ("chat", "text_completion", "generate_content", "generate")
 
+#: operations that describe an agent thinking or planning rather than acting.
+#: ``invoke_agent`` is how the GenAI conventions mark an agent turn.
+_AGENT_OPS = ("invoke_agent", "invoke_workflow")
+
+#: operations that fetch context rather than call a tool.
+_RETRIEVAL_OPS = ("embeddings", "retrieve", "search", "create_memory",
+                  "get_memory", "query_memory")
+
+#: operations that carry no step of their own (setup / teardown bookkeeping).
+_META_OPS = ("create_agent", "create_memory_store", "delete_memory_store",
+             "delete_memory")
+
 #: attribute keys carrying a tool call's arguments, most-specific first.
 #: Real exporters disagree: the GenAI semantic conventions use
 #: ``gen_ai.tool.call.arguments``, others emit ``gen_ai.tool.input``,
@@ -201,11 +213,22 @@ def from_otel_genai(
             step_name = tool
             step_input = _first_attr(attrs, _TOOL_INPUT_KEYS) or name
             step_output = _first_attr(attrs, _TOOL_OUTPUT_KEYS)
-        elif op in ("retrieve", "search"):
-            step_type = op
+        elif op in _RETRIEVAL_OPS:
+            step_type = "search" if op in ("search",) else "retrieve"
             step_name = str(attrs.get("gen_ai.tool.name", op))
             step_input = _first_attr(attrs, _TOOL_INPUT_KEYS) or name
             step_output = _first_attr(attrs, _TOOL_OUTPUT_KEYS)
+        elif op in _AGENT_OPS:
+            # An agent turn: planning if it carries no tool, else reasoning.
+            step_type = "plan" if not attrs.get("gen_ai.tool.name") else "reason"
+            step_name = str(attrs.get("gen_ai.agent.name", op))
+            step_input = _first_attr(attrs, _PROMPT_KEYS) or name
+            step_output = _first_attr(attrs, _COMPLETION_KEYS)
+        elif op in _META_OPS:
+            warnings.append(
+                f"span {name!r} is {op} (lifecycle bookkeeping, not a step); skipped"
+            )
+            continue
         else:
             warnings.append(
                 f"span {name!r} has no recognized gen_ai operation; skipped"
@@ -236,6 +259,18 @@ def from_otel_genai(
     outcome = outcome or {}
     task_d = _task_dict(task)
     agent_d = _agent_dict(agent)
+    # The provider/model actually observed in the spans wins over a caller's
+    # guess, so a converted trace always says which model produced it.
+    for span in ordered:
+        attrs = _span_attrs(span)
+        model = attrs.get("gen_ai.response.model") or attrs.get("gen_ai.request.model")
+        if model and not agent_d.get("model"):
+            agent_d["model"] = str(model)
+        provider = attrs.get("gen_ai.provider.name")
+        if provider and not agent_d.get("version"):
+            agent_d["version"] = str(provider)
+        if agent_d.get("model") and agent_d.get("version"):
+            break
     trajectory = {
         "schema_version": 1,
         "trace_id": f"{task_d['id']}-{agent_d['name']}",
