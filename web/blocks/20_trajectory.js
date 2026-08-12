@@ -449,7 +449,7 @@
 
     var padL = 10, padR = 10;
     var colW = Math.max(38, Math.min(78, Math.floor((avail - padL - padR) / Math.max(n, 1))));
-    var W = Math.max(avail, padL + padR + colW * n);
+    var W = padL + padR + colW * n;
     var R = 7, barMax = 22;
     var yA = 46, yB = 104, H_ = 152;
     var axisY = 145;
@@ -552,8 +552,8 @@
 
         root_.appendChild(styleGlyph(glyphNode(step.type, x, y, R),
                                      qualityStyle(step.quality, side)));
-        if (colW >= 40) {
-          root_.appendChild(label(x + R + 3.5, y + 3, String(index), C.muted, 8.5, "start"));
+        if (colW >= 36) {
+          root_.appendChild(label(x + R + 3.5, y + 3, String(index), C.muted, 8, "start"));
         }
       });
     });
@@ -713,7 +713,7 @@
 
     var gut = 22, padR = 8;
     var colW = Math.max(20, Math.min(64, Math.floor((avail - gut - padR) / Math.max(n, 1))));
-    var W = Math.max(avail, gut + padR + colW * n);
+    var W = gut + padR + colW * n;
     var top = 14, plotH = 54;
     var bandY = top + plotH + 8, bandH = 18;
     var axisY = bandY + bandH + 13;
@@ -1033,7 +1033,7 @@
 
     var gut = 22, padR = 10;
     var colW = Math.max(30, Math.min(84, Math.floor((avail - gut - padR) / Math.max(n, 1))));
-    var W = Math.max(avail, gut + padR + colW * n);
+    var W = gut + padR + colW * n;
     var top = 16, plotH = 84;
     var axisY = top + plotH + 14;
     var H_ = axisY + 6;
@@ -1222,7 +1222,7 @@
 
     var gut = 62, padR = 10;
     var colW = Math.max(18, Math.min(46, Math.floor((avail - gut - padR) / maxStep)));
-    var W = Math.max(avail, gut + padR + colW * maxStep);
+    var W = gut + padR + colW * maxStep;
     var top = 10, laneH = 20;
     var H_ = top + laneH * INTENTS.length + 20;
     var axisY = top + laneH * INTENTS.length + 13;

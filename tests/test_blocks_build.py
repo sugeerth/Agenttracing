@@ -25,6 +25,11 @@ BLOCKS = WEB / "blocks"
 
 from deepcompare.report import DATA_MARKER, render_html
 
+#: Captured at import, before any test rebuilds it — this is the artifact as
+#: committed, which is the thing whose freshness is in question.
+COMMITTED = ((WEB / "blocks.html").read_text(encoding="utf-8")
+             if (WEB / "blocks.html").is_file() else None)
+
 
 def build() -> str:
     result = subprocess.run(
@@ -85,6 +90,15 @@ class TestBuild(unittest.TestCase):
         registered = [i for i in ids if i]
         self.assertEqual(len(registered), len(set(registered)),
                          "duplicate block id would be dropped at registration")
+
+    def test_the_committed_artifact_matches_its_sources(self):
+        # blocks.html is generated but tracked, so it can drift from the
+        # modules it was built from — and the drift is invisible, because a
+        # stale page still opens and still looks right.
+        self.assertIsNotNone(COMMITTED, "web/blocks.html has not been built")
+        self.assertEqual(
+            COMMITTED, self.page,
+            "web/blocks.html is stale — run `python web/build_blocks.py` and commit it")
 
     def test_page_is_self_contained_and_small_enough_to_open(self):
         self.assertLess(len(self.page.encode("utf-8")), 4 * 1024 * 1024)
