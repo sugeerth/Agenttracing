@@ -816,3 +816,78 @@ Read alongside `attributes` rather than instead of it: the joint coefficients
 control for the other *measured* attributes only — not for task difficulty,
 which is what the stratified marginal lift handles. Where the two disagree,
 that disagreement is itself the finding.
+
+## Reference profiles — a base style (v18)
+
+`python -m deepcompare profile TRACESDIR [--build-from DIR] -o out/`
+
+Every other comparison needs a partner run. A **profile** removes that: a norm
+distilled from many runs, against which any single run can be scored alone.
+
+```json
+{"name": "t01_acme_revenue", "tasks": ["t01_acme_revenue"],
+ "runs_used": 27, "runs_excluded": 6, "successes_only": true,
+ "thin_evidence": false,
+ "canonical_path": ["plan", "search", "retrieve", "read", "answer"],
+ "expected_step_types": ["answer", "plan", "read", "retrieve", "search"],
+ "step_type_mix": {"search": 31}, "tool_mix": {"web_search": 31},
+ "bands": {"tokens": {"median": 840.0, "low": 831.0, "high": 1105.0,
+                      "min": 800.0, "max": 1274.0}},
+ "caveat": "..."}
+```
+
+- Built from **successful runs only** by default — a norm assembled from
+  failures would make repeating them "normal". `--include-failures` overrides.
+- `canonical_path` is a **medoid**, an actually-recorded path, never an
+  averaged one that nobody took.
+- Bands are median plus interquartile range, so "outside the norm" means
+  outside where the middle half of runs sat.
+- A profile from fewer than 5 runs sets `thin_evidence`, and that caveat is
+  repeated in every score built on it.
+
+Scoring a run needs no partner:
+
+```json
+{"agent": "bolt-v3", "task": "t01", "verdict": "on-profile | costly | off-profile | failed",
+ "path_similarity": 0.67, "tool_similarity": 1.0,
+ "missing_step_types": [], "unexpected_step_types": [],
+ "measures": {"tokens": {"value": 1522, "position": "above", "phrasing": "...",
+                         "band": {"...": 0}}},
+ "outside_band": ["tokens"], "narrative": "..."}
+```
+
+Verdicts are ordered by what matters: `failed` first, then `off-profile` (it
+left the canonical path or skipped an expected step type), then `costly` (on
+the path but above the usual spend), then `on-profile`.
+
+## Cohort comparison — combinations (v18)
+
+`python -m deepcompare cohort TRACESDIR --by model|agent|version|task -o out/`
+
+Compares **groups as populations** rather than picking a representative run:
+model family vs model family, prompt v1 vs v2, and so on.
+
+```json
+{"cohorts": [{"cohort": "claude-opus-5", "runs": 8, "successes": 8,
+              "success_rate": 1.0, "success_ci": [0.676, 1.0],
+              "mean_cost_usd": 0.0065, "agents": ["..."], "tasks": ["..."]}],
+ "pairs": [{"left": "claude-opus-5", "right": "gemini-3-flash",
+            "shared_tasks": 8, "comparable": true,
+            "success_difference": {"observed": 0.19, "low": 0.06, "high": 0.31,
+                                   "significant": true, "samples": 2000},
+            "cost_ratio": 1.14,
+            "behaviour": {"process": 0.9, "tools": 0.95, "resources": 0.88},
+            "attribute_gaps": [{"attribute": "no_verification_step",
+                                "difference": 0.35, "interval": {"...": 0}}],
+            "verdict": "..."}],
+ "narrative": "..."}
+```
+
+Two guards make the verdicts trustworthy:
+
+- **Success rates are compared only on shared tasks.** Cohorts that ran
+  different task sets are marked `comparable: false` rather than compared —
+  one may simply have drawn easier work.
+- **A difference whose interval includes zero is never called a win.** The
+  verdict then says the cohorts are indistinguishable on outcome and falls
+  back to cost, which is the decision the evidence actually supports.

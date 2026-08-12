@@ -27,6 +27,8 @@ from typing import Optional
 
 from .adapters import from_openai_messages, from_otel_genai
 from .registry import convert as registry_convert, dry_run, formats
+from .profile import build_profile, profile_suite
+from .cohort import GROUPERS, compare_cohorts, group_runs
 from .issues import build_issues, load_suppressions, render_issues_markdown
 from .conformance import check_suite, render_conformance_markdown
 from .routing import routing_analysis
@@ -625,6 +627,96 @@ def _cmd_check(args: argparse.Namespace) -> int:
     return 1 if suite["violations"] else 0
 
 
+def _cmd_profile(args: argparse.Namespace) -> int:
+    """Build per-task reference profiles and score runs against them."""
+    traces_dir = Path(args.tracesdir)
+    if not traces_dir.is_dir():
+        print(f"error: {traces_dir} is not a directory", file=sys.stderr)
+        return 2
+    trajectories = _load_traces_dir(traces_dir)
+    if not trajectories:
+        print("error: no valid traces found", file=sys.stderr)
+        return 2
+
+    source_dir = Path(args.build_from) if args.build_from else traces_dir
+    source = (_load_traces_dir(source_dir) if args.build_from else trajectories)
+
+    by_task: dict[str, list[Trajectory]] = {}
+    for t in source:
+        by_task.setdefault(t.task.id, []).append(t)
+
+    profiles: dict[str, dict] = {}
+    for task_id, runs in sorted(by_task.items()):
+        try:
+            profiles[task_id] = build_profile(
+                runs, name=task_id, successes_only=not args.include_failures)
+        except ValueError as exc:
+            print(f"warning: no profile for {task_id}: {exc}", file=sys.stderr)
+    if not profiles:
+        print("error: could not build any profile", file=sys.stderr)
+        return 2
+
+    suite = profile_suite(profiles, trajectories)
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "profiles.json").write_text(
+        json.dumps({"profiles": profiles, "suite": suite}, indent=2,
+                   ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"Wrote {out_dir / 'profiles.json'}")
+
+    print(f"\nBuilt {len(profiles)} profile(s) from "
+          f"{sum(p['runs_used'] for p in profiles.values())} run(s).")
+    for task_id, profile in profiles.items():
+        print(f"  {task_id:<26} {' -> '.join(profile['canonical_path'])}"
+              f"   [{profile['runs_used']} run(s)"
+              f"{', thin' if profile['thin_evidence'] else ''}]")
+    print(f"\n{suite['narrative']}")
+    for row in suite["scored"]:
+        if row["verdict"] in ("failed", "off-profile"):
+            print(f"  [{row['verdict']}] {row['task']}/{row['agent']}: "
+                  f"{row['narrative'][:150]}")
+    return 0
+
+
+def _cmd_cohort(args: argparse.Namespace) -> int:
+    """Compare groups of runs rather than individuals."""
+    traces_dir = Path(args.tracesdir)
+    if not traces_dir.is_dir():
+        print(f"error: {traces_dir} is not a directory", file=sys.stderr)
+        return 2
+    trajectories = _load_traces_dir(traces_dir)
+    if not trajectories:
+        print("error: no valid traces found", file=sys.stderr)
+        return 2
+
+    try:
+        cohorts = group_runs(trajectories, by=args.by)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    result = compare_cohorts(cohorts)
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "cohorts.json").write_text(
+        json.dumps(result, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8")
+    print(f"Wrote {out_dir / 'cohorts.json'}")
+
+    print(f"\nCohorts by {args.by}:")
+    for summary in result["cohorts"]:
+        low, high = summary["success_ci"]
+        print(f"  {summary['cohort']:<22} {summary['runs']:>4} run(s)  "
+              f"success {summary['success_rate']:>6.0%} "
+              f"[{low:.0%}-{high:.0%}]  "
+              f"${summary['mean_cost_usd']:.4f}/run")
+    print(f"\n{result['narrative']}")
+    for pair in result["pairs"]:
+        marker = "*" if pair["success_difference"]["significant"] else " "
+        print(f" {marker} {pair['verdict']}")
+    return 0
+
+
 def _cmd_convert(args: argparse.Namespace) -> int:
     if args.list_formats:
         print("Known trace formats:")
@@ -782,6 +874,31 @@ def build_parser() -> argparse.ArgumentParser:
     p_runs.add_argument("--template",
                         help=f"viewer HTML template (default: {DEFAULT_TEMPLATE})")
     p_runs.set_defaults(func=_cmd_runs)
+
+    p_profile = sub.add_parser(
+        "profile",
+        help="build reference profiles from many runs and score runs against them",
+    )
+    p_profile.add_argument("tracesdir", help="directory of trajectory *.json files")
+    p_profile.add_argument("--build-from",
+                           help="directory to learn the profiles from "
+                                "(default: the same directory)")
+    p_profile.add_argument("--include-failures", action="store_true",
+                           help="learn the norm from failures too (default: "
+                                "successes only)")
+    p_profile.add_argument("-o", "--output", default="out",
+                           help="output directory (default: out)")
+    p_profile.set_defaults(func=_cmd_profile)
+
+    p_cohort = sub.add_parser(
+        "cohort", help="compare groups of runs (by model, agent, version, task)")
+    p_cohort.add_argument("tracesdir", help="directory of trajectory *.json files")
+    p_cohort.add_argument("--by", default="model",
+                          choices=sorted(GROUPERS),
+                          help="how to group runs into cohorts (default: model)")
+    p_cohort.add_argument("-o", "--output", default="out",
+                          help="output directory (default: out)")
+    p_cohort.set_defaults(func=_cmd_cohort)
 
     p_check = sub.add_parser(
         "check",
