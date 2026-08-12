@@ -937,3 +937,30 @@ zipping turns to steps positionally: a tool-result turn fills an existing
 step's output rather than creating one, so a positional pairing would put a
 turn's confidence on the wrong step. Unmatched telemetry is dropped with a
 warning rather than guessed.
+
+### What the Ollama route carries (v20)
+
+The same text match decides where a turn's **usage and timing** land, not
+just its confidence:
+
+| reported by the server | becomes | when absent |
+|---|---|---|
+| `eval_count` (assistant turns only) | `steps[].tokens` | `len(text)/4` estimate |
+| `prompt_eval_count`, summed over turns | `totals.input_tokens` | estimate from the prompt text |
+| `total_duration`, else `eval_duration` (ns) — or `latency_s` in seconds | `steps[].latency_s`, summed into `totals.latency_s` | stays `0.0` |
+
+Summing `prompt_eval_count` counts re-sent history more than once, which is
+what the server actually processed and what a provider bills for.
+`eval_count` is taken only from assistant turns: a tool-result turn generated
+nothing, so counting it would inflate the run's output tokens.
+
+Tool results are the other half. Ollama has no `tool` role, so runners record
+observations as ordinary user turns; read literally, the first one is taken
+for a second task prompt and **discarded along with the retrieved evidence** —
+the text divergence, claim-provenance and semantic analysis all read. A user
+or `tool` turn arriving while a tool call is outstanding is therefore treated
+as that call's result and fills the step's `output`.
+
+None of this is invented: what the server did not report keeps its estimate
+or its zero, and `--dry-run` counts steps with text, timing, tokens and
+observations so a lossy mapping is visible before anything depends on it.

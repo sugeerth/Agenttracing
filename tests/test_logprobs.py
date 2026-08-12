@@ -152,6 +152,19 @@ class TestOpenWeightFixture(unittest.TestCase):
         self.assertLess(answer["model"]["min_token_confidence"],
                         search["model"]["min_token_confidence"])
 
+    def test_the_run_arrives_with_real_usage_and_timing(self):
+        # Estimated tokens and zero latency convert cleanly and then make
+        # every token- and latency-denominated comparison meaningless.
+        trajectory = convert(self.payload())["trajectory"]
+        self.assertEqual([s["tokens"] for s in trajectory["steps"]], [48, 36, 64])
+        self.assertTrue(all(s["latency_s"] > 0 for s in trajectory["steps"]))
+        self.assertEqual(trajectory["totals"]["input_tokens"], 670)
+
+    def test_the_retrieved_evidence_survives_conversion(self):
+        trajectory = convert(self.payload())["trajectory"]
+        search = next(s for s in trajectory["steps"] if s["type"] == "search")
+        self.assertIn("acmecorp.com", search["output"])
+
     def test_uncertainty_analysis_runs_on_the_converted_run(self):
         from deepcompare.uncertainty import has_telemetry
         trajectory = convert(self.payload())["trajectory"]

@@ -414,18 +414,52 @@ def _detect_ollama(data: Any) -> tuple[float, str]:
     return 0.0, "turns present but not Ollama-shaped"
 
 
-def _convert_ollama(data: Any) -> tuple[dict, list[str]]:
-    """Flatten Ollama turns into chat-completions shape, keeping token counts.
+#: Ollama reports durations in nanoseconds, under these keys in preference
+#: order: whole-request wall clock first, then the generation phase.
+_DURATION_NS_KEYS = ("total_duration", "eval_duration", "generation_duration")
 
-    Ollama reports ``prompt_eval_count``/``eval_count`` per turn and, when
-    asked, per-token logprobs — so an open-weight run converted this way
-    arrives with real usage and real confidence rather than estimates.
+
+def _has_duration(turn: dict) -> bool:
+    """Whether a turn carries any timing at all, matched or not."""
+    if not isinstance(turn, dict):
+        return False
+    if any(isinstance(turn.get(k), (int, float)) for k in _DURATION_NS_KEYS):
+        return True
+    return isinstance(turn.get("latency_s"), (int, float))
+
+
+def _turn_latency(turn: dict) -> Optional[float]:
+    """Seconds spent on one turn, from nanosecond durations or ``latency_s``.
+
+    Returns None when the server reported no timing, so the step keeps its
+    zero and the fidelity counters can say timing is missing.
+    """
+    for key in _DURATION_NS_KEYS:
+        value = turn.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            if value > 0:
+                return round(float(value) / 1e9, 4)
+    seconds = turn.get("latency_s")
+    if isinstance(seconds, (int, float)) and not isinstance(seconds, bool):
+        if seconds > 0:
+            return round(float(seconds), 4)
+    return None
+
+
+def _convert_ollama(data: Any) -> tuple[dict, list[str]]:
+    """Flatten Ollama turns into chat-completions shape, keeping real usage.
+
+    Ollama reports ``prompt_eval_count``/``eval_count`` and nanosecond
+    durations per turn and, when asked, per-token logprobs — so an
+    open-weight run converted this way arrives with real token counts, real
+    latency and real confidence rather than estimates.
     """
     warnings: list[str] = []
     meta = _meta_of(data)
     turns = data.get("turns") or data.get("responses") or []
     messages: list[dict] = []
     telemetry: list[Optional[dict]] = []
+    pending: list[str] = []  # tool calls awaiting a result turn
 
     for turn in turns:
         if not isinstance(turn, dict):
@@ -434,8 +468,8 @@ def _convert_ollama(data: Any) -> tuple[dict, list[str]]:
         if not isinstance(message, dict):
             warnings.append("turn without a message object skipped")
             continue
-        entry: dict = {"role": message.get("role", "assistant"),
-                       "content": message.get("content", "")}
+        role = message.get("role", "assistant")
+        entry: dict = {"role": role, "content": message.get("content", "")}
         calls = message.get("tool_calls")
         if isinstance(calls, list) and calls:
             import json as _json
@@ -449,6 +483,17 @@ def _convert_ollama(data: Any) -> tuple[dict, list[str]]:
                  }}
                 for i, call in enumerate(calls) if isinstance(call, dict)
             ]
+            pending.extend(c["id"] for c in entry["tool_calls"])
+        elif role in ("tool", "user") and pending:
+            # Ollama has no tool-result role, so runners record observations
+            # as ordinary user turns.  Left as "user" they are treated as a
+            # second task prompt and dropped — taking the retrieved evidence
+            # with them, which is the text divergence and claim analysis read.
+            call_id = message.get("tool_call_id") or pending.pop(0)
+            if message.get("tool_call_id") in pending:
+                pending.remove(message["tool_call_id"])
+            entry = {"role": "tool", "tool_call_id": call_id,
+                     "content": message.get("content", "")}
         messages.append(entry)
         telemetry.append(turn)
 
@@ -458,15 +503,14 @@ def _convert_ollama(data: Any) -> tuple[dict, list[str]]:
     # Ollama has no tool-result role; the caller records those as user turns.
     trajectory, more = from_openai_messages(messages, meta or None)
 
-    # Carry per-turn logprobs onto the steps they produced.  Steps and turns
-    # are NOT positionally aligned — a tool-result turn fills an existing
-    # step's output rather than creating one — so match on the text the turn
-    # generated instead of zipping, which silently mis-attributes confidence.
-    attached = 0
+    # Match each turn to the step it produced.  Steps and turns are NOT
+    # positionally aligned — a tool-result turn fills an existing step's
+    # output rather than creating one — so match on the text the turn
+    # generated instead of zipping, which silently mis-attributes everything
+    # carried across: usage, timing and confidence alike.
     used: set[int] = set()
+    matched: list[tuple[dict, Optional[int]]] = []
     for turn in telemetry:
-        if not extract_logprobs(turn):
-            continue
         message = turn.get("message") or {}
         content = str(message.get("content") or "").strip()
         tool_names = {
@@ -485,13 +529,63 @@ def _convert_ollama(data: Any) -> tuple[dict, list[str]]:
                             or content in (step.get("input") or "")):
                 target = index
                 break
+        if target is not None:
+            used.add(target)
+        matched.append((turn, target))
+
+    # Real usage and timing, where the server reported them.  Ollama counts
+    # tokens per request and measures in nanoseconds; without this the step
+    # keeps a len/4 estimate and zero latency, and every token- or
+    # latency-denominated comparison downstream quietly runs on guesses.
+    real_tokens = 0
+    real_timing = 0
+    prompt_tokens = 0
+    for turn, target in matched:
+        count = turn.get("prompt_eval_count")
+        if isinstance(count, int) and count > 0:
+            # Each request re-sends the history, so this sums what the
+            # server actually processed rather than the unique text.
+            prompt_tokens += count
         if target is None:
+            continue
+        step = trajectory["steps"][target]
+        role = (turn.get("message") or {}).get("role", "assistant")
+        generated = turn.get("eval_count")
+        # A tool-result turn generated nothing; its eval_count, if the caller
+        # set one at all, does not describe model output.
+        if role == "assistant" and isinstance(generated, int) and generated > 0:
+            step["tokens"] = generated
+            real_tokens += 1
+        latency = _turn_latency(turn)
+        if latency is not None:
+            step["latency_s"] = latency
+            real_timing += 1
+
+    if prompt_tokens:
+        trajectory["totals"]["input_tokens"] = prompt_tokens
+    if real_tokens:
+        trajectory["totals"]["output_tokens"] = sum(
+            s["tokens"] for s in trajectory["steps"])
+    if real_timing:
+        trajectory["totals"]["latency_s"] = round(
+            sum(s["latency_s"] for s in trajectory["steps"]), 4)
+    elif any(_has_duration(t) for t, _ in matched):
+        warnings.append(
+            "durations were reported but matched no step; latency left at zero "
+            "rather than guessed")
+
+    # Carry per-turn logprobs onto the steps they produced.
+    attached = 0
+    for turn, target in matched:
+        if not extract_logprobs(turn):
+            continue
+        if target is None:
+            content = str((turn.get("message") or {}).get("content") or "").strip()
             warnings.append(
                 f"logprobs for a turn could not be matched to a step "
                 f"({content[:40]!r}); telemetry dropped rather than guessed"
             )
             continue
-        used.add(target)
         attach_telemetry(trajectory["steps"][target], turn,
                          temperature=(turn.get("options") or {}).get("temperature"),
                          source="ollama-logprobs")

@@ -195,6 +195,145 @@ class TestDryRun(unittest.TestCase):
         self.assertEqual(before, after)
 
 
+class TestOllamaUsageAndTiming(unittest.TestCase):
+    """Real open-weight runs must arrive with real numbers, not estimates.
+
+    Token and latency deltas appear in nearly every AgentDiff summary, so a
+    converter that quietly substitutes ``len(text)/4`` and zero seconds does
+    not fail loudly — it produces confident comparisons of made-up figures.
+    """
+
+    def payload(self, **turn):
+        base = {"model": "m", "done": True,
+                "message": {"role": "assistant", "content": "Paris is the answer."}}
+        base.update(turn)
+        return {
+            "meta": {"agent": {"name": "a", "model": "m"},
+                     "task": {"id": "t", "prompt": "p"}, "success": True},
+            "turns": [base],
+        }
+
+    def test_eval_count_replaces_the_length_estimate(self):
+        trajectory = convert(self.payload(eval_count=999))["trajectory"]
+        self.assertEqual(trajectory["steps"][0]["tokens"], 999)
+        self.assertEqual(trajectory["totals"]["output_tokens"], 999)
+
+    def test_prompt_eval_count_becomes_input_tokens(self):
+        trajectory = convert(self.payload(prompt_eval_count=777))["trajectory"]
+        self.assertEqual(trajectory["totals"]["input_tokens"], 777)
+
+    def test_prompt_tokens_sum_over_turns_because_history_is_resent(self):
+        payload = self.payload(prompt_eval_count=90)
+        payload["turns"].append({
+            "model": "m", "done": True, "prompt_eval_count": 200, "eval_count": 5,
+            "message": {"role": "assistant", "content": "Final: Paris."},
+        })
+        trajectory = convert(payload)["trajectory"]
+        self.assertEqual(trajectory["totals"]["input_tokens"], 290)
+
+    def test_nanosecond_durations_become_seconds(self):
+        trajectory = convert(self.payload(total_duration=3_500_000_000))["trajectory"]
+        self.assertEqual(trajectory["steps"][0]["latency_s"], 3.5)
+        self.assertEqual(trajectory["totals"]["latency_s"], 3.5)
+
+    def test_eval_duration_used_when_no_total(self):
+        trajectory = convert(self.payload(eval_duration=1_250_000_000))["trajectory"]
+        self.assertEqual(trajectory["steps"][0]["latency_s"], 1.25)
+
+    def test_seconds_form_accepted_for_callers_that_time_it_themselves(self):
+        trajectory = convert(self.payload(latency_s=2.5))["trajectory"]
+        self.assertEqual(trajectory["steps"][0]["latency_s"], 2.5)
+
+    def test_absent_timing_stays_zero_rather_than_being_invented(self):
+        trajectory = convert(self.payload(eval_count=10))["trajectory"]
+        self.assertEqual(trajectory["steps"][0]["latency_s"], 0.0)
+        self.assertEqual(trajectory["totals"]["latency_s"], 0.0)
+
+    def test_a_tool_result_turn_does_not_donate_generated_tokens(self):
+        # A user turn carrying a tool result generated nothing; counting its
+        # eval_count as model output would inflate the run's token cost.
+        payload = {
+            "meta": {"agent": {"name": "a", "model": "m"},
+                     "task": {"id": "t", "prompt": "p"}, "success": True},
+            "turns": [
+                {"model": "m", "done": True, "eval_count": 20,
+                 "message": {"role": "assistant", "content": "",
+                             "tool_calls": [{"id": "c1", "function": {
+                                 "name": "web_search", "arguments": {"q": "acme"}}}]}},
+                {"model": "m", "done": True, "eval_count": 5000,
+                 "message": {"role": "user", "content": "[1] result text here"}},
+                {"model": "m", "done": True, "eval_count": 30,
+                 "message": {"role": "assistant", "content": "Paris."}},
+            ],
+        }
+        trajectory = convert(payload)["trajectory"]
+        self.assertNotIn(5000, [s["tokens"] for s in trajectory["steps"]])
+        self.assertEqual(trajectory["totals"]["output_tokens"], 50)
+
+    def tool_run(self, result_role="user"):
+        return {
+            "meta": {"agent": {"name": "a", "model": "m"},
+                     "task": {"id": "t", "prompt": "Find the revenue."},
+                     "success": True},
+            "turns": [
+                {"model": "m", "done": True, "eval_count": 20,
+                 "message": {"role": "assistant", "content": "",
+                             "tool_calls": [{"id": "c1", "function": {
+                                 "name": "web_search",
+                                 "arguments": {"q": "revenue"}}}]}},
+                {"model": "m", "done": True,
+                 "message": {"role": result_role,
+                             "content": "[1] filing.example — revenue was $4.82B"}},
+                {"model": "m", "done": True, "eval_count": 30,
+                 "message": {"role": "assistant", "content": "Revenue was $4.82B."}},
+            ],
+        }
+
+    def test_tool_results_recorded_as_user_turns_fill_the_step_output(self):
+        # Ollama has no tool role, so runners write observations as user
+        # turns.  Treated as a second task prompt they are discarded, and the
+        # retrieved evidence — what divergence and claim analysis read —
+        # disappears while the conversion still looks successful.
+        trajectory = convert(self.tool_run())["trajectory"]
+        search = next(s for s in trajectory["steps"] if s["type"] == "search")
+        self.assertIn("$4.82B", search["output"])
+
+    def test_an_explicit_tool_role_works_the_same_way(self):
+        trajectory = convert(self.tool_run(result_role="tool"))["trajectory"]
+        search = next(s for s in trajectory["steps"] if s["type"] == "search")
+        self.assertIn("$4.82B", search["output"])
+
+    def test_the_tool_result_does_not_overwrite_the_task_prompt(self):
+        trajectory = convert(self.tool_run())["trajectory"]
+        self.assertEqual(trajectory["task"]["prompt"], "Find the revenue.")
+
+    def test_a_leading_user_turn_is_still_the_task_prompt(self):
+        # No tool call is outstanding, so this one is a prompt, not a result.
+        payload = {
+            "meta": {"agent": {"name": "a", "model": "m"}, "task": {"id": "t"},
+                     "success": True},
+            "turns": [
+                {"model": "m", "done": True,
+                 "message": {"role": "user", "content": "What is the revenue?"}},
+                {"model": "m", "done": True, "eval_count": 8,
+                 "message": {"role": "assistant", "content": "It is $4.82B."}},
+            ],
+        }
+        trajectory = convert(payload)["trajectory"]
+        self.assertEqual(trajectory["task"]["prompt"], "What is the revenue?")
+
+    def test_dry_run_reports_the_recovered_timing(self):
+        report = dry_run(self.payload(eval_count=12, total_duration=2_000_000_000))
+        self.assertEqual(report["fidelity"]["steps_with_timing"], 1)
+        self.assertEqual(report["fidelity"]["steps_with_tokens"], 1)
+        self.assertFalse(any("timing" in note for note in report["notes"]))
+
+    def test_converted_run_still_validates(self):
+        payload = self.payload(eval_count=42, prompt_eval_count=10,
+                               total_duration=1_000_000_000)
+        Trajectory.from_json(convert(payload)["trajectory"])
+
+
 class TestExtensibility(unittest.TestCase):
     """The point of the registry: a new stack without touching the engine."""
 

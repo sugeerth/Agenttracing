@@ -51,6 +51,13 @@ Beyond a single pair:
 
 ## Quick start
 
+Nothing to install locally? Run it on Colab —
+[**notebooks/AgentDiff_Colab.ipynb**](notebooks/AgentDiff_Colab.ipynb)
+([open in Colab](https://colab.research.google.com/github/sugeerth/Agenttracing/blob/claude/deepcompare-ai-agents-9vyj2n/notebooks/AgentDiff_Colab.ipynb))
+runs the whole pipeline with every report rendered inline, and — on a free T4
+— runs a **real open-weight model**, captures its per-token logprobs, and
+compares two of its runs against each other.
+
 ```bash
 # 1. Generate the demo traces (two scripted agents, 8 tasks, 16 trajectories)
 python demo/generate.py
@@ -95,12 +102,20 @@ Already have traces in another format? Convert them:
 ```bash
 python -m deepcompare convert --format otel   spans.json    -o traces/
 python -m deepcompare convert --format openai messages.json -o traces/
+python -m deepcompare convert transcript.json --dry-run   # what would it recover?
 ```
 
 The OpenTelemetry adapter reads GenAI-convention spans (both the plain and
 OTLP wire forms, camelCase or snake_case); the OpenAI adapter reads a
-chat-completions message array with tool calls. Traces converted from
-different stacks compare against each other directly.
+chat-completions message array with tool calls; the Ollama adapter reads the
+turn transcripts self-hosted runners emit, keeping their real token counts,
+nanosecond durations and per-token logprobs. Traces converted from different
+stacks compare against each other directly.
+
+`--dry-run` converts nothing and reports what the mapping *recovered* — steps
+with text, timing, tokens and observations — because a conversion that
+silently produces empty steps looks like success and poisons every analysis
+downstream.
 
 ## Repository layout
 
@@ -110,6 +125,8 @@ deepcompare/   engine: schema, alignment, divergence, attribution, semantics,
 demo/          two scripted agents (8 tasks), a 33-agent fleet, multi-run traces
 web/           viewer.html — the full interactive compare page
                select.html — a small Tufte-style agent-selection view
+notebooks/     AgentDiff_Colab.ipynb — the whole pipeline on Colab, plus a
+               real open-weight model run on GPU with genuine logprobs
 tests/         unit tests (python -m unittest discover tests)
 SCHEMA.md      the trace + report JSON contract
 docs/          landscape survey and tutorial
