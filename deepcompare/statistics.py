@@ -114,6 +114,53 @@ def paired_bootstrap_difference(
     }
 
 
+def two_group_bootstrap_difference(
+    group_a: Sequence[bool],
+    group_b: Sequence[bool],
+    samples: int = BOOTSTRAP_SAMPLES,
+    seed: int = BOOTSTRAP_SEED,
+) -> dict:
+    """Bootstrap the difference in rates between two *independent* groups.
+
+    Unlike :func:`paired_bootstrap_difference`, the groups are unrelated and
+    may differ in size — comparing runs that have an attribute against runs
+    that do not, for instance.  Each group is resampled at its own size, which
+    is what keeps the resampled rates faithful to the observed ones.  (Forcing
+    the groups to a common length and rebuilding them instead silently
+    rewrites both rates, and can flip the sign of the difference.)
+
+    Returns ``observed`` = rate(a) − rate(b), the interval, and whether that
+    interval excludes zero.
+    """
+    n_a, n_b = len(group_a), len(group_b)
+    if n_a == 0 or n_b == 0:
+        return {"observed": 0.0, "low": 0.0, "high": 0.0,
+                "significant": False, "samples": 0}
+
+    rate_a = sum(1 for v in group_a if v) / n_a
+    rate_b = sum(1 for v in group_b if v) / n_b
+    observed = rate_a - rate_b
+
+    rng = random.Random(seed)
+    differences: list[float] = []
+    for _ in range(samples):
+        sampled_a = sum(1 for _ in range(n_a) if group_a[rng.randrange(n_a)]) / n_a
+        sampled_b = sum(1 for _ in range(n_b) if group_b[rng.randrange(n_b)]) / n_b
+        differences.append(sampled_a - sampled_b)
+    differences.sort()
+
+    tail = (1 - CONFIDENCE) / 2
+    low = differences[max(0, int(tail * samples) - 1)]
+    high = differences[min(samples - 1, int((1 - tail) * samples))]
+    return {
+        "observed": round(observed, 4),
+        "low": round(low, 4),
+        "high": round(high, 4),
+        "significant": low > 0.0 or high < 0.0,
+        "samples": samples,
+    }
+
+
 def describe_significance(result: dict, n_tasks: int) -> str:
     """Plain-language reading of a bootstrap result."""
     if result["samples"] == 0:

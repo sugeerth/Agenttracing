@@ -300,6 +300,18 @@ details.tbl > summary:hover { color: var(--ink); }
 .dd-note { color: var(--muted); font-size: var(--t1); padding: 1rem 0; }
 
 /* ================================================================== forest */
+.jgrid { margin-top: 1rem; max-width: 52rem; }
+.jrow { display: grid; grid-template-columns: minmax(0, 1fr) 180px 3.6rem; gap: 0 1rem;
+        align-items: center; padding: 0.34rem 0; border-bottom: 1px solid var(--faint); }
+.jrow .jl { font-size: var(--t2); color: var(--ink-2); }
+.jrow .jsep { color: var(--accent-2); font-size: var(--t0); }
+.jrow .jv { font-family: var(--mono); font-variant-numeric: tabular-nums;
+            font-size: var(--t1); text-align: right; color: var(--ink-2); }
+.jrow svg { max-width: 100%; height: auto; }
+@media (max-width: 620px) {
+  .jrow { grid-template-columns: minmax(0, 1fr) 3.6rem; gap: 0.15rem 0.7rem; }
+  .jrow span:nth-child(2) { grid-column: 1 / -1; }
+}
 .forest .cav { color: var(--muted); font-size: var(--t1); margin-top: 0.9rem;
         border-left: 2px solid var(--rule); padding-left: 0.7rem; max-width: 46rem;
         line-height: 1.6; }
@@ -570,6 +582,10 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     return cur === undefined || cur === null ? dflt : cur;
   }
   function num(v) { var n = Number(v); return isFinite(n) ? n : null; }
+  /* every payload field is optional and every type is a guess until checked */
+  function arr(v) {
+    return Array.isArray(v) ? v.filter(function (x) { return x != null; }) : [];
+  }
   function grp(v) { return String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
   function int(v) { return grp(Math.round(Number(v) || 0)); }
   function signed(v) {
@@ -740,18 +756,15 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
 
   /* ------------------------------------------------------------- accessors */
   function divergencesOf(r) {
-    var ds = Array.isArray(r.divergences) ? r.divergences.filter(Boolean) : [];
+    var ds = arr(r.divergences);
     return ds.slice().sort(function (x, y) { return (num(x.rank) || 999) - (num(y.rank) || 999); });
   }
   function firstDivergence(r) { var d = divergencesOf(r); return d.length ? d[0] : null; }
   function successOf(r, side) { return !!get(r, [side, "outcome", "success"], false); }
-  function stepsOf(r, side) {
-    var s = get(r, [side, "steps"], []);
-    return Array.isArray(s) ? s.filter(Boolean) : [];
-  }
+  function stepsOf(r, side) { return arr(get(r, [side, "steps"], [])); }
   function taskId(r, i) { return String(get(r, ["task", "id"], "task " + (i + 1))); }
   function buildRows(r) {
-    var al = Array.isArray(r.alignment) ? r.alignment.filter(Boolean) : [];
+    var al = arr(r.alignment);
     return al.map(function (a) {
       var ai = a.a_index == null ? null : a.a_index, bi = a.b_index == null ? null : a.b_index;
       return { op: a.op || "match", aIdx: ai, bIdx: bi,
@@ -777,9 +790,10 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     main.innerHTML =
       '<div class="empty"><h2>This is the empty template.</h2>' +
       "<p>No batch has been injected into this page yet. Point AgentDiff at a directory of " +
-      "trajectories and it writes a populated copy of this file — the verdict, four flow " +
-      "diagrams, the attribute forest plot, the Shapley allocation, the systematic issues, " +
-      "the task ledger and the recommendations already filled in.</p>" +
+      "trajectories and it writes a populated copy of this file — the verdict and scoreboard, " +
+      "five Sankey flows of where work and evidence travel, the attribute forest plot, the " +
+      "Shapley allocation of the token gap, the systematic issues, the step-level deep dive, " +
+      "the task ledger and the recommendations, all already filled in.</p>" +
       "<pre>python -m deepcompare batch traces/ \\\n" +
       "    -o out/ --template web/holistic.html\n\nopen out/report.html</pre>" +
       "<p>Trajectories are plain JSON named <code>&lt;task_id&gt;__&lt;agent&gt;.json</code>; " +
@@ -817,14 +831,25 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   var taskGap = Math.round(Math.abs(srA - srB) * (nTasks || 0));
 
   var ISS = get(AGG, ["issues"], {}) || {};
-  var allIssues = Array.isArray(ISS.issues) ? ISS.issues : [];
+  var allIssues = arr(ISS.issues);
   var active = allIssues.filter(function (i) { return i && !i.suppressed; });
   var suppressed = allIssues.filter(function (i) { return i && !!i.suppressed; });
   var topIssue = active[0] || allIssues[0] || null;
   var wastedTokens = active.reduce(function (t, i) { return t + (Number(i.extra_tokens) || 0); }, 0);
-  var REGS = Array.isArray(AGG.regressions) ? AGG.regressions : [];
+  var REGS = arr(AGG.regressions);
 
   var sectionsOut = [], railOut = [], DRAWS = [];
+  /* one malformed field must not blank the whole page: a section that throws
+     is replaced by a short note and the rest of the report still renders */
+  function guard(fn) {
+    var before = sectionsOut.length;
+    try { fn(); }
+    catch (e) {
+      sectionsOut.length = before;
+      railOut.length = Math.min(railOut.length, before);
+      sectionsOut.push('<section tabindex="-1"><div class="shead"><h2>Section unavailable</h2></div><p class="lede">This part of the report could not be built from the injected payload.</p></section>');
+    }
+  }
   function section(id, title, note, bodyHtml, railLabel) {
     railOut.push({ id: id, label: railLabel || title });
     sectionsOut.push('<section id="' + id + '" tabindex="-1"><div class="shead"><h2>' +
@@ -847,12 +872,13 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   }
   /* texture, not hue: hatched bands mark the fatal / conflicting path */
   var UID = 0;
-  function hatchSwatch(color) {
+  function hatchSwatch(color, bg, weight) {
     var id = "lh" + (++UID);
     return '<svg width="22" height="10" aria-hidden="true" style="flex:none">' +
       '<defs><pattern id="' + id + '" width="6" height="6" patternUnits="userSpaceOnUse" ' +
       'patternTransform="rotate(35)"><line x1="0" y1="0" x2="0" y2="6" stroke="' + color +
-      '" stroke-width="3.2"/></pattern></defs>' +
+      '" stroke-width="' + (weight || 3.2) + '"/></pattern></defs>' +
+      (bg ? '<rect width="22" height="10" fill="' + bg + '"/>' : "") +
       '<rect width="22" height="10" fill="url(#' + id + ')"/></svg>';
   }
   function setTable(slotId, html) {
@@ -879,13 +905,28 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     tipEl.style.top = Math.max(tipEl.offsetHeight + 8, y - 10) + "px";
   }
   function hideTip() { tipEl.classList.add("hidden"); }
+  /* measure-then-trim: guessing character widths is how labels end up clipped */
+  function fitLabel(node, name, suffix, maxW) {
+    if (!node || !(maxW > 0)) return;
+    node.textContent = name + suffix;
+    if (!node.getComputedTextLength || node.getComputedTextLength() <= maxW) return;
+    node.textContent = suffix;
+    var budget = maxW - (node.getComputedTextLength() || 0);
+    var lo = 0, hi = name.length;
+    while (lo < hi) {
+      var mid = (lo + hi + 1) >> 1;
+      node.textContent = name.slice(0, mid) + "…";
+      if (node.getComputedTextLength() <= budget) lo = mid; else hi = mid - 1;
+    }
+    node.textContent = (lo > 0 ? name.slice(0, lo).replace(/[\s,;:.]+$/, "") + "…" : "…") + suffix;
+  }
   function chartWidth(el, min) {
     var w = el.clientWidth || (el.parentElement ? el.parentElement.clientWidth : 0) || 640;
     return Math.max(min || 320, w);
   }
 
   /* =========================================================== 1. verdict */
-  (function () {
+  guard(function () {
     var o = [];
     if (winner) {
       o.push('<p class="claim"><em>' + esc(wName) + "</em> wins the batch — " +
@@ -911,7 +952,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     if (topIssue) {
       o.push('<p class="claim q">The single biggest systematic issue is ' +
         '<span class="em2">' + esc(topIssue.title) + "</span> — on " +
-        '<span class="n">' + (topIssue.tasks || []).length + "</span> of " + nTasks +
+        '<span class="n">' + arr(topIssue.tasks).length + "</span> of " + nTasks +
         ' tasks, causing <span class="n">' + (Number(topIssue.failures_caused) || 0) +
         "</span> " + plural(Number(topIssue.failures_caused) || 0, "failure") +
         ' and burning <span class="n">' + int(topIssue.extra_tokens) + "</span> extra tokens.</p>");
@@ -956,12 +997,12 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
 
     section("s-verdict", "The verdict", nTasks + " " + plural(nTasks, "task") + " · " +
       esc(nameA) + " vs " + esc(nameB), o.join(""), "The verdict");
-  })();
+  });
 
   /* ===================================================== 2. flows (centrepiece)
      Five Sankey / alluvial views of the same batch. Everything here is drawn
      from CSS tokens, so a theme change redraws in the new palette.            */
-  (function () {
+  guard(function () {
     var body = [], slots = [];
 
     /* ---- (a) failure flow: agent → first divergence kind → outcome ---- */
@@ -1045,12 +1086,12 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         }
         var nodes = [], links = [], rowsT = [], seen = {}, tasksSeen = {}, total = 0;
         active.forEach(function (iss, ii) {
-          var side = sideOfAgent((iss.agents || [])[0]);
+          var side = sideOfAgent(arr(iss.agents)[0]);
           var col = side ? agentColor(side) : cssVar("--hollow");
           var nid = "iss:" + ii;
           nodes.push({ id: nid, label: trunc(iss.title || iss.id || "issue", 40), color: col });
-          var occ = Array.isArray(iss.occurrences) && iss.occurrences.length
-            ? iss.occurrences : (iss.tasks || []).map(function (t) { return { task: t }; });
+          var occ = arr(iss.occurrences).length ? arr(iss.occurrences)
+            : arr(iss.tasks).map(function (t) { return { task: t }; });
           occ.forEach(function (oc) {
             total++;
             var t = String(oc.task || "");
@@ -1165,7 +1206,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       "a node to dim everything that does not pass through it. Every flow keeps a table view " +
       "underneath, and every one scrolls inside its own frame rather than the page.</p>" +
       body.join(""), "Flows");
-  })();
+  });
 
   /* ---------------------- generic sankey flow renderer --------------------
      Height grows with the node count so labels never collide; every colour is
@@ -1327,9 +1368,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       .attr("pointer-events", "none")
       .attr("stroke", cssVar("--paper")).attr("stroke-width", 3)
       .attr("paint-order", "stroke").attr("stroke-linejoin", "round")
-      .text(function (d) {
-        return trunc(d.label + " · " + fmtV(d.value),
-          Math.max(9, Math.floor(place(d).avail / 6.35)));
+      /* the total always survives the trim — only the name gives ground */
+      .each(function (d) {
+        fitLabel(this, String(d.label), " · " + fmtV(d.value), place(d).avail);
       });
   }
 
@@ -1369,33 +1410,25 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       if (!totals[side]) { box.innerHTML = '<div class="dd-note">No token data.</div>'; return; }
       var nodes = [{ id: "agent", label: agentName(side), color: agentColor(side) }];
       var links = [];
-      var laneSeen = {};
       STEP_TYPES.forEach(function (t, ti) {
         var d = data[side][t];
         if (!d) return;
         var tot = d.shared + d.detour;
         nodes.push({ id: "t:" + t, label: words(t), color: cssVar("--stage-" + (ti + 1)) });
-        links.push({ source: "agent", target: "t:" + t, value: tot, keys: ["k:" + t],
-          color: agentColor(side), dash: false,
-          tip: "<strong>" + esc(agentName(side)) + " → " + esc(words(t)) +
-            '</strong><span class="s">' + int(tot) + " tokens · " +
-            Math.round(tot / totals[side] * 100) + "% of this agent’s " + int(totals[side]) +
-            '</span><span class="s">' + d.steps + " " + plural(d.steps, "step") + "</span>" });
+        /* one band per lane: solid tokens bought shared progress, hatched ones
+           went into steps the other agent never mirrored */
         [["shared", d.shared], ["detour", d.detour]].forEach(function (p) {
           if (!p[1]) return;
-          var lid = "lane:" + p[0];
-          if (!laneSeen[lid]) {
-            laneSeen[lid] = 1;
-            nodes.push({ id: lid,
-              label: p[0] === "shared" ? "shared path" : "detour",
-              color: cssVar(p[0] === "shared" ? "--ink-2" : "--bad") });
-          }
-          links.push({ source: "t:" + t, target: lid, value: p[1], keys: ["k:" + t],
+          links.push({ source: "agent", target: "t:" + t, value: p[1], keys: ["k:" + t],
             color: agentColor(side), dash: p[0] === "detour",
-            tip: "<strong>" + esc(words(t)) + " · " +
-              (p[0] === "shared" ? "shared path" : "detour") + '</strong><span class="s">' +
-              int(p[1]) + " tokens · " + Math.round(p[1] / totals[side] * 100) + "% of " +
-              esc(agentName(side)) + "’s " + int(totals[side]) + "</span>" });
+            tip: "<strong>" + esc(agentName(side)) + " → " + esc(words(t)) +
+              (p[0] === "detour" ? " · detour" : "") + '</strong><span class="s">' +
+              int(p[1]) + " tokens · " + Math.round(p[1] / totals[side] * 100) +
+              "% of this agent’s " + int(totals[side]) + '</span><span class="s">' +
+              esc(words(t)) + " total " + int(tot) + " tok across " + d.steps + " " +
+              plural(d.steps, "step") +
+              (d.detour ? " · " + int(d.detour) + " of them on unmirrored steps" : "") +
+              "</span>" });
         });
         rowsT.push("<tr><td>" + esc(agentName(side)) + "</td><td>" + esc(words(t)) +
           '</td><td class="n">' + int(tot) + '</td><td class="n">' + int(d.detour) +
@@ -1412,8 +1445,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         (totals[side] === maxTot ? "" : " · " +
           Math.round((1 - totals[side] / maxTot) * 100) + "% leaner, hence the shorter flow");
       box.appendChild(cap);
-      sankeyFlow(box, { nodes: nodes, links: links, height: H, minWidth: 170,
-        nodePadding: 11, unit: "token", midLeft: true,
+      sankeyFlow(box, { nodes: nodes, links: links, height: H, minWidth: 120,
+        nodePadding: 13, unit: "token",
         fmtValue: function (v) { return int(v) + " tok"; },
         aria: "cost flow for " + agentName(side) + ": tokens by step type" });
     });
@@ -1591,18 +1624,17 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     var recs = [];
     REPS.forEach(function (r, ri) {
       var sem = r.semantic || {};
-      var claims = Array.isArray(sem.claims) ? sem.claims.filter(Boolean) : [];
+      var claims = arr(sem.claims);
       if (!claims.length) return;
       var conf = {};
-      (Array.isArray(sem.conflicts) ? sem.conflicts : []).forEach(function (c) {
-        if (!c) return;
+      arr(sem.conflicts).forEach(function (c) {
         if (c.a_claim) conf[c.a_claim] = c;
         if (c.b_claim) conf[c.b_claim] = c;
       });
       var lastA = stepsOf(r, "a").length - 1, lastB = stepsOf(r, "b").length - 1;
       claims.forEach(function (c) {
-        var ca = (c.a_steps || []).indexOf(lastA) >= 0;
-        var cb = (c.b_steps || []).indexOf(lastB) >= 0;
+        var ca = arr(c.a_steps).indexOf(lastA) >= 0;
+        var cb = arr(c.b_steps).indexOf(lastB) >= 0;
         if (!ca && !cb && !conf[c.id]) return;
         recs.push({ task: taskId(r, ri), kind: String(c.kind || ""),
           value: String(c.value == null ? "" : c.value),
@@ -1679,9 +1711,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   }
 
   /* =================================================== 3. attribute forest */
-  (function () {
+  guard(function () {
     var ATT = get(AGG, ["attributes"], {}) || {};
-    var list = Array.isArray(ATT.attributes) ? ATT.attributes.filter(Boolean) : [];
+    var list = arr(ATT.attributes);
     if (!list.length) {
       section("s-forest", "What travels with failure", "",
         '<p class="lede">No attribute analysis was produced for this batch.</p>',
@@ -1709,7 +1741,52 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       'stroke="var(--hollow)" stroke-width="1.6"/></svg>Wilson interval on the raw lift</span>' +
       '<span>⚑ sign reverses within task</span></div>' +
       (ATT.narrative ? '<p class="narr">' + esc(ATT.narrative) + "</p>" : "") +
+      jointBlock() +
       (ATT.caveat ? '<p class="cav">' + esc(ATT.caveat) + "</p>" : "");
+
+    /* optional: the joint fit, which holds the other attributes fixed — the
+       answer to "is this several signals or one signal counted several times" */
+    function jointBlock() {
+      var J = get(AGG, ["attributes_joint"], null);
+      var coefs = J && J.available !== false ? arr(J.coefficients) : [];
+      if (!coefs.length) return "";
+      var maxOdds = 0;
+      coefs.forEach(function (c) {
+        var o = num(c.odds_ratio);
+        if (o && o > 0) maxOdds = Math.max(maxOdds, Math.abs(Math.log(o)));
+      });
+      maxOdds = maxOdds || 1;
+      var rows = coefs.slice().sort(function (x, y) {
+        return Math.abs(num(y.coefficient) || 0) - Math.abs(num(x.coefficient) || 0);
+      }).map(function (c) {
+        var o = num(c.odds_ratio), lg = o && o > 0 ? Math.log(o) : 0;
+        var raises = lg >= 0, w = Math.min(1, Math.abs(lg) / maxOdds) * 84;
+        var bar = '<svg width="180" height="12" viewBox="0 0 180 12" aria-hidden="true">' +
+          '<line x1="90" y1="0" x2="90" y2="12" stroke="var(--rule)"/>' +
+          '<rect x="' + (raises ? 90 : 90 - w).toFixed(1) + '" y="3" width="' + w.toFixed(1) +
+          '" height="6" fill="' + (raises ? "var(--accent-2)" : "var(--hollow)") + '"/></svg>';
+        return '<div class="jrow"><span class="jl">' + esc(c.phrasing || c.attribute || "") +
+          (c.separates ? ' <span class="jsep">⚠ separates — magnitude is the penalty, not the data</span>' : "") +
+          "</span><span>" + bar + '</span><span class="jv">×' +
+          (o == null ? "—" : o.toFixed(2)) + "</span></div>";
+      }).join("");
+      var dropped = arr(J.dropped);
+      return '<h3 class="sub">Holding the others fixed</h3>' +
+        '<p class="lede">The rows above measure one attribute at a time, so several ' +
+        "correlated behaviours can each look guilty of the same failures. This fit puts all " +
+        "of them in at once — bar right of the line means the odds of failure <b>rise</b> " +
+        "with the attribute, left means they <b>fall</b>, with the other attributes held " +
+        "fixed. It still does not control for task difficulty.</p>" +
+        '<div class="jgrid">' + rows + "</div>" +
+        '<p class="cav">' + esc(String(J.method || "")) +
+        (J.iterations != null ? " · " + J.iterations + " iterations" : "") +
+        (J.converged === false ? " · did not converge" : "") +
+        (J.reliable === false ? " · indicative only at this corpus size" : "") +
+        (dropped.length ? " · dropped: " + esc(dropped.map(function (d) {
+          return (d.attribute || "") + " (" + (d.reason || "") + ")";
+        }).join(", ")) : "") + "</p>" +
+        (J.narrative ? '<p class="narr">' + esc(J.narrative) + "</p>" : "");
+    }
 
     section("s-forest", "What travels with failure",
       (ATT.runs != null ? ATT.runs + " runs · " : "") +
@@ -1745,7 +1822,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         var ay = y.strat == null ? -1 : Math.abs(y.strat);
         return ay - ax || Math.abs(y.raw || 0) - Math.abs(x.raw || 0);
       });
-      var labelW = 268, padR = 104, rowH = 32, padT = 26, padB = 30;
+      var labelW = 286, padR = 96, rowH = 32, padT = 26, padB = 30;
       var W = chartWidth(box, labelW + padR + 320);
       var H = padT + rows.length * rowH + padB;
       var ext = [0, 0];
@@ -1794,12 +1871,15 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
           .attr("text-anchor", "end").attr("font-size", 10.5)
           .attr("fill", r.notable ? cssVar("--ink") : cssVar("--ink-2"))
           .attr("font-family", cssVar("--sans"))
-          .text((r.rev ? "⚑ " : "") + trunc(r.phrase, 42));
+          .each(function () { fitLabel(this, (r.rev ? "⚑ " : "") + r.phrase, "", labelW - 20); });
         g.append("text").attr("x", labelW - 14).attr("y", y + 9).attr("dy", "0.34em")
           .attr("text-anchor", "end").attr("font-size", 8.5).attr("fill", cssVar("--hollow"))
-          .text(r.wf + "/" + r.wr + " vs " + r.of + "/" + r.or_ + " runs" +
-            (r.strata != null ? " · " + r.strata + " strata" : "") +
-            (r.measurable ? "" : " · too few to measure"));
+          .attr("font-family", cssVar("--sans"))
+          .each(function () {
+            fitLabel(this, r.wf + "/" + r.wr + " vs " + r.of + "/" + r.or_ + " runs" +
+              (r.strata != null ? " · " + r.strata + " strata" : "") +
+              (r.measurable ? "" : " · weak evidence"), "", labelW - 20);
+          });
         /* whisker */
         if (r.lo != null && r.hi != null && isFinite(r.lo) && isFinite(r.hi)) {
           var xl = x(Math.max(-lim, r.lo)), xh = x(Math.min(lim, r.hi));
@@ -1845,7 +1925,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         g.append("text").attr("x", W - padR + 10).attr("y", y + 9).attr("dy", "0.34em")
           .attr("font-size", 8.5).attr("fill", cssVar("--hollow"))
           .attr("font-family", cssVar("--sans"))
-          .text(r.strat == null ? "raw only — no strata" : "within task");
+          .text(r.strat == null ? "raw only" : "within task");
         if (r.rev) {
           g.append("text").attr("x", x(0)).attr("y", y + 13).attr("text-anchor", "middle")
             .attr("font-size", 8.5).attr("fill", cssVar("--accent-2"))
@@ -1856,15 +1936,15 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         }
       });
     });
-  })();
+  });
 
   /* ================================================= 4. shapley allocation */
-  (function () {
+  guard(function () {
     var cards = [];
     REPS.forEach(function (r, i) {
       var sh = r.shapley;
       if (!sh || sh.available === false) return;
-      var alloc = Array.isArray(sh.allocations) ? sh.allocations.filter(Boolean) : [];
+      var alloc = arr(sh.allocations);
       if (!alloc.length) return;
       cards.push({ i: i, task: taskId(r, i), sh: sh, alloc: alloc });
     });
@@ -1883,7 +1963,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       "is the efficiency axiom — the allocations must sum back to the total.</p>" +
       '<div class="legend"><span>' + sw("var(--stage-7)") + "largest share</span><span>" +
       sw("var(--stage-4)") + "then</span><span>" + sw("var(--stage-2)") +
-      "smallest</span><span>" + hatchSwatch("var(--paper)") +
+      "smallest</span><span>" + hatchSwatch("var(--paper)", "var(--stage-7)", 1.3) +
       "✗ hatched = this region caused the failure</span>" +
       "<span><b>costs</b> instead of <b>saves</b> = fixing the divergence would have spent " +
       "more, not less</span></div>" +
@@ -1928,8 +2008,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
           .attr("width", 5).attr("height", 5).attr("patternUnits", "userSpaceOnUse")
           .attr("patternTransform", "rotate(45)");
         pat.append("line").attr("x1", 0).attr("y1", 0).attr("x2", 0).attr("y2", 5)
-          .attr("stroke", cssVar("--paper")).attr("stroke-width", 1.3)
-          .attr("stroke-opacity", 0.85);
+          .attr("stroke", cssVar("--paper")).attr("stroke-width", 1.1)
+          .attr("stroke-opacity", 0.8);
         var tot = c.alloc.reduce(function (t, a) { return t + Math.abs(Number(a.shapley) || 0); }, 0) || 1;
         var accum = 0;
         c.alloc.slice().sort(function (x, y) {
@@ -1969,11 +2049,11 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         });
       });
     });
-  })();
+  });
 
   /* ================================================== 5. systematic issues */
   var TASKMAP = {};
-  (function () {
+  guard(function () {
     if (!allIssues.length) {
       section("s-issues", "Systematic issues", "",
         '<p class="lede">No recurring issues were extracted from this batch — either the runs ' +
@@ -1987,9 +2067,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     });
     function issueBlock(iss) {
       var sev = String(iss.severity || "minor");
-      var tasks = iss.tasks || [];
+      var tasks = arr(iss.tasks);
       var fatalOn = {};
-      (iss.occurrences || []).forEach(function (oc) { if (oc && oc.caused_failure) fatalOn[oc.task] = true; });
+      arr(iss.occurrences).forEach(function (oc) { if (oc.caused_failure) fatalOn[oc.task] = true; });
       var chips = tasks.map(function (t) {
         return '<button type="button" class="chip" data-task="' + esc(t) + '" title="' +
           esc("Jump to " + t + " in the task ledger") + '">' + esc(t) +
@@ -2000,7 +2080,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         g.push('<span class="gl">' + label + '</span><span class="gm">' + mark +
           '</span><span class="gv' + (zero ? " zero" : "") + '">' + value + "</span>");
       }
-      var occ = Number(iss.occurrence_count) || (iss.occurrences || []).length;
+      var occ = Number(iss.occurrence_count) || arr(iss.occurrences).length;
       var fails = Number(iss.failures_caused) || 0;
       var xsteps = Number(iss.extra_steps) || 0;
       grow("occurred", countGlyph(occ, "square"), occ + "×");
@@ -2010,8 +2090,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         "+" + int(iss.extra_tokens), !(Number(iss.extra_tokens) || 0));
       grow("extra latency", magGlyph(Number(iss.extra_latency_s) || 0, maxLat, true),
         "+" + secs(iss.extra_latency_s), !(Number(iss.extra_latency_s) || 0));
-      var who = (iss.agents || []).join(", ");
-      var ex = iss.example || (iss.occurrences || [])[0] || null;
+      var who = arr(iss.agents).join(", ");
+      var ex = iss.example || arr(iss.occurrences)[0] || null;
       var bodyTxt = ex && ex.summary
         ? '<span class="mut">e.g. on <span class="n">' + esc(ex.task || "") + "</span> — </span>" +
           esc(ex.summary)
@@ -2056,10 +2136,10 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         ? ISS.total_divergences + " divergences → " + allIssues.length + " issues"
         : allIssues.length + " issues"),
       body, "Systematic issues");
-  })();
+  });
 
   /* =================================================== 6. deep-dive charts */
-  (function () {
+  guard(function () {
     var body =
       '<p class="lede">Three views at step resolution: the <b>alignment fingerprint</b> of ' +
       "every task, the <b>cost of every individual step</b>, and <b>where each agent’s " +
@@ -2085,7 +2165,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     DRAWS.push(function () { drawHeatmap(); });
     DRAWS.push(function () { drawBeeswarm(); });
     DRAWS.push(function () { drawStack(); });
-  })();
+  });
 
   var beeMode = "tokens";
   function drawHeatmap() {
@@ -2333,14 +2413,14 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   }
 
   /* ==================================================== 7. task ledger */
-  (function () {
+  guard(function () {
     if (!REPS.length) {
       section("s-tasks", "Task ledger", "",
         '<p class="lede">No per-task reports were injected into this page.</p>', "Task ledger");
       return;
     }
     var signal = {};
-    (AGG.task_signal || []).forEach(function (t) { if (t && t.task) signal[t.task] = t; });
+    arr(AGG.task_signal).forEach(function (t) { if (t.task) signal[t.task] = t; });
     var rows = [];
     rows.push('<div class="lhead"><span>task</span><span>prompt</span><span>outcome</span>' +
       '<span>first divergence</span><span class="h-spark">cumulative tokens</span>' +
@@ -2388,11 +2468,11 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         esc(att.explanation || (att.failed_agent
           ? "Failure attributed to " + words(att.category || "an earlier step") + "."
           : "No failure was attributed — both runs reached the same verdict.")) + "</p>");
-      if (att.chain && att.chain.length) {
+      if (arr(att.chain).length) {
         o.push('<div class="facts"><span>failing side <b>' +
           esc(att.failed_agent === "b" ? nameB : att.failed_agent === "a" ? nameA : "—") +
           "</b></span><span>root cause <b>step " + esc(String(att.root_cause_step)) +
-          "</b></span><span>chain <b>" + att.chain.join(" → ") + "</b></span></div>");
+          "</b></span><span>chain <b>" + arr(att.chain).join(" → ") + "</b></span></div>");
       }
       o.push("</div>");
       if (d0) {
@@ -2446,7 +2526,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
             (est.cost_delta_usd > 0 ? "+" : "−") + usd(Math.abs(est.cost_delta_usd)) + "</b></span>" : "") +
           "</div></div>");
       }
-      var conflicts = Array.isArray(sem.conflicts) ? sem.conflicts.filter(Boolean) : [];
+      var conflicts = arr(sem.conflicts);
       if (conflicts.length) {
         right.push('<div class="dblk"><h4>Decisive semantic conflict</h4>' +
           conflicts.slice(0, 2).map(function (c) {
@@ -2463,13 +2543,13 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       }
       return '<div class="detin"><div>' + o.join("") + "</div><div>" + right.join("") + "</div></div>";
     };
-  })();
+  });
 
   /* ============================================== 8. what to change */
   var PROMPTS = [];
-  (function () {
-    var recs = Array.isArray(AGG.recommendations) ? AGG.recommendations.filter(Boolean) : [];
-    var pbk = Array.isArray(AGG.playbook) ? AGG.playbook.filter(Boolean) : [];
+  guard(function () {
+    var recs = arr(AGG.recommendations);
+    var pbk = arr(AGG.playbook);
     var out = [];
 
     var left = "";
@@ -2500,7 +2580,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       pbk.forEach(function (p) {
         right += '<div class="pbk"><p class="habit"><span class="kind">' +
           esc(words(p.kind || "")) + "</span>" + esc(p.habit || "") + '</p><p class="ev">' +
-          esc((p.agents || []).join(", ")) + (p.evidence ? " · " + esc(p.evidence) : "") +
+          esc(arr(p.agents).join(", ")) + (p.evidence ? " · " + esc(p.evidence) : "") +
           (p.impact ? " · <b>" + esc(p.impact) + "</b>" : "") + "</p></div>";
       });
     }
@@ -2608,7 +2688,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       recs.length + " " + plural(recs.length, "recommendation") +
       (pbk.length ? " · " + pbk.length + " " + plural(pbk.length, "habit") : ""),
       out.join(""), "What to change");
-  })();
+  });
 
   /* ================================================================ render */
   main.innerHTML = sectionsOut.join("") + footerHtml();

@@ -196,3 +196,66 @@ class TestGateIntegration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTwoGroupBootstrap(unittest.TestCase):
+    """Independent groups of unequal size — the attribute-lift case.
+
+    Forcing two unequal groups to a common length rewrites both rates and can
+    invert the sign of the difference, which is exactly the bug this replaced.
+    """
+
+    def test_observed_matches_the_actual_rate_difference(self):
+        from deepcompare.statistics import two_group_bootstrap_difference
+        # 3/14 vs 1/2 -> 0.2143 - 0.5 = -0.2857
+        a = [True] * 3 + [False] * 11
+        b = [True] * 1 + [False] * 1
+        result = two_group_bootstrap_difference(a, b)
+        self.assertAlmostEqual(result["observed"], 3 / 14 - 1 / 2, places=4)
+
+    def test_sign_is_preserved_for_unequal_groups(self):
+        from deepcompare.statistics import two_group_bootstrap_difference
+        a = [True] * 3 + [False] * 11   # low rate, big group
+        b = [True] * 1 + [False] * 1    # high rate, tiny group
+        result = two_group_bootstrap_difference(a, b)
+        self.assertLess(result["observed"], 0.0)
+
+    def test_interval_brackets_the_observed_difference(self):
+        from deepcompare.statistics import two_group_bootstrap_difference
+        a = [True] * 4 + [False] * 2
+        b = [False] * 10
+        result = two_group_bootstrap_difference(a, b)
+        self.assertLessEqual(result["low"], result["observed"])
+        self.assertGreaterEqual(result["high"], result["observed"])
+
+    def test_clear_separation_is_significant(self):
+        from deepcompare.statistics import two_group_bootstrap_difference
+        a = [True] * 20
+        b = [False] * 20
+        self.assertTrue(two_group_bootstrap_difference(a, b)["significant"])
+
+    def test_two_sided_significance_detects_negative_differences(self):
+        from deepcompare.statistics import two_group_bootstrap_difference
+        a = [False] * 20
+        b = [True] * 20
+        result = two_group_bootstrap_difference(a, b)
+        self.assertTrue(result["significant"])
+        self.assertLess(result["observed"], 0)
+
+    def test_overlapping_groups_are_not_significant(self):
+        from deepcompare.statistics import two_group_bootstrap_difference
+        a = [True, False, True, False]
+        b = [True, False, False, True]
+        self.assertFalse(two_group_bootstrap_difference(a, b)["significant"])
+
+    def test_deterministic(self):
+        from deepcompare.statistics import two_group_bootstrap_difference
+        a, b = [True] * 3 + [False] * 5, [True] + [False] * 6
+        self.assertEqual(two_group_bootstrap_difference(a, b),
+                         two_group_bootstrap_difference(a, b))
+
+    def test_empty_group_is_handled(self):
+        from deepcompare.statistics import two_group_bootstrap_difference
+        result = two_group_bootstrap_difference([], [True])
+        self.assertEqual(result["samples"], 0)
+        self.assertFalse(result["significant"])

@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from .statistics import paired_bootstrap_difference, wilson_interval
+from .statistics import two_group_bootstrap_difference, wilson_interval
 from .trace import Trajectory
 
 #: step types that count as reaching outside the model.
@@ -169,15 +169,15 @@ def _lift_row(name: str, phrasing: str, with_fail: int, with_n: int,
     rate_without = without_fail / without_n if without_n else 0.0
     lift = rate_with - rate_without
 
-    # Bootstrap the difference by treating the two groups as paired samples of
-    # equal length; with tiny groups this is a coarse but honest interval.
-    size = min(with_n, without_n)
+    # The two groups are independent and typically differ in size, so each is
+    # resampled at its own size.  Forcing them to a common length rewrites
+    # both rates and can invert the sign of the difference.
     interval = None
-    if size >= MIN_GROUP:
-        left = [True] * min(with_fail, size) + [False] * (size - min(with_fail, size))
-        right = [True] * min(without_fail, size) + [False] * (
-            size - min(without_fail, size))
-        interval = paired_bootstrap_difference(left, right)
+    if min(with_n, without_n) >= MIN_GROUP:
+        interval = two_group_bootstrap_difference(
+            [True] * with_fail + [False] * (with_n - with_fail),
+            [True] * without_fail + [False] * (without_n - without_fail),
+        )
 
     return {
         "attribute": name,
