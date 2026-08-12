@@ -773,3 +773,46 @@ false.
 output: an attribute may travel with failure because it causes it, because a
 common factor causes both, or because harder tasks provoke it. The honest use
 is triage — where to look next — not a conclusion to act on blindly.
+
+## Joint attribute model (aggregate, v16)
+
+Marginal lifts cannot tell several signals from one signal counted several
+times. `aggregate["attributes_joint"]` fits failure on all measurable
+attributes at once, so each coefficient reads "holding the others fixed":
+
+```json
+"attributes_joint": {
+  "available": true, "runs": 264, "failures": 30, "parameters": 7,
+  "intercept": -3.9, "ridge": 1.0, "iterations": 8,
+  "converged": true, "reliable": true,
+  "coefficients": [
+    {"attribute": "poor_quality_step", "phrasing": "...",
+     "coefficient": 3.146, "odds_ratio": 23.246,
+     "separates": false, "direction": "raises"}
+  ],
+  "dropped": [{"attribute": "low_confidence_step",
+               "reason": "not measurable for every run"}],
+  "method": "ridge-penalised logistic regression (IRLS, fixed iteration cap, deterministic)",
+  "caveat": "...", "narrative": "..."
+}
+```
+
+Implementation notes that matter for trusting the numbers:
+
+- **Deterministic** — fixed iteration cap, fixed tolerance, no random start and
+  no sampling, so a gate may depend on the result.
+- **Ridge-penalised** (slopes only; the intercept is unpenalised so the base
+  rate is not shrunk). Eval corpora routinely contain a perfectly separating
+  attribute, where unpenalised maximum likelihood diverges silently. Separation
+  is *detected* and reported per attribute via `separates`, with the narrative
+  noting that such a coefficient's magnitude is set by the penalty rather than
+  the data.
+- **Attributes that cannot be measured for every run are dropped, not imputed**,
+  and named in `dropped`.
+- `reliable` is false when there are fewer than 5 runs per fitted parameter, and
+  the narrative says so rather than letting a thin fit read as authoritative.
+
+Read alongside `attributes` rather than instead of it: the joint coefficients
+control for the other *measured* attributes only — not for task difficulty,
+which is what the stratified marginal lift handles. Where the two disagree,
+that disagreement is itself the finding.

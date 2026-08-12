@@ -17,6 +17,7 @@ from .trace import Trajectory
 from .uncertainty import calibration_profile
 from .issues import build_issues
 from .attributes import attribute_analysis
+from .joint import joint_attribute_model
 
 #: metric key -> human label used in regression messages.
 _REGRESSION_METRICS = {
@@ -224,6 +225,7 @@ def aggregate(reports: list[dict]) -> dict:
         # Attribute analysis needs whole trajectories; reconstruct the
         # corpus from both sides of every report.
         "attributes": attribute_analysis(_corpus_from_reports(reports)),
+        "attributes_joint": joint_attribute_model(_corpus_from_reports(reports)),
         "semantic_profile": semantic_profile(reports),
         "task_signal": task_signal(reports),
     }

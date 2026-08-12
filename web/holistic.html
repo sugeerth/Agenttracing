@@ -214,7 +214,8 @@ h3.sub:first-child { margin-top: 0.4rem; }
 .claim.q { color: var(--ink-2); font-size: clamp(1.0625rem, 2vw, 1.3125rem); max-width: 46ch; }
 
 /* scoreboard — one row per metric, both sides on a shared bar, delta at the end */
-.board { margin-top: 2.5rem; padding-top: 0.4rem; border-top: 1px solid var(--rule); }
+.board { margin-top: 2.5rem; padding-top: 0.4rem; border-top: 1px solid var(--rule);
+         max-width: 50rem; }
 .brow { display: grid; grid-template-columns: 8.2rem 5.6rem minmax(6rem, 1fr) 5.6rem 5.2rem;
         gap: 0 1rem; align-items: center; padding: 0.62rem 0;
         border-bottom: 1px solid var(--faint); }
@@ -241,9 +242,29 @@ h3.sub:first-child { margin-top: 0.4rem; }
   .brow .bd { color: var(--muted); }
 }
 
-/* ===================================================================== flows */
+/* ===================================================================== flows
+   The flow section is the centrepiece: it gets more air than anything else on
+   the page, and each diagram sits in its own scroll frame so a wide Sankey
+   never pushes the page sideways.                                            */
+#s-flows .flow { margin-top: 3.6rem; padding-top: 1.6rem; border-top: 1px solid var(--faint); }
+#s-flows .flow:first-of-type { margin-top: 2rem; }
+#s-flows + section { margin-top: 5.5rem; }
 .flow { margin-top: 2.1rem; }
 .flow:first-of-type { margin-top: 1.4rem; }
+.guide { color: var(--muted); font-size: var(--t1); line-height: 1.6; margin-top: 0.7rem;
+         max-width: 48rem; }
+.guide b { color: var(--ink-2); font-weight: 500; }
+.costduo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+           gap: 0 2.5rem; margin-top: 0.6rem; align-items: start; }
+@media (max-width: 900px) { .costduo { grid-template-columns: minmax(0, 1fr); gap: 1.8rem; } }
+.costcap { font-size: var(--t1); color: var(--muted); padding-bottom: 0.5rem;
+           display: flex; align-items: center; gap: 0.4rem; }
+.costcap b { color: var(--ink-2); font-weight: 500; }
+.bee-toggle { display: inline-flex; gap: 0.5rem; margin-left: auto; flex: none; }
+.bee-toggle button { font-size: var(--t0); color: var(--muted); cursor: pointer;
+        border-bottom: 1px solid var(--rule); padding: 0 0.1rem; }
+.bee-toggle button[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.bee-toggle button:hover { color: var(--ink); }
 .fhead { display: flex; align-items: baseline; gap: 0.7rem; flex-wrap: wrap;
          border-bottom: 1px solid var(--faint); padding-bottom: 0.3rem; }
 .fhead h3 { font-size: var(--t2); font-weight: 500; }
@@ -684,7 +705,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     var w = 170, h = 22, mid = 11;
     function len(v) { return max > 0 ? Math.max(v > 0 ? 1.5 : 0, (v / max) * w) : 0; }
     return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h +
-      '" aria-hidden="true" preserveAspectRatio="none" style="width:100%;max-width:' + w + 'px">' +
+      '" aria-hidden="true" preserveAspectRatio="none" style="width:100%">' +
       '<rect x="0" y="2" width="' + len(va).toFixed(1) + '" height="7.5" fill="var(--agent-a)"/>' +
       '<rect x="0" y="12.5" width="' + len(vb).toFixed(1) + '" height="7.5" fill="var(--agent-b)"/>' +
       '<line x1="0" y1="11" x2="' + w + '" y2="11" stroke="var(--faint)" stroke-width="1"/></svg>';
@@ -812,17 +833,31 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   }
   /* a chart slot: heading + one-line "what this shows" + scroll container */
   var slotN = 0;
-  function slot(tag, title, what, legendHtml, tableHtml) {
+  function slot(tag, title, what, legendHtml, guide, inner) {
     var id = "chart-" + (++slotN);
     return { id: id, html: '<div class="flow"><div class="fhead"><span class="tag">' +
       esc(tag) + '</span><h3>' + esc(title) + "</h3>" +
       '<span class="what">' + what + "</span></div>" +
-      '<div class="scroller" id="' + id + '"></div>' +
-      (legendHtml ? '<div class="legend">' + legendHtml + "</div>" : "") +
-      (tableHtml || "") + "</div>" };
+      (inner || '<div class="scroller" id="' + id + '"></div>') +
+      (guide ? '<p class="guide">' + guide + "</p>" : "") +
+      (legendHtml ? '<div class="legend">' + legendHtml + "</div>" : "") + "</div>" };
   }
   function sw(color, round) {
     return '<span class="sw' + (round ? " r" : "") + '" style="background:' + color + '"></span>';
+  }
+  /* texture, not hue: hatched bands mark the fatal / conflicting path */
+  var UID = 0;
+  function hatchSwatch(color) {
+    var id = "lh" + (++UID);
+    return '<svg width="22" height="10" aria-hidden="true" style="flex:none">' +
+      '<defs><pattern id="' + id + '" width="6" height="6" patternUnits="userSpaceOnUse" ' +
+      'patternTransform="rotate(35)"><line x1="0" y1="0" x2="0" y2="6" stroke="' + color +
+      '" stroke-width="3.2"/></pattern></defs>' +
+      '<rect width="22" height="10" fill="url(#' + id + ')"/></svg>';
+  }
+  function setTable(slotId, html) {
+    var host = document.getElementById(slotId + "-tbl");
+    if (host) host.innerHTML = html;
   }
   function tblWrap(summary, head, rows) {
     if (!rows.length) return "";
@@ -923,23 +958,22 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       esc(nameA) + " vs " + esc(nameB), o.join(""), "The verdict");
   })();
 
-  /* ============================================================= 2. flows */
+  /* ===================================================== 2. flows (centrepiece)
+     Five Sankey / alluvial views of the same batch. Everything here is drawn
+     from CSS tokens, so a theme change redraws in the new palette.            */
   (function () {
-    var body = [];
-    var slots = [];
+    var body = [], slots = [];
 
     /* ---- (a) failure flow: agent → first divergence kind → outcome ---- */
     (function () {
-      var rowsT = [];
-      var s = slot("flow a", "Failure flow",
+      var s = slot("flow 1", "Failure flow — agent → first divergence → outcome",
         "Every run enters on the left as its agent, passes through the kind of decision where " +
-        "the two runs first parted, and lands on its outcome.",
+        "the two runs first parted, and lands on the result it actually reached.",
         sw("var(--agent-a)") + esc(nameA) + "</span><span>" + sw("var(--agent-b)") + esc(nameB) +
-        "</span><span><svg width=\"26\" height=\"8\" aria-hidden=\"true\"><line x1=\"0\" y1=\"4\" " +
-        "x2=\"26\" y2=\"4\" stroke=\"var(--hollow)\" stroke-width=\"5\"/></svg>ended in success" +
-        "</span><span><svg width=\"26\" height=\"8\" aria-hidden=\"true\"><line x1=\"0\" y1=\"4\" " +
-        "x2=\"26\" y2=\"4\" stroke=\"var(--hollow)\" stroke-width=\"5\" stroke-dasharray=\"5 3\"/>" +
-        "</svg>ended in failure (dashed)</span>", null);
+        "</span><span>" + sw("var(--hollow)") + "solid band = the run succeeded</span><span>" +
+        hatchSwatch("var(--ink-2)") + "hatched band = the run failed</span>",
+        "Read it left to right: band thickness is the number of runs, so a thick hatched band " +
+        "reaching <b>failure</b> is a divergence kind that keeps costing this batch outcomes.");
       slots.push({ s: s, draw: function (box) {
         var flows = {};
         REPS.forEach(function (r, i) {
@@ -955,8 +989,10 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         });
         var keys = Object.keys(flows);
         if (!keys.length) { box.innerHTML = '<div class="dd-note">No outcome data.</div>'; return; }
-        var kinds = {}, outs = {};
-        keys.forEach(function (k) { kinds[flows[k].kind] = 1; outs[flows[k].out] = 1; });
+        var kinds = {}, outs = {}, total = 0;
+        keys.forEach(function (k) {
+          kinds[flows[k].kind] = 1; outs[flows[k].out] = 1; total += flows[k].n;
+        });
         var nodes = [
           { id: "agent:a", label: nameA, color: cssVar("--agent-a") },
           { id: "agent:b", label: nameB, color: cssVar("--agent-b") }
@@ -965,15 +1001,17 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
           nodes.push({ id: "kind:" + k, label: words(k), color: cssVar("--ink-2") });
         });
         ["success", "failure"].forEach(function (o) {
-          if (outs[o]) nodes.push({ id: "out:" + o, label: o === "success" ? "success ■" : "failure ⊘",
+          if (outs[o]) nodes.push({ id: "out:" + o,
+            label: o === "success" ? "success ■" : "failure ⊘",
             color: cssVar(o === "success" ? "--good" : "--bad") });
         });
-        var links = [];
+        var links = [], rowsT = [];
         keys.forEach(function (k) {
           var f = flows[k], fail = f.out === "failure";
           var tip = "<strong>" + esc(agentName(f.side)) + " → " + esc(words(f.kind)) + " → " +
-            esc(f.out) + '</strong><span class="s">' + f.n + " " + plural(f.n, "run") + ": " +
-            esc(f.tasks.join(", ")) + "</span>";
+            esc(f.out) + '</strong><span class="s">' + f.n + " of " + total + " runs (" +
+            Math.round(f.n / total * 100) + "% of the batch)</span>" +
+            '<span class="s">' + esc(f.tasks.join(", ")) + "</span>";
           links.push({ source: "agent:" + f.side, target: "kind:" + f.kind, value: f.n,
             keys: [k], color: agentColor(f.side), dash: fail, tip: tip });
           links.push({ source: "kind:" + f.kind, target: "out:" + f.out, value: f.n,
@@ -982,36 +1020,39 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
             "</td><td>" + esc(f.out) + '</td><td class="n">' + f.n + "</td><td>" +
             esc(f.tasks.join(", ")) + "</td></tr>");
         });
-        sankeyFlow(box, { nodes: nodes, links: links, height: 250,
+        sankeyFlow(box, { nodes: nodes, links: links, unit: "run", grow: 40, minHeight: 300, minWidth: 420,
           aria: "failure flow: agent to first divergence kind to outcome" });
-        var host = document.getElementById(s.id + "-tbl");
-        if (host && !host.innerHTML) {
-          host.innerHTML = tblWrap("table view — " + rowsT.length + " flows",
-            ["agent", "first divergence", "outcome", "runs", "tasks"], rowsT);
-        }
+        setTable(s.id, tblWrap("table view — " + rowsT.length + " flows",
+          ["agent", "first divergence", "outcome", "runs", "tasks"], rowsT));
       } });
     })();
 
     /* ---- (b) issue flow: task → systematic issue → outcome ---- */
     (function () {
-      var s = slot("flow b", "Issue flow",
-        "Each recurring issue drawn as a band from every task it appeared on to what it did " +
-        "there — a wide middle node is one behaviour fanning across the suite.",
+      var s = slot("flow 2", "Issue flow — task → recurring issue → what it did",
+        "Every occurrence of every systematic issue, drawn from the task it happened on to the " +
+        "damage it did there." + (active.length < 2 ? " With this batch the fan is small — " +
+        "most issues fired on a single task." : ""),
         sw("var(--agent-a)") + esc(nameA) + " owns it</span><span>" + sw("var(--agent-b)") +
         esc(nameB) + " owns it</span><span>" + sw("var(--hollow)") +
-        "unattributed</span><span>dashed band = that occurrence caused the failure</span>", null);
+        "unattributed</span><span>" + hatchSwatch("var(--ink-2)") +
+        "hatched band = that occurrence caused the failure</span>",
+        "A middle node fed by several tasks is one behaviour repeating across the suite — " +
+        "that is what makes it worth a prompt change rather than a one-off fix.");
       slots.push({ s: s, draw: function (box) {
-        if (!active.length) { box.innerHTML = '<div class="dd-note">No systematic issues in this batch.</div>'; return; }
-        var nodes = [], links = [], rowsT = [], seen = {};
-        var tasksSeen = {};
+        if (!active.length) {
+          box.innerHTML = '<div class="dd-note">No systematic issues in this batch.</div>'; return;
+        }
+        var nodes = [], links = [], rowsT = [], seen = {}, tasksSeen = {}, total = 0;
         active.forEach(function (iss, ii) {
           var side = sideOfAgent((iss.agents || [])[0]);
           var col = side ? agentColor(side) : cssVar("--hollow");
           var nid = "iss:" + ii;
-          nodes.push({ id: nid, label: trunc(iss.title || iss.id || "issue", 42), color: col });
+          nodes.push({ id: nid, label: trunc(iss.title || iss.id || "issue", 40), color: col });
           var occ = Array.isArray(iss.occurrences) && iss.occurrences.length
             ? iss.occurrences : (iss.tasks || []).map(function (t) { return { task: t }; });
           occ.forEach(function (oc) {
+            total++;
             var t = String(oc.task || "");
             if (!tasksSeen[t]) {
               tasksSeen[t] = 1;
@@ -1026,7 +1067,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
             }
             var key = nid + "/" + t;
             var tip = "<strong>" + esc(iss.title || "") + '</strong><span class="s">' + esc(t) +
-              " · " + (fail ? "caused the failure" : "absorbed — cost only") +
+              " · " + esc(iss.severity || "") + " · " +
+              (fail ? "caused the failure" : "absorbed — cost only") +
               (oc.extra_tokens != null ? " · +" + int(oc.extra_tokens) + " tok" : "") + "</span>";
             links.push({ source: "task:" + t, target: nid, value: 1, keys: [key],
               color: col, dash: fail, tip: tip });
@@ -1038,115 +1080,345 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
               "</td></tr>");
           });
         });
-        /* ensure both outcome nodes exist so the two lanes read consistently */
-        if (!seen["out:failure"] && !seen["out:absorbed"]) {
+        if (!links.length) {
           box.innerHTML = '<div class="dd-note">No issue occurrences to lay out.</div>'; return;
         }
-        var h = Math.max(200, Object.keys(tasksSeen).length * 26 + 40);
-        sankeyFlow(box, { nodes: nodes, links: links, height: h,
+        links.forEach(function (l) {
+          l.tip += '<span class="s">1 of ' + total + " logged occurrences</span>";
+        });
+        sankeyFlow(box, { nodes: nodes, links: links, unit: "occurrence", grow: 40, minHeight: 300, minWidth: 380,
           aria: "issue flow: task to systematic issue to outcome" });
-        var host = document.getElementById(s.id + "-tbl");
-        if (host && !host.innerHTML) {
-          host.innerHTML = tblWrap("table view — " + rowsT.length + " occurrences",
-            ["task", "issue", "severity", "effect", "extra tokens"], rowsT);
-        }
+        setTable(s.id, tblWrap("table view — " + rowsT.length + " occurrences",
+          ["task", "issue", "severity", "effect", "extra tokens"], rowsT));
       } });
     })();
 
-    /* ---- (c) step-type alluvial, one per agent, one shared scale ---- */
+    /* ---- (c) cost flow: agent → step type → where the tokens landed ---- */
     (function () {
-      var leg = STEP_TYPES.map(function (t) {
-        return "<span>" + sw("var(--stage-" + (STEP_TYPES.indexOf(t) + 1) + ")") + esc(words(t)) + "</span>";
+      var s = slot("flow 3", "Cost flow — agent → step type → tokens",
+        "The same two agents drawn side by side, band width in tokens rather than runs, so the " +
+        "two spend distributions are directly comparable on one scale.",
+        STEP_TYPES.map(function (t, i) {
+          return "<span>" + sw("var(--stage-" + (i + 1) + ")") + esc(words(t)) + "</span>";
+        }).join("") + "<span>" + hatchSwatch("var(--ink-2)") +
+        "hatched band = tokens spent on steps the other agent never mirrored</span>",
+        "Both panels use the same pixels-per-token, so the taller flow is literally the dearer " +
+        "agent — and the hatched share of it is spend that bought no shared progress.",
+        '<div class="costduo"><div class="scroller" id="costflow-a"></div>' +
+        '<div class="scroller" id="costflow-b"></div></div>');
+      slots.push({ s: s, isCost: true, draw: function () { drawCostFlow(s.id); } });
+    })();
+
+    /* ---- (d) step-type alluvial, one per agent, one shared scale ---- */
+    (function () {
+      var leg = STEP_TYPES.map(function (t, i) {
+        return "<span>" + sw("var(--stage-" + (i + 1) + ")") + esc(words(t)) + "</span>";
       }).join("");
-      var s = slot("flow c", "Process shape — where each agent's runs go next",
+      var s = slot("flow 4", "Process shape — where each agent's runs go next",
         "Two alluvials on one shared scale: the height of every band is the number of runs " +
-        "moving from one step type to the next, so the two process shapes compare directly.",
-        leg + "<span>band height = runs · one row of blocks per step position</span>", null);
+        "moving from one step type to the next.",
+        leg + "<span>band height = runs · one column of blocks per step position</span>",
+        "Follow a column left to right: a band that loops back into <b>search</b> or " +
+        "<b>retrieve</b> is a run re-doing acquisition, which is where the extra steps come from.");
       slots.push({ s: s, draw: function (box) { drawAlluvials(box, s.id); } });
     })();
 
-    /* ---- (d) claim provenance ---- */
+    /* ---- (e) claim provenance ---- */
     (function () {
-      var s = slot("flow d", "Claim provenance",
-        "Typed facts pooled across every task: the source they came from, the claim itself, " +
-        "and whose final answer carried it. Conflicting claims are dashed and flagged.",
+      var s = slot("flow 5", "Claim provenance — source → claim → whose answer carried it",
+        "Typed facts pooled across every task: the source they came from, the claim itself, and " +
+        "which agent's final answer ended up carrying it.",
         sw("var(--agent-a)") + esc(nameA) + " carried it</span><span>" + sw("var(--agent-b)") +
-        esc(nameB) + " carried it</span><span>dashed + ⚠ = the two agents carried different " +
-        "values for the same fact</span>", null);
+        esc(nameB) + " carried it</span><span>" + sw("var(--muted)") + "both did</span><span>" +
+        hatchSwatch("var(--ink-2)") + "hatched + ⚠ = the two agents carried different values " +
+        "for the same fact</span>",
+        "Trace a hatched band back to its left-hand node and you have the source that put a " +
+        "wrong number into an answer — the shortest route from a bad answer to a bad citation.");
       slots.push({ s: s, draw: function (box) { drawClaims(box, s.id); } });
     })();
 
     slots.forEach(function (x) {
-      body.push(x.s.html.replace("</div></div>", '</div><div id="' + x.s.id + '-tbl"></div></div>'));
+      body.push(x.s.html + '<div id="' + x.s.id + '-tbl"></div>');
       DRAWS.push(function () {
         var box = document.getElementById(x.s.id);
+        if (x.isCost) {
+          if (!HAS_D3) return;
+          try { x.draw(); } catch (e) { /* leave the panels empty */ }
+          return;
+        }
         if (!box) return;
         box.innerHTML = "";
-        if (!HAS_D3) { box.innerHTML = '<div class="dd-note">d3 unavailable — charts skipped.</div>'; return; }
+        if (!HAS_D3) {
+          box.innerHTML = '<div class="dd-note">d3 unavailable — charts skipped.</div>'; return;
+        }
         try { x.draw(box); }
         catch (e) { box.innerHTML = '<div class="dd-note">Could not lay this flow out.</div>'; }
       });
     });
 
-    section("s-flows", "How the batch flows", "four views of the same 8 runs",
-      '<p class="lede">Four flows, each a different cut through the same runs: <b>where a run ' +
-      "ends up</b>, <b>how one bad habit spreads</b>, <b>what shape each agent's process has</b>, " +
-      "and <b>which facts survived into an answer</b>. Hovering any band lights the whole path " +
-      "it belongs to; every flow has a table view underneath.</p>" + body.join(""),
-      "Flows");
+    section("s-flows", "Flows — where work and evidence travel",
+      "five Sankey views of the same " + nTasks + " " + plural(nTasks, "task"),
+      '<p class="lede">This is the heart of the page. Five flows cut the same batch five ways: ' +
+      "<b>where a run ends up</b>, <b>how one bad habit spreads across tasks</b>, <b>where the " +
+      "tokens actually go</b>, <b>what shape each agent's process has</b>, and <b>which facts " +
+      "survived into an answer</b>. Hover a band for its exact count and share; hover or focus " +
+      "a node to dim everything that does not pass through it. Every flow keeps a table view " +
+      "underneath, and every one scrolls inside its own frame rather than the page.</p>" +
+      body.join(""), "Flows");
   })();
 
-  /* ---------------------- generic sankey flow renderer -------------------- */
+  /* ---------------------- generic sankey flow renderer --------------------
+     Height grows with the node count so labels never collide; every colour is
+     read from a CSS token at draw time, so a theme change simply redraws.    */
   function sankeyFlow(box, spec) {
     if (!d3.sankey) { box.innerHTML = '<div class="dd-note">d3-sankey unavailable.</div>'; return; }
-    var W = chartWidth(box, 560), H = spec.height || 240;
+    var unit = spec.unit || "run";
+    var fmtV = spec.fmtValue ||
+      function (v) { return int(v) + " " + plural(Math.round(Number(v) || 0), unit); };
+    /* which column is a node in? (source-only = first, target-only = last) */
+    var isSrc = {}, isTgt = {}, vOut = {}, vIn = {};
+    spec.links.forEach(function (l) {
+      isSrc[l.source] = 1; isTgt[l.target] = 1;
+      vOut[l.source] = (vOut[l.source] || 0) + l.value;
+      vIn[l.target] = (vIn[l.target] || 0) + l.value;
+    });
+    /* label gutters: the first and last columns get their labels OUTSIDE the
+       diagram, measured off the real label text, so only the middle column
+       ever writes over a band */
+    var gL = 0, gR = 0, col = { first: 0, mid: 0, last: 0 };
+    spec.nodes.forEach(function (n) {
+      var first = !isTgt[n.id], last = !isSrc[n.id];
+      if (first && last) { col.first++; return; }
+      var v = last ? (vIn[n.id] || 0) : (vOut[n.id] || 0);
+      var w = String(n.label + " · " + fmtV(v)).length * 6.35 + 14;
+      if (first) { col.first++; gL = Math.max(gL, w); }
+      else if (last) { col.last++; gR = Math.max(gR, w); }
+      else col.mid++;
+    });
+    gL = Math.ceil(gL); gR = Math.ceil(gR);
+    var W = Math.max(chartWidth(box, 0), (spec.minWidth || 400) + gL + gR);
+    /* height grows with the busiest column, so labels get room instead of
+       being squeezed together */
+    var busiest = Math.max(col.first, col.mid, col.last, 1);
+    var H = spec.height || Math.max(spec.minHeight || 240,
+      busiest * (spec.grow || 30) + 40);
     var svg = d3.select(box).append("svg")
       .attr("width", W).attr("height", H).attr("viewBox", "0 0 " + W + " " + H)
       .attr("role", "img").attr("aria-label", spec.aria || "flow diagram");
+    var defs = svg.append("defs"), hatchOf = {};
+    function hatch(color) {
+      if (hatchOf[color]) return hatchOf[color];
+      var id = "hp" + (++UID);
+      defs.append("pattern").attr("id", id).attr("width", 6).attr("height", 6)
+        .attr("patternUnits", "userSpaceOnUse").attr("patternTransform", "rotate(35)")
+        .append("line").attr("x1", 0).attr("y1", 0).attr("x2", 0).attr("y2", 6)
+        .attr("stroke", color).attr("stroke-width", 3.2);
+      hatchOf[color] = "url(#" + id + ")";
+      return hatchOf[color];
+    }
+    function baseOp(d) { return d.dash ? 0.72 : 0.4; }
+    var pad = 6;
     var graph = d3.sankey()
       .nodeId(function (d) { return d.id; })
-      .nodeWidth(9).nodePadding(13).nodeSort(null)
-      .extent([[6, 12], [W - 6, H - 12]])({
+      .nodeWidth(9).nodePadding(spec.nodePadding || 14).nodeSort(null)
+      .extent([[pad + gL, 14], [W - pad - gR, H - 14]])({
         nodes: spec.nodes.map(function (d) { return Object.assign({}, d); }),
         links: spec.links.map(function (d) { return Object.assign({}, d); })
       });
     var link = svg.append("g").attr("fill", "none")
       .selectAll("path").data(graph.links).join("path")
         .attr("d", d3.sankeyLinkHorizontal())
-        .attr("stroke", function (d) { return d.color; })
+        .attr("stroke", function (d) { return d.dash ? hatch(d.color) : d.color; })
         .attr("stroke-width", function (d) { return Math.max(1.5, d.width); })
-        .attr("stroke-dasharray", function (d) { return d.dash ? "7 4" : null; })
-        .attr("stroke-opacity", 0.42);
+        .attr("stroke-opacity", baseOp);
     link.append("title").text(function (d) {
-      return String(d.tip || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+      return String(d.tip || "").replace(/<[^>]*>/g, " · ").replace(/\s+/g, " ").trim();
     });
-    function hit(d) {
-      var mine = d.keys || [];
+    function clear() { link.attr("stroke-opacity", baseOp); }
+    function litBy(keySet) {
       link.attr("stroke-opacity", function (l) {
         var ks = l.keys || [];
-        for (var i = 0; i < ks.length; i++) if (mine.indexOf(ks[i]) >= 0) return 0.9;
-        return 0.09;
+        for (var i = 0; i < ks.length; i++) if (keySet[ks[i]]) return l.dash ? 1 : 0.88;
+        return 0.07;
       });
     }
+    function keySetOf(keys) {
+      var m = {};
+      (keys || []).forEach(function (k) { m[k] = 1; });
+      return m;
+    }
     link
-      .on("mouseover", function (ev, d) { hit(d); showTip(d.tip || "", ev.clientX, ev.clientY); })
+      .on("mouseover", function (ev, d) {
+        litBy(keySetOf(d.keys));
+        showTip(d.tip || "", ev.clientX, ev.clientY);
+      })
       .on("mousemove", function (ev) { moveTip(ev.clientX, ev.clientY); })
-      .on("mouseout", function () { link.attr("stroke-opacity", 0.42); hideTip(); });
+      .on("mouseout", function () { clear(); hideTip(); });
 
-    svg.append("g").selectAll("rect").data(graph.nodes).join("rect")
+    /* node interaction: dim every band that does not pass through this node */
+    function nodeKeys(n) {
+      var m = {};
+      (n.sourceLinks || []).concat(n.targetLinks || []).forEach(function (l) {
+        (l.keys || []).forEach(function (k) { m[k] = 1; });
+      });
+      return m;
+    }
+    function nodeTip(n) {
+      return "<strong>" + esc(n.label) + '</strong><span class="s">' + fmtV(n.value) +
+        " pass through this node</span>" +
+        '<span class="s">' + ((n.targetLinks || []).length ? (n.targetLinks.length + " in") : "") +
+        ((n.targetLinks || []).length && (n.sourceLinks || []).length ? " · " : "") +
+        ((n.sourceLinks || []).length ? (n.sourceLinks.length + " out") : "") + "</span>";
+    }
+    var nodeG = svg.append("g");
+    var nodeSel = nodeG.selectAll("rect").data(graph.nodes).join("rect")
       .attr("x", function (d) { return d.x0; }).attr("y", function (d) { return d.y0; })
       .attr("width", function (d) { return d.x1 - d.x0; })
-      .attr("height", function (d) { return Math.max(2, d.y1 - d.y0); })
-      .attr("rx", 1.5).attr("fill", function (d) { return d.color; });
+      .attr("height", function (d) { return Math.max(3, d.y1 - d.y0); })
+      .attr("rx", 1.5).attr("fill", function (d) { return d.color; })
+      .attr("tabindex", 0).attr("role", "button")
+      .attr("aria-label", function (d) { return d.label + " — " + fmtV(d.value); })
+      .style("cursor", "pointer");
+    nodeSel
+      .on("mouseover", function (ev, d) { litBy(nodeKeys(d)); showTip(nodeTip(d), ev.clientX, ev.clientY); })
+      .on("mousemove", function (ev) { moveTip(ev.clientX, ev.clientY); })
+      .on("mouseout", function () { clear(); hideTip(); })
+      .on("focus", function (ev, d) {
+        litBy(nodeKeys(d));
+        var r = this.getBoundingClientRect();
+        showTip(nodeTip(d), r.left + r.width / 2, r.top);
+      })
+      .on("blur", function () { clear(); hideTip(); });
+    nodeSel.append("title").text(function (d) { return d.label + " — " + fmtV(d.value); });
+
+    /* label placement: first column in the left gutter, last column in the
+       right gutter, middle columns written over a band and trimmed to the
+       space actually available before the next column */
+    var minX = d3.min(graph.nodes, function (d) { return d.x0; });
+    var maxX = d3.max(graph.nodes, function (d) { return d.x1; });
+    var xs = [];
+    graph.nodes.forEach(function (d) {
+      var v = Math.round(d.x0);
+      if (xs.indexOf(v) < 0) xs.push(v);
+    });
+    xs.sort(function (a, b) { return a - b; });
+    function nextX(d) {
+      for (var i = 0; i < xs.length; i++) if (xs[i] > d.x0 + 1) return xs[i];
+      return W - gR;
+    }
+    function prevX(d) {
+      var p = null;
+      for (var i = 0; i < xs.length; i++) if (xs[i] < d.x0 - 1) p = xs[i];
+      return p == null ? 0 : p + (d.x1 - d.x0);
+    }
+    function place(d) {
+      var first = d.x0 <= minX + 0.5, last = d.x1 >= maxX - 0.5;
+      if (first) return { left: true, avail: gL ? gL - 10 : d.x0 - 8 };
+      if (last) return { left: false, avail: gR ? gR - 10 : W - d.x1 - 8 };
+      if (spec.midLeft) return { left: true, avail: d.x0 - prevX(d) - 16 };
+      return { left: false, avail: nextX(d) - d.x1 - 16 };
+    }
     svg.append("g").selectAll("text").data(graph.nodes).join("text")
-      .attr("x", function (d) { return d.x0 < W / 2 ? d.x1 + 6 : d.x0 - 6; })
+      .attr("x", function (d) { return place(d).left ? d.x0 - 6 : d.x1 + 6; })
       .attr("y", function (d) { return (d.y0 + d.y1) / 2; })
       .attr("dy", "0.35em")
-      .attr("text-anchor", function (d) { return d.x0 < W / 2 ? "start" : "end"; })
+      .attr("text-anchor", function (d) { return place(d).left ? "end" : "start"; })
       .attr("font-size", 10.5).attr("fill", cssVar("--ink-2"))
-      .attr("stroke", cssVar("--paper")).attr("stroke-width", 2.6)
+      .attr("pointer-events", "none")
+      .attr("stroke", cssVar("--paper")).attr("stroke-width", 3)
       .attr("paint-order", "stroke").attr("stroke-linejoin", "round")
-      .text(function (d) { return d.label + " · " + d.value; });
+      .text(function (d) {
+        return trunc(d.label + " · " + fmtV(d.value),
+          Math.max(9, Math.floor(place(d).avail / 6.35)));
+      });
+  }
+
+  /* ------------------------ (c) cost flow, one panel per agent ------------
+     Two separate sankeys whose extents are sized in proportion to each
+     agent's total spend, so both panels share one pixels-per-token scale.  */
+  function drawCostFlow(slotId) {
+    var boxes = { a: document.getElementById("costflow-a"),
+                  b: document.getElementById("costflow-b") };
+    if (!boxes.a || !boxes.b) return;
+    /* which steps did the other side never mirror? those are the detour tokens */
+    var data = { a: {}, b: {} }, totals = { a: 0, b: 0 }, rowsT = [];
+    REPS.forEach(function (r) {
+      var rows = buildRows(r);
+      var solo = { a: {}, b: {} };
+      rows.forEach(function (row) {
+        if (row.op === "a_only" && row.aIdx != null) solo.a[row.aIdx] = 1;
+        if (row.op === "b_only" && row.bIdx != null) solo.b[row.bIdx] = 1;
+      });
+      ["a", "b"].forEach(function (side) {
+        stepsOf(r, side).forEach(function (s, idx) {
+          var t = STEP_TYPES.indexOf(s.type) >= 0 ? s.type : "reason";
+          var tok = num(s.tokens) || 0;
+          if (!tok) return;
+          var lane = solo[side][idx] ? "detour" : "shared";
+          var d = (data[side][t] = data[side][t] || { shared: 0, detour: 0, steps: 0 });
+          d[lane] += tok;
+          d.steps++;
+          totals[side] += tok;
+        });
+      });
+    });
+    var maxTot = Math.max(totals.a, totals.b, 1);
+    ["a", "b"].forEach(function (side) {
+      var box = boxes[side];
+      box.innerHTML = "";
+      if (!totals[side]) { box.innerHTML = '<div class="dd-note">No token data.</div>'; return; }
+      var nodes = [{ id: "agent", label: agentName(side), color: agentColor(side) }];
+      var links = [];
+      var laneSeen = {};
+      STEP_TYPES.forEach(function (t, ti) {
+        var d = data[side][t];
+        if (!d) return;
+        var tot = d.shared + d.detour;
+        nodes.push({ id: "t:" + t, label: words(t), color: cssVar("--stage-" + (ti + 1)) });
+        links.push({ source: "agent", target: "t:" + t, value: tot, keys: ["k:" + t],
+          color: agentColor(side), dash: false,
+          tip: "<strong>" + esc(agentName(side)) + " → " + esc(words(t)) +
+            '</strong><span class="s">' + int(tot) + " tokens · " +
+            Math.round(tot / totals[side] * 100) + "% of this agent’s " + int(totals[side]) +
+            '</span><span class="s">' + d.steps + " " + plural(d.steps, "step") + "</span>" });
+        [["shared", d.shared], ["detour", d.detour]].forEach(function (p) {
+          if (!p[1]) return;
+          var lid = "lane:" + p[0];
+          if (!laneSeen[lid]) {
+            laneSeen[lid] = 1;
+            nodes.push({ id: lid,
+              label: p[0] === "shared" ? "shared path" : "detour",
+              color: cssVar(p[0] === "shared" ? "--ink-2" : "--bad") });
+          }
+          links.push({ source: "t:" + t, target: lid, value: p[1], keys: ["k:" + t],
+            color: agentColor(side), dash: p[0] === "detour",
+            tip: "<strong>" + esc(words(t)) + " · " +
+              (p[0] === "shared" ? "shared path" : "detour") + '</strong><span class="s">' +
+              int(p[1]) + " tokens · " + Math.round(p[1] / totals[side] * 100) + "% of " +
+              esc(agentName(side)) + "’s " + int(totals[side]) + "</span>" });
+        });
+        rowsT.push("<tr><td>" + esc(agentName(side)) + "</td><td>" + esc(words(t)) +
+          '</td><td class="n">' + int(tot) + '</td><td class="n">' + int(d.detour) +
+          '</td><td class="n">' + Math.round(tot / totals[side] * 100) + "%</td></tr>");
+      });
+      /* the shared scale: panel height is proportional to this agent's spend */
+      var fullH = 340, minH = 160;
+      var H = Math.max(minH, Math.round(fullH * (totals[side] / maxTot)));
+      var cap = document.createElement("p");
+      cap.className = "costcap";
+      cap.innerHTML = '<span class="sw" style="background:' + agentColor(side) +
+        '"></span><b>' + esc(agentName(side)) + "</b> — " + int(totals[side]) +
+        " tokens across the batch" +
+        (totals[side] === maxTot ? "" : " · " +
+          Math.round((1 - totals[side] / maxTot) * 100) + "% leaner, hence the shorter flow");
+      box.appendChild(cap);
+      sankeyFlow(box, { nodes: nodes, links: links, height: H, minWidth: 170,
+        nodePadding: 11, unit: "token", midLeft: true,
+        fmtValue: function (v) { return int(v) + " tok"; },
+        aria: "cost flow for " + agentName(side) + ": tokens by step type" });
+    });
+    setTable(slotId, tblWrap("table view — token spend by step type",
+      ["agent", "step type", "tokens", "of which detour", "share"], rowsT));
   }
 
   /* -------------------------- (c) alluvial renderer ---------------------- */
@@ -1295,26 +1567,23 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       .on("mouseout", function () { sel.attr("fill-opacity", 0.26); hideTip(); });
 
     /* table view */
-    var host = document.getElementById(id + "-tbl");
-    if (host && !host.innerHTML) {
-      var rows = [];
-      sides.forEach(function (side) {
-        var counts = {};
-        seq[side].forEach(function (r) {
-          for (var i = 0; i + 1 < r.types.length; i++) {
-            var k = r.types[i] + " → " + r.types[i + 1];
-            counts[k] = (counts[k] || 0) + 1;
-          }
-        });
-        Object.keys(counts).sort(function (x, y) { return counts[y] - counts[x]; })
-          .forEach(function (k) {
-            rows.push("<tr><td>" + esc(agentName(side)) + "</td><td>" + esc(words(k)) +
-              '</td><td class="n">' + counts[k] + "</td></tr>");
-          });
+    var rows = [];
+    sides.forEach(function (side) {
+      var counts = {};
+      seq[side].forEach(function (r) {
+        for (var i = 0; i + 1 < r.types.length; i++) {
+          var k = r.types[i] + " → " + r.types[i + 1];
+          counts[k] = (counts[k] || 0) + 1;
+        }
       });
-      host.innerHTML = tblWrap("table view — step-type transitions",
-        ["agent", "transition", "runs"], rows);
-    }
+      Object.keys(counts).sort(function (x, y) { return counts[y] - counts[x]; })
+        .forEach(function (k) {
+          rows.push("<tr><td>" + esc(agentName(side)) + "</td><td>" + esc(words(k)) +
+            '</td><td class="n">' + counts[k] + "</td></tr>");
+        });
+    });
+    setTable(id, tblWrap("table view — step-type transitions",
+      ["agent", "transition", "runs"], rows));
   }
 
   /* -------------------------- (d) claim provenance ----------------------- */
@@ -1387,16 +1656,17 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         (c.a ? esc(nameA) : "") + (c.a && c.b ? " + " : "") + (c.b ? esc(nameB) : "") +
         (!c.a && !c.b ? "—" : "") + "</td><td>" + (c.conflict ? "⚠ conflict" : "") + "</td></tr>");
     });
-    var H = Math.max(240, shown.length * 19 + 40);
-    sankeyFlow(box, { nodes: nodes, links: links, height: H,
+    var H = Math.max(280, shown.length * 23 + 46);
+    sankeyFlow(box, { nodes: nodes, links: links, height: H, unit: "claim",
+      nodePadding: 10, minWidth: 420,
       aria: "claim provenance: source domain to claim to the answer that carried it" });
     if (rest.length) {
       var p = document.createElement("p");
-      p.className = "lede";
+      p.className = "guide";
       p.textContent = rest.length + " further claim" + (rest.length === 1 ? "" : "s") +
         " reached an answer but are omitted here to keep the diagram readable; the table " +
         "view below lists every one.";
-      box.parentNode.insertBefore(p, box.nextSibling);
+      box.appendChild(p);
       rest.forEach(function (c) {
         rowsT.push("<tr><td>" + esc(c.task) + "</td><td>" + esc(c.kind) + "</td><td>" +
           esc(c.value) + "</td><td>" + esc(c.src || "—") + "</td><td>" +
@@ -1404,11 +1674,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
           "</td><td>" + (c.conflict ? "⚠ conflict" : "") + "</td></tr>");
       });
     }
-    var host = document.getElementById(id + "-tbl");
-    if (host) {
-      host.innerHTML = tblWrap("table view — " + rowsT.length + " claims",
-        ["task", "kind", "claim", "source", "carried into", "flag"], rowsT);
-    }
+    setTable(id, tblWrap("table view — " + rowsT.length + " claims",
+      ["task", "kind", "claim", "source", "carried into", "flag"], rowsT));
   }
 
   /* =================================================== 3. attribute forest */
@@ -1478,8 +1745,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         var ay = y.strat == null ? -1 : Math.abs(y.strat);
         return ay - ax || Math.abs(y.raw || 0) - Math.abs(x.raw || 0);
       });
-      var labelW = 216, padR = 58, rowH = 30, padT = 26, padB = 30;
-      var W = chartWidth(box, labelW + padR + 300);
+      var labelW = 268, padR = 104, rowH = 32, padT = 26, padB = 30;
+      var W = chartWidth(box, labelW + padR + 320);
       var H = padT + rows.length * rowH + padB;
       var ext = [0, 0];
       rows.forEach(function (r) {
@@ -1522,15 +1789,17 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
             .attr("width", W - 4).attr("height", rowH - 2)
             .attr("fill", cssVar("--flash"));
         }
-        g.append("text").attr("x", labelW - 12).attr("y", y - 3).attr("dy", "0.34em")
+        if (!r.measurable) g.attr("opacity", 0.62);
+        g.append("text").attr("x", labelW - 14).attr("y", y - 4).attr("dy", "0.34em")
           .attr("text-anchor", "end").attr("font-size", 10.5)
           .attr("fill", r.notable ? cssVar("--ink") : cssVar("--ink-2"))
           .attr("font-family", cssVar("--sans"))
-          .text((r.rev ? "⚑ " : "") + trunc(r.phrase, 40));
-        g.append("text").attr("x", labelW - 12).attr("y", y + 9).attr("dy", "0.34em")
+          .text((r.rev ? "⚑ " : "") + trunc(r.phrase, 42));
+        g.append("text").attr("x", labelW - 14).attr("y", y + 9).attr("dy", "0.34em")
           .attr("text-anchor", "end").attr("font-size", 8.5).attr("fill", cssVar("--hollow"))
           .text(r.wf + "/" + r.wr + " vs " + r.of + "/" + r.or_ + " runs" +
-            (r.strata != null ? " · " + r.strata + " strata" : ""));
+            (r.strata != null ? " · " + r.strata + " strata" : "") +
+            (r.measurable ? "" : " · too few to measure"));
         /* whisker */
         if (r.lo != null && r.hi != null && isFinite(r.lo) && isFinite(r.hi)) {
           var xl = x(Math.max(-lim, r.lo)), xh = x(Math.min(lim, r.hi));
@@ -1568,25 +1837,22 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         }
         dot(r.raw, false, "raw lift");
         if (r.strat != null) dot(r.strat, true, "within-task lift");
-        /* value read-out */
-        g.append("text").attr("x", W - padR + 8).attr("y", y).attr("dy", "0.34em")
-          .attr("font-size", 9.5)
+        /* value read-out, right of the axis */
+        g.append("text").attr("x", W - padR + 10).attr("y", r.strat == null ? y : y - 4)
+          .attr("dy", "0.34em").attr("font-size", 10)
           .attr("fill", r.rev ? cssVar("--accent-2") : cssVar("--ink-2"))
-          .text(r.strat == null ? pts(r.raw) + " raw" : pts(r.strat));
+          .text(r.strat == null ? pts(r.raw) : pts(r.strat));
+        g.append("text").attr("x", W - padR + 10).attr("y", y + 9).attr("dy", "0.34em")
+          .attr("font-size", 8.5).attr("fill", cssVar("--hollow"))
+          .attr("font-family", cssVar("--sans"))
+          .text(r.strat == null ? "raw only — no strata" : "within task");
         if (r.rev) {
-          g.append("text").attr("x", x(0)).attr("y", y + 12).attr("text-anchor", "middle")
+          g.append("text").attr("x", x(0)).attr("y", y + 13).attr("text-anchor", "middle")
             .attr("font-size", 8.5).attr("fill", cssVar("--accent-2"))
             .attr("font-family", cssVar("--sans"))
-            .attr("stroke", cssVar("--paper")).attr("stroke-width", 2.4)
+            .attr("stroke", cssVar("--paper")).attr("stroke-width", 2.6)
             .attr("paint-order", "stroke")
             .text("raw association is a task-mix artifact");
-        } else if (r.strat == null) {
-          g.append("text").attr("x", x(0)).attr("y", y + 12).attr("text-anchor", "middle")
-            .attr("font-size", 8.5).attr("fill", cssVar("--hollow"))
-            .attr("font-family", cssVar("--sans"))
-            .attr("stroke", cssVar("--paper")).attr("stroke-width", 2.4)
-            .attr("paint-order", "stroke")
-            .text("no within-task comparison available");
         }
       });
     });
@@ -1617,15 +1883,17 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       "is the efficiency axiom — the allocations must sum back to the total.</p>" +
       '<div class="legend"><span>' + sw("var(--stage-7)") + "largest share</span><span>" +
       sw("var(--stage-4)") + "then</span><span>" + sw("var(--stage-2)") +
-      "smallest</span><span>✗ hatched = this region caused the failure</span>" +
-      "<span>a negative total means fixing the divergence would have <b>cost</b> tokens</span></div>" +
+      "smallest</span><span>" + hatchSwatch("var(--paper)") +
+      "✗ hatched = this region caused the failure</span>" +
+      "<span><b>costs</b> instead of <b>saves</b> = fixing the divergence would have spent " +
+      "more, not less</span></div>" +
       '<div class="shgrid">' + cards.map(function (c) {
         var tot = Number(c.sh.total_saving) || 0;
         var eff = Number(c.sh.efficiency_check) || 0;
         var okEff = Math.abs(eff) < 0.5;
         return '<div class="shcard"><div class="st"><span class="tid">' + esc(c.task) +
           '</span><span class="tot ' + (tot >= 0 ? "save" : "cost") + '">' +
-          (tot >= 0 ? "−" : "+") + int(Math.abs(tot)) + " tok</span></div>" +
+          (tot >= 0 ? "saves " : "costs ") + int(Math.abs(tot)) + " tok</span></div>" +
           '<div class="scroller" id="shap-' + c.i + '"></div>' +
           '<div class="ck"><span class="' + (okEff ? "ok" : "warnx") + '">' +
           (okEff ? "✓ allocations sum to total" : "⚠ efficiency check " + eff.toFixed(2)) +
@@ -1639,7 +1907,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
 
     section("s-shapley", "Where the token gap actually came from",
       cards.length + " " + plural(cards.length, "task") + " with divergences · " +
-      (totalSaving >= 0 ? "−" : "+") + int(Math.abs(totalSaving)) + " tokens in total",
+      int(Math.abs(totalSaving)) + " tokens " + (totalSaving >= 0 ? "recoverable" : "over") +
+      " in total",
       html, "Shapley");
 
     DRAWS.push(function () {
@@ -1658,10 +1927,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         var pat = defs.append("pattern").attr("id", pid)
           .attr("width", 5).attr("height", 5).attr("patternUnits", "userSpaceOnUse")
           .attr("patternTransform", "rotate(45)");
-        pat.append("rect").attr("width", 5).attr("height", 5).attr("fill", cssVar("--paper"))
-          .attr("fill-opacity", 0);
         pat.append("line").attr("x1", 0).attr("y1", 0).attr("x2", 0).attr("y2", 5)
-          .attr("stroke", cssVar("--paper")).attr("stroke-width", 1.6);
+          .attr("stroke", cssVar("--paper")).attr("stroke-width", 1.3)
+          .attr("stroke-opacity", 0.85);
         var tot = c.alloc.reduce(function (t, a) { return t + Math.abs(Number(a.shapley) || 0); }, 0) || 1;
         var accum = 0;
         c.alloc.slice().sort(function (x, y) {
@@ -1679,8 +1947,10 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
               .attr("fill", "url(#" + pid + ")");
           }
           if (w > 46) {
-            g.append("text").attr("x", accum + 5).attr("y", barH / 2).attr("dy", "0.34em")
+            g.append("text").attr("x", accum + 6).attr("y", barH / 2).attr("dy", "0.34em")
               .attr("font-size", 9).attr("fill", cssVar("--paper"))
+              .attr("stroke", cssVar("--stage-" + stage)).attr("stroke-width", 2.4)
+              .attr("paint-order", "stroke").attr("stroke-linejoin", "round")
               .text((a.caused_failure ? "✗ " : "") + words(a.kind || "region"));
           }
           g.append("text").attr("x", accum + w / 2).attr("y", barH + 12)
@@ -2011,7 +2281,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     var totA = d3.sum(STEP_TYPES, function (t) { return sums.a[t] || 0; });
     var totB = d3.sum(STEP_TYPES, function (t) { return sums.b[t] || 0; });
     if (!totA && !totB) { box.innerHTML = '<div class="dd-note">No step token data.</div>'; return; }
-    var W = chartWidth(box, 520), padL = 112, padR = 66, barH = 26, labH = 16, rowGap = 22;
+    var W = chartWidth(box, 520), padL = 112, padR = 82, barH = 26, labH = 16, rowGap = 22;
     var H = 10 + 2 * (barH + labH + rowGap);
     var x = d3.scaleLinear().domain([0, Math.max(totA, totB, 1)]).range([0, W - padL - padR]);
     var svg = d3.select(box).append("svg")
@@ -2024,7 +2294,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       svg.append("text").attr("x", 18).attr("y", y0 + barH / 2).attr("dy", "0.35em")
         .attr("font-size", 11).attr("font-weight", 600).attr("fill", cssVar("--ink"))
         .text(trunc(agentName(side), 13));
-      var acc = 0;
+      var acc = 0, lastLabelRight = -1e9;
       STEP_TYPES.forEach(function (t) {
         var v = sums[side][t] || 0;
         if (!v) return;
@@ -2039,11 +2309,16 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
             " · " + int(v) + " tok · " + pctv + "%</span>", ev.clientX, ev.clientY);
         }).on("mousemove", function (ev) { moveTip(ev.clientX, ev.clientY); })
           .on("mouseout", hideTip);
-        if (x(v) > 54) {
-          svg.append("text").attr("x", segX + segW / 2).attr("y", y0 + barH + 11)
+        /* label only where it fits and does not run into the previous one */
+        var lab = words(t) + " " + int(v);
+        var labW = lab.length * 5.3;
+        var cx = segX + segW / 2;
+        if (segW > 44 && cx - labW / 2 > lastLabelRight + 6) {
+          svg.append("text").attr("x", cx).attr("y", y0 + barH + 11)
             .attr("text-anchor", "middle").attr("font-size", 9)
             .attr("fill", cssVar("--muted")).attr("pointer-events", "none")
-            .text(words(t) + " " + int(v));
+            .text(lab);
+          lastLabelRight = cx + labW / 2;
         }
       });
       svg.append("text").attr("x", padL + x(total) + 8).attr("y", y0 + barH / 2).attr("dy", "0.35em")
