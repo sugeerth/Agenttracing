@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Optional
 
 from .adapters import from_openai_messages, from_otel_genai
+from .conformance import check_suite, render_conformance_markdown
 from .routing import routing_analysis
 from .similarity import similarity_analysis
 from .fleet import DEFAULT_WEIGHTS, fleet_analysis
@@ -548,6 +549,63 @@ def _cmd_select(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_check(args: argparse.Namespace) -> int:
+    """Check runs against golden/reference trajectories."""
+    golden_dir, run_dir = Path(args.golden), Path(args.tracesdir)
+    for label, path in (("--golden", golden_dir), ("tracesdir", run_dir)):
+        if not path.is_dir():
+            print(f"error: {label} {path} is not a directory", file=sys.stderr)
+            return 2
+
+    goldens = {t.task.id: t for t in _load_traces_dir(golden_dir)}
+    runs = {t.task.id: t for t in _load_traces_dir(run_dir)}
+    if not goldens:
+        print(f"error: no valid reference traces in {golden_dir}", file=sys.stderr)
+        return 2
+    if not runs:
+        print(f"error: no valid run traces in {run_dir}", file=sys.stderr)
+        return 2
+
+    suite = check_suite(goldens, runs, max_extra_steps=args.max_extra_steps)
+
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # Per-task pairwise reports are large; keep them out of the summary file.
+    summary = {k: v for k, v in suite.items() if k != "checks"}
+    summary["checks"] = [
+        {k: v for k, v in check.items() if k != "report"} for check in suite["checks"]
+    ]
+    (out_dir / "conformance.json").write_text(
+        json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    print(f"Wrote {out_dir / 'conformance.json'}")
+
+    if args.markdown:
+        md_path = Path(args.markdown)
+        if not md_path.is_absolute():
+            md_path = out_dir / md_path
+        md_path.parent.mkdir(parents=True, exist_ok=True)
+        md_path.write_text(render_conformance_markdown(suite), encoding="utf-8")
+        print(f"Wrote {md_path}")
+
+    print()
+    print(suite["narrative"])
+    print(f"{'task':<28} {'verdict':<12} conformance  steps ref->run")
+    for check in suite["checks"]:
+        print(f"{check['task']:<28} {check['verdict']:<12} "
+              f"{check['conformance']:>10.0%}  "
+              f"{check['steps']['reference']:>3} -> {check['steps']['run']}")
+    for check in suite["checks"]:
+        if check["verdict"] != "conformant":
+            print(f"\n  {check['task']}: {check['narrative']}")
+            for deviation in check["deviations"][:2]:
+                print(f"    [{deviation['kind']}] {deviation['summary']}")
+    for task in suite["missing_reference"]:
+        print(f"warning: no reference trajectory for {task}; not checked",
+              file=sys.stderr)
+    return 1 if suite["violations"] else 0
+
+
 def _cmd_convert(args: argparse.Namespace) -> int:
     in_path = Path(args.input)
     if not in_path.is_file():
@@ -667,6 +725,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_runs.add_argument("--template",
                         help=f"viewer HTML template (default: {DEFAULT_TEMPLATE})")
     p_runs.set_defaults(func=_cmd_runs)
+
+    p_check = sub.add_parser(
+        "check",
+        help="check runs against golden/reference trajectories (conformance)",
+    )
+    p_check.add_argument("tracesdir", help="directory of run trajectory *.json files")
+    p_check.add_argument("--golden", required=True,
+                         help="directory of reference trajectory *.json files")
+    p_check.add_argument("-o", "--output", default="out",
+                         help="output directory (default: out)")
+    p_check.add_argument("--markdown",
+                         help="also write a shareable markdown summary")
+    p_check.add_argument("--max-extra-steps", type=int, default=0,
+                         help="added/skipped steps tolerated before a run counts "
+                              "as a deviation (default: 0)")
+    p_check.set_defaults(func=_cmd_check)
 
     p_select = sub.add_parser(
         "select",
