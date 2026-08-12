@@ -1,0 +1,1361 @@
+{
+  "task": {
+    "id": "t02_cve_libfoo",
+    "prompt": "What is the first released version of libfoo that fixes CVE-2025-1234?"
+  },
+  "a": {
+    "agent": {
+      "name": "atlas-v2",
+      "model": "claude-sonnet-5",
+      "version": "v2"
+    },
+    "outcome": {
+      "success": true,
+      "answer": "libfoo 2.14.1 is the first released version that fixes CVE-2025-1234 (heap buffer overflow in the TLV parser). Confirmed by the NVD/GHSA advisory (affected <2.14.1, patched 2.14.1) and the v2.14.1 release notes.",
+      "score": 1.0
+    },
+    "totals": {
+      "input_tokens": 741,
+      "output_tokens": 239,
+      "cost_usd": 0.005808,
+      "latency_s": 11.92
+    },
+    "steps": [
+      {
+        "index": 0,
+        "type": "plan",
+        "name": "plan",
+        "input": "1) Look up CVE-2025-1234 in NVD or the GitHub security advisory. 2) Note the patched version range for libfoo. 3) Verify against the libfoo release notes. 4) Answer with the first fixed release.",
+        "output": "Plan set. Querying vulnerability databases first.",
+        "tokens": 159,
+        "latency_s": 2.04,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9191,
+          "min_token_confidence": 0.7619,
+          "entropy": 0.2819,
+          "tokens_scored": 87,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 1,
+        "type": "search",
+        "name": "web_search",
+        "input": "CVE-2025-1234 libfoo fixed version advisory",
+        "output": "[1] nvd.nist.gov — CVE-2025-1234 Detail | [2] github.com — GHSA-6q9p-h4mw-2xr7: Heap buffer overflow in libfoo TLV parser | [3] news.ycombinator.com — \"libfoo overflow, patch your fleets\" | [4] forum.libfoo.org — \"Which release fixes the TLV overflow?\"",
+        "tokens": 172,
+        "latency_s": 2.5,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9058,
+          "min_token_confidence": 0.7333,
+          "entropy": 0.2326,
+          "tokens_scored": 94,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 2,
+        "type": "retrieve",
+        "name": "select_result",
+        "input": "Open result [1]: nvd.nist.gov — the NVD entry is the authoritative record; the GHSA in result [2] can confirm.",
+        "output": "Selected https://nvd.nist.gov/vuln/detail/CVE-2025-1234 (primary vulnerability database record).",
+        "tokens": 150,
+        "latency_s": 1.27,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9174,
+          "min_token_confidence": 0.7634,
+          "entropy": 0.2849,
+          "tokens_scored": 82,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 3,
+        "type": "read",
+        "name": "open_page",
+        "input": "https://nvd.nist.gov/vuln/detail/CVE-2025-1234",
+        "output": "NVD — CVE-2025-1234: Heap buffer overflow in libfoo's TLV parser (parse_tlv.c) allows remote code execution via a crafted length field. Affected: >=2.10.0, <2.14.1. CVSS 3.1: 8.1 (HIGH). References: GHSA-6q9p-h4mw-2xr7 — 'Patched versions: 2.14.1'.",
+        "tokens": 172,
+        "latency_s": 1.9,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9285,
+          "min_token_confidence": 0.7565,
+          "entropy": 0.1732,
+          "tokens_scored": 94,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 4,
+        "type": "read",
+        "name": "open_page",
+        "input": "https://github.com/libfoo/libfoo/releases/tag/v2.14.1",
+        "output": "libfoo 2.14.1 (2025-03-04) release notes: SECURITY: fix heap buffer overflow in parse_tlv on malformed length fields (CVE-2025-1234). Backport of #4182. All users on 2.10.x-2.14.0 should upgrade immediately.",
+        "tokens": 163,
+        "latency_s": 1.96,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8868,
+          "min_token_confidence": 0.6777,
+          "entropy": 0.3585,
+          "tokens_scored": 89,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 5,
+        "type": "answer",
+        "name": "final_answer",
+        "input": "Compose the final answer from the verified findings.",
+        "output": "libfoo 2.14.1 is the first released version that fixes CVE-2025-1234 (heap buffer overflow in the TLV parser). Confirmed by the NVD/GHSA advisory (affected <2.14.1, patched 2.14.1) and the v2.14.1 release notes.",
+        "tokens": 164,
+        "latency_s": 2.25,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9235,
+          "min_token_confidence": 0.7527,
+          "entropy": 0.1881,
+          "tokens_scored": 90,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      }
+    ]
+  },
+  "b": {
+    "agent": {
+      "name": "bolt-v3",
+      "model": "gpt-5",
+      "version": "v3"
+    },
+    "outcome": {
+      "success": true,
+      "answer": "libfoo 2.14.1 is the first released version that fixes CVE-2025-1234. The GHSA advisory lists patched version 2.14.1 (affected >=2.10.0, <2.14.1), and the v2.14.1 release notes cite the CVE directly. (An earlier forum claim of 2.13.0 was incorrect.)",
+      "score": 1.0
+    },
+    "totals": {
+      "input_tokens": 1303,
+      "output_tokens": 422,
+      "cost_usd": 0.010239,
+      "latency_s": 20.63
+    },
+    "steps": [
+      {
+        "index": 0,
+        "type": "plan",
+        "name": "plan",
+        "input": "1) Look up CVE-2025-1234 in NVD or the GitHub security advisory. 2) Note the patched version range for libfoo. 3) Verify against the libfoo release notes. 4) Answer with the first fixed release.",
+        "output": "Plan set. Querying vulnerability databases first.",
+        "tokens": 159,
+        "latency_s": 1.95,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8475,
+          "min_token_confidence": 0.6741,
+          "entropy": 0.4703,
+          "tokens_scored": 87,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 1,
+        "type": "search",
+        "name": "web_search",
+        "input": "CVE-2025-1234 libfoo fixed version advisory",
+        "output": "[1] nvd.nist.gov — CVE-2025-1234 Detail | [2] github.com — GHSA-6q9p-h4mw-2xr7: Heap buffer overflow in libfoo TLV parser | [3] news.ycombinator.com — \"libfoo overflow, patch your fleets\" | [4] forum.libfoo.org — \"Which release fixes the TLV overflow?\"",
+        "tokens": 172,
+        "latency_s": 2.55,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8968,
+          "min_token_confidence": 0.7513,
+          "entropy": 0.3618,
+          "tokens_scored": 94,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 2,
+        "type": "retrieve",
+        "name": "select_result",
+        "input": "Open result [4]: forum.libfoo.org — users there will know which release actually shipped the fix.",
+        "output": "Selected https://forum.libfoo.org/t/which-release-fixes-the-tlv-overflow/9192 (community forum thread, 14 replies).",
+        "tokens": 151,
+        "latency_s": 1.14,
+        "quality": "weak",
+        "note": "Divergence: picked a community forum thread over the NVD record and GHSA advisory in results [1] and [2].",
+        "model": {
+          "confidence": 0.8474,
+          "min_token_confidence": 0.6568,
+          "entropy": 0.3385,
+          "tokens_scored": 83,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 3,
+        "type": "read",
+        "name": "open_page",
+        "input": "https://forum.libfoo.org/t/which-release-fixes-the-tlv-overflow/9192",
+        "output": "forum.libfoo.org: t0mmy_dev: \"pretty sure 2.13.0 fixed the overflow? upgraded and the PoC stopped crashing for me.\" — reply (maintainer_kris): \"2.13.0 only hardened the fuzzer harness. The actual CVE fix landed later, check the advisory.\" — reply (anon): \"we pinned 2.12.4 and just firewalled it lol\"",
+        "tokens": 190,
+        "latency_s": 2.15,
+        "quality": "weak",
+        "note": null,
+        "model": {
+          "confidence": 0.8357,
+          "min_token_confidence": 0.6493,
+          "entropy": 0.4128,
+          "tokens_scored": 104,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 4,
+        "type": "reason",
+        "name": "reason",
+        "input": "Can I answer from the forum thread?",
+        "output": "Accounts conflict: one user claims 2.13.0, but a maintainer says the real fix landed later and points at the advisory. I need the authoritative advisory before answering.",
+        "tokens": 149,
+        "latency_s": 1.64,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8795,
+          "min_token_confidence": 0.6868,
+          "entropy": 0.3588,
+          "tokens_scored": 81,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 5,
+        "type": "search",
+        "name": "web_search",
+        "input": "GHSA-6q9p-h4mw-2xr7 libfoo patched versions",
+        "output": "[1] github.com — GHSA-6q9p-h4mw-2xr7: Heap buffer overflow in libfoo TLV parser | [2] osv.dev — GHSA-6q9p-h4mw-2xr7",
+        "tokens": 138,
+        "latency_s": 2.41,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8454,
+          "min_token_confidence": 0.6421,
+          "entropy": 0.3623,
+          "tokens_scored": 75,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 6,
+        "type": "retrieve",
+        "name": "select_result",
+        "input": "Open result [1]: the GitHub security advisory itself.",
+        "output": "Selected https://github.com/advisories/GHSA-6q9p-h4mw-2xr7 (authoritative security advisory).",
+        "tokens": 134,
+        "latency_s": 0.9,
+        "quality": "good",
+        "note": "Recovery: switched from forum folklore to the advisory.",
+        "model": {
+          "confidence": 0.9103,
+          "min_token_confidence": 0.7537,
+          "entropy": 0.1984,
+          "tokens_scored": 73,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 7,
+        "type": "read",
+        "name": "open_page",
+        "input": "https://github.com/advisories/GHSA-6q9p-h4mw-2xr7",
+        "output": "GHSA-6q9p-h4mw-2xr7 — Heap buffer overflow in libfoo TLV parser (CVE-2025-1234). Affected versions: >=2.10.0, <2.14.1. Patched versions: 2.14.1. Severity: High (8.1).",
+        "tokens": 152,
+        "latency_s": 1.77,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8617,
+          "min_token_confidence": 0.6769,
+          "entropy": 0.3601,
+          "tokens_scored": 83,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 8,
+        "type": "read",
+        "name": "open_page",
+        "input": "https://github.com/libfoo/libfoo/releases/tag/v2.14.1",
+        "output": "libfoo 2.14.1 (2025-03-04) release notes: SECURITY: fix heap buffer overflow in parse_tlv on malformed length fields (CVE-2025-1234). Backport of #4182. All users on 2.10.x-2.14.0 should upgrade immediately.",
+        "tokens": 163,
+        "latency_s": 1.83,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8459,
+          "min_token_confidence": 0.6558,
+          "entropy": 0.4192,
+          "tokens_scored": 89,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 9,
+        "type": "reason",
+        "name": "reason",
+        "input": "Reconcile the forum claim with the advisory.",
+        "output": "The advisory and 2.14.1 release notes agree: patched in 2.14.1. The forum's 2.13.0 claim was wrong, as the maintainer implied. Answer: 2.14.1.",
+        "tokens": 144,
+        "latency_s": 1.74,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8999,
+          "min_token_confidence": 0.6931,
+          "entropy": 0.3186,
+          "tokens_scored": 79,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 10,
+        "type": "answer",
+        "name": "final_answer",
+        "input": "Compose the final answer from the verified findings.",
+        "output": "libfoo 2.14.1 is the first released version that fixes CVE-2025-1234. The GHSA advisory lists patched version 2.14.1 (affected >=2.10.0, <2.14.1), and the v2.14.1 release notes cite the CVE directly. (An earlier forum claim of 2.13.0 was incorrect.)",
+        "tokens": 173,
+        "latency_s": 2.55,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.907,
+          "min_token_confidence": 0.7465,
+          "entropy": 0.3527,
+          "tokens_scored": 95,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      }
+    ]
+  },
+  "alignment": [
+    {
+      "a_index": 0,
+      "b_index": 0,
+      "op": "match",
+      "similarity": 1.0,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 0,
+          "latency_s": -0.09,
+          "cost_usd": 1e-06
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        }
+      }
+    },
+    {
+      "a_index": 1,
+      "b_index": 1,
+      "op": "match",
+      "similarity": 1.0,
+      "tool_diff": {
+        "same_tool": true,
+        "identical": true
+      },
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 0,
+          "latency_s": 0.05,
+          "cost_usd": 2e-06
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        }
+      }
+    },
+    {
+      "a_index": null,
+      "b_index": 2,
+      "op": "b_only",
+      "similarity": 0.0
+    },
+    {
+      "a_index": null,
+      "b_index": 3,
+      "op": "b_only",
+      "similarity": 0.0
+    },
+    {
+      "a_index": null,
+      "b_index": 4,
+      "op": "b_only",
+      "similarity": 0.0
+    },
+    {
+      "a_index": null,
+      "b_index": 5,
+      "op": "b_only",
+      "similarity": 0.0
+    },
+    {
+      "a_index": 2,
+      "b_index": 6,
+      "op": "drift",
+      "similarity": 0.619,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 0.2
+        },
+        "delta": {
+          "tokens": -16,
+          "latency_s": -0.37,
+          "cost_usd": -9.4e-05
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        }
+      }
+    },
+    {
+      "a_index": 3,
+      "b_index": 7,
+      "op": "drift",
+      "similarity": 0.5833,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 0.0625
+        },
+        "delta": {
+          "tokens": -20,
+          "latency_s": -0.13,
+          "cost_usd": -0.000117
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        }
+      }
+    },
+    {
+      "a_index": 4,
+      "b_index": 8,
+      "op": "match",
+      "similarity": 1.0,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 0,
+          "latency_s": -0.13,
+          "cost_usd": 1e-06
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        }
+      }
+    },
+    {
+      "a_index": null,
+      "b_index": 9,
+      "op": "b_only",
+      "similarity": 0.0
+    },
+    {
+      "a_index": 5,
+      "b_index": 10,
+      "op": "match",
+      "similarity": 1.0,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 9,
+          "latency_s": 0.3,
+          "cost_usd": 5.5e-05
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        }
+      }
+    }
+  ],
+  "divergences": [
+    {
+      "rank": 1,
+      "a_index": 2,
+      "b_index": 2,
+      "kind": "retrieval",
+      "summary": "Agent B took 4 extra step(s) not mirrored by Agent A, starting where it selected the source \"select_result\" (annotated weak).",
+      "downstream": {
+        "extra_steps_b": 5,
+        "extra_tokens_b": 745,
+        "extra_latency_s_b": 8.75,
+        "caused_failure": false,
+        "failed_agent": null
+      }
+    },
+    {
+      "rank": 2,
+      "a_index": null,
+      "b_index": 9,
+      "kind": "stopping",
+      "summary": "Agent B continued for 1 extra step(s) before answering, after Agent A had already finished the same work.",
+      "downstream": {
+        "extra_steps_b": 1,
+        "extra_tokens_b": 153,
+        "extra_latency_s_b": 2.04,
+        "caused_failure": false,
+        "failed_agent": null
+      }
+    }
+  ],
+  "attribution": {
+    "failed_agent": null,
+    "root_cause_step": null,
+    "chain": [],
+    "category": null,
+    "explanation": "Both agents succeeded on this task, so no failure is attributed. Agent A (atlas-v2) used 6 steps, 980 tokens and 11.92s; Agent B (bolt-v3) used 11 steps, 1725 tokens and 20.63s. Agent A was the more efficient of the two."
+  },
+  "answer_eval": {
+    "expected": "libfoo 2.14.1",
+    "diff_ab": [
+      [
+        "eq",
+        "libfoo 2.14.1 is the first released version that fixes CVE-2025-1234"
+      ],
+      [
+        "ins",
+        "."
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "(heap"
+      ],
+      [
+        "ins",
+        "The"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "buffer"
+      ],
+      [
+        "ins",
+        "GHSA"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "overflow"
+      ],
+      [
+        "ins",
+        "advisory"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "in"
+      ],
+      [
+        "ins",
+        "lists"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "the"
+      ],
+      [
+        "ins",
+        "patched"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "TLV"
+      ],
+      [
+        "ins",
+        "version"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "parser)"
+      ],
+      [
+        "ins",
+        "2"
+      ],
+      [
+        "eq",
+        "."
+      ],
+      [
+        "del",
+        " Confirmed by the NVD/GHSA advisory"
+      ],
+      [
+        "ins",
+        "14.1"
+      ],
+      [
+        "eq",
+        " (affected "
+      ],
+      [
+        "del",
+        "<"
+      ],
+      [
+        "ins",
+        ">="
+      ],
+      [
+        "eq",
+        "2."
+      ],
+      [
+        "del",
+        "14"
+      ],
+      [
+        "ins",
+        "10"
+      ],
+      [
+        "eq",
+        "."
+      ],
+      [
+        "del",
+        "1"
+      ],
+      [
+        "ins",
+        "0"
+      ],
+      [
+        "eq",
+        ", "
+      ],
+      [
+        "del",
+        "patched "
+      ],
+      [
+        "ins",
+        "<"
+      ],
+      [
+        "eq",
+        "2.14.1)"
+      ],
+      [
+        "ins",
+        ","
+      ],
+      [
+        "eq",
+        " and the v2.14.1 release notes"
+      ],
+      [
+        "ins",
+        " cite the CVE directly"
+      ],
+      [
+        "eq",
+        "."
+      ],
+      [
+        "ins",
+        " (An earlier forum claim of 2.13.0 was incorrect.)"
+      ]
+    ],
+    "a_vs_expected": {
+      "coverage": 1.0,
+      "verdict": "match"
+    },
+    "b_vs_expected": {
+      "coverage": 1.0,
+      "verdict": "match"
+    }
+  },
+  "metrics_delta": {
+    "steps": {
+      "a": 6,
+      "b": 11
+    },
+    "tokens": {
+      "a": 980,
+      "b": 1725
+    },
+    "cost_usd": {
+      "a": 0.005808,
+      "b": 0.010239
+    },
+    "latency_s": {
+      "a": 11.92,
+      "b": 20.63
+    },
+    "tool_calls": {
+      "a": 0,
+      "b": 0
+    },
+    "searches": {
+      "a": 1,
+      "b": 2
+    }
+  },
+  "success_analysis": {
+    "winner": "a",
+    "basis": "efficiency",
+    "winning_decisions": [
+      {
+        "step_index": 2,
+        "agent": "atlas-v2",
+        "kind": "retrieval",
+        "decision": "Open result [1]: nvd.nist.gov — the NVD entry is the authoritative record; the GHSA in re…",
+        "counterpart": "selected \"forum.libfoo.org\" (bolt-v3)",
+        "why": "avoided a weak-quality step; counterpart note: \"Divergence: picked a community forum thread over the NVD record and G…\"; the primary source held the correct figure",
+        "impact": {
+          "avoided_extra_steps": 5,
+          "avoided_tokens": 745,
+          "avoided_latency_s": 8.75,
+          "avoided_failure": false
+        }
+      },
+      {
+        "step_index": 5,
+        "agent": "atlas-v2",
+        "kind": "stopping",
+        "decision": "proceeded directly to its next step: answered \"Compose the final answer from the verified findings.\"",
+        "counterpart": "reasoned \"Reconcile the forum claim with the advisory.\" (bolt-v3)",
+        "why": "stopped once the evidence sufficed",
+        "impact": {
+          "avoided_extra_steps": 1,
+          "avoided_tokens": 153,
+          "avoided_latency_s": 2.04,
+          "avoided_failure": false
+        }
+      }
+    ],
+    "narrative": "atlas-v2 won on efficiency over bolt-v3. Key decision at step 2 (retrieval): \"Open result [1]: nvd.nist.gov — the NVD entry is the authoritative record; the GHSA in re…\" versus selected \"forum.libfoo.org\" (bolt-v3). Altogether its choices avoided 6 extra step(s), 898 tokens and 10.79s of latency."
+  },
+  "uncertainty": {
+    "available": true,
+    "a": {
+      "series": [
+        0.9191,
+        0.9058,
+        0.9174,
+        0.9285,
+        0.8868,
+        0.9235
+      ],
+      "mean_confidence": 0.9135,
+      "min_confidence": 0.8868,
+      "mean_entropy": 0.2532,
+      "min_token_confidence": 0.6777,
+      "steps_scored": 6
+    },
+    "b": {
+      "series": [
+        0.8475,
+        0.8968,
+        0.8474,
+        0.8357,
+        0.8795,
+        0.8454,
+        0.9103,
+        0.8617,
+        0.8459,
+        0.8999,
+        0.907
+      ],
+      "mean_confidence": 0.8706,
+      "min_confidence": 0.8357,
+      "mean_entropy": 0.3594,
+      "min_token_confidence": 0.6421,
+      "steps_scored": 11
+    },
+    "signal": null,
+    "calibration": null,
+    "narrative": "atlas-v2 ran at 91% mean token confidence (low of 89%). bolt-v3 ran at 87% mean token confidence (low of 84%)."
+  },
+  "semantic": {
+    "methods": [
+      "tfidf_cosine",
+      "claim_provenance"
+    ],
+    "rows": [
+      {
+        "row": 0,
+        "a_index": 0,
+        "b_index": 0,
+        "lexical": 1.0,
+        "semantic": 1.0
+      },
+      {
+        "row": 1,
+        "a_index": 1,
+        "b_index": 1,
+        "lexical": 1.0,
+        "semantic": 1.0
+      },
+      {
+        "row": 6,
+        "a_index": 2,
+        "b_index": 6,
+        "lexical": 0.619,
+        "semantic": 0.3718
+      },
+      {
+        "row": 7,
+        "a_index": 3,
+        "b_index": 7,
+        "lexical": 0.5833,
+        "semantic": 0.5904
+      },
+      {
+        "row": 8,
+        "a_index": 4,
+        "b_index": 8,
+        "lexical": 1.0,
+        "semantic": 1.0
+      },
+      {
+        "row": 10,
+        "a_index": 5,
+        "b_index": 10,
+        "lexical": 1.0,
+        "semantic": 0.8004
+      }
+    ],
+    "first_semantic_break": 6,
+    "claims": [
+      {
+        "id": "c1",
+        "kind": "cve",
+        "value": "CVE-2025-1234",
+        "normalized": "CVE-2025-1234",
+        "matches_expected": null,
+        "a_steps": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "b_steps": [
+          0,
+          1,
+          7,
+          8,
+          10
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 0,
+          "source": null
+        }
+      },
+      {
+        "id": "c2",
+        "kind": "url",
+        "value": "nvd.nist.gov",
+        "normalized": "nvd.nist.gov",
+        "matches_expected": null,
+        "a_steps": [
+          1,
+          2,
+          3
+        ],
+        "b_steps": [
+          1
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 1,
+          "source": "nvd.nist.gov"
+        }
+      },
+      {
+        "id": "c3",
+        "kind": "url",
+        "value": "github.com",
+        "normalized": "github.com",
+        "matches_expected": null,
+        "a_steps": [
+          1,
+          4
+        ],
+        "b_steps": [
+          1,
+          5,
+          6,
+          7,
+          8
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 1,
+          "source": "nvd.nist.gov"
+        }
+      },
+      {
+        "id": "c4",
+        "kind": "url",
+        "value": "news.ycombinator.com",
+        "normalized": "news.ycombinator.com",
+        "matches_expected": null,
+        "a_steps": [
+          1
+        ],
+        "b_steps": [
+          1
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 1,
+          "source": "nvd.nist.gov"
+        }
+      },
+      {
+        "id": "c5",
+        "kind": "url",
+        "value": "forum.libfoo.org",
+        "normalized": "forum.libfoo.org",
+        "matches_expected": null,
+        "a_steps": [
+          1
+        ],
+        "b_steps": [
+          1,
+          2,
+          3
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 1,
+          "source": "nvd.nist.gov"
+        }
+      },
+      {
+        "id": "c6",
+        "kind": "version",
+        "value": "2.10.0",
+        "normalized": "2.10.0",
+        "matches_expected": false,
+        "a_steps": [
+          3
+        ],
+        "b_steps": [
+          7,
+          10
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 3,
+          "source": "nvd.nist.gov"
+        }
+      },
+      {
+        "id": "c7",
+        "kind": "version",
+        "value": "2.14.1",
+        "normalized": "2.14.1",
+        "matches_expected": true,
+        "a_steps": [
+          3,
+          4,
+          5
+        ],
+        "b_steps": [
+          7,
+          8,
+          9,
+          10
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 3,
+          "source": "nvd.nist.gov"
+        }
+      },
+      {
+        "id": "c8",
+        "kind": "version",
+        "value": "2.14.0",
+        "normalized": "2.14.0",
+        "matches_expected": false,
+        "a_steps": [
+          4
+        ],
+        "b_steps": [
+          8
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 4,
+          "source": "github.com"
+        }
+      },
+      {
+        "id": "c9",
+        "kind": "date",
+        "value": "2025-03-04",
+        "normalized": "2025-03-04",
+        "matches_expected": null,
+        "a_steps": [
+          4
+        ],
+        "b_steps": [
+          8
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 4,
+          "source": "github.com"
+        }
+      },
+      {
+        "id": "c10",
+        "kind": "number",
+        "value": "14.1 release",
+        "normalized": "14.1",
+        "matches_expected": null,
+        "a_steps": [
+          5
+        ],
+        "b_steps": [
+          9,
+          10
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 5,
+          "source": null
+        }
+      },
+      {
+        "id": "c11",
+        "kind": "version",
+        "value": "2.13.0",
+        "normalized": "2.13.0",
+        "matches_expected": false,
+        "a_steps": [],
+        "b_steps": [
+          3,
+          4,
+          9,
+          10
+        ],
+        "origin": {
+          "agent": "b",
+          "step": 3,
+          "source": "forum.libfoo.org"
+        }
+      },
+      {
+        "id": "c12",
+        "kind": "version",
+        "value": "2.12.4",
+        "normalized": "2.12.4",
+        "matches_expected": false,
+        "a_steps": [],
+        "b_steps": [
+          3
+        ],
+        "origin": {
+          "agent": "b",
+          "step": 3,
+          "source": "forum.libfoo.org"
+        }
+      },
+      {
+        "id": "c13",
+        "kind": "url",
+        "value": "osv.dev",
+        "normalized": "osv.dev",
+        "matches_expected": null,
+        "a_steps": [],
+        "b_steps": [
+          5
+        ],
+        "origin": {
+          "agent": "b",
+          "step": 5,
+          "source": "github.com"
+        }
+      }
+    ],
+    "conflicts": [],
+    "intents": {
+      "a": [
+        {
+          "step": 0,
+          "intent": "frame"
+        },
+        {
+          "step": 1,
+          "intent": "acquire"
+        },
+        {
+          "step": 2,
+          "intent": "verify"
+        },
+        {
+          "step": 3,
+          "intent": "acquire"
+        },
+        {
+          "step": 4,
+          "intent": "acquire"
+        },
+        {
+          "step": 5,
+          "intent": "commit"
+        }
+      ],
+      "b": [
+        {
+          "step": 0,
+          "intent": "frame"
+        },
+        {
+          "step": 1,
+          "intent": "acquire"
+        },
+        {
+          "step": 2,
+          "intent": "decide"
+        },
+        {
+          "step": 3,
+          "intent": "acquire"
+        },
+        {
+          "step": 4,
+          "intent": "decide"
+        },
+        {
+          "step": 5,
+          "intent": "acquire"
+        },
+        {
+          "step": 6,
+          "intent": "decide"
+        },
+        {
+          "step": 7,
+          "intent": "acquire"
+        },
+        {
+          "step": 8,
+          "intent": "acquire"
+        },
+        {
+          "step": 9,
+          "intent": "decide"
+        },
+        {
+          "step": 10,
+          "intent": "commit"
+        }
+      ],
+      "missing": {
+        "a": [
+          "decide"
+        ],
+        "b": [
+          "verify"
+        ]
+      }
+    },
+    "grounding": {
+      "a": {
+        "claims_total": 3,
+        "claims_grounded": 2,
+        "score": 0.6667,
+        "ungrounded": [
+          {
+            "claim": "c10",
+            "value": "14.1 release"
+          }
+        ]
+      },
+      "b": {
+        "claims_total": 5,
+        "claims_grounded": 5,
+        "score": 1.0,
+        "ungrounded": []
+      }
+    },
+    "independence": [
+      {
+        "claim": "c1",
+        "agent": "a",
+        "sources": [
+          "nvd.nist.gov",
+          "github.com"
+        ],
+        "circular": false,
+        "evidence": "no cross-citation between sources detected"
+      },
+      {
+        "claim": "c7",
+        "agent": "a",
+        "sources": [
+          "nvd.nist.gov",
+          "github.com"
+        ],
+        "circular": false,
+        "evidence": "no cross-citation between sources detected"
+      },
+      {
+        "claim": "c1",
+        "agent": "b",
+        "sources": [
+          "nvd.nist.gov",
+          "github.com"
+        ],
+        "circular": false,
+        "evidence": "no cross-citation between sources detected"
+      }
+    ],
+    "contradictions": [],
+    "narrative": "Meaning breaks from wording at alignment row 6 (lexical 0.62 vs semantic 0.37). bolt-v3 never verified its evidence."
+  },
+  "counterfactual": null,
+  "shapley": {
+    "available": true,
+    "metric": "tokens",
+    "loser": "bolt-v3",
+    "winner": "atlas-v2",
+    "regions": 2,
+    "method": "exact",
+    "total_saving": 736.0,
+    "allocations": [
+      {
+        "region": 0,
+        "rank": 1,
+        "kind": "retrieval",
+        "summary": "Agent B took 4 extra step(s) not mirrored by Agent A, starting where it selected the source \"select_result\" (annotated weak).",
+        "alignment_rows": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "shapley": 592.0,
+        "share": 0.8043,
+        "caused_failure": false
+      },
+      {
+        "region": 1,
+        "rank": 2,
+        "kind": "stopping",
+        "summary": "Agent B continued for 1 extra step(s) before answering, after Agent A had already finished the same work.",
+        "alignment_rows": [
+          9
+        ],
+        "shapley": 144.0,
+        "share": 0.1957,
+        "caused_failure": false
+      }
+    ],
+    "efficiency_check": 0.0,
+    "outcome_attributable": false,
+    "outcome_note": "outcome credit is not allocated: attributing a binary outcome across several decisions would need counterfactual re-runs this engine cannot perform on logged traces",
+    "narrative": "Fixing every divergence would have saved 736 tokens. The largest single share is 80% (592), from the retrieval divergence at region 0. The remaining 1 decision(s) split the rest, so fixing only the largest recovers part of the gap, not all of it."
+  }
+}

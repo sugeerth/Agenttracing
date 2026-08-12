@@ -1,0 +1,1229 @@
+{
+  "task": {
+    "id": "t05_flight_duration",
+    "prompt": "A traveler flies SQ306 from Singapore (SIN) to London Heathrow (LHR), connects, then flies BA117 from LHR to New York (JFK), all on 10 June 2025. Scheduled times: SQ306 departs SIN 09:00 SGT, arrives LHR 15:40 BST; BA117 departs LHR 17:55 BST, arrives JFK 20:45 EDT. What is the total elapsed journey time from SIN departure to JFK arrival?"
+  },
+  "a": {
+    "agent": {
+      "name": "atlas-v2",
+      "model": "claude-sonnet-5",
+      "version": "v2"
+    },
+    "outcome": {
+      "success": true,
+      "answer": "The total elapsed journey time is 23 hours 45 minutes: 13h40m for SQ306 SIN-LHR, a 2h15m connection at Heathrow, and 7h50m for BA117 LHR-JFK (all computed in UTC).",
+      "score": 1.0
+    },
+    "totals": {
+      "input_tokens": 549,
+      "output_tokens": 333,
+      "cost_usd": 0.006642,
+      "latency_s": 11.13
+    },
+    "steps": [
+      {
+        "index": 0,
+        "type": "plan",
+        "name": "plan",
+        "input": "1) Work out the duration of each flight leg and the layover from the scheduled times. 2) Sum them. 3) Sanity-check the total against the end-to-end departure/arrival difference. 4) Answer.",
+        "output": "Plan set. Working through the legs in order.",
+        "tokens": 156,
+        "latency_s": 2.03,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8982,
+          "min_token_confidence": 0.6891,
+          "entropy": 0.3063,
+          "tokens_scored": 85,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 1,
+        "type": "reason",
+        "name": "reason",
+        "input": "Normalize every timestamp before any arithmetic.",
+        "output": "These times are in three zones, so convert to UTC first: SGT is UTC+8, BST is UTC+1, EDT is UTC-4. SIN dep 09:00 SGT = 01:00 UTC. LHR arr 15:40 BST = 14:40 UTC; LHR dep 17:55 BST = 16:55 UTC. JFK arr 20:45 EDT = 00:45 UTC on 11 June.",
+        "tokens": 168,
+        "latency_s": 2.04,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9094,
+          "min_token_confidence": 0.7132,
+          "entropy": 0.267,
+          "tokens_scored": 92,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 2,
+        "type": "tool_call",
+        "name": "datetime_diff",
+        "input": "diff(2025-06-10T01:00Z, 2025-06-10T14:40Z); diff(2025-06-10T14:40Z, 2025-06-10T16:55Z); diff(2025-06-10T16:55Z, 2025-06-11T00:45Z)",
+        "output": "13h40m; 2h15m; 7h50m",
+        "tokens": 135,
+        "latency_s": 1.82,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.93,
+          "min_token_confidence": 0.7602,
+          "entropy": 0.2701,
+          "tokens_scored": 74,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 3,
+        "type": "tool_call",
+        "name": "datetime_diff",
+        "input": "sum(13h40m, 2h15m, 7h50m); diff(2025-06-10T01:00Z, 2025-06-11T00:45Z)",
+        "output": "23h45m; 23h45m",
+        "tokens": 119,
+        "latency_s": 1.62,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9273,
+          "min_token_confidence": 0.715,
+          "entropy": 0.2363,
+          "tokens_scored": 65,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 4,
+        "type": "reason",
+        "name": "reason",
+        "input": "Cross-check the leg sum against the end-to-end difference.",
+        "output": "Leg sum (13h40m flight + 2h15m layover + 7h50m flight) is 23h45m, and the end-to-end UTC difference is also 23h45m. Consistent, and plausible for SIN-LHR-JFK.",
+        "tokens": 152,
+        "latency_s": 1.76,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9191,
+          "min_token_confidence": 0.7659,
+          "entropy": 0.255,
+          "tokens_scored": 83,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 5,
+        "type": "answer",
+        "name": "final_answer",
+        "input": "Compose the final answer from the verified findings.",
+        "output": "The total elapsed journey time is 23 hours 45 minutes: 13h40m for SQ306 SIN-LHR, a 2h15m connection at Heathrow, and 7h50m for BA117 LHR-JFK (all computed in UTC).",
+        "tokens": 152,
+        "latency_s": 1.86,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9003,
+          "min_token_confidence": 0.6901,
+          "entropy": 0.2795,
+          "tokens_scored": 83,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      }
+    ]
+  },
+  "b": {
+    "agent": {
+      "name": "bolt-v3",
+      "model": "gpt-5",
+      "version": "v3"
+    },
+    "outcome": {
+      "success": false,
+      "answer": "The total elapsed journey time is about 11 hours 45 minutes (6h40m SIN-LHR, 2h15m connection, 2h50m LHR-JFK).",
+      "score": 0.0
+    },
+    "totals": {
+      "input_tokens": 457,
+      "output_tokens": 190,
+      "cost_usd": 0.004221,
+      "latency_s": 7.76
+    },
+    "steps": [
+      {
+        "index": 0,
+        "type": "plan",
+        "name": "plan",
+        "input": "1) Work out the duration of each flight leg and the layover from the scheduled times. 2) Sum them. 3) Sanity-check the total against the end-to-end departure/arrival difference. 4) Answer.",
+        "output": "Plan set. Working through the legs in order.",
+        "tokens": 156,
+        "latency_s": 2.08,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8669,
+          "min_token_confidence": 0.6427,
+          "entropy": 0.3029,
+          "tokens_scored": 85,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 1,
+        "type": "tool_call",
+        "name": "calculator",
+        "input": "(15:40 - 09:00) + (17:55 - 15:40) + (20:45 - 17:55)",
+        "output": "6:40 + 2:15 + 2:50 = 11:45",
+        "tokens": 117,
+        "latency_s": 1.32,
+        "quality": "bad",
+        "note": "Divergence: used a plain calculator on local clock times. SGT/BST/EDT offsets are ignored, so every leg duration is wrong.",
+        "model": {
+          "confidence": 0.8823,
+          "min_token_confidence": 0.6576,
+          "entropy": 0.3206,
+          "tokens_scored": 64,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 2,
+        "type": "tool_call",
+        "name": "calculator",
+        "input": "20:45 - 09:00",
+        "output": "11:45",
+        "tokens": 102,
+        "latency_s": 1.22,
+        "quality": "bad",
+        "note": "The cross-check repeats the same timezone error, so it falsely corroborates 11h45m.",
+        "model": {
+          "confidence": 0.8809,
+          "min_token_confidence": 0.6865,
+          "entropy": 0.3728,
+          "tokens_scored": 56,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 3,
+        "type": "reason",
+        "name": "reason",
+        "input": "Sanity-check the total.",
+        "output": "Leg-by-leg gives 11h45m and door-to-door (20:45 minus 09:00) also gives 11h45m — the two methods agree, so the total holds.",
+        "tokens": 134,
+        "latency_s": 1.39,
+        "quality": "weak",
+        "note": "Failed sanity check: SIN to New York via London in under 12 hours should have triggered a re-check of timezone handling.",
+        "model": {
+          "confidence": 0.8358,
+          "min_token_confidence": 0.638,
+          "entropy": 0.499,
+          "tokens_scored": 73,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 4,
+        "type": "answer",
+        "name": "final_answer",
+        "input": "Compose the final answer from the verified findings.",
+        "output": "The total elapsed journey time is about 11 hours 45 minutes (6h40m SIN-LHR, 2h15m connection, 2h50m LHR-JFK).",
+        "tokens": 138,
+        "latency_s": 1.75,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8885,
+          "min_token_confidence": 0.6622,
+          "entropy": 0.2707,
+          "tokens_scored": 75,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      }
+    ]
+  },
+  "alignment": [
+    {
+      "a_index": 0,
+      "b_index": 0,
+      "op": "match",
+      "similarity": 1.0,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 0,
+          "latency_s": 0.05,
+          "cost_usd": -0.000157
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        },
+        "propagation": {
+          "a": 0.0,
+          "b": 0.0286
+        }
+      }
+    },
+    {
+      "a_index": 1,
+      "b_index": null,
+      "op": "a_only",
+      "similarity": 0.0
+    },
+    {
+      "a_index": 2,
+      "b_index": 1,
+      "op": "drift",
+      "similarity": 0.5,
+      "tool_diff": {
+        "name_a": "datetime_diff",
+        "name_b": "calculator",
+        "same_tool": false,
+        "args_a": null,
+        "args_b": null,
+        "changed": [],
+        "only_a": [],
+        "only_b": [],
+        "raw_diff": [
+          [
+            "del",
+            "diff"
+          ],
+          [
+            "eq",
+            "("
+          ],
+          [
+            "del",
+            "2025-06-10T01"
+          ],
+          [
+            "ins",
+            "15"
+          ],
+          [
+            "eq",
+            ":"
+          ],
+          [
+            "del",
+            "00Z,"
+          ],
+          [
+            "ins",
+            "40"
+          ],
+          [
+            "eq",
+            " "
+          ],
+          [
+            "del",
+            "2025"
+          ],
+          [
+            "eq",
+            "-"
+          ],
+          [
+            "del",
+            "06-10T14"
+          ],
+          [
+            "ins",
+            " 09"
+          ],
+          [
+            "eq",
+            ":"
+          ],
+          [
+            "del",
+            "40Z"
+          ],
+          [
+            "ins",
+            "00"
+          ],
+          [
+            "eq",
+            ")"
+          ],
+          [
+            "del",
+            ";"
+          ],
+          [
+            "eq",
+            " "
+          ],
+          [
+            "del",
+            "diff"
+          ],
+          [
+            "ins",
+            "+ "
+          ],
+          [
+            "eq",
+            "("
+          ],
+          [
+            "del",
+            "2025-06-10T14"
+          ],
+          [
+            "ins",
+            "17"
+          ],
+          [
+            "eq",
+            ":"
+          ],
+          [
+            "del",
+            "40Z,"
+          ],
+          [
+            "ins",
+            "55"
+          ],
+          [
+            "eq",
+            " "
+          ],
+          [
+            "del",
+            "2025"
+          ],
+          [
+            "eq",
+            "-"
+          ],
+          [
+            "del",
+            "06-10T16"
+          ],
+          [
+            "ins",
+            " 15"
+          ],
+          [
+            "eq",
+            ":"
+          ],
+          [
+            "del",
+            "55Z"
+          ],
+          [
+            "ins",
+            "40"
+          ],
+          [
+            "eq",
+            ")"
+          ],
+          [
+            "del",
+            ";"
+          ],
+          [
+            "eq",
+            " "
+          ],
+          [
+            "del",
+            "diff"
+          ],
+          [
+            "ins",
+            "+ "
+          ],
+          [
+            "eq",
+            "("
+          ],
+          [
+            "del",
+            "2025-06-10T16"
+          ],
+          [
+            "ins",
+            "20"
+          ],
+          [
+            "eq",
+            ":"
+          ],
+          [
+            "del",
+            "55Z,"
+          ],
+          [
+            "ins",
+            "45"
+          ],
+          [
+            "eq",
+            " "
+          ],
+          [
+            "del",
+            "2025"
+          ],
+          [
+            "eq",
+            "-"
+          ],
+          [
+            "del",
+            "06-11T00"
+          ],
+          [
+            "ins",
+            " 17"
+          ],
+          [
+            "eq",
+            ":"
+          ],
+          [
+            "del",
+            "45Z"
+          ],
+          [
+            "ins",
+            "55"
+          ],
+          [
+            "eq",
+            ")"
+          ]
+        ]
+      },
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 0.0,
+          "input_jaccard": 0.0
+        },
+        "delta": {
+          "tokens": -18,
+          "latency_s": -0.5,
+          "cost_usd": -0.000253
+        },
+        "quality": {
+          "a": "good",
+          "b": "bad",
+          "verdict": "b_degraded"
+        },
+        "propagation": {
+          "a": 0.0,
+          "b": 0.25
+        }
+      }
+    },
+    {
+      "a_index": 3,
+      "b_index": 2,
+      "op": "drift",
+      "similarity": 0.5,
+      "tool_diff": {
+        "name_a": "datetime_diff",
+        "name_b": "calculator",
+        "same_tool": false,
+        "args_a": null,
+        "args_b": null,
+        "changed": [],
+        "only_a": [],
+        "only_b": [],
+        "raw_diff": [
+          [
+            "del",
+            "sum(13h40m, 2h15m, 7h50m); diff(2025-06-10T01"
+          ],
+          [
+            "ins",
+            "20"
+          ],
+          [
+            "eq",
+            ":"
+          ],
+          [
+            "del",
+            "00Z,"
+          ],
+          [
+            "ins",
+            "45"
+          ],
+          [
+            "eq",
+            " "
+          ],
+          [
+            "del",
+            "2025"
+          ],
+          [
+            "eq",
+            "-"
+          ],
+          [
+            "del",
+            "06-11T00"
+          ],
+          [
+            "ins",
+            " 09"
+          ],
+          [
+            "eq",
+            ":"
+          ],
+          [
+            "del",
+            "45Z)"
+          ],
+          [
+            "ins",
+            "00"
+          ]
+        ]
+      },
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 0.0,
+          "input_jaccard": 0.0
+        },
+        "delta": {
+          "tokens": -17,
+          "latency_s": -0.4,
+          "cost_usd": -0.000231
+        },
+        "quality": {
+          "a": "good",
+          "b": "bad",
+          "verdict": "b_degraded"
+        },
+        "propagation": {
+          "a": 0.2727,
+          "b": 0.1
+        }
+      }
+    },
+    {
+      "a_index": 4,
+      "b_index": 3,
+      "op": "drift",
+      "similarity": 0.625,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 0.1818
+        },
+        "delta": {
+          "tokens": -18,
+          "latency_s": -0.37,
+          "cost_usd": -0.00027
+        },
+        "quality": {
+          "a": "good",
+          "b": "weak",
+          "verdict": "b_degraded"
+        },
+        "propagation": {
+          "a": 0.0,
+          "b": 0.0
+        }
+      }
+    },
+    {
+      "a_index": 5,
+      "b_index": 4,
+      "op": "match",
+      "similarity": 1.0,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": -14,
+          "latency_s": -0.11,
+          "cost_usd": -0.000244
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        },
+        "propagation": {
+          "a": 0.0,
+          "b": 0.0
+        }
+      }
+    }
+  ],
+  "divergences": [
+    {
+      "rank": 1,
+      "a_index": 1,
+      "b_index": 1,
+      "kind": "tool_selection",
+      "summary": "Agent B skipped 1 step(s) that Agent A performed, where Agent A reasoned \"Normalize every timestamp before any arithmetic.\".",
+      "downstream": {
+        "extra_steps_a": 1,
+        "extra_tokens_a": 235,
+        "extra_latency_s_a": 3.42,
+        "caused_failure": true,
+        "failed_agent": "b"
+      }
+    }
+  ],
+  "attribution": {
+    "failed_agent": "b",
+    "root_cause_step": 1,
+    "chain": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "category": "tool_selection",
+    "explanation": "Agent B diverged at step 1 because it made an incorrect tool call (bad-quality: \"calculator\"). That propagated into the step where it called tool \"calculator\" with \"20:45 - 09:00\" (annotated bad) at step 2 (and steps 3) and caused the final failure. The answer emitted at step 4 was wrong, so the failure is attributed to tool_selection at step 1."
+  },
+  "answer_eval": {
+    "expected": "23 hours 45 minutes",
+    "diff_ab": [
+      [
+        "eq",
+        "The total elapsed journey time is "
+      ],
+      [
+        "del",
+        "23"
+      ],
+      [
+        "ins",
+        "about"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "ins",
+        "11 "
+      ],
+      [
+        "eq",
+        "hours 45 minutes"
+      ],
+      [
+        "del",
+        ":"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "13h40m for SQ306"
+      ],
+      [
+        "ins",
+        "(6h40m"
+      ],
+      [
+        "eq",
+        " SIN-LHR, "
+      ],
+      [
+        "del",
+        "a "
+      ],
+      [
+        "eq",
+        "2h15m connection"
+      ],
+      [
+        "del",
+        " at Heathrow"
+      ],
+      [
+        "eq",
+        ", "
+      ],
+      [
+        "del",
+        "and 7h50m for BA117"
+      ],
+      [
+        "ins",
+        "2h50m"
+      ],
+      [
+        "eq",
+        " LHR-JFK"
+      ],
+      [
+        "del",
+        " (all computed in UTC"
+      ],
+      [
+        "eq",
+        ")."
+      ]
+    ],
+    "a_vs_expected": {
+      "coverage": 1.0,
+      "verdict": "match"
+    },
+    "b_vs_expected": {
+      "coverage": 0.75,
+      "verdict": "partial"
+    }
+  },
+  "metrics_delta": {
+    "steps": {
+      "a": 6,
+      "b": 5
+    },
+    "tokens": {
+      "a": 882,
+      "b": 647
+    },
+    "cost_usd": {
+      "a": 0.006642,
+      "b": 0.004221
+    },
+    "latency_s": {
+      "a": 11.13,
+      "b": 7.76
+    },
+    "tool_calls": {
+      "a": 2,
+      "b": 2
+    },
+    "searches": {
+      "a": 0,
+      "b": 0
+    }
+  },
+  "success_analysis": {
+    "winner": "a",
+    "basis": "outcome",
+    "winning_decisions": [
+      {
+        "step_index": 1,
+        "agent": "atlas-v2",
+        "kind": "tool_selection",
+        "decision": "These times are in three zones, so convert to UTC first: SGT is UTC+8, BST is UTC+1, EDT…",
+        "counterpart": "called tool \"calculator\" with \"(15:40 - 09:00) + (17:55 - 15:40) + (20:45 - 17:55)\" (annotated bad) (bolt-v3)",
+        "why": "avoided a bad-quality step; counterpart note: \"Divergence: used a plain calculator on local clock times. SGT/BST/EDT…\"; the right tool for the data actually in hand",
+        "impact": {
+          "avoided_extra_steps": 0,
+          "avoided_tokens": 0,
+          "avoided_latency_s": 0.0,
+          "avoided_failure": true
+        }
+      }
+    ],
+    "narrative": "atlas-v2 won on outcome over bolt-v3. Key decision at step 1 (tool_selection): \"These times are in three zones, so convert to UTC first: SGT is UTC+8, BST is UTC+1, EDT…\" versus called tool \"calculator\" with \"(15:40 - 09:00) + (17:55 - 15:40) + (20:45 - 17:55)\" (annotated bad) (bolt-v3). Altogether its choices avoided 0 extra step(s), 0 tokens and 0s of latency, and the failure that followed."
+  },
+  "uncertainty": {
+    "available": true,
+    "a": {
+      "series": [
+        0.8982,
+        0.9094,
+        0.93,
+        0.9273,
+        0.9191,
+        0.9003
+      ],
+      "mean_confidence": 0.9141,
+      "min_confidence": 0.8982,
+      "mean_entropy": 0.269,
+      "min_token_confidence": 0.6891,
+      "steps_scored": 6
+    },
+    "b": {
+      "series": [
+        0.8669,
+        0.8823,
+        0.8809,
+        0.8358,
+        0.8885
+      ],
+      "mean_confidence": 0.8709,
+      "min_confidence": 0.8358,
+      "mean_entropy": 0.3532,
+      "min_token_confidence": 0.638,
+      "steps_scored": 5
+    },
+    "signal": {
+      "failed_agent": "b",
+      "root_cause_step": 1,
+      "confidence_at_root": 0.8823,
+      "baseline_confidence": 0.868,
+      "drop": -0.0143,
+      "verdict": "silent",
+      "lead_steps": 0,
+      "mitigation": "no confidence threshold would have caught this; the model was as sure here as anywhere — mitigate with an external verification step instead"
+    },
+    "calibration": {
+      "confident_when_wrong": true,
+      "confidence_at_wrong_step": 0.8823
+    },
+    "narrative": "atlas-v2 ran at 91% mean token confidence (low of 90%). bolt-v3 ran at 87% mean token confidence (low of 84%). The model gave no warning: bolt-v3 was 88% confident at the step that caused the failure — no lower than its own baseline of 87%. This failure class needs external verification, not a confidence threshold."
+  },
+  "semantic": {
+    "methods": [
+      "tfidf_cosine",
+      "claim_provenance"
+    ],
+    "rows": [
+      {
+        "row": 0,
+        "a_index": 0,
+        "b_index": 0,
+        "lexical": 1.0,
+        "semantic": 1.0
+      },
+      {
+        "row": 2,
+        "a_index": 2,
+        "b_index": 1,
+        "lexical": 0.5,
+        "semantic": 0.0
+      },
+      {
+        "row": 3,
+        "a_index": 3,
+        "b_index": 2,
+        "lexical": 0.5,
+        "semantic": 0.0
+      },
+      {
+        "row": 4,
+        "a_index": 4,
+        "b_index": 3,
+        "lexical": 0.625,
+        "semantic": 0.2339
+      },
+      {
+        "row": 5,
+        "a_index": 5,
+        "b_index": 4,
+        "lexical": 1.0,
+        "semantic": 0.7032
+      }
+    ],
+    "first_semantic_break": 2,
+    "claims": [
+      {
+        "id": "c1",
+        "kind": "duration",
+        "value": "13h40m",
+        "normalized": "820",
+        "matches_expected": false,
+        "a_steps": [
+          2,
+          3,
+          4,
+          5
+        ],
+        "b_steps": [],
+        "origin": {
+          "agent": "a",
+          "step": 2,
+          "source": null
+        }
+      },
+      {
+        "id": "c2",
+        "kind": "duration",
+        "value": "2h15m",
+        "normalized": "135",
+        "matches_expected": false,
+        "a_steps": [
+          2,
+          3,
+          4,
+          5
+        ],
+        "b_steps": [
+          4
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 2,
+          "source": null
+        }
+      },
+      {
+        "id": "c3",
+        "kind": "duration",
+        "value": "7h50m",
+        "normalized": "470",
+        "matches_expected": false,
+        "a_steps": [
+          2,
+          3,
+          4,
+          5
+        ],
+        "b_steps": [],
+        "origin": {
+          "agent": "a",
+          "step": 2,
+          "source": null
+        }
+      },
+      {
+        "id": "c4",
+        "kind": "duration",
+        "value": "23h45m",
+        "normalized": "1425",
+        "matches_expected": true,
+        "a_steps": [
+          3,
+          4,
+          5
+        ],
+        "b_steps": [],
+        "origin": {
+          "agent": "a",
+          "step": 3,
+          "source": null
+        }
+      },
+      {
+        "id": "c5",
+        "kind": "duration",
+        "value": "11h45m",
+        "normalized": "705",
+        "matches_expected": false,
+        "a_steps": [],
+        "b_steps": [
+          3,
+          4
+        ],
+        "origin": {
+          "agent": "b",
+          "step": 3,
+          "source": null
+        }
+      },
+      {
+        "id": "c6",
+        "kind": "duration",
+        "value": "6h40m",
+        "normalized": "400",
+        "matches_expected": false,
+        "a_steps": [],
+        "b_steps": [
+          4
+        ],
+        "origin": {
+          "agent": "b",
+          "step": 4,
+          "source": null
+        }
+      },
+      {
+        "id": "c7",
+        "kind": "duration",
+        "value": "2h50m",
+        "normalized": "170",
+        "matches_expected": false,
+        "a_steps": [],
+        "b_steps": [
+          4
+        ],
+        "origin": {
+          "agent": "b",
+          "step": 4,
+          "source": null
+        }
+      }
+    ],
+    "conflicts": [
+      {
+        "kind": "duration",
+        "a_claim": "c1",
+        "b_claim": "c5",
+        "summary": "A carried 13h40m; B carried 11h45m; expected: 23 hours 45 minutes."
+      }
+    ],
+    "intents": {
+      "a": [
+        {
+          "step": 0,
+          "intent": "frame"
+        },
+        {
+          "step": 1,
+          "intent": "decide"
+        },
+        {
+          "step": 2,
+          "intent": "transform"
+        },
+        {
+          "step": 3,
+          "intent": "transform"
+        },
+        {
+          "step": 4,
+          "intent": "verify"
+        },
+        {
+          "step": 5,
+          "intent": "commit"
+        }
+      ],
+      "b": [
+        {
+          "step": 0,
+          "intent": "frame"
+        },
+        {
+          "step": 1,
+          "intent": "transform"
+        },
+        {
+          "step": 2,
+          "intent": "transform"
+        },
+        {
+          "step": 3,
+          "intent": "verify"
+        },
+        {
+          "step": 4,
+          "intent": "commit"
+        }
+      ],
+      "missing": {
+        "a": [],
+        "b": [
+          "decide"
+        ]
+      }
+    },
+    "grounding": {
+      "a": {
+        "claims_total": 4,
+        "claims_grounded": 4,
+        "score": 1.0,
+        "ungrounded": []
+      },
+      "b": {
+        "claims_total": 4,
+        "claims_grounded": 1,
+        "score": 0.25,
+        "ungrounded": [
+          {
+            "claim": "c2",
+            "value": "2h15m"
+          },
+          {
+            "claim": "c6",
+            "value": "6h40m"
+          },
+          {
+            "claim": "c7",
+            "value": "2h50m"
+          }
+        ]
+      }
+    },
+    "independence": [],
+    "contradictions": [],
+    "narrative": "Meaning breaks from wording at alignment row 2 (lexical 0.50 vs semantic 0.00). Decisive claim conflict (duration): A carried 13h40m; B carried 11h45m; expected: 23 hours 45 minutes."
+  },
+  "counterfactual": {
+    "premise": "had bolt-v3 made atlas-v2's decision at step 1",
+    "splice": {
+      "prefix_steps": [
+        0
+      ],
+      "adopted_from": "a",
+      "adopted_steps": [
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "estimate": {
+      "outcome": "success",
+      "steps": 5,
+      "steps_delta": 0,
+      "tokens": 714,
+      "tokens_delta": 67,
+      "latency_s": 9.14,
+      "latency_delta_s": 1.38,
+      "cost_usd": 0.00522,
+      "cost_delta_usd": 0.000999
+    },
+    "confidence": "low",
+    "narrative": "Had bolt-v3 called tool \"datetime_diff\" with \"diff(2025-06-10T01:00Z, 2025-06-10T14:40Z); diff(2025-06-10…\" at step 1 (as atlas-v2 did), the estimated run is 5 steps, 714 tokens, 9.14s — at no extra cost — and ends in success."
+  },
+  "shapley": {
+    "available": true,
+    "metric": "tokens",
+    "loser": "bolt-v3",
+    "winner": "atlas-v2",
+    "regions": 1,
+    "method": "exact",
+    "total_saving": -221.0,
+    "allocations": [
+      {
+        "region": 0,
+        "rank": 1,
+        "kind": "tool_selection",
+        "summary": "Agent B skipped 1 step(s) that Agent A performed, where Agent A reasoned \"Normalize every timestamp before any arithmetic.\".",
+        "alignment_rows": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "shapley": -221.0,
+        "share": 1.0,
+        "caused_failure": true
+      }
+    ],
+    "efficiency_check": 0.0,
+    "outcome_attributable": true,
+    "outcome_note": "exactly one divergence was causal, so the outcome is attributable to it",
+    "narrative": "Fixing every divergence would have saved -221 tokens. The largest single share is 100% (-221), from the tool_selection divergence at region 0."
+  }
+}
