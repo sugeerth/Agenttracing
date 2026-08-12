@@ -74,6 +74,68 @@ def _mean(values: list[float]) -> float:
     return round(sum(values) / len(values), 6) if values else 0.0
 
 
+def task_signal(reports: list[dict], stability: Optional[dict] = None) -> list[dict]:
+    """Per-task difficulty and discrimination (SCHEMA.md v9 ``task_signal``).
+
+    ``difficulty`` = 1 - mean success across sides (across all runs when a
+    ``stability`` object is provided, else across the single pair).
+    ``discrimination`` = the success-rate gap when the sides differ; when
+    successes tie, the normalized cost+latency gap (each gap divided by the
+    larger side's value, averaged, capped at 1.0).  Sorted most
+    discriminating first, then hardest, then task id.
+    """
+    stability_by_task: dict[str, dict] = {}
+    if stability:
+        for entry in stability.get("per_task", []):
+            stability_by_task[entry["task"]] = entry
+
+    signals: list[dict] = []
+    for report in reports:
+        tid = report["task"]["id"]
+        entry = stability_by_task.get(tid)
+        if entry:
+            succ = entry["a"]["successes"] + entry["b"]["successes"]
+            runs = entry["a"]["runs"] + entry["b"]["runs"]
+            rate_a = entry["a"]["successes"] / entry["a"]["runs"]
+            rate_b = entry["b"]["successes"] / entry["b"]["runs"]
+            mean_success = succ / runs if runs else 0.0
+        else:
+            rate_a = 1.0 if report["a"]["outcome"]["success"] else 0.0
+            rate_b = 1.0 if report["b"]["outcome"]["success"] else 0.0
+            mean_success = (rate_a + rate_b) / 2
+        difficulty = round(1.0 - mean_success, 4)
+
+        gap = abs(rate_a - rate_b)
+        if gap > 0:
+            discrimination = round(gap, 4)
+            if gap >= 1.0:
+                note = "separates the agents: one side always fails it"
+            else:
+                note = f"separates the agents: success gap {gap:.0%}"
+        else:
+            delta = report["metrics_delta"]
+            gaps = []
+            for key in ("cost_usd", "latency_s"):
+                hi = max(delta[key]["a"], delta[key]["b"])
+                lo = min(delta[key]["a"], delta[key]["b"])
+                gaps.append((hi - lo) / hi if hi > 0 else 0.0)
+            discrimination = round(min(1.0, sum(gaps) / len(gaps)), 4)
+            if discrimination > 0:
+                note = "same outcomes; separates on cost/latency"
+            else:
+                note = "no signal: identical outcomes and costs"
+        signals.append(
+            {
+                "task": tid,
+                "difficulty": difficulty,
+                "discrimination": discrimination,
+                "note": note,
+            }
+        )
+    signals.sort(key=lambda s: (-s["discrimination"], -s["difficulty"], s["task"]))
+    return signals
+
+
 def aggregate(reports: list[dict]) -> dict:
     """Roll up a list of comparison reports (SCHEMA.md report objects).
 
@@ -94,6 +156,7 @@ def aggregate(reports: list[dict]) -> dict:
             "recommendations": [],
             "playbook": [],
             "semantic_profile": {},
+            "task_signal": [],
         }
 
     name_a = reports[0]["a"]["agent"]["name"]
@@ -154,4 +217,5 @@ def aggregate(reports: list[dict]) -> dict:
         "recommendations": recommend(reports),
         "playbook": playbook(reports),
         "semantic_profile": semantic_profile(reports),
+        "task_signal": task_signal(reports),
     }

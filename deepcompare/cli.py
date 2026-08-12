@@ -25,11 +25,13 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from .adapters import from_openai_messages, from_otel_genai
 from .fleet import DEFAULT_WEIGHTS, fleet_analysis
 from .gate import evaluate_gate, pair_gate_traces, render_gate_markdown
-from .metrics import aggregate as build_aggregate
+from .metrics import aggregate as build_aggregate, task_signal
 from .recommend import recommend
 from .report import compare, render_html
+from .stability import medoid_pairs, stability_analysis
 from .trace import Trajectory
 
 #: default viewer template, relative to the repo root (parent of the package).
@@ -380,6 +382,154 @@ def _cmd_gate(args: argparse.Namespace) -> int:
     return 0 if gate["verdict"] == "pass" else 1
 
 
+def _run_id_from_name(path: Path) -> Optional[str]:
+    """Run id from a ``<task>__<agent>__<run>.json`` filename, else None."""
+    parts = path.stem.split("__")
+    return parts[2] if len(parts) >= 3 else None
+
+
+def _cmd_runs(args: argparse.Namespace) -> int:
+    runs_dir = Path(args.runsdir)
+    if not runs_dir.is_dir():
+        print(f"error: {runs_dir} is not a directory", file=sys.stderr)
+        return 2
+
+    trajectories: list[Trajectory] = []
+    for path in sorted(runs_dir.glob("*.json")):
+        try:
+            t = Trajectory.from_json(path)
+        except ValueError as exc:
+            print(f"warning: skipping invalid trace: {exc}", file=sys.stderr)
+            continue
+        name_run = _run_id_from_name(path)
+        if name_run:
+            t.run_id = name_run
+        trajectories.append(t)
+    if not trajectories:
+        print("error: no valid traces found", file=sys.stderr)
+        return 2
+
+    agent_names = sorted({t.agent.name for t in trajectories})
+    if len(agent_names) != 2:
+        print(
+            f"error: runs mode needs traces from exactly 2 agents, "
+            f"found {len(agent_names)}: {', '.join(agent_names)}",
+            file=sys.stderr,
+        )
+        return 2
+    name_a, name_b = agent_names
+    print(f"Agents: A={name_a}  B={name_b}")
+
+    runs_by_task: dict[str, dict[str, list[Trajectory]]] = {}
+    for t in trajectories:
+        side = "a" if t.agent.name == name_a else "b"
+        runs_by_task.setdefault(t.task.id, {"a": [], "b": []})[side].append(t)
+    for tid in sorted(runs_by_task):
+        if not runs_by_task[tid]["a"] or not runs_by_task[tid]["b"]:
+            print(f"warning: task {tid!r} lacks runs for both agents; skipped",
+                  file=sys.stderr)
+            del runs_by_task[tid]
+    if not runs_by_task:
+        print("error: no tasks with runs on both sides", file=sys.stderr)
+        return 2
+
+    stability = stability_analysis(runs_by_task)
+    reports = [compare(a, b) for a, b in medoid_pairs(runs_by_task)]
+    agg = build_aggregate(reports)
+    agg["stability"] = stability
+    agg["task_signal"] = task_signal(reports, stability)
+
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for report in reports:
+        path = out_dir / f"report_{_safe_name(report['task']['id'])}.json"
+        path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+                        encoding="utf-8")
+        print(f"Wrote {path}")
+    agg_path = out_dir / "aggregate.json"
+    agg_path.write_text(json.dumps(agg, indent=2, ensure_ascii=False) + "\n",
+                        encoding="utf-8")
+    print(f"Wrote {agg_path}")
+
+    template = Path(args.template) if args.template else DEFAULT_TEMPLATE
+    if template.is_file():
+        try:
+            html_path = render_html(reports, agg, template, out_dir / "report.html")
+            print(f"Wrote {html_path}")
+        except ValueError as exc:
+            print(f"warning: could not render HTML: {exc}", file=sys.stderr)
+    else:
+        print(f"warning: viewer template not found at {template}; skipping report.html",
+              file=sys.stderr)
+
+    print(f"Runs: {stability['runs_per_agent']}")
+    for entry in stability["per_task"]:
+        repro = entry["divergence_reproducibility"]
+        print(f"  {entry['task']}: A {entry['a']['verdict']} "
+              f"B {entry['b']['verdict']} | divergence {repro['verdict']}"
+              + (f" ({repro['kind']}, rate {repro['rate']:g})" if repro["kind"] else ""))
+    print(stability["narrative"])
+    return 0
+
+
+def _cmd_convert(args: argparse.Namespace) -> int:
+    in_path = Path(args.input)
+    if not in_path.is_file():
+        print(f"error: {in_path} is not a file", file=sys.stderr)
+        return 2
+    try:
+        data = json.loads(in_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"error: {in_path}: not valid JSON: {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        if args.format == "otel":
+            if not isinstance(data, dict) or "spans" not in data:
+                print("error: otel input must be an object with a 'spans' array "
+                      "(plus 'meta', or top-level 'agent' and 'task')",
+                      file=sys.stderr)
+                return 2
+            # Metadata may sit under "meta" (same shape as the openai adapter
+            # takes) or at the top level; accept either so one convention
+            # works for both formats.
+            meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+            outcome = data.get("outcome") or meta.get("outcome")
+            if outcome is None and ("success" in meta or "answer" in meta):
+                outcome = {k: meta[k] for k in ("success", "answer", "score")
+                           if k in meta}
+            trajectory, warnings = from_otel_genai(
+                data["spans"],
+                agent=data.get("agent") or meta.get("agent") or "otel-agent",
+                task=data.get("task") or meta.get("task") or "task",
+                outcome=outcome,
+            )
+        else:
+            if not isinstance(data, dict) or "messages" not in data:
+                print("error: openai input must be an object with a 'messages' "
+                      "array (plus optional 'meta')", file=sys.stderr)
+                return 2
+            trajectory, warnings = from_openai_messages(
+                data["messages"], data.get("meta")
+            )
+    except ValueError as exc:
+        print(f"error: conversion failed: {exc}", file=sys.stderr)
+        return 2
+
+    for warning in warnings:
+        print(f"warning: {warning}", file=sys.stderr)
+
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tid = _safe_name(trajectory["task"]["id"])
+    agent = _safe_name(trajectory["agent"]["name"])
+    out_path = out_dir / f"{tid}__{agent}.json"
+    out_path.write_text(json.dumps(trajectory, indent=2, ensure_ascii=False) + "\n",
+                        encoding="utf-8")
+    print(f"Wrote {out_path}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the deepcompare argument parser."""
     parser = argparse.ArgumentParser(
@@ -432,6 +582,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_gate.add_argument("--allow-new-failure-modes", action="store_true",
                         help="do not fail the gate on new failure-origin categories")
     p_gate.set_defaults(func=_cmd_gate)
+
+    p_runs = sub.add_parser(
+        "runs", help="multi-run stability analysis over <task>__<agent>__<run>.json traces"
+    )
+    p_runs.add_argument("runsdir", help="directory of multi-run trajectory *.json files")
+    p_runs.add_argument("-o", "--output", default="out", help="output directory (default: out)")
+    p_runs.add_argument("--template",
+                        help=f"viewer HTML template (default: {DEFAULT_TEMPLATE})")
+    p_runs.set_defaults(func=_cmd_runs)
+
+    p_convert = sub.add_parser(
+        "convert", help="convert foreign trace formats to SCHEMA trajectories"
+    )
+    p_convert.add_argument("--format", required=True, choices=("otel", "openai"),
+                           help="input format")
+    p_convert.add_argument("input", help="input JSON file")
+    p_convert.add_argument("-o", "--output", default="out",
+                           help="output directory (default: out)")
+    p_convert.set_defaults(func=_cmd_convert)
     return parser
 
 

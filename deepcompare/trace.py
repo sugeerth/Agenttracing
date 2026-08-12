@@ -204,6 +204,7 @@ class Trajectory:
     totals: Totals
     steps: list[Step] = field(default_factory=list)
     schema_version: int = SCHEMA_VERSION
+    run_id: str = "r1"
 
     @classmethod
     def from_json(cls, path_or_dict: Union[str, Path, dict]) -> "Trajectory":
@@ -258,6 +259,9 @@ class Trajectory:
         version = data.get("schema_version", SCHEMA_VERSION)
         if not isinstance(version, int) or isinstance(version, bool):
             raise ValueError("schema_version must be an integer")
+        run_id = data.get("run_id", "r1")
+        if not isinstance(run_id, str) or not run_id:
+            raise ValueError("run_id must be a non-empty string")
         return cls(
             trace_id=trace_id,
             agent=agent,
@@ -266,12 +270,14 @@ class Trajectory:
             totals=totals,
             steps=steps,
             schema_version=version,
+            run_id=run_id,
         )
 
     def to_dict(self) -> dict:
         return {
             "schema_version": self.schema_version,
             "trace_id": self.trace_id,
+            "run_id": self.run_id,
             "agent": self.agent.to_dict(),
             "task": self.task.to_dict(),
             "outcome": self.outcome.to_dict(),
