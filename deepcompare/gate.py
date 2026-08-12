@@ -15,6 +15,11 @@ from typing import Optional
 from .metrics import aggregate as build_aggregate
 from .report import compare
 from .trace import Trajectory
+from .statistics import (
+    describe_significance,
+    paired_bootstrap_difference,
+    wilson_interval,
+)
 
 DEFAULT_THRESHOLDS = {
     "max_success_drop": 0.0,
@@ -86,6 +91,13 @@ def evaluate_gate(
     checks: list[dict] = []
 
     drop = round(sr_base - sr_cand, 4)
+    # Put a noise floor under the comparison: on a short suite a single
+    # flipped task moves the rate several points, so report whether the drop
+    # survives resampling rather than only whether it crossed a threshold.
+    base_outcomes = [bool(r["a"]["outcome"]["success"]) for r in reports]
+    cand_outcomes = [bool(r["b"]["outcome"]["success"]) for r in reports]
+    bootstrap = paired_bootstrap_difference(base_outcomes, cand_outcomes)
+    n_tasks = len(reports)
     checks.append(
         {
             "name": "success_rate_drop",
@@ -93,8 +105,13 @@ def evaluate_gate(
             "baseline": sr_base,
             "candidate": sr_cand,
             "threshold": th["max_success_drop"],
+            "baseline_ci": list(wilson_interval(sum(base_outcomes), n_tasks)),
+            "candidate_ci": list(wilson_interval(sum(cand_outcomes), n_tasks)),
+            "bootstrap": bootstrap,
+            "significant": bootstrap["significant"],
             "detail": f"success rate changed {sr_base:.0%} -> {sr_cand:.0%} "
-            f"(drop {drop:+.1%}, allowed {th['max_success_drop']:.1%})",
+            f"(drop {drop:+.1%}, allowed {th['max_success_drop']:.1%}). "
+            + describe_significance(bootstrap, n_tasks),
         }
     )
 

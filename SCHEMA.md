@@ -640,3 +640,34 @@ One pattern per line, `#` starts a comment, a trailing `*` is a prefix match.
 Suppressed issues are **still reported and marked**, and excluded only from the
 headline counts — silently dropping findings is how a gate stops being
 trustworthy.
+
+## Gate statistics (v14)
+
+The `success_rate_drop` check carries a noise floor so a gate cannot fire
+confidently on a single flipped task:
+
+```json
+{"name": "success_rate_drop", "pass": false,
+ "baseline": 1.0, "candidate": 0.75, "threshold": 0.0,
+ "baseline_ci": [0.676, 1.0], "candidate_ci": [0.409, 0.927],
+ "bootstrap": {"observed": 0.25, "low": 0.0, "high": 0.625,
+               "significant": false, "samples": 2000},
+ "significant": false,
+ "detail": "... The 25.0% drop is within noise for 8 task(s) ..."}
+```
+
+- `baseline_ci` / `candidate_ci` are Wilson score intervals — chosen over the
+  normal approximation because short eval suites live at the extremes (0/8 and
+  8/8 are common) where the normal approximation breaks.
+- `bootstrap` resamples tasks **in pairs**, since both agents ran the same
+  suite; resampling independently would discard that pairing and overstate the
+  uncertainty. Fixed seed, so a gate decision never changes between runs on
+  identical data.
+- `significant` is true only when the whole interval sits above zero.
+
+`pass` (the threshold decision) and `significant` (the evidence strength) are
+reported **separately and deliberately**: a team's policy may be "block on any
+drop" even when the evidence is thin, and the gate should say both things
+rather than conflate them. `pass_at_k` is available for multi-run suites — the
+strict reading of reliability, where passing 2 of 3 runs is not 67% reliable
+if a user needs it to work three times running.
