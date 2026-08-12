@@ -84,6 +84,11 @@ the same task are the unit of comparison.
       }
       // downstream keys use the `_a` suffix instead (extra_steps_a, ...) when
       // agent A is the side spending more from the divergence point onward
+      // downstream also carries "failed_agent": "a" | "b" | null on the
+      // causal divergence, so consumers attach "caused failure" to the
+      // failing side rather than the merely heavier-spending one.
+      // Note a_index/b_index may fall in DIFFERENT alignment rows when the
+      // region is one-sided; resolve a divergence column by matching either.
     }
   ],
   "attribution": {
@@ -173,6 +178,10 @@ Each alignment entry pairing two `tool_call` (or `search`) steps may carry:
 `args_*` parsed heuristically from `name(k=v, ...)` style inputs; `raw_diff`
 is a token-level LCS diff of the raw inputs as a fallback for unparseable args.
 
+When both sides call the same tool with byte-identical input the engine emits
+the short form `{"same_tool": true, "identical": true}` **without** `name_a` /
+`name_b` / `args_*`; consumers should fall back to the steps' own names.
+
 ## Step-level evaluation detail (pairwise reports, v5)
 
 Every alignment entry pairing two present steps carries an `eval` object:
@@ -185,6 +194,9 @@ Every alignment entry pairing two present steps carries an `eval` object:
   "propagation": {"a": 0.0, "b": 0.45}
 }
 ```
+
+`eval` is present **only on alignment rows with both sides present** — one-sided
+(`a_only` / `b_only`) rows have nothing to compare and carry no `eval`.
 
 `delta` is B minus A. `propagation` (only when one agent failed) is the word
 Jaccard between this step's input and the root divergent step's output on each
@@ -550,6 +562,17 @@ Pairwise reports gain an `uncertainty` object:
   "narrative": "..."
 }
 ```
+
+Field notes (these tripped up a consumer, so they are stated explicitly):
+
+- `drop` is `baseline_confidence − confidence_at_root`. **Positive means
+  confidence fell below the run's own baseline**; a negative value means the
+  model was *more* sure at the failing step than elsewhere. Present it with
+  that sign convention or flip it explicitly.
+- `signal` is `null` whenever no failure was attributed (both runs succeeded,
+  both failed, or the failing step carries no telemetry), even though
+  `available` is `true`. Consumers must handle the null.
+- `calibration` is likewise `null` without a signal.
 
 `verdict` is the operational finding, not a score:
 
