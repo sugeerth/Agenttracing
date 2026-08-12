@@ -23,6 +23,7 @@ from .steps_eval import answer_eval, step_eval
 from .success import success_analysis
 from .tooldiff import TOOLISH_TYPES, tool_diff
 from .trace import Trajectory
+from .shapley import shapley_attribution
 from .uncertainty import analyze as analyze_uncertainty
 
 #: the template line containing this marker is replaced wholesale.
@@ -107,6 +108,7 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
     report["uncertainty"] = analyze_uncertainty(report, a, b)
     report["semantic"] = semantic_analysis(report, a, b)
     report["counterfactual"] = counterfactual(report, a, b)
+    report["shapley"] = shapley_attribution(report, a, b)
     return report
 
 

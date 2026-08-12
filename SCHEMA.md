@@ -671,3 +671,77 @@ drop" even when the evidence is thin, and the gate should say both things
 rather than conflate them. `pass_at_k` is available for multi-run suites — the
 strict reading of reliability, where passing 2 of 3 runs is not 67% reliable
 if a user needs it to work three times running.
+
+## Shapley credit assignment (pairwise reports, v15)
+
+When a run goes wrong in more than one place, summing each divergence's
+downstream cost double-counts — later divergences inherit the extra work
+earlier ones created. `report["shapley"]` allocates the gap fairly instead:
+
+```json
+"shapley": {
+  "available": true, "metric": "tokens", "method": "exact",
+  "loser": "bolt-v3", "winner": "atlas-v2", "regions": 2,
+  "total_saving": 691.0,
+  "allocations": [
+    {"region": 0, "rank": 1, "kind": "retrieval", "summary": "...",
+     "alignment_rows": [2, 3], "shapley": 691.0, "share": 1.0,
+     "caused_failure": true}
+  ],
+  "efficiency_check": 0.0,
+  "outcome_attributable": true,
+  "outcome_note": "...",
+  "narrative": "..."
+}
+```
+
+Each divergence region is a player; a coalition's value is what the run would
+have cost taking the reference path at those regions. **The value function
+never simulates anything** — a coalition's trajectory is assembled from steps
+that were actually recorded on one side or the other, and costed with the
+observed per-token rates. `efficiency_check` is `sum(allocations) −
+total_saving` and must be ~0: the Shapley efficiency axiom, checked
+numerically on every report.
+
+Exact enumeration runs while there are ≤ 12 regions; beyond that the field
+reports `available: false` with a reason rather than silently sampling.
+
+`outcome_attributable` is true **only** when exactly one divergence was
+causal. Splitting a binary outcome across several decisions would require
+counterfactual re-runs the engine cannot perform on logged traces, so it
+declines rather than guessing.
+
+## Attribute-based failure analysis (v15)
+
+Which *behavioural attributes* travel with failure across a corpus:
+
+```json
+{
+  "runs": 264, "failures": 30, "notable": 2,
+  "attributes": [
+    {"attribute": "poor_quality_step",
+     "phrasing": "the run contains a step annotated weak or bad",
+     "with": {"runs": 101, "failures": 30, "failure_rate": 0.297,
+              "ci": [0.216, 0.393]},
+     "without": {"runs": 163, "failures": 0, "failure_rate": 0.0,
+                 "ci": [0.0, 0.023]},
+     "lift": 0.297, "interval": {"...": "paired bootstrap"},
+     "notable": true, "measurable": true}
+  ],
+  "caveat": "...", "narrative": "..."
+}
+```
+
+Attributes are binary predicates over a trajectory (no verification step, no
+plan step, a weak/bad step, a low-confidence step, many tool calls, a long
+trajectory, repeated searches). `lift` is the failure-rate difference between
+runs that have the attribute and runs that do not; `notable` requires |lift| ≥
+0.25 **and** at least 2 runs on each side, so tiny groups cannot produce
+confident findings. A predicate returning None (e.g. confidence on a run with
+no telemetry) excludes that run from that attribute rather than counting it as
+false.
+
+**These are associations, never causes**, and the module says so in its own
+output: an attribute may travel with failure because it causes it, because a
+common factor causes both, or because harder tasks provoke it. The honest use
+is triage — where to look next — not a conclusion to act on blindly.
