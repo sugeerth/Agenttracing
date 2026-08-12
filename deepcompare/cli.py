@@ -26,6 +26,8 @@ from pathlib import Path
 from typing import Optional
 
 from .adapters import from_openai_messages, from_otel_genai
+from .routing import routing_analysis
+from .similarity import similarity_analysis
 from .fleet import DEFAULT_WEIGHTS, fleet_analysis
 from .gate import evaluate_gate, pair_gate_traces, render_gate_markdown
 from .metrics import aggregate as build_aggregate, task_signal
@@ -36,6 +38,8 @@ from .trace import Trajectory
 
 #: default viewer template, relative to the repo root (parent of the package).
 DEFAULT_TEMPLATE = Path(__file__).resolve().parent.parent / "web" / "viewer.html"
+#: template for the lightweight agent-selection view.
+SELECT_TEMPLATE = Path(__file__).resolve().parent.parent / "web" / "select.html"
 
 
 def _load(path: str) -> Trajectory:
@@ -472,6 +476,78 @@ def _cmd_runs(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_select(args: argparse.Namespace) -> int:
+    """Behavioral similarity + agent-selection analysis over a fleet."""
+    traces_dir = Path(args.tracesdir)
+    if not traces_dir.is_dir():
+        print(f"error: {traces_dir} is not a directory", file=sys.stderr)
+        return 2
+
+    trajectories = _load_traces_dir(traces_dir)
+    if not trajectories:
+        print("error: no valid traces found", file=sys.stderr)
+        return 2
+
+    by_agent: dict[str, dict[str, Trajectory]] = {}
+    for t in trajectories:
+        by_agent.setdefault(t.agent.name, {}).setdefault(t.task.id, t)
+    complete = {name: [by_agent[name][tid] for tid in sorted(by_agent[name])]
+                for name in sorted(by_agent)}
+    if len(complete) < 2:
+        print("error: select mode needs at least 2 agents", file=sys.stderr)
+        return 2
+
+    similarity = similarity_analysis(complete)
+    routing = routing_analysis(complete)
+
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    payload = {"similarity": similarity, "routing": routing}
+    (out_dir / "select.json").write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    print(f"Wrote {out_dir / 'select.json'}")
+
+    template = Path(args.template) if args.template else SELECT_TEMPLATE
+    if template.is_file():
+        html_path = out_dir / "select.html"
+        render_html([], {}, template, html_path, extra=payload)
+        print(f"Wrote {html_path}")
+    else:
+        print(f"warning: template {template} not found; skipped HTML",
+              file=sys.stderr)
+
+    print(f"\nBehavioral similarity — {len(complete)} agents")
+    print(similarity["narrative"])
+    if similarity["clusters"]:
+        print("\nBehavioral groups:")
+        for cluster in similarity["clusters"]:
+            if cluster["size"] > 1:
+                print(f"  [{cluster['size']}] {', '.join(cluster['members'])}"
+                      f"  (cheapest: {cluster['cheapest']})")
+    if similarity["redundancies"]:
+        print("\nRedundant agents:")
+        for row in similarity["redundancies"][:5]:
+            print(f"  drop {row['drop']} -> keep {row['keep']}: {row['summary']}")
+    if similarity["complementarities"]:
+        print("\nComplementary pairs:")
+        for row in similarity["complementarities"][:5]:
+            print(f"  {row['a']} + {row['b']}: +{row['gain_tasks']} task(s), "
+                  f"{row['union_coverage']:.0%} together")
+
+    print(f"\nAgent selection")
+    print(routing["narrative"])
+    for portfolio in routing["portfolios"]:
+        print(f"  k={portfolio['k']}: {', '.join(portfolio['members'])} -> "
+              f"{portfolio['coverage']:.0%} coverage, "
+              f"${portfolio['cost_usd']:.4f} ({portfolio['search']})")
+    if routing["unique_solves"]:
+        print("  uniquely solved:")
+        for agent, tasks in routing["unique_solves"].items():
+            print(f"    {agent}: {', '.join(tasks)}")
+    return 0
+
+
 def _cmd_convert(args: argparse.Namespace) -> int:
     in_path = Path(args.input)
     if not in_path.is_file():
@@ -591,6 +667,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_runs.add_argument("--template",
                         help=f"viewer HTML template (default: {DEFAULT_TEMPLATE})")
     p_runs.set_defaults(func=_cmd_runs)
+
+    p_select = sub.add_parser(
+        "select",
+        help="behavioral similarity between agents and which to actually use",
+    )
+    p_select.add_argument("tracesdir",
+                          help="directory of trajectory *.json files (all agents)")
+    p_select.add_argument("-o", "--output", default="out",
+                          help="output directory (default: out)")
+    p_select.add_argument("--template",
+                          help=f"viewer HTML template (default: {SELECT_TEMPLATE})")
+    p_select.set_defaults(func=_cmd_select)
 
     p_convert = sub.add_parser(
         "convert", help="convert foreign trace formats to SCHEMA trajectories"

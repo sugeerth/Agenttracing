@@ -444,3 +444,65 @@ GenAI-convention spans (gen_ai.* attributes), `openai` reads a chat-completions
 style message array with tool calls; both use heuristic step typing
 (tool name / content cues → search/retrieve/read/tool_call/reason) and emit
 warnings for unmapped items rather than failing.
+
+## Behavioral similarity and agent selection (v10)
+
+`python -m deepcompare select TRACESDIR -o out/` writes `select.json` and a
+lightweight `select.html`, with payload `{"similarity": {...}, "routing": {...}}`.
+
+Similarity is measured on four facets rather than one number, because the
+combinations imply different decisions: same outcomes + same cost = duplicate;
+same outcomes + cost gap = redundancy; different outcomes = complementarity.
+
+```json
+"similarity": {
+  "agents": [{"name": "...", "model": "...", "success_rate": 1.0,
+              "mean_cost_usd": 0.0, "mean_tokens": 0.0, "mean_latency_s": 0.0,
+              "mean_steps": 0.0, "tool_usage": {"web_search": 8}}],
+  "facet_weights": {"outcome": 0.40, "process": 0.25,
+                    "tools": 0.20, "resources": 0.15},
+  "pairs": [{"a": "...", "b": "...", "composite": 0.93,
+             "facets": {"outcome": 1.0, "process": 0.88, "tools": 0.95,
+                        "resources": 0.81, "shared_tasks": 8}}],
+  "clusters": [{"members": ["..."], "size": 3, "success_rate": 1.0,
+                "cheapest": "...", "representative": "..."}],
+  "redundancies": [{"keep": "...", "drop": "...", "similarity": 0.90,
+                    "cost_gap": 0.31, "saving_per_task_usd": 0.0025,
+                    "also_dominated_by": ["..."], "summary": "..."}],
+  "complementarities": [{"a": "...", "b": "...", "union_coverage": 1.0,
+                         "best_alone_coverage": 0.75, "gain_tasks": 2,
+                         "only_a": ["t05"], "only_b": ["t01"], "summary": "..."}],
+  "narrative": "..."
+}
+```
+
+- `outcome` = fraction of shared tasks where both agents got the same result.
+- `process` = mean normalized LCS over step-type sequences (trajectory shape).
+- `tools` = cosine over tool-usage counts.
+- `resources` = mean of `min/max` ratios for tokens, latency and steps, so the
+  measure is scale-free.
+- `redundancies` carries **one row per droppable agent** (its best replacement),
+  and only when outcomes match on every shared task and the cost gap exceeds 15%.
+
+```json
+"routing": {
+  "tasks": ["t01", "..."], "agents": 33,
+  "per_task": [{"task": "t01", "solvers": ["..."], "solver_count": 21,
+                "champion_solves": true, "cheapest_solver": "...",
+                "cheapest_cost_usd": 0.004, "champion_cost_usd": 0.005}],
+  "best_single": {"agent": "...", "coverage": 1.0,
+                  "covered_tasks": ["..."], "cost_usd": 0.045},
+  "oracle": {"coverage": 1.0, "cost_usd": 0.039, "coverage_headroom": 0.0,
+             "cost_saving_usd": 0.0057, "note": "ceiling assuming per-task ..."},
+  "portfolios": [{"k": 2, "members": ["..."], "coverage": 1.0,
+                  "covered_tasks": ["..."], "cost_usd": 0.043,
+                  "search": "exact | greedy"}],
+  "unique_solves": {"agent": ["t04"]},
+  "narrative": "..."
+}
+```
+
+`oracle` is a **ceiling, not a policy** — it assumes per-task knowledge of which
+agent will succeed. The gap between `best_single` and `oracle` is the headroom a
+router could win, and no more. `portfolios[].search` is `greedy` for fleets
+larger than 14 agents, so the reader knows the search was not exhaustive.

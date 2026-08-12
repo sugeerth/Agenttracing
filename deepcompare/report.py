@@ -114,6 +114,7 @@ def render_html(
     template_path: Union[str, Path],
     out_path: Union[str, Path],
     fleet: Optional[dict] = None,
+    extra: Optional[dict] = None,
 ) -> Path:
     """Render the viewer HTML by injecting report data into a template.
 
@@ -133,6 +134,12 @@ def render_html(
     data: dict = {"reports": reports, "aggregate": aggregate}
     if fleet is not None:
         data["fleet"] = fleet
+    if extra:
+        # Additional top-level sections (e.g. similarity/routing for the
+        # selection view); never allowed to clobber the core keys.
+        for key, value in extra.items():
+            if key not in ("reports", "aggregate", "fleet"):
+                data[key] = value
     payload = json.dumps(data, ensure_ascii=False)
     # Keep the payload safe inside a <script> block.
     payload = payload.replace("</", "<\\/")
