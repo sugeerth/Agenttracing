@@ -14,6 +14,7 @@ from .recommend import recommend
 from .semantic import semantic_profile
 from .success import playbook
 from .trace import Trajectory
+from .uncertainty import calibration_profile
 
 #: metric key -> human label used in regression messages.
 _REGRESSION_METRICS = {
@@ -216,6 +217,7 @@ def aggregate(reports: list[dict]) -> dict:
         "regressions": regressions,
         "recommendations": recommend(reports),
         "playbook": playbook(reports),
+        "calibration": calibration_profile(reports),
         "semantic_profile": semantic_profile(reports),
         "task_signal": task_signal(reports),
     }

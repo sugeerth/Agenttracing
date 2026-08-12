@@ -23,6 +23,7 @@ from .steps_eval import answer_eval, step_eval
 from .success import success_analysis
 from .tooldiff import TOOLISH_TYPES, tool_diff
 from .trace import Trajectory
+from .uncertainty import analyze as analyze_uncertainty
 
 #: the template line containing this marker is replaced wholesale.
 DATA_MARKER = "window.DEEPCOMPARE_DATA"
@@ -103,6 +104,7 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
         "metrics_delta": metrics_delta(a, b),
     }
     report["success_analysis"] = success_analysis(report, a, b)
+    report["uncertainty"] = analyze_uncertainty(report, a, b)
     report["semantic"] = semantic_analysis(report, a, b)
     report["counterfactual"] = counterfactual(report, a, b)
     return report

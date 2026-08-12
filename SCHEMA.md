@@ -506,3 +506,60 @@ same outcomes + cost gap = redundancy; different outcomes = complementarity.
 agent will succeed. The gap between `best_single` and `oracle` is the headroom a
 router could win, and no more. `portfolios[].search` is `greedy` for fleets
 larger than 14 agents, so the reader knows the search was not exhaustive.
+
+## Model telemetry (Step, optional, v12)
+
+A step may carry the model's own signal alongside what the agent did:
+
+```json
+"model": {
+  "confidence": 0.86,
+  "min_token_confidence": 0.41,
+  "entropy": 0.72,
+  "tokens_scored": 120,
+  "temperature": 0.7,
+  "source": "provider logprobs | synthetic-demo | ..."
+}
+```
+
+`confidence` and `min_token_confidence` are probabilities in [0, 1] — the mean
+and minimum per-token probability over the text the step generated (from
+provider logprobs: OpenAI `logprobs`, vLLM/TGI `logprobs` for open-weight
+models, etc.). `entropy` is mean per-token entropy in nats. All fields are
+optional; steps without a `model` block are simply unscored. No weights or
+model internals are required — only the per-token probabilities an inference
+API already returns.
+
+Pairwise reports gain an `uncertainty` object:
+
+```json
+"uncertainty": {
+  "available": true,
+  "a": {"series": [0.92, null, 0.88], "mean_confidence": 0.90,
+        "min_confidence": 0.88, "mean_entropy": 0.2,
+        "min_token_confidence": 0.7, "steps_scored": 2},
+  "b": {"...": "..."},
+  "signal": {
+    "failed_agent": "b", "root_cause_step": 2,
+    "confidence_at_root": 0.88, "baseline_confidence": 0.85,
+    "drop": -0.03, "verdict": "flagged | silent", "lead_steps": 0,
+    "mitigation": "..."
+  },
+  "calibration": {"confident_when_wrong": true,
+                  "confidence_at_wrong_step": 0.88},
+  "narrative": "..."
+}
+```
+
+`verdict` is the operational finding, not a score:
+
+- **flagged** — confidence fell at least 0.15 below the run's own baseline at
+  the step that caused the failure (`lead_steps` says how many steps earlier
+  the drop began). A runtime confidence gate would have caught this run.
+- **silent** — the model was as confident there as anywhere. No threshold on
+  its own uncertainty helps; only external verification catches this class.
+
+Aggregate gains `calibration`: per agent, how many of its failures were
+flagged versus silent, and a verdict of `supervisable` (≥50% flagged) or
+`silent-failing`. An agent that fails silently cannot be supervised by
+thresholding its own confidence however good its success rate looks.

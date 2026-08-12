@@ -140,6 +140,9 @@ class Step:
     latency_s: float = 0.0
     quality: Optional[str] = None
     note: Optional[str] = None
+    #: optional model-internal telemetry for this step (SCHEMA.md v12):
+    #: confidence, min_token_confidence, entropy, tokens_scored, temperature.
+    model: Optional[dict] = None
 
     @classmethod
     def from_dict(cls, d: dict, position: int) -> "Step":
@@ -167,6 +170,26 @@ class Step:
         note = d.get("note")
         if note is not None and not isinstance(note, str):
             raise ValueError(f"{where}: note must be a string or null")
+        model = d.get("model")
+        if model is not None:
+            if not isinstance(model, dict):
+                raise ValueError(f"{where}: model must be an object or null")
+            for key in ("confidence", "min_token_confidence"):
+                value = model.get(key)
+                if value is not None:
+                    if not isinstance(value, (int, float)) or isinstance(value, bool):
+                        raise ValueError(f"{where}: model.{key} must be a number")
+                    if not 0.0 <= float(value) <= 1.0:
+                        raise ValueError(
+                            f"{where}: model.{key} must be a probability in [0, 1]"
+                        )
+            for key in ("entropy", "temperature"):
+                value = model.get(key)
+                if value is not None and (
+                    not isinstance(value, (int, float)) or isinstance(value, bool)
+                    or float(value) < 0
+                ):
+                    raise ValueError(f"{where}: model.{key} must be a non-negative number")
         return cls(
             index=index,
             type=stype,
@@ -177,6 +200,7 @@ class Step:
             latency_s=float(latency),
             quality=quality,
             note=note,
+            model=model,
         )
 
     def to_dict(self) -> dict:
@@ -190,6 +214,7 @@ class Step:
             "latency_s": self.latency_s,
             "quality": self.quality,
             "note": self.note,
+            "model": self.model,
         }
 
 
