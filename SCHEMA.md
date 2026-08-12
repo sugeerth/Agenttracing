@@ -586,3 +586,57 @@ Aggregate gains `calibration`: per agent, how many of its failures were
 flagged versus silent, and a verdict of `supervisable` (≥50% flagged) or
 `silent-failing`. An agent that fails silently cannot be supervised by
 thresholding its own confidence however good its success rate looks.
+
+## Systematic issues (aggregate, v13)
+
+A batch produces one divergence per place two runs parted company — dozens of
+findings on a real task set. `aggregate["issues"]` collapses them into
+recurring problems so the output is a short list of decisions, not a long list
+of incidents.
+
+```json
+"issues": {
+  "issues": [
+    {"id": "retrieval/a:retrieve.select_result/b:retrieve.select_result/q:b",
+     "kind": "retrieval",
+     "title": "Selects a lower-quality source at \"select_result\"",
+     "severity": "critical | major | minor",
+     "recurring": true, "suppressed": false,
+     "tasks": ["t01", "t02", "t06"], "agents": ["bolt-v3"],
+     "occurrence_count": 3, "failures_caused": 2,
+     "extra_steps": 10, "extra_tokens": 2136, "extra_latency_s": 34.8,
+     "occurrences": [{"task": "t01", "rank": 1, "caused_failure": true,
+                      "extra_tokens": 682, "summary": "..."}],
+     "example": {"...": "the costliest fatal occurrence"},
+     "summary": "..."}
+  ],
+  "active": 6, "suppressed": 0, "total_divergences": 8,
+  "counts": {"critical": 3, "major": 0, "minor": 3},
+  "narrative": "..."
+}
+```
+
+The **fingerprint** (`id`) is a stable, readable signature:
+`kind/a:<type>.<name>/b:<type>.<name>[/q:<sides>]`. Volatile detail is
+normalized away (digits and URLs collapse), so the same behavior on different
+tasks clusters together; `q` records only *which side* was annotated poor, not
+whether it was `weak` or `bad`, since those are severities of one behavior.
+
+Severity: `critical` when the issue caused any failure, `major` when it wasted
+≥500 tokens, else `minor`.
+
+### Suppression
+
+Fingerprints can be listed in a `.agentdiffignore` file (beside the traces or
+in the working directory) to mark issues a team has judged benign:
+
+```
+# known benign — our agent legitimately re-queries on this corpus
+stopping/a:none/b:reason.reason
+retrieval/*
+```
+
+One pattern per line, `#` starts a comment, a trailing `*` is a prefix match.
+Suppressed issues are **still reported and marked**, and excluded only from the
+headline counts — silently dropping findings is how a gate stops being
+trustworthy.

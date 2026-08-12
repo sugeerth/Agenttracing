@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Optional
 
 from .adapters import from_openai_messages, from_otel_genai
+from .issues import build_issues, load_suppressions, render_issues_markdown
 from .conformance import check_suite, render_conformance_markdown
 from .routing import routing_analysis
 from .similarity import similarity_analysis
@@ -171,6 +172,10 @@ def _cmd_batch(args: argparse.Namespace) -> int:
         return 2
 
     agg = build_aggregate(reports)
+    # Re-cluster with any .agentdiffignore found beside the traces or in cwd.
+    patterns = (load_suppressions(traces_dir) or load_suppressions(Path.cwd()))
+    if patterns:
+        agg["issues"] = build_issues(reports, patterns)
     agg_path = out_dir / "aggregate.json"
     agg_path.write_text(json.dumps(agg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"Wrote {agg_path}")
@@ -196,6 +201,19 @@ def _cmd_batch(args: argparse.Namespace) -> int:
         print("Recommendations:")
         for rec in agg["recommendations"]:
             print(f"  [{rec['severity']}/{rec['category']}] {rec['agent']} — {rec['finding']}")
+    issues = agg.get("issues") or {}
+    if issues.get("issues"):
+        print(f"\nSystematic issues: {issues['narrative']}")
+        for issue in issues["issues"]:
+            if issue["suppressed"]:
+                continue
+            print(f"  [{issue['severity']}] {issue['title']}")
+            print(f"    {len(issue['tasks'])} task(s): {', '.join(issue['tasks'])}"
+                  f"  |  {issue['failures_caused']} failure(s)"
+                  f"  |  +{issue['extra_tokens']:,} tokens")
+            print(f"    fingerprint: {issue['id']}")
+        if issues["suppressed"]:
+            print(f"  ({issues['suppressed']} suppressed by .agentdiffignore)")
     if agg["playbook"]:
         print("Playbook — what good looks like:")
         for habit in agg["playbook"]:
