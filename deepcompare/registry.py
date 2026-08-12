@@ -30,6 +30,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 from .adapters import from_openai_messages, from_otel_genai
+from .logprobs import attach_telemetry, extract_logprobs
 from .trace import Trajectory
 
 #: length above which a step's input reads as content rather than a label an
@@ -262,7 +263,28 @@ def _detect_openai(data: Any) -> tuple[float, str]:
 
 
 def _convert_openai(data: Any) -> tuple[dict, list[str]]:
-    return from_openai_messages(data["messages"], _meta_of(data) or None)
+    """Chat-completions messages, plus logprobs when the server returned them.
+
+    vLLM and TGI both expose OpenAI-compatible endpoints, so a self-hosted
+    open-weight model lands here — and those servers will return full
+    logprobs, which is what turns the model-confidence analysis from
+    unavailable into real.
+    """
+    trajectory, warnings = from_openai_messages(data["messages"],
+                                                _meta_of(data) or None)
+    responses = data.get("responses")
+    if isinstance(responses, list) and responses:
+        attached = 0
+        for step, response in zip(trajectory["steps"], responses):
+            if extract_logprobs(response):
+                attach_telemetry(step, response, source="openai-compatible-logprobs")
+                attached += 1
+        if not attached:
+            warnings.append(
+                "responses were supplied but carried no logprobs; request "
+                "logprobs to enable the model-confidence analysis"
+            )
+    return trajectory, warnings
 
 
 def _detect_anthropic(data: Any) -> tuple[float, str]:
@@ -372,3 +394,116 @@ register("anthropic", _detect_anthropic, _convert_anthropic,
          "Anthropic messages with tool_use / tool_result content blocks")
 register("schema", _detect_schema, _convert_schema,
          "an already-conformant AgentDiff trajectory")
+
+
+def _detect_ollama(data: Any) -> tuple[float, str]:
+    """Ollama /api/chat transcripts — the common open-weight runner."""
+    if not isinstance(data, dict):
+        return 0.0, "not a JSON object"
+    turns = data.get("turns") or data.get("responses")
+    if not isinstance(turns, list) or not turns:
+        return 0.0, "no 'turns'/'responses' array"
+    hits = sum(
+        1 for t in turns
+        if isinstance(t, dict) and isinstance(t.get("message"), dict)
+        and ("eval_count" in t or "model" in t or "done" in t)
+    )
+    if hits:
+        return (min(1.0, 0.75 + 0.25 * hits / len(turns)),
+                f"{hits} Ollama-shaped turn(s) with message + eval fields")
+    return 0.0, "turns present but not Ollama-shaped"
+
+
+def _convert_ollama(data: Any) -> tuple[dict, list[str]]:
+    """Flatten Ollama turns into chat-completions shape, keeping token counts.
+
+    Ollama reports ``prompt_eval_count``/``eval_count`` per turn and, when
+    asked, per-token logprobs — so an open-weight run converted this way
+    arrives with real usage and real confidence rather than estimates.
+    """
+    warnings: list[str] = []
+    meta = _meta_of(data)
+    turns = data.get("turns") or data.get("responses") or []
+    messages: list[dict] = []
+    telemetry: list[Optional[dict]] = []
+
+    for turn in turns:
+        if not isinstance(turn, dict):
+            continue
+        message = turn.get("message")
+        if not isinstance(message, dict):
+            warnings.append("turn without a message object skipped")
+            continue
+        entry: dict = {"role": message.get("role", "assistant"),
+                       "content": message.get("content", "")}
+        calls = message.get("tool_calls")
+        if isinstance(calls, list) and calls:
+            import json as _json
+            entry["tool_calls"] = [
+                {"id": call.get("id", f"call_{i}"), "type": "function",
+                 "function": {
+                     "name": (call.get("function") or {}).get("name", "tool"),
+                     "arguments": _json.dumps(
+                         (call.get("function") or {}).get("arguments", {}),
+                         ensure_ascii=False),
+                 }}
+                for i, call in enumerate(calls) if isinstance(call, dict)
+            ]
+        messages.append(entry)
+        telemetry.append(turn)
+
+    if not messages:
+        raise ValueError("no Ollama turns could be mapped to messages")
+
+    # Ollama has no tool-result role; the caller records those as user turns.
+    trajectory, more = from_openai_messages(messages, meta or None)
+
+    # Carry per-turn logprobs onto the steps they produced.  Steps and turns
+    # are NOT positionally aligned — a tool-result turn fills an existing
+    # step's output rather than creating one — so match on the text the turn
+    # generated instead of zipping, which silently mis-attributes confidence.
+    attached = 0
+    used: set[int] = set()
+    for turn in telemetry:
+        if not extract_logprobs(turn):
+            continue
+        message = turn.get("message") or {}
+        content = str(message.get("content") or "").strip()
+        tool_names = {
+            (call.get("function") or {}).get("name")
+            for call in (message.get("tool_calls") or [])
+            if isinstance(call, dict)
+        }
+        target = None
+        for index, step in enumerate(trajectory["steps"]):
+            if index in used:
+                continue
+            if tool_names and step.get("name") in tool_names:
+                target = index
+                break
+            if content and (content in (step.get("output") or "")
+                            or content in (step.get("input") or "")):
+                target = index
+                break
+        if target is None:
+            warnings.append(
+                f"logprobs for a turn could not be matched to a step "
+                f"({content[:40]!r}); telemetry dropped rather than guessed"
+            )
+            continue
+        used.add(target)
+        attach_telemetry(trajectory["steps"][target], turn,
+                         temperature=(turn.get("options") or {}).get("temperature"),
+                         source="ollama-logprobs")
+        attached += 1
+    if telemetry and not attached:
+        warnings.append(
+            "no logprobs in these turns; request them from the server to "
+            "enable the model-confidence analysis"
+        )
+    return trajectory, warnings + more
+
+
+register("ollama", _detect_ollama, _convert_ollama,
+         "Ollama /api/chat turns (open-weight runners; keeps eval counts "
+         "and logprobs when present)")

@@ -891,3 +891,49 @@ Two guards make the verdicts trustworthy:
 - **A difference whose interval includes zero is never called a win.** The
   verdict then says the cohorts are indistinguishable on outcome and falls
   back to cost, which is the decision the evidence actually supports.
+
+## Open-weight models and real logprobs (v19)
+
+Open-weight models are the **strongest** case for the model-telemetry
+analysis, not the weakest: a self-hosted vLLM, TGI, llama.cpp or Ollama
+server returns logprobs for every generated token — often the full top-k —
+because there is no reason to withhold them. `deepcompare.logprobs` turns
+those into the `model` block on each step, so `uncertainty.py` runs on real
+data rather than the demo's synthetic numbers.
+
+```json
+"model": {
+  "confidence": 0.8832,          // mean token probability
+  "min_token_confidence": 0.8025,
+  "entropy": 0.2832,
+  "entropy_basis": "top_k | binary_floor",
+  "tokens_scored": 3,
+  "low_confidence_tokens": 0,
+  "temperature": 0.2,
+  "source": "ollama-logprobs | openai-compatible-logprobs | provider-logprobs"
+}
+```
+
+- `entropy_basis` is stated because it changes what the number means. With
+  top-k logprobs, entropy is computed over the returned distribution
+  (approximate — the tail is truncated). With only the chosen token's
+  logprob, it falls back to the binary entropy of that probability, which is
+  a **floor**, not an estimate.
+- **Nothing is invented.** A payload with no logprobs yields no `model` block
+  and a warning, rather than a fabricated confidence.
+- Layouts handled: OpenAI/vLLM/TGI `choices[0].logprobs.content[]`, a bare
+  `logprobs.content`, TGI `details.tokens`, and a plain list.
+
+### Reaching the tool from an open-weight stack
+
+| serving stack | route |
+|---|---|
+| vLLM, TGI (OpenAI-compatible endpoints) | `--format openai`, pass `responses` alongside `messages` to carry logprobs |
+| Ollama | `--format ollama` (or auto) — keeps `eval_count` token counts and logprobs |
+| anything OTel-instrumented | `--format otel` — `gen_ai.provider.name` and `gen_ai.request.model` are recorded onto the agent |
+
+Telemetry is attached to steps by **matching the generated text**, not by
+zipping turns to steps positionally: a tool-result turn fills an existing
+step's output rather than creating one, so a positional pairing would put a
+turn's confidence on the wrong step. Unmatched telemetry is dropped with a
+warning rather than guessed.
