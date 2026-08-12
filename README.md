@@ -89,6 +89,36 @@ python -m deepcompare gate baseline_traces/ candidate_traces/ --markdown gate.md
 
 No dependencies — Python 3.10+ stdlib only.
 
+## The composable view
+
+`web/blocks.html` is the same analysis as a board of blocks you arrange:
+drag them between columns, collapse what you don't need, remove what you
+never read, add it back from the block drawer.
+
+```bash
+python web/build_blocks.py                       # assemble from web/blocks/*.js
+python -m deepcompare batch demo/telemetry/traces -o out --template web/blocks.html
+```
+
+Two things order the board. **Relevance** is what the loaded run has to say —
+a failure-attribution block has nothing to contribute when nothing failed, so
+it says so and steps aside. **Interest** is which blocks you actually open,
+decayed by half every fortnight so last month's habits stop outranking this
+week's work. Reordering is *offered*, never applied behind your back: a
+layout you arranged by hand is better evidence than anything inferred from
+your clicks.
+
+Your layout follows a visitor id — a random UUID minted in your browser on
+first open, kept in a first-party cookie with a localStorage mirror (cookies
+are refused for `file://` pages, and the **You** panel names whichever
+backend is actually live rather than failing quietly). Nothing is
+transmitted: the page contains no network code at all, which is why it opens
+offline from a file. The You panel shows the id, everything stored under it,
+and erases the lot in one click.
+
+Adding a block is one file in `web/blocks/` — see
+[`web/blocks/README.md`](web/blocks/README.md) for the contract.
+
 ## Bring your own agents
 
 Log each run as a JSON trajectory per [SCHEMA.md](SCHEMA.md): agent + task
@@ -125,6 +155,7 @@ deepcompare/   engine: schema, alignment, divergence, attribution, semantics,
 demo/          two scripted agents (8 tasks), a 33-agent fleet, multi-run traces
 web/           viewer.html — the full interactive compare page
                select.html — a small Tufte-style agent-selection view
+               blocks.html — the composable view, built from web/blocks/*.js
 notebooks/     AgentDiff_Colab.ipynb — the whole pipeline on Colab, plus a
                real open-weight model run on GPU with genuine logprobs
 tests/         unit tests (python -m unittest discover tests)
