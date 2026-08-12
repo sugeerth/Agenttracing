@@ -35,6 +35,20 @@ they first diverged, why, and what it cost**:
   highlighted divergences, and a clickable causal chain. One self-contained
   HTML file, no server.
 
+Beyond a single pair:
+
+- **Which failures are real** — run the same agents several times and
+  AgentDiff separates reproducible behavior from noise: *stable-fail* (fix it),
+  *flaky* (it only fails sometimes), *systematic divergence* (the gap is
+  behavioral, not luck).
+- **Which agents are the same agent** — behavioral similarity on four separate
+  facets (outcomes, trajectory shape, tool mix, resource spend), because
+  "similar" means different things: matching outcomes with a cost gap means one
+  agent is **redundant**; differing outcomes mean they are **complementary**.
+- **Which agent to actually use** — best single agent, the smallest portfolio
+  that covers the task set, and the per-task cheapest solver, with the oracle
+  ceiling reported as headroom rather than sold as an achievable policy.
+
 ## Quick start
 
 ```bash
@@ -50,6 +64,22 @@ python -m deepcompare batch demo/traces/ -o out/
 open out/report.html
 ```
 
+Then, with more agents or more runs:
+
+```bash
+# Rank a fleet of agents (composite score, Pareto frontier, failure fingerprints)
+python -m deepcompare fleet demo/fleet/traces/ -o out_fleet/
+
+# Which agents are interchangeable, which are redundant, which to use
+python -m deepcompare select demo/fleet/traces/ -o out_select/
+
+# Is this failure real, or did we get unlucky? (3 runs per agent per task)
+python -m deepcompare runs demo/runs/traces/ -o out_runs/
+
+# Block a regression in CI: exits non-zero when the candidate is worse
+python -m deepcompare gate baseline_traces/ candidate_traces/ --markdown gate.md
+```
+
 No dependencies — Python 3.10+ stdlib only.
 
 ## Bring your own agents
@@ -57,19 +87,32 @@ No dependencies — Python 3.10+ stdlib only.
 Log each run as a JSON trajectory per [SCHEMA.md](SCHEMA.md): agent + task
 metadata, an ordered list of steps (`plan | search | retrieve | read |
 tool_call | reason | answer`), and outcome/totals. Name files
-`<task_id>__<agent_name>.json`, point `batch` at the directory, done.
-Adapters for LangChain/OpenTelemetry-style traces are a thin mapping onto this
-schema.
+`<task_id>__<agent_name>.json` (add `__<run_id>` for multi-run analysis),
+point a command at the directory, done.
+
+Already have traces in another format? Convert them:
+
+```bash
+python -m deepcompare convert --format otel   spans.json    -o traces/
+python -m deepcompare convert --format openai messages.json -o traces/
+```
+
+The OpenTelemetry adapter reads GenAI-convention spans (both the plain and
+OTLP wire forms, camelCase or snake_case); the OpenAI adapter reads a
+chat-completions message array with tool calls. Traces converted from
+different stacks compare against each other directly.
 
 ## Repository layout
 
 ```
-deepcompare/   comparison engine: trace schema, alignment, divergence,
-               attribution, metrics, report rendering, CLI
-demo/          two scripted agent personas + 8 tasks → realistic traces
-web/           viewer.html — the interactive side-by-side compare page
+deepcompare/   engine: schema, alignment, divergence, attribution, semantics,
+               counterfactuals, fleet ranking, similarity, routing, gate, CLI
+demo/          two scripted agents (8 tasks), a 33-agent fleet, multi-run traces
+web/           viewer.html — the full interactive compare page
+               select.html — a small Tufte-style agent-selection view
 tests/         unit tests (python -m unittest discover tests)
 SCHEMA.md      the trace + report JSON contract
+docs/          landscape survey and tutorial
 ```
 
 ## Why this is a research direction, not just a dashboard
