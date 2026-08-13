@@ -177,6 +177,37 @@ python -m deepcompare batch demo/process/traces/ -o out_process/
 
 No dependencies — Python 3.10+ stdlib only.
 
+## In CI
+
+`gate` and `check` write the formats CI already reads, so a finding lands in
+the test report, the code-scanning view and the pull request rather than in
+stdout nobody reads:
+
+```bash
+python -m deepcompare gate baseline/ candidate/ -o out/ \
+    --junit --sarif --job-summary --github-annotations --fail-on regression
+```
+
+| `--fail-on` | fails the build on |
+|---|---|
+| `never` | nothing — artifacts are still written, the build stays green |
+| `regression` (default) | a failed gate criterion or a conformance violation |
+| `pathology` | + process pathologies the outcome hid (loop, swallowed error, blind write) |
+| `any` | + checks that could not be measured — nothing unproven ships |
+
+Exit `0` clean, `1` a gating finding, `2` a usage or data error. The default
+is byte-for-byte the behaviour `gate` had before, so adopting this cannot
+turn a build red on its own.
+
+Two choices worth knowing. **SARIF results point at the trace file and carry
+no `region` or `startLine`** — there is no source line behind a trajectory
+finding, and inventing one aims reviewers at innocent code. **An
+unmeasurable check is emitted as `skipped`, never as a pass**: a gate that
+goes green because a criterion was disabled has to say which one.
+`partialFingerprints` reuse the existing issue fingerprints, so GitHub
+tracks a finding across runs instead of re-reporting it, and every emitter
+is byte-identical across runs on the same input.
+
 ## The composable view
 
 `web/blocks.html` is the same analysis as a board of blocks you arrange:
