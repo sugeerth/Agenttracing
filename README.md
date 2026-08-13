@@ -124,7 +124,8 @@ python -m deepcompare fleet demo/fleet/traces/ -o out_fleet/
 # Which agents are interchangeable, which are redundant, which to use
 python -m deepcompare select demo/fleet/traces/ -o out_select/
 
-# Is this failure real, or did we get unlucky? (3 runs per agent per task)
+# Is this failure real, or did we get unlucky? Adds pass^k, consistency and
+# an advisory that refuses to rank two agents on too few runs
 python -m deepcompare runs demo/runs/traces/ -o out_runs/
 
 # Block a regression in CI: exits non-zero when the candidate is worse
@@ -134,10 +135,6 @@ python -m deepcompare gate baseline_traces/ candidate_traces/ --markdown gate.md
 # ignored three errors and wrote blind
 python demo/process/generate.py
 python -m deepcompare batch demo/process/traces/ -o out_process/
-
-# Reliability over repeated runs: pass^k, consistency, and an advisory that
-# refuses to rank two agents on too few runs
-python -m deepcompare runs demo/runs/traces/ -o out_runs/
 ```
 
 No dependencies — Python 3.10+ stdlib only.
