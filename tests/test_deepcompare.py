@@ -219,6 +219,53 @@ class TestValidation(unittest.TestCase):
             self.assertEqual(t.task.id, "t3")
 
 
+class TestTokenBasisSurvivesRoundTrip(unittest.TestCase):
+    """An estimate must not become a measurement by being saved and reloaded.
+
+    The recorder writes ``tokens_basis`` and ``token_accounting``; if the
+    loader drops them, the very next comparison treats a len(text)/4 guess
+    as a provider-reported count, and nothing downstream can tell.
+    """
+
+    def trajectory(self, **step_extra):
+        step = {"index": 0, "type": "answer", "name": "final", "input": "x",
+                "output": "x", "tokens": 4, "latency_s": 0.1}
+        step.update(step_extra)
+        return {
+            "trace_id": "t", "agent": {"name": "a", "model": "m"},
+            "task": {"id": "t1", "prompt": "p"},
+            "outcome": {"success": True, "answer": "x"},
+            "totals": {"input_tokens": 1, "output_tokens": 4,
+                       "cost_usd": 0.0, "latency_s": 0.1},
+            "steps": [step],
+            "token_accounting": {"basis": "estimated", "estimator": "len(text)/4"},
+        }
+
+    def test_step_basis_survives_load(self):
+        loaded = Trajectory.from_json(self.trajectory(tokens_basis="estimated"))
+        self.assertEqual(loaded.steps[0].tokens_basis, "estimated")
+
+    def test_step_basis_survives_a_save_and_reload(self):
+        once = Trajectory.from_json(self.trajectory(tokens_basis="estimated"))
+        twice = Trajectory.from_json(once.to_dict())
+        self.assertEqual(twice.steps[0].tokens_basis, "estimated")
+
+    def test_run_level_accounting_survives(self):
+        loaded = Trajectory.from_json(self.trajectory())
+        self.assertEqual(loaded.token_accounting["basis"], "estimated")
+        self.assertEqual(
+            Trajectory.from_json(loaded.to_dict()).token_accounting["estimator"],
+            "len(text)/4")
+
+    def test_absent_basis_stays_absent_rather_than_defaulting_to_measured(self):
+        loaded = Trajectory.from_json(self.trajectory())
+        self.assertIsNone(loaded.steps[0].tokens_basis)
+
+    def test_an_invented_basis_is_refused(self):
+        with self.assertRaises(ValueError):
+            Trajectory.from_json(self.trajectory(tokens_basis="vibes"))
+
+
 class TestAlignment(unittest.TestCase):
     def test_identical_all_match(self):
         a, b = identical_pair()

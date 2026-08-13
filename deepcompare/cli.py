@@ -27,6 +27,13 @@ from pathlib import Path
 from typing import Optional
 
 from .adapters import from_openai_messages, from_otel_genai
+from .ci import (
+    DEFAULT_FAIL_ON,
+    FAIL_ON_CHOICES,
+    collect_trace_paths,
+    exit_code as ci_exit_code,
+    write_ci_artifacts,
+)
 from .registry import convert as registry_convert, dry_run, formats
 from .profile import build_profile, profile_suite
 from .cohort import GROUPERS, compare_cohorts, group_runs
@@ -38,6 +45,7 @@ from .fleet import DEFAULT_WEIGHTS, fleet_analysis
 from .gate import evaluate_gate, pair_gate_traces, render_gate_markdown
 from .metrics import aggregate as build_aggregate, task_signal
 from .recommend import recommend
+from .triage import render_triage_text, triage
 from .reliability import reliability
 from .report import compare, render_html
 from .stability import medoid_pairs, stability_analysis
@@ -225,6 +233,10 @@ def _cmd_batch(args: argparse.Namespace) -> int:
             agents = ", ".join(habit["agents"])
             print(f"  [{habit['kind']}] {agents}: {habit['habit']} — "
                   f"{habit['evidence']}; {habit['impact']}")
+    # Printed last because it is the answer to "so which of all that first?" —
+    # a reader who stops here has still been told what to do.
+    for line in render_triage_text(agg.get("triage") or {}):
+        print(line)
     return 0
 
 
@@ -353,6 +365,52 @@ def _cmd_fleet(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_ci_args(parser: argparse.ArgumentParser) -> None:
+    """CI-artifact flags, shared by the commands that produce a verdict."""
+    parser.add_argument("--junit", nargs="?", const="junit.xml",
+                        help="write JUnit XML (default name: junit.xml, "
+                             "relative to -o)")
+    parser.add_argument("--sarif", nargs="?", const="results.sarif",
+                        help="write SARIF 2.1.0 for code scanning "
+                             "(default name: results.sarif, relative to -o)")
+    parser.add_argument("--job-summary", nargs="?", const="ci-summary.md",
+                        help="write the Markdown job summary "
+                             "(default name: ci-summary.md, relative to -o)")
+    parser.add_argument("--github-annotations", action="store_true",
+                        help="print ::error/::warning/::notice workflow "
+                             "commands on stdout, and append the job summary "
+                             "to $GITHUB_STEP_SUMMARY when set")
+    parser.add_argument("--fail-on", choices=FAIL_ON_CHOICES,
+                        default=DEFAULT_FAIL_ON,
+                        help="severity that fails the build: never | "
+                             "regression (default) | pathology | any "
+                             "(any includes checks that could not be "
+                             "measured). Exit 0 = clean, 1 = findings at or "
+                             "above the threshold, 2 = usage/data error")
+    parser.set_defaults(ci=True)
+
+
+def _emit_ci(args: argparse.Namespace, result: dict, out_dir: Path,
+             reports: Optional[list[dict]] = None,
+             trace_dir: Optional[Path] = None) -> int:
+    """Write the requested CI artifacts and return the policy exit code."""
+    trace_paths = collect_trace_paths(trace_dir) if trace_dir else None
+    for path in write_ci_artifacts(
+        result,
+        out_dir,
+        reports=reports,
+        trace_paths=trace_paths,
+        junit=args.junit,
+        sarif=args.sarif,
+        summary=args.job_summary,
+        annotations=args.github_annotations,
+        fail_on=args.fail_on,
+    ):
+        print(f"Wrote {path}")
+    return ci_exit_code(result, reports=reports, fail_on=args.fail_on,
+                        trace_paths=trace_paths)
+
+
 def _cmd_gate(args: argparse.Namespace) -> int:
     base_dir = Path(args.baseline)
     cand_dir = Path(args.candidate)
@@ -407,7 +465,10 @@ def _cmd_gate(args: argparse.Namespace) -> int:
     if regressed:
         print(f"  regressed tasks: {', '.join(regressed)}")
     print(f"Verdict: {gate['verdict'].upper()}")
-    return 0 if gate["verdict"] == "pass" else 1
+    # The exit code is the CI policy, not the verdict: --fail-on regression
+    # (the default) reproduces "gate failed -> 1" exactly, while a looser or
+    # stricter threshold moves the line without changing what was reported.
+    return _emit_ci(args, gate, out_dir, reports=reports, trace_dir=cand_dir)
 
 
 def _run_id_from_name(path: Path) -> Optional[str]:
@@ -468,6 +529,10 @@ def _cmd_runs(args: argparse.Namespace) -> int:
     agg["stability"] = stability
     agg["reliability"] = reliability_analysis
     agg["task_signal"] = task_signal(reports, stability)
+    # Re-triage now that reliability is attached: it is the only block that
+    # can tell triage to stop ranking cross-agent claims confidently, and it
+    # arrives after aggregate() has already run.
+    agg["triage"] = triage(reports, agg)
 
     out_dir = Path(args.output)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -673,7 +738,9 @@ def _cmd_check(args: argparse.Namespace) -> int:
     for task in suite["missing_reference"]:
         print(f"warning: no reference trajectory for {task}; not checked",
               file=sys.stderr)
-    return 1 if suite["violations"] else 0
+    # Same policy as the gate: --fail-on regression means "a violation fails
+    # the build", which is what this command did before the flag existed.
+    return _emit_ci(args, suite, out_dir, trace_dir=run_dir)
 
 
 def _cmd_profile(args: argparse.Namespace) -> int:
@@ -925,6 +992,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="max allowed relative mean-latency rise (default 0.25)")
     p_gate.add_argument("--allow-new-failure-modes", action="store_true",
                         help="do not fail the gate on new failure-origin categories")
+    _add_ci_args(p_gate)
     p_gate.set_defaults(func=_cmd_gate)
 
     p_runs = sub.add_parser(
@@ -975,6 +1043,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_check.add_argument("--max-extra-steps", type=int, default=0,
                          help="added/skipped steps tolerated before a run counts "
                               "as a deviation (default: 0)")
+    _add_ci_args(p_check)
     p_check.set_defaults(func=_cmd_check)
 
     p_select = sub.add_parser(

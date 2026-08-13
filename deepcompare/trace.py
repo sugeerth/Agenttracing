@@ -18,6 +18,10 @@ SCHEMA_VERSION = 1
 
 STEP_TYPES = ("plan", "search", "retrieve", "read", "tool_call", "reason", "answer")
 QUALITY_VALUES = ("good", "weak", "bad")
+#: whether a step's token count was reported by the provider or estimated
+#: from text length.  Carried through load/save because an estimate that
+#: loses its label becomes indistinguishable from a measurement.
+TOKEN_BASES = ("measured", "estimated")
 #: whether a step changed anything outside the agent (SCHEMA.md v22).
 EFFECTS = ("read", "write")
 #: why the run stopped.  Reported as a distribution and never averaged
@@ -177,6 +181,8 @@ class Step:
     #: means the log did not say, and process analysis infers it from the
     #: output text — an inference it labels as such rather than asserting.
     error: Optional[bool] = None
+    #: "measured" | "estimated" | None — where ``tokens`` came from.
+    tokens_basis: Optional[str] = None
     #: "read" | "write": whether the step changed anything outside the agent.
     #: None means undeclared; the effect is then inferred from the tool name.
     #: Writes are where offline analysis has the most leverage, because they
@@ -229,6 +235,12 @@ class Step:
                     or float(value) < 0
                 ):
                     raise ValueError(f"{where}: model.{key} must be a non-negative number")
+        tokens_basis = d.get("tokens_basis")
+        if tokens_basis is not None and tokens_basis not in TOKEN_BASES:
+            raise ValueError(
+                f"{where}: invalid tokens_basis {tokens_basis!r}; must be one of "
+                f"{', '.join(TOKEN_BASES)} or null"
+            )
         error = d.get("error")
         if error is not None and not isinstance(error, bool):
             raise ValueError(f"{where}: error must be true, false or null")
@@ -249,6 +261,7 @@ class Step:
             quality=quality,
             note=note,
             model=model,
+            tokens_basis=tokens_basis,
             error=error,
             effect=effect,
         )
@@ -265,6 +278,7 @@ class Step:
             "quality": self.quality,
             "note": self.note,
             "model": self.model,
+            "tokens_basis": self.tokens_basis,
             "error": self.error,
             "effect": self.effect,
         }
@@ -287,6 +301,9 @@ class Trajectory:
     #: actually available, so grounding is reported as unmeasurable rather
     #: than assumed perfect.
     tools: list[dict] = field(default_factory=list)
+    #: how this run's token counts were obtained, when the recorder said so:
+    #: {"basis", "measured_steps", "estimated_steps", "estimator", ...}.
+    token_accounting: dict = field(default_factory=dict)
     #: limits the harness enforced, e.g. {"max_steps": 20}.  Needed to tell
     #: an agent that finished from one that ran out of room.
     budget: dict = field(default_factory=dict)
@@ -359,6 +376,9 @@ class Trajectory:
                     f"tools[{i}]: invalid effect {effect!r}; must be one of "
                     f"{', '.join(EFFECTS)} or null"
                 )
+        accounting = data.get("token_accounting", {})
+        if not isinstance(accounting, dict):
+            raise ValueError("trajectory.token_accounting must be an object")
         budget = data.get("budget", {})
         if not isinstance(budget, dict):
             raise ValueError("trajectory.budget must be an object")
@@ -376,6 +396,7 @@ class Trajectory:
             run_id=run_id,
             tools=tools,
             budget=budget,
+            token_accounting=accounting,
         )
 
     def to_dict(self) -> dict:
@@ -390,4 +411,5 @@ class Trajectory:
             "steps": [s.to_dict() for s in self.steps],
             "tools": self.tools,
             "budget": self.budget,
+            "token_accounting": self.token_accounting,
         }

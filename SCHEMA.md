@@ -1104,3 +1104,38 @@ in words.
 All four modes are reported together, because they disagree by construction:
 a run can be a `superset` match and not a `strict` one, and seeing which
 modes pass is more informative than any single verdict.
+
+---
+
+## Recording a trace (v23)
+
+`deepcompare.record.Recorder` writes conformant trajectories from a live
+agent, so the schema is something you emit rather than something you
+hand-write. It carries the v22 fields by default — declared `tools` with
+effects and parameter schemas, `budget`, `outcome.termination`, per-step
+`error` and `effect` — because a recorder that omits them makes half the
+process analysis unmeasurable.
+
+Two fields exist so a recorded run cannot quietly overstate itself:
+
+```json
+"steps": [{"tokens": 4, "tokens_basis": "estimated"}],
+"token_accounting": {
+  "basis": "estimated | measured | mixed",
+  "measured_steps": 0, "estimated_steps": 2,
+  "estimator": "len(text)/4"
+}
+```
+
+`tokens_basis` is `measured` when the provider reported the count and
+`estimated` when it was derived from text length. **Both are carried through
+load and save.** A basis that survives to disk but is dropped by the loader
+is worse than no basis at all: the next comparison treats a `len(text)/4`
+guess as a provider-reported number, and nothing downstream can tell the
+difference. An absent basis stays absent rather than defaulting to
+`measured`.
+
+The recorder never invents a termination reason. Clean exit is `agent_stop`,
+an exception becomes `agent_error` (or `timeout`/`user_stop` where the
+exception says so), and `max_steps` or a harness failure must be declared
+explicitly through `terminate()` — only the harness knows why it stopped.

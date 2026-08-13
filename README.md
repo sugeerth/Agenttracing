@@ -197,6 +197,54 @@ with text, timing, tokens and observations — because a conversion that
 silently produces empty steps looks like success and poisons every analysis
 downstream.
 
+## Recording a run as it happens
+
+No logs to convert yet? Instrument the agent you are writing now.
+`deepcompare.record` writes a validated trajectory straight out of the run —
+stdlib only, nothing to install:
+
+```python
+from deepcompare.record import Recorder
+
+with Recorder(task="t01_refund", prompt="Cancel booking QX7T2",
+              agent="my-agent", model="claude-sonnet-5",
+              tools=TOOLS, budget={"max_steps": 20}) as run:
+    run.plan("Read the booking, then cancel")
+    call = run.tool("get_booking", {"reference": "QX7T2"})   # records the call
+    call.observe(get_booking("QX7T2"))                       # records the result
+    run.tool("cancel_booking", {"reference": "QX7T2", "refund": True},
+             "cancelled", effect="write")
+    run.answer("Cancelled and refunded.", success=True)
+# traces/t01_refund__my-agent.json — validated, ready for compare/batch/process
+```
+
+`step()` is the low-level form; `plan`, `search`, `retrieve`, `read`, `tool`,
+`reason` and `answer` are sugar over it. Per-step latency is taken from the
+wall clock, `run_id="r2"` produces `<task>__<agent>__<run>.json` for the
+`runs` command, `@run.instrument(effect="write")` records a tool function
+every time it is called, and `response=` accepts an OpenAI / Anthropic /
+Ollama response object and lifts real token usage and logprob telemetry out of
+it (duck-typed — no SDK is imported).
+
+The recorder keeps the honesty properties the analyses depend on:
+
+- **estimated tokens are never written as measured** — counts you pass are
+  measurements, `len(text)/4` is an estimate, and each step carries
+  `tokens_basis` with a `token_accounting` summary on the trace;
+- **termination is declared, not deduced** — `agent_stop` on a clean exit,
+  `agent_error`/`timeout`/`user_stop` when the block raises, and `max_steps`,
+  `timeout` or the harness reasons only via `run.terminate(...)`, because only
+  the harness knows them;
+- **an exception inside the block still writes a valid trace**, with a final
+  step that says the answer is the recorder's rather than the agent's — the
+  failed runs are the ones worth keeping;
+- **declared `tools` and `effect`s make the process analysis measurable** —
+  without them, schema grounding, permission and blind-write checks report
+  *unmeasurable* rather than a pass;
+- **nothing invalid reaches disk**: the trace is validated through
+  `Trajectory.from_json` and written atomically, and bad arguments raise where
+  the mistake was made.
+
 ## Repository layout
 
 ```

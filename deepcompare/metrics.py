@@ -19,6 +19,7 @@ from .uncertainty import calibration_profile
 from .issues import build_issues
 from .attributes import attribute_analysis
 from .joint import joint_attribute_model
+from .triage import triage
 
 #: metric key -> human label used in regression messages.
 _REGRESSION_METRICS = {
@@ -162,6 +163,7 @@ def aggregate(reports: list[dict]) -> dict:
             "playbook": [],
             "semantic_profile": {},
             "task_signal": [],
+            "triage": triage([], {}),
         }
 
     name_a = reports[0]["a"]["agent"]["name"]
@@ -212,7 +214,7 @@ def aggregate(reports: list[dict]) -> dict:
                     f"but uses {worse_pct:.0f}% more {label} than A ({name_a})."
                 )
 
-    return {
+    result = {
         "tasks": n,
         "agents": {"a": name_a, "b": name_b},
         "success_rate": success_rate,
@@ -233,6 +235,11 @@ def aggregate(reports: list[dict]) -> dict:
         # finding here is citable and comparable with other people's.
         "taxonomy": classify_batch(reports),
     }
+    # Triage reads every other block, so it is computed last and folded in.
+    # It ranks what is already here rather than adding a new measurement,
+    # which is why it takes the finished aggregate as its input.
+    result["triage"] = triage(reports, result)
+    return result
 
 
 def _corpus_from_reports(reports: list[dict]) -> list:
