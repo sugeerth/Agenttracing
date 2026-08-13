@@ -37,6 +37,7 @@ from .fleet import DEFAULT_WEIGHTS, fleet_analysis
 from .gate import evaluate_gate, pair_gate_traces, render_gate_markdown
 from .metrics import aggregate as build_aggregate, task_signal
 from .recommend import recommend
+from .reliability import reliability
 from .report import compare, render_html
 from .stability import medoid_pairs, stability_analysis
 from .trace import Trajectory
@@ -460,9 +461,11 @@ def _cmd_runs(args: argparse.Namespace) -> int:
         return 2
 
     stability = stability_analysis(runs_by_task)
+    reliability_analysis = reliability(runs_by_task)
     reports = [compare(a, b) for a, b in medoid_pairs(runs_by_task)]
     agg = build_aggregate(reports)
     agg["stability"] = stability
+    agg["reliability"] = reliability_analysis
     agg["task_signal"] = task_signal(reports, stability)
 
     out_dir = Path(args.output)
@@ -495,7 +498,52 @@ def _cmd_runs(args: argparse.Namespace) -> int:
               f"B {entry['b']['verdict']} | divergence {repro['verdict']}"
               + (f" ({repro['kind']}, rate {repro['rate']:g})" if repro["kind"] else ""))
     print(stability["narrative"])
+    _print_reliability(reliability_analysis)
     return 0
+
+
+def _print_reliability(analysis: dict) -> None:
+    """Print the reliability block: the k-curves, the consistency scores, and
+    every qualifier that keeps them honest."""
+    print("\nReliability (repeated runs):")
+    for side in sorted(analysis["per_agent"]):
+        row = analysis["per_agent"][side]
+        print(f"  {row['agent']}: {row['successes']}/{row['runs_used']} run(s) "
+              f"succeeded across {row['tasks_scored']} task(s); max_k={row['max_k']}")
+        for label, key in (("pass^k ", "pass_hat_k"), ("pass@k ", "pass_at_k")):
+            curve = row[key]["curve"]
+            rendered = "  ".join(
+                f"k={point['k']}:"
+                + ("n/a" if point["value"] is None else f"{point['value']:.3f}")
+                for point in curve
+            ) or "n/a"
+            print(f"    {label} {rendered}")
+        for label, key in (("outcome  ", "outcome_consistency"),
+                           ("trajectory", "trajectory_consistency"),
+                           ("resources ", "resource_consistency")):
+            block = row[key]
+            value = block["value"]
+            detail = (f"{value:.3f} over {block['tasks_scored']}/{block['of_tasks']} task(s)"
+                      if value is not None else f"n/a ({block['reason']})")
+            print(f"    {label} consistency: {detail}")
+        icc = row["icc"]
+        if icc.get("icc1") is not None:
+            print(f"    ICC(1): {icc['icc1_clamped']:.3f} "
+                  f"({icc['within_task_variance_share']:.0%} of variance is "
+                  f"within-task, i.e. the agent itself)")
+        else:
+            print(f"    ICC(1): n/a ({icc['reason']})")
+        excluded = row["excluded_runs"]
+        if excluded["count"]:
+            print(f"    excluded {excluded['count']}/{excluded['of_runs']} run(s) "
+                  f"as harness failures: "
+                  + ", ".join(f"{k} x{v}" for k, v in excluded["by_termination"].items()))
+        if row["unequal_trials"]["flagged"]:
+            print(f"    warning: unequal trial counts "
+                  f"({row['unequal_trials']['min']}-{row['unequal_trials']['max']} "
+                  f"runs per task); curves capped at the thinnest task")
+        print(f"    runs advisory [{row['runs_advisory']['tier']}]: "
+              f"{row['runs_advisory']['message']}")
 
 
 def _cmd_select(args: argparse.Namespace) -> int:

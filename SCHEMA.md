@@ -964,3 +964,143 @@ as that call's result and fills the step's `output`.
 None of this is invented: what the server did not report keeps its estimate
 or its zero, and `--dry-run` counts steps with text, timing, tokens and
 observations so a lossy mapping is visible before anything depends on it.
+
+---
+
+## Process integrity (v22)
+
+Outcome-only evaluation is blind by construction. A run can satisfy its
+oracle while looping, swallowing an error, writing something nobody asked
+for, or stopping because it hit the step ceiling; and a run can fail with a
+completely clean process because the *oracle* is wrong. Claw-Eval measures
+44% of safety violations and 13% of robustness failures as invisible to
+outcome-only grading ([arXiv 2604.06132](https://arxiv.org/abs/2604.06132));
+OpenClawBench names it the **outcome-process gap** and needed 31,264
+annotated trajectories to characterise it
+([arXiv 2605.29253](https://arxiv.org/abs/2605.29253)).
+
+`deepcompare.process` computes the deterministic subset of that from a
+logged trace — no judge, no re-execution. That restriction is deliberate:
+replaying *frozen* transitions under different evaluator channels flips the
+sign of the same step's score, with cross-channel disagreement exceeding
+same-channel retry disagreement by 48 percentage points
+([arXiv 2607.04419](https://arxiv.org/abs/2607.04419)). What can be settled
+by counting is settled by counting; the rest is left to a human, with the
+evidence laid out.
+
+### New optional trace fields
+
+All optional and backward compatible. Declared beats inferred, and the
+difference is always reported.
+
+```json
+"steps": [
+  {"index": 3, "type": "tool_call", "name": "cancel_booking",
+   "error": false,          // was the observation an error? null = undeclared
+   "effect": "write"}       // "read" | "write" | null (then inferred from the name)
+],
+"outcome": {
+  "termination": "agent_stop"   // see below; null = undeclared, never guessed
+},
+"tools": [                       // what the agent was offered
+  {"name": "cancel_booking", "effect": "write",
+   "parameters": {"properties": {"reference": {"type": "string"}},
+                  "required": ["reference"]}}
+],
+"budget": {"max_steps": 10}      // limits the harness enforced
+```
+
+`termination` takes tau2-bench's `TerminationReason` values verbatim, rather
+than an invented set, so a run logged for one tool is comparable in the
+other: `agent_stop`, `user_stop`, `max_steps`, `timeout`,
+`context_window_exceeded`, `too_many_errors`, `agent_error`,
+`infrastructure_error`, `unexpected_error`. The last two are *harness*
+failures and are excluded from reliability statistics — counting a
+rate-limited run as an agent failure makes the agent look worse and the
+harness look fine.
+
+**Termination is never inferred.** "The last step was an answer" does not
+distinguish an agent that decided it was done from one the harness cut off,
+and every per-step rate conditioned on it would inherit the guess. Undeclared
+stays `undeclared`. The same discipline applies throughout: without a `tools`
+list, schema grounding and permission are reported **unmeasurable** rather
+than scored 100% — an unchecked call is not a valid one.
+
+### What is computed
+
+| check | what it counts |
+|---|---|
+| `termination` | declared reason, steps, budget used, budget pressure (≥80%) |
+| `side_effects` | reads, writes, **writes before any successful read** |
+| `repeats` | repeated calls, `(call, result)` cycles, no-information steps |
+| `loops` | longest back-to-back repeated k-gram with its period; max call multiplicity |
+| `recovery` | errors, adaptation attempts, recoveries, abandonment after error |
+| `grounding` | calls to undeclared tools; argument values with no source in the trace or prompt |
+| `schema` | missing required / unknown / mistyped arguments against declared parameters |
+| `false_success` | the answer claims completion while nothing was written |
+
+Three distinctions that make the counts mean what they say:
+
+- **A retry after an error is not a repeat.** Retrying a failed call is
+  correct behaviour; counting it as looping would penalise recovery.
+- **Only a read that *worked* counts as having looked.** Three failed
+  lookups followed by a write is the blind-write case exactly.
+- **A no-information step** returns an observation byte-identical to an
+  earlier one — the call was new, the run advanced nothing.
+
+### The gap verdict
+
+| verdict | meaning |
+|---|---|
+| `passed cleanly` | the oracle is satisfied and nothing contradicts it |
+| `passed but pathological` | passed, but looped / swallowed an error / wrote blind. A leaderboard scores this identically to a clean pass |
+| `failed with cause` | failed, and the process shows why |
+| `failed but clean` | failed with nothing visibly wrong — **evidence about the grader**, not only the agent |
+
+There is deliberately **no single process score**. Weighting a loop against a
+blind write needs a judgement about the domain that this tool does not have;
+the flags are reported so a reader can apply their own.
+
+`demo/process/` generates traces exercising all four verdicts — including
+the headline pair, where the run that *passes* is the one that looped,
+ignored three errors and wrote blind, and the run that *fails* has a
+spotless process.
+
+---
+
+## Reference tool-call comparison (v22)
+
+`deepcompare.toolmatch` deliberately borrows other people's vocabulary,
+because this is the one place where a shared one exists: the four match
+modes are LangChain `agentevals`, the argument modes its `ToolArgsMatchMode`,
+the F1 is Ragas `ToolCallF1`, the order-aware partial credit is DeepEval's
+weighted-LCS `ToolCorrectness`, and the permission check is DeepEval's
+`ToolPermission`.
+
+**Every result names the algorithm that produced it**, because four
+widely-used libraries ship a metric called "tool call accuracy" and compute
+four different numbers from the same trace:
+
+| library | same trace, different answer |
+|---|---|
+| `agentevals` | boolean; no partial credit at all |
+| Ragas `ToolCallAccuracy` | argument accuracy × an order gate — right calls in the wrong order score **0.0** |
+| DeepEval default | greedy best match, arguments scored as matching keys over the **union** of keys |
+| DeepEval ordering mode | weighted LCS ÷ number of reference calls |
+
+So "tool call accuracy: 0.67" is meaningless without its algorithm, and a
+leaderboard mixing them compares nothing. The same applies to argument
+matching: `exact`, `ignore`, `subset`, `superset` and `key_fraction` give
+0.0, 1.0, 0.0, 0.0 and 0.67 for one realistic pair.
+
+Two footguns are inherited and documented rather than silently fixed:
+**subset/superset polarity** (in `agentevals`, `subset` means the *run's*
+calls are a subset of the reference — its implementation reads
+`_is_trajectory_superset(reference, outputs)`), and the fact that `strict`
+compares message structure while `unordered`/`subset`/`superset` discard it
+and compare flattened tool calls only. Each result spells out its direction
+in words.
+
+All four modes are reported together, because they disagree by construction:
+a run can be a `superset` match and not a `strict` one, and seeing which
+modes pass is more informative than any single verdict.

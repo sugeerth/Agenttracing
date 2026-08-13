@@ -18,6 +18,24 @@ SCHEMA_VERSION = 1
 
 STEP_TYPES = ("plan", "search", "retrieve", "read", "tool_call", "reason", "answer")
 QUALITY_VALUES = ("good", "weak", "bad")
+#: whether a step changed anything outside the agent (SCHEMA.md v22).
+EFFECTS = ("read", "write")
+#: why the run stopped.  Reported as a distribution and never averaged
+#: across, because a metric like "share of correct steps" rewards an agent
+#: that quit early over one that kept working.  ``infrastructure_error``
+#: exists so harness failures can be excluded from reliability statistics
+#: instead of being counted as the agent's.
+#: Taken from tau2-bench's TerminationReason enum rather than invented, so a
+#: run logged for one tool is comparable in the other.
+TERMINATIONS = (
+    "agent_stop", "user_stop", "max_steps", "timeout",
+    "context_window_exceeded", "too_many_errors", "agent_error",
+    "infrastructure_error", "unexpected_error",
+)
+#: reasons that are the harness failing, not the agent.  Excluded from
+#: reliability statistics: counting a rate-limited run as an agent failure
+#: makes the agent look worse and the harness look fine.
+HARNESS_TERMINATIONS = ("infrastructure_error", "unexpected_error")
 
 
 def _require(obj: dict, key: str, where: str) -> Any:
@@ -78,6 +96,10 @@ class Outcome:
     success: bool
     answer: str
     score: Optional[float] = None
+    #: why the run stopped, one of TERMINATIONS (SCHEMA.md v22).  None means
+    #: the log did not say; process analysis then reports "undeclared"
+    #: rather than guessing a reason it cannot observe.
+    termination: Optional[str] = None
 
     @classmethod
     def from_dict(cls, d: dict) -> "Outcome":
@@ -88,10 +110,18 @@ class Outcome:
         score = d.get("score")
         if score is not None and not isinstance(score, (int, float)):
             raise ValueError("outcome.score must be a number or null")
-        return cls(success=success, answer=str(answer), score=None if score is None else float(score))
+        termination = d.get("termination")
+        if termination is not None and termination not in TERMINATIONS:
+            raise ValueError(
+                f"outcome.termination must be one of {', '.join(TERMINATIONS)} or null"
+            )
+        return cls(success=success, answer=str(answer),
+                   score=None if score is None else float(score),
+                   termination=termination)
 
     def to_dict(self) -> dict:
-        return {"success": self.success, "answer": self.answer, "score": self.score}
+        return {"success": self.success, "answer": self.answer, "score": self.score,
+                "termination": self.termination}
 
 
 @dataclass
@@ -143,6 +173,15 @@ class Step:
     #: optional model-internal telemetry for this step (SCHEMA.md v12):
     #: confidence, min_token_confidence, entropy, tokens_scored, temperature.
     model: Optional[dict] = None
+    #: whether this step's observation was an error (SCHEMA.md v22).  None
+    #: means the log did not say, and process analysis infers it from the
+    #: output text — an inference it labels as such rather than asserting.
+    error: Optional[bool] = None
+    #: "read" | "write": whether the step changed anything outside the agent.
+    #: None means undeclared; the effect is then inferred from the tool name.
+    #: Writes are where offline analysis has the most leverage, because they
+    #: are the steps you cannot re-run to check.
+    effect: Optional[str] = None
 
     @classmethod
     def from_dict(cls, d: dict, position: int) -> "Step":
@@ -190,6 +229,15 @@ class Step:
                     or float(value) < 0
                 ):
                     raise ValueError(f"{where}: model.{key} must be a non-negative number")
+        error = d.get("error")
+        if error is not None and not isinstance(error, bool):
+            raise ValueError(f"{where}: error must be true, false or null")
+        effect = d.get("effect")
+        if effect is not None and effect not in EFFECTS:
+            raise ValueError(
+                f"{where}: invalid effect {effect!r}; must be one of "
+                f"{', '.join(EFFECTS)} or null"
+            )
         return cls(
             index=index,
             type=stype,
@@ -201,6 +249,8 @@ class Step:
             quality=quality,
             note=note,
             model=model,
+            error=error,
+            effect=effect,
         )
 
     def to_dict(self) -> dict:
@@ -215,6 +265,8 @@ class Step:
             "quality": self.quality,
             "note": self.note,
             "model": self.model,
+            "error": self.error,
+            "effect": self.effect,
         }
 
 
@@ -230,6 +282,14 @@ class Trajectory:
     steps: list[Step] = field(default_factory=list)
     schema_version: int = SCHEMA_VERSION
     run_id: str = "r1"
+    #: tools the agent was offered, as [{"name", "effect"?, "parameters"?}]
+    #: (SCHEMA.md v22).  Without it a call cannot be checked against what was
+    #: actually available, so grounding is reported as unmeasurable rather
+    #: than assumed perfect.
+    tools: list[dict] = field(default_factory=list)
+    #: limits the harness enforced, e.g. {"max_steps": 20}.  Needed to tell
+    #: an agent that finished from one that ran out of room.
+    budget: dict = field(default_factory=dict)
 
     @classmethod
     def from_json(cls, path_or_dict: Union[str, Path, dict]) -> "Trajectory":
@@ -287,6 +347,24 @@ class Trajectory:
         run_id = data.get("run_id", "r1")
         if not isinstance(run_id, str) or not run_id:
             raise ValueError("run_id must be a non-empty string")
+        tools = data.get("tools", [])
+        if not isinstance(tools, list):
+            raise ValueError("trajectory.tools must be a list")
+        for i, tool in enumerate(tools):
+            if not isinstance(tool, dict) or not str(tool.get("name", "")):
+                raise ValueError(f"tools[{i}] must be an object with a name")
+            effect = tool.get("effect")
+            if effect is not None and effect not in EFFECTS:
+                raise ValueError(
+                    f"tools[{i}]: invalid effect {effect!r}; must be one of "
+                    f"{', '.join(EFFECTS)} or null"
+                )
+        budget = data.get("budget", {})
+        if not isinstance(budget, dict):
+            raise ValueError("trajectory.budget must be an object")
+        for key, value in budget.items():
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                raise ValueError(f"budget.{key} must be a number")
         return cls(
             trace_id=trace_id,
             agent=agent,
@@ -296,6 +374,8 @@ class Trajectory:
             steps=steps,
             schema_version=version,
             run_id=run_id,
+            tools=tools,
+            budget=budget,
         )
 
     def to_dict(self) -> dict:
@@ -308,4 +388,6 @@ class Trajectory:
             "outcome": self.outcome.to_dict(),
             "totals": self.totals.to_dict(),
             "steps": [s.to_dict() for s in self.steps],
+            "tools": self.tools,
+            "budget": self.budget,
         }
