@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -861,10 +862,22 @@ def _cmd_convert(args: argparse.Namespace) -> int:
     return 0
 
 
+
+def _program_name() -> str:
+    """How this invocation should tell the user to call it again."""
+    invoked = os.path.basename(sys.argv[0] or "")
+    if invoked in ("__main__.py", "-c", ""):
+        return "python -m deepcompare"
+    return invoked
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the deepcompare argument parser."""
     parser = argparse.ArgumentParser(
-        prog="deepcompare", description="git diff for AI agents"
+        # The installed console script is `agentdiff`; running from a clone
+        # is `python -m deepcompare`. Printing the wrong one sends people to
+        # a command they do not have.
+        prog=_program_name(), description="git diff for AI agents"
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -979,8 +992,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_convert = sub.add_parser(
         "convert", help="convert foreign trace formats to SCHEMA trajectories"
     )
+    # Derived from the registry, not hardcoded: a format that --list-formats
+    # advertises must be selectable, including one a third party registered.
     p_convert.add_argument("--format", default="auto",
-                           choices=("auto", "otel", "openai", "anthropic", "schema"),
+                           choices=("auto",) + tuple(sorted(f["name"] for f in formats())),
                            help="input format")
     p_convert.add_argument("input", nargs="?", default="",
                            help="input JSON file")
