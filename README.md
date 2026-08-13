@@ -49,6 +49,50 @@ Beyond a single pair:
   that covers the task set, and the per-task cheapest solver, with the oracle
   ceiling reported as headroom rather than sold as an achievable policy.
 
+## Whether the score is telling the truth
+
+Outcome-only evaluation is blind by construction. A run can satisfy its
+oracle while looping, ignoring an error, or writing something nobody asked
+for — and a run can fail with a spotless process because the *oracle* is
+wrong. AgentDiff gives those two cases their own verdicts:
+
+> **passed but pathological** — hasty-v2 passed, but it hammered a failing
+> lookup three times, never recovered, and then wrote without ever having
+> read the booking. A leaderboard scores this identically to a clean pass.
+>
+> **failed but clean** — steady-v1 failed, yet nothing in its process went
+> visibly wrong. That is evidence about the grader, not only the agent.
+
+All of it is computed from the logged trace: **no judge, no re-execution, no
+model call.** That restriction is the point rather than a limitation. Replay
+a *frozen* step under different evaluator channels and the sign of its score
+flips, with cross-channel disagreement exceeding same-channel retry
+disagreement by 48 points ([arXiv 2607.04419](https://arxiv.org/abs/2607.04419));
+for false success specifically, no judge across five models and five
+prompting strategies exceeded AUROC 0.65
+([arXiv 2606.09863](https://arxiv.org/abs/2606.09863)), while a state
+comparison settles it outright. What can be settled by counting is settled
+by counting, and the rest is left to a human with the evidence laid out.
+
+- **Reliability, not one lucky run** — the pass^k curve
+  (`C(c,k)/C(n,k)`, τ-bench's measure) beside pass@k, so "can it ever" and
+  "can it every time" are on the same line. Harness failures are excluded
+  *before* any statistic, because counting a rate-limited run as an agent
+  failure makes the agent look worse and the harness look fine. With 3 runs
+  per task the report says plainly that nothing here supports ranking two
+  agents.
+- **Citable failure labels** — the divergence kinds and process flags map
+  onto the published MAST and TRAIL taxonomies, including the four cells
+  where the mapping honestly resolves to *nothing*: MAST has no
+  system-execution category, TRAIL has no verification branch. Coverage is
+  reported as the headline — **5 of 14 MAST modes reachable, 39.3% by
+  published failure mass** — because a tool should say what it cannot see.
+- **The industry's tool-call vocabulary** — `strict`/`unordered`/`subset`/
+  `superset` matching, F1, weighted-LCS partial credit and permission
+  checks, with **every result naming its algorithm**: four widely-used
+  libraries ship "tool call accuracy" and compute four different numbers
+  from the same trace.
+
 ## Quick start
 
 Nothing to install locally? Run it on Colab —
@@ -85,6 +129,15 @@ python -m deepcompare runs demo/runs/traces/ -o out_runs/
 
 # Block a regression in CI: exits non-zero when the candidate is worse
 python -m deepcompare gate baseline_traces/ candidate_traces/ --markdown gate.md
+
+# Process integrity: the run that PASSES here is the one that looped,
+# ignored three errors and wrote blind
+python demo/process/generate.py
+python -m deepcompare batch demo/process/traces/ -o out_process/
+
+# Reliability over repeated runs: pass^k, consistency, and an advisory that
+# refuses to rank two agents on too few runs
+python -m deepcompare runs demo/runs/traces/ -o out_runs/
 ```
 
 No dependencies — Python 3.10+ stdlib only.
@@ -152,7 +205,12 @@ downstream.
 ```
 deepcompare/   engine: schema, alignment, divergence, attribution, semantics,
                counterfactuals, fleet ranking, similarity, routing, gate, CLI
+               process.py     — loops, recovery, side effects, the outcome-process gap
+               reliability.py — pass^k, consistency, ICC, runs advisory
+               taxonomy.py    — MAST / TRAIL mapping with its own coverage limits
+               toolmatch.py   — reference tool-call matching, every result named
 demo/          two scripted agents (8 tasks), a 33-agent fleet, multi-run traces
+               process/ — action-taking runs exercising all four gap verdicts
 web/           viewer.html — the full interactive compare page
                select.html — a small Tufte-style agent-selection view
                blocks.html — the composable view, built from web/blocks/*.js
