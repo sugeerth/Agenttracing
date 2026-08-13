@@ -2379,7 +2379,6 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       ".tj-side{display:inline-flex;align-items:center;gap:5px;min-width:0}",
       ".tj-chip{width:9px;height:9px;border-radius:2px;flex:none}",
       ".tj-side b{font-weight:600;letter-spacing:-.01em}",
-      ".tj-side em{font-style:normal;color:var(--ink-3);font-size:11px}",
       ".tj-legend{display:flex;flex-wrap:wrap;gap:3px 11px;align-items:center;",
       "margin-top:7px;font-size:10.5px;color:var(--ink-3);line-height:1}",
       ".tj-legend .k{display:inline-flex;align-items:center;gap:4px}",
@@ -2672,6 +2671,14 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     return S("svg", { width: 14, height: 14, viewBox: "0 0 14 14", "aria-hidden": "true" }, [node]);
   }
 
+  function absentSwatch() {
+    return S("svg", { width: 14, height: 12, viewBox: "0 0 14 12", "aria-hidden": "true" }, [
+      S("line", { x1: 1, y1: 6, x2: 13, y2: 6, stroke: C.grid, "stroke-width": 1 }),
+      S("circle", { cx: 7, cy: 6, r: 2.6, fill: C.surface, stroke: C.muted,
+                    "stroke-width": 1, "stroke-dasharray": "1.6 1.4" }),
+    ]);
+  }
+
   function tick(x1, y1, x2, y2, stroke, width, dash) {
     var line = S("line", { x1: x1, y1: y1, x2: x2, y2: y2, stroke: stroke, "stroke-width": width || 1 });
     if (dash) line.setAttribute("stroke-dasharray", dash);
@@ -2709,7 +2716,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     return box;
   }
 
-  function sideHeader(report, mark) {
+  function sideHeader(report) {
     var box = H("div", { class: "tj-sides" });
     ["a", "b"].forEach(function (side) {
       var out = report[side] && report[side].outcome;
@@ -2721,7 +2728,6 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
           H("span", { class: "tag " + (ok ? "good" : "bad"), text: ok ? "solved" : "failed" }),
       ]));
     });
-    if (mark) { box.appendChild(H("span", { class: "sp", style: { flex: "1" } })); box.appendChild(mark); }
     return box;
   }
 
@@ -2777,6 +2783,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         { node: swatchLine(C.axis, null), text: "match" },
         { node: swatchLine(C.warn, "3 2"), text: "drift" },
         { node: swatchLine(C.bad, "2 2"), text: "divergence" },
+        { node: absentSwatch(), text: "no counterpart" },
       ]));
       el.appendChild(H("p", {
         class: "caveat",
@@ -2812,7 +2819,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       });
     });
 
-    var root_ = S("svg", {
+    var svgEl = S("svg", {
       class: "tj", width: W, height: H_, viewBox: "0 0 " + W + " " + H_,
       role: "img",
       "aria-label": "Step tracks for " + agentName(report, "a") + " and " + agentName(report, "b"),
@@ -2820,7 +2827,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
 
     // --- selected column wash (drawn first so marks sit on top)
     if (sel.row >= 0) {
-      root_.appendChild(S("rect", {
+      svgEl.appendChild(S("rect", {
         x: colX(sel.row) - colW / 2, y: 2, width: colW, height: H_ - 16,
         fill: C.ink, "fill-opacity": 0.055, rx: 4,
       }));
@@ -2830,22 +2837,22 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     Object.keys(divs).forEach(function (key) {
       var i = Number(key);
       var mark = divs[key];
-      root_.appendChild(tick(colX(i), 12, colX(i), H_ - 18, C.bad, mark.primary ? 1.2 : 1,
+      svgEl.appendChild(tick(colX(i), 12, colX(i), H_ - 18, C.bad, mark.primary ? 1.2 : 1,
                              mark.primary ? "3 3" : "1 4"));
       if (mark.primary) {
-        root_.appendChild(S("polygon", {
+        svgEl.appendChild(S("polygon", {
           points: pts([[colX(i) - 4.5, 4], [colX(i) + 4.5, 4], [colX(i), 11]]),
           fill: C.bad,
         }));
         if (colW >= 42) {
-          root_.appendChild(label(colX(i) + 8, 10, "d" + (mark.div.rank || 1), C.bad, 8.5, "start"));
+          svgEl.appendChild(label(colX(i) + 8, 10, "d" + (mark.div.rank || 1), C.bad, 8.5, "start"));
         }
       }
     });
 
     // --- track baselines
-    root_.appendChild(tick(padL, yA, W - padR, yA, C.grid, 1));
-    root_.appendChild(tick(padL, yB, W - padR, yB, C.grid, 1));
+    svgEl.appendChild(tick(padL, yA, W - padR, yA, C.grid, 1));
+    svgEl.appendChild(tick(padL, yB, W - padR, yB, C.grid, 1));
 
     // --- connectors
     rows.forEach(function (row, i) {
@@ -2854,14 +2861,19 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       var hasB = row.b_index !== null && row.b_index !== undefined;
       if (hasA && hasB) {
         var drift = row.op !== "match";
-        root_.appendChild(tick(x, yA + R + 2, x, yB - R - 2,
+        svgEl.appendChild(tick(x, yA + R + 2, x, yB - R - 2,
                                drift ? C.warn : C.grid, drift ? 1.2 : 1, drift ? "3 2" : null));
       } else if (hasA || hasB) {
         var from = hasA ? yA + R + 2 : yB - R - 2;
         var to = hasA ? yA + 16 : yB - 16;
-        root_.appendChild(tick(x, from, x, to, sideColor(hasA ? "a" : "b"), 1, "2 2"));
+        svgEl.appendChild(tick(x, from, x, to, sideColor(hasA ? "a" : "b"), 1, "2 2"));
+        // A hollow dot on the baseline, smaller than any step glyph: this
+        // agent has nothing at all here, which is not the same as a cheap step.
         var absentY = hasA ? yB : yA;
-        root_.appendChild(tick(x - 4, absentY, x + 4, absentY, C.muted, 1.6));
+        svgEl.appendChild(S("circle", {
+          cx: x, cy: absentY, r: 2.6, fill: C.surface, stroke: C.muted,
+          "stroke-width": 1, "stroke-dasharray": "1.6 1.4",
+        }));
       }
     });
 
@@ -2880,38 +2892,38 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         if (maxTokens > 0 && typeof step.tokens === "number" && step.tokens > 0) {
           var hgt = Math.max(1.5, (step.tokens / maxTokens) * barMax);
           var bw = Math.max(3, Math.min(7, colW - 22));
-          root_.appendChild(S("rect", {
+          svgEl.appendChild(S("rect", {
             x: x - bw / 2, y: dir < 0 ? y - R - 3 - hgt : y + R + 3,
             width: bw, height: hgt, fill: sideColor(side), "fill-opacity": 0.42, rx: 1,
           }));
         }
 
         if (root && root.side === side && root.index === index) {
-          root_.appendChild(S("circle", {
+          svgEl.appendChild(S("circle", {
             cx: x, cy: y, r: R + 4.5, fill: "none", stroke: C.bad, "stroke-width": 1.2,
           }));
         }
         if (sel.row === i && (sel.side === side || sel.side === null)) {
-          root_.appendChild(S("circle", {
+          svgEl.appendChild(S("circle", {
             cx: x, cy: y, r: R + 2.5, fill: "none", stroke: C.ink,
             "stroke-width": 1, "stroke-opacity": 0.55,
           }));
         }
 
-        root_.appendChild(styleGlyph(glyphNode(step.type, x, y, R),
+        svgEl.appendChild(styleGlyph(glyphNode(step.type, x, y, R),
                                      qualityStyle(step.quality, side)));
         if (colW >= 36) {
-          root_.appendChild(label(x + R + 3.5, y + 3, String(index), C.muted, 8, "start"));
+          svgEl.appendChild(label(x + R + 3.5, y + 3, String(index), C.muted, 8, "start"));
         }
       });
     });
 
     // --- row axis
-    root_.appendChild(tick(padL, axisY - 9, W - padR, axisY - 9, C.grid, 1));
+    svgEl.appendChild(tick(padL, axisY - 9, W - padR, axisY - 9, C.grid, 1));
     rows.forEach(function (row, i) {
-      root_.appendChild(label(colX(i), axisY, String(i), C.muted, 8.5));
+      svgEl.appendChild(label(colX(i), axisY, String(i), C.muted, 8.5));
     });
-    root_.appendChild(label(padL, axisY - 13, "row", C.muted, 8, "start"));
+    svgEl.appendChild(label(padL, axisY - 13, "row", C.muted, 8, "start"));
 
     // --- hit targets, one per side per column
     var midY = (yA + yB) / 2;
@@ -2936,12 +2948,12 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
           readout.appendChild(H("i", { text: hint(report) }));
         });
         hit.addEventListener("click", function () { select(i, side, ctx); });
-        root_.appendChild(hit);
+        svgEl.appendChild(hit);
       });
     });
 
     var wrap = H("div", { class: W > avail ? "scroll-x" : "" });
-    wrap.appendChild(root_);
+    wrap.appendChild(svgEl);
     host.appendChild(wrap);
     readout.innerHTML = "";
     readout.appendChild(H("i", { text: hint(report) }));
