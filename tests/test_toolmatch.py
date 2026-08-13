@@ -248,6 +248,42 @@ class TestEvaluate(unittest.TestCase):
         self.assertEqual(evaluate(run, REFERENCE), evaluate(run, REFERENCE))
 
 
+class TestConformanceIntegration(unittest.TestCase):
+    """A conformance check is the natural home for reference-based matching.
+
+    Everywhere else in AgentDiff there is no reference to match against; the
+    golden trajectory in ``check`` is exactly what these metrics need, so the
+    same finding gets reported in vocabulary other tools already use.
+    """
+
+    def check(self):
+        from deepcompare.conformance import check_run
+        golden = Trajectory.from_json(
+            "demo/process/traces/p01_cancel_booking__steady-v1.json")
+        candidate = Trajectory.from_json(
+            "demo/process/traces/p01_cancel_booking__hasty-v2.json")
+        return check_run(golden, candidate)
+
+    def test_conformance_carries_a_tool_match_block(self):
+        result = self.check()
+        self.assertIn("tool_match", result)
+        self.assertEqual(sorted(result["tool_match"]["matches"]), sorted(MATCH_MODES))
+
+    def test_it_names_what_was_missed_and_what_was_added(self):
+        # The demo's story is that the failing run never read the policy and
+        # retried the same lookup; the metric should find that independently.
+        f1 = self.check()["tool_match"]["f1"]
+        self.assertIn("get_policy", f1["missed_calls"])
+        self.assertIn("get_booking", f1["extra_calls"])
+        self.assertGreater(f1["false_positives"], 0)
+
+    def test_permission_passes_when_every_call_was_declared(self):
+        # The process demo declares its tool surface, so this is measurable.
+        permission = self.check()["tool_match"]["permission"]
+        self.assertTrue(permission["measurable"])
+        self.assertEqual(permission["score"], 1.0)
+
+
 class TestOnRealDemoData(unittest.TestCase):
     def test_evaluates_a_real_pair(self):
         reference = Trajectory.from_json(

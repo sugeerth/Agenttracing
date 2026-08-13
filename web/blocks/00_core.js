@@ -321,6 +321,7 @@
   var STACK_PLAN = [
     { label: "Outcome", groups: ["outcome"] },
     { label: "Trajectory", groups: ["trajectory"] },
+    { label: "Integrity", groups: ["integrity"] },
     { label: "Cost", groups: ["cost"] },
     { label: "Signal", groups: ["signal", "other"] },
   ];

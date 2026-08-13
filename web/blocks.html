@@ -120,10 +120,14 @@ select.picker {
 .stacks[data-cols="2"] { grid-template-columns: repeat(2, minmax(0,1fr)); }
 .stacks[data-cols="3"] { grid-template-columns: repeat(3, minmax(0,1fr)); }
 .stacks[data-cols="4"] { grid-template-columns: repeat(4, minmax(0,1fr)); }
+.stacks[data-cols="5"] { grid-template-columns: repeat(5, minmax(0,1fr)); }
 /* Step down rather than squeeze: a 260px column cannot hold a step track. */
-@media (max-width: 1500px) { .stacks[data-cols="4"] { grid-template-columns: repeat(3, minmax(0,1fr)); } }
+@media (max-width: 1900px) { .stacks[data-cols="5"] { grid-template-columns: repeat(4, minmax(0,1fr)); } }
+@media (max-width: 1500px) {
+  .stacks[data-cols="4"], .stacks[data-cols="5"] { grid-template-columns: repeat(3, minmax(0,1fr)); }
+}
 @media (max-width: 1100px) {
-  .stacks[data-cols="3"], .stacks[data-cols="4"] { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .stacks[data-cols="3"], .stacks[data-cols="4"], .stacks[data-cols="5"] { grid-template-columns: repeat(2, minmax(0,1fr)); }
 }
 @media (max-width: 780px)  { .stacks { grid-template-columns: minmax(0,1fr) !important; } }
 
@@ -616,6 +620,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   var STACK_PLAN = [
     { label: "Outcome", groups: ["outcome"] },
     { label: "Trajectory", groups: ["trajectory"] },
+    { label: "Integrity", groups: ["integrity"] },
     { label: "Cost", groups: ["cost"] },
     { label: "Signal", groups: ["signal", "other"] },
   ];

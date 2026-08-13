@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from .taxonomy import classify_batch
 from .recommend import recommend
 from .semantic import semantic_profile
 from .success import playbook
@@ -228,6 +229,9 @@ def aggregate(reports: list[dict]) -> dict:
         "attributes_joint": joint_attribute_model(_corpus_from_reports(reports)),
         "semantic_profile": semantic_profile(reports),
         "task_signal": task_signal(reports),
+        # Published failure vocabulary alongside AgentDiff's own, so a
+        # finding here is citable and comparable with other people's.
+        "taxonomy": classify_batch(reports),
     }
 
 

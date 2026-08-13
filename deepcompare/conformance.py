@@ -31,6 +31,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .report import compare
+from .toolmatch import evaluate as toolmatch_evaluate
 from .trace import Trajectory
 
 #: verdicts ordered from clean to worst; used for sorting and rollups.
@@ -153,6 +154,10 @@ def check_run(
             "run": sum(s.tokens for s in candidate.steps),
         },
         "deviations": deviations,
+        # The reference is exactly what the industry's trajectory-match
+        # vocabulary needs, so a conformance check is the natural place to
+        # emit it: same finding, in terms other tools already use.
+        "tool_match": toolmatch_evaluate(candidate, golden),
         "narrative": narrative,
         "report": report,
     }
