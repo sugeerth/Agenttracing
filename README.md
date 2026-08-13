@@ -93,6 +93,44 @@ by counting, and the rest is left to a human with the evidence laid out.
   libraries ship "tool call accuracy" and compute four different numbers
   from the same trace.
 
+## What to fix first
+
+Depth without prioritisation is not usefulness. Every `batch` now ends with a
+ranked list of actions, merged across the analyses that would otherwise
+report the same problem three times:
+
+```
+1. [failure · medium] Make hasty-v2 pick the tool that fits the data it
+   actually has, before it calls anything
+   evidence: 2/4 task(s); 2 occurrence(s); 2 failure(s) caused
+   impact: up to 1 failure(s) of 4 task(s) avoided; −280 tokens; −8.4s
+   effort: prompt (a prompt rule, or a clearer tool description; heuristic)
+   why here: x1 — no damping: it recurs, so it is not an anecdote
+
+2. [passing pathology · medium] Break hasty-v2 out of its loop
+   note: seen on run(s) that PASSED — no other block flags this
+```
+
+Three properties do the work:
+
+- **A pathology on a *passing* run ranks near the top**, because nothing
+  else in the pipeline will ever raise it — the gate is green and the loop
+  ships.
+- **A single occurrence is damped, not dropped** (×0.6, capped at low
+  confidence, with a Wilson interval on the rate). It says why: a one-off
+  cannot be told apart from a systematic problem, but a one-off crash is
+  still a crash.
+- **It refuses to rank confidently when the sample cannot support it.** With
+  3 runs per task, every *cross-agent* claim is halved and capped, quoting
+  the reliability advisory verbatim. Process pathologies are explicitly
+  exempt and say so — a loop is visible in one trace and needs no
+  comparison.
+
+Impact is never invented: unestimable is `None` with the reason, and a
+measured zero is labelled separately from "not estimable". Findings that
+cannot be acted on appear in a `not_actionable` list, each with why —
+usually an interval that includes zero.
+
 ## Quick start
 
 Nothing to install locally? Run it on Colab —
