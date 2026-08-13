@@ -131,13 +131,38 @@ class BlocksPageTest(unittest.TestCase):
 
     def test_the_page_never_scrolls_sideways(self):
         # Wide content belongs inside a scrolling card. A page-level
-        # horizontal scrollbar means a column is being pushed off screen.
+        # horizontal scrollbar means something is pushed off screen — and on
+        # a phone the thing pushed off was the toolbar's own buttons, which
+        # is worse than awkward: the control is unreachable.
         context, page, _ = self.open()
-        page.set_viewport_size({"width": 1280, "height": 900})
-        page.wait_for_timeout(300)
-        overflow = page.evaluate(
-            "() => document.documentElement.scrollWidth - document.documentElement.clientWidth")
-        self.assertLessEqual(overflow, 1, "page scrolls horizontally")
+        for width in (1440, 1280, 1024, 768, 480, 360):
+            with self.subTest(width=width):
+                page.set_viewport_size({"width": width, "height": 900})
+                page.wait_for_timeout(250)
+                overflow = page.evaluate(
+                    "() => document.documentElement.scrollWidth "
+                    "- document.documentElement.clientWidth")
+                self.assertLessEqual(overflow, 1,
+                                     f"page scrolls horizontally at {width}px")
+        context.close()
+
+    def test_every_toolbar_control_stays_on_screen(self):
+        context, page, _ = self.open()
+        for width in (1440, 480, 360):
+            with self.subTest(width=width):
+                page.set_viewport_size({"width": width, "height": 900})
+                page.wait_for_timeout(250)
+                offscreen = page.evaluate("""() => {
+                    const limit = document.documentElement.clientWidth + 1;
+                    const bad = [];
+                    document.querySelectorAll('.topbar button, .topbar select')
+                        .forEach(function (el) {
+                            const box = el.getBoundingClientRect();
+                            if (box.right > limit || box.left < -1) bad.push(el.id || el.textContent);
+                        });
+                    return bad;
+                }""")
+                self.assertEqual(offscreen, [], f"controls off screen at {width}px")
         context.close()
 
     def test_no_block_clips_content_it_cannot_scroll_to(self):
