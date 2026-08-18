@@ -798,6 +798,48 @@ def _cmd_profile(args: argparse.Namespace) -> int:
 
 
 
+
+def _cmd_progress(args: argparse.Namespace) -> int:
+    """Compare two batch outputs: did the fixes from the first land?"""
+    from .progress import compare_progress
+    result = compare_progress(args.before, args.after)
+    if "error" in result:
+        print(f"error: {result['error']}", file=sys.stderr)
+        return 2
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "progress.json").write_text(
+        json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"Wrote {out_dir / 'progress.json'}")
+    print()
+    print(result["narrative"])
+    print()
+    for entry in result["actions"]:
+        marker = {"resolved": "+", "improved": "~", "persists": "!",
+                  "worsened": "!!", "unobservable": "?",
+                  "untrackable": "?"}.get(entry["status"], " ")
+        print(f"  [{marker}] {entry['status'].upper():<12} "
+              f"(was #{entry['rank_before']}) {entry['action'][:80]}")
+        if entry.get("reason"):
+            print(f"        {entry['reason']}")
+        if entry.get("occurrences"):
+            occ = entry["occurrences"]
+            print(f"        occurrences {occ['before']} -> {occ['after']}")
+    if result["new_issues"]:
+        print()
+        print("  NEW issues the before-run did not have:")
+        for issue in result["new_issues"]:
+            print(f"    - {issue['title']} ({issue['occurrences']} occurrence(s))")
+    for name, s_ in result["success_by_agent"].items():
+        print(f"  {name}: success {s_['before']} -> {s_['after']} on "
+              f"{s_['tasks_compared']} shared task(s)"
+              + (f"; fixed {', '.join(s_['flips_fixed'])}" if s_['flips_fixed'] else "")
+              + (f"; BROKE {', '.join(s_['flips_broken'])}" if s_['flips_broken'] else ""))
+        if s_.get("note"):
+            print(f"        note: {s_['note']}")
+    return 0
+
+
 def _cmd_experiments(args: argparse.Namespace) -> int:
     """Compare whole experiments: diffs of averages, with behaviour beside."""
     from .experiments import compare_experiments, load_experiment
@@ -1182,6 +1224,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_profile.add_argument("-o", "--output", default="out",
                            help="output directory (default: out)")
     p_profile.set_defaults(func=_cmd_profile)
+
+    p_progress = sub.add_parser(
+        "progress",
+        help="compare two batch outputs: which triage actions resolved, "
+             "which persist, what newly appeared")
+    p_progress.add_argument("before", help="batch output directory from before the fix")
+    p_progress.add_argument("after", help="batch output directory from after the fix")
+    p_progress.add_argument("-o", "--output", default="out",
+                            help="output directory (default: out)")
+    p_progress.set_defaults(func=_cmd_progress)
 
     p_experiments = sub.add_parser(
         "experiments",

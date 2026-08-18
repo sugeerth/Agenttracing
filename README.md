@@ -131,6 +131,33 @@ measured zero is labelled separately from "not estimable". Findings that
 cannot be acted on appear in a `not_actionable` list, each with why —
 usually an interval that includes zero.
 
+### And how you'll know the fix worked
+
+Every action carries a **verification contract**, which turns a suggestion
+into a testable hypothesis. Fingerprints first — issue fingerprints are
+stable across runs, so "this stops appearing in the next batch" is a
+binary, deterministic confirmation. The success rate second, with its
+detectability computed rather than assumed: the check is the binomial tail
+under the unchanged-agent null, because a 3-of-4 agent reaches 4-of-4
+**32% of the time by pure luck**, and an interval comparison would happily
+call that a confirmed fix.
+
+Then close the loop:
+
+```bash
+agentdiff batch traces/ -o out_before        # fix things
+agentdiff batch traces/ -o out_after
+agentdiff progress out_before out_after
+#   [+] RESOLVED   (was #7) Make hasty-v2 read before it writes
+#   [!] PERSISTS   (was #2) Break hasty-v2 out of its loop — occurrences 1 -> 1
+```
+
+`progress` matches every before-action by fingerprint and process flag and
+reports resolved / improved / persists / worsened — with absence handled
+honestly: a fingerprint whose task did not re-run is **unobservable**, not
+cured; fewer occurrences is improvement, not resolution; and new issues the
+before-run did not have are part of the answer, not a footnote.
+
 ## Quick start
 
 Nothing to install locally? Run it on Colab —

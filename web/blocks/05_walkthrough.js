@@ -639,7 +639,46 @@
         bits.push(blockChip(ctx, "triage detail", ["recommendations", "issues"],
                             "The ranked actions with their evidence"));
       }
+      // The verification contract makes the action a testable hypothesis:
+      // say how the fixer will know it worked, and be honest when the
+      // success rate cannot confirm it at this suite size.
+      var verification = action.verification || {};
+      var checks = Array.isArray(verification.checks) ? verification.checks : [];
+      var fingerprintCheck = null, rateCheck = null;
+      checks.forEach(function (check) {
+        if (check.kind === "fingerprint" && !fingerprintCheck) fingerprintCheck = check;
+        if (check.kind === "success_rate") rateCheck = check;
+      });
+      if (fingerprintCheck || rateCheck) {
+        var how = ["How you will know the fix worked: "];
+        if (fingerprintCheck) {
+          how.push("the fingerprint" +
+                   (fingerprintCheck.fingerprints.length > 1 ? "s" : "") +
+                   " behind this finding should stop appearing in the next batch" +
+                   " — a binary, deterministic check");
+        }
+        if (rateCheck) {
+          how.push((fingerprintCheck ? ". " : "") +
+                   (rateCheck.single_rerun_can_confirm
+                    ? "The success rate can also confirm it: an unchanged agent " +
+                      "reaches " + rateCheck.hoped + " only " +
+                      ctx.fmt.pct(rateCheck.chance_of_hoped_result_without_a_fix, 1) +
+                      " of the time by luck"
+                    : "The success rate alone cannot confirm it here: an " +
+                      "unchanged agent reaches " + rateCheck.hoped + " " +
+                      ctx.fmt.pct(rateCheck.chance_of_hoped_result_without_a_fix, 0) +
+                      " of the time by pure luck, so rely on the fingerprint " +
+                      "check or add runs"));
+        }
+        how.push(". Re-run the same tasks, then compare with the progress command.");
+      }
       kids.push(paragraph(ctx, bits));
+      if (fingerprintCheck || rateCheck) {
+        kids.push(paragraph(ctx, [ctx.h("span", { class: "wt-note" }, null)].map(function (span) {
+          span.textContent = how.join("");
+          return span;
+        })));
+      }
     });
     if (mastKnown) {
       kids.push(paragraph(ctx, [

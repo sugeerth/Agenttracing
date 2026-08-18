@@ -46,7 +46,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from .statistics import wilson_interval
+from .statistics import binomial_tail, wilson_interval
 
 #: Base weight per severity class.  The gaps encode three judgements:
 #:
@@ -1087,6 +1087,86 @@ def _evidence(candidate: dict, sample: dict, n_tasks: int) -> dict:
     }
 
 
+
+def _verification(candidate: dict, sample: dict, n_tasks: int,
+                  failures: int) -> dict:
+    """How the person applying this fix will know it worked.
+
+    An action without a verification contract is a suggestion; with one it
+    is a testable hypothesis.  Two channels, deliberately ranked:
+
+    * **Fingerprints first.**  Issue fingerprints are stable across runs by
+      construction, so "this fingerprint stops appearing in the next batch"
+      is a binary, deterministic confirmation that needs no statistics.
+    * **Metrics second, with their detectability stated.**  On a small
+      suite, the success rate often *cannot* confirm a real fix: if the
+      hoped-for improvement still lands inside the current Wilson interval,
+      a single re-run proves nothing either way.  Saying so up front stops
+      the after-run from being misread in both directions — a fix declared
+      dead because the rate did not visibly move, or declared working
+      because it moved within noise.
+    """
+    fingerprints = candidate["fingerprints"]
+    checks = []
+    if fingerprints:
+        checks.append({
+            "kind": "fingerprint",
+            "expect": "these fingerprints stop appearing in the next batch",
+            "fingerprints": fingerprints,
+            "confirms": "binary and deterministic; the strongest signal at any suite size",
+        })
+    if candidate["flags"]:
+        checks.append({
+            "kind": "process_flag",
+            "expect": "these process flags stop being raised on the affected tasks",
+            "flags": sorted(set(candidate["flags"])),
+            "tasks": candidate["tasks"],
+        })
+
+    metric_check = None
+    if failures and n_tasks:
+        # Merged findings can count more failures than there are tasks (one
+        # task can fail for several counted reasons); the rate arithmetic
+        # needs the task-level view, so clamp rather than let a negative
+        # "current" reach the interval math.
+        current = max(0, n_tasks - failures)
+        hoped = min(n_tasks, current + failures)
+        low, high = wilson_interval(current, n_tasks)
+        # The right null: how often would the UNCHANGED agent score this
+        # well by luck?  Wilson bounds describe estimation uncertainty, not
+        # next-run sampling noise — a 3/4 agent hits 4/4 32% of the time.
+        luck = binomial_tail(hoped, n_tasks, current / n_tasks)
+        confirmable = luck < 0.05
+        metric_check = {
+            "kind": "success_rate",
+            "current": f"{current}/{n_tasks}",
+            "hoped": f"{hoped}/{n_tasks}",
+            "current_interval": [low, high],
+            "chance_of_hoped_result_without_a_fix": round(luck, 4),
+            "single_rerun_can_confirm": confirmable,
+            "note": (
+                f"an unchanged agent reaches {hoped}/{n_tasks} only "
+                f"{luck:.1%} of the time, so one re-run landing there is "
+                "meaningful evidence"
+                if confirmable else
+                f"an unchanged agent reaches {hoped}/{n_tasks} "
+                f"{luck:.0%} of the time by luck alone — one re-run cannot "
+                "confirm this by success rate; rely on the fingerprint "
+                "check, or add runs"),
+        }
+    if metric_check:
+        checks.append(metric_check)
+
+    return {
+        "how": ("re-run the same tasks, then `agentdiff progress "
+                "<before-out> <after-out>` — it matches these checks by "
+                "fingerprint and reports resolved / persists / new"),
+        "checks": checks,
+        "caveat": ("absence of a fingerprint in the after-run confirms the "
+                   "fix only if the same tasks ran; progress reports task-set "
+                   "drift rather than counting a missing task as a cure"),
+    }
+
 # --------------------------------------------------------------------------
 # public entry point
 # --------------------------------------------------------------------------
@@ -1259,6 +1339,8 @@ def triage(reports: list[dict], aggregate: dict) -> dict:
             "score": row["score"],
             "rank_basis": row["rank_basis"],
             "fix_hint": candidate["fix_hint"],
+            "verification": _verification(candidate, sample, n_tasks,
+                                          candidate["failures"]),
         })
 
     excluded.sort(key=lambda entry: (entry["reason"], entry["source"],

@@ -69,6 +69,26 @@ def pass_at_k(successes: int, runs: int, k: int) -> Optional[float]:
     return round(probability, 4)
 
 
+def binomial_tail(k: int, n: int, p: float) -> float:
+    """P(X >= k) for X ~ Binomial(n, p), exactly, via math.comb.
+
+    The question a re-run answers is not "is the new rate outside the old
+    interval" — the interval describes uncertainty about the old rate, not
+    the sampling noise of the next run.  It is "how often would an
+    *unchanged* agent produce a result this good?"  A 3-of-4 agent hits
+    4-of-4 about 32% of the time by luck alone, which is why that jump can
+    never confirm a fix on its own.
+    """
+    if n <= 0 or k <= 0:
+        return 1.0
+    if k > n:
+        return 0.0
+    p = min(1.0, max(0.0, p))
+    from math import comb
+    return sum(comb(n, i) * (p ** i) * ((1 - p) ** (n - i))
+               for i in range(k, n + 1))
+
+
 def paired_bootstrap_difference(
     baseline: Sequence[bool],
     candidate: Sequence[bool],
