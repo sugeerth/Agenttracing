@@ -137,6 +137,15 @@ EFFORT = {
     "reasoning": ("prompt", "a prompt rule about reconciling conflicting evidence"),
     "efficiency": ("control-flow",
                    "loop detection or a stop rule in the agent loop"),
+    "prompt_cache": ("infrastructure",
+                     "a stable prompt prefix so the provider cache can hold it"),
+    "result_cache": ("infrastructure",
+                     "memoise identical tool calls at the harness layer"),
+    "parallel_reads": ("control-flow",
+                       "issue independent read-only calls concurrently"),
+    "latency_concentration": ("investigation",
+                              "profile the named slow steps before changing "
+                              "anything"),
     "recovery": ("control-flow", "error handling around the tool call"),
     "safety": ("architecture", "a read-before-write guard on state-changing tools"),
     "verification": ("architecture",
@@ -626,6 +635,47 @@ def _from_regressions(aggregate: dict) -> list[dict]:
 # --------------------------------------------------------------------------
 
 
+def _from_efficiency(aggregate: dict) -> list[dict]:
+    """Serving-cost opportunities: cacheable calls, parallel reads, resends.
+
+    These are properties of one agent's own traces, not comparisons — so like
+    process pathologies they are exempt from the reliability gate: a repeated
+    identical call is visible in a single run and needs no second agent to
+    be true.  Their savings are **ceilings** (a cache hit rate of 100% is an
+    assumption, not a forecast), and that framing must survive into the
+    action rather than being flattened into "saves N tokens".
+    """
+    efficiency = aggregate.get("efficiency") or {}
+    candidates = []
+    for side_block in (efficiency.get("per_agent") or {}).values():
+        agent = side_block.get("agent")
+        for opportunity in side_block.get("opportunities") or []:
+            kind = opportunity.get("kind") or "efficiency"
+            saving = opportunity.get("saving") or {}
+            evidence = opportunity.get("evidence") or {}
+            tasks = list(evidence.get("tasks") or [])
+            basis = opportunity.get("basis") or "estimated"
+            candidates.append(_candidate(
+                id=f"efficiency/{kind}/{agent}",
+                source="efficiency",
+                category=kind,
+                severity_class="cost",
+                agents=[agent] if agent else [],
+                tasks=tasks,
+                comparative=False,
+                occurrences=evidence.get("occurrences") or len(tasks),
+                tokens=saving.get("tokens"),
+                latency_s=saving.get("latency_s"),
+                details=[opportunity.get("action")],
+                fix_hint=opportunity.get("action"),
+                basis_notes=[
+                    f"the saving is a ceiling, not a forecast: it assumes the "
+                    f"{kind.replace('_', ' ')} fully lands (basis: {basis})",
+                ],
+            ))
+    return candidates
+
+
 def _agents_compatible(left: list, right: list) -> bool:
     """Unknown attribution is compatible with anything; two named agents are
     compatible only with themselves.  A non-fatal issue often names no agent,
@@ -1038,6 +1088,18 @@ def _action_text(candidate: dict) -> str:
                     f"edge of its step budget")
         return (f"Make {who} stop once its evidence is sufficient instead of "
                 f"gathering more")
+    if category == "prompt_cache":
+        return (f"Give {who} a stable prompt prefix so the provider cache can "
+                f"absorb its re-sent context")
+    if category == "result_cache":
+        return (f"Cache {who}'s repeated identical tool calls at the harness — "
+                f"same call, same result, paid for twice")
+    if category == "parallel_reads":
+        return (f"Issue {who}'s independent read-only calls concurrently "
+                f"instead of one after another")
+    if category == "latency_concentration":
+        return (f"Profile {who}'s slowest steps — most of its wall-clock sits "
+                f"in a few of them")
     if category == "recovery":
         return (f"Stop {who} retrying a failed call unchanged — adapt the call "
                 f"or abandon it")
@@ -1257,6 +1319,7 @@ def triage(reports: list[dict], aggregate: dict) -> dict:
         + _from_recommendations(aggregate)
         + _from_process(reports)
         + _from_oracle(reports)
+        + _from_efficiency(aggregate)
         + attribute_actions
         + calibration_actions
         + _from_regressions(aggregate)

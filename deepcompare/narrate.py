@@ -94,6 +94,8 @@ def _detect_shape(report: dict) -> str:
     narrator confined to single pairs cannot analyse a fleet."""
     if "experiments" in report and "diffs" in report:
         return "experiments"
+    if "action_counts" in report and "success_by_agent" in report:
+        return "progress"
     if "a" in report and "b" in report and "alignment" in report:
         return "pair"
     if "success_rate" in report or "triage" in report or "reports" in report:
@@ -115,6 +117,8 @@ def narration_brief(report: dict) -> dict:
         return _aggregate_brief(report)
     if shape == "experiments":
         return _experiments_brief(report)
+    if shape == "progress":
+        return _progress_brief(report)
     facts: list[dict] = []
     a = (report.get("a") or {})
     b = (report.get("b") or {})
@@ -269,6 +273,51 @@ def _experiments_brief(result: dict) -> dict:
     }
 
 
+def _progress_brief(result: dict) -> dict:
+    """Facts for narrating a fix loop: what resolved, persisted, appeared."""
+    facts: list[dict] = []
+    counts = result.get("action_counts") or {}
+    if counts:
+        _fact(facts, "counts",
+              ", ".join(f"{n} {status}" for status, n in sorted(counts.items()))
+              + " across the before-run's actions", counts)
+    for entry in (result.get("actions") or [])[:10]:
+        detail = entry.get("reason") or ""
+        occurrences = entry.get("occurrences")
+        if occurrences:
+            detail += (f" (occurrences {occurrences['before']} -> "
+                       f"{occurrences['after']})")
+        _fact(facts, "action",
+              f"{entry.get('status')}: {entry.get('action')} — {detail}".strip(),
+              occurrences)
+    for issue in (result.get("new_issues") or [])[:5]:
+        _fact(facts, "new_issue",
+              f"NEW: {issue.get('title')} ({issue.get('occurrences')} "
+              f"occurrence(s))", None)
+    for name, s_ in (result.get("success_by_agent") or {}).items():
+        _fact(facts, "success",
+              f"{name}: {s_.get('before')} -> {s_.get('after')} on "
+              f"{s_.get('tasks_compared')} shared task(s)"
+              + (f"; {s_.get('note')}" if s_.get("note") else ""), s_)
+    drift = result.get("task_drift") or {}
+    if drift.get("dropped") or drift.get("added"):
+        _fact(facts, "drift",
+              f"task set drifted: dropped {drift.get('dropped')}, added "
+              f"{drift.get('added')} — judgements are restricted to shared tasks",
+              drift)
+    if result.get("narrative"):
+        _fact(facts, "overall", result["narrative"], None)
+    return {
+        "task": "before/after fix comparison",
+        "agents": {str(i): n for i, n in
+                   enumerate(sorted(result.get("success_by_agent") or {}))},
+        "shape": "progress",
+        "facts": facts,
+        "allowed_numbers": sorted(_collect_allowed(facts)),
+        "brief_digest": _digest_of(facts),
+    }
+
+
 PROMPT_HEADER = """You are narrating a comparison between two AI-agent runs \
 for an engineer who has not seen the report. Write two or three plain \
 paragraphs: what happened, why, and what it means. Ground every claim in the \
@@ -286,6 +335,10 @@ _HEADERS_BY_SHAPE = {
                   "four plain paragraphs: how the agents compare, what "
                   "systematically goes wrong, what explains the variation, "
                   "and what to change first."),
+    "progress": ("You are an evaluation agent reviewing a fix attempt: a "
+                 "before-run's actions checked against an after-run. Write "
+                 "two plain paragraphs: what the fix actually achieved, and "
+                 "what remains or newly appeared."),
     "experiments": ("You are an evaluation agent analysing whole experiments "
                     "against each other. Write two or three plain paragraphs: "
                     "whether the experiments genuinely differ, on what "
@@ -305,9 +358,15 @@ def narration_prompt(brief: dict) -> str:
                   "flagged.")
     else:
         header = PROMPT_HEADER
+    agents = brief.get("agents") or {}
+    if set(agents) == {"a", "b"}:
+        agent_line = f"Agent A: {agents['a']}   Agent B: {agents['b']}"
+    else:
+        agent_line = "Subjects: " + ", ".join(
+            str(v) for _, v in sorted(agents.items())) if agents else "Subjects: (see facts)"
     lines = [header, "",
              f"Task: {brief.get('task')}",
-             f"Agent A: {brief['agents']['a']}   Agent B: {brief['agents']['b']}",
+             agent_line,
              "", "FACTS:"]
     for fact in brief["facts"]:
         lines.append(f"[{fact['id']}] ({fact['source']}) {fact['text']}")

@@ -180,6 +180,23 @@ class TestEvalAgentShapes(unittest.TestCase):
         check = check_narration(brief, "cross similarity 0.75 vs within 0.96 [F2]")
         self.assertTrue(check["faithful"])
 
+    def test_a_progress_result_is_detected_and_briefed(self):
+        result = {"action_counts": {"resolved": 2, "persists": 3},
+                  "actions": [{"status": "resolved", "action": "fix the thing",
+                               "reason": "fingerprint gone"}],
+                  "new_issues": [],
+                  "success_by_agent": {"x": {"before": "2/4", "after": "3/4",
+                                             "tasks_compared": 4}},
+                  "task_drift": {"dropped": [], "added": []},
+                  "narrative": "overall"}
+        brief = narration_brief(result)
+        self.assertEqual(brief["shape"], "progress")
+        self.assertIn("fix attempt", narration_prompt(brief))
+        check = check_narration(brief, "2 resolved and 3 persist [F1].")
+        self.assertTrue(check["faithful"])
+        bad = check_narration(brief, "a 45% cost cut")
+        self.assertIn("45%", bad["unsupported_numbers"])
+
     def test_fabrication_is_caught_in_every_shape(self):
         aggregate = {"tasks": 8, "agents": {"a": "x", "b": "y"},
                      "success_rate": {"a": 0.5, "b": 0.5},

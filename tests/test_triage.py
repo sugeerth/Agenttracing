@@ -620,5 +620,74 @@ class TestSchemeAndNarrative(unittest.TestCase):
         self.assertTrue(any("Triage" in line for line in lines))
 
 
+
+
+class TestEfficiencySource(unittest.TestCase):
+    """Serving-cost opportunities join the ranking without corrupting it."""
+
+    def aggregate_with_efficiency(self):
+        return {
+            "efficiency": {"per_agent": {"b": {
+                "agent": "hasty-v2",
+                "opportunities": [{
+                    "kind": "prompt_cache", "rank": 1, "basis": "estimated",
+                    "action": "Add a stable-prefix prompt cache",
+                    "evidence": {"occurrences": 4,
+                                 "tasks": ["t0", "t1", "t2", "t3"]},
+                    "saving": {"tokens": 1783, "latency_s": None,
+                               "cost_usd": 0.0053},
+                }],
+            }}},
+        }
+
+    def reports(self):
+        return [fake_report(f"t{i}") for i in range(4)]
+
+    def find(self, actions):
+        return [a for a in actions if "efficiency" in a["sources"]]
+
+    def test_efficiency_opportunities_become_ranked_actions(self):
+        result = triage(self.reports(), self.aggregate_with_efficiency())
+        found = self.find(result["actions"])
+        self.assertEqual(len(found), 1)
+        self.assertIn("stable prompt prefix", found[0]["action"])
+        self.assertEqual(found[0]["severity_class"], "cost")
+
+    def test_a_ceiling_saving_never_outranks_a_caused_failure(self):
+        aggregate = self.aggregate_with_efficiency()
+        aggregate["issues"] = {"issues": [{
+            "id": "fp1", "kind": "retrieval", "title": "bad source",
+            "tasks": ["t0", "t1"], "occurrence_count": 2,
+            "occurrences": [{"task": "t0"}, {"task": "t1"}],
+            "failures_caused": 2, "extra_tokens": 100,
+            "severity": "critical", "recurring": True, "suppressed": False,
+            "agents": ["hasty-v2"], "summary": "s",
+        }]}
+        result = triage(self.reports(), aggregate)
+        failure_rank = min(a["rank"] for a in result["actions"]
+                           if a["severity_class"] == "failure")
+        cost_rank = min(a["rank"] for a in self.find(result["actions"]))
+        self.assertLess(failure_rank, cost_rank)
+
+    def test_the_ceiling_caveat_survives_into_the_action(self):
+        result = triage(self.reports(), self.aggregate_with_efficiency())
+        caveats = " ".join(self.find(result["actions"])[0]["evidence"]["caveats"])
+        self.assertIn("ceiling, not a forecast", caveats)
+
+    def test_efficiency_is_exempt_from_the_reliability_gate(self):
+        # A repeated identical call is visible in one run; no second agent or
+        # repeat count bears on whether it happened.
+        aggregate = self.aggregate_with_efficiency()
+        aggregate["reliability"] = {"per_agent": {"a": {
+            "agent": "x",
+            "runs_advisory": {"tier": "insufficient", "n_min": 1,
+                              "message": "one run supports nothing",
+                              "does_not_support": ["any comparison"]},
+        }}}
+        result = triage(self.reports(), aggregate)
+        action = self.find(result["actions"])[0]
+        self.assertIsNone(action["confidence"].get("capped_by"))
+
+
 if __name__ == "__main__":
     unittest.main()
