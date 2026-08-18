@@ -177,6 +177,61 @@ python -m deepcompare batch demo/process/traces/ -o out_process/
 
 No dependencies — Python 3.10+ stdlib only.
 
+## The eval agent, under covenant
+
+`narrate` turns any LLM into an evaluation agent that can never corrupt a
+finding. The engine emits a *brief* — numbered facts copied verbatim from
+the report — and a prompt; you run any model you like outside the package;
+the returned text is checked number-by-number against the brief. A
+fabricated figure is stored **flagged**, not trusted and not dropped, and
+narration lives under a key nothing reads: deleting it changes no verdict,
+no number, no exit code.
+
+```bash
+agentdiff narrate out/report_t01.json > prompt.txt        # give this to any LLM
+agentdiff narrate out/report_t01.json --ingest answer.txt --model my-llm
+#   UNSUPPORTED numbers (not in the evidence): 93%
+```
+
+It speaks three shapes: a pairwise report, a whole batch aggregate (the
+fleet-level eval agent), and an experiments comparison. The design follows
+the field's own evidence: LLM attribution collapses from 94% to 50% as
+traces grow (Who&When Pro), while span-grounding narrated claims recovers
+~30 points (DRIFT) — see `docs/CITATIONS.md`.
+
+## Experiments, compared as experiments
+
+```bash
+agentdiff experiments expA/ expB/ -o out/
+```
+
+Diffs of averages with uncertainty first: paired on shared tasks, harness
+failures excluded, success as the single primary endpoint and the resource
+metrics Benjamini–Hochberg corrected among themselves. Beside every outcome
+diff sits a behavioural similarity — cross-experiment versus each
+experiment's own within-baseline — because outcome agreement is not
+behaviour agreement, in either direction: on the demo corpus an
+88%-versus-67% success gap is noise at 8 tasks while the behaviour change
+is real (cross 0.75 vs within 0.96), and scores moving *without* behaviour
+moving points at the grader.
+
+## What the trace says about where it runs
+
+Every report carries an `efficiency` block: prompt-cache-absorbable resend
+overhead, result-cacheable repeated calls (a retry after an error is
+excluded — retrying a failure is correct, not waste), independent reads
+that could run in parallel (broken conservatively by any provenance link),
+latency concentration, and cost per success with its denominator. Savings
+are ceilings with their assumptions named. Throughput is refused outright
+on estimated token counts: tokens/sec from a `len/4` guess is a made-up
+number wearing units.
+
+And every report states the **trade-off** instead of leaving the arithmetic
+to the reader: dominance is never dressed up as a dilemma, a fast failure
+is "slower to nothing" rather than a saving, and score-per-dollar /
+score-per-second exchange rates appear only where quality and spend
+actually moved together.
+
 ## In CI
 
 `gate` and `check` write the formats CI already reads, so a finding lands in
