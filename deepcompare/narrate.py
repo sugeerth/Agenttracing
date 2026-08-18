@@ -88,13 +88,33 @@ def _fact(facts: list, source: str, text: str, value=None) -> None:
                   "text": text, "value": value})
 
 
+def _detect_shape(report: dict) -> str:
+    """Which kind of result this is: a pairwise report, a batch aggregate,
+    or an experiments comparison.  The eval-agent role needs all three — a
+    narrator confined to single pairs cannot analyse a fleet."""
+    if "experiments" in report and "diffs" in report:
+        return "experiments"
+    if "a" in report and "b" in report and "alignment" in report:
+        return "pair"
+    if "success_rate" in report or "triage" in report or "reports" in report:
+        return "aggregate"
+    return "pair"
+
+
 def narration_brief(report: dict) -> dict:
     """The numbered facts a narrator may use — nothing else.
 
     Assembled only from fields the deterministic engine wrote.  The brief is
     the entire authority the narrator gets: a fact that is not here is a
-    fact the narration is not entitled to state.
+    fact the narration is not entitled to state.  Accepts a pairwise report,
+    a batch aggregate, or an experiments comparison; the facts differ, the
+    covenant does not.
     """
+    shape = _detect_shape(report)
+    if shape == "aggregate":
+        return _aggregate_brief(report)
+    if shape == "experiments":
+        return _experiments_brief(report)
     facts: list[dict] = []
     a = (report.get("a") or {})
     b = (report.get("b") or {})
@@ -143,26 +163,109 @@ def narration_brief(report: dict) -> dict:
     if delta:
         _fact(facts, "metrics_delta", json.dumps(delta, sort_keys=True), delta)
 
+    steps_max = max(len((a.get("steps") or [])), len((b.get("steps") or [])))
+    return {
+        "task": (report.get("task") or {}).get("id"),
+        "agents": {"a": name_a, "b": name_b},
+        "shape": "pair",
+        "facts": facts,
+        "allowed_numbers": sorted(_collect_allowed(facts, extra_ints=steps_max)),
+        "brief_digest": _digest_of(facts),
+    }
+
+
+def _collect_allowed(facts: list, extra_ints: int = 0) -> set:
     allowed: set = set()
     for fact in facts:
         _walk_numbers(fact["text"], allowed)
         _walk_numbers(fact["value"], allowed)
-    # step indices and fact numbers are always fair game
-    for i in range(0, max(len((a.get("steps") or [])), len((b.get("steps") or []))) + 1):
+    for i in range(0, max(extra_ints, len(facts)) + 1):
         allowed.add(str(i))
-    for i in range(1, len(facts) + 1):
-        allowed.add(str(i))
+    return allowed
 
-    digest = hashlib.sha256(json.dumps(
+
+def _digest_of(facts: list) -> str:
+    return hashlib.sha256(json.dumps(
         [(f["id"], f["text"]) for f in facts], sort_keys=True,
         ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
 
+
+def _aggregate_brief(aggregate: dict) -> dict:
+    """Facts for the fleet-level eval agent: the whole batch, all agents."""
+    facts: list[dict] = []
+    agents = aggregate.get("agents") or {}
+    rates = aggregate.get("success_rate") or {}
+    for side, name in sorted(agents.items()):
+        rate = rates.get(side)
+        means = (aggregate.get("means") or {}).get(side) or {}
+        _fact(facts, "aggregate",
+              f"{name}: success rate {rate}, mean tokens "
+              f"{means.get('tokens')}, mean cost ${means.get('cost_usd')}, "
+              f"mean latency {means.get('latency_s')}s over "
+              f"{aggregate.get('tasks')} task(s)", {"rate": rate, **means})
+    for origin, share in sorted((aggregate.get("failure_origins") or {}).items()):
+        _fact(facts, "failure_origins",
+              f"{share:.0%} of attributed failures start in {origin}", share)
+    issues = ((aggregate.get("issues") or {}).get("issues") or [])[:6]
+    for issue in issues:
+        _fact(facts, "issue",
+              f"{issue.get('title')} — {issue.get('occurrences')} occurrence(s), "
+              f"{issue.get('failures_caused')} failure(s) caused", issue)
+    triage = (aggregate.get("triage") or {})
+    for action in (triage.get("actions") or [])[:5]:
+        _fact(facts, "triage",
+              f"action #{action.get('rank')}: {action.get('action')}",
+              action.get("impact"))
+    variance = (aggregate.get("variance") or {})
+    if variance.get("narrative"):
+        _fact(facts, "variance", variance["narrative"], None)
+    for metric, block in (variance.get("metrics") or {}).items():
+        if isinstance(block, dict) and block.get("narrative"):
+            _fact(facts, f"variance.{metric}", block["narrative"], None)
+    reliability = aggregate.get("reliability") or {}
+    for side_block in (reliability.get("per_agent") or {}).values():
+        if isinstance(side_block, dict) and side_block.get("narrative"):
+            _fact(facts, "reliability", side_block["narrative"], None)
+    for key in ("calibration", "semantic_profile", "attributes"):
+        block = aggregate.get(key) or {}
+        if isinstance(block, dict) and block.get("narrative"):
+            _fact(facts, key, block["narrative"], None)
+
     return {
-        "task": (report.get("task") or {}).get("id"),
-        "agents": {"a": name_a, "b": name_b},
+        "task": f"batch of {aggregate.get('tasks')} task(s)",
+        "agents": {k: v for k, v in agents.items()},
+        "shape": "aggregate",
         "facts": facts,
-        "allowed_numbers": sorted(allowed),
-        "brief_digest": digest,
+        "allowed_numbers": sorted(_collect_allowed(facts)),
+        "brief_digest": _digest_of(facts),
+    }
+
+
+def _experiments_brief(result: dict) -> dict:
+    """Facts for the eval agent over whole experiments."""
+    facts: list[dict] = []
+    for summary in result.get("experiments") or []:
+        _fact(facts, "experiment",
+              f"{summary.get('name')}: {summary.get('runs')} run(s), success "
+              f"{summary.get('success_rate')}, mean tokens "
+              f"{(summary.get('means') or {}).get('tokens')}", summary.get("means"))
+    for d in result.get("diffs") or []:
+        if d.get("narrative"):
+            _fact(facts, "diff", d["narrative"], d.get("success_diff"))
+        sim = d.get("similarity") or {}
+        if sim.get("note"):
+            _fact(facts, "behaviour", sim["note"],
+                  {"cross": sim.get("cross"), "within": sim.get("within")})
+    if result.get("narrative"):
+        _fact(facts, "overall", result["narrative"], None)
+    names = [s.get("name") for s in result.get("experiments") or []]
+    return {
+        "task": f"comparison of {len(names)} experiment(s)",
+        "agents": {str(i): n for i, n in enumerate(names)},
+        "shape": "experiments",
+        "facts": facts,
+        "allowed_numbers": sorted(_collect_allowed(facts)),
+        "brief_digest": _digest_of(facts),
     }
 
 
@@ -176,9 +279,33 @@ will be machine-checked against the facts, and unsupported numbers will be \
 flagged to the reader."""
 
 
+_HEADERS_BY_SHAPE = {
+    "pair": None,   # PROMPT_HEADER as-is
+    "aggregate": ("You are an evaluation agent analysing a whole batch of "
+                  "AI-agent runs — every agent, every task. Write three or "
+                  "four plain paragraphs: how the agents compare, what "
+                  "systematically goes wrong, what explains the variation, "
+                  "and what to change first."),
+    "experiments": ("You are an evaluation agent analysing whole experiments "
+                    "against each other. Write two or three plain paragraphs: "
+                    "whether the experiments genuinely differ, on what "
+                    "evidence, and what to run next."),
+}
+
+
 def narration_prompt(brief: dict) -> str:
     """The full prompt for an external model.  Deterministic given the report."""
-    lines = [PROMPT_HEADER, "",
+    override = _HEADERS_BY_SHAPE.get(brief.get("shape") or "pair")
+    if override:
+        header = (override + " Ground every claim in the numbered facts "
+                  "below, citing them inline like [F3]. HARD RULES: use no "
+                  "number that does not appear in the facts; assert no cause "
+                  "the facts do not state; if the facts are silent, say so. "
+                  "Your text will be machine-checked and unsupported numbers "
+                  "flagged.")
+    else:
+        header = PROMPT_HEADER
+    lines = [header, "",
              f"Task: {brief.get('task')}",
              f"Agent A: {brief['agents']['a']}   Agent B: {brief['agents']['b']}",
              "", "FACTS:"]

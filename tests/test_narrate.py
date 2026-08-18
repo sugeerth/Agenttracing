@@ -146,5 +146,48 @@ class TestSegregation(unittest.TestCase):
         self.assertEqual(report["narration"]["brief_digest"], brief["brief_digest"])
 
 
+
+
+class TestEvalAgentShapes(unittest.TestCase):
+    """The eval-agent role: briefs over aggregates and experiments."""
+
+    def test_an_aggregate_is_detected_and_briefed(self):
+        aggregate = {"tasks": 8, "agents": {"a": "atlas", "b": "bolt"},
+                     "success_rate": {"a": 0.875, "b": 0.625},
+                     "means": {"a": {"tokens": 908.0, "cost_usd": 0.005,
+                                     "latency_s": 10.75},
+                               "b": {"tokens": 1208.6, "cost_usd": 0.007,
+                                     "latency_s": 14.5}},
+                     "failure_origins": {"retrieval": 0.5}}
+        brief = narration_brief(aggregate)
+        self.assertEqual(brief["shape"], "aggregate")
+        self.assertGreaterEqual(len(brief["facts"]), 3)
+        prompt = narration_prompt(brief)
+        self.assertIn("evaluation agent", prompt)
+        self.assertIn("machine-checked", prompt)
+
+    def test_an_experiments_result_is_detected_and_briefed(self):
+        result = {"experiments": [{"name": "expA", "runs": 24,
+                                   "success_rate": 0.875,
+                                   "means": {"tokens": 900.0}}],
+                  "diffs": [{"narrative": "noise-level difference",
+                             "success_diff": {"observed": 0.25},
+                             "similarity": {"note": "behaviour moved",
+                                            "cross": 0.75, "within": 0.96}}],
+                  "narrative": "overall"}
+        brief = narration_brief(result)
+        self.assertEqual(brief["shape"], "experiments")
+        check = check_narration(brief, "cross similarity 0.75 vs within 0.96 [F2]")
+        self.assertTrue(check["faithful"])
+
+    def test_fabrication_is_caught_in_every_shape(self):
+        aggregate = {"tasks": 8, "agents": {"a": "x", "b": "y"},
+                     "success_rate": {"a": 0.5, "b": 0.5},
+                     "means": {"a": {"tokens": 100}, "b": {"tokens": 100}}}
+        brief = narration_brief(aggregate)
+        check = check_narration(brief, "y is 37% more reliable than x.")
+        self.assertIn("37%", check["unsupported_numbers"])
+
+
 if __name__ == "__main__":
     unittest.main()
