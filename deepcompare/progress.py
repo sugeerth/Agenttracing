@@ -325,6 +325,31 @@ def compare_progress(before_dir, after_dir) -> dict:
     }
 
 
+def regressions_in(result: dict) -> list[str]:
+    """What got worse between the runs — the gate-worthy subset.
+
+    Deliberately narrow: an action persisting is the fix not landing, which
+    is disappointing but not a regression; a task that flipped from passing
+    to failing, an action that *worsened*, or an issue that did not exist
+    before is the after-run being worse than the before-run, and that is
+    what a CI gate on a fix loop should refuse to ship.
+    """
+    findings = []
+    for entry in result.get("actions") or []:
+        if entry.get("status") == "worsened":
+            occ = entry.get("occurrences") or {}
+            findings.append(
+                f"worsened: {entry.get('action')} "
+                f"({occ.get('before')} -> {occ.get('after')} occurrence(s))")
+    for issue in result.get("new_issues") or []:
+        findings.append(f"new issue: {issue.get('title')} "
+                        f"({issue.get('occurrences')} occurrence(s))")
+    for name, s_ in (result.get("success_by_agent") or {}).items():
+        for task in s_.get("flips_broken") or []:
+            findings.append(f"broke: {name} on {task} — passed before, fails now")
+    return findings
+
+
 def _narrative(counts, new_issues, drift, success) -> str:
     parts = []
     resolved = counts.get("resolved", 0)

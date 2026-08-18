@@ -846,6 +846,16 @@ def _cmd_progress(args: argparse.Namespace) -> int:
               + (f"; BROKE {', '.join(s_['flips_broken'])}" if s_['flips_broken'] else ""))
         if s_.get("note"):
             print(f"        note: {s_['note']}")
+    from .progress import regressions_in
+    regressions = regressions_in(result)
+    if regressions:
+        print()
+        print("  REGRESSIONS (the after-run is worse than the before-run):")
+        for finding in regressions:
+            print(f"    - {finding}")
+    if args.strict and regressions:
+        print(f"\n  --strict: failing with {len(regressions)} regression(s)")
+        return 1
     return 0
 
 
@@ -1242,6 +1252,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_progress.add_argument("after", help="batch output directory from after the fix")
     p_progress.add_argument("-o", "--output", default="out",
                             help="output directory (default: out)")
+    p_progress.add_argument("--strict", action="store_true",
+                            help="exit non-zero when the after-run is worse: "
+                                 "a broken task, a worsened action, or a new "
+                                 "issue (persisting is not a regression)")
     p_progress.set_defaults(func=_cmd_progress)
 
     p_experiments = sub.add_parser(

@@ -204,6 +204,33 @@ class TestProgress(unittest.TestCase):
             result = compare_progress(before, after)
             self.assertFalse(result["efficiency_shift"]["available"])
 
+    def test_regressions_are_the_narrow_gate_worthy_subset(self):
+        from deepcompare.progress import regressions_in
+        result = {
+            "actions": [
+                {"status": "persists", "action": "still broken"},
+                {"status": "worsened", "action": "got worse",
+                 "occurrences": {"before": 1, "after": 3}},
+            ],
+            "new_issues": [{"title": "fresh problem", "occurrences": 2}],
+            "success_by_agent": {"x": {"flips_broken": ["t3"],
+                                       "flips_fixed": ["t1"]}},
+        }
+        findings = regressions_in(result)
+        # persisting is a fix not landing, not a regression
+        self.assertEqual(len(findings), 3)
+        self.assertTrue(any("worsened" in f for f in findings))
+        self.assertTrue(any("fresh problem" in f for f in findings))
+        self.assertTrue(any("broke: x on t3" in f for f in findings))
+
+    def test_a_clean_fix_loop_has_no_regressions(self):
+        from deepcompare.progress import regressions_in
+        result = {"actions": [{"status": "resolved", "action": "a"}],
+                  "new_issues": [],
+                  "success_by_agent": {"x": {"flips_broken": [],
+                                             "flips_fixed": ["t0"]}}}
+        self.assertEqual(regressions_in(result), [])
+
     def test_missing_directory_is_an_error_not_a_guess(self):
         with tempfile.TemporaryDirectory() as tmp:
             before = batch_dir(tmp, "before", [], [], [report("t0")])
