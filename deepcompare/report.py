@@ -23,7 +23,9 @@ from .steps_eval import answer_eval, step_eval
 from .success import success_analysis
 from .tooldiff import TOOLISH_TYPES, tool_diff
 from .trace import Trajectory
+from .efficiency import compare_efficiency
 from .process import compare_process
+from .tradeoff import pair_tradeoff
 from .shapley import shapley_attribution
 from .uncertainty import analyze as analyze_uncertainty
 
@@ -111,6 +113,8 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
     report["counterfactual"] = counterfactual(report, a, b)
     report["shapley"] = shapley_attribution(report, a, b)
     report["process"] = compare_process(a, b)
+    report["tradeoff"] = pair_tradeoff(report)
+    report["efficiency"] = compare_efficiency(a, b)
     return report
 
 

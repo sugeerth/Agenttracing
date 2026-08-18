@@ -796,6 +796,113 @@ def _cmd_profile(args: argparse.Namespace) -> int:
 
 
 
+
+
+def _cmd_experiments(args: argparse.Namespace) -> int:
+    """Compare whole experiments: diffs of averages, with behaviour beside."""
+    from .experiments import compare_experiments, load_experiment
+    named = []
+    for directory in args.dirs:
+        path = Path(directory)
+        if not path.is_dir():
+            print(f"error: {path} is not a directory", file=sys.stderr)
+            return 2
+        runs = load_experiment(path)
+        if not runs:
+            print(f"error: no valid traces in {path}", file=sys.stderr)
+            return 2
+        named.append((path.name or str(path), runs))
+    if len(named) < 2:
+        print("error: need at least two experiment directories", file=sys.stderr)
+        return 2
+
+    result = compare_experiments(named)
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "experiments.json").write_text(
+        json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"Wrote {out_dir / 'experiments.json'}")
+    print()
+    print(result["narrative"])
+    for d in result["diffs"]:
+        print()
+        print(f"{d['a']} vs {d['b']}:")
+        if "reason" in d:
+            print(f"  {d['reason']}")
+            continue
+        s_ = d["success_diff"]
+        print(f"  success (B-A): {s_['observed']:+.0%}  "
+              f"[{s_['low']:+.0%}, {s_['high']:+.0%}]  "
+              f"{'REAL' if s_['significant'] else 'noise-level'} "
+              f"over {d['shared_tasks']} shared task(s)")
+        for metric, m in d["metric_diffs"].items():
+            if m.get("significant_adjusted"):
+                tag = "REAL (survives correction)"
+            elif m["significant"]:
+                tag = "interval clear, but not after correcting for 4 tests"
+            else:
+                tag = "noise"
+            print(f"  {metric:>9} (B-A): {m['observed']:+.4g}  "
+                  f"[{m['low']:+.4g}, {m['high']:+.4g}]  {tag}")
+        sim = d["similarity"]
+        if sim.get("cross") is not None:
+            base = (f" vs within {sim['within']:.2f}" if sim.get("within") is not None else "")
+            print(f"  behaviour: cross-experiment similarity {sim['cross']:.2f}{base}"
+                  f" — {sim.get('note', '')}")
+        if d.get("only_in_a") or d.get("only_in_b"):
+            print(f"  unpaired tasks excluded: only in A {d['only_in_a']}, "
+                  f"only in B {d['only_in_b']}")
+    return 0
+
+
+def _cmd_narrate(args: argparse.Namespace) -> int:
+    """Emit a narration prompt for a report, or ingest a model's answer.
+
+    The engine never calls a model. Emit mode prints the prompt; the user
+    pipes it through any LLM they like and hands the text back with
+    --ingest, where it is checked number-by-number against the brief and
+    stored as labelled commentary that no analysis reads.
+    """
+    from .narrate import (check_narration, ingest_narration, narration_brief,
+                          narration_prompt)
+    report_path = Path(args.report)
+    if not report_path.is_file():
+        print(f"error: {report_path} is not a file", file=sys.stderr)
+        return 2
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"error: {report_path}: {exc}", file=sys.stderr)
+        return 2
+    brief = narration_brief(report)
+
+    if args.ingest is None:
+        print(narration_prompt(brief))
+        return 0
+
+    text = (sys.stdin.read() if args.ingest == "-" else
+            Path(args.ingest).read_text(encoding="utf-8"))
+    ingest_narration(report, text, brief=brief, model=args.model)
+    report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+                           encoding="utf-8")
+    check = report["narration"]["faithfulness"]
+    print(f"narration stored in {report_path} (model: {args.model})")
+    print(f"  numbers checked: {check['numbers_checked']}  "
+          f"citations: {check['citations']}")
+    if check["faithful"]:
+        print("  faithful: every number and citation traces to the brief")
+    else:
+        if check["unsupported_numbers"]:
+            print(f"  UNSUPPORTED numbers (not in the evidence): "
+                  f"{', '.join(check['unsupported_numbers'])}")
+        if check["invalid_citations"]:
+            print(f"  INVALID citations: {', '.join(check['invalid_citations'])}")
+        print("  stored anyway, flagged — the reader sees the warning, "
+              "and no analysis reads narration either way")
+    print(f"  note: {check['limit']}")
+    return 0
+
+
 def _cmd_variance(args: argparse.Namespace) -> int:
     """Attribute variation in outcomes to model, harness, task and noise."""
     traces_dir = Path(args.tracesdir)
@@ -1075,6 +1182,28 @@ def build_parser() -> argparse.ArgumentParser:
     p_profile.add_argument("-o", "--output", default="out",
                            help="output directory (default: out)")
     p_profile.set_defaults(func=_cmd_profile)
+
+    p_experiments = sub.add_parser(
+        "experiments",
+        help="compare whole experiments: averaged diffs with intervals, plus "
+             "whether behaviour (not just scores) moved")
+    p_experiments.add_argument("dirs", nargs="+",
+                               help="two or more experiment directories of traces")
+    p_experiments.add_argument("-o", "--output", default="out",
+                               help="output directory (default: out)")
+    p_experiments.set_defaults(func=_cmd_experiments)
+
+    p_narrate = sub.add_parser(
+        "narrate",
+        help="emit an LLM narration prompt for a report, or ingest the answer "
+             "(checked against the evidence; commentary only)")
+    p_narrate.add_argument("report", help="a report_*.json produced by batch/compare")
+    p_narrate.add_argument("--ingest", metavar="FILE",
+                           help="narration text to attach ('-' for stdin); "
+                                "omit to print the prompt")
+    p_narrate.add_argument("--model", default="unspecified",
+                           help="model name recorded as provenance")
+    p_narrate.set_defaults(func=_cmd_narrate)
 
     p_variance = sub.add_parser(
         "variance",
