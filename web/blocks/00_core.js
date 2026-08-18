@@ -697,6 +697,7 @@
       task: State.task,
       selectTask: selectTask,
       signal: function () {},   // replaced per block in renderBlock
+      explain: function (el, def) { return Explain.attach(el, def); },
       h: h, svg: svg, fmt: fmt, color: color,
       empty: function (el, message) {
         el.appendChild(h("div", { class: "empty", text: message || "Nothing to show for this run." }));
@@ -739,6 +740,10 @@
     });
 
     els.cols.textContent = "▥ " + State.layout.cols;
+    // A rebuilt page has new term elements (which need their tabindex) and
+    // may have removed the one a tooltip was pinned to.
+    Explain.close();
+    Explain.sweep(document.body);
     State.suggestion = computeSuggestion(ctx);
     maybeOfferSuggestion();
   }
@@ -1351,6 +1356,378 @@
     if (!silent) toast("Reordered. Reset any time from the Blocks panel.");
   }
 
+  // ----------------------------------------------------- explanations
+
+  /* The glossary. One entry per term of art the board already uses, written
+   * for someone who has never read the docs: `short` is the one-sentence
+   * answer, `long` the honest paragraph behind it. The honesty framing of
+   * the engine is preserved on purpose — where a number means something
+   * narrower than it looks (pass^k, omega squared, the counterfactual),
+   * the entry says so rather than smoothing it over. */
+  var TERMS = {
+    "divergence": {
+      label: "divergence",
+      short: "The place where the two runs stopped doing the same thing — the first real fork in the road.",
+      long: "AgentDiff lays the two runs side by side, step against step. A divergence is a region where that pairing breaks down: one agent takes steps the other never mirrors, or the paired steps stop resembling each other. Each divergence is ranked by how much it mattered downstream — extra steps, extra tokens, and whether the run that took the detour went on to fail. The first-ranked divergence is usually the decision worth reading, because everything after it happened in its shadow.",
+    },
+    "root-cause": {
+      label: "root cause",
+      short: "The single step the engine holds responsible for the failure — where the losing run first went wrong.",
+      long: "When exactly one run fails, the engine walks back from the wrong answer through the run's own steps to the earliest divergent step that plausibly set it up — a bad source selected, a wrong tool called, a plan that skipped a check. That step is the attributed root cause, and the chain lists the later steps that inherited its mistake. It is an attribution from logged evidence, not a proof: the engine reads what was recorded, it does not re-run the agent to confirm.",
+    },
+    "propagation": {
+      label: "propagation",
+      short: "How much of the root mistake's content a later step carries forward.",
+      long: "Once a run picks up a wrong fact, the interesting question is whether it ever puts it down. Propagation measures, for each later step, how much of the root divergent step's output shows up again in that step's input — a word-overlap score between the two texts. A high score means the step is still working with the contaminated material; a chain of high scores is a mistake compounding, rather than a mistake made once and recovered from.",
+    },
+    "alignment-row": {
+      label: "alignment row",
+      short: "One column of the side-by-side view: a step from run A matched to its counterpart in run B.",
+      long: "The two runs rarely have the same number of steps, so before anything is compared they are aligned: each row pairs the A step and the B step that most plausibly correspond, in order. A row can hold both sides (a match, or a drift when they differ), or only one side — when an agent did something the other never did at all. Everything else on this board — the divergences, the tracks picture, the step detail — is indexed by these row numbers.",
+    },
+    "drift": {
+      label: "drift",
+      short: "A row where both agents did something comparable, but not the same — the wording or the target slid.",
+      long: "Drift sits between a clean match and a full divergence. Both runs have a step in the row and the steps are recognisably the same kind of move, but the similarity is low: the same search with a different query, the same read on a different page. Drift is often where trouble starts — the runs still look parallel from a distance while their contents quietly part — which is why the first drifting rows are worth reading even when the headline divergence comes later.",
+    },
+    "pass-k": {
+      label: "pass^k vs pass@k",
+      short: "pass^k asks “does it work every time”; pass@k asks “can it work at all” — reliability versus coverage.",
+      long: "With several runs per task, two very different questions hide in the success counts. pass@k rises with k: the chance that at least one of k attempts succeeds — useful when a human will pick the good run, and flattering by construction. pass^k falls with k: the chance that all k attempts succeed — the number that matters when nobody is checking and the agent has to be right three times running. Passing 2 of 3 runs is not “67% reliable”; read strictly, pass^3 there is 0. This board never draws one curve without the other, because quoting pass@k where reliability is at stake overstates the system.",
+    },
+    "omega-squared": {
+      label: "omega squared & the chance floor",
+      short: "A bias-corrected share of variance explained, read against the share a factor earns by chance just for having levels.",
+      long: "Raw “variance explained” flatters factors with many levels: a 33-level factor explains a chunk of any finite corpus by chance alone, before any real effect exists. That chance floor is drawn on the same axis as the estimate, and omega squared (ω²) is the bias-corrected figure that subtracts the flattery. When ω² sits at or below zero, the honest statement is “indistinguishable from chance”, and the board prints exactly that instead of a bar — a one-pixel positive bar would be a lie about the sign.",
+    },
+    "confounded": {
+      label: "confounded design",
+      short: "The corpus cannot tell two factors apart, because they always change together — every model came with its own harness.",
+      long: "When each model appears with exactly one harness (or one prompt, or one version), model and harness are the same partition of the data: every difference credited to one could equally be credited to the other. A confounded design does not make the numbers wrong — it makes attribution between the confounded factors meaningless, because any split shown would be an artefact of the order the arithmetic was done in. The fix is in the data, not the math: run at least one model on more than one harness.",
+    },
+    "residual": {
+      label: "residual",
+      short: "The variance left over after every measured factor — only safely called “noise” when there are repeated runs.",
+      long: "After model, harness and task have taken their shares, what remains is the residual. With repeated runs per configuration it is a measured thing: the same setup coming out differently on a re-run — genuine run-to-run stochasticity. With a single run per cell there is no repeat to measure against, so the residual is interaction and stochasticity fused inseparably: the design cannot say how much is “this combination behaves specially” versus “this run happened to go this way”. The board draws those two cases with different marks rather than letting one impersonate the other.",
+    },
+    "blind-write": {
+      label: "blind write",
+      short: "A write to the world before any successful read — acting on state the run never actually looked at.",
+      long: "A cancel, a booking, an update is a write; checking what is there first is a read. A blind write is a write that happens before any read has succeeded in that run — the agent changed something whose current state it never established. Three failed lookups followed by the write still count: only a read that worked counts as having looked. Blind writes are invisible to outcome-only grading whenever the guess happens to be right, which is exactly why they are flagged from the trace itself.",
+    },
+    "false-success": {
+      label: "false success",
+      short: "The answer claims the job was done while the trace shows nothing was ever written.",
+      long: "A run can end with “Done — the booking is cancelled” while its own steps contain no successful write of any kind. The claim and the log disagree, and the log wins. False success is the most dangerous shape of failure, because an outcome oracle that trusts the answer text scores it as a pass. It is detected here by comparing what the final answer asserts against the side effects the trace actually records — a deterministic check, no judge involved.",
+    },
+    "no-information-step": {
+      label: "no-information step",
+      short: "A step whose observation is byte-identical to one the run already had — motion without progress.",
+      long: "The call was new — a different moment, maybe a different phrasing — but the observation that came back is byte-for-byte something the run had already seen. The step advanced nothing: no new evidence, no changed state, just spend. A few of these are friction; a run of them is a loop in slow motion. They are counted separately from retries, because retrying a failed call is correct behaviour and should not be penalised as churn.",
+    },
+    "wilson-interval": {
+      label: "Wilson interval",
+      short: "A confidence interval for a success rate that stays honest at the extremes where small eval suites live.",
+      long: "Quoting “2 failures out of 8 tasks” as exactly 25% overstates what 8 tasks can say. The Wilson score interval puts a range around a proportion, and unlike the schoolbook normal approximation it behaves at 0-of-8 and 8-of-8 — precisely where short suites sit. When this board quotes a rate on few tasks, the bracket after it is the Wilson 95% interval: the range of true rates that could plausibly have produced what was observed.",
+    },
+    "oracle": {
+      label: "oracle",
+      short: "A ceiling computed with hindsight — what perfect per-task routing would have achieved. A bound, not a policy.",
+      long: "The routing oracle assumes you knew, for every task in advance, which agent would succeed, and always picked it. Its coverage and cost are therefore a ceiling: no real router can beat it, and the gap between the best single agent and the oracle is the headroom a router could win — and no more. It is reported to size that headroom, never as a claim that any deployable policy reaches it. The word also names the grader that decides success; a wrong grading oracle is what “failed but clean” runs point at.",
+    },
+    "passed-but-pathological": {
+      label: "passed but pathological",
+      short: "The outcome oracle says pass, but the trace shows loops, swallowed errors, or blind writes on the way there.",
+      long: "A run can satisfy its success check while doing things nobody would accept on inspection: cycling through the same calls, hitting an error and pressing on as if it had not, writing before reading. A leaderboard that scores outcomes only gives this run the same mark as a clean one — and published measurements put a large share of safety and robustness failures in exactly this blind spot. The verdict exists so a pass with a pathological process is never silently indistinguishable from a pass earned cleanly.",
+    },
+    "failed-but-clean": {
+      label: "failed but clean",
+      short: "The run failed with nothing visibly wrong in its process — which is evidence about the grader, not only the agent.",
+      long: "When a run fails its success check and the trace shows no loop, no unrecovered error, no blind write and a coherent path to a defensible answer, suspicion should fall on the oracle as much as on the agent: an expected-answer string that is too strict, a check that keys on wording, a gold label that is simply wrong. “Failed but clean” does not assert the agent was right — it flags that the deterministic evidence does not corroborate the failure, and that a human should look at the grading before the agent is blamed.",
+    },
+    "tokens-basis": {
+      label: "tokens: measured vs estimated",
+      short: "Whether a token count was reported by the provider (measured) or derived from text length (estimated).",
+      long: "Not every runtime reports token usage, so some counts are estimates — typically length-of-text divided by four — and the difference matters the moment costs or deltas are compared. Each step can carry a tokens_basis of “measured” or “estimated”, and the run-level accounting says how much of the total rests on which. The basis is carried through save and load deliberately: an estimate that loses its label becomes indistinguishable from a provider-reported number, and every comparison downstream inherits the confusion. An absent basis stays absent rather than defaulting to “measured”.",
+    },
+    "splice-counterfactual": {
+      label: "splice counterfactual",
+      short: "A what-if assembled by splicing steps both runs actually recorded — never a simulation of the agent.",
+      long: "“Had the loser made the winner's decision at the divergence” is estimated by grafting the winner's actually-recorded post-divergence steps onto the loser's actually-recorded prefix, then summing the real tokens, latency and cost of those steps. Nothing is simulated: no step in the estimate is invented, no model is re-run. That makes the arithmetic exact but the premise approximate — it assumes the graft point is clean, which is why the estimate carries a confidence level based on how identical the shared prefix really was. A true causal answer would require re-executing the agent, which a tool that only reads logs deliberately does not do.",
+    },
+    "shapley-share": {
+      label: "Shapley share",
+      short: "A fair division of the winner–loser gap across the divergences, so overlapping detours are not double-counted.",
+      long: "When a run goes wrong in more than one place, summing each divergence's downstream cost double-counts — later detours inherit the extra work earlier ones created. The Shapley allocation treats each divergence region as a player, asks what adopting the other run's path at every subset of regions would have saved, and divides the total gap so the shares sum to it exactly (that efficiency property is checked numerically on every report). The honest name is splice-Shapley: “fixing” a region means adopting the other run's recorded steps there, so the allocation is exact with respect to that splice surrogate — not with respect to re-running the agent, which logged traces cannot support.",
+    },
+    "mast-trail": {
+      label: "MAST & TRAIL",
+      short: "Two published failure taxonomies this tool maps its findings onto — by method, never as a claimed measurement.",
+      long: "MAST (arXiv 2503.13657) and TRAIL (arXiv 2505.08638) are community taxonomies of how agent systems fail, built from expert-annotated trajectories. AgentDiff labels its own deterministic findings with the closest MAST and TRAIL categories so results can be discussed in a shared vocabulary — but the mapping is by definition of method, not a validated measurement in either framework, and some of their categories (multi-agent conversation failures, for instance) are unreachable from a single pairwise trace. The labels situate a finding; they do not certify it.",
+    },
+  };
+
+  /* The shared tooltip: one element, reused for every term on the page.
+   *
+   * Hover shows it, keyboard focus shows it (the wiring gives every
+   * data-explain element a tabindex), a click pins it so its text can be
+   * selected, Escape closes it, and “Show more” expands the one-sentence
+   * answer into the paragraph. position: fixed clamps inside the viewport,
+   * so it can never widen the page at any width. */
+  var Explain = (function () {
+    var TIP_CLASS = "explain-tip";
+    var TIP_DOM_ID = "agentdiff-explain";
+    var tip = null;
+    var current = null;
+    var pinned = false;
+    var hideTimer = null;
+    var overrides = typeof WeakMap === "function" ? new WeakMap() : null;
+    var overrideList = overrides ? null : [];   // ancient-browser fallback
+
+    function overrideFor(el) {
+      if (overrides) return overrides.get(el) || null;
+      for (var i = 0; i < overrideList.length; i++) {
+        if (overrideList[i][0] === el) return overrideList[i][1];
+      }
+      return null;
+    }
+
+    function setOverride(el, def) {
+      if (overrides) overrides.set(el, def);
+      else overrideList.push([el, def]);
+    }
+
+    function defFor(el) {
+      var term = el.getAttribute("data-explain") || "";
+      var base = TERMS[term] || null;
+      var over = overrideFor(el);
+      if (!base && !over) return null;
+      return {
+        term: term,
+        label: (over && over.label) || (base && base.label) || term.replace(/-/g, " "),
+        short: (over && over.short) || (base && base.short) || "",
+        long: (over && over.long) || (base && base.long) || "",
+        evidence: (over && over.evidence) || null,
+      };
+    }
+
+    function ensureTip() {
+      if (tip && tip.isConnected) return tip;
+      tip = h("div", { class: TIP_CLASS, role: "tooltip" });
+      tip.setAttribute("id", TIP_DOM_ID);
+      tip.addEventListener("mouseenter", cancelHide);
+      tip.addEventListener("mouseleave", function () { if (!pinned) scheduleHide(); });
+      document.body.appendChild(tip);
+      return tip;
+    }
+
+    function buildContent(def) {
+      tip.innerHTML = "";
+      tip.appendChild(h("div", { class: "x-label", text: def.label }));
+      if (def.short) tip.appendChild(h("div", { class: "x-short", text: def.short }));
+      var hasLong = def.long && def.long !== def.short;
+      if (hasLong) tip.appendChild(h("div", { class: "x-long", text: def.long }));
+      if (def.evidence) tip.appendChild(h("div", { class: "x-ev", text: def.evidence }));
+      var foot = h("div", { class: "x-foot" });
+      if (hasLong) {
+        var more = h("button", { class: "x-more", text: "Show more", type: "button" });
+        more.addEventListener("click", function (event) {
+          event.stopPropagation();
+          var expanded = tip.classList.toggle("expanded");
+          more.textContent = expanded ? "Show less" : "Show more";
+          if (current) position(current);
+        });
+        foot.appendChild(more);
+      }
+      foot.appendChild(h("span", {
+        class: "x-hint",
+        text: pinned ? "pinned — Esc closes" : "click to pin · Esc closes",
+      }));
+      tip.appendChild(foot);
+    }
+
+    function position(target) {
+      if (!tip || !target || !target.getBoundingClientRect) return;
+      var box = target.getBoundingClientRect();
+      var vw = document.documentElement.clientWidth || global.innerWidth || 360;
+      var vh = document.documentElement.clientHeight || global.innerHeight || 640;
+      // Measure at origin first so a previous position cannot squash the
+      // tooltip against an edge and distort its natural size.
+      tip.style.left = "0px";
+      tip.style.top = "0px";
+      var w = tip.offsetWidth;
+      var ht = tip.offsetHeight;
+      var x = Math.min(Math.max(10, box.left), Math.max(10, vw - w - 10));
+      var y = box.bottom + 8;
+      if (y + ht > vh - 8) y = box.top - ht - 8;   // flip above
+      if (y < 8) y = Math.max(8, Math.min(vh - ht - 8, box.bottom + 8));
+      tip.style.left = Math.round(x) + "px";
+      tip.style.top = Math.round(y) + "px";
+    }
+
+    function clearTarget() {
+      if (current) {
+        try { current.removeAttribute("aria-describedby"); } catch (err) {}
+      }
+      current = null;
+    }
+
+    function show(el, pin) {
+      var def = defFor(el);
+      if (!def) return false;
+      ensureTip();
+      cancelHide();
+      if (current && current !== el) clearTarget();
+      current = el;
+      pinned = !!pin;
+      buildContent(def);
+      tip.classList.add("show");
+      tip.classList.toggle("pinned", pinned);
+      tip.classList.remove("expanded");
+      el.setAttribute("aria-describedby", TIP_DOM_ID);
+      position(el);
+      return true;
+    }
+
+    function hide(force) {
+      if (pinned && !force) return false;
+      cancelHide();
+      if (tip) {
+        tip.classList.remove("show", "pinned", "expanded");
+      }
+      clearTarget();
+      pinned = false;
+      return true;
+    }
+
+    //: hide on a short delay, so the pointer can travel from the term into
+    //: the tooltip (to reach "Show more") without the tooltip vanishing.
+    function scheduleHide() {
+      cancelHide();
+      hideTimer = setTimeout(function () { hideTimer = null; hide(false); }, 140);
+    }
+
+    function cancelHide() {
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+    }
+
+    //: true when something was open — the caller uses it to decide whether
+    //: Escape has done its job or should fall through to closing panels.
+    function close() {
+      var wasOpen = !!(tip && tip.classList.contains("show"));
+      hide(true);
+      return wasOpen;
+    }
+
+    function isOpen() { return !!(tip && tip.classList.contains("show")); }
+
+    function focusable(el) {
+      var tag = (el.tagName || "").toUpperCase();
+      if (tag === "BUTTON" || tag === "A" || tag === "INPUT" ||
+          tag === "SELECT" || tag === "TEXTAREA") return true;
+      return el.hasAttribute("tabindex");
+    }
+
+    /* Keyboard reachability. A span with data-explain is not focusable by
+     * itself, and a tooltip that only hover can open is not accessible; so
+     * after every render the new targets get a tabindex. */
+    function sweep(root) {
+      if (!root || !root.querySelectorAll) return;
+      var nodes = root.querySelectorAll("[data-explain]");
+      for (var i = 0; i < nodes.length; i++) {
+        if (!focusable(nodes[i])) nodes[i].setAttribute("tabindex", "0");
+      }
+    }
+
+    /* ctx.explain(el, {term, short, long, evidence}) — mark an element as
+     * explainable. A bare {term} uses the shared glossary; short/long/
+     * evidence override or extend it for this one element. */
+    function attach(el, def) {
+      if (!el || !el.setAttribute) return el;
+      def = def || {};
+      if (def.term) el.setAttribute("data-explain", def.term);
+      else if (!el.getAttribute("data-explain")) el.setAttribute("data-explain", "custom");
+      if (def.short || def.long || def.evidence || def.label) setOverride(el, def);
+      if (!focusable(el)) el.setAttribute("tabindex", "0");
+      return el;
+    }
+
+    function closestExplain(node) {
+      while (node && node.getAttribute) {
+        if (node.getAttribute("data-explain")) return node;
+        node = node.parentNode;
+      }
+      return null;
+    }
+
+    function noPin(el) { return el.hasAttribute("data-explain-nopin"); }
+
+    var wired = false;
+    function wire() {
+      if (wired) return;
+      wired = true;
+      // Delegated, so terms rendered later (every block re-render) need no
+      // per-element listeners and no observer.
+      document.addEventListener("mouseover", function (event) {
+        var target = closestExplain(event.target);
+        if (!target) return;
+        cancelHide();
+        if (pinned) return;   // a pinned tooltip is not stolen by a hover
+        if (current !== target || !isOpen()) show(target, false);
+      });
+      document.addEventListener("mouseout", function (event) {
+        var target = closestExplain(event.target);
+        if (target && target === current && !pinned) scheduleHide();
+      });
+      document.addEventListener("focusin", function (event) {
+        if (pinned) return;
+        var target = closestExplain(event.target);
+        if (target) show(target, false);
+      });
+      document.addEventListener("focusout", function (event) {
+        if (pinned || !current) return;
+        var to = event.relatedTarget;
+        if (to && tip && tip.contains(to)) return;
+        if (to && closestExplain(to) === current) return;
+        scheduleHide();
+      });
+      // Click pins (and on touch, where there is no hover, this is also how
+      // the tooltip opens). Clicking anywhere else closes a pinned tooltip.
+      document.addEventListener("click", function (event) {
+        if (tip && tip.contains(event.target)) return;
+        var target = closestExplain(event.target);
+        if (target && !noPin(target)) {
+          if (current === target && pinned) hide(true);
+          else show(target, true);
+          return;
+        }
+        if (pinned) hide(true);
+      });
+      document.addEventListener("keydown", function (event) {
+        if (event.key !== "Enter" && event.key !== " " && event.key !== "Spacebar") return;
+        var target = closestExplain(event.target);
+        if (!target || noPin(target)) return;
+        var tag = (target.tagName || "").toUpperCase();
+        if (tag === "BUTTON" || tag === "A") return;
+        event.preventDefault();
+        if (current === target && pinned) hide(true);
+        else show(target, true);
+      });
+      // The page scrolls under a fixed tooltip; follow the target, and let
+      // go of a target a re-render has removed.
+      var follow = function () {
+        if (!isOpen() || !current) return;
+        if (!current.isConnected) { hide(true); return; }
+        position(current);
+      };
+      global.addEventListener("scroll", follow, true);
+      global.addEventListener("resize", follow);
+    }
+
+    return { attach: attach, sweep: sweep, wire: wire, close: close,
+             show: show, hide: hide, isOpen: isOpen, defFor: defFor };
+  })();
+
   // ------------------------------------------------------------------- boot
 
   function selectTask(id) {
@@ -1435,8 +1812,14 @@
     var closers = document.querySelectorAll("[data-close]");
     for (var i = 0; i < closers.length; i++) closers[i].addEventListener("click", closePanels);
     document.addEventListener("keydown", function (event) {
-      if (event.key === "Escape") closePanels();
+      // Escape closes the innermost thing first: an open tooltip, then the
+      // panels — one keypress should never dismiss both at once.
+      if (event.key === "Escape") {
+        if (Explain.close()) return;
+        closePanels();
+      }
     });
+    Explain.wire();
 
     renderAll();
 
@@ -1474,6 +1857,14 @@
   global.AgentDiff = {
     block: block,
     boot: boot,
+    /* Look a glossary term up by id — {term, label, short, long} or null.
+     * For blocks that want the text inline (or tests that check it exists)
+     * rather than the tooltip behaviour. */
+    explainTerm: function (id) {
+      var entry = TERMS[id];
+      if (!entry) return null;
+      return { term: id, label: entry.label, short: entry.short, long: entry.long };
+    },
     // exposed for the smoke test, not for block modules
     _internals: {
       rank: rank, reconcile: reconcile, defaultLayout: defaultLayout,
@@ -1481,6 +1872,7 @@
       DEFAULT_HERO: DEFAULT_HERO,
       State: State, REGISTRY: REGISTRY, BY_ID: BY_ID, fmt: fmt, uuid: uuid,
       decay: decay, Store: Store, STACK_PLAN: STACK_PLAN,
+      TERMS: TERMS, Explain: Explain,
     },
   };
 })(typeof window !== "undefined" ? window : this);

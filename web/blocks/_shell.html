@@ -337,6 +337,61 @@ table.grid td.num, table.grid th.num { text-align: right; font-variant-numeric: 
 .toast button { background: transparent; border: 1px solid currentColor;
   border-radius: 6px; padding: 2px 8px; font-size: 11.5px; cursor: pointer; }
 
+/* ---------- explain tooltips ---------- */
+/* Any element carrying data-explain is a term the core can explain: dotted
+   underline as the affordance, tooltip on hover AND keyboard focus, pinned
+   on click so the text can be selected. One tooltip element is reused for
+   the whole page; position: fixed means it can never widen the document,
+   so it cannot cause horizontal overflow at any viewport width. */
+[data-explain] {
+  text-decoration: underline dotted;
+  text-decoration-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  text-underline-offset: 2.5px;
+  cursor: help;
+  border-radius: 3px;
+}
+[data-explain]:hover, [data-explain]:focus-visible {
+  color: var(--accent);
+  text-decoration-style: solid;
+  outline: none;
+}
+[data-explain]:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.explain-tip {
+  position: fixed; z-index: 80; display: none;
+  width: max-content;
+  max-width: min(380px, calc(100vw - 20px));
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--rule-2); border-radius: 10px;
+  box-shadow: var(--shadow), 0 12px 32px rgba(0,0,0,.16);
+  padding: 10px 12px 9px;
+  font-size: 12px; line-height: 1.55;
+}
+.explain-tip.show { display: block; }
+.explain-tip.pinned { border-color: var(--accent); }
+.explain-tip .x-label {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--accent);
+}
+.explain-tip .x-short { margin-top: 3px; }
+.explain-tip .x-long {
+  display: none; margin-top: 7px; padding-top: 7px;
+  border-top: 1px solid var(--rule); color: var(--ink-2);
+}
+.explain-tip.expanded .x-long { display: block; }
+.explain-tip .x-ev {
+  margin-top: 6px; font-size: 11px; color: var(--ink-2);
+  border-left: 2px solid var(--accent); padding-left: 7px;
+}
+.explain-tip .x-foot { display: flex; align-items: center; gap: 10px; margin-top: 7px; }
+.explain-tip .x-more {
+  border: 1px solid var(--rule-2); background: var(--surface-2); color: var(--ink-2);
+  border-radius: 6px; padding: 1px 8px; font-size: 11px; cursor: pointer;
+}
+.explain-tip .x-more:hover { border-color: var(--accent); color: var(--accent); }
+.explain-tip .x-hint { font-size: 10px; color: var(--ink-3); }
+
 .vid { font-family: var(--mono); font-size: 11px; color: var(--ink-2);
   background: var(--surface-2); padding: 5px 8px; border-radius: 6px;
   word-break: break-all; border: 1px solid var(--rule); }
