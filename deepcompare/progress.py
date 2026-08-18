@@ -190,6 +190,50 @@ def _action_status(action: dict, before_issues: dict, after_issues: dict,
                             "after": after_occurrences}}
 
 
+def _efficiency_shift(before_agg: dict, after_agg: dict) -> dict:
+    """Did the serving-cost picture move between the runs?
+
+    These are recomputed per batch from each batch's own traces, so the
+    before/after comparison is direct.  The labels matter: cost per success
+    is realised spend over graded outcomes, while resend overhead is an
+    estimate whose basis the efficiency block already declares — a fall in
+    an estimated figure is evidence of a structural change (shorter
+    context, fewer steps), not a measured saving banked.
+    """
+    before_agents = {b.get("agent"): b for b in
+                     ((before_agg.get("efficiency") or {}).get("per_agent")
+                      or {}).values()}
+    after_agents = {b.get("agent"): b for b in
+                    ((after_agg.get("efficiency") or {}).get("per_agent")
+                     or {}).values()}
+    shared = sorted(set(before_agents) & set(after_agents) - {None})
+    if not shared:
+        return {"available": False,
+                "reason": "no agent appears in both runs' efficiency blocks"}
+
+    per_agent = {}
+    for name in shared:
+        b, a = before_agents[name], after_agents[name]
+        entry = {}
+        cps_b = (b.get("cost_per_success") or {}).get("value_usd")
+        cps_a = (a.get("cost_per_success") or {}).get("value_usd")
+        if cps_b is not None and cps_a is not None:
+            entry["cost_per_success_usd"] = {
+                "before": cps_b, "after": cps_a,
+                "delta": round(cps_a - cps_b, 6),
+                "basis": "realised cost over graded successes, both runs",
+            }
+        for key, label in (("resend_overhead_tokens",
+                            "estimated — a fall means structural change, "
+                            "not a banked saving"),
+                           ("cacheable_repeat_calls", "counted")):
+            if key in b or key in a:
+                entry[key] = {"before": b.get(key), "after": a.get(key),
+                              "basis": label}
+        per_agent[name] = entry
+    return {"available": True, "per_agent": per_agent}
+
+
 def compare_progress(before_dir, after_dir) -> dict:
     """The before batch against the after batch, in the triage's own terms."""
     before = _load_batch(before_dir)
@@ -271,6 +315,8 @@ def compare_progress(before_dir, after_dir) -> dict:
         "before": before["path"],
         "after": after["path"],
         "task_drift": drift,
+        "efficiency_shift": _efficiency_shift(before["aggregate"],
+                                              after["aggregate"]),
         "actions": actions,
         "action_counts": counts,
         "new_issues": new_fingerprints,

@@ -830,6 +830,15 @@ def _cmd_progress(args: argparse.Namespace) -> int:
         print("  NEW issues the before-run did not have:")
         for issue in result["new_issues"]:
             print(f"    - {issue['title']} ({issue['occurrences']} occurrence(s))")
+    shift = result.get("efficiency_shift") or {}
+    if shift.get("available"):
+        for name, entry in shift["per_agent"].items():
+            cps = entry.get("cost_per_success_usd")
+            if cps:
+                arrow = "improved" if cps["delta"] < 0 else (
+                    "worsened" if cps["delta"] > 0 else "unchanged")
+                print(f"  {name}: cost/success ${cps['before']:.5f} -> "
+                      f"${cps['after']:.5f} ({arrow})")
     for name, s_ in result["success_by_agent"].items():
         print(f"  {name}: success {s_['before']} -> {s_['after']} on "
               f"{s_['tasks_compared']} shared task(s)"

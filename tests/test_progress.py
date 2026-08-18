@@ -171,6 +171,39 @@ class TestProgress(unittest.TestCase):
             self.assertIn("by luck alone", s["note"])
             self.assertGreater(s["chance_without_a_fix"], 0.25)
 
+    def test_efficiency_shift_is_reported_per_shared_agent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            def agg_with_eff(cps, resend):
+                return {"efficiency": {"per_agent": {"a": {
+                    "agent": "agent-x",
+                    "cost_per_success": {"value_usd": cps},
+                    "resend_overhead_tokens": resend,
+                    "cacheable_repeat_calls": 0}}}}
+            before = batch_dir(tmp, "before", [], [], [report("t0")])
+            after = batch_dir(tmp, "after", [], [], [report("t0")])
+            import json as _json
+            (Path(tmp) / "before" / "aggregate.json").write_text(_json.dumps(
+                {"issues": {"issues": []}, "triage": {"actions": []},
+                 **agg_with_eff(0.01, 1000)}))
+            (Path(tmp) / "after" / "aggregate.json").write_text(_json.dumps(
+                {"issues": {"issues": []}, "triage": {"actions": []},
+                 **agg_with_eff(0.005, 600)}))
+            result = compare_progress(Path(tmp) / "before", Path(tmp) / "after")
+            shift = result["efficiency_shift"]
+            self.assertTrue(shift["available"])
+            entry = shift["per_agent"]["agent-x"]
+            self.assertEqual(entry["cost_per_success_usd"]["delta"], -0.005)
+            # the estimated figure keeps its estimated framing
+            self.assertIn("structural change",
+                          entry["resend_overhead_tokens"]["basis"])
+
+    def test_efficiency_shift_degrades_without_shared_agents(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            before = batch_dir(tmp, "before", [], [], [report("t0")])
+            after = batch_dir(tmp, "after", [], [], [report("t0")])
+            result = compare_progress(before, after)
+            self.assertFalse(result["efficiency_shift"]["available"])
+
     def test_missing_directory_is_an_error_not_a_guess(self):
         with tempfile.TemporaryDirectory() as tmp:
             before = batch_dir(tmp, "before", [], [], [report("t0")])
