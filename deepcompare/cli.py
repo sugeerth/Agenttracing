@@ -813,6 +813,18 @@ def _cmd_variance(args: argparse.Namespace) -> int:
     (out_dir / "variance.json").write_text(
         json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"Wrote {out_dir / 'variance.json'}")
+
+    # A decomposition with no page is a decomposition nobody looks at. There
+    # are no pairwise reports here, so the payload carries the aggregate
+    # alone and the report-shaped blocks correctly hide themselves.
+    template = Path(args.template) if args.template else DEFAULT_TEMPLATE
+    if template.is_file():
+        try:
+            html_path = render_html([], {"variance": result}, template,
+                                    out_dir / "report.html")
+            print(f"Wrote {html_path}")
+        except (OSError, ValueError) as exc:
+            print(f"warning: could not write report.html: {exc}", file=sys.stderr)
     print()
     print(result["narrative"])
     for metric, block in result["metrics"].items():
@@ -1070,6 +1082,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_variance.add_argument("tracesdir", help="directory of traces")
     p_variance.add_argument("-o", "--output", default="out",
                             help="output directory (default: out)")
+    p_variance.add_argument("--template", default=None,
+                            help="HTML template (default: the standard viewer)")
     p_variance.add_argument("--metrics", nargs="+",
                             default=["success", "tokens", "latency_s"],
                             choices=sorted(VARIANCE_METRICS),

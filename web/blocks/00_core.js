@@ -22,6 +22,15 @@
   var OPEN_PER_STACK = 3;
   //: a rendered block taller than this is clamped with a "show all" control.
   var CLAMP_HEIGHT = 760;
+  /*: The block the page leads with, full width, above the columns.
+   *
+   * "git diff for AI agents" is a claim about a picture: two trajectories,
+   * aligned, with the divergence marked. That picture cannot be read in a
+   * 300px column, so it does not live in one — it gets the whole content
+   * width and everything else reads as evidence underneath it. It is still
+   * an ordinary block rendered through the ordinary render(el, ctx); the
+   * lane is a place, not a special case. */
+  var DEFAULT_HERO = "tracks";
 
   // ---------------------------------------------------------------- identity
 
@@ -311,36 +320,73 @@
   };
 
   function defaultPrefs() {
-    return { personalize: true, autoApply: false, theme: "system" };
+    return { personalize: true, autoApply: false, theme: "system", reading: true };
   }
 
   /* The default composition. Groups map to stacks so a first-time visitor
    * gets a coherent reading order — the verdict and its attribution first,
    * then the trajectory it came from, then what it cost — rather than
-   * whatever order the modules happened to load in. */
+   * whatever order the modules happened to load in.
+   *
+   * Four columns, not five. Once the trace has the top of the page, the
+   * columns underneath are supporting evidence, and five of them at 1440px
+   * gives each one under 280px — too narrow for the tables most of these
+   * blocks are. Trajectory and integrity merged because they answer the
+   * same question in two registers ("what did the run do" / "does what it
+   * did hold up"), and because the hero already leads that reading.
+   *
+   * Each stack carries a plain-language blurb: "Outcome" and "Signal" are
+   * nouns a first-time reader has to guess at, and guessing is the thing
+   * this page is supposed to remove. */
   var STACK_PLAN = [
-    { label: "Outcome", groups: ["outcome"] },
-    { label: "Trajectory", groups: ["trajectory"] },
-    { label: "Integrity", groups: ["integrity"] },
-    { label: "Cost", groups: ["cost"] },
-    { label: "Signal", groups: ["signal", "other"] },
+    {
+      label: "Outcome",
+      groups: ["outcome"],
+      blurb: "Who won, what broke, and what caused it.",
+    },
+    {
+      label: "Trajectory",
+      groups: ["trajectory", "integrity"],
+      blurb: "Step by step: what each run did, and whether the work behind the answer holds up.",
+    },
+    {
+      label: "Cost",
+      groups: ["cost"],
+      blurb: "What the difference cost, what keeps recurring, and what to change.",
+    },
+    {
+      label: "Evidence",
+      groups: ["signal", "other"],
+      blurb: "How far these numbers can be trusted — confidence, reliability, blind spots.",
+    },
   ];
 
   function defaultLayout(ctx) {
     var stacks = STACK_PLAN.map(function () { return []; });
     var hidden = [];
+    var hero = BY_ID[DEFAULT_HERO] ? { id: DEFAULT_HERO, collapsed: false } : null;
     REGISTRY.forEach(function (entry) {
       var relevance = safeRelevance(entry, ctx);
       var target = 0;
       for (var i = 0; i < STACK_PLAN.length; i++) {
         if (STACK_PLAN[i].groups.indexOf(entry.group) >= 0) { target = i; break; }
       }
+      // The hero is placed, just not in a column. Leaving it out of both
+      // the stacks and the hidden list keeps exactly one home for it.
+      if (hero && entry.id === hero.id) return;
       if (relevance <= 0) { hidden.push(entry.id); return; }
       stacks[target].push({ id: entry.id, collapsed: false });
     });
-    // Within a stack, the block with most to say about this data goes first.
-    stacks.forEach(function (stack) {
+    /* Within a stack: the plan's own group order first, then the block with
+     * most to say about this data. A column that merges two groups reads in
+     * the order its heading names them, so the blocks the hero points at
+     * ("click a step to open it in Step detail") sit directly under it. */
+    stacks.forEach(function (stack, index) {
+      var order = STACK_PLAN[index].groups;
       stack.sort(function (x, y) {
+        var gx = groupRank(order, BY_ID[x.id].group);
+        var gy = groupRank(order, BY_ID[y.id].group);
+        if (gx !== gy) return gx - gy;
         return safeRelevance(BY_ID[y.id], ctx) - safeRelevance(BY_ID[x.id], ctx);
       });
       // Everything stays in the layout, but a column that opens as a metre
@@ -350,7 +396,13 @@
         if (index >= OPEN_PER_STACK) item.collapsed = true;
       });
     });
-    return { cols: STACK_PLAN.length, stacks: stacks, hidden: hidden };
+    return { cols: STACK_PLAN.length, stacks: stacks, hidden: hidden, hero: hero };
+  }
+
+  //: a group the plan does not name sorts after the ones it does.
+  function groupRank(groups, group) {
+    var index = groups.indexOf(group);
+    return index < 0 ? groups.length : index;
   }
 
   function safeRelevance(entry, ctx) {
@@ -376,19 +428,57 @@
     if (!stored || !Array.isArray(stored.stacks)) return fallback;
 
     var seen = {};
-    var stacks = [];
-    for (var i = 0; i < STACK_PLAN.length; i++) {
+    var stacks = STACK_PLAN.map(function () { return []; });
+
+    /* A layout stored before the columns were rearranged has a different
+     * number of them, and index 2 no longer means what it meant when it was
+     * written. When the shape still matches, honour the visitor's own
+     * cross-column drags; when it does not, re-home each block by its group
+     * rather than dropping it or filing it under a stack that has since
+     * come to mean something else. */
+    var byIndex = stored.stacks.length === STACK_PLAN.length;
+    for (var i = 0; i < stored.stacks.length; i++) {
       var source = Array.isArray(stored.stacks[i]) ? stored.stacks[i] : [];
-      var kept = [];
       for (var j = 0; j < source.length; j++) {
         var item = source[j];
         var id = item && item.id;
         if (!id || !BY_ID[id] || seen[id]) continue;
         seen[id] = true;
-        kept.push({ id: id, collapsed: !!item.collapsed, expanded: !!item.expanded });
+        var target = byIndex ? Math.min(i, STACK_PLAN.length - 1) : stackFor(BY_ID[id]);
+        stacks[target].push({ id: id, collapsed: !!item.collapsed, expanded: !!item.expanded });
       }
-      stacks.push(kept);
     }
+
+    /* The hero. `undefined` is an older layout that predates the lane — it
+     * gets the default. `null` is a visitor who deliberately sent the hero
+     * back to its column, which is a choice, not a gap. */
+    var hero;
+    if (stored.hero === null) {
+      hero = null;
+    } else if (stored.hero && BY_ID[stored.hero.id]) {
+      hero = {
+        id: stored.hero.id,
+        collapsed: !!stored.hero.collapsed,
+        expanded: !!stored.hero.expanded,
+      };
+    } else if (typeof stored.hero === "string" && BY_ID[stored.hero]) {
+      hero = { id: stored.hero, collapsed: false };
+    } else {
+      // Either no hero field at all, or one naming a block this build no
+      // longer has. Both mean "no choice on record": take the default.
+      hero = fallback.hero;
+    }
+    // Whatever is in the lane is placed; it must not also be appended to a
+    // column below as if it were missing.
+    if (hero) {
+      seen[hero.id] = true;
+      for (var s = 0; s < stacks.length; s++) {
+        for (var k = stacks[s].length - 1; k >= 0; k--) {
+          if (stacks[s][k].id === hero.id) stacks[s].splice(k, 1);
+        }
+      }
+    }
+
     var hidden = [];
     (Array.isArray(stored.hidden) ? stored.hidden : []).forEach(function (id) {
       if (BY_ID[id] && !seen[id]) { seen[id] = true; hidden.push(id); }
@@ -409,7 +499,92 @@
         ? stored.cols : STACK_PLAN.length,
       stacks: stacks,
       hidden: hidden,
+      hero: hero,
     };
+  }
+
+  // --------------------------------------------------------------- the hero
+
+  //: a hero substituted for one with nothing to say keeps its own open state
+  //: for the session, so expanding it does not undo itself on the next render.
+  var substitute = null;
+
+  /* Which block actually leads the page for the data in front of us.
+   *
+   * The stored choice is a preference, not a promise: a report with no
+   * alignment has nothing for the tracks block to draw, and a hero frame
+   * around an empty state is worse than no hero at all. So the choice is
+   * honoured when it has something to say, stood in for by the most
+   * relevant block when it does not, and dropped entirely when nothing
+   * qualifies. */
+  function resolveHero(ctx) {
+    var stored = State.layout.hero;
+    if (stored === null) return null;
+
+    var wanted = stored && BY_ID[stored.id] ? stored : null;
+    var source = wanted ? "chosen" : "default";
+    if (!wanted && BY_ID[DEFAULT_HERO]) wanted = { id: DEFAULT_HERO, collapsed: false };
+    if (wanted && safeRelevance(BY_ID[wanted.id], ctx) > 0) {
+      return { item: wanted, source: source, instead: null };
+    }
+
+    var best = null, bestScore = 0;
+    REGISTRY.forEach(function (entry) {
+      if (wanted && entry.id === wanted.id) return;
+      var score = safeRelevance(entry, ctx);
+      if (score > bestScore) { bestScore = score; best = entry; }
+    });
+    if (!best) return null;
+    if (!substitute || substitute.id !== best.id) {
+      substitute = { id: best.id, collapsed: false };
+    }
+    return {
+      item: substitute,
+      source: "fallback",
+      instead: wanted ? wanted.id : null,
+    };
+  }
+
+  function promoteHero(id) {
+    if (!BY_ID[id]) return;
+    var previous = State.layout.hero;
+    removeFromLayout(id);
+    State.layout.hero = { id: id, collapsed: false };
+    if (previous && previous.id !== id && BY_ID[previous.id]) placeBack(previous);
+    recordSignal(id, "pin");
+    saveLayout();
+    renderAll();
+  }
+
+  function demoteHero() {
+    var hero = State.layout.hero;
+    State.layout.hero = null;
+    if (hero && BY_ID[hero.id]) placeBack(hero);
+    saveLayout();
+    renderAll();
+  }
+
+  /* Send a block back to the column its group belongs to, unless it is
+   * already sitting in one — a substituted hero never left. */
+  function placeBack(item) {
+    var found = false;
+    State.layout.stacks.forEach(function (stack) {
+      stack.forEach(function (row) { if (row.id === item.id) found = true; });
+    });
+    if (found || State.layout.hidden.indexOf(item.id) >= 0) return;
+    State.layout.stacks[stackFor(BY_ID[item.id])].unshift({
+      id: item.id, collapsed: false, expanded: !!item.expanded,
+    });
+  }
+
+  function removeFromLayout(id) {
+    State.layout.stacks.forEach(function (stack) {
+      for (var i = stack.length - 1; i >= 0; i--) {
+        if (stack[i].id === id) stack.splice(i, 1);
+      }
+    });
+    var index = State.layout.hidden.indexOf(id);
+    if (index >= 0) State.layout.hidden.splice(index, 1);
   }
 
   // ------------------------------------------------------- personalization
@@ -483,8 +658,17 @@
     ranked.forEach(function (row) { scores[row.id] = row.score; });
 
     var moved = 0;
-    var stacks = State.layout.stacks.map(function (stack) {
+    var stacks = State.layout.stacks.map(function (stack, index) {
+      // Reorder within the column's stated structure, not across it: a
+      // suggestion that shuffles integrity blocks up among the trajectory
+      // ones contradicts the heading the reader just read, and — since the
+      // default layout is built the same way — would otherwise offer, on
+      // first load, to undo the arrangement the page shipped with.
+      var order = STACK_PLAN[index] ? STACK_PLAN[index].groups : [];
       var sorted = stack.slice().sort(function (x, y) {
+        var gx = groupRank(order, BY_ID[x.id].group);
+        var gy = groupRank(order, BY_ID[y.id].group);
+        if (gx !== gy) return gx - gy;
         return (scores[y.id] || 0) - (scores[x.id] || 0);
       });
       for (var i = 0; i < sorted.length; i++) {
@@ -535,13 +719,21 @@
 
   function renderAll() {
     var ctx = makeCtx();
+    var hero = resolveHero(ctx);
+    renderHero(hero, ctx);
+    renderReading(hero);
+
     els.stacks.setAttribute("data-cols", State.layout.cols);
     els.stacks.innerHTML = "";
 
     State.layout.stacks.forEach(function (stack, index) {
       var column = h("div", { class: "stack", "data-stack": index });
-      column.appendChild(h("div", { class: "stack-label", text: STACK_PLAN[index].label }));
-      stack.forEach(function (item) { column.appendChild(renderBlock(item, index, ctx)); });
+      column.appendChild(stackLabel(index, hero ? 2 : 1));
+      stack.forEach(function (item) {
+        // A substituted hero is still in its column; render it once.
+        if (hero && item.id === hero.item.id) return;
+        column.appendChild(renderBlock(item, index, ctx, null));
+      });
       wireStackDrop(column, index);
       els.stacks.appendChild(column);
     });
@@ -551,15 +743,115 @@
     maybeOfferSuggestion();
   }
 
-  function renderBlock(item, stackIndex, ctx) {
+  //: `base` is 1 when the lane is collapsed, so the numbering never starts
+  //: at 2 with no step 1 anywhere on the page.
+  function stackLabel(index, base) {
+    var plan = STACK_PLAN[index];
+    return h("div", { class: "stack-label" }, [
+      h("div", { class: "name" }, [
+        h("span", { class: "pip", text: String(index + base) }),
+        h("span", { text: plan.label }),
+      ]),
+      plan.blurb ? h("div", { class: "sub", text: plan.blurb }) : null,
+    ]);
+  }
+
+  /* The lane. Nothing here knows what a trace looks like: the hero is
+   * rendered through the same render(el, ctx) as any other block, in a
+   * container that happens to be the full content width. */
+  function renderHero(hero, ctx) {
+    els.hero.innerHTML = "";
+    if (!hero) {
+      els.hero.hidden = true;
+      return;
+    }
+    els.hero.hidden = false;
+    els.hero.appendChild(renderBlock(hero.item, null, ctx, hero));
+  }
+
+  function renderReading(hero) {
+    var host = els.reading;
+    host.innerHTML = "";
+    if (!State.prefs.reading) { host.hidden = true; return; }
+    host.hidden = false;
+    host.appendChild(h("span", { class: "lead", text: "Read in this order" }));
+    if (hero) {
+      var entry = BY_ID[hero.item.id];
+      host.appendChild(readingChip(1, entry.title, entry.question, true, function () {
+        scrollTo_(els.hero);
+      }));
+    }
+    // Only the hero chip carries its question; each column already states
+    // what it answers under its own heading, and repeating it here turns a
+    // one-line orientation strip into three lines of prose.
+    var base = hero ? 2 : 1;
+    STACK_PLAN.forEach(function (plan, index) {
+      host.appendChild(readingChip(index + base, plan.label, null, false, function () {
+        scrollTo_(els.stacks.children[index]);
+      }));
+    });
+    host.appendChild(h("button", {
+      class: "btn ghost tiny", text: "Hide",
+      title: "Hide the reading order — restore it from the Blocks panel",
+      onclick: function () {
+        State.prefs.reading = false;
+        savePrefs();
+        renderReading(hero);
+        measureTopbar();
+      },
+    }));
+  }
+
+  function readingChip(n, label, why, isHero, onclick) {
+    return h("button", {
+      class: "step-chip" + (isHero ? " is-hero" : ""),
+      title: label + (why ? " — " + why : ""),
+      onclick: onclick,
+    }, [
+      h("span", { class: "pip", text: String(n) }),
+      h("b", { text: label }),
+      why ? h("span", { class: "why", text: why }) : null,
+    ]);
+  }
+
+  function scrollTo_(node) {
+    if (!node) return;
+    var bar = document.querySelector(".topbar");
+    var offset = (bar ? bar.offsetHeight : 48) + 10;
+    var top = node.getBoundingClientRect().top + (global.pageYOffset || 0) - offset;
+    try { global.scrollTo({ top: Math.max(top, 0), behavior: "smooth" }); }
+    catch (err) { global.scrollTo(0, Math.max(top, 0)); }
+    node.classList.add("flash");
+    setTimeout(function () { node.classList.remove("flash"); }, 900);
+  }
+
+  function renderBlock(item, stackIndex, ctx, hero) {
     var entry = BY_ID[item.id];
     var card = h("div", {
-      class: "block" + (item.collapsed ? " collapsed" : ""),
+      class: "block" + (item.collapsed ? " collapsed" : "") + (hero ? " hero" : ""),
       "data-block": item.id,
       draggable: "true",
     });
 
     var actions = h("div", { class: "block-actions" }, [
+      h("button", {
+        class: "icon-btn star" + (hero ? " on" : ""),
+        title: hero ? "Return this to its column" : "Lead the page with this block",
+        "aria-pressed": hero ? "true" : "false",
+        text: hero ? "★" : "☆",
+        onclick: function (event) {
+          event.stopPropagation();
+          if (hero) {
+            demoteHero();
+            toast(entry.title + " is back in its column", "Undo", function () {
+              promoteHero(item.id);
+            });
+          } else {
+            promoteHero(item.id);
+            toast(entry.title + " now leads the page");
+          }
+        },
+      }),
       h("button", {
         class: "icon-btn", title: item.collapsed ? "Expand" : "Collapse",
         text: item.collapsed ? "▸" : "▾",
@@ -581,10 +873,23 @@
     ]);
 
     var head = h("div", { class: "block-head" }, [
+      hero ? h("span", { class: "hero-tag", text: "Start here" }) : null,
       h("span", { class: "block-title", text: entry.title }),
       h("span", { class: "block-q", text: entry.question }),
       actions,
     ]);
+
+    /* Say why the lane is showing something other than what was asked for,
+     * rather than quietly swapping the page's headline. Outside the body,
+     * because the body belongs to the block. */
+    var note = hero && hero.source === "fallback" && hero.instead
+      ? h("div", {
+          class: "hero-note",
+          text: (BY_ID[hero.instead] ? BY_ID[hero.instead].title : hero.instead) +
+                " has nothing to show for this run, so the most relevant block " +
+                "is leading instead.",
+        })
+      : null;
 
     var body = h("div", { class: "block-body" });
     if (!item.collapsed) {
@@ -604,8 +909,12 @@
     }
 
     card.appendChild(head);
+    if (note) card.appendChild(note);
     card.appendChild(body);
-    wireBlockDrag(card, item, stackIndex);
+    // The hero has no column to be reordered within; dragging it out of the
+    // lane and into one is how you demote it by hand.
+    if (stackIndex === null) wireHeroDrag(card, item);
+    else wireBlockDrag(card, item, stackIndex);
     return card;
   }
 
@@ -638,6 +947,22 @@
   // --------------------------------------------------------- drag & reorder
 
   var dragging = null;
+
+  function wireHeroDrag(card, item) {
+    card.addEventListener("dragstart", function (event) {
+      dragging = { id: item.id, from: null };
+      card.classList.add("dragging");
+      try {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", item.id);
+      } catch (err) {}
+    });
+    card.addEventListener("dragend", function () {
+      card.classList.remove("dragging");
+      clearDropMarks();
+      dragging = null;
+    });
+  }
 
   function wireBlockDrag(card, item, stackIndex) {
     card.addEventListener("dragstart", function (event) {
@@ -696,6 +1021,12 @@
 
   function moveBlock(id, toStack, anchorId, after) {
     var item = null;
+    // Dropping the hero into a column is a demotion, and the lane must let
+    // go of it or the block would be rendered in two places.
+    if (State.layout.hero && State.layout.hero.id === id) {
+      item = { id: id, collapsed: false, expanded: !!State.layout.hero.expanded };
+      State.layout.hero = null;
+    }
     State.layout.stacks.forEach(function (stack) {
       for (var i = stack.length - 1; i >= 0; i--) {
         if (stack[i].id === id) { item = stack.splice(i, 1)[0]; }
@@ -720,6 +1051,8 @@
   }
 
   function hideBlock(id) {
+    var wasHero = State.layout.hero && State.layout.hero.id === id;
+    if (wasHero) State.layout.hero = null;
     State.layout.stacks.forEach(function (stack) {
       for (var i = stack.length - 1; i >= 0; i--) {
         if (stack[i].id === id) stack.splice(i, 1);
@@ -730,7 +1063,8 @@
     renderAll();
     renderDrawer();
     toast("Removed " + (BY_ID[id] ? BY_ID[id].title : id), "Undo", function () {
-      moveBlock(id, 0, null, true);
+      if (wasHero) promoteHero(id);
+      else moveBlock(id, 0, null, true);
       renderDrawer();
     });
   }
@@ -752,20 +1086,63 @@
 
     body.appendChild(h("p", {
       text: "Every block, ranked by what this run has to say and what you use. " +
-            "Drag cards between columns to arrange them.",
+            "Drag cards between columns to arrange them, or star one to make " +
+            "it lead the page.",
     }));
+
+    var hero = resolveHero(ctx);
+    if (hero) placed[hero.item.id] = true;
+    body.appendChild(h("h3", { text: "Leads the page" }));
+    if (hero) {
+      var lead = BY_ID[hero.item.id];
+      body.appendChild(h("p", {
+        text: lead.title + " — " + (lead.question || "") +
+              (hero.source === "fallback"
+                ? "  (standing in: " +
+                  (BY_ID[hero.instead] ? BY_ID[hero.instead].title : hero.instead) +
+                  " has nothing to show for this run)"
+                : ""),
+      }));
+      body.appendChild(h("button", {
+        class: "btn", text: "Return it to its column",
+        onclick: function () { demoteHero(); renderDrawer(); },
+      }));
+    } else {
+      body.appendChild(h("p", {
+        text: "Nothing leads the page — the full-width lane is hidden. " +
+              "Star any block to put it there.",
+      }));
+      body.appendChild(h("button", {
+        class: "btn", text: "Restore the default lead",
+        onclick: function () { promoteHero(DEFAULT_HERO); renderDrawer(); },
+      }));
+    }
 
     body.appendChild(h("h3", { text: "In your layout" }));
     var inLayout = ranked.filter(function (row) { return placed[row.id]; });
-    inLayout.forEach(function (row) { body.appendChild(drawerItem(row, true)); });
+    inLayout.forEach(function (row) {
+      body.appendChild(drawerItem(row, true, hero ? hero.item.id : null));
+    });
     if (!inLayout.length) body.appendChild(h("div", { class: "empty", text: "No blocks placed." }));
 
     body.appendChild(h("h3", { text: "Available" }));
     var available = ranked.filter(function (row) { return !placed[row.id]; });
-    available.forEach(function (row) { body.appendChild(drawerItem(row, false)); });
+    available.forEach(function (row) {
+      body.appendChild(drawerItem(row, false, hero ? hero.item.id : null));
+    });
     if (!available.length) body.appendChild(h("div", { class: "empty", text: "Every block is placed." }));
 
     body.appendChild(h("h3", { text: "Composition" }));
+    body.appendChild(checkbox(
+      "Show the reading order",
+      "The numbered strip under the top bar, saying where to start and what follows.",
+      State.prefs.reading,
+      function (on) {
+        State.prefs.reading = on;
+        savePrefs();
+        renderAll();
+        measureTopbar();
+      }));
     body.appendChild(h("button", {
       class: "btn", text: "Reset to the default layout",
       onclick: function () {
@@ -778,19 +1155,28 @@
     }));
   }
 
-  function drawerItem(row, placed) {
+  function drawerItem(row, placed, heroId) {
     var entry = BY_ID[row.id];
+    var isHero = row.id === heroId;
     var reason = row.relevance <= 0
       ? "nothing to show for this run"
       : "relevance " + Math.round(row.relevance * 100) + "%" +
         (row.interest > 0 ? " · you use this" : "");
     return h("div", { class: "drawer-item" }, [
       h("div", { class: "meta" }, [
-        h("strong", { text: entry.title }),
+        h("strong", { text: entry.title + (isHero ? "  ★" : "") }),
         h("span", { text: entry.question || reason }),
         h("div", { class: "bar" }, [h("i", { style: { width: Math.round(row.score * 100) + "%" } })]),
         h("span", { class: "mono", text: reason }),
       ]),
+      h("button", {
+        class: "btn ghost", text: isHero ? "★" : "☆",
+        title: isHero ? "Return this to its column" : "Lead the page with this block",
+        onclick: function () {
+          if (isHero) demoteHero(); else promoteHero(row.id);
+          renderDrawer();
+        },
+      }),
       h("button", {
         class: "btn", text: placed ? "Remove" : "Add",
         onclick: function () {
@@ -852,6 +1238,7 @@
     body.appendChild(h("dl", { class: "kv" }, [
       h("dt", { text: "Visitor id" }), h("dd", { text: "1 cookie + 1 local entry" }),
       h("dt", { text: "Layout" }), h("dd", { text: State.layout.stacks.reduce(function (n, s) { return n + s.length; }, 0) + " placed, " + State.layout.hidden.length + " hidden" }),
+      h("dt", { text: "Leads the page" }), h("dd", { text: leadSummary() }),
       h("dt", { text: "Interest" }), h("dd", { text: counts + " block" + (counts === 1 ? "" : "s") + " with recorded use" }),
       h("dt", { text: "Report data" }), h("dd", { text: "not stored — it is baked into this file" }),
     ]));
@@ -897,6 +1284,17 @@
         setTimeout(function () { global.location.reload(); }, 700);
       },
     }));
+  }
+
+  /* What the lane is actually showing, which is not always what was chosen:
+   * the panel is a disclosure, so it reports the substitution too. */
+  function leadSummary() {
+    var hero = resolveHero(makeCtx());
+    if (!hero) return "nothing — the lane is hidden";
+    var title = BY_ID[hero.item.id].title;
+    if (hero.source !== "fallback") return title;
+    return title + " (standing in for " +
+           (BY_ID[hero.instead] ? BY_ID[hero.instead].title : hero.instead) + ")";
   }
 
   function checkbox(label, help, checked, onChange) {
@@ -980,6 +1378,8 @@
 
     els = {
       stacks: document.getElementById("stacks"),
+      hero: document.getElementById("hero-lane"),
+      reading: document.getElementById("reading"),
       picker: document.getElementById("task-picker"),
       drawer: document.getElementById("drawer"),
       drawerBody: document.getElementById("drawer-body"),
@@ -1077,6 +1477,8 @@
     // exposed for the smoke test, not for block modules
     _internals: {
       rank: rank, reconcile: reconcile, defaultLayout: defaultLayout,
+      resolveHero: resolveHero, promoteHero: promoteHero, demoteHero: demoteHero,
+      DEFAULT_HERO: DEFAULT_HERO,
       State: State, REGISTRY: REGISTRY, BY_ID: BY_ID, fmt: fmt, uuid: uuid,
       decay: decay, Store: Store, STACK_PLAN: STACK_PLAN,
     },
