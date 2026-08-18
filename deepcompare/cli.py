@@ -50,6 +50,7 @@ from .reliability import reliability
 from .report import compare, render_html
 from .stability import medoid_pairs, stability_analysis
 from .trace import Trajectory
+from .variance import METRICS as VARIANCE_METRICS, variance_report
 
 #: default viewer template, relative to the repo root (parent of the package).
 DEFAULT_TEMPLATE = Path(__file__).resolve().parent.parent / "web" / "viewer.html"
@@ -794,6 +795,50 @@ def _cmd_profile(args: argparse.Namespace) -> int:
     return 0
 
 
+
+def _cmd_variance(args: argparse.Namespace) -> int:
+    """Attribute variation in outcomes to model, harness, task and noise."""
+    traces_dir = Path(args.tracesdir)
+    if not traces_dir.is_dir():
+        print(f"error: {traces_dir} is not a directory", file=sys.stderr)
+        return 2
+    trajectories = _load_traces_dir(traces_dir)
+    if not trajectories:
+        print("error: no valid traces found", file=sys.stderr)
+        return 2
+
+    result = variance_report(trajectories, metrics=args.metrics)
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "variance.json").write_text(
+        json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"Wrote {out_dir / 'variance.json'}")
+    print()
+    print(result["narrative"])
+    for metric, block in result["metrics"].items():
+        print()
+        print(f"{metric}:")
+        if not block["components"]:
+            print(f"  {block['reason']}")
+            continue
+        rows = sorted(block["components"].items(),
+                      key=lambda kv: -(kv[1]["omega_squared_min"] or -1))
+        width = max(len(name) for name, _ in rows)
+        for name, comp in rows:
+            raw = (f"{comp['min_share']:6.1%}" if comp["identified"]
+                   else f"{comp['min_share']:5.1%}-{comp['max_share']:.1%}")
+            omega = comp["omega_squared_min"]
+            corrected = "at chance" if omega is None or omega <= 0 else f"{omega:.1%}"
+            print(f"  {name:<{width}}  raw {raw}   corrected {corrected:>9}"
+                  f"   ({comp['levels']} level(s), {comp['expected_by_chance']:.1%} "
+                  f"expected by chance)")
+        print(f"  {'residual':<{width}}  {block['residual']:6.1%}   "
+              f"— {block['residual_meaning']}")
+        if block["caveat"]:
+            print(f"  caveat: {block['caveat']}")
+    return 0
+
+
 def _cmd_cohort(args: argparse.Namespace) -> int:
     """Compare groups of runs rather than individuals."""
     traces_dir = Path(args.tracesdir)
@@ -1018,6 +1063,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_profile.add_argument("-o", "--output", default="out",
                            help="output directory (default: out)")
     p_profile.set_defaults(func=_cmd_profile)
+
+    p_variance = sub.add_parser(
+        "variance",
+        help="attribute variation in outcomes to model, harness, task and noise")
+    p_variance.add_argument("tracesdir", help="directory of traces")
+    p_variance.add_argument("-o", "--output", default="out",
+                            help="output directory (default: out)")
+    p_variance.add_argument("--metrics", nargs="+",
+                            default=["success", "tokens", "latency_s"],
+                            choices=sorted(VARIANCE_METRICS),
+                            help="metrics to decompose")
+    p_variance.set_defaults(func=_cmd_variance)
 
     p_cohort = sub.add_parser(
         "cohort", help="compare groups of runs (by model, agent, version, task)")
