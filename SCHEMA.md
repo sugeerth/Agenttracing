@@ -1139,3 +1139,113 @@ The recorder never invents a termination reason. Clean exit is `agent_stop`,
 an exception becomes `agent_error` (or `timeout`/`user_stop` where the
 exception says so), and `max_steps` or a harness failure must be declared
 explicitly through `terminate()` — only the harness knows why it stopped.
+
+---
+
+## The trade-off and the efficiency block (pairwise reports, v25)
+
+Every report carries `tradeoff` — the speed-quality exchange stated rather
+than left to the reader:
+
+```json
+"tradeoff": {
+  "case": "dominance | price_of_correctness | quality_for_spend |
+           equal_outcome_cheaper_run | both_failed | equivalent",
+  "dominant": "agent name or null",
+  "spend_delta_b_minus_a": {"tokens": 682, "cost_usd": 0.0039,
+                            "latency_s": 8.45, "steps": 5},
+  "statement": "plain-language exchange, e.g. 'the correct answer cost +8.5s'",
+  "caveat": "one task, one run per side: descriptive only"
+}
+```
+
+The three cases are kept apart on purpose: dominance is never dressed up as
+a dilemma, a fast failure is "slower to nothing" rather than a saving, and
+exchange rates (`score per dollar` etc.) appear only under
+`quality_for_spend`, where quality and spend actually moved together.
+
+`efficiency` carries what the trace implies about serving cost, per side:
+`context_growth` (prompt-cache-absorbable resend overhead), `result_cache`
+(identical call+result repeats, with a retry after an error excluded),
+`parallel_reads` (independent consecutive reads, broken conservatively by
+any provenance link), `latency` (concentration, gated to runs ≥5 steps),
+`throughput` (refused outright on estimated token counts), and a ranked
+`opportunities` list whose savings are **ceilings with their assumption
+named**. The aggregate rolls up per agent, adding `cost_per_success` with
+numerator and denominator.
+
+## Triage verification and the fix loop (v26)
+
+Every triage action carries `verification` — how the fixer will know it
+worked:
+
+```json
+"verification": {
+  "how": "re-run the same tasks, then `agentdiff progress <before> <after>`",
+  "checks": [
+    {"kind": "fingerprint", "fingerprints": ["..."],
+     "confirms": "binary and deterministic; the strongest signal at any suite size"},
+    {"kind": "process_flag", "flags": ["blind_write"], "tasks": ["..."]},
+    {"kind": "success_rate", "current": "2/4", "hoped": "4/4",
+     "chance_of_hoped_result_without_a_fix": 0.32,
+     "single_rerun_can_confirm": false,
+     "note": "an unchanged agent reaches 4/4 32% of the time by pure luck ..."}
+  ],
+  "caveat": "absence confirms only if the same tasks ran (task-set drift)"
+}
+```
+
+The success-rate criterion is the exact binomial tail under the
+unchanged-agent null — **not** a Wilson-interval comparison, which describes
+uncertainty about the old rate rather than the sampling noise of the next
+run, and would call a 3-of-4 → 4-of-4 jump (32% likely with no fix at all)
+a confirmation.
+
+`agentdiff progress before/ after/` writes `progress.json`: per
+before-action `status ∈ resolved | improved | persists | worsened |
+unobservable | untrackable` (a fingerprint whose task did not re-run is
+unobservable, not cured; fewer occurrences is improved, not resolved),
+`new_issues` the before-run did not have, `success_by_agent` with per-task
+flips and the same luck criterion, `task_drift`, and `efficiency_shift`
+(realised cost per success beside estimated overheads, labelled apart).
+
+## Narration under covenant (v25)
+
+`agentdiff narrate` emits a numbered-fact brief and prompt for **any**
+external model; the returned text is checked number-by-number and stored as:
+
+```json
+"narration": {
+  "text": "...", "model": "...", "source": "external-llm",
+  "brief_digest": "sha256 prefix binding the narration to what it saw",
+  "faithfulness": {"numbers_checked": 9, "unsupported_numbers": ["93%"],
+                   "citations": 3, "invalid_citations": [], "faithful": false,
+                   "limit": "numeric and citation checking only; ..."},
+  "authority": "commentary only ... deleting it changes no finding"
+}
+```
+
+Nothing in the engine reads `narration`; a fabricated figure is stored
+flagged rather than trusted or dropped. Briefs exist for four shapes —
+pairwise report, batch aggregate, experiments comparison, progress result —
+and the covenant does not vary with scale.
+
+## Experiments and variance (v24–v25)
+
+`agentdiff experiments A/ B/` writes `experiments.json`: per-experiment
+summaries (Wilson intervals, harness failures excluded), pairwise diffs
+paired on shared tasks (success is the single primary endpoint; the four
+resource metrics are Benjamini–Hochberg corrected among themselves, both
+raw and adjusted verdicts kept), and a behavioural `similarity` block —
+cross-experiment action-sequence similarity against each experiment's own
+within-baseline, because outcome agreement is not behaviour agreement in
+either direction.
+
+`agentdiff variance DIR/` writes `variance.json`: sequential
+sums-of-squares shares swept over **every attribution order** (a factor's
+share is a range; its width is variance the factors share and no ordering
+can assign), beside bias-corrected omega squared with each factor's
+`expected_by_chance` — a 33-level factor explains 12% of variance before
+any real effect exists. Confounded designs are named as such, with the fix
+("run one harness on a second model") rather than a split that would be an
+artefact of ordering.
