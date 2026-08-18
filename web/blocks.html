@@ -3304,7 +3304,13 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     var sel = resolved(report);
 
     var padL = 10, padR = 10;
-    var colW = Math.max(38, Math.min(78, Math.floor((avail - padL - padR) / Math.max(n, 1))));
+    // 78px was a sensible ceiling when this lived in a column. In the hero
+    // lane a short run then left half the width empty, which defeats the
+    // point of giving it the width. Let a column grow to fill what is
+    // actually available, capped where a step glyph stops gaining from more
+    // room and the track starts reading as scattered dots.
+    var roomy = Math.floor((avail - padL - padR) / Math.max(n, 1));
+    var colW = Math.max(38, Math.min(avail > 900 ? 130 : 78, roomy));
     var W = padL + padR + colW * n;
     var R = 7, barMax = 22;
     var yA = 46, yB = 104, H_ = 152;
