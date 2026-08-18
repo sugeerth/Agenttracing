@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from .efficiency import aggregate_efficiency
 from .taxonomy import classify_batch
 from .variance import variance_report
 from .recommend import recommend
@@ -164,6 +165,7 @@ def aggregate(reports: list[dict]) -> dict:
             "playbook": [],
             "semantic_profile": {},
             "task_signal": [],
+            "efficiency": aggregate_efficiency([]),
             "triage": triage([], {}),
         }
 
@@ -232,6 +234,9 @@ def aggregate(reports: list[dict]) -> dict:
         "attributes_joint": joint_attribute_model(_corpus_from_reports(reports)),
         "semantic_profile": semantic_profile(reports),
         "task_signal": task_signal(reports),
+        # Where the spend is structural: prompt-cache / result-cache /
+        # parallelism ceilings and cost per success, per agent.
+        "efficiency": aggregate_efficiency(reports),
         # Published failure vocabulary alongside AgentDiff's own, so a
         # finding here is citable and comparable with other people's.
         "taxonomy": classify_batch(reports),
