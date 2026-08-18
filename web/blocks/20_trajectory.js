@@ -62,6 +62,27 @@
       ".tj-seq span{letter-spacing:.14em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
       "svg.tj{display:block;max-width:none}",
       ".tj-hit{cursor:pointer}",
+      ".tj-ctl{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 8px}",
+      ".tj-ctl .grp{display:inline-flex;border:1px solid var(--rule-2);border-radius:6px;overflow:hidden}",
+      ".tj-ctl .grp button{border:0;background:var(--surface);color:var(--ink-2);font-size:11px;",
+      "line-height:1.7;padding:2px 9px;cursor:pointer;font-family:inherit}",
+      ".tj-ctl .grp button+button{border-left:1px solid var(--rule-2)}",
+      ".tj-ctl .grp button:hover:not([disabled]):not([aria-pressed=\"true\"]){color:var(--accent)}",
+      ".tj-ctl .grp button[aria-pressed=\"true\"]{background:var(--accent);color:#fff}",
+      ".tj-ctl .grp button[disabled]{opacity:.45;cursor:default}",
+      ".tj-ctl select{font-family:inherit;font-size:11px;background:var(--surface);color:var(--ink-2);",
+      "border:1px solid var(--rule-2);border-radius:6px;padding:2px 4px}",
+      ".tj-ctl select[disabled]{opacity:.45}",
+      ".tj-status{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}",
+      ".tj-trade{margin-top:8px;font-size:11.5px;color:var(--ink-2);border-left:2px solid var(--accent);",
+      "padding-left:8px;line-height:1.45}",
+      ".tj-trade b{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;",
+      "color:var(--ink-3);font-weight:600;margin-bottom:1px}",
+      "@keyframes tjPulse{0%,100%{opacity:1}50%{opacity:.45}}",
+      ".tj-live{animation:tjPulse .9s ease-in-out infinite}",
+      "@keyframes tjFlash{0%,100%{opacity:1}50%{opacity:.15}}",
+      ".tj-flash{animation:tjFlash .45s ease-in-out infinite}",
+      "@media (prefers-reduced-motion: reduce){.tj-live,.tj-flash{animation:none}}",
     ].join("");
     try {
       var tag = document.createElement("style");
@@ -384,6 +405,327 @@
   }
 
   // ================================================================ tracks
+  //
+  // The hero has two ways to lay the same two runs out, and a replay that
+  // animates either. `columns` is the alignment view: matched steps share a
+  // column, so divergence is spatial. `time` superimposes both runs on one
+  // shared wall-clock axis in seconds, so the viewer sees one agent finish
+  // while the other is still working — the thing alignment columns cannot
+  // show. Replay is ephemeral view state: deliberately never written to the
+  // layout store, cancelled on every re-render, and every animation frame is
+  // guarded by a generation counter so a task switch, mode switch or resize
+  // leaves no orphan frames behind. The final frame of a replay is exactly
+  // the static render — replay restates the picture, it never redraws it.
+
+  var View = { mode: "columns" };
+
+  var Replay = {
+    gen: 0,          // bumped on every draw; frames from an older draw stop
+    raf: 0,
+    loopGen: -1,
+    playing: false,
+    done: false,
+    reduced: false,  // prefers-reduced-motion, sampled when play is pressed
+    t: 0,            // simulated wall-clock seconds
+    speed: 1,
+    lastNow: 0,
+  };
+
+  var Plan = null;      // timing derived from the current report
+  var Anim = null;      // the drawn nodes replay animates
+  var Controls = null;  // the control strip's updater for the current render
+
+  var REPLAY_WALL_S = 12;   // at ×1 a full replay takes at most this long
+
+  function prefersReduced() {
+    try {
+      return !!(global.matchMedia &&
+                global.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    } catch (err) { return false; }
+  }
+
+  /* Cumulative start times per side: step k starts when steps 0..k-1 have
+   * finished. A missing or zero latency contributes nothing to the clock but
+   * is counted, so the view can say "timing was not recorded" instead of
+   * silently drawing an instant step. */
+  function sideTiming(report, side) {
+    var steps = stepsOf(report, side);
+    var t = 0, events = [], zeros = 0;
+    steps.forEach(function (step, k) {
+      var lat = step && typeof step.latency_s === "number" &&
+                isFinite(step.latency_s) && step.latency_s > 0 ? step.latency_s : 0;
+      if (step && !lat) zeros++;
+      events.push({
+        index: step && typeof step.index === "number" ? step.index : k,
+        start: t, dur: lat, step: step,
+      });
+      t += lat;
+    });
+    return { events: events, total: t, zeros: zeros };
+  }
+
+  function evFor(lane, index) {
+    if (index === null || index === undefined) return null;
+    for (var i = 0; i < lane.events.length; i++) {
+      if (lane.events[i].index === index) return lane.events[i];
+    }
+    return lane.events[index] || null;
+  }
+
+  function buildPlan(report) {
+    var a = sideTiming(report, "a"), b = sideTiming(report, "b");
+    var total = Math.max(a.total, b.total);
+    // The first divergence as a wall-clock moment. The aligned pair's start
+    // times may differ per side, so both are kept and drawn connected.
+    var div = null;
+    var list = (report && Array.isArray(report.divergences) ? report.divergences : [])
+      .slice().sort(function (x, y) { return (x.rank || 99) - (y.rank || 99); });
+    if (list.length) {
+      var d = list[0];
+      var ea = evFor(a, d.a_index), eb = evFor(b, d.b_index);
+      var ta = ea ? ea.start : null, tb = eb ? eb.start : null;
+      if (ta !== null || tb !== null) {
+        div = { d: d, a: ta, b: tb,
+                at: Math.min(ta === null ? Infinity : ta, tb === null ? Infinity : tb) };
+      }
+    }
+    // Step boundaries, for the reduced-motion replay that jumps rather than
+    // sweeps.
+    var bounds = [0, total];
+    [a, b].forEach(function (lane) {
+      lane.events.forEach(function (ev) { bounds.push(ev.start); bounds.push(ev.start + ev.dur); });
+    });
+    if (div && isFinite(div.at)) bounds.push(div.at);
+    bounds = bounds.filter(function (v, i, arr) { return arr.indexOf(v) === i; })
+                   .sort(function (x, y) { return x - y; });
+    return {
+      a: a, b: b, total: total, zeros: a.zeros + b.zeros,
+      compress: total > REPLAY_WALL_S ? total / REPLAY_WALL_S : 1,
+      div: div, bounds: bounds,
+    };
+  }
+
+  function rowIndexFor(report, side, index) {
+    var rows = rowsOf(report);
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i][side + "_index"] === index) return i;
+    }
+    return -1;
+  }
+
+  // ------------------------------------------------------------- the replay
+
+  function cancelReplay() {
+    if (Replay.raf) {
+      try { global.cancelAnimationFrame(Replay.raf); } catch (err) {}
+      Replay.raf = 0;
+    }
+    Replay.playing = false;
+    Replay.done = false;
+    Replay.t = 0;
+  }
+
+  function displayT() {
+    if (!Replay.reduced || !Plan) return Replay.t;
+    // Reduced motion: land on the latest step boundary instead of sweeping.
+    var t = 0;
+    for (var i = 0; i < Plan.bounds.length; i++) {
+      if (Plan.bounds[i] <= Replay.t + 1e-9) t = Plan.bounds[i]; else break;
+    }
+    return t;
+  }
+
+  /* Everything replay does is attribute/class churn on nodes the static
+   * render created — it never adds or removes a node, which is what makes
+   * "final state equals static render" checkable rather than hoped-for. */
+  function applyReplay(t) {
+    if (!Anim || !Plan) return;
+    var EPS = 1e-6;
+    var running = Replay.playing || (t > 0 && t < Plan.total - EPS);
+    Anim.items.forEach(function (it) {
+      var started = t + EPS >= it.start;
+      var live = started && t < it.end - EPS;
+      if (started) it.node.style.removeProperty("opacity");
+      else it.node.style.opacity = "0.15";
+      if (live && !Replay.reduced) it.node.classList.add("tj-live");
+      else it.node.classList.remove("tj-live");
+    });
+    ["a", "b"].forEach(function (side) {
+      var g = Anim.lanes[side];
+      if (!g) return;
+      var laneTotal = side === "a" ? Anim.totalA : Anim.totalB;
+      // The finished lane dims while the other is still burning tokens.
+      var dim = t > laneTotal + EPS && t < Plan.total - EPS;
+      if (dim) g.style.opacity = "0.45";
+      else g.style.removeProperty("opacity");
+    });
+    if (Anim.cursor && Anim.x) {
+      if (running) {
+        var cx = Anim.x(Math.min(t, Plan.total));
+        Anim.cursor.setAttribute("x1", cx);
+        Anim.cursor.setAttribute("x2", cx);
+        Anim.cursor.setAttribute("visibility", "visible");
+      } else {
+        Anim.cursor.setAttribute("visibility", "hidden");
+      }
+    }
+    if (Plan.div && isFinite(Plan.div.at) && Anim.divNodes.length) {
+      var win = 0.9 * Plan.compress * Replay.speed;   // ≈0.9s of real time
+      var flash = running && t + EPS >= Plan.div.at && t < Plan.div.at + win;
+      Anim.divNodes.forEach(function (node) {
+        if (flash && !Replay.reduced) node.classList.add("tj-flash");
+        else node.classList.remove("tj-flash");
+      });
+    }
+  }
+
+  function resetReplayVisuals() {
+    if (!Anim) return;
+    Anim.items.forEach(function (it) {
+      it.node.style.removeProperty("opacity");
+      it.node.classList.remove("tj-live");
+    });
+    ["a", "b"].forEach(function (side) {
+      if (Anim.lanes[side]) Anim.lanes[side].style.removeProperty("opacity");
+    });
+    if (Anim.cursor) Anim.cursor.setAttribute("visibility", "hidden");
+    Anim.divNodes.forEach(function (node) { node.classList.remove("tj-flash"); });
+  }
+
+  function replayFrame(now) {
+    Replay.raf = 0;
+    // Generation guard: a frame queued before a re-render must do nothing.
+    if (Replay.loopGen !== Replay.gen || !Anim || !Anim.svg.isConnected || !Plan) {
+      Replay.playing = false;
+      return;
+    }
+    if (!Replay.playing) return;
+    var dt = Math.min(0.1, Math.max(0, (now - Replay.lastNow) / 1000));
+    Replay.lastNow = now;
+    Replay.t += dt * Plan.compress * Replay.speed;
+    if (Replay.t >= Plan.total - 1e-9) {
+      // Deterministic landing: the final frame is the static render.
+      Replay.t = Plan.total;
+      Replay.playing = false;
+      Replay.done = true;
+      resetReplayVisuals();
+      if (Controls) { Controls.sync(); Controls.status(); }
+      return;
+    }
+    applyReplay(displayT());
+    if (Controls) Controls.status();
+    Replay.raf = global.requestAnimationFrame(replayFrame);
+  }
+
+  function toggleReplay(ctx) {
+    if (!Plan || Plan.total <= 0 || !Anim) return;
+    if (Replay.playing) {
+      Replay.playing = false;
+      if (Replay.raf) {
+        try { global.cancelAnimationFrame(Replay.raf); } catch (err) {}
+        Replay.raf = 0;
+      }
+    } else {
+      if (Replay.done || Replay.t >= Plan.total - 1e-9) { Replay.t = 0; Replay.done = false; }
+      Replay.reduced = prefersReduced();
+      Replay.playing = true;
+      Replay.loopGen = Replay.gen;
+      Replay.lastNow = global.performance && global.performance.now
+        ? global.performance.now() : Date.now();
+      applyReplay(displayT());
+      Replay.raf = global.requestAnimationFrame(replayFrame);
+      if (ctx && ctx.signal) ctx.signal("inspect");
+    }
+    if (Controls) { Controls.sync(); Controls.status(); }
+  }
+
+  var NO_TIMING = "no timing recorded in this trace";
+
+  function controlsBar(ctx, repaint) {
+    var timed = Plan && Plan.total > 0;
+
+    function modeBtn(mode, text, title) {
+      var btn = H("button", {
+        text: text,
+        "aria-pressed": View.mode === mode ? "true" : "false",
+        title: mode === "time" && !timed ? NO_TIMING : title,
+        onclick: function () {
+          if (View.mode === mode || (mode === "time" && !timed)) return;
+          View.mode = mode;
+          if (ctx.signal) ctx.signal("inspect");
+          repaint();
+        },
+      });
+      if (mode === "time" && !timed) btn.setAttribute("disabled", "disabled");
+      return btn;
+    }
+
+    var colBtn = modeBtn("columns", "columns",
+      "Alignment view — matched steps share a column");
+    var timeBtn = modeBtn("time", "time",
+      "One shared wall-clock axis — see who finishes first");
+
+    var playBtn = H("button", {
+      class: "play", text: "⏵",
+      "aria-label": "Replay both runs in proportional time",
+      title: timed ? "Replay both runs in proportional time" : NO_TIMING,
+      onclick: function () { toggleReplay(ctx); },
+    });
+    if (!timed) playBtn.setAttribute("disabled", "disabled");
+
+    var speedSel = H("select", { title: "Replay speed", "aria-label": "Replay speed" });
+    [1, 4, 16].forEach(function (v) {
+      speedSel.appendChild(H("option", { value: String(v), text: "×" + v }));
+    });
+    speedSel.value = String(Replay.speed);
+    speedSel.addEventListener("change", function () {
+      Replay.speed = Number(speedSel.value) || 1;
+      if (Controls) Controls.status();
+    });
+    if (!timed) speedSel.setAttribute("disabled", "disabled");
+
+    var status = H("span", { class: "tj-status" });
+
+    var bar = H("div", { class: "tj-ctl" }, [
+      H("span", { class: "grp" }, [colBtn, timeBtn]),
+      H("span", { class: "grp" }, [playBtn]),
+      speedSel,
+      status,
+    ]);
+
+    Controls = {
+      sync: function () {
+        colBtn.setAttribute("aria-pressed", View.mode === "columns" ? "true" : "false");
+        timeBtn.setAttribute("aria-pressed", View.mode === "time" ? "true" : "false");
+        playBtn.textContent = Replay.playing ? "❚❚" : Replay.done ? "↺" : "⏵";
+        playBtn.setAttribute("title", !timed ? NO_TIMING :
+          Replay.playing ? "Pause the replay" :
+          Replay.done ? "Replay again from the start" :
+          Replay.t > 0 ? "Resume the replay" : "Replay both runs in proportional time");
+      },
+      status: function () {
+        if (!timed) { status.textContent = NO_TIMING; return; }
+        if (Replay.playing || (Replay.t > 0 && !Replay.done)) {
+          status.textContent = "t " + F.sec(displayT()) + " / " + F.sec(Plan.total) +
+            (Replay.playing ? "" : " · paused");
+        } else if (Replay.done) {
+          status.textContent = "replayed " + F.sec(Plan.total) +
+            " of wall-clock — the final state is the static picture";
+        } else {
+          status.textContent = Plan.compress > 1.01
+            ? F.sec(Plan.total) + " wall-clock in ~" +
+              Math.round(Plan.total / Plan.compress) + "s at ×1 (" +
+              F.num(Plan.compress, 1) + "× compressed)"
+            : "replay runs at true speed at ×1 (" + F.sec(Plan.total) + " total)";
+        }
+      },
+    };
+    Controls.sync();
+    Controls.status();
+    return bar;
+  }
+
+  // ------------------------------------------------------- the tracks block
 
   AgentDiff.block({
     id: "tracks",
@@ -411,41 +753,66 @@
       }
       syncTask(ctx);
 
+      Plan = buildPlan(report);
+      if (Plan.total <= 0 && View.mode === "time") View.mode = "columns";
+
       el.appendChild(sideHeader(report));
       var readout = H("div", { class: "tj-read" });
-      var host = sized(el, ctx, function (box, avail) { drawTracks(box, avail, ctx, readout); });
+      var extras = H("div");   // legends + captions, filled per mode
+      var host = null;
+      el.appendChild(controlsBar(ctx, function () {
+        if (!host) return;
+        host.innerHTML = "";
+        drawTracks(host, measure(el), ctx, readout, extras);
+      }));
+      host = sized(el, ctx, function (box, avail) {
+        drawTracks(box, avail, ctx, readout, extras);
+      });
       el.appendChild(readout);
+      el.appendChild(extras);
       subscribe(el, function () {
         host.innerHTML = "";
-        drawTracks(host, measure(el), ctx, readout);
+        drawTracks(host, measure(el), ctx, readout, extras);
       });
-
-      var typeItems = [{ heading: "step" }];
-      TYPES.forEach(function (type) {
-        typeItems.push({ node: tinyGlyph(type, "a", null), text: TYPE_LABEL[type] });
-      });
-      el.appendChild(legend(typeItems));
-      el.appendChild(legend([
-        { heading: "quality" },
-        { node: tinyGlyph("search", "a", "good"), text: "good" },
-        { node: tinyGlyph("search", "a", "weak"), text: "weak" },
-        { node: tinyGlyph("search", "a", "bad"), text: "bad" },
-        { node: tinyGlyph("search", "a", null), text: "unannotated" },
-        { heading: "link" },
-        { node: swatchLine(C.axis, null), text: "match" },
-        { node: swatchLine(C.warn, "3 2"), text: "drift" },
-        { node: swatchLine(C.bad, "2 2"), text: "divergence" },
-        { node: absentSwatch(), text: "no counterpart" },
-      ]));
-      el.appendChild(H("p", {
-        class: "caveat",
-        text: "One column per alignment row: matched steps sit in the same column, so a step with " +
-              "no counterpart leaves a gap on the other track. Bar length is tokens spent on that step.",
-      }));
     },
   });
 
-  function drawTracks(host, avail, ctx, readout) {
+  function typeLegend() {
+    var items = [{ heading: "step" }];
+    TYPES.forEach(function (type) {
+      items.push({ node: tinyGlyph(type, "a", null), text: TYPE_LABEL[type] });
+    });
+    return legend(items);
+  }
+
+  function qualityLegendItems() {
+    return [
+      { heading: "quality" },
+      { node: tinyGlyph("search", "a", "good"), text: "good" },
+      { node: tinyGlyph("search", "a", "weak"), text: "weak" },
+      { node: tinyGlyph("search", "a", "bad"), text: "bad" },
+      { node: tinyGlyph("search", "a", null), text: "unannotated" },
+    ];
+  }
+
+  /* Every draw is a fresh generation: whatever replay was doing on the old
+   * nodes is over, and its queued frames are orphaned by the gen bump. */
+  function drawTracks(host, avail, ctx, readout, extras) {
+    bind(ctx);
+    var report = ctx.report;
+    Replay.gen++;
+    cancelReplay();
+    Anim = null;
+    Plan = buildPlan(report);
+    if (View.mode === "time" && Plan.total <= 0) View.mode = "columns";
+    if (View.mode === "time") drawTime(host, avail, ctx, readout, extras);
+    else drawColumns(host, avail, ctx, readout, extras);
+    if (Controls) { Controls.sync(); Controls.status(); }
+    readout.innerHTML = "";
+    readout.appendChild(H("i", { text: hint(report) }));
+  }
+
+  function drawColumns(host, avail, ctx, readout, extras) {
     bind(ctx);
     var report = ctx.report;
     var rows = rowsOf(report);
@@ -492,20 +859,26 @@
     }
 
     // --- divergence rules
+    var divFlash = [];
     Object.keys(divs).forEach(function (key) {
       var i = Number(key);
       var mark = divs[key];
-      svgEl.appendChild(tick(colX(i), 12, colX(i), H_ - 18, C.bad, mark.primary ? 1.2 : 1,
-                             mark.primary ? "3 3" : "1 4"));
+      var dg = S("g");
+      dg.appendChild(tick(colX(i), 12, colX(i), H_ - 18, C.bad, mark.primary ? 1.2 : 1,
+                          mark.primary ? "3 3" : "1 4"));
       if (mark.primary) {
-        svgEl.appendChild(S("polygon", {
+        dg.appendChild(S("polygon", {
           points: pts([[colX(i) - 4.5, 4], [colX(i) + 4.5, 4], [colX(i), 11]]),
           fill: C.bad,
         }));
         if (colW >= 42) {
-          svgEl.appendChild(label(colX(i) + 8, 10, "d" + (mark.div.rank || 1), C.bad, 8.5, "start"));
+          dg.appendChild(label(colX(i) + 8, 10, "d" + (mark.div.rank || 1), C.bad, 8.5, "start"));
+        }
+        if ((mark.div.rank || 99) === (Plan.div && Plan.div.d ? (Plan.div.d.rank || 99) : -1)) {
+          divFlash.push(dg);
         }
       }
+      svgEl.appendChild(dg);
     });
 
     // --- track baselines
@@ -535,7 +908,9 @@
       }
     });
 
-    // --- steps
+    // --- steps, grouped per lane so replay can dim a finished lane whole
+    var laneG = { a: S("g"), b: S("g") };
+    var animItems = [];
     rows.forEach(function (row, i) {
       var x = colX(i);
       ["a", "b"].forEach(function (side) {
@@ -545,36 +920,46 @@
         if (!step) return;
         var y = side === "a" ? yA : yB;
         var dir = side === "a" ? -1 : 1;
+        var g = S("g");
 
         // token bar, growing away from the middle
         if (maxTokens > 0 && typeof step.tokens === "number" && step.tokens > 0) {
           var hgt = Math.max(1.5, (step.tokens / maxTokens) * barMax);
           var bw = Math.max(3, Math.min(7, colW - 22));
-          svgEl.appendChild(S("rect", {
+          g.appendChild(S("rect", {
             x: x - bw / 2, y: dir < 0 ? y - R - 3 - hgt : y + R + 3,
             width: bw, height: hgt, fill: sideColor(side), "fill-opacity": 0.42, rx: 1,
           }));
         }
 
         if (root && root.side === side && root.index === index) {
-          svgEl.appendChild(S("circle", {
+          g.appendChild(S("circle", {
             cx: x, cy: y, r: R + 4.5, fill: "none", stroke: C.bad, "stroke-width": 1.2,
           }));
         }
         if (sel.row === i && (sel.side === side || sel.side === null)) {
-          svgEl.appendChild(S("circle", {
+          g.appendChild(S("circle", {
             cx: x, cy: y, r: R + 2.5, fill: "none", stroke: C.ink,
             "stroke-width": 1, "stroke-opacity": 0.55,
           }));
         }
 
-        svgEl.appendChild(styleGlyph(glyphNode(step.type, x, y, R),
-                                     qualityStyle(step.quality, side)));
+        g.appendChild(styleGlyph(glyphNode(step.type, x, y, R),
+                                 qualityStyle(step.quality, side)));
         if (colW >= 36) {
-          svgEl.appendChild(label(x + R + 3.5, y + 3, String(index), C.muted, 8, "start"));
+          g.appendChild(label(x + R + 3.5, y + 3, String(index), C.muted, 8, "start"));
         }
+        laneG[side].appendChild(g);
+        var ev = evFor(Plan[side], index);
+        animItems.push({
+          node: g, side: side,
+          start: ev ? ev.start : 0,
+          end: ev ? ev.start + ev.dur : 0,
+        });
       });
     });
+    svgEl.appendChild(laneG.a);
+    svgEl.appendChild(laneG.b);
 
     // --- row axis
     svgEl.appendChild(tick(padL, axisY - 9, W - padR, axisY - 9, C.grid, 1));
@@ -610,11 +995,271 @@
       });
     });
 
+    Anim = {
+      svg: svgEl, items: animItems, lanes: laneG, cursor: null, x: null,
+      divNodes: divFlash, totalA: Plan.a.total, totalB: Plan.b.total,
+    };
+
     var wrap = H("div", { class: W > avail ? "scroll-x" : "" });
     wrap.appendChild(svgEl);
     host.appendChild(wrap);
-    readout.innerHTML = "";
-    readout.appendChild(H("i", { text: hint(report) }));
+    fillColumnsExtras(extras);
+  }
+
+  function fillColumnsExtras(extras) {
+    extras.innerHTML = "";
+    extras.appendChild(typeLegend());
+    extras.appendChild(legend(qualityLegendItems().concat([
+      { heading: "link" },
+      { node: swatchLine(C.axis, null), text: "match" },
+      { node: swatchLine(C.warn, "3 2"), text: "drift" },
+      { node: swatchLine(C.bad, "2 2"), text: "divergence" },
+      { node: absentSwatch(), text: "no counterpart" },
+    ])));
+    extras.appendChild(H("p", {
+      class: "caveat",
+      text: "One column per alignment row: matched steps sit in the same column, so a step with " +
+            "no counterpart leaves a gap on the other track. Bar length is tokens spent on that step.",
+    }));
+  }
+
+  // ------------------------------------------------------ the time view
+  //
+  // Both runs drawn against one shared wall-clock x-axis: each step is a bar
+  // from its cumulative start to start + latency, A's lane above, B's below,
+  // same glyph and quality treatment as the columns view. What this buys
+  // over alignment columns is the superimposition itself — one agent
+  // literally finishes earlier, and the gap between the two finish ticks is
+  // the price (or the saving) in seconds.
+
+  function niceTimeStep(total) {
+    var candidates = [0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300];
+    for (var i = 0; i < candidates.length; i++) {
+      if (total / candidates[i] <= 8) return candidates[i];
+    }
+    return Math.ceil(total / 8);
+  }
+
+  function secLabel(v, stepv) {
+    return (stepv < 1 ? F.num(v, 2).replace(/\.?0+$/, "") : String(Math.round(v * 10) / 10)) + "s";
+  }
+
+  function drawTime(host, avail, ctx, readout, extras) {
+    bind(ctx);
+    var report = ctx.report;
+    var sel = resolved(report);
+    var root = rootInfo(report);
+    var total = Plan.total;
+
+    var padL = 30, padR = 14;
+    var W = Math.max(avail, 320);
+    var plotW = W - padL - padR;
+    function x(t) { return padL + (Math.max(0, Math.min(total, t)) / total) * plotW; }
+
+    var barH = 16;
+    var yA = 56, yB = 118;
+    var midY = (yA + yB) / 2;
+    var axisY = 160, H_ = 168;
+
+    var svgEl = S("svg", {
+      class: "tj", width: W, height: H_, viewBox: "0 0 " + W + " " + H_,
+      role: "img",
+      "aria-label": "Wall-clock timeline for " + agentName(report, "a") + " and " +
+                    agentName(report, "b") + " over " + F.sec(total),
+    });
+
+    // --- time axis
+    var stepv = niceTimeStep(total);
+    svgEl.appendChild(tick(padL, axisY - 10, W - padR, axisY - 10, C.grid, 1));
+    for (var k = 0; k * stepv <= total + 1e-9; k++) {
+      var tv = k * stepv;
+      var tx = x(tv);
+      svgEl.appendChild(tick(tx, 16, tx, axisY - 10, C.grid, 1, "1 3"));
+      svgEl.appendChild(label(tx, axisY, secLabel(tv, stepv), C.muted, 8.5));
+    }
+
+    // --- lane baselines + letters
+    [["a", yA], ["b", yB]].forEach(function (pair) {
+      svgEl.appendChild(tick(padL, pair[1], W - padR, pair[1], C.grid, 1));
+      svgEl.appendChild(label(8, pair[1] + 3, pair[0].toUpperCase(), sideColor(pair[0]), 9.5, "start"));
+    });
+
+    // --- step bars, grouped per lane for replay
+    var laneG = { a: S("g"), b: S("g") };
+    var animItems = [];
+    ["a", "b"].forEach(function (side) {
+      var lane = Plan[side];
+      var y = side === "a" ? yA : yB;
+      lane.events.forEach(function (ev) {
+        var step = ev.step || {};
+        var zero = ev.dur <= 0;
+        var bx = x(ev.start);
+        // A step with no recorded latency still gets a minimum visible
+        // width — dashed, so it does not read as a measured instant.
+        var bw = zero ? 3 : Math.max(2, x(ev.start + ev.dur) - bx);
+        var st = qualityStyle(step.quality, side);
+        var g = S("g");
+        var bar = S("rect", {
+          x: bx + 0.3, y: y - barH / 2, width: Math.max(1.4, bw - 0.6),
+          height: barH, rx: 2,
+        });
+        styleGlyph(bar, st);
+        if (zero) bar.setAttribute("stroke-dasharray", "2 2");
+        g.appendChild(bar);
+        if (bw >= 15) {
+          g.appendChild(styleGlyph(glyphNode(step.type, bx + bw / 2, y, 4.6), st));
+        }
+        var rowIdx = rowIndexFor(report, side, ev.index);
+        if (root && root.side === side && root.index === ev.index) {
+          g.appendChild(S("rect", {
+            x: bx - 2, y: y - barH / 2 - 2.5, width: bw + 4, height: barH + 5,
+            rx: 3.5, fill: "none", stroke: C.bad, "stroke-width": 1.2,
+          }));
+        }
+        if (rowIdx === sel.row && rowIdx >= 0 && (sel.side === side || sel.side === null)) {
+          g.appendChild(S("rect", {
+            x: bx - 4, y: y - barH / 2 - 4.5, width: bw + 8, height: barH + 9,
+            rx: 4.5, fill: "none", stroke: C.ink, "stroke-width": 1, "stroke-opacity": 0.55,
+          }));
+        }
+        laneG[side].appendChild(g);
+        animItems.push({ node: g, side: side, start: ev.start, end: ev.start + ev.dur });
+      });
+    });
+    svgEl.appendChild(laneG.a);
+    svgEl.appendChild(laneG.b);
+
+    // --- finish ticks: the point of the whole view
+    ["a", "b"].forEach(function (side) {
+      var tt = Plan[side].total;
+      if (tt <= 0) return;
+      var fx = x(tt);
+      var y = side === "a" ? yA : yB;
+      svgEl.appendChild(tick(fx, y - barH / 2 - 6, fx, y + barH / 2 + 6, sideColor(side), 1.5));
+      var anchor = fx > W - 76 ? "end" : "start";
+      var lx = anchor === "end" ? fx - 4 : fx + 4;
+      var ly = side === "a" ? y - barH / 2 - 10 : y + barH / 2 + 15;
+      svgEl.appendChild(label(lx, ly, "finish " + F.sec(tt), sideColor(side), 8.5, anchor));
+    });
+
+    // --- the first divergence as a wall-clock moment, both sides connected
+    var divFlash = [];
+    if (Plan.div && isFinite(Plan.div.at)) {
+      var dg = S("g");
+      var dxA = Plan.div.a === null ? null : x(Plan.div.a);
+      var dxB = Plan.div.b === null ? null : x(Plan.div.b);
+      if (dxA !== null) dg.appendChild(tick(dxA, yA - barH / 2 - 7, dxA, yA + barH / 2 + 7, C.bad, 1.2, "3 3"));
+      if (dxB !== null) dg.appendChild(tick(dxB, yB - barH / 2 - 7, dxB, yB + barH / 2 + 7, C.bad, 1.2, "3 3"));
+      if (dxA !== null && dxB !== null) {
+        dg.appendChild(S("line", {
+          x1: dxA, y1: yA + barH / 2 + 7, x2: dxB, y2: yB - barH / 2 - 7,
+          stroke: C.bad, "stroke-width": 1, "stroke-dasharray": "3 3", "stroke-opacity": 0.8,
+        }));
+      }
+      var fx0 = dxA !== null ? dxA : dxB;
+      dg.appendChild(S("polygon", {
+        points: pts([[fx0 - 4.5, 6], [fx0 + 4.5, 6], [fx0, 13]]), fill: C.bad,
+      }));
+      var ta = fx0 > W - 110 ? "end" : "start";
+      dg.appendChild(label(ta === "end" ? fx0 - 7 : fx0 + 7, 12,
+        "d" + (Plan.div.d.rank || 1) + " at " + F.sec(Plan.div.at), C.bad, 8.5, ta));
+      svgEl.appendChild(dg);
+      divFlash.push(dg);
+    }
+
+    // --- replay cursor: exists from the start, hidden until replay runs, so
+    // the replay adds and removes nothing from the DOM
+    var cursor = S("line", {
+      x1: padL, y1: 14, x2: padL, y2: axisY - 10, stroke: C.ink,
+      "stroke-width": 1, "stroke-opacity": 0.65, visibility: "hidden",
+    });
+    svgEl.appendChild(cursor);
+
+    // --- hit targets, one per step bar
+    ["a", "b"].forEach(function (side) {
+      var lane = Plan[side];
+      var y0 = side === "a" ? 14 : midY;
+      var hh = side === "a" ? midY - 14 : axisY - 10 - midY;
+      lane.events.forEach(function (ev) {
+        var bx = x(ev.start);
+        var bw = ev.dur <= 0 ? 6 : Math.max(6, x(ev.start + ev.dur) - bx);
+        var rowIdx = rowIndexFor(report, side, ev.index);
+        var hit = S("rect", {
+          class: "tj-hit", x: bx - 1, y: y0, width: bw + 2, height: hh,
+          fill: C.ink, "fill-opacity": 0, "pointer-events": "all",
+        });
+        hit.addEventListener("mouseenter", function () {
+          hit.setAttribute("fill-opacity", 0.05);
+          readout.innerHTML = "";
+          readout.appendChild(readoutTimeFor(report, side, ev));
+          if (ctx.signal) ctx.signal("hover");
+        });
+        hit.addEventListener("mouseleave", function () {
+          hit.setAttribute("fill-opacity", 0);
+          readout.innerHTML = "";
+          readout.appendChild(H("i", { text: hint(report) }));
+        });
+        hit.addEventListener("click", function () {
+          if (rowIdx >= 0) select(rowIdx, side, ctx);
+        });
+        svgEl.appendChild(hit);
+      });
+    });
+
+    Anim = {
+      svg: svgEl, items: animItems, lanes: laneG, cursor: cursor, x: x,
+      divNodes: divFlash, totalA: Plan.a.total, totalB: Plan.b.total,
+    };
+
+    var wrap = H("div", { class: W > avail ? "scroll-x" : "" });
+    wrap.appendChild(svgEl);
+    host.appendChild(wrap);
+    fillTimeExtras(extras, report);
+  }
+
+  function readoutTimeFor(report, side, ev) {
+    var step = ev.step || {};
+    var bits = [
+      side.toUpperCase() + "·" + ev.index,
+      step.type || "?",
+      step.name ? "“" + step.name + "”" : null,
+      "starts " + F.sec(ev.start),
+      ev.dur > 0 ? F.sec(ev.dur) : "timing not recorded",
+      F.tokens(step.tokens),
+      step.quality || "unannotated",
+    ].filter(Boolean);
+    return H("span", { text: bits.join("  ·  ") });
+  }
+
+  function fillTimeExtras(extras, report) {
+    extras.innerHTML = "";
+    extras.appendChild(typeLegend());
+    extras.appendChild(legend(qualityLegendItems().concat([
+      { heading: "marks" },
+      { node: swatchLine(C.bad, "3 3"), text: "first divergence" },
+      { node: swatchLine(C.a, null), text: "finish" },
+    ])));
+    var trade = report && report.tradeoff;
+    if (trade && trade.statement) {
+      extras.appendChild(H("div", { class: "tj-trade" }, [
+        H("b", { text: "speed vs quality" }),
+        H("span", { text: trade.statement }),
+      ]));
+    }
+    if (Plan && Plan.zeros > 0) {
+      extras.appendChild(H("p", {
+        class: "caveat",
+        text: Plan.zeros + " step(s) carry no recorded latency; each is drawn dashed at a " +
+              "minimum visible width at its cumulative position — timing was not recorded, " +
+              "which is not the same as instant.",
+      }));
+    }
+    extras.appendChild(H("p", {
+      class: "caveat",
+      text: "Both runs against one shared wall-clock axis: each bar runs from a step's start " +
+            "to start + latency, cumulatively, so the shorter lane simply stops where that " +
+            "agent finished. Bar length is time here, not tokens.",
+    }));
   }
 
   function hint(report) {
