@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .taxonomy import classify_batch
+from .variance import variance_report
 from .recommend import recommend
 from .semantic import semantic_profile
 from .success import playbook
@@ -234,6 +235,10 @@ def aggregate(reports: list[dict]) -> dict:
         # Published failure vocabulary alongside AgentDiff's own, so a
         # finding here is citable and comparable with other people's.
         "taxonomy": classify_batch(reports),
+        # Where the variation actually comes from. Two agents on one model
+        # each is a confounded design, and the report says so rather than
+        # inventing a model-versus-harness split.
+        "variance": variance_report(_corpus_from_reports(reports)),
     }
     # Triage reads every other block, so it is computed last and folded in.
     # It ranks what is already here rather than adding a new measurement,
