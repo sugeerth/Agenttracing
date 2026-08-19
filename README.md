@@ -158,6 +158,28 @@ honestly: a fingerprint whose task did not re-run is **unobservable**, not
 cured; fewer occurrences is improvement, not resolution; and new issues the
 before-run did not have are part of the answer, not a footnote.
 
+## Diagnosis: competing hypotheses, not one story
+
+Attribution walks the first structural divergence to the answer — one
+story, told confidently even when the report itself contradicts it. Every
+report now also carries a `diagnosis`: a hypothesis per diagnostic signal
+(grader/label, harness kill, environment error, wrong fact, the divergence,
+each process flag, budget pressure), each scored against machine-checkable
+evidence and each carrying the concrete check that would refute it. A
+hypothesis only *leads* when it clears the runner-up by a real margin;
+otherwise the diagnosis says **contested** instead of picking a winner. So
+a failed run whose answer actually matched the expected answer leads to a
+`grader_or_label` diagnosis — the divergence story is still there, demoted
+and marked as contradicted, not deleted.
+
+```bash
+python3 -m deepcompare compare a.json b.json   # then read `diagnosis` in the JSON
+```
+
+Across a batch, the aggregate rolls leading causes up with denominators
+(`divergence leads 3 of 4 diagnosed failures`) — a cause that repeats is
+one central fix, not N local ones.
+
 ## Quick start
 
 Nothing to install locally? Run it on Colab —

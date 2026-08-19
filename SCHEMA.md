@@ -1249,3 +1249,116 @@ can assign), beside bias-corrected omega squared with each factor's
 any real effect exists. Confounded designs are named as such, with the fix
 ("run one harness on a second model") rather than a split that would be an
 artefact of ordering.
+
+## Adjudicated diagnosis (v27)
+
+`attribution` tells one story: the first structural divergence, walked to the
+answer. That story can be wrong in an identifiable way — the same report can
+say the failed run's answer *matched the expected answer* while the winner
+passed writing blind. Every report now carries `diagnosis`: one hypothesis
+per diagnostic signal (grader/label, harness termination, environment error,
+wrong-fact propagation, the divergence itself, each process flag, budget
+pressure), scored against an explicit evidence ledger and **adjudicated**
+rather than smoothed into a single narrative.
+
+```json
+"diagnosis": {
+  "version": 1,
+  "mode": "single_failure | both_failed | both_succeeded",
+  "subject": "a | b | null", "subject_name": "bolt-v3",
+  "verdict": "bolt-v3: best explained by divergence — ...; leads the runner-up by 0.35",
+  "hypotheses": [
+    {"id": "H1", "kind": "divergence", "agent": "b",
+     "statement": "the run went wrong at step 2, a retrieval decision ...",
+     "score": 0.7, "status": "leading",
+     "supports": ["E1", "E3"], "contradicts": [],
+     "discriminator": "splice the other agent's decision at the divergent step and re-run ..."}
+  ],
+  "leading": "H1", "margin": 0.35,
+  "evidence": [
+    {"id": "E1", "type": "span", "agent": "b", "step": 2, "field": "output",
+     "quote": "random blog", "signal": "the divergent retrieval step",
+     "basis": "measured"},
+    {"id": "E2", "type": "metric",
+     "path": "answer_eval.b_vs_expected.coverage", "value": 0.95,
+     "signal": "answer matches the expected answer", "basis": "measured"}
+  ],
+  "causal_account": [{"step": 2, "happened": "...", "mechanism": "...",
+                      "evidence": ["E1"]}],
+  "contradictions": ["the failed run's answer matched the expected answer ..."],
+  "confidence": {"level": "medium", "basis": "single pair (n=1); ..."}
+}
+```
+
+**Statuses.** Each hypothesis lands in exactly one:
+
+- `leading` — the top-scored hypothesis, and only when it clears the
+  runner-up by the **lead margin** (≥ 0.15) with a score of at least 0.2.
+  Anything closer and `leading` is `null`: the diagnosis is **contested**
+  and the verdict says so — two plausible causes with a thin margin are not
+  one confident cause.
+- `plausible` — scored ≥ 0.2 but not leading; a live alternative.
+- `weak` — supported but under 0.2; recorded, not argued for.
+- `ruled_out` — contradicting evidence exists and the score fell under 0.1.
+- `merged` — absorbed into another hypothesis by fusion (below); kept with a
+  `merged_into_kind` pointer so nothing disappears silently, and excluded
+  from the margin computation.
+- `untestable` — the check cannot be run from the trace (e.g. a grader
+  hypothesis with no `expected` answer recorded); carried with `score: null`
+  rather than dropped or guessed.
+
+**Evidence is machine-checkable, in two types.** `span` evidence quotes a
+substring of a named field of a named step of a named trajectory; `metric`
+evidence names a path into the report and the value found there.
+`check_diagnosis(diagnosis, report, a, b)` verifies **both** — the quote must
+appear in that step field, the path must resolve to that exact value, and
+every `supports`/`contradicts`/`causal_account` reference must point at a
+ledger entry — the same contract `check_narration` applies to narration text.
+
+**Fusion: corroborating signals are one story at two depths.** A structural
+divergence and a wrong fact are usually not competitors, so before
+adjudication:
+
+- a wrong fact entering **at or after** the divergent step merges into the
+  divergence hypothesis as its *mechanism* (the divergence takes the max of
+  the two scores plus a corroboration bonus; the wrong-fact hypothesis is
+  marked `merged`);
+- a wrong fact entering **before** the divergent step re-anchors the root:
+  the earlier anomaly is boosted, the divergence is penalised and restated
+  as downstream symptom, with both statements saying why;
+- a raised process flag whose evidence spans sit **on the attribution
+  chain** merges into the divergence account as its mechanism, adding its
+  evidence and a corroboration bonus.
+
+**Every hypothesis carries a `discriminator`**: the concrete check that
+would confirm or refute it (re-grade the quoted answer by hand, replay the
+failing call in isolation, raise the budget for one re-run, ...). A
+diagnosis that cannot say what evidence would change it is a story, not a
+diagnosis.
+
+### Batch rollup (aggregate, v27)
+
+`aggregate["diagnosis"]` rolls leading-hypothesis kinds up across the batch
+— which causes repeat, with the denominator always stated:
+
+```json
+"diagnosis": {
+  "diagnosed_failures": 4,
+  "contested": 0,
+  "by_leading_kind": [
+    {"kind": "divergence", "count": 3, "of": 4,
+     "tasks": ["t01_acme_revenue", "t05_flight_duration", "t06_bls_unemployment"]},
+    {"kind": "wrong_fact_propagation", "count": 1, "of": 4,
+     "tasks": ["t07_build_failure"]}
+  ],
+  "note": "divergence leads 3 of 4 diagnosed failures — a repeated cause is worth one central fix, not 3 local ones"
+}
+```
+
+Only `single_failure` pairs are counted (`diagnosed_failures`); contested
+diagnoses are tallied separately rather than assigned to their top kind, and
+a process-flag lead is qualified as `process_pathology:<flag>` so "looped"
+and "wrote blind" do not pool into one bucket. The `note` appears when a
+kind leads at least twice — a cause that repeats is systemic, worth one
+central fix rather than N local ones — and the `batch` command prints it.
+

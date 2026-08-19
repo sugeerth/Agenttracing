@@ -228,6 +228,9 @@ def _cmd_batch(args: argparse.Namespace) -> int:
             print(f"    fingerprint: {issue['id']}")
         if issues["suppressed"]:
             print(f"  ({issues['suppressed']} suppressed by .agentdiffignore)")
+    diagnosis = agg.get("diagnosis") or {}
+    if diagnosis.get("note"):
+        print(f"Diagnosis: {diagnosis['note']}")
     if agg["playbook"]:
         print("Playbook — what good looks like:")
         for habit in agg["playbook"]:

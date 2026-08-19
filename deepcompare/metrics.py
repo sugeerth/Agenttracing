@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from .diagnosis import systemic_diagnosis
 from .efficiency import aggregate_efficiency
 from .taxonomy import classify_batch
 from .variance import variance_report
@@ -166,6 +167,7 @@ def aggregate(reports: list[dict]) -> dict:
             "semantic_profile": {},
             "task_signal": [],
             "efficiency": aggregate_efficiency([]),
+            "diagnosis": systemic_diagnosis([]),
             "triage": triage([], {}),
         }
 
@@ -237,6 +239,10 @@ def aggregate(reports: list[dict]) -> dict:
         # Where the spend is structural: prompt-cache / result-cache /
         # parallelism ceilings and cost per success, per agent.
         "efficiency": aggregate_efficiency(reports),
+        # Which diagnosed causes repeat across the batch: leading-hypothesis
+        # kinds rolled up with the denominator stated, so a systemic cause
+        # reads as one central fix rather than N local ones.
+        "diagnosis": systemic_diagnosis(reports),
         # Published failure vocabulary alongside AgentDiff's own, so a
         # finding here is citable and comparable with other people's.
         "taxonomy": classify_batch(reports),
