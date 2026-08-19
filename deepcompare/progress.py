@@ -234,6 +234,108 @@ def _efficiency_shift(before_agg: dict, after_agg: dict) -> dict:
     return {"available": True, "per_agent": per_agent}
 
 
+def _diagnosis_leads(batch: dict) -> tuple:
+    """task -> {"agent", "kind"} for the batch's single_failure diagnoses.
+
+    ``kind`` is the leading hypothesis's kind — ``kind:flag`` when the
+    hypothesis carries a flag — and ``None`` when the diagnosis was
+    contested (no hypothesis cleared the lead margin).  The second element
+    reports whether any report in the batch carries a ``diagnosis`` key at
+    all: old outputs predate diagnosis, and their silence must not be read
+    as "nothing was diagnosed".
+    """
+    leads: dict = {}
+    any_diagnosis = False
+    for report in batch["reports"]:
+        if "diagnosis" not in report:
+            continue
+        any_diagnosis = True
+        diag = report.get("diagnosis") or {}
+        if diag.get("mode") != "single_failure":
+            continue
+        task = (report.get("task") or {}).get("id")
+        if not task:
+            continue
+        kind = None
+        if diag.get("leading") is not None:
+            lead = next((h for h in (diag.get("hypotheses") or [])
+                         if h.get("id") == diag.get("leading")), None)
+            if lead is not None:
+                kind = lead.get("kind")
+                if lead.get("flag"):
+                    kind = f"{kind}:{lead['flag']}"
+        leads[task] = {"agent": diag.get("subject_name"), "kind": kind}
+    return leads, any_diagnosis
+
+
+def _diagnosis_shift(before: dict, after: dict) -> dict:
+    """Did the fix move the diagnosis?  Leading cause per task, before vs
+    after.
+
+    Informational only — nothing here feeds ``regressions_in``.  For every
+    task diagnosed as a single failure in *both* batches, the leading
+    hypothesis kinds are compared:
+
+    * same kind leads both runs — the fix did not move the diagnosis;
+    * a different kind leads after — the key insight of a fix loop: the
+      cause you fixed no longer leads and a different one does, which is
+      progress, but not done;
+    * a contested diagnosis on either side is stated plainly rather than
+      pretending a cause led.
+
+    A failure that resolved outright (diagnosed before, no failure to
+    diagnose after) is deliberately skipped: issue tracking already reports
+    resolution, and saying it twice would inflate the win.  Batches whose
+    reports carry no ``diagnosis`` key at all (old outputs) yield an empty
+    section with the reason stated, never a crash.
+    """
+    before_leads, before_any = _diagnosis_leads(before)
+    after_leads, after_any = _diagnosis_leads(after)
+    if not before_any or not after_any:
+        return {"tasks": [],
+                "note": "no diagnosis objects in one or both batches"}
+
+    tasks = []
+    for task in sorted(set(before_leads) & set(after_leads)):
+        b, a = before_leads[task], after_leads[task]
+        bk, ak = b["kind"], a["kind"]
+        if bk is None and ak is None:
+            verdict = ("contested in both runs — no single cause led "
+                       "either time")
+        elif bk is None:
+            verdict = f"was contested, now {ak} leads"
+        elif ak is None:
+            verdict = f"{bk} led, now contested"
+        elif bk == ak:
+            verdict = "cause unchanged"
+        else:
+            verdict = f"cause shifted: {bk} → {ak}"
+        entry = {"task": task, "before": bk, "after": ak, "verdict": verdict}
+        agent = b.get("agent") or a.get("agent")
+        if agent:
+            entry["agent"] = agent
+        tasks.append(entry)
+
+    note = None
+    if tasks:
+        shifted = sum(1 for t in tasks
+                      if t["verdict"].startswith("cause shifted"))
+        unchanged = sum(1 for t in tasks if t["verdict"] == "cause unchanged")
+        contested = len(tasks) - shifted - unchanged
+        bits = []
+        if unchanged:
+            bits.append(f"{unchanged} lead(s) unchanged — the fix did not "
+                        "move those diagnoses")
+        if shifted:
+            bits.append(f"{shifted} shifted to a different leading cause — "
+                        "progress, but not done")
+        if contested:
+            bits.append(f"{contested} involve a contested diagnosis")
+        note = (f"Of {len(tasks)} task(s) diagnosed as single failures in "
+                f"both runs: " + "; ".join(bits) + ".")
+    return {"tasks": tasks, "note": note}
+
+
 def compare_progress(before_dir, after_dir) -> dict:
     """The before batch against the after batch, in the triage's own terms."""
     before = _load_batch(before_dir)
@@ -317,6 +419,7 @@ def compare_progress(before_dir, after_dir) -> dict:
         "task_drift": drift,
         "efficiency_shift": _efficiency_shift(before["aggregate"],
                                               after["aggregate"]),
+        "diagnosis_shift": _diagnosis_shift(before, after),
         "actions": actions,
         "action_counts": counts,
         "new_issues": new_fingerprints,

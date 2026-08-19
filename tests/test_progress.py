@@ -246,5 +246,163 @@ class TestProgress(unittest.TestCase):
                              compare_progress(before, after))
 
 
+class TestDiagnosisShift(unittest.TestCase):
+    """diagnosis_shift: did the fix move the leading cause, task by task?
+
+    The batches are real engine output — the demo process traces
+    (p01..p04, steady-v1 vs hasty-v2) compared and aggregated exactly the
+    way ``deepcompare batch`` does — with the after-batch produced by
+    editing traces the way a fix would: repairing an answer, resolving an
+    outcome, muddying the evidence until no single cause leads.
+    """
+
+    TRACES = Path(__file__).resolve().parent.parent / "demo" / "process" / "traces"
+    TASKS = ("p01_cancel_booking", "p02_book_flight",
+             "p03_change_seats", "p04_policy_lookup")
+
+    @classmethod
+    def _trace(cls, task, agent):
+        return json.loads(
+            (cls.TRACES / f"{task}__{agent}.json").read_text(encoding="utf-8"))
+
+    @classmethod
+    def _engine_batch(cls, name, pairs):
+        """A real batch output dir: compared reports plus their aggregate."""
+        from deepcompare import Trajectory, compare
+        from deepcompare.metrics import aggregate as build_aggregate
+        directory = Path(cls.tmp) / name
+        directory.mkdir(exist_ok=True)
+        reports = [compare(Trajectory.from_dict(a), Trajectory.from_dict(b))
+                   for a, b in pairs]
+        for rep in reports:
+            task = rep["task"]["id"]
+            (directory / f"report_{task}.json").write_text(
+                json.dumps(rep), encoding="utf-8")
+        (directory / "aggregate.json").write_text(
+            json.dumps(build_aggregate(reports)), encoding="utf-8")
+        return directory
+
+    @classmethod
+    def setUpClass(cls):
+        if not cls.TRACES.is_dir():
+            raise unittest.SkipTest("demo process traces not present")
+        import copy
+        import shutil
+        cls.tmp = tempfile.mkdtemp()
+        cls.addClassCleanup(shutil.rmtree, cls.tmp)
+
+        base = {task: (cls._trace(task, "steady-v1"), cls._trace(task, "hasty-v2"))
+                for task in cls.TASKS}
+
+        # p01 before: steady-v1 fails although its answer matches the
+        # expected answer — grader_or_label leads.  The "fix" corrects the
+        # label mismatch story: the answer is now genuinely wrong, so the
+        # grader hypothesis collapses and divergence leads instead.
+        steady_shifted = copy.deepcopy(base["p01_cancel_booking"][0])
+        wrong = "The booking could not be cancelled; no refund applies."
+        steady_shifted["outcome"]["answer"] = wrong
+        steady_shifted["steps"][-1]["input"] = wrong
+        steady_shifted["steps"][-1]["output"] = wrong
+
+        # Same broken answer plus an unrecovered tool error: divergence and
+        # environment_error land within the lead margin — contested.
+        steady_contested = copy.deepcopy(steady_shifted)
+        answer = steady_contested["steps"].pop()
+        steady_contested["steps"].append({
+            "index": answer["index"], "type": "tool_call",
+            "name": "cancel_booking",
+            "input": "cancel_booking(reference='QX7T2', refund=true)",
+            "output": "ERROR: booking service unavailable",
+            "tokens": 40, "latency_s": 1.2, "quality": None, "note": None,
+            "effect": "write", "error": True})
+        answer["index"] += 1
+        steady_contested["steps"].append(answer)
+
+        # p03 after: the failing agent now passes — no failure to diagnose.
+        hasty_resolved = copy.deepcopy(base["p03_change_seats"][1])
+        hasty_resolved["outcome"]["success"] = True
+
+        cls.before = cls._engine_batch(
+            "before", [base[task] for task in cls.TASKS])
+        cls.after = cls._engine_batch("after", [
+            (steady_shifted, base["p01_cancel_booking"][1]),   # cause shifts
+            base["p02_book_flight"],                           # unchanged
+            (base["p03_change_seats"][0], hasty_resolved),     # resolved
+            base["p04_policy_lookup"],                         # no failure
+        ])
+        cls.after_contested = cls._engine_batch("after_contested", [
+            (steady_contested, base["p01_cancel_booking"][1]),
+            base["p02_book_flight"],
+        ])
+        cls.result = compare_progress(cls.before, cls.after)
+        cls.shift = cls.result["diagnosis_shift"]
+
+    def entry(self, shift, task):
+        matches = [t for t in shift["tasks"] if t["task"] == task]
+        self.assertEqual(len(matches), 1,
+                         f"expected exactly one entry for {task}: {shift}")
+        return matches[0]
+
+    def test_same_leading_kind_is_cause_unchanged(self):
+        entry = self.entry(self.shift, "p02_book_flight")
+        self.assertEqual(entry["before"], "grader_or_label")
+        self.assertEqual(entry["after"], "grader_or_label")
+        self.assertEqual(entry["verdict"], "cause unchanged")
+        self.assertEqual(entry["agent"], "hasty-v2")
+
+    def test_a_changed_leading_kind_is_a_shift_naming_both(self):
+        entry = self.entry(self.shift, "p01_cancel_booking")
+        self.assertEqual(entry["before"], "grader_or_label")
+        self.assertEqual(entry["after"], "divergence")
+        self.assertEqual(entry["verdict"],
+                         "cause shifted: grader_or_label → divergence")
+        self.assertIn("progress, but not done", self.shift["note"])
+
+    def test_a_resolved_failure_is_skipped_not_duplicated(self):
+        # p03 was diagnosed before; after, both agents pass — issue
+        # tracking already reports the resolution, so it is not re-listed.
+        tasks = {t["task"] for t in self.shift["tasks"]}
+        self.assertNotIn("p03_change_seats", tasks)
+        # and a task with no single failure in either run never appears
+        self.assertNotIn("p04_policy_lookup", tasks)
+
+    def test_becoming_contested_is_stated_plainly(self):
+        result = compare_progress(self.before, self.after_contested)
+        entry = self.entry(result["diagnosis_shift"], "p01_cancel_booking")
+        self.assertEqual(entry["before"], "grader_or_label")
+        self.assertIsNone(entry["after"])
+        self.assertEqual(entry["verdict"],
+                         "grader_or_label led, now contested")
+
+    def test_a_contested_diagnosis_that_settles_is_stated_plainly(self):
+        result = compare_progress(self.after_contested, self.before)
+        entry = self.entry(result["diagnosis_shift"], "p01_cancel_booking")
+        self.assertIsNone(entry["before"])
+        self.assertEqual(entry["after"], "grader_or_label")
+        self.assertEqual(entry["verdict"],
+                         "was contested, now grader_or_label leads")
+
+    def test_old_outputs_without_diagnosis_degrade_not_crash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            before = batch_dir(tmp, "before", [issue("fp1", ["t0"])],
+                               [action(1, ["fp1"], ["t0"])],
+                               [report("t0", ok_a=False)])
+            after = batch_dir(tmp, "after", [], [], [report("t0")])
+            result = compare_progress(before, after)
+            self.assertEqual(result["diagnosis_shift"],
+                             {"tasks": [],
+                              "note": "no diagnosis objects in one or both "
+                                      "batches"})
+
+    def test_diagnosis_shift_is_informational_not_gate_worthy(self):
+        from deepcompare.progress import regressions_in
+        # the shift (and the contested turn) must not add gate findings
+        for result in (self.result,
+                       compare_progress(self.before, self.after_contested)):
+            for finding in regressions_in(result):
+                self.assertNotIn("cause", finding)
+                self.assertNotIn("contested", finding)
+
+
 if __name__ == "__main__":
     unittest.main()
