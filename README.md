@@ -196,6 +196,22 @@ with its denominator, not diagnosed as systematic.
 python3 -m deepcompare runs demo/runs/traces -o out/
 ```
 
+### The diagnoser is itself benchmarked
+
+Failure attributors that are never evaluated collapse quietly on hard
+cases, so AgentDiff measures its own: `demo/diagnosis_bench/` generates
+12 trace pairs with one implanted known cause each (grader mislabel,
+harness kill, environment fault, wrong fact, blind write, pure
+divergence) and `deepcompare/bench.py` scores whether the leading
+hypothesis matches the implant — contested never counts as correct.
+The benchmark's first run measured 10 of 12 and exposed a structural
+blind spot (abandoned tool errors split their score across three
+hypotheses); fixing that fusion rule brought the same untouched corpus
+to 12 of 12, and the test suite holds the floor at 0.75 so a future
+regression in diagnosis quality fails CI rather than shipping. The
+corpus is deliberately small and synthetic: it proves the machinery
+against known ground truth, it does not claim field accuracy.
+
 ## Quick start
 
 Nothing to install locally? Run it on Colab —
