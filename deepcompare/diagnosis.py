@@ -609,6 +609,11 @@ def _causal_account(report: dict, leading: Optional[dict], side: Optional[str],
     chain = attribution.get("chain") or []
     if not chain:
         return []
+    from .align import jaccard  # local import avoids a cycle at module load
+
+    root_idx = chain[0]
+    root_output = (traj.steps[root_idx].output
+                   if 0 <= root_idx < len(traj.steps) else "")
     account = []
     for pos, idx in enumerate(chain):
         if not (0 <= idx < len(traj.steps)):
@@ -621,15 +626,25 @@ def _causal_account(report: dict, leading: Optional[dict], side: Optional[str],
         if pos == 0:
             happened = f"the account starts here ({step.type} step)"
             mechanism = None
-        elif pos == len(chain) - 1:
-            happened = "the final answer was emitted"
-            mechanism = "carried into the answer"
         else:
-            happened = f"{step.type} step continued from the root"
-            mechanism = (
-                "textual propagation from the root step's output (measured)"
-                if step.quality not in ("weak", "bad")
-                else f"step annotated {step.quality} in the log (declared)")
+            if pos == len(chain) - 1:
+                happened = "the final answer was emitted"
+            else:
+                happened = f"{step.type} step continued from the root"
+            # name the actual link, with its measurement or its basis —
+            # "propagated" without a number is an assertion, not evidence
+            if step.quality in ("weak", "bad"):
+                mechanism = (f"step annotated {step.quality} in the log "
+                             f"(declared)")
+            else:
+                overlap = round(jaccard(step.input, root_output), 2)
+                mechanism = (
+                    f"textual propagation from the root step's output "
+                    f"(word overlap {overlap}, measured)"
+                    if overlap > 0 else
+                    "follows the root in the chain, but no textual overlap "
+                    "with its output was measured — the link is positional, "
+                    "not traced")
         entry = {"step": idx, "happened": happened,
                  "evidence": [eid] if eid else []}
         if mechanism:
