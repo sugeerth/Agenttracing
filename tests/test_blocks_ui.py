@@ -475,5 +475,114 @@ class DiagnosisBlockTest(unittest.TestCase):
         context.close()
 
 
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class ConsolidatedDiagnosisBlockTest(unittest.TestCase):
+    """The Across-runs block renders the cross-run consolidation, verbatim.
+
+    Driven by a real aggregate — `deepcompare runs` over the multi-run demo
+    corpus writes `diagnosis_consolidated` and renders report.html from the
+    blocks template — so the test checks the block against the engine's
+    actual output, not a fixture. The demo corpus carries reproducible
+    causes, a flaky failure with its k-of-n denominator, and inconclusive
+    executed checks, which are exactly the things the block promises to
+    keep visible.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run(
+            [sys.executable, "-m", "deepcompare", "runs",
+             str(ROOT / "demo" / "runs" / "traces"), "-o", str(out),
+             "--template", str(ROOT / "web" / "blocks.html")],
+            cwd=str(ROOT), check=True, capture_output=True)
+        cls.report = out / "report.html"
+        assert cls.report.is_file(), "runs did not write a report"
+
+        aggregate = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
+        cls.consolidated = aggregate["diagnosis_consolidated"]
+        cls.failing = [entry for entry in cls.consolidated["per_task_agent"]
+                       if entry["failures"]]
+        assert cls.failing, "demo runs corpus carries no failing entries"
+
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(
+            executable_path="/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
+            if Path("/opt/pw-browsers/chromium-1194/chrome-linux/chrome").is_file()
+            else CHROMIUM,
+            args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def test_across_runs_block_renders_rows_for_the_real_aggregate(self):
+        context = self.browser.new_context()
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"file://{self.report}")
+        page.wait_for_timeout(400)
+
+        block = page.locator('.block[data-block="diagnosis-consolidated"]')
+        self.assertEqual(block.count(), 1, "Across-runs block is not on the page")
+
+        # Deep in the outcome stack the block may start collapsed; the body
+        # only renders once it is expanded, exactly as a reader would do.
+        if "collapsed" in (block.get_attribute("class") or ""):
+            block.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(250)
+            block = page.locator('.block[data-block="diagnosis-consolidated"]')
+
+        # The summary narrative, verbatim, at the top.
+        narrative = block.locator(".cx-narrative").inner_text()
+        self.assertIn(self.consolidated["narrative"], narrative)
+
+        # One row per failing (task, agent), in the aggregate's own order,
+        # each carrying the k-of-n failure reproduction with its verdict,
+        # the consolidated status, and the statement verbatim.
+        rows = block.locator(".cx-row")
+        self.assertEqual(rows.count(), len(self.failing))
+        for i, entry in enumerate(self.failing):
+            row_text = rows.nth(i).inner_text()
+            repro = entry["failure_reproduction"]
+            self.assertIn(entry["task"], row_text)
+            self.assertIn(entry["agent"], row_text)
+            self.assertIn(f"fails {repro['k']} of {repro['n']} runs", row_text)
+            self.assertIn(repro["verdict"], row_text)
+            self.assertIn(entry["consolidated"]["status"].replace("_", " "),
+                          row_text)
+            self.assertIn(entry["consolidated"]["statement"], row_text)
+
+        # Expanding a row discloses its executed checks — name, outcome, and
+        # detail verbatim, inconclusive ones included, never filtered out.
+        for i, entry in enumerate(self.failing):
+            if not entry["checks_run"]:
+                continue
+            rows.nth(i).locator(".cx-head").click()
+            page.wait_for_timeout(150)
+            body = rows.nth(i).locator(".cx-body").inner_text()
+            for check in entry["checks_run"]:
+                self.assertIn(check["check"], body)
+                self.assertIn(check["outcome"], body)
+                self.assertIn(check["detail"], body)
+
+        self.assertEqual(errors, [],
+                         "page errors while rendering the consolidation")
+        context.close()
+
+
 if __name__ == "__main__":
     unittest.main()

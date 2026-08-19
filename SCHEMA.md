@@ -1362,3 +1362,88 @@ and "wrote blind" do not pool into one bucket. The `note` appears when a
 kind leads at least twice — a cause that repeats is systemic, worth one
 central fix rather than N local ones — and the `batch` command prints it.
 
+
+## Cross-run diagnosis consolidation (v28)
+
+A pair diagnosis is honest about being n=1: its confidence is capped and
+every hypothesis carries the check that would settle it. When the corpus
+holds repeated runs of the same task, `deepcompare runs` performs the two
+upgrades that repetition makes possible, and writes the result to
+`aggregate["diagnosis_consolidated"]`:
+
+1. **Consolidation.** Every failing run is diagnosed against the other
+   agent's medoid run — not one representative pair — and the question
+   becomes whether the same hypothesis leads each time. Failure
+   reproduction gets its own denominator first: an agent that fails 1 of
+   3 runs has a flake, not a systematic fault, whatever any single-run
+   story says.
+2. **Executed discriminators.** Checks a pair diagnosis can only
+   *recommend* are answered offline from the runs already on disk:
+   *grader consistency* (a failing answer near-identical to a passing
+   run's answer proves the grader inconsistent — token Jaccard ≥ 0.8, both
+   runs named), *environment reproduction* (the exact failing call
+   succeeding elsewhere proves the error transient; erring everywhere
+   points at the environment), and *harness flake rate* (kills counted
+   over all runs). No re-running, no network, no model calls.
+
+```json
+"diagnosis_consolidated": {
+  "per_task_agent": [
+    {"task": "t01_acme_revenue", "agent": "bolt-v3",
+     "runs": 3, "failures": 3,
+     "failure_reproduction": {"k": 3, "n": 3, "verdict": "reproducible"},
+     "diagnosed_runs": 3,
+     "leading_kinds": {"divergence": 3},
+     "contested_runs": 0,
+     "per_run": [{"run": "r1", "leading": "divergence", "margin": 0.8}],
+     "checks_run": [
+       {"check": "grader_consistency", "outcome": "inconclusive",
+        "hypothesis_kind": "grader_or_label",
+        "detail": "no passing run in this corpus carries an answer ...",
+        "basis": "measured", "runs": ["bolt-v3/r1"]}
+     ],
+     "consolidated": {
+       "kind": "divergence", "status": "reproducible",
+       "statement": "divergence leads the diagnosis in all 3 diagnosed runs — the cause reproduces, not just the failure",
+       "basis": "consistent leading hypothesis across 3 runs"}}
+  ],
+  "summary": {"tasks": 8, "entries_with_failures": 4,
+              "confirmed_by_checks": 0, "reproducible_causes": 4,
+              "unstable_diagnoses": 0, "flaky_failures": 1},
+  "narrative": "4 cause(s) reproduce across every failing run; ..."
+}
+```
+
+`failure_reproduction.verdict` is one of `reproducible` (fails every run,
+n > 1), `flaky` (fails some), `single run` (n = 1), `no failures`. An entry
+with no failures keeps `consolidated: null` — it is the denominator, not a
+diagnosis. `per_run` entries carry either the leading kind and its margin,
+`"contested"`, or a note that the reference run also failed (pairwise
+diagnosis not applicable there). One check instance per (check, outcome)
+pair is kept; an `inconclusive` outcome is a result and is reported, not
+dropped.
+
+**Statuses.** The consolidated verdict lands in exactly one, and the
+vocabulary is deliberately strict — **scores can make a hypothesis leading;
+only an executed check can make it confirmed or refuted**:
+
+- `confirmed` — an executed check confirmed the hypothesis against the
+  corpus itself; `basis` says "executed check, not a score".
+- `refuted` — a kind led every per-run diagnosis, but an executed check
+  contradicts it. The check outranks the scored ranking: a refuted
+  hypothesis does not get to stay leading because a heuristic scored it
+  first.
+- `reproducible` — the same kind leads all diagnosed runs (≥ 2): the
+  *cause* reproduces, not just the failure. Still a scored finding, so it
+  sits below `confirmed`.
+- `unstable` — the per-run diagnoses disagree. The disagreement is itself
+  the diagnosis: the cause is noise-sensitive, and no single-run story
+  should be trusted for that task.
+- `single_run` — one diagnosed run; n=1, unconfirmed, add runs to confirm.
+- `all_contested` — every diagnosed run was contested; the evidence never
+  picks a cause.
+
+The `summary` counts each status with its denominators, and the
+`narrative` string is what the `runs` command prints — flaky failures are
+named with their k of n ("treat as flakes until they repeat") rather than
+promoted to systematic faults.

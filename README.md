@@ -180,6 +180,22 @@ Across a batch, the aggregate rolls leading causes up with denominators
 (`divergence leads 3 of 4 diagnosed failures`) — a cause that repeats is
 one central fix, not N local ones.
 
+### Across repeated runs: consolidation and executed checks
+
+With repeated runs of the same tasks, the diagnosis stops being n=1: every
+failing run is diagnosed and the runs mode asks whether the same hypothesis
+leads each time, writing `diagnosis_consolidated` into the aggregate. It
+also *executes* the discriminating checks that are answerable from the runs
+already on disk — grader consistency, environment reproduction, harness
+flake rate — because scores can make a hypothesis leading, but only an
+executed check can make it confirmed or refuted. Failure reproduction keeps
+its denominator throughout: a failure in 2 of 3 runs is reported as a flake
+with its denominator, not diagnosed as systematic.
+
+```bash
+python3 -m deepcompare runs demo/runs/traces -o out/
+```
+
 ## Quick start
 
 Nothing to install locally? Run it on Colab —
