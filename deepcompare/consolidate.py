@@ -58,9 +58,11 @@ def _grader_consistency(task_runs: list[Trajectory],
                         failing: Trajectory) -> Optional[dict]:
     """Did the grader treat a near-identical answer differently elsewhere?
 
-    Strongest form: the failing run's own answer matches a *passing* run's
-    answer.  Also reported: any near-identical answer pair across runs with
-    different labels, even when neither run is the failing one.
+    The check compares the failing run's answer against every *passing*
+    run's answer; a near-identical pair with opposite labels is measured
+    grader inconsistency.  (Pairs where neither run is the failing one are
+    deliberately not scanned: they would say something about the grader in
+    general, but nothing about this failure.)
     """
     fail_answer = failing.outcome.answer or ""
     if not fail_answer.strip():
@@ -308,10 +310,16 @@ def consolidate_diagnoses(
     per (task, agent) and the executed discriminators applied.
     """
     entries = []
+    # medoid_pairs asserts on empty sides; a task with runs on only one
+    # side cannot be pairwise-diagnosed, so it is dropped here rather than
+    # crashing three calls deep.
+    complete = {tid: sides for tid, sides in runs_by_task.items()
+                if sides.get("a") and sides.get("b")}
     medoids = {}
-    for (a_med, b_med), tid in zip(medoid_pairs(runs_by_task),
-                                   sorted(runs_by_task)):
+    for (a_med, b_med), tid in zip(medoid_pairs(complete),
+                                   sorted(complete)):
         medoids[tid] = {"a": a_med, "b": b_med}
+    runs_by_task = complete
 
     for tid in sorted(runs_by_task):
         sides = runs_by_task[tid]
