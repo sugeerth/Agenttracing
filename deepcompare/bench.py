@@ -1,0 +1,153 @@
+"""Ground-truth accuracy benchmark for the diagnoser itself.
+
+The Who&When lesson is that failure attributors which are never evaluated
+collapse on hard cases, so the diagnoser's accuracy must be a measured,
+published number, not an assumption.  :func:`run_benchmark` runs the full
+:func:`deepcompare.report.compare` pipeline over a corpus of trajectory
+pairs with one implanted known cause each (see
+``demo/diagnosis_bench/generate.py``) and scores the ``diagnosis`` section
+against the manifest's ground truth.
+
+Scoring rules, applied without mercy:
+
+- A scenario is **correct** only when the *leading* hypothesis's kind — or
+  its ``kind:flag`` label, or its ``mechanism`` field — is in the
+  scenario's acceptable set.  The acceptable set exists because two kinds
+  can legitimately name the same cause at different depths (a divergence
+  whose mechanism is wrong_fact_propagation IS the wrong fact).
+- A **contested** diagnosis (no leading hypothesis) is its own outcome and
+  never counts as correct, even when the true cause is ranked first: a
+  diagnoser that cannot commit has not diagnosed.
+- Accuracies are always reported with their denominators, and every miss
+  is listed with what actually led, so the number cannot silently exclude
+  the failures.
+
+Everything is deterministic: fixed corpus in, fixed report out.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Union
+
+from .report import compare
+from .trace import Trajectory
+
+MANIFEST_NAME = "MANIFEST.json"
+
+
+def _leading_labels(diagnosis: dict) -> tuple[dict, set[str]]:
+    """The leading hypothesis and every label it may be credited under.
+
+    Labels are the hypothesis ``kind``, ``kind:flag`` when a process flag is
+    attached, and the ``mechanism`` when a fused hypothesis names one.
+    Returns ``({}, set())`` when the diagnosis is contested (no leader).
+    """
+    leading_id = diagnosis.get("leading")
+    if leading_id is None:
+        return {}, set()
+    lead = next((h for h in diagnosis.get("hypotheses", [])
+                 if h.get("id") == leading_id), None)
+    if lead is None:
+        return {}, set()
+    labels = {lead.get("kind")}
+    if lead.get("flag"):
+        labels.add(f"{lead['kind']}:{lead['flag']}")
+    if lead.get("mechanism"):
+        labels.add(lead["mechanism"])
+    labels.discard(None)
+    return lead, labels
+
+
+def _contested_summary(diagnosis: dict) -> str:
+    """Human-readable label for a contested diagnosis: the top contenders."""
+    scored = [h for h in diagnosis.get("hypotheses", [])
+              if h.get("score") is not None and h.get("status") != "merged"]
+    names = []
+    for h in scored[:3]:
+        name = h.get("kind", "?")
+        if h.get("flag"):
+            name = f"{name}:{h['flag']}"
+        names.append(f"{name}={h['score']}")
+    return "contested: " + ", ".join(names) if names else "contested"
+
+
+def run_benchmark(traces_dir: Union[str, Path]) -> dict:
+    """Run the diagnoser over every manifest pair and score it.
+
+    ``traces_dir`` must hold ``MANIFEST.json`` plus the referenced
+    ``*__fail.json`` / ``*__pass.json`` trajectories.  Returns a dict with
+    ``overall`` and ``by_cause`` accuracies (each with numerator and
+    denominator), a ``misses`` list naming every scenario the diagnoser got
+    wrong or left contested together with what actually led, and the full
+    per-scenario ``results``.
+    """
+    root = Path(traces_dir)
+    manifest = json.loads((root / MANIFEST_NAME).read_text(encoding="utf-8"))
+    scenarios = sorted(manifest.get("scenarios", []), key=lambda s: s["id"])
+
+    results: list[dict] = []
+    misses: list[dict] = []
+    by_cause: dict[str, dict] = {}
+    correct_total = 0
+
+    for scenario in scenarios:
+        failing = Trajectory.from_json(root / scenario["fail"])
+        passing = Trajectory.from_json(root / scenario["pass"])
+        report = compare(failing, passing)
+        diagnosis = report["diagnosis"]
+        acceptable = set(scenario.get("acceptable", []))
+
+        lead, labels = _leading_labels(diagnosis)
+        if not lead:
+            outcome = "contested"
+            actual = _contested_summary(diagnosis)
+        else:
+            actual = lead.get("kind", "?")
+            if lead.get("flag"):
+                actual = f"{actual}:{lead['flag']}"
+            if lead.get("mechanism"):
+                actual += f" (mechanism {lead['mechanism']})"
+            outcome = "correct" if labels & acceptable else "wrong"
+
+        entry = {
+            "scenario": scenario["id"],
+            "cause": scenario["cause"],
+            "acceptable": sorted(acceptable),
+            "outcome": outcome,
+            "actual": actual,
+            "margin": diagnosis.get("margin"),
+        }
+        results.append(entry)
+
+        bucket = by_cause.setdefault(
+            scenario["cause"], {"correct": 0, "total": 0, "accuracy": 0.0})
+        bucket["total"] += 1
+        if outcome == "correct":
+            bucket["correct"] += 1
+            correct_total += 1
+        else:
+            misses.append({
+                "scenario": scenario["id"],
+                "truth": scenario["cause"],
+                "acceptable": sorted(acceptable),
+                "outcome": outcome,
+                "actually_led": actual,
+            })
+
+    for bucket in by_cause.values():
+        bucket["accuracy"] = (round(bucket["correct"] / bucket["total"], 4)
+                              if bucket["total"] else None)
+    total = len(results)
+    return {
+        "version": 1,
+        "overall": {
+            "correct": correct_total,
+            "total": total,
+            "accuracy": round(correct_total / total, 4) if total else None,
+        },
+        "by_cause": {cause: by_cause[cause] for cause in sorted(by_cause)},
+        "misses": misses,
+        "results": results,
+    }

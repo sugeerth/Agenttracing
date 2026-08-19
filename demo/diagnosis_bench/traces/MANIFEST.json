@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "id": "gm01_flex_refund",
+      "cause": "grader_mislabel",
+      "acceptable": [
+        "grader_or_label"
+      ],
+      "fail": "gm01_flex_refund__fail.json",
+      "pass": "gm01_flex_refund__pass.json",
+      "note": "failing answer textually matches the expected answer; process clean"
+    },
+    {
+      "id": "gm02_kestrel_release",
+      "cause": "grader_mislabel",
+      "acceptable": [
+        "grader_or_label"
+      ],
+      "fail": "gm02_kestrel_release__fail.json",
+      "pass": "gm02_kestrel_release__pass.json",
+      "note": "failing answer carries the expected date and version; process clean"
+    },
+    {
+      "id": "hk01_seat_upgrade",
+      "cause": "harness_kill",
+      "acceptable": [
+        "harness_termination"
+      ],
+      "fail": "hk01_seat_upgrade__fail.json",
+      "pass": "hk01_seat_upgrade__pass.json",
+      "note": "harness declared infrastructure_error before the write happened"
+    },
+    {
+      "id": "hk02_meridian_headcount",
+      "cause": "harness_kill",
+      "acceptable": [
+        "harness_termination"
+      ],
+      "fail": "hk02_meridian_headcount__fail.json",
+      "pass": "hk02_meridian_headcount__pass.json",
+      "note": "harness declared unexpected_error mid-run"
+    },
+    {
+      "id": "ef01_refund_gateway",
+      "cause": "environment_fault",
+      "acceptable": [
+        "environment_error"
+      ],
+      "fail": "ef01_refund_gateway__fail.json",
+      "pass": "ef01_refund_gateway__pass.json",
+      "note": "declared tool error (payment gateway 503); agent abandoned after it"
+    },
+    {
+      "id": "ef02_docs_outage",
+      "cause": "environment_fault",
+      "acceptable": [
+        "environment_error"
+      ],
+      "fail": "ef02_docs_outage__fail.json",
+      "pass": "ef02_docs_outage__pass.json",
+      "note": "two declared fetch errors (timeout, 503); agent abandoned after them"
+    },
+    {
+      "id": "wf01_refund_amount",
+      "cause": "wrong_fact",
+      "acceptable": [
+        "wrong_fact_propagation"
+      ],
+      "fail": "wf01_refund_amount__fail.json",
+      "pass": "wf01_refund_amount__pass.json",
+      "note": "$389.00 enters at step 2 from a stale table and reaches the answer; expected is $412.00 (divergence with mechanism wrong_fact_propagation counts)"
+    },
+    {
+      "id": "wf02_battery_life",
+      "cause": "wrong_fact",
+      "acceptable": [
+        "wrong_fact_propagation"
+      ],
+      "fail": "wf02_battery_life__fail.json",
+      "pass": "wf02_battery_life__pass.json",
+      "note": "7 hours 45 minutes enters at step 2 from an archived spec sheet; expected is 9 hours 30 minutes; structure otherwise identical"
+    },
+    {
+      "id": "bw01_ticket_address",
+      "cause": "blind_write",
+      "acceptable": [
+        "process_pathology:blind_write",
+        "divergence"
+      ],
+      "fail": "bw01_ticket_address__fail.json",
+      "pass": "bw01_ticket_address__pass.json",
+      "note": "write-effect update at step 1 before any read; the blind write is the divergent decision, so divergence rooted there is the same cause"
+    },
+    {
+      "id": "bw02_dns_cutover",
+      "cause": "blind_write",
+      "acceptable": [
+        "process_pathology:blind_write",
+        "divergence"
+      ],
+      "fail": "bw02_dns_cutover__fail.json",
+      "pass": "bw02_dns_cutover__pass.json",
+      "note": "DNS write at step 0 before reading which balancer is new"
+    },
+    {
+      "id": "dv01_keynote_hall",
+      "cause": "divergence_only",
+      "acceptable": [
+        "divergence"
+      ],
+      "fail": "dv01_keynote_hall__fail.json",
+      "pass": "dv01_keynote_hall__pass.json",
+      "note": "retrieval decision differs (community wiki vs official programme); no other anomaly"
+    },
+    {
+      "id": "dv02_db_migration",
+      "cause": "divergence_only",
+      "acceptable": [
+        "divergence"
+      ],
+      "fail": "dv02_db_migration__fail.json",
+      "pass": "dv02_db_migration__pass.json",
+      "note": "planning decision differs (dump-and-restore vs replica promotion); no other anomaly"
+    }
+  ]
+}
