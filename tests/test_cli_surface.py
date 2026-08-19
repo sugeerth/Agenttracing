@@ -122,5 +122,35 @@ class TestEveryCommandRuns(unittest.TestCase):
                                  f"{name} --help failed: {result.stderr}")
 
 
+class TestDiagnosisInCompareOutput(unittest.TestCase):
+    """The terminal shows the adjudication, not just attribution's story."""
+
+    @classmethod
+    def setUpClass(cls):
+        traces = ROOT / "demo" / "process" / "traces"
+        cls.result = run_cli(
+            "compare",
+            str(traces / "p01_cancel_booking__steady-v1.json"),
+            str(traces / "p01_cancel_booking__hasty-v2.json"))
+
+    def test_diagnosis_section_prints_after_attribution(self):
+        out = self.result.stdout
+        self.assertIn("Diagnosis (attribution is one hypothesis", out)
+        self.assertLess(out.index("Attribution:"),
+                        out.index("Diagnosis (attribution is one hypothesis"))
+
+    def test_ranked_hypotheses_and_contradictions_print(self):
+        out = self.result.stdout
+        self.assertIn("[  leading]", out)
+        self.assertIn("grader_or_label", out)
+        self.assertIn("! the failed run's answer matched the expected answer",
+                      out)
+
+    def test_discriminator_and_confidence_print(self):
+        out = self.result.stdout
+        self.assertIn("to settle it:", out)
+        self.assertIn("confidence:", out)
+
+
 if __name__ == "__main__":
     unittest.main()
