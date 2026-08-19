@@ -167,6 +167,41 @@ def narration_brief(report: dict) -> dict:
     if delta:
         _fact(facts, "metrics_delta", json.dumps(delta, sort_keys=True), delta)
 
+    diagnosis = report.get("diagnosis") or {}
+    if diagnosis:
+        # Every diagnosis field is quoted verbatim — the narrator inherits
+        # the adjudication, it does not get to re-adjudicate.  Scores and
+        # margins ride along as fact values so _collect_allowed admits them.
+        if diagnosis.get("verdict"):
+            _fact(facts, "diagnosis", diagnosis["verdict"],
+                  {"margin": diagnosis.get("margin")})
+        hypotheses = [h for h in (diagnosis.get("hypotheses") or [])
+                      if h.get("status") != "merged"]
+        for h in hypotheses[:4]:
+            kind = h.get("kind", "")
+            if h.get("flag"):
+                kind += f" ({h['flag']})"
+            _fact(facts, "diagnosis.hypothesis",
+                  f"{h.get('id')} [{h.get('status')}] {kind}, score "
+                  f"{h.get('score')}: {h.get('statement')}", h.get("score"))
+        for contradiction in diagnosis.get("contradictions") or []:
+            _fact(facts, "diagnosis.contradiction", contradiction, None)
+        leading = next((h for h in (diagnosis.get("hypotheses") or [])
+                        if h.get("id") == diagnosis.get("leading")), None)
+        if leading is not None and leading.get("discriminator"):
+            _fact(facts, "diagnosis.discriminator",
+                  f"to settle it: {leading['discriminator']}", None)
+        elif diagnosis.get("leading") is None and hypotheses:
+            _fact(facts, "diagnosis.discriminator",
+                  "the diagnosis is contested: no single hypothesis clears "
+                  "the runner-up by the lead margin; see the discriminating "
+                  "checks on each hypothesis", None)
+        confidence = diagnosis.get("confidence") or {}
+        if confidence.get("level"):
+            _fact(facts, "diagnosis.confidence",
+                  f"confidence {confidence['level']}: "
+                  f"{confidence.get('basis')}", None)
+
     steps_max = max(len((a.get("steps") or [])), len((b.get("steps") or [])))
     return {
         "task": (report.get("task") or {}).get("id"),

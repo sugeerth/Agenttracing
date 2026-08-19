@@ -206,5 +206,84 @@ class TestEvalAgentShapes(unittest.TestCase):
         self.assertIn("37%", check["unsupported_numbers"])
 
 
+class TestDiagnosisInBrief(unittest.TestCase):
+    """The adjudicated diagnosis reaches the narrator as numbered facts,
+    quoted verbatim, with its scores admitted to the allowed-numbers set."""
+
+    @classmethod
+    def setUpClass(cls):
+        from deepcompare.report import compare
+        from deepcompare.trace import Trajectory
+        root = Path(__file__).resolve().parent.parent
+        a = Trajectory.from_json(
+            str(root / "demo" / "traces" / "t05_flight_duration__atlas-v2.json"))
+        b = Trajectory.from_json(
+            str(root / "demo" / "traces" / "t05_flight_duration__bolt-v3.json"))
+        cls.report = compare(a, b)
+        cls.brief = narration_brief(cls.report)
+
+    def test_brief_carries_the_verdict_and_hypotheses(self):
+        by_source = {}
+        for fact in self.brief["facts"]:
+            by_source.setdefault(fact["source"], []).append(fact)
+        self.assertIn("diagnosis", by_source)
+        self.assertEqual(by_source["diagnosis"][0]["text"],
+                         self.report["diagnosis"]["verdict"])
+        self.assertIn("diagnosis.hypothesis", by_source)
+        self.assertGreaterEqual(len(by_source["diagnosis.hypothesis"]), 1)
+        self.assertLessEqual(len(by_source["diagnosis.hypothesis"]), 4)
+        # merged hypotheses stay out of the brief
+        for fact in by_source["diagnosis.hypothesis"]:
+            self.assertNotIn("[merged]", fact["text"])
+        # the leading hypothesis's discriminator and the confidence ride along
+        self.assertIn("diagnosis.discriminator", by_source)
+        self.assertTrue(by_source["diagnosis.discriminator"][0]["text"]
+                        .startswith("to settle it: "))
+        self.assertIn("diagnosis.confidence", by_source)
+
+    def test_quoting_a_diagnosis_score_passes(self):
+        leading = next(
+            h for h in self.report["diagnosis"]["hypotheses"]
+            if h["id"] == self.report["diagnosis"]["leading"])
+        text = (f"The leading hypothesis scored {leading['score']}, leading "
+                f"by {self.report['diagnosis']['margin']} [F1].")
+        check = check_narration(self.brief, text)
+        self.assertTrue(check["faithful"], check)
+
+    def test_an_invented_diagnosis_score_is_flagged(self):
+        check = check_narration(
+            self.brief, "The diagnosis scored this cause at 0.93.")
+        self.assertFalse(check["faithful"])
+        self.assertIn("0.93", check["unsupported_numbers"])
+
+    def test_a_report_without_a_diagnosis_still_briefs(self):
+        old = {k: v for k, v in self.report.items() if k != "diagnosis"}
+        brief = narration_brief(old)
+        self.assertGreater(len(brief["facts"]), 0)
+        for fact in brief["facts"]:
+            self.assertFalse(fact["source"].startswith("diagnosis"))
+        # sample_report has no diagnosis key either — same guarantee
+        brief2 = narration_brief(sample_report())
+        self.assertGreater(len(brief2["facts"]), 0)
+
+    def test_contradictions_are_quoted_when_present(self):
+        from deepcompare.report import compare
+        from deepcompare.trace import Trajectory
+        root = Path(__file__).resolve().parent.parent
+        a = Trajectory.from_json(str(
+            root / "demo" / "process" / "traces"
+            / "p01_cancel_booking__steady-v1.json"))
+        b = Trajectory.from_json(str(
+            root / "demo" / "process" / "traces"
+            / "p01_cancel_booking__hasty-v2.json"))
+        report = compare(a, b)
+        contradictions = report["diagnosis"]["contradictions"]
+        self.assertTrue(contradictions)
+        brief = narration_brief(report)
+        quoted = [f["text"] for f in brief["facts"]
+                  if f["source"] == "diagnosis.contradiction"]
+        self.assertEqual(quoted, contradictions)
+
+
 if __name__ == "__main__":
     unittest.main()
