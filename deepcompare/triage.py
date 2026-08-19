@@ -567,6 +567,60 @@ def _from_diagnosis(reports: list[dict]) -> list[dict]:
     return out
 
 
+def _from_consolidated(aggregate: dict) -> list[dict]:
+    """Cross-run verdicts that upgrade or overrule single-pair findings.
+
+    A consolidated diagnosis carries evidence a pair cannot: ``confirmed``
+    means an executed check against the corpus itself settled the question
+    (no re-run, no human needed to establish the fact), and ``unstable``
+    means the per-run diagnoses disagree, which is a warning against acting
+    on any of them.  Both deserve rows of their own — the confirmed one
+    with the executed check quoted, the unstable one as an explicit
+    do-not-fix-yet.
+    """
+    consolidated = (aggregate.get("diagnosis_consolidated") or {})
+    out = []
+    for entry in consolidated.get("per_task_agent", []):
+        verdict = entry.get("consolidated")
+        if not verdict:
+            continue
+        agent = entry.get("agent", "?")
+        task = entry.get("task", "?")
+        repro = entry.get("failure_reproduction") or {}
+        if verdict.get("status") == "confirmed":
+            out.append(_candidate(
+                id=f"consolidated-confirmed:{agent}:{task}",
+                source="diagnosis",
+                category="confirmed_cause",
+                severity_class="signal",
+                agents=[agent],
+                tasks=[task],
+                comparative=False,
+                occurrences=repro.get("k") or 1,
+                confidence_floor="high",
+                fix_hint=verdict.get("statement"),
+                details=[
+                    f"{agent} on {task}: an executed check against the "
+                    f"corpus settled this — {verdict.get('statement')}"
+                ],
+                basis_notes=["confirmed by an executed check, not a score"],
+            ))
+        elif verdict.get("status") == "unstable":
+            out.append(_candidate(
+                id=f"consolidated-unstable:{agent}:{task}",
+                source="diagnosis",
+                category="unstable_diagnosis",
+                severity_class="signal",
+                agents=[agent],
+                tasks=[task],
+                comparative=False,
+                occurrences=entry.get("diagnosed_runs") or 1,
+                confidence_cap="low",
+                details=[verdict.get("statement", "")],
+            ))
+    return out
+
+
 def _from_attributes(aggregate: dict) -> tuple[list[dict], list[dict]]:
     """Attribute lifts, but only the ones whose interval excludes zero.
 
@@ -1211,6 +1265,15 @@ def _action_text(candidate: dict) -> str:
                 f"{', '.join(candidate['tasks'])} before fixing anything — "
                 f"the evidence does not pick a single cause for {who}'s "
                 f"failure there")
+    if category == "confirmed_cause":
+        return (f"Act on the confirmed cause for {who} on "
+                f"{', '.join(candidate['tasks'])} — an executed check "
+                f"against the corpus already settled it: "
+                f"{candidate['fix_hint']}")
+    if category == "unstable_diagnosis":
+        return (f"Do not fix {who} on {', '.join(candidate['tasks'])} from "
+                f"any single run's diagnosis — the per-run diagnoses "
+                f"disagree; add runs or run the discriminating checks first")
     return f"Investigate the {category} finding affecting {who}"
 
 
@@ -1256,6 +1319,23 @@ def _verification(candidate: dict, sample: dict, n_tasks: int,
       dead because the rate did not visibly move, or declared working
       because it moved within noise.
     """
+    if candidate.get("category") == "confirmed_cause":
+        return {
+            "how": ("nothing further to check: an executed check against "
+                    "the corpus already settled this — "
+                    + (candidate.get("fix_hint") or "see the finding")),
+            "checks": [],
+            "caveat": ("the confirmation is about this corpus's runs; a "
+                       "changed grader, environment, or harness resets it"),
+        }
+    if candidate.get("category") == "unstable_diagnosis":
+        return {
+            "how": ("add runs of the same tasks, then re-consolidate: the "
+                    "diagnosis is unstable, so the check IS more data"),
+            "checks": [],
+            "caveat": ("re-running once cannot settle an unstable "
+                       "diagnosis; only a larger sample can"),
+        }
     if candidate.get("category") in ("grader_suspect", "contested_diagnosis"):
         # These actions ask for a human check, not a code change; a re-run
         # and fingerprint diff would measure nothing about them.
@@ -1425,11 +1505,42 @@ def triage(reports: list[dict], aggregate: dict) -> dict:
         + _from_process(reports)
         + _from_oracle(reports)
         + _from_diagnosis(reports)
+        + _from_consolidated(aggregate)
         + _from_efficiency(aggregate)
         + attribute_actions
         + calibration_actions
         + _from_regressions(aggregate)
     )
+
+    # An executed check supersedes the recommendation to run one: where a
+    # consolidated verdict is confirmed for (agent, task), the per-pair
+    # "re-grade by hand" / "run the discriminating check" rows for the same
+    # ground are dropped — loudly, so the supersession stays visible.
+    confirmed_ground = {
+        (tuple(c["agents"]), task)
+        for c in candidates if c["category"] == "confirmed_cause"
+        for task in c["tasks"]
+    }
+    if confirmed_ground:
+        kept = []
+        for candidate in candidates:
+            if candidate["category"] in ("grader_suspect",
+                                         "contested_diagnosis") and all(
+                    (tuple(candidate["agents"]), task) in confirmed_ground
+                    for task in candidate["tasks"]):
+                excluded.append({
+                    "finding": candidate["details"][0]
+                    if candidate["details"] else candidate["id"],
+                    "source": "diagnosis",
+                    "reason": "superseded by executed check",
+                    "detail": (
+                        "an executed check against the corpus already "
+                        "settled what this action asked a human to check"
+                    ),
+                })
+                continue
+            kept.append(candidate)
+        candidates = kept
 
     for issue in (aggregate.get("issues") or {}).get("issues", []):
         if issue.get("suppressed"):
@@ -1456,7 +1567,9 @@ def triage(reports: list[dict], aggregate: dict) -> dict:
             and candidate["category"] not in ("attribute", "calibration",
                                               "regression", "oracle",
                                               "grader_suspect",
-                                              "contested_diagnosis")
+                                              "contested_diagnosis",
+                                              "confirmed_cause",
+                                              "unstable_diagnosis")
         )
         if nothing_measured:
             excluded.append({

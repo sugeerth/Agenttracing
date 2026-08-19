@@ -746,5 +746,62 @@ class TestDiagnosisSource(unittest.TestCase):
                           if "diagnosis" in a["sources"]])
 
 
+class TestConsolidatedSource(unittest.TestCase):
+    """Cross-run consolidated verdicts join triage and supersede the
+    per-pair human-check actions they settle."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    @classmethod
+    def setUpClass(cls):
+        import glob as _glob
+        import os
+        import tempfile
+        from deepcompare.consolidate import consolidate_diagnoses
+        from deepcompare.stability import medoid_pairs
+        data = []
+        for f in sorted(_glob.glob(str(cls.ROOT / "demo/runs/traces/t01*.json"))):
+            data.append(json.loads(Path(f).read_text()))
+        passing = next(d for d in data if "atlas" in d["agent"]["name"])
+        failing = next(d for d in data if "bolt" in d["agent"]["name"]
+                       and not d["outcome"]["success"])
+        failing["outcome"]["answer"] = passing["outcome"]["answer"]
+        failing["steps"][-1]["output"] = passing["outcome"]["answer"]
+        rbt = {"t01_acme_revenue": {"a": [], "b": []}}
+        with tempfile.TemporaryDirectory() as tmp:
+            for i, d in enumerate(data):
+                path = os.path.join(tmp, f"{i}.json")
+                Path(path).write_text(json.dumps(d))
+                t = Trajectory.from_json(path)
+                side = "a" if "atlas" in t.agent.name else "b"
+                rbt["t01_acme_revenue"][side].append(t)
+        reports = [compare(a, b) for a, b in medoid_pairs(rbt)]
+        agg = aggregate(reports)
+        agg["diagnosis_consolidated"] = consolidate_diagnoses(rbt)
+        cls.result = triage(reports, agg)
+
+    def test_confirmed_cause_becomes_an_action(self):
+        confirmed = [a for a in self.result["actions"]
+                     if "confirmed cause" in a["action"]]
+        self.assertEqual(len(confirmed), 1)
+        self.assertIn("executed check against the corpus", confirmed[0]["action"])
+
+    def test_confirmed_verification_needs_no_further_check(self):
+        confirmed = next(a for a in self.result["actions"]
+                         if "confirmed cause" in a["action"])
+        self.assertIn("nothing further to check",
+                      confirmed["verification"]["how"])
+        self.assertIn("resets it", confirmed["verification"]["caveat"])
+
+    def test_human_check_action_is_superseded_loudly(self):
+        superseded = [n for n in self.result["not_actionable"]
+                      if n.get("reason") == "superseded by executed check"]
+        self.assertEqual(len(superseded), 1)
+        self.assertIn("grader-or-label", superseded[0]["finding"])
+        regrade = [a for a in self.result["actions"]
+                   if "Re-grade" in a["action"]]
+        self.assertEqual(regrade, [])
+
+
 if __name__ == "__main__":
     unittest.main()
