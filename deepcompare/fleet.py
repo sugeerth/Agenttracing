@@ -47,6 +47,32 @@ _MAX_SPOTLIGHT_PAIRS = 6
 _MAX_TASKS_PER_PAIR = 3
 
 
+def _diagnosed_kind(report: dict) -> str:
+    """Failure-fingerprint category from the adjudicated diagnosis.
+
+    The diagnosis outranks raw attribution here: a failure whose leading
+    hypothesis is the grader should not fingerprint an agent as
+    "reasoning-prone", and a divergence-led diagnosis carries a category
+    corrected for what the root step actually is (a plan step is planning,
+    whatever the divergence detector filed it under).  Contested diagnoses
+    are counted as contested — smearing them over a guessed category would
+    fabricate a fingerprint.
+    """
+    diag = report.get("diagnosis") or {}
+    lead = next((h for h in diag.get("hypotheses", [])
+                 if h.get("id") == diag.get("leading")), None)
+    if lead is None:
+        if diag.get("hypotheses"):
+            return "contested"
+        return (report.get("attribution") or {}).get("category") or "unknown"
+    kind = lead.get("kind", "unknown")
+    if kind == "divergence":
+        return lead.get("category") or "divergence"
+    if lead.get("flag"):
+        return f"{kind}:{lead['flag']}"
+    return kind
+
+
 def _toolish_count(t: Trajectory) -> int:
     return sum(1 for s in t.steps if s.type in ("tool_call", "search"))
 
@@ -250,8 +276,8 @@ def fleet_analysis(
                 report = compare(by_agent[name][tid], by_agent[reference][tid])
                 attribution = report["attribution"]
                 if attribution["failed_agent"] == "a":
-                    category = attribution["category"] or "unknown"
-                    counts[category] = counts.get(category, 0) + 1
+                    counts_key = _diagnosed_kind(report)
+                    counts[counts_key] = counts.get(counts_key, 0) + 1
             total = sum(counts.values())
             if total:
                 fingerprints[name] = {

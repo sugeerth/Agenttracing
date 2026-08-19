@@ -1083,5 +1083,45 @@ class TestFleet(unittest.TestCase):
             fleet_analysis(bad)
 
 
+class TestDiagnosedFingerprintKind(unittest.TestCase):
+    """Fleet failure fingerprints come from the adjudicated diagnosis."""
+
+    def _report(self, leading=None, hypotheses=None, attribution_category=None):
+        return {
+            "diagnosis": {"leading": leading, "hypotheses": hypotheses or []},
+            "attribution": {"category": attribution_category},
+        }
+
+    def test_grader_led_failure_is_not_an_agent_category(self):
+        from deepcompare.fleet import _diagnosed_kind
+        report = self._report(leading="H1", hypotheses=[
+            {"id": "H1", "kind": "grader_or_label"}])
+        self.assertEqual(_diagnosed_kind(report), "grader_or_label")
+
+    def test_divergence_uses_its_corrected_category(self):
+        from deepcompare.fleet import _diagnosed_kind
+        report = self._report(leading="H1", hypotheses=[
+            {"id": "H1", "kind": "divergence", "category": "planning"}])
+        self.assertEqual(_diagnosed_kind(report), "planning")
+
+    def test_process_flag_kinds_carry_the_flag(self):
+        from deepcompare.fleet import _diagnosed_kind
+        report = self._report(leading="H1", hypotheses=[
+            {"id": "H1", "kind": "process_pathology", "flag": "blind_write"}])
+        self.assertEqual(_diagnosed_kind(report), "process_pathology:blind_write")
+
+    def test_contested_is_counted_as_contested(self):
+        from deepcompare.fleet import _diagnosed_kind
+        report = self._report(leading=None, hypotheses=[
+            {"id": "H1", "kind": "divergence"},
+            {"id": "H2", "kind": "wrong_fact_propagation"}])
+        self.assertEqual(_diagnosed_kind(report), "contested")
+
+    def test_missing_diagnosis_falls_back_to_attribution(self):
+        from deepcompare.fleet import _diagnosed_kind
+        report = {"attribution": {"category": "reasoning"}}
+        self.assertEqual(_diagnosed_kind(report), "reasoning")
+
+
 if __name__ == "__main__":
     unittest.main()
