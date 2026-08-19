@@ -269,6 +269,32 @@ def _aggregate_brief(aggregate: dict) -> dict:
         block = aggregate.get(key) or {}
         if isinstance(block, dict) and block.get("narrative"):
             _fact(facts, key, block["narrative"], None)
+    systemic = aggregate.get("diagnosis") or {}
+    for entry in (systemic.get("by_leading_kind") or [])[:4]:
+        _fact(facts, "diagnosis.systemic",
+              f"{entry.get('kind')} leads the diagnosis in {entry.get('count')} "
+              f"of {entry.get('of')} diagnosed failure(s) "
+              f"({', '.join(entry.get('tasks') or [])})", entry)
+    if systemic.get("note"):
+        _fact(facts, "diagnosis.systemic", systemic["note"], None)
+    consolidated = aggregate.get("diagnosis_consolidated") or {}
+    for entry in (consolidated.get("per_task_agent") or []):
+        verdict = entry.get("consolidated")
+        if not verdict or not entry.get("failures"):
+            continue
+        repro = entry.get("failure_reproduction") or {}
+        _fact(facts, "diagnosis.cross_run",
+              f"{entry.get('agent')} on {entry.get('task')} (fails "
+              f"{repro.get('k')} of {repro.get('n')} runs): "
+              f"[{verdict.get('status')}] {verdict.get('statement')}",
+              {"k": repro.get("k"), "n": repro.get("n")})
+        for check in (entry.get("checks_run") or []):
+            _fact(facts, "diagnosis.check",
+                  f"executed check {check.get('check')} "
+                  f"({check.get('outcome')}): {check.get('detail')}",
+                  None)
+    if consolidated.get("narrative"):
+        _fact(facts, "diagnosis.cross_run", consolidated["narrative"], None)
 
     return {
         "task": f"batch of {aggregate.get('tasks')} task(s)",

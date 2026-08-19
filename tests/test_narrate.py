@@ -285,5 +285,64 @@ class TestDiagnosisInBrief(unittest.TestCase):
         self.assertEqual(quoted, contradictions)
 
 
+class TestCrossRunFactsInAggregateBrief(unittest.TestCase):
+    """The aggregate brief carries systemic and cross-run diagnosis facts."""
+
+    @classmethod
+    def setUpClass(cls):
+        import glob
+        from deepcompare.consolidate import consolidate_diagnoses
+        from deepcompare.metrics import aggregate as build_aggregate
+        from deepcompare.report import compare
+        from deepcompare.stability import medoid_pairs
+        root = Path(__file__).resolve().parent.parent
+        from deepcompare.trace import Trajectory
+        runs_by_task = {}
+        for f in sorted(glob.glob(str(root / "demo/runs/traces/*.json"))):
+            t = Trajectory.from_json(f)
+            side = "a" if t.agent.name == "atlas-v2" else "b"
+            runs_by_task.setdefault(t.task.id, {"a": [], "b": []})[side].append(t)
+        reports = [compare(a, b) for a, b in medoid_pairs(runs_by_task)]
+        agg = build_aggregate(reports)
+        agg["diagnosis_consolidated"] = consolidate_diagnoses(runs_by_task)
+        cls.brief = narration_brief(agg)
+
+    def test_cross_run_verdicts_are_facts(self):
+        texts = [f["text"] for f in self.brief["facts"]
+                 if f["source"] == "diagnosis.cross_run"]
+        self.assertTrue(any("fails 3 of 3 runs" in t and "reproducible" in t
+                            for t in texts))
+
+    def test_executed_checks_are_facts(self):
+        texts = [f["text"] for f in self.brief["facts"]
+                 if f["source"] == "diagnosis.check"]
+        self.assertTrue(any("grader_consistency" in t for t in texts))
+        self.assertTrue(any("inconclusive" in t for t in texts))
+
+    def test_systemic_rollup_is_a_fact(self):
+        texts = [f["text"] for f in self.brief["facts"]
+                 if f["source"] == "diagnosis.systemic"]
+        self.assertTrue(any("of 4 diagnosed failure" in t for t in texts))
+
+    def test_reproduction_counts_enter_allowed_numbers(self):
+        result = check_narration(
+            self.brief, "the cause reproduces in 3 of 3 runs")
+        self.assertTrue(result["faithful"])
+        invented = check_narration(self.brief, "confidence 0.93")
+        self.assertFalse(invented["faithful"])
+
+    def test_aggregate_without_consolidation_still_briefs(self):
+        from deepcompare.metrics import aggregate as build_aggregate
+        from deepcompare.report import compare
+        from deepcompare.trace import Trajectory
+        root = Path(__file__).resolve().parent.parent / "demo" / "traces"
+        a = Trajectory.from_json(str(root / "t01_acme_revenue__atlas-v2.json"))
+        b = Trajectory.from_json(str(root / "t01_acme_revenue__bolt-v3.json"))
+        brief = narration_brief(build_aggregate([compare(a, b)]))
+        self.assertEqual(
+            [f for f in brief["facts"] if f["source"] == "diagnosis.cross_run"],
+            [])
+
+
 if __name__ == "__main__":
     unittest.main()
