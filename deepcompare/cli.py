@@ -556,6 +556,8 @@ def _cmd_runs(args: argparse.Namespace) -> int:
     agg["stability"] = stability
     agg["reliability"] = reliability_analysis
     agg["task_signal"] = task_signal(reports, stability)
+    from .consolidate import consolidate_diagnoses
+    agg["diagnosis_consolidated"] = consolidate_diagnoses(runs_by_task)
     # Re-triage now that reliability is attached: it is the only block that
     # can tell triage to stop ranking cross-agent claims confidently, and it
     # arrives after aggregate() has already run.
@@ -591,6 +593,17 @@ def _cmd_runs(args: argparse.Namespace) -> int:
               f"B {entry['b']['verdict']} | divergence {repro['verdict']}"
               + (f" ({repro['kind']}, rate {repro['rate']:g})" if repro["kind"] else ""))
     print(stability["narrative"])
+    consolidated = agg["diagnosis_consolidated"]
+    print("Diagnosis across runs:")
+    for entry in consolidated["per_task_agent"]:
+        if not entry["failures"]:
+            continue
+        verdict = entry["consolidated"]
+        repro = entry["failure_reproduction"]
+        print(f"  {entry['task']} / {entry['agent']} "
+              f"(fails {repro['k']} of {repro['n']}): "
+              f"[{verdict['status']}] {verdict['statement']}")
+    print(f"  {consolidated['narrative']}")
     _print_reliability(reliability_analysis)
     return 0
 
