@@ -2603,6 +2603,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       var story = ctx.h("ol", { class: "wt-story" });
       var sections = [
         verdictSection(ctx, report),
+        diagnosisSection(ctx, report),
         partingSection(ctx, report),
         costSection(ctx, report),
         processSection(ctx, report),
@@ -2687,6 +2688,65 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       ]));
     }
     return section(ctx, "The verdict", kids);
+  }
+
+  // ---------------------------------- 1b. what actually caused it
+
+  function diagnosisSection(ctx, report) {
+    var diagnosis = report.diagnosis || {};
+    var hypotheses = Array.isArray(diagnosis.hypotheses) ? diagnosis.hypotheses : [];
+    if (!hypotheses.length) return null;
+
+    var kids = [];
+    var leading = null;
+    for (var i = 0; i < hypotheses.length; i++) {
+      if (hypotheses[i].id === diagnosis.leading) { leading = hypotheses[i]; }
+    }
+
+    // The adjudicated verdict, verbatim — it already hedges exactly as much
+    // as the margin warrants, so no prose is added around the claim itself.
+    var first = [];
+    if (leading) {
+      first.push("Every signal in this report was made to argue its own cause, and one account won: ");
+      first.push(ctx.h("span", { class: "said", text: diagnosis.verdict }));
+    } else {
+      first.push("Every signal in this report was made to argue its own cause, and none won: ");
+      first.push(ctx.h("span", { class: "said", text: diagnosis.verdict }));
+    }
+    first.push(blockChip(ctx, "diagnosis", ["diagnosis"],
+                         "The full hypothesis ranking, with its evidence"));
+    kids.push(paragraph(ctx, first));
+
+    // When the winner points away from the agent, the reader must know
+    // before they reach the divergence story below.
+    if (leading && leading.kind === "grader_or_label") {
+      kids.push(paragraph(ctx, [
+        "Read the parting-of-ways below with that in mind: the divergence " +
+        "story is still told, but the ranked evidence says the cheaper " +
+        "explanation is the grader, and the discriminating check is " +
+        "human, not code — " + (leading.discriminator || "re-grade by hand") + ".",
+      ]));
+    } else if (!leading) {
+      kids.push(paragraph(ctx, [
+        "Until one of the discriminating checks is run, fixing anything " +
+        "is a coin flip between the tied causes.",
+      ]));
+    }
+
+    // The report arguing with itself is a finding, not a blemish.
+    if (Array.isArray(diagnosis.contradictions) && diagnosis.contradictions.length) {
+      var tension = ["The report argues with itself, and the diagnosis keeps the argument visible: "];
+      tension.push(ctx.h("span", { class: "said", text: diagnosis.contradictions.join(" — and ") }));
+      kids.push(paragraph(ctx, tension));
+    }
+
+    if (diagnosis.confidence && diagnosis.confidence.basis) {
+      kids.push(paragraph(ctx, [
+        "How sure: " + (diagnosis.confidence.level || "unstated") + " — " +
+        diagnosis.confidence.basis + ".",
+      ]));
+    }
+    return section(ctx, "What actually caused it", kids);
   }
 
   // ------------------------------------------- 2. where the runs parted
