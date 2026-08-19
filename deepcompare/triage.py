@@ -46,6 +46,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from .diagnosis import LEAD_MARGIN
 from .statistics import binomial_tail, wilson_interval
 
 #: Base weight per severity class.  The gaps encode three judgements:
@@ -486,6 +487,84 @@ def _from_oracle(reports: list[dict]) -> list[dict]:
                 f"blind write and no root cause attributed to either side"
             )
     return [per_agent[key] for key in sorted(per_agent)]
+
+
+def _from_diagnosis(reports: list[dict]) -> list[dict]:
+    """Adjudicated diagnoses that should redirect effort, not add to it.
+
+    Attribution always tells a story, and most triage sources assume that
+    story points at the agent.  The diagnosis layer ranks that story against
+    every rival hypothesis; two of its outcomes change what the right next
+    action even is.  A leading ``grader_or_label`` hypothesis means the
+    cheapest correct move is re-grading a handful of tasks by hand, not
+    engineering work on the agent.  A contested diagnosis means the evidence
+    cannot pick a cause, and the honest action is the discriminating check —
+    spending fix effort before running it is a coin flip.
+    """
+    grader: dict[str, dict] = {}
+    contested: dict[str, dict] = {}
+    for report in reports:
+        diag = report.get("diagnosis") or {}
+        if diag.get("mode") != "single_failure":
+            continue
+        task = report["task"]["id"]
+        agent = diag.get("subject_name") or "the failing agent"
+        hypotheses = diag.get("hypotheses", [])
+        lead = next((h for h in hypotheses if h.get("id") == diag.get("leading")),
+                    None)
+        if lead is not None and lead.get("kind") == "grader_or_label":
+            group = grader.get(agent)
+            if group is None:
+                group = grader[agent] = _candidate(
+                    id=f"diagnosis-grader:{agent}",
+                    source="diagnosis",
+                    category="grader_suspect",
+                    severity_class="signal",
+                    agents=[agent],
+                    comparative=False,
+                    confidence_cap="medium",
+                    fix_hint=lead.get("discriminator"),
+                )
+            group["tasks"].append(task)
+            group["occurrences"] += 1
+            group["details"].append(
+                f"{agent} failed {task}, but the adjudicated diagnosis ranks "
+                f"the grader-or-label hypothesis first (score {lead['score']}, "
+                f"margin {diag.get('margin')} over the runner-up): "
+                f"{lead['statement']}"
+            )
+        elif lead is None and any(
+                h.get("score") is not None and h.get("status") != "merged"
+                for h in hypotheses):
+            active = [h for h in hypotheses
+                      if h.get("score") is not None
+                      and h.get("status") != "merged"]
+            top = active[0]
+            group = contested.get(agent)
+            if group is None:
+                group = contested[agent] = _candidate(
+                    id=f"diagnosis-contested:{agent}",
+                    source="diagnosis",
+                    category="contested_diagnosis",
+                    severity_class="signal",
+                    agents=[agent],
+                    comparative=False,
+                    confidence_cap="low",
+                    fix_hint=top.get("discriminator"),
+                )
+            group["tasks"].append(task)
+            group["occurrences"] += 1
+            rivals = ", ".join(
+                h["kind"] + (f":{h['flag']}" if h.get("flag") else "")
+                for h in active[:3])
+            group["details"].append(
+                f"on {task} the evidence does not pick a single cause "
+                f"({rivals} within {LEAD_MARGIN:.2f} of each other); the "
+                f"first discriminating check: {top.get('discriminator')}"
+            )
+    out = [grader[k] for k in sorted(grader)]
+    out += [contested[k] for k in sorted(contested)]
+    return out
 
 
 def _from_attributes(aggregate: dict) -> tuple[list[dict], list[dict]]:
@@ -1123,6 +1202,15 @@ def _action_text(candidate: dict) -> str:
     if category == "oracle":
         return (f"Check the grader on {', '.join(candidate['tasks'])} — {who} "
                 f"failed there with a completely clean process")
+    if category == "grader_suspect":
+        return (f"Re-grade {', '.join(candidate['tasks'])} by hand before "
+                f"changing {who} — the ranked diagnosis puts the grader or "
+                f"label first, not the agent")
+    if category == "contested_diagnosis":
+        return (f"Run the discriminating check on "
+                f"{', '.join(candidate['tasks'])} before fixing anything — "
+                f"the evidence does not pick a single cause for {who}'s "
+                f"failure there")
     return f"Investigate the {category} finding affecting {who}"
 
 
@@ -1168,6 +1256,23 @@ def _verification(candidate: dict, sample: dict, n_tasks: int,
       dead because the rate did not visibly move, or declared working
       because it moved within noise.
     """
+    if candidate["category"] in ("grader_suspect", "contested_diagnosis"):
+        # These actions ask for a human check, not a code change; a re-run
+        # and fingerprint diff would measure nothing about them.
+        how = (
+            "a human verdict settles this without a re-run: "
+            + (candidate.get("fix_hint")
+               or "run the discriminating check named in the finding")
+        )
+        return {
+            "how": how,
+            "checks": [],
+            "caveat": (
+                "if the human check vindicates the agent, fix the grader or "
+                "label and re-score — do not spend engineering time on the "
+                "agent first"
+            ),
+        }
     fingerprints = candidate["fingerprints"]
     checks = []
     if fingerprints:
@@ -1319,6 +1424,7 @@ def triage(reports: list[dict], aggregate: dict) -> dict:
         + _from_recommendations(aggregate)
         + _from_process(reports)
         + _from_oracle(reports)
+        + _from_diagnosis(reports)
         + _from_efficiency(aggregate)
         + attribute_actions
         + calibration_actions
@@ -1348,7 +1454,9 @@ def triage(reports: list[dict], aggregate: dict) -> dict:
             not candidate["failures"] and not candidate["tokens"]
             and not candidate["latency_s"] and not candidate["flags"]
             and candidate["category"] not in ("attribute", "calibration",
-                                              "regression", "oracle")
+                                              "regression", "oracle",
+                                              "grader_suspect",
+                                              "contested_diagnosis")
         )
         if nothing_measured:
             excluded.append({

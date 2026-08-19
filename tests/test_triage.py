@@ -689,5 +689,62 @@ class TestEfficiencySource(unittest.TestCase):
         self.assertIsNone(action["confidence"].get("capped_by"))
 
 
+class TestDiagnosisSource(unittest.TestCase):
+    """Adjudicated diagnoses redirect effort instead of adding fix work."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    @classmethod
+    def setUpClass(cls):
+        traces = cls.ROOT / "demo" / "process" / "traces"
+        cls.reports = []
+        for task in ("p01_cancel_booking", "p02_book_flight",
+                     "p03_change_seats", "p04_policy_lookup"):
+            a = Trajectory.from_json(str(traces / f"{task}__steady-v1.json"))
+            b = Trajectory.from_json(str(traces / f"{task}__hasty-v2.json"))
+            cls.reports.append(compare(a, b))
+        cls.result = triage(cls.reports, aggregate(cls.reports))
+
+    def diagnosis_actions(self):
+        return [a for a in self.result["actions"]
+                if "diagnosis" in a["sources"]]
+
+    def test_grader_suspect_becomes_a_ranked_action(self):
+        actions = self.diagnosis_actions()
+        self.assertTrue(actions)
+        joined = " ".join(a["action"] for a in actions)
+        self.assertIn("Re-grade", joined)
+        self.assertIn("grader or label first, not the agent", joined)
+
+    def test_regrade_action_names_the_task_and_agent(self):
+        regrade = [a for a in self.diagnosis_actions()
+                   if "p01_cancel_booking" in a["action"]]
+        self.assertEqual(len(regrade), 1)
+        self.assertIn("steady-v1", regrade[0]["action"])
+
+    def test_verification_is_a_human_check_not_a_rerun(self):
+        for action in self.diagnosis_actions():
+            how = action["verification"]["how"]
+            self.assertIn("human verdict settles this without a re-run", how)
+            self.assertEqual(action["verification"]["checks"], [])
+            self.assertIn("do not spend engineering time on the agent first",
+                          action["verification"]["caveat"])
+
+    def test_details_quote_score_and_margin(self):
+        detail = " ".join(
+            d for a in self.diagnosis_actions()
+            for d in a["evidence"]["details"])
+        self.assertIn("score", detail)
+        self.assertIn("margin", detail)
+
+    def test_reports_without_diagnosis_key_are_fine(self):
+        stripped = json.loads(json.dumps(self.reports))
+        for report in stripped:
+            report.pop("diagnosis", None)
+        result = triage(stripped, {})
+        self.assertFalse([a for a in result["actions"]
+                          if "diagnosis" in a["sources"]])
+
+
 if __name__ == "__main__":
     unittest.main()
