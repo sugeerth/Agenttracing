@@ -1460,6 +1460,21 @@
       short: "A fair division of the winner–loser gap across the divergences, so overlapping detours are not double-counted.",
       long: "When a run goes wrong in more than one place, summing each divergence's downstream cost double-counts — later detours inherit the extra work earlier ones created. The Shapley allocation treats each divergence region as a player, asks what adopting the other run's path at every subset of regions would have saved, and divides the total gap so the shares sum to it exactly (that efficiency property is checked numerically on every report). The honest name is splice-Shapley: “fixing” a region means adopting the other run's recorded steps there, so the allocation is exact with respect to that splice surrogate — not with respect to re-running the agent, which logged traces cannot support.",
     },
+    "hypothesis-status": {
+      label: "hypothesis status",
+      short: "Where each candidate explanation stands after adjudication: leading, plausible, weak, ruled out, merged into the leading account, or untestable from this trace.",
+      long: "The diagnosis scores every candidate explanation against the report's own evidence and then says where each one landed, rather than showing only the winner. “Leading” clears the runner-up by the lead margin; “plausible” scored but did not clear it; “weak” has little support; “ruled out” is contradicted by the evidence and is struck through, not deleted. “Merged” means the hypothesis describes the same mechanism as the leading one and was absorbed into its account — it stays on the list, muted, so the absorption is visible. “Untestable” means the trace lacks the data to score it at all, and it shows no score rather than an invented one.",
+    },
+    "discriminator": {
+      label: "discriminator",
+      short: "The concrete check that would confirm or refute this hypothesis — what evidence would change the diagnosis.",
+      long: "Every hypothesis carries a discriminator: the specific action — re-grade the answer by hand, check a claim at its origin step, splice the other agent's decision and re-run — that would settle whether it is right. It is there because a diagnosis that cannot say what evidence would change it is a story, not a diagnosis. When the verdict is contested, the discriminators are the way out: run them, and the evidence they produce picks the cause the scores could not.",
+    },
+    "contested-diagnosis": {
+      label: "contested diagnosis",
+      short: "No hypothesis clears the runner-up by the lead margin, so the report declines to pick a single cause.",
+      long: "When two or more explanations fit the evidence about equally well, the honest verdict is that the comparison cannot adjudicate between them — not whichever happened to score fractionally higher. A contested diagnosis names the hypotheses that are within the lead margin of each other and points at each one's discriminator: the check that would separate them. Treat it as a to-do list for the next run, not as a failure of the analysis.",
+    },
     "mast-trail": {
       label: "MAST & TRAIL",
       short: "Two published failure taxonomies this tool maps its findings onto — by method, never as a claimed measurement.",

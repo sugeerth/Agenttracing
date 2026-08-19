@@ -373,5 +373,107 @@ class BlocksPageTest(unittest.TestCase):
         context.close()
 
 
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class DiagnosisBlockTest(unittest.TestCase):
+    """The Diagnosis block renders the adjudicated diagnosis, verbatim.
+
+    Driven by a real pair report — t05 is the demo pair whose diagnosis
+    carries a leading, a merged, and a ruled-out hypothesis — so the test
+    checks the block against the engine's actual output, not a fixture.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+        pair_json = out / "t05.json"
+        subprocess.run(
+            [sys.executable, "-m", "deepcompare", "compare",
+             str(ROOT / "demo" / "traces" / "t05_flight_duration__atlas-v2.json"),
+             str(ROOT / "demo" / "traces" / "t05_flight_duration__bolt-v3.json"),
+             "-o", str(pair_json)],
+            cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+
+        from deepcompare.report import render_html
+        cls.diagnosis = json.loads(pair_json.read_text(encoding="utf-8"))["diagnosis"]
+        assert cls.diagnosis.get("hypotheses"), "t05 pair carries no diagnosis"
+        cls.report = out / "report.html"
+        render_html([json.loads(pair_json.read_text(encoding="utf-8"))], {},
+                    ROOT / "web" / "blocks.html", cls.report)
+
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(
+            executable_path="/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
+            if Path("/opt/pw-browsers/chromium-1194/chrome-linux/chrome").is_file()
+            else CHROMIUM,
+            args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def test_diagnosis_block_renders_verdict_and_hypothesis_rows(self):
+        context = self.browser.new_context()
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"file://{self.report}")
+        page.wait_for_timeout(400)
+
+        block = page.locator('.block[data-block="diagnosis"]')
+        self.assertEqual(block.count(), 1, "Diagnosis block is not on the page")
+
+        # Deep in the outcome stack the block may start collapsed; the body
+        # only renders once it is expanded, exactly as a reader would do.
+        if "collapsed" in (block.get_attribute("class") or ""):
+            block.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(250)
+            block = page.locator('.block[data-block="diagnosis"]')
+
+        # The verdict, verbatim — same characters the engine wrote.
+        verdict = block.locator(".dx-verdict").inner_text()
+        self.assertIn(self.diagnosis["verdict"], verdict)
+
+        # One row per hypothesis, in the report's own order, each carrying
+        # its status and its statement; merged rows stay visible and say so.
+        rows = block.locator(".dx-row")
+        hypotheses = self.diagnosis["hypotheses"]
+        self.assertEqual(rows.count(), len(hypotheses))
+        for i, hyp in enumerate(hypotheses):
+            row_text = rows.nth(i).inner_text()
+            self.assertIn(hyp["status"].replace("_", " "), row_text)
+            self.assertIn(hyp["statement"], row_text)
+            if hyp.get("score") is not None:
+                self.assertIn(f"{hyp['score']:.2f}", row_text)
+            if hyp["status"] == "merged":
+                self.assertIn("part of the leading account", row_text)
+
+        # Expanding a row discloses its evidence and its discriminator.
+        rows.nth(0).locator(".dx-head").click()
+        page.wait_for_timeout(150)
+        body = rows.nth(0).locator(".dx-body").inner_text()
+        self.assertIn("How to settle it", body)
+        self.assertIn(hypotheses[0]["discriminator"], body)
+
+        # The confidence line quotes level and basis verbatim.
+        conf = block.locator(".dx-conf").inner_text()
+        self.assertIn(self.diagnosis["confidence"]["level"], conf)
+        self.assertIn(self.diagnosis["confidence"]["basis"], conf)
+
+        self.assertEqual(errors, [], "page errors while rendering the diagnosis")
+        context.close()
+
+
 if __name__ == "__main__":
     unittest.main()

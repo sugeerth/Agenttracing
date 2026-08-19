@@ -1256,7 +1256,7 @@ def _verification(candidate: dict, sample: dict, n_tasks: int,
       dead because the rate did not visibly move, or declared working
       because it moved within noise.
     """
-    if candidate["category"] in ("grader_suspect", "contested_diagnosis"):
+    if candidate.get("category") in ("grader_suspect", "contested_diagnosis"):
         # These actions ask for a human check, not a code change; a re-run
         # and fingerprint diff would measure nothing about them.
         how = (
