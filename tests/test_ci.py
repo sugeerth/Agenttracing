@@ -762,5 +762,34 @@ class TestCliWiring(unittest.TestCase):
             self.assertEqual(outputs[0], outputs[1])
 
 
+class TestGateMarkdownDiagnosis(unittest.TestCase):
+    """A blocked candidate gets a cause, not just a verdict: the gate
+    markdown quotes the adjudicated diagnosis for every regressed task."""
+
+    def test_regressed_task_carries_diagnosis(self):
+        root = Path(__file__).resolve().parent.parent / "demo" / "traces"
+        base = Trajectory.from_json(str(root / "t01_acme_revenue__atlas-v2.json"))
+        cand = Trajectory.from_json(str(root / "t01_acme_revenue__bolt-v3.json"))
+        reports = [compare(base, cand)]
+        gate = evaluate_gate(reports)
+        from deepcompare.gate import render_gate_markdown
+        md = render_gate_markdown(gate, reports)
+        self.assertIn("- Diagnosis: ", md)
+        self.assertIn("best explained by", md)
+        self.assertIn("- To settle it: ", md)
+
+    def test_no_diagnosis_key_degrades_quietly(self):
+        root = Path(__file__).resolve().parent.parent / "demo" / "traces"
+        base = Trajectory.from_json(str(root / "t01_acme_revenue__atlas-v2.json"))
+        cand = Trajectory.from_json(str(root / "t01_acme_revenue__bolt-v3.json"))
+        reports = [compare(base, cand)]
+        del reports[0]["diagnosis"]
+        gate = evaluate_gate(reports)
+        from deepcompare.gate import render_gate_markdown
+        md = render_gate_markdown(gate, reports)
+        self.assertNotIn("- Diagnosis: ", md)
+        self.assertIn("- Attribution: ", md)
+
+
 if __name__ == "__main__":
     unittest.main()

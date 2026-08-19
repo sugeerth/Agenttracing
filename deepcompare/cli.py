@@ -491,6 +491,14 @@ def _cmd_gate(args: argparse.Namespace) -> int:
     regressed = [s["task"] for s in gate["reports_summary"] if s["regressed"]]
     if regressed:
         print(f"  regressed tasks: {', '.join(regressed)}")
+        # A blocked candidate deserves a cause, not just a verdict: each
+        # regressed task's pair report already carries an adjudicated
+        # diagnosis of the candidate's new failure.
+        by_task = {r["task"]["id"]: r for r in reports}
+        for tid in regressed:
+            diag = (by_task.get(tid) or {}).get("diagnosis") or {}
+            if diag.get("mode") == "single_failure":
+                print(f"    why {tid}: {diag['verdict']}")
     print(f"Verdict: {gate['verdict'].upper()}")
     # The exit code is the CI policy, not the verdict: --fail-on regression
     # (the default) reproduces "gate failed -> 1" exactly, while a looser or

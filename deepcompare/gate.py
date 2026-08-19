@@ -222,6 +222,15 @@ def render_gate_markdown(gate: dict, reports: list[dict]) -> str:
         lines += ["", "## Regressed tasks", ""]
         for report in regressed:
             lines.append(f"### {report['task']['id']}")
+            diag = report.get("diagnosis") or {}
+            if diag.get("mode") == "single_failure":
+                lines.append(f"- Diagnosis: {diag['verdict']}")
+                lead = next((h for h in diag.get("hypotheses", [])
+                             if h.get("id") == diag.get("leading")), None)
+                if lead is not None and lead.get("discriminator"):
+                    lines.append(f"- To settle it: {lead['discriminator']}")
+                for conflict in diag.get("contradictions", []):
+                    lines.append(f"- Evidence in tension: {conflict}")
             if report["divergences"]:
                 lines.append(f"- First divergence: {report['divergences'][0]['summary']}")
             lines.append(f"- Attribution: {report['attribution']['explanation']}")
