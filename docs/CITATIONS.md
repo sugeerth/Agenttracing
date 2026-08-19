@@ -88,3 +88,22 @@ AgentDiff's reliability and experiments modules both do.
 Two unrelated systems are named "AgentCompass" (2509.14647 and 2607.13705),
 and two are named "AgentLens" (2402.08995 and Salesforce's Agentforce
 debugger). Cite by identifier.
+
+## Diagnosis as adjudication, not narration (implemented v27)
+
+The Who&When result — automated attributors collapsing from 94% to ~50%
+on harder splits — is a warning about *confident single-story* diagnosis,
+and DRIFT's claim-centric decomposition (+30pts over free narration) is
+the constructive answer: force every diagnostic claim onto a machine-
+checkable span. `diagnosis.py` applies both lessons structurally rather
+than at narration time: every signal in the report (grader, harness,
+environment, wrong-fact provenance, divergence, process flags, budget)
+generates a *competing* hypothesis; each is scored only against a ledger
+of span evidence (quote must appear at the cited step field) and metric
+evidence (path must hold the cited value), verified by
+`check_diagnosis`; a hypothesis leads only when it clears the runner-up
+by a stated margin, otherwise the verdict is "contested" with the
+discriminating checks listed. Corroborating signals fuse into one
+account (mechanism, not rivals), and an anomaly that predates the
+structural divergence re-anchors the root — first divergence is a
+heuristic, earliest evidenced anomaly is the diagnosis.
