@@ -16,6 +16,7 @@ from typing import Optional, Union
 from .align import align
 from .attribution import attribute
 from .counterfactual import counterfactual
+from .diagnosis import diagnose
 from .divergence import find_divergences
 from .metrics import metrics_delta
 from .semantic import semantic_analysis
@@ -115,6 +116,7 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
     report["process"] = compare_process(a, b)
     report["tradeoff"] = pair_tradeoff(report)
     report["efficiency"] = compare_efficiency(a, b)
+    report["diagnosis"] = diagnose(report, a, b)
     return report
 
 
