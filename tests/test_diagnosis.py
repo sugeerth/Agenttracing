@@ -273,5 +273,44 @@ class TestSystemic(unittest.TestCase):
         self.assertIn("no single-failure pairs", rollup["note"])
 
 
+class TestErrorPrecedesDivergence(unittest.TestCase):
+    """An abandoned tool error at or before the divergent step takes the
+    anchor: the divergence is the agent's reaction to the error, and the
+    swallowed_error flag merges in as the same event, not a competitor."""
+
+    @classmethod
+    def setUpClass(cls):
+        bench = ROOT / "demo" / "diagnosis_bench" / "traces"
+        cls.a = Trajectory.from_json(
+            str(bench / "ef01_refund_gateway__fail.json"))
+        cls.b = Trajectory.from_json(
+            str(bench / "ef01_refund_gateway__pass.json"))
+        cls.report = compare(cls.a, cls.b)
+        cls.diag = cls.report["diagnosis"]
+
+    def test_environment_leads(self):
+        lead = _leading(self.diag)
+        self.assertIsNotNone(lead)
+        self.assertEqual(lead["kind"], "environment_error")
+        self.assertIn("precedes the structural divergence", lead["statement"])
+
+    def test_swallowed_error_flag_is_merged_not_rival(self):
+        merged = [h for h in self.diag["hypotheses"]
+                  if h.get("flag") == "swallowed_error"]
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["status"], "merged")
+        self.assertEqual(merged[0]["merged_into_kind"], "environment_error")
+
+    def test_divergence_demoted_with_the_reason_stated(self):
+        divergence = next(h for h in self.diag["hypotheses"]
+                          if h["kind"] == "divergence")
+        self.assertNotEqual(divergence["status"], "leading")
+        self.assertIn("already in play", divergence["statement"])
+
+    def test_evidence_still_fully_grounded(self):
+        self.assertEqual(
+            check_diagnosis(self.diag, self.report, self.a, self.b), [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -294,10 +294,14 @@ def _gen_environment(report: dict, side: str, traj: Trajectory, led: _Ledger) ->
            else ", though the agent recovered — recovered errors rarely "
                 "explain a failure on their own")
     )
+    first_error = next(
+        (e.get("index") for e in rec.get("error_steps", [])
+         if e.get("index") is not None), None)
     return [{
         "kind": "environment_error", "statement": statement,
         "supports": supports, "contradicts": [], "score": score,
-        "status": None,
+        "status": None, "error_step": first_error,
+        "abandoned": bool(abandoned),
     }]
 
 
@@ -528,6 +532,37 @@ def _fuse(raw: list[dict], report: dict, ledger: list[dict]) -> None:
             div["statement"] += (
                 f" — but a wrong fact was already in play at step "
                 f"{origin}, before this decision")
+    env = next((h for h in raw if h["kind"] == "environment_error"), None)
+    if (div is not None and env is not None and env.get("abandoned")
+            and div["agent"] == env["agent"]):
+        root = div.get("root")
+        err = env.get("error_step")
+        if err is not None and root is not None and err <= root:
+            # The error happened at or before the structural divergence:
+            # the divergence is what the agent did AFTER the error, so the
+            # error is the earlier evidenced anomaly and takes the anchor —
+            # the same rule the wrong-fact fusion applies.
+            env["score"] += 0.15
+            env["statement"] += (
+                f" — the error at step {err} precedes the structural "
+                f"divergence at step {root}, so the divergence is the "
+                f"agent's reaction to the error, not an independent cause")
+            div["score"] -= 0.2
+            div["contradicts"] = _dedupe(div["contradicts"] + env["supports"])
+            div["statement"] += (
+                f" — but a tool error was already in play at step {err}, "
+                f"before this decision")
+            # the swallowed_error flag is the same event seen by the
+            # process analysis; it corroborates, it does not compete
+            for h in raw:
+                if (h["kind"] == "process_pathology"
+                        and h.get("flag") == "swallowed_error"
+                        and h["agent"] == env["agent"]
+                        and h.get("status") != "merged"):
+                    env["score"] += 0.1
+                    env["supports"] = _dedupe(env["supports"] + h["supports"])
+                    h["status"] = "merged"
+                    h["merged_into_kind"] = "environment_error"
     if div is not None:
         chain = set((report.get("attribution") or {}).get("chain") or [])
         for h in raw:
