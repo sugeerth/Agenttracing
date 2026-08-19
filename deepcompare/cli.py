@@ -102,6 +102,29 @@ def _print_summary(report: dict) -> None:
         print(f"  category: {attribution['category']}")
     print(f"  {attribution['explanation']}")
 
+    diagnosis = report.get("diagnosis") or {}
+    hypotheses = [h for h in diagnosis.get("hypotheses", [])
+                  if h.get("status") != "merged"]
+    if hypotheses:
+        # The adjudication, right after the single story it adjudicates:
+        # attribution above is one hypothesis among these, not the answer.
+        print("Diagnosis (attribution is one hypothesis; this ranks them all):")
+        print(f"  {diagnosis['verdict']}")
+        for h in hypotheses[:4]:
+            kind = h["kind"] + (f":{h['flag']}" if h.get("flag") else "")
+            score = "—" if h["score"] is None else f"{h['score']:.2f}"
+            print(f"  {h['id']} [{h['status']:>9}] {score}  {kind}: "
+                  f"{h['statement']}")
+        for clash in diagnosis.get("contradictions", []):
+            print(f"  ! {clash}")
+        lead = next((h for h in hypotheses
+                     if h["id"] == diagnosis.get("leading")), None)
+        if lead is not None and lead.get("discriminator"):
+            print(f"  to settle it: {lead['discriminator']}")
+        conf = diagnosis.get("confidence") or {}
+        if conf.get("basis"):
+            print(f"  confidence: {conf.get('level')} — {conf['basis']}")
+
     sa = report.get("success_analysis")
     if sa:
         print("Success analysis:")
