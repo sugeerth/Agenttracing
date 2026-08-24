@@ -208,9 +208,26 @@ The benchmark's first run measured 10 of 12 and exposed a structural
 blind spot (abandoned tool errors split their score across three
 hypotheses); fixing that fusion rule brought the same untouched corpus
 to 12 of 12, and the test suite holds the floor at 0.75 so a future
-regression in diagnosis quality fails CI rather than shipping. The
-corpus is deliberately small and synthetic: it proves the machinery
-against known ground truth, it does not claim field accuracy.
+regression in diagnosis quality fails CI rather than shipping.
+
+The corpus then grew to 18 scenarios along the axis the literature says
+attributors collapse on: the **decisive error step** — Who&When's
+counterfactual criterion, the earliest step whose correction flips the
+outcome, where published step-level accuracy peaks at 14–30%. Six hard
+scenarios reproduce the documented failure modes: a quiet early cause
+whose loud downstream symptom is the trap, visible-but-non-causal
+distractor pathologies, and Who&When-Pro-style faults injected after an
+exactly-replayed successful prefix. The scorer now reports **kind
+accuracy, step localization (exact and ±1), and abstention** — a grader
+mislabel or harness kill has no agent step to correct, and naming one
+there is a scored miss, not a near-hit. The hard corpus exposed two
+more engine bugs before they were fixed (a shared fact both runs read
+was being blamed as "the wrong fact"; a 70%-covered answer that flatly
+contradicted the expected one still counted as a grader-suspect
+"match"). Current measurement: kind 18/18, step 14/14 exact, abstention
+4/4, with CI floors at 0.75/0.6/0.75. The corpus is deliberately small
+and synthetic: it proves the machinery against known ground truth, it
+does not claim field accuracy.
 
 ## Quick start
 

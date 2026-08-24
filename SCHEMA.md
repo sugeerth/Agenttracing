@@ -1447,3 +1447,40 @@ The `summary` counts each status with its denominators, and the
 `narrative` string is what the `runs` command prints — flaky failures are
 named with their k of n ("treat as flakes until they repeat") rather than
 promoted to systematic faults.
+
+## The decisive error step (v29)
+
+Every pair `diagnosis` now carries a `decisive_step` object committing to
+the field's ground-truth criterion (Who&When): the **earliest step whose
+correction is expected to flip the outcome**.
+
+```json
+"decisive_step": {
+  "step": 2,
+  "criterion": "earliest step whose correction is expected to flip the outcome",
+  "basis": "where the wrong fact entered, per claim provenance",
+  "reason": null
+}
+```
+
+Anchors per leading kind: a divergence anchors at its root, a wrong fact
+at its provenance origin, an environment error at the failing call, a
+process pathology at its first flagged step.  Three causes have **no
+agent step to correct**, and the honest answer there is `step: null`
+with the `reason` stated: a grader mislabel (the correction is to the
+label), a harness kill (no corrected step prevents it), and budget
+pressure (the constraint is a harness setting).  A contested diagnosis
+commits to no step — refusing to localize is part of refusing to
+adjudicate.  Two claim-exclusivity rules keep the anchor honest: a
+claim the passing run also carries can neither anchor the wrong-fact
+hypothesis nor contradict the grader hypothesis (shared context cannot
+explain a one-sided failure), and the answer-coverage "match" verdict
+counts as grader-suspect evidence only at coverage ≥ 0.85 — below
+that, the missing words may *be* the contradiction.
+
+The benchmark (`demo/diagnosis_bench`, `deepcompare/bench.py` v2)
+scores this axis directly: `step_localization` (exact and within ±1,
+denominators stated), `abstention` (predicting a step where no agent
+step exists is a `spurious_step` miss), and per-scenario
+`step_outcome` values `exact | adjacent | wrong_step | missed_step |
+correct_abstain | spurious_step`.
