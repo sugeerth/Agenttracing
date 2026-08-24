@@ -193,6 +193,7 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
         acceptable = set(scenario.get("acceptable", []))
 
         lead, labels = _leading_labels(diagnosis)
+        secondary = set(scenario.get("secondary", []))
         if not lead:
             outcome = "contested"
             actual = _contested_summary(diagnosis)
@@ -202,7 +203,28 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
                 actual = f"{actual}:{lead['flag']}"
             if lead.get("mechanism"):
                 actual += f" (mechanism {lead['mechanism']})"
-            outcome = "correct" if labels & acceptable else "wrong"
+            if labels & acceptable:
+                outcome = "correct"
+            elif labels & secondary:
+                # led with the genuine-but-lesser contributor: not correct
+                # (the primary drives the failure), but its own outcome —
+                # calling it plain "wrong" would hide what happened
+                outcome = "secondary_only"
+            else:
+                outcome = "wrong"
+
+        # multi-cause honesty: the secondary contributor must be VISIBLE
+        # somewhere in the hypothesis list (any status, merged included) —
+        # a single-label diagnosis that drops the second fault has told
+        # less than the trace shows
+        secondary_visible = None
+        if secondary:
+            seen = set()
+            for h in diagnosis.get("hypotheses", []):
+                seen.add(h.get("kind"))
+                if h.get("flag"):
+                    seen.add(f"{h.get('kind')}:{h['flag']}")
+            secondary_visible = bool(seen & secondary)
 
         truth_steps = scenario.get("decisive_steps") or []
         predicted = (diagnosis.get("decisive_step") or {}).get("step")
@@ -245,6 +267,8 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
             "decisive_predicted": predicted,
             "step_outcome": step_outcome,
             "chain": chain_scores,
+            "secondary": sorted(secondary),
+            "secondary_visible": secondary_visible,
         }
         results.append(entry)
 
@@ -282,12 +306,21 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
         if r["step_outcome"] not in ("exact", "correct_abstain")
     ]
 
+    secondary_only = sum(
+        1 for r in results if r["outcome"] == "secondary_only")
+    with_secondary = [r for r in results if r["secondary"]]
     return {
         "version": 2,
         "overall": {
             "correct": correct_total,
             "total": total,
             "accuracy": round(correct_total / total, 4) if total else None,
+            "secondary_only": secondary_only,
+        },
+        "multi_cause": {
+            "scenarios": len(with_secondary),
+            "secondary_visible": sum(
+                1 for r in with_secondary if r["secondary_visible"]),
         },
         "step_localization": {
             "exact": exact,

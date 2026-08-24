@@ -854,6 +854,97 @@ CS02_PASS = _CS02_PREFIX + [
 ]
 
 
+# --------------------------------------------------------------------------
+# multi_cause — a primary cause plus a genuine secondary contributor (the
+# "whole elephant" critique: single-label attribution hides the second
+# fault).  Full credit requires the primary to lead; the secondary must
+# still be VISIBLE among the hypotheses, merged or ranked, never dropped.
+# --------------------------------------------------------------------------
+
+MC01_TASK = {
+    "id": "mc01_fare_difference",
+    "prompt": ("Move booking QF119 to the evening flight and report the "
+               "fare difference."),
+    "expected": ("Booking QF119 moved to the evening flight; fare "
+                 "difference $86.00."),
+}
+MC01_FAIL = [
+    step(0, "plan", "plan",
+         "Rebook first, then work out the fare difference.", "",
+         quality="weak", note="commits to writing before reading any fare"),
+    step(1, "tool_call", "rebook_flight",
+         "rebook_flight(reference='QF119', flight='evening')",
+         "Rebooked QF119 onto the evening flight.",
+         effect="write", error=False, quality="bad",
+         note="write-effect call before any read — the secondary fault"),
+    step(2, "tool_call", "get_fare_sheet",
+         "get_fare_sheet(route='QF119')",
+         "Fare sheet (last season's revision): evening upgrade difference "
+         "$120.00.", effect="read", error=False,
+         note="stale revision — the wrong amount enters here (primary)"),
+    step(3, "reason", "reason",
+         "The sheet lists $120.00 for the evening upgrade.", ""),
+    answer(4, "Booking QF119 moved to the evening flight; fare difference "
+              "$120.00."),
+]
+MC01_PASS = [
+    step(0, "plan", "plan",
+         "Check the live fare difference first, then rebook.", ""),
+    step(1, "tool_call", "get_fare_sheet",
+         "get_fare_sheet(route='QF119', revision='current')",
+         "Current fare sheet: evening upgrade difference $86.00.",
+         effect="read", error=False),
+    step(2, "tool_call", "rebook_flight",
+         "rebook_flight(reference='QF119', flight='evening')",
+         "Rebooked QF119 onto the evening flight.",
+         effect="write", error=False),
+    answer(3, "Booking QF119 moved to the evening flight; fare difference "
+              "$86.00."),
+]
+MC01_TOOLS = [
+    {"name": "get_fare_sheet", "effect": "read"},
+    {"name": "rebook_flight", "effect": "write"},
+]
+
+MC02_TASK = {
+    "id": "mc02_sla_credits",
+    "prompt": "How much SLA credit is owed for the March outage?",
+    "expected": "The March outage owes $2,300.00 in SLA credits.",
+}
+MC02_FAIL = [
+    step(0, "plan", "plan",
+         "Query the credits API for the March outage.", ""),
+    step(1, "tool_call", "get_credits",
+         "get_credits(period='march')",
+         "Error: credits API returned 503 Service Unavailable.",
+         effect="read", error=True,
+         note="the environment fault (primary)"),
+    step(2, "tool_call", "get_credits",
+         "get_credits(period='march')",
+         "Error: credits API returned 503 Service Unavailable.",
+         effect="read", error=True,
+         note="the same failing call repeated unchanged (secondary)"),
+    step(3, "reason", "reason",
+         "The credits API is down; the owed amount cannot be read.", ""),
+    answer(4, "I could not determine the SLA credit: the credits API is "
+              "unavailable."),
+]
+MC02_PASS = [
+    step(0, "plan", "plan",
+         "Query the credits API for the March outage.", ""),
+    step(1, "tool_call", "get_credits",
+         "get_credits(period='march')",
+         "March outage credits owed: $2,300.00.",
+         effect="read", error=False),
+    step(2, "reason", "reason",
+         "The API reports $2,300.00 owed for March.", ""),
+    answer(3, "The March outage owes $2,300.00 in SLA credits."),
+]
+MC02_TOOLS = [
+    {"name": "get_credits", "effect": "read"},
+]
+
+
 # ==========================================================================
 # scenario table
 # ==========================================================================
@@ -936,13 +1027,27 @@ SCENARIOS = [
      CS02_TASK, CS02_FAIL, "agent_stop", CS02_PASS, [],
      "fail replays the passing prefix exactly (steps 0-1); the old-mirror "
      "read is injected at step 2"),
+    ("mc01_fare_difference", "multi_cause",
+     ["wrong_fact_propagation", "divergence"], [0, 2],
+     MC01_TASK, MC01_FAIL, "agent_stop", MC01_PASS, MC01_TOOLS,
+     "primary: the flawed rebook-first plan at step 0, enacted by the "
+     "stale fare sheet read at step 2 ($120.00 enters there) — correcting "
+     "either flips the outcome, so both anchor; step 1's blind write does "
+     "NOT flip alone and stays outside the truth window; secondary: that "
+     "blind write, which must stay visible",
+     ["process_pathology:blind_write"]),
+    ("mc02_sla_credits", "multi_cause", ["environment_error"], [1],
+     MC02_TASK, MC02_FAIL, "agent_stop", MC02_PASS, MC02_TOOLS,
+     "primary: the credits API 503 at step 1, abandoned; secondary: the "
+     "identical failing call repeated unchanged at step 2",
+     ["process_pathology:repeated_calls", "process_pathology:swallowed_error"]),
 ]
 
 
 #: the fault's true propagation path per scenario — decisive step through
 #: the answer, distractor and unrelated steps excluded.  [] where no agent
 #: fault exists to propagate.
-CHAINS = {'gm01_flex_refund': [], 'gm02_kestrel_release': [], 'hk01_seat_upgrade': [], 'hk02_meridian_headcount': [], 'ef01_refund_gateway': [2, 3, 4], 'ef02_docs_outage': [1, 2, 3, 4], 'wf01_refund_amount': [2, 4, 5], 'wf02_battery_life': [2, 3, 4], 'bw01_ticket_address': [0, 1, 3, 4], 'bw02_dns_cutover': [0, 1, 2, 3], 'dv01_keynote_hall': [1, 2, 3, 4], 'dv02_db_migration': [0, 2, 3, 4], 'ls01_delayed_segment': [1, 2, 3, 4], 'ls02_route_duration': [1, 2, 5, 6], 'dp01_warranty_claim': [0, 1, 2, 4, 5], 'dp02_cache_flush': [0, 2, 3, 5], 'cs01_invoice_total': [2, 3, 4], 'cs02_sla_response': [2, 3, 4]}
+CHAINS = {'gm01_flex_refund': [], 'gm02_kestrel_release': [], 'hk01_seat_upgrade': [], 'hk02_meridian_headcount': [], 'ef01_refund_gateway': [2, 3, 4], 'ef02_docs_outage': [1, 2, 3, 4], 'wf01_refund_amount': [2, 4, 5], 'wf02_battery_life': [2, 3, 4], 'bw01_ticket_address': [0, 1, 3, 4], 'bw02_dns_cutover': [0, 1, 2, 3], 'dv01_keynote_hall': [1, 2, 3, 4], 'dv02_db_migration': [0, 2, 3, 4], 'ls01_delayed_segment': [1, 2, 3, 4], 'ls02_route_duration': [1, 2, 5, 6], 'dp01_warranty_claim': [0, 1, 2, 4, 5], 'dp02_cache_flush': [0, 2, 3, 5], 'cs01_invoice_total': [2, 3, 4], 'cs02_sla_response': [2, 3, 4], 'mc01_fare_difference': [2, 3, 4], 'mc02_sla_credits': [1, 2, 3, 4]}
 
 
 def main() -> int:
@@ -950,8 +1055,10 @@ def main() -> int:
     for path in OUT.glob("*.json"):
         path.unlink()
     manifest = {"version": 2, "scenarios": []}
-    for (sid, cause, acceptable, decisive_steps, task, fail_steps,
-         fail_term, pass_steps, tools, note) in SCENARIOS:
+    for entry in SCENARIOS:
+        (sid, cause, acceptable, decisive_steps, task, fail_steps,
+         fail_term, pass_steps, tools, note) = entry[:10]
+        secondary = entry[10] if len(entry) > 10 else []
         fail_name, fail_model = FAIL_AGENT
         pass_name, pass_model = PASS_AGENT
         fail = trajectory(task, fail_name, fail_model, fail_steps,
@@ -970,6 +1077,7 @@ def main() -> int:
             "cause": cause,
             "acceptable": acceptable,
             "decisive_steps": decisive_steps,
+            "secondary": secondary,
             "chain": CHAINS[sid],
             "fail": fail_file,
             "pass": pass_file,

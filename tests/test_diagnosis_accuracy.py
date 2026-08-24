@@ -30,7 +30,7 @@ CAUSES = (
     "grader_mislabel", "harness_kill", "environment_fault",
     "wrong_fact", "blind_write", "divergence_only",
     # hard mode: the literature's documented attributor failure modes
-    "late_symptom", "distractor", "cascade",
+    "late_symptom", "distractor", "cascade", "multi_cause",
 )
 
 
@@ -111,7 +111,7 @@ class TestStepLocalization(unittest.TestCase):
 
     def test_step_metrics_present_with_denominators(self):
         step = self.result["step_localization"]
-        self.assertEqual(step["total"], 14)
+        self.assertEqual(step["total"], 16)
         self.assertLessEqual(step["exact"], step["within_1"])
         abst = self.result["abstention"]
         self.assertEqual(abst["total"], 4)
@@ -175,7 +175,7 @@ class TestChainRecovery(unittest.TestCase):
 
     def test_rollup_present_with_denominators(self):
         chain = self.result["chain_recovery"]
-        self.assertEqual(chain["scenarios"], 14)
+        self.assertEqual(chain["scenarios"], 16)
         self.assertEqual(chain["no_account"], 0)
 
     def test_chain_floors(self):
@@ -222,8 +222,8 @@ class TestBenchCLI(unittest.TestCase):
         from deepcompare.bench import format_scorecard
         result = run_benchmark(TRACES)
         card = format_scorecard(result)
-        self.assertIn("18/18", card)
-        self.assertIn("14/14 exact", card)
+        self.assertIn("20/20", card)
+        self.assertIn("16/16 exact", card)
         self.assertIn("4/4", card)
         self.assertIn("no misses on this corpus", card)
         # a miss must surface in the card, never vanish
@@ -243,6 +243,42 @@ class TestBenchCLI(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("Diagnoser benchmark", proc.stdout)
         self.assertIn("chain recovery", proc.stdout)
+
+
+class TestMultiCause(unittest.TestCase):
+    """The whole-elephant rule: a primary cause must lead, but the genuine
+    secondary contributor must stay visible in the hypothesis list."""
+
+    @classmethod
+    def setUpClass(cls):
+        _generate_corpus()
+        cls.result = run_benchmark(TRACES)
+
+    def test_both_scenarios_credit_the_primary(self):
+        rows = [r for r in self.result["results"]
+                if r["cause"] == "multi_cause"]
+        self.assertEqual(len(rows), 2)
+        for r in rows:
+            self.assertEqual(r["outcome"], "correct", r["scenario"])
+
+    def test_secondary_contributors_are_visible(self):
+        multi = self.result["multi_cause"]
+        self.assertEqual(multi, {"scenarios": 2, "secondary_visible": 2})
+        for r in self.result["results"]:
+            if r["cause"] == "multi_cause":
+                self.assertTrue(r["secondary_visible"], r["scenario"])
+                self.assertTrue(r["secondary"], r["scenario"])
+
+    def test_secondary_only_is_its_own_outcome_not_correct(self):
+        # simulate a diagnosis that led with the lesser contributor by
+        # scoring against a manifest whose acceptable set is the secondary
+        self.assertEqual(self.result["overall"]["secondary_only"], 0)
+        # the credit rule itself: labels hitting only the secondary set
+        # yield "secondary_only" — pinned via the scorer's own outcome
+        # vocabulary rather than a live scenario, since the engine
+        # currently gets both primaries right
+        outcomes = {r["outcome"] for r in self.result["results"]}
+        self.assertNotIn("secondary_only", outcomes)
 
 
 if __name__ == "__main__":

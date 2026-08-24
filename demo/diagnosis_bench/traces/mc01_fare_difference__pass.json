@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "trace_id": "mc01_fare_difference-steady-v1",
+  "agent": {
+    "name": "steady-v1",
+    "model": "claude-sonnet-5",
+    "version": "v1"
+  },
+  "task": {
+    "id": "mc01_fare_difference",
+    "prompt": "Move booking QF119 to the evening flight and report the fare difference.",
+    "expected": "Booking QF119 moved to the evening flight; fare difference $86.00."
+  },
+  "outcome": {
+    "success": true,
+    "answer": "Booking QF119 moved to the evening flight; fare difference $86.00.",
+    "score": 1.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 480,
+    "output_tokens": 160,
+    "cost_usd": 0.00192,
+    "latency_s": 4.4
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "Check the live fare difference first, then rebook.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "get_fare_sheet",
+      "input": "get_fare_sheet(route='QF119', revision='current')",
+      "output": "Current fare sheet: evening upgrade difference $86.00.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 2,
+      "type": "tool_call",
+      "name": "rebook_flight",
+      "input": "rebook_flight(reference='QF119', flight='evening')",
+      "output": "Rebooked QF119 onto the evening flight.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "write",
+      "error": false
+    },
+    {
+      "index": 3,
+      "type": "answer",
+      "name": "final",
+      "input": "Booking QF119 moved to the evening flight; fare difference $86.00.",
+      "output": "Booking QF119 moved to the evening flight; fare difference $86.00.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_fare_sheet",
+      "effect": "read"
+    },
+    {
+      "name": "rebook_flight",
+      "effect": "write"
+    }
+  ],
+  "budget": {
+    "max_steps": 12
+  }
+}
