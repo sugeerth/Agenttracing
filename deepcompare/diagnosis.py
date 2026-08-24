@@ -58,6 +58,10 @@ LEAD_MARGIN = 0.15
 PLAUSIBLE_FLOOR = 0.2
 #: with contradicting evidence and a score under this, it is ruled out.
 RULED_OUT_CEILING = 0.1
+#: the answer-coverage "match" verdict counts as grader-suspect evidence
+#: only at or above this coverage — a 70%-covered answer can still flatly
+#: contradict the expected one, and the missing words are the contradiction.
+GRADER_COVERAGE_FLOOR = 0.85
 
 _FLAG_STATEMENTS = {
     "blind_write": "changed external state before reading anything",
@@ -204,7 +208,12 @@ def _gen_grader(report: dict, side: str, traj: Trajectory, led: _Ledger) -> list
         }]
     supports, contradicts = [], []
     score = 0.0
-    if verdict == "match" and coverage is not None:
+    # "match" from the coverage metric is only grader-suspect evidence when
+    # the coverage is near-total: an answer containing 70% of the expected
+    # words can still contradict it outright (the missing 30% IS the
+    # contradiction), so partial coverage earns nothing here.
+    if (verdict == "match" and coverage is not None
+            and float(coverage) >= GRADER_COVERAGE_FLOOR):
         score += 0.5 + 0.4 * float(coverage)
         supports.append(led.metric(
             f"answer_eval.{side}_vs_expected.coverage", coverage,
@@ -221,13 +230,19 @@ def _gen_grader(report: dict, side: str, traj: Trajectory, led: _Ledger) -> list
         supports.append(led.metric(
             f"process.{side}.gap.verdict", "failed but clean",
             "nothing in the process visibly went wrong", "measured"))
+    other = "b" if side == "a" else "a"
     for i, claim in enumerate((report.get("semantic") or {}).get("claims", [])):
-        if claim.get("matches_expected") is False and claim.get(f"{side}_steps"):
-            score -= 0.3
-            contradicts.append(led.metric(
-                f"semantic.claims[{i}].value", claim.get("value"),
-                "a claim in this run contradicts the expected answer",
-                "measured"))
+        if claim.get("matches_expected") is not False:
+            continue
+        if not claim.get(f"{side}_steps") or claim.get(f"{other}_steps"):
+            # shared claims are context both runs carried; they neither
+            # made this run fail nor say anything about the grader
+            continue
+        score -= 0.3
+        contradicts.append(led.metric(
+            f"semantic.claims[{i}].value", claim.get("value"),
+            "a claim in this run contradicts the expected answer",
+            "measured"))
     if not supports and not contradicts:
         return []
     reasons = []
@@ -309,10 +324,16 @@ def _gen_wrong_fact(report: dict, side: str, traj: Trajectory, led: _Ledger) -> 
     claims = (report.get("semantic") or {}).get("claims", [])
     supports = []
     origins = []
+    other = "b" if side == "a" else "a"
     for i, claim in enumerate(claims):
         if claim.get("matches_expected") is not False:
             continue
         if not claim.get(f"{side}_steps"):
+            continue
+        # A claim the *other* run also carries cannot explain why only this
+        # run failed: a shared subtotal both agents read is context, not the
+        # wrong fact.  Only claims exclusive to the failing side qualify.
+        if claim.get(f"{other}_steps"):
             continue
         supports.append(led.metric(
             f"semantic.claims[{i}].value", claim.get("value"),
@@ -754,6 +775,64 @@ def _confidence(mode: str, leading_id: Optional[str], ranked: list[dict]) -> dic
                      "comparison cannot rule out task-specific luck"}
 
 
+#: the counterfactual criterion the field converged on (Who&When): the
+#: decisive step is the EARLIEST step whose correction would turn the
+#: failure into success.
+DECISIVE_CRITERION = (
+    "earliest step whose correction is expected to flip the outcome")
+
+
+def _decisive_step(mode: str, leading: Optional[dict],
+                   led: _Ledger) -> dict:
+    """Commit to a decisive error step — or abstain with the reason.
+
+    Attributors that always name a step score points by luck on causes
+    that have no step: a grader mislabel and a harness kill contain no
+    agent mistake to correct, so the honest answer there is None with the
+    reason stated, and an eval should score that abstention as an answer
+    in its own right.  Anchors per kind follow the fusion rules, which
+    already guarantee the leading hypothesis holds the *earliest*
+    evidenced anomaly (a wrong fact or error predating the divergence
+    re-anchors the lead before this function ever runs).
+    """
+    if mode != "single_failure" or leading is None:
+        reason = ("no failure to localize" if mode != "single_failure" else
+                  "contested: no hypothesis leads, so no step is committed")
+        return {"step": None, "criterion": DECISIVE_CRITERION,
+                "basis": None, "reason": reason}
+    kind = leading.get("kind")
+    if kind == "grader_or_label":
+        return {"step": None, "criterion": DECISIVE_CRITERION, "basis": None,
+                "reason": ("no agent error to correct — the correction is "
+                           "to the grader or label, not to a step")}
+    if kind == "harness_termination":
+        return {"step": None, "criterion": DECISIVE_CRITERION, "basis": None,
+                "reason": ("the harness ended the run; no corrected agent "
+                           "step would have prevented the kill")}
+    if kind == "budget_pressure":
+        return {"step": None, "criterion": DECISIVE_CRITERION, "basis": None,
+                "reason": ("the binding constraint is the step budget, a "
+                           "harness setting, not an agent step")}
+    if kind == "divergence":
+        step = leading.get("root")
+        basis = "the divergent decision; fused evidence places nothing earlier"
+    elif kind == "wrong_fact_propagation":
+        step = leading.get("origin")
+        basis = "where the wrong fact entered, per claim provenance"
+    elif kind == "environment_error":
+        step = leading.get("error_step")
+        basis = "the failing tool call the agent then abandoned"
+    else:  # process_pathology and anything span-anchored
+        spans = _hypothesis_span_steps(leading, led.items)
+        step = min(spans) if spans else None
+        basis = ("the first step raising the process flag" if spans else None)
+    if step is None:
+        return {"step": None, "criterion": DECISIVE_CRITERION, "basis": None,
+                "reason": f"{kind} leads but anchors to no specific step"}
+    return {"step": step, "criterion": DECISIVE_CRITERION,
+            "basis": basis, "reason": None}
+
+
 # ---------------------------------------------------------------------------
 # public API
 
@@ -861,6 +940,7 @@ def diagnose(report: dict, a: Trajectory, b: Trajectory) -> dict:
         "margin": margin,
         "evidence": led.items,
         "causal_account": account,
+        "decisive_step": _decisive_step(mode, leading, led),
         "contradictions": _contradictions(
             report, subject if mode == "single_failure" else None),
         "confidence": _confidence(mode, leading_id, ranked)
