@@ -846,6 +846,33 @@ def _cmd_profile(args: argparse.Namespace) -> int:
 
 
 
+def _cmd_bench(args: argparse.Namespace) -> int:
+    """Measure the diagnoser against its ground-truth benchmark corpus."""
+    from .bench import floor_violations, format_scorecard, run_benchmark
+    traces_dir = Path(args.traces)
+    if not (traces_dir / "MANIFEST.json").is_file():
+        print(f"error: no MANIFEST.json in {traces_dir} — generate the "
+              f"corpus with demo/diagnosis_bench/generate.py",
+              file=sys.stderr)
+        return 2
+    result = run_benchmark(traces_dir)
+    if args.output:
+        out = Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n",
+                       encoding="utf-8")
+        print(f"Wrote {out}")
+    print(format_scorecard(result))
+    problems = floor_violations(result)
+    if problems:
+        print("Floor violations:")
+        for problem in problems:
+            print(f"  {problem}")
+    if args.strict and problems:
+        return 1
+    return 0
+
+
 def _cmd_progress(args: argparse.Namespace) -> int:
     """Compare two batch outputs: did the fixes from the first land?"""
     from .progress import compare_progress
@@ -1304,6 +1331,23 @@ def build_parser() -> argparse.ArgumentParser:
                                  "a broken task, a worsened action, or a new "
                                  "issue (persisting is not a regression)")
     p_progress.set_defaults(func=_cmd_progress)
+
+    p_bench = sub.add_parser(
+        "bench",
+        help="measure the diagnoser against its ground-truth benchmark "
+             "(cause kind, decisive step, abstention, chain recovery)")
+    p_bench.add_argument(
+        "traces", nargs="?",
+        default=str(Path(__file__).resolve().parent.parent
+                    / "demo" / "diagnosis_bench" / "traces"),
+        help="benchmark corpus directory with MANIFEST.json "
+             "(default: the shipped demo/diagnosis_bench/traces)")
+    p_bench.add_argument("-o", "--output", default=None,
+                         help="also write the full result JSON here")
+    p_bench.add_argument("--strict", action="store_true",
+                         help="exit non-zero when any CI floor is broken "
+                              "(the same floors the test suite enforces)")
+    p_bench.set_defaults(func=_cmd_bench)
 
     p_experiments = sub.add_parser(
         "experiments",

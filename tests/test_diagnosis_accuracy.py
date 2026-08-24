@@ -12,6 +12,7 @@ right measures nothing.
 from __future__ import annotations
 
 import importlib.util
+import json
 import unittest
 from pathlib import Path
 
@@ -196,6 +197,52 @@ class TestChainRecovery(unittest.TestCase):
         r = next(r for r in self.result["results"]
                  if r["scenario"] == "ls02_route_duration")
         self.assertIn(2, r["chain"]["predicted"])
+
+
+class TestBenchCLI(unittest.TestCase):
+    """`agentdiff bench` puts the scorecard and its floors on the CLI."""
+
+    def test_floors_match_the_suite(self):
+        from deepcompare.bench import FLOORS
+        self.assertEqual(FLOORS["kind_accuracy"], ACCURACY_FLOOR)
+        self.assertEqual(FLOORS["step_accuracy_exact"], 0.6)
+        self.assertEqual(FLOORS["abstention_accuracy"], 0.75)
+
+    def test_floor_violations_flag_regressions(self):
+        from deepcompare.bench import floor_violations
+        result = run_benchmark(TRACES)
+        self.assertEqual(floor_violations(result), [])
+        broken = dict(result)
+        broken["overall"] = dict(result["overall"], accuracy=0.5)
+        problems = floor_violations(broken)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("kind_accuracy 0.5 < floor 0.75", problems[0])
+
+    def test_scorecard_prints_denominators_and_misses(self):
+        from deepcompare.bench import format_scorecard
+        result = run_benchmark(TRACES)
+        card = format_scorecard(result)
+        self.assertIn("18/18", card)
+        self.assertIn("14/14 exact", card)
+        self.assertIn("4/4", card)
+        self.assertIn("no misses on this corpus", card)
+        # a miss must surface in the card, never vanish
+        broken = json.loads(json.dumps(result))
+        broken["misses"] = [{"scenario": "x", "truth": "wrong_fact",
+                             "acceptable": [], "outcome": "wrong",
+                             "actually_led": "divergence"}]
+        self.assertIn("MISS x", format_scorecard(broken))
+
+    def test_command_runs_end_to_end(self):
+        import subprocess
+        import sys as _sys
+        proc = subprocess.run(
+            [_sys.executable, "-m", "deepcompare", "bench", str(TRACES),
+             "--strict"],
+            capture_output=True, text=True, cwd=str(ROOT))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("Diagnoser benchmark", proc.stdout)
+        self.assertIn("chain recovery", proc.stdout)
 
 
 if __name__ == "__main__":

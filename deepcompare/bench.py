@@ -46,6 +46,62 @@ from .trace import Trajectory
 
 MANIFEST_NAME = "MANIFEST.json"
 
+#: CI floors, shared by the test suite and `agentdiff bench --strict`.
+#: Raise them by making the diagnoser better, never by easing scenarios.
+FLOORS = {
+    "kind_accuracy": 0.75,
+    "step_accuracy_exact": 0.6,
+    "abstention_accuracy": 0.75,
+    "chain_mean_recall": 0.7,
+    "chain_mean_precision": 0.8,
+}
+
+
+def floor_violations(result: dict) -> list[str]:
+    """Which floors the measured result breaks (empty = all clear)."""
+    measured = {
+        "kind_accuracy": result["overall"]["accuracy"],
+        "step_accuracy_exact": result["step_localization"]["accuracy_exact"],
+        "abstention_accuracy": result["abstention"]["accuracy"],
+        "chain_mean_recall": result["chain_recovery"]["mean_recall"],
+        "chain_mean_precision": result["chain_recovery"]["mean_precision"],
+    }
+    problems = []
+    for name, floor in FLOORS.items():
+        value = measured.get(name)
+        if value is not None and value < floor:
+            problems.append(f"{name} {value} < floor {floor}")
+    return problems
+
+
+def format_scorecard(result: dict) -> str:
+    """The benchmark result as a terminal scorecard, denominators intact."""
+    overall = result["overall"]
+    step = result["step_localization"]
+    abstention = result["abstention"]
+    chain = result["chain_recovery"]
+    lines = [
+        "Diagnoser benchmark (ground-truth implants):",
+        f"  cause kind      {overall['correct']}/{overall['total']}"
+        f"  ({overall['accuracy']:.0%})",
+        f"  decisive step   {step['exact']}/{step['total']} exact, "
+        f"{step['within_1']}/{step['total']} within ±1",
+        f"  abstention      {abstention['correct']}/{abstention['total']}"
+        + "  (causes with no agent step to correct)",
+        f"  chain recovery  recall {chain['mean_recall']}, precision "
+        f"{chain['mean_precision']} over {chain['scenarios']} scenario(s)",
+    ]
+    for miss in result["misses"]:
+        lines.append(f"  MISS {miss['scenario']}: truth {miss['truth']}, "
+                     f"led {miss['actually_led']}")
+    for miss in result["step_misses"]:
+        lines.append(f"  STEP MISS {miss['scenario']}: truth "
+                     f"{miss['truth']}, predicted {miss['predicted']} "
+                     f"({miss['outcome']})")
+    if not result["misses"] and not result["step_misses"]:
+        lines.append("  no misses on this corpus")
+    return "\n".join(lines)
+
 
 def _leading_labels(diagnosis: dict) -> tuple[dict, set[str]]:
     """The leading hypothesis and every label it may be credited under.
