@@ -162,5 +162,41 @@ class TestStepLocalization(unittest.TestCase):
             self.assertEqual(r["step_outcome"], "exact", scenario)
 
 
+class TestChainRecovery(unittest.TestCase):
+    """The second metric of the long-horizon protocol: does the causal
+    account recover the fault's propagation path — and keep distractors
+    out of it?"""
+
+    @classmethod
+    def setUpClass(cls):
+        _generate_corpus()
+        cls.result = run_benchmark(TRACES)
+
+    def test_rollup_present_with_denominators(self):
+        chain = self.result["chain_recovery"]
+        self.assertEqual(chain["scenarios"], 14)
+        self.assertEqual(chain["no_account"], 0)
+
+    def test_chain_floors(self):
+        chain = self.result["chain_recovery"]
+        self.assertGreaterEqual(chain["mean_recall"], 0.7)
+        self.assertGreaterEqual(chain["mean_precision"], 0.8)
+
+    def test_distractor_steps_stay_out_of_the_account(self):
+        # dp02: the repeated identical cache check at step 4 must not be
+        # narrated as fault propagation — identical output carries nothing
+        r = next(r for r in self.result["results"]
+                 if r["scenario"] == "dp02_cache_flush")
+        self.assertNotIn(4, r["chain"]["predicted"])
+
+    def test_claim_provenance_links_beat_lexical_overlap(self):
+        # ls02: the read step carrying the wrong duration joins the account
+        # via typed claim provenance even though its token overlap with the
+        # retrieve step is below the lexical floor
+        r = next(r for r in self.result["results"]
+                 if r["scenario"] == "ls02_route_duration")
+        self.assertIn(2, r["chain"]["predicted"])
+
+
 if __name__ == "__main__":
     unittest.main()

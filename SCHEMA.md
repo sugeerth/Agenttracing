@@ -1484,3 +1484,14 @@ denominators stated), `abstention` (predicting a step where no agent
 step exists is a `spurious_step` miss), and per-scenario
 `step_outcome` values `exact | adjacent | wrong_step | missed_step |
 correct_abstain | spurious_step`.
+
+The causal account itself is anchored at the leading hypothesis's own
+decisive step and walked **transitively**: a step joins when it carries
+a contradicting claim's typed value (claim provenance, strongest link),
+measurable word overlap with any step already in the chain, a weak/bad
+log annotation, or — only when the environment hypothesis leads — a
+declared error downstream of the failing call. Outputs identical to one
+already in the chain are skipped (a repeated call is a pathology, not
+propagation), and the benchmark scores the account as `chain_recovery`
+(mean recall/precision against the implanted propagation path, with
+scenarios that produced no account counted at recall 0, never skipped).

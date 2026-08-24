@@ -225,7 +225,13 @@ more engine bugs before they were fixed (a shared fact both runs read
 was being blamed as "the wrong fact"; a 70%-covered answer that flatly
 contradicted the expected one still counted as a grader-suspect
 "match"). Current measurement: kind 18/18, step 14/14 exact, abstention
-4/4, with CI floors at 0.75/0.6/0.75. The corpus is deliberately small
+4/4, chain recovery 0.89 recall / 0.95 precision, with CI floors at
+0.75/0.6/0.75 and 0.7/0.8 for chains. The residual chain-recall gap is
+the honest boundary of lexical matching — a reason step saying the
+gateway "is down" shares almost no tokens with "503 Service
+Unavailable", and the engine reports such links as untraced rather
+than inventing them; typed claim provenance closes the gap wherever
+a contradicting value can be followed step to step. The corpus is deliberately small
 and synthetic: it proves the machinery against known ground truth, it
 does not claim field accuracy.
 
