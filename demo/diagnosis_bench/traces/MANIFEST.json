@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "scenarios": [
     {
       "id": "gm01_flex_refund",
@@ -7,6 +7,7 @@
       "acceptable": [
         "grader_or_label"
       ],
+      "decisive_steps": [],
       "fail": "gm01_flex_refund__fail.json",
       "pass": "gm01_flex_refund__pass.json",
       "note": "failing answer textually matches the expected answer; process clean"
@@ -17,6 +18,7 @@
       "acceptable": [
         "grader_or_label"
       ],
+      "decisive_steps": [],
       "fail": "gm02_kestrel_release__fail.json",
       "pass": "gm02_kestrel_release__pass.json",
       "note": "failing answer carries the expected date and version; process clean"
@@ -27,6 +29,7 @@
       "acceptable": [
         "harness_termination"
       ],
+      "decisive_steps": [],
       "fail": "hk01_seat_upgrade__fail.json",
       "pass": "hk01_seat_upgrade__pass.json",
       "note": "harness declared infrastructure_error before the write happened"
@@ -37,6 +40,7 @@
       "acceptable": [
         "harness_termination"
       ],
+      "decisive_steps": [],
       "fail": "hk02_meridian_headcount__fail.json",
       "pass": "hk02_meridian_headcount__pass.json",
       "note": "harness declared unexpected_error mid-run"
@@ -46,6 +50,9 @@
       "cause": "environment_fault",
       "acceptable": [
         "environment_error"
+      ],
+      "decisive_steps": [
+        2
       ],
       "fail": "ef01_refund_gateway__fail.json",
       "pass": "ef01_refund_gateway__pass.json",
@@ -57,6 +64,9 @@
       "acceptable": [
         "environment_error"
       ],
+      "decisive_steps": [
+        1
+      ],
       "fail": "ef02_docs_outage__fail.json",
       "pass": "ef02_docs_outage__pass.json",
       "note": "two declared fetch errors (timeout, 503); agent abandoned after them"
@@ -67,6 +77,9 @@
       "acceptable": [
         "wrong_fact_propagation"
       ],
+      "decisive_steps": [
+        2
+      ],
       "fail": "wf01_refund_amount__fail.json",
       "pass": "wf01_refund_amount__pass.json",
       "note": "$389.00 enters at step 2 from a stale table and reaches the answer; expected is $412.00 (divergence with mechanism wrong_fact_propagation counts)"
@@ -76,6 +89,9 @@
       "cause": "wrong_fact",
       "acceptable": [
         "wrong_fact_propagation"
+      ],
+      "decisive_steps": [
+        2
       ],
       "fail": "wf02_battery_life__fail.json",
       "pass": "wf02_battery_life__pass.json",
@@ -88,6 +104,10 @@
         "process_pathology:blind_write",
         "divergence"
       ],
+      "decisive_steps": [
+        0,
+        1
+      ],
       "fail": "bw01_ticket_address__fail.json",
       "pass": "bw01_ticket_address__pass.json",
       "note": "write-effect update at step 1 before any read; the blind write is the divergent decision, so divergence rooted there is the same cause"
@@ -99,6 +119,9 @@
         "process_pathology:blind_write",
         "divergence"
       ],
+      "decisive_steps": [
+        0
+      ],
       "fail": "bw02_dns_cutover__fail.json",
       "pass": "bw02_dns_cutover__pass.json",
       "note": "DNS write at step 0 before reading which balancer is new"
@@ -108,6 +131,9 @@
       "cause": "divergence_only",
       "acceptable": [
         "divergence"
+      ],
+      "decisive_steps": [
+        1
       ],
       "fail": "dv01_keynote_hall__fail.json",
       "pass": "dv01_keynote_hall__pass.json",
@@ -119,9 +145,95 @@
       "acceptable": [
         "divergence"
       ],
+      "decisive_steps": [
+        0
+      ],
       "fail": "dv02_db_migration__fail.json",
       "pass": "dv02_db_migration__pass.json",
       "note": "planning decision differs (dump-and-restore vs replica promotion); no other anomaly"
+    },
+    {
+      "id": "ls01_delayed_segment",
+      "cause": "late_symptom",
+      "acceptable": [
+        "divergence"
+      ],
+      "decisive_steps": [
+        1
+      ],
+      "fail": "ls01_delayed_segment__fail.json",
+      "pass": "ls01_delayed_segment__pass.json",
+      "note": "quiet stale-cache read at step 1 caused the loud rebook error at step 2, which the agent recovered from; the trap is blaming the error"
+    },
+    {
+      "id": "ls02_route_duration",
+      "cause": "late_symptom",
+      "acceptable": [
+        "wrong_fact_propagation",
+        "divergence"
+      ],
+      "decisive_steps": [
+        1,
+        2
+      ],
+      "fail": "ls02_route_duration__fail.json",
+      "pass": "ls02_route_duration__pass.json",
+      "note": "wrong duration enters quietly from an archived snapshot at steps 1-2; a loud unrelated fetch timeout at step 3 is the trap"
+    },
+    {
+      "id": "dp01_warranty_claim",
+      "cause": "distractor",
+      "acceptable": [
+        "divergence"
+      ],
+      "decisive_steps": [
+        0,
+        1
+      ],
+      "fail": "dp01_warranty_claim__fail.json",
+      "pass": "dp01_warranty_claim__pass.json",
+      "note": "true cause: consulted the ticket note instead of the order of record \u2014 a choice already made in the step-0 plan and executed at step 1, so correcting either flips the outcome; distractor: an identical repeated policy call at step 3 that changed nothing"
+    },
+    {
+      "id": "dp02_cache_flush",
+      "cause": "distractor",
+      "acceptable": [
+        "divergence"
+      ],
+      "decisive_steps": [
+        0
+      ],
+      "fail": "dp02_cache_flush__fail.json",
+      "pass": "dp02_cache_flush__pass.json",
+      "note": "true cause: the full-purge plan at step 0 against the runbook; distractor: a repeated identical cache check at step 4"
+    },
+    {
+      "id": "cs01_invoice_total",
+      "cause": "cascade",
+      "acceptable": [
+        "wrong_fact_propagation",
+        "divergence"
+      ],
+      "decisive_steps": [
+        2
+      ],
+      "fail": "cs01_invoice_total__fail.json",
+      "pass": "cs01_invoice_total__pass.json",
+      "note": "fail replays the passing prefix exactly (steps 0-1); the fault (a superseded discount memo) is injected at step 2 and cascades"
+    },
+    {
+      "id": "cs02_sla_response",
+      "cause": "cascade",
+      "acceptable": [
+        "wrong_fact_propagation",
+        "divergence"
+      ],
+      "decisive_steps": [
+        2
+      ],
+      "fail": "cs02_sla_response__fail.json",
+      "pass": "cs02_sla_response__pass.json",
+      "note": "fail replays the passing prefix exactly (steps 0-1); the old-mirror read is injected at step 2"
     }
   ]
 }

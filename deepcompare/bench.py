@@ -18,6 +18,16 @@ Scoring rules, applied without mercy:
 - A **contested** diagnosis (no leading hypothesis) is its own outcome and
   never counts as correct, even when the true cause is ranked first: a
   diagnoser that cannot commit has not diagnosed.
+- **Step localization is scored separately**, because it is the axis on
+  which the field collapses (best published: 14.2% on Who&When, 30.3% in
+  Who&When Pro).  The manifest carries the implanted decisive step —
+  the earliest step whose correction flips the outcome — and the
+  diagnosis's ``decisive_step`` is scored exact and within ±1 against it.
+  Causes with **no** agent step to correct (a grader mislabel, a harness
+  kill) are scored as abstention: predicting ``None`` there is a correct
+  answer, and naming a step is a ``spurious_step`` miss.  A contested
+  diagnosis predicts no step, which on a step-truth scenario counts as a
+  miss, not a pass.
 - Accuracies are always reported with their denominators, and every miss
   is listed with what actually led, so the number cannot silently exclude
   the failures.
@@ -111,6 +121,21 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
                 actual += f" (mechanism {lead['mechanism']})"
             outcome = "correct" if labels & acceptable else "wrong"
 
+        truth_steps = scenario.get("decisive_steps") or []
+        predicted = (diagnosis.get("decisive_step") or {}).get("step")
+        if truth_steps:
+            if predicted is None:
+                step_outcome = "missed_step"
+            elif predicted in truth_steps:
+                step_outcome = "exact"
+            elif any(abs(predicted - t) <= 1 for t in truth_steps):
+                step_outcome = "adjacent"
+            else:
+                step_outcome = "wrong_step"
+        else:
+            step_outcome = ("correct_abstain" if predicted is None
+                            else "spurious_step")
+
         entry = {
             "scenario": scenario["id"],
             "cause": scenario["cause"],
@@ -118,6 +143,9 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
             "outcome": outcome,
             "actual": actual,
             "margin": diagnosis.get("margin"),
+            "decisive_truth": truth_steps,
+            "decisive_predicted": predicted,
+            "step_outcome": step_outcome,
         }
         results.append(entry)
 
@@ -140,14 +168,45 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
         bucket["accuracy"] = (round(bucket["correct"] / bucket["total"], 4)
                               if bucket["total"] else None)
     total = len(results)
+
+    step_truth = [r for r in results if r["decisive_truth"]]
+    abstain_truth = [r for r in results if not r["decisive_truth"]]
+    exact = sum(1 for r in step_truth if r["step_outcome"] == "exact")
+    within_1 = exact + sum(
+        1 for r in step_truth if r["step_outcome"] == "adjacent")
+    abstain_ok = sum(
+        1 for r in abstain_truth if r["step_outcome"] == "correct_abstain")
+    step_misses = [
+        {"scenario": r["scenario"], "truth": r["decisive_truth"],
+         "predicted": r["decisive_predicted"], "outcome": r["step_outcome"]}
+        for r in results
+        if r["step_outcome"] not in ("exact", "correct_abstain")
+    ]
+
     return {
-        "version": 1,
+        "version": 2,
         "overall": {
             "correct": correct_total,
             "total": total,
             "accuracy": round(correct_total / total, 4) if total else None,
         },
+        "step_localization": {
+            "exact": exact,
+            "within_1": within_1,
+            "total": len(step_truth),
+            "accuracy_exact": (round(exact / len(step_truth), 4)
+                               if step_truth else None),
+            "accuracy_within_1": (round(within_1 / len(step_truth), 4)
+                                  if step_truth else None),
+        },
+        "abstention": {
+            "correct": abstain_ok,
+            "total": len(abstain_truth),
+            "accuracy": (round(abstain_ok / len(abstain_truth), 4)
+                         if abstain_truth else None),
+        },
         "by_cause": {cause: by_cause[cause] for cause in sorted(by_cause)},
         "misses": misses,
+        "step_misses": step_misses,
         "results": results,
     }

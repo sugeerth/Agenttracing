@@ -578,56 +578,364 @@ DV02_PASS = [
 
 
 # ==========================================================================
+# HARD MODE.  The literature's documented failure modes, reproduced:
+# attributors blame the loudest downstream symptom instead of the earliest
+# cause (Who&When), and they are fooled by visible-but-non-causal
+# pathologies.  These scenarios exist to catch exactly those mistakes.
+# ==========================================================================
+
+# --------------------------------------------------------------------------
+# late_symptom — a quiet wrong decision early, a LOUD tool error later that
+# the wrong decision itself caused (and the agent recovers from).  The trap
+# is diagnosing the loud error; the truth is the quiet early step.
+# --------------------------------------------------------------------------
+
+LS01_TASK = {
+    "id": "ls01_delayed_segment",
+    "prompt": ("Rebook the passenger on the delayed segment of booking "
+               "HJ221 and confirm the new flight."),
+    "expected": "Rebooked the delayed segment SEG-9 onto flight NW441.",
+}
+LS01_FAIL = [
+    step(0, "plan", "plan",
+         "Find the delayed segment, then rebook it.", ""),
+    step(1, "tool_call", "get_booking",
+         "get_booking(reference='HJ221', source='cache')",
+         "HJ221 (cached copy): segments SEG-7 (delayed), SEG-8.",
+         effect="read", error=False, quality="weak",
+         note="stale cache: the live booking lists SEG-9 as delayed"),
+    step(2, "tool_call", "rebook_segment",
+         "rebook_segment(reference='HJ221', segment='SEG-7')",
+         "Error: no such segment SEG-7 on booking HJ221.",
+         effect="write", error=True),
+    step(3, "tool_call", "rebook_segment",
+         "rebook_segment(reference='HJ221', segment='SEG-8')",
+         "Rebooked SEG-8 onto flight NW302.",
+         effect="write", error=False),
+    answer(4, "Rebooked segment SEG-8 of booking HJ221 onto flight NW302."),
+]
+LS01_PASS = [
+    step(0, "plan", "plan",
+         "Find the delayed segment, then rebook it.", ""),
+    step(1, "tool_call", "list_segments",
+         "list_segments(reference='HJ221')",
+         "Live segments for HJ221: SEG-8 (on time), SEG-9 (delayed 3h).",
+         effect="read", error=False),
+    step(2, "tool_call", "rebook_segment",
+         "rebook_segment(reference='HJ221', segment='SEG-9')",
+         "Rebooked SEG-9 onto flight NW441.",
+         effect="write", error=False),
+    answer(3, "Rebooked the delayed segment SEG-9 onto flight NW441."),
+]
+LS_TOOLS = [
+    {"name": "get_booking", "effect": "read"},
+    {"name": "list_segments", "effect": "read"},
+    {"name": "rebook_segment", "effect": "write"},
+]
+
+LS02_TASK = {
+    "id": "ls02_route_duration",
+    "prompt": "How long is the Auckland to Santiago flight NW7?",
+    "expected": "Flight NW7 Auckland to Santiago takes 11 hours 20 minutes.",
+}
+LS02_FAIL = [
+    step(0, "search", "web_search", "flight NW7 Auckland Santiago duration",
+         "Results: northwind.com/routes (route map, archived snapshot); "
+         "flightaware.com/NW7 (live tracking)."),
+    step(1, "retrieve", "northwind.com/routes",
+         "open result northwind.com/routes archived snapshot",
+         "Archived route map, pre-schedule-change revision.", quality="weak",
+         note="archived snapshot; the live tracker was also in the results"),
+    step(2, "read", "northwind.com/routes", "",
+         "Route table (archived): NW7 AKL-SCL block time 12 hours "
+         "50 minutes."),
+    step(3, "tool_call", "fetch_page",
+         "fetch_page(url='northwind.com/fleet')",
+         "Error: connection timed out fetching northwind.com/fleet.",
+         effect="read", error=True),
+    step(4, "tool_call", "fetch_page",
+         "fetch_page(url='northwind.com/aircraft')",
+         "Aircraft page: NW7 operates a 787-9 on the AKL-SCL route.",
+         effect="read", error=False),
+    step(5, "reason", "reason",
+         "The route table gives 12 hours 50 minutes for NW7.", ""),
+    answer(6, "Flight NW7 Auckland to Santiago takes 12 hours 50 minutes."),
+]
+LS02_PASS = [
+    step(0, "search", "web_search", "flight NW7 Auckland Santiago duration",
+         "Results: northwind.com/routes (route map, archived snapshot); "
+         "flightaware.com/NW7 (live tracking)."),
+    step(1, "retrieve", "flightaware.com/NW7",
+         "open result flightaware.com/NW7 live tracking",
+         "Live tracking page for NW7 with current schedule."),
+    step(2, "read", "flightaware.com/NW7", "",
+         "NW7 AKL-SCL: scheduled block time 11 hours 20 minutes."),
+    step(3, "reason", "reason",
+         "The live schedule gives 11 hours 20 minutes.", ""),
+    answer(4, "Flight NW7 Auckland to Santiago takes 11 hours 20 minutes."),
+]
+
+# --------------------------------------------------------------------------
+# distractor — the true cause plus a visible but NON-causal pathology.  A
+# diagnoser fooled by visibility blames the distractor.
+# --------------------------------------------------------------------------
+
+DP01_TASK = {
+    "id": "dp01_warranty_claim",
+    "prompt": ("Which warranty applies to order 88410 and does it cover "
+               "water damage?"),
+    "expected": ("Order 88410 carries the Plus warranty, which covers "
+                 "water damage."),
+}
+DP01_FAIL = [
+    step(0, "plan", "plan",
+         "Find the order's warranty tier, then check its coverage.", ""),
+    step(1, "tool_call", "get_ticket", "get_ticket(order='88410')",
+         "Ticket for order 88410: customer reports water damage; account "
+         "note mentions the Basic tier brochure was mailed at purchase.",
+         effect="read", error=False, quality="weak",
+         note="took the mailed-brochure note as the warranty of record"),
+    step(2, "tool_call", "get_policy", "get_policy(topic='warranty basic')",
+         "Basic warranty: manufacturing defects only; excludes liquid "
+         "damage.", effect="read", error=False),
+    step(3, "tool_call", "get_policy", "get_policy(topic='warranty basic')",
+         "Basic warranty: manufacturing defects only; excludes liquid "
+         "damage.", effect="read", error=False,
+         note="identical call repeated; adds nothing and changes nothing"),
+    step(4, "reason", "reason",
+         "Basic tier excludes liquid damage, so this claim is not covered.",
+         ""),
+    answer(5, "Order 88410 has the Basic warranty, which does not cover "
+              "water damage."),
+]
+DP01_PASS = [
+    step(0, "plan", "plan",
+         "Look up the warranty registered on the order itself.", ""),
+    step(1, "tool_call", "get_crm", "get_crm(order='88410')",
+         "Order 88410: registered warranty tier is Plus (upgraded at "
+         "checkout).", effect="read", error=False),
+    step(2, "tool_call", "get_policy", "get_policy(topic='warranty plus')",
+         "Plus warranty: covers accidental damage including liquid "
+         "ingress.", effect="read", error=False),
+    step(3, "reason", "reason",
+         "The registered tier is Plus, which covers water damage.", ""),
+    answer(4, "Order 88410 carries the Plus warranty, which covers water "
+              "damage."),
+]
+
+DP02_TASK = {
+    "id": "dp02_cache_flush",
+    "prompt": ("Flush the CDN cache for release 5.4 the way the runbook "
+               "prescribes and report what was done."),
+    "expected": ("Flushed the CDN cache per runbook: soft purge of the "
+                 "release-5.4 tag."),
+}
+DP02_FAIL = [
+    step(0, "plan", "plan",
+         "Purge everything to be safe, then confirm.", "", quality="weak",
+         note="the runbook prescribes a tag-scoped soft purge, not a full "
+              "purge"),
+    step(1, "tool_call", "get_runbook", "get_runbook(topic='cdn')",
+         "Runbook: releases are flushed with a soft purge of their tag; "
+         "full purges are for incidents only.",
+         effect="read", error=False),
+    step(2, "tool_call", "purge_cache", "purge_cache(scope='all')",
+         "Full cache purge started across all tags.",
+         effect="write", error=False, quality="bad"),
+    step(3, "tool_call", "check_cache", "check_cache(tag='release-5.4')",
+         "Cache empty for all tags; origin load elevated.",
+         effect="read", error=False),
+    step(4, "tool_call", "check_cache", "check_cache(tag='release-5.4')",
+         "Cache empty for all tags; origin load elevated.",
+         effect="read", error=False,
+         note="identical check repeated; no new information"),
+    answer(5, "Flushed the CDN by purging the entire cache; origin load is "
+              "elevated but should recover."),
+]
+DP02_PASS = [
+    step(0, "plan", "plan",
+         "Follow the runbook's release flush procedure.", ""),
+    step(1, "tool_call", "get_runbook", "get_runbook(topic='cdn')",
+         "Runbook: releases are flushed with a soft purge of their tag; "
+         "full purges are for incidents only.",
+         effect="read", error=False),
+    step(2, "tool_call", "purge_cache",
+         "purge_cache(tag='release-5.4', mode='soft')",
+         "Soft purge queued for tag release-5.4.",
+         effect="write", error=False),
+    answer(3, "Flushed the CDN cache per runbook: soft purge of the "
+              "release-5.4 tag."),
+]
+DP02_TOOLS = [
+    {"name": "get_runbook", "effect": "read"},
+    {"name": "purge_cache", "effect": "write"},
+    {"name": "check_cache", "effect": "read"},
+]
+
+# --------------------------------------------------------------------------
+# cascade — a Who&When-Pro-style injection: the failing run replays the
+# passing run's prefix EXACTLY, the fault enters mid-trace, and downstream
+# steps carry the symptoms.  Tests that the anchor lands at the injection
+# point, not at the start and not at the symptoms.
+# --------------------------------------------------------------------------
+
+CS01_TASK = {
+    "id": "cs01_invoice_total",
+    "prompt": ("What is the total of invoice INV-2209 after the partner "
+               "discount?"),
+    "expected": "Invoice INV-2209 totals $8,940.00 after the discount.",
+}
+_CS01_PREFIX = [
+    step(0, "plan", "plan",
+         "Fetch the invoice, apply the partner discount, report the "
+         "total.", ""),
+    step(1, "tool_call", "get_invoice", "get_invoice(id='INV-2209')",
+         "INV-2209: subtotal $9,400.00, partner account.",
+         effect="read", error=False),
+]
+CS01_FAIL = _CS01_PREFIX + [
+    step(2, "tool_call", "get_policy", "get_policy(topic='partner discount')",
+         "Discount memo (superseded draft): partner discount is $940.00 "
+         "flat.", effect="read", error=False,
+         note="superseded draft; the current schedule is percentage-based"),
+    step(3, "reason", "reason",
+         "Subtotal $9,400.00 minus the $940.00 flat discount.", "",
+         quality="weak"),
+    answer(4, "Invoice INV-2209 totals $8,460.00 after the discount."),
+]
+CS01_PASS = _CS01_PREFIX + [
+    step(2, "tool_call", "get_discount_schedule",
+         "get_discount_schedule(account='partner')",
+         "Current schedule: partner discount is $460.00 flat plus loyalty "
+         "rebate; net discount for INV-2209 is $460.00.",
+         effect="read", error=False),
+    step(3, "reason", "reason",
+         "Subtotal $9,400.00 minus the $460.00 scheduled discount.", ""),
+    answer(4, "Invoice INV-2209 totals $8,940.00 after the discount."),
+]
+CS01_TOOLS = [
+    {"name": "get_invoice", "effect": "read"},
+    {"name": "get_policy", "effect": "read"},
+    {"name": "get_discount_schedule", "effect": "read"},
+]
+
+CS02_TASK = {
+    "id": "cs02_sla_response",
+    "prompt": ("What response time does the Gold SLA guarantee for "
+               "priority-1 incidents?"),
+    "expected": ("The Gold SLA guarantees a 30 minutes response for "
+                 "priority-1 incidents."),
+}
+_CS02_PREFIX = [
+    step(0, "search", "web_search", "Gold SLA priority-1 response time",
+         "Results: support.acme.com/sla (current terms); "
+         "cache.acme.com/sla-2024 (old mirror)."),
+    step(1, "retrieve", "support.acme.com/sla",
+         "open result support.acme.com/sla",
+         "Acme support SLA index page."),
+]
+CS02_FAIL = _CS02_PREFIX + [
+    step(2, "read", "cache.acme.com/sla-2024", "",
+         "Mirrored 2024 terms: Gold SLA priority-1 response 2 hours.",
+         quality="weak",
+         note="read the old mirror instead of the index's current page"),
+    step(3, "reason", "reason",
+         "The SLA table lists 2 hours for priority-1 under Gold.", ""),
+    answer(4, "The Gold SLA guarantees a 2 hours response for priority-1 "
+              "incidents."),
+]
+CS02_PASS = _CS02_PREFIX + [
+    step(2, "read", "support.acme.com/sla", "",
+         "Current terms: Gold SLA priority-1 response 30 minutes."),
+    step(3, "reason", "reason",
+         "Current Gold terms give 30 minutes for priority-1.", ""),
+    answer(4, "The Gold SLA guarantees a 30 minutes response for "
+              "priority-1 incidents."),
+]
+
+
+# ==========================================================================
 # scenario table
 # ==========================================================================
 
-#: (id, cause, acceptable kinds, task, fail steps, fail termination,
-#:  pass steps, tools, note)
+#: (id, cause, acceptable kinds, decisive steps — the earliest step(s)
+#:  whose correction flips the outcome, [] when no agent step exists to
+#:  correct — task, fail steps, fail termination, pass steps, tools, note)
 SCENARIOS = [
-    ("gm01_flex_refund", "grader_mislabel", ["grader_or_label"],
+    ("gm01_flex_refund", "grader_mislabel", ["grader_or_label"], [],
      GM01_TASK, GM01_FAIL, "agent_stop", GM01_PASS, OPS_TOOLS,
      "failing answer textually matches the expected answer; process clean"),
-    ("gm02_kestrel_release", "grader_mislabel", ["grader_or_label"],
+    ("gm02_kestrel_release", "grader_mislabel", ["grader_or_label"], [],
      GM02_TASK, GM02_FAIL, "agent_stop", GM02_PASS, [],
      "failing answer carries the expected date and version; process clean"),
-    ("hk01_seat_upgrade", "harness_kill", ["harness_termination"],
+    ("hk01_seat_upgrade", "harness_kill", ["harness_termination"], [],
      HK01_TASK, HK01_FAIL, "infrastructure_error", HK01_PASS, OPS_TOOLS,
      "harness declared infrastructure_error before the write happened"),
-    ("hk02_meridian_headcount", "harness_kill", ["harness_termination"],
+    ("hk02_meridian_headcount", "harness_kill", ["harness_termination"], [],
      HK02_TASK, HK02_FAIL, "unexpected_error", HK02_PASS, [],
      "harness declared unexpected_error mid-run"),
-    ("ef01_refund_gateway", "environment_fault", ["environment_error"],
+    ("ef01_refund_gateway", "environment_fault", ["environment_error"], [2],
      EF01_TASK, EF01_FAIL, "agent_stop", EF01_PASS, OPS_TOOLS,
      "declared tool error (payment gateway 503); agent abandoned after it"),
-    ("ef02_docs_outage", "environment_fault", ["environment_error"],
+    ("ef02_docs_outage", "environment_fault", ["environment_error"], [1],
      EF02_TASK, EF02_FAIL, "agent_stop", EF02_PASS, FETCH_TOOLS,
      "two declared fetch errors (timeout, 503); agent abandoned after them"),
-    ("wf01_refund_amount", "wrong_fact", ["wrong_fact_propagation"],
+    ("wf01_refund_amount", "wrong_fact", ["wrong_fact_propagation"], [2],
      WF01_TASK, WF01_FAIL, "agent_stop", WF01_PASS, OPS_TOOLS,
      "$389.00 enters at step 2 from a stale table and reaches the answer; "
      "expected is $412.00 (divergence with mechanism "
      "wrong_fact_propagation counts)"),
-    ("wf02_battery_life", "wrong_fact", ["wrong_fact_propagation"],
+    ("wf02_battery_life", "wrong_fact", ["wrong_fact_propagation"], [2],
      WF02_TASK, WF02_FAIL, "agent_stop", WF02_PASS, [],
      "7 hours 45 minutes enters at step 2 from an archived spec sheet; "
      "expected is 9 hours 30 minutes; structure otherwise identical"),
     ("bw01_ticket_address", "blind_write",
-     ["process_pathology:blind_write", "divergence"],
+     ["process_pathology:blind_write", "divergence"], [0, 1],
      BW01_TASK, BW01_FAIL, "agent_stop", BW01_PASS, SUPPORT_TOOLS,
      "write-effect update at step 1 before any read; the blind write is "
      "the divergent decision, so divergence rooted there is the same cause"),
     ("bw02_dns_cutover", "blind_write",
-     ["process_pathology:blind_write", "divergence"],
+     ["process_pathology:blind_write", "divergence"], [0],
      BW02_TASK, BW02_FAIL, "agent_stop", BW02_PASS, INFRA_TOOLS,
      "DNS write at step 0 before reading which balancer is new"),
-    ("dv01_keynote_hall", "divergence_only", ["divergence"],
+    ("dv01_keynote_hall", "divergence_only", ["divergence"], [1],
      DV01_TASK, DV01_FAIL, "agent_stop", DV01_PASS, [],
      "retrieval decision differs (community wiki vs official programme); "
      "no other anomaly"),
-    ("dv02_db_migration", "divergence_only", ["divergence"],
+    ("dv02_db_migration", "divergence_only", ["divergence"], [0],
      DV02_TASK, DV02_FAIL, "agent_stop", DV02_PASS, DB_TOOLS,
      "planning decision differs (dump-and-restore vs replica promotion); "
      "no other anomaly"),
+    ("ls01_delayed_segment", "late_symptom", ["divergence"], [1],
+     LS01_TASK, LS01_FAIL, "agent_stop", LS01_PASS, LS_TOOLS,
+     "quiet stale-cache read at step 1 caused the loud rebook error at "
+     "step 2, which the agent recovered from; the trap is blaming the "
+     "error"),
+    ("ls02_route_duration", "late_symptom",
+     ["wrong_fact_propagation", "divergence"], [1, 2],
+     LS02_TASK, LS02_FAIL, "agent_stop", LS02_PASS, FETCH_TOOLS,
+     "wrong duration enters quietly from an archived snapshot at steps "
+     "1-2; a loud unrelated fetch timeout at step 3 is the trap"),
+    ("dp01_warranty_claim", "distractor", ["divergence"], [0, 1],
+     DP01_TASK, DP01_FAIL, "agent_stop", DP01_PASS, SUPPORT_TOOLS,
+     "true cause: consulted the ticket note instead of the order of "
+     "record — a choice already made in the step-0 plan and executed at "
+     "step 1, so correcting either flips the outcome; distractor: an "
+     "identical repeated policy call at step 3 that changed nothing"),
+    ("dp02_cache_flush", "distractor", ["divergence"], [0],
+     DP02_TASK, DP02_FAIL, "agent_stop", DP02_PASS, DP02_TOOLS,
+     "true cause: the full-purge plan at step 0 against the runbook; "
+     "distractor: a repeated identical cache check at step 4"),
+    ("cs01_invoice_total", "cascade",
+     ["wrong_fact_propagation", "divergence"], [2],
+     CS01_TASK, CS01_FAIL, "agent_stop", CS01_PASS, CS01_TOOLS,
+     "fail replays the passing prefix exactly (steps 0-1); the fault (a "
+     "superseded discount memo) is injected at step 2 and cascades"),
+    ("cs02_sla_response", "cascade",
+     ["wrong_fact_propagation", "divergence"], [2],
+     CS02_TASK, CS02_FAIL, "agent_stop", CS02_PASS, [],
+     "fail replays the passing prefix exactly (steps 0-1); the old-mirror "
+     "read is injected at step 2"),
 ]
 
 
@@ -635,9 +943,9 @@ def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     for path in OUT.glob("*.json"):
         path.unlink()
-    manifest = {"version": 1, "scenarios": []}
-    for (sid, cause, acceptable, task, fail_steps, fail_term, pass_steps,
-         tools, note) in SCENARIOS:
+    manifest = {"version": 2, "scenarios": []}
+    for (sid, cause, acceptable, decisive_steps, task, fail_steps,
+         fail_term, pass_steps, tools, note) in SCENARIOS:
         fail_name, fail_model = FAIL_AGENT
         pass_name, pass_model = PASS_AGENT
         fail = trajectory(task, fail_name, fail_model, fail_steps,
@@ -655,6 +963,7 @@ def main() -> int:
             "id": sid,
             "cause": cause,
             "acceptable": acceptable,
+            "decisive_steps": decisive_steps,
             "fail": fail_file,
             "pass": pass_file,
             "note": note,
