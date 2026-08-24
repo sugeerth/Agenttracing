@@ -102,9 +102,39 @@ class TestFusion(unittest.TestCase):
         self.assertGreaterEqual(diag["margin"], LEAD_MARGIN)
         self.assertEqual(check_diagnosis(diag, report, a, b), [])
 
-    def test_earlier_wrong_fact_reanchors_the_root(self):
+    def test_shared_claims_do_not_anchor_the_wrong_fact(self):
+        # Every contradicting claim in t07 appears in BOTH runs (both read
+        # the same version numbers, and the passing run passed anyway), so
+        # the claim-exclusivity rule must keep wrong_fact_propagation out
+        # and leave the anchor on the failing run's own divergent step.
         a, b, report = _pair(TRACES, "t07_build_failure",
                              "atlas-v2", "bolt-v3")
+        diag = report["diagnosis"]
+        lead = _leading(diag)
+        self.assertEqual(lead["kind"], "divergence")
+        self.assertFalse([h for h in diag["hypotheses"]
+                          if h["kind"] == "wrong_fact_propagation"])
+        self.assertEqual(check_diagnosis(diag, report, a, b), [])
+
+    def test_earlier_exclusive_wrong_fact_reanchors_the_root(self):
+        # Make t07's contradicting claims exclusive to the failing run by
+        # stripping the shared values from the passing run's read steps:
+        # the wrong fact then genuinely enters at step 1, before the
+        # structural divergence at step 3, and the anchor must move there.
+        import os
+        fail_path = TRACES / "t07_build_failure__atlas-v2.json"
+        pass_data = json.loads(
+            (TRACES / "t07_build_failure__bolt-v3.json").read_text())
+        for step in pass_data["steps"]:
+            for bad in ("0.115.2", "2.0.36", "0.110.0", "2.0.30"):
+                step["input"] = step["input"].replace(bad, "the pinned build")
+                step["output"] = step["output"].replace(bad, "the pinned build")
+        with tempfile.TemporaryDirectory() as tmp:
+            mutated = os.path.join(tmp, "pass.json")
+            Path(mutated).write_text(json.dumps(pass_data))
+            a = Trajectory.from_json(str(fail_path))
+            b = Trajectory.from_json(mutated)
+            report = compare(a, b)
         diag = report["diagnosis"]
         lead = _leading(diag)
         self.assertEqual(lead["kind"], "wrong_fact_propagation")

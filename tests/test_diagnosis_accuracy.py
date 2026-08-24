@@ -28,6 +28,8 @@ ACCURACY_FLOOR = 0.75
 CAUSES = (
     "grader_mislabel", "harness_kill", "environment_fault",
     "wrong_fact", "blind_write", "divergence_only",
+    # hard mode: the literature's documented attributor failure modes
+    "late_symptom", "distractor", "cascade",
 )
 
 
@@ -94,6 +96,70 @@ class TestDiagnosisAccuracy(unittest.TestCase):
     def test_deterministic(self):
         again = run_benchmark(TRACES)
         self.assertEqual(self.result, again)
+
+
+class TestStepLocalization(unittest.TestCase):
+    """The axis the field collapses on (14.2% Who&When, 30.3% Pro): the
+    decisive step must be scored, abstention included, with floors that
+    fail CI on regression rather than brittle 100% pins."""
+
+    @classmethod
+    def setUpClass(cls):
+        _generate_corpus()
+        cls.result = run_benchmark(TRACES)
+
+    def test_step_metrics_present_with_denominators(self):
+        step = self.result["step_localization"]
+        self.assertEqual(step["total"], 14)
+        self.assertLessEqual(step["exact"], step["within_1"])
+        abst = self.result["abstention"]
+        self.assertEqual(abst["total"], 4)
+
+    def test_step_floor(self):
+        self.assertGreaterEqual(
+            self.result["step_localization"]["accuracy_exact"], 0.6)
+        self.assertGreaterEqual(
+            self.result["step_localization"]["accuracy_within_1"], 0.75)
+
+    def test_abstention_floor(self):
+        # naming a step for a grader mislabel or a harness kill is a miss,
+        # not a near-hit; abstaining there is the correct answer
+        self.assertGreaterEqual(self.result["abstention"]["accuracy"], 0.75)
+
+    def test_every_step_miss_is_listed(self):
+        listed = {m["scenario"] for m in self.result["step_misses"]}
+        for r in self.result["results"]:
+            if r["step_outcome"] not in ("exact", "correct_abstain"):
+                self.assertIn(r["scenario"], listed)
+
+    def _result(self, scenario):
+        return next(r for r in self.result["results"]
+                    if r["scenario"] == scenario)
+
+    def test_symptom_trap_not_blamed_on_the_loud_error(self):
+        # ls01: the loud rebook error at step 2 was caused by the quiet
+        # stale-cache read at step 1, and the agent recovered from it —
+        # environment_error must not lead, and the anchor is the quiet step
+        r = self._result("ls01_delayed_segment")
+        self.assertEqual(r["outcome"], "correct")
+        self.assertNotIn("environment_error", r["actual"])
+        self.assertEqual(r["step_outcome"], "exact")
+
+    def test_distractor_pathology_not_blamed(self):
+        for scenario in ("dp01_warranty_claim", "dp02_cache_flush"):
+            r = self._result(scenario)
+            self.assertEqual(r["outcome"], "correct", scenario)
+            self.assertNotIn("repeated_calls", r["actual"])
+            self.assertNotIn("no_information", r["actual"])
+
+    def test_cascade_anchors_at_the_injection_point(self):
+        # the failing run replays the passing prefix exactly; the anchor
+        # must land where the fault was injected, not at step 0 and not at
+        # the downstream symptoms
+        for scenario in ("cs01_invoice_total", "cs02_sla_response"):
+            r = self._result(scenario)
+            self.assertEqual(r["decisive_truth"], [2], scenario)
+            self.assertEqual(r["step_outcome"], "exact", scenario)
 
 
 if __name__ == "__main__":

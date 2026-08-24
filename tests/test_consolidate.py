@@ -105,7 +105,11 @@ class TestDemoCorpus(unittest.TestCase):
             ("t01_acme_revenue", "bolt-v3"): "divergence",
             ("t05_flight_duration", "bolt-v3"): "divergence",
             ("t06_bls_unemployment", "bolt-v3"): "divergence",
-            ("t07_build_failure", "atlas-v2"): "wrong_fact_propagation",
+            # divergence, not wrong_fact_propagation: every contradicting
+            # claim in t07 is shared with the passing run (both read the
+            # same version numbers), so the claim-exclusivity rule keeps
+            # the anchor on what atlas-v2 *did* with the shared facts.
+            ("t07_build_failure", "atlas-v2"): "divergence",
         }
         for (task, agent), kind in expected.items():
             entry = entry_for(self.result, task, agent)
