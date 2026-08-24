@@ -939,6 +939,12 @@ SCENARIOS = [
 ]
 
 
+#: the fault's true propagation path per scenario — decisive step through
+#: the answer, distractor and unrelated steps excluded.  [] where no agent
+#: fault exists to propagate.
+CHAINS = {'gm01_flex_refund': [], 'gm02_kestrel_release': [], 'hk01_seat_upgrade': [], 'hk02_meridian_headcount': [], 'ef01_refund_gateway': [2, 3, 4], 'ef02_docs_outage': [1, 2, 3, 4], 'wf01_refund_amount': [2, 4, 5], 'wf02_battery_life': [2, 3, 4], 'bw01_ticket_address': [0, 1, 3, 4], 'bw02_dns_cutover': [0, 1, 2, 3], 'dv01_keynote_hall': [1, 2, 3, 4], 'dv02_db_migration': [0, 2, 3, 4], 'ls01_delayed_segment': [1, 2, 3, 4], 'ls02_route_duration': [1, 2, 5, 6], 'dp01_warranty_claim': [0, 1, 2, 4, 5], 'dp02_cache_flush': [0, 2, 3, 5], 'cs01_invoice_total': [2, 3, 4], 'cs02_sla_response': [2, 3, 4]}
+
+
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     for path in OUT.glob("*.json"):
@@ -964,6 +970,7 @@ def main() -> int:
             "cause": cause,
             "acceptable": acceptable,
             "decisive_steps": decisive_steps,
+            "chain": CHAINS[sid],
             "fail": fail_file,
             "pass": pass_file,
             "note": note,

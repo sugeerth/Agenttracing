@@ -651,56 +651,139 @@ def _assign_status(ranked: list[dict]) -> tuple[Optional[str], Optional[float]]:
     return leading_id, margin
 
 
+#: minimum word overlap for a step to join the causal account by textual
+#: propagation.  Lower than attribution's PROPAGATION_THRESHOLD on purpose:
+#: the account prints the measured overlap on every link, so a weaker link
+#: is visible as weak rather than silently dropped.
+ACCOUNT_LINK_FLOOR = 0.15
+
+
+def _anchor_step(leading: dict, led: _Ledger) -> Optional[int]:
+    """The leading hypothesis's own anchor — the same step decisive_step
+    commits to."""
+    kind = leading.get("kind")
+    if kind == "divergence":
+        return leading.get("root")
+    if kind == "wrong_fact_propagation":
+        return leading.get("origin")
+    if kind == "environment_error":
+        return leading.get("error_step")
+    spans = _hypothesis_span_steps(leading, led.items)
+    return min(spans) if spans else None
+
+
 def _causal_account(report: dict, leading: Optional[dict], side: Optional[str],
                     traj: Optional[Trajectory], led: _Ledger) -> list[dict]:
-    """Mechanism-annotated account of the leading hypothesis, when it is a
-    step-level story.  Reuses the attribution chain but names the mechanism
-    that connects each hop, with its basis."""
+    """Mechanism-annotated account of the leading hypothesis.
+
+    Anchored at the hypothesis's own decisive step (an environment-led
+    account starts at the failing call, not at some structural divergence
+    elsewhere), then walked forward **transitively**: a step joins the
+    chain when it carries measurable overlap with the output of any step
+    already in it — not only the anchor — or when the log annotates it
+    weak/bad, or when it is a declared error downstream of the anchor.
+    The final answer always closes the account; a link that could not be
+    traced says so instead of pretending.  Every link prints its measured
+    overlap or its declared basis: "propagated" without a number is an
+    assertion, not evidence.
+    """
     if leading is None or side is None or traj is None:
         return []
     if leading["kind"] not in ("divergence", "wrong_fact_propagation",
                                "process_pathology", "environment_error"):
         return []
-    attribution = report.get("attribution") or {}
-    chain = attribution.get("chain") or []
-    if not chain:
-        return []
     from .align import jaccard  # local import avoids a cycle at module load
 
-    root_idx = chain[0]
-    root_output = (traj.steps[root_idx].output
-                   if 0 <= root_idx < len(traj.steps) else "")
-    account = []
-    for pos, idx in enumerate(chain):
-        if not (0 <= idx < len(traj.steps)):
+    anchor = _anchor_step(leading, led)
+    if anchor is None or not (0 <= anchor < len(traj.steps)):
+        fallback = (report.get("attribution") or {}).get("chain") or []
+        anchor = fallback[0] if fallback else None
+        if anchor is None or not (0 <= anchor < len(traj.steps)):
+            return []
+    answer_idx = len(traj.steps) - 1
+
+    def _carrier(step) -> str:
+        return step.output or step.input or ""
+
+    # typed-claim provenance beats lexical overlap where it exists: every
+    # step carrying a contradicting claim exclusive to this side is part of
+    # the wrong value's traced path (claim-centric linking, per DRIFT)
+    other = "b" if side == "a" else "a"
+    claim_steps: dict[int, str] = {}
+    for claim in (report.get("semantic") or {}).get("claims", []):
+        if claim.get("matches_expected") is not False:
             continue
+        if not claim.get(f"{side}_steps") or claim.get(f"{other}_steps"):
+            continue
+        for idx in claim[f"{side}_steps"]:
+            claim_steps.setdefault(idx, str(claim.get("value")))
+
+    members: list[int] = [anchor]
+    links: dict[int, tuple] = {}  # idx -> (mechanism text)
+    member_outputs = {(traj.steps[anchor].output or "").strip()}
+    for idx in range(anchor + 1, len(traj.steps)):
+        step = traj.steps[idx]
+        # an output identical to one already in the chain carries no NEW
+        # consequence — a repeated call is a pathology, not propagation
+        duplicate = (step.output or "").strip() in member_outputs \
+            and (step.output or "").strip()
+        best = (0.0, None)
+        for m in members:
+            source = traj.steps[m].output or traj.steps[m].input
+            if not source:
+                continue
+            overlap = max(jaccard(step.input, source),
+                          jaccard(step.output, source))
+            if overlap > best[0]:
+                best = (overlap, m)
+        overlap, from_step = best
+        if duplicate and idx != answer_idx:
+            continue
+        if idx in claim_steps and idx != answer_idx:
+            links[idx] = (f"carries the contradicting value "
+                          f"{claim_steps[idx]!r} (typed claim provenance, "
+                          f"measured)")
+        elif overlap >= ACCOUNT_LINK_FLOOR and idx != answer_idx:
+            links[idx] = (f"textual propagation from step {from_step} "
+                          f"(word overlap {round(overlap, 2)}, measured)")
+        elif step.quality in ("weak", "bad"):
+            links[idx] = (f"step annotated {step.quality} in the log "
+                          f"(declared)")
+        elif (step.error is True
+              and leading["kind"] == "environment_error"):
+            # errors join by declaration only when the error IS the story;
+            # an unrelated declared error elsewhere is not propagation
+            links[idx] = ("a declared error downstream of the failing call "
+                          "(declared)")
+        elif idx == answer_idx:
+            links[idx] = (
+                f"textual propagation from step {from_step} "
+                f"(word overlap {round(overlap, 2)}, measured)"
+                if overlap >= ACCOUNT_LINK_FLOOR else
+                "the final answer — no traced overlap with the chain; the "
+                "link is positional, not traced")
+        else:
+            continue
+        members.append(idx)
+        if (step.output or "").strip():
+            member_outputs.add((step.output or "").strip())
+
+    account = []
+    for idx in members:
         step = traj.steps[idx]
         quote = (step.output or step.input or step.name)[:120]
         field = "output" if step.output else "input" if step.input else "name"
         eid = led.span(side, idx, field, quote,
                        "causal account", "measured") if quote else None
-        if pos == 0:
+        if idx == anchor:
             happened = f"the account starts here ({step.type} step)"
             mechanism = None
+        elif idx == answer_idx:
+            happened = "the final answer was emitted"
+            mechanism = links.get(idx)
         else:
-            if pos == len(chain) - 1:
-                happened = "the final answer was emitted"
-            else:
-                happened = f"{step.type} step continued from the root"
-            # name the actual link, with its measurement or its basis —
-            # "propagated" without a number is an assertion, not evidence
-            if step.quality in ("weak", "bad"):
-                mechanism = (f"step annotated {step.quality} in the log "
-                             f"(declared)")
-            else:
-                overlap = round(jaccard(step.input, root_output), 2)
-                mechanism = (
-                    f"textual propagation from the root step's output "
-                    f"(word overlap {overlap}, measured)"
-                    if overlap > 0 else
-                    "follows the root in the chain, but no textual overlap "
-                    "with its output was measured — the link is positional, "
-                    "not traced")
+            happened = f"{step.type} step carried the fault forward"
+            mechanism = links.get(idx)
         entry = {"step": idx, "happened": happened,
                  "evidence": [eid] if eid else []}
         if mechanism:

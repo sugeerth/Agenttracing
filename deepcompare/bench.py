@@ -83,6 +83,33 @@ def _contested_summary(diagnosis: dict) -> str:
     return "contested: " + ", ".join(names) if names else "contested"
 
 
+def _chain_rollup(results: list[dict]) -> dict:
+    """Mean chain recall/precision over scenarios with a chain truth.
+
+    The long-horizon attribution protocol (2608.06909) scores the recovered
+    causal chain, not just the primary anchor: a diagnosis that names the
+    right step but drags distractor steps into its account — or drops the
+    propagation path — has told a worse story than its anchor suggests.
+    A scenario whose diagnosis produced no causal account scores recall 0
+    (counted, never skipped); its precision is undefined and excluded from
+    the precision mean with the exclusion counted.
+    """
+    scored = [r for r in results if r.get("chain")]
+    if not scored:
+        return {"scenarios": 0, "mean_recall": None, "mean_precision": None,
+                "no_account": 0}
+    recalls = [r["chain"]["recall"] for r in scored]
+    precisions = [r["chain"]["precision"] for r in scored
+                  if r["chain"]["precision"] is not None]
+    return {
+        "scenarios": len(scored),
+        "mean_recall": round(sum(recalls) / len(recalls), 4),
+        "mean_precision": (round(sum(precisions) / len(precisions), 4)
+                           if precisions else None),
+        "no_account": len(scored) - len(precisions),
+    }
+
+
 def run_benchmark(traces_dir: Union[str, Path]) -> dict:
     """Run the diagnoser over every manifest pair and score it.
 
@@ -123,6 +150,21 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
 
         truth_steps = scenario.get("decisive_steps") or []
         predicted = (diagnosis.get("decisive_step") or {}).get("step")
+        truth_chain = set(scenario.get("chain") or [])
+        predicted_chain = {entry.get("step")
+                           for entry in diagnosis.get("causal_account", [])
+                           if entry.get("step") is not None}
+        if truth_chain:
+            hit = truth_chain & predicted_chain
+            chain_scores = {
+                "recall": round(len(hit) / len(truth_chain), 4),
+                "precision": (round(len(hit) / len(predicted_chain), 4)
+                              if predicted_chain else None),
+                "truth": sorted(truth_chain),
+                "predicted": sorted(predicted_chain),
+            }
+        else:
+            chain_scores = None
         if truth_steps:
             if predicted is None:
                 step_outcome = "missed_step"
@@ -146,6 +188,7 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
             "decisive_truth": truth_steps,
             "decisive_predicted": predicted,
             "step_outcome": step_outcome,
+            "chain": chain_scores,
         }
         results.append(entry)
 
@@ -205,6 +248,7 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
             "accuracy": (round(abstain_ok / len(abstain_truth), 4)
                          if abstain_truth else None),
         },
+        "chain_recovery": _chain_rollup(results),
         "by_cause": {cause: by_cause[cause] for cause in sorted(by_cause)},
         "misses": misses,
         "step_misses": step_misses,
