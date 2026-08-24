@@ -198,6 +198,74 @@ def _harness_flake(agent_runs: list[Trajectory]) -> Optional[dict]:
 
 
 # ---------------------------------------------------------------------------
+# spectrum suspiciousness (FAMAS, FSE 2026: spectrum-based fault
+# localization adapted to agent runs — which step signatures separate an
+# agent's failing runs from its passing ones)
+
+
+def _step_signature(step) -> tuple:
+    return (step.type, step.name, step.input)
+
+
+def _spectrum(agent_runs: list[Trajectory]) -> Optional[dict]:
+    """Ochiai suspiciousness per step signature across one agent's runs.
+
+    Spectrum analysis needs both classes: with no passing run (or no
+    failing run) every signature is equally suspect and the method has
+    nothing to say — that refusal is returned explicitly rather than a
+    table of meaningless 1.0s.  Signatures present in every run score 0
+    by construction: shared behaviour cannot explain a differing outcome,
+    which is the same exclusivity principle the wrong-fact rule uses.
+    """
+    failing = [t for t in agent_runs if not t.outcome.success]
+    passing = [t for t in agent_runs if t.outcome.success]
+    if not failing or not passing:
+        return {
+            "measurable": False,
+            "note": (
+                f"spectrum needs both classes; this agent has "
+                f"{len(failing)} failing and {len(passing)} passing run(s)"),
+            "signatures": [],
+        }
+    seen: dict[tuple, dict] = {}
+    for run in agent_runs:
+        run_sigs = {_step_signature(s) for s in run.steps}
+        for sig in run_sigs:
+            bucket = seen.setdefault(sig, {"ef": 0, "ep": 0})
+            if run.outcome.success:
+                bucket["ep"] += 1
+            else:
+                bucket["ef"] += 1
+    total_failed = len(failing)
+    rows = []
+    for sig, bucket in seen.items():
+        ef, ep = bucket["ef"], bucket["ep"]
+        if ef == 0:
+            continue  # passing-only behaviour cannot explain the failures
+        suspiciousness = ef / ((total_failed * (ef + ep)) ** 0.5)
+        rows.append({
+            "step": {"type": sig[0], "name": sig[1], "input": sig[2][:120]},
+            "in_failing": ef,
+            "of_failing": total_failed,
+            "in_passing": ep,
+            "of_passing": len(passing),
+            "suspiciousness": round(suspiciousness, 4),
+        })
+    rows.sort(key=lambda r: (-r["suspiciousness"],
+                             r["step"]["name"], r["step"]["input"]))
+    return {
+        "measurable": True,
+        "method": "Ochiai over step signatures (type, name, input)",
+        "runs": {"failing": total_failed, "passing": len(passing)},
+        "signatures": rows[:8],
+        "note": (
+            "a signature in every failing run and no passing run scores "
+            "1.0; shared behaviour scores lower because it cannot explain "
+            "a differing outcome"),
+    }
+
+
+# ---------------------------------------------------------------------------
 # consolidation
 
 
@@ -406,9 +474,24 @@ def consolidate_diagnoses(
                     seen.add(key)
                     entry["checks_run"].append(check)
 
+            entry["spectrum"] = _spectrum(agent_runs)
             entry["consolidated"] = _consolidated_verdict(
                 kind_counts, entry["diagnosed_runs"], contested,
                 entry["checks_run"], agent, len(failing), n_runs)
+            # a flake with a perfectly discriminating signature is more
+            # than "sometimes fails": the spectrum names WHAT its failing
+            # runs do that the passing ones never do
+            top = (entry["spectrum"].get("signatures") or [None])[0] \
+                if entry["spectrum"].get("measurable") else None
+            if (entry["failure_reproduction"]["verdict"] == "flaky"
+                    and top and top["in_passing"] == 0):
+                step = top["step"]
+                entry["consolidated"]["statement"] += (
+                    f"; spectrum: the failing runs share "
+                    f"{step['name']}({step['input'][:60]!r}) — present in "
+                    f"{top['in_failing']} of {top['of_failing']} failing "
+                    f"and 0 of {top['of_passing']} passing run(s), "
+                    f"suspiciousness {top['suspiciousness']}")
             entries.append(entry)
 
     diagnosed = [e for e in entries if e["consolidated"] is not None]

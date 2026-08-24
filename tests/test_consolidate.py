@@ -360,5 +360,46 @@ class TestSummaryAndNarrative(unittest.TestCase):
             len([e for e in entries if e["failures"]]))
 
 
+class TestSpectrum(unittest.TestCase):
+    """FAMAS-style spectrum suspiciousness: which step signatures separate
+    an agent's failing runs from its passing ones."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.result = consolidate_diagnoses(load_demo_corpus())
+
+    def test_flaky_agent_gets_a_measured_spectrum(self):
+        entry = entry_for(self.result, "t05_flight_duration", "bolt-v3")
+        spectrum = entry["spectrum"]
+        self.assertTrue(spectrum["measurable"])
+        self.assertEqual(spectrum["runs"], {"failing": 2, "passing": 1})
+        top = spectrum["signatures"][0]
+        self.assertEqual(top["suspiciousness"], 1.0)
+        self.assertEqual(top["in_passing"], 0)
+
+    def test_flaky_statement_names_the_discriminating_call(self):
+        entry = entry_for(self.result, "t05_flight_duration", "bolt-v3")
+        self.assertIn("spectrum:", entry["consolidated"]["statement"])
+        self.assertIn("0 of 1 passing", entry["consolidated"]["statement"])
+
+    def test_single_class_refuses_instead_of_scoring(self):
+        # bolt-v3 fails t01 in every run: no passing class, so spectrum
+        # says so rather than emitting a table of meaningless 1.0s
+        entry = entry_for(self.result, "t01_acme_revenue", "bolt-v3")
+        spectrum = entry["spectrum"]
+        self.assertFalse(spectrum["measurable"])
+        self.assertIn("both classes", spectrum["note"])
+        self.assertEqual(spectrum["signatures"], [])
+
+    def test_shared_signatures_score_below_exclusive_ones(self):
+        entry = entry_for(self.result, "t05_flight_duration", "bolt-v3")
+        rows = entry["spectrum"]["signatures"]
+        exclusive = [r for r in rows if r["in_passing"] == 0]
+        shared = [r for r in rows if r["in_passing"] > 0]
+        if shared:  # ordering rule only observable when both exist
+            self.assertGreater(min(r["suspiciousness"] for r in exclusive),
+                               max(r["suspiciousness"] for r in shared))
+
+
 if __name__ == "__main__":
     unittest.main()
