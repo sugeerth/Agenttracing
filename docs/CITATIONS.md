@@ -107,3 +107,45 @@ discriminating checks listed. Corroborating signals fuse into one
 account (mechanism, not rivals), and an anomaly that predates the
 structural divergence re-anchors the root — first divergence is a
 heuristic, earliest evidenced anomaly is the diagnosis.
+
+## The decisive error step: where every attributor collapses (survey, Aug 2026)
+
+The field converged on one ground-truth definition and one hard number.
+The definition (Who&When, 2505.00212 lineage): the **decisive error
+step** is the *earliest* step whose correction would turn the failure
+into success — a counterfactual criterion, not a "which step looks
+worst" judgement. The number: step-level localization is where every
+attributor collapses — best published: **14.2% step accuracy** on
+Who&When (vs 53.5% agent-level), rising only to **30.3%** in Who&When
+Pro (2607.09996) even with 12,326 injected-failure trajectories built
+by replaying a successful prefix and injecting one controlled fault.
+The documented dominant mistake: attributors blame the **loudest
+downstream symptom** (usually "reasoning") instead of the earliest
+originating cause (planning, perception, retrieval).
+
+Adjacent results that shape our eval design:
+- **TraceElephant** (ACL 2026, 2604.22708): full-trace observability
+  (inputs + context, not just outputs) improves attribution up to +76%.
+  AgentDiff traces are full-observability by schema — worth stating,
+  never assuming.
+- **FAMAS** (FSE 2026, 2509.13782): spectrum analysis over repeated
+  runs — suspiciousness from agent/action activation patterns across
+  passing vs failing executions — beats 12 LLM baselines on Who&When.
+  Independent support for cross-run consolidation as the right lever.
+- **Long-horizon trajectory attribution** (2608.06909): two-metric
+  protocol — primary attribution localization *and* attribution-chain
+  recovery. Our causal_account is the chain; it should be scored too.
+
+**The gap this implies for AgentDiff:** the diagnosis names hypothesis
+*kinds* and the benchmark scores only kinds. Nothing commits to a
+decisive step, and nothing measures step localization — the exact axis
+where the field collapses and where a deterministic evidence-fused
+engine should shine against LLM judges. Implemented as: (1) a
+`decisive_step` field on every diagnosis, defined by the counterfactual
+criterion with per-kind anchors and honest abstention (a grader
+mislabel or harness kill has *no* agent step to correct, and saying so
+is a scored answer, not a dodge); (2) benchmark scenarios that
+reproduce the documented failure mode — quiet early cause, loud late
+symptom, plus non-causal distractor pathologies; (3) step-level scoring
+(exact and ±1) alongside kind accuracy, with abstention correctness as
+its own metric.
