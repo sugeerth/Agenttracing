@@ -745,9 +745,17 @@ def _causal_account(report: dict, leading: Optional[dict], side: Optional[str],
     for idx in range(anchor + 1, len(traj.steps)):
         step = traj.steps[idx]
         # an output identical to one already in the chain carries no NEW
-        # consequence — a repeated call is a pathology, not propagation
-        duplicate = (step.output or "").strip() in member_outputs \
-            and (step.output or "").strip()
+        # consequence — a repeated call is a pathology, not propagation.
+        # EXCEPT a repeated declared error: the agent failing the same way
+        # again is part of the fault's story, not a no-op.
+        duplicate = ((step.output or "").strip() in member_outputs
+                     and (step.output or "").strip()
+                     and step.error is not True)
+        # a reason/think step immediately after an on-chain declared error
+        # is the agent's response to it — joined by adjacency, and labelled
+        # as adjacency rather than dressed up as traced propagation
+        prev_member_is_error = (members and members[-1] == idx - 1
+                                and traj.steps[idx - 1].error is True)
         best = (0.0, None)
         for m in members:
             source = traj.steps[m].output or traj.steps[m].input
@@ -771,11 +779,19 @@ def _causal_account(report: dict, leading: Optional[dict], side: Optional[str],
             links[idx] = (f"step annotated {step.quality} in the log "
                           f"(declared)")
         elif (step.error is True
-              and leading["kind"] == "environment_error"):
-            # errors join by declaration only when the error IS the story;
-            # an unrelated declared error elsewhere is not propagation
+              and (leading["kind"] == "environment_error"
+                   or (members and members[-1] == idx - 1
+                       and traj.steps[idx - 1].error is True))):
+            # errors join by declaration when the error IS the story, or
+            # when this is the same fault repeating right after an on-chain
+            # error; an unrelated declared error elsewhere is not
+            # propagation
             links[idx] = ("a declared error downstream of the failing call "
                           "(declared)")
+        elif (step.type in ("reason", "think") and prev_member_is_error):
+            links[idx] = ("the agent's response to the declared error "
+                          "immediately above (adjacency, declared — not "
+                          "traced propagation)")
         elif idx == answer_idx:
             links[idx] = (
                 f"textual propagation from step {from_step} "
