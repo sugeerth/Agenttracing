@@ -763,10 +763,19 @@ class TestConsolidatedSource(unittest.TestCase):
         for f in sorted(_glob.glob(str(cls.ROOT / "demo/runs/traces/t01*.json"))):
             data.append(json.loads(Path(f).read_text()))
         passing = next(d for d in data if "atlas" in d["agent"]["name"])
-        failing = next(d for d in data if "bolt" in d["agent"]["name"]
-                       and not d["outcome"]["success"])
-        failing["outcome"]["answer"] = passing["outcome"]["answer"]
-        failing["steps"][-1]["output"] = passing["outcome"]["answer"]
+        # every bolt run becomes a coherent grader-suspect case: cloned
+        # clean steps and a matching answer, still labelled failed —
+        # cloning steps matters because the original failing steps carry
+        # exclusive wrong-value claims, which rightly void the grader
+        # hypothesis under the asserts-wrong-value rule; mutating all
+        # three runs keeps the medoid inside the mutated population
+        for failing in data:
+            if "bolt" not in failing["agent"]["name"]:
+                continue
+            failing["outcome"]["answer"] = passing["outcome"]["answer"]
+            failing["outcome"]["success"] = False
+            failing["steps"] = json.loads(json.dumps(passing["steps"]))
+            failing["steps"][-1]["output"] = passing["outcome"]["answer"]
         rbt = {"t01_acme_revenue": {"a": [], "b": []}}
         with tempfile.TemporaryDirectory() as tmp:
             for i, d in enumerate(data):

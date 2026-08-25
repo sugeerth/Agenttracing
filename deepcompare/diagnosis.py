@@ -208,11 +208,20 @@ def _gen_grader(report: dict, side: str, traj: Trajectory, led: _Ledger) -> list
         }]
     supports, contradicts = [], []
     score = 0.0
+    other = "b" if side == "a" else "a"
+    # an exclusive typed claim contradicting the expected answer voids the
+    # coverage evidence entirely: the answer demonstrably asserts a wrong
+    # value, and word overlap cannot vouch for a number it cannot read
+    asserts_wrong_value = any(
+        claim.get("matches_expected") is False
+        and claim.get(f"{side}_steps") and not claim.get(f"{other}_steps")
+        for claim in (report.get("semantic") or {}).get("claims", []))
     # "match" from the coverage metric is only grader-suspect evidence when
     # the coverage is near-total: an answer containing 70% of the expected
     # words can still contradict it outright (the missing 30% IS the
     # contradiction), so partial coverage earns nothing here.
-    if (verdict == "match" and coverage is not None
+    if (not asserts_wrong_value
+            and verdict == "match" and coverage is not None
             and float(coverage) >= GRADER_COVERAGE_FLOOR):
         score += 0.5 + 0.4 * float(coverage)
         supports.append(led.metric(
@@ -230,7 +239,6 @@ def _gen_grader(report: dict, side: str, traj: Trajectory, led: _Ledger) -> list
         supports.append(led.metric(
             f"process.{side}.gap.verdict", "failed but clean",
             "nothing in the process visibly went wrong", "measured"))
-    other = "b" if side == "a" else "a"
     for i, claim in enumerate((report.get("semantic") or {}).get("claims", [])):
         if claim.get("matches_expected") is not False:
             continue

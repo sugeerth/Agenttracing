@@ -295,11 +295,19 @@ class TestConsolidationHonesty(unittest.TestCase):
         # executed grader check to confirm, so the disagreement stands
         answer = ("Total revenue for fiscal year 2025 came to $4.82 "
                   "billion according to the investor relations release.")
+        atlas_steps = _load_raw("t01_acme_revenue", "atlas-v2",
+                                "r1")["steps"]
 
         def mutate(raw, agent, run_id):
             if agent == "bolt-v3" and run_id == "r1":
+                # a coherent grader-suspect run: clean (cloned) steps, a
+                # matching answer, still labelled failed — the exclusive
+                # wrong claims of the original bolt run would rightly void
+                # the grader hypothesis under the asserts-wrong-value rule
+                raw["steps"] = copy.deepcopy(atlas_steps)
                 raw["outcome"]["answer"] = answer
                 raw["steps"][-1]["output"] = answer
+                raw["steps"][-1]["input"] = answer
             return raw
 
         result = consolidate_diagnoses(
