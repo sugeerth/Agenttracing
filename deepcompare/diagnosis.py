@@ -391,6 +391,19 @@ def _gen_divergence(report: dict, side: str, traj: Trajectory, led: _Ledger) -> 
     divergences = report.get("divergences") or []
     if root is None or not divergences:
         return []
+    # The twin rule (the exclusivity principle, third application): a step
+    # the other run also took verbatim cannot be the decisive decision —
+    # only which COPY of it the aligner matched differs, and that is an
+    # alignment artefact, not a divergence.  Advance the anchor to the
+    # first step with no exact twin in the other run, stopping before the
+    # answer so a degenerate case keeps a bounded anchor.
+    other = "b" if side == "a" else "a"
+    other_sigs = {(s.get("type"), s.get("name"), s.get("input"))
+                  for s in (report.get(other) or {}).get("steps", [])}
+    while (root < len(traj.steps) - 1
+           and (traj.steps[root].type, traj.steps[root].name,
+                traj.steps[root].input) in other_sigs):
+        root += 1
     category = _root_category(traj, root, divergences[0].get("kind", "divergence"))
     supports, contradicts = [], []
     score = 0.45

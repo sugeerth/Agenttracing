@@ -116,6 +116,15 @@ class TestScaleCaughtBugsStayFixed(unittest.TestCase):
                 self.assertNotIn("grader_or_label", r["actual"],
                                  r["scenario"])
 
+    def test_twin_steps_never_anchor_the_divergence(self):
+        # the twin rule: duplicate identical calls (distractors) shift
+        # which copy the aligner matches, but a step the other run also
+        # took verbatim cannot be the decisive decision — every distractor
+        # scenario must anchor exactly, not one step early
+        for r in self.result["results"]:
+            if r["cause"] == "distractor":
+                self.assertEqual(r["step_outcome"], "exact", r["scenario"])
+
     def test_wrong_value_answers_never_lead_grader(self):
         # engine rule: an exclusive typed claim contradicting the expected
         # answer voids the coverage support outright
