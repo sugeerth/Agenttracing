@@ -404,5 +404,202 @@ class TestDiagnosisShift(unittest.TestCase):
                 self.assertNotIn("contested", finding)
 
 
+class TestConsolidatedShift(unittest.TestCase):
+    """consolidated_shift: did the fix move the cross-run verdicts?
+
+    The batches are real runs-command output — the demo run corpus
+    (task__agent__run.json, atlas-v2 vs bolt-v3, 3 runs each) consolidated
+    with ``consolidate_diagnoses`` and written the way ``_cmd_runs`` writes
+    aggregate.json — with the after-batch produced by mutating raw trace
+    dicts the way a fix would: resolving bolt-v3's reproducible t01
+    failure, resolving its t05 flake, and handing a failing t06 run the
+    exact answer a passing run got credit for so the executed grader check
+    confirms.
+    """
+
+    RUN_TRACES = Path(__file__).resolve().parent.parent / "demo" / "runs" / "traces"
+    TASKS = ("t01_acme_revenue", "t05_flight_duration",
+             "t06_bls_unemployment", "t07_build_failure")
+    SIDES = {"atlas-v2": "a", "bolt-v3": "b"}
+
+    @classmethod
+    def _raw(cls, task, agent, run):
+        path = cls.RUN_TRACES / f"{task}__{agent}__{run}.json"
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    @classmethod
+    def _runs_batch(cls, name, mutate=None):
+        """A real runs-command batch dir: medoid reports + the consolidated
+        aggregate, written exactly the way ``_cmd_runs`` writes them.
+
+        Mutated raw dicts are round-tripped through a tempfile and
+        ``Trajectory.from_json`` so they pass the same schema validation
+        as recorded traces.
+        """
+        import copy
+
+        from deepcompare import Trajectory, compare
+        from deepcompare.consolidate import consolidate_diagnoses
+        from deepcompare.metrics import aggregate as build_aggregate, task_signal
+        from deepcompare.reliability import reliability
+        from deepcompare.stability import medoid_pairs, stability_analysis
+        from deepcompare.triage import triage
+
+        runs_by_task = {}
+        with tempfile.TemporaryDirectory() as tmp:
+            for task in cls.TASKS:
+                for agent, side in cls.SIDES.items():
+                    for run in ("r1", "r2", "r3"):
+                        raw = cls._raw(task, agent, run)
+                        if mutate is not None:
+                            raw = mutate(copy.deepcopy(raw), task, agent,
+                                         run) or raw
+                        path = Path(tmp) / f"{task}__{agent}__{run}.json"
+                        path.write_text(json.dumps(raw), encoding="utf-8")
+                        t = Trajectory.from_json(path)
+                        t.run_id = run
+                        runs_by_task.setdefault(
+                            task, {"a": [], "b": []})[side].append(t)
+
+        reports = [compare(a, b) for a, b in medoid_pairs(runs_by_task)]
+        agg = build_aggregate(reports)
+        stability = stability_analysis(runs_by_task)
+        agg["stability"] = stability
+        agg["reliability"] = reliability(runs_by_task)
+        agg["task_signal"] = task_signal(reports, stability)
+        agg["diagnosis_consolidated"] = consolidate_diagnoses(runs_by_task)
+        agg["triage"] = triage(reports, agg)
+
+        directory = Path(cls.tmp) / name
+        directory.mkdir(exist_ok=True)
+        for rep in reports:
+            (directory / f"report_{rep['task']['id']}.json").write_text(
+                json.dumps(rep), encoding="utf-8")
+        (directory / "aggregate.json").write_text(json.dumps(agg),
+                                                  encoding="utf-8")
+        return directory
+
+    @classmethod
+    def setUpClass(cls):
+        if not cls.RUN_TRACES.is_dir():
+            raise unittest.SkipTest("demo run traces not present")
+        import shutil
+        cls.tmp = tempfile.mkdtemp()
+        cls.addClassCleanup(shutil.rmtree, cls.tmp)
+
+        # the exact answer a passing t06 run got credit for
+        passing = cls._raw("t06_bls_unemployment", "atlas-v2",
+                           "r1")["outcome"]["answer"]
+
+        def fix(raw, task, agent, run):
+            if agent != "bolt-v3":
+                return raw
+            if task == "t01_acme_revenue":
+                # the reproducible failure stops failing entirely
+                raw["outcome"]["success"] = True
+            elif task == "t05_flight_duration" and run in ("r1", "r2"):
+                # the 2-of-3 flake stops failing
+                raw["outcome"]["success"] = True
+            elif task == "t06_bls_unemployment" and run == "r1":
+                # a failing run's answer becomes near-identical to a
+                # passing run's: grader_consistency confirms
+                raw["outcome"]["answer"] = passing
+            return raw
+
+        cls.before = cls._runs_batch("before")
+        cls.after = cls._runs_batch("after", fix)
+        cls.result = compare_progress(cls.before, cls.after)
+        cls.shift = cls.result["consolidated_shift"]
+
+    def entry(self, shift, task, agent):
+        matches = [e for e in shift["entries"]
+                   if e["task"] == task and e["agent"] == agent]
+        self.assertEqual(len(matches), 1,
+                         f"expected exactly one entry for {task}/{agent}: "
+                         f"{shift}")
+        return matches[0]
+
+    def test_a_resolved_reproducible_cause_is_stated(self):
+        entry = self.entry(self.shift, "t01_acme_revenue", "bolt-v3")
+        self.assertEqual(entry["before_status"], "reproducible")
+        self.assertEqual(entry["after_status"], "no failures")
+        self.assertEqual(entry["verdict"], "reproducible cause resolved")
+
+    def test_a_resolved_flake_keeps_its_flakiness_in_the_sentence(self):
+        entry = self.entry(self.shift, "t05_flight_duration", "bolt-v3")
+        self.assertEqual(entry["after_status"], "no failures")
+        self.assertIn("flaky failure resolved", entry["verdict"])
+        # three clean runs of a 2-of-3 flake are weak evidence, and the
+        # row says so instead of banking the win
+        self.assertIn("2 of 3", entry["verdict"])
+        self.assertIn("luck", entry["verdict"])
+
+    def test_a_new_confirmation_is_called_out_with_its_statement(self):
+        entry = self.entry(self.shift, "t06_bls_unemployment", "bolt-v3")
+        self.assertEqual(entry["before_status"], "reproducible")
+        self.assertEqual(entry["after_status"], "confirmed")
+        self.assertTrue(entry["verdict"].startswith("now confirmed: "))
+        self.assertIn("grader treated near-identical answers differently",
+                      entry["verdict"])
+
+    def test_a_lost_confirmation_is_called_out(self):
+        # the same batches the other way around: the executed check that
+        # confirmed the grader hypothesis no longer fires
+        reverse = compare_progress(self.after, self.before)
+        entry = self.entry(reverse["consolidated_shift"],
+                           "t06_bls_unemployment", "bolt-v3")
+        self.assertEqual(entry["before_status"], "confirmed")
+        self.assertEqual(entry["verdict"],
+                         "was confirmed by an executed check, "
+                         "now reproducible")
+        # and a failure appearing where there was none is a row too
+        entry = self.entry(reverse["consolidated_shift"],
+                           "t01_acme_revenue", "bolt-v3")
+        self.assertEqual(entry["verdict"],
+                         "no failures before, now reproducible")
+
+    def test_unchanged_entries_produce_no_row(self):
+        # t07's reproducible atlas-v2 failure is untouched by the fix, and
+        # every clean (no failures -> no failures) pair stays silent too
+        pairs = {(e["task"], e["agent"]) for e in self.shift["entries"]}
+        self.assertNotIn(("t07_build_failure", "atlas-v2"), pairs)
+        self.assertEqual(pairs, {("t01_acme_revenue", "bolt-v3"),
+                                 ("t05_flight_duration", "bolt-v3"),
+                                 ("t06_bls_unemployment", "bolt-v3")})
+
+    def test_the_note_rolls_up_the_transitions(self):
+        note = self.shift["note"]
+        self.assertIn("3 moved", note)
+        self.assertIn("2 resolved", note)
+        self.assertIn("1 newly confirmed by an executed check", note)
+
+    def test_batches_without_consolidation_degrade_with_the_note(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            before = batch_dir(tmp, "before", [issue("fp1", ["t0"])],
+                               [action(1, ["fp1"], ["t0"])],
+                               [report("t0", ok_a=False)])
+            after = batch_dir(tmp, "after", [], [], [report("t0")])
+            for pair in ((before, after), (self.before, after)):
+                result = compare_progress(*pair)
+                self.assertEqual(result["consolidated_shift"],
+                                 {"entries": [],
+                                  "note": "no cross-run consolidation in "
+                                          "one or both batches"})
+
+    def test_consolidated_shift_is_informational_not_gate_worthy(self):
+        from deepcompare.progress import regressions_in
+        for result in (self.result, compare_progress(self.after, self.before)):
+            findings = regressions_in(result)
+            # the gate reads nothing from the section: stripping it
+            # changes no finding, and no finding speaks its vocabulary
+            stripped = {k: v for k, v in result.items()
+                        if k != "consolidated_shift"}
+            self.assertEqual(findings, regressions_in(stripped))
+            for finding in findings:
+                self.assertNotIn("confirmed", finding)
+                self.assertNotIn("consolidat", finding)
+                self.assertNotIn("reproducible", finding)
+
+
 if __name__ == "__main__":
     unittest.main()

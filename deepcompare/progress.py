@@ -336,6 +336,136 @@ def _diagnosis_shift(before: dict, after: dict) -> dict:
     return {"tasks": tasks, "note": note}
 
 
+def _consolidated_status(entry: dict) -> tuple:
+    """(status, kind, statement, failure_verdict) for a per_task_agent entry.
+
+    An entry with failures always carries a consolidated verdict, whose
+    status vocabulary (confirmed/refuted/reproducible/unstable/single_run/
+    all_contested) never collides with the failure-reproduction verdicts;
+    an entry without failures has no consolidated verdict, and its status
+    here is the reproduction verdict itself: ``no failures``.
+    """
+    repro = entry.get("failure_reproduction") or {}
+    failure_verdict = repro.get("verdict") or "no failures"
+    consolidated = entry.get("consolidated")
+    if consolidated:
+        return (consolidated.get("status"), consolidated.get("kind"),
+                consolidated.get("statement"), failure_verdict)
+    return failure_verdict, None, None, failure_verdict
+
+
+def _consolidated_row(task: str, agent: str,
+                      before: dict, after: dict) -> Optional[dict]:
+    """One transition row, or None when nothing moved for this pair.
+
+    Confirmations outrank everything: an executed check appearing or
+    disappearing across a fix is the highest-signal transition a
+    consolidation can make.  A flaky failure that stops appearing keeps
+    its flakiness in the sentence — three clean runs of a 2-of-3 flake
+    are weaker evidence than three clean runs of a reproducible failure.
+    """
+    b_status, b_kind, _, b_repro = _consolidated_status(before)
+    a_status, a_kind, a_statement, a_repro = _consolidated_status(after)
+
+    verdict = None
+    if b_status == "confirmed" and a_status == "confirmed":
+        if b_kind != a_kind:
+            verdict = f"confirmed cause shifted: {b_kind} → {a_kind}"
+    elif a_status == "confirmed":
+        verdict = f"now confirmed: {a_statement}"
+    elif b_status == "confirmed":
+        verdict = f"was confirmed by an executed check, now {a_status}"
+    elif b_repro == "flaky" and a_repro == "no failures":
+        k = (before.get("failure_reproduction") or {}).get("k")
+        n = (before.get("failure_reproduction") or {}).get("n")
+        verdict = (f"flaky failure resolved — though a {k} of {n} flake "
+                   "can pass a re-run by luck")
+    elif b_status == "reproducible" and a_status == "no failures":
+        verdict = "reproducible cause resolved"
+    elif a_status == "no failures" and b_status != "no failures":
+        verdict = f"{b_status} before, now no failures"
+    elif b_status == "no failures" and a_status != "no failures":
+        verdict = f"no failures before, now {a_status}"
+    elif (b_status == "reproducible" and a_status == "reproducible"
+          and b_kind != a_kind):
+        verdict = f"reproducible cause shifted: {b_kind} → {a_kind}"
+    elif b_repro == "flaky" and a_repro == "reproducible":
+        verdict = "flaky failure now reproducible — it fails every run"
+    elif b_repro == "reproducible" and a_repro == "flaky":
+        verdict = "reproducible failure now flaky — it fails only some runs"
+    elif b_status != a_status:
+        verdict = f"status changed: {b_status} → {a_status}"
+    elif b_kind != a_kind:
+        verdict = f"cause shifted: {b_kind} → {a_kind}"
+
+    if verdict is None:
+        return None
+    return {"task": task, "agent": agent, "before_status": b_status,
+            "after_status": a_status, "verdict": verdict}
+
+
+def _consolidated_shift(before_agg: dict, after_agg: dict) -> dict:
+    """Did the fix move the *cross-run* verdicts?  Consolidated diagnoses
+    per (task, agent), before vs after.
+
+    Informational only — nothing here feeds ``regressions_in``.  Both
+    batches must carry ``diagnosis_consolidated`` (only runs-command
+    outputs do); a single-run batch on either side yields an empty section
+    with the reason stated.  Unchanged entries produce no row: only
+    transitions are reported, and a confirmation appearing or disappearing
+    across a fix is called out as the high-signal event it is.
+    """
+    before_c = before_agg.get("diagnosis_consolidated")
+    after_c = after_agg.get("diagnosis_consolidated")
+    if not isinstance(before_c, dict) or not isinstance(after_c, dict):
+        return {"entries": [],
+                "note": "no cross-run consolidation in one or both batches"}
+
+    def index(block: dict) -> dict:
+        return {(e.get("task"), e.get("agent")): e
+                for e in (block.get("per_task_agent") or [])
+                if e.get("task") and e.get("agent")}
+
+    before_index, after_index = index(before_c), index(after_c)
+    shared = sorted(set(before_index) & set(after_index))
+    entries = []
+    for task, agent in shared:
+        row = _consolidated_row(task, agent,
+                                before_index[(task, agent)],
+                                after_index[(task, agent)])
+        if row is not None:
+            entries.append(row)
+
+    note = None
+    if entries:
+        resolved = sum(1 for e in entries if "resolved" in e["verdict"])
+        confirmed_now = sum(1 for e in entries
+                            if e["verdict"].startswith("now confirmed"))
+        confirmed_lost = sum(1 for e in entries
+                             if e["verdict"].startswith("was confirmed"))
+        shifted = sum(1 for e in entries if "shifted" in e["verdict"])
+        bits = []
+        if resolved:
+            bits.append(f"{resolved} resolved")
+        if confirmed_now:
+            bits.append(f"{confirmed_now} newly confirmed by an executed "
+                        "check")
+        if confirmed_lost:
+            bits.append(f"{confirmed_lost} lost a confirmation")
+        if shifted:
+            bits.append(f"{shifted} shifted cause")
+        other = len(entries) - sum(
+            1 for e in entries
+            if "resolved" in e["verdict"]
+            or e["verdict"].startswith(("now confirmed", "was confirmed"))
+            or "shifted" in e["verdict"])
+        if other:
+            bits.append(f"{other} moved in other ways")
+        note = (f"Of {len(shared)} (task, agent) pair(s) consolidated in "
+                f"both runs, {len(entries)} moved: " + "; ".join(bits) + ".")
+    return {"entries": entries, "note": note}
+
+
 def compare_progress(before_dir, after_dir) -> dict:
     """The before batch against the after batch, in the triage's own terms."""
     before = _load_batch(before_dir)
@@ -420,6 +550,8 @@ def compare_progress(before_dir, after_dir) -> dict:
         "efficiency_shift": _efficiency_shift(before["aggregate"],
                                               after["aggregate"]),
         "diagnosis_shift": _diagnosis_shift(before, after),
+        "consolidated_shift": _consolidated_shift(before["aggregate"],
+                                                  after["aggregate"]),
         "actions": actions,
         "action_counts": counts,
         "new_issues": new_fingerprints,
