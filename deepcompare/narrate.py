@@ -196,6 +196,21 @@ def narration_brief(report: dict) -> dict:
                   "the diagnosis is contested: no single hypothesis clears "
                   "the runner-up by the lead margin; see the discriminating "
                   "checks on each hypothesis", None)
+        decisive = diagnosis.get("decisive_step") or {}
+        if decisive.get("step") is not None:
+            _fact(facts, "diagnosis.decisive_step",
+                  f"decisive step {decisive['step']} "
+                  f"({decisive.get('criterion')}): {decisive.get('basis')}",
+                  {"step": decisive["step"]})
+        elif decisive.get("reason"):
+            _fact(facts, "diagnosis.decisive_step",
+                  f"no decisive step committed: {decisive['reason']}", None)
+        for entry in diagnosis.get("causal_account") or []:
+            text = f"account step {entry.get('step')}: {entry.get('happened')}"
+            if entry.get("mechanism"):
+                text += f" — {entry['mechanism']}"
+            _fact(facts, "diagnosis.account", text,
+                  {"step": entry.get("step")})
         confidence = diagnosis.get("confidence") or {}
         if confidence.get("level"):
             _fact(facts, "diagnosis.confidence",

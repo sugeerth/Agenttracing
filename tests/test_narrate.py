@@ -344,5 +344,66 @@ class TestCrossRunFactsInAggregateBrief(unittest.TestCase):
             [])
 
 
+class TestDecisiveStepAndAccountInBrief(unittest.TestCase):
+    """The pair brief carries the decisive step (or its abstention reason)
+    and the mechanism-labelled causal account, verbatim."""
+
+    @classmethod
+    def setUpClass(cls):
+        from deepcompare.report import compare
+        from deepcompare.trace import Trajectory
+        cls.compare = staticmethod(compare)
+        globals()["compare"] = compare
+        root = Path(__file__).resolve().parent.parent
+        a = Trajectory.from_json(
+            str(root / "demo/traces/t05_flight_duration__atlas-v2.json"))
+        b = Trajectory.from_json(
+            str(root / "demo/traces/t05_flight_duration__bolt-v3.json"))
+        cls.brief = narration_brief(compare(a, b))
+        a2 = Trajectory.from_json(
+            str(root / "demo/process/traces/p01_cancel_booking__steady-v1.json"))
+        b2 = Trajectory.from_json(
+            str(root / "demo/process/traces/p01_cancel_booking__hasty-v2.json"))
+        cls.grader_brief = narration_brief(compare(a2, b2))
+
+    def _facts(self, brief, source):
+        return [f["text"] for f in brief["facts"] if f["source"] == source]
+
+    def test_decisive_step_fact_carries_criterion_and_basis(self):
+        facts = self._facts(self.brief, "diagnosis.decisive_step")
+        self.assertEqual(len(facts), 1)
+        self.assertIn("decisive step 1", facts[0])
+        self.assertIn("earliest step whose correction", facts[0])
+
+    def test_abstention_reason_is_a_fact_not_an_omission(self):
+        facts = self._facts(self.grader_brief, "diagnosis.decisive_step")
+        self.assertEqual(len(facts), 1)
+        self.assertIn("no decisive step committed", facts[0])
+        self.assertIn("grader or label", facts[0])
+
+    def test_account_facts_carry_their_mechanisms(self):
+        facts = self._facts(self.brief, "diagnosis.account")
+        self.assertTrue(facts)
+        joined = " ".join(facts)
+        self.assertIn("word overlap", joined)
+        self.assertIn("typed claim provenance", joined)
+
+    def test_account_numbers_enter_the_allowed_set(self):
+        result = check_narration(
+            self.brief,
+            "the fault propagated with word overlap 0.29 into the answer")
+        self.assertTrue(result["faithful"])
+        wrong = check_narration(self.brief, "word overlap 0.87")
+        self.assertFalse(wrong["faithful"])
+
+    def test_reports_without_decisive_step_still_brief(self):
+        stripped = {"task": {"id": "t", "prompt": "p"},
+                    "a": {"agent": {"name": "x"}, "outcome": {}, "steps": []},
+                    "b": {"agent": {"name": "y"}, "outcome": {}, "steps": []}}
+        brief = narration_brief(stripped)
+        self.assertEqual(
+            self._facts(brief, "diagnosis.decisive_step"), [])
+
+
 if __name__ == "__main__":
     unittest.main()
