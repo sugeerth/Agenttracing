@@ -224,16 +224,26 @@ there is a scored miss, not a near-hit. The hard corpus exposed two
 more engine bugs before they were fixed (a shared fact both runs read
 was being blamed as "the wrong fact"; a 70%-covered answer that flatly
 contradicted the expected one still counted as a grader-suspect
-"match"). Current measurement: kind 18/18, step 14/14 exact, abstention
-4/4, chain recovery 0.89 recall / 0.95 precision, with CI floors at
-0.75/0.6/0.75 and 0.7/0.8 for chains. The residual chain-recall gap is
-the honest boundary of lexical matching — a reason step saying the
-gateway "is down" shares almost no tokens with "503 Service
-Unavailable", and the engine reports such links as untraced rather
-than inventing them; typed claim provenance closes the gap wherever
-a contradicting value can be followed step to step. The corpus is deliberately small
-and synthetic: it proves the machinery against known ground truth, it
-does not claim field accuracy.
+"match"). Handcrafted corpus: kind 20/20, step 16/16 exact, abstention
+4/4, chain recovery 0.94 recall / 0.93 precision.
+
+The benchmark then went procedural: `demo/diagnosis_bench/
+generate_scale.py --pairs N` composes eleven cause families across
+domains, trace lengths and distractors with mechanically derived truth
+(seeded, byte-identical per N; `agentdiff bench <dir> --strict` gates on
+the shared floors). At 2,200 generated pairs the measured scorecard is
+**cause kind 0.981, decisive step 1600/1600 exact, abstention 0.932,
+chain recovery 0.931 recall / 0.951 precision** — and the scaled sweep
+is the loop's teacher: it caught an incoherent implant, a coverage rule
+that credited wrong-valued answers, an alignment artefact fixed by the
+twin rule (a step the other run also took verbatim cannot be the
+anchor), and the paraphrase blind spot that became the typed-value
+grader rule. The `paraphrase_grader` family remains the corpus's
+deliberate open challenge: reworded-but-correct answers whose
+valueless-domain cases are expected misses that stay in the measured
+number, because a benchmark containing only what the diagnoser already
+gets right measures nothing. All corpora are synthetic: they prove the
+machinery against known ground truth, they do not claim field accuracy.
 
 ## Quick start
 
