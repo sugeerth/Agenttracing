@@ -249,6 +249,15 @@ PROCESS_FLAGS = (
     "budget_pressure", "undeclared_tools", "invented_arguments",
     "schema_violation",
 )
+#: Adjudicated-diagnosis kinds that carry their own mappings.  ``divergence``
+#: and ``process_pathology`` are deliberately absent: they route through the
+#: divergence kinds and process flags above, and mapping them twice would
+#: double-count the same evidence.  ``budget_pressure`` likewise defers to
+#: its process flag.
+DIAGNOSIS_KINDS = (
+    "environment_error", "harness_termination", "wrong_fact_propagation",
+    "grader_or_label",
+)
 
 
 # --------------------------------------------------------------------------
@@ -496,7 +505,58 @@ _PROCESS_MAP: tuple[Mapping, ...] = (
 )
 
 #: The whole table, divergences first then process flags, in signal order.
-MAPPINGS: tuple[Mapping, ...] = _DIVERGENCE_MAP + _PROCESS_MAP
+#: Adjudicated-diagnosis kind -> taxonomy codes.  A diagnosis kind is a
+#: *verdict*: it won an adjudication against rival hypotheses, so where a
+#: flag says "this happened", a leading kind says "this is the best
+#: explanation".  The mappings are correspondingly firmer where the verdict
+#: matches a leaf — and the grader verdict maps to nothing in either
+#: taxonomy, which is itself a finding worth publishing.
+_DIAGNOSIS_MAP: tuple[Mapping, ...] = (
+    # environment_error ---------------------------------------------------
+    _m("environment_error", "diagnosis", "TRAIL",
+       "system_execution.api_issues.service_errors", "direct",
+       "An environment-led diagnosis is an abandoned declared error at the "
+       "decisive step, confirmed against rival hypotheses rather than merely "
+       "flagged; TRAIL's service-errors leaf is exactly that event."),
+    _m("environment_error", "diagnosis", "MAST", "1.1", "none",
+       "MAST has no system-execution bucket at all (its documented gap): an "
+       "unrecovered 503 that ends the run is unlabellable in MAST, however "
+       "confidently it was diagnosed."),
+    # harness_termination -------------------------------------------------
+    _m("harness_termination", "diagnosis", "TRAIL",
+       "system_execution.resource_management.timeout_issues", "partial",
+       "A harness kill is infrastructure ending the run; whether it was a "
+       "timeout, a crash or an operator action is not in the trace, so "
+       "TRAIL's timeout leaf is the nearest, not a certain, fit."),
+    _m("harness_termination", "diagnosis", "MAST", "1.1", "none",
+       "Out of scope for MAST for the same reason as environment errors: "
+       "the taxonomy does not model the infrastructure that runs the agent."),
+    # wrong_fact_propagation ----------------------------------------------
+    _m("wrong_fact_propagation", "diagnosis", "TRAIL",
+       "reasoning.information_processing.poor_information_retrieval",
+       "partial",
+       "The traced wrong value typically enters from a weak or stale "
+       "source; claim provenance shows WHERE it entered, not why the source "
+       "was wrong. When the agent faithfully repeats a tool's stale answer, "
+       "TRAIL's hallucination leaves do not apply — nothing was invented."),
+    _m("wrong_fact_propagation", "diagnosis", "MAST", "1.1", "partial",
+       "The propagated value makes the final output contradict the expected "
+       "answer, which is a specification violation only at that endpoint; "
+       "MAST has no mode for the origin or the propagation itself."),
+    # grader_or_label ------------------------------------------------------
+    _m("grader_or_label", "diagnosis", "TRAIL",
+       "reasoning.output_generation.instruction_non_compliance", "none",
+       "Both taxonomies label failures of the agent or its system; neither "
+       "has a category for the EVALUATOR being wrong. The diagnosis's "
+       "strongest verdict about a mislabel is invisible to both — a "
+       "coverage gap worth naming."),
+    _m("grader_or_label", "diagnosis", "MAST", "3.3", "none",
+       "MAST 3.3 (incorrect verification) is about the agent's own "
+       "verification, not the benchmark's grader; there is no mode for a "
+       "wrong ground-truth label."),
+)
+
+MAPPINGS: tuple[Mapping, ...] = _DIVERGENCE_MAP + _PROCESS_MAP + _DIAGNOSIS_MAP
 
 
 def mapping_table(source: Optional[str] = None) -> list[dict]:

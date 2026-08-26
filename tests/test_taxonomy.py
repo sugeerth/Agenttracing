@@ -133,15 +133,21 @@ class MappingTest(unittest.TestCase):
         for mapping in tx.MAPPINGS:
             with self.subTest(signal=mapping.signal, code=mapping.code):
                 self.assertIn(mapping.confidence, tx.CONFIDENCES)
-                self.assertIn(mapping.source, ("divergence", "process_flag"))
+                self.assertIn(mapping.source,
+                              ("divergence", "process_flag", "diagnosis"))
                 self.assertIn(mapping.signal,
-                              tx.DIVERGENCE_KINDS + tx.PROCESS_FLAGS)
+                              tx.DIVERGENCE_KINDS + tx.PROCESS_FLAGS
+                              + tx.DIAGNOSIS_KINDS)
                 self.assertGreater(len(mapping.why), 40, "justification too thin")
 
     def test_signal_source_matches_its_vocabulary(self):
         for mapping in tx.MAPPINGS:
-            expected = ("divergence" if mapping.signal in tx.DIVERGENCE_KINDS
-                        else "process_flag")
+            if mapping.signal in tx.DIAGNOSIS_KINDS:
+                expected = "diagnosis"
+            elif mapping.signal in tx.DIVERGENCE_KINDS:
+                expected = "divergence"
+            else:
+                expected = "process_flag"
             self.assertEqual(mapping.source, expected, mapping.signal)
 
     def test_every_agentdiff_signal_appears_in_the_table(self):
@@ -195,7 +201,9 @@ class MappingTest(unittest.TestCase):
         self.assertEqual(len(first), len(tx.MAPPINGS))
         divergence = tx.mapping_table("divergence")
         flags = tx.mapping_table("process_flag")
-        self.assertEqual(len(divergence) + len(flags), len(first))
+        diagnosis = tx.mapping_table("diagnosis")
+        self.assertEqual(len(divergence) + len(flags) + len(diagnosis),
+                         len(first))
         self.assertTrue(all(row["name"] for row in first))
 
 
@@ -243,7 +251,9 @@ class CoverageTest(unittest.TestCase):
     def test_headline_numbers(self):
         self.assertEqual(self.coverage["mast"]["reachable"], 5)
         self.assertEqual(self.coverage["mast"]["total"], 14)
-        self.assertEqual(self.coverage["trail"]["reachable"], 13)
+        # 14 since the adjudicated-diagnosis mappings: a harness kill
+        # reaches TRAIL's timeout leaf (partial)
+        self.assertEqual(self.coverage["trail"]["reachable"], 14)
         self.assertEqual(self.coverage["trail"]["total"], 20)
 
     def test_every_unreached_mode_is_reported_as_unreachable_with_a_reason(self):
@@ -287,13 +297,14 @@ class CoverageTest(unittest.TestCase):
     def test_trail_system_execution_is_mostly_out_of_reach(self):
         system = self.coverage["trail"]["by_branch"]["System Execution Errors"]
         self.assertEqual(system["total"], 8)
-        self.assertEqual(system["reachable"], 3)
+        # 4 since the diagnosis mappings: timeout_issues is reached by the
+        # harness_termination verdict (partial)
+        self.assertEqual(system["reachable"], 4)
         blockers = {row["code"]: row["blocker"]
                     for row in self.coverage["trail"]["unreachable"]}
         for code in ("system_execution.api_issues.rate_limiting",
                      "system_execution.api_issues.authentication_errors",
-                     "system_execution.api_issues.resource_not_found",
-                     "system_execution.resource_management.timeout_issues"):
+                     "system_execution.api_issues.resource_not_found"):
             self.assertEqual(blockers[code], "label_vocabulary")
 
     def test_per_category_totals_sum_to_the_taxonomy(self):
