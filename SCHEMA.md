@@ -1581,3 +1581,13 @@ application of the same exclusivity principle:
   adjudication's own bookkeeping: statuses in vocabulary, scores in
   [0, 1], `leading` naming a hypothesis actually marked leading. Its
   docstring states the boundary: empty means GROUNDED, not TRUE.
+- **Known limit: carriage vs assertion** — claim evidence reads typed
+  values out of step text without distinguishing a value the agent
+  asserted from one it merely carried (an echoed tool payload, a quoted
+  document). The exclusivity rules bound the damage — a value the
+  passing run also carried can anchor nothing — but a failing run that
+  merely quotes a wrong value it never acted on can still anchor a
+  wrong-fact hypothesis. This stays a named limit rather than a
+  heuristic patch: telling assertion from carriage needs evidence the
+  trace format does not yet record (which step consumed the value),
+  and guessing would trade a visible limit for invisible errors.
