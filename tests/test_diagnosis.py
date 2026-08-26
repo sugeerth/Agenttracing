@@ -342,5 +342,117 @@ class TestErrorPrecedesDivergence(unittest.TestCase):
             check_diagnosis(self.diag, self.report, self.a, self.b), [])
 
 
+class TestRedTeamRules(unittest.TestCase):
+    """Adversarial pairs from an independent red-team evaluation, kept as
+    fixtures so the inversions they exposed can never silently return.
+
+    Each pair was built to make the engine tell a confident wrong story:
+    a negated answer that lexically matches the expected one, a wrong
+    entity dressed in the right sentence shape, an agent-invented
+    argument whose rejection looks environmental, and a duplicated write
+    whose repetition IS the failure.  The fixes are exclusivity rules,
+    not scenario-specific patches — these tests pin the rules.
+    """
+
+    FIXTURES = Path(__file__).resolve().parent / "fixtures" / "redteam"
+
+    @classmethod
+    def _diagnose(cls, name):
+        a = Trajectory.from_json(str(cls.FIXTURES / f"{name}__fail.json"))
+        b = Trajectory.from_json(str(cls.FIXTURES / f"{name}__pass.json"))
+        report = compare(a, b)
+        return a, b, report, report["diagnosis"]
+
+    def test_negated_answer_cannot_put_the_grader_in_the_lead(self):
+        # a1: the failing answer is the expected answer with "not"
+        # inserted — high lexical overlap, opposite meaning.  A
+        # negator-count mismatch voids grader coverage support, so the
+        # grader hypothesis has no answer evidence and must not lead.
+        a, b, report, diag = self._diagnose("a1_negation")
+        self.assertIsNone(diag["leading"])
+        grader = next(h for h in diag["hypotheses"]
+                      if h["kind"] == "grader_or_label")
+        self.assertFalse(grader["answer_evidence"])
+        self.assertNotEqual(grader["status"], "leading")
+        self.assertEqual(check_diagnosis(diag, report, a, b), [])
+
+    def test_clean_gap_alone_is_not_answer_evidence(self):
+        # a10: the failing answer swaps two names — the sentence shape
+        # matches, the meaning does not, and the run is procedurally
+        # clean.  A grader hypothesis whose only support is the absence
+        # of process flags may stay plausible but can never lead.
+        a, b, report, diag = self._diagnose("a10_name_swap")
+        self.assertIsNone(diag["leading"])
+        grader = next(h for h in diag["hypotheses"]
+                      if h["kind"] == "grader_or_label")
+        self.assertFalse(grader["answer_evidence"])
+        self.assertEqual(check_diagnosis(diag, report, a, b), [])
+
+    def test_invented_argument_outranks_the_grader_story(self):
+        # a2: the agent charged the wrong entity with an argument value
+        # that appears nowhere upstream.  The invention is the exclusive
+        # measured anomaly and must lead.
+        a, b, report, diag = self._diagnose("a2_wrong_entity")
+        lead = _leading(diag)
+        self.assertIsNotNone(lead)
+        self.assertEqual(lead["kind"], "process_pathology")
+        self.assertEqual(lead["flag"], "invented_arguments")
+        self.assertEqual(check_diagnosis(diag, report, a, b), [])
+
+    def test_garbage_argument_error_is_not_pinned_on_the_environment(self):
+        # a3: a tool correctly rejects an agent-invented argument —
+        # error=true and abandonment make it LOOK environmental, and the
+        # replay discriminator would confirm the wrong story (a garbage
+        # call errors deterministically).  The grounding dock keeps the
+        # environment from leading and flips its discriminator to a
+        # provenance-first check.
+        a, b, report, diag = self._diagnose("a3_garbage_args")
+        self.assertIsNone(diag["leading"])
+        env = next(h for h in diag["hypotheses"]
+                   if h["kind"] == "environment_error")
+        self.assertNotEqual(env["status"], "leading")
+        self.assertIn("garbage in", env["statement"])
+        self.assertIn("provenance", env["discriminator"])
+        self.assertTrue(env["contradicts"])
+        self.assertEqual(check_diagnosis(diag, report, a, b), [])
+
+    def test_extra_write_twin_anchors_the_duplicate_not_the_answer(self):
+        # a5: the failing run charged the customer twice; every step has
+        # an exact twin in the passing run EXCEPT that the write appears
+        # once more.  The twin rule's write exception must let the
+        # duplicated charge anchor the divergence — not the answer step.
+        a, b, report, diag = self._diagnose("a5_dup_causal")
+        lead = _leading(diag)
+        self.assertIsNotNone(lead)
+        self.assertEqual(lead["kind"], "divergence")
+        self.assertEqual(lead["root"], 2)
+        self.assertEqual(diag["decisive_step"]["step"], 2)
+        self.assertEqual(check_diagnosis(diag, report, a, b), [])
+
+    def test_extra_read_twins_stay_excused(self):
+        # The refinement that keeps the write exception from regressing
+        # distractor scenarios: a duplicated READ is alignment noise, not
+        # a cause.  Duplicating a1's read step must not hand it the
+        # divergence anchor — the anchor stays on the genuinely divergent
+        # reasoning step that follows it.
+        raw = json.loads(
+            (self.FIXTURES / "a1_negation__fail.json").read_text())
+        read = dict(raw["steps"][1])
+        read["index"] = 2
+        raw["steps"] = (raw["steps"][:2] + [read]
+                        + [dict(s, index=s["index"] + 1)
+                           for s in raw["steps"][2:]])
+        with tempfile.TemporaryDirectory() as tmp:
+            mutated = Path(tmp) / "fail.json"
+            mutated.write_text(json.dumps(raw))
+            a = Trajectory.from_json(str(mutated))
+            b = Trajectory.from_json(
+                str(self.FIXTURES / "a1_negation__pass.json"))
+            diag = compare(a, b)["diagnosis"]
+        divergence = next(h for h in diag["hypotheses"]
+                          if h["kind"] == "divergence")
+        self.assertEqual(divergence["root"], 3)
+
+
 if __name__ == "__main__":
     unittest.main()

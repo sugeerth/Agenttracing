@@ -1,0 +1,81 @@
+{
+ "schema_version": 1,
+ "trace_id": "a5_dup_causal-steady-v1",
+ "agent": {
+  "name": "steady-v1",
+  "model": "model-x",
+  "version": "1"
+ },
+ "task": {
+  "id": "a5_dup_causal",
+  "prompt": "Charge customer C-889 the $250.00 consultation fee exactly once.",
+  "expected": "Customer C-889 charged $250.00 exactly once."
+ },
+ "outcome": {
+  "success": true,
+  "answer": "Customer C-889 charged $250.00 exactly once.",
+  "score": 1.0,
+  "termination": "agent_stop"
+ },
+ "totals": {
+  "input_tokens": 400,
+  "output_tokens": 160,
+  "cost_usd": 0.001,
+  "latency_s": 4.0
+ },
+ "steps": [
+  {
+   "type": "plan",
+   "name": "plan",
+   "input": "Verify the fee, then charge once.",
+   "output": "",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "index": 0
+  },
+  {
+   "type": "tool_call",
+   "name": "get_fee",
+   "input": "get_fee(customer='C-889')",
+   "output": "Consultation fee for C-889: $250.00.",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "effect": "read",
+   "error": false,
+   "index": 1
+  },
+  {
+   "type": "tool_call",
+   "name": "charge_customer",
+   "input": "charge_customer(customer='C-889', amount='250.00')",
+   "output": "Charged $250.00 to C-889.",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "effect": "write",
+   "error": false,
+   "index": 2
+  },
+  {
+   "type": "answer",
+   "name": "final",
+   "input": "Customer C-889 charged $250.00 exactly once.",
+   "output": "Customer C-889 charged $250.00 exactly once.",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "index": 3
+  }
+ ],
+ "tools": [
+  {
+   "name": "get_fee",
+   "effect": "read"
+  },
+  {
+   "name": "charge_customer",
+   "effect": "write"
+  }
+ ],
+ "budget": {
+  "max_steps": 12
+ }
+}

@@ -344,10 +344,27 @@ class TestDiagnosisShift(unittest.TestCase):
         return matches[0]
 
     def test_same_leading_kind_is_cause_unchanged(self):
-        entry = self.entry(self.shift, "p02_book_flight")
+        # A batch compared against itself is the one construction where
+        # "cause unchanged" is guaranteed by real engine output rather
+        # than by an expectation about a particular trace pair.
+        result = compare_progress(self.before, self.before)
+        entry = self.entry(result["diagnosis_shift"], "p01_cancel_booking")
         self.assertEqual(entry["before"], "grader_or_label")
         self.assertEqual(entry["after"], "grader_or_label")
         self.assertEqual(entry["verdict"], "cause unchanged")
+        self.assertEqual(entry["agent"], "steady-v1")
+
+    def test_contested_in_both_runs_is_stated_plainly(self):
+        # p02's failing agent (hasty-v2) raises process flags its clean
+        # counterpart does not, so a matching answer alone can no longer
+        # put the grader in the lead: the diagnosis is honestly contested
+        # — in both batches, since the fix left p02 untouched.
+        entry = self.entry(self.shift, "p02_book_flight")
+        self.assertIsNone(entry["before"])
+        self.assertIsNone(entry["after"])
+        self.assertEqual(entry["verdict"],
+                         "contested in both runs — no single cause led "
+                         "either time")
         self.assertEqual(entry["agent"], "hasty-v2")
 
     def test_a_changed_leading_kind_is_a_shift_naming_both(self):
