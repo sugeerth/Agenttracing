@@ -39,6 +39,16 @@
         ".dx-verdict.contested{border-left-color:var(--warn)}",
         ".dx-verdict .k{display:block;font-size:10.5px;text-transform:uppercase;",
         "letter-spacing:.08em;color:var(--ink-3);font-weight:700;margin-bottom:3px}",
+        ".dx-decisive{border:1px solid var(--rule);border-left:3px solid var(--accent);",
+        "border-radius:7px;background:var(--surface-2);padding:7px 10px;margin:0 0 10px;",
+        "font-size:12.5px;line-height:1.5;color:var(--ink)}",
+        ".dx-decisive .k{display:block;font-size:10.5px;text-transform:uppercase;",
+        "letter-spacing:.08em;color:var(--ink-3);font-weight:700;margin-bottom:3px}",
+        ".dx-decisive b{color:var(--accent)}",
+        ".dx-decisive .dx-crit{display:block;font-size:10.5px;color:var(--ink-3);",
+        "margin-top:2px}",
+        ".dx-decisive.abstain{border-left-style:dashed;border-left-color:var(--rule-2);",
+        "color:var(--ink-2)}",
         ".dx-list{list-style:none;margin:0;padding:0}",
         ".dx-row{border-top:1px solid var(--rule)}",
         ".dx-row:first-child{border-top:none}",
@@ -77,6 +87,26 @@
         "border-color:color-mix(in srgb, var(--warn) 45%, transparent)}",
         ".dx-settle{font-size:11.5px;line-height:1.55;color:var(--ink-2);margin:6px 0 0}",
         ".dx-settle b{color:var(--ink)}",
+        ".dx-causal{border-top:1px solid var(--rule);margin-top:4px}",
+        ".dx-causal-head{display:flex;width:100%;gap:8px;align-items:baseline;",
+        "background:none;border:0;padding:8px 0;cursor:pointer;text-align:left;",
+        "font:inherit;color:inherit}",
+        ".dx-causal-title{flex:1;font-size:10.5px;text-transform:uppercase;",
+        "letter-spacing:.06em;color:var(--ink-3);font-weight:700}",
+        ".dx-causal-head:hover .dx-causal-title{color:var(--accent)}",
+        ".dx-causal.open .dx-caret{transform:rotate(90deg)}",
+        ".dx-causal-body{display:none;padding:0 0 10px 8px}",
+        ".dx-causal.open .dx-causal-body{display:block}",
+        ".dx-clist{list-style:none;margin:0;padding:0}",
+        ".dx-clist li{padding:4px 0;border-top:1px solid var(--rule)}",
+        ".dx-clist li:first-child{border-top:none}",
+        ".dx-cstep{display:block;font-size:12px;line-height:1.5;color:var(--ink)}",
+        ".dx-cstep .n{font-family:var(--mono);font-size:10.5px;color:var(--ink-2)}",
+        ".dx-mech{display:block;font-size:11px;line-height:1.5;color:var(--ink-3);",
+        "margin-top:1px;padding-left:8px;border-left:2px solid var(--rule-2)}",
+        ".dx-mech.soft{font-style:italic;border-left-style:dashed}",
+        ".dx-ceid{display:block;font-family:var(--mono);font-size:9.5px;",
+        "color:var(--ink-3);margin-top:1px;padding-left:10px}",
         ".dx-tension{border:1px solid var(--rule);border-left:3px solid var(--warn);",
         "border-radius:7px;background:var(--surface-2);padding:7px 10px;margin:10px 0 0}",
         ".dx-tension .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;",
@@ -273,6 +303,110 @@
     return row;
   }
 
+  // --------------------------------------------------- the decisive step
+
+  /* The decisive-step call, right under the verdict. A null step is an
+   * honest abstention with its reason, not a missing field — it gets a
+   * distinct muted-but-visible register instead of being dropped. */
+  function decisiveLine(ctx, decisive) {
+    var hasStep = decisive.step !== null && decisive.step !== undefined;
+    var criterion = decisive.criterion ? String(decisive.criterion) : "";
+    var line = ctx.h("div", {
+      class: "dx-decisive" + (hasStep ? "" : " abstain"),
+      title: criterion || null,
+    });
+    line.appendChild(ctx.h("span", { class: "k", text: "Decisive step" }));
+    if (hasStep) {
+      line.appendChild(ctx.h("b", { text: "Step " + decisive.step }));
+      if (decisive.basis) {
+        line.appendChild(document.createTextNode(" — " + String(decisive.basis)));
+      }
+      if (criterion) {
+        line.appendChild(ctx.h("span", { class: "dx-crit", text: criterion }));
+      }
+    } else {
+      line.appendChild(document.createTextNode(
+        "No decisive step: " + String(decisive.reason || "")));
+    }
+    return line;
+  }
+
+  // --------------------------------------------------- the causal account
+
+  /* Is this link's mechanism merely positional — adjacency in the trace —
+   * rather than a measured propagation? The wording stays the data's own;
+   * only the visual register (italic, dashed accent) is ours. */
+  function isPositionalMechanism(mechanism) {
+    return /\b(adjacency|positional)\b/i.test(mechanism) &&
+           mechanism.indexOf("measured") < 0;
+  }
+
+  //: one causal link, verbatim: "step N — happened", mechanism underneath.
+  function causalRow(ctx, link) {
+    var kids = [
+      ctx.h("span", { class: "dx-cstep" }, [
+        ctx.h("span", { class: "n", text: "step " + link.step }),
+        " — " + String(link.happened || ""),
+      ]),
+    ];
+    if (link.mechanism !== null && link.mechanism !== undefined) {
+      var mechanism = String(link.mechanism);
+      var soft = isPositionalMechanism(mechanism);
+      kids.push(ctx.h("span", {
+        class: "dx-mech" + (soft ? " soft" : ""),
+        text: mechanism,
+        title: soft
+          ? "adjacency/positional link — not a measured propagation"
+          : null,
+      }));
+    }
+    var eids = Array.isArray(link.evidence) ? link.evidence : [];
+    if (eids.length) {
+      kids.push(ctx.h("span", { class: "dx-ceid", text: eids.join(" ") }));
+    }
+    return ctx.h("li", null, kids);
+  }
+
+  /* The step-by-step account of how the fault travelled, collapsible in the
+   * block's details-on-demand pattern. Every string is the report's own. */
+  function causalSection(ctx, account, sectionKey) {
+    var open = !!openRows[sectionKey];
+    var section = ctx.h("div", { class: "dx-causal" + (open ? " open" : "") });
+
+    var head = ctx.h("button", {
+      class: "dx-causal-head", type: "button",
+      "aria-expanded": open ? "true" : "false",
+      title: open ? "Collapse the causal account"
+                  : "Expand: how the fault travelled, step by step",
+    }, [
+      ctx.h("span", {
+        class: "dx-causal-title",
+        text: "Causal account — " + account.length + " step" +
+              (account.length === 1 ? "" : "s"),
+      }),
+      ctx.h("span", { class: "dx-caret", text: "▸" }),
+    ]);
+    head.addEventListener("click", function () {
+      openRows[sectionKey] = !openRows[sectionKey];
+      section.classList.toggle("open", !!openRows[sectionKey]);
+      head.setAttribute("aria-expanded", openRows[sectionKey] ? "true" : "false");
+      head.setAttribute("title", openRows[sectionKey]
+        ? "Collapse the causal account"
+        : "Expand: how the fault travelled, step by step");
+      ctx.signal("inspect");
+    });
+
+    var body = ctx.h("div", { class: "dx-causal-body" }, [
+      ctx.h("ol", { class: "dx-clist" }, account.map(function (link) {
+        return causalRow(ctx, link);
+      })),
+    ]);
+
+    section.appendChild(head);
+    section.appendChild(body);
+    return section;
+  }
+
   // ============================================================ the block
 
   AgentDiff.block({
@@ -320,6 +454,13 @@
       verdict.appendChild(document.createTextNode(String(diag.verdict || "")));
       el.appendChild(verdict);
 
+      // 1b. The decisive step — the earliest correction expected to flip
+      // the outcome, or the stated reason there is none.
+      var decisive = diag.decisive_step;
+      if (decisive && typeof decisive === "object") {
+        el.appendChild(decisiveLine(ctx, decisive));
+      }
+
       // 2. The hypotheses, in the order the report ranked them.
       var byId = evidenceIndex(diag);
       var taskKey = (report.task && report.task.id ? report.task.id : "?");
@@ -329,6 +470,12 @@
         list.appendChild(hypothesisRow(ctx, report, diag, byId, hypothesis, rowKey));
       });
       el.appendChild(list);
+
+      // 2b. The causal account — how the fault travelled, step by step.
+      var account = Array.isArray(diag.causal_account) ? diag.causal_account : [];
+      if (account.length) {
+        el.appendChild(causalSection(ctx, account, taskKey + ":causal-account"));
+      }
 
       // 3. Cross-signal conflicts, stated plainly whoever wins.
       var tensions = Array.isArray(diag.contradictions) ? diag.contradictions : [];

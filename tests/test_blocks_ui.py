@@ -477,6 +477,165 @@ class DiagnosisBlockTest(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
                      "playwright + chromium required for browser tests")
+class DecisiveStepBlockTest(unittest.TestCase):
+    """The Diagnosis block renders the decisive step and the causal account.
+
+    Driven by two real pair reports: t05 carries a decisive step (step 1)
+    and a causal account whose links include a measured word-overlap
+    propagation and a positional final-answer link; p01 (process demo) is
+    the honest abstention — decisive_step.step is null with a stated
+    reason, and the causal account is empty. Both are the engine's actual
+    output, not fixtures, and both must be shown verbatim.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+        t05_json = out / "t05.json"
+        subprocess.run(
+            [sys.executable, "-m", "deepcompare", "compare",
+             str(ROOT / "demo" / "traces" / "t05_flight_duration__atlas-v2.json"),
+             str(ROOT / "demo" / "traces" / "t05_flight_duration__bolt-v3.json"),
+             "-o", str(t05_json)],
+            cwd=str(ROOT), check=True, capture_output=True)
+        p01_json = out / "p01.json"
+        subprocess.run(
+            [sys.executable, "-m", "deepcompare", "compare",
+             str(ROOT / "demo" / "process" / "traces" /
+                 "p01_cancel_booking__steady-v1.json"),
+             str(ROOT / "demo" / "process" / "traces" /
+                 "p01_cancel_booking__hasty-v2.json"),
+             "-o", str(p01_json)],
+            cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+
+        from deepcompare.report import render_html
+        cls.t05 = json.loads(t05_json.read_text(encoding="utf-8"))
+        cls.p01 = json.loads(p01_json.read_text(encoding="utf-8"))
+        decisive = cls.t05["diagnosis"].get("decisive_step") or {}
+        assert decisive.get("step") is not None, "t05 pair has no decisive step"
+        assert cls.t05["diagnosis"].get("causal_account"), \
+            "t05 pair has no causal account"
+        abstain = cls.p01["diagnosis"].get("decisive_step") or {}
+        assert abstain.get("step") is None and abstain.get("reason"), \
+            "p01 pair is not the abstention case"
+        cls.t05_report = out / "t05.html"
+        render_html([cls.t05], {}, ROOT / "web" / "blocks.html", cls.t05_report)
+        cls.p01_report = out / "p01.html"
+        render_html([cls.p01], {}, ROOT / "web" / "blocks.html", cls.p01_report)
+
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(
+            executable_path="/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
+            if Path("/opt/pw-browsers/chromium-1194/chrome-linux/chrome").is_file()
+            else CHROMIUM,
+            args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def open_diagnosis(self, report):
+        context = self.browser.new_context()
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"file://{report}")
+        page.wait_for_timeout(400)
+
+        block = page.locator('.block[data-block="diagnosis"]')
+        self.assertEqual(block.count(), 1, "Diagnosis block is not on the page")
+
+        # Deep in the outcome stack the block may start collapsed; the body
+        # only renders once it is expanded, exactly as a reader would do.
+        if "collapsed" in (block.get_attribute("class") or ""):
+            block.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(250)
+            block = page.locator('.block[data-block="diagnosis"]')
+        return context, page, block, errors
+
+    def test_decisive_step_and_causal_account_render_verbatim(self):
+        context, page, block, errors = self.open_diagnosis(self.t05_report)
+        diagnosis = self.t05["diagnosis"]
+        decisive = diagnosis["decisive_step"]
+
+        # The decisive-step line, right under the verdict: step and basis
+        # visible, the criterion carried on the line itself.
+        line = block.locator(".dx-decisive")
+        self.assertEqual(line.count(), 1, "no decisive-step line")
+        line_text = line.inner_text()
+        self.assertIn(f"Step {decisive['step']}", line_text)
+        self.assertIn(decisive["basis"], line_text)
+        self.assertIn(decisive["criterion"], line_text)
+
+        # The causal account starts collapsed — details on demand.
+        account = diagnosis["causal_account"]
+        section = block.locator(".dx-causal")
+        self.assertEqual(section.count(), 1, "no causal-account section")
+        self.assertFalse(section.locator(".dx-causal-body").is_visible())
+        section.locator(".dx-causal-head").click()
+        page.wait_for_timeout(150)
+        self.assertTrue(section.locator(".dx-causal-body").is_visible())
+
+        # One row per link, in the report's own order, each quoting the
+        # happening and its mechanism verbatim — the measured word-overlap
+        # link included.
+        rows = section.locator(".dx-clist li")
+        self.assertEqual(rows.count(), len(account))
+        for i, link in enumerate(account):
+            row_text = rows.nth(i).inner_text()
+            self.assertIn(f"step {link['step']}", row_text)
+            self.assertIn(link["happened"], row_text)
+            if link.get("mechanism"):
+                self.assertIn(link["mechanism"], row_text)
+        body_text = section.locator(".dx-causal-body").inner_text()
+        self.assertIn("word overlap", body_text)
+
+        # Measured links read normal; positional/adjacency links carry the
+        # soft register, so the epistemic status is scannable.
+        for i, link in enumerate(account):
+            mechanism = link.get("mechanism") or ""
+            if not mechanism:
+                continue
+            soft = rows.nth(i).locator(".dx-mech.soft").count()
+            if "measured" in mechanism:
+                self.assertEqual(soft, 0, f"measured link {i} styled as positional")
+            elif "positional" in mechanism or "adjacency" in mechanism:
+                self.assertEqual(soft, 1, f"positional link {i} not distinguished")
+
+        self.assertEqual(errors, [], "page errors while rendering the diagnosis")
+        context.close()
+
+    def test_abstention_renders_its_reason_not_an_absence(self):
+        context, page, block, errors = self.open_diagnosis(self.p01_report)
+        decisive = self.p01["diagnosis"]["decisive_step"]
+
+        line = block.locator(".dx-decisive.abstain")
+        self.assertEqual(line.count(), 1, "no abstention line")
+        line_text = line.inner_text()
+        self.assertIn("No decisive step", line_text)
+        self.assertIn(decisive["reason"], line_text)
+        self.assertIn("no agent error to correct", line_text)
+
+        # An empty causal account gets no section, not an empty shell.
+        self.assertEqual(block.locator(".dx-causal").count(), 0)
+
+        self.assertEqual(errors, [], "page errors while rendering the abstention")
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
 class ConsolidatedDiagnosisBlockTest(unittest.TestCase):
     """The Across-runs block renders the cross-run consolidation, verbatim.
 
