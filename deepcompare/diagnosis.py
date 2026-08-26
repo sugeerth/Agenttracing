@@ -202,6 +202,17 @@ def _negator_count(text: str) -> int:
     return count
 
 
+def _invention_keys(grounding: dict) -> set:
+    """The (tool, argument, value) triples a run's grounding analysis
+    flagged as sourceless.  Exclusivity between two runs is decided on
+    these keys, never on the flag bit: both runs passing the same literal
+    keyword unsourced is shared noise, and must not mask an entity only
+    one run invented."""
+    return {(r.get("name"), r.get("argument"), r.get("value"))
+            for r in (grounding or {}).get("invented_arguments", [])
+            if isinstance(r, dict)}
+
+
 def _answer_verdict(report: dict, side: str) -> tuple[Optional[str], Optional[float]]:
     ae = report.get("answer_eval") or {}
     entry = ae.get(f"{side}_vs_expected") or {}
@@ -245,6 +256,19 @@ def _gen_grader(report: dict, side: str, traj: Trajectory, led: _Ledger) -> list
     other_gap = _side(report, other).get("gap") or {}
     exclusive_flags = (set(gap.get("raised") or [])
                        - set(other_gap.get("raised") or []))
+    # grounding inventions live outside gap.raised but are the same kind
+    # of evidence: an argument value with no source, invented by this run
+    # alone, is something that visibly went wrong in this run alone
+    # (scaled-corpus finding: an agent that wrote to an invented entity
+    # while reciting the expected sentence led grader_or_label at 1.0,
+    # because this gate only read the gap flags).  Exclusivity is decided
+    # per INVENTION, not per flag bit: a literal keyword both runs pass
+    # unsourced is shared noise, and must not mask an entity only the
+    # failing run made up.
+    ground = _side(report, side).get("grounding") or {}
+    other_ground = _side(report, other).get("grounding") or {}
+    if _invention_keys(ground) - _invention_keys(other_ground):
+        exclusive_flags = exclusive_flags | {"invented_arguments"}
     # negation guard: coverage is one-sided token containment, so
     # "BK1234 is NOT refundable" scores a perfect match against
     # "BK1234 is refundable" — the polarity mismatch IS the potential
@@ -419,6 +443,7 @@ def _gen_environment(report: dict, side: str, traj: Trajectory, led: _Ledger) ->
             "call errors deterministically, so replaying it cannot "
             "exonerate the agent — only a grounded call failing the same "
             "way would implicate the environment")
+        extra["grounding_docked"] = True
     return [{
         "kind": "environment_error", "statement": statement,
         "supports": supports, "contradicts": contradicts, "score": score,
@@ -591,11 +616,25 @@ def _gen_process(report: dict, side: str, traj: Trajectory, led: _Ledger,
     raised = gap.get("raised", []) or []
     out = []
     side_report = _side(report, side)
+    other = "b" if side == "a" else "a"
+    other_raised = set(
+        (_side(report, other).get("gap") or {}).get("raised") or [])
     for flag in raised:
         if flag == "budget_pressure":
             continue  # its own generator
         supports = []
-        for record in _flag_steps(side_report, flag)[:3]:
+        records = _flag_steps(side_report, flag)
+        if flag == "invented_arguments":
+            # evidence the exclusive inventions, not the shared noise: a
+            # literal keyword both runs pass unsourced must not take the
+            # anchor from the entity only this run made up
+            other_keys = _invention_keys(
+                _side(report, other).get("grounding") or {})
+            exclusive = [r for r in records if isinstance(r, dict)
+                         and (r.get("name"), r.get("argument"),
+                              r.get("value")) not in other_keys]
+            records = exclusive or records
+        for record in records[:3]:
             idx = record.get("index") if isinstance(record, dict) else None
             if idx is None or not (0 <= idx < len(traj.steps)):
                 continue
@@ -612,15 +651,36 @@ def _gen_process(report: dict, side: str, traj: Trajectory, led: _Ledger,
                 f"process.{side}.gap.flags.{flag}", True,
                 f"process flag {flag} raised", "measured"))
         base = 0.4 if failed else 0.3
+        statement = (
+            f"the agent {_FLAG_STATEMENTS.get(flag, flag)}"
+            + ("" if failed else
+               " — it passed anyway, so the outcome hides this"))
+        contradicts = []
+        # exclusivity: a flag the OTHER run also raises is shared
+        # behaviour, and shared behaviour cannot explain a one-sided
+        # outcome (scaled-corpus finding: both runs called an undeclared
+        # search tool, and undeclared_tools led the diagnosis of the one
+        # run that failed).  invented_arguments is compared per invention,
+        # not per flag bit — see _invention_keys.
+        shared = flag in other_raised
+        if shared and flag == "invented_arguments":
+            shared = not (
+                _invention_keys(side_report.get("grounding") or {})
+                - _invention_keys(
+                    _side(report, other).get("grounding") or {}))
+        if shared:
+            base = min(base, 0.2)
+            statement += (
+                " — but the other run raises the same flag, and shared "
+                "behaviour cannot explain a one-sided outcome")
+            contradicts.append(led.metric(
+                f"process.{other}.gap.flags.{flag}", True,
+                "the other run raises the same flag", "measured"))
         out.append({
             "kind": "process_pathology", "flag": flag,
-            "statement": (
-                f"the agent {_FLAG_STATEMENTS.get(flag, flag)}"
-                + ("" if failed else
-                   " — it passed anyway, so the outcome hides this")
-            ),
-            "supports": supports, "contradicts": [], "score": base,
-            "status": None,
+            "statement": statement,
+            "supports": supports, "contradicts": contradicts,
+            "score": base, "status": None,
         })
     return out
 
@@ -648,7 +708,9 @@ def _dedupe(refs: list[str]) -> list[str]:
     return list(dict.fromkeys(refs))
 
 
-def _fuse(raw: list[dict], report: dict, ledger: list[dict]) -> None:
+def _fuse(raw: list[dict], report: dict, ledger: list[dict],
+          traj_a: Optional[Trajectory] = None,
+          traj_b: Optional[Trajectory] = None) -> None:
     """Compose hypotheses that describe the same causal path.
 
     A structural divergence and a wrong fact are usually not competitors:
@@ -723,6 +785,13 @@ def _fuse(raw: list[dict], report: dict, ledger: list[dict]) -> None:
                     env["supports"] = _dedupe(env["supports"] + h["supports"])
                     h["status"] = "merged"
                     h["merged_into_kind"] = "environment_error"
+        # the timing boosts say WHICH anomaly came first, not WHOSE fault
+        # the error is: when the grounding dock fired, the cap it set must
+        # survive fusion, or the boosts silently undo the dock's stated
+        # ordering ("below the process hypothesis that names the
+        # invention")
+        if env.get("grounding_docked"):
+            env["score"] = min(env["score"], 0.25)
     if div is not None:
         chain = set((report.get("attribution") or {}).get("chain") or [])
         for h in raw:
@@ -731,9 +800,29 @@ def _fuse(raw: list[dict], report: dict, ledger: list[dict]) -> None:
             if h.get("status") == "merged":
                 continue
             # a flag corroborates the divergence account when its evidence
-            # spans sit on chain steps
+            # spans sit on chain steps — or on the divergent decision
+            # itself: a flag raised BY the root step is the same anomaly
+            # seen twice, not a competitor (scaled-corpus finding: four
+            # flags all describing one duplicated write contested each
+            # other while the divergence they corroborated sat at 0.25)
             h_steps = _hypothesis_span_steps(h, ledger)
-            if h_steps and h_steps & chain:
+            root = div.get("root")
+            on_root = root is not None and root in h_steps
+            # a duplicated decision is ONE anomaly with several indices:
+            # when a flag's evidence sits on a step whose (type, name,
+            # input) signature equals the root step's, it describes the
+            # same repeated decision, not a different one
+            div_traj = traj_a if div["agent"] == "a" else traj_b
+            if (not on_root and root is not None and div_traj is not None
+                    and 0 <= root < len(div_traj.steps)):
+                root_step = div_traj.steps[root]
+                root_sig = (root_step.type, root_step.name, root_step.input)
+                on_root = any(
+                    0 <= i < len(div_traj.steps)
+                    and (div_traj.steps[i].type, div_traj.steps[i].name,
+                         div_traj.steps[i].input) == root_sig
+                    for i in h_steps)
+            if h_steps and (h_steps & chain or on_root):
                 div["score"] += 0.1
                 div["supports"] = _dedupe(div["supports"] + h["supports"])
                 h["status"] = "merged"
@@ -1119,7 +1208,7 @@ def diagnose(report: dict, a: Trajectory, b: Trajectory) -> dict:
         raw += generated
 
     if mode == "single_failure":
-        _fuse(raw, report, led.items)
+        _fuse(raw, report, led.items, a, b)
 
     # rank: scored first (descending), then untestable; ties break by the
     # KINDS order and statement text so the ordering is deterministic.
@@ -1135,6 +1224,7 @@ def diagnose(report: dict, a: Trajectory, b: Trajectory) -> dict:
             h["score"] = round(max(0.0, min(1.0, h["score"])), 4)
         h["discriminator"] = h.pop("discriminator_override", None) \
             or _DISCRIMINATORS.get(h["kind"], "")
+        h.pop("grounding_docked", None)
 
     leading_id, margin = _assign_status(ranked)
     leading = next((h for h in ranked if h["id"] == leading_id), None)
@@ -1194,9 +1284,19 @@ def check_diagnosis(diagnosis: dict, report: dict,
     """Verify every evidence item against the trajectories and the report.
 
     Span evidence must quote a substring of the cited step field; metric
-    evidence must resolve to the recorded value.  Returns a list of
-    violations (empty means the diagnosis is fully grounded) — the same
-    contract ``check_narration`` applies to narration text.
+    evidence must resolve to the recorded value; hypothesis and account
+    references must point at ledger entries that exist; and the
+    adjudication's own bookkeeping must be coherent (statuses in
+    vocabulary, scores in [0, 1], ``leading`` naming a hypothesis marked
+    leading).  Returns a list of violations — the same contract
+    ``check_narration`` applies to narration text.
+
+    The boundary matters: an empty list means the diagnosis is fully
+    GROUNDED — every quote is really in the trace, every number is really
+    in the report — not that its causal story is TRUE.  A hypothesis can
+    cite real evidence and still draw the wrong conclusion from it;
+    whether the story holds is what the benchmark corpora and the
+    per-hypothesis discriminators are for.
     """
     problems = []
     for item in diagnosis.get("evidence", []):
@@ -1234,6 +1334,26 @@ def check_diagnosis(diagnosis: dict, report: dict,
                 problems.append(
                     f"causal_account step {entry.get('step')}: dangling "
                     f"evidence ref {ref}")
+    # structural sanity: the adjudication's own bookkeeping
+    statuses = {"leading", "plausible", "ruled_out", "merged", "untestable"}
+    hypotheses = diagnosis.get("hypotheses", [])
+    for h in hypotheses:
+        if h.get("status") not in statuses:
+            problems.append(
+                f"{h.get('id')}: status {h.get('status')!r} not in the "
+                f"vocabulary")
+        score = h.get("score")
+        if score is not None and not 0.0 <= score <= 1.0:
+            problems.append(f"{h.get('id')}: score {score!r} outside [0, 1]")
+    leading = diagnosis.get("leading")
+    if leading is not None:
+        lead = next((h for h in hypotheses if h.get("id") == leading), None)
+        if lead is None:
+            problems.append(f"leading {leading!r} names no hypothesis")
+        elif lead.get("status") != "leading":
+            problems.append(
+                f"leading {leading!r} has status {lead.get('status')!r}, "
+                f"not 'leading'")
     return problems
 
 
