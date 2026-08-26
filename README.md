@@ -228,21 +228,42 @@ contradicted the expected one still counted as a grader-suspect
 4/4, chain recovery 0.94 recall / 0.93 precision.
 
 The benchmark then went procedural: `demo/diagnosis_bench/
-generate_scale.py --pairs N` composes eleven cause families across
+generate_scale.py --pairs N` composes fifteen cause families across
 domains, trace lengths and distractors with mechanically derived truth
 (seeded, byte-identical per N; `agentdiff bench <dir> --strict` gates on
-the shared floors). At 2,200 generated pairs the measured scorecard is
-**cause kind 0.981, decisive step 1600/1600 exact, abstention 0.932,
-chain recovery 0.931 recall / 0.951 precision** — and the scaled sweep
-is the loop's teacher: it caught an incoherent implant, a coverage rule
-that credited wrong-valued answers, an alignment artefact fixed by the
-twin rule (a step the other run also took verbatim cannot be the
-anchor), and the paraphrase blind spot that became the typed-value
-grader rule. The `paraphrase_grader` family remains the corpus's
-deliberate open challenge: reworded-but-correct answers whose
-valueless-domain cases are expected misses that stay in the measured
-number, because a benchmark containing only what the diagnoser already
-gets right measures nothing. All corpora are synthetic: they prove the
+the shared floors). Four families — `negation_answer`, `wrong_entity`,
+`causal_duplicate`, `garbage_args` — come from an independent
+adversarial evaluation that built trace pairs to make the engine tell
+confident wrong stories; the fixes it forced are exclusivity rules, not
+scenario patches, and the attack pairs are pinned as regression
+fixtures. At 2,200 generated pairs the measured scorecard is **cause
+kind 0.849, decisive step 1576/1760 exact, abstention 0.927, chain
+recovery 0.842 recall / 0.963 precision**: the ten original families
+and the two corrected adversarial ones sit at 1.0, and every miss
+concentrates in the three named open challenges —
+`paraphrase_grader` 0.78 (reworded-but-correct answers),
+`negation_answer` 0.55 (the failing answer negates the expected one
+while reusing its tokens) and `garbage_args` 0.0 (a tool correctly
+rejecting an agent-invented argument looks environmental; the engine
+honestly contests rather than confirming either story). They stay in
+the measured number because a benchmark containing only what the
+diagnoser already gets right measures nothing.
+
+The same corpus regenerated with `--strip-annotations` — every step's
+`error`/`quality`/`note` nulled, so the engine must infer everything
+from observation text — is the de-circularized condition the
+adversarial evaluation asked for (the generator writes the very flags
+the engine reads): **cause kind 0.795, decisive step 0.703 exact,
+chain recovery 0.684 recall**, which fails the annotated-condition
+chain floor and is published anyway. The gap between the two scorecards
+is the measured value of structured step metadata, not noise. The
+scaled sweep is the loop's teacher: it caught an incoherent implant, a
+coverage rule that credited wrong-valued answers, an alignment artefact
+fixed by the twin rule (a step the other run also took verbatim cannot
+be the anchor, EXCEPT a write the failing run performed more times),
+shared-flag inversions (a pathology both runs exhibit cannot explain a
+one-sided failure), and the paraphrase blind spot that became the
+typed-value grader rule. All corpora are synthetic: they prove the
 machinery against known ground truth, they do not claim field accuracy.
 
 ## Quick start

@@ -1534,3 +1534,50 @@ re-measure. The artifacts:
   narration brief carries `diagnosis.spectrum` facts (top signature
   with its counts, or the both-classes refusal), all numbers entering
   the narrator's allowed set.
+
+## The adversarial round (v31)
+
+An independent red-team evaluation built trace pairs to make the engine
+tell confident wrong stories, and every fix it forced is another
+application of the same exclusivity principle:
+
+- **Negation guard** — a negator-count mismatch between the answer and
+  the expected answer voids the grader's coverage support ("not
+  refundable" is no near-match of "refundable", however high the
+  lexical overlap).
+- **Answer-evidence requirement** — a grader hypothesis whose only
+  support is a clean process gap carries `answer_evidence: false` and
+  may rank but never lead.
+- **Twin-rule write exception** — a write-effect step the failing run
+  performed more times than the passing run is a real anomaly and may
+  anchor (the duplicated charge IS the failure); duplicate reads stay
+  excused as alignment noise.
+- **Grounding dock** — an error on a call whose arguments have no
+  source in the trace is capped below the invention hypothesis (the cap
+  survives fusion's timing boosts) and its discriminator flips to a
+  provenance-first check, because a garbage-argument call errors
+  deterministically and replaying it cannot exonerate the agent.
+- **Shared-flag dock** — a process flag the other run also raises is
+  shared behaviour and cannot explain a one-sided outcome; for
+  `invented_arguments` exclusivity is decided per (tool, argument,
+  value) invention, never per flag bit, so a shared filler literal
+  cannot mask an entity only the failing run made up.
+- **Root-signature merge** — a flag whose evidence sits on a step with
+  the divergence root's exact (type, name, input) signature is the same
+  repeated decision, and merges into the divergence account instead of
+  contesting it.
+- **Four adversarial corpus families** — `negation_answer`,
+  `wrong_entity`, `causal_duplicate`, `garbage_args` joined the
+  procedural generator (fifteen families total); the corrected engine
+  holds the middle two at 1.0, and the other two are named open
+  challenges that stay in the measured number.
+- **The stripped condition** — `generate_scale.py --strip-annotations`
+  nulls every step's `error`/`quality`/`note` so the engine must infer
+  from observation text alone: the de-circularized scorecard is
+  published alongside the annotated one, and the gap between them is
+  the measured value of structured step metadata.
+- **`check_diagnosis` structural checks** — beyond grounding (quotes,
+  metric paths, dangling refs), the verifier now checks the
+  adjudication's own bookkeeping: statuses in vocabulary, scores in
+  [0, 1], `leading` naming a hypothesis actually marked leading. Its
+  docstring states the boundary: empty means GROUNDED, not TRUE.
