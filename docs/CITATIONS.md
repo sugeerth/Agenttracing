@@ -175,3 +175,32 @@ keeps one family the engine cannot fully solve (valueless-domain
 paraphrases) as its open challenge, on the maxim that a benchmark
 containing only what the diagnoser already gets right measures
 nothing.
+
+## The adversarial round (implementation record, Aug 2026)
+
+Self-measurement has a ceiling: a generator written by the engine's
+author samples the author's imagination. An independent adversarial
+evaluation was pointed at the engine with instructions to make it tell
+confident wrong stories, and it did — a negated answer that lexically
+matched the expected one led the grader hypothesis at margin 1.0; a
+wrong entity dressed in the right sentence shape did the same; a tool
+correctly rejecting an agent-invented argument was pinned on the
+environment, with a replay discriminator that would have confirmed the
+wrong story. The fixes continued the same principle's application
+list: (5) a negator-count mismatch between answer and expected voids
+coverage support — polarity is the one thing word overlap cannot read;
+(6) a grader hypothesis with no evidence from the answer itself may
+rank but never lead; (7) the twin rule gains a write exception — a
+write the failing run performed more times than the passing run is a
+real anomaly and may anchor, because the duplicated charge IS the
+failure; (8) an error on an argument with no source is capped below
+the invention hypothesis (the cap surviving fusion's timing boosts)
+and its discriminator flips to provenance-first; (9) a process flag
+both runs raise is docked as shared behaviour, with exclusivity for
+invented arguments decided per (tool, argument, value) invention so a
+shared filler literal cannot mask the entity only the failing run made
+up. The attack pairs are pinned as regression fixtures, four
+adversarial families joined the corpus (two solved, two as named open
+challenges), and the corpus regenerated with `--strip-annotations`
+publishes the de-circularized scorecard beside the annotated one — the
+gap between them is the measured value of structured step metadata.
