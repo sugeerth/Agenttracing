@@ -611,6 +611,17 @@ def _cmd_runs(args: argparse.Namespace) -> int:
         print(f"  {entry['task']} / {entry['agent']} "
               f"(fails {repro['k']} of {repro['n']}): "
               f"[{verdict['status']}] {verdict['statement']}")
+        spectrum = entry.get("spectrum") or {}
+        if spectrum.get("measurable"):
+            for row in spectrum["signatures"][:3]:
+                step = row["step"]
+                print(f"    spectrum {row['suspiciousness']:.2f}  "
+                      f"{step['name']}({step['input'][:50]!r}) — in "
+                      f"{row['in_failing']} of {row['of_failing']} failing, "
+                      f"{row['in_passing']} of {row['of_passing']} passing "
+                      f"run(s)")
+        elif spectrum.get("note"):
+            print(f"    spectrum: {spectrum['note']}")
     print(f"  {consolidated['narrative']}")
     _print_reliability(reliability_analysis)
     return 0

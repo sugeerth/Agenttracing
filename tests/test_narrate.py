@@ -405,5 +405,48 @@ class TestDecisiveStepAndAccountInBrief(unittest.TestCase):
             self._facts(brief, "diagnosis.decisive_step"), [])
 
 
+class TestSpectrumFactsInAggregateBrief(unittest.TestCase):
+    """The aggregate brief carries spectrum facts — the top suspicious
+    signature with its counts, or the honest both-classes refusal."""
+
+    @classmethod
+    def setUpClass(cls):
+        import glob
+        from deepcompare.consolidate import consolidate_diagnoses
+        from deepcompare.metrics import aggregate as build_aggregate
+        from deepcompare.report import compare
+        from deepcompare.stability import medoid_pairs
+        from deepcompare.trace import Trajectory
+        root = Path(__file__).resolve().parent.parent
+        rbt = {}
+        for f in sorted(glob.glob(str(root / "demo/runs/traces/*.json"))):
+            t = Trajectory.from_json(f)
+            side = "a" if t.agent.name == "atlas-v2" else "b"
+            rbt.setdefault(t.task.id, {"a": [], "b": []})[side].append(t)
+        reports = [compare(a, b) for a, b in medoid_pairs(rbt)]
+        agg = build_aggregate(reports)
+        agg["diagnosis_consolidated"] = consolidate_diagnoses(rbt)
+        cls.brief = narration_brief(agg)
+        cls.facts = [f["text"] for f in cls.brief["facts"]
+                     if f["source"] == "diagnosis.spectrum"]
+
+    def test_measurable_spectrum_becomes_a_fact_with_counts(self):
+        measurable = [t for t in self.facts if "suspiciousness" in t]
+        self.assertTrue(measurable)
+        self.assertIn("2 of 2 failing", measurable[0])
+        self.assertIn("0 of 1 passing", measurable[0])
+
+    def test_refusals_are_facts_too(self):
+        refusals = [t for t in self.facts if "needs both classes" in t]
+        self.assertTrue(refusals)
+
+    def test_spectrum_numbers_enter_the_allowed_set(self):
+        result = check_narration(
+            self.brief,
+            "the suspicious call appears in 2 of 2 failing runs and 0 of "
+            "1 passing runs (suspiciousness 1.0)")
+        self.assertTrue(result["faithful"])
+
+
 if __name__ == "__main__":
     unittest.main()

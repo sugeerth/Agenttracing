@@ -308,6 +308,23 @@ def _aggregate_brief(aggregate: dict) -> dict:
                   f"executed check {check.get('check')} "
                   f"({check.get('outcome')}): {check.get('detail')}",
                   None)
+        spectrum = entry.get("spectrum") or {}
+        if spectrum.get("measurable") and spectrum.get("signatures"):
+            top = spectrum["signatures"][0]
+            step = top.get("step") or {}
+            _fact(facts, "diagnosis.spectrum",
+                  f"spectrum ({spectrum.get('method')}): most suspicious "
+                  f"signature for {entry.get('agent')} on "
+                  f"{entry.get('task')} is {step.get('name')}"
+                  f"({step.get('input')!r}) — suspiciousness "
+                  f"{top.get('suspiciousness')}, in {top.get('in_failing')} "
+                  f"of {top.get('of_failing')} failing and "
+                  f"{top.get('in_passing')} of {top.get('of_passing')} "
+                  f"passing run(s)", top)
+        elif spectrum.get("note"):
+            _fact(facts, "diagnosis.spectrum",
+                  f"spectrum for {entry.get('agent')} on "
+                  f"{entry.get('task')}: {spectrum['note']}", None)
     if consolidated.get("narrative"):
         _fact(facts, "diagnosis.cross_run", consolidated["narrative"], None)
 

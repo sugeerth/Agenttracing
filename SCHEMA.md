@@ -1495,3 +1495,42 @@ already in the chain are skipped (a repeated call is a pathology, not
 propagation), and the benchmark scores the account as `chain_recovery`
 (mean recall/precision against the implanted propagation path, with
 scenarios that produced no account counted at recall 0, never skipped).
+
+## The measured eval, and the rules it forced (v30)
+
+Everything from v29 onward is driven by one loop: measure the diagnoser
+against implanted ground truth, fix the miss families principledly,
+re-measure. The artifacts:
+
+- **`agentdiff bench [traces] [--strict] [-o out.json]`** — the
+  scorecard CLI. Floors live in `bench.FLOORS`, shared verbatim with the
+  test suite; `--strict` exits non-zero on any floor violation.
+- **Multi-cause scoring** — manifest scenarios may carry `secondary`
+  kinds; leading with only the secondary is its own `secondary_only`
+  outcome, and the `multi_cause` metric counts whether the secondary
+  stayed visible among the hypotheses.
+- **The procedural corpus** — `demo/diagnosis_bench/generate_scale.py
+  --pairs N` composes eleven cause families across domains, lengths and
+  distractors with mechanically derived truth (seeded; byte-identical
+  per N). The `paraphrase_grader` family is the deliberate open
+  challenge: reworded-but-correct answers whose valueless-domain cases
+  are expected misses that stay in the measured number.
+- **Anchor rules the eval forced, all instances of one exclusivity
+  principle** (shared evidence cannot explain a one-sided failure):
+  a claim the passing run also carries neither anchors the wrong-fact
+  hypothesis nor contradicts the grader hypothesis; an exclusive
+  contradicting claim voids the grader's coverage support outright; the
+  **twin rule** advances the divergence anchor past any step whose
+  (type, name, input) has an exact twin in the other run; and the
+  typed-value grader rule (a clean failure whose answer asserts the
+  exact expected value) is gated on flags *exclusive* to the failing
+  side, not absolute cleanliness.
+- **Account adjacency rules** — a repeated declared error is part of
+  the fault's story (never skipped as a duplicate), and a reason step
+  immediately following an on-chain declared error joins as the agent's
+  response, labelled `adjacency, declared — not traced propagation`.
+- **Spectrum surfaced** — the `runs` command prints per-signature
+  suspiciousness under each cross-run entry, and the aggregate
+  narration brief carries `diagnosis.spectrum` facts (top signature
+  with its counts, or the both-classes refusal), all numbers entering
+  the narrator's allowed set.
