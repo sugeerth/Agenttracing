@@ -239,6 +239,33 @@ def _gen_grader(report: dict, side: str, traj: Trajectory, led: _Ledger) -> list
         supports.append(led.metric(
             f"process.{side}.gap.verdict", "failed but clean",
             "nothing in the process visibly went wrong", "measured"))
+    # The typed counterpart of coverage: word overlap cannot see a
+    # paraphrase, but claim extraction can — a clean-process failure whose
+    # ANSWER asserts the exact typed value the expected answer asserts is
+    # grader-suspect however the sentence is worded.  The process gate is
+    # exclusivity, not absolute cleanliness: a flag the PASSING run also
+    # raises is shared behaviour and cannot explain a one-sided failure,
+    # so only flags exclusive to the failing side block this rule (a
+    # right-words-no-deed run raises its pathology alone and stays
+    # blocked).  Voided like everything else by asserts_wrong_value.
+    other_gap = _side(report, other).get("gap") or {}
+    exclusive_flags = (set(gap.get("raised") or [])
+                       - set(other_gap.get("raised") or []))
+    if not asserts_wrong_value and not exclusive_flags:
+        answer_idx = len(traj.steps) - 1
+        for i, claim in enumerate(
+                (report.get("semantic") or {}).get("claims", [])):
+            if (claim.get("matches_expected") is True
+                    and answer_idx in (claim.get(f"{side}_steps") or [])):
+                # weighted on par with near-total lexical coverage (~0.9
+                # with the clean bonus): typed equality reads the value
+                # that coverage cannot, and is no weaker evidence
+                score += 0.75
+                supports.append(led.metric(
+                    f"semantic.claims[{i}].value", claim.get("value"),
+                    "the answer asserts the exact value the expected "
+                    "answer asserts (typed claim match)", "measured"))
+                break
     for i, claim in enumerate((report.get("semantic") or {}).get("claims", [])):
         if claim.get("matches_expected") is not False:
             continue

@@ -38,8 +38,26 @@ PASS_AGENT = ("steady-v1", "claude-sonnet-5")
 FAMILIES = (
     "grader_mislabel", "harness_kill", "environment_fault", "wrong_fact",
     "blind_write", "divergence_only", "late_symptom", "distractor",
-    "cascade", "multi_cause",
+    "cascade", "multi_cause", "paraphrase_grader",
 )
+
+#: paraphrase_grader is the corpus's deliberate open challenge: the failing
+#: answer REWORDS the expected answer (same content, distant tokens), so
+#: lexical coverage straddles the engine's grader floor and some scenarios
+#: are expected to be missed.  They stay in the corpus and in the measured
+#: number — a benchmark containing only what the diagnoser already gets
+#: right measures nothing.  (A contested-by-construction family was
+#: considered and rejected on principle: whether a diagnosis is contested
+#: depends on the engine's scoring margins, so encoding "contested" as
+#: ground truth would bake engine internals into the corpus.)
+PARAPHRASES = {
+    "booking": "A full refund of {v} was issued after cancelling {e}.",
+    "specs": "On a full charge, expect {v} of battery from the {e}.",
+    "invoice": "After applying the discount, {e} comes to {v} in total.",
+    "sla": "Priority-1 incidents under the {e} tier are answered within "
+           "{v}.",
+    "ticket": "The registered address from the CRM is now on ticket {e}.",
+}
 
 DOMAINS = {
     "booking": {
@@ -321,7 +339,19 @@ def _scenario(family, index, rng):
              "params": {"domain": domain_name, "fillers": fillers}}
     fail_term = "agent_stop"
 
-    if family == "grader_mislabel":
+    if family == "paraphrase_grader":
+        fail = [json.loads(json.dumps(s)) for s in passing]
+        fail[-2]["input"] = "Same finding, stated in my own words."
+        fail[-1] = _answer(PARAPHRASES[domain_name].format(e=entity,
+                                                           v=true_value))
+        entry.update(acceptable=["grader_or_label"], decisive_steps=[],
+                     chain=[],
+                     note="the failing answer REWORDS the expected answer "
+                          "(same content, distant tokens); clean process — "
+                          "an expected-miss family probing the lexical "
+                          "grading boundary")
+
+    elif family == "grader_mislabel":
         fail = [json.loads(json.dumps(s)) for s in passing]
         fail[-1] = _answer(task["expected"] + " Confirmed against the "
                            "primary source.")

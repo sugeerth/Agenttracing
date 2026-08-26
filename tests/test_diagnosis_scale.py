@@ -66,11 +66,29 @@ class TestScaledBenchmark(unittest.TestCase):
             + repr(self.result["misses"][:5]
                    + self.result["step_misses"][:5]))
 
-    def test_abstention_is_perfect_where_no_step_exists(self):
-        # grader mislabels and harness kills at scale: naming a step for
-        # any of them would be a spurious_step miss
-        self.assertEqual(self.result["abstention"]["correct"],
-                         self.result["abstention"]["total"])
+    def test_abstention_holds_where_no_step_exists(self):
+        # grader mislabels, harness kills and paraphrased-answer cases:
+        # naming a step for any of them is a spurious_step miss.  Not
+        # pinned at perfect: the paraphrase_grader family is the corpus's
+        # deliberate open challenge, and its valueless-domain scenarios
+        # (no typed claim to match) are expected misses that stay in the
+        # measured number
+        abst = self.result["abstention"]
+        self.assertGreaterEqual(abst["correct"] / abst["total"], 0.75)
+
+    def test_paraphrase_challenge_is_measured_not_hidden(self):
+        # the open-challenge family must exist, be hard, and be visible:
+        # typed-value domains are recovered by the claim-match rule, the
+        # valueless ones stay as honest misses
+        bucket = self.result["by_cause"].get("paraphrase_grader")
+        self.assertIsNotNone(bucket)
+        self.assertGreaterEqual(bucket["accuracy"], 0.5)
+        self.assertLessEqual(bucket["accuracy"], 1.0)
+        for m in self.result["misses"]:
+            if m["truth"] == "paraphrase_grader":
+                self.assertIn("ticket", m["scenario"],
+                              "only valueless domains may miss: "
+                              + m["scenario"])
 
     def test_secondary_contributors_stay_visible_at_scale(self):
         multi = self.result["multi_cause"]
