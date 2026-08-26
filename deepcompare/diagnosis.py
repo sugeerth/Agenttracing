@@ -185,6 +185,23 @@ def _side(report: dict, side: str) -> dict:
     return report.get("process", {}).get(side, {}) or {}
 
 
+#: tokens that flip the polarity of a sentence.  A coverage "match" whose
+#: sides disagree on how many of these they contain may be asserting the
+#: opposite of the expected answer with a near-perfect token overlap.
+NEGATORS = frozenset((
+    "not", "no", "never", "cannot", "without", "unable", "failed",
+    "refused", "except", "neither", "nor",
+))
+
+
+def _negator_count(text: str) -> int:
+    import re
+    tokens = re.findall(r"[a-z']+", (text or "").lower())
+    count = sum(1 for token in tokens if token in NEGATORS)
+    count += sum(1 for token in tokens if token.endswith("n't"))
+    return count
+
+
 def _answer_verdict(report: dict, side: str) -> tuple[Optional[str], Optional[float]]:
     ae = report.get("answer_eval") or {}
     entry = ae.get(f"{side}_vs_expected") or {}
@@ -208,6 +225,7 @@ def _gen_grader(report: dict, side: str, traj: Trajectory, led: _Ledger) -> list
         }]
     supports, contradicts = [], []
     score = 0.0
+    answer_evidence = False
     other = "b" if side == "a" else "a"
     # an exclusive typed claim contradicting the expected answer voids the
     # coverage evidence entirely: the answer demonstrably asserts a wrong
@@ -216,14 +234,35 @@ def _gen_grader(report: dict, side: str, traj: Trajectory, led: _Ledger) -> list
         claim.get("matches_expected") is False
         and claim.get(f"{side}_steps") and not claim.get(f"{other}_steps")
         for claim in (report.get("semantic") or {}).get("claims", []))
+    # the process gate, shared by both answer-evidence branches: a flag
+    # exclusive to the failing side means something DID go visibly wrong
+    # in this run alone, and blaming the grader over it is not supported
+    # (a flag the passing run also raises is shared behaviour and blocks
+    # nothing — red-team finding: the coverage branch used to skip this
+    # gate, so an agent acting on an invented entity while reciting the
+    # expected sentence led grader_or_label)
+    gap = _side(report, side).get("gap") or {}
+    other_gap = _side(report, other).get("gap") or {}
+    exclusive_flags = (set(gap.get("raised") or [])
+                       - set(other_gap.get("raised") or []))
+    # negation guard: coverage is one-sided token containment, so
+    # "BK1234 is NOT refundable" scores a perfect match against
+    # "BK1234 is refundable" — the polarity mismatch IS the potential
+    # contradiction, and word overlap cannot vouch across it
+    expected_text = ae.get("expected") or ""
+    answer_text = (traj.steps[-1].output if traj.steps else "") or ""
+    negator_mismatch = (_negator_count(answer_text)
+                        != _negator_count(expected_text))
     # "match" from the coverage metric is only grader-suspect evidence when
     # the coverage is near-total: an answer containing 70% of the expected
     # words can still contradict it outright (the missing 30% IS the
     # contradiction), so partial coverage earns nothing here.
-    if (not asserts_wrong_value
+    if (not asserts_wrong_value and not exclusive_flags
+            and not negator_mismatch
             and verdict == "match" and coverage is not None
             and float(coverage) >= GRADER_COVERAGE_FLOOR):
         score += 0.5 + 0.4 * float(coverage)
+        answer_evidence = True
         supports.append(led.metric(
             f"answer_eval.{side}_vs_expected.coverage", coverage,
             "answer matches the expected answer", "measured"))
@@ -233,7 +272,6 @@ def _gen_grader(report: dict, side: str, traj: Trajectory, led: _Ledger) -> list
             supports.append(led.span(
                 side, answer_step, "output", quote,
                 "the emitted answer, for hand re-grading", "measured"))
-    gap = _side(report, side).get("gap") or {}
     if gap.get("verdict") == "failed but clean":
         score += 0.35
         supports.append(led.metric(
@@ -248,10 +286,8 @@ def _gen_grader(report: dict, side: str, traj: Trajectory, led: _Ledger) -> list
     # so only flags exclusive to the failing side block this rule (a
     # right-words-no-deed run raises its pathology alone and stays
     # blocked).  Voided like everything else by asserts_wrong_value.
-    other_gap = _side(report, other).get("gap") or {}
-    exclusive_flags = (set(gap.get("raised") or [])
-                       - set(other_gap.get("raised") or []))
-    if not asserts_wrong_value and not exclusive_flags:
+    if (not asserts_wrong_value and not exclusive_flags
+            and not negator_mismatch):
         answer_idx = len(traj.steps) - 1
         for i, claim in enumerate(
                 (report.get("semantic") or {}).get("claims", [])):
@@ -261,6 +297,7 @@ def _gen_grader(report: dict, side: str, traj: Trajectory, led: _Ledger) -> list
                 # with the clean bonus): typed equality reads the value
                 # that coverage cannot, and is no weaker evidence
                 score += 0.75
+                answer_evidence = True
                 supports.append(led.metric(
                     f"semantic.claims[{i}].value", claim.get("value"),
                     "the answer asserts the exact value the expected "
@@ -293,6 +330,11 @@ def _gen_grader(report: dict, side: str, traj: Trajectory, led: _Ledger) -> list
         "statement": statement,
         "supports": supports, "contradicts": contradicts,
         "score": score, "status": None,
+        # a clean process alone says nothing about the LABEL: without
+        # evidence from the answer itself, this hypothesis may rank but
+        # must never lead (red-team finding: a sole clean-gap grader
+        # hypothesis led by default when no rival was generated)
+        "answer_evidence": answer_evidence,
     }]
 
 
@@ -347,11 +389,41 @@ def _gen_environment(report: dict, side: str, traj: Trajectory, led: _Ledger) ->
     first_error = next(
         (e.get("index") for e in rec.get("error_steps", [])
          if e.get("index") is not None), None)
+    # Grounding dock (red-team finding: an agent-invented argument that a
+    # tool correctly rejects LOOKS environmental — error=true, abandoned —
+    # and the replay discriminator would then confirm the wrong story,
+    # because a garbage-argument call errors deterministically).  If the
+    # failing call carries an argument with no source in the trace, the
+    # error is at least as likely the agent's garbage in as the
+    # environment's fault: dock the score below the process hypothesis
+    # that names the invention, and flip the discriminator.
+    ground = _side(report, side).get("grounding") or {}
+    ungrounded_error = any(
+        isinstance(record, dict) and record.get("index") == first_error
+        for record in ground.get("invented_arguments", []))
+    contradicts: list = []
+    extra: dict = {}
+    if ungrounded_error:
+        score = min(score, 0.25)
+        statement += (
+            " — but the failing call's arguments have no source in the "
+            "trace, so the error may be the agent's own garbage in, not "
+            "the environment's fault")
+        contradicts.append(led.metric(
+            f"process.{side}.grounding.arguments_without_source",
+            ground.get("arguments_without_source"),
+            "the failing call used argument values with no source",
+            "measured"))
+        extra["discriminator_override"] = (
+            "check the argument's provenance FIRST: a garbage-argument "
+            "call errors deterministically, so replaying it cannot "
+            "exonerate the agent — only a grounded call failing the same "
+            "way would implicate the environment")
     return [{
         "kind": "environment_error", "statement": statement,
-        "supports": supports, "contradicts": [], "score": score,
+        "supports": supports, "contradicts": contradicts, "score": score,
         "status": None, "error_step": first_error,
-        "abandoned": bool(abandoned),
+        "abandoned": bool(abandoned), **extra,
     }]
 
 
@@ -421,15 +493,34 @@ def _gen_divergence(report: dict, side: str, traj: Trajectory, led: _Ledger) -> 
     # The twin rule (the exclusivity principle, third application): a step
     # the other run also took verbatim cannot be the decisive decision —
     # only which COPY of it the aligner matched differs, and that is an
-    # alignment artefact, not a divergence.  Advance the anchor to the
-    # first step with no exact twin in the other run, stopping before the
-    # answer so a degenerate case keeps a bounded anchor.
+    # alignment artefact, not a divergence.  One exception, from the red
+    # team's causal-duplicate inversion (a byte-identical double charge):
+    # a WRITE-effect step whose signature the failing run performed MORE
+    # times than the other run is never excused — repeating a write
+    # changes external state however identical the text, so the extra
+    # copies ARE the divergence.  Extra READ copies stay excusable: a
+    # repeated read is the non-causal pathology the rule was built for.
+    # Advance to the first non-excusable step, stopping before the answer
+    # so a degenerate case keeps a bounded anchor.
+    from collections import Counter
+
     other = "b" if side == "a" else "a"
-    other_sigs = {(s.get("type"), s.get("name"), s.get("input"))
-                  for s in (report.get(other) or {}).get("steps", [])}
-    while (root < len(traj.steps) - 1
-           and (traj.steps[root].type, traj.steps[root].name,
-                traj.steps[root].input) in other_sigs):
+    other_sig_counts = Counter(
+        (s.get("type"), s.get("name"), s.get("input"))
+        for s in (report.get(other) or {}).get("steps", []))
+    own_sig_counts = Counter((s.type, s.name, s.input) for s in traj.steps)
+
+    def _excusable_twin(idx: int) -> bool:
+        step = traj.steps[idx]
+        sig = (step.type, step.name, step.input)
+        if sig not in other_sig_counts:
+            return False
+        if (step.effect == "write"
+                and own_sig_counts[sig] > other_sig_counts[sig]):
+            return False
+        return True
+
+    while root < len(traj.steps) - 1 and _excusable_twin(root):
         root += 1
     category = _root_category(traj, root, divergences[0].get("kind", "divergence"))
     supports, contradicts = [], []
@@ -682,7 +773,9 @@ def _assign_status(ranked: list[dict]) -> tuple[Optional[str], Optional[float]]:
         top = scored[0]
         runner = scored[1]["score"] if len(scored) > 1 else 0.0
         margin = round(top["score"] - runner, 4)
-        if top["score"] >= PLAUSIBLE_FLOOR and (
+        eligible = not (top["kind"] == "grader_or_label"
+                        and not top.get("answer_evidence", True))
+        if eligible and top["score"] >= PLAUSIBLE_FLOOR and (
                 len(scored) == 1 or margin >= LEAD_MARGIN):
             leading_id = top["id"]
     for h in ranked:
@@ -1040,7 +1133,8 @@ def diagnose(report: dict, a: Trajectory, b: Trajectory) -> dict:
         h["id"] = f"H{i + 1}"
         if h["score"] is not None:
             h["score"] = round(max(0.0, min(1.0, h["score"])), 4)
-        h["discriminator"] = _DISCRIMINATORS.get(h["kind"], "")
+        h["discriminator"] = h.pop("discriminator_override", None) \
+            or _DISCRIMINATORS.get(h["kind"], "")
 
     leading_id, margin = _assign_status(ranked)
     leading = next((h for h in ranked if h["id"] == leading_id), None)
