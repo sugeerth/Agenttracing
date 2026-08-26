@@ -149,3 +149,29 @@ reproduce the documented failure mode — quiet early cause, loud late
 symptom, plus non-causal distractor pathologies; (3) step-level scoring
 (exact and ±1) alongside kind accuracy, with abstention correctness as
 its own metric.
+
+## The measured-eval loop (implementation record, Aug 2026)
+
+The survey above ended with a gap: nothing committed to a decisive step
+and nothing measured localization. Closing it became a loop that ran
+its own protocol — benchmark, triage the misses by family, fix the
+engine or the corpus principledly, re-measure — and the loop's yield
+was rules, each one an instance of a single principle:
+
+**Shared evidence cannot explain a one-sided failure.** Its
+applications, in the order the eval forced them: (1) a claim the
+passing run also carries neither anchors the wrong-fact hypothesis nor
+contradicts the grader hypothesis; (2) an exclusive contradicting
+claim voids the grader's coverage support outright — word overlap
+cannot vouch for a number it cannot read; (3) the twin rule — a step
+whose (type, name, input) has an exact twin in the other run cannot be
+the decisive decision, however the aligner paired the copies; (4) the
+typed-value grader rule is gated on flags exclusive to the failing
+side, because a flag the passing run also raises is shared behaviour.
+
+Each rule exists because a specific measured miss family demanded it,
+and each is pinned by the scenario family that found it. The corpus
+keeps one family the engine cannot fully solve (valueless-domain
+paraphrases) as its open challenge, on the maxim that a benchmark
+containing only what the diagnoser already gets right measures
+nothing.

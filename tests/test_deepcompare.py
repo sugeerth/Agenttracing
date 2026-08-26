@@ -1123,5 +1123,26 @@ class TestDiagnosedFingerprintKind(unittest.TestCase):
         self.assertEqual(_diagnosed_kind(report), "reasoning")
 
 
+class TestSpotlightDecisiveSteps(unittest.TestCase):
+    """A spotlight rationale involving a failure anchors at the loser's
+    decisive step, not just the score gap."""
+
+    def test_failure_spotlights_name_the_decisive_step(self):
+        result = fleet_analysis(fleet_fixture())
+        fleet = result["fleet"]
+        reports = result["reports"]
+        for pair in fleet["spotlight_pairs"]:
+            picked = [reports[i] for i in pair["report_indices"]]
+            has_decisive = any(
+                (r.get("diagnosis") or {}).get("mode") == "single_failure"
+                and ((r.get("diagnosis") or {}).get("decisive_step")
+                     or {}).get("step") is not None
+                for r in picked)
+            if has_decisive:
+                self.assertIn("decisive step", pair["why"], pair)
+            else:
+                self.assertNotIn("decisive step", pair["why"], pair)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -423,9 +423,24 @@ def fleet_analysis(
     for x, y, why in spotlight_specs:
         picked = _pick_spotlight_tasks(by_agent[x], by_agent[y], task_ids)
         indices = []
+        decisive_note = None
         for _tid, report in picked:
             indices.append(len(spotlight_reports))
             spotlight_reports.append(report)
+            # the first single-failure report with a committed decisive
+            # step gives the rationale its anchor: not just WHO differs,
+            # but the step where the loser's run went wrong
+            if decisive_note is None:
+                diag = report.get("diagnosis") or {}
+                decisive = diag.get("decisive_step") or {}
+                if (diag.get("mode") == "single_failure"
+                        and decisive.get("step") is not None):
+                    decisive_note = (
+                        f"decisive step {decisive['step']} on "
+                        f"{report['task']['id']} for "
+                        f"{diag.get('subject_name')}: {decisive.get('basis')}")
+        if decisive_note:
+            why = f"{why} {decisive_note}."
         spotlight_pairs.append({"a": x, "b": y, "why": why, "report_indices": indices})
 
     fleet = {
