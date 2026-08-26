@@ -2,7 +2,7 @@
 
 The handcrafted corpus proves the machinery; the procedural corpus
 (demo/diagnosis_bench/generate_scale.py) measures the diagnoser on cases
-nobody hand-tuned it against — 10 cause families x domains x lengths x
+nobody hand-tuned it against — 15 cause families x domains x lengths x
 distractors, ground truth derived from construction.  CI runs a 200-pair
 sample (10x the handcrafted corpus); the full 2,000-pair run is one CLI
 command away and, being seeded from the same generator, measures the
@@ -150,6 +150,98 @@ class TestScaleCaughtBugsStayFixed(unittest.TestCase):
             if r["cause"] in ("wrong_fact", "cascade", "late_symptom"):
                 self.assertNotIn("grader_or_label", r["actual"],
                                  r["scenario"])
+
+    def test_invented_entities_never_lead_grader(self):
+        # the g0027 inversion, pinned: an agent that wrote to an invented
+        # entity while reciting the expected sentence led grader_or_label
+        # at 1.0, because the exclusive-flags gate read only the gap flags
+        # and a shared filler literal masked the exclusive invention
+        for r in self.result["results"]:
+            if r["cause"] == "wrong_entity":
+                self.assertNotIn("grader_or_label", r["actual"],
+                                 r["scenario"])
+                self.assertEqual(r["outcome"], "correct", r["scenario"])
+
+    def test_duplicated_writes_are_one_account_not_a_contest(self):
+        # the g0013 inversion, pinned: four flags all describing the same
+        # duplicated write contested each other while the divergence they
+        # corroborated sat at 0.25 — flags on the root's signature merge
+        for r in self.result["results"]:
+            if r["cause"] == "causal_duplicate":
+                self.assertEqual(r["outcome"], "correct", r["scenario"])
+
+    def test_adversarial_open_challenges_stay_measured(self):
+        # negation_answer and garbage_args are expected-miss families:
+        # they must exist in the corpus and in the scorecard, and their
+        # misses must be honest (contested, or a named wrong lead) — a
+        # corpus that quietly dropped them would measure nothing new
+        for family in ("negation_answer", "garbage_args"):
+            self.assertIn(family, self.result["by_cause"], family)
+            bucket = self.result["by_cause"][family]
+            self.assertGreater(bucket["total"], 0)
+
+
+class TestStrippedAnnotations(unittest.TestCase):
+    """--strip-annotations: the de-circularized measurement condition.
+
+    The generator writes the very flags the engine reads, so the
+    annotated scorecard partly measures agreement with its own labels.
+    The stripped corpus nulls every step's error/quality/note; the
+    engine must infer from observation text alone.  The stripped numbers
+    are published, not gated — they fail the annotated-condition chain
+    floor and that gap is the measured value of structured metadata.
+    """
+
+    PAIRS = 45  # three per family: enough to prove the mechanics
+
+    @classmethod
+    def setUpClass(cls):
+        cls.generator = _load_generator()
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.out = Path(cls.tmp.name)
+        cls.manifest = cls.generator.generate(cls.out, cls.PAIRS, strip=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_every_annotation_is_nulled(self):
+        import json
+        for sc in self.manifest["scenarios"]:
+            for name in (sc["fail"], sc["pass"]):
+                raw = json.loads((self.out / name).read_text())
+                for step in raw["steps"]:
+                    for field in ("error", "quality", "note"):
+                        self.assertIsNone(step.get(field),
+                                          f"{name} step {step['index']} "
+                                          f"kept {field}")
+
+    def test_the_manifest_declares_the_condition(self):
+        self.assertTrue(self.manifest["stripped"])
+        with tempfile.TemporaryDirectory() as tmp:
+            annotated = self.generator.generate(Path(tmp), self.PAIRS)
+            self.assertFalse(annotated["stripped"])
+
+    def test_ground_truth_is_identical_across_conditions(self):
+        # stripping changes the traces, never the answer key: the same
+        # scenarios, causes and decisive steps in both conditions
+        with tempfile.TemporaryDirectory() as tmp:
+            annotated = self.generator.generate(Path(tmp), self.PAIRS)
+        strip_key = [{k: v for k, v in s.items()} for s in
+                     self.manifest["scenarios"]]
+        self.assertEqual(strip_key, annotated["scenarios"])
+
+    def test_stripped_generation_is_deterministic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            again = self.generator.generate(Path(tmp), self.PAIRS,
+                                            strip=True)
+            self.assertEqual(self.manifest, again)
+
+    def test_the_bench_still_runs_and_reports_honestly(self):
+        result = run_benchmark(self.out)
+        self.assertEqual(result["overall"]["total"], self.PAIRS)
+        # no floor assertion on purpose: the stripped condition is a
+        # measurement, not a gate
 
 
 if __name__ == "__main__":

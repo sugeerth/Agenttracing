@@ -5,8 +5,9 @@ Who&When Pro's contribution was scale with golden labels: thousands of
 failure trajectories built by controlled injection, because a diagnoser
 that looks perfect on a dozen handcrafted cases has been measured on its
 authors' imagination, not on the space of failures.  This generator
-composes the same ten cause families as the handcrafted corpus across
-domains, trace lengths, injection depths, paraphrase pools and optional
+composes fifteen cause families — the handcrafted corpus's ten plus
+four drawn from an independent adversarial evaluation — across domains,
+trace lengths, injection depths, paraphrase pools and optional
 distractor pathologies — every scenario with mechanically derived ground
 truth (acceptable kinds, decisive steps, propagation chain, secondary
 contributors) — so the benchmark measures the diagnoser on thousands of
@@ -39,6 +40,7 @@ FAMILIES = (
     "grader_mislabel", "harness_kill", "environment_fault", "wrong_fact",
     "blind_write", "divergence_only", "late_symptom", "distractor",
     "cascade", "multi_cause", "paraphrase_grader",
+    "negation_answer", "wrong_entity", "causal_duplicate", "garbage_args",
 )
 
 #: paraphrase_grader is the corpus's deliberate open challenge: the failing
@@ -50,6 +52,24 @@ FAMILIES = (
 #: considered and rejected on principle: whether a diagnosis is contested
 #: depends on the engine's scoring margins, so encoding "contested" as
 #: ground truth would bake engine internals into the corpus.)
+#: negation_answer, wrong_entity, causal_duplicate and garbage_args come
+#: from an independent adversarial evaluation that built trace pairs to
+#: make the diagnoser tell confident wrong stories.  The corrected engine
+#: handles wrong_entity and causal_duplicate; negation_answer and
+#: garbage_args remain expected-miss families (the engine abstains or is
+#: misled), kept in the measured number for the same reason as
+#: paraphrase_grader: a benchmark containing only what the diagnoser
+#: already gets right measures nothing.
+NEGATED = {
+    "booking": "Booking {e} was not cancelled and no refund of {v} was "
+               "issued.",
+    "specs": "The {e} battery does not last {v} on a full charge.",
+    "invoice": "Invoice {e} does not total {v} after the discount.",
+    "sla": "The {e} SLA does not guarantee a {v} response for priority-1 "
+           "incidents.",
+    "ticket": "Ticket {e} was not updated with the registered address.",
+}
+
 PARAPHRASES = {
     "booking": "A full refund of {v} was issued after cancelling {e}.",
     "specs": "On a full charge, expect {v} of battery from the {e}.",
@@ -326,6 +346,12 @@ def _scenario(family, index, rng):
     entity = domain["entity"](rng)
     true_value, wrong_value = _values(domain, rng)
     fillers = rng.randrange(0, 4)
+    # families that need a write tool degrade to a related family in
+    # write-less domains, the same way blind_write falls back
+    if family == "wrong_entity" and not domain["write_tool"]:
+        family = "garbage_args"
+    elif family == "causal_duplicate" and not domain["write_tool"]:
+        family = "divergence_only"
     sid = f"g{index:04d}_{family}_{domain_name}"
     task = {"id": sid,
             "prompt": domain["task"].format(e=entity),
@@ -569,6 +595,78 @@ def _scenario(family, index, rng):
             note="primary: the 503, abandoned; secondary: the identical "
                  "failing call repeated unchanged")
 
+    elif family == "negation_answer":
+        fail = [json.loads(json.dumps(s)) for s in passing[:inj + 1]]
+        fail.append(_step(0, "reason", "reason",
+                          "The record reads as the opposite of the "
+                          "request; reporting that it does not hold.", ""))
+        fail.append(_answer(NEGATED[domain_name].format(e=entity,
+                                                        v=true_value)))
+        reason_idx = answer_of(fail) - 1
+        entry.update(
+            acceptable=["divergence"], decisive_steps=[reason_idx],
+            chain=[reason_idx, answer_of(fail)],
+            note="the failing answer NEGATES the expected answer while "
+                 "reusing its tokens; the misreading enters at the reason "
+                 "step — an expected-miss family from the adversarial "
+                 "evaluation")
+
+    elif family == "wrong_entity":
+        other = domain["entity"](rng)
+        while other == entity:
+            other = domain["entity"](rng)
+        fail = [json.loads(json.dumps(s)) for s in passing[:inj + 1]]
+        wname, winp, wout = domain["write_tool"]
+        fail.append(_step(0, "tool_call", wname, winp.format(e=other),
+                          wout.format(e=other), effect="write",
+                          error=False))
+        fail.append(_step(0, "reason", "reason",
+                          "Change applied; reporting completion.", ""))
+        fail.append(_answer(task["expected"]))
+        write_idx = inj + 1
+        entry.update(
+            acceptable=["process_pathology:invented_arguments"],
+            decisive_steps=[write_idx],
+            chain=[write_idx, answer_of(fail)],
+            note=f"the write call targets {other}, which appears nowhere "
+                 "upstream; the answer claims success for the requested "
+                 "entity")
+
+    elif family == "causal_duplicate":
+        fail = [json.loads(json.dumps(s)) for s in passing]
+        write_idx = next(i for i, s in enumerate(fail)
+                         if s.get("effect") == "write")
+        fail.insert(write_idx + 1, json.loads(json.dumps(fail[write_idx])))
+        entry.update(
+            acceptable=["divergence"],
+            decisive_steps=[write_idx, write_idx + 1],
+            secondary=["process_pathology:repeated_calls"],
+            chain=[write_idx, write_idx + 1, answer_of(fail)],
+            note="the write ran twice where the passing run wrote once — "
+                 "the repetition IS the failure; the answer restates the "
+                 "expected text and must not hand the grader the lead")
+
+    elif family == "garbage_args":
+        garb = f"Z{rng.randrange(10**7, 10**8)}"
+        fail = [json.loads(json.dumps(s)) for s in passing[:inj]]
+        name, inp, _ = domain["read_tool"]
+        fail.append(_step(0, "tool_call", name, inp.format(e=garb),
+                          f"Error: unknown reference '{garb}' — request "
+                          "rejected.", effect="read", error=True))
+        fail.append(_step(0, "reason", "reason",
+                          "The service rejected the request; stopping "
+                          "here.", ""))
+        fail.append(_answer(f"I could not complete the task for {entity}: "
+                            f"the lookup was rejected."))
+        entry.update(
+            acceptable=["process_pathology:invented_arguments"],
+            decisive_steps=[inj],
+            chain=[inj, inj + 1, inj + 2],
+            note="the failing call's argument appears nowhere upstream — "
+                 "the rejection is the agent's own garbage in, not an "
+                 "environment fault; an expected-miss family from the "
+                 "adversarial evaluation")
+
     fail_traj = _trajectory(task, FAIL_AGENT[0], FAIL_AGENT[1], fail,
                             success=False, termination=fail_term,
                             tools=tools)
@@ -578,17 +676,35 @@ def _scenario(family, index, rng):
     return entry, fail_traj, pass_traj
 
 
-def generate(out_dir: Path, pairs: int) -> dict:
+def _strip_annotations(trajectory: dict) -> dict:
+    """Remove the structured per-step metadata a real harness may not
+    emit: error flags, quality marks and generator notes.  The engine
+    must then infer everything from the observation text alone — the
+    de-circularized measurement condition the adversarial evaluation
+    asked for (the generator writes the very flags the engine reads, so
+    the annotated scorecard partly measures agreement with its own
+    labels)."""
+    for step in trajectory["steps"]:
+        step["error"] = None
+        step["quality"] = None
+        step["note"] = None
+    return trajectory
+
+
+def generate(out_dir: Path, pairs: int, strip: bool = False) -> dict:
     rng = random.Random(SEED)
     _MONEY_USED.clear()
     out_dir.mkdir(parents=True, exist_ok=True)
     for stale in out_dir.glob("*.json"):
         stale.unlink()
-    manifest = {"version": 3, "generated": True, "pairs": pairs,
-                "seed": SEED, "scenarios": []}
+    manifest = {"version": 4, "generated": True, "pairs": pairs,
+                "seed": SEED, "stripped": bool(strip), "scenarios": []}
     for i in range(pairs):
         family = FAMILIES[i % len(FAMILIES)]
         entry, fail_traj, pass_traj = _scenario(family, i, rng)
+        if strip:
+            fail_traj = _strip_annotations(fail_traj)
+            pass_traj = _strip_annotations(pass_traj)
         (out_dir / entry["fail"]).write_text(
             json.dumps(fail_traj) + "\n", encoding="utf-8")
         (out_dir / entry["pass"]).write_text(
@@ -607,10 +723,14 @@ def main() -> int:
     parser.add_argument("-o", "--output", default=None,
                         help="output directory (default: "
                              "demo/diagnosis_bench/traces_scale)")
+    parser.add_argument("--strip-annotations", action="store_true",
+                        help="null every step's error/quality/note so the "
+                             "engine must infer from observation text — "
+                             "the de-circularized measurement condition")
     args = parser.parse_args()
     out_dir = (Path(args.output) if args.output else
                Path(__file__).resolve().parent / "traces_scale")
-    manifest = generate(out_dir, args.pairs)
+    manifest = generate(out_dir, args.pairs, strip=args.strip_annotations)
     print(f"wrote {len(manifest['scenarios'])} scenario pair(s) to "
           f"{out_dir}")
     return 0
