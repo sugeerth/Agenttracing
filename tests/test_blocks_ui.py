@@ -1035,6 +1035,50 @@ class RunLensTest(unittest.TestCase):
         self.assertEqual(errors, [])
         context.close()
 
+    def test_clicking_a_claim_edge_writes_the_readout_and_rings_both_ends(self):
+        # A claim edge is never tooltip-only: clicking it must write the
+        # claim into the persistent readout line (value verbatim, both
+        # endpoints named), ring both endpoint nodes, and move the shared
+        # cursor to the carrying A step.
+        both = [c for c in (self.pair.get("semantic") or {}).get("claims", [])
+                if c.get("a_steps") and c.get("b_steps")]
+        self.assertTrue(both, "t05 must carry cross-run claims")
+        context, page, block, errors = self.open_lens()
+        page.locator('.block[data-block="trajectory-map"] '
+                     'svg.tj .tjm-claim-hit').nth(0).click()
+        page.wait_for_timeout(250)
+        mapblock = page.locator('.block[data-block="trajectory-map"]')
+        readout = mapblock.locator(".tj-read").inner_text()
+        claim = both[0]
+        self.assertIn(str(claim["value"]), readout)
+        self.assertIn(f"A step {claim['a_steps'][0]}", readout)
+        self.assertIn(f"B step {claim['b_steps'][0]}", readout)
+        rings = mapblock.locator("svg.tj .tjm-claim-end")
+        self.assertEqual(rings.count(), 2, "both endpoints ringed")
+        row = next(i for i, r in enumerate(self.pair["alignment"])
+                   if r.get("a_index") == claim["a_steps"][0])
+        detail = page.locator('.block[data-block="step-detail"]')
+        if detail.count():
+            tag = detail.locator(".tag.mono").first.inner_text()
+            self.assertEqual(tag, f"row {row}")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_claims_chip_cycles_without_hover(self):
+        both = [c for c in (self.pair.get("semantic") or {}).get("claims", [])
+                if c.get("a_steps") and c.get("b_steps")]
+        context, page, block, errors = self.open_lens()
+        mapblock = page.locator('.block[data-block="trajectory-map"]')
+        chip = mapblock.locator(".tjm-foot button")
+        self.assertEqual(chip.count(), 1, "claims chip missing")
+        self.assertIn(f"claims: {len(both)}", chip.inner_text())
+        chip.click()
+        page.wait_for_timeout(250)
+        mapblock = page.locator('.block[data-block="trajectory-map"]')
+        readout = mapblock.locator(".tj-read").inner_text()
+        self.assertIn(str(both[0]["value"]), readout)
+        context.close()
+
     def test_the_map_never_clips_its_b_lane_in_a_column(self):
         # Regression: the map forced a 480px floor on its own width, so in
         # a ~340px layout column the entire B lane fell off the right edge.

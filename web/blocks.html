@@ -6952,6 +6952,19 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     return -1;
   }
 
+  // The selected claim edge, if any. Module state like Sel, and like Sel
+  // it belongs to the task it was made on.
+  var MapClaim = { task: null, index: null };
+
+  function mapClaimSync(report, claimCount) {
+    var task = report && report.task ? report.task.id : null;
+    if (MapClaim.task !== task) { MapClaim.task = task; MapClaim.index = null; }
+    if (MapClaim.index !== null
+        && (MapClaim.index < 0 || MapClaim.index >= claimCount)) {
+      MapClaim.index = null;
+    }
+  }
+
   function decisiveInfo(report) {
     var diag = report && report.diagnosis;
     if (!diag || diag.mode !== "single_failure") return null;
@@ -7073,25 +7086,49 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     });
 
     // claim edges: the same fact surfacing in both runs. Drawn beneath the
-    // alignment edges — they are context, not structure.
-    claims.forEach(function (edge) {
+    // alignment edges — they are context, not structure. Each edge is
+    // clickable (through a wider invisible twin, because a 1px dashed
+    // curve is no click target): clicking selects the claim, rings both
+    // endpoints, writes the claim into the readout line, and moves the
+    // shared cursor to the carrying A step — the claim is never
+    // tooltip-only information.
+    mapClaimSync(report, claims.length);
+    function pickClaim(k) {
+      MapClaim.index = MapClaim.index === k ? null : k;
+      if (MapClaim.index !== null) {
+        var rowA = mapRowFor(report, "a", claims[k].a);
+        if (rowA >= 0) { select(rowA, "a", ctx); return; }
+      }
+      notify();
+    }
+    claims.forEach(function (edge, k) {
       var pa = nodeXY("a", edge.a), pb = nodeXY("b", edge.b);
       if (!pa || !pb) return;
       var midX = (laneA + laneB) / 2;
       var stroke = edge.wrong ? C.bad : C.good;
+      var picked = MapClaim.index === k;
+      var d = "M" + (pa.x + 8) + " " + pa.y +
+              " C" + midX + " " + pa.y + " " + midX + " " + pb.y +
+              " " + (pb.x - 8) + " " + pb.y;
       var path = S("path", {
-        d: "M" + (pa.x + 8) + " " + pa.y +
-           " C" + midX + " " + pa.y + " " + midX + " " + pb.y +
-           " " + (pb.x - 8) + " " + pb.y,
-        fill: "none", stroke: stroke, "stroke-width": 1,
-        "stroke-dasharray": "1.5,3", opacity: 0.75,
+        d: d, fill: "none", stroke: stroke,
+        "stroke-width": picked ? 2 : 1,
+        "stroke-dasharray": picked ? null : "1.5,3",
+        opacity: picked ? 1 : 0.75,
+        class: "tjm-claim",
       });
-      path.appendChild(S("title", {
+      svgEl.appendChild(path);
+      var hit = S("path", {
+        d: d, fill: "none", stroke: "transparent", "stroke-width": 9,
+        class: "tjm-claim-hit tj-hit", "data-claim": k,
+      });
+      hit.appendChild(S("title", {
         text: (edge.wrong ? "wrong-valued claim" : "shared claim") +
               (edge.value ? ": " + edge.value : "") +
               " — A step " + edge.a + " ↔ B step " + edge.b,
       }));
-      svgEl.appendChild(path);
+      hit.addEventListener("click", function () { pickClaim(k); });
+      svgEl.appendChild(hit);
     });
 
     // alignment edges: one per row that has both sides. A one-sided row
@@ -7208,9 +7245,61 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       });
     });
 
+    // the selected claim's endpoints, ringed on top of everything
+    if (MapClaim.index !== null && claims[MapClaim.index]) {
+      var edge = claims[MapClaim.index];
+      [["a", edge.a], ["b", edge.b]].forEach(function (end) {
+        var p = nodeXY(end[0], end[1]);
+        if (!p) return;
+        svgEl.appendChild(S("circle", {
+          cx: p.x, cy: p.y, r: 13, fill: "none",
+          stroke: edge.wrong ? C.bad : C.good,
+          "stroke-width": 1.6, "stroke-dasharray": "3,2",
+          class: "tjm-claim-end",
+        }));
+      });
+    }
+
     var wrap = H("div", { class: "tjm-wrap" });
     wrap.appendChild(svgEl);
     host.appendChild(wrap);
+
+    // the claim readout: what a selected claim edge says, in text that
+    // stays on the page — the tooltip is a convenience, not the record.
+    // It wraps: a readout that ellipsizes the claim value would be the
+    // tooltip problem all over again.
+    var readout = H("div", { class: "tj-read",
+                             style: { whiteSpace: "normal" } });
+    if (MapClaim.index !== null && claims[MapClaim.index]) {
+      var picked = claims[MapClaim.index];
+      readout.appendChild(H("span", {
+        text: (picked.wrong
+               ? "wrong-valued claim (contradicts the expected answer)"
+               : "shared claim") +
+              (picked.value ? " “" + picked.value + "”" : "") +
+              " — A step " + picked.a + " ↔ B step " + picked.b,
+        style: { color: picked.wrong ? "var(--bad)" : "var(--ink-2)" },
+      }));
+    } else if (claims.length) {
+      readout.appendChild(H("i", {
+        text: claims.length + " claim edge(s) — click one, or the count "
+              + "below, to read it",
+      }));
+    }
+    if (claims.length || MapClaim.index !== null) host.appendChild(readout);
+
+    var claimsChip = claims.length ? H("button", {
+      class: "k", type: "button",
+      style: { border: "1px solid var(--rule-2)", borderRadius: "5px",
+               background: "var(--surface)", color: "var(--ink-2)",
+               font: "inherit", fontSize: "10.5px", padding: "0 6px",
+               cursor: "pointer" },
+      text: "claims: " + claims.length + " ›",
+      onclick: function () {
+        pickClaim(MapClaim.index === null ? 0
+                  : (MapClaim.index + 1) % claims.length);
+      },
+    }) : null;
 
     var foot = H("div", { class: "tjm-foot" }, [
       legendKey("solid line", "matched step"),
@@ -7220,6 +7309,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       dec ? legendKey("solid red ring", "decisive step") : null,
       root ? legendKey("dashed red ring", "attributed root") : null,
       dec ? legendKey("amber halo", "on the causal account") : null,
+      claimsChip,
     ]);
     host.appendChild(foot);
 
