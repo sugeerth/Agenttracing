@@ -1054,5 +1054,112 @@ class RunLensTest(unittest.TestCase):
         context.close()
 
 
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class OneSidedMapTest(unittest.TestCase):
+    """One-sided steps are SEEN, not just unlinked.
+
+    Driven by the real t01 pair, whose alignment carries several b_only
+    rows: every one-sided row must draw exactly one open stub into the
+    gutter on the side that took the step (with the agent named in the
+    title), every two-sided row exactly one edge, and never both — all
+    counts computed from the report.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+        pair_json = out / "t01.json"
+        subprocess.run(
+            [sys.executable, "-m", "deepcompare", "compare",
+             str(ROOT / "demo" / "traces" / "t01_acme_revenue__atlas-v2.json"),
+             str(ROOT / "demo" / "traces" / "t01_acme_revenue__bolt-v3.json"),
+             "-o", str(pair_json)],
+            cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        from deepcompare.report import render_html
+        cls.pair = json.loads(pair_json.read_text(encoding="utf-8"))
+        one_sided = [r for r in cls.pair["alignment"]
+                     if (r.get("a_index") is None) != (r.get("b_index") is None)]
+        assert one_sided, "t01 must carry one-sided alignment rows"
+        cls.report = out / "report.html"
+        render_html([cls.pair], {}, ROOT / "web" / "blocks.html", cls.report)
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM,
+                                              args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def open_map(self):
+        context = self.browser.new_context()
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"file://{self.report}")
+        page.wait_for_timeout(400)
+        block = page.locator('.block[data-block="trajectory-map"]')
+        self.assertEqual(block.count(), 1)
+        if "collapsed" in (block.get_attribute("class") or ""):
+            block.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(250)
+            block = page.locator('.block[data-block="trajectory-map"]')
+        return context, page, block, errors
+
+    def test_every_one_sided_row_gets_exactly_one_stub(self):
+        context, page, block, errors = self.open_map()
+        one_sided = [r for r in self.pair["alignment"]
+                     if (r.get("a_index") is None) != (r.get("b_index") is None)]
+        stubs = page.evaluate("""() => {
+            const svg = document.querySelector(
+                '.block[data-block="trajectory-map"] svg.tj');
+            const out = [];
+            svg.querySelectorAll('g.tjm-stub title').forEach(function (t) {
+                out.push(t.textContent);
+            });
+            return out;
+        }""")
+        self.assertEqual(len(stubs), len(one_sided), stubs)
+        for title in stubs:
+            self.assertIn("only", title)
+        # the side that took the step is named, so the stub is readable
+        # without cross-referencing lane positions
+        for row, title in zip(one_sided, stubs):
+            side = "b" if row.get("a_index") is None else "a"
+            self.assertIn(self.pair[side]["agent"]["name"], title)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_stubs_and_edges_never_overlap(self):
+        context, page, block, errors = self.open_map()
+        two_sided = [r for r in self.pair["alignment"]
+                     if r.get("a_index") is not None
+                     and r.get("b_index") is not None]
+        edges = page.evaluate("""() => {
+            const svg = document.querySelector(
+                '.block[data-block="trajectory-map"] svg.tj');
+            let n = 0;
+            svg.querySelectorAll(':scope > line, :scope > g:not(.tjm-stub):not(.tj-hit) line')
+               .forEach(function (line) {
+                const t = line.querySelector('title');
+                if (t && t.textContent.indexOf('row ') === 0) n++;
+            });
+            return n;
+        }""")
+        self.assertEqual(edges, len(two_sided))
+        context.close()
+
+
 if __name__ == "__main__":
     unittest.main()

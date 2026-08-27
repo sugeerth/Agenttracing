@@ -2150,11 +2150,38 @@
       svgEl.appendChild(path);
     });
 
-    // alignment edges: one per row that has both sides. A one-sided row is
-    // an honest gap — the absence of an edge IS the picture.
+    // alignment edges: one per row that has both sides. A one-sided row
+    // keeps its honest gap across the gutter — no phantom edge — but the
+    // step itself must be SEEN as unpaired: a short stub from the node
+    // into the gutter, ending open, says "only this run took this step"
+    // at a glance instead of asking the reader to notice a missing line.
     rows.forEach(function (row, i) {
-      if (row.a_index === null || row.a_index === undefined) return;
-      if (row.b_index === null || row.b_index === undefined) return;
+      var aMissing = row.a_index === null || row.a_index === undefined;
+      var bMissing = row.b_index === null || row.b_index === undefined;
+      if (aMissing !== bMissing) {
+        var side = aMissing ? "b" : "a";
+        var p = nodeXY(side, row[side + "_index"]);
+        if (!p) return;
+        var dir = side === "a" ? 1 : -1;
+        var x1 = p.x + dir * 8, x2 = p.x + dir * 26;
+        var tint = side === "a" ? C.a : C.b;
+        var stub = S("g", { class: "tjm-stub" });
+        stub.appendChild(S("line", {
+          x1: x1, y1: p.y, x2: x2, y2: p.y,
+          stroke: tint, "stroke-width": 1.2, opacity: 0.65,
+        }));
+        stub.appendChild(S("circle", {
+          cx: x2 + dir * 2.5, cy: p.y, r: 2.5,
+          fill: "none", stroke: tint, "stroke-width": 1.2, opacity: 0.65,
+        }));
+        stub.appendChild(S("title", {
+          text: "row " + i + " · " + row.op +
+                " — only " + agentName(report, side) + " took this step",
+        }));
+        svgEl.appendChild(stub);
+        return;
+      }
+      if (aMissing || bMissing) return;
       var pa = nodeXY("a", row.a_index), pb = nodeXY("b", row.b_index);
       if (!pa || !pb) return;
       var divergent = !!divs[i];
@@ -2245,7 +2272,7 @@
       legendKey("solid line", "matched step"),
       legendKey("dashed line", "drifted / divergent"),
       legendKey("dotted curve", "same claim in both runs (red = wrong-valued)"),
-      legendKey("no line", "step only one run took"),
+      legendKey("open stub", "step only this run took — nothing to pair with"),
       dec ? legendKey("solid red ring", "decisive step") : null,
       root ? legendKey("dashed red ring", "attributed root") : null,
       dec ? legendKey("amber halo", "on the causal account") : null,
