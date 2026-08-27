@@ -1501,5 +1501,220 @@ class LongPairMapTest(unittest.TestCase):
         context.close()
 
 
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class AdversarialMapTest(unittest.TestCase):
+    """Pathological reports must degrade honestly, never crash.
+
+    The schema refuses empty trajectories (steps must contain at least
+    one step), so the adversarial shapes that CAN reach the page are: a
+    report stripped of its alignment rows, a minimal one-step side
+    against a full run, a contested diagnosis (the a1_negation red-team
+    fixture), and unicode-heavy names (CJK, emoji, RTL) through every
+    label path. Each must render without page errors and say honestly
+    what it cannot show.
+    """
+
+    tmp = None
+
+    @staticmethod
+    def _traj(name, steps, success):
+        return {
+            "schema_version": 1, "trace_id": f"adv-{name}",
+            "agent": {"name": name, "model": "model-x", "version": "1"},
+            "task": {"id": "adv_task", "prompt": "Do the thing 完了 🚀",
+                     "expected": "The thing is done."},
+            "outcome": {"success": success,
+                        "answer": steps[-1]["output"] or steps[-1]["input"],
+                        "score": 1.0 if success else 0.0,
+                        "termination": "agent_stop"},
+            "totals": {"input_tokens": 100, "output_tokens": 50,
+                       "cost_usd": 0.001, "latency_s": 2.0},
+            "steps": steps,
+            "tools": [{"name": "работа_丸", "effect": "read"}],
+            "budget": {"max_steps": 12},
+        }
+
+    UNI_STEPS = [
+        {"index": 0, "type": "plan", "name": "計画→עברית🧭",
+         "input": "计划: שלום 🌍 مرحبا", "output": "",
+         "tokens": 10, "latency_s": 0.1},
+        {"index": 1, "type": "tool_call", "name": "работа_丸",
+         "input": "работа_丸(query='猫🐱')", "output": "結果: ✅ הצלחה",
+         "tokens": 10, "latency_s": 0.1, "effect": "read", "error": False},
+        {"index": 2, "type": "answer", "name": "final",
+         "input": "The thing is done.", "output": "The thing is done.",
+         "tokens": 10, "latency_s": 0.1},
+    ]
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        from deepcompare.report import compare, render_html
+        from deepcompare.trace import Trajectory
+
+        def build(name, raw_a, raw_b, mutate=None):
+            pa, pb = out / f"{name}_a.json", out / f"{name}_b.json"
+            pa.write_text(json.dumps(raw_a))
+            pb.write_text(json.dumps(raw_b))
+            rep = compare(Trajectory.from_json(str(pa)),
+                          Trajectory.from_json(str(pb)))
+            if mutate:
+                mutate(rep)
+            html = out / f"{name}.html"
+            render_html([rep], {}, ROOT / "web" / "blocks.html", html)
+            return rep, html
+
+        uni_b = [dict(s) for s in cls.UNI_STEPS]
+        uni_a = [dict(s, input=s["input"] + " (vλ)") for s in cls.UNI_STEPS]
+        cls.unicode_pair, cls.unicode_html = build(
+            "unicode", cls._traj("уни-a-🅰", uni_a, False),
+            cls._traj("uni-b-乙", uni_b, True))
+
+        def strip_alignment(rep):
+            rep["alignment"] = []
+        cls.stripped_pair, cls.stripped_html = build(
+            "stripped", cls._traj("уни-a-🅰", uni_a, False),
+            cls._traj("uni-b-乙", uni_b, True), mutate=strip_alignment)
+
+        one = [{"index": 0, "type": "answer", "name": "final",
+                "input": "Nope.", "output": "Nope.",
+                "tokens": 5, "latency_s": 0.1}]
+        cls.minimal_pair, cls.minimal_html = build(
+            "minimal", cls._traj("tiny-a", one, False),
+            cls._traj("full-b", [dict(s) for s in cls.UNI_STEPS], True))
+
+        contested_a = ROOT / "tests" / "fixtures" / "redteam" / "a1_negation__fail.json"
+        contested_b = ROOT / "tests" / "fixtures" / "redteam" / "a1_negation__pass.json"
+        cls.contested_pair = compare(Trajectory.from_json(str(contested_a)),
+                                     Trajectory.from_json(str(contested_b)))
+        assert cls.contested_pair["diagnosis"]["leading"] is None
+        cls.contested_html = out / "contested.html"
+        render_html([cls.contested_pair], {}, ROOT / "web" / "blocks.html",
+                    cls.contested_html)
+
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM,
+                                              args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def open_page(self, html):
+        context = self.browser.new_context()
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"file://{html}")
+        page.wait_for_timeout(500)
+        for block_id in ("trajectory-map", "run-lens"):
+            block = page.locator(f'.block[data-block="{block_id}"]')
+            if block.count() and "collapsed" in (block.get_attribute("class") or ""):
+                block.locator(".block-actions .icon-btn").nth(1).click()
+                page.wait_for_timeout(200)
+        return context, page, errors
+
+    def map_nodes(self, page):
+        return page.evaluate("""() => {
+            const svg = document.querySelector(
+                '.block[data-block="trajectory-map"] svg.tj');
+            return svg ? svg.querySelectorAll(
+                'g.tj-hit:not(.tjm-claim-hit)').length : null;
+        }""")
+
+    def test_no_alignment_draws_lanes_with_nothing_between(self):
+        context, page, errors = self.open_page(self.stripped_html)
+        expected = (len(self.stripped_pair["a"]["steps"])
+                    + len(self.stripped_pair["b"]["steps"]))
+        self.assertEqual(self.map_nodes(page), expected)
+        marks = page.evaluate("""() => {
+            const svg = document.querySelector(
+                '.block[data-block="trajectory-map"] svg.tj');
+            let edges = 0, stubs = 0;
+            svg.querySelectorAll('line').forEach(function (l) {
+                const t = l.querySelector('title');
+                if (t && t.textContent.indexOf('row ') === 0) edges++;
+            });
+            stubs = svg.querySelectorAll('g.tjm-stub').length;
+            return { edges, stubs };
+        }""")
+        self.assertEqual(marks, {"edges": 0, "stubs": 0},
+                         "no alignment must mean no gutter marks")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_one_step_side_is_drawn_and_readable(self):
+        context, page, errors = self.open_page(self.minimal_html)
+        expected = (len(self.minimal_pair["a"]["steps"])
+                    + len(self.minimal_pair["b"]["steps"]))
+        self.assertEqual(self.map_nodes(page), expected)
+        # the lens can read the one-step run
+        block = page.locator('.block[data-block="run-lens"]')
+        block.locator(".tj-ctl .grp button").filter(has_text="tiny-a").click()
+        page.wait_for_timeout(200)
+        block = page.locator('.block[data-block="run-lens"]')
+        self.assertEqual(block.locator(".tjl-step").count(), 1)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_contested_diagnosis_shows_the_note_and_no_decisive_ring(self):
+        context, page, errors = self.open_page(self.contested_html)
+        note = page.locator('.block[data-block="trajectory-map"] .tjm-note')
+        self.assertEqual(note.count(), 1, "contested note missing")
+        self.assertIn("contested", note.inner_text().lower())
+        decisive = page.evaluate("""() => {
+            const svg = document.querySelector(
+                '.block[data-block="trajectory-map"] svg.tj');
+            let n = 0;
+            svg.querySelectorAll('g.tj-hit title').forEach(function (t) {
+                if (t.textContent.indexOf('decisive step') >= 0) n++;
+            });
+            return n;
+        }""")
+        self.assertEqual(decisive, 0, "contested must commit to no ring")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_unicode_names_render_everywhere(self):
+        context, page, errors = self.open_page(self.unicode_html)
+        expected = (len(self.unicode_pair["a"]["steps"])
+                    + len(self.unicode_pair["b"]["steps"]))
+        self.assertEqual(self.map_nodes(page), expected)
+        labels = page.evaluate("""() => {
+            const svg = document.querySelector(
+                '.block[data-block="trajectory-map"] svg.tj');
+            const out = [];
+            svg.querySelectorAll('g.tj-hit text').forEach(function (t) {
+                out.push(t.textContent);
+            });
+            return out;
+        }""")
+        self.assertEqual(len(labels), expected)
+        self.assertTrue(all(lab.strip() for lab in labels),
+                        "every node keeps a visible label")
+        self.assertTrue(any("計画" in lab or "работа" in lab
+                            for lab in labels),
+                        "unicode names survive into the labels")
+        # the lens shows the full unicode text verbatim on expansion
+        block = page.locator('.block[data-block="run-lens"]')
+        block.locator(".tjl-head").nth(1).click()
+        page.wait_for_timeout(200)
+        body = page.locator('.block[data-block="run-lens"] .tjl-body')
+        self.assertEqual(body.count(), 1)
+        self.assertIn("猫🐱", body.inner_text())
+        self.assertEqual(errors, [])
+        context.close()
+
+
 if __name__ == "__main__":
     unittest.main()
