@@ -1205,5 +1205,135 @@ class OneSidedMapTest(unittest.TestCase):
         context.close()
 
 
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class BatchTaskSwitchTest(unittest.TestCase):
+    """Switching tasks in a batch report resets the trajectory family.
+
+    Driven by the full demo/traces batch (8 tasks, different step
+    counts): after switching, the map must draw exactly the new task's
+    steps, a selected claim readout must not survive into the next task,
+    and the lens must list the new task's run — all counts computed from
+    the embedded reports, and no page errors at any point.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run(
+            [sys.executable, "-m", "deepcompare", "batch",
+             str(ROOT / "demo" / "traces"), "-o", str(out),
+             "--template", str(ROOT / "web" / "blocks.html")],
+            cwd=str(ROOT), check=True, capture_output=True)
+        cls.report = out / "report.html"
+        assert cls.report.is_file()
+        cls.reports = {}
+        for path in out.glob("report_*.json"):
+            rep = json.loads(path.read_text(encoding="utf-8"))
+            cls.reports[rep["task"]["id"]] = rep
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM,
+                                              args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    @staticmethod
+    def steps_of(rep):
+        return len(rep["a"]["steps"]) + len(rep["b"]["steps"])
+
+    def map_nodes(self, page):
+        return page.evaluate("""() => {
+            const svg = document.querySelector(
+                '.block[data-block="trajectory-map"] svg.tj');
+            return svg ? svg.querySelectorAll('g.tj-hit:not(.tjm-claim-hit)')
+                            .length : null;
+        }""")
+
+    def expand(self, page, block_id):
+        block = page.locator(f'.block[data-block="{block_id}"]')
+        if block.count() and "collapsed" in (block.get_attribute("class") or ""):
+            block.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(250)
+
+    def test_switching_tasks_redraws_and_resets(self):
+        context = self.browser.new_context()
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"file://{self.report}")
+        page.wait_for_timeout(500)
+        self.expand(page, "trajectory-map")
+
+        current = page.locator("#task-picker").input_value()
+        # a second task with a different total step count keeps the
+        # assertion meaningful
+        other = next(t for t, rep in sorted(self.reports.items())
+                     if t != current
+                     and self.steps_of(rep) != self.steps_of(self.reports[current]))
+
+        self.assertEqual(self.map_nodes(page),
+                         self.steps_of(self.reports[current]))
+
+        # select a claim on the current task, if it carries one
+        old_value = None
+        hits = page.locator('.block[data-block="trajectory-map"] '
+                            'svg.tj .tjm-claim-hit')
+        if hits.count():
+            # dispatch, not click: hit-target geometry is pinned by the
+            # pair-report test; this test is about state, and the batch
+            # page's layout can put the invisible hit path outside
+            # Playwright's actionability rules
+            hits.nth(0).dispatch_event("click")
+            page.wait_for_timeout(250)
+            both = [c for c in (self.reports[current].get("semantic") or {})
+                    .get("claims", [])
+                    if c.get("a_steps") and c.get("b_steps")]
+            old_value = str(both[0]["value"]) if both else None
+
+        page.select_option("#task-picker", other)
+        page.wait_for_timeout(500)
+        self.expand(page, "trajectory-map")
+
+        self.assertEqual(self.map_nodes(page),
+                         self.steps_of(self.reports[other]),
+                         f"map did not redraw for {other}")
+        if old_value is not None:
+            read = page.evaluate("""() => {
+                const el = document.querySelector(
+                    '.block[data-block="trajectory-map"] .tj-read');
+                return el ? el.textContent : "";
+            }""")
+            self.assertNotIn(old_value, read,
+                             "stale claim readout survived the task switch")
+        rings = page.locator('.block[data-block="trajectory-map"] '
+                             'svg.tj .tjm-claim-end')
+        self.assertEqual(rings.count(), 0, "stale claim rings survived")
+
+        self.expand(page, "run-lens")
+        lens_steps = page.locator('.block[data-block="run-lens"] .tjl-step')
+        rep = self.reports[other]
+        a_fail = rep["a"]["outcome"]["success"] is False
+        b_fail = rep["b"]["outcome"]["success"] is False
+        side = "a" if (a_fail and not b_fail) else "b" if (b_fail and not a_fail) else "a"
+        self.assertEqual(lens_steps.count(), len(rep[side]["steps"]),
+                         f"lens did not reset for {other}")
+
+        self.assertEqual(errors, [], "page errors during task switch")
+        context.close()
+
+
 if __name__ == "__main__":
     unittest.main()
