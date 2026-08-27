@@ -425,6 +425,33 @@ transmitted: the page contains no network code at all, which is why it opens
 offline from a file. The You panel shows the id, everything stored under it,
 and erases the lot in one click.
 
+### Reading the trajectory map
+
+Two blocks put the individual trajectories themselves on the page. The
+**trajectory map** lays each run out vertically as its own lane — every
+single step a clickable node in run order, not collapsed into alignment
+rows — and draws the conversation between the runs in the gutter: a
+solid line is a matched step, a dashed line drifted or divergent, an
+open stub is a step only that run took (the other side of the gutter
+stays honestly empty — nothing to pair with), and a dotted curve is the
+same claim surfacing in both runs, red when the claim contradicts the
+expected answer. The diagnosis rides on top: the decisive step is
+ringed solid red, the attributed root dashed red, and causal-account
+steps carry an amber halo — a contested diagnosis states its abstention
+under the map instead of committing to a ring. Clicking a claim curve
+is not tooltip theatre: it rings both endpoint nodes, writes the claim
+into a persistent readout line (value verbatim, `A step i ↔ B step j`),
+and moves the shared cursor, and a `claims: N` chip cycles the edges
+for readers who never hover.
+
+The **run lens** is for reading one trajectory end to end: an A/B
+toggle (defaulting to the failing run) opens every step to its full
+recorded input and output, with the same diagnosis marks inline —
+decisive, root, on-account, no-source-argument — so the eye lands on
+the step that mattered while scrolling past the ones that did not.
+Map, lens, Tracks and Step detail share one cursor: select a step
+anywhere and the rest follow.
+
 Adding a block is one file in `web/blocks/` — see
 [`web/blocks/README.md`](web/blocks/README.md) for the contract.
 

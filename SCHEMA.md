@@ -1591,3 +1591,48 @@ application of the same exclusivity principle:
   heuristic patch: telling assertion from carriage needs evidence the
   trace format does not yet record (which step consumed the value),
   and guessing would trade a visible limit for invisible errors.
+
+## The trajectory map (v32)
+
+The report page grew two blocks that put the individual trajectories
+themselves in front of the reader, and the pins that keep them honest:
+
+- **Trajectory map** — each run as its own vertical lane, every single
+  step a clickable node in run order (Tracks compresses; the map does
+  not). The gutter carries the conversation between the runs: one edge
+  per two-sided alignment row (solid matched, dashed drifted, red
+  divergent), an open stub where only one run took a step — the agent
+  named in its title, the other side of the gutter honestly empty —
+  and a dotted claim curve where the same fact surfaces in both runs
+  (red = contradicts the expected answer). Diagnosis overlays: decisive
+  step ringed solid, attributed root ringed dashed, causal-account
+  steps haloed; a contested diagnosis prints its abstention under the
+  map instead of committing to a ring.
+- **Claim readout** — a claim curve is never tooltip-only: clicking it
+  (through a wider invisible hit twin) rings both endpoint nodes,
+  writes the claim into a wrapping readout line — value verbatim,
+  wrong/shared status, `A step i ↔ B step j` — and moves the family
+  cursor to the carrying step; a `claims: N` footer chip cycles the
+  edges without hover.
+- **Run lens** — one run read end to end: A/B toggle defaulting to the
+  failing run, every step expandable to its full recorded input and
+  output, the diagnosis marks (decisive, root, on-account,
+  no-source-argument) inline. Lens state — chosen side, open steps —
+  is task-scoped and resets on task switch, like the cursor and the
+  claim selection.
+- **The family cursor grew a documented door** — the walkthrough's
+  `agentdiff:select-step` CustomEvent fallback ("any module may listen")
+  had no listener anywhere and fired into silence; the trajectory
+  family's cursor now listens, so the documented path moves Step
+  detail, Tracks, the map and the lens exactly as a hand click would.
+- **Fits its column** — only the hero block gets the full-width lane,
+  and the map's early 480px width floor clipped the entire B lane off a
+  ~340px layout column; the map now draws in exactly the width its
+  container has, with the label budget charging the index prefix.
+- **Pinned honesty at scale** — browser tests computed from the reports
+  they run against pin: one node per step (a 70-vs-76-step pair draws
+  all 146 — no silent caps), one edge per two-sided row and one stub
+  per one-sided row (never both), claim readout value verbatim with
+  both endpoints ringed, batch task-switching resetting map, lens and
+  claim state with no stale highlights, scrolling instead of squashing,
+  and click-to-cursor sync at row 65.

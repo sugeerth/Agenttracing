@@ -78,5 +78,18 @@ clears it before each call.
    If you show the number, show its qualifier.
 7. **Deterministic.** No `Math.random()`, no animation that changes layout.
 
+### Shared state within a family
+
+The trajectory modules (`20_trajectory.js`: Tracks, Alignment ribbon,
+Step detail, Meaning vs wording, Intent bands, Trajectory map, Run lens)
+share one selection cursor — click a step in any of them and the others
+follow. The cursor lives inside that module (`select`/`subscribe`), and
+any state a block keeps beyond it (the lens's open steps, the map's
+selected claim) is task-scoped: it resets when `ctx.task` changes, never
+leaks between tasks. From *outside* the module there is one documented
+door: dispatch `agentdiff:select-step` on `document` with
+`{detail: {row, side}}` and the family cursor moves as if clicked — the
+walkthrough uses exactly this when Tracks is not on the page.
+
 Data shapes are in `SCHEMA.md`; every field named there is what a report
 actually carries.
