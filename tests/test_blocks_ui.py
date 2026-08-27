@@ -885,5 +885,136 @@ class TrajectoryMapTest(unittest.TestCase):
         context.close()
 
 
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class RunLensTest(unittest.TestCase):
+    """The Run lens reads ONE trajectory end to end.
+
+    Driven by the real t05 pair. The lens must default to the failing
+    run, list every one of its steps, expand a step to its verbatim
+    recorded text, follow the A/B toggle, and move the family's shared
+    cursor when a step is selected — all expectations computed from the
+    report itself.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+        pair_json = out / "t05.json"
+        subprocess.run(
+            [sys.executable, "-m", "deepcompare", "compare",
+             str(ROOT / "demo" / "traces" / "t05_flight_duration__atlas-v2.json"),
+             str(ROOT / "demo" / "traces" / "t05_flight_duration__bolt-v3.json"),
+             "-o", str(pair_json)],
+            cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        from deepcompare.report import render_html
+        cls.pair = json.loads(pair_json.read_text(encoding="utf-8"))
+        cls.report = out / "report.html"
+        render_html([cls.pair], {}, ROOT / "web" / "blocks.html", cls.report)
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM,
+                                              args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def failing_side(self):
+        a_fail = self.pair["a"]["outcome"]["success"] is False
+        b_fail = self.pair["b"]["outcome"]["success"] is False
+        if a_fail and not b_fail:
+            return "a"
+        if b_fail and not a_fail:
+            return "b"
+        return "a"
+
+    def open_lens(self):
+        context = self.browser.new_context()
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"file://{self.report}")
+        page.wait_for_timeout(400)
+        block = page.locator('.block[data-block="run-lens"]')
+        self.assertEqual(block.count(), 1, "Run lens is not on the page")
+        if "collapsed" in (block.get_attribute("class") or ""):
+            block.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(250)
+            block = page.locator('.block[data-block="run-lens"]')
+        return context, page, block, errors
+
+    def test_defaults_to_the_failing_run_with_every_step_listed(self):
+        context, page, block, errors = self.open_lens()
+        side = self.failing_side()
+        expected = len(self.pair[side]["steps"])
+        self.assertEqual(block.locator(".tjl-step").count(), expected)
+        pressed = block.locator('.tj-ctl .grp button[aria-pressed="true"]')
+        self.assertEqual(pressed.inner_text(),
+                         self.pair[side]["agent"]["name"])
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_toggle_shows_the_other_run(self):
+        context, page, block, errors = self.open_lens()
+        side = self.failing_side()
+        other = "b" if side == "a" else "a"
+        block.locator(".tj-ctl .grp button").filter(
+            has_text=self.pair[other]["agent"]["name"]).click()
+        page.wait_for_timeout(200)
+        block = page.locator('.block[data-block="run-lens"]')
+        self.assertEqual(block.locator(".tjl-step").count(),
+                         len(self.pair[other]["steps"]))
+        context.close()
+
+    def test_expanding_a_step_shows_its_verbatim_text(self):
+        context, page, block, errors = self.open_lens()
+        side = self.failing_side()
+        step = next(s for s in self.pair[side]["steps"] if s.get("input"))
+        pos = [s["index"] for s in self.pair[side]["steps"]].index(step["index"])
+        block.locator(".tjl-head").nth(pos).click()
+        page.wait_for_timeout(200)
+        block = page.locator('.block[data-block="run-lens"]')
+        body = block.locator(".tjl-step").nth(pos).locator(".tjl-body")
+        self.assertEqual(body.count(), 1, "step did not expand")
+        self.assertIn(step["input"], body.inner_text())
+        context.close()
+
+    def test_selecting_a_step_moves_the_shared_cursor(self):
+        context, page, block, errors = self.open_lens()
+        side = self.failing_side()
+        first = self.pair[side]["steps"][0]["index"]
+        row = next(i for i, r in enumerate(self.pair["alignment"])
+                   if r.get(f"{side}_index") == first)
+        block.locator(".tjl-head").nth(0).click()
+        page.wait_for_timeout(250)
+        detail = page.locator('.block[data-block="step-detail"]')
+        if detail.count():
+            tag = detail.locator(".tag.mono").first.inner_text()
+            self.assertEqual(tag, f"row {row}")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_diagnosis_marks_appear_inline(self):
+        context, page, block, errors = self.open_lens()
+        diag = self.pair["diagnosis"]
+        decisive = (diag.get("decisive_step") or {}).get("step")
+        self.assertIsNotNone(decisive, "t05 must carry a decisive step")
+        marks = block.locator(".tjl-b.mark")
+        texts = [marks.nth(i).inner_text() for i in range(marks.count())]
+        self.assertIn("decisive", [t.lower() for t in texts])
+        context.close()
+
+
 if __name__ == "__main__":
     unittest.main()

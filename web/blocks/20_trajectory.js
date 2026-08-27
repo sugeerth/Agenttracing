@@ -2252,4 +2252,218 @@
     ]);
   }
 
+  // ------------------------------------------------------------- run lens
+  //
+  // One run, read end to end. The map shows both trajectories at a glance;
+  // the lens is for actually READING one of them — every step expandable to
+  // its full recorded text, with the diagnosis marks inline so the eye
+  // lands on the step that mattered while scrolling past the ones that
+  // did not. The lens shares the family cursor: selecting a step here
+  // moves Step detail and the map, and a selection made elsewhere is
+  // highlighted here.
+
+  var LENS_STYLE_DONE = false;
+  function ensureLensStyle() {
+    if (LENS_STYLE_DONE) return;
+    LENS_STYLE_DONE = true;
+    var css = [
+      ".tjl-list{max-height:520px;overflow-y:auto;border:1px solid var(--rule);",
+      "border-radius:8px;background:var(--surface)}",
+      ".tjl-step{border-bottom:1px solid var(--rule)}",
+      ".tjl-step:last-child{border-bottom:0}",
+      ".tjl-head{display:flex;align-items:center;gap:7px;padding:6px 9px;cursor:pointer;",
+      "min-width:0}",
+      ".tjl-head:hover{background:var(--surface-2)}",
+      ".tjl-step.sel .tjl-head{box-shadow:inset 2px 0 0 var(--accent)}",
+      ".tjl-idx{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);flex:none;",
+      "width:20px;text-align:right}",
+      ".tjl-name{font-family:var(--mono);font-size:11.5px;color:var(--ink);min-width:0;",
+      "overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      ".tjl-badges{margin-left:auto;display:inline-flex;gap:4px;flex:none;align-items:center}",
+      ".tjl-b{font-size:9px;text-transform:uppercase;letter-spacing:.06em;",
+      "border:1px solid var(--rule-2);border-radius:4px;padding:0 4px;color:var(--ink-3);",
+      "line-height:1.6;white-space:nowrap}",
+      ".tjl-b.err{border-color:var(--bad);color:var(--bad)}",
+      ".tjl-b.mark{border-color:var(--bad);color:var(--bad);font-weight:600}",
+      ".tjl-b.acct{border-color:var(--warn);color:var(--warn)}",
+      ".tjl-body{padding:2px 9px 9px 36px}",
+      ".tjl-meta{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin:2px 0 4px}",
+    ].join("");
+    var tag = document.createElement("style");
+    tag.textContent = css;
+    document.head.appendChild(tag);
+  }
+
+  // Lens state survives repaints but never leaks across tasks: the open
+  // set and the chosen side belong to the task they were made on.
+  var Lens = { task: null, side: null, open: {} };
+
+  function lensSync(report) {
+    var task = report && report.task ? report.task.id : null;
+    if (Lens.task !== task) { Lens.task = task; Lens.side = null; Lens.open = {}; }
+    if (Lens.side !== "a" && Lens.side !== "b") {
+      var aFail = report && report.a && report.a.outcome
+        && report.a.outcome.success === false;
+      var bFail = report && report.b && report.b.outcome
+        && report.b.outcome.success === false;
+      Lens.side = aFail && !bFail ? "a" : bFail && !aFail ? "b" : "a";
+    }
+  }
+
+  function inventedSteps(report, side) {
+    var proc = report && report.process && report.process[side];
+    var ground = proc && proc.grounding;
+    var out = {};
+    (ground && Array.isArray(ground.invented_arguments)
+      ? ground.invented_arguments : []).forEach(function (rec) {
+      if (rec && rec.index !== null && rec.index !== undefined) out[rec.index] = rec;
+    });
+    return out;
+  }
+
+  AgentDiff.block({
+    id: "run-lens",
+    title: "Run lens",
+    question: "What did this one run actually do, in full?",
+    group: "trajectory",
+    size: "normal",
+    relevance: function (ctx) {
+      var report = ctx.report;
+      if (!report) return 0;
+      if (!stepsOf(report, "a").length && !stepsOf(report, "b").length) return 0;
+      return 0.68;
+    },
+    render: function (el, ctx) {
+      bind(ctx);
+      ensureStyle();
+      ensureLensStyle();
+      var report = ctx.report;
+      if (!report) return ctx.empty(el, "No report loaded.");
+      if (!stepsOf(report, "a").length && !stepsOf(report, "b").length) {
+        return ctx.empty(el, "Neither trajectory recorded any steps.");
+      }
+      syncTask(ctx);
+      lensSync(report);
+      var host = H("div");
+      el.appendChild(host);
+      function paint() {
+        host.innerHTML = "";
+        drawLens(host, ctx);
+      }
+      paint();
+      subscribe(el, paint);
+    },
+  });
+
+  function drawLens(host, ctx) {
+    bind(ctx);
+    var report = ctx.report;
+    lensSync(report);
+    var side = Lens.side;
+    var steps = stepsOf(report, side);
+    var sel = resolved(report);
+    var root = rootInfo(report);
+    var dec = decisiveInfo(report);
+    var invented = inventedSteps(report, side);
+
+    var head = H("div", { class: "tj-head" }, [
+      H("div", { class: "tj-ctl" }, [
+        H("div", { class: "grp" }, ["a", "b"].map(function (s) {
+          return H("button", {
+            text: agentName(report, s),
+            "aria-pressed": side === s ? "true" : "false",
+            onclick: function () {
+              Lens.side = s;
+              notify();
+            },
+          });
+        })),
+      ]),
+      H("span", { class: "sp" }),
+      H("span", { class: "tj-status",
+                  text: steps.length + " step(s)" +
+                        (report[side] && report[side].outcome
+                         && report[side].outcome.success === false
+                         ? " · failed" : "") }),
+    ]);
+    host.appendChild(head);
+    if (!steps.length) {
+      return ctx.empty(host, "This run recorded no steps.");
+    }
+
+    var list = H("div", { class: "tjl-list" });
+    steps.forEach(function (step) {
+      if (!step) return;
+      var rowIdx = mapRowFor(report, side, step.index);
+      var picked = sel.row === rowIdx && rowIdx >= 0;
+      var isDecisive = dec && dec.side === side && dec.step === step.index;
+      var isRoot = root && root.side === side && root.index === step.index;
+      var onAccount = dec && dec.side === side && !!dec.account[step.index];
+      var inv = invented[step.index];
+      var isOpen = !!Lens.open[step.index];
+
+      var badges = H("div", { class: "tjl-badges" }, [
+        isDecisive ? H("span", { class: "tjl-b mark", text: "decisive" }) : null,
+        !isDecisive && isRoot ? H("span", { class: "tjl-b mark", text: "root" }) : null,
+        onAccount && !isDecisive && !isRoot
+          ? H("span", { class: "tjl-b acct", text: "account" }) : null,
+        inv ? H("span", { class: "tjl-b err", text: "no-source arg" }) : null,
+        step.error ? H("span", { class: "tjl-b err", text: "error" }) : null,
+        step.effect ? H("span", { class: "tjl-b", text: step.effect }) : null,
+        H("span", { class: "tjl-b", text: TYPE_LABEL[step.type] || step.type || "step" }),
+      ]);
+
+      var glyphBox = S("svg", { class: "tj", width: 14, height: 14,
+                                viewBox: "0 0 14 14", "aria-hidden": "true" });
+      var glyph = glyphNode(step.type, 7, 7, 5);
+      glyph.setAttribute("fill", side === "a" ? C.a : C.b);
+      if (step.error) {
+        glyph.setAttribute("stroke", C.bad);
+        glyph.setAttribute("stroke-width", 1.6);
+      }
+      glyphBox.appendChild(glyph);
+
+      var entry = H("div", { class: "tjl-step" + (picked ? " sel" : "") });
+      entry.appendChild(H("div", {
+        class: "tjl-head",
+        onclick: function () {
+          Lens.open[step.index] = !isOpen;
+          if (rowIdx >= 0) select(rowIdx, side, ctx);
+          else notify();
+        },
+      }, [
+        H("span", { class: "tjl-idx", text: String(step.index) }),
+        glyphBox,
+        H("span", { class: "tjl-name", text: step.name || step.type || "step" }),
+        badges,
+      ]));
+
+      if (isOpen) {
+        var body = H("div", { class: "tjl-body" });
+        body.appendChild(H("div", { class: "tjl-meta",
+          text: (step.tokens !== null && step.tokens !== undefined
+                 ? step.tokens + " tok" : "tokens n/a") + " · " +
+                (step.latency_s !== null && step.latency_s !== undefined
+                 ? F.num(step.latency_s, 2) + "s" : "latency n/a") +
+                (inv ? " · " + (inv.argument || "argument") + "=" +
+                       (inv.value || "?") + " has no source upstream" : "") }));
+        if (step.input) {
+          body.appendChild(H("div", { class: "tj-lbl", text: "input" }));
+          body.appendChild(H("div", { class: "tj-text", text: step.input }));
+        }
+        if (step.output) {
+          body.appendChild(H("div", { class: "tj-lbl", text: "output" }));
+          body.appendChild(H("div", { class: "tj-text", text: step.output }));
+        }
+        if (!step.input && !step.output) {
+          body.appendChild(H("div", { class: "tj-lbl",
+                                      text: "no recorded text" }));
+        }
+        entry.appendChild(body);
+      }
+      list.appendChild(entry);
+    });
+    host.appendChild(list);
+  }
+
 })(typeof window !== "undefined" ? window : this);
