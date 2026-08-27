@@ -743,5 +743,147 @@ class ConsolidatedDiagnosisBlockTest(unittest.TestCase):
         context.close()
 
 
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class TrajectoryMapTest(unittest.TestCase):
+    """The Trajectory map shows each run's INDIVIDUAL steps and the
+    conversation between the runs.
+
+    Driven by the real t05 pair: every step of both trajectories must be
+    drawn as its own clickable node in run order, every two-sided
+    alignment row must produce exactly one edge between the lanes, shared
+    claims must produce their cross-run curves, the decisive step must be
+    ringed — and clicking a node must move the shared cursor so Step
+    detail follows. All expectations are computed from the pair report
+    itself, never hard-coded.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+        pair_json = out / "t05.json"
+        subprocess.run(
+            [sys.executable, "-m", "deepcompare", "compare",
+             str(ROOT / "demo" / "traces" / "t05_flight_duration__atlas-v2.json"),
+             str(ROOT / "demo" / "traces" / "t05_flight_duration__bolt-v3.json"),
+             "-o", str(pair_json)],
+            cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        from deepcompare.report import render_html
+        cls.pair = json.loads(pair_json.read_text(encoding="utf-8"))
+        cls.report = out / "report.html"
+        render_html([cls.pair], {}, ROOT / "web" / "blocks.html", cls.report)
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM,
+                                              args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def open_map(self):
+        context = self.browser.new_context()
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"file://{self.report}")
+        page.wait_for_timeout(400)
+        block = page.locator('.block[data-block="trajectory-map"]')
+        self.assertEqual(block.count(), 1, "Trajectory map is not on the page")
+        if "collapsed" in (block.get_attribute("class") or ""):
+            block.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(250)
+            block = page.locator('.block[data-block="trajectory-map"]')
+        return context, page, block, errors
+
+    def test_every_individual_step_is_drawn_once(self):
+        context, page, block, errors = self.open_map()
+        hits = block.locator("svg.tj g.tj-hit")
+        expected = len(self.pair["a"]["steps"]) + len(self.pair["b"]["steps"])
+        self.assertEqual(hits.count(), expected,
+                         "one node per step of each trajectory")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_every_two_sided_row_gets_exactly_one_edge(self):
+        context, page, block, errors = self.open_map()
+        two_sided = [r for r in self.pair["alignment"]
+                     if r.get("a_index") is not None
+                     and r.get("b_index") is not None]
+        edges = page.evaluate("""() => {
+            const svg = document.querySelector(
+                '.block[data-block="trajectory-map"] svg.tj');
+            let n = 0;
+            svg.querySelectorAll('line').forEach(function (line) {
+                const t = line.querySelector('title');
+                if (t && t.textContent.indexOf('row ') === 0) n++;
+            });
+            return n;
+        }""")
+        self.assertEqual(edges, len(two_sided))
+        context.close()
+
+    def test_shared_claims_speak_across_the_gutter(self):
+        context, page, block, errors = self.open_map()
+        both = [c for c in (self.pair.get("semantic") or {}).get("claims", [])
+                if c.get("a_steps") and c.get("b_steps")]
+        curves = page.evaluate("""() => {
+            const svg = document.querySelector(
+                '.block[data-block="trajectory-map"] svg.tj');
+            let n = 0;
+            svg.querySelectorAll('path').forEach(function (p) {
+                const t = p.querySelector('title');
+                if (t && /claim/.test(t.textContent)) n++;
+            });
+            return n;
+        }""")
+        self.assertEqual(curves, len(both))
+        context.close()
+
+    def test_the_decisive_step_is_ringed(self):
+        context, page, block, errors = self.open_map()
+        decisive = (self.pair["diagnosis"].get("decisive_step") or {}).get("step")
+        self.assertIsNotNone(decisive, "t05 must carry a decisive step")
+        marked = page.evaluate("""() => {
+            const svg = document.querySelector(
+                '.block[data-block="trajectory-map"] svg.tj');
+            const out = [];
+            svg.querySelectorAll('g.tj-hit title').forEach(function (t) {
+                if (t.textContent.indexOf('decisive step') >= 0)
+                    out.push(t.textContent);
+            });
+            return out;
+        }""")
+        self.assertEqual(len(marked), 1, marked)
+        self.assertIn("step " + str(decisive), marked[0])
+        context.close()
+
+    def test_clicking_a_node_moves_the_shared_cursor(self):
+        context, page, block, errors = self.open_map()
+        # first node in DOM order is A's first step; its alignment row is
+        # computed from the report, not assumed
+        first_a = self.pair["a"]["steps"][0]["index"]
+        row = next(i for i, r in enumerate(self.pair["alignment"])
+                   if r.get("a_index") == first_a)
+        block.locator("svg.tj g.tj-hit").nth(0).click()
+        page.wait_for_timeout(250)
+        detail = page.locator('.block[data-block="step-detail"]')
+        if detail.count():
+            tag = detail.locator(".tag.mono").first.inner_text()
+            self.assertEqual(tag, f"row {row}")
+        self.assertEqual(errors, [])
+        context.close()
+
+
 if __name__ == "__main__":
     unittest.main()

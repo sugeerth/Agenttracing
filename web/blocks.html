@@ -6902,6 +6902,300 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     host.appendChild(wrap);
   }
 
+  // ------------------------------------------------------------------- map
+  //
+  // The trajectory map answers a different question than Tracks. Tracks
+  // compresses both runs into one horizontal picture; the map lays each run
+  // out VERTICALLY as its own readable list — every individual step a row,
+  // in run order — and draws the conversation between them in the gutter:
+  // alignment edges (matched, drifted, or absent), and claim edges where
+  // the same fact surfaces in both runs. Click any step on either side and
+  // the shared cursor moves, so Step detail and Tracks follow.
+
+  var MAP_STYLE_DONE = false;
+  function ensureMapStyle() {
+    if (MAP_STYLE_DONE) return;
+    MAP_STYLE_DONE = true;
+    var css = [
+      ".tjm-wrap{overflow-y:auto;max-height:520px;border:1px solid var(--rule);",
+      "border-radius:8px;background:var(--surface)}",
+      ".tjm-foot{display:flex;flex-wrap:wrap;gap:3px 12px;margin-top:7px;",
+      "font-size:10.5px;color:var(--ink-3);align-items:center;line-height:1.2}",
+      ".tjm-foot .k{display:inline-flex;align-items:center;gap:4px}",
+      ".tjm-note{margin-top:6px;font-size:11px;color:var(--ink-2);",
+      "border-left:2px solid var(--warn);padding-left:7px}",
+    ].join("");
+    var tag = document.createElement("style");
+    tag.textContent = css;
+    document.head.appendChild(tag);
+  }
+
+  function mapRowFor(report, side, index) {
+    var rows = rowsOf(report);
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i][side + "_index"] === index) return i;
+    }
+    return -1;
+  }
+
+  function decisiveInfo(report) {
+    var diag = report && report.diagnosis;
+    if (!diag || diag.mode !== "single_failure") return null;
+    var side = diag.subject === "a" ? "a" : diag.subject === "b" ? "b" : null;
+    if (!side) return null;
+    var dec = diag.decisive_step || {};
+    var account = {};
+    (Array.isArray(diag.causal_account) ? diag.causal_account : []).forEach(function (entry) {
+      if (entry && entry.step !== null && entry.step !== undefined) account[entry.step] = entry;
+    });
+    return {
+      side: side,
+      step: dec.step !== undefined ? dec.step : null,
+      reason: dec.reason || null,
+      contested: diag.leading === null || diag.leading === undefined,
+      account: account,
+    };
+  }
+
+  function claimEdges(report) {
+    var sem = semanticOf(report);
+    var out = [];
+    if (!sem || !Array.isArray(sem.claims)) return out;
+    sem.claims.forEach(function (claim) {
+      if (!claim) return;
+      var aSteps = Array.isArray(claim.a_steps) ? claim.a_steps : [];
+      var bSteps = Array.isArray(claim.b_steps) ? claim.b_steps : [];
+      if (!aSteps.length || !bSteps.length) return;
+      out.push({
+        a: aSteps[0], b: bSteps[0],
+        value: claim.value !== undefined ? String(claim.value) : "",
+        wrong: claim.matches_expected === false,
+      });
+    });
+    return out;
+  }
+
+  AgentDiff.block({
+    id: "trajectory-map",
+    title: "Trajectory map",
+    question: "What did each run do, step by step — and where do the runs speak to each other?",
+    group: "trajectory",
+    size: "wide",
+    relevance: function (ctx) {
+      var report = ctx.report;
+      if (!report) return 0;
+      if (!stepsOf(report, "a").length && !stepsOf(report, "b").length) return 0;
+      return rowsOf(report).length ? 0.9 : 0.4;
+    },
+    render: function (el, ctx) {
+      bind(ctx);
+      ensureStyle();
+      ensureMapStyle();
+      var report = ctx.report;
+      if (!report) return ctx.empty(el, "No report loaded.");
+      if (!stepsOf(report, "a").length && !stepsOf(report, "b").length) {
+        return ctx.empty(el, "Neither trajectory recorded any steps.");
+      }
+      syncTask(ctx);
+      el.appendChild(sideHeader(report));
+      var host = sized(el, ctx, function (box, avail) {
+        drawMap(box, avail, ctx);
+      });
+      subscribe(el, function () {
+        host.innerHTML = "";
+        drawMap(host, measure(el), ctx);
+      });
+    },
+  });
+
+  function drawMap(host, avail, ctx) {
+    bind(ctx);
+    var report = ctx.report;
+    var stepsA = stepsOf(report, "a");
+    var stepsB = stepsOf(report, "b");
+    var rows = rowsOf(report);
+    var sel = resolved(report);
+    var root = rootInfo(report);
+    var dec = decisiveInfo(report);
+    var claims = claimEdges(report);
+    var divs = divergenceMap(report);
+
+    var rowH = 26, padTop = 14, padBot = 12;
+    var n = Math.max(stepsA.length, stepsB.length, 1);
+    var height = padTop + n * rowH + padBot;
+    var W = Math.max(480, avail);
+    var laneA = Math.round(W * 0.30), laneB = Math.round(W * 0.70);
+    var labelW = laneA - 26;
+
+    function yAt(i) { return padTop + i * rowH + rowH / 2; }
+    function nodeXY(side, index) {
+      var steps = side === "a" ? stepsA : stepsB;
+      for (var i = 0; i < steps.length; i++) {
+        if (steps[i] && steps[i].index === index) {
+          return { x: side === "a" ? laneA : laneB, y: yAt(i) };
+        }
+      }
+      return null;
+    }
+
+    var svgEl = S("svg", {
+      class: "tj", width: W, height: height,
+      viewBox: "0 0 " + W + " " + height, role: "img",
+      "aria-label": "Trajectory map: each run's steps in order, with alignment and claim edges between them",
+    });
+
+    // lane spines first, so everything else draws over them
+    [["a", laneA, stepsA], ["b", laneB, stepsB]].forEach(function (lane) {
+      if (!lane[2].length) return;
+      svgEl.appendChild(S("line", {
+        x1: lane[1], y1: yAt(0), x2: lane[1], y2: yAt(lane[2].length - 1),
+        stroke: C.grid, "stroke-width": 1.4,
+      }));
+    });
+
+    // claim edges: the same fact surfacing in both runs. Drawn beneath the
+    // alignment edges — they are context, not structure.
+    claims.forEach(function (edge) {
+      var pa = nodeXY("a", edge.a), pb = nodeXY("b", edge.b);
+      if (!pa || !pb) return;
+      var midX = (laneA + laneB) / 2;
+      var stroke = edge.wrong ? C.bad : C.good;
+      var path = S("path", {
+        d: "M" + (pa.x + 8) + " " + pa.y +
+           " C" + midX + " " + pa.y + " " + midX + " " + pb.y +
+           " " + (pb.x - 8) + " " + pb.y,
+        fill: "none", stroke: stroke, "stroke-width": 1,
+        "stroke-dasharray": "1.5,3", opacity: 0.75,
+      });
+      path.appendChild(S("title", {
+        text: (edge.wrong ? "wrong-valued claim" : "shared claim") +
+              (edge.value ? ": " + edge.value : "") +
+              " — A step " + edge.a + " ↔ B step " + edge.b,
+      }));
+      svgEl.appendChild(path);
+    });
+
+    // alignment edges: one per row that has both sides. A one-sided row is
+    // an honest gap — the absence of an edge IS the picture.
+    rows.forEach(function (row, i) {
+      if (row.a_index === null || row.a_index === undefined) return;
+      if (row.b_index === null || row.b_index === undefined) return;
+      var pa = nodeXY("a", row.a_index), pb = nodeXY("b", row.b_index);
+      if (!pa || !pb) return;
+      var divergent = !!divs[i];
+      var stroke = divergent ? C.bad : row.op === "match" ? C.axis : C.warn;
+      var line = S("line", {
+        x1: pa.x + 8, y1: pa.y, x2: pb.x - 8, y2: pb.y,
+        stroke: stroke, "stroke-width": divergent ? 1.8 : 1.2,
+        "stroke-dasharray": row.op === "match" ? null : "4,3",
+        opacity: divergent ? 0.95 : 0.7,
+      });
+      line.appendChild(S("title", {
+        text: "row " + i + " · " + row.op + " · similarity " + F.num(row.similarity, 2) +
+              (divergent ? " · divergence" : ""),
+      }));
+      svgEl.appendChild(line);
+    });
+
+    // step nodes: every individual step, in run order
+    [["a", laneA, stepsA], ["b", laneB, stepsB]].forEach(function (lane) {
+      var side = lane[0], x = lane[1], steps = lane[2];
+      steps.forEach(function (step, i) {
+        if (!step) return;
+        var y = yAt(i);
+        var rowIdx = mapRowFor(report, side, step.index);
+        var onAccount = dec && dec.side === side && dec.account[step.index];
+        var isDecisive = dec && dec.side === side && dec.step === step.index;
+        var isRoot = root && root.side === side && root.index === step.index;
+        var picked = sel.row === rowIdx && rowIdx >= 0;
+
+        var g = S("g", { class: "tj-hit" });
+        if (onAccount) {
+          g.appendChild(S("circle", { cx: x, cy: y, r: 10.5, fill: C.warn, opacity: 0.16 }));
+        }
+        if (isRoot || isDecisive) {
+          g.appendChild(S("circle", {
+            cx: x, cy: y, r: 9.5, fill: "none",
+            stroke: C.bad, "stroke-width": isDecisive ? 2 : 1.2,
+            "stroke-dasharray": isDecisive ? null : "2.5,2",
+          }));
+        }
+        if (picked) {
+          g.appendChild(S("circle", {
+            cx: x, cy: y, r: 12, fill: "none",
+            stroke: cssAccent(), "stroke-width": 1.4, opacity: 0.9,
+          }));
+        }
+        var glyph = glyphNode(step.type, x, y, 5.5);
+        glyph.setAttribute("fill", side === "a" ? C.a : C.b);
+        if (step.error) {
+          glyph.setAttribute("stroke", C.bad);
+          glyph.setAttribute("stroke-width", 2);
+        }
+        g.appendChild(glyph);
+
+        var textX = side === "a" ? x - 14 : x + 14;
+        var anchor = side === "a" ? "end" : "start";
+        var name = String(step.name || step.type || "step");
+        var maxChars = Math.max(8, Math.floor(labelW / 6.4));
+        if (name.length > maxChars) name = name.slice(0, maxChars - 1) + "…";
+        g.appendChild(S("text", {
+          x: textX, y: y + 3, "text-anchor": anchor,
+          "font-family": "var(--mono)", "font-size": 10.5,
+          fill: picked ? C.ink : C.muted,
+          text: step.index + " · " + name + (step.error ? " ⚠" : ""),
+        }));
+        g.appendChild(S("title", {
+          text: side.toUpperCase() + " step " + step.index + " · " + (step.type || "") +
+                " " + (step.name || "") +
+                (step.error ? " · ERROR" : "") +
+                (isDecisive ? " · decisive step" : isRoot ? " · attributed root" : "") +
+                (onAccount ? " · on the causal account" : ""),
+        }));
+        g.addEventListener("click", function () {
+          if (rowIdx >= 0) select(rowIdx, side, ctx);
+        });
+        svgEl.appendChild(g);
+      });
+    });
+
+    var wrap = H("div", { class: "tjm-wrap" });
+    wrap.appendChild(svgEl);
+    host.appendChild(wrap);
+
+    var foot = H("div", { class: "tjm-foot" }, [
+      legendKey("solid line", "matched step"),
+      legendKey("dashed line", "drifted / divergent"),
+      legendKey("dotted curve", "same claim in both runs (red = wrong-valued)"),
+      legendKey("no line", "step only one run took"),
+      dec ? legendKey("solid red ring", "decisive step") : null,
+      root ? legendKey("dashed red ring", "attributed root") : null,
+      dec ? legendKey("amber halo", "on the causal account") : null,
+    ]);
+    host.appendChild(foot);
+
+    if (dec && dec.contested) {
+      host.appendChild(H("div", { class: "tjm-note",
+        text: "Diagnosis contested — no decisive step is committed" +
+              (dec.reason ? ": " + dec.reason : ".") }));
+    }
+  }
+
+  function cssAccent() {
+    try {
+      var v = getComputedStyle(document.documentElement).getPropertyValue("--accent");
+      if (v) return v.trim();
+    } catch (err) { /* fall through */ }
+    return C.ink;
+  }
+
+  function legendKey(mark, meaning) {
+    return H("span", { class: "k" }, [
+      H("b", { text: mark, style: { fontWeight: "600" } }),
+      H("span", { text: meaning }),
+    ]);
+  }
+
 })(typeof window !== "undefined" ? window : this);
 
 </script>
