@@ -1015,6 +1015,44 @@ class RunLensTest(unittest.TestCase):
         self.assertIn("decisive", [t.lower() for t in texts])
         context.close()
 
+    def test_the_select_step_event_moves_the_family_cursor(self):
+        # The walkthrough's documented fallback: a CustomEvent any module
+        # may listen for. It must actually move the shared cursor — until
+        # the trajectory family grew a listener it fired into silence.
+        context, page, block, errors = self.open_lens()
+        rows = self.pair["alignment"]
+        target = len(rows) - 1
+        page.evaluate("""(row) => {
+            document.dispatchEvent(new CustomEvent('agentdiff:select-step', {
+                detail: { row: row, side: null },
+            }));
+        }""", target)
+        page.wait_for_timeout(250)
+        detail = page.locator('.block[data-block="step-detail"]')
+        if detail.count():
+            tag = detail.locator(".tag.mono").first.inner_text()
+            self.assertEqual(tag, f"row {target}")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_map_never_clips_its_b_lane_in_a_column(self):
+        # Regression: the map forced a 480px floor on its own width, so in
+        # a ~340px layout column the entire B lane fell off the right edge.
+        # The drawn SVG must fit the width its container actually has.
+        context, page, block, errors = self.open_lens()
+        fits = page.evaluate("""() => {
+            const wrap = document.querySelector(
+                '.block[data-block="trajectory-map"] .tjm-wrap');
+            if (!wrap) return null;
+            const svg = wrap.querySelector('svg.tj');
+            return { svg: svg.getBoundingClientRect().width,
+                     box: wrap.clientWidth };
+        }""")
+        self.assertIsNotNone(fits, "map wrap not found")
+        self.assertLessEqual(fits["svg"], fits["box"] + 1,
+                             "map SVG wider than its container")
+        context.close()
+
 
 if __name__ == "__main__":
     unittest.main()

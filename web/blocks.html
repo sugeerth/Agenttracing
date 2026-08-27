@@ -5117,6 +5117,20 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     notify();
   }
 
+  /* The walkthrough's fallback for driving the family cursor is a
+   * CustomEvent — documented in 05_walkthrough.js as "any module may
+   * listen". Until this listener existed, nothing did: when Tracks was
+   * absent or its hit layout unrecognized, the event fired into silence
+   * and the walkthrough degraded to a plain scroll. Now the event moves
+   * the same cursor a hand click would. */
+  try {
+    document.addEventListener("agentdiff:select-step", function (event) {
+      var d = event && event.detail;
+      if (!d || typeof d.row !== "number" || d.row < 0) return;
+      select(d.row, d.side === "a" || d.side === "b" ? d.side : null, null);
+    });
+  } catch (err) { /* no document: nothing to listen on */ }
+
   // ------------------------------------------------------------ data access
 
   function rowsOf(report) {
@@ -6917,8 +6931,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     if (MAP_STYLE_DONE) return;
     MAP_STYLE_DONE = true;
     var css = [
-      ".tjm-wrap{overflow-y:auto;max-height:520px;border:1px solid var(--rule);",
-      "border-radius:8px;background:var(--surface)}",
+      ".tjm-wrap{overflow-y:auto;overflow-x:auto;max-height:520px;",
+      "border:1px solid var(--rule);border-radius:8px;background:var(--surface)}",
       ".tjm-foot{display:flex;flex-wrap:wrap;gap:3px 12px;margin-top:7px;",
       "font-size:10.5px;color:var(--ink-3);align-items:center;line-height:1.2}",
       ".tjm-foot .k{display:inline-flex;align-items:center;gap:4px}",
@@ -7023,8 +7037,13 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     var rowH = 26, padTop = 14, padBot = 12;
     var n = Math.max(stepsA.length, stepsB.length, 1);
     var height = padTop + n * rowH + padBot;
-    var W = Math.max(480, avail);
-    var laneA = Math.round(W * 0.30), laneB = Math.round(W * 0.70);
+    // The map lives wherever the layout puts it — a ~340px column as
+    // readily as the full-width hero lane — so the width is the width:
+    // forcing a floor here clipped the whole B lane off the right edge
+    // of a column. Lanes sit symmetrically, labels get whatever room the
+    // lane leaves, and the name truncation below absorbs the squeeze.
+    var W = Math.max(280, avail - 4);   // the wrap's own border + rounding
+    var laneA = Math.round(W * 0.27), laneB = W - laneA;
     var labelW = laneA - 26;
 
     function yAt(i) { return padTop + i * rowH + rowH / 2; }
@@ -7137,7 +7156,10 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         var textX = side === "a" ? x - 14 : x + 14;
         var anchor = side === "a" ? "end" : "start";
         var name = String(step.name || step.type || "step");
-        var maxChars = Math.max(8, Math.floor(labelW / 6.4));
+        // budget the whole label ("12 · name ⚠") against the lane's real
+        // room, not just the name — the index prefix costs characters too
+        var prefixChars = String(step.index).length + 3;
+        var maxChars = Math.max(6, Math.floor(labelW / 6.4) - prefixChars);
         if (name.length > maxChars) name = name.slice(0, maxChars - 1) + "…";
         g.appendChild(S("text", {
           x: textX, y: y + 3, "text-anchor": anchor,
