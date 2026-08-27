@@ -1335,5 +1335,171 @@ class BatchTaskSwitchTest(unittest.TestCase):
         context.close()
 
 
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class LongPairMapTest(unittest.TestCase):
+    """The map at scale: a 70-step pair must be drawn whole.
+
+    House rule: no silent caps. A synthetic pair (70 vs 76 steps —
+    matches, drifts, one-sided runs of extra work) is compared by the
+    real engine and rendered by the real page; the map must draw every
+    step (node count == step count), scroll rather than squash, keep its
+    row rhythm, and stay clickable at row 60+ — with render time sane
+    and no page errors.
+    """
+
+    tmp = None
+    STEPS = 70
+
+    @classmethod
+    def _trajectory(cls, agent, extra_runs):
+        steps = [{"index": 0, "type": "plan", "name": "plan",
+                  "input": "Read every record, then answer.", "output": "",
+                  "tokens": 30, "latency_s": 1.0}]
+        for i in range(1, cls.STEPS - 2):
+            drift = agent == "long-b" and i % 10 == 5
+            steps.append({
+                "index": len(steps), "type": "tool_call",
+                "name": "get_record",
+                "input": f"get_record(page={i}"
+                         + (", source='mirror')" if drift else ")"),
+                "output": f"Record page {i}: nominal.",
+                "tokens": 25, "latency_s": 0.4,
+                "effect": "read", "error": False,
+            })
+        for j in range(extra_runs):
+            steps.append({
+                "index": len(steps), "type": "tool_call",
+                "name": "retry_fetch",
+                "input": f"retry_fetch(attempt={j})",
+                "output": "Partial data only.",
+                "tokens": 25, "latency_s": 0.4,
+                "effect": "read", "error": False,
+            })
+        steps.append({"index": len(steps), "type": "reason", "name": "reason",
+                      "input": "The ledger totals $500.00 across all pages.",
+                      "output": "", "tokens": 25, "latency_s": 0.4})
+        answer = ("The ledger totals $500.00."
+                  if agent == "long-a" else
+                  "The ledger could not be fully verified.")
+        steps.append({"index": len(steps), "type": "answer", "name": "final",
+                      "input": answer, "output": answer,
+                      "tokens": 30, "latency_s": 0.5})
+        return {
+            "schema_version": 1,
+            "trace_id": f"longpair-{agent}",
+            "agent": {"name": agent, "model": "model-x", "version": "1"},
+            "task": {"id": "long_pair",
+                     "prompt": "Total the ledger across all record pages.",
+                     "expected": "The ledger totals $500.00."},
+            "outcome": {"success": agent == "long-a", "answer": answer,
+                        "score": 1.0 if agent == "long-a" else 0.0,
+                        "termination": "agent_stop"},
+            "totals": {"input_tokens": 2000, "output_tokens": 900,
+                       "cost_usd": 0.01, "latency_s": 40.0},
+            "steps": steps,
+            "tools": [{"name": "get_record", "effect": "read"},
+                      {"name": "retry_fetch", "effect": "read"}],
+            "budget": {"max_steps": 120},
+        }
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+        a_path = out / "a.json"
+        b_path = out / "b.json"
+        a_path.write_text(json.dumps(cls._trajectory("long-a", 0)))
+        b_path.write_text(json.dumps(cls._trajectory("long-b", 6)))
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        from deepcompare.report import compare, render_html
+        from deepcompare.trace import Trajectory
+        cls.pair = compare(Trajectory.from_json(str(a_path)),
+                           Trajectory.from_json(str(b_path)))
+        cls.report = out / "report.html"
+        render_html([cls.pair], {}, ROOT / "web" / "blocks.html", cls.report)
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM,
+                                              args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def open_map(self):
+        import time
+        context = self.browser.new_context()
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        start = time.monotonic()
+        page.goto(f"file://{self.report}")
+        page.wait_for_timeout(600)
+        elapsed = time.monotonic() - start
+        block = page.locator('.block[data-block="trajectory-map"]')
+        self.assertEqual(block.count(), 1)
+        if "collapsed" in (block.get_attribute("class") or ""):
+            block.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(250)
+            block = page.locator('.block[data-block="trajectory-map"]')
+        return context, page, block, errors, elapsed
+
+    def test_every_step_is_drawn_no_silent_cap(self):
+        context, page, block, errors, elapsed = self.open_map()
+        expected = (len(self.pair["a"]["steps"])
+                    + len(self.pair["b"]["steps"]))
+        self.assertGreaterEqual(expected, 140, "pair not actually long")
+        nodes = page.evaluate("""() => document.querySelectorAll(
+            '.block[data-block="trajectory-map"] svg.tj g.tj-hit:not(.tjm-claim-hit)'
+        ).length""")
+        self.assertEqual(nodes, expected)
+        self.assertLess(elapsed, 5.0, f"render took {elapsed:.1f}s")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_map_scrolls_rather_than_squashes(self):
+        context, page, block, errors, _ = self.open_map()
+        geom = page.evaluate("""() => {
+            const wrap = document.querySelector(
+                '.block[data-block="trajectory-map"] .tjm-wrap');
+            const svg = wrap.querySelector('svg.tj');
+            return { scroll: wrap.scrollHeight, client: wrap.clientHeight,
+                     svgH: svg.getBoundingClientRect().height };
+        }""")
+        self.assertGreater(geom["scroll"], geom["client"],
+                           "long map should scroll inside its wrap")
+        # row rhythm intact: the SVG is as tall as its row count demands
+        n = max(len(self.pair["a"]["steps"]), len(self.pair["b"]["steps"]))
+        self.assertGreaterEqual(geom["svgH"], n * 20,
+                                "rows squashed below readable height")
+        context.close()
+
+    def test_click_sync_still_works_past_row_sixty(self):
+        context, page, block, errors, _ = self.open_map()
+        side = "b"
+        steps = self.pair[side]["steps"]
+        target = steps[65]["index"]
+        row = next(i for i, r in enumerate(self.pair["alignment"])
+                   if r.get(f"{side}_index") == target)
+        # nodes are appended lane A first, then lane B in step order
+        nth = len(self.pair["a"]["steps"]) + 65
+        page.locator('.block[data-block="trajectory-map"] '
+                     'svg.tj g.tj-hit:not(.tjm-claim-hit)').nth(nth).click()
+        page.wait_for_timeout(250)
+        detail = page.locator('.block[data-block="step-detail"]')
+        if detail.count():
+            tag = detail.locator(".tag.mono").first.inner_text()
+            self.assertEqual(tag, f"row {row}")
+        self.assertEqual(errors, [])
+        context.close()
+
+
 if __name__ == "__main__":
     unittest.main()
