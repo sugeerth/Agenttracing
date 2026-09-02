@@ -566,6 +566,17 @@ def _cmd_runs(args: argparse.Namespace) -> int:
     agg["task_signal"] = task_signal(reports, stability)
     from .consolidate import consolidate_diagnoses
     agg["diagnosis_consolidated"] = consolidate_diagnoses(runs_by_task)
+    # the paired design the runs layout IS: both agents on the same tasks,
+    # so the comparison is a paired difference with a sign test, never two
+    # rates eyeballed against each other
+    from .statistics import paired_inference
+    agg["paired_inference"] = paired_inference(
+        [(sum(1.0 for t in runs_by_task[tid]["a"] if t.outcome.success)
+          / len(runs_by_task[tid]["a"]),
+          sum(1.0 for t in runs_by_task[tid]["b"] if t.outcome.success)
+          / len(runs_by_task[tid]["b"]))
+         for tid in sorted(runs_by_task)],
+        labels=(name_a, name_b))
     # Re-triage now that reliability is attached: it is the only block that
     # can tell triage to stop ranking cross-agent claims confidently, and it
     # arrives after aggregate() has already run.
@@ -594,6 +605,11 @@ def _cmd_runs(args: argparse.Namespace) -> int:
         print(f"warning: viewer template not found at {template}; skipping report.html",
               file=sys.stderr)
 
+    paired = agg["paired_inference"]
+    print(f"Paired inference over {paired['n_pairs']} task(s): "
+          f"{paired['labels'][0]} minus {paired['labels'][1]} = {paired['diff']}"
+          + (f" ± {paired['se']} (95% {paired['ci95']})" if paired['se'] is not None else "")
+          + f"; sign test p={paired['sign_test_p']} — {paired['verdict']}")
     print(f"Runs: {stability['runs_per_agent']}")
     for entry in stability["per_task"]:
         repro = entry["divergence_reproducibility"]

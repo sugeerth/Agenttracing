@@ -1749,6 +1749,33 @@ grounded, not true, the same boundary as `check_diagnosis`).
   The run's summary bookends its facts (primacy and recency), because
   long-context readers degrade monotonically and lose the middle.
 
+## Paired inference and clustered error bars (v34)
+
+Two agents on the same tasks is a paired design, and a paired test has
+far more power than eyeballing two rates; tasks that share a source are
+not independent draws, and a naive standard error can be several times
+too small (Miller, *Adding Error Bars to Evals*, 2024). `statistics.py`
+gains three pure-stdlib tools and three surfaces use them:
+
+- **`paired_inference(pairs, labels)`** — per-task outcome pairs
+  (booleans, or success rates for multi-run tasks) → mean difference (A
+  minus B) with a paired standard error and 95% interval, the
+  discordant-pair counts, an **exact two-sided sign test** (McNemar's
+  exact form) on the discordant pairs, and a verdict that refuses to
+  distinguish below ten paired tasks — the denominator stated either
+  way. Unpaired tasks are dropped and counted, never silently.
+- **`clustered_se(values, clusters)`** — the cluster-robust standard
+  error of a mean (the sandwich estimator with the G/(G−1) factor),
+  reported beside the naive SE with their ratio and both intervals.
+- **`runs`** writes `aggregate.paired_inference` for the two agents
+  over the task set (per-task success rates paired) and prints it;
+  **`fleet`** writes `fleet.paired_inference`, one entry per agent pair,
+  so the ranking of means is accompanied by which orderings the tasks
+  can actually distinguish; the **benchmark scorecard** carries
+  `overall.clustered_by_cause` — scenarios in one cause family share a
+  template, so the honest error bar on the accuracy is the clustered
+  one, and the terminal scorecard prints both.
+
 ## The trajectory map (v32)
 
 The report page grew two blocks that put the individual trajectories

@@ -249,6 +249,17 @@ honestly contests rather than confirming either story). They stay in
 the measured number because a benchmark containing only what the
 diagnoser already gets right measures nothing.
 
+Every scorecard accuracy now carries two error bars — naive, and
+clustered by cause family, because scenarios in one family share a
+template and are not independent draws; the clustered one is the honest
+one, and the ratio between them is printed — at 2,200 pairs it is
+**×13.6** (naive ±0.008, clustered ±0.104), because accuracy is bimodal
+by family and the naive bar pretends the families are independent. The same discipline runs
+through `runs` and `fleet`: two agents on the same tasks is a *paired*
+design, so they report a paired difference with its standard error and
+an exact sign test on the discordant tasks, and refuse to call a winner
+below ten paired tasks.
+
 The same corpus regenerated with `--strip-annotations` — every step's
 `error`/`quality`/`note` nulled, so the engine must infer everything
 from observation text — is the de-circularized condition the

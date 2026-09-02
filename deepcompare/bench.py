@@ -74,6 +74,9 @@ def floor_violations(result: dict) -> list[str]:
     return problems
 
 
+from .statistics import clustered_se as _clustered_se
+
+
 def format_scorecard(result: dict) -> str:
     """The benchmark result as a terminal scorecard, denominators intact."""
     overall = result["overall"]
@@ -91,6 +94,15 @@ def format_scorecard(result: dict) -> str:
         f"  chain recovery  recall {chain['mean_recall']}, precision "
         f"{chain['mean_precision']} over {chain['scenarios']} scenario(s)",
     ]
+    clustered = overall.get("clustered_by_cause") or {}
+    if clustered.get("clustered_se") is not None and not clustered.get("naive_se"):
+        lines.append("  error bar       no variance on this corpus (every scenario "
+                     "scored the same) — the scaled corpus carries a bounded interval")
+    elif clustered.get("clustered_se") is not None:
+        lines.append(
+            f"  error bar       naive ±{clustered['naive_se']:.4f}, clustered by "
+            f"cause ±{clustered['clustered_se']:.4f} ({clustered['clusters']} "
+            f"families; ×{clustered['ratio']}) — the clustered one is honest")
     for miss in result["misses"]:
         lines.append(f"  MISS {miss['scenario']}: truth {miss['truth']}, "
                      f"led {miss['actually_led']}")
@@ -316,6 +328,12 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
             "total": total,
             "accuracy": round(correct_total / total, 4) if total else None,
             "secondary_only": secondary_only,
+            # scenarios in one cause family share a template — not
+            # independent draws — so the naive error bar on the accuracy
+            # is too small by exactly the factor the clustered one reports
+            "clustered_by_cause": _clustered_se(
+                [1.0 if r["outcome"] == "correct" else 0.0 for r in results],
+                [r["cause"] for r in results]),
         },
         "multi_cause": {
             "scenarios": len(with_secondary),

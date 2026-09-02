@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .report import compare
+from .statistics import paired_inference as _paired_inference
 from .trace import Trajectory
 
 #: default composite weights, per the SCHEMA.md fleet contract.
@@ -467,5 +468,15 @@ def fleet_analysis(
             for name in ordered
         ],
         "spotlight_pairs": spotlight_pairs,
+        # every pair of agents on the same tasks is a paired design: the
+        # ranking above orders means; this says which orderings the tasks
+        # can actually distinguish, with the denominator
+        "paired_inference": [
+            _paired_inference(
+                [(per_task[x][tid]["success"], per_task[y][tid]["success"])
+                 for tid in task_ids],
+                labels=(x, y))
+            for i, x in enumerate(names) for y in names[i + 1:]
+        ],
     }
     return {"fleet": fleet, "reports": spotlight_reports}

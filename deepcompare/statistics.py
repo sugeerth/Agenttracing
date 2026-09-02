@@ -203,3 +203,120 @@ def describe_significance(result: dict, n_tasks: int) -> str:
         f"zero, so the same agent re-run could produce it. Add tasks or runs "
         f"before treating this as a regression."
     )
+
+
+# ---------------------------------------------------------------------------
+# paired inference and clustered standard errors (Miller, "Adding Error Bars
+# to Evals", 2024): two agents on the SAME tasks is a paired design, and a
+# paired test has dramatically more power than comparing two rates; tasks
+# that share a source are not independent, and a naive standard error can
+# be several times too small.
+
+MIN_PAIRS_TO_DISTINGUISH = 10
+
+
+def _sample_stdev(values: list) -> float:
+    """Sample standard deviation (ddof=1); written out so this module never
+    imports the stdlib module that shares its name."""
+    n = len(values)
+    if n < 2:
+        return 0.0
+    mean = sum(values) / n
+    return math.sqrt(sum((v - mean) ** 2 for v in values) / (n - 1))
+
+
+def sign_test(a_wins: int, b_wins: int) -> Optional[float]:
+    """Exact two-sided sign test on the discordant pairs (McNemar's exact
+    form): under "no difference" each discordant pair is a fair coin, so
+    the p-value is the two-sided binomial tail at the smaller count.
+    ``None`` when there are no discordant pairs — nothing to test."""
+    n = a_wins + b_wins
+    if n == 0:
+        return None
+    k = min(a_wins, b_wins)
+    tail = sum(math.comb(n, i) for i in range(0, k + 1)) / (2 ** n)
+    return round(min(1.0, 2.0 * tail), 6)
+
+
+def paired_inference(pairs: list, labels: tuple = ("A", "B"),
+                     min_pairs: int = MIN_PAIRS_TO_DISTINGUISH) -> dict:
+    """Paired-difference inference over per-task outcome pairs.
+
+    ``pairs`` is a list of ``(a, b)`` where each side is a success
+    indicator (bool) or a success rate in [0, 1] (multi-run tasks);
+    pairs with a missing side are dropped and counted.  Reports the
+    mean difference (A minus B) with its paired standard error and 95%
+    interval, the discordant-pair counts, the exact sign-test p-value,
+    and a verdict that refuses to distinguish below ``min_pairs`` —
+    with the denominator stated either way.
+    """
+    usable = [(float(a), float(b)) for a, b in pairs
+              if a is not None and b is not None]
+    dropped = len(pairs) - len(usable)
+    n = len(usable)
+    diffs = [a - b for a, b in usable]
+    a_wins = sum(1 for d in diffs if d > 0)
+    b_wins = sum(1 for d in diffs if d < 0)
+    ties = n - a_wins - b_wins
+    mean = (sum(diffs) / n) if n else None
+    se = None
+    ci = None
+    if n >= 2:
+        sd = _sample_stdev(diffs)
+        se = sd / math.sqrt(n)
+        ci = [round(mean - _Z * se, 4), round(mean + _Z * se, 4)]
+    p = sign_test(a_wins, b_wins)
+    if n < min_pairs:
+        verdict = (f"not distinguishable: only {n} paired task(s) "
+                   f"(needs at least {min_pairs})")
+    elif p is not None and p < 0.05:
+        verdict = (f"{labels[0]} better" if mean > 0 else f"{labels[1]} better")
+    else:
+        verdict = (f"not distinguishable on {n} paired task(s): "
+                   f"{a_wins} favour {labels[0]}, {b_wins} favour {labels[1]}, "
+                   f"{ties} tied")
+    return {
+        "labels": list(labels), "n_pairs": n, "dropped_unpaired": dropped,
+        "a_wins": a_wins, "b_wins": b_wins, "ties": ties,
+        "discordant": a_wins + b_wins,
+        "diff": round(mean, 4) if mean is not None else None,
+        "se": round(se, 4) if se is not None else None,
+        "ci95": ci, "sign_test_p": p, "verdict": verdict,
+        "method": "paired difference with paired SE; exact two-sided sign "
+                  "test on discordant pairs (McNemar)",
+    }
+
+
+def clustered_se(values: list, clusters: list) -> dict:
+    """Cluster-robust standard error of a mean.  ``values`` are per-unit
+    observations (e.g. 1/0 correct), ``clusters`` the cluster key of each
+    unit (e.g. the scenario family).  Reports the naive SE, the
+    cluster-robust SE (the sandwich estimator for a mean, with the usual
+    G/(G−1) small-sample factor) and their ratio — how much the naive
+    error bar understated the uncertainty."""
+    n = len(values)
+    if n < 2 or len(clusters) != n:
+        return {"n": n, "clusters": len(set(clusters)), "mean": None,
+                "naive_se": None, "clustered_se": None, "ratio": None,
+                "note": "fewer than two observations"}
+    mean = sum(values) / n
+    naive = _sample_stdev(values) / math.sqrt(n)
+    groups: dict = {}
+    for v, c in zip(values, clusters):
+        groups.setdefault(c, []).append(v - mean)
+    g = len(groups)
+    sandwich = sum(sum(resid) ** 2 for resid in groups.values()) / (n * n)
+    factor = g / (g - 1) if g > 1 else 1.0
+    clustered = math.sqrt(sandwich * factor)
+    return {
+        "n": n, "clusters": g, "mean": round(mean, 4),
+        "naive_se": round(naive, 6), "clustered_se": round(clustered, 6),
+        "ratio": round(clustered / naive, 3) if naive > 0 else None,
+        "ci95_naive": [round(mean - _Z * naive, 4), round(mean + _Z * naive, 4)],
+        "ci95_clustered": [round(mean - _Z * clustered, 4),
+                           round(mean + _Z * clustered, 4)],
+        "note": ("one cluster: clustered SE is undefined, naive shown"
+                 if g < 2 else
+                 "clusters share a source; the clustered interval is the "
+                 "honest one"),
+    }
