@@ -1717,6 +1717,21 @@ grounded, not true, the same boundary as `check_diagnosis`).
   wrote) or `stated` (the agent's own words), and `confidence` is set by
   the strongest class supporting the findings — never by how articulate
   the agent was.
+- **`phase_checks`** (v2) are the order-of-work checks from the
+  coding-agent literature: `first_write_before_any_read`,
+  `verification_after_last_write` (with the checking step),
+  `regression_cycles` (act → look → act patterns over the read/write
+  effect sequence, each cycle's steps listed) — all with evidence refs;
+  each raised check is a finding with an action.
+- **`errors`** and **`critical_error`** (v2) give every tool error its
+  lifecycle: `resolved` (a later changed call of the same tool
+  succeeded — `resolved_at` names it), `unresolved_with_footprint` (an
+  atom from the error's output reached the answer, or the value the
+  call should have produced is absent and the answer has no observed
+  basis), or `unresolved_without_footprint`. The critical error is the
+  earliest unresolved one with a footprint, labelled `hypothesized` and
+  carrying a replay recipe ("make the call succeed or route around it")
+  — the same contract as the pair diagnosis's decisive step.
 - **`take_forward`** derives one action per finding kind, deduplicated;
   a clean failure with no finding says so: compare against a passing run.
 

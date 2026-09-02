@@ -224,5 +224,82 @@ class TestAnswerBasisAndValidity(unittest.TestCase):
         self.assertFalse(v["harness_terminated"])
 
 
+class TestPhaseChecksAndErrorLifecycle(unittest.TestCase):
+    """R2/R3: order-of-work checks and the error lifecycle."""
+
+    _synthetic = staticmethod(TestAnswerBasisAndValidity._synthetic)
+
+    def test_hasty_run_wrote_before_reading_and_never_checked(self):
+        traj, r = reading(P01_HASTY)
+        checks = r["phase_checks"]
+        self.assertTrue(checks["first_write_before_any_read"])
+        kinds = {f["kind"] for f in r["what_it_means"]}
+        self.assertIn("wrote_before_reading", kinds)
+        self.assertEqual(check_reading(r, traj), [])
+
+    def test_errors_carry_states_and_the_critical_one_is_hypothesized(self):
+        traj, r = reading(P01_HASTY)
+        self.assertTrue(r["errors"])
+        for e in r["errors"]:
+            self.assertIn(e["state"], ("resolved", "unresolved_with_footprint",
+                                       "unresolved_without_footprint"))
+            self.assertIn(e["evidence"], {x["id"] for x in r["evidence"]})
+        crit = r["critical_error"]
+        if crit["step"] is not None:
+            self.assertEqual(crit["verification"], "hypothesized")
+            self.assertEqual(crit["replay_recipe"]["step"], crit["step"])
+            self.assertIn("unresolved_error", {f["kind"] for f in r["what_it_means"]})
+
+    def test_a_recovered_error_is_resolved_and_not_critical(self):
+        traj = self._synthetic([
+            {"type": "tool_call", "name": "lookup", "input": "lookup(ref='BK-1')",
+             "output": "Error: unknown reference", "effect": "read", "error": True},
+            {"type": "tool_call", "name": "lookup", "input": "lookup(ref='BK1')",
+             "output": "refund $120.00", "effect": "read", "error": False},
+            {"type": "answer", "name": "final", "input": "The refund is $120.00.",
+             "output": "The refund is $120.00."}])
+        r = read_trace(traj)
+        self.assertEqual(r["errors"][0]["state"], "resolved")
+        self.assertEqual(r["errors"][0]["resolved_at"], 1)
+        self.assertIsNone(r["critical_error"]["step"])
+        self.assertNotIn("unresolved_error", {f["kind"] for f in r["what_it_means"]})
+
+    def test_an_unresolved_error_whose_value_is_missing_is_critical(self):
+        traj = self._synthetic([
+            {"type": "tool_call", "name": "lookup", "input": "lookup(ref='BK1')",
+             "output": "Error: service unavailable", "effect": "read", "error": True},
+            {"type": "reason", "name": "reason", "input": "I will assume $120.00.", "output": ""},
+            {"type": "answer", "name": "final", "input": "The refund is $120.00.",
+             "output": "The refund is $120.00."}])
+        r = read_trace(traj)
+        self.assertEqual(r["errors"][0]["state"], "unresolved_with_footprint")
+        self.assertEqual(r["critical_error"]["step"], 0)
+        self.assertEqual(r["critical_error"]["verification"], "hypothesized")
+        self.assertTrue(any("unresolved tool errors" in t["action"]
+                            for t in r["take_forward"]))
+        self.assertIn("Critical error at step 0", r["summary"])
+
+    def test_regression_cycle_is_counted_from_effects(self):
+        traj = self._synthetic([
+            {"type": "tool_call", "name": "lookup", "input": "lookup(ref='BK1')",
+             "output": "refund $120.00", "effect": "read", "error": False},
+            {"type": "tool_call", "name": "apply", "input": "apply(ref='BK1')",
+             "output": "applied", "effect": "write", "error": False},
+            {"type": "tool_call", "name": "lookup", "input": "lookup(ref='BK1')",
+             "output": "refund $120.00 applied", "effect": "read", "error": False},
+            {"type": "tool_call", "name": "apply", "input": "apply(ref='BK1', again=true)",
+             "output": "applied", "effect": "write", "error": False},
+            {"type": "answer", "name": "final", "input": "The refund is $120.00.",
+             "output": "The refund is $120.00."}])
+        r = read_trace(traj)
+        self.assertEqual(r["phase_checks"]["regression_cycles"], 1)
+        self.assertFalse(r["phase_checks"]["first_write_before_any_read"])
+        self.assertFalse(r["phase_checks"]["verification_after_last_write"])
+        kinds = {f["kind"] for f in r["what_it_means"]}
+        self.assertIn("regression_cycle", kinds)
+        self.assertIn("unchecked_write", kinds)
+        self.assertEqual(check_reading(r, traj), [])
+
+
 if __name__ == "__main__":
     unittest.main()

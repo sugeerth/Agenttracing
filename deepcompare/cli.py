@@ -1524,6 +1524,24 @@ def _cmd_explain(args: argparse.Namespace) -> int:
                      "contradicts expected" if r["matches_expected"] is False else
                      "no expected value to compare")
             print(f"    {r['value']} [{r['status'].replace('_', ' ')}] — {where}; {match}")
+    checks = reading.get("phase_checks") or {}
+    if checks.get("writes"):
+        print("  Order of work: "
+              + ("wrote before any read; " if checks["first_write_before_any_read"] else "")
+              + ("last write never checked; " if checks["verification_after_last_write"] is False
+                 else f"checked after the last write at step {checks['verification_step']}; "
+                 if checks["verification_after_last_write"] else "")
+              + f"{checks['regression_cycles']} act→look→act cycle(s)")
+    critical = reading.get("critical_error") or {}
+    if reading.get("errors"):
+        print(f"  Errors ({len(reading['errors'])}):")
+        for e in reading["errors"]:
+            print(f"    step {e['step']} {e['name']}: {e['state'].replace('_', ' ')}"
+                  + (f", resolved at step {e['resolved_at']}" if e.get("resolved_at") is not None else "")
+                  + (f" — {e['footprint_reason']}" if e.get("footprint_reason") else ""))
+        if critical.get("step") is not None:
+            print(f"  Critical error: step {critical['step']} ({critical['name']}) — "
+                  f"{critical['why']}; {critical['verification']} until replayed")
     why = reading["why_it_ended"]
     print(f"  Why it ended: {'succeeded' if why['success'] else 'failed'}, "
           f"termination {why['termination']}"

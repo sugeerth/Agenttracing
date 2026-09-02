@@ -279,6 +279,148 @@ def _validity(traj: Trajectory, answer_idx: int, expected: Optional[str],
     }
 
 
+def _effects(traj: Trajectory) -> list:
+    """Per-step read/write effect (declared, else inferred by the process
+    module and labelled so), ``None`` for steps that are not actions."""
+    table = _process._tool_table(traj)
+    out = []
+    for step in traj.steps:
+        if step.type in OBSERVATION_TYPES:
+            effect, _basis = _process.effect_of(step, table)
+            out.append(effect if effect in ("read", "write") else "read")
+        else:
+            out.append(None)
+    return out
+
+
+def _phase_checks(traj: Trajectory, effects: list, ev: "_Evidence") -> dict:
+    """Order checks from the coding-agent literature (Lucky-Pass
+    AgentLens, TRAJEVAL): did the run act before it looked, did it check
+    after it changed things, and did it go back to looking after acting
+    — the regression cycle."""
+    steps = traj.steps
+    answer_idx = len(steps) - 1
+    # a read that errored justifies nothing: only successful reads count
+    # (the process module's blind_write uses the same rule)
+    reads = [i for i, e in enumerate(effects) if e == "read" and i < answer_idx
+             and not _process.is_error(steps[i])[0]]
+    writes = [i for i, e in enumerate(effects) if e == "write" and i < answer_idx]
+    first_write_before_any_read = bool(writes) and (not reads or writes[0] < reads[0])
+    verification_after_last_write = None
+    verify_step = None
+    if writes:
+        last_write = writes[-1]
+        for i in range(last_write + 1, answer_idx):
+            if effects[i] == "read" or _step_intent(steps[i]) == "verify":
+                verify_step = i
+                break
+        verification_after_last_write = verify_step is not None
+    # regression cycles: act → look → act
+    coarse = ["W" if e == "write" else "R" if e == "read" else None
+              for e in effects[:answer_idx]]
+    cycles = []
+    seen_write = None
+    seen_read_after = None
+    for i, c in enumerate(coarse):
+        if c == "W":
+            if seen_write is not None and seen_read_after is not None:
+                cycles.append([seen_write, seen_read_after, i])
+            seen_write, seen_read_after = i, None
+        elif c == "R" and seen_write is not None and seen_read_after is None:
+            seen_read_after = i
+    refs = []
+    if first_write_before_any_read:
+        refs.append(ev.span(writes[0], "input", "write before any read", "observable"))
+    if verification_after_last_write is False:
+        refs.append(ev.span(writes[-1], "input", "last write, never checked", "observable"))
+    for cycle in cycles[:3]:
+        refs.append(ev.span(cycle[2], "input", "write after going back to look", "observable"))
+    return {
+        "first_write_before_any_read": first_write_before_any_read,
+        "verification_after_last_write": verification_after_last_write,
+        "verification_step": verify_step,
+        "regression_cycles": len(cycles),
+        "cycles": cycles,
+        "writes": writes, "reads": reads,
+        "refs": refs,
+    }
+
+
+def _error_lifecycle(traj: Trajectory, recovery: dict, rests_on: list,
+                     answer_basis: dict, ev: "_Evidence") -> tuple:
+    """TrajDebug's lifecycle per error: was it resolved, and if not, did it
+    leave a footprint on the answer.  The critical error is the earliest
+    unresolved one with a footprint — a counterfactual claim, labelled
+    hypothesized, with a replay recipe."""
+    steps = traj.steps
+    answer_idx = len(steps) - 1
+    answer_atoms = {norm for _, _, norm in extract_from_text(
+        steps[answer_idx].output or steps[answer_idx].input or "")}
+    records = {e["index"]: e for e in (recovery.get("error_steps") or [])
+               if isinstance(e, dict) and isinstance(e.get("index"), int)}
+    for i, step in enumerate(steps[:answer_idx]):
+        if step.error is True and i not in records:
+            records[i] = {"index": i, "name": step.name, "outcome": "undetermined",
+                          "basis": "declared"}
+    errors = []
+    critical = None
+    for i in sorted(records):
+        rec = records[i]
+        # resolved = the SAME tool later succeeded with changed input; the
+        # process module's "recovered" only says the next call of any tool
+        # worked, which is a different, weaker fact
+        resolved_at = None
+        if True:
+            for j in range(i + 1, answer_idx):
+                later = steps[j]
+                if (later.type in OBSERVATION_TYPES and later.name == steps[i].name
+                        and later.input != steps[i].input
+                        and not _process.is_error(later)[0]):
+                    resolved_at = j
+                    break
+        footprint = sorted(
+            {norm for _, _, norm in extract_from_text(steps[i].output or "")}
+            & answer_atoms)
+        basis_missing = answer_basis["status"] in (
+            "unsupported", "self_asserted", "no_typed_values")
+        if resolved_at is not None:
+            state = "resolved"
+        elif footprint or basis_missing:
+            state = "unresolved_with_footprint"
+        else:
+            state = "unresolved_without_footprint"
+        entry = {
+            "step": i, "name": steps[i].name,
+            "trigger": "environment_feedback",
+            "outcome": rec.get("outcome"), "state": state,
+            "resolved_at": resolved_at,
+            "footprint_atoms": footprint,
+            "footprint_reason": ("error output reached the answer" if footprint
+                                 else "the value this call should have produced "
+                                      "is absent and the answer has no observed basis"
+                                 if basis_missing and state != "resolved" else None),
+            "evidence": ev.span(i, "output" if steps[i].output else "input",
+                                f"error at step {i}: {state}", "observable"),
+        }
+        errors.append(entry)
+        if critical is None and state == "unresolved_with_footprint":
+            critical = {
+                "step": i, "name": steps[i].name,
+                "why": "earliest unresolved error with a footprint on the answer",
+                "verification": "hypothesized",
+                "replay_recipe": {"step": i,
+                                  "correction": "make the call succeed or route around it",
+                                  "expects": "the outcome flips to success",
+                                  "replays": "≥3 — agent policies are stochastic"},
+            }
+    if critical is None:
+        critical = {"step": None,
+                    "why": ("no error occurred" if not errors else
+                            "every error was resolved or left no footprint"),
+                    "verification": None, "replay_recipe": None}
+    return errors, critical
+
+
 def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
     """The reading of one run.  ``expected`` is the task's gold answer
     when there is one (defaults to the trace's own ``task.expected``)."""
@@ -309,6 +451,10 @@ def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
     rests_on = _rests_on(traj, answer_idx, expected)
     answer_basis = _answer_basis(rests_on, answer_idx, steps)
     validity = _validity(traj, answer_idx, expected, answer_basis, recovery, term)
+    effects = _effects(traj)
+    phase_checks = _phase_checks(traj, effects, ev)
+    errors, critical_error = _error_lifecycle(traj, recovery, rests_on,
+                                              answer_basis, ev)
     # typed provenance beats lexical overlap: the step that first carried
     # a value the answer asserts fed the answer, whatever its word overlap
     carriers = {r["first_step"] for r in rests_on if r["first_step"] is not None}
@@ -461,6 +607,41 @@ def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
                                  "last step that added a supported value",
                                  "observable")],
             "evidence_class": "observable"})
+    unresolved = [e for e in errors if e["state"] != "resolved"]
+    if unresolved:
+        findings.append({
+            "kind": "unresolved_error",
+            "statement": f"{len(unresolved)} of {len(errors)} tool error(s) were "
+                         "never resolved"
+                         + (f"; the earliest with a footprint on the answer is "
+                            f"step {critical_error['step']}"
+                            if critical_error.get("step") is not None else ""),
+            "steps": [e["step"] for e in unresolved],
+            "evidence": [e["evidence"] for e in unresolved[:3]],
+            "evidence_class": "observable"})
+    if phase_checks["first_write_before_any_read"]:
+        findings.append({
+            "kind": "wrote_before_reading",
+            "statement": f"the first write (step {phase_checks['writes'][0]}) came "
+                         "before any read",
+            "steps": [phase_checks["writes"][0]],
+            "evidence": phase_checks["refs"][:1], "evidence_class": "observable"})
+    if phase_checks["verification_after_last_write"] is False:
+        findings.append({
+            "kind": "unchecked_write",
+            "statement": f"nothing was read or checked after the last write "
+                         f"(step {phase_checks['writes'][-1]})",
+            "steps": [phase_checks["writes"][-1]],
+            "evidence": [r for r in phase_checks["refs"]
+                         if r][:2], "evidence_class": "observable"})
+    if phase_checks["regression_cycles"]:
+        findings.append({
+            "kind": "regression_cycle",
+            "statement": f"{phase_checks['regression_cycles']} act→look→act "
+                         "cycle(s): the run went back to gathering after acting",
+            "steps": sorted({i for c in phase_checks["cycles"] for i in c}),
+            "evidence": phase_checks["refs"][-min(3, len(phase_checks["cycles"])):],
+            "evidence_class": "observable"})
     intents_seen = {w["intent"] for w in what_happened}
     if "verify" not in intents_seen and answer_idx > 0:
         findings.append({
@@ -502,6 +683,14 @@ def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
             action = "trace every asserted value to an observation before answering"
         elif f["kind"] == "unverified":
             action = "add a verification step before committing the answer"
+        elif f["kind"] == "unresolved_error":
+            action = "stop on unresolved tool errors: retry with changed arguments or route around them"
+        elif f["kind"] == "wrote_before_reading":
+            action = "read the state a write depends on before writing"
+        elif f["kind"] == "unchecked_write":
+            action = "read back after the last write to confirm it took"
+        elif f["kind"] == "regression_cycle":
+            action = "gather what an action needs before acting; a look-back after acting is a plan defect"
         elif f["kind"] == "stale_basis":
             action = "re-read before answering: the basis was superseded by a later call"
         elif f["kind"] == "contradicted_by_own_observation":
@@ -546,16 +735,20 @@ def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
         "rests_on": rests_on,
         "answer_basis": answer_basis,
         "validity": validity,
+        "phase_checks": phase_checks,
+        "errors": errors,
+        "critical_error": critical_error,
         "why_it_ended": why_it_ended,
         "what_it_means": findings,
         "take_forward": take_forward,
         "confidence": {"level": level, "basis": basis},
         "evidence": ev.items,
-        "summary": _summary(traj, what_happened, rests_on, why_it_ended, findings),
+        "summary": _summary(traj, what_happened, rests_on, why_it_ended, findings,
+                            critical_error),
     }
 
 
-def _summary(traj, what_happened, rests_on, why, findings) -> str:
+def _summary(traj, what_happened, rests_on, why, findings, critical=None) -> str:
     n = len(traj.steps)
     productive = sum(1 for w in what_happened if w["role"] == "feeds_answer")
     bits = [f"{traj.agent.name} took {n} step(s) and "
@@ -568,6 +761,9 @@ def _summary(traj, what_happened, rests_on, why, findings) -> str:
                     f"{supported} of them returned by an observation.")
     if productive:
         bits.append(f"{productive} step(s) measurably fed the answer.")
+    if critical and critical.get("step") is not None:
+        bits.append(f"Critical error at step {critical['step']} "
+                    f"({critical.get('name')}), hypothesized.")
     if findings:
         bits.append("Findings: " + "; ".join(f["statement"] for f in findings[:3])
                     + ("." if len(findings) <= 3 else f"; +{len(findings) - 3} more."))
@@ -599,4 +795,10 @@ def check_reading(reading: dict, traj: Trajectory) -> list:
     for w in reading.get("what_happened", []):
         if w.get("evidence") not in known:
             problems.append(f"step {w.get('step')}: dangling evidence")
+    for e in reading.get("errors", []):
+        if e.get("evidence") not in known:
+            problems.append(f"error at step {e.get('step')}: dangling evidence")
+    for ref in (reading.get("phase_checks") or {}).get("refs", []):
+        if ref not in known:
+            problems.append(f"phase check: dangling evidence {ref}")
     return problems
