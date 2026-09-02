@@ -1453,7 +1453,67 @@ def build_parser() -> argparse.ArgumentParser:
     p_convert.add_argument("--list-formats", action="store_true",
                            help="list the known trace formats and exit")
     p_convert.set_defaults(func=_cmd_convert)
+
+    p_run = sub.add_parser(
+        "run", help="run a task set against one or more model providers and "
+                    "record SCHEMA traces (the only command that talks to a "
+                    "network)")
+    p_run.add_argument("--provider", action="append", required=True,
+                       metavar="NAME=KIND:MODEL",
+                       help="an agent to run, e.g. atlas=openai:gpt-4o, "
+                            "local=ollama:llama3.1, ref=anthropic:claude-…, "
+                            "or fixture=scripted:turns.json; repeatable — "
+                            "the NAME= prefix is optional and defaults to "
+                            "kind-model")
+    p_run.add_argument("--tasks", required=True,
+                       help="tasks JSON: a list of {id, prompt, expected}")
+    p_run.add_argument("--tools", default=None, metavar="MODULE:ATTR",
+                       help="Python module attribute yielding a list of "
+                            "harness.Tool (default: no tools)")
+    p_run.add_argument("-o", "--output", default="traces",
+                       help="trace directory (default: traces)")
+    p_run.add_argument("--runs", type=int, default=1,
+                       help="repetitions per (task, agent) — writes "
+                            "task__agent__rN.json for the runs command")
+    p_run.add_argument("--max-steps", type=int, default=12,
+                       help="provider turns per task before max_steps "
+                            "termination (default 12)")
+    p_run.set_defaults(func=_cmd_run)
     return parser
+
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    # imported here, not at module top: the harness is the one place that
+    # talks to a network, and the analysis commands must not load it
+    from .harness import provider_from_spec, run_suite
+    from .harness.runner import load_tasks, load_tools
+    try:
+        tasks = load_tasks(args.tasks)
+        tools = load_tools(args.tools) if args.tools else []
+        specs: dict = {}
+        for entry in args.provider:
+            name, _, spec = entry.rpartition("=")
+            spec = spec or entry
+            provider = provider_from_spec(spec)  # validates the spec now
+            specs[name or provider.name] = spec
+    except (ValueError, OSError, ImportError, AttributeError, KeyError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    manifest = run_suite(
+        specs, tasks, tools, out_dir=args.output, runs=args.runs,
+        budget={"max_steps": args.max_steps},
+        provider_factory=provider_from_spec,
+        progress=lambda line: print(f"  running {line}"))
+    written = len(manifest["traces"])
+    ok = sum(1 for t in manifest["traces"] if t["success"] is True)
+    print(f"Wrote {written} trace(s) to {manifest['out_dir']} — "
+          f"{ok}/{written} succeeded"
+          + (f", {manifest['provider_failures']} provider failure(s) recorded "
+             "as infrastructure_error" if manifest["provider_failures"] else ""))
+    print(f"Next: python -m deepcompare "
+          f"{'runs' if args.runs > 1 else 'batch' if len(specs) == 2 else 'fleet'} "
+          f"{manifest['out_dir']} -o out")
+    return 0
 
 
 def main(argv: Optional[list[str]] = None) -> int:
