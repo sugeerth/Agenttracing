@@ -1592,6 +1592,62 @@ application of the same exclusivity principle:
   trace format does not yet record (which step consumed the value),
   and guessing would trade a visible limit for invisible errors.
 
+## The causal window, replay verification, and the harness (v33)
+
+Three literatures were surveyed and their insights distilled into a
+program (`docs/RESEARCH_INSIGHTS.md`); this version ships its first
+items.
+
+- **`decisive_step` commits to a window, not a point.** The earliest
+  flip is not the whole story (AgentRx, DRIFT, Causal Agent Replay):
+  agents recover from early wobbles and a wrong commitment is often
+  still correctable later. So the object now carries
+  `point_of_no_return` — the last causal-account step before the answer
+  at which, on the account's own propagation evidence, a correction
+  would still reach the outcome — and `window: {earliest,
+  point_of_no_return, steps}`. `step` keeps its v29 meaning and the
+  benchmark keeps scoring it.
+- **`verification: "hypothesized"`.** A committed step is a
+  counterfactual claim read from trace evidence; only re-execution can
+  verify it. The engine never says more than "hypothesized"; the
+  harness's replay hook is what turns that into `replay-verified`,
+  `replay-refuted` or `replay-mixed`.
+- **`replay_recipe`.** Machine-readable: `{side, step, correction,
+  expects, replays}` — the correction hint is per leading kind (take the
+  passing run's decision; replace the wrong value with the sourced one;
+  make the call succeed or ground its arguments; remove the flagged
+  behaviour) and the recipe asks for ≥3 replays because agent policies
+  are stochastic.
+- **`joint_candidates`.** A contested diagnosis no longer drops its
+  anchored contenders: they are listed with kind, flag, step and score,
+  so "no single step is committed" also says which steps are in play.
+  Abstentions (grader, harness, budget) carry `null` window, recipe and
+  verification, as before.
+- **The harness** (`deepcompare/harness/`) is the one place in the
+  project that talks to a network, and the engine never imports it —
+  both pinned by AST tests. Providers for OpenAI-compatible endpoints,
+  Anthropic Messages and Ollama chat share one neutral turn contract;
+  a scripted provider replays canned turns for tests. A generic tool
+  loop records every turn and call through `Recorder`, so a run from
+  any model is a first-class SCHEMA trajectory with declared
+  terminations. `agentdiff run --provider name=kind:model --tasks
+  tasks.json` writes the `task__agent__run.json` layout every command
+  reads.
+- **Counterfactual replay** (`harness.replay`) executes a recipe:
+  rebuild the conversation from the recorded steps up to the decisive
+  one, substitute the correction (a tool's result, the agent's words,
+  or what it asked of the tool), let the same model continue, N times.
+  Every replay is itself a recorded trajectory (prefix steps marked
+  `replayed prefix`, the corrected step `counterfactual correction`),
+  diffable against the original. The verdict is three-valued and the
+  flip count and rate are always reported, because replay conclusions
+  are themselves unstable — editing one step changes every downstream
+  prompt.
+- **Sanity checks** (`tests/test_diagnosis_sanity.py`), in the lineage
+  of sanity checks for saliency maps: identical traces manufacture no
+  decisive difference; swapping outcome labels moves the story to the
+  other run; swapping argument order changes nothing of substance.
+
 ## The trajectory map (v32)
 
 The report page grew two blocks that put the individual trajectories

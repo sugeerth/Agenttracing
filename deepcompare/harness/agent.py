@@ -119,68 +119,80 @@ def run_task(provider: Provider, task: dict, tools: Optional[list] = None, *,
 
     messages: list = [{"role": "system", "content": system_prompt},
                       {"role": "user", "content": str(task["prompt"])}]
+    with recorder:
+        _drive(recorder, provider, messages, tools, task, grade, max_steps,
+               max_tool_errors=max_tool_errors)
+    return recorder.to_dict()
+
+
+def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
+           task: dict, grade: Callable, max_steps: int, *,
+           max_tool_errors: int = 3) -> bool:
+    """The loop itself, shared by a fresh run and a counterfactual replay:
+    prompt, act, observe, until the answer or the budget.  ``messages`` is
+    continued in place (a replay hands in a rebuilt prefix).  Returns
+    whether the run answered; every other outcome is a declared
+    termination on the recorder."""
+    by_name = {t.name: t for t in tools}
     declarations = [t.declaration() for t in tools]
     tool_errors = 0
     answered = False
+    for _turn in range(max_steps):
+        try:
+            response: ProviderResponse = provider.complete(messages, declarations)
+        except ProviderError as exc:
+            recorder.reason(f"provider failure: {exc}", error=True,
+                            note="the model endpoint failed; harness fault")
+            recorder.terminate("infrastructure_error")
+            break
+        tokens = (response.usage.get("input_tokens", 0)
+                  + response.usage.get("output_tokens", 0)) or None
 
-    with recorder:
-        for turn in range(max_steps):
-            try:
-                response: ProviderResponse = provider.complete(messages, declarations)
-            except ProviderError as exc:
-                recorder.reason(f"provider failure: {exc}", error=True,
-                                note="the model endpoint failed; harness fault")
-                recorder.terminate("infrastructure_error")
-                break
-            tokens = (response.usage.get("input_tokens", 0)
-                      + response.usage.get("output_tokens", 0)) or None
+        if not response.tool_calls:
+            answer = response.text.strip()
+            verdict = grade(answer, task)
+            if verdict is None:
+                raise ValueError(
+                    f"grader returned None for task {task.get('id')!r}; a "
+                    "verdict must be True or False")
+            recorder.answer(answer, success=bool(verdict), tokens=tokens,
+                            latency_s=response.latency_s,
+                            model={"name": response.model} if response.model else None)
+            answered = True
+            break
 
-            if not response.tool_calls:
-                answer = response.text.strip()
-                verdict = grade(answer, task)
-                if verdict is None:
-                    raise ValueError(
-                        f"grader returned None for task {task.get('id')!r}; a "
-                        "verdict must be True or False")
-                recorder.answer(answer, success=bool(verdict), tokens=tokens,
-                                latency_s=response.latency_s,
-                                model={"name": response.model} if response.model else None)
-                answered = True
-                break
-
-            # a turn that both talks and acts: the prose is the agent's
-            # reasoning, recorded before the calls it motivates
-            if response.text.strip():
-                recorder.reason(response.text.strip(), tokens=tokens,
-                                latency_s=response.latency_s)
-            messages.append({"role": "assistant", "content": response.text,
-                             "tool_calls": [c.as_dict() for c in response.tool_calls]})
-            for call in response.tool_calls:
-                tool = by_name.get(call.name)
-                if tool is None:
-                    # undeclared call: recorded exactly as made — it is a
-                    # finding for the grounding check, not something to hide
-                    recorder.tool(call.name, call.arguments,
-                                  f"error: no such tool {call.name!r}", error=True)
-                    result_text = f"error: no such tool {call.name!r}"
+        # a turn that both talks and acts: the prose is the agent's
+        # reasoning, recorded before the calls it motivates
+        if response.text.strip():
+            recorder.reason(response.text.strip(), tokens=tokens,
+                            latency_s=response.latency_s)
+        messages.append({"role": "assistant", "content": response.text,
+                         "tool_calls": [c.as_dict() for c in response.tool_calls]})
+        for call in response.tool_calls:
+            tool = by_name.get(call.name)
+            if tool is None:
+                # undeclared call: recorded exactly as made — it is a
+                # finding for the grounding check, not something to hide
+                recorder.tool(call.name, call.arguments,
+                              f"error: no such tool {call.name!r}", error=True)
+                result_text = f"error: no such tool {call.name!r}"
+                tool_errors += 1
+            else:
+                try:
+                    result = recorder.tool(call.name, call.arguments,
+                                           call=tool.fn, effect=tool.effect)
+                    result_text = _render_result(result)
+                except Exception as exc:
+                    result_text = f"error: {exc.__class__.__name__}: {exc}"
                     tool_errors += 1
-                else:
-                    try:
-                        result = recorder.tool(call.name, call.arguments,
-                                               call=tool.fn, effect=tool.effect)
-                        result_text = _render_result(result)
-                    except Exception as exc:
-                        result_text = f"error: {exc.__class__.__name__}: {exc}"
-                        tool_errors += 1
-                messages.append({"role": "tool", "tool_call_id": call.id,
-                                 "name": call.name, "content": result_text})
-            if tool_errors >= max_tool_errors:
-                recorder.terminate("too_many_errors")
-                break
-        else:
-            recorder.terminate("max_steps")
+            messages.append({"role": "tool", "tool_call_id": call.id,
+                             "name": call.name, "content": result_text})
+        if tool_errors >= max_tool_errors:
+            recorder.terminate("too_many_errors")
+            break
+    else:
+        recorder.terminate("max_steps")
 
-        if not answered and recorder._termination is None:
-            recorder.terminate("agent_error")
-
-    return recorder.to_dict()
+    if not answered and recorder._termination is None:
+        recorder.terminate("agent_error")
+    return answered

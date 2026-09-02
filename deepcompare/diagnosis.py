@@ -1111,9 +1111,28 @@ DECISIVE_CRITERION = (
     "earliest step whose correction is expected to flip the outcome")
 
 
-def _decisive_step(mode: str, leading: Optional[dict],
-                   led: _Ledger) -> dict:
-    """Commit to a decisive error step — or abstain with the reason.
+#: what a committed step IS, stated on every diagnosis: a counterfactual
+#: claim read from trace evidence, which only re-execution can verify
+#: (AgenTracer, Causal Agent Replay).  The harness's replay hook turns
+#: this label into "replay-verified" or "replay-refuted"; the engine
+#: itself never claims more than "hypothesized".
+DECISIVE_VERIFICATION = "hypothesized"
+
+_CORRECTION_HINTS = {
+    "divergence": "take the decision the passing run took at this step",
+    "wrong_fact_propagation": "replace the wrong value with the sourced one",
+    "environment_error": "make the call succeed (or ground its arguments)",
+    "process_pathology": "remove the flagged behaviour at this step",
+}
+
+
+def _decisive_step(mode: str, leading: Optional[dict], led: _Ledger,
+                   ranked: Optional[list] = None,
+                   account: Optional[list] = None,
+                   traj: Optional[Trajectory] = None,
+                   side: Optional[str] = None) -> dict:
+    """Commit to a decisive error step — or abstain with the reason — and
+    say how much of the trace the commitment really covers.
 
     Attributors that always name a step score points by luck on causes
     that have no step: a grader mislabel and a harness kill contain no
@@ -1123,25 +1142,52 @@ def _decisive_step(mode: str, leading: Optional[dict],
     already guarantee the leading hypothesis holds the *earliest*
     evidenced anomaly (a wrong fact or error predating the divergence
     re-anchors the lead before this function ever runs).
+
+    The earliest flip is not the whole story (AgentRx, DRIFT, CAR): agents
+    recover from early wobbles, and a wrong commitment is often still
+    correctable several steps later.  So the commitment carries a
+    **window** — ``step`` (earliest evidenced anomaly) to
+    ``point_of_no_return`` (the last causal-account step before the
+    answer at which a correction would still have flipped the outcome,
+    on this account's own evidence) — plus a ``verification`` label
+    that says the claim is hypothesized until replayed, and a
+    machine-readable ``replay_recipe`` any harness can execute.  When
+    the diagnosis is contested, the anchored contenders are listed as
+    ``joint_candidates`` instead of being silently dropped: no single
+    step is committed, and the reader sees which steps are in play.
     """
-    if mode != "single_failure" or leading is None:
-        reason = ("no failure to localize" if mode != "single_failure" else
-                  "contested: no hypothesis leads, so no step is committed")
-        return {"step": None, "criterion": DECISIVE_CRITERION,
-                "basis": None, "reason": reason}
+    base = {"step": None, "criterion": DECISIVE_CRITERION, "basis": None,
+            "reason": None, "point_of_no_return": None, "window": None,
+            "verification": None, "replay_recipe": None,
+            "joint_candidates": []}
+    if mode != "single_failure":
+        return dict(base, reason="no failure to localize")
+    if leading is None:
+        candidates = []
+        for h in ranked or []:
+            if h.get("status") != "plausible":
+                continue
+            anchor = _anchor_step(h, led)
+            if anchor is not None:
+                candidates.append({"kind": h.get("kind"),
+                                   "flag": h.get("flag"), "step": anchor,
+                                   "score": h.get("score")})
+        return dict(base,
+                    reason="contested: no hypothesis leads, so no step is "
+                           "committed" + (" — the anchored contenders are "
+                                          "listed as joint candidates"
+                                          if candidates else ""),
+                    joint_candidates=candidates)
     kind = leading.get("kind")
     if kind == "grader_or_label":
-        return {"step": None, "criterion": DECISIVE_CRITERION, "basis": None,
-                "reason": ("no agent error to correct — the correction is "
-                           "to the grader or label, not to a step")}
+        return dict(base, reason="no agent error to correct — the correction "
+                                 "is to the grader or label, not to a step")
     if kind == "harness_termination":
-        return {"step": None, "criterion": DECISIVE_CRITERION, "basis": None,
-                "reason": ("the harness ended the run; no corrected agent "
-                           "step would have prevented the kill")}
+        return dict(base, reason="the harness ended the run; no corrected "
+                                 "agent step would have prevented the kill")
     if kind == "budget_pressure":
-        return {"step": None, "criterion": DECISIVE_CRITERION, "basis": None,
-                "reason": ("the binding constraint is the step budget, a "
-                           "harness setting, not an agent step")}
+        return dict(base, reason="the binding constraint is the step budget, "
+                                 "a harness setting, not an agent step")
     if kind == "divergence":
         step = leading.get("root")
         basis = "the divergent decision; fused evidence places nothing earlier"
@@ -1156,10 +1202,28 @@ def _decisive_step(mode: str, leading: Optional[dict],
         step = min(spans) if spans else None
         basis = ("the first step raising the process flag" if spans else None)
     if step is None:
-        return {"step": None, "criterion": DECISIVE_CRITERION, "basis": None,
-                "reason": f"{kind} leads but anchors to no specific step"}
-    return {"step": step, "criterion": DECISIVE_CRITERION,
-            "basis": basis, "reason": None}
+        return dict(base, reason=f"{kind} leads but anchors to no specific step")
+
+    # the window: the last on-account step before the answer is the last
+    # point at which, on the account's own propagation evidence, a
+    # correction still reaches the outcome
+    answer_idx = (len(traj.steps) - 1) if traj is not None else None
+    on_account = sorted(
+        e["step"] for e in (account or [])
+        if e.get("step") is not None and e["step"] >= step
+        and (answer_idx is None or e["step"] < answer_idx))
+    point_of_no_return = on_account[-1] if on_account else step
+    recipe = {
+        "side": side, "step": step,
+        "correction": _CORRECTION_HINTS.get(kind, "correct this step"),
+        "expects": "the outcome flips to success",
+        "replays": "≥3 — agent policies are stochastic; one rollout proves nothing",
+    }
+    return dict(base, step=step, basis=basis,
+                point_of_no_return=point_of_no_return,
+                window={"earliest": step, "point_of_no_return": point_of_no_return,
+                        "steps": point_of_no_return - step + 1},
+                verification=DECISIVE_VERIFICATION, replay_recipe=recipe)
 
 
 # ---------------------------------------------------------------------------
@@ -1271,7 +1335,10 @@ def diagnose(report: dict, a: Trajectory, b: Trajectory) -> dict:
         "margin": margin,
         "evidence": led.items,
         "causal_account": account,
-        "decisive_step": _decisive_step(mode, leading, led),
+        "decisive_step": _decisive_step(
+            mode, leading, led, ranked, account,
+            (a if account_side == "a" else b) if account_side else None,
+            account_side),
         "contradictions": _contradictions(
             report, subject if mode == "single_failure" else None),
         "confidence": _confidence(mode, leading_id, ranked)
