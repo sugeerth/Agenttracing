@@ -455,6 +455,53 @@ anywhere and the rest follow.
 Adding a block is one file in `web/blocks/` — see
 [`web/blocks/README.md`](web/blocks/README.md) for the contract.
 
+## Run any model, then read every trace
+
+The harness runs a task set against whatever models you name — an
+OpenAI-compatible endpoint (OpenAI, vLLM, LM Studio, most gateways),
+Anthropic's Messages API, or a local Ollama — through one plain tool
+loop, and records every turn and tool call as a first-class trace.
+Swapping a model is swapping one spec string; keys come from
+environment variables only (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+`OLLAMA_HOST`) and never appear in errors or traces. It is the *only*
+part of the project that talks to a network — the analysis engine never
+imports it, and a test pins that.
+
+```bash
+# two models, three runs each, on your tasks — written as task__agent__run.json
+python -m deepcompare run --tasks tasks.json -o traces/ --runs 3 \
+    --provider atlas=openai:gpt-4o --provider local=ollama:llama3.1
+python -m deepcompare runs traces/ -o out/          # stability, pass^k, spectrum
+python -m deepcompare batch traces/ -o out/         # pairwise diff + diagnosis
+```
+
+`tasks.json` is a list of `{"id", "prompt", "expected"}`; a task
+without an expected answer needs a grader, and the runner refuses to
+run an ungraded task — an ungraded run silently entering a success rate
+is the one thing a harness must never do. Tools are plain Python
+callables declared with a JSON schema and a read/write effect
+(`--tools mymodule:TOOLS`).
+
+Then read a run on its own terms — the **eval reasoning layer**:
+
+```bash
+python -m deepcompare explain traces/t01_acme_revenue__bolt-v3.json
+```
+
+For one trace it says what happened (the run's phases), what the answer
+rests on (every typed value traced to the step that first carried it —
+or flagged as something the run never observed), why it ended the way
+it did (which of four honest cases the verdict falls in), what it means
+(pathologies, unverified work, wasted steps — each tagged by whether it
+rests on an observable event, an annotation, or the agent's own words),
+and what to take forward (one action per finding). Every quote is
+verified against the trace; the same object rides on every pair report
+as `reading`. A committed decisive step is labelled `hypothesized`
+until `harness.replay` re-executes the run from a corrected step and
+reports `replay-verified`, `replay-refuted` or `replay-mixed` with the
+flip count — because a counterfactual claim read from a trace is only a
+claim until it is replayed.
+
 ## Bring your own agents
 
 Log each run as a JSON trajectory per [SCHEMA.md](SCHEMA.md): agent + task

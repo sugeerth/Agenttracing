@@ -5,8 +5,9 @@ detects divergences, attributes failures, and computes metric deltas per
 SCHEMA.md.
 """
 
+from .reasoning import read_trace
 from .report import compare
 from .trace import Trajectory
 
-__all__ = ["compare", "Trajectory"]
+__all__ = ["compare", "read_trace", "Trajectory"]
 __version__ = "0.1.0"

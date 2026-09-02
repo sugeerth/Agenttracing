@@ -1648,6 +1648,60 @@ items.
   decisive difference; swapping outcome labels moves the story to the
   other run; swapping argument order changes nothing of substance.
 
+### The eval reasoning layer: `reading` (v33)
+
+Everything else compares; the reading *understands one run*. Every pair
+report now carries `reading: {a, b}`, and `agentdiff explain
+<trace.json>` produces the same object for a single trace. It is
+mechanical, deterministic, and grounded: every finding cites a ledger
+of quotes (`evidence`, verified by `check_reading` — empty means
+grounded, not true, the same boundary as `check_diagnosis`).
+
+```json
+"reading": {
+  "phases": [{"intent": "acquire", "steps": [1], "summary": "1 step — gathered information (web_search)"}],
+  "what_happened": [{"step": 3, "type": "read", "intent": "acquire",
+                     "role": "feeds_answer", "feeds_answer": true,
+                     "invented_argument": false, "evidence": "R4"}],
+  "rests_on": [{"kind": "money", "value": "$4.5 billion", "first_step": 3,
+                "source": "open_page", "matches_expected": false}],
+  "why_it_ended": {"success": false, "termination": "undeclared", "declared": false,
+                   "verdict_basis": "the answer contradicts the expected value",
+                   "grounds": ["R11", "R12"]},
+  "what_it_means": [{"kind": "pathology", "flag": "blind_write",
+                     "statement": "the run wrote before reading anything that justified the write",
+                     "steps": [1], "evidence": ["R2"], "evidence_class": "observable"}],
+  "take_forward": [{"action": "require a read that justifies the write before any write",
+                    "because": "pathology", "steps": [1]}],
+  "confidence": {"level": "high", "basis": "6 of 7 finding(s) rest on observable events"},
+  "summary": "hasty-v2 took 7 step(s) and succeeded. Findings: …"
+}
+```
+
+- **Phases** are contiguous runs of one intent (frame / acquire / decide
+  / verify / transform / commit), the run's outline in order.
+- **Roles** are decided by observables: `error`, `repeat`,
+  `no_information`, `feeds_answer` (the step first carried a typed value
+  the answer asserts — provenance beats overlap — or its output shares
+  measurable words with the answer), `dead_end`, or the intent itself.
+- **`rests_on`** traces every typed value in the answer to the earliest
+  step that carried it; `first_step: null` means the answer asserts
+  something the run never observed, and that becomes a finding.
+- **`verdict_basis`** names one of four honest cases: the answer carries
+  the expected value; it contradicts it; it carries the expected value
+  *yet the run failed* (the grader, or the deed behind the words, is
+  suspect — the wrong-entity case); or the two share no typed value and
+  the verdict rests on the grader's reading of the text.
+- **Evidence classes.** Reasoning models verbalize what actually drove
+  them only a minority of the time (Anthropic 2025; Arcuschin et al.
+  2025), so every finding is tagged `observable` (a call, an output, an
+  answer, a declared termination), `annotation` (a quality mark someone
+  wrote) or `stated` (the agent's own words), and `confidence` is set by
+  the strongest class supporting the findings — never by how articulate
+  the agent was.
+- **`take_forward`** derives one action per finding kind, deduplicated;
+  a clean failure with no finding says so: compare against a passing run.
+
 ## The trajectory map (v32)
 
 The report page grew two blocks that put the individual trajectories

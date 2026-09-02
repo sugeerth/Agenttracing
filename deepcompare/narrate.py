@@ -216,6 +216,43 @@ def narration_brief(report: dict) -> dict:
             _fact(facts, "diagnosis.confidence",
                   f"confidence {confidence['level']}: "
                   f"{confidence.get('basis')}", None)
+        decisive_verification = decisive.get("verification")
+        if decisive_verification:
+            window = decisive.get("window") or {}
+            _fact(facts, "diagnosis.verification",
+                  f"the decisive step is {decisive_verification} — a "
+                  f"counterfactual claim from trace evidence, not "
+                  f"replay-verified; the window runs from step "
+                  f"{window.get('earliest')} to step "
+                  f"{window.get('point_of_no_return')}",
+                  {"earliest": window.get("earliest"),
+                   "point_of_no_return": window.get("point_of_no_return")})
+
+    # the reading of each run on its own — the executive layer, under the
+    # same covenant: the narrator may rephrase these, never add a finding
+    for side, name in (("a", name_a), ("b", name_b)):
+        reading = (report.get("reading") or {}).get(side) or {}
+        if not reading or reading.get("error"):
+            continue
+        _fact(facts, f"reading.{side}.summary",
+              f"{name}: {reading.get('summary')}", None)
+        why = reading.get("why_it_ended") or {}
+        if why.get("verdict_basis"):
+            _fact(facts, f"reading.{side}.why",
+                  f"{name} ended this way because {why['verdict_basis']}", None)
+        for value in reading.get("rests_on") or []:
+            if value.get("first_step") is None:
+                _fact(facts, f"reading.{side}.unsourced",
+                      f"{name}'s answer asserts {value.get('value')} which no "
+                      f"earlier step observed", None)
+        for finding in reading.get("what_it_means") or []:
+            _fact(facts, f"reading.{side}.finding",
+                  f"{name} [{finding.get('evidence_class')}]: "
+                  f"{finding.get('statement')}",
+                  {"steps": finding.get("steps")})
+        for action in reading.get("take_forward") or []:
+            _fact(facts, f"reading.{side}.take_forward",
+                  f"{name} — take forward: {action.get('action')}", None)
 
     steps_max = max(len((a.get("steps") or [])), len((b.get("steps") or [])))
     return {

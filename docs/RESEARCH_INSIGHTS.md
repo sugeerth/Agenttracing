@@ -113,6 +113,35 @@ network, pinned by test.
 | UI-2 | **Loop collapse (×N badges) and phase segments**; unified-collapse block for long one-sided stretches | Langfuse agent graphs, AgentLens (TVCG 2025), split-vs-unified diff | queued |
 | UI-3 | **Word-level diff in step detail**; hover-propagated causal paths; overview minimap; claim curves gated past ~15 | LLM Comparator (VIS 2024), Anthropic attribution-graph UI, MatrixWave | queued |
 
+## The eval reasoning layer (fourth survey: understanding ONE trace)
+
+A fourth survey covered reasoning about a single trajectory — what
+happened, why it ended that way, what it means, what to do next — and
+proposed a v2 schema for the `reading` object. The v1 reading shipped
+first (phases, per-step roles, `rests_on` provenance, `why_it_ended`
+with four honest verdict bases, findings tagged by evidence class,
+deduplicated `take_forward`, a verified quote ledger); the v2 program,
+in the survey's impact × feasibility order:
+
+| # | Item | Source insight | Status |
+|---|------|----------------|--------|
+| R1 | **Answer-basis statuses** — each answer atom `supported` (first seen in an observation step), `self_asserted` (only in plan/reason), `unsupported`, `contradicted`, `stale`; plus `basis_complete_at` and `steps_after_basis_complete` (spend after the answer was available) | evidence-tracing survey (2026), AgentTrails (VLDB 2026) | queued |
+| R2 | **Phase-order checks** — first write before any read, verification after the last write, regression cycles (act→locate→act) | AgentLens (TVCG 2025), TRAJEVAL, Lucky-Pass AgentLens (2026) | queued |
+| R3 | **Error lifecycle** — per error occurrence: `resolved` / `unresolved_with_footprint` / `unresolved_without_footprint`; critical = earliest unresolved with a footprint in the answer | TrajDebug (2026), AgentDebug (2025) | queued |
+| R4 | **Bounded evidence window** for the narrator — referenced steps only, trace order, byte budget, `omitted_steps` stated, verdict at top and bottom | Context Rot (Chroma 2025), position-bias studies, Inspect Scout | queued |
+| R5 | **Next-action contract** — `{at_step, what, instead, refs, replay_recipe}`; the narrator may phrase, never invent an `instead` | Reflexion, AgentDebug, AgentDebugX | queued |
+| R6 | **Validity block** — harness-terminated, tool failure rate, answer without basis, expected answer leaked into an observation; anything here suppresses agent-attributed verdicts | HAL (ICLR 2026), transcript-flaw scanners, NIST CAISI | queued |
+| R7 | **Meltdown onset** — sliding-window entropy of tool names collapsing to zero while steps continue | Beyond pass@1 (2026) | queued |
+| R8 | **Expired observations / stale basis** — same target later returned a different output | AgentDiet (FSE 2026), RedundancyBench | queued |
+| R9 | **Strained coherence** — acknowledged a problem and acted against it; lexical, labelled as such, position as a fraction | Strained Coherence (2026) | queued |
+| R10 | **Structural anchors, hypothesized** — plan steps after which the dominant role changed; nomination only, with a replay recipe | Thought Anchors (2025) | queued |
+
+Not adopted from this survey: AgentPRM promise/progress values and
+Thought-Anchors attention methods (need a trained model), the
+AgentErrorTaxonomy's memory/reflection classes (need intent reading),
+Lucky-Pass classification (needs multiple passing runs), and LLM
+scanners as *detectors* — here an LLM may only narrate.
+
 Deliberately **not** adopted: process-reward models and learned
 attributors (training-time methods; AgentDiff is a diagnostic tool);
 CKA/SVCCA representational similarity (requires activations, and its

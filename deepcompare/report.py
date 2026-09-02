@@ -25,6 +25,7 @@ from .success import success_analysis
 from .tooldiff import TOOLISH_TYPES, tool_diff
 from .trace import Trajectory
 from .efficiency import compare_efficiency
+from .reasoning import read_trace
 from .process import compare_process
 from .tradeoff import pair_tradeoff
 from .shapley import shapley_attribution
@@ -117,6 +118,10 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
     report["tradeoff"] = pair_tradeoff(report)
     report["efficiency"] = compare_efficiency(a, b)
     report["diagnosis"] = diagnose(report, a, b)
+    # the reasoning layer: each run understood on its own, before and
+    # independent of the comparison — what happened, what the answer rests
+    # on, why it ended that way, what it means, what to take forward
+    report["reading"] = {"a": read_trace(a), "b": read_trace(b)}
     return report
 
 

@@ -1479,7 +1479,66 @@ def build_parser() -> argparse.ArgumentParser:
                        help="provider turns per task before max_steps "
                             "termination (default 12)")
     p_run.set_defaults(func=_cmd_run)
+
+    p_explain = sub.add_parser(
+        "explain", help="read ONE trace: what happened, what the answer "
+                        "rests on, why it ended that way, what it means, "
+                        "what to take forward — every finding cited")
+    p_explain.add_argument("trace", help="a SCHEMA trajectory JSON file")
+    p_explain.add_argument("-o", "--output", default=None,
+                           help="also write the reading as JSON to this path")
+    p_explain.add_argument("--expected", default=None,
+                           help="override the task's expected answer")
+    p_explain.set_defaults(func=_cmd_explain)
     return parser
+
+
+def _cmd_explain(args: argparse.Namespace) -> int:
+    from .reasoning import check_reading, read_trace
+    from .trace import Trajectory
+    try:
+        traj = Trajectory.from_json(args.trace)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    reading = read_trace(traj, expected=args.expected)
+    problems = check_reading(reading, traj)
+    print(f"Reading of {reading['agent']} on {reading['task']}")
+    print(f"  {reading['summary']}")
+    print("  What happened:")
+    for phase in reading["phases"]:
+        print(f"    steps {phase['steps'][0]}–{phase['steps'][-1]}: {phase['summary']}")
+    if reading["rests_on"]:
+        print("  The answer rests on:")
+        for r in reading["rests_on"]:
+            where = (f"first at step {r['first_step']} ({r['source']})"
+                     if r["first_step"] is not None else "NO earlier step — unsourced")
+            match = ("matches expected" if r["matches_expected"] is True else
+                     "contradicts expected" if r["matches_expected"] is False else
+                     "no expected value to compare")
+            print(f"    {r['value']} — {where}; {match}")
+    why = reading["why_it_ended"]
+    print(f"  Why it ended: {'succeeded' if why['success'] else 'failed'}, "
+          f"termination {why['termination']}"
+          f"{'' if why['declared'] else ' (not declared)'} — {why['verdict_basis']}")
+    if reading["what_it_means"]:
+        print("  What it means:")
+        for f in reading["what_it_means"]:
+            steps = f"steps {f['steps']}" if f["steps"] else "run-level"
+            print(f"    [{f['evidence_class']}] {f['statement']} ({steps})")
+    if reading["take_forward"]:
+        print("  Take forward:")
+        for t in reading["take_forward"]:
+            print(f"    - {t['action']}")
+    print(f"  Confidence: {reading['confidence']['level']} — "
+          f"{reading['confidence']['basis']}")
+    print(f"  Grounding check: {'every quote verified' if not problems else problems}")
+    if args.output:
+        Path(args.output).write_text(json.dumps(reading, indent=2,
+                                                ensure_ascii=False) + "\n",
+                                     encoding="utf-8")
+        print(f"Wrote {args.output}")
+    return 0 if not problems else 1
 
 
 def _cmd_run(args: argparse.Namespace) -> int:

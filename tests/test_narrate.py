@@ -369,6 +369,23 @@ class TestDecisiveStepAndAccountInBrief(unittest.TestCase):
     def _facts(self, brief, source):
         return [f["text"] for f in brief["facts"] if f["source"] == source]
 
+    def test_reading_facts_ride_in_the_brief_under_the_covenant(self):
+        # each run's reading enters the brief as facts: summary, why it
+        # ended, findings tagged by evidence class, take-forward actions —
+        # the narrator may rephrase them, never add a finding
+        for side in ("a", "b"):
+            self.assertTrue(self._facts(self.brief, f"reading.{side}.summary"))
+            self.assertTrue(self._facts(self.brief, f"reading.{side}.why"))
+        findings = self._facts(self.brief, "reading.b.finding")
+        self.assertTrue(findings)
+        self.assertTrue(all("[" in f and "]" in f for f in findings),
+                        "findings carry their evidence class")
+        # the decisive step's verification label and window are facts too
+        verification = self._facts(self.brief, "diagnosis.verification")
+        self.assertEqual(len(verification), 1)
+        self.assertIn("hypothesized", verification[0])
+        self.assertIn("window runs from step", verification[0])
+
     def test_decisive_step_fact_carries_criterion_and_basis(self):
         facts = self._facts(self.brief, "diagnosis.decisive_step")
         self.assertEqual(len(facts), 1)
