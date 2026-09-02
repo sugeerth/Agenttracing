@@ -36,7 +36,7 @@ from .align import jaccard
 from .semantic import _step_intent, extract_from_text
 from .trace import Trajectory
 
-READING_VERSION = 1
+READING_VERSION = 2
 
 #: word-overlap at or above which a step's output is judged to feed the
 #: final answer (the same measurable link the causal account uses)
@@ -123,33 +123,160 @@ def _phases(steps: list) -> list:
     return phases
 
 
+OBSERVATION_TYPES = ("search", "retrieve", "read", "tool_call")
+
+
 def _rests_on(traj: Trajectory, answer_idx: int, expected: Optional[str]) -> list:
     """The answer's typed values, each traced to the earliest step in this
-    run that carried it.  ``source`` names that step; ``None`` when no
-    earlier step carried the value — the answer asserts something the
-    run never observed."""
+    run that carried it, with a status that says what kind of carrier
+    that was (the evidence-tracing distinction between an observation the
+    world returned and a value the agent merely said):
+
+    * ``supported`` — first carried by an observation step's OUTPUT
+      (search / retrieve / read / tool_call): the world told the agent;
+    * ``self_asserted`` — carried only by plan / reason steps, or by what
+      the agent typed into a tool: the agent said it, nothing returned it;
+    * ``unsupported`` — no earlier step carried it at all;
+    * ``stale`` — supported, but the supporting observation was later
+      superseded (the same call, same input, returned something else);
+    * ``contradicted`` — the run OBSERVED the expected value and answered
+      with a different one.
+    """
     answer_text = traj.steps[answer_idx].output or traj.steps[answer_idx].input or ""
-    expected_norm = {norm for _, _, norm in extract_from_text(expected or "")}
+    expected_atoms = {norm for _, _, norm in extract_from_text(expected or "")}
+    observed_norms: set = set()
+    for i in range(answer_idx):
+        if traj.steps[i].type in OBSERVATION_TYPES:
+            observed_norms |= {n for _, _, n in extract_from_text(traj.steps[i].output or "")}
     out: list = []
     seen = set()
     for kind, value, norm in extract_from_text(answer_text):
         if (kind, norm) in seen:
             continue
         seen.add((kind, norm))
-        first = None
+        supported_at = None
+        asserted_at = None
         for i in range(answer_idx):
-            text = f"{traj.steps[i].input}\n{traj.steps[i].output}"
-            if any(n == norm for _, _, n in extract_from_text(text)):
-                first = i
+            step = traj.steps[i]
+            if (step.type in OBSERVATION_TYPES
+                    and any(n == norm for _, _, n in extract_from_text(step.output or ""))):
+                supported_at = i
                 break
-        entry = {
-            "kind": kind, "value": value,
+            if asserted_at is None and any(
+                    n == norm for _, _, n in extract_from_text(
+                        f"{step.input}\n{step.output}")):
+                asserted_at = i
+        first = supported_at if supported_at is not None else asserted_at
+        if supported_at is not None:
+            status = "supported"
+            sup = traj.steps[supported_at]
+            for j in range(supported_at + 1, answer_idx):
+                later = traj.steps[j]
+                if (later.type == sup.type and later.name == sup.name
+                        and later.input == sup.input
+                        and (later.output or "") != (sup.output or "")):
+                    status = "stale"
+                    break
+        elif asserted_at is not None:
+            status = "self_asserted"
+        else:
+            status = "unsupported"
+        matches = (norm in expected_atoms) if expected_atoms else None
+        if (matches is False and expected_atoms & observed_norms
+                and kind in {k for k, _, _ in extract_from_text(expected or "")}):
+            status = "contradicted"
+        out.append({
+            "kind": kind, "value": value, "status": status,
             "first_step": first,
-            "source": (traj.steps[first].name or traj.steps[first].type) if first is not None else None,
-            "matches_expected": (norm in expected_norm) if expected_norm else None,
-        }
-        out.append(entry)
+            "source": (traj.steps[first].name or traj.steps[first].type)
+            if first is not None else None,
+            "matches_expected": matches,
+        })
     return out
+
+
+def _answer_basis(rests_on: list, answer_idx: int,
+                  steps: Optional[list] = None) -> dict:
+    """Roll the atoms up: the basis steps, when the basis was complete,
+    and how many steps the run spent after the answer was available."""
+    statuses = [r["status"] for r in rests_on]
+    basis_steps = sorted({r["first_step"] for r in rests_on
+                          if r["status"] in ("supported", "stale")
+                          and r["first_step"] is not None})
+    if not rests_on:
+        overall = "no_typed_values"
+    elif "contradicted" in statuses:
+        overall = "contradicted"
+    elif "stale" in statuses:
+        overall = "stale"
+    elif all(x == "supported" for x in statuses):
+        overall = "supported"
+    elif any(x == "supported" for x in statuses):
+        overall = "partial"
+    elif all(x == "self_asserted" for x in statuses):
+        overall = "self_asserted"
+    else:
+        overall = "unsupported"
+    complete_at = max(basis_steps) if basis_steps else None
+    # spend after the basis counts information steps only: a write after
+    # the basis is the task's deed, not wasted work
+    after = ([i for i in range(complete_at + 1, answer_idx)
+              if steps is None or getattr(steps[i], "effect", None) != "write"]
+             if complete_at is not None else None)
+    return {
+        "status": overall,
+        "basis_steps": basis_steps,
+        "basis_complete_at": complete_at,
+        "steps_after_basis_complete": len(after) if after is not None else None,
+        "spent_steps": after or [],
+        "atoms": len(rests_on),
+        "supported": sum(1 for x in statuses if x == "supported"),
+    }
+
+
+def _validity(traj: Trajectory, answer_idx: int, expected: Optional[str],
+              basis: dict, recovery: dict, term: dict) -> dict:
+    """Measurement validity BEFORE agent attribution (HAL, transcript-flaw
+    scanners): a harness kill, a leaked gold answer, or an answer with no
+    basis at all are reasons to doubt the measurement, and anything raised
+    here suppresses agent-attributed actions with the reason stated."""
+    from .trace import HARNESS_TERMINATIONS
+    calls = [i for i, s in enumerate(traj.steps) if s.type == "tool_call"]
+    failed = [i for i in calls if traj.steps[i].error is True
+              or i in {e.get("index") for e in (recovery.get("error_steps") or [])
+                       if isinstance(e, dict)}]
+    leaked = []
+    if isinstance(expected, str) and expected.strip():
+        needle = " ".join(expected.split()).lower()
+        for i in range(answer_idx):
+            step = traj.steps[i]
+            if step.type in OBSERVATION_TYPES and needle in " ".join(
+                    (step.output or "").split()).lower():
+                leaked.append(i)
+    harness_terminated = term.get("reason") in HARNESS_TERMINATIONS
+    answer_without_basis = basis["atoms"] > 0 and basis["supported"] == 0 \
+        and basis["status"] not in ("stale",)
+    if harness_terminated:
+        status, reason = "harness_fault", (
+            f"the run ended by {term.get('reason')} — the harness failed, "
+            "not the agent; nothing below is attributable to the agent")
+    elif leaked:
+        status, reason = "suspect", (
+            "the expected answer appears verbatim in an observation at step "
+            f"{leaked[0]} — the environment leaked the gold answer, so success "
+            "here does not measure the agent")
+    else:
+        status, reason = "clean", None
+    return {
+        "status": status, "reason": reason,
+        "harness_terminated": harness_terminated,
+        "tool_failure_rate": {"failed": len(failed), "calls": len(calls),
+                              "rate": round(len(failed) / len(calls), 4)
+                              if calls else None},
+        "environment_error_steps": failed,
+        "answer_without_basis": bool(answer_without_basis),
+        "expected_leaked": bool(leaked), "leak_steps": leaked,
+    }
 
 
 def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
@@ -180,6 +307,8 @@ def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
                 if isinstance(r, dict)}
 
     rests_on = _rests_on(traj, answer_idx, expected)
+    answer_basis = _answer_basis(rests_on, answer_idx, steps)
+    validity = _validity(traj, answer_idx, expected, answer_basis, recovery, term)
     # typed provenance beats lexical overlap: the step that first carried
     # a value the answer asserts fed the answer, whatever its word overlap
     carriers = {r["first_step"] for r in rests_on if r["first_step"] is not None}
@@ -284,16 +413,52 @@ def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
                          "statement": f"the run {_FLAG_MEANING.get(flag, flag)}",
                          "steps": sorted(steps_for), "evidence": cited,
                          "evidence_class": "observable"})
-    unsourced = [r for r in rests_on if r["first_step"] is None]
+    unsourced = [r for r in rests_on if r["status"] in ("unsupported", "self_asserted")]
     if unsourced:
         findings.append({
             "kind": "unsourced_answer_value",
             "statement": "the answer asserts "
-                         + ", ".join(r["value"] for r in unsourced)
-                         + " which no earlier step observed",
+                         + ", ".join(f"{r['value']} ({r['status'].replace('_', ' ')})"
+                                     for r in unsourced)
+                         + " which no observation returned",
             "steps": [answer_idx],
             "evidence": [ev.span(answer_idx, "output" if steps[answer_idx].output
                                  else "input", "answer with unsourced value",
+                                 "observable")],
+            "evidence_class": "observable"})
+    stale = [r for r in rests_on if r["status"] == "stale"]
+    if stale:
+        findings.append({
+            "kind": "stale_basis",
+            "statement": "the answer rests on "
+                         + ", ".join(r["value"] for r in stale)
+                         + " from an observation a later identical call superseded",
+            "steps": sorted({r["first_step"] for r in stale}),
+            "evidence": [ev.span(r["first_step"], "output", "superseded observation",
+                                 "observable") for r in stale[:3]],
+            "evidence_class": "observable"})
+    contradicted = [r for r in rests_on if r["status"] == "contradicted"]
+    if contradicted:
+        findings.append({
+            "kind": "contradicted_by_own_observation",
+            "statement": "the run observed the expected value and answered "
+                         + ", ".join(r["value"] for r in contradicted) + " instead",
+            "steps": [answer_idx],
+            "evidence": [ev.span(answer_idx, "output" if steps[answer_idx].output
+                                 else "input", "answer contradicting an observation",
+                                 "observable")],
+            "evidence_class": "observable"})
+    if answer_basis["steps_after_basis_complete"]:
+        findings.append({
+            "kind": "spent_after_basis",
+            "statement": f"the answer's basis was complete at step "
+                         f"{answer_basis['basis_complete_at']}; "
+                         f"{answer_basis['steps_after_basis_complete']} more step(s) "
+                         f"were spent before committing",
+            "steps": list(answer_basis["spent_steps"]),
+            "evidence": [ev.fact("reading.answer_basis.basis_complete_at",
+                                 answer_basis["basis_complete_at"],
+                                 "last step that added a supported value",
                                  "observable")],
             "evidence_class": "observable"})
     intents_seen = {w["intent"] for w in what_happened}
@@ -337,6 +502,12 @@ def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
             action = "trace every asserted value to an observation before answering"
         elif f["kind"] == "unverified":
             action = "add a verification step before committing the answer"
+        elif f["kind"] == "stale_basis":
+            action = "re-read before answering: the basis was superseded by a later call"
+        elif f["kind"] == "contradicted_by_own_observation":
+            action = "answer from the observation, not from memory — the right value was in the trace"
+        elif f["kind"] == "spent_after_basis":
+            action = "stop when the basis is complete; the extra steps bought nothing"
         elif f["kind"] == "wasted_work":
             action = "plan the information each step must yield; drop steps that yield none"
         else:
@@ -348,6 +519,14 @@ def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
         take_forward.append({"action": "compare this run against a passing one — "
                                        "nothing in the run alone explains the failure",
                              "because": "clean_failure", "steps": []})
+    # validity outranks attribution: a measurement problem makes every
+    # agent-attributed action conditional, and says so
+    if validity["status"] != "clean":
+        for item in take_forward:
+            item["conditional_on_validity"] = True
+        take_forward.insert(0, {"action": "fix the measurement first: "
+                                          + (validity["reason"] or validity["status"]),
+                                "because": "validity", "steps": validity.get("leak_steps") or []})
 
     # --- confidence: by evidence class, never by eloquence
     classes = {f["evidence_class"] for f in findings}
@@ -365,6 +544,8 @@ def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
         "phases": _phases(steps),
         "what_happened": what_happened,
         "rests_on": rests_on,
+        "answer_basis": answer_basis,
+        "validity": validity,
         "why_it_ended": why_it_ended,
         "what_it_means": findings,
         "take_forward": take_forward,
@@ -377,14 +558,14 @@ def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
 def _summary(traj, what_happened, rests_on, why, findings) -> str:
     n = len(traj.steps)
     productive = sum(1 for w in what_happened if w["role"] == "feeds_answer")
-    sourced = sum(1 for r in rests_on if r["first_step"] is not None)
     bits = [f"{traj.agent.name} took {n} step(s) and "
             f"{'succeeded' if why['success'] else 'failed'}"
             + (f" ({why['termination']})" if why.get("declared")
                and why["termination"] != "agent_stop" else "") + "."]
     if rests_on:
+        supported = sum(1 for r in rests_on if r["status"] in ("supported", "stale"))
         bits.append(f"The answer rests on {len(rests_on)} typed value(s), "
-                    f"{sourced} of them traced to an earlier step.")
+                    f"{supported} of them returned by an observation.")
     if productive:
         bits.append(f"{productive} step(s) measurably fed the answer.")
     if findings:

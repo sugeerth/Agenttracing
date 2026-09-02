@@ -1685,8 +1685,26 @@ grounded, not true, the same boundary as `check_diagnosis`).
   the answer asserts — provenance beats overlap — or its output shares
   measurable words with the answer), `dead_end`, or the intent itself.
 - **`rests_on`** traces every typed value in the answer to the earliest
-  step that carried it; `first_step: null` means the answer asserts
-  something the run never observed, and that becomes a finding.
+  step that carried it, with a `status` per atom (v2): `supported`
+  (first carried by an observation step's output — the world told the
+  agent), `self_asserted` (only plan/reason steps or the agent's own
+  tool inputs carried it), `unsupported` (nothing carried it), `stale`
+  (the supporting observation was later superseded by the same call
+  returning something else) or `contradicted` (the run observed the
+  expected value and answered a different one). **`answer_basis`** rolls
+  the atoms up — overall status, `basis_steps`, `basis_complete_at`
+  (the last step that added a supported value) and
+  `steps_after_basis_complete` (spend after the answer was available) —
+  and stale, contradicted, unsourced and spent-after-basis all become
+  findings with actions.
+- **`validity`** (v2) is judged *before* anything is attributed to the
+  agent: `harness_terminated`, `tool_failure_rate` with its
+  denominator, `environment_error_steps`, `answer_without_basis`, and
+  `expected_leaked` (the gold answer appearing verbatim in an
+  observation — the environment leaked it, so success measures nothing).
+  A status other than `clean` puts a "fix the measurement first" action
+  at the head of `take_forward` and marks every agent-attributed action
+  `conditional_on_validity`.
 - **`verdict_basis`** names one of four honest cases: the answer carries
   the expected value; it contradicts it; it carries the expected value
   *yet the run failed* (the grader, or the deed behind the words, is

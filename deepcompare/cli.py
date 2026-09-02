@@ -1508,15 +1508,22 @@ def _cmd_explain(args: argparse.Namespace) -> int:
     print("  What happened:")
     for phase in reading["phases"]:
         print(f"    steps {phase['steps'][0]}–{phase['steps'][-1]}: {phase['summary']}")
+    validity = reading.get("validity") or {}
+    if validity.get("status") and validity["status"] != "clean":
+        print(f"  VALIDITY {validity['status'].upper()}: {validity.get('reason')}")
+    basis = reading.get("answer_basis") or {}
     if reading["rests_on"]:
-        print("  The answer rests on:")
+        print(f"  The answer rests on ({basis.get('status')}"
+              + (f"; basis complete at step {basis['basis_complete_at']}, "
+                 f"{basis['steps_after_basis_complete']} step(s) spent after it"
+                 if basis.get("basis_complete_at") is not None else "") + "):")
         for r in reading["rests_on"]:
             where = (f"first at step {r['first_step']} ({r['source']})"
-                     if r["first_step"] is not None else "NO earlier step — unsourced")
+                     if r["first_step"] is not None else "NO earlier step")
             match = ("matches expected" if r["matches_expected"] is True else
                      "contradicts expected" if r["matches_expected"] is False else
                      "no expected value to compare")
-            print(f"    {r['value']} — {where}; {match}")
+            print(f"    {r['value']} [{r['status'].replace('_', ' ')}] — {where}; {match}")
     why = reading["why_it_ended"]
     print(f"  Why it ended: {'succeeded' if why['success'] else 'failed'}, "
           f"termination {why['termination']}"

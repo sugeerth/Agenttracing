@@ -131,5 +131,98 @@ class TestFindingsAndActions(unittest.TestCase):
         self.assertIn("summary", rep["reading"]["a"])
 
 
+class TestAnswerBasisAndValidity(unittest.TestCase):
+    """Reading v2: each answer atom carries a basis status, the basis rolls
+    up to when it was complete, and measurement validity is judged before
+    anything is attributed to the agent."""
+
+    @staticmethod
+    def _synthetic(steps, expected="The refund is $120.00.", success=True):
+        import json, tempfile
+        raw = {
+            "schema_version": 1, "trace_id": "syn", 
+            "agent": {"name": "syn-agent", "model": "model-x", "version": "1"},
+            "task": {"id": "syn_task", "prompt": "What is the refund?",
+                     "expected": expected},
+            "outcome": {"success": success, "answer": steps[-1]["output"],
+                        "score": 1.0 if success else 0.0,
+                        "termination": "agent_stop"},
+            "totals": {"input_tokens": 10, "output_tokens": 5,
+                       "cost_usd": 0.0, "latency_s": 1.0},
+            "steps": [dict(s, index=i, tokens=5, latency_s=0.1)
+                      for i, s in enumerate(steps)],
+            "tools": [{"name": "lookup", "effect": "read"}],
+            "budget": {"max_steps": 12},
+        }
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            json.dump(raw, fh)
+            path = fh.name
+        return Trajectory.from_json(path)
+
+    def test_supported_atoms_come_from_observations_only(self):
+        _, r = reading(T01_FAIL)
+        statuses = {x["value"]: x["status"] for x in r["rests_on"]}
+        self.assertIn("$4.5 billion", statuses)
+        self.assertIn(statuses["$4.5 billion"], ("supported", "contradicted"))
+        self.assertIsNotNone(r["answer_basis"]["basis_complete_at"])
+        self.assertGreaterEqual(r["answer_basis"]["steps_after_basis_complete"], 0)
+
+    def test_a_value_the_agent_only_said_is_self_asserted(self):
+        traj = self._synthetic([
+            {"type": "plan", "name": "plan", "input": "I recall the refund is $120.00.", "output": ""},
+            {"type": "answer", "name": "final", "input": "The refund is $120.00.",
+             "output": "The refund is $120.00."}])
+        r = read_trace(traj)
+        self.assertEqual(r["rests_on"][0]["status"], "self_asserted")
+        self.assertEqual(r["answer_basis"]["status"], "self_asserted")
+        self.assertTrue(r["validity"]["answer_without_basis"])
+        self.assertIn("unsourced_answer_value", {f["kind"] for f in r["what_it_means"]})
+
+    def test_a_superseded_observation_is_stale(self):
+        traj = self._synthetic([
+            {"type": "tool_call", "name": "lookup", "input": "lookup(ref='BK1')",
+             "output": "refund $120.00", "effect": "read", "error": False},
+            {"type": "tool_call", "name": "lookup", "input": "lookup(ref='BK1')",
+             "output": "refund $90.00 (revised)", "effect": "read", "error": False},
+            {"type": "answer", "name": "final", "input": "The refund is $120.00.",
+             "output": "The refund is $120.00."}])
+        r = read_trace(traj)
+        self.assertEqual(r["rests_on"][0]["status"], "stale")
+        self.assertIn("stale_basis", {f["kind"] for f in r["what_it_means"]})
+
+    def test_answering_against_an_observed_expected_value_is_contradicted(self):
+        traj = self._synthetic([
+            {"type": "tool_call", "name": "lookup", "input": "lookup(ref='BK1')",
+             "output": "refund $120.00", "effect": "read", "error": False},
+            {"type": "answer", "name": "final", "input": "The refund is $95.00.",
+             "output": "The refund is $95.00."}], success=False)
+        r = read_trace(traj)
+        self.assertEqual(r["rests_on"][0]["status"], "contradicted")
+        self.assertEqual(r["answer_basis"]["status"], "contradicted")
+        self.assertIn("contradicted_by_own_observation",
+                      {f["kind"] for f in r["what_it_means"]})
+
+    def test_a_leaked_expected_answer_makes_the_measurement_suspect(self):
+        traj = self._synthetic([
+            {"type": "read", "name": "read_page", "input": "open notes",
+             "output": "Answer key: The refund is $120.00.", "effect": "read"},
+            {"type": "answer", "name": "final", "input": "The refund is $120.00.",
+             "output": "The refund is $120.00."}])
+        r = read_trace(traj)
+        self.assertTrue(r["validity"]["expected_leaked"])
+        self.assertEqual(r["validity"]["status"], "suspect")
+        self.assertEqual(r["take_forward"][0]["because"], "validity")
+        for item in r["take_forward"][1:]:
+            self.assertTrue(item.get("conditional_on_validity"))
+
+    def test_clean_runs_report_clean_validity_with_denominators(self):
+        _, r = reading(P01_HASTY)
+        v = r["validity"]
+        self.assertEqual(v["status"], "clean")
+        self.assertIn("calls", v["tool_failure_rate"])
+        self.assertIn("failed", v["tool_failure_rate"])
+        self.assertFalse(v["harness_terminated"])
+
+
 if __name__ == "__main__":
     unittest.main()
