@@ -1732,8 +1732,22 @@ grounded, not true, the same boundary as `check_diagnosis`).
   earliest unresolved one with a footprint, labelled `hypothesized` and
   carrying a replay recipe ("make the call succeed or route around it")
   — the same contract as the pair diagnosis's decisive step.
-- **`take_forward`** derives one action per finding kind, deduplicated;
-  a clean failure with no finding says so: compare against a passing run.
+- **`take_forward`** (v2 shape) is the actionable-critique contract from
+  Reflexion and AgentDebug — a located, evidenced, directional
+  instruction: `{at_step, what, instead, refs, replay_recipe, because,
+  steps, conditional_on_validity}` (`action` mirrors `instead` for v1
+  readers). Two findings that yield the same instruction merge into one
+  entry carrying both findings' steps and statements. A clean failure
+  with no finding says so: compare against a passing run.
+- **The evidence window** (`narrate.evidence_window`, v2): the
+  narration brief never carries the whole trace. For each run it shows
+  only the steps the reading cites — findings, errors, the critical
+  error, the answer basis, the next actions — in trace order, each cut
+  to `WINDOW_STEP_BYTES` (600), stopping at `WINDOW_TOTAL_BYTES` (8000),
+  with a fact stating how many referenced steps were shown, how many
+  omitted for budget, and how many steps of the run no finding cites.
+  The run's summary bookends its facts (primacy and recency), because
+  long-context readers degrade monotonically and lose the middle.
 
 ## The trajectory map (v32)
 

@@ -251,8 +251,31 @@ def narration_brief(report: dict) -> dict:
                   f"{finding.get('statement')}",
                   {"steps": finding.get("steps")})
         for action in reading.get("take_forward") or []:
+            where = (f" (at step {action['at_step']})"
+                     if action.get("at_step") is not None else "")
             _fact(facts, f"reading.{side}.take_forward",
-                  f"{name} — take forward: {action.get('action')}", None)
+                  f"{name} — instead{where}: {action.get('instead') or action.get('action')}",
+                  {"at_step": action.get("at_step")})
+        # the bounded evidence window: the narrator sees the steps the
+        # reading actually cites — in trace order, each cut to a budget —
+        # never the whole trace (long-context readers degrade monotonically
+        # and lose the middle; a focused window is what rescues them)
+        window = evidence_window(reading, (report.get(side) or {}).get("steps") or [])
+        for entry in window["steps"]:
+            _fact(facts, f"reading.{side}.window",
+                  f"{name} step {entry['step']} [{entry['type']} {entry['name']}]: "
+                  f"{entry['excerpt']}", {"step": entry["step"]})
+        _fact(facts, f"reading.{side}.window_omitted",
+              f"{name}: the evidence window shows {len(window['steps'])} of "
+              f"{window['referenced']} referenced step(s); {window['omitted']} "
+              f"omitted for the byte budget; {window['unreferenced']} step(s) of "
+              f"the run are not cited by any finding",
+              {"shown": len(window["steps"]), "referenced": window["referenced"],
+               "omitted": window["omitted"], "unreferenced": window["unreferenced"]})
+        # the verdict again at the end of this side's facts: primacy and
+        # recency both work for the reader, so the summary bookends the window
+        _fact(facts, f"reading.{side}.summary_recap",
+              f"{name}: {reading.get('summary')}", None)
 
     steps_max = max(len((a.get("steps") or [])), len((b.get("steps") or [])))
     return {
@@ -263,6 +286,59 @@ def narration_brief(report: dict) -> dict:
         "allowed_numbers": sorted(_collect_allowed(facts, extra_ints=steps_max)),
         "brief_digest": _digest_of(facts),
     }
+
+
+WINDOW_STEP_BYTES = 600
+WINDOW_TOTAL_BYTES = 8000
+
+
+def evidence_window(reading: dict, steps: list, *, step_bytes: int = WINDOW_STEP_BYTES,
+                    total_bytes: int = WINDOW_TOTAL_BYTES) -> dict:
+    """The steps a reading cites, in trace order, each cut to a byte budget,
+    stopping when the total budget is spent.  Returns the shown steps, how
+    many the reading referenced, how many were omitted for budget, and how
+    many steps of the run no finding cites at all — so the reader always
+    knows what it did not see."""
+    referenced: set = set()
+    for finding in reading.get("what_it_means") or []:
+        referenced.update(i for i in (finding.get("steps") or []) if isinstance(i, int))
+    for error in reading.get("errors") or []:
+        if isinstance(error.get("step"), int):
+            referenced.add(error["step"])
+    critical = reading.get("critical_error") or {}
+    if isinstance(critical.get("step"), int):
+        referenced.add(critical["step"])
+    for i in (reading.get("answer_basis") or {}).get("basis_steps") or []:
+        if isinstance(i, int):
+            referenced.add(i)
+    for action in reading.get("take_forward") or []:
+        if isinstance(action.get("at_step"), int):
+            referenced.add(action["at_step"])
+    by_index = {}
+    for step in steps:
+        if isinstance(step, dict) and isinstance(step.get("index"), int):
+            by_index[step["index"]] = step
+    ordered = sorted(i for i in referenced if i in by_index)
+    shown: list = []
+    spent = 0
+    omitted = 0
+    for i in ordered:
+        step = by_index[i]
+        text = " | ".join(part for part in (
+            (step.get("input") or "").strip(), (step.get("output") or "").strip()) if part)
+        excerpt = text.encode("utf-8")[:step_bytes].decode("utf-8", errors="ignore")
+        if len(text.encode("utf-8")) > step_bytes:
+            excerpt += " …"
+        cost = len(excerpt.encode("utf-8"))
+        if spent + cost > total_bytes:
+            omitted += 1
+            continue
+        spent += cost
+        shown.append({"step": i, "type": step.get("type"), "name": step.get("name"),
+                      "excerpt": excerpt, "bytes": cost})
+    return {"steps": shown, "referenced": len(ordered), "omitted": omitted,
+            "unreferenced": max(0, len(by_index) - len(ordered)),
+            "bytes": spent, "budget": {"step": step_bytes, "total": total_bytes}}
 
 
 def _collect_allowed(facts: list, extra_ints: int = 0) -> set:

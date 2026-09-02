@@ -441,6 +441,14 @@ def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
 
     repeated = {int(i) for i in (repeats.get("repeated_steps") or [])
                 if isinstance(i, int)}
+    cycle_steps = {c.get("index") for c in (repeats.get("cycle_steps") or [])
+                   if isinstance(c, dict) and isinstance(c.get("index"), int)}
+    block = (proc.get("loops") or {}).get("longest_repeated_block") or {}
+    if isinstance(block.get("starts_at"), int) and isinstance(block.get("length"), int):
+        cycle_steps |= set(range(block["starts_at"], block["starts_at"] + block["length"]))
+    blind_writes = {w.get("index") for w in
+                    ((proc.get("side_effects") or {}).get("blind_write_steps") or [])
+                    if isinstance(w, dict) and isinstance(w.get("index"), int)}
     no_info = {d.get("index") if isinstance(d, dict) else d
                for d in (repeats.get("no_information_detail") or [])}
     error_steps = {e.get("index") for e in (recovery.get("error_steps") or [])
@@ -544,7 +552,9 @@ def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
     for flag in gap.get("raised") or []:
         if flag == "budget_pressure" and not term.get("under_budget_pressure"):
             continue
-        steps_for = [i for i in (repeated if flag in ("repeated_calls", "looped", "loop_block")
+        steps_for = [i for i in (repeated if flag == "repeated_calls"
+                                 else cycle_steps if flag in ("looped", "loop_block")
+                                 else blind_writes if flag == "blind_write"
                                  else no_info if flag == "no_information_steps"
                                  else error_steps if flag == "swallowed_error"
                                  else invented if flag == "invented_arguments"
@@ -701,21 +711,34 @@ def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
             action = "plan the information each step must yield; drop steps that yield none"
         else:
             action = "review the annotated steps by hand — the marks are someone's judgement, not a measurement"
-        if action and not any(t["action"] == action for t in take_forward):
-            take_forward.append({"action": action, "because": f["kind"],
-                                 "steps": f["steps"]})
+        if not action:
+            continue
+        existing = next((t for t in take_forward if t["instead"] == action), None)
+        if existing is not None:
+            # the same instruction from a second finding: one entry, both
+            # findings' steps and evidence behind it
+            existing["steps"] = sorted(set(existing["steps"]) | set(f["steps"]))
+            existing["refs"] = existing["refs"] + [r for r in f["evidence"]
+                                                   if r not in existing["refs"]]
+            existing["what"] += "; " + f["statement"]
+            continue
+        take_forward.append(_next_action(action, f["statement"], f["kind"],
+                                         f["steps"], f["evidence"]))
     if success is False and not findings:
-        take_forward.append({"action": "compare this run against a passing one — "
-                                       "nothing in the run alone explains the failure",
-                             "because": "clean_failure", "steps": []})
+        take_forward.append(_next_action(
+            "compare this run against a passing one — nothing in the run "
+            "alone explains the failure",
+            "the run failed and no finding rises from it alone",
+            "clean_failure", [], []))
     # validity outranks attribution: a measurement problem makes every
     # agent-attributed action conditional, and says so
     if validity["status"] != "clean":
         for item in take_forward:
             item["conditional_on_validity"] = True
-        take_forward.insert(0, {"action": "fix the measurement first: "
-                                          + (validity["reason"] or validity["status"]),
-                                "because": "validity", "steps": validity.get("leak_steps") or []})
+        take_forward.insert(0, _next_action(
+            "fix the measurement first: " + (validity["reason"] or validity["status"]),
+            validity["reason"] or validity["status"], "validity",
+            validity.get("leak_steps") or [], []))
 
     # --- confidence: by evidence class, never by eloquence
     classes = {f["evidence_class"] for f in findings}
@@ -745,6 +768,30 @@ def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
         "evidence": ev.items,
         "summary": _summary(traj, what_happened, rests_on, why_it_ended, findings,
                             critical_error),
+    }
+
+
+def _next_action(instead: str, what: str, because: str, steps: list,
+                 refs: list) -> dict:
+    """The actionable-critique contract (Reflexion, AgentDebug): a located,
+    evidenced, directional instruction — where it applies, what happened
+    there, what to do instead, the evidence, and the replay recipe that
+    would test the instruction.  ``action`` mirrors ``instead`` for
+    readers of the v1 shape."""
+    at_step = steps[0] if steps else None
+    return {
+        "at_step": at_step,
+        "what": what,
+        "instead": instead,
+        "action": instead,
+        "because": because,
+        "steps": list(steps),
+        "refs": list(refs),
+        "replay_recipe": ({"step": at_step, "correction": instead,
+                           "expects": "the outcome flips",
+                           "replays": "≥3 — agent policies are stochastic"}
+                          if at_step is not None else None),
+        "conditional_on_validity": False,
     }
 
 

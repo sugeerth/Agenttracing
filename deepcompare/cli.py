@@ -1554,7 +1554,10 @@ def _cmd_explain(args: argparse.Namespace) -> int:
     if reading["take_forward"]:
         print("  Take forward:")
         for t in reading["take_forward"]:
-            print(f"    - {t['action']}")
+            where = f"at step {t['at_step']}: " if t.get("at_step") is not None else ""
+            print(f"    - {where}{t.get('instead') or t.get('action')}"
+                  + (" (conditional on fixing the measurement)"
+                     if t.get("conditional_on_validity") else ""))
     print(f"  Confidence: {reading['confidence']['level']} — "
           f"{reading['confidence']['basis']}")
     print(f"  Grounding check: {'every quote verified' if not problems else problems}")

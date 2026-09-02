@@ -386,6 +386,51 @@ class TestDecisiveStepAndAccountInBrief(unittest.TestCase):
         self.assertIn("hypothesized", verification[0])
         self.assertIn("window runs from step", verification[0])
 
+    def test_the_evidence_window_shows_only_cited_steps_within_budget(self):
+        from deepcompare.narrate import WINDOW_STEP_BYTES, evidence_window
+        from deepcompare.trace import Trajectory
+        report = self.compare(
+            Trajectory.from_json(str(Path(__file__).resolve().parent.parent
+                                     / "demo/process/traces/p01_cancel_booking__steady-v1.json")),
+            Trajectory.from_json(str(Path(__file__).resolve().parent.parent
+                                     / "demo/process/traces/p01_cancel_booking__hasty-v2.json")))
+        reading = report["reading"]["b"]
+        window = evidence_window(reading, report["b"]["steps"])
+        cited = set()
+        for f in reading["what_it_means"]:
+            cited.update(f["steps"])
+        for e in reading["errors"]:
+            cited.add(e["step"])
+        cited.update(reading["answer_basis"]["basis_steps"])
+        for t in reading["take_forward"]:
+            if t["at_step"] is not None:
+                cited.add(t["at_step"])
+        shown = {e["step"] for e in window["steps"]}
+        self.assertTrue(shown)
+        self.assertTrue(shown <= cited, "window shows a step nothing cites")
+        for e in window["steps"]:
+            self.assertLessEqual(e["bytes"], WINDOW_STEP_BYTES + 4)
+        self.assertEqual(window["referenced"], len(shown) + window["omitted"])
+        self.assertEqual(window["unreferenced"],
+                         len(report["b"]["steps"]) - window["referenced"])
+        # the budget genuinely bounds: a tiny budget omits, and says so
+        tiny = evidence_window(reading, report["b"]["steps"], total_bytes=200)
+        self.assertGreater(tiny["omitted"], 0)
+        self.assertEqual(tiny["referenced"], len(tiny["steps"]) + tiny["omitted"])
+
+    def test_the_verdict_bookends_each_reading_in_the_brief(self):
+        for side in ("a", "b"):
+            sources = [f["source"] for f in self.grader_brief["facts"]
+                       if f["source"].startswith(f"reading.{side}.")]
+            self.assertEqual(sources[0], f"reading.{side}.summary")
+            self.assertEqual(sources[-1], f"reading.{side}.summary_recap")
+            self.assertIn(f"reading.{side}.window_omitted", sources)
+            first = next(f["text"] for f in self.grader_brief["facts"]
+                         if f["source"] == f"reading.{side}.summary")
+            last = next(f["text"] for f in self.grader_brief["facts"]
+                        if f["source"] == f"reading.{side}.summary_recap")
+            self.assertEqual(first, last)
+
     def test_decisive_step_fact_carries_criterion_and_basis(self):
         facts = self._facts(self.brief, "diagnosis.decisive_step")
         self.assertEqual(len(facts), 1)

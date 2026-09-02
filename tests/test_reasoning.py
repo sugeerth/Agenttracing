@@ -301,5 +301,36 @@ class TestPhaseChecksAndErrorLifecycle(unittest.TestCase):
         self.assertEqual(check_reading(r, traj), [])
 
 
+class TestNextActionContract(unittest.TestCase):
+    """R5: every take_forward entry is a located, evidenced, directional
+    instruction with the recipe that would test it."""
+
+    def test_entries_carry_the_full_contract(self):
+        traj, r = reading(P01_HASTY)
+        self.assertTrue(r["take_forward"])
+        known = {e["id"] for e in r["evidence"]}
+        for t in r["take_forward"]:
+            for key in ("at_step", "what", "instead", "action", "because",
+                        "steps", "refs", "replay_recipe", "conditional_on_validity"):
+                self.assertIn(key, t)
+            self.assertEqual(t["action"], t["instead"])
+            for ref in t["refs"]:
+                self.assertIn(ref, known)
+            if t["at_step"] is not None:
+                self.assertEqual(t["replay_recipe"]["step"], t["at_step"])
+                self.assertEqual(t["replay_recipe"]["correction"], t["instead"])
+                self.assertIn(t["at_step"], t["steps"])
+            else:
+                self.assertIsNone(t["replay_recipe"])
+
+    def test_duplicate_instructions_merge_their_findings(self):
+        # looped and loop_block share one instruction: one entry, both
+        # findings' steps and statements behind it
+        _, r = reading(P01_HASTY)
+        loop = [t for t in r["take_forward"] if "loop guard" in t["instead"]]
+        self.assertEqual(len(loop), 1)
+        self.assertIn(";", loop[0]["what"])
+
+
 if __name__ == "__main__":
     unittest.main()
