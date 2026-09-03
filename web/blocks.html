@@ -251,6 +251,25 @@ body[data-view="story"] .vc .v.verdict { font-size: 22px; font-weight: 650; lett
 body[data-view="story"] .vc .k { padding-top: 5px; }
 body[data-view="story"] .vc-src { display: none; }
 body[data-view="story"] .block .empty { display: none; }
+/* no inner boxes either: statements sit on the page with a hairline of colour at most */
+body[data-view="story"] .story-lane .dx-verdict,
+body[data-view="story"] .story-lane .dx-decisive,
+body[data-view="story"] .story-lane .ax-row,
+body[data-view="story"] .story-lane .tj-pane,
+body[data-view="story"] .story-lane .tj-text,
+body[data-view="story"] .story-lane .rd-validity,
+body[data-view="story"] .story-lane .tj-diff { border-color: transparent; background: transparent; box-shadow: none; }
+body[data-view="story"] .story-lane .dx-verdict,
+body[data-view="story"] .story-lane .dx-decisive,
+body[data-view="story"] .story-lane .rd-validity { border-left-color: var(--accent); border-left-width: 3px; padding-left: 12px; }
+body[data-view="story"] .story-lane .dx-verdict.contested { border-left-color: var(--warn); }
+body[data-view="story"] .story-lane .ax-row { border-left-width: 3px; padding-left: 12px; }
+body[data-view="story"] .story-lane .ax-row.failure { border-left-color: var(--bad); }
+body[data-view="story"] .story-lane .ax-row.cost { border-left-color: var(--rule-2); }
+body[data-view="story"] .story-lane .ax-row.process { border-left-color: var(--warn); }
+body[data-view="story"] .story-lane .tj-text { background: var(--surface-2); border-radius: 6px; }
+body[data-view="story"] .story-lane .tj-pane { padding-left: 0; padding-right: 0; }
+body[data-view="story"] .story-lane table td, body[data-view="story"] .story-lane table th { border-color: color-mix(in srgb, var(--rule) 60%, transparent); }
 body[data-view="story"] .story-lane .caveat,
 body[data-view="story"] .story-lane .ax-lede,
 body[data-view="story"] .story-lane .dx-lede,
