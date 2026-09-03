@@ -27,9 +27,9 @@
   var STYLE_ID = "agentdiff-cost-css";
   var CSS = [
     ".cost-legend{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px}",
-    ".cost-note{font-size:11.5px;color:var(--ink-2);margin:0 0 8px;line-height:1.45}",
+    ".cost-note{font-size:var(--fs-xs);color:var(--ink-2);margin:0 0 8px;line-height:1.45}",
     ".cost-bars{display:grid;grid-template-columns:minmax(78px,auto) minmax(50px,1fr) auto;",
-    "gap:6px 10px;align-items:center;font-size:12px}",
+    "gap:6px 10px;align-items:center;font-size:var(--fs-s)}",
     ".cost-track{height:8px;border-radius:4px;background:var(--surface-2);",
     "border:1px solid var(--rule);overflow:hidden}",
     ".cost-track>i{display:block;height:100%}",
@@ -37,21 +37,21 @@
     ".cost-list{display:flex;flex-direction:column;gap:8px}",
     ".cost-card{border:1px solid var(--rule);border-radius:9px;padding:9px 10px;",
     "background:var(--surface);min-width:0}",
-    ".cost-card h4{font-size:12.5px;margin:0;line-height:1.35}",
+    ".cost-card h4{font-size:var(--fs-s);margin:0;line-height:1.35}",
     ".cost-tags{display:flex;flex-wrap:wrap;gap:4px;margin:5px 0 0}",
-    ".cost-text{font-size:12px;color:var(--ink-2);margin:5px 0 0;line-height:1.45}",
+    ".cost-text{font-size:var(--fs-s);color:var(--ink-2);margin:5px 0 0;line-height:1.45}",
     ".cost-toggle{border:none;background:transparent;color:var(--ink-3);cursor:pointer;",
-    "font-size:11.5px;padding:4px 0 0;text-align:left;font-family:inherit}",
+    "font-size:var(--fs-xs);padding:4px 0 0;text-align:left;font-family:inherit}",
     ".cost-toggle:hover{color:var(--accent)}",
     ".cost-detail{margin-top:6px;border-top:1px solid var(--rule);padding-top:6px}",
     ".cost-prehead{display:flex;align-items:center;justify-content:space-between;",
     "gap:8px;margin-top:8px}",
-    ".cost-prehead span{font-size:11px;text-transform:uppercase;letter-spacing:.07em;",
+    ".cost-prehead span{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.07em;",
     "color:var(--ink-3)}",
     "pre.cost-pre{margin:5px 0 0;padding:8px 9px;background:var(--surface-2);",
     "border:1px solid var(--rule);border-radius:7px;white-space:pre-wrap;",
     "word-break:break-word;line-height:1.5;color:var(--ink-2)}",
-    ".cost-mini{font-size:11px;color:var(--ink-3);line-height:1.45}",
+    ".cost-mini{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.45}",
     ".cost-strong{font-weight:600}",
   ].join("");
 
@@ -94,6 +94,23 @@
     if (!isNum(value)) return "—";
     if (value === Math.round(value)) return fmt.int(value);
     return Math.abs(value) < 100 ? fmt.num(value, 2) : fmt.int(value);
+  }
+
+  var STAT_STYLE_DONE = false;
+  function ensureStatStyle() {
+    if (STAT_STYLE_DONE) return;
+    STAT_STYLE_DONE = true;
+    var tag = document.createElement("style");
+    tag.textContent = [
+      ".dl-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 18px;margin:0 0 8px}",
+      ".dl-cell{min-width:0}.dl-k{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);font-weight:700}",
+      ".dl-ab{font:600 var(--fs-l)/1.3 var(--mono);color:var(--ink);white-space:nowrap}",
+      ".dl-sep{color:var(--ink-3);margin:0 6px;font-weight:400}",
+      ".dl-d{font:600 var(--fs-s)/1.4 var(--mono)}.dl-d.good{color:var(--good)}.dl-d.bad{color:var(--bad)}.dl-d.muted{color:var(--ink-3)}",
+      ".dl-fold>summary{cursor:pointer;font-size:var(--fs-s);color:var(--ink-3);list-style:none}",
+      ".dl-fold>summary::before{content:'▸ '}.dl-fold[open]>summary::before{content:'▾ '}",
+    ].join("");
+    document.head.appendChild(tag);
   }
 
   var METRICS = [
@@ -270,6 +287,56 @@
     },
 
     render: function (el, ctx) {
+      if (ctx.lane === "story") {
+        // the story: six cells, then the table behind a disclosure
+        renderDeltaStats(el, ctx);
+        var fold = ctx.h("details", { class: "dl-fold" }, [ctx.h("summary", { text: "the table" })]);
+        var body = ctx.h("div");
+        fold.appendChild(body);
+        el.appendChild(fold);
+        renderDeltaTable(body, ctx);
+        return;
+      }
+      renderDeltaTable(el, ctx);
+    },
+  });
+
+  /* Six cells: A, B and the delta per metric. The delta's colour follows
+   * the outcome, not the sign — spending less to fail is not a win. */
+  function renderDeltaStats(el, ctx) {
+    ensureStatStyle();
+    var report = ctx.report;
+    var delta = report && report.metrics_delta;
+    if (!delta) return;
+    var oa = report.a && report.a.outcome ? report.a.outcome.success : null;
+    var ob = report.b && report.b.outcome ? report.b.outcome.success : null;
+    var row = ctx.h("div", { class: "dl-stats" });
+    METRICS.forEach(function (metric) {
+      var pair = delta[metric.key];
+      if (!pair) return;
+      var a = Number(pair.a), b = Number(pair.b);
+      var d = b - a;
+      var cls = "muted";
+      if (d !== 0 && metric.better === "lower") {
+        var cheaper = d < 0 ? "b" : "a";
+        var cheaperOk = cheaper === "b" ? ob : oa;
+        var dearerOk = cheaper === "b" ? oa : ob;
+        cls = cheaperOk === false && dearerOk ? "bad" : cheaperOk ? "good" : "muted";
+      }
+      row.appendChild(ctx.h("div", { class: "dl-cell" }, [
+        ctx.h("div", { class: "dl-k", text: metric.label }),
+        ctx.h("div", { class: "dl-ab" }, [
+          ctx.h("span", { class: "dl-a", text: metric.format(ctx.fmt, a) }),
+          ctx.h("span", { class: "dl-sep", text: "→" }),
+          ctx.h("span", { class: "dl-b", text: metric.format(ctx.fmt, b) }),
+        ]),
+        ctx.h("div", { class: "dl-d " + cls, text: d === 0 ? "same" : (d > 0 ? "+" : "−") + metric.format(ctx.fmt, Math.abs(d)) }),
+      ]));
+    });
+    el.appendChild(row);
+  }
+
+  function renderDeltaTable(el, ctx) {
       ensureStyle();
       var h = ctx.h;
       var report = ctx.report;
@@ -329,8 +396,8 @@
                 "against " + (outA.success ? "A's" : "B's") + " success, not on its own.",
         }));
       }
-    },
-  });
+  }
+
 
   // ======================================================= 2. batch-summary
 

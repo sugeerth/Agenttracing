@@ -448,8 +448,10 @@ class DiagnosisBlockTest(unittest.TestCase):
         # One row per hypothesis, in the report's own order, each carrying
         # its status and its statement; merged rows stay visible and say so.
         # the story folds the non-leading rows behind a disclosure: open it
-        for fold in block.locator("details:not([open]) > summary").all():
-            fold.click()
+        # open every fold; the locator re-resolves after each click
+        while block.locator("details:not([open]) > summary").count():
+            block.locator("details:not([open]) > summary").first.click()
+            page.wait_for_timeout(120)
         page.wait_for_timeout(150)
         rows = block.locator(".dx-row")
         hypotheses = self.diagnosis["hypotheses"]
@@ -622,8 +624,10 @@ class DecisiveStepBlockTest(unittest.TestCase):
             block = page.locator('.block[data-block="reading"]')
         reading = self.t05["reading"]["b"]
         # the story folds the two walks behind a disclosure: open it
-        for fold in block.locator("details:not([open]) > summary").all():
-            fold.click()
+        # open every fold; the locator re-resolves after each click
+        while block.locator("details:not([open]) > summary").count():
+            block.locator("details:not([open]) > summary").first.click()
+            page.wait_for_timeout(120)
         page.wait_for_timeout(150)
         text = block.inner_text()
         self.assertIn(reading["summary"], text)
@@ -704,6 +708,42 @@ class DecisiveStepBlockTest(unittest.TestCase):
           }
           return n; }""")
         self.assertEqual(small, 0, f"{small} HTML text node(s) under 11px")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_story_uses_one_type_scale(self):
+        # six tokens; HTML text in the story lane never below 12px; the
+        # page as a whole uses at most seven distinct computed sizes
+        context, page, errors = self._open_page(self.t05_report)
+        sizes = page.evaluate("""() => {
+          const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+          const seen = new Set(); let small = 0; let node;
+          while ((node = walker.nextNode())) {
+            if (!node.textContent.trim()) continue;
+            const el = node.parentElement; if (!el || el.closest('svg')) continue;
+            if (el.closest('#drawer, #you, .toast')) continue;
+            const fs = parseFloat(getComputedStyle(el).fontSize);
+            seen.add(Math.round(fs * 2) / 2);
+            if (el.closest('.story-lane, .lead-lane') && fs < 12) small++;
+          }
+          return { distinct: [...seen].sort((a, b) => a - b), small }; }""")
+        self.assertLessEqual(len(sizes["distinct"]), 7, sizes["distinct"])
+        self.assertEqual(sizes["small"], 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_reading_carries_every_step_and_the_cost_is_a_stat_row(self):
+        context, page, errors = self._open_page(self.t05_report)
+        fold = page.locator('.block[data-block="reading"] details.rd-steps')
+        self.assertEqual(fold.count(), 1)
+        fold.locator("summary").click()
+        page.wait_for_timeout(300)
+        self.assertEqual(fold.locator(".tjl-step").count(), len(self.t05["b"]["steps"]))
+        cells = page.locator('.block[data-block="deltas"] .dl-cell')
+        self.assertEqual(cells.count(), 6)
+        self.assertEqual(page.locator('.block[data-block="deltas"] .dl-d').count(), 6)
+        # the cheaper run failed here: its savings are not green
+        self.assertEqual(page.locator('.block[data-block="deltas"] .dl-d.good').count(), 0)
         self.assertEqual(errors, [])
         context.close()
 
