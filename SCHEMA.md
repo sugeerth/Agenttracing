@@ -1779,7 +1779,48 @@ Organisms critique (2026), three checks run before any score:
   stripped; step margin +0.09 annotated and **−0.02 stripped** — the
   probe matches the engine at step localization once annotations are
   gone, because the implanted decisive step is usually the first novel
-  step. The corpus leaks on that axis, and says so.
+  step. The corpus leaks on that axis, and says so — v36 fixes it.
+
+## Decoy families and the re-anchor rule (v36)
+
+The v35 leak was a property of the corpus, not the engine: in every
+original family the decisive step happened to be the first step the
+passing run did not also take, so a detector with no causal model
+could match the engine. Two generated families (manifest version 6,
+eighteen families) break that regularity on purpose:
+
+- **`late_decision`** — the failing run diverges harmlessly first: two
+  value-free cross-check reads the passing run never made, carrying
+  nothing forward; the real cause is a *later* read of the key tool
+  from a secondary source that returns the wrong value. Decisive step
+  = that read, two steps after the first novel step.
+- **`misread_reason`** — both runs observe the true value; the failing
+  run adds one benign remark, then a reason step that misreads the
+  figure as a value no observation returned. Decisive = the misreading,
+  the second novel step.
+
+The engine meets them with one rule, in `_fuse`: when the wrong fact
+enters *after* the divergence root and every step in between is
+inconsequential — no write effect, no typed value or number in its
+output, no measurable word overlap with any later step or the answer —
+the divergence re-anchors to the wrong fact's entry, and its statement
+says so (`— the steps from r to o−1 carried nothing forward, so the
+anchor moves to step o`). This is the decisive-step criterion applied
+consistently: a step whose correction changes nothing downstream
+cannot be the earliest step whose correction flips the outcome.
+
+The guard matters as much as the rule. Its first cut tested only for
+values that *reappeared* downstream, and moved the t05 demo pair's
+anchor off a wrong local-time calculation (`11:45`) to the reason step
+that first showed it as `11h45m`. Any step that emitted a typed value
+or a bare number is now consequential by construction — a normaliser's
+blind spot must never move an anchor. Pinned in `tests/test_bench_rigor`.
+
+Measured at 2,200 pairs after the fix: engine step margin over the
+probe **+0.07 annotated, +0.10 stripped** (was +0.09 / −0.02); both
+decoy families at 1.0 on cause kind; the valueless ticket domain, which
+has no typed wrong fact to re-anchor on, stays adjacent by one step and
+is reported as such.
 
 ## Paired inference and clustered error bars (v34)
 

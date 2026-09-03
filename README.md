@@ -228,7 +228,7 @@ contradicted the expected one still counted as a grader-suspect
 4/4, chain recovery 0.94 recall / 0.93 precision.
 
 The benchmark then went procedural: `demo/diagnosis_bench/
-generate_scale.py --pairs N` composes sixteen cause families across
+generate_scale.py --pairs N` composes eighteen cause families across
 domains, trace lengths and distractors with mechanically derived truth
 (seeded, byte-identical per N; `agentdiff bench <dir> --strict` gates on
 the shared floors). Four families — `negation_answer`, `wrong_entity`,
@@ -238,14 +238,19 @@ confident wrong stories; the fixes it forced are exclusivity rules, not
 scenario patches, and the attack pairs are pinned as regression
 fixtures. A sixteenth family is the Agentic Benchmark Checklist's
 control — `null_agent`, a do-nothing run that restates the prompt,
-which a diagnoser must never abstain on or blame the grader for. At
-2,200 generated pairs the measured scorecard is **cause kind 0.865
-(1903/2200), decisive step 1621/1787 exact, abstention 0.939, chain
-recovery 0.855 recall / 0.966 precision**: the ten original families,
-the two corrected adversarial ones and the control sit at 1.0, and
-every miss concentrates in the three named open challenges —
-`paraphrase_grader` 0.82 (reworded-but-correct answers),
-`negation_answer` 0.59 (the failing answer negates the expected one
+which a diagnoser must never abstain on or blame the grader for. Two
+more are *decoys* built against the benchmark's own leak (below):
+`late_decision`, where the run diverges harmlessly two value-free
+reads before the real cause enters, and `misread_reason`, where the
+true value is observed and then misread one benign remark later — in
+both, the first step without a twin is the wrong answer. At 2,200
+generated pairs the measured scorecard is **cause kind 0.880
+(1936/2200), decisive step 1653/1832 exact, abstention 0.946, chain
+recovery 0.874 recall / 0.963 precision**: the ten original families,
+the two corrected adversarial ones, the control and both decoys sit at
+1.0, and every miss concentrates in the three named open challenges —
+`paraphrase_grader` 0.84 (reworded-but-correct answers),
+`negation_answer` 0.55 (the failing answer negates the expected one
 while reusing its tokens) and `garbage_args` 0.0 (a tool correctly
 rejecting an agent-invented argument looks environmental; the engine
 honestly contests rather than confirming either story). They stay in
@@ -256,27 +261,37 @@ The benchmark audits itself before it scores. Every pair passes an
 **injection contract**: the clean twin must pass its own grader (else
 the pair is excluded and counted — it would measure the grader, not
 the diagnoser), and the implanted artifact must be textually reachable
-between the decisive step and the answer (1,734 artifacts checked at
+between the decisive step and the answer (1,788 artifacts checked at
 2,200 pairs). And a **leakage probe** — a deliberately dumb detector
 using surface cues only, no engine — is scored on every corpus, because
 an implanted benchmark leaks fingerprints a detector can exploit
 without doing causal work (Leaky Model Organisms, 2026). The headline
 is the engine's margin over the probe, not its score: on cause
-identification the margin is solid (**+0.33 annotated, +0.28
-stripped**; the probe reaches 0.54). On decisive-step localization it
-is thin — **+0.09 annotated** — and on the stripped corpus the probe
-*matches* the engine (**0.75 vs 0.73, margin −0.02**): for most
-implanted families the decisive step is simply the first step without
-a twin in the passing run, so the step benchmark leaks. That is a
-measured limit of the corpus, published as such; families whose
-decisive step is *not* the first novel step are the next thing the
-generator owes.
+identification the margin is solid (**+0.32 annotated, +0.26
+stripped**; the probe reaches 0.56). On decisive-step localization the
+first measurement was the useful one: **+0.09 annotated** and, on the
+stripped corpus, the probe *matched* the engine (0.75 vs 0.73, margin
+−0.02) — for the original families the decisive step was simply the
+first step without a twin in the passing run, so the step benchmark
+leaked. The corpus was fixed, not eased: the two decoy families put
+the decisive step *after* the first novel step, and the engine gained
+one principled rule to meet them — a divergence whose intermediate
+steps carried nothing forward (no write, no value, no number, no word
+overlap with anything downstream) re-anchors to the step where the
+wrong fact entered, by the same counterfactual criterion that defines
+the decisive step. Re-measured at 2,200: step margin **+0.07
+annotated, +0.10 stripped** (probe 0.64 vs engine 0.74). The rule's
+first cut moved a real demo pair's anchor off a wrong calculation
+because the value travelled under another surface form; the guard
+that fixed it (any emitted value is consequential) is pinned as a
+test. The valueless ticket domain, where no typed wrong fact exists to
+re-anchor on, is the measured remainder: adjacent by one step.
 
 Every scorecard accuracy now carries two error bars — naive, and
 clustered by cause family, because scenarios in one family share a
 template and are not independent draws; the clustered one is the honest
 one, and the ratio between them is printed — at 2,200 pairs it is
-**×13.6** (naive ±0.008, clustered ±0.104), because accuracy is bimodal
+**×12.2** (naive ±0.007, clustered ±0.085), because accuracy is bimodal
 by family and the naive bar pretends the families are independent. The same discipline runs
 through `runs` and `fleet`: two agents on the same tasks is a *paired*
 design, so they report a paired difference with its standard error and
@@ -287,8 +302,8 @@ The same corpus regenerated with `--strip-annotations` — every step's
 `error`/`quality`/`note` nulled, so the engine must infer everything
 from observation text — is the de-circularized condition the
 adversarial evaluation asked for (the generator writes the very flags
-the engine reads): **cause kind 0.818, decisive step 0.730 exact,
-chain recovery 0.713 recall**, published beside the annotated numbers. The gap between the two scorecards
+the engine reads): **cause kind 0.840, decisive step 0.743 exact,
+chain recovery 0.749 recall**, published beside the annotated numbers. The gap between the two scorecards
 is the measured value of structured step metadata, not noise. The
 scaled sweep is the loop's teacher: it caught an incoherent implant, a
 coverage rule that credited wrong-valued answers, an alignment artefact

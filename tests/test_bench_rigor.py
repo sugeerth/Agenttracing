@@ -71,6 +71,109 @@ class TestNullAgentControl(unittest.TestCase):
         self.assertIn("injection contract", card)
 
 
+class TestDecoyFamilies(unittest.TestCase):
+    """The probe's favourite step cue — "the first step without a twin" —
+    is a decoy in two families.  `late_decision` diverges harmlessly two
+    reads before the real cause; `misread_reason` misreads a correctly
+    observed value one benign remark after the last twin.  The engine
+    must beat the probe here or the corpus is only measuring its own
+    fingerprint; the truth is stated per condition, not assumed."""
+
+    PAIRS = 160
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.out = Path(cls.tmp.name)
+        cls.manifest = _generator().generate(cls.out, cls.PAIRS)
+        cls.result = run_benchmark(cls.out)
+        cls.tmp_s = tempfile.TemporaryDirectory()
+        cls.out_s = Path(cls.tmp_s.name)
+        _generator().generate(cls.out_s, cls.PAIRS, strip=True)
+        cls.result_s = run_benchmark(cls.out_s)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+        cls.tmp_s.cleanup()
+
+    def _probe_and_engine(self, result, out, family):
+        manifest = json.loads((out / "MANIFEST.json").read_text())
+        truth = {sc["id"]: sc for sc in manifest["scenarios"]}
+        probe_hits = engine_hits = n = 0
+        for r in result["results"]:
+            if r["cause"] != family:
+                continue
+            sc = truth[r["scenario"]]
+            failing = Trajectory.from_json(str(out / sc["fail"]))
+            passing = Trajectory.from_json(str(out / sc["pass"]))
+            n += 1
+            if leakage_probe(failing, passing)["step"] in sc["decisive_steps"]:
+                probe_hits += 1
+            if r["step_outcome"] == "exact":
+                engine_hits += 1
+        return n, engine_hits, probe_hits
+
+    def test_both_decoy_families_are_generated_and_scored(self):
+        for family in ("late_decision", "misread_reason"):
+            self.assertIn(family, self.result["by_cause"])
+            self.assertGreater(self.result["by_cause"][family]["total"], 0)
+            self.assertIn(family, self.result_s["by_cause"])
+
+    def test_the_decisive_step_is_never_the_first_novel_step(self):
+        # the corpus's own contract: in these families the first step
+        # without a twin must precede the decisive step, else the family
+        # is not a decoy and the probe would be right for free
+        for sc in self.manifest["scenarios"]:
+            if sc["cause"] not in ("late_decision", "misread_reason"):
+                continue
+            failing = Trajectory.from_json(str(self.out / sc["fail"]))
+            passing = Trajectory.from_json(str(self.out / sc["pass"]))
+            twins = {(s.type, s.name, s.input) for s in passing.steps}
+            first_novel = next(i for i, s in enumerate(failing.steps)
+                               if (s.type, s.name, s.input) not in twins)
+            self.assertLess(first_novel, min(sc["decisive_steps"]), sc["id"])
+
+    def test_engine_beats_the_probe_on_the_decoys_once_annotations_are_gone(self):
+        # annotated condition: the generator marks the decisive step
+        # `weak` and the probe reads marks, so it can match or beat the
+        # engine there — that is the annotation leak, measured not
+        # hidden.  Stripped condition: the probe is left with "first
+        # step without a twin", which these families make wrong on
+        # purpose, and the engine must beat it
+        for family in ("late_decision", "misread_reason"):
+            n, engine, probe = self._probe_and_engine(
+                self.result_s, self.out_s, family)
+            self.assertGreater(n, 0)
+            self.assertGreater(engine, probe,
+                               f"{family} stripped: engine {engine}/{n} vs "
+                               f"probe {probe}/{n}")
+            n_a, engine_a, _ = self._probe_and_engine(
+                self.result, self.out, family)
+            # the honest floor, annotated: the engine lands the decoy
+            # step in at least three of four scenarios; the valueless
+            # ticket domain (no typed wrong fact to re-anchor on) is the
+            # measured remainder, adjacent by one.  Stripped carries no
+            # floor — it is a measurement (5/8 misread_reason at 160
+            # pairs when this was written), and the margin over the
+            # probe above is the claim
+            self.assertGreaterEqual(engine_a / n_a, 0.75, family)
+
+    def test_re_anchor_never_leaves_a_step_that_emitted_a_value(self):
+        # the re-anchor rule's guard, pinned on the pair that found it:
+        # bolt's step 1 computes 11:45 in local time; the wrong-fact
+        # detector first sees the value as 11h45m two steps later, and
+        # the first cut of the rule moved the anchor there.  A step that
+        # produced any typed value or number is consequential by
+        # construction, whatever the normaliser recognised
+        from deepcompare.report import compare
+        a = Trajectory.from_json(
+            str(ROOT / "demo/traces/t05_flight_duration__atlas-v2.json"))
+        b = Trajectory.from_json(
+            str(ROOT / "demo/traces/t05_flight_duration__bolt-v3.json"))
+        self.assertEqual(compare(a, b)["diagnosis"]["decisive_step"]["step"], 1)
+
+
 class TestPairValidity(unittest.TestCase):
     def _pair(self, pass_answer, artifact, fail_steps):
         def traj(name, steps, success, answer):

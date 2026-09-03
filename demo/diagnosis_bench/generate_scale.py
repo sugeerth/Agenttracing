@@ -42,7 +42,7 @@ FAMILIES = (
     "blind_write", "divergence_only", "late_symptom", "distractor",
     "cascade", "multi_cause", "paraphrase_grader",
     "negation_answer", "wrong_entity", "causal_duplicate", "garbage_args",
-    "null_agent",
+    "null_agent", "late_decision", "misread_reason",
 )
 
 #: paraphrase_grader is the corpus's deliberate open challenge: the failing
@@ -686,6 +686,70 @@ def _scenario(family, index, rng):
             note="do-nothing control: plan to skip every tool, then restate "
                  "the prompt; abstention is a miss here by construction")
 
+    elif family == "late_decision":
+        # the leakage probe's favourite cue is "the first step without a
+        # twin"; here that step is a decoy.  The run diverges harmlessly
+        # early — two benign reads the passing run did not make, carrying
+        # no value and feeding nothing — and the real cause enters LATER:
+        # a second read of the key tool from a secondary source that
+        # returns the wrong value.  No template word marks it.
+        fail = [json.loads(json.dumps(s)) for s in passing[:inj]]
+        dname, dinp, dout = domain["fillers"][-1]
+        fail.append(_step(0, "tool_call", dname,
+                          dinp.format(e=entity) + " (cross-check)",
+                          "Cross-check complete: nothing further to note.",
+                          effect="read", error=False))
+        fail.append(_step(0, "tool_call", dname,
+                          dinp.format(e=entity) + " (second cross-check)",
+                          "Second cross-check complete: consistent.",
+                          effect="read", error=False))
+        name, inp, out = domain["read_tool"]
+        fail.append(_step(0, "tool_call", name,
+                          inp.format(e=entity) + " (secondary source)",
+                          out.format(e=entity, v=wrong_value or
+                                     "an unverified value"),
+                          effect="read", error=False, quality="weak",
+                          note="the real cause: a secondary source with the "
+                               "wrong value, two benign novel steps late"))
+        fail.append(_step(0, "reason", "reason",
+                          rng.choice(REASON_POOL).format(
+                              v=wrong_value or "the secondary value"), ""))
+        fail.append(_answer(domain["wrong_answer"].format(
+            e=entity, w=wrong_value or "an unverified value")))
+        decisive = inj + 2
+        entry.update(
+            acceptable=(["wrong_fact_propagation", "divergence"]
+                        if wrong_value else ["divergence"]),
+            decisive_steps=[decisive],
+            chain=[decisive, decisive + 1, answer_of(fail)],
+            note="two inconsequential novel reads precede the real cause; "
+                 "the first step without a twin is a decoy")
+
+    elif family == "misread_reason":
+        # both runs take identical steps through the key read of the TRUE
+        # value; the failing run then adds one benign novel remark and
+        # MISREADS the value in its next reason step — the wrong value has
+        # no source in any observation.  Decisive = the misreading, the
+        # SECOND novel step; the answer carries it.
+        fail = [json.loads(json.dumps(s)) for s in passing[:inj + 1]]
+        fail.append(_step(0, "reason", "reason",
+                          "Noting that the source consulted is the current "
+                          "one.", ""))
+        fail.append(_step(0, "reason", "reason",
+                          f"Reading the figure as {wrong_value or 'a different value'} "
+                          f"for {entity}.", "", quality="weak",
+                          note="the misreading: a value no observation returned"))
+        fail.append(_answer(domain["wrong_answer"].format(
+            e=entity, w=wrong_value or "a different value")))
+        decisive = inj + 2
+        entry.update(
+            acceptable=(["wrong_fact_propagation", "divergence"]
+                        if wrong_value else ["divergence"]),
+            decisive_steps=[decisive],
+            chain=[decisive, answer_of(fail)],
+            note="the true value was observed; the misreading is the second "
+                 "novel step, after a benign remark")
+
     # the injection contract's artifact: the text the implant put into the
     # failing run, which the benchmark checks is reachable between the
     # decisive step and the answer (a fault that leaves no trace between
@@ -703,6 +767,8 @@ def _scenario(family, index, rng):
         "blind_write": "re-saved", "divergence_only": "unofficial summary",
         "negation_answer": NEGATED[domain_name].format(e=entity, v=true_value),
         "null_agent": "no further action was taken",
+        "late_decision": wrong_value or "the secondary value",
+        "misread_reason": wrong_value or "a different value",
     }
     entry["artifact"] = artifacts.get(family)
     fail_traj = _trajectory(task, FAIL_AGENT[0], FAIL_AGENT[1], fail,
@@ -735,7 +801,7 @@ def generate(out_dir: Path, pairs: int, strip: bool = False) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     for stale in out_dir.glob("*.json"):
         stale.unlink()
-    manifest = {"version": 5, "generated": True, "pairs": pairs,
+    manifest = {"version": 6, "generated": True, "pairs": pairs,
                 "seed": SEED, "stripped": bool(strip), "scenarios": []}
     for i in range(pairs):
         family = FAMILIES[i % len(FAMILIES)]

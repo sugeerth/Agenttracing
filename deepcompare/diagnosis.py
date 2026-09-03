@@ -708,6 +708,39 @@ def _dedupe(refs: list[str]) -> list[str]:
     return list(dict.fromkeys(refs))
 
 
+def _inconsequential_span(traj: Trajectory, start: int, end: int) -> bool:
+    """True when every step in ``[start, end)`` carried nothing forward:
+    no write effect, no typed value or number in its output, and no
+    measurable word overlap with any later step or the answer.  Such a
+    step could be corrected without changing anything downstream, so by
+    the counterfactual criterion it cannot be the decisive one."""
+    import re
+    from .align import jaccard
+    from .semantic import extract_from_text
+    steps = traj.steps
+    if not (0 <= start < end <= len(steps) - 1):
+        return False
+    answer_text = steps[-1].output or steps[-1].input or ""
+    for i in range(start, end):
+        step = steps[i]
+        if step.effect == "write":
+            return False
+        out = step.output or ""
+        # a step that produced any typed value or bare number is treated
+        # as consequential even when no later step repeats it verbatim:
+        # values travel under other surface forms (11:45 → 11h45m), and
+        # the rule must never move the anchor off a wrong calculation on
+        # the strength of a normaliser's blind spot.  Only genuinely
+        # value-free steps — a remark, a status line, a read that
+        # returned nothing typed — can be inconsequential
+        if extract_from_text(out) or re.search(r"\d", out):
+            return False
+        if out.strip() and (jaccard(out, answer_text) >= 0.2 or any(
+                jaccard(out, s.input) >= 0.2 for s in steps[end:])):
+            return False
+    return True
+
+
 def _fuse(raw: list[dict], report: dict, ledger: list[dict],
           traj_a: Optional[Trajectory] = None,
           traj_b: Optional[Trajectory] = None) -> None:
@@ -734,6 +767,23 @@ def _fuse(raw: list[dict], report: dict, ledger: list[dict],
     if div is not None and wf is not None and div["agent"] == wf["agent"]:
         root = div.get("root")
         origin = wf.get("origin")
+        div_traj = traj_a if div["agent"] == "a" else traj_b
+        if (origin is not None and root is not None and origin > root
+                and div_traj is not None
+                and _inconsequential_span(div_traj, root, origin)):
+            # the counterfactual criterion, applied honestly: a divergence
+            # whose every step before the wrong fact's entry carried no
+            # value forward, fed nothing and changed no state would not
+            # have flipped the outcome if corrected — the wrong fact's
+            # entry is the earliest step that would.  Re-anchor there
+            # (scaled-corpus finding: two benign novel reads before the
+            # real cause pulled the anchor two steps early)
+            div["statement"] += (
+                f" — the steps from {root} to {origin - 1} carried nothing "
+                f"forward, so the anchor moves to step {origin}, where the "
+                f"wrong fact entered")
+            div["root"] = origin
+            root = origin
         if origin is not None and root is not None and origin >= root:
             div["score"] = max(div["score"], wf["score"]) + 0.15
             div["supports"] = _dedupe(div["supports"] + wf["supports"])
