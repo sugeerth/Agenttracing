@@ -204,6 +204,60 @@ select.picker {
   max-width: 1240px; margin: 0 auto; box-sizing: border-box; }
 .story-lane[hidden] { display: none; }
 .story-lane > .block { width: 100%; }
+/* ---------- the story view: one column, no chrome ----------
+   In Story view the lanes are a single reading column. Blocks lose their
+   card: no border, no shadow, no header bar — a small section label, the
+   content, and air between sections. Only the essential is on the page;
+   the rest lives on the Evidence and Batch views. */
+body[data-view="story"] .page-title,
+body[data-view="story"] .lead-lane,
+body[data-view="story"] .hero-lane,
+body[data-view="story"] .story-lane { max-width: 1120px; margin-left: auto; margin-right: auto; }
+body[data-view="story"] .page-title { padding-top: 26px; font-size: 16px; color: var(--ink); }
+body[data-view="story"] .lead-lane { padding-top: 14px; }
+body[data-view="story"] .hero-lane { padding-top: 34px; }
+body[data-view="story"] .story-lane { padding-top: 10px; gap: 34px; padding-bottom: 90px; }
+body[data-view="story"] .lead-lane .block,
+body[data-view="story"] .hero-lane .block,
+body[data-view="story"] .story-lane .block {
+  background: transparent; border: 0; border-radius: 0; box-shadow: none; overflow: visible;
+}
+body[data-view="story"] .hero-lane .block-head,
+body[data-view="story"] .story-lane .block-head,
+body[data-view="story"] .lead-lane .block-head {
+  background: transparent; border-bottom: 0; padding: 0 0 8px; cursor: default;
+}
+body[data-view="story"] .lead-lane .block-head { display: none; }
+body[data-view="story"] .hero-lane .block-title,
+body[data-view="story"] .story-lane .block-title {
+  font-size: 11.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3);
+}
+body[data-view="story"] .hero-lane .block-q,
+body[data-view="story"] .story-lane .block-q { display: none; }
+body[data-view="story"] .hero-tag { display: none; }
+body[data-view="story"] .hero-lane .block-body,
+body[data-view="story"] .story-lane .block-body,
+body[data-view="story"] .lead-lane .block-body { padding: 0; }
+body[data-view="story"] .hero-lane .block-actions,
+body[data-view="story"] .story-lane .block-actions { opacity: 0; }
+body[data-view="story"] .hero-lane .block:hover .block-actions,
+body[data-view="story"] .story-lane .block:hover .block-actions,
+body[data-view="story"] .hero-lane .block:focus-within .block-actions,
+body[data-view="story"] .story-lane .block:focus-within .block-actions { opacity: 1; }
+body[data-view="story"] .hero-lane .block.flash { outline: none; }
+body[data-view="story"] .tjm-wrap { border: 0; background: transparent; border-radius: 0; }
+body[data-view="story"] .vc { font-size: 14.5px; }
+body[data-view="story"] .vc .v.verdict { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
+body[data-view="story"] .vc .k { padding-top: 5px; }
+body[data-view="story"] .vc-src { display: none; }
+body[data-view="story"] .block .empty { display: none; }
+body[data-view="story"] .story-lane .caveat,
+body[data-view="story"] .story-lane .ax-lede,
+body[data-view="story"] .story-lane .dx-lede,
+body[data-view="story"] .story-lane .dx-conf,
+body[data-view="story"] .story-lane .rd-conf,
+body[data-view="story"] .story-lane .ax-gate:empty { display: none; }
+body[data-view="story"] .stacks { display: none; }
 /* anything scrolled into view lands below the sticky bar, not under it */
 .block, svg.tj, g.tj-hit, .tchip { scroll-margin-top: 72px; }
 .lead-lane { padding: 16px 18px 0; }
@@ -1272,6 +1326,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   function renderAll() {
     var ctx = makeCtx();
     var hero = resolveHero(ctx);
+    try { document.body.setAttribute("data-view", State.prefs.view); } catch (err) { /* no body */ }
     renderTaskStrip(ctx);
     renderTitle(ctx);
     renderLead(ctx);
@@ -1654,6 +1709,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     if (!item.collapsed) {
       var blockCtx = Object.create(ctx);
       blockCtx.signal = function (kind) { recordSignal(item.id, kind || "inspect"); };
+      // where the block is being drawn: "story" (the one-column narrative),
+      // "hero", or "stack" — a block may show less in the story
+      blockCtx.lane = hero ? "hero" : (stackIndex === null || stackIndex === undefined) ? "story" : "stack";
       try {
         entry.render(body, blockCtx);
         accessibleCharts(body, entry);
@@ -2679,6 +2737,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       return { term: id, label: entry.label, short: entry.short, long: entry.long };
     },
     // exposed for the smoke test, not for block modules
+    // blocks that keep local state (a show-all toggle) ask for a re-render
+    _rerender: function () { renderAll(); },
     _internals: {
       rank: rank, reconcile: reconcile, defaultLayout: defaultLayout,
       resolveHero: resolveHero, promoteHero: promoteHero, demoteHero: demoteHero,
@@ -3602,6 +3662,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       node.id = STYLE_ID;
       node.textContent = [
         ".dx-lede{font-size:12px;color:var(--ink-2);margin:0 0 10px;line-height:1.55}",
+        ".dx-fold{margin:8px 0 0}.dx-fold>summary{cursor:pointer;font-size:12px;color:var(--ink-3);",
+        "list-style:none;padding:4px 0}.dx-fold>summary::before{content:'▸ ';}.dx-fold[open]>summary::before{content:'▾ ';}",
         ".dx-verdict{border:1px solid var(--rule);border-left:3px solid var(--accent);",
         "border-radius:7px;background:var(--surface-2);padding:8px 10px;margin:0 0 10px;",
         "font-size:13px;line-height:1.55;color:var(--ink)}",
@@ -3794,6 +3856,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
 
     var row = ctx.h("li", {
       class: "dx-row" + (look.row ? " " + look.row : "") + (open ? " open" : ""),
+      "data-status": status,
     });
 
     var badge = term(ctx, status.replace(/_/g, " "), "hypothesis-status");
@@ -4039,6 +4102,20 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         list.appendChild(hypothesisRow(ctx, report, diag, byId, hypothesis, rowKey));
       });
       el.appendChild(list);
+      if (ctx.lane === "story" || (el.closest && el.closest(".story-lane"))) {
+        // the story shows the leading account; every other hypothesis is
+        // one click away, still verbatim, still on the page
+        var others = Array.prototype.slice.call(list.querySelectorAll('.dx-row:not([data-status="leading"])'));
+        if (others.length) {
+          var fold = ctx.h("details", { class: "dx-fold" }, [
+            ctx.h("summary", { text: others.length + " other hypothes" + (others.length === 1 ? "is" : "es") + " (merged, plausible, ruled out)" }),
+          ]);
+          var inner = ctx.h("ol", { class: "dx-list" });
+          others.forEach(function (row) { inner.appendChild(row); });
+          fold.appendChild(inner);
+          list.parentNode.insertBefore(fold, list.nextSibling);
+        }
+      }
 
       // 2b. The causal account — how the fault travelled, step by step.
       var account = Array.isArray(diag.causal_account) ? diag.causal_account : [];
@@ -4496,6 +4573,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         "letter-spacing:.05em}",
         ".rd-why{font-size:12.5px;line-height:1.5;margin:0}",
         ".rd-conf{font-size:12px;color:var(--ink-3);margin:10px 0 0}",
+        ".rd-more{margin-top:12px}.rd-more>summary{cursor:pointer;font-size:12px;color:var(--ink-3);",
+        "list-style:none}.rd-more>summary::before{content:'▸ '}.rd-more[open]>summary::before{content:'▾ '}",
         ".rd-validity{border-left:3px solid var(--warn);padding:6px 10px;margin:0 0 10px;",
         "font-size:12.5px;background:var(--surface-2);border-radius:0 7px 7px 0}"
       ].join("");
@@ -4589,9 +4668,15 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         "Fix the measurement first: " + (validity.reason || validity.status) }));
     }
 
+    // in the story only the essentials stay open: the summary, what the
+    // answer rests on, what to take forward; the two walks fold away
+    var inStory = ctx.lane === "story" || !!(el.closest && el.closest(".story-lane"));
+    var more = inStory ? H("details", { class: "rd-more" }, [
+      H("summary", { text: "What happened, and what it means" })]) : null;
+    var target = more || el;
     if (reading.phases && reading.phases.length) {
-      el.appendChild(H("div", { class: "rd-h", text: "What happened" }));
-      el.appendChild(H("ol", { class: "rd-phases" }, reading.phases.map(function (ph) {
+      target.appendChild(H("div", { class: "rd-h", text: "What happened" }));
+      target.appendChild(H("ol", { class: "rd-phases" }, reading.phases.map(function (ph) {
         var steps = ph.steps || [];
         var kids = [H("b", { text: steps.length ? "steps " + steps[0] + "–" + steps[steps.length - 1] : "no steps" }),
                     H("span", { text: ": " + (ph.summary || "") + " " })];
@@ -4629,12 +4714,12 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     }
 
     if (reading.what_it_means && reading.what_it_means.length) {
-      el.appendChild(H("div", { class: "rd-h", text: "What it means" }));
+      target.appendChild(H("div", { class: "rd-h", text: "What it means" }));
       var order = ["observable", "annotation", "stated"];
       var findings = reading.what_it_means.slice().sort(function (x, y) {
         return order.indexOf(x.evidence_class) - order.indexOf(y.evidence_class);
       });
-      el.appendChild(H("ul", { class: "rd-list" }, findings.map(function (f) {
+      target.appendChild(H("ul", { class: "rd-list" }, findings.map(function (f) {
         var kids = [H("span", { class: "rd-cls", text: f.evidence_class || "" }),
                     H("span", { text: f.statement + " " })];
         (f.steps || []).slice(0, 4).forEach(function (st) { kids.push(stepChip(ctx, report, side, st)); });
@@ -4656,6 +4741,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     if (conf && conf.level) {
       el.appendChild(H("p", { class: "rd-conf", text: "Confidence: " + conf.level + " — " + (conf.basis || "") }));
     }
+    if (more && more.childNodes.length > 1) el.appendChild(more);
   }
 
   function clear(el) { el.innerHTML = ""; return el; }
@@ -14933,6 +15019,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         ".ax-gate .k{font-weight:700;color:var(--warn);white-space:nowrap}",
         ".ax-gate .sub{color:var(--ink-2);font-size:11px;margin-top:3px}",
         ".ax-list{margin:0;padding:0;list-style:none;min-width:0}",
+        ".ax-more{margin-top:10px;border:1px solid var(--rule-2);background:var(--surface);",
+        "color:var(--ink-2);border-radius:7px;padding:4px 12px;font:600 12px/1.4 inherit;cursor:pointer}",
+        ".ax-more:hover{border-color:var(--accent);color:var(--accent)}",
         ".ax-row{border:1px solid var(--rule);border-radius:9px;margin:0 0 8px;",
         "background:var(--surface);min-width:0;overflow:hidden}",
         ".ax-row.sneaky{border-left:3px solid var(--warn);",
@@ -15174,16 +15263,47 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       var gate = gateBanner(ctx, triage.reliability_gate);
       if (gate) el.appendChild(gate);
 
+      // in the story view: the actions that touch THIS task, three at a
+      // time; the whole batch is one click away, and on the Batch view
+      var inStory = ctx.lane === "story" || !!(el.closest && el.closest(".story-lane"));
+      var mine = inStory && ctx.task
+        ? actions.filter(function (a) { return actionTouchesTask(a, ctx.task); })
+        : actions;
+      if (inStory && !mine.length) mine = actions;
+      var shown = !inStory ? actions : storyShowAll ? actions : mine.slice(0, 3);
       var list = ctx.h("ol", { class: "ax-list" });
-      actions.forEach(function (action) {
+      shown.forEach(function (action) {
         list.appendChild(actionRow(ctx, action));
       });
       el.appendChild(list);
+      if (inStory && shown.length < actions.length) {
+        el.appendChild(ctx.h("button", {
+          class: "ax-more", type: "button",
+          text: storyShowAll
+            ? "Show the top " + Math.min(3, mine.length) + " for this task"
+            : "Show all " + actions.length + " across the batch"
+              + (mine.length > shown.length ? " (" + (mine.length - shown.length) + " more for this task)" : ""),
+          onclick: function () { storyShowAll = !storyShowAll; el.innerHTML = ""; AgentDiff._rerender ? AgentDiff._rerender() : location.reload(); },
+        }));
+      }
 
       var footer = refusalsFooter(ctx, triage.not_actionable);
       if (footer) el.appendChild(footer);
     },
   });
+
+  var storyShowAll = false;
+
+  function actionTouchesTask(action, task) {
+    try {
+      var ev = action.evidence || {};
+      var lists = [ev.tasks, ev.task_ids, action.tasks, action.evidence_tasks];
+      for (var i = 0; i < lists.length; i++) {
+        if (Array.isArray(lists[i]) && lists[i].indexOf(task) >= 0) return true;
+      }
+      return JSON.stringify(action).indexOf('"' + task + '"') >= 0;
+    } catch (err) { return true; }
+  }
 
   // ------------------------------------------------------------------ lede
 

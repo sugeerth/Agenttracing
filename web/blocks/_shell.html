@@ -204,6 +204,60 @@ select.picker {
   max-width: 1240px; margin: 0 auto; box-sizing: border-box; }
 .story-lane[hidden] { display: none; }
 .story-lane > .block { width: 100%; }
+/* ---------- the story view: one column, no chrome ----------
+   In Story view the lanes are a single reading column. Blocks lose their
+   card: no border, no shadow, no header bar — a small section label, the
+   content, and air between sections. Only the essential is on the page;
+   the rest lives on the Evidence and Batch views. */
+body[data-view="story"] .page-title,
+body[data-view="story"] .lead-lane,
+body[data-view="story"] .hero-lane,
+body[data-view="story"] .story-lane { max-width: 1120px; margin-left: auto; margin-right: auto; }
+body[data-view="story"] .page-title { padding-top: 26px; font-size: 16px; color: var(--ink); }
+body[data-view="story"] .lead-lane { padding-top: 14px; }
+body[data-view="story"] .hero-lane { padding-top: 34px; }
+body[data-view="story"] .story-lane { padding-top: 10px; gap: 34px; padding-bottom: 90px; }
+body[data-view="story"] .lead-lane .block,
+body[data-view="story"] .hero-lane .block,
+body[data-view="story"] .story-lane .block {
+  background: transparent; border: 0; border-radius: 0; box-shadow: none; overflow: visible;
+}
+body[data-view="story"] .hero-lane .block-head,
+body[data-view="story"] .story-lane .block-head,
+body[data-view="story"] .lead-lane .block-head {
+  background: transparent; border-bottom: 0; padding: 0 0 8px; cursor: default;
+}
+body[data-view="story"] .lead-lane .block-head { display: none; }
+body[data-view="story"] .hero-lane .block-title,
+body[data-view="story"] .story-lane .block-title {
+  font-size: 11.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3);
+}
+body[data-view="story"] .hero-lane .block-q,
+body[data-view="story"] .story-lane .block-q { display: none; }
+body[data-view="story"] .hero-tag { display: none; }
+body[data-view="story"] .hero-lane .block-body,
+body[data-view="story"] .story-lane .block-body,
+body[data-view="story"] .lead-lane .block-body { padding: 0; }
+body[data-view="story"] .hero-lane .block-actions,
+body[data-view="story"] .story-lane .block-actions { opacity: 0; }
+body[data-view="story"] .hero-lane .block:hover .block-actions,
+body[data-view="story"] .story-lane .block:hover .block-actions,
+body[data-view="story"] .hero-lane .block:focus-within .block-actions,
+body[data-view="story"] .story-lane .block:focus-within .block-actions { opacity: 1; }
+body[data-view="story"] .hero-lane .block.flash { outline: none; }
+body[data-view="story"] .tjm-wrap { border: 0; background: transparent; border-radius: 0; }
+body[data-view="story"] .vc { font-size: 14.5px; }
+body[data-view="story"] .vc .v.verdict { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
+body[data-view="story"] .vc .k { padding-top: 5px; }
+body[data-view="story"] .vc-src { display: none; }
+body[data-view="story"] .block .empty { display: none; }
+body[data-view="story"] .story-lane .caveat,
+body[data-view="story"] .story-lane .ax-lede,
+body[data-view="story"] .story-lane .dx-lede,
+body[data-view="story"] .story-lane .dx-conf,
+body[data-view="story"] .story-lane .rd-conf,
+body[data-view="story"] .story-lane .ax-gate:empty { display: none; }
+body[data-view="story"] .stacks { display: none; }
 /* anything scrolled into view lands below the sticky bar, not under it */
 .block, svg.tj, g.tj-hit, .tchip { scroll-margin-top: 72px; }
 .lead-lane { padding: 16px 18px 0; }

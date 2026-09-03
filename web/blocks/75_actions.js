@@ -40,6 +40,9 @@
         ".ax-gate .k{font-weight:700;color:var(--warn);white-space:nowrap}",
         ".ax-gate .sub{color:var(--ink-2);font-size:11px;margin-top:3px}",
         ".ax-list{margin:0;padding:0;list-style:none;min-width:0}",
+        ".ax-more{margin-top:10px;border:1px solid var(--rule-2);background:var(--surface);",
+        "color:var(--ink-2);border-radius:7px;padding:4px 12px;font:600 12px/1.4 inherit;cursor:pointer}",
+        ".ax-more:hover{border-color:var(--accent);color:var(--accent)}",
         ".ax-row{border:1px solid var(--rule);border-radius:9px;margin:0 0 8px;",
         "background:var(--surface);min-width:0;overflow:hidden}",
         ".ax-row.sneaky{border-left:3px solid var(--warn);",
@@ -281,16 +284,47 @@
       var gate = gateBanner(ctx, triage.reliability_gate);
       if (gate) el.appendChild(gate);
 
+      // in the story view: the actions that touch THIS task, three at a
+      // time; the whole batch is one click away, and on the Batch view
+      var inStory = ctx.lane === "story" || !!(el.closest && el.closest(".story-lane"));
+      var mine = inStory && ctx.task
+        ? actions.filter(function (a) { return actionTouchesTask(a, ctx.task); })
+        : actions;
+      if (inStory && !mine.length) mine = actions;
+      var shown = !inStory ? actions : storyShowAll ? actions : mine.slice(0, 3);
       var list = ctx.h("ol", { class: "ax-list" });
-      actions.forEach(function (action) {
+      shown.forEach(function (action) {
         list.appendChild(actionRow(ctx, action));
       });
       el.appendChild(list);
+      if (inStory && shown.length < actions.length) {
+        el.appendChild(ctx.h("button", {
+          class: "ax-more", type: "button",
+          text: storyShowAll
+            ? "Show the top " + Math.min(3, mine.length) + " for this task"
+            : "Show all " + actions.length + " across the batch"
+              + (mine.length > shown.length ? " (" + (mine.length - shown.length) + " more for this task)" : ""),
+          onclick: function () { storyShowAll = !storyShowAll; el.innerHTML = ""; AgentDiff._rerender ? AgentDiff._rerender() : location.reload(); },
+        }));
+      }
 
       var footer = refusalsFooter(ctx, triage.not_actionable);
       if (footer) el.appendChild(footer);
     },
   });
+
+  var storyShowAll = false;
+
+  function actionTouchesTask(action, task) {
+    try {
+      var ev = action.evidence || {};
+      var lists = [ev.tasks, ev.task_ids, action.tasks, action.evidence_tasks];
+      for (var i = 0; i < lists.length; i++) {
+        if (Array.isArray(lists[i]) && lists[i].indexOf(task) >= 0) return true;
+      }
+      return JSON.stringify(action).indexOf('"' + task + '"') >= 0;
+    } catch (err) { return true; }
+  }
 
   // ------------------------------------------------------------------ lede
 

@@ -33,6 +33,8 @@
       node.id = STYLE_ID;
       node.textContent = [
         ".dx-lede{font-size:12px;color:var(--ink-2);margin:0 0 10px;line-height:1.55}",
+        ".dx-fold{margin:8px 0 0}.dx-fold>summary{cursor:pointer;font-size:12px;color:var(--ink-3);",
+        "list-style:none;padding:4px 0}.dx-fold>summary::before{content:'▸ ';}.dx-fold[open]>summary::before{content:'▾ ';}",
         ".dx-verdict{border:1px solid var(--rule);border-left:3px solid var(--accent);",
         "border-radius:7px;background:var(--surface-2);padding:8px 10px;margin:0 0 10px;",
         "font-size:13px;line-height:1.55;color:var(--ink)}",
@@ -225,6 +227,7 @@
 
     var row = ctx.h("li", {
       class: "dx-row" + (look.row ? " " + look.row : "") + (open ? " open" : ""),
+      "data-status": status,
     });
 
     var badge = term(ctx, status.replace(/_/g, " "), "hypothesis-status");
@@ -470,6 +473,20 @@
         list.appendChild(hypothesisRow(ctx, report, diag, byId, hypothesis, rowKey));
       });
       el.appendChild(list);
+      if (ctx.lane === "story" || (el.closest && el.closest(".story-lane"))) {
+        // the story shows the leading account; every other hypothesis is
+        // one click away, still verbatim, still on the page
+        var others = Array.prototype.slice.call(list.querySelectorAll('.dx-row:not([data-status="leading"])'));
+        if (others.length) {
+          var fold = ctx.h("details", { class: "dx-fold" }, [
+            ctx.h("summary", { text: others.length + " other hypothes" + (others.length === 1 ? "is" : "es") + " (merged, plausible, ruled out)" }),
+          ]);
+          var inner = ctx.h("ol", { class: "dx-list" });
+          others.forEach(function (row) { inner.appendChild(row); });
+          fold.appendChild(inner);
+          list.parentNode.insertBefore(fold, list.nextSibling);
+        }
+      }
 
       // 2b. The causal account — how the fault travelled, step by step.
       var account = Array.isArray(diag.causal_account) ? diag.causal_account : [];

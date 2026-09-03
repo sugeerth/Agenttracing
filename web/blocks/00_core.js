@@ -754,6 +754,7 @@
   function renderAll() {
     var ctx = makeCtx();
     var hero = resolveHero(ctx);
+    try { document.body.setAttribute("data-view", State.prefs.view); } catch (err) { /* no body */ }
     renderTaskStrip(ctx);
     renderTitle(ctx);
     renderLead(ctx);
@@ -1136,6 +1137,9 @@
     if (!item.collapsed) {
       var blockCtx = Object.create(ctx);
       blockCtx.signal = function (kind) { recordSignal(item.id, kind || "inspect"); };
+      // where the block is being drawn: "story" (the one-column narrative),
+      // "hero", or "stack" — a block may show less in the story
+      blockCtx.lane = hero ? "hero" : (stackIndex === null || stackIndex === undefined) ? "story" : "stack";
       try {
         entry.render(body, blockCtx);
         accessibleCharts(body, entry);
@@ -2161,6 +2165,8 @@
       return { term: id, label: entry.label, short: entry.short, long: entry.long };
     },
     // exposed for the smoke test, not for block modules
+    // blocks that keep local state (a show-all toggle) ask for a re-render
+    _rerender: function () { renderAll(); },
     _internals: {
       rank: rank, reconcile: reconcile, defaultLayout: defaultLayout,
       resolveHero: resolveHero, promoteHero: promoteHero, demoteHero: demoteHero,

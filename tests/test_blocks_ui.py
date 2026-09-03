@@ -447,6 +447,10 @@ class DiagnosisBlockTest(unittest.TestCase):
 
         # One row per hypothesis, in the report's own order, each carrying
         # its status and its statement; merged rows stay visible and say so.
+        # the story folds the non-leading rows behind a disclosure: open it
+        for fold in block.locator("details:not([open]) > summary").all():
+            fold.click()
+        page.wait_for_timeout(150)
         rows = block.locator(".dx-row")
         hypotheses = self.diagnosis["hypotheses"]
         self.assertEqual(rows.count(), len(hypotheses))
@@ -617,6 +621,10 @@ class DecisiveStepBlockTest(unittest.TestCase):
             page.wait_for_timeout(250)
             block = page.locator('.block[data-block="reading"]')
         reading = self.t05["reading"]["b"]
+        # the story folds the two walks behind a disclosure: open it
+        for fold in block.locator("details:not([open]) > summary").all():
+            fold.click()
+        page.wait_for_timeout(150)
         text = block.inner_text()
         self.assertIn(reading["summary"], text)
         for r in reading["rests_on"]:

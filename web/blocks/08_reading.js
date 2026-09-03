@@ -55,6 +55,8 @@
         "letter-spacing:.05em}",
         ".rd-why{font-size:12.5px;line-height:1.5;margin:0}",
         ".rd-conf{font-size:12px;color:var(--ink-3);margin:10px 0 0}",
+        ".rd-more{margin-top:12px}.rd-more>summary{cursor:pointer;font-size:12px;color:var(--ink-3);",
+        "list-style:none}.rd-more>summary::before{content:'▸ '}.rd-more[open]>summary::before{content:'▾ '}",
         ".rd-validity{border-left:3px solid var(--warn);padding:6px 10px;margin:0 0 10px;",
         "font-size:12.5px;background:var(--surface-2);border-radius:0 7px 7px 0}"
       ].join("");
@@ -148,9 +150,15 @@
         "Fix the measurement first: " + (validity.reason || validity.status) }));
     }
 
+    // in the story only the essentials stay open: the summary, what the
+    // answer rests on, what to take forward; the two walks fold away
+    var inStory = ctx.lane === "story" || !!(el.closest && el.closest(".story-lane"));
+    var more = inStory ? H("details", { class: "rd-more" }, [
+      H("summary", { text: "What happened, and what it means" })]) : null;
+    var target = more || el;
     if (reading.phases && reading.phases.length) {
-      el.appendChild(H("div", { class: "rd-h", text: "What happened" }));
-      el.appendChild(H("ol", { class: "rd-phases" }, reading.phases.map(function (ph) {
+      target.appendChild(H("div", { class: "rd-h", text: "What happened" }));
+      target.appendChild(H("ol", { class: "rd-phases" }, reading.phases.map(function (ph) {
         var steps = ph.steps || [];
         var kids = [H("b", { text: steps.length ? "steps " + steps[0] + "–" + steps[steps.length - 1] : "no steps" }),
                     H("span", { text: ": " + (ph.summary || "") + " " })];
@@ -188,12 +196,12 @@
     }
 
     if (reading.what_it_means && reading.what_it_means.length) {
-      el.appendChild(H("div", { class: "rd-h", text: "What it means" }));
+      target.appendChild(H("div", { class: "rd-h", text: "What it means" }));
       var order = ["observable", "annotation", "stated"];
       var findings = reading.what_it_means.slice().sort(function (x, y) {
         return order.indexOf(x.evidence_class) - order.indexOf(y.evidence_class);
       });
-      el.appendChild(H("ul", { class: "rd-list" }, findings.map(function (f) {
+      target.appendChild(H("ul", { class: "rd-list" }, findings.map(function (f) {
         var kids = [H("span", { class: "rd-cls", text: f.evidence_class || "" }),
                     H("span", { text: f.statement + " " })];
         (f.steps || []).slice(0, 4).forEach(function (st) { kids.push(stepChip(ctx, report, side, st)); });
@@ -215,6 +223,7 @@
     if (conf && conf.level) {
       el.appendChild(H("p", { class: "rd-conf", text: "Confidence: " + conf.level + " — " + (conf.basis || "") }));
     }
+    if (more && more.childNodes.length > 1) el.appendChild(more);
   }
 
   function clear(el) { el.innerHTML = ""; return el; }
