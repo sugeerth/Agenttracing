@@ -212,7 +212,7 @@ class BlocksPageTest(unittest.TestCase):
             const original = entry.render;
             entry.render = function () { throw new Error('deliberate'); };
             try {
-                document.getElementById('btn-cols').click();  // forces a re-render
+                document.getElementById('btn-theme').click();  // forces a re-render
                 return document.querySelectorAll('.block').length > 1 ? 'ok' : 'page emptied';
             } finally {
                 entry.render = original;
@@ -657,7 +657,8 @@ class DecisiveStepBlockTest(unittest.TestCase):
         context.close()
 
     def test_the_run_lens_shows_the_readings_step_roles(self):
-        context, page, errors = self._open_page(self.t05_report)
+        # the run lens lives on the Evidence tab
+        context, page, errors = self._open_page(f"{self.t05_report}#view=evidence")
         lens = page.locator('.block[data-block="run-lens"]')
         self.assertEqual(lens.count(), 1)
         if "collapsed" in (lens.get_attribute("class") or ""):
@@ -826,7 +827,7 @@ class ConsolidatedDiagnosisBlockTest(unittest.TestCase):
         page = context.new_page()
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.goto(f"file://{self.report}")
+        page.goto(f"file://{self.report}#view=evidence")
         page.wait_for_timeout(400)
 
         block = page.locator('.block[data-block="diagnosis-consolidated"]')
@@ -1078,7 +1079,7 @@ class RunLensTest(unittest.TestCase):
         page = context.new_page()
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.goto(f"file://{self.report}")
+        page.goto(f"file://{self.report}#view=evidence")
         page.wait_for_timeout(400)
         block = page.locator('.block[data-block="run-lens"]')
         self.assertEqual(block.count(), 1, "Run lens is not on the page")
@@ -1588,7 +1589,7 @@ class BatchTaskSwitchTest(unittest.TestCase):
         page = context.new_page()
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.goto(f"file://{self.report}")
+        page.goto(f"file://{self.report}#view=evidence")
         page.wait_for_timeout(500)
         self.expand(page, "trajectory-map")
 
@@ -1755,7 +1756,7 @@ class LongPairMapTest(unittest.TestCase):
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         start = time.monotonic()
-        page.goto(f"file://{self.report}")
+        page.goto(f"file://{self.report}#view=evidence")
         page.wait_for_timeout(600)
         elapsed = time.monotonic() - start
         block = page.locator('.block[data-block="trajectory-map"]')
@@ -1930,7 +1931,7 @@ class AdversarialMapTest(unittest.TestCase):
         page = context.new_page()
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.goto(f"file://{html}")
+        page.goto(f"file://{html}#view=evidence")
         page.wait_for_timeout(500)
         for block_id in ("trajectory-map", "run-lens"):
             block = page.locator(f'.block[data-block="{block_id}"]')

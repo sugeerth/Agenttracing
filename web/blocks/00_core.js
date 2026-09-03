@@ -38,7 +38,26 @@
   //: They answer the reader's next five questions; everything else stays in
   //: the columns. Dashboard mode puts them back.
   var STORY_BLOCKS = ["reading", "diagnosis", "actions", "step-detail", "deltas"];
-  function isStoryBlock(id) { return State.prefs && State.prefs.story && STORY_BLOCKS.indexOf(id) >= 0; }
+  function isStoryBlock(id) { return State.prefs && State.prefs.view === "story" && STORY_BLOCKS.indexOf(id) >= 0; }
+
+  //: the three views. Story: lead + hero + the story lane. Evidence: the
+  //: per-task columns (outcome, trajectory, integrity). Batch: the
+  //: cross-task columns (cost, signal, other) — they do not change with the
+  //: task and do not deserve to scroll past on every task page.
+  var VIEWS = ["story", "evidence", "batch"];
+  var VIEW_GROUPS = {
+    evidence: ["outcome", "trajectory", "integrity"],
+    batch: ["cost", "signal", "other"],
+  };
+  function stacksForView(view) {
+    var groups = VIEW_GROUPS[view];
+    if (!groups) return [];
+    var out = [];
+    STACK_PLAN.forEach(function (plan, index) {
+      if (plan.groups.some(function (g) { return groups.indexOf(g) >= 0; })) out.push(index);
+    });
+    return out;
+  }
 
   // ---------------------------------------------------------------- identity
 
@@ -330,7 +349,7 @@
   };
 
   function defaultPrefs() {
-    return { personalize: true, autoApply: false, theme: "system", reading: true, story: true };
+    return { personalize: true, autoApply: false, theme: "system", reading: true, view: "story" };
   }
 
   /* The default composition. Groups map to stacks so a first-time visitor
@@ -742,10 +761,15 @@
     renderStory(ctx, hero);
     renderReading(hero);
 
-    els.stacks.setAttribute("data-cols", State.layout.cols);
     els.stacks.innerHTML = "";
+    var visibleStacks = stacksForView(State.prefs.view);
+    els.stacks.hidden = visibleStacks.length === 0;
+    els.stacks.setAttribute("data-cols", Math.min(State.layout.cols, Math.max(1, visibleStacks.length)));
+    if (els.cols) els.cols.hidden = visibleStacks.length === 0;
+    syncTabs();
 
     State.layout.stacks.forEach(function (stack, index) {
+      if (visibleStacks.indexOf(index) < 0) return;
       var column = h("div", { class: "stack", "data-stack": index });
       column.appendChild(stackLabel(index, hero ? 2 : 1));
       stack.forEach(function (item) {
@@ -796,6 +820,13 @@
     var reports = (State.data.reports || []).filter(function (r) { return r && r.task; });
     if (reports.length < 2) { host.hidden = true; return; }
     host.hidden = false;
+    var ids = reports.map(function (r) { return r.task.id; });
+    var at = ids.indexOf(State.task);
+    host.appendChild(h("button", {
+      class: "tstrip-nav", type: "button", text: "‹", title: "previous task  [",
+      "aria-label": "previous task", disabled: at <= 0 ? "disabled" : null,
+      onclick: function () { if (at > 0) selectTask(ids[at - 1]); },
+    }));
     reports.forEach(function (report) {
       var id = report.task.id;
       var oa = (report.a && report.a.outcome) || {}, ob = (report.b && report.b.outcome) || {};
@@ -818,16 +849,61 @@
       ]);
       host.appendChild(chip);
     });
+    host.appendChild(h("button", {
+      class: "tstrip-nav", type: "button", text: "›", title: "next task  ]",
+      "aria-label": "next task", disabled: at >= ids.length - 1 ? "disabled" : null,
+      onclick: function () { if (at < ids.length - 1) selectTask(ids[at + 1]); },
+    }));
+    host.appendChild(h("span", { class: "tstrip-hint", text: "[ ] switch task", "aria-hidden": "true" }));
+    var current = host.querySelector('[aria-current="true"]');
+    if (current && current.scrollIntoView) {
+      try { current.scrollIntoView({ block: "nearest", inline: "nearest" }); } catch (err) { /* fine */ }
+    }
+  }
+
+  function stepTask(delta) {
+    var ids = (State.data.reports || []).filter(function (r) { return r && r.task; })
+      .map(function (r) { return r.task.id; });
+    var at = ids.indexOf(State.task);
+    var next = ids[at + delta];
+    if (next) selectTask(next);
   }
 
   /* The story lane: Story mode's ordered sequence after the hero. Each
    * block keeps its ordinary controls (collapse, star, remove) and its
    * collapse state persists in the layout under `story`. */
+  function syncTabs() {
+    if (!els.tabs) return;
+    var tabs = els.tabs.querySelectorAll("[role=tab]");
+    for (var i = 0; i < tabs.length; i++) {
+      var on = tabs[i].getAttribute("data-view") === State.prefs.view;
+      tabs[i].setAttribute("aria-selected", on ? "true" : "false");
+      tabs[i].tabIndex = on ? 0 : -1;
+    }
+  }
+
+  function setView(view) {
+    if (VIEWS.indexOf(view) < 0 || view === State.prefs.view) return;
+    var wasStory = State.prefs.view === "story";
+    State.prefs.view = view;
+    savePrefs();
+    if (view === "story" && !wasStory) {
+      STORY_BLOCKS.forEach(function (id) { if (BY_ID[id]) removeFromLayoutKeepHidden(id); });
+    } else if (view !== "story" && wasStory) {
+      STORY_BLOCKS.forEach(function (id) {
+        if (BY_ID[id] && State.layout.hidden.indexOf(id) < 0) placeBack({ id: id, collapsed: false });
+      });
+    }
+    saveLayout();
+    renderAll();
+    try { window.scrollTo({ top: 0, behavior: "instant" }); } catch (err) { /* fine */ }
+  }
+
   function renderStory(ctx, hero) {
     var host = els.story;
     if (!host) return;
     host.innerHTML = "";
-    if (!State.prefs.story) { host.hidden = true; return; }
+    if (State.prefs.view !== "story") { host.hidden = true; return; }
     if (!Array.isArray(State.layout.story)) {
       State.layout.story = STORY_BLOCKS.map(function (id) { return { id: id, collapsed: false }; });
     }
@@ -842,25 +918,6 @@
       shown++;
     });
     host.hidden = shown === 0;
-  }
-
-  function toggleStory() {
-    State.prefs.story = !State.prefs.story;
-    savePrefs();
-    if (State.prefs.story) {
-      STORY_BLOCKS.forEach(function (id) { if (BY_ID[id]) removeFromLayoutKeepHidden(id); });
-    } else {
-      STORY_BLOCKS.forEach(function (id) {
-        if (BY_ID[id] && State.layout.hidden.indexOf(id) < 0) placeBack({ id: id, collapsed: false });
-      });
-    }
-    saveLayout();
-    if (els.storyBtn) {
-      els.storyBtn.setAttribute("aria-pressed", State.prefs.story ? "true" : "false");
-      els.storyBtn.textContent = State.prefs.story ? "Story" : "Dashboard";
-    }
-    renderAll();
-    toast(State.prefs.story ? "Story: the page reads top to bottom" : "Dashboard: every block in its column");
   }
 
   function removeFromLayoutKeepHidden(id) {
@@ -953,7 +1010,8 @@
   function renderReading(hero) {
     var host = els.reading;
     host.innerHTML = "";
-    if (!State.prefs.reading) { host.hidden = true; return; }
+    // the story lane IS the reading order; the strip guides the columns
+    if (!State.prefs.reading || State.prefs.view === "story") { host.hidden = true; return; }
     host.hidden = false;
     host.appendChild(h("span", { class: "lead", text: "Read in this order" }));
     if (hero) {
@@ -966,9 +1024,11 @@
     // what it answers under its own heading, and repeating it here turns a
     // one-line orientation strip into three lines of prose.
     var base = hero ? 2 : 1;
-    STACK_PLAN.forEach(function (plan, index) {
-      host.appendChild(readingChip(index + base, plan.label, null, false, function () {
-        scrollTo_(els.stacks.children[index]);
+    var visible = stacksForView(State.prefs.view);
+    visible.forEach(function (index, position) {
+      var plan = STACK_PLAN[index];
+      host.appendChild(readingChip(position + base, plan.label, null, false, function () {
+        scrollTo_(els.stacks.children[position]);
       }));
     });
     host.appendChild(h("button", {
@@ -1940,6 +2000,14 @@
     State.data = global.DEEPCOMPARE_DATA || { reports: [], aggregate: {} };
 
     State.prefs = Object.assign(defaultPrefs(), Store.get(key("prefs")) || {});
+    if (State.prefs.story === false && !(Store.get(key("prefs")) || {}).view) State.prefs.view = "evidence";
+    if (VIEWS.indexOf(State.prefs.view) < 0) State.prefs.view = "story";
+    // a view named in the URL (report.html#view=evidence) wins for this
+    // load — a link can open the page on its evidence or its batch
+    try {
+      var m = /(?:^|[#&])view=(story|evidence|batch)\b/.exec(global.location.hash || "");
+      if (m) State.prefs.view = m[1];
+    } catch (err) { /* no location: keep the preference */ }
     State.signals = Store.get(key("signals")) || {};
     if (typeof State.signals !== "object" || State.signals === null) State.signals = {};
 
@@ -1953,7 +2021,7 @@
       title: document.getElementById("page-title"),
       strip: document.getElementById("task-strip"),
       story: document.getElementById("story-lane"),
-      storyBtn: document.getElementById("btn-story"),
+      tabs: document.getElementById("view-tabs"),
       reading: document.getElementById("reading"),
       picker: document.getElementById("task-picker"),
       drawer: document.getElementById("drawer"),
@@ -1970,10 +2038,21 @@
     global.addEventListener("resize", measureTopbar);
     State.layout = reconcile(Store.get(key("layout")), makeCtx());
 
-    if (els.storyBtn) {
-      els.storyBtn.setAttribute("aria-pressed", State.prefs.story ? "true" : "false");
-      els.storyBtn.textContent = State.prefs.story ? "Story" : "Dashboard";
-      els.storyBtn.addEventListener("click", toggleStory);
+    if (els.tabs) {
+      var tabButtons = els.tabs.querySelectorAll("[role=tab]");
+      for (var t = 0; t < tabButtons.length; t++) {
+        tabButtons[t].addEventListener("click", function (event) {
+          setView(event.currentTarget.getAttribute("data-view"));
+        });
+      }
+      els.tabs.addEventListener("keydown", function (event) {
+        if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+        var i = VIEWS.indexOf(State.prefs.view);
+        var next = VIEWS[(i + (event.key === "ArrowRight" ? 1 : VIEWS.length - 1)) % VIEWS.length];
+        setView(next);
+        var active = els.tabs.querySelector('[data-view="' + next + '"]');
+        if (active) active.focus();
+      });
     }
 
     // Task picker
@@ -2016,6 +2095,14 @@
     var closers = document.querySelectorAll("[data-close]");
     for (var i = 0; i < closers.length; i++) closers[i].addEventListener("click", closePanels);
     document.addEventListener("keydown", function (event) {
+      // [ and ] walk the batch, unless the reader is typing somewhere
+      var tag = event.target && event.target.tagName;
+      var typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" ||
+                   (event.target && event.target.isContentEditable);
+      if (!typing && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        if (event.key === "[") { event.preventDefault(); stepTask(-1); return; }
+        if (event.key === "]") { event.preventDefault(); stepTask(1); return; }
+      }
       // Escape closes the innermost thing first: an open tooltip, then the
       // panels — one keypress should never dismiss both at once.
       if (event.key === "Escape") {

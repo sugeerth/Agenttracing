@@ -108,6 +108,18 @@ button { font: inherit; color: inherit; }
 .btn.ghost { border-color: transparent; background: transparent; color: var(--ink-2); }
 .btn.ghost:hover { background: var(--surface-2); color: var(--ink); }
 
+.seg { display: inline-flex; border: 1px solid var(--rule-2); border-radius: 8px; overflow: hidden;
+  background: var(--surface); }
+.seg .tab { border: 0; background: transparent; color: var(--ink-2); font: 600 12.5px/26px inherit;
+  padding: 0 12px; cursor: pointer; position: relative; }
+.seg .tab + .tab { border-left: 1px solid var(--rule); }
+.seg .tab[aria-selected="true"] { color: var(--ink); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); box-shadow: inset 0 -2px 0 var(--accent); }
+.seg .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tstrip-nav { flex: 0 0 auto; border: 1px solid var(--rule); background: var(--surface); color: var(--ink-2);
+  border-radius: 999px; width: 28px; height: 28px; font: 600 14px/26px inherit; cursor: pointer; }
+.tstrip-nav:hover { border-color: var(--accent); color: var(--ink); }
+.tstrip-nav:disabled { opacity: .35; cursor: default; }
+.tstrip-hint { flex: 0 0 auto; align-self: center; font: 11.5px/1 var(--mono); color: var(--ink-3); padding-left: 4px; }
 select.picker {
   border: 1px solid var(--rule-2); background: var(--surface); color: var(--ink);
   border-radius: 7px; padding: 5px 8px; font-size: 12.5px; max-width: 260px;
@@ -118,6 +130,7 @@ select.picker {
   display: grid; gap: 14px; padding: 16px 18px 80px;
   align-items: start;
 }
+.stacks[hidden] { display: none; }
 .stacks[data-cols="1"] { grid-template-columns: minmax(0,1fr); }
 .stacks[data-cols="2"] { grid-template-columns: repeat(2, minmax(0,1fr)); }
 .stacks[data-cols="3"] { grid-template-columns: repeat(3, minmax(0,1fr)); }
@@ -442,7 +455,11 @@ label.check input { margin-top: 2px; }
   <div class="brand"><strong>AgentDiff</strong><span>blocks</span></div>
   <select class="picker" id="task-picker" aria-label="Task"></select>
   <div class="spacer"></div>
-  <button class="btn ghost" id="btn-story" title="Story: the page as a narrative; Dashboard: every block in columns" aria-pressed="true">Story</button>
+  <div class="seg" id="view-tabs" role="tablist" aria-label="View">
+    <button class="tab" role="tab" data-view="story" aria-selected="true" title="The story: verdict, map, reading, what to do">Story</button>
+    <button class="tab" role="tab" data-view="evidence" aria-selected="false" title="Every block behind the verdict: hypotheses, alignment, process checks">Evidence</button>
+    <button class="tab" role="tab" data-view="batch" aria-selected="false" title="Across all tasks: cost, issues, recommendations, variance">Batch</button>
+  </div>
   <button class="btn ghost" id="btn-cols" title="Columns">▥ 3</button>
   <button class="btn ghost" id="btn-theme" title="Theme">◐</button>
   <button class="btn" id="btn-drawer">Blocks</button>
