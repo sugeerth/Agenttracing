@@ -36,6 +36,16 @@ not a card in the layout. The verdict card (`04_verdict.js`) is one; use
 it only for something every reader must see before anything else, and
 keep it quoting the report verbatim.
 
+### The trajectory map's contract
+
+`20_trajectory.js` draws every visible step as `g.tj-hit[data-side][data-i]`
+— a focusable button — with `text.tjm-name` (never truncated), an excerpt,
+tokens, and gutter labels on every edge. Verbatim loops collapse to one
+node with `text.tjm-loop`; phase bands are `rect.tjm-phase`. Selecting a
+node calls the family's `select(row, side)`; the `agentdiff:select-step`
+event does the same from outside. Keep these selectors when changing the
+map — the browser tests measure the drawn SVG against the report.
+
 ### Charts and assistive technology
 
 After every render the core gives each root `<svg>` a block drew

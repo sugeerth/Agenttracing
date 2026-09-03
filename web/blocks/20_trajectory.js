@@ -1567,6 +1567,22 @@
     });
     host.appendChild(cols);
 
+    // the word-level diff: when both runs have text at this row, what one
+    // said that the other did not — deterministic, computed here, capped
+    var stepA = stepAt(report, "a", row.a_index), stepB = stepAt(report, "b", row.b_index);
+    if (stepA && stepB) {
+      var diffBox = H("div", { class: "tj-diff" });
+      var any = false;
+      [["input", stepA.input, stepB.input], ["output", stepA.output, stepB.output]].forEach(function (f) {
+        var ta = String(f[1] || "").trim(), tb = String(f[2] || "").trim();
+        if (!ta || !tb || ta === tb) return;
+        any = true;
+        diffBox.appendChild(H("div", { class: "tj-lbl", text: "word diff · " + f[0] + " · A → B (deleted = only A said it, inserted = only B)" }));
+        diffBox.appendChild(wordDiffNode(ta, tb));
+      });
+      if (any) host.appendChild(diffBox);
+    }
+
     if (divs[sel.row] && divs[sel.row].div.summary) {
       host.appendChild(H("div", { class: "tj-note", text: divs[sel.row].div.summary }));
     }
@@ -1583,6 +1599,52 @@
         : "Nothing selected yet, so this is " + (sel.why || "the first row") +
           ". Click any step in Tracks to change it.",
     }));
+  }
+
+  var DIFF_CAP = 400;   // words per side; beyond it the diff says so
+
+  /* Word-level diff by longest common subsequence over whitespace tokens.
+   * Deterministic, dependency-free; the same two texts always give the
+   * same marks. Returns a node with <del> (only A) and <ins> (only B). */
+  function wordDiffNode(a, b) {
+    var wa = a.split(/\s+/), wb = b.split(/\s+/);
+    var body = H("div", { class: "tj-diff-body" });
+    if (wa.length > DIFF_CAP || wb.length > DIFF_CAP) {
+      body.appendChild(H("i", { text: "texts longer than " + DIFF_CAP + " words — open Step detail's panes above to read them" }));
+      return body;
+    }
+    var n = wa.length, m = wb.length, i, j;
+    var L = [];
+    for (i = 0; i <= n; i++) { L.push(new Array(m + 1).fill(0)); }
+    for (i = n - 1; i >= 0; i--) {
+      for (j = m - 1; j >= 0; j--) {
+        L[i][j] = wa[i] === wb[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+      }
+    }
+    i = 0; j = 0;
+    var run = null;
+    function flush() { if (run) { body.appendChild(run.el); run = null; } }
+    function push(kind, word) {
+      if (!run || run.kind !== kind) {
+        flush();
+        run = { kind: kind, el: kind === "eq" ? H("span") : H(kind) };
+        run.el.textContent = "";
+      }
+      run.el.textContent += (run.el.textContent ? " " : "") + word;
+    }
+    while (i < n && j < m) {
+      if (wa[i] === wb[j]) { push("eq", wa[i]); i++; j++; }
+      else if (L[i + 1][j] >= L[i][j + 1]) { push("del", wa[i]); i++; }
+      else { push("ins", wb[j]); j++; }
+    }
+    while (i < n) { push("del", wa[i++]); }
+    while (j < m) { push("ins", wb[j++]); }
+    flush();
+    // spaces between runs, so the marks read as prose
+    var kids = Array.prototype.slice.call(body.childNodes);
+    body.innerHTML = "";
+    kids.forEach(function (k, idx) { if (idx) body.appendChild(document.createTextNode(" ")); body.appendChild(k); });
+    return body;
   }
 
   function navButton(text, enabled, onclick) {
@@ -1994,6 +2056,16 @@
       ".tjm-foot .k{display:inline-flex;align-items:center;gap:4px}",
       ".tjm-note{margin-top:6px;font-size:11px;color:var(--ink-2);",
       "border-left:2px solid var(--warn);padding-left:7px}",
+      "svg.tj g.tj-hit{cursor:pointer;outline:none}",
+      "svg.tj g.tj-hit:focus-visible .tjm-focus{opacity:1}",
+      ".tj-diff{margin-top:8px;border-top:1px solid var(--rule);padding-top:6px}",
+      ".tj-diff .tj-lbl{margin-top:4px}",
+      ".tj-diff-body{font:12px/1.55 var(--mono);white-space:pre-wrap;word-break:break-word;",
+      "color:var(--ink-2)}",
+      ".tj-diff-body ins{background:color-mix(in srgb,var(--good) 22%,transparent);",
+      "text-decoration:none;color:var(--ink)}",
+      ".tj-diff-body del{background:color-mix(in srgb,var(--bad) 20%,transparent);",
+      "color:var(--ink);text-decoration:line-through}",
     ].join("");
     var tag = document.createElement("style");
     tag.textContent = css;
@@ -2109,6 +2181,41 @@
     },
   });
 
+  // ------------------------------------------------------------ loop groups
+  //
+  // A run that retries the same call verbatim draws as one node with a ×N
+  // badge, expandable, so a forty-step loop reads as one decision and a
+  // count rather than forty identical rows. Only IDENTICAL consecutive
+  // steps (type, name and input) collapse, and only from three up — two
+  // repeats are still two decisions worth seeing.
+  var MapLoops = { open: {} };
+  // keyboard focus survives a redraw: the node a key press selected is
+  // rebuilt by the render, so the map re-focuses it by (side, position)
+  var MapFocus = { side: null, i: null, restore: false };
+
+  function loopGroups(steps) {
+    var groups = [], i = 0;
+    while (i < steps.length) {
+      var j = i + 1;
+      while (j < steps.length && steps[j] && steps[i] &&
+             steps[j].type === steps[i].type && steps[j].name === steps[i].name &&
+             String(steps[j].input || "") === String(steps[i].input || "")) j++;
+      groups.push({ from: i, to: j - 1, n: j - i });
+      i = j;
+    }
+    return groups;
+  }
+
+  var OBSERVATION_TYPES = { tool_call: 1, search: 1, retrieve: 1, read: 1 };
+
+  function excerptOf(step) {
+    var text = OBSERVATION_TYPES[step.type] ? (step.output || step.input) : (step.input || step.output);
+    text = String(text || "").replace(/\s+/g, " ").trim();
+    return text;
+  }
+
+  var PHASE_TINTS = ["axis", "warn", "good", "a", "b", "muted"];
+
   function drawMap(host, avail, ctx) {
     bind(ctx);
     var report = ctx.report;
@@ -2121,27 +2228,67 @@
     var claims = claimEdges(report);
     var divs = divergenceMap(report);
 
-    var rowH = 26, padTop = 14, padBot = 12;
-    var n = Math.max(stepsA.length, stepsB.length, 1);
+    // ---- geometry: two lanes of bounded width, adjacent, centred. The
+    // gutter is where the runs talk to each other, so it is sized for
+    // labels (200–260px) whenever the card allows, and the lanes take the
+    // room that is left up to ~420px each; a narrow column shrinks the
+    // gutter first and drops the excerpt line before it ever touches a name.
+    var W = Math.max(280, avail - 4);
+    var gutter = W >= 960 ? 240 : W >= 720 ? 200 : Math.max(84, Math.min(200, Math.round(W * 0.28)));
+    var laneW = Math.min(420, Math.floor((W - gutter) / 2));
+    var cx = W / 2;
+    var laneA = Math.round(cx - gutter / 2), laneB = Math.round(cx + gutter / 2);
+    var wide = laneW >= 200;
+    var rowH = wide ? 40 : 26, padTop = wide ? 22 : 14, padBot = 12;
+    var CHAR = 6.9;                                   // ≈ px per mono char at 11.5px
+    var tokensW = wide ? 44 : 0;
+    var textW = laneW - 14 - tokensW - 10;            // room for the name / excerpt
+
+    // which steps are drawn: loop groups collapse to their first step
+    function visibleRows(side, steps) {
+      var out = [], groups = loopGroups(steps);
+      groups.forEach(function (g) {
+        var key = side + ":" + steps[g.from].index;
+        if (g.n >= 3 && !MapLoops.open[key]) {
+          out.push({ step: steps[g.from], group: g, key: key, collapsed: true });
+        } else {
+          for (var k = g.from; k <= g.to; k++) {
+            out.push({ step: steps[k], group: g.n >= 3 ? g : null, key: key, collapsed: false, first: k === g.from });
+          }
+        }
+      });
+      return out;
+    }
+    var visA = visibleRows("a", stepsA), visB = visibleRows("b", stepsB);
+    var n = Math.max(visA.length, visB.length, 1);
     var height = padTop + n * rowH + padBot;
-    // The map lives wherever the layout puts it — a ~340px column as
-    // readily as the full-width hero lane — so the width is the width:
-    // forcing a floor here clipped the whole B lane off the right edge
-    // of a column. Lanes sit symmetrically, labels get whatever room the
-    // lane leaves, and the name truncation below absorbs the squeeze.
-    var W = Math.max(280, avail - 4);   // the wrap's own border + rounding
-    var laneA = Math.round(W * 0.27), laneB = W - laneA;
-    var labelW = laneA - 26;
 
     function yAt(i) { return padTop + i * rowH + rowH / 2; }
+    // a hidden (collapsed) step lands on its group's node, so edges and
+    // claims that touch it still have somewhere honest to go
     function nodeXY(side, index) {
-      var steps = side === "a" ? stepsA : stepsB;
-      for (var i = 0; i < steps.length; i++) {
-        if (steps[i] && steps[i].index === index) {
-          return { x: side === "a" ? laneA : laneB, y: yAt(i) };
+      var vis = side === "a" ? visA : visB, steps = side === "a" ? stepsA : stepsB;
+      for (var i = 0; i < vis.length; i++) {
+        var v = vis[i];
+        if (v.step && v.step.index === index) return { x: side === "a" ? laneA : laneB, y: yAt(i) };
+        if (v.collapsed) {
+          for (var k = v.group.from; k <= v.group.to; k++) {
+            if (steps[k] && steps[k].index === index) return { x: side === "a" ? laneA : laneB, y: yAt(i) };
+          }
         }
       }
       return null;
+    }
+    function hiddenStep(side, index) {
+      var vis = side === "a" ? visA : visB, steps = side === "a" ? stepsA : stepsB;
+      for (var i = 0; i < vis.length; i++) {
+        var v = vis[i];
+        if (!v.collapsed) continue;
+        for (var k = v.group.from + 1; k <= v.group.to; k++) {
+          if (steps[k] && steps[k].index === index) return true;
+        }
+      }
+      return false;
     }
 
     var svgEl = S("svg", {
@@ -2149,15 +2296,58 @@
       viewBox: "0 0 " + W + " " + height, role: "img",
       "aria-label": "Trajectory map: each run's steps in order, with alignment and claim edges between them",
     });
+    var surface = cssVar("--surface", "#fff");
+
+    // ---- phase bands: the reading's phases as a thin band at each lane's
+    // outer edge, so the shape of the work is visible before any step is read
+    [["a", visA], ["b", visB]].forEach(function (lane) {
+      var side = lane[0], vis = lane[1];
+      var reading = report.reading && report.reading[side];
+      var phases = reading && Array.isArray(reading.phases) ? reading.phases : [];
+      if (!phases.length || !vis.length) return;
+      var bandX = side === "a" ? laneA - laneW + 2 : laneB + laneW - 6;
+      phases.forEach(function (ph, pi) {
+        var ys = [];
+        (ph.steps || []).forEach(function (st) {
+          var p = nodeXY(side, st);
+          if (p) ys.push(p.y);
+        });
+        if (!ys.length) return;
+        var y0 = Math.min.apply(null, ys) - rowH / 2 + 3, y1 = Math.max.apply(null, ys) + rowH / 2 - 3;
+        var tint = C[PHASE_TINTS[pi % PHASE_TINTS.length]] || C.muted;
+        var band = S("rect", { x: bandX, y: y0, width: 4, height: Math.max(4, y1 - y0), rx: 2,
+                               fill: tint, opacity: 0.55, class: "tjm-phase", "data-intent": ph.intent || "" });
+        band.appendChild(S("title", { text: (ph.intent || "phase") + " — " + (ph.summary || "") }));
+        svgEl.appendChild(band);
+        if (wide) {
+          svgEl.appendChild(S("text", {
+            x: side === "a" ? bandX + 8 : bandX - 4, y: y0 + 9,
+            "text-anchor": side === "a" ? "start" : "end",
+            "font-family": "var(--mono)", "font-size": 10, fill: tint, opacity: 0.95,
+            class: "tjm-phase-label", text: ph.intent || "phase",
+          }));
+        }
+      });
+    });
 
     // lane spines first, so everything else draws over them
-    [["a", laneA, stepsA], ["b", laneB, stepsB]].forEach(function (lane) {
+    [["a", laneA, visA], ["b", laneB, visB]].forEach(function (lane) {
       if (!lane[2].length) return;
       svgEl.appendChild(S("line", {
         x1: lane[1], y1: yAt(0), x2: lane[1], y2: yAt(lane[2].length - 1),
         stroke: C.grid, "stroke-width": 1.4,
       }));
     });
+
+    function edgeLabel(x, y, text, fill, cls) {
+      var t = S("text", {
+        x: x, y: y, "text-anchor": "middle", "font-family": "var(--mono)",
+        "font-size": 10, fill: fill, class: cls || "tjm-edge-label",
+        stroke: surface, "stroke-width": 3, "paint-order": "stroke", "stroke-linejoin": "round",
+        text: text,
+      });
+      return t;
+    }
 
     // claim edges: the same fact surfacing in both runs. Drawn beneath the
     // alignment edges — they are context, not structure. Each edge is
@@ -2203,18 +2393,27 @@
       }));
       hit.addEventListener("click", function () { pickClaim(k); });
       svgEl.appendChild(hit);
+      if (gutter >= 120) {
+        var value = String(edge.value || "claim");
+        var maxC = Math.max(6, Math.floor((gutter - 40) / 6.2) - 8);
+        if (value.length > maxC) value = value.slice(0, maxC - 1) + "…";
+        svgEl.appendChild(edgeLabel(midX, (pa.y + pb.y) / 2 + (pa.y === pb.y ? 14 : 4),
+                                    "claim " + value + (edge.wrong ? " ✗" : " ✓"),
+                                    stroke, "tjm-edge-label tjm-claim-label"));
+      }
     });
 
-    // alignment edges: one per row that has both sides. A one-sided row
-    // keeps its honest gap across the gutter — no phantom edge — but the
-    // step itself must be SEEN as unpaired: a short stub from the node
-    // into the gutter, ending open, says "only this run took this step"
-    // at a glance instead of asking the reader to notice a missing line.
+    // alignment edges: one per row that has both sides, labelled in the
+    // gutter with what the aligner found. A one-sided row keeps its honest
+    // gap across the gutter — no phantom edge — but the step itself must be
+    // SEEN as unpaired: a short stub from the node into the gutter, ending
+    // open, says "only this run took this step" at a glance.
     rows.forEach(function (row, i) {
       var aMissing = row.a_index === null || row.a_index === undefined;
       var bMissing = row.b_index === null || row.b_index === undefined;
       if (aMissing !== bMissing) {
         var side = aMissing ? "b" : "a";
+        if (hiddenStep(side, row[side + "_index"])) return;
         var p = nodeXY(side, row[side + "_index"]);
         if (!p) return;
         var dir = side === "a" ? 1 : -1;
@@ -2237,6 +2436,7 @@
         return;
       }
       if (aMissing || bMissing) return;
+      if (hiddenStep("a", row.a_index) || hiddenStep("b", row.b_index)) return;
       var pa = nodeXY("a", row.a_index), pb = nodeXY("b", row.b_index);
       if (!pa || !pb) return;
       var divergent = !!divs[i];
@@ -2252,12 +2452,21 @@
               (divergent ? " · divergence" : ""),
       }));
       svgEl.appendChild(line);
+      if (gutter >= 120) {
+        var word = row.op === "match" ? "match"
+                 : (divergent ? "diverge " : "drift ") + F.num(row.similarity, 2);
+        svgEl.appendChild(edgeLabel((pa.x + pb.x) / 2, (pa.y + pb.y) / 2 - 5, word, stroke));
+      }
     });
 
-    // step nodes: every individual step, in run order
-    [["a", laneA, stepsA], ["b", laneB, stepsB]].forEach(function (lane) {
-      var side = lane[0], x = lane[1], steps = lane[2];
-      steps.forEach(function (step, i) {
+    // ---- step nodes: every visible step, in run order. Each node carries
+    // its content — glyph, index, full name, a one-line excerpt of what it
+    // did, its tokens — and is a focusable button for the keyboard.
+    var nodeEls = { a: [], b: [] };
+    [["a", laneA, visA, stepsA], ["b", laneB, visB, stepsB]].forEach(function (lane) {
+      var side = lane[0], x = lane[1], vis = lane[2];
+      vis.forEach(function (v, i) {
+        var step = v.step;
         if (!step) return;
         var y = yAt(i);
         var rowIdx = mapRowFor(report, side, step.index);
@@ -2265,8 +2474,15 @@
         var isDecisive = dec && dec.side === side && dec.step === step.index;
         var isRoot = root && root.side === side && root.index === step.index;
         var picked = sel.row === rowIdx && rowIdx >= 0;
+        var name = String(step.name || step.type || "step");
+        var label = side.toUpperCase() + " step " + step.index + " · " + name +
+                    (v.collapsed ? " · ×" + v.group.n + " identical steps collapsed" : "") +
+                    (step.error ? " · error" : "") +
+                    (isDecisive ? " · decisive step" : isRoot ? " · attributed root" : "");
 
-        var g = S("g", { class: "tj-hit" });
+        var g = S("g", { class: "tj-hit", tabindex: "0", role: "button",
+                         "aria-label": label, "data-side": side, "data-i": i,
+                         "data-index": step.index });
         if (onAccount) {
           g.appendChild(S("circle", { cx: x, cy: y, r: 10.5, fill: C.warn, opacity: 0.16 }));
         }
@@ -2288,6 +2504,8 @@
             stroke: cssAccent(), "stroke-width": 1.4, opacity: 0.9,
           }));
         }
+        g.appendChild(S("circle", { cx: x, cy: y, r: 13, fill: "none", stroke: cssAccent(),
+                                    "stroke-width": 1.6, class: "tjm-focus", opacity: 0 }));
         var glyph = glyphNode(step.type, x, y, 5.5);
         glyph.setAttribute("fill", side === "a" ? C.a : C.b);
         if (step.error) {
@@ -2298,29 +2516,85 @@
 
         var textX = side === "a" ? x - 14 : x + 14;
         var anchor = side === "a" ? "end" : "start";
-        var name = String(step.name || step.type || "step");
-        // budget the whole label ("12 · name ⚠") against the lane's real
-        // room, not just the name — the index prefix costs characters too
-        var prefixChars = String(step.index).length + 3;
-        var maxChars = Math.max(6, Math.floor(labelW / 6.4) - prefixChars);
-        if (name.length > maxChars) name = name.slice(0, maxChars - 1) + "…";
-        g.appendChild(S("text", {
-          x: textX, y: y + 3, "text-anchor": anchor,
-          "font-family": "var(--mono)", "font-size": 11.5,
-          fill: picked ? C.ink : C.muted,
-          text: step.index + " · " + name + (step.error ? " ⚠" : ""),
-        }));
+        var prefix = step.index + " · ";
+        var nameText = prefix + name + (step.error ? " ⚠" : "");
+        var nameAttrs = {
+          x: textX, y: wide ? y - 3 : y + 3, "text-anchor": anchor,
+          "font-family": "var(--mono)", "font-size": 11.5, class: "tjm-name",
+          fill: picked ? C.ink : (wide ? C.ink : C.muted), text: nameText,
+        };
+        // the name is never cut: when it outgrows the lane it is squeezed
+        // (glyph spacing), which stays readable far longer than an ellipsis
+        var nameW = nameText.length * CHAR;
+        if (nameW > textW) { nameAttrs.textLength = Math.max(40, textW); nameAttrs.lengthAdjust = "spacingAndGlyphs"; }
+        g.appendChild(S("text", nameAttrs));
+        if (v.collapsed || (v.group && v.first)) {
+          var badge = S("text", {
+            x: side === "a" ? x - 14 - Math.min(nameW, textW) - 6 : x + 14 + Math.min(nameW, textW) + 6,
+            y: wide ? y - 3 : y + 3, "text-anchor": anchor,
+            "font-family": "var(--mono)", "font-size": 10.5, "font-weight": "700",
+            fill: C.warn, class: "tjm-loop", text: v.collapsed ? "×" + v.group.n : "▾ ×" + v.group.n,
+            style: "cursor:pointer",
+          });
+          badge.appendChild(S("title", { text: v.collapsed
+            ? v.group.n + " identical consecutive steps — click to expand"
+            : "click to collapse these " + v.group.n + " identical steps" }));
+          badge.addEventListener("click", function (event) {
+            event.stopPropagation();
+            MapLoops.open[v.key] = !MapLoops.open[v.key];
+            notify();
+          });
+          g.appendChild(badge);
+        }
+        if (wide) {
+          var ex = excerptOf(step);
+          var maxE = Math.max(8, Math.floor(textW / 6.0));
+          if (ex.length > maxE) ex = ex.slice(0, maxE - 1) + "…";
+          if (ex) g.appendChild(S("text", {
+            x: textX, y: y + 10, "text-anchor": anchor, class: "tjm-excerpt",
+            "font-family": "var(--mono)", "font-size": 10.5, fill: C.muted, text: ex,
+          }));
+          if (step.tokens !== null && step.tokens !== undefined) {
+            g.appendChild(S("text", {
+              x: side === "a" ? x - laneW + 10 : x + laneW - 10, y: y + 3,
+              "text-anchor": side === "a" ? "start" : "end", class: "tjm-tokens",
+              "font-family": "var(--mono)", "font-size": 10, fill: C.muted,
+              text: F.int(step.tokens) + "t",
+            }));
+          }
+        }
+        var full = "input: " + String(step.input || "—") + "\noutput: " + String(step.output || "—");
         g.appendChild(S("title", {
-          text: side.toUpperCase() + " step " + step.index + " · " + (step.type || "") +
-                " " + (step.name || "") +
-                (step.error ? " · ERROR" : "") +
-                (isDecisive ? " · decisive step" : isRoot ? " · attributed root" : "") +
-                (onAccount ? " · on the causal account" : ""),
+          text: label + (step.tokens !== null && step.tokens !== undefined ? " · " + step.tokens + " tokens" : "") +
+                (onAccount ? " · on the causal account" : "") + "\n" + full.slice(0, 600),
         }));
-        g.addEventListener("click", function () {
-          if (rowIdx >= 0) select(rowIdx, side, ctx);
+        function pick() { if (rowIdx >= 0) select(rowIdx, side, ctx); }
+        g.addEventListener("click", pick);
+        g.addEventListener("focus", function () { MapFocus.side = side; MapFocus.i = i; });
+        g.addEventListener("keydown", function (event) {
+          var key = event.key;
+          if (key === "Enter" || key === " ") {
+            event.preventDefault();
+            MapFocus.side = side; MapFocus.i = i; MapFocus.restore = true;
+            pick();
+            return;
+          }
+          var live = g.closest ? g.closest("svg.tj") : null;
+          function focusNode(s, k) {
+            var target = live && live.querySelector('g.tj-hit[data-side="' + s + '"][data-i="' + k + '"]');
+            if (target) target.focus();
+          }
+          if (key === "ArrowDown" || key === "ArrowUp") {
+            event.preventDefault();
+            focusNode(side, i + (key === "ArrowDown" ? 1 : -1));
+          } else if (key === "ArrowRight" || key === "ArrowLeft") {
+            event.preventDefault();
+            var otherCount = (side === "a" ? visB : visA).length;
+            focusNode(side === "a" ? "b" : "a", Math.min(i, otherCount - 1));
+          }
         });
         svgEl.appendChild(g);
+        nodeEls[side][i] = g;
       });
     });
 
@@ -2342,22 +2616,27 @@
     var wrap = H("div", { class: "tjm-wrap" });
     wrap.appendChild(svgEl);
     host.appendChild(wrap);
+    if (MapFocus.restore && MapFocus.side && nodeEls[MapFocus.side][MapFocus.i]) {
+      MapFocus.restore = false;
+      var back = nodeEls[MapFocus.side][MapFocus.i];
+      try { back.focus({ preventScroll: true }); } catch (err) { try { back.focus(); } catch (e2) { /* fine */ } }
+    }
 
     // the claim readout: what a selected claim edge says, in text that
     // stays on the page — the tooltip is a convenience, not the record.
     // It wraps: a readout that ellipsizes the claim value would be the
     // tooltip problem all over again.
-    var readout = H("div", { class: "tj-read",
+    var readout = H("div", { class: "tj-read", "aria-live": "polite",
                              style: { whiteSpace: "normal" } });
     if (MapClaim.index !== null && claims[MapClaim.index]) {
-      var picked = claims[MapClaim.index];
+      var pickedClaim = claims[MapClaim.index];
       readout.appendChild(H("span", {
-        text: (picked.wrong
+        text: (pickedClaim.wrong
                ? "wrong-valued claim (contradicts the expected answer)"
                : "shared claim") +
-              (picked.value ? " “" + picked.value + "”" : "") +
-              " — A step " + picked.a + " ↔ B step " + picked.b,
-        style: { color: picked.wrong ? "var(--bad)" : "var(--ink-2)" },
+              (pickedClaim.value ? " “" + pickedClaim.value + "”" : "") +
+              " — A step " + pickedClaim.a + " ↔ B step " + pickedClaim.b,
+        style: { color: pickedClaim.wrong ? "var(--bad)" : "var(--ink-2)" },
       }));
     } else if (claims.length) {
       readout.appendChild(H("i", {
@@ -2382,14 +2661,17 @@
 
     var foot = H("div", { class: "tjm-foot" }, [
       legendKey("solid line", "matched step"),
-      legendKey("dashed line", "drifted / divergent"),
+      legendKey("dashed line", "drifted / divergent — the label is the aligner's score"),
       legendKey("dotted curve", "same claim in both runs (red = wrong-valued)"),
       legendKey("open stub", "step only this run took — nothing to pair with"),
+      legendKey("×N", "identical consecutive steps, collapsed — click to expand"),
+      legendKey("outer band", "phase of work from the reading"),
       dec ? legendKey(dec.verification === "replay-verified" ? "solid red ring" : "long-dashed red ring",
                       "decisive step — " + (dec.verification === "replay-verified"
                         ? "replay-verified" : "hypothesized, not replay-verified")) : null,
       root ? legendKey("short-dashed red ring", "attributed root") : null,
       dec ? legendKey("amber halo", "on the causal account") : null,
+      legendKey("keys", "Tab to a step, Enter opens it, ↑↓ move along the run, ←→ cross the gutter"),
       claimsChip,
     ]);
     host.appendChild(foot);
@@ -2399,6 +2681,14 @@
         text: "Diagnosis contested — no decisive step is committed" +
               (dec.reason ? ": " + dec.reason : ".") }));
     }
+  }
+
+  function cssVar(name, fallback) {
+    try {
+      var v = getComputedStyle(document.documentElement).getPropertyValue(name);
+      if (v) return v.trim();
+    } catch (err) { /* fall through */ }
+    return fallback;
   }
 
   function cssAccent() {

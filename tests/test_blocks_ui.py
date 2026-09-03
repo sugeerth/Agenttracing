@@ -1234,6 +1234,185 @@ class RunLensTest(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
                      "playwright + chromium required for browser tests")
+class MapRedesignTest(unittest.TestCase):
+    """The redesigned map: two lanes adjacent around a labelled gutter,
+    every node carrying its content, no name ever truncated, keyboard
+    reachable, loops collapsed to ×N, phase bands from the reading, and
+    a word diff in Step detail. Geometry is measured from the drawn SVG.
+    """
+
+    tmp = None
+    GEOM = """() => {
+      const svg = document.querySelector('.block[data-block="trajectory-map"] svg.tj');
+      if (!svg) return null;
+      const a = svg.querySelector('g.tj-hit[data-side=a] circle.tjm-focus');
+      const b = svg.querySelector('g.tj-hit[data-side=b] circle.tjm-focus');
+      const names = [...svg.querySelectorAll('text.tjm-name')].map(t => t.textContent);
+      return { w: svg.getBoundingClientRect().width,
+               box: svg.closest('.tjm-wrap').clientWidth,
+               gutter: (+b.getAttribute('cx')) - (+a.getAttribute('cx')),
+               truncated: names.filter(n => n.endsWith('…')), names: names.length,
+               labels: [...svg.querySelectorAll('text.tjm-edge-label')].map(t => t.textContent),
+               excerpts: svg.querySelectorAll('text.tjm-excerpt').length,
+               phases: svg.querySelectorAll('rect.tjm-phase').length,
+               focusable: svg.querySelectorAll('g.tj-hit[tabindex="0"][role="button"]').length,
+               hits: svg.querySelectorAll('g.tj-hit:not(.tjm-claim-hit)').length };
+    }"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+        pair_json = out / "t05.json"
+        subprocess.run(
+            [sys.executable, "-m", "deepcompare", "compare",
+             str(ROOT / "demo" / "traces" / "t05_flight_duration__atlas-v2.json"),
+             str(ROOT / "demo" / "traces" / "t05_flight_duration__bolt-v3.json"),
+             "-o", str(pair_json)],
+            cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        from deepcompare.report import compare, render_html
+        from deepcompare.trace import Trajectory
+        cls.pair = json.loads(pair_json.read_text(encoding="utf-8"))
+        cls.report = out / "report.html"
+        render_html([cls.pair], {}, ROOT / "web" / "blocks.html", cls.report)
+        # a synthetic pair whose failing run retries one call four times
+        # verbatim: the map must collapse the loop to one node with ×4
+        def trace(name, steps, success, answer):
+            return Trajectory.from_dict({
+                "schema_version": 1, "trace_id": name,
+                "agent": {"name": name, "model": "sim", "version": "1"},
+                "task": {"id": "loop_task", "prompt": "What is the refund?",
+                         "expected": "The refund is $120.00."},
+                "outcome": {"success": success, "answer": answer,
+                            "score": 1.0 if success else 0.0, "termination": "agent_stop"},
+                "totals": {"input_tokens": 10, "output_tokens": 5, "cost_usd": 0.0, "latency_s": 1.0},
+                "steps": [dict(s, index=i, tokens=5, latency_s=0.1) for i, s in enumerate(steps)],
+                "tools": [{"name": "lookup", "effect": "read"}],
+                "budget": {"max_steps": 12},
+            })
+        plan = {"type": "plan", "name": "plan", "input": "look up the refund", "output": ""}
+        good = trace("steady", [plan,
+            {"type": "tool_call", "name": "lookup", "input": "lookup(order=17)",
+             "output": "The refund is $120.00.", "effect": "read"},
+            {"type": "answer", "name": "final", "input": "The refund is $120.00.",
+             "output": "The refund is $120.00."}], True, "The refund is $120.00.")
+        retry = {"type": "tool_call", "name": "lookup", "input": "lookup(order=18)",
+                 "output": "Error: no such order", "effect": "read", "error": True}
+        loopy = trace("loopy", [plan, retry, retry, retry, retry,
+            {"type": "answer", "name": "final", "input": "The refund is $95.00.",
+             "output": "The refund is $95.00."}], False, "The refund is $95.00.")
+        cls.loop_pair = compare(good, loopy)
+        cls.loop_report = out / "loop.html"
+        render_html([cls.loop_pair], {}, ROOT / "web" / "blocks.html", cls.loop_report)
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def open(self, report, width=1440, hero=False):
+        context = self.browser.new_context(viewport={"width": width, "height": 1000})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"file://{report}")
+        page.wait_for_timeout(500)
+        block = page.locator('.block[data-block="trajectory-map"]')
+        self.assertEqual(block.count(), 1)
+        if "collapsed" in (block.get_attribute("class") or ""):
+            block.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(250)
+        if hero:
+            page.locator('.block[data-block="trajectory-map"] .block-actions .icon-btn.star').first.click()
+            page.wait_for_timeout(500)
+        return context, page, errors
+
+    def test_hero_lanes_are_adjacent_and_labelled_with_no_void(self):
+        context, page, errors = self.open(self.report, 1440, hero=True)
+        g = page.evaluate(self.GEOM)
+        self.assertLessEqual(g["gutter"], 260)
+        self.assertGreaterEqual(g["gutter"], 200)
+        self.assertEqual(g["truncated"], [])
+        self.assertEqual(g["excerpts"], g["names"], "every node carries an excerpt as hero")
+        self.assertIn("match", g["labels"])
+        self.assertTrue(any(l.startswith("drift ") or l.startswith("diverge ") for l in g["labels"]), g["labels"])
+        self.assertTrue(any(l.startswith("claim ") for l in g["labels"]), g["labels"])
+        self.assertGreater(g["phases"], 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_no_name_is_truncated_in_a_column_or_on_a_phone(self):
+        for width in (1440, 390):
+            context, page, errors = self.open(self.report, width)
+            g = page.evaluate(self.GEOM)
+            self.assertEqual(g["truncated"], [], f"{width}px: {g['truncated']}")
+            self.assertEqual(g["names"], len(self.pair["a"]["steps"]) + len(self.pair["b"]["steps"]))
+            self.assertLessEqual(g["w"], g["box"] + 1)
+            self.assertFalse(page.evaluate(
+                "() => document.documentElement.scrollWidth > document.documentElement.clientWidth"))
+            self.assertEqual(errors, [])
+            context.close()
+
+    def test_every_node_is_a_keyboard_button_and_enter_selects(self):
+        context, page, errors = self.open(self.report, 1440, hero=True)
+        g = page.evaluate(self.GEOM)
+        self.assertEqual(g["focusable"], g["hits"])
+        node = page.locator('#hero-lane svg.tj g.tj-hit[data-side="b"][data-i="1"]').first
+        self.assertEqual(node.get_attribute("aria-label")[:8], "B step 1")
+        node.focus()
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(300)
+        row = next(i for i, r in enumerate(self.pair["alignment"]) if r.get("b_index") == 1)
+        detail = page.locator('.block[data-block="step-detail"]')
+        self.assertEqual(detail.locator(".tag.mono").first.inner_text(), f"row {row}")
+        # focus survived the redraw, and the arrow keys walk the lane
+        self.assertEqual(page.evaluate("() => document.activeElement.getAttribute('data-i')"), "1")
+        page.keyboard.press("ArrowDown")
+        self.assertEqual(page.evaluate("() => document.activeElement.getAttribute('data-i')"), "2")
+        page.keyboard.press("ArrowLeft")
+        self.assertEqual(page.evaluate("() => document.activeElement.getAttribute('data-side')"), "a")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_step_detail_shows_a_word_diff_for_the_divergent_row(self):
+        context, page, errors = self.open(self.report, 1440, hero=True)
+        row = next(i for i, r in enumerate(self.pair["alignment"])
+                   if r.get("a_index") is not None and r.get("b_index") is not None
+                   and self.pair["a"]["steps"][r["a_index"]]["input"]
+                   != self.pair["b"]["steps"][r["b_index"]]["input"])
+        page.evaluate("row => document.dispatchEvent(new CustomEvent('agentdiff:select-step', {detail: {row: row, side: 'b'}}))", row)
+        page.wait_for_timeout(300)
+        body = page.locator('.block[data-block="step-detail"] .tj-diff-body').first
+        self.assertGreater(body.locator("ins, del").count(), 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_verbatim_loop_collapses_to_one_node_with_a_count(self):
+        context, page, errors = self.open(self.loop_report, 1440, hero=True)
+        badge = page.locator('#hero-lane svg.tj text.tjm-loop')
+        self.assertEqual(badge.count(), 1)
+        # the badge's own text, without its <title> tooltip child
+        self.assertEqual(badge.first.evaluate("el => el.firstChild.textContent"), "×4")
+        hits_before = page.locator('#hero-lane svg.tj g.tj-hit[data-side="b"]').count()
+        self.assertEqual(hits_before, 3, "plan, the collapsed loop, the answer")
+        badge.first.dispatch_event("click")
+        page.wait_for_timeout(300)
+        self.assertEqual(page.locator('#hero-lane svg.tj g.tj-hit[data-side="b"]').count(), 6)
+        self.assertEqual(errors, [])
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
 class OneSidedMapTest(unittest.TestCase):
     """One-sided steps are SEEN, not just unlinked.
 

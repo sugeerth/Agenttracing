@@ -501,20 +501,32 @@ and erases the lot in one click.
 
 Two blocks put the individual trajectories themselves on the page. The
 **trajectory map** lays each run out vertically as its own lane — every
-single step a clickable node in run order, not collapsed into alignment
-rows — and draws the conversation between the runs in the gutter: a
-solid line is a matched step, a dashed line drifted or divergent, an
-open stub is a step only that run took (the other side of the gutter
-stays honestly empty — nothing to pair with), and a dotted curve is the
-same claim surfacing in both runs, red when the claim contradicts the
-expected answer. The diagnosis rides on top: the decisive step is
-ringed solid red, the attributed root dashed red, and causal-account
-steps carry an amber halo — a contested diagnosis states its abstention
-under the map instead of committing to a ring. Clicking a claim curve
-is not tooltip theatre: it rings both endpoint nodes, writes the claim
-into a persistent readout line (value verbatim, `A step i ↔ B step j`),
-and moves the shared cursor, and a `claims: N` chip cycles the edges
-for readers who never hover.
+single step a node in run order, not collapsed into alignment rows —
+with the two lanes placed *adjacent* around a gutter of 200–260px and
+centred in the card whatever its width, so the conversation between the
+runs is the thing in the middle of the picture, not a void. Each node
+carries its content: glyph, index and full name (never truncated —
+a long name is squeezed, not cut), a one-line excerpt of what the step
+did, and its tokens; hover or focus shows the full recorded text. The
+gutter edges are *labelled*, not only dash-coded: `match`, `drift 0.50`,
+`diverge 0.29`, `claim 11h45m ✗`. An open stub is a step only that run
+took (the other side stays honestly empty), and a dotted curve is the
+same claim surfacing in both runs, red when it contradicts the expected
+answer. A run that retries one call verbatim three or more times draws
+as one node with a `×N` badge, expandable; a thin band at each lane's
+outer edge shows the reading's phases of work. The diagnosis rides on
+top: the decisive step's ring is graded by verification — long-dashed
+while hypothesized, solid only once a replay flipped the outcome — the
+attributed root is short-dashed, causal-account steps carry an amber
+halo, and a contested diagnosis states its abstention under the map
+instead of committing to a ring. Every node is a keyboard button: Tab
+reaches it, Enter opens it, ↑↓ walk the run, ←→ cross the gutter, and
+focus survives the redraw. Clicking a claim curve rings both endpoint
+nodes, writes the claim into a persistent readout line (value verbatim,
+`A step i ↔ B step j`, announced politely to assistive technology), and
+moves the shared cursor; a `claims: N` chip cycles the edges for readers
+who never hover. **Step detail** adds a word-level diff of the selected
+row when both runs have text there.
 
 The **run lens** is for reading one trajectory end to end: an A/B
 toggle (defaulting to the failing run) opens every step to its full

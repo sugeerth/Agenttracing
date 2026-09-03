@@ -1822,6 +1822,45 @@ decoy families at 1.0 on cause kind; the valueless ticket domain, which
 has no typed wrong fact to re-anchor on, stays adjacent by one step and
 is reported as such.
 
+## The trajectory map redesigned (v39)
+
+UI only; the report contract is unchanged. `web/blocks/20_trajectory.js`:
+
+- **Geometry**: two lanes of at most 420px each, placed adjacent around
+  a gutter of 240px (≥ 960px wide), 200px (≥ 720px) or 28% of the width
+  floored at 84px, centred in the card. Below a 200px lane the excerpt
+  line is dropped and rows tighten to 26px; the name is never cut — a
+  name wider than its lane is squeezed with `textLength`.
+- **Nodes** (`g.tj-hit`, one per visible step): glyph, `N · name`
+  (`text.tjm-name`), a one-line excerpt (`text.tjm-excerpt`; output for
+  observation steps, input otherwise), tokens (`text.tjm-tokens`), a
+  `<title>` with the full recorded input and output (600 chars). Each is
+  `tabindex="0"`, `role="button"`, `aria-label="A step 2 · name …"`,
+  `data-side`, `data-i` (lane position), `data-index` (step index).
+  Enter/Space select; ↑↓ move within the lane; ←→ cross to the other
+  lane at the same position; the focused node is re-focused after the
+  redraw a selection triggers.
+- **Gutter labels** (`text.tjm-edge-label`, drawn with a surface-colour
+  halo): `match`, `drift s`, `diverge s` on alignment edges;
+  `claim value ✓|✗` on claim curves (`tjm-claim-label`); omitted when
+  the gutter is under 120px.
+- **Loop collapse**: three or more consecutive steps identical in type,
+  name and input draw as one node with a `×N` badge (`text.tjm-loop`);
+  clicking it expands the group (`▾ ×N` collapses again). Edges to
+  hidden steps land on the group's node; one-sided stubs for hidden
+  steps are not drawn.
+- **Phase bands** (`rect.tjm-phase[data-intent]`): a 4px band at each
+  lane's outer edge per `reading[side].phases`, tinted by phase order,
+  labelled with the intent when the lane is wide.
+- **Step detail**: `.tj-diff` with a word-level LCS diff of input and of
+  output when both runs have text at the selected row and it differs
+  (`<del>` only A said it, `<ins>` only B); capped at 400 words a side.
+- The claim readout line is `aria-live="polite"`.
+
+Tests: `tests/test_blocks_ui.py::MapRedesignTest` (geometry as hero and
+in a column, no truncated names at 1440/390, keyboard select with focus
+survival, word diff, ×4 collapse on a synthetic loop).
+
 ## The reading on the page, graded rings, and a quiet first visit (v38)
 
 UI only; the report contract is unchanged.

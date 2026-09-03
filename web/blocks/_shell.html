@@ -229,6 +229,10 @@ select.picker {
   .reading { gap: 5px 6px; padding: 10px 10px 0; }
   .hero-lane { padding: 12px 10px 0; }
   .lead-lane { padding: 12px 10px 0; }
+  /* a narrow hero header wraps its question under the title instead of
+     squeezing it into a one-word-per-line column beside it */
+  .block.hero .block-head { flex-wrap: wrap; }
+  .block.hero .block-q { flex-basis: 100%; }
   .stacks { padding: 14px 10px 80px; }
 }
 
