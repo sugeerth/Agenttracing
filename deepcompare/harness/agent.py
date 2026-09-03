@@ -110,12 +110,16 @@ def run_task(provider: Provider, task: dict, tools: Optional[list] = None, *,
             f"task {task.get('id')!r} has no expected answer and no grader was "
             "given: an ungraded run cannot honestly enter a success rate")
 
+    agent_name = agent or provider.name
     recorder = Recorder(
         task=str(task["id"]), prompt=str(task["prompt"]),
-        agent=agent or provider.name, model=provider.model, version=version,
+        agent=agent_name, model=provider.model, version=version,
         expected=task.get("expected"), run_id=run_id,
         tools=[t.schema_entry() for t in tools] or None,
-        budget=budget, out_dir=out_dir)
+        budget=budget, out_dir=out_dir,
+        # the trace id IS the file stem, so a trace and its file never
+        # disagree about what they are called
+        trace_id=f"{task['id']}__{agent_name}" + (f"__{run_id}" if run_id else ""))
 
     messages: list = [{"role": "system", "content": system_prompt},
                       {"role": "user", "content": str(task["prompt"])}]

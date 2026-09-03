@@ -1822,6 +1822,42 @@ decoy families at 1.0 on cause kind; the valueless ticket domain, which
 has no typed wrong fact to re-anchor on, stays adjacent by one step and
 is reported as such.
 
+## Any agent, replay from the CLI, why (v40)
+
+- **Report `task` carries `expected`** (`{id, prompt, expected}`), so a
+  replay can grade its rollouts from the report alone.
+- **`diagnosis.decisive_step.verification`** is written back by
+  `agentdiff replay`: `replay-verified` / `replay-refuted` /
+  `replay-mixed`, with `decisive_step.replay = {verdict, replays,
+  flipped, flip_rate, step, correction {input, output, borrowed_from |
+  text}, provider {name, model}, runs [{run, success, termination,
+  flipped}], note}`. The correction defaults to the passing run's
+  aligned step, verbatim. The verdict card is recomputed and its
+  `confidence` line reads `replay-verified (3/3 replays flipped the
+  outcome)`; a page beside the report (`<report>.html`) is re-rendered,
+  so the map's ring goes solid.
+- **External agents** (`deepcompare/harness/external.py`):
+  `--agent NAME=python:module:callable` — the callable receives
+  `(task, tools)` and returns a SCHEMA trace dict or an OpenAI-style
+  message list; `--agent NAME=cmd:TEMPLATE` — a shell command with
+  `{prompt_file}` (task JSON) and `{out_file}`. The harness grades the
+  answer, declares the termination (`agent_stop` with an answer step,
+  `agent_error` without one — an empty answer step is appended so the
+  trace stays valid — `infrastructure_error` on a crash or a non-zero
+  exit), stamps identity and task, and names the file
+  `<task>__<agent>[__<run>].json`; the trace carries
+  `harness: {adapter, graded_by: "harness"}`. `trace_id` equals the
+  file stem for every harness-written trace.
+- **Provider options on the CLI** for `run`, `replay`, `why`:
+  `--base-url`, `--temperature`, `--api-key-env` (the variable's name,
+  never a key); scripted providers ignore them.
+- **`agentdiff why REPORT --provider …`**: builds the narration brief,
+  calls the provider once, ingests the text through the existing
+  number-and-citation check, stores it under `narration` with
+  `source: "harness-provider"` and `facts_in_brief`, prints it under the
+  verdict card. A provider failure exits 3 and writes nothing. The
+  covenant holds by construction: nothing but `narration` changes.
+
 ## The trajectory map redesigned (v39)
 
 UI only; the report contract is unchanged. `web/blocks/20_trajectory.js`:

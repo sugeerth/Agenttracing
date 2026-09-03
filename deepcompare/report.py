@@ -91,7 +91,8 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
         if evaluation is not None:
             entry["eval"] = evaluation
     report = {
-        "task": {"id": a.task.id, "prompt": a.task.prompt},
+        # the expected answer rides along so a replay can grade its rollouts
+        "task": {"id": a.task.id, "prompt": a.task.prompt, "expected": a.task.expected},
         "a": {
             "agent": a.agent.to_dict(),
             "outcome": a.outcome.to_dict(),

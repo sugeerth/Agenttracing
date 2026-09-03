@@ -539,52 +539,45 @@ anywhere and the rest follow.
 Adding a block is one file in `web/blocks/` — see
 [`web/blocks/README.md`](web/blocks/README.md) for the contract.
 
-## Run any model, then read every trace
+## Run any model, any agent, then close the loop
 
-The harness runs a task set against whatever models you name — an
-OpenAI-compatible endpoint (OpenAI, vLLM, LM Studio, most gateways),
-Anthropic's Messages API, or a local Ollama — through one plain tool
-loop, and records every turn and tool call as a first-class trace.
-Swapping a model is swapping one spec string; keys come from
-environment variables only (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
-`OLLAMA_HOST`) and never appear in errors or traces. It is the *only*
-part of the project that talks to a network — the analysis engine never
-imports it, and a test pins that.
+The harness is the one place that talks to a network. It is
+model-agnostic — swapping a model is swapping one provider spec string,
+and OpenAI-compatible endpoints (OpenAI, vLLM, LM Studio, LiteLLM, most
+gateways), Anthropic's Messages API and Ollama ship in — and it is
+*agent*-agnostic: an existing agent plugs in as a Python callable or a
+shell command, and the harness keeps what an agent must not be trusted
+with — the grade, the declared termination, the file name, the manifest.
 
 ```bash
-# two models, three runs each, on your tasks — written as task__agent__run.json
-python -m deepcompare run --tasks tasks.json -o traces/ --runs 3 \
-    --provider atlas=openai:gpt-4o --provider local=ollama:llama3.1
-python -m deepcompare runs traces/ -o out/          # stability, pass^k, spectrum
-python -m deepcompare batch traces/ -o out/         # pairwise diff + diagnosis
+# 1. Run: two providers and one agent of your own, three runs each
+agentdiff run --tasks tasks.json -o traces/ --runs 3 \
+    --provider atlas=openai:gpt-4o --provider local=ollama:llama3.1 \
+    --agent mine=python:my_pkg.agent:solve            # (task, tools) -> trace or messages
+#   …or --agent mine=cmd:"./my_agent --task {prompt_file} --out {out_file}"
+#   --base-url, --temperature, --api-key-env reach the provider; keys come from env only
+
+# 2. Compare: stability and pass^k across runs, or a pairwise diff with diagnosis
+agentdiff runs traces/ -o out/
+agentdiff batch traces/ -o out/
+
+# 3. Replay: the decisive step is a hypothesis until re-execution flips the outcome
+agentdiff replay out/report_t01.json --provider atlas=openai:gpt-4o --replays 3
+#   → replay-verified / replay-refuted / replay-mixed with the flip count written
+#     into diagnosis.decisive_step; the map's ring goes solid, the card's CONF says so
+
+# 4. Why: narrate the report through any provider — checked number by number
+agentdiff why out/report_t01.json --provider atlas=openai:gpt-4o
+#   the model phrases; it never alters a number, a verdict or an exit code
 ```
 
-`tasks.json` is a list of `{"id", "prompt", "expected"}`; a task
-without an expected answer needs a grader, and the runner refuses to
-run an ungraded task — an ungraded run silently entering a success rate
-is the one thing a harness must never do. Tools are plain Python
-callables declared with a JSON schema and a read/write effect
-(`--tools mymodule:TOOLS`).
-
-Then read a run on its own terms — the **eval reasoning layer**:
-
-```bash
-python -m deepcompare explain traces/t01_acme_revenue__bolt-v3.json
-```
-
-For one trace it says what happened (the run's phases), what the answer
-rests on (every typed value traced to the step that first carried it —
-or flagged as something the run never observed), why it ended the way
-it did (which of four honest cases the verdict falls in), what it means
-(pathologies, unverified work, wasted steps — each tagged by whether it
-rests on an observable event, an annotation, or the agent's own words),
-and what to take forward (one action per finding). Every quote is
-verified against the trace; the same object rides on every pair report
-as `reading`. A committed decisive step is labelled `hypothesized`
-until `harness.replay` re-executes the run from a corrected step and
-reports `replay-verified`, `replay-refuted` or `replay-mixed` with the
-flip count — because a counterfactual claim read from a trace is only a
-claim until it is replayed.
+`replay` borrows the passing run's aligned step as the correction
+(or takes `--correction TEXT`), rebuilds the conversation up to it, and
+lets the model continue, several times, because one rollout proves
+nothing. `why` stores the narration under its own key, flagged when it
+cites a number the evidence does not contain; deleting it changes no
+finding. Scripted providers (`scripted:turns.json`) make every step of
+this loop testable offline, and the tests do exactly that.
 
 ## Bring your own agents
 

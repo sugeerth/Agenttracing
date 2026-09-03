@@ -43,11 +43,13 @@ from .providers import (
     ToolCall,
     provider_from_spec,
 )
+from .external import CommandAgent, ExternalAgent, PythonAgent, agent_from_spec
 from .replay import replay
 from .runner import run_suite
 
 __all__ = [
-    "AnthropicProvider", "OllamaProvider", "OpenAICompatProvider",
+    "AnthropicProvider", "CommandAgent", "ExternalAgent", "PythonAgent",
+    "agent_from_spec", "OllamaProvider", "OpenAICompatProvider",
     "Provider", "ProviderError", "ProviderResponse", "ScriptedProvider",
     "Tool", "ToolCall", "provider_from_spec", "replay", "run_suite",
     "run_task",

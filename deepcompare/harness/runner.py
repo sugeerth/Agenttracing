@@ -46,7 +46,8 @@ def run_suite(providers: dict, tasks: list, tools: Optional[list] = None, *,
               budget: Optional[dict] = None, grader: Optional[Callable] = None,
               system_prompt: str = DEFAULT_SYSTEM,
               provider_factory: Optional[Callable[[str], Provider]] = None,
-              progress: Optional[Callable[[str], None]] = None) -> dict:
+              progress: Optional[Callable[[str], None]] = None,
+              agents: Optional[dict] = None) -> dict:
     """``providers`` maps agent name → :class:`Provider` (or, with
     ``provider_factory``, agent name → spec string, so scripted providers
     can be rebuilt fresh for every task and run instead of replaying an
@@ -54,21 +55,29 @@ def run_suite(providers: dict, tasks: list, tools: Optional[list] = None, *,
     task, agent, run and outcome, plus the count of provider failures."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+    agents = dict(agents or {})
     manifest: dict = {"out_dir": str(out), "runs": runs,
-                      "agents": sorted(providers), "traces": [],
+                      "agents": sorted(list(providers) + list(agents)), "traces": [],
                       "provider_failures": 0}
+    from .external import run_external
     for task in tasks:
-        for agent, spec in providers.items():
+        lineup = [(name, "provider", spec) for name, spec in providers.items()] + \
+                 [(name, "agent", ext) for name, ext in agents.items()]
+        for agent, kind, spec in lineup:
             for run_index in range(runs):
-                provider = (provider_factory(spec) if provider_factory
-                            else spec)
                 run_id = f"r{run_index + 1}" if runs > 1 else None
                 if progress:
                     progress(f"{task['id']} · {agent}"
                              + (f" · {run_id}" if run_id else ""))
-                trace = run_task(provider, task, tools, agent=agent,
-                                 run_id=run_id, budget=budget, grader=grader,
-                                 system_prompt=system_prompt, out_dir=out)
+                if kind == "agent":
+                    trace = run_external(spec, task, tools, run_id=run_id,
+                                         budget=budget, grader=grader, out_dir=out)
+                else:
+                    provider = (provider_factory(spec) if provider_factory
+                                else spec)
+                    trace = run_task(provider, task, tools, agent=agent,
+                                     run_id=run_id, budget=budget, grader=grader,
+                                     system_prompt=system_prompt, out_dir=out)
                 outcome = trace.get("outcome") or {}
                 if outcome.get("termination") == "infrastructure_error":
                     manifest["provider_failures"] += 1

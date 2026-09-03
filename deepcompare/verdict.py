@@ -139,9 +139,14 @@ def verdict_card(report: dict) -> dict:
     if conf.get("level"):
         text = f"{conf['level']} — {conf.get('basis') or ''}".rstrip(" —")
         if decisive.get("step") is not None:
-            text += f"; the decisive step is {decisive.get('verification') or 'hypothesized'}"
-            if (decisive.get("verification") or "hypothesized") == "hypothesized":
+            verification = decisive.get("verification") or "hypothesized"
+            text += f"; the decisive step is {verification}"
+            replay = decisive.get("replay") or {}
+            if verification == "hypothesized":
                 text += ", not replay-verified"
+            elif replay.get("replays"):
+                text += (f" ({replay.get('flipped')}/{replay['replays']} replays "
+                         f"flipped the outcome)")
         lines.append({"key": "confidence", "text": text,
                       "source": "diagnosis.confidence"})
     return {"version": 1, "lines": lines}
