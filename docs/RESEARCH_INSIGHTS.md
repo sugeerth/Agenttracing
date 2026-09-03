@@ -96,17 +96,17 @@ network, pinned by test.
 
 | # | Item | Source insight | Status |
 |---|------|----------------|--------|
-| 1 | **Causal window + joint-cause verdicts** — `decisive_step` gains `point_of_no_return` and a `joint` list when no single correction flips | CAR, AgentRx, DRIFT, MAST | in progress |
-| 2 | **Replay verification hook** — the harness can re-run from a corrected step; verdicts labelled `replay-verified` vs `hypothesized (not replay-verified)` | AgenTracer, CAR | in progress |
-| 3 | **Sanity-check suite** — identical pair → no decisive difference; swapped labels → inverted or abstained; shuffled steps → ledger collapses; hypothesis order swapped → same verdict | Adebayo et al. sanity checks, MIB, judge position-bias studies | in progress |
-| 4 | **Paired + clustered error bars, sign/McNemar test on aligned pairs** | Miller, *Adding Error Bars to Evals* (Anthropic 2024) | queued |
-| 5 | **Leakage-probe baseline** in the benchmark — a surface-cue detector; headline = engine − probe margin | Leaky Model Organisms (2026) | queued |
-| 6 | **Null-agent control + grader-shortcut audit + injection contract** (clean twin passes; artifact reachable in the chain) | Agentic Benchmark Checklist, AgentTrace, MAS-FIRE | queued |
+| 1 | **Causal window + joint-cause verdicts** — `decisive_step` gains `point_of_no_return` and a `joint` list when no single correction flips | CAR, AgentRx, DRIFT, MAST | shipped (v33) |
+| 2 | **Replay verification hook** — the harness can re-run from a corrected step; verdicts labelled `replay-verified` vs `hypothesized (not replay-verified)` | AgenTracer, CAR | shipped (v33, harness.replay) |
+| 3 | **Sanity-check suite** — identical pair → no decisive difference; swapped labels → inverted or abstained; shuffled steps → ledger collapses; hypothesis order swapped → same verdict | Adebayo et al. sanity checks, MIB, judge position-bias studies | shipped (v33) |
+| 4 | **Paired + clustered error bars, sign/McNemar test on aligned pairs** | Miller, *Adding Error Bars to Evals* (Anthropic 2024) | shipped (v34) |
+| 5 | **Leakage-probe baseline** in the benchmark — a surface-cue detector; headline = engine − probe margin | Leaky Model Organisms (2026) | shipped — **measured finding**: kind margin +0.33/+0.28, step margin +0.09 annotated and −0.02 stripped: the step axis leaks (the implanted decisive step is usually the first novel step) |
+| 6 | **Null-agent control + grader-shortcut audit + injection contract** (clean twin passes; artifact reachable in the chain) | Agentic Benchmark Checklist, AgentTrace, MAS-FIRE | shipped (null_agent family; invalid_pairs excluded and counted; artifact reachability) |
 | 7 | **Evidence-class weighting** — observable events outrank stated reasons; verdicts tag their supporting class | Anthropic CoT faithfulness, Arcuschin | queued |
 | 8 | **Overdetermination guard** — the corrected step must be materially different from the original before a flip counts | Thought Anchors (2025) | queued |
 | 9 | **pass^k with CI + depth-stratified flakiness** in consolidation | τ-bench, Beyond pass@1 (2026) | queued |
 | 10 | **MAST cross-mapping** in the taxonomy (TRAIL already mapped) | MAST, TRAIL | queued |
-| 11 | **Narration evidence window** — the narrator sees decisive step ± neighbours and ledger quotes, never the whole trace | DuoTrace / detect-before-attribute, long-context judge collapse | queued |
+| 11 | **Narration evidence window** — the narrator sees decisive step ± neighbours and ledger quotes, never the whole trace | DuoTrace / detect-before-attribute, long-context judge collapse | shipped (v33, reading evidence window) |
 | 12 | **Same-config noise-floor diff** — a run compared with itself is the artifact floor every verdict must exceed | crosscoder sparsity artifacts, XAI-Δ specificity | queued |
 | 13 | **External validation** on the public Who&When and TRAIL data | Who&When, TRAIL | queued |
 | UI-1 | **Confidence-graded rings and edges** with a legend of states | uncertainty-vis literature, Who&When accuracy | queued |

@@ -42,7 +42,8 @@ from pathlib import Path
 from typing import Union
 
 from .report import compare
-from .trace import Trajectory
+from .semantic import normalize_for_containment
+from .trace import HARNESS_TERMINATIONS, Trajectory
 
 MANIFEST_NAME = "MANIFEST.json"
 
@@ -103,6 +104,29 @@ def format_scorecard(result: dict) -> str:
             f"  error bar       naive ±{clustered['naive_se']:.4f}, clustered by "
             f"cause ±{clustered['clustered_se']:.4f} ({clustered['clusters']} "
             f"families; ×{clustered['ratio']}) — the clustered one is honest")
+    probe = result.get("leakage_probe") or {}
+    margin = result.get("engine_minus_probe") or {}
+    if probe.get("kind", {}).get("total"):
+        lines.append(
+            f"  leakage probe   kind {probe['kind']['correct']}/{probe['kind']['total']}"
+            f" ({probe['kind']['accuracy']:.0%}), step "
+            f"{probe['step']['exact']}/{probe['step']['total']} — engine margin "
+            f"kind {margin.get('kind'):+.4f}, step {margin.get('step'):+.4f}"
+            if probe['step']['total'] else
+            f"  leakage probe   kind {probe['kind']['correct']}/{probe['kind']['total']}"
+            f" — engine margin kind {margin.get('kind'):+.4f}")
+    if result.get("invalid_pairs"):
+        lines.append(f"  INVALID PAIRS   {len(result['invalid_pairs'])} excluded — "
+                     "clean twin fails its own grader: "
+                     + ", ".join(p["scenario"] for p in result["invalid_pairs"][:5]))
+    if result.get("unreachable_artifact"):
+        lines.append(f"  UNREACHABLE     {len(result['unreachable_artifact'])} scenario(s) "
+                     "whose implanted artifact never appears between the decisive "
+                     "step and the answer: "
+                     + ", ".join(p["scenario"] for p in result["unreachable_artifact"][:5]))
+    elif result.get("artifact_checked"):
+        lines.append(f"  injection contract  {result['artifact_checked']} artifact(s) "
+                     "checked reachable; every clean twin passes its grader")
     for miss in result["misses"]:
         lines.append(f"  MISS {miss['scenario']}: truth {miss['truth']}, "
                      f"led {miss['actually_led']}")
@@ -178,6 +202,93 @@ def _chain_rollup(results: list[dict]) -> dict:
     }
 
 
+_TEMPLATE_CUES = ("stale", "archived", "unofficial", "cache", "mirror",
+                  "draft", "superseded", "outdated")
+_NEGATORS = ("not", "no", "never", "cannot", "without", "unable")
+
+
+def leakage_probe(failing: Trajectory, passing: Trajectory) -> dict:
+    """A deliberately dumb detector: surface cues only, no engine.
+
+    The Leaky-Model-Organisms critique of implanted benchmarks is that
+    the implantation leaves fingerprints a detector can exploit without
+    doing any causal work — annotation marks, template words, step-count
+    deltas, error strings.  This probe is that detector, kept as stupid
+    as possible on purpose: whatever share of the engine's score it
+    reproduces is the share the benchmark may be leaking, and the
+    headline is the engine's margin over it, not the engine's score.
+    """
+    steps = failing.steps
+    answer_idx = len(steps) - 1
+    answer = (steps[answer_idx].output or steps[answer_idx].input or "").lower()
+    expected = (getattr(failing.task, "expected", None) or "").strip().lower()
+    term = failing.outcome.termination
+    pass_sigs = {(s.type, s.name, s.input) for s in passing.steps}
+
+    def text(i):
+        return f"{steps[i].input}\n{steps[i].output}".lower()
+
+    if term in HARNESS_TERMINATIONS:
+        return {"kind": "harness_termination", "step": None, "cue": "termination"}
+    annotated = [i for i, st in enumerate(steps[:answer_idx])
+                 if st.quality in ("weak", "bad") or st.note]
+    errors = [i for i, st in enumerate(steps[:answer_idx])
+              if st.error is True or (st.output or "").lower().startswith("error")]
+    if expected and expected in answer and not any(
+            w in answer.split() for w in _NEGATORS):
+        return {"kind": "grader_or_label", "step": None, "cue": "expected verbatim"}
+    writes = [i for i, st in enumerate(steps[:answer_idx]) if st.effect == "write"]
+    reads = [i for i, st in enumerate(steps[:answer_idx])
+             if st.effect == "read" and i not in errors]
+    if writes and (not reads or writes[0] < reads[0]):
+        return {"kind": "process_pathology:blind_write", "step": writes[0],
+                "cue": "write before read"}
+    seen = {}
+    for i, st in enumerate(steps[:answer_idx]):
+        sig = (st.type, st.name, st.input)
+        if sig in seen and st.effect == "write":
+            return {"kind": "divergence", "step": seen[sig], "cue": "duplicate write"}
+        seen.setdefault(sig, i)
+    if errors:
+        return {"kind": "environment_error", "step": errors[0], "cue": "error text"}
+    if annotated:
+        return {"kind": "wrong_fact_propagation", "step": annotated[0],
+                "cue": "annotation mark"}
+    for i in range(answer_idx):
+        if any(cue in text(i) for cue in _TEMPLATE_CUES):
+            return {"kind": "wrong_fact_propagation", "step": i, "cue": "template word"}
+    novel = [i for i, st in enumerate(steps[:answer_idx])
+             if (st.type, st.name, st.input) not in pass_sigs]
+    return {"kind": "divergence", "step": novel[0] if novel else 0,
+            "cue": "first step without a twin"}
+
+
+def _normalise(text: str) -> str:
+    return normalize_for_containment(text)
+
+
+def pair_validity(scenario: dict, failing: Trajectory, passing: Trajectory) -> dict:
+    """The injection contract, checked per pair: (1) the clean twin must
+    pass its own grader — the expected answer must be in the passing
+    answer — else the pair measures nothing; (2) the implanted artifact
+    must be textually reachable in the failing run between the decisive
+    step and the answer, else the fault the manifest names is not one the
+    trace can show."""
+    expected = _normalise(getattr(passing.task, "expected", None) or "")
+    pass_answer = _normalise(passing.outcome.answer or passing.steps[-1].output or "")
+    clean_twin_passes = bool(expected) and expected in pass_answer
+    artifact = scenario.get("artifact")
+    reachable = None
+    if artifact:
+        needle = _normalise(str(artifact))
+        start = min(scenario.get("decisive_steps") or [0])
+        hay = " ".join(_normalise(f"{s.input} {s.output}")
+                       for s in failing.steps[start:])
+        reachable = needle in hay
+    return {"clean_twin_passes": clean_twin_passes,
+            "artifact": artifact, "artifact_reachable": reachable}
+
+
 def run_benchmark(traces_dir: Union[str, Path]) -> dict:
     """Run the diagnoser over every manifest pair and score it.
 
@@ -197,12 +308,35 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
     by_cause: dict[str, dict] = {}
     correct_total = 0
 
+    invalid_pairs: list[dict] = []
+    unreachable: list[dict] = []
+    probe_hits = {"kind": 0, "step": 0, "kind_total": 0, "step_total": 0}
     for scenario in scenarios:
         failing = Trajectory.from_json(root / scenario["fail"])
         passing = Trajectory.from_json(root / scenario["pass"])
+        validity = pair_validity(scenario, failing, passing)
+        if not validity["clean_twin_passes"]:
+            # a pair whose clean twin fails its own grader measures the
+            # grader, not the diagnoser: excluded, counted, never silent
+            invalid_pairs.append({"scenario": scenario["id"],
+                                  "cause": scenario["cause"],
+                                  "reason": "clean twin does not pass the grader"})
+            continue
+        if validity["artifact_reachable"] is False:
+            unreachable.append({"scenario": scenario["id"],
+                                "cause": scenario["cause"],
+                                "artifact": validity["artifact"]})
         report = compare(failing, passing)
         diagnosis = report["diagnosis"]
         acceptable = set(scenario.get("acceptable", []))
+        probe = leakage_probe(failing, passing)
+        probe_kind_ok = probe["kind"] in acceptable
+        probe_truth_steps = scenario.get("decisive_steps") or []
+        probe_hits["kind_total"] += 1
+        probe_hits["kind"] += 1 if probe_kind_ok else 0
+        if probe_truth_steps:
+            probe_hits["step_total"] += 1
+            probe_hits["step"] += 1 if probe["step"] in probe_truth_steps else 0
 
         lead, labels = _leading_labels(diagnosis)
         secondary = set(scenario.get("secondary", []))
@@ -281,6 +415,8 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
             "chain": chain_scores,
             "secondary": sorted(secondary),
             "secondary_visible": secondary_visible,
+            "probe": probe, "probe_kind_correct": probe_kind_ok,
+            "artifact_reachable": validity["artifact_reachable"],
         }
         results.append(entry)
 
@@ -356,6 +492,26 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
                          if abstain_truth else None),
         },
         "chain_recovery": _chain_rollup(results),
+        "leakage_probe": {
+            "kind": {"correct": probe_hits["kind"], "total": probe_hits["kind_total"],
+                     "accuracy": (round(probe_hits["kind"] / probe_hits["kind_total"], 4)
+                                  if probe_hits["kind_total"] else None)},
+            "step": {"exact": probe_hits["step"], "total": probe_hits["step_total"],
+                     "accuracy": (round(probe_hits["step"] / probe_hits["step_total"], 4)
+                                  if probe_hits["step_total"] else None)},
+            "note": "a surface-cue detector with no engine: whatever share of the "
+                    "engine's score it reproduces is the share the benchmark may "
+                    "be leaking; the headline is the margin, not the score",
+        },
+        "engine_minus_probe": {
+            "kind": (round(correct_total / total - probe_hits["kind"] / probe_hits["kind_total"], 4)
+                     if total and probe_hits["kind_total"] else None),
+            "step": (round(exact / len(step_truth) - probe_hits["step"] / probe_hits["step_total"], 4)
+                     if step_truth and probe_hits["step_total"] else None),
+        },
+        "invalid_pairs": invalid_pairs,
+        "unreachable_artifact": unreachable,
+        "artifact_checked": sum(1 for r in results if r["artifact_reachable"] is not None),
         "by_cause": {cause: by_cause[cause] for cause in sorted(by_cause)},
         "misses": misses,
         "step_misses": step_misses,

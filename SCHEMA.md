@@ -1749,6 +1749,38 @@ grounded, not true, the same boundary as `check_diagnosis`).
   The run's summary bookends its facts (primacy and recency), because
   long-context readers degrade monotonically and lose the middle.
 
+## The benchmark audits itself (v35)
+
+From the Agentic Benchmark Checklist (NeurIPS 2025) and the Leaky Model
+Organisms critique (2026), three checks run before any score:
+
+- **`null_agent` control** — a sixteenth generated family: plan to skip
+  every tool, restate the prompt. Truth is a divergence at the plan or
+  the answer; abstention is a miss by construction, because a diagnoser
+  that abstains on a do-nothing run is scoring luck.
+- **Injection contract** — `bench.pair_validity`: the clean twin must
+  pass its own grader (expected text contained, punctuation-tolerant),
+  else the pair is `invalid_pairs` — excluded from every denominator
+  and counted, never silent; the manifest's `artifact` (the wrong
+  value, error string, invented entity, duplicated call…) must appear
+  in the failing trace between the decisive step and the answer, else
+  the scenario is `unreachable_artifact`. The scorecard prints both.
+  The first run of this contract flagged two handcrafted pairs — and
+  the defect was the check's: containment failed on a trailing full
+  stop versus a comma. One tolerant normalization
+  (`semantic.normalize_for_containment`) now serves the contract and
+  the harness's default grader alike.
+- **Leakage probe** — `bench.leakage_probe`: a surface-cue detector
+  with no engine (termination value, expected text verbatim, write
+  before read, duplicate write, error text, annotation marks, template
+  words, first step without a twin). Its kind and step accuracy are
+  scored beside the engine's and `engine_minus_probe` is the headline.
+  Measured at 2,200 pairs: kind margin +0.33 annotated / +0.28
+  stripped; step margin +0.09 annotated and **−0.02 stripped** — the
+  probe matches the engine at step localization once annotations are
+  gone, because the implanted decisive step is usually the first novel
+  step. The corpus leaks on that axis, and says so.
+
 ## Paired inference and clustered error bars (v34)
 
 Two agents on the same tasks is a paired design, and a paired test has

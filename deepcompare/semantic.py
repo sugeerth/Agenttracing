@@ -104,6 +104,15 @@ def _num(text: str) -> float:
     return float(text.replace(",", ""))
 
 
+def normalize_for_containment(text: str) -> str:
+    """Case-folded, whitespace-collapsed, with the punctuation that trails a
+    word stripped — so an expected answer ending in a full stop is found
+    inside an answer that continues with a comma.  Punctuation inside a
+    token ($4.5, v3.2.0, 12:30) is kept: it is part of the value."""
+    lowered = " ".join((text or "").split()).lower()
+    return re.sub(r"(?<=[\w%)])[.,;:!?]+(?=\s|$)", "", lowered)
+
+
 def extract_from_text(text: str) -> list[tuple[str, str, str]]:
     """Extract (kind, value, normalized) claim tuples from one text.
 

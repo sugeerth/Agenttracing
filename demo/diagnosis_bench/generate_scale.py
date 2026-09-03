@@ -5,8 +5,9 @@ Who&When Pro's contribution was scale with golden labels: thousands of
 failure trajectories built by controlled injection, because a diagnoser
 that looks perfect on a dozen handcrafted cases has been measured on its
 authors' imagination, not on the space of failures.  This generator
-composes fifteen cause families — the handcrafted corpus's ten plus
-four drawn from an independent adversarial evaluation — across domains,
+composes sixteen cause families — the handcrafted corpus's ten, four
+drawn from an independent adversarial evaluation, and a do-nothing
+control — across domains,
 trace lengths, injection depths, paraphrase pools and optional
 distractor pathologies — every scenario with mechanically derived ground
 truth (acceptable kinds, decisive steps, propagation chain, secondary
@@ -41,6 +42,7 @@ FAMILIES = (
     "blind_write", "divergence_only", "late_symptom", "distractor",
     "cascade", "multi_cause", "paraphrase_grader",
     "negation_answer", "wrong_entity", "causal_duplicate", "garbage_args",
+    "null_agent",
 )
 
 #: paraphrase_grader is the corpus's deliberate open challenge: the failing
@@ -364,6 +366,7 @@ def _scenario(family, index, rng):
              "pass": f"{sid}__pass.json", "secondary": [],
              "params": {"domain": domain_name, "fillers": fillers}}
     fail_term = "agent_stop"
+    garb = other = None  # set by the families that invent them
 
     if family == "paraphrase_grader":
         fail = [json.loads(json.dumps(s)) for s in passing]
@@ -667,6 +670,41 @@ def _scenario(family, index, rng):
                  "environment fault; an expected-miss family from the "
                  "adversarial evaluation")
 
+    elif family == "null_agent":
+        # the Agentic Benchmark Checklist's control: a do-nothing agent
+        # that restates the prompt.  A diagnoser that abstains here, or
+        # blames the grader, is scoring luck — the run took no step that
+        # could have produced the answer, and the decision not to is the
+        # cause
+        fail = [_step(0, "plan", "plan",
+                      "No lookup is needed; answering directly.", ""),
+                _answer(f"Regarding the request '{task['prompt']}': "
+                        f"no further action was taken.")]
+        entry.update(
+            acceptable=["divergence"], decisive_steps=[0, 1],
+            chain=[0, 1],
+            note="do-nothing control: plan to skip every tool, then restate "
+                 "the prompt; abstention is a miss here by construction")
+
+    # the injection contract's artifact: the text the implant put into the
+    # failing run, which the benchmark checks is reachable between the
+    # decisive step and the answer (a fault that leaves no trace between
+    # its cause and the failure is not a cause the trace can show)
+    artifacts = {
+        "wrong_fact": wrong_value, "cascade": wrong_value,
+        "late_symptom": wrong_value or "stale reference",
+        "distractor": wrong_value or "unofficial",
+        "multi_cause": ((wrong_value or "stale") if domain["write_tool"]
+                        else "503"),
+        "environment_fault": "503", "garbage_args": garb,
+        "wrong_entity": other,
+        "causal_duplicate": (domain["write_tool"][1].format(e=entity)
+                             if domain["write_tool"] else None),
+        "blind_write": "re-saved", "divergence_only": "unofficial summary",
+        "negation_answer": NEGATED[domain_name].format(e=entity, v=true_value),
+        "null_agent": "no further action was taken",
+    }
+    entry["artifact"] = artifacts.get(family)
     fail_traj = _trajectory(task, FAIL_AGENT[0], FAIL_AGENT[1], fail,
                             success=False, termination=fail_term,
                             tools=tools)
@@ -697,7 +735,7 @@ def generate(out_dir: Path, pairs: int, strip: bool = False) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     for stale in out_dir.glob("*.json"):
         stale.unlink()
-    manifest = {"version": 4, "generated": True, "pairs": pairs,
+    manifest = {"version": 5, "generated": True, "pairs": pairs,
                 "seed": SEED, "stripped": bool(strip), "scenarios": []}
     for i in range(pairs):
         family = FAMILIES[i % len(FAMILIES)]

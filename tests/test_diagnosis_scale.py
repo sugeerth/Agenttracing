@@ -2,7 +2,7 @@
 
 The handcrafted corpus proves the machinery; the procedural corpus
 (demo/diagnosis_bench/generate_scale.py) measures the diagnoser on cases
-nobody hand-tuned it against — 15 cause families x domains x lengths x
+nobody hand-tuned it against — 16 cause families x domains x lengths x
 distractors, ground truth derived from construction.  CI runs a 200-pair
 sample (10x the handcrafted corpus); the full 2,000-pair run is one CLI
 command away and, being seeded from the same generator, measures the

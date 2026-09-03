@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional, Union
 
 from ..record import Recorder
+from ..semantic import normalize_for_containment
 from .providers import Provider, ProviderError, ProviderResponse
 
 DEFAULT_SYSTEM = (
@@ -71,8 +72,7 @@ def contains_grader(answer: str, task: dict) -> Optional[bool]:
     expected = task.get("expected")
     if not isinstance(expected, str) or not expected.strip():
         return None
-    norm = lambda s: re.sub(r"\s+", " ", s.strip().lower())
-    return norm(expected) in norm(answer)
+    return normalize_for_containment(expected) in normalize_for_containment(answer)
 
 
 def _render_result(result: Any, limit: int = 4000) -> str:
