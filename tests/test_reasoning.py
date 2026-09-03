@@ -334,3 +334,50 @@ class TestNextActionContract(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAuditDefectsPinned(unittest.TestCase):
+    """Two defects a fresh-eyes audit of the demo found in the reading
+    layer, pinned so they stay fixed."""
+
+    ROOT = __import__("pathlib").Path(__file__).resolve().parent.parent
+
+    def _read(self, name):
+        traj = Trajectory.from_json(
+            str(self.ROOT / f"demo/traces/t05_flight_duration__{name}.json"))
+        return read_trace(traj, expected=traj.task.expected)
+
+    def test_supporting_detail_beside_the_expected_value_is_not_a_contradiction(self):
+        # the passing run answers 23h45m and lists the legs (13h40m, 2h15m,
+        # 7h50m); the first cut called every leg "contradicted" and told a
+        # correct run to "answer from the observation, not from memory"
+        reading = self._read("atlas-v2")
+        statuses = {r["value"]: r["status"] for r in reading["rests_on"]}
+        self.assertNotIn("contradicted", statuses.values(), statuses)
+        self.assertEqual(reading["answer_basis"]["status"], "supported")
+        self.assertFalse([f for f in reading["what_it_means"]
+                          if f["kind"] == "contradicted_by_own_observation"])
+
+    def test_a_replaced_expected_value_is_still_a_contradiction(self):
+        # the rule survives: an answer that OMITS an observed expected value
+        # and states another of the same kind is contradicted
+        synth = TestAnswerBasisAndValidity._synthetic([
+            {"type": "plan", "name": "plan", "input": "look it up", "output": ""},
+            {"type": "tool_call", "name": "lookup", "input": "lookup(x)",
+             "output": "The refund is $120.00.", "effect": "read"},
+            {"type": "answer", "name": "final", "input": "The refund is $95.00.",
+             "output": "The refund is $95.00."},
+        ], success=False)
+        reading = read_trace(synth, expected=synth.task.expected)
+        self.assertEqual(reading["rests_on"][0]["status"], "contradicted")
+
+    def test_a_clock_form_observation_supports_a_duration_atom(self):
+        # the failing run's calculator printed "6:40 + 2:15 + 2:50 = 11:45";
+        # its answer says 6h40m — that value came from step 1, not from
+        # nowhere, and the reading must say so before it says anything
+        # about what the calculator was fed
+        reading = self._read("bolt-v3")
+        by_value = {r["value"]: r for r in reading["rests_on"]}
+        self.assertEqual(by_value["6h40m"]["status"], "supported")
+        self.assertEqual(by_value["6h40m"]["first_step"], 1)
+        self.assertEqual(reading["answer_basis"]["status"], "supported")

@@ -1537,7 +1537,8 @@ def _cmd_explain(args: argparse.Namespace) -> int:
             where = (f"first at step {r['first_step']} ({r['source']})"
                      if r["first_step"] is not None else "NO earlier step")
             match = ("matches expected" if r["matches_expected"] is True else
-                     "contradicts expected" if r["matches_expected"] is False else
+                     ("contradicts expected" if r["status"] == "contradicted"
+                      else "not in expected") if r["matches_expected"] is False else
                      "no expected value to compare")
             print(f"    {r['value']} [{r['status'].replace('_', ' ')}] — {where}; {match}")
     checks = reading.get("phase_checks") or {}

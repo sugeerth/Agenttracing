@@ -29,6 +29,8 @@ Determinism is absolute: no clock, no randomness, no model.
 
 from __future__ import annotations
 
+import re
+
 from typing import Optional
 
 from . import process as _process
@@ -148,6 +150,7 @@ def _rests_on(traj: Trajectory, answer_idx: int, expected: Optional[str]) -> lis
     for i in range(answer_idx):
         if traj.steps[i].type in OBSERVATION_TYPES:
             observed_norms |= {n for _, _, n in extract_from_text(traj.steps[i].output or "")}
+    answer_norms = {n for _, _, n in extract_from_text(answer_text)}
     out: list = []
     seen = set()
     for kind, value, norm in extract_from_text(answer_text):
@@ -159,7 +162,9 @@ def _rests_on(traj: Trajectory, answer_idx: int, expected: Optional[str]) -> lis
         for i in range(answer_idx):
             step = traj.steps[i]
             if (step.type in OBSERVATION_TYPES
-                    and any(n == norm for _, _, n in extract_from_text(step.output or ""))):
+                    and (any(n == norm for _, _, n in extract_from_text(step.output or ""))
+                         or (kind == "duration"
+                             and norm in _clock_form_minutes(step.output or "")))):
                 supported_at = i
                 break
             if asserted_at is None and any(
@@ -182,8 +187,18 @@ def _rests_on(traj: Trajectory, answer_idx: int, expected: Optional[str]) -> lis
         else:
             status = "unsupported"
         matches = (norm in expected_atoms) if expected_atoms else None
-        if (matches is False and expected_atoms & observed_norms
-                and kind in {k for k, _, _ in extract_from_text(expected or "")}):
+        # contradicted means the answer REPLACED an expected value of this
+        # kind with another one after the trace had observed the right
+        # one.  An answer that carries the expected value and adds
+        # supporting detail of the same kind (leg durations beside the
+        # total) contradicts nothing — the first cut of this rule called
+        # every non-expected atom a contradiction and blamed a correct
+        # run for "answering 13h40m instead" (audit finding, pinned)
+        expected_same_kind = {n for k, _, n in extract_from_text(expected or "")
+                              if k == kind}
+        missing_expected = expected_same_kind - answer_norms
+        if (matches is False and missing_expected
+                and missing_expected & observed_norms):
             status = "contradicted"
         out.append({
             "kind": kind, "value": value, "status": status,
@@ -193,6 +208,19 @@ def _rests_on(traj: Trajectory, answer_idx: int, expected: Optional[str]) -> lis
             "matches_expected": matches,
         })
     return out
+
+
+_CLOCK_FORM_RE = re.compile(r"(?<![\dT:.-])(\d{1,2}):(\d{2})(?![\d:])")
+
+
+def _clock_form_minutes(text: str) -> set:
+    """Minute norms of bare ``H:MM`` tokens — the form a calculator returns
+    a duration in (``6:40 + 2:15 = 8:55``).  Only the support search uses
+    it, and only for duration atoms: an answer's ``6h40m`` rests on an
+    observation that printed ``6:40``.  Whether that quantity was a
+    correct duration is the grader's question, not the basis's; the
+    basis records where the value came from."""
+    return {str(int(h) * 60 + int(m)) for h, m in _CLOCK_FORM_RE.findall(text or "")}
 
 
 def _answer_basis(rests_on: list, answer_idx: int,
@@ -604,6 +632,28 @@ def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
                                  else "input", "answer contradicting an observation",
                                  "observable")],
             "evidence_class": "observable"})
+    if (success is False and rests_on
+            and any(r["matches_expected"] is not None for r in rests_on)
+            and all(r["status"] == "supported" for r in rests_on)
+            and not any(r["matches_expected"] for r in rests_on)):
+        # the expert reading of a faithful wrong answer: every value the
+        # answer states came from an observation, the answer relayed them
+        # without invention, and the grader still failed it — so the
+        # fault sits upstream of the answer, in what the observation was
+        # asked (a calculator fed local clock times, a lookup of the
+        # wrong record), not in how its result was used
+        basis_steps = answer_basis["basis_steps"]
+        findings.append({
+            "kind": "faithful_to_wrong_observation",
+            "statement": "the answer faithfully relays what step(s) "
+                         + ", ".join(str(i) for i in basis_steps)
+                         + " returned and still failed — the fault is in what "
+                           "the observation was asked, not in how its result "
+                           "was used",
+            "steps": list(basis_steps),
+            "evidence": [ev.span(i, "input", "what the observation was asked",
+                                 "observable") for i in basis_steps[:3]],
+            "evidence_class": "observable"})
     if answer_basis["steps_after_basis_complete"]:
         findings.append({
             "kind": "spent_after_basis",
@@ -705,6 +755,8 @@ def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
             action = "re-read before answering: the basis was superseded by a later call"
         elif f["kind"] == "contradicted_by_own_observation":
             action = "answer from the observation, not from memory — the right value was in the trace"
+        elif f["kind"] == "faithful_to_wrong_observation":
+            action = "check what the observation was asked before trusting what it returned — the answer relayed it faithfully and was still wrong"
         elif f["kind"] == "spent_after_basis":
             action = "stop when the basis is complete; the extra steps bought nothing"
         elif f["kind"] == "wasted_work":
