@@ -108,7 +108,7 @@ network, pinned by test.
 | 10 | **MAST cross-mapping** in the taxonomy (TRAIL already mapped) | MAST, TRAIL | queued |
 | 11 | **Narration evidence window** — the narrator sees decisive step ± neighbours and ledger quotes, never the whole trace | DuoTrace / detect-before-attribute, long-context judge collapse | shipped (v33, reading evidence window) |
 | 12 | **Same-config noise-floor diff** — a run compared with itself is the artifact floor every verdict must exceed | crosscoder sparsity artifacts, XAI-Δ specificity | queued |
-| 13 | **External validation** on the public Who&When and TRAIL data | Who&When, TRAIL | queued |
+| 13 | **External validation** on the public Who&When and TRAIL data | Who&When, TRAIL | measured on Who&When (184 logs): negative for the single-trace reading — 8/184 exact vs a 20/184 first-step floor; no passing twins, so the pairwise diagnoser could not run (docs/BENCHMARK.md) |
 | UI-1 | **Confidence-graded rings and edges** with a legend of states | uncertainty-vis literature, Who&When accuracy | queued |
 | UI-2 | **Loop collapse (×N badges) and phase segments**; unified-collapse block for long one-sided stretches | Langfuse agent graphs, AgentLens (TVCG 2025), split-vs-unified diff | queued |
 | UI-3 | **Word-level diff in step detail**; hover-propagated causal paths; overview minimap; claim curves gated past ~15 | LLM Comparator (VIS 2024), Anthropic attribution-graph UI, MatrixWave | queued |
