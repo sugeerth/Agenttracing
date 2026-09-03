@@ -131,14 +131,21 @@ def verdict_card(report: dict) -> dict:
         fix_side = subject if subject in ("a", "b") else "a"
     if fix_side:
         actions = (reading.get(fix_side) or {}).get("take_forward") or []
-        first = next((t for t in actions if t.get("at_step") is not None), None) \
+        # the fix belongs at the decisive step when a next action exists
+        # there; otherwise the first located one, else the first
+        decisive_step = decisive.get("step") if subject == fix_side else None
+        first = (next((t for t in actions if t.get("at_step") == decisive_step), None)
+                 if decisive_step is not None else None) \
+            or next((t for t in actions if t.get("at_step") is not None), None) \
             or (actions[0] if actions else None)
         if first:
             where = (f"at step {first['at_step']}: " if first.get("at_step") is not None
                      else "")
             lines.append({"key": "fix",
                           "text": f"{_side_name(report, fix_side)} — {where}{first['instead']}",
-                          "source": f"reading.{fix_side}.take_forward[0]",
+                          "source": f"reading.{fix_side}.take_forward"
+                                    + ("[at the decisive step]" if decisive_step is not None
+                                       and first.get("at_step") == decisive_step else "[0]"),
                           "step": first.get("at_step"), "side": fix_side})
 
     # --- confidence

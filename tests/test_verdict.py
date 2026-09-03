@@ -84,6 +84,23 @@ class TestVerdictCard(unittest.TestCase):
         for label in ("VERDICT", "CAUSE", "COST", "FIX", "CONF"):
             self.assertIn(label, text)
 
+    def test_fix_points_at_the_decisive_step_when_a_next_action_exists_there(self):
+        # audit finding: t01's cause was B step 2 and the fix chip said B step 1
+        report = json.loads(json.dumps(self.t05))
+        step = report["diagnosis"]["decisive_step"]["step"]
+        report["reading"]["b"]["take_forward"] = [
+            {"at_step": step + 3, "instead": "something else", "what": "x", "action": "something else",
+             "because": "y", "steps": [step + 3], "refs": [], "replay_recipe": None,
+             "conditional_on_validity": False},
+            {"at_step": step, "instead": "the fix at the decisive step", "what": "x",
+             "action": "the fix at the decisive step", "because": "y", "steps": [step],
+             "refs": [], "replay_recipe": None, "conditional_on_validity": False},
+        ]
+        fix = next(l for l in verdict_card(report)["lines"] if l["key"] == "fix")
+        self.assertEqual(fix["step"], step)
+        self.assertIn("the fix at the decisive step", fix["text"])
+        self.assertIn("at the decisive step", fix["source"])
+
     def test_a_pair_with_no_spend_difference_has_no_cost_line(self):
         report = json.loads(json.dumps(self.t05))
         report["tradeoff"]["spend_delta_b_minus_a"] = {

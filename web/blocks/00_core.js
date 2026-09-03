@@ -37,7 +37,7 @@
   //: what to do next, the step under the cursor, what the difference cost.
   //: They answer the reader's next five questions; everything else stays in
   //: the columns. Dashboard mode puts them back.
-  var STORY_BLOCKS = ["reading", "diagnosis", "actions", "step-detail", "deltas"];
+  var STORY_BLOCKS = ["reading", "diagnosis", "actions", "deltas"];
   function isStoryBlock(id) { return State.prefs && State.prefs.view === "story" && STORY_BLOCKS.indexOf(id) >= 0; }
 
   //: the three views. Story: lead + hero + the story lane. Evidence: the
@@ -1151,7 +1151,8 @@
       }
       body.addEventListener("click", function () { recordSignal(item.id, "inspect"); }, { once: true });
       body.addEventListener("mouseenter", function () { recordSignal(item.id, "hover"); }, { once: true });
-      clampIfTall(card, body, item);
+      // the hero is the page's picture: never clamped, its inspector included
+      if (!hero) clampIfTall(card, body, item);
     }
 
     card.appendChild(head);
@@ -2167,7 +2168,10 @@
     // exposed for the smoke test, not for block modules
     // blocks that keep local state (a show-all toggle) ask for a re-render
     _rerender: function () { renderAll(); },
+    // a block may host another block's renderer (the map hosts the timeline)
+    blockEntry: function (id) { return BY_ID[id] || null; },
     _internals: {
+      blockEntry: function (id) { return BY_ID[id] || null; },
       rank: rank, reconcile: reconcile, defaultLayout: defaultLayout,
       resolveHero: resolveHero, promoteHero: promoteHero, demoteHero: demoteHero,
       DEFAULT_HERO: DEFAULT_HERO,

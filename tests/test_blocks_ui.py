@@ -1394,6 +1394,53 @@ class MapRedesignTest(unittest.TestCase):
         self.assertEqual(errors, [])
         context.close()
 
+    def test_the_inspector_is_docked_beside_the_map_and_follows_the_cursor(self):
+        # the step under the cursor is read beside the map, in the same
+        # view, and a node click moves it; the map is never clamped
+        context, page, errors = self.open(self.report, 1440, hero=True)
+        inspector = page.locator("#hero-lane .tj-inspector")
+        self.assertEqual(inspector.count(), 1)
+        cell = page.evaluate("""() => { const svg = document.querySelector('#hero-lane svg.tj');
+            const cell = svg.closest('.tjm-cell'); return [svg.getBoundingClientRect().width, cell.clientWidth]; }""")
+        self.assertLessEqual(cell[0], cell[1] + 1)
+        before = inspector.locator(".tag.mono").first.inner_text()
+        row = next(i for i, r in enumerate(self.pair["alignment"]) if r.get("b_index") == 3)
+        page.locator('#hero-lane svg.tj g.tj-hit[data-side="b"][data-i="3"]').first.dispatch_event("click")
+        page.wait_for_timeout(300)
+        after = inspector.locator(".tag.mono").first.inner_text()
+        self.assertEqual(after, f"row {row}")
+        self.assertNotEqual(before, after)
+        self.assertEqual(page.locator('#hero-lane button:has-text("Show all")').count(), 0,
+                         "the hero must not be clamped")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_map_carries_the_timeline_as_a_second_view(self):
+        context, page, errors = self.open(self.report, 1440, hero=True)
+        page.locator('#hero-lane [data-mapview="timeline"]').click()
+        page.wait_for_timeout(500)
+        self.assertGreater(page.locator("#hero-lane .tjm-cell .grp").count(), 0, "timeline controls")
+        self.assertEqual(page.locator("#hero-lane svg.tj g.tj-hit[data-side]").count(), 0, "the map is not drawn in timeline view")
+        page.locator('#hero-lane [data-mapview="map"]').click()
+        page.wait_for_timeout(500)
+        self.assertGreater(page.locator("#hero-lane svg.tj g.tj-hit[data-side]").count(), 0)
+        # the standalone tracks block stands down to the drawer
+        self.assertEqual(page.locator('#stacks .block[data-block="tracks"], #story-lane .block[data-block="tracks"]').count(), 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_legend_is_one_line_with_the_rest_behind_a_disclosure(self):
+        context, page, errors = self.open(self.report, 1440, hero=True)
+        foot = page.locator("#hero-lane .tjm-foot").first
+        self.assertLessEqual(foot.locator(".k").count(), 5)
+        self.assertIn("decisive step", foot.inner_text())
+        more = page.locator("#hero-lane .tjm-legend-more")
+        self.assertEqual(more.count(), 1)
+        self.assertFalse(more.evaluate("d => d.open"))
+        more.locator("summary").click()
+        self.assertIn("Tab to a step", more.inner_text())
+        context.close()
+
     def test_step_detail_shows_a_word_diff_for_the_divergent_row(self):
         context, page, errors = self.open(self.report, 1440, hero=True)
         row = next(i for i, r in enumerate(self.pair["alignment"])

@@ -258,7 +258,15 @@ body[data-view="story"] .story-lane .ax-row,
 body[data-view="story"] .story-lane .tj-pane,
 body[data-view="story"] .story-lane .tj-text,
 body[data-view="story"] .story-lane .rd-validity,
-body[data-view="story"] .story-lane .tj-diff { border-color: transparent; background: transparent; box-shadow: none; }
+body[data-view="story"] .story-lane .tj-diff,
+body[data-view="story"] .hero-lane .tj-inspector,
+body[data-view="story"] .hero-lane .tj-pane,
+body[data-view="story"] .hero-lane .tj-text,
+body[data-view="story"] .hero-lane .tj-diff { border-color: transparent; background: transparent; box-shadow: none; }
+body[data-view="story"] .hero-lane .tj-inspector { border-left: 1px solid var(--rule); border-radius: 0; }
+body[data-view="story"] .hero-lane .tj-inspector .block-body { padding: 6px 0 0 14px; }
+body[data-view="story"] .hero-lane .tj-inspector-title { padding-left: 14px; }
+body[data-view="story"] .hero-lane .tj-text { background: var(--surface-2); border-radius: 6px; }
 body[data-view="story"] .story-lane .dx-verdict,
 body[data-view="story"] .story-lane .dx-decisive,
 body[data-view="story"] .story-lane .rd-validity { border-left-color: var(--accent); border-left-width: 3px; padding-left: 12px; }
@@ -628,7 +636,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   //: what to do next, the step under the cursor, what the difference cost.
   //: They answer the reader's next five questions; everything else stays in
   //: the columns. Dashboard mode puts them back.
-  var STORY_BLOCKS = ["reading", "diagnosis", "actions", "step-detail", "deltas"];
+  var STORY_BLOCKS = ["reading", "diagnosis", "actions", "deltas"];
   function isStoryBlock(id) { return State.prefs && State.prefs.view === "story" && STORY_BLOCKS.indexOf(id) >= 0; }
 
   //: the three views. Story: lead + hero + the story lane. Evidence: the
@@ -1742,7 +1750,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       }
       body.addEventListener("click", function () { recordSignal(item.id, "inspect"); }, { once: true });
       body.addEventListener("mouseenter", function () { recordSignal(item.id, "hover"); }, { once: true });
-      clampIfTall(card, body, item);
+      // the hero is the page's picture: never clamped, its inspector included
+      if (!hero) clampIfTall(card, body, item);
     }
 
     card.appendChild(head);
@@ -2758,7 +2767,10 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     // exposed for the smoke test, not for block modules
     // blocks that keep local state (a show-all toggle) ask for a re-render
     _rerender: function () { renderAll(); },
+    // a block may host another block's renderer (the map hosts the timeline)
+    blockEntry: function (id) { return BY_ID[id] || null; },
     _internals: {
+      blockEntry: function (id) { return BY_ID[id] || null; },
       rank: rank, reconcile: reconcile, defaultLayout: defaultLayout,
       resolveHero: resolveHero, promoteHero: promoteHero, demoteHero: demoteHero,
       DEFAULT_HERO: DEFAULT_HERO,
@@ -5862,8 +5874,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       // the body's real padding: the hero lane pads wider than a column,
       // and a drawing that assumes the column's padding overflows the hero
       var cs = getComputedStyle(el);
-      var p = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
-      if (p > 0) pad = p;
+      pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
     } catch (err) { w = 0; }
     if (!w) w = 340;
     return Math.max(220, w - pad);
@@ -6508,48 +6519,49 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     group: "trajectory",
     size: "wide",
     relevance: function (ctx) {
-      var report = ctx.report;
-      if (!report) return 0;
-      if (!rowsOf(report).length) return 0;
-      if (!stepsOf(report, "a").length && !stepsOf(report, "b").length) return 0;
-      var divergent = (report.divergences || []).length;
-      return divergent ? 1 : 0.86;
+      // the map carries the timeline as one of its two views; this block
+      // is kept for the drawer (and for anyone who wants both at once)
+      return 0;
     },
-    render: function (el, ctx) {
-      bind(ctx);
-      ensureStyle();
-      var report = ctx.report;
-      if (!report) return ctx.empty(el, "No report loaded.");
-      var rows = rowsOf(report);
-      if (!rows.length) return ctx.empty(el, "This report carries no alignment, so there is nothing to lay side by side.");
-      if (!stepsOf(report, "a").length && !stepsOf(report, "b").length) {
-        return ctx.empty(el, "Neither trajectory recorded any steps.");
-      }
-      syncTask(ctx);
-
-      Plan = buildPlan(report);
-      if (Plan.total <= 0 && View.mode === "time") View.mode = "columns";
-
-      el.appendChild(sideHeader(report));
-      var readout = H("div", { class: "tj-read" });
-      var extras = H("div");   // legends + captions, filled per mode
-      var host = null;
-      el.appendChild(controlsBar(ctx, function () {
-        if (!host) return;
-        host.innerHTML = "";
-        drawTracks(host, measure(el), ctx, readout, extras);
-      }));
-      host = sized(el, ctx, function (box, avail) {
-        drawTracks(box, avail, ctx, readout, extras);
-      });
-      el.appendChild(readout);
-      el.appendChild(extras);
-      subscribe(el, function () {
-        host.innerHTML = "";
-        drawTracks(host, measure(el), ctx, readout, extras);
-      });
-    },
+    render: function (el, ctx) { renderTracksInto(el, ctx, true); },
   });
+
+  /* The timeline (columns / wall-clock time, with replay) drawn into any
+   * host: its own block in the drawer, or the map's "timeline" view. */
+  function renderTracksInto(el, ctx, withHeader) {
+    bind(ctx);
+    ensureStyle();
+    var report = ctx.report;
+    if (!report) return ctx.empty(el, "No report loaded.");
+    var rows = rowsOf(report);
+    if (!rows.length) return ctx.empty(el, "This report carries no alignment, so there is nothing to lay side by side.");
+    if (!stepsOf(report, "a").length && !stepsOf(report, "b").length) {
+      return ctx.empty(el, "Neither trajectory recorded any steps.");
+    }
+    syncTask(ctx);
+
+    Plan = buildPlan(report);
+    if (Plan.total <= 0 && View.mode === "time") View.mode = "columns";
+
+    if (withHeader) el.appendChild(sideHeader(report));
+    var readout = H("div", { class: "tj-read" });
+    var extras = H("div");   // legends + captions, filled per mode
+    var host = null;
+    el.appendChild(controlsBar(ctx, function () {
+      if (!host) return;
+      host.innerHTML = "";
+      drawTracks(host, measure(el), ctx, readout, extras);
+    }));
+    host = sized(el, ctx, function (box, avail) {
+      drawTracks(box, avail, ctx, readout, extras);
+    });
+    el.appendChild(readout);
+    el.appendChild(extras);
+    subscribe(el, function () {
+      host.innerHTML = "";
+      drawTracks(host, measure(el), ctx, readout, extras);
+    });
+  }
 
   function typeLegend() {
     var items = [{ heading: "step" }];
@@ -7355,9 +7367,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     host.appendChild(H("p", {
       class: "caveat",
       text: sel.pinned
-        ? "Showing the step you selected in Tracks or the ribbon."
+        ? "Showing the step you selected in the map, the ribbon or a chip."
         : "Nothing selected yet, so this is " + (sel.why || "the first row") +
-          ". Click any step in Tracks to change it.",
+          ". Click any step in the map to change it.",
     }));
   }
 
@@ -7816,6 +7828,22 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       ".tjm-foot .k{display:inline-flex;align-items:center;gap:4px}",
       ".tjm-note{margin-top:6px;font-size:11px;color:var(--ink-2);",
       "border-left:2px solid var(--warn);padding-left:7px}",
+      ".tjm-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}",
+      ".tjm-head .sp{flex:1}",
+      ".tjm-view{display:inline-flex;border:1px solid var(--rule-2);border-radius:7px;overflow:hidden}",
+      ".tjm-view button{border:0;background:var(--surface-2);color:var(--ink-2);font:600 12px/24px inherit;",
+      "padding:0 10px;cursor:pointer}.tjm-view button+button{border-left:1px solid var(--rule)}",
+      ".tjm-view button[aria-pressed=true]{background:var(--accent);color:#fff}",
+      ".tjm-grid{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:14px;align-items:start}",
+      "@media (max-width:1079px){.tjm-grid{grid-template-columns:minmax(0,1fr)}}",
+      ".tjm-cell{min-width:0}",
+      ".tj-inspector{min-width:0;border:1px solid var(--rule);border-radius:8px;background:var(--surface)}",
+      ".tj-inspector .block-body{padding:10px 12px}",
+      ".tj-inspector-title{font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:700;",
+      "color:var(--ink-3);padding:8px 12px 0}",
+      ".tjm-legend-more{margin-top:4px}.tjm-legend-more>summary{cursor:pointer;font-size:11px;",
+      "color:var(--ink-3);list-style:none}.tjm-legend-more>summary::before{content:'▸ '}",
+      ".tjm-legend-more[open]>summary::before{content:'▾ '}",
       "svg.tj g.tj-hit{cursor:pointer;outline:none}",
       "svg.tj g.tj-hit:focus-visible .tjm-focus{opacity:1}",
       ".tj-diff{margin-top:8px;border-top:1px solid var(--rule);padding-top:6px}",
@@ -7930,16 +7958,74 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         return ctx.empty(el, "Neither trajectory recorded any steps.");
       }
       syncTask(ctx);
-      el.appendChild(sideHeader(report));
-      var host = sized(el, ctx, function (box, avail) {
-        drawMap(box, avail, ctx);
-      });
-      subscribe(el, function () {
-        host.innerHTML = "";
-        drawMap(host, measure(el), ctx);
-      });
+
+      // header row: the two runs, then the view switch (map | timeline)
+      var head = H("div", { class: "tjm-head" }, [
+        sideHeader(report),
+        H("span", { class: "sp" }),
+        H("div", { class: "grp tjm-view", role: "group", "aria-label": "map view" },
+          [["map", "map"], ["timeline", "timeline"]].map(function (opt) {
+            return H("button", {
+              type: "button", text: opt[1], "data-mapview": opt[0],
+              "aria-pressed": MapView.mode === opt[0] ? "true" : "false",
+              onclick: function () {
+                if (MapView.mode === opt[0]) return;
+                MapView.mode = opt[0];
+                try { ctx.signal("inspect"); } catch (e) { /* optional */ }
+                el.innerHTML = "";
+                AgentDiff.block ? null : null;
+                render(el, ctx);
+              },
+            });
+          })),
+      ]);
+      el.appendChild(head);
+
+      // the grid: the drawing on the left, the step under the cursor on
+      // the right — click a node and the step is read in the same view,
+      // never three screens down. One column on narrow screens.
+      var grid = H("div", { class: "tjm-grid" });
+      var cell = H("div", { class: "tjm-cell" });
+      var inspector = H("div", { class: "tj-inspector block", "data-block": "step-detail",
+                                 "aria-label": "the step under the cursor" });
+      grid.appendChild(cell);
+      grid.appendChild(inspector);
+      el.appendChild(grid);
+
+      if (MapView.mode === "timeline") {
+        renderTracksInto(cell, ctx, false);
+      } else {
+        var host = sized(cell, ctx, function (box, avail) {
+          drawMap(box, avail, ctx);
+        });
+        subscribe(cell, function () {
+          host.innerHTML = "";
+          drawMap(host, measure(cell), ctx);
+        });
+      }
+      function paintInspector() {
+        inspector.innerHTML = "";
+        inspector.appendChild(H("div", { class: "tj-inspector-title", text: "Step under the cursor" }));
+        var body = H("div", { class: "block-body" });
+        inspector.appendChild(body);
+        if (!rowsOf(report).length) { ctx.empty(body, "No alignment rows to open."); return; }
+        drawDetail(body, ctx);
+      }
+      paintInspector();
+      subscribe(inspector, paintInspector);
+      function render(node, c) { BY_MAP.render(node, c); }
     },
   });
+  var BY_MAP = { render: null };
+  BY_MAP.render = function (el, ctx) {
+    // re-entry for the view switch: the registered render, called again
+    var entry = null;
+    try { entry = AgentDiff._internals && AgentDiff._internals.blockEntry && AgentDiff._internals.blockEntry("trajectory-map"); } catch (e) { entry = null; }
+    if (entry && entry.render) return entry.render(el, ctx);
+    // fall back to a full page re-render
+    if (AgentDiff._rerender) AgentDiff._rerender();
+  };
+  var MapView = { mode: "map" };
 
   // ------------------------------------------------------------ loop groups
   //
@@ -7994,7 +8080,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     // room that is left up to ~420px each; a narrow column shrinks the
     // gutter first and drops the excerpt line before it ever touches a name.
     var W = Math.max(280, avail - 4);
-    var gutter = W >= 960 ? 240 : W >= 720 ? 200 : Math.max(84, Math.min(200, Math.round(W * 0.28)));
+    var gutter = W >= 960 ? 240 : W >= 620 ? 200 : Math.max(84, Math.min(200, Math.round(W * 0.28)));
     var laneW = Math.min(420, Math.floor((W - gutter) / 2));
     var cx = W / 2;
     var laneA = Math.round(cx - gutter / 2), laneB = Math.round(cx + gutter / 2);
@@ -8426,22 +8512,30 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       },
     }) : null;
 
+    // the legend: the four marks that matter on one line; the rest, and
+    // the keys, behind a disclosure
     var foot = H("div", { class: "tjm-foot" }, [
-      legendKey("solid line", "matched step"),
-      legendKey("dashed line", "drifted / divergent — the label is the aligner's score"),
-      legendKey("dotted curve", "same claim in both runs (red = wrong-valued)"),
-      legendKey("open stub", "step only this run took — nothing to pair with"),
-      legendKey("×N", "identical consecutive steps, collapsed — click to expand"),
-      legendKey("outer band", "phase of work from the reading"),
+      legendKey("solid line", "matched"),
+      legendKey("dashed line", "drifted / divergent, with the aligner's score"),
       dec ? legendKey(dec.verification === "replay-verified" ? "solid red ring" : "long-dashed red ring",
                       "decisive step — " + (dec.verification === "replay-verified"
                         ? "replay-verified" : "hypothesized, not replay-verified")) : null,
-      root ? legendKey("short-dashed red ring", "attributed root") : null,
-      dec ? legendKey("amber halo", "on the causal account") : null,
-      legendKey("keys", "Tab to a step, Enter opens it, ↑↓ move along the run, ←→ cross the gutter"),
+      legendKey("dotted curve", "same claim in both runs (red = wrong-valued)"),
       claimsChip,
     ]);
     host.appendChild(foot);
+    var more = H("details", { class: "tjm-legend-more" }, [
+      H("summary", { text: "full legend and keys" }),
+      H("div", { class: "tjm-foot" }, [
+        legendKey("open stub", "step only this run took — nothing to pair with"),
+        legendKey("×N", "identical consecutive steps, collapsed — click to expand"),
+        legendKey("outer band", "phase of work from the reading"),
+        root ? legendKey("short-dashed red ring", "attributed root") : null,
+        dec ? legendKey("amber halo", "on the causal account") : null,
+        legendKey("keys", "Tab to a step, Enter opens it, ↑↓ move along the run, ←→ cross the gutter"),
+      ]),
+    ]);
+    host.appendChild(more);
 
     if (dec && dec.contested) {
       host.appendChild(H("div", { class: "tjm-note",
