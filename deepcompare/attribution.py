@@ -126,6 +126,10 @@ def attribute(
     chain = sorted(set(chain))
 
     reason = _ROOT_REASONS.get(category, "took a divergent step")
+    if root_step.type == "answer":
+        # the root is the answer itself: it committed to a different
+        # answer, it did not "make an incorrect tool call"
+        reason = "committed to a different answer"
     if root_step.quality in ("weak", "bad"):
         reason += f' ({root_step.quality}-quality: "{root_step.name or _snippet(root_step.input)}")'
     elif root_step.name or root_step.input:

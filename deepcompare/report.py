@@ -30,6 +30,7 @@ from .process import compare_process
 from .tradeoff import pair_tradeoff
 from .shapley import shapley_attribution
 from .uncertainty import analyze as analyze_uncertainty
+from .verdict import verdict_card
 
 #: the template line containing this marker is replaced wholesale.
 DATA_MARKER = "window.DEEPCOMPARE_DATA"
@@ -122,6 +123,9 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
     # independent of the comparison — what happened, what the answer rests
     # on, why it ended that way, what it means, what to take forward
     report["reading"] = {"a": read_trace(a), "b": read_trace(b)}
+    # the five-line card the reader sees first; every line quotes a
+    # section above, so it is computed last
+    report["verdict_card"] = verdict_card(report)
     return report
 
 

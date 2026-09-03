@@ -10,4 +10,4 @@ from .report import compare
 from .trace import Trajectory
 
 __all__ = ["compare", "read_trace", "Trajectory"]
-__version__ = "0.1.0"
+__version__ = "0.9.0"

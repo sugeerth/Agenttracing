@@ -1822,6 +1822,48 @@ decoy families at 1.0 on cause kind; the valueless ticket domain, which
 has no typed wrong fact to re-anchor on, stays adjacent by one step and
 is reported as such.
 
+## The verdict card, the demo, and sentences worth printing (v37)
+
+Every pair report carries `verdict_card`: `{version: 1, lines: [{key,
+text, source, step?, side?}]}` with keys `verdict`, `cause`, `cost`,
+`fix`, `confidence`, in that order, computed last by `verdict.verdict_card`
+so that every line quotes a section already on the report:
+
+- `verdict` from the two outcomes ("A solved t; B failed.");
+- `cause` from `diagnosis.decisive_step` — the step, the leading
+  hypothesis's category, the verification state — with the mechanism
+  taken from the trace's own step `note` when the decisive step carries
+  one, else the leading hypothesis's statement; carries `step`/`side`;
+- `cost` from `tradeoff.spend_delta_b_minus_a`, listing only the parts
+  that differ, and "faster to nothing" when the cheaper run failed;
+- `fix` from the failing (or costlier) side's first located
+  `reading.take_forward` entry, carrying `step`/`side`;
+- `confidence` from `diagnosis.confidence`, plus whether the decisive
+  step is replay-verified.
+
+A line with nothing to say is omitted — no `cost` when nothing differed.
+The CLI prints the card first (`compare`, `demo`); the blocks page renders
+it in a new **lead lane** above the hero (`web/blocks/04_verdict.js`,
+registered with `lead: true`; lead blocks have one home, no layout
+controls, and their step lines are chips that move the shared cursor).
+
+New commands and flags: `agentdiff demo [-o DIR] [--open]` compares the
+shipped pairs, writes the blocks report and prints the flagship card;
+`compare --html PATH` writes the blocks page for one pair; `explain
+--html PATH` writes a stdlib-rendered page of one reading
+(`deepcompare/htmlout.py`). `web/blocks.html` is now the default report
+template for `batch`, `runs` and `fleet`; `--template web/viewer.html`
+keeps the earlier viewer.
+
+Sentences with nothing in them are no longer emitted: success analysis
+lists only the steps/tokens/latency actually avoided; recommendations
+list only non-zero extra spend; a run's ending reads "termination not
+declared" rather than "undeclared (not declared)"; an answer-step root
+"committed to a different answer" rather than "made an incorrect tool
+call". The demo agents' `model` labels are `sim-*` — they are scripts,
+and vendor names implied a comparison of real models that never ran.
+`deepcompare.__version__` matches `pyproject.toml`.
+
 ## Paired inference and clustered error bars (v34)
 
 Two agents on the same tasks is a paired design, and a paired test has

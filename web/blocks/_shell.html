@@ -167,6 +167,10 @@ select.picker {
 /* ---------- the hero lane ---------- */
 /* One block at the full content width, above the columns. A trajectory is a
    wide thing; read 300px at a time it is not a trajectory, it is a list. */
+.lead-lane { padding: 16px 18px 0; }
+.lead-lane[hidden] { display: none; }
+.block.lead { border-color: color-mix(in srgb, var(--accent) 34%, var(--rule)); }
+.block.lead .block-head { background: color-mix(in srgb, var(--accent) 7%, var(--surface-2)); }
 .hero-lane { padding: 16px 18px 0; }
 .hero-lane[hidden] { display: none; }
 .hero-lane.flash .block { outline: 2px solid var(--accent); outline-offset: 4px; }
@@ -221,6 +225,7 @@ select.picker {
 @media (max-width: 640px) {
   .reading { gap: 5px 6px; padding: 10px 10px 0; }
   .hero-lane { padding: 12px 10px 0; }
+  .lead-lane { padding: 12px 10px 0; }
   .stacks { padding: 14px 10px 80px; }
 }
 
@@ -415,6 +420,10 @@ label.check input { margin-top: 2px; }
      the page, not one card in one of four columns. Populated by the core
      through the ordinary block render(el, ctx) — nothing here knows what a
      trace looks like. -->
+<!-- The lead lane: blocks registered with `lead: true` render here, first
+     on the page and at full width, above the hero. They have one home and
+     no layout controls — a verdict is not a card you rearrange. -->
+<div class="lead-lane" id="lead-lane" hidden></div>
 <div class="hero-lane" id="hero-lane" hidden></div>
 
 <nav class="reading" id="reading" aria-label="Reading order"></nav>

@@ -102,7 +102,7 @@ network, pinned by test.
 | 4 | **Paired + clustered error bars, sign/McNemar test on aligned pairs** | Miller, *Adding Error Bars to Evals* (Anthropic 2024) | shipped (v34) |
 | 5 | **Leakage-probe baseline** in the benchmark — a surface-cue detector; headline = engine − probe margin | Leaky Model Organisms (2026) | shipped — **measured finding**: kind margin +0.33/+0.28, step margin +0.09 annotated and −0.02 stripped: the step axis leaks (the implanted decisive step is usually the first novel step) |
 | 6 | **Null-agent control + grader-shortcut audit + injection contract** (clean twin passes; artifact reachable in the chain) | Agentic Benchmark Checklist, AgentTrace, MAS-FIRE | shipped (null_agent family; invalid_pairs excluded and counted; artifact reachability) |
-| 7 | **Evidence-class weighting** — observable events outrank stated reasons; verdicts tag their supporting class | Anthropic CoT faithfulness, Arcuschin | queued |
+| 7 | **Evidence-class weighting** — observable events outrank stated reasons; verdicts tag their supporting class | Anthropic CoT faithfulness, Arcuschin | partly: findings carry evidence_class (reading v2); ledger weighting queued |
 | 8 | **Overdetermination guard** — the corrected step must be materially different from the original before a flip counts | Thought Anchors (2025) | queued |
 | 9 | **pass^k with CI + depth-stratified flakiness** in consolidation | τ-bench, Beyond pass@1 (2026) | queued |
 | 10 | **MAST cross-mapping** in the taxonomy (TRAIL already mapped) | MAST, TRAIL | queued |
@@ -125,12 +125,12 @@ in the survey's impact × feasibility order:
 
 | # | Item | Source insight | Status |
 |---|------|----------------|--------|
-| R1 | **Answer-basis statuses** — each answer atom `supported` (first seen in an observation step), `self_asserted` (only in plan/reason), `unsupported`, `contradicted`, `stale`; plus `basis_complete_at` and `steps_after_basis_complete` (spend after the answer was available) | evidence-tracing survey (2026), AgentTrails (VLDB 2026) | queued |
-| R2 | **Phase-order checks** — first write before any read, verification after the last write, regression cycles (act→locate→act) | AgentLens (TVCG 2025), TRAJEVAL, Lucky-Pass AgentLens (2026) | queued |
-| R3 | **Error lifecycle** — per error occurrence: `resolved` / `unresolved_with_footprint` / `unresolved_without_footprint`; critical = earliest unresolved with a footprint in the answer | TrajDebug (2026), AgentDebug (2025) | queued |
-| R4 | **Bounded evidence window** for the narrator — referenced steps only, trace order, byte budget, `omitted_steps` stated, verdict at top and bottom | Context Rot (Chroma 2025), position-bias studies, Inspect Scout | queued |
-| R5 | **Next-action contract** — `{at_step, what, instead, refs, replay_recipe}`; the narrator may phrase, never invent an `instead` | Reflexion, AgentDebug, AgentDebugX | queued |
-| R6 | **Validity block** — harness-terminated, tool failure rate, answer without basis, expected answer leaked into an observation; anything here suppresses agent-attributed verdicts | HAL (ICLR 2026), transcript-flaw scanners, NIST CAISI | queued |
+| R1 | **Answer-basis statuses** — each answer atom `supported` (first seen in an observation step), `self_asserted` (only in plan/reason), `unsupported`, `contradicted`, `stale`; plus `basis_complete_at` and `steps_after_basis_complete` (spend after the answer was available) | evidence-tracing survey (2026), AgentTrails (VLDB 2026) | shipped (reading v2; SCHEMA v33) |
+| R2 | **Phase-order checks** — first write before any read, verification after the last write, regression cycles (act→locate→act) | AgentLens (TVCG 2025), TRAJEVAL, Lucky-Pass AgentLens (2026) | shipped (reading v2; SCHEMA v33) |
+| R3 | **Error lifecycle** — per error occurrence: `resolved` / `unresolved_with_footprint` / `unresolved_without_footprint`; critical = earliest unresolved with a footprint in the answer | TrajDebug (2026), AgentDebug (2025) | shipped (reading v2; SCHEMA v33) |
+| R4 | **Bounded evidence window** for the narrator — referenced steps only, trace order, byte budget, `omitted_steps` stated, verdict at top and bottom | Context Rot (Chroma 2025), position-bias studies, Inspect Scout | shipped (reading v2; SCHEMA v33) |
+| R5 | **Next-action contract** — `{at_step, what, instead, refs, replay_recipe}`; the narrator may phrase, never invent an `instead` | Reflexion, AgentDebug, AgentDebugX | shipped (reading v2; SCHEMA v33) |
+| R6 | **Validity block** — harness-terminated, tool failure rate, answer without basis, expected answer leaked into an observation; anything here suppresses agent-attributed verdicts | HAL (ICLR 2026), transcript-flaw scanners, NIST CAISI | shipped (reading v2; SCHEMA v33) |
 | R7 | **Meltdown onset** — sliding-window entropy of tool names collapsing to zero while steps continue | Beyond pass@1 (2026) | queued |
 | R8 | **Expired observations / stale basis** — same target later returned a different output | AgentDiet (FSE 2026), RedundancyBench | queued |
 | R9 | **Strained coherence** — acknowledged a problem and acted against it; lexical, labelled as such, position as a fraction | Strained Coherence (2026) | queued |

@@ -3,7 +3,7 @@
   "trace_id": "t08_changelog_diff__atlas-v2",
   "agent": {
     "name": "atlas-v2",
-    "model": "claude-sonnet-5",
+    "model": "sim-planner-2",
     "version": "v2"
   },
   "task": {

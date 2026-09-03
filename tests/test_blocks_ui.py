@@ -564,6 +564,37 @@ class DecisiveStepBlockTest(unittest.TestCase):
             block = page.locator('.block[data-block="diagnosis"]')
         return context, page, block, errors
 
+    def test_the_verdict_card_leads_the_page_and_its_chips_move_the_cursor(self):
+        # the lead lane: the card is the first block on the page, above the
+        # hero, full width, never in a column; each line quotes the
+        # report's card verbatim; a step chip moves the shared cursor to
+        # the alignment row of that step, exactly as a map click does
+        context = self.browser.new_context()
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"file://{self.t05_report}")
+        page.wait_for_timeout(500)
+        lead = page.locator('#lead-lane .block[data-block="verdict-card"]')
+        self.assertEqual(lead.count(), 1, "verdict card is not in the lead lane")
+        self.assertEqual(page.locator('#stacks .block[data-block="verdict-card"]').count(), 0)
+        lead_box = lead.bounding_box()
+        hero_box = page.locator("#hero-lane").bounding_box()
+        self.assertLess(lead_box["y"] + lead_box["height"], hero_box["y"] + 1)
+        text = lead.inner_text()
+        for line in self.t05["verdict_card"]["lines"]:
+            self.assertIn(line["text"], text)
+        cause = next(l for l in self.t05["verdict_card"]["lines"] if l["key"] == "cause")
+        row = next(i for i, r in enumerate(self.t05["alignment"])
+                   if r.get(f"{cause['side']}_index") == cause["step"])
+        lead.locator(".vc-chip").first.dispatch_event("click")
+        page.wait_for_timeout(300)
+        detail = page.locator('.block[data-block="step-detail"]')
+        if detail.count():
+            self.assertEqual(detail.locator(".tag.mono").first.inner_text(), f"row {row}")
+        self.assertEqual(errors, [])
+        context.close()
+
     def test_decisive_step_and_causal_account_render_verbatim(self):
         context, page, block, errors = self.open_diagnosis(self.t05_report)
         diagnosis = self.t05["diagnosis"]

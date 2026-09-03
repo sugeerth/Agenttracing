@@ -3,7 +3,7 @@
   "trace_id": "t03_saas_pricing__bolt-v3",
   "agent": {
     "name": "bolt-v3",
-    "model": "gpt-5",
+    "model": "sim-sprinter-3",
     "version": "v3"
   },
   "task": {

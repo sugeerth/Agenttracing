@@ -202,12 +202,22 @@ def success_analysis(report: dict, a: Trajectory, b: Trajectory) -> Optional[dic
         f"{winner_name} won on {basis} over {loser_name}.",
         f'Key decision at step {key["step_index"]} ({key["kind"]}): '
         f'"{key["decision"]}" versus {key["counterpart"]}.',
-        (
-            f"Altogether its choices avoided {total_steps} extra step(s), "
-            f"{total_tokens:,} tokens and {total_latency:g}s of latency"
-            + (", and the failure that followed." if any_failure else ".")
-        ),
     ]
+    saved = []
+    if total_steps:
+        saved.append(f"{total_steps} extra step(s)")
+    if total_tokens:
+        saved.append(f"{total_tokens:,} tokens")
+    if total_latency:
+        saved.append(f"{total_latency:g}s of latency")
+    # a sentence with nothing to say is not emitted: no "avoided 0 steps"
+    if saved and any_failure:
+        sentences.append("Altogether its choices avoided "
+                         + ", ".join(saved) + ", and the failure that followed.")
+    elif saved:
+        sentences.append("Altogether its choices avoided " + ", ".join(saved) + ".")
+    elif any_failure:
+        sentences.append("Altogether its choices avoided the failure that followed.")
 
     return {
         "winner": winner,

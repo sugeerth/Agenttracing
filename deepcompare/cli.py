@@ -53,7 +53,9 @@ from .trace import Trajectory
 from .variance import METRICS as VARIANCE_METRICS, variance_report
 
 #: default viewer template, relative to the repo root (parent of the package).
-DEFAULT_TEMPLATE = Path(__file__).resolve().parent.parent / "web" / "viewer.html"
+DEFAULT_TEMPLATE = Path(__file__).resolve().parent.parent / "web" / "blocks.html"
+#: the earlier single-file viewer, kept for ``--template web/viewer.html``.
+LEGACY_TEMPLATE = Path(__file__).resolve().parent.parent / "web" / "viewer.html"
 #: template for the lightweight agent-selection view.
 SELECT_TEMPLATE = Path(__file__).resolve().parent.parent / "web" / "select.html"
 
@@ -69,6 +71,11 @@ def _fmt_outcome(side: str, report_side: dict) -> str:
 
 
 def _print_summary(report: dict) -> None:
+    card = report.get("verdict_card")
+    if card and card.get("lines"):
+        from .verdict import format_verdict_card
+        print(format_verdict_card(card))
+        print()
     print(f"Task: {report['task']['id']}")
     print(f"Prompt: {report['task']['prompt'][:100]}")
     print(_fmt_outcome("A", report["a"]))
@@ -152,7 +159,56 @@ def _cmd_compare(args: argparse.Namespace) -> int:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(f"Wrote {out}")
+    if getattr(args, "html", None):
+        html_out = Path(args.html)
+        html_out.parent.mkdir(parents=True, exist_ok=True)
+        render_html([report], {}, DEFAULT_TEMPLATE, html_out)
+        print(f"Wrote {html_out}")
     _print_summary(report)
+    return 0
+
+
+DEMO_TRACES = Path(__file__).resolve().parent.parent / "demo" / "traces"
+DEMO_FLAGSHIP = "t05_flight_duration"
+
+
+def _cmd_demo(args: argparse.Namespace) -> int:
+    """One command to the first insight: compare the shipped demo pairs,
+    write the report page, print the flagship pair's verdict card."""
+    import contextlib
+    import io
+    if not DEMO_TRACES.is_dir():
+        print(f"error: demo traces not found at {DEMO_TRACES}", file=sys.stderr)
+        return 2
+    out_dir = Path(args.output)
+    batch_args = argparse.Namespace(tracesdir=str(DEMO_TRACES), output=str(out_dir),
+                                    template=None)
+    quiet = io.StringIO()
+    with contextlib.redirect_stdout(quiet):
+        code = _cmd_batch(batch_args)
+    if code != 0:
+        sys.stdout.write(quiet.getvalue())
+        return code
+    flagship = out_dir / f"report_{_safe_name(DEMO_FLAGSHIP)}.json"
+    reports = sorted(out_dir.glob("report_*.json"))
+    chosen = flagship if flagship.is_file() else (reports[0] if reports else None)
+    if chosen is None:
+        print("error: the demo batch produced no reports", file=sys.stderr)
+        return 2
+    report = json.loads(chosen.read_text(encoding="utf-8"))
+    from .verdict import format_verdict_card
+    print(f"AgentDiff demo — {len(reports)} task pair(s) compared; the flagship pair:")
+    print()
+    print(format_verdict_card(report.get("verdict_card") or {}))
+    print()
+    html_path = out_dir / "report.html"
+    if html_path.is_file():
+        print(f"Report: {html_path.resolve()}  (open it in a browser; every pair is in it)")
+        if getattr(args, "open", False):
+            import webbrowser
+            webbrowser.open(html_path.resolve().as_uri())
+    print(f"Per-pair JSON: {out_dir}/report_<task>.json — "
+          f"`agentdiff explain {DEMO_TRACES}/{DEMO_FLAGSHIP}__bolt-v3.json` reads one run")
     return 0
 
 
@@ -1278,7 +1334,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_compare.add_argument("a", help="trajectory JSON for agent A")
     p_compare.add_argument("b", help="trajectory JSON for agent B")
     p_compare.add_argument("-o", "--output", help="write the comparison report JSON here")
+    p_compare.add_argument("--html", default=None,
+                           help="also write a self-contained report page for this pair")
     p_compare.set_defaults(func=_cmd_compare)
+
+    p_demo = sub.add_parser("demo", help="one command to the first insight: compare the "
+                                         "shipped demo pairs and write the report page")
+    p_demo.add_argument("-o", "--output", default="out_demo",
+                        help="directory for the reports and report.html (default: out_demo)")
+    p_demo.add_argument("--open", action="store_true",
+                        help="open report.html in the default browser")
+    p_demo.set_defaults(func=_cmd_demo)
 
     p_batch = sub.add_parser("batch", help="compare a directory of traces pairwise by task")
     p_batch.add_argument("tracesdir", help="directory of trajectory *.json files")
@@ -1505,6 +1571,8 @@ def build_parser() -> argparse.ArgumentParser:
                            help="also write the reading as JSON to this path")
     p_explain.add_argument("--expected", default=None,
                            help="override the task's expected answer")
+    p_explain.add_argument("--html", default=None,
+                           help="also write the reading as a self-contained HTML page")
     p_explain.set_defaults(func=_cmd_explain)
     return parser
 
@@ -1519,6 +1587,12 @@ def _cmd_explain(args: argparse.Namespace) -> int:
         return 2
     reading = read_trace(traj, expected=args.expected)
     problems = check_reading(reading, traj)
+    if getattr(args, "html", None):
+        from .htmlout import reading_html
+        html_out = Path(args.html)
+        html_out.parent.mkdir(parents=True, exist_ok=True)
+        html_out.write_text(reading_html(reading), encoding="utf-8")
+        print(f"Wrote {html_out}")
     print(f"Reading of {reading['agent']} on {reading['task']}")
     print(f"  {reading['summary']}")
     print("  What happened:")
@@ -1560,9 +1634,10 @@ def _cmd_explain(args: argparse.Namespace) -> int:
             print(f"  Critical error: step {critical['step']} ({critical['name']}) — "
                   f"{critical['why']}; {critical['verification']} until replayed")
     why = reading["why_it_ended"]
+    term = (f"termination {why['termination']}" if why["declared"]
+            else "termination not declared")
     print(f"  Why it ended: {'succeeded' if why['success'] else 'failed'}, "
-          f"termination {why['termination']}"
-          f"{'' if why['declared'] else ' (not declared)'} — {why['verdict_basis']}")
+          f"{term} — {why['verdict_basis']}")
     if reading["what_it_means"]:
         print("  What it means:")
         for f in reading["what_it_means"]:

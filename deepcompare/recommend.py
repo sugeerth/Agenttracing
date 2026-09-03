@@ -242,10 +242,11 @@ def _failure_recommendations(reports: list[dict]) -> list[dict]:
         finding = (
             f"{agent} failed {n} of {total} task(s) ({', '.join(tasks)}) after "
             f"{_KIND_LABELS.get(category, category)} divergences rooted in "
-            f"{root_types} step(s); downstream of the root cause it spent "
-            f"+{g['steps']} steps, +{g['tokens']:,} tokens and "
-            f"+{g['latency']:g}s latency versus {g['other_agent']}, and each of "
-            f"these runs ended in failure."
+            f"{root_types} step(s); "
+            + (f"downstream of the root cause it spent {_extra_spend(g)} "
+               f"versus {g['other_agent']}, and each of "
+               if _extra_spend(g) else "each of ")
+            + "these runs ended in failure."
         )
         gain = f"up to +{n / total * 100:.0f}pt success ({n}/{total} tasks)"
         if g["tokens"] > 0:
@@ -319,9 +320,9 @@ def _detour_recommendations(reports: list[dict]) -> list[dict]:
         finding = (
             f"{agent} took non-fatal {_KIND_LABELS.get(category, category)} "
             f"detours on {len(tasks)} task(s) ({', '.join(tasks)}): "
-            f"+{g['steps']} extra steps, +{g['tokens']:,} tokens and "
-            f"+{g['latency']:g}s latency versus {g['other_agent']}, without "
-            f"changing any outcome."
+            + (f"{_extra_spend(g)} versus {g['other_agent']}, "
+               if _extra_spend(g) else "")
+            + "without changing any outcome."
         )
         gain = (
             f"−{g['tokens']:,} tokens and −{g['latency']:g}s latency "
@@ -343,6 +344,22 @@ def _detour_recommendations(reports: list[dict]) -> list[dict]:
             }
         )
     return recs
+
+
+def _extra_spend(g: dict) -> str:
+    """``+3 steps, +1,204 tokens and +2.1s latency`` from a group's
+    totals, listing only the parts that are non-zero; empty when none
+    are — a "+0 steps, +0 tokens" sentence says nothing."""
+    parts = []
+    if g.get("steps"):
+        parts.append(f"+{g['steps']} steps")
+    if g.get("tokens"):
+        parts.append(f"+{g['tokens']:,} tokens")
+    if g.get("latency"):
+        parts.append(f"+{g['latency']:g}s latency")
+    if not parts:
+        return ""
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
 
 
 def recommend(reports: list[dict]) -> list[dict]:

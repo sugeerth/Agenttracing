@@ -199,8 +199,9 @@ python3 -m deepcompare runs demo/runs/traces -o out/
 ### The diagnoser is itself benchmarked
 
 Failure attributors that are never evaluated collapse quietly on hard
-cases, so AgentDiff measures its own: `demo/diagnosis_bench/` generates
-12 trace pairs with one implanted known cause each (grader mislabel,
+cases, so AgentDiff measures its own: `demo/diagnosis_bench/` ships 20
+handcrafted trace pairs with one implanted known cause each (it began
+as 12; the history below is how it grew) (grader mislabel,
 harness kill, environment fault, wrong fact, blind write, pure
 divergence) and `deepcompare/bench.py` scores whether the leading
 hypothesis matches the implant — contested never counts as correct.
@@ -225,7 +226,8 @@ more engine bugs before they were fixed (a shared fact both runs read
 was being blamed as "the wrong fact"; a 70%-covered answer that flatly
 contradicted the expected one still counted as a grader-suspect
 "match"). Handcrafted corpus: kind 20/20, step 16/16 exact, abstention
-4/4, chain recovery 0.94 recall / 0.93 precision.
+4/4, chain recovery 0.93 recall / 0.93 precision (the bench prints
+0.9281 / 0.9313).
 
 The benchmark then went procedural: `demo/diagnosis_bench/
 generate_scale.py --pairs N` composes eighteen cause families across
@@ -324,38 +326,60 @@ runs the whole pipeline with every report rendered inline, and — on a free T4
 compares two of its runs against each other.
 
 ```bash
-# 1. Generate the demo traces (two scripted agents, 8 tasks, 16 trajectories)
-python demo/generate.py
+pip install -e .          # installs the `agentdiff` command (python -m deepcompare works too)
 
-# 2. Compare one pair
-python -m deepcompare compare \
-    demo/traces/<task>__agent-a.json demo/traces/<task>__agent-b.json
+# 1. One command to the first insight: compares the 8 shipped demo pairs,
+#    writes out_demo/report.html, prints the flagship pair's verdict card
+agentdiff demo --open
 
-# 3. Run the full batch → per-task reports, aggregate stats, interactive report
-python -m deepcompare batch demo/traces/ -o out/
-open out/report.html
+# 2. Compare one pair — the five-line card prints first, --html writes the page
+agentdiff compare demo/traces/t05_flight_duration__atlas-v2.json \
+                  demo/traces/t05_flight_duration__bolt-v3.json --html pair.html
+
+# 3. Read ONE run end to end: what it did, what its answer rests on, why it
+#    ended, what it means, what to take forward — every finding cited
+agentdiff explain demo/traces/t05_flight_duration__bolt-v3.json --html run.html
 ```
+
+The demo traces are committed (two scripted agents, 8 tasks, 16
+trajectories; `python demo/generate.py` regenerates them). The card the
+demo prints:
+
+```
+VERDICT  atlas-v2 solved t05_flight_duration; bolt-v3 failed.
+CAUSE    step 1 of bolt-v3 (tool_selection, hypothesized): Divergence: used a plain
+         calculator on local clock times. SGT/BST/EDT offsets are ignored, so every
+         leg duration is wrong.
+COST     bolt-v3 spent 235 tokens, 3.4s and 1 step less than atlas-v2 — faster to nothing
+FIX      bolt-v3 — at step 1: check what the observation was asked before trusting
+         what it returned — the answer relayed it faithfully and was still wrong
+CONF     medium — single pair (n=1); … the decisive step is hypothesized, not replay-verified
+```
+
+Every line quotes a section of the report (the diagnosis, the trade-off,
+the failing run's reading, the confidence); the CAUSE line is the trace's
+own step note when the decisive step carries one.
 
 Then, with more agents or more runs:
 
 ```bash
 # Rank a fleet of agents (composite score, Pareto frontier, failure fingerprints)
-python -m deepcompare fleet demo/fleet/traces/ -o out_fleet/
+agentdiff fleet demo/fleet/traces/ -o out_fleet/
 
 # Which agents are interchangeable, which are redundant, which to use
-python -m deepcompare select demo/fleet/traces/ -o out_select/
+agentdiff select demo/fleet/traces/ -o out_select/
 
 # Is this failure real, or did we get unlucky? Adds pass^k, consistency and
 # an advisory that refuses to rank two agents on too few runs
-python -m deepcompare runs demo/runs/traces/ -o out_runs/
+agentdiff runs demo/runs/traces/ -o out_runs/
 
 # Block a regression in CI: exits non-zero when the candidate is worse
-python -m deepcompare gate baseline_traces/ candidate_traces/ --markdown gate.md
+agentdiff gate baseline_traces/ candidate_traces/ --markdown gate.md
 
 # Process integrity: the run that PASSES here is the one that looped,
 # ignored three errors and wrote blind
 python demo/process/generate.py
-python -m deepcompare batch demo/process/traces/ -o out_process/
+agentdiff batch demo/process/traces/ -o out_process/
 ```
 
 No dependencies — Python 3.10+ stdlib only.

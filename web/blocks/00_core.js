@@ -186,6 +186,8 @@
       size: spec.size || "normal",
       relevance: typeof spec.relevance === "function" ? spec.relevance : function () { return 0.5; },
       render: spec.render,
+      // lead blocks open the page in their own lane; see renderLead
+      lead: spec.lead === true,
     };
     REGISTRY.push(entry);
     BY_ID[spec.id] = entry;
@@ -374,6 +376,8 @@
       // The hero is placed, just not in a column. Leaving it out of both
       // the stacks and the hidden list keeps exactly one home for it.
       if (hero && entry.id === hero.id) return;
+      // Lead blocks live in the lead lane, never in a column.
+      if (entry.lead) return;
       if (relevance <= 0) { hidden.push(entry.id); return; }
       stacks[target].push({ id: entry.id, collapsed: false });
     });
@@ -721,6 +725,7 @@
   function renderAll() {
     var ctx = makeCtx();
     var hero = resolveHero(ctx);
+    renderLead(ctx);
     renderHero(hero, ctx);
     renderReading(hero);
 
@@ -733,6 +738,8 @@
       stack.forEach(function (item) {
         // A substituted hero is still in its column; render it once.
         if (hero && item.id === hero.item.id) return;
+        // A lead block found in a stored layout renders in its lane only.
+        if (BY_ID[item.id] && BY_ID[item.id].lead) return;
         column.appendChild(renderBlock(item, index, ctx, null));
       });
       wireStackDrop(column, index);
@@ -764,6 +771,37 @@
   /* The lane. Nothing here knows what a trace looks like: the hero is
    * rendered through the same render(el, ctx) as any other block, in a
    * container that happens to be the full content width. */
+  /* The lead lane: every block registered with `lead: true` that has
+   * something to say, in registration order, full width, above the hero.
+   * No star, no collapse, no remove — a lead block is the page's opening
+   * sentence, not a card in the layout. */
+  function renderLead(ctx) {
+    var host = els.lead;
+    if (!host) return;
+    host.innerHTML = "";
+    var shown = 0;
+    REGISTRY.forEach(function (entry) {
+      if (!entry.lead || safeRelevance(entry, ctx) <= 0) return;
+      var body = h("div", { class: "block-body" });
+      var card = h("div", { class: "block lead", "data-block": entry.id }, [
+        h("div", { class: "block-head" }, [
+          h("div", { class: "block-title", text: entry.title }),
+          entry.question ? h("div", { class: "block-q", text: entry.question }) : null,
+        ]),
+        body,
+      ]);
+      try {
+        entry.render(body, ctx);
+      } catch (err) {
+        body.innerHTML = "";
+        body.appendChild(h("div", { class: "empty", text: "This block could not render: " + String(err && err.message || err) }));
+      }
+      host.appendChild(card);
+      shown++;
+    });
+    host.hidden = shown === 0;
+  }
+
   function renderHero(hero, ctx) {
     els.hero.innerHTML = "";
     if (!hero) {
@@ -1771,6 +1809,7 @@
     els = {
       stacks: document.getElementById("stacks"),
       hero: document.getElementById("hero-lane"),
+      lead: document.getElementById("lead-lane"),
       reading: document.getElementById("reading"),
       picker: document.getElementById("task-picker"),
       drawer: document.getElementById("drawer"),

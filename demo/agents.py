@@ -1,9 +1,9 @@
 """Two scripted agent personas producing hand-authored trajectories.
 
-- atlas-v2 (model claude-sonnet-5): efficient, plans first, picks
+- atlas-v2 (model sim-planner-2, a scripted simulation): efficient, plans first, picks
   authoritative sources. Succeeds on 7/8 tasks; its one failure (t07)
   originates in tool execution (a bad regex extraction over a CI log).
-- bolt-v3 (model gpt-5): starts identically on most tasks, then diverges:
+- bolt-v3 (model sim-sprinter-3, a scripted simulation): starts identically on most tasks, then diverges:
   three retrieval divergences (t01 fail, t06 fail, t02 late recovery), one
   tool-selection divergence (t05 fail), one over-searching divergence
   (t03, still succeeds). Succeeds on 5/8 tasks.
@@ -19,8 +19,8 @@ from __future__ import annotations
 from simulator import TrajectoryBuilder
 from tasks import TASKS_BY_ID
 
-AGENT_A = {"name": "atlas-v2", "model": "claude-sonnet-5", "version": "v2"}
-AGENT_B = {"name": "bolt-v3", "model": "gpt-5", "version": "v3"}
+AGENT_A = {"name": "atlas-v2", "model": "sim-planner-2", "version": "v2"}
+AGENT_B = {"name": "bolt-v3", "model": "sim-sprinter-3", "version": "v3"}
 
 # Documentation of where each scripted divergence begins (0-based step index,
 # same index in both trajectories) and what kind it is. Tasks t04 and t08

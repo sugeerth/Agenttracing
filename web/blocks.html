@@ -167,6 +167,10 @@ select.picker {
 /* ---------- the hero lane ---------- */
 /* One block at the full content width, above the columns. A trajectory is a
    wide thing; read 300px at a time it is not a trajectory, it is a list. */
+.lead-lane { padding: 16px 18px 0; }
+.lead-lane[hidden] { display: none; }
+.block.lead { border-color: color-mix(in srgb, var(--accent) 34%, var(--rule)); }
+.block.lead .block-head { background: color-mix(in srgb, var(--accent) 7%, var(--surface-2)); }
 .hero-lane { padding: 16px 18px 0; }
 .hero-lane[hidden] { display: none; }
 .hero-lane.flash .block { outline: 2px solid var(--accent); outline-offset: 4px; }
@@ -221,6 +225,7 @@ select.picker {
 @media (max-width: 640px) {
   .reading { gap: 5px 6px; padding: 10px 10px 0; }
   .hero-lane { padding: 12px 10px 0; }
+  .lead-lane { padding: 12px 10px 0; }
   .stacks { padding: 14px 10px 80px; }
 }
 
@@ -415,6 +420,10 @@ label.check input { margin-top: 2px; }
      the page, not one card in one of four columns. Populated by the core
      through the ordinary block render(el, ctx) — nothing here knows what a
      trace looks like. -->
+<!-- The lead lane: blocks registered with `lead: true` render here, first
+     on the page and at full width, above the hero. They have one home and
+     no layout controls — a verdict is not a card you rearrange. -->
+<div class="lead-lane" id="lead-lane" hidden></div>
 <div class="hero-lane" id="hero-lane" hidden></div>
 
 <nav class="reading" id="reading" aria-label="Reading order"></nav>
@@ -634,6 +643,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       size: spec.size || "normal",
       relevance: typeof spec.relevance === "function" ? spec.relevance : function () { return 0.5; },
       render: spec.render,
+      // lead blocks open the page in their own lane; see renderLead
+      lead: spec.lead === true,
     };
     REGISTRY.push(entry);
     BY_ID[spec.id] = entry;
@@ -822,6 +833,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       // The hero is placed, just not in a column. Leaving it out of both
       // the stacks and the hidden list keeps exactly one home for it.
       if (hero && entry.id === hero.id) return;
+      // Lead blocks live in the lead lane, never in a column.
+      if (entry.lead) return;
       if (relevance <= 0) { hidden.push(entry.id); return; }
       stacks[target].push({ id: entry.id, collapsed: false });
     });
@@ -1169,6 +1182,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   function renderAll() {
     var ctx = makeCtx();
     var hero = resolveHero(ctx);
+    renderLead(ctx);
     renderHero(hero, ctx);
     renderReading(hero);
 
@@ -1181,6 +1195,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       stack.forEach(function (item) {
         // A substituted hero is still in its column; render it once.
         if (hero && item.id === hero.item.id) return;
+        // A lead block found in a stored layout renders in its lane only.
+        if (BY_ID[item.id] && BY_ID[item.id].lead) return;
         column.appendChild(renderBlock(item, index, ctx, null));
       });
       wireStackDrop(column, index);
@@ -1212,6 +1228,37 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   /* The lane. Nothing here knows what a trace looks like: the hero is
    * rendered through the same render(el, ctx) as any other block, in a
    * container that happens to be the full content width. */
+  /* The lead lane: every block registered with `lead: true` that has
+   * something to say, in registration order, full width, above the hero.
+   * No star, no collapse, no remove — a lead block is the page's opening
+   * sentence, not a card in the layout. */
+  function renderLead(ctx) {
+    var host = els.lead;
+    if (!host) return;
+    host.innerHTML = "";
+    var shown = 0;
+    REGISTRY.forEach(function (entry) {
+      if (!entry.lead || safeRelevance(entry, ctx) <= 0) return;
+      var body = h("div", { class: "block-body" });
+      var card = h("div", { class: "block lead", "data-block": entry.id }, [
+        h("div", { class: "block-head" }, [
+          h("div", { class: "block-title", text: entry.title }),
+          entry.question ? h("div", { class: "block-q", text: entry.question }) : null,
+        ]),
+        body,
+      ]);
+      try {
+        entry.render(body, ctx);
+      } catch (err) {
+        body.innerHTML = "";
+        body.appendChild(h("div", { class: "empty", text: "This block could not render: " + String(err && err.message || err) }));
+      }
+      host.appendChild(card);
+      shown++;
+    });
+    host.hidden = shown === 0;
+  }
+
   function renderHero(hero, ctx) {
     els.hero.innerHTML = "";
     if (!hero) {
@@ -2219,6 +2266,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     els = {
       stacks: document.getElementById("stacks"),
       hero: document.getElementById("hero-lane"),
+      lead: document.getElementById("lead-lane"),
       reading: document.getElementById("reading"),
       picker: document.getElementById("task-picker"),
       drawer: document.getElementById("drawer"),
@@ -2338,6 +2386,119 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       TERMS: TERMS, Explain: Explain,
     },
   };
+})(typeof window !== "undefined" ? window : this);
+
+</script>
+<!-- 04_verdict.js -->
+<script>
+/* AgentDiff blocks — the verdict card.
+ *
+ * Five lines, first on the page: who won and who failed; why, in the
+ * trace's own words when the decisive step carries a note; what the
+ * outcome cost; what to do next; how sure the engine is. Every line is
+ * computed once by the engine (`report.verdict_card`) and quoted here
+ * verbatim — the block never composes a sentence of its own, so the page
+ * can never say something the report does not. Lines that carry a step
+ * are chips: clicking one moves the shared cursor the trajectory map,
+ * step detail and run lens already follow.
+ */
+(function (global) {
+  "use strict";
+
+  var AgentDiff = global.AgentDiff;
+  if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+
+  var STYLE_ID = "agentdiff-verdict-css";
+  var styled = false;
+
+  function ensureStyle() {
+    if (styled) return;
+    styled = true;
+    try {
+      if (document.getElementById(STYLE_ID)) return;
+      var node = document.createElement("style");
+      node.id = STYLE_ID;
+      node.textContent = [
+        ".vc{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;",
+        "font-size:13.5px;line-height:1.5;color:var(--ink)}",
+        ".vc .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;",
+        "font-weight:700;color:var(--ink-3);padding-top:3px}",
+        ".vc .v{margin:0}",
+        ".vc .v.verdict{font-size:15px;font-weight:600}",
+        ".vc .v.cause{border-left:3px solid var(--accent);padding-left:8px}",
+        ".vc .v.confidence{color:var(--ink-2);font-size:12.5px}",
+        ".vc-chip{display:inline-block;margin-right:6px;padding:0 7px;border-radius:999px;",
+        "border:1px solid var(--rule);background:var(--surface-2);font:600 11px/18px ",
+        "ui-monospace,monospace;color:var(--accent);cursor:pointer}",
+        ".vc-chip:focus-visible{outline:2px solid var(--accent);outline-offset:1px}",
+        ".vc-src{display:block;font-size:10.5px;color:var(--ink-3);margin-top:1px}"
+      ].join("");
+      document.head.appendChild(node);
+    } catch (err) { /* styling is optional */ }
+  }
+
+  var LABELS = { verdict: "Verdict", cause: "Cause", cost: "Cost",
+                 fix: "Fix", confidence: "Confidence" };
+
+  function rowFor(report, side, step) {
+    var rows = report && Array.isArray(report.alignment) ? report.alignment : [];
+    var key = side + "_index";
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i] && rows[i][key] === step) return i;
+    }
+    return -1;
+  }
+
+  function stepChip(ctx, report, line) {
+    var side = line.side, step = line.step;
+    var label = (side === "a" || side === "b" ? side.toUpperCase() + " " : "") + "step " + step;
+    return ctx.h("button", {
+      class: "vc-chip", type: "button", text: label,
+      title: "show this step in the map, step detail and run lens",
+      "data-step": String(step), "data-side": side || "",
+      onclick: function () {
+        var row = rowFor(report, side, step);
+        try { ctx.signal("inspect"); } catch (e) { /* optional */ }
+        if (row < 0) return;
+        try {
+          document.dispatchEvent(new CustomEvent("agentdiff:select-step",
+            { detail: { row: row, side: side } }));
+        } catch (e) { /* no CustomEvent: the chip is inert */ }
+      }
+    });
+  }
+
+  AgentDiff.block({
+    id: "verdict-card",
+    title: "Verdict",
+    question: "Who won, why, at what cost, what next, how sure?",
+    group: "outcome",
+    size: "wide",
+    lead: true,
+    relevance: function (ctx) {
+      var card = ctx.report && ctx.report.verdict_card;
+      return card && Array.isArray(card.lines) && card.lines.length ? 1 : 0;
+    },
+    render: function (el, ctx) {
+      ensureStyle();
+      var report = ctx.report;
+      var card = report && report.verdict_card;
+      if (!card || !Array.isArray(card.lines) || !card.lines.length) {
+        ctx.empty(el, "This report predates the verdict card; re-run compare to get one.");
+        return;
+      }
+      var grid = ctx.h("div", { class: "vc", role: "list" });
+      card.lines.forEach(function (line) {
+        grid.appendChild(ctx.h("div", { class: "k", text: LABELS[line.key] || line.key }));
+        var kids = [];
+        if (typeof line.step === "number") kids.push(stepChip(ctx, report, line));
+        kids.push(ctx.h("span", { text: line.text }));
+        if (line.source) kids.push(ctx.h("span", { class: "vc-src", text: "from " + line.source }));
+        grid.appendChild(ctx.h("p", { class: "v " + line.key, role: "listitem" }, kids));
+      });
+      el.appendChild(grid);
+    }
+  });
 })(typeof window !== "undefined" ? window : this);
 
 </script>
