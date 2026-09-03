@@ -32,7 +32,7 @@
       ".tj-chip{width:9px;height:9px;border-radius:2px;flex:none}",
       ".tj-side b{font-weight:600;letter-spacing:-.01em}",
       ".tj-legend{display:flex;flex-wrap:wrap;gap:3px 11px;align-items:center;",
-      "margin-top:7px;font-size:10.5px;color:var(--ink-3);line-height:1}",
+      "margin-top:7px;font-size:11px;color:var(--ink-3);line-height:1}",
       ".tj-legend .k{display:inline-flex;align-items:center;gap:4px}",
       ".tj-legend .lab{text-transform:uppercase;letter-spacing:.07em;opacity:.75}",
       ".tj-sw{width:12px;height:8px;border-radius:2px;flex:none;display:inline-block}",
@@ -44,7 +44,7 @@
       ".tj-pane.absent{border-style:dashed;opacity:.72}",
       ".tj-pane h4{display:flex;align-items:center;gap:6px;font-size:11px;margin:0 0 5px;",
       "text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);font-weight:600}",
-      ".tj-lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin:6px 0 2px}",
+      ".tj-lbl{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin:6px 0 2px}",
       ".tj-text{font-family:var(--mono);font-size:11px;line-height:1.45;white-space:pre-wrap;",
       "word-break:break-word;background:var(--surface-2);border:1px solid var(--rule);",
       "border-radius:6px;padding:6px 7px;max-height:132px;overflow:auto}",
@@ -58,7 +58,7 @@
       ".tj-note{margin-top:6px;font-size:11px;color:var(--ink-2);border-left:2px solid var(--warn);padding-left:7px}",
       ".tj-seq{font-family:var(--mono);font-size:11px;color:var(--ink-2);display:flex;",
       "align-items:baseline;gap:6px;margin-top:2px}",
-      ".tj-seq b{font-weight:600;font-size:10.5px;letter-spacing:.04em}",
+      ".tj-seq b{font-weight:600;font-size:11px;letter-spacing:.04em}",
       ".tj-seq span{letter-spacing:.14em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
       "svg.tj{display:block;max-width:none}",
       ".tj-hit{cursor:pointer}",
@@ -73,10 +73,10 @@
       ".tj-ctl select{font-family:inherit;font-size:11px;background:var(--surface);color:var(--ink-2);",
       "border:1px solid var(--rule-2);border-radius:6px;padding:2px 4px}",
       ".tj-ctl select[disabled]{opacity:.45}",
-      ".tj-status{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}",
+      ".tj-status{font-family:var(--mono);font-size:11px;color:var(--ink-3)}",
       ".tj-trade{margin-top:8px;font-size:11.5px;color:var(--ink-2);border-left:2px solid var(--accent);",
       "padding-left:8px;line-height:1.45}",
-      ".tj-trade b{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;",
+      ".tj-trade b{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.08em;",
       "color:var(--ink-3);font-weight:600;margin-bottom:1px}",
       "@keyframes tjPulse{0%,100%{opacity:1}50%{opacity:.45}}",
       ".tj-live{animation:tjPulse .9s ease-in-out infinite}",
@@ -374,7 +374,7 @@
 
   function label(x, y, text, fill, size, anchor) {
     return S("text", {
-      x: x, y: y, fill: fill, "font-size": size || 9,
+      x: x, y: y, fill: fill, "font-size": size || 11,
       "text-anchor": anchor || "middle",
       "font-family": "var(--mono)", "letter-spacing": "0.02em", text: text,
     });
@@ -886,7 +886,7 @@
           fill: C.bad,
         }));
         if (colW >= 42) {
-          dg.appendChild(label(colX(i) + 8, 10, "d" + (mark.div.rank || 1), C.bad, 8.5, "start"));
+          dg.appendChild(label(colX(i) + 8, 10, "d" + (mark.div.rank || 1), C.bad, 10, "start"));
         }
         if ((mark.div.rank || 99) === (Plan.div && Plan.div.d ? (Plan.div.d.rank || 99) : -1)) {
           divFlash.push(dg);
@@ -961,7 +961,7 @@
         g.appendChild(styleGlyph(glyphNode(step.type, x, y, R),
                                  qualityStyle(step.quality, side)));
         if (colW >= 36) {
-          g.appendChild(label(x + R + 3.5, y + 3, String(index), C.muted, 8, "start"));
+          g.appendChild(label(x + R + 3.5, y + 3, String(index), C.muted, 10, "start"));
         }
         laneG[side].appendChild(g);
         var ev = evFor(Plan[side], index);
@@ -978,9 +978,9 @@
     // --- row axis
     svgEl.appendChild(tick(padL, axisY - 9, W - padR, axisY - 9, C.grid, 1));
     rows.forEach(function (row, i) {
-      svgEl.appendChild(label(colX(i), axisY, String(i), C.muted, 8.5));
+      svgEl.appendChild(label(colX(i), axisY, String(i), C.muted, 10));
     });
-    svgEl.appendChild(label(padL, axisY - 13, "row", C.muted, 8, "start"));
+    svgEl.appendChild(label(padL, axisY - 13, "row", C.muted, 10, "start"));
 
     // --- hit targets, one per side per column
     var midY = (yA + yB) / 2;
@@ -1089,7 +1089,7 @@
       var tv = k * stepv;
       var tx = x(tv);
       svgEl.appendChild(tick(tx, 16, tx, axisY - 10, C.grid, 1, "1 3"));
-      svgEl.appendChild(label(tx, axisY, secLabel(tv, stepv), C.muted, 8.5));
+      svgEl.appendChild(label(tx, axisY, secLabel(tv, stepv), C.muted, 10));
     }
 
     // --- lane baselines + letters
@@ -1407,7 +1407,7 @@
     // gridlines
     [0, 0.5, 1].forEach(function (v) {
       svgEl.appendChild(tick(gut, y(v), W - padR, y(v), C.grid, 1, v === 0.5 ? "2 3" : null));
-      svgEl.appendChild(label(gut - 3, y(v) + 3, v === 0.5 ? ".5" : String(v), C.muted, 8, "end"));
+      svgEl.appendChild(label(gut - 3, y(v) + 3, v === 0.5 ? ".5" : String(v), C.muted, 10, "end"));
     });
 
     if (sel.row >= 0) {
@@ -1452,7 +1452,7 @@
         stroke: C.surface, "stroke-width": 0.8,
       }));
       if (colW >= 40) {
-        svgEl.appendChild(label(colX(i), y(v) - 6, F.num(v, 2).replace(/^0/, "."), C.muted, 8));
+        svgEl.appendChild(label(colX(i), y(v) - 6, F.num(v, 2).replace(/^0/, "."), C.muted, 10));
       }
     });
 
@@ -1461,9 +1461,9 @@
       opMarks(row.op, colX(i) - colW * 0.42, bandY, colW * 0.84, bandH).forEach(function (node) {
         svgEl.appendChild(node);
       });
-      svgEl.appendChild(label(colX(i), axisY, String(i), C.muted, 8.5));
+      svgEl.appendChild(label(colX(i), axisY, String(i), C.muted, 10));
     });
-    svgEl.appendChild(label(gut - 3, bandY + bandH - 3, "op", C.muted, 8, "end"));
+    svgEl.appendChild(label(gut - 3, bandY + bandH - 3, "op", C.muted, 10, "end"));
 
     if (brk !== null && brk >= 0 && brk < n) {
       svgEl.appendChild(tick(colX(brk), top - 8, colX(brk), axisY - 9, C.bad, 1.2, "3 3"));
@@ -1725,10 +1725,10 @@
 
     [0, 0.5, 1].forEach(function (v) {
       svgEl.appendChild(tick(gut, y(v), W - padR, y(v), C.grid, 1, v === 0.5 ? "2 3" : null));
-      svgEl.appendChild(label(gut - 3, y(v) + 3, v === 0.5 ? ".5" : String(v), C.muted, 8, "end"));
+      svgEl.appendChild(label(gut - 3, y(v) + 3, v === 0.5 ? ".5" : String(v), C.muted, 10, "end"));
     });
     // Sits on the left, where the series start high and the space is free.
-    svgEl.appendChild(label(gut + 4, y(0.5) - 4, "break threshold", C.muted, 8, "start"));
+    svgEl.appendChild(label(gut + 4, y(0.5) - 4, "break threshold", C.muted, 10, "start"));
 
     // gap bands: the point of the chart
     rows.forEach(function (r, i) {
@@ -1767,7 +1767,7 @@
     series("semantic", C.ink, null, "circle");
 
     rows.forEach(function (r, i) {
-      svgEl.appendChild(label(colX(i), axisY, String(r.row), C.muted, 8.5));
+      svgEl.appendChild(label(colX(i), axisY, String(r.row), C.muted, 10));
       var hit = S("rect", { class: "tj-hit", x: colX(i) - colW / 2, y: 0, width: colW, height: H_,
                             fill: C.ink, "fill-opacity": 0, "pointer-events": "all" });
       hit.appendChild(S("title", {
@@ -1782,7 +1782,7 @@
       hit.addEventListener("click", function () { select(r.row, null, ctx); });
       svgEl.appendChild(hit);
     });
-    svgEl.appendChild(label(gut - 3, axisY, "row", C.muted, 8, "end"));
+    svgEl.appendChild(label(gut - 3, axisY, "row", C.muted, 10, "end"));
 
     if (brk !== null) {
       var at = -1;
@@ -1794,7 +1794,7 @@
           fill: C.bad,
         }));
         if (colW >= 44) {
-          svgEl.appendChild(label(Math.min(colX(at) + 7, W - padR), top - 9, "break", C.bad, 8, "start"));
+          svgEl.appendChild(label(Math.min(colX(at) + 7, W - padR), top - 9, "break", C.bad, 10, "start"));
         }
       }
     }
@@ -1930,7 +1930,7 @@
       svgEl.appendChild(tick(gut, yy, W - padR, yy, C.grid, 1));
       var unused = !used.a[intent] && !used.b[intent];
       svgEl.appendChild(S("text", {
-        x: gut - 6, y: yy + 3, "text-anchor": "end", "font-size": 9.5,
+        x: gut - 6, y: yy + 3, "text-anchor": "end", "font-size": 11.5,
         fill: unused ? C.grid : C.muted, text: intent,
       }));
     });
@@ -1963,9 +1963,9 @@
     });
 
     for (var i = 0; i < maxStep; i++) {
-      svgEl.appendChild(label(colX(i), axisY, String(i), C.muted, 8.5));
+      svgEl.appendChild(label(colX(i), axisY, String(i), C.muted, 10));
     }
-    svgEl.appendChild(label(gut - 6, axisY, "step", C.muted, 8, "end"));
+    svgEl.appendChild(label(gut - 6, axisY, "step", C.muted, 10, "end"));
 
     var wrap = H("div", { class: W > avail ? "scroll-x" : "" });
     wrap.appendChild(svgEl);
@@ -1990,7 +1990,7 @@
       ".tjm-wrap{overflow-y:auto;overflow-x:auto;max-height:520px;",
       "border:1px solid var(--rule);border-radius:8px;background:var(--surface)}",
       ".tjm-foot{display:flex;flex-wrap:wrap;gap:3px 12px;margin-top:7px;",
-      "font-size:10.5px;color:var(--ink-3);align-items:center;line-height:1.2}",
+      "font-size:11px;color:var(--ink-3);align-items:center;line-height:1.2}",
       ".tjm-foot .k{display:inline-flex;align-items:center;gap:4px}",
       ".tjm-note{margin-top:6px;font-size:11px;color:var(--ink-2);",
       "border-left:2px solid var(--warn);padding-left:7px}",
@@ -2021,6 +2021,21 @@
     }
   }
 
+  /* The reading layer's role for one step (report.reading[side]
+   * .what_happened): shown only when it says something a reader acts on. */
+  var ROLE_LABEL = { feeds_answer: "feeds answer", dead_end: "dead end",
+                     no_information: "no information" };
+  function readingRole(report, side, index) {
+    var reading = report && report.reading && report.reading[side];
+    var rows = reading && Array.isArray(reading.what_happened) ? reading.what_happened : [];
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i] && rows[i].step === index && ROLE_LABEL[rows[i].role]) {
+        return { key: rows[i].role, label: ROLE_LABEL[rows[i].role] };
+      }
+    }
+    return null;
+  }
+
   function decisiveInfo(report) {
     var diag = report && report.diagnosis;
     if (!diag || diag.mode !== "single_failure") return null;
@@ -2035,6 +2050,9 @@
       side: side,
       step: dec.step !== undefined ? dec.step : null,
       reason: dec.reason || null,
+      // "hypothesized" until a replay flips the outcome; the map draws
+      // the ring by this, never by the score
+      verification: dec.verification || "hypothesized",
       contested: diag.leading === null || diag.leading === undefined,
       account: account,
     };
@@ -2253,10 +2271,15 @@
           g.appendChild(S("circle", { cx: x, cy: y, r: 10.5, fill: C.warn, opacity: 0.16 }));
         }
         if (isRoot || isDecisive) {
+          // the ring is graded by verification, not by score: solid only
+          // when a replay flipped the outcome, long-dashed while the
+          // decisive step is a hypothesis, short-dashed for the attributed root
+          var verified = isDecisive && dec.verification === "replay-verified";
           g.appendChild(S("circle", {
             cx: x, cy: y, r: 9.5, fill: "none",
+            class: isDecisive ? ("tj-ring dec " + (verified ? "verified" : "hypothesized")) : "tj-ring root",
             stroke: C.bad, "stroke-width": isDecisive ? 2 : 1.2,
-            "stroke-dasharray": isDecisive ? null : "2.5,2",
+            "stroke-dasharray": isDecisive ? (verified ? null : "6,3") : "2.5,2",
           }));
         }
         if (picked) {
@@ -2283,7 +2306,7 @@
         if (name.length > maxChars) name = name.slice(0, maxChars - 1) + "…";
         g.appendChild(S("text", {
           x: textX, y: y + 3, "text-anchor": anchor,
-          "font-family": "var(--mono)", "font-size": 10.5,
+          "font-family": "var(--mono)", "font-size": 11.5,
           fill: picked ? C.ink : C.muted,
           text: step.index + " · " + name + (step.error ? " ⚠" : ""),
         }));
@@ -2348,7 +2371,7 @@
       class: "k", type: "button",
       style: { border: "1px solid var(--rule-2)", borderRadius: "5px",
                background: "var(--surface)", color: "var(--ink-2)",
-               font: "inherit", fontSize: "10.5px", padding: "0 6px",
+               font: "inherit", fontSize: "11px", padding: "0 6px",
                cursor: "pointer" },
       text: "claims: " + claims.length + " ›",
       onclick: function () {
@@ -2362,8 +2385,10 @@
       legendKey("dashed line", "drifted / divergent"),
       legendKey("dotted curve", "same claim in both runs (red = wrong-valued)"),
       legendKey("open stub", "step only this run took — nothing to pair with"),
-      dec ? legendKey("solid red ring", "decisive step") : null,
-      root ? legendKey("dashed red ring", "attributed root") : null,
+      dec ? legendKey(dec.verification === "replay-verified" ? "solid red ring" : "long-dashed red ring",
+                      "decisive step — " + (dec.verification === "replay-verified"
+                        ? "replay-verified" : "hypothesized, not replay-verified")) : null,
+      root ? legendKey("short-dashed red ring", "attributed root") : null,
       dec ? legendKey("amber halo", "on the causal account") : null,
       claimsChip,
     ]);
@@ -2414,19 +2439,19 @@
       "min-width:0}",
       ".tjl-head:hover{background:var(--surface-2)}",
       ".tjl-step.sel .tjl-head{box-shadow:inset 2px 0 0 var(--accent)}",
-      ".tjl-idx{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);flex:none;",
+      ".tjl-idx{font-family:var(--mono);font-size:11px;color:var(--ink-3);flex:none;",
       "width:20px;text-align:right}",
       ".tjl-name{font-family:var(--mono);font-size:11.5px;color:var(--ink);min-width:0;",
       "overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
       ".tjl-badges{margin-left:auto;display:inline-flex;gap:4px;flex:none;align-items:center}",
-      ".tjl-b{font-size:9px;text-transform:uppercase;letter-spacing:.06em;",
+      ".tjl-b{font-size:11px;text-transform:uppercase;letter-spacing:.06em;",
       "border:1px solid var(--rule-2);border-radius:4px;padding:0 4px;color:var(--ink-3);",
       "line-height:1.6;white-space:nowrap}",
       ".tjl-b.err{border-color:var(--bad);color:var(--bad)}",
       ".tjl-b.mark{border-color:var(--bad);color:var(--bad);font-weight:600}",
       ".tjl-b.acct{border-color:var(--warn);color:var(--warn)}",
       ".tjl-body{padding:2px 9px 9px 36px}",
-      ".tjl-meta{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin:2px 0 4px}",
+      ".tjl-meta{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin:2px 0 4px}",
     ].join("");
     var tag = document.createElement("style");
     tag.textContent = css;
@@ -2541,8 +2566,11 @@
       var inv = invented[step.index];
       var isOpen = !!Lens.open[step.index];
 
+      var role = readingRole(report, side, step.index);
       var badges = H("div", { class: "tjl-badges" }, [
         isDecisive ? H("span", { class: "tjl-b mark", text: "decisive" }) : null,
+        role ? H("span", { class: "tjl-b role " + role.key, text: role.label,
+                           title: "the reading's role for this step" }) : null,
         !isDecisive && isRoot ? H("span", { class: "tjl-b mark", text: "root" }) : null,
         onAccount && !isDecisive && !isRoot
           ? H("span", { class: "tjl-b acct", text: "account" }) : null,

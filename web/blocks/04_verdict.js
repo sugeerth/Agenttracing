@@ -28,7 +28,7 @@
       node.textContent = [
         ".vc{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;",
         "font-size:13.5px;line-height:1.5;color:var(--ink)}",
-        ".vc .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;",
+        ".vc .k{font-size:11px;text-transform:uppercase;letter-spacing:.09em;",
         "font-weight:700;color:var(--ink-3);padding-top:3px}",
         ".vc .v{margin:0}",
         ".vc .v.verdict{font-size:15px;font-weight:600}",
@@ -38,7 +38,7 @@
         "border:1px solid var(--rule);background:var(--surface-2);font:600 11px/18px ",
         "ui-monospace,monospace;color:var(--accent);cursor:pointer}",
         ".vc-chip:focus-visible{outline:2px solid var(--accent);outline-offset:1px}",
-        ".vc-src{display:block;font-size:10.5px;color:var(--ink-3);margin-top:1px}"
+        ".vc-src{display:block;font-size:11px;color:var(--ink-3);margin-top:1px}"
       ].join("");
       document.head.appendChild(node);
     } catch (err) { /* styling is optional */ }

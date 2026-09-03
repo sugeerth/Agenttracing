@@ -146,7 +146,7 @@ select.picker {
 .stack-label { padding-left: 2px; }
 .stack-label .name {
   display: flex; align-items: center; gap: 7px;
-  font-size: 10.5px; text-transform: uppercase; letter-spacing: .09em;
+  font-size:11px; text-transform: uppercase; letter-spacing: .09em;
   color: var(--ink-2); font-weight: 600;
 }
 .stack-label .sub {
@@ -161,12 +161,15 @@ select.picker {
   display: inline-flex; align-items: center; justify-content: center;
   width: 16px; height: 16px; border-radius: 999px; flex: none;
   background: var(--surface-2); border: 1px solid var(--rule-2); color: var(--ink-3);
-  font-size: 9.5px; font-weight: 700; letter-spacing: 0; font-variant-numeric: tabular-nums;
+  font-size:11px; font-weight: 700; letter-spacing: 0; font-variant-numeric: tabular-nums;
 }
 
 /* ---------- the hero lane ---------- */
 /* One block at the full content width, above the columns. A trajectory is a
    wide thing; read 300px at a time it is not a trajectory, it is a list. */
+.page-title { margin: 0; padding: 16px 18px 0; font-size: 15px; font-weight: 600;
+  line-height: 1.4; color: var(--ink-2); }
+.page-title[hidden] { display: none; }
 .lead-lane { padding: 16px 18px 0; }
 .lead-lane[hidden] { display: none; }
 .block.lead { border-color: color-mix(in srgb, var(--accent) 34%, var(--rule)); }
@@ -184,7 +187,7 @@ select.picker {
 .block.hero .block-body { padding: 14px 16px; }
 .block.hero .block-actions { opacity: 1; }
 .hero-tag {
-  flex: none; font-size: 9.5px; text-transform: uppercase; letter-spacing: .09em;
+  flex: none; font-size:11px; text-transform: uppercase; letter-spacing: .09em;
   font-weight: 700; color: #fff; background: var(--accent);
   border-radius: 999px; padding: 2px 8px;
 }
@@ -202,7 +205,7 @@ select.picker {
 }
 .reading[hidden] { display: none; }
 .reading .lead {
-  font-size: 10px; text-transform: uppercase; letter-spacing: .09em;
+  font-size:11px; text-transform: uppercase; letter-spacing: .09em;
   color: var(--ink-3); flex: none;
 }
 .step-chip {
@@ -271,7 +274,7 @@ select.picker {
 .mono { font-family: var(--mono); font-size: 11.5px; }
 .tag {
   display: inline-block; padding: 1px 6px; border-radius: 999px;
-  font-size: 10.5px; letter-spacing: .03em; border: 1px solid var(--rule-2);
+  font-size:11px; letter-spacing: .03em; border: 1px solid var(--rule-2);
   color: var(--ink-2); background: var(--surface-2);
 }
 .tag.good { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, transparent); }
@@ -376,7 +379,7 @@ table.grid td.num, table.grid th.num { text-align: right; font-variant-numeric: 
 .explain-tip.show { display: block; }
 .explain-tip.pinned { border-color: var(--accent); }
 .explain-tip .x-label {
-  font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  font-size:11px; font-weight: 700; text-transform: uppercase;
   letter-spacing: .07em; color: var(--accent);
 }
 .explain-tip .x-short { margin-top: 3px; }
@@ -395,7 +398,7 @@ table.grid td.num, table.grid th.num { text-align: right; font-variant-numeric: 
   border-radius: 6px; padding: 1px 8px; font-size: 11px; cursor: pointer;
 }
 .explain-tip .x-more:hover { border-color: var(--accent); color: var(--accent); }
-.explain-tip .x-hint { font-size: 10px; color: var(--ink-3); }
+.explain-tip .x-hint { font-size:11px; color: var(--ink-3); }
 
 .vid { font-family: var(--mono); font-size: 11px; color: var(--ink-2);
   background: var(--surface-2); padding: 5px 8px; border-radius: 6px;
@@ -423,6 +426,7 @@ label.check input { margin-top: 2px; }
 <!-- The lead lane: blocks registered with `lead: true` render here, first
      on the page and at full width, above the hero. They have one home and
      no layout controls — a verdict is not a card you rearrange. -->
+<h1 class="page-title" id="page-title" hidden></h1>
 <div class="lead-lane" id="lead-lane" hidden></div>
 <div class="hero-lane" id="hero-lane" hidden></div>
 
@@ -1182,6 +1186,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   function renderAll() {
     var ctx = makeCtx();
     var hero = resolveHero(ctx);
+    renderTitle(ctx);
     renderLead(ctx);
     renderHero(hero, ctx);
     renderReading(hero);
@@ -1228,6 +1233,17 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   /* The lane. Nothing here knows what a trace looks like: the hero is
    * rendered through the same render(el, ctx) as any other block, in a
    * container that happens to be the full content width. */
+  /* The page's one <h1>: the task under comparison, so a screen reader
+   * and a skim both start from what was asked. */
+  function renderTitle(ctx) {
+    var host = els.title;
+    if (!host) return;
+    var task = ctx.report && ctx.report.task;
+    var prompt = task && (task.prompt || task.id);
+    host.textContent = prompt ? String(prompt) : "AgentDiff report";
+    host.hidden = false;
+  }
+
   /* The lead lane: every block registered with `lead: true` that has
    * something to say, in registration order, full width, above the hero.
    * No star, no collapse, no remove — a lead block is the page's opening
@@ -1253,10 +1269,37 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         body.innerHTML = "";
         body.appendChild(h("div", { class: "empty", text: "This block could not render: " + String(err && err.message || err) }));
       }
+      accessibleCharts(body, entry);
       host.appendChild(card);
       shown++;
     });
     host.hidden = shown === 0;
+  }
+
+  /* Every chart is an image to assistive technology: a root <svg> that
+   * a block drew without a role gets role="img", an accessible name from
+   * the block's title, and a <title> child — the block's own <title>s and
+   * aria-hidden glyphs are left as they are. */
+  function accessibleCharts(body, entry) {
+    var svgs;
+    try { svgs = body.querySelectorAll("svg"); } catch (err) { return; }
+    for (var i = 0; i < svgs.length; i++) {
+      var node = svgs[i];
+      if (node.getAttribute("role") || node.getAttribute("aria-hidden") === "true") continue;
+      if (node.parentNode && node.parentNode.closest && node.parentNode.closest("svg")) continue;
+      node.setAttribute("role", "img");
+      var name = entry.title + (entry.question ? " — " + entry.question : "");
+      if (!node.getAttribute("aria-label")) node.setAttribute("aria-label", name);
+      var hasTitle = false;
+      for (var k = 0; k < node.childNodes.length; k++) {
+        if (node.childNodes[k].nodeName === "title") { hasTitle = true; break; }
+      }
+      if (!hasTitle) {
+        var title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+        title.textContent = name;
+        node.insertBefore(title, node.firstChild);
+      }
+    }
   }
 
   function renderHero(hero, ctx) {
@@ -1397,6 +1440,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       blockCtx.signal = function (kind) { recordSignal(item.id, kind || "inspect"); };
       try {
         entry.render(body, blockCtx);
+        accessibleCharts(body, entry);
       } catch (err) {
         // One broken block must not take the page with it.
         console.error("AgentDiff: block", item.id, "failed to render", err);
@@ -1832,6 +1876,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       return;
     }
     if (State.suggestion.moved < 2) return;   // not worth interrupting for
+    if (State.visits < 2) return;             // never on the first visit
     toast("Your layout could be reordered to match what you use", "Reorder", function () {
       applySuggestion(false);
     });
@@ -2267,6 +2312,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       stacks: document.getElementById("stacks"),
       hero: document.getElementById("hero-lane"),
       lead: document.getElementById("lead-lane"),
+      title: document.getElementById("page-title"),
       reading: document.getElementById("reading"),
       picker: document.getElementById("task-picker"),
       drawer: document.getElementById("drawer"),
@@ -2332,14 +2378,18 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     });
     Explain.wire();
 
+    // how many times this visitor has opened a report here (durable
+    // storage only; a private window is always a first visit)
+    try {
+      State.visits = (parseInt(Store.get(key("visits")), 10) || 0) + 1;
+      Store.set(key("visits"), String(State.visits));
+    } catch (err) { State.visits = 1; }
+
     renderAll();
 
-    if (Identity.minted) {
-      toast("New visitor id created — see “You” for what is stored", "You", function () {
-        renderYou();
-        openPanel(els.you);
-      });
-    } else if (!Store.durable) {
+    // A first visit opens on the report, not on a toast about identity:
+    // the You panel already states what is stored and why.
+    if (!Identity.minted && !Store.durable) {
       toast("Storage is unavailable here; your layout lasts only this tab");
     }
   }
@@ -2421,7 +2471,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       node.textContent = [
         ".vc{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;",
         "font-size:13.5px;line-height:1.5;color:var(--ink)}",
-        ".vc .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;",
+        ".vc .k{font-size:11px;text-transform:uppercase;letter-spacing:.09em;",
         "font-weight:700;color:var(--ink-3);padding-top:3px}",
         ".vc .v{margin:0}",
         ".vc .v.verdict{font-size:15px;font-weight:600}",
@@ -2431,7 +2481,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         "border:1px solid var(--rule);background:var(--surface-2);font:600 11px/18px ",
         "ui-monospace,monospace;color:var(--accent);cursor:pointer}",
         ".vc-chip:focus-visible{outline:2px solid var(--accent);outline-offset:1px}",
-        ".vc-src{display:block;font-size:10.5px;color:var(--ink-3);margin-top:1px}"
+        ".vc-src{display:block;font-size:11px;color:var(--ink-3);margin-top:1px}"
       ].join("");
       document.head.appendChild(node);
     } catch (err) { /* styling is optional */ }
@@ -2554,7 +2604,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         "color:var(--ink-2);font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}",
         ".wt-story>li:not(:last-child)::after{content:\"\";position:absolute;left:10.5px;",
         "top:27px;bottom:3px;width:1px;background:var(--rule)}",
-        ".wt-k{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;",
+        ".wt-k{font-size:11px;text-transform:uppercase;letter-spacing:.08em;",
         "color:var(--ink-3);font-weight:700;margin:2px 0 4px}",
         ".wt-p{font-size:12.8px;line-height:1.62;color:var(--ink);margin:0}",
         ".wt-p+.wt-p{margin-top:7px}",
@@ -2563,7 +2613,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         "border:1px solid var(--rule);border-radius:5px;padding:0 4px;word-break:break-word}",
         ".wt-ev{display:inline-flex;align-items:center;gap:4px;vertical-align:baseline;",
         "margin-left:6px;border:1px solid var(--rule-2);background:var(--surface);",
-        "color:var(--accent);border-radius:999px;padding:0 8px 0 6px;font-size:10.5px;",
+        "color:var(--accent);border-radius:999px;padding:0 8px 0 6px;font-size:11px;",
         "line-height:1.7;cursor:pointer;white-space:nowrap;font-family:var(--sans)}",
         ".wt-ev::before{content:\"⌖\";font-size:11px;line-height:1}",
         ".wt-ev:hover{border-color:var(--accent);",
@@ -3304,15 +3354,15 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         "border-radius:7px;background:var(--surface-2);padding:8px 10px;margin:0 0 10px;",
         "font-size:13px;line-height:1.55;color:var(--ink)}",
         ".dx-verdict.contested{border-left-color:var(--warn)}",
-        ".dx-verdict .k{display:block;font-size:10.5px;text-transform:uppercase;",
+        ".dx-verdict .k{display:block;font-size:11px;text-transform:uppercase;",
         "letter-spacing:.08em;color:var(--ink-3);font-weight:700;margin-bottom:3px}",
         ".dx-decisive{border:1px solid var(--rule);border-left:3px solid var(--accent);",
         "border-radius:7px;background:var(--surface-2);padding:7px 10px;margin:0 0 10px;",
         "font-size:12.5px;line-height:1.5;color:var(--ink)}",
-        ".dx-decisive .k{display:block;font-size:10.5px;text-transform:uppercase;",
+        ".dx-decisive .k{display:block;font-size:11px;text-transform:uppercase;",
         "letter-spacing:.08em;color:var(--ink-3);font-weight:700;margin-bottom:3px}",
         ".dx-decisive b{color:var(--accent)}",
-        ".dx-decisive .dx-crit{display:block;font-size:10.5px;color:var(--ink-3);",
+        ".dx-decisive .dx-crit{display:block;font-size:11px;color:var(--ink-3);",
         "margin-top:2px}",
         ".dx-decisive.abstain{border-left-style:dashed;border-left-color:var(--rule-2);",
         "color:var(--ink-2)}",
@@ -3327,27 +3377,27 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         "border-color:color-mix(in srgb, var(--accent) 55%, transparent)}",
         ".tag.dx-mute{color:var(--ink-3);border-color:var(--rule)}",
         ".dx-main{flex:1;min-width:0}",
-        ".dx-kind{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}",
+        ".dx-kind{font-family:var(--mono);font-size:11px;color:var(--ink-3)}",
         ".dx-score{font-family:var(--mono);font-size:11px;color:var(--ink-2);",
         "font-variant-numeric:tabular-nums;flex:none}",
         ".dx-statement{display:block;font-size:12.5px;line-height:1.5;color:var(--ink)}",
         ".dx-part{font-size:11px;color:var(--ink-3);font-style:italic}",
         ".dx-row.dim .dx-statement{color:var(--ink-3)}",
         ".dx-row.struck .dx-statement{text-decoration:line-through;color:var(--ink-3)}",
-        ".dx-caret{flex:none;color:var(--ink-3);font-size:10px;",
+        ".dx-caret{flex:none;color:var(--ink-3);font-size:11px;",
         "transition:transform .12s ease}",
         ".dx-row.open .dx-caret{transform:rotate(90deg)}",
         ".dx-body{display:none;padding:0 0 10px 8px}",
         ".dx-row.open .dx-body{display:block}",
-        ".dx-h{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;",
+        ".dx-h{font-size:11px;text-transform:uppercase;letter-spacing:.06em;",
         "color:var(--ink-3);font-weight:700;margin:6px 0 3px}",
         ".dx-ev{list-style:none;margin:0;padding:0}",
         ".dx-ev li{font-size:11.5px;line-height:1.55;color:var(--ink-2);",
         "padding:2px 0;word-break:break-word}",
-        ".dx-quote{font-family:var(--mono);font-size:10.5px;background:var(--surface-2);",
+        ".dx-quote{font-family:var(--mono);font-size:11px;background:var(--surface-2);",
         "border:1px solid var(--rule);border-radius:5px;padding:0 4px}",
-        ".dx-path{font-family:var(--mono);font-size:10.5px}",
-        ".dx-basis{display:inline-block;margin-left:6px;font-size:9.5px;",
+        ".dx-path{font-family:var(--mono);font-size:11px}",
+        ".dx-basis{display:inline-block;margin-left:6px;font-size:11px;",
         "text-transform:uppercase;letter-spacing:.05em;border:1px solid var(--rule-2);",
         "border-radius:999px;padding:0 6px;color:var(--ink-3);vertical-align:1px}",
         ".dx-basis.soft{color:var(--warn);",
@@ -3358,7 +3408,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         ".dx-causal-head{display:flex;width:100%;gap:8px;align-items:baseline;",
         "background:none;border:0;padding:8px 0;cursor:pointer;text-align:left;",
         "font:inherit;color:inherit}",
-        ".dx-causal-title{flex:1;font-size:10.5px;text-transform:uppercase;",
+        ".dx-causal-title{flex:1;font-size:11px;text-transform:uppercase;",
         "letter-spacing:.06em;color:var(--ink-3);font-weight:700}",
         ".dx-causal-head:hover .dx-causal-title{color:var(--accent)}",
         ".dx-causal.open .dx-caret{transform:rotate(90deg)}",
@@ -3368,15 +3418,15 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         ".dx-clist li{padding:4px 0;border-top:1px solid var(--rule)}",
         ".dx-clist li:first-child{border-top:none}",
         ".dx-cstep{display:block;font-size:12px;line-height:1.5;color:var(--ink)}",
-        ".dx-cstep .n{font-family:var(--mono);font-size:10.5px;color:var(--ink-2)}",
+        ".dx-cstep .n{font-family:var(--mono);font-size:11px;color:var(--ink-2)}",
         ".dx-mech{display:block;font-size:11px;line-height:1.5;color:var(--ink-3);",
         "margin-top:1px;padding-left:8px;border-left:2px solid var(--rule-2)}",
         ".dx-mech.soft{font-style:italic;border-left-style:dashed}",
-        ".dx-ceid{display:block;font-family:var(--mono);font-size:9.5px;",
+        ".dx-ceid{display:block;font-family:var(--mono);font-size:11px;",
         "color:var(--ink-3);margin-top:1px;padding-left:10px}",
         ".dx-tension{border:1px solid var(--rule);border-left:3px solid var(--warn);",
         "border-radius:7px;background:var(--surface-2);padding:7px 10px;margin:10px 0 0}",
-        ".dx-tension .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;",
+        ".dx-tension .k{font-size:11px;text-transform:uppercase;letter-spacing:.08em;",
         "color:var(--warn);font-weight:700;margin-bottom:3px}",
         ".dx-tension ul{margin:0;padding-left:16px}",
         ".dx-tension li{font-size:11.5px;line-height:1.55;color:var(--ink-2)}",
@@ -3814,7 +3864,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         ".cx-narrative{border:1px solid var(--rule);border-left:3px solid var(--accent);",
         "border-radius:7px;background:var(--surface-2);padding:8px 10px;margin:0 0 10px;",
         "font-size:13px;line-height:1.55;color:var(--ink)}",
-        ".cx-narrative .k{display:block;font-size:10.5px;text-transform:uppercase;",
+        ".cx-narrative .k{display:block;font-size:11px;text-transform:uppercase;",
         "letter-spacing:.08em;color:var(--ink-3);font-weight:700;margin-bottom:3px}",
         ".cx-list{list-style:none;margin:0;padding:0}",
         ".cx-row{border-top:1px solid var(--rule)}",
@@ -3824,9 +3874,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         ".cx-head:hover .cx-statement{color:var(--accent)}",
         ".cx-main{flex:1;min-width:0}",
         ".cx-who{display:flex;flex-wrap:wrap;gap:6px;align-items:baseline;margin-bottom:2px}",
-        ".cx-task{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}",
+        ".cx-task{font-family:var(--mono);font-size:11px;color:var(--ink-3)}",
         ".cx-agent{font-size:11.5px;font-weight:600;color:var(--ink)}",
-        ".cx-kn{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);",
+        ".cx-kn{font-family:var(--mono);font-size:11px;color:var(--ink-2);",
         "font-variant-numeric:tabular-nums}",
         ".cx-statement{display:block;font-size:12.5px;line-height:1.5;color:var(--ink)}",
         // The status register: confirmed is the strongest accent (an executed
@@ -3842,23 +3892,23 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         ".tag.cx-refuted{color:var(--accent);text-decoration:line-through;",
         "border-color:color-mix(in srgb, var(--accent) 55%, transparent)}",
         ".cx-row.struck .cx-statement{text-decoration:line-through;color:var(--ink-3)}",
-        ".cx-caret{flex:none;color:var(--ink-3);font-size:10px;",
+        ".cx-caret{flex:none;color:var(--ink-3);font-size:11px;",
         "transition:transform .12s ease}",
         ".cx-row.open .cx-caret{transform:rotate(90deg)}",
         ".cx-body{display:none;padding:0 0 10px 8px}",
         ".cx-row.open .cx-body{display:block}",
-        ".cx-h{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;",
+        ".cx-h{font-size:11px;text-transform:uppercase;letter-spacing:.06em;",
         "color:var(--ink-3);font-weight:700;margin:6px 0 3px}",
         ".cx-checks{list-style:none;margin:0;padding:0}",
         ".cx-checks li{font-size:11.5px;line-height:1.55;color:var(--ink-2);",
         "padding:3px 0;word-break:break-word}",
-        ".cx-check-name{font-family:var(--mono);font-size:10.5px;color:var(--ink)}",
+        ".cx-check-name{font-family:var(--mono);font-size:11px;color:var(--ink)}",
         ".cx-detail{display:block;margin-top:1px}",
-        ".cx-runs{font-family:var(--mono);font-size:10px;color:var(--ink-3)}",
+        ".cx-runs{font-family:var(--mono);font-size:11px;color:var(--ink-3)}",
         ".cx-basisline{font-size:11px;color:var(--ink-3);font-style:italic;margin:4px 0 0}",
         ".cx-perrun{font-size:11.5px;line-height:1.55;color:var(--ink-2);margin:0;",
         "padding:0;list-style:none}",
-        ".cx-perrun .r{font-family:var(--mono);font-size:10.5px}",
+        ".cx-perrun .r{font-family:var(--mono);font-size:11px}",
         ".cx-foot{font-size:11.5px;color:var(--ink-3);line-height:1.5;",
         "border-top:1px solid var(--rule);margin-top:10px;padding-top:7px}",
       ].join("");
@@ -4135,6 +4185,244 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
 })(typeof window !== "undefined" ? window : this);
 
 </script>
+<!-- 08_reading.js -->
+<script>
+/* AgentDiff blocks — the reading of one run.
+ *
+ * The eval reasoning layer, on the page. Each run is understood on its
+ * own before it is compared: what happened (phases), what the answer
+ * rests on (every typed value with its basis status), why it ended, what
+ * it means (findings, each tagged with its evidence class), and what to
+ * take forward (located next actions). Everything here is quoted from
+ * `report.reading[side]` verbatim — the block composes no sentence of its
+ * own — and every step reference is a chip that moves the shared cursor
+ * the map, step detail and run lens already follow.
+ */
+(function (global) {
+  "use strict";
+
+  var AgentDiff = global.AgentDiff;
+  if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+
+  var STYLE_ID = "agentdiff-reading-css";
+  var styled = false;
+  var Lens = { side: null };  // the side being read; null = decide from data
+
+  function ensureStyle() {
+    if (styled) return;
+    styled = true;
+    try {
+      if (document.getElementById(STYLE_ID)) return;
+      var node = document.createElement("style");
+      node.id = STYLE_ID;
+      node.textContent = [
+        ".rd-head{display:flex;align-items:center;gap:8px;margin:0 0 8px;flex-wrap:wrap}",
+        ".rd-head .grp{display:inline-flex;border:1px solid var(--rule);border-radius:7px;overflow:hidden}",
+        ".rd-head .grp button{border:0;background:var(--surface-2);color:var(--ink-2);",
+        "font:600 12px/24px inherit;padding:0 10px;cursor:pointer}",
+        ".rd-head .grp button[aria-pressed=true]{background:var(--accent);color:#fff}",
+        ".rd-status{font-size:12px;color:var(--ink-3)}",
+        ".rd-sum{font-size:13px;line-height:1.55;margin:0 0 10px;color:var(--ink)}",
+        ".rd-h{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);",
+        "font-weight:700;margin:12px 0 5px}",
+        ".rd-phases{margin:0;padding-left:18px;font-size:12.5px;line-height:1.5}",
+        ".rd-table{width:100%;border-collapse:collapse;font-size:12.5px}",
+        ".rd-table th{text-align:left;font-weight:600;color:var(--ink-3);font-size:11px;",
+        "padding:3px 6px;border-bottom:1px solid var(--rule)}",
+        ".rd-table td{padding:4px 6px;border-bottom:1px solid var(--rule);vertical-align:top}",
+        ".rd-chip{display:inline-block;padding:0 7px;border-radius:999px;border:1px solid var(--rule);",
+        "font:600 11px/18px inherit;background:var(--surface-2);color:var(--ink-2)}",
+        ".rd-chip.supported{color:var(--good)}.rd-chip.contradicted,.rd-chip.unsupported{color:var(--bad)}",
+        ".rd-chip.self_asserted,.rd-chip.stale{color:var(--warn)}",
+        ".rd-step{display:inline-block;margin:0 4px 2px 0;padding:0 7px;border-radius:999px;",
+        "border:1px solid var(--rule);background:var(--surface-2);font:600 11px/18px ",
+        "ui-monospace,monospace;color:var(--accent);cursor:pointer}",
+        ".rd-step:focus-visible{outline:2px solid var(--accent);outline-offset:1px}",
+        ".rd-list{margin:0;padding-left:0;list-style:none;font-size:12.5px;line-height:1.5}",
+        ".rd-list li{padding:4px 0;border-bottom:1px dashed var(--rule)}",
+        ".rd-cls{font-size:11px;color:var(--ink-3);margin-right:6px;text-transform:uppercase;",
+        "letter-spacing:.05em}",
+        ".rd-why{font-size:12.5px;line-height:1.5;margin:0}",
+        ".rd-conf{font-size:12px;color:var(--ink-3);margin:10px 0 0}",
+        ".rd-validity{border-left:3px solid var(--warn);padding:6px 10px;margin:0 0 10px;",
+        "font-size:12.5px;background:var(--surface-2);border-radius:0 7px 7px 0}"
+      ].join("");
+      document.head.appendChild(node);
+    } catch (err) { /* styling is optional */ }
+  }
+
+  // ------------------------------------------------------------ data access
+
+  function readingOf(report, side) {
+    var box = report && report.reading;
+    return box && box[side] ? box[side] : null;
+  }
+
+  function failingSide(report) {
+    var a = report && report.a && report.a.outcome;
+    var b = report && report.b && report.b.outcome;
+    if (a && b && a.success === true && b.success === false) return "b";
+    if (a && b && b.success === true && a.success === false) return "a";
+    return "b";
+  }
+
+  function agentName(report, side) {
+    var box = report && report[side];
+    return (box && box.agent && box.agent.name) || side.toUpperCase();
+  }
+
+  function rowFor(report, side, step) {
+    var rows = report && Array.isArray(report.alignment) ? report.alignment : [];
+    var key = side + "_index";
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i] && rows[i][key] === step) return i;
+    }
+    return -1;
+  }
+
+  function stepChip(ctx, report, side, step) {
+    return ctx.h("button", {
+      class: "rd-step", type: "button", text: "⌖ " + step,
+      title: "show step " + step + " in the map, step detail and run lens",
+      "data-step": String(step), "data-side": side,
+      onclick: function () {
+        var row = rowFor(report, side, step);
+        try { ctx.signal("inspect"); } catch (e) { /* optional */ }
+        if (row < 0) return;
+        try {
+          document.dispatchEvent(new CustomEvent("agentdiff:select-step",
+            { detail: { row: row, side: side } }));
+        } catch (e) { /* no CustomEvent: the chip is inert */ }
+      }
+    });
+  }
+
+  function matchWord(r) {
+    if (r.matches_expected === true) return "matches expected";
+    if (r.status === "contradicted") return "contradicts expected";
+    if (r.matches_expected === false) return "not in expected";
+    return "no expected value";
+  }
+
+  // ---------------------------------------------------------------- render
+
+  function render(el, ctx) {
+    ensureStyle();
+    var report = ctx.report;
+    if (!report || !report.reading) {
+      return ctx.empty(el, "This report carries no reading; re-run compare to get one.");
+    }
+    var side = Lens.side || failingSide(report);
+    var reading = readingOf(report, side);
+    if (!reading) return ctx.empty(el, "No reading for this side.");
+    var H = ctx.h;
+
+    el.appendChild(H("div", { class: "rd-head" }, [
+      H("div", { class: "grp", role: "group", "aria-label": "which run to read" }, ["a", "b"].map(function (s) {
+        return H("button", {
+          text: agentName(report, s), type: "button",
+          "aria-pressed": side === s ? "true" : "false",
+          onclick: function () { Lens.side = s; try { ctx.signal("inspect"); } catch (e) { /* optional */ } render(clear(el), ctx); }
+        });
+      })),
+      H("span", { class: "rd-status", text: (reading.outcome && reading.outcome.success === false ? "failed" : "succeeded")
+        + " · " + (reading.rests_on || []).length + " typed value(s) in the answer" })
+    ]));
+
+    el.appendChild(H("p", { class: "rd-sum", text: reading.summary || "" }));
+
+    var validity = reading.validity;
+    if (validity && validity.status && validity.status !== "clean") {
+      el.appendChild(H("div", { class: "rd-validity", text:
+        "Fix the measurement first: " + (validity.reason || validity.status) }));
+    }
+
+    if (reading.phases && reading.phases.length) {
+      el.appendChild(H("div", { class: "rd-h", text: "What happened" }));
+      el.appendChild(H("ol", { class: "rd-phases" }, reading.phases.map(function (ph) {
+        var steps = ph.steps || [];
+        var kids = [H("b", { text: steps.length ? "steps " + steps[0] + "–" + steps[steps.length - 1] : "no steps" }),
+                    H("span", { text: ": " + (ph.summary || "") + " " })];
+        if (steps.length) kids.push(stepChip(ctx, report, side, steps[0]));
+        return H("li", null, kids);
+      })));
+    }
+
+    var basis = reading.answer_basis || {};
+    if (reading.rests_on && reading.rests_on.length) {
+      el.appendChild(H("div", { class: "rd-h", text: "The answer rests on (" + (basis.status || "").replace(/_/g, " ") + ")" }));
+      var table = H("table", { class: "rd-table" }, [
+        H("tr", null, ["value", "status", "first at", "source", "vs expected"].map(function (t) { return H("th", { text: t }); }))
+      ]);
+      reading.rests_on.forEach(function (r) {
+        table.appendChild(H("tr", null, [
+          H("td", null, [H("code", { text: String(r.value) })]),
+          H("td", null, [H("span", { class: "rd-chip " + (r.status || ""), text: String(r.status || "").replace(/_/g, " ") })]),
+          H("td", null, r.first_step === null || r.first_step === undefined
+            ? [H("span", { text: "no earlier step" })] : [stepChip(ctx, report, side, r.first_step)]),
+          H("td", { text: r.source || "" }),
+          H("td", { text: matchWord(r) })
+        ]));
+      });
+      el.appendChild(table);
+    }
+
+    var why = reading.why_it_ended;
+    if (why) {
+      el.appendChild(H("div", { class: "rd-h", text: "Why it ended" }));
+      el.appendChild(H("p", { class: "rd-why", text:
+        (why.success ? "succeeded" : "failed") + ", "
+        + (why.declared ? "termination " + why.termination : "termination not declared")
+        + " — " + (why.verdict_basis || "") }));
+    }
+
+    if (reading.what_it_means && reading.what_it_means.length) {
+      el.appendChild(H("div", { class: "rd-h", text: "What it means" }));
+      var order = ["observable", "annotation", "stated"];
+      var findings = reading.what_it_means.slice().sort(function (x, y) {
+        return order.indexOf(x.evidence_class) - order.indexOf(y.evidence_class);
+      });
+      el.appendChild(H("ul", { class: "rd-list" }, findings.map(function (f) {
+        var kids = [H("span", { class: "rd-cls", text: f.evidence_class || "" }),
+                    H("span", { text: f.statement + " " })];
+        (f.steps || []).slice(0, 4).forEach(function (st) { kids.push(stepChip(ctx, report, side, st)); });
+        return H("li", null, kids);
+      })));
+    }
+
+    if (reading.take_forward && reading.take_forward.length) {
+      el.appendChild(H("div", { class: "rd-h", text: "Take forward" }));
+      el.appendChild(H("ul", { class: "rd-list rd-todo" }, reading.take_forward.map(function (t) {
+        var kids = [];
+        if (t.at_step !== null && t.at_step !== undefined) kids.push(stepChip(ctx, report, side, t.at_step));
+        kids.push(H("span", { text: (t.conditional_on_validity ? "(conditional on the measurement) " : "") + t.instead }));
+        return H("li", null, kids);
+      })));
+    }
+
+    var conf = reading.confidence;
+    if (conf && conf.level) {
+      el.appendChild(H("p", { class: "rd-conf", text: "Confidence: " + conf.level + " — " + (conf.basis || "") }));
+    }
+  }
+
+  function clear(el) { el.innerHTML = ""; return el; }
+
+  AgentDiff.block({
+    id: "reading",
+    title: "Reading",
+    question: "What did this run do, what does its answer rest on, and what should it take forward?",
+    group: "outcome",
+    size: "tall",
+    relevance: function (ctx) {
+      var r = ctx.report && ctx.report.reading;
+      return r && (r.a || r.b) ? 1 : 0;
+    },
+    render: render
+  });
+})(typeof window !== "undefined" ? window : this);
+
+</script>
 <!-- 10_outcome.js -->
 <script>
 /* AgentDiff blocks — the outcome group.
@@ -4170,7 +4458,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     ".oc-side.sa{border-left:3px solid var(--a)}",
     ".oc-side.sb{border-left:3px solid var(--b)}",
     ".oc-name{font-weight:620;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-    ".oc-model{font-size:10.5px;color:var(--ink-3);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+    ".oc-model{font-size:11px;color:var(--ink-3);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
     ".oc-row{display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-top:6px}",
     ".oc-item{border:1px solid var(--rule);border-radius:9px;padding:8px 9px;margin-bottom:7px;",
     "background:transparent;cursor:pointer;text-align:left;width:100%;font:inherit;color:inherit;display:block}",
@@ -4179,7 +4467,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     ".oc-item.causal{border-left:3px solid var(--bad)}",
     ".oc-sum{font-size:12px;line-height:1.45;color:var(--ink-2);margin:5px 0 0}",
     ".oc-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}",
-    ".oc-chip{font-size:10.5px;font-family:var(--mono);color:var(--ink-3);",
+    ".oc-chip{font-size:11px;font-family:var(--mono);color:var(--ink-3);",
     "background:var(--surface-2);border-radius:5px;padding:1px 5px;white-space:nowrap}",
     ".oc-bar{height:6px;border-radius:3px;background:var(--rule);overflow:hidden;margin-top:5px}",
     ".oc-bar>i{display:block;height:100%;border-radius:3px}",
@@ -4195,7 +4483,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     "color:var(--ink);border-bottom:1px solid color-mix(in srgb,var(--a) 55%,transparent)}",
     ".oc-diff ins{background:color-mix(in srgb,var(--b) 20%,transparent);",
     "color:var(--ink);border-bottom:1px solid color-mix(in srgb,var(--b) 55%,transparent)}",
-    ".oc-legend{display:flex;gap:10px;flex-wrap:wrap;font-size:10.5px;color:var(--ink-3);margin:7px 0 0}",
+    ".oc-legend{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--ink-3);margin:7px 0 0}",
     ".oc-swatch{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}",
     ".oc-panel{border:1px solid var(--rule);border-radius:9px;padding:8px 9px;margin-top:8px}",
     ".oc-panel.bad{border-left:3px solid var(--bad)}",
@@ -4618,7 +4906,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       }));
       if (node.role !== "link") {
         root.appendChild(ctx.svg("text", {
-          x: W - 14, y: y + NH / 2 + 4, "font-size": 9, "text-anchor": "end",
+          x: W - 14, y: y + NH / 2 + 4, "font-size": 11, "text-anchor": "end",
           fill: ctx.color.bad,
           text: node.role === "root" ? "root cause" : "outcome",
         }));
@@ -5137,7 +5425,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       ".tj-chip{width:9px;height:9px;border-radius:2px;flex:none}",
       ".tj-side b{font-weight:600;letter-spacing:-.01em}",
       ".tj-legend{display:flex;flex-wrap:wrap;gap:3px 11px;align-items:center;",
-      "margin-top:7px;font-size:10.5px;color:var(--ink-3);line-height:1}",
+      "margin-top:7px;font-size:11px;color:var(--ink-3);line-height:1}",
       ".tj-legend .k{display:inline-flex;align-items:center;gap:4px}",
       ".tj-legend .lab{text-transform:uppercase;letter-spacing:.07em;opacity:.75}",
       ".tj-sw{width:12px;height:8px;border-radius:2px;flex:none;display:inline-block}",
@@ -5149,7 +5437,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       ".tj-pane.absent{border-style:dashed;opacity:.72}",
       ".tj-pane h4{display:flex;align-items:center;gap:6px;font-size:11px;margin:0 0 5px;",
       "text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);font-weight:600}",
-      ".tj-lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin:6px 0 2px}",
+      ".tj-lbl{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin:6px 0 2px}",
       ".tj-text{font-family:var(--mono);font-size:11px;line-height:1.45;white-space:pre-wrap;",
       "word-break:break-word;background:var(--surface-2);border:1px solid var(--rule);",
       "border-radius:6px;padding:6px 7px;max-height:132px;overflow:auto}",
@@ -5163,7 +5451,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       ".tj-note{margin-top:6px;font-size:11px;color:var(--ink-2);border-left:2px solid var(--warn);padding-left:7px}",
       ".tj-seq{font-family:var(--mono);font-size:11px;color:var(--ink-2);display:flex;",
       "align-items:baseline;gap:6px;margin-top:2px}",
-      ".tj-seq b{font-weight:600;font-size:10.5px;letter-spacing:.04em}",
+      ".tj-seq b{font-weight:600;font-size:11px;letter-spacing:.04em}",
       ".tj-seq span{letter-spacing:.14em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
       "svg.tj{display:block;max-width:none}",
       ".tj-hit{cursor:pointer}",
@@ -5178,10 +5466,10 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       ".tj-ctl select{font-family:inherit;font-size:11px;background:var(--surface);color:var(--ink-2);",
       "border:1px solid var(--rule-2);border-radius:6px;padding:2px 4px}",
       ".tj-ctl select[disabled]{opacity:.45}",
-      ".tj-status{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}",
+      ".tj-status{font-family:var(--mono);font-size:11px;color:var(--ink-3)}",
       ".tj-trade{margin-top:8px;font-size:11.5px;color:var(--ink-2);border-left:2px solid var(--accent);",
       "padding-left:8px;line-height:1.45}",
-      ".tj-trade b{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;",
+      ".tj-trade b{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.08em;",
       "color:var(--ink-3);font-weight:600;margin-bottom:1px}",
       "@keyframes tjPulse{0%,100%{opacity:1}50%{opacity:.45}}",
       ".tj-live{animation:tjPulse .9s ease-in-out infinite}",
@@ -5479,7 +5767,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
 
   function label(x, y, text, fill, size, anchor) {
     return S("text", {
-      x: x, y: y, fill: fill, "font-size": size || 9,
+      x: x, y: y, fill: fill, "font-size": size || 11,
       "text-anchor": anchor || "middle",
       "font-family": "var(--mono)", "letter-spacing": "0.02em", text: text,
     });
@@ -5991,7 +6279,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
           fill: C.bad,
         }));
         if (colW >= 42) {
-          dg.appendChild(label(colX(i) + 8, 10, "d" + (mark.div.rank || 1), C.bad, 8.5, "start"));
+          dg.appendChild(label(colX(i) + 8, 10, "d" + (mark.div.rank || 1), C.bad, 10, "start"));
         }
         if ((mark.div.rank || 99) === (Plan.div && Plan.div.d ? (Plan.div.d.rank || 99) : -1)) {
           divFlash.push(dg);
@@ -6066,7 +6354,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         g.appendChild(styleGlyph(glyphNode(step.type, x, y, R),
                                  qualityStyle(step.quality, side)));
         if (colW >= 36) {
-          g.appendChild(label(x + R + 3.5, y + 3, String(index), C.muted, 8, "start"));
+          g.appendChild(label(x + R + 3.5, y + 3, String(index), C.muted, 10, "start"));
         }
         laneG[side].appendChild(g);
         var ev = evFor(Plan[side], index);
@@ -6083,9 +6371,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     // --- row axis
     svgEl.appendChild(tick(padL, axisY - 9, W - padR, axisY - 9, C.grid, 1));
     rows.forEach(function (row, i) {
-      svgEl.appendChild(label(colX(i), axisY, String(i), C.muted, 8.5));
+      svgEl.appendChild(label(colX(i), axisY, String(i), C.muted, 10));
     });
-    svgEl.appendChild(label(padL, axisY - 13, "row", C.muted, 8, "start"));
+    svgEl.appendChild(label(padL, axisY - 13, "row", C.muted, 10, "start"));
 
     // --- hit targets, one per side per column
     var midY = (yA + yB) / 2;
@@ -6194,7 +6482,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       var tv = k * stepv;
       var tx = x(tv);
       svgEl.appendChild(tick(tx, 16, tx, axisY - 10, C.grid, 1, "1 3"));
-      svgEl.appendChild(label(tx, axisY, secLabel(tv, stepv), C.muted, 8.5));
+      svgEl.appendChild(label(tx, axisY, secLabel(tv, stepv), C.muted, 10));
     }
 
     // --- lane baselines + letters
@@ -6512,7 +6800,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     // gridlines
     [0, 0.5, 1].forEach(function (v) {
       svgEl.appendChild(tick(gut, y(v), W - padR, y(v), C.grid, 1, v === 0.5 ? "2 3" : null));
-      svgEl.appendChild(label(gut - 3, y(v) + 3, v === 0.5 ? ".5" : String(v), C.muted, 8, "end"));
+      svgEl.appendChild(label(gut - 3, y(v) + 3, v === 0.5 ? ".5" : String(v), C.muted, 10, "end"));
     });
 
     if (sel.row >= 0) {
@@ -6557,7 +6845,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         stroke: C.surface, "stroke-width": 0.8,
       }));
       if (colW >= 40) {
-        svgEl.appendChild(label(colX(i), y(v) - 6, F.num(v, 2).replace(/^0/, "."), C.muted, 8));
+        svgEl.appendChild(label(colX(i), y(v) - 6, F.num(v, 2).replace(/^0/, "."), C.muted, 10));
       }
     });
 
@@ -6566,9 +6854,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       opMarks(row.op, colX(i) - colW * 0.42, bandY, colW * 0.84, bandH).forEach(function (node) {
         svgEl.appendChild(node);
       });
-      svgEl.appendChild(label(colX(i), axisY, String(i), C.muted, 8.5));
+      svgEl.appendChild(label(colX(i), axisY, String(i), C.muted, 10));
     });
-    svgEl.appendChild(label(gut - 3, bandY + bandH - 3, "op", C.muted, 8, "end"));
+    svgEl.appendChild(label(gut - 3, bandY + bandH - 3, "op", C.muted, 10, "end"));
 
     if (brk !== null && brk >= 0 && brk < n) {
       svgEl.appendChild(tick(colX(brk), top - 8, colX(brk), axisY - 9, C.bad, 1.2, "3 3"));
@@ -6830,10 +7118,10 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
 
     [0, 0.5, 1].forEach(function (v) {
       svgEl.appendChild(tick(gut, y(v), W - padR, y(v), C.grid, 1, v === 0.5 ? "2 3" : null));
-      svgEl.appendChild(label(gut - 3, y(v) + 3, v === 0.5 ? ".5" : String(v), C.muted, 8, "end"));
+      svgEl.appendChild(label(gut - 3, y(v) + 3, v === 0.5 ? ".5" : String(v), C.muted, 10, "end"));
     });
     // Sits on the left, where the series start high and the space is free.
-    svgEl.appendChild(label(gut + 4, y(0.5) - 4, "break threshold", C.muted, 8, "start"));
+    svgEl.appendChild(label(gut + 4, y(0.5) - 4, "break threshold", C.muted, 10, "start"));
 
     // gap bands: the point of the chart
     rows.forEach(function (r, i) {
@@ -6872,7 +7160,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     series("semantic", C.ink, null, "circle");
 
     rows.forEach(function (r, i) {
-      svgEl.appendChild(label(colX(i), axisY, String(r.row), C.muted, 8.5));
+      svgEl.appendChild(label(colX(i), axisY, String(r.row), C.muted, 10));
       var hit = S("rect", { class: "tj-hit", x: colX(i) - colW / 2, y: 0, width: colW, height: H_,
                             fill: C.ink, "fill-opacity": 0, "pointer-events": "all" });
       hit.appendChild(S("title", {
@@ -6887,7 +7175,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       hit.addEventListener("click", function () { select(r.row, null, ctx); });
       svgEl.appendChild(hit);
     });
-    svgEl.appendChild(label(gut - 3, axisY, "row", C.muted, 8, "end"));
+    svgEl.appendChild(label(gut - 3, axisY, "row", C.muted, 10, "end"));
 
     if (brk !== null) {
       var at = -1;
@@ -6899,7 +7187,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
           fill: C.bad,
         }));
         if (colW >= 44) {
-          svgEl.appendChild(label(Math.min(colX(at) + 7, W - padR), top - 9, "break", C.bad, 8, "start"));
+          svgEl.appendChild(label(Math.min(colX(at) + 7, W - padR), top - 9, "break", C.bad, 10, "start"));
         }
       }
     }
@@ -7035,7 +7323,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       svgEl.appendChild(tick(gut, yy, W - padR, yy, C.grid, 1));
       var unused = !used.a[intent] && !used.b[intent];
       svgEl.appendChild(S("text", {
-        x: gut - 6, y: yy + 3, "text-anchor": "end", "font-size": 9.5,
+        x: gut - 6, y: yy + 3, "text-anchor": "end", "font-size": 11.5,
         fill: unused ? C.grid : C.muted, text: intent,
       }));
     });
@@ -7068,9 +7356,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     });
 
     for (var i = 0; i < maxStep; i++) {
-      svgEl.appendChild(label(colX(i), axisY, String(i), C.muted, 8.5));
+      svgEl.appendChild(label(colX(i), axisY, String(i), C.muted, 10));
     }
-    svgEl.appendChild(label(gut - 6, axisY, "step", C.muted, 8, "end"));
+    svgEl.appendChild(label(gut - 6, axisY, "step", C.muted, 10, "end"));
 
     var wrap = H("div", { class: W > avail ? "scroll-x" : "" });
     wrap.appendChild(svgEl);
@@ -7095,7 +7383,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       ".tjm-wrap{overflow-y:auto;overflow-x:auto;max-height:520px;",
       "border:1px solid var(--rule);border-radius:8px;background:var(--surface)}",
       ".tjm-foot{display:flex;flex-wrap:wrap;gap:3px 12px;margin-top:7px;",
-      "font-size:10.5px;color:var(--ink-3);align-items:center;line-height:1.2}",
+      "font-size:11px;color:var(--ink-3);align-items:center;line-height:1.2}",
       ".tjm-foot .k{display:inline-flex;align-items:center;gap:4px}",
       ".tjm-note{margin-top:6px;font-size:11px;color:var(--ink-2);",
       "border-left:2px solid var(--warn);padding-left:7px}",
@@ -7126,6 +7414,21 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     }
   }
 
+  /* The reading layer's role for one step (report.reading[side]
+   * .what_happened): shown only when it says something a reader acts on. */
+  var ROLE_LABEL = { feeds_answer: "feeds answer", dead_end: "dead end",
+                     no_information: "no information" };
+  function readingRole(report, side, index) {
+    var reading = report && report.reading && report.reading[side];
+    var rows = reading && Array.isArray(reading.what_happened) ? reading.what_happened : [];
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i] && rows[i].step === index && ROLE_LABEL[rows[i].role]) {
+        return { key: rows[i].role, label: ROLE_LABEL[rows[i].role] };
+      }
+    }
+    return null;
+  }
+
   function decisiveInfo(report) {
     var diag = report && report.diagnosis;
     if (!diag || diag.mode !== "single_failure") return null;
@@ -7140,6 +7443,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       side: side,
       step: dec.step !== undefined ? dec.step : null,
       reason: dec.reason || null,
+      // "hypothesized" until a replay flips the outcome; the map draws
+      // the ring by this, never by the score
+      verification: dec.verification || "hypothesized",
       contested: diag.leading === null || diag.leading === undefined,
       account: account,
     };
@@ -7358,10 +7664,15 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
           g.appendChild(S("circle", { cx: x, cy: y, r: 10.5, fill: C.warn, opacity: 0.16 }));
         }
         if (isRoot || isDecisive) {
+          // the ring is graded by verification, not by score: solid only
+          // when a replay flipped the outcome, long-dashed while the
+          // decisive step is a hypothesis, short-dashed for the attributed root
+          var verified = isDecisive && dec.verification === "replay-verified";
           g.appendChild(S("circle", {
             cx: x, cy: y, r: 9.5, fill: "none",
+            class: isDecisive ? ("tj-ring dec " + (verified ? "verified" : "hypothesized")) : "tj-ring root",
             stroke: C.bad, "stroke-width": isDecisive ? 2 : 1.2,
-            "stroke-dasharray": isDecisive ? null : "2.5,2",
+            "stroke-dasharray": isDecisive ? (verified ? null : "6,3") : "2.5,2",
           }));
         }
         if (picked) {
@@ -7388,7 +7699,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         if (name.length > maxChars) name = name.slice(0, maxChars - 1) + "…";
         g.appendChild(S("text", {
           x: textX, y: y + 3, "text-anchor": anchor,
-          "font-family": "var(--mono)", "font-size": 10.5,
+          "font-family": "var(--mono)", "font-size": 11.5,
           fill: picked ? C.ink : C.muted,
           text: step.index + " · " + name + (step.error ? " ⚠" : ""),
         }));
@@ -7453,7 +7764,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       class: "k", type: "button",
       style: { border: "1px solid var(--rule-2)", borderRadius: "5px",
                background: "var(--surface)", color: "var(--ink-2)",
-               font: "inherit", fontSize: "10.5px", padding: "0 6px",
+               font: "inherit", fontSize: "11px", padding: "0 6px",
                cursor: "pointer" },
       text: "claims: " + claims.length + " ›",
       onclick: function () {
@@ -7467,8 +7778,10 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       legendKey("dashed line", "drifted / divergent"),
       legendKey("dotted curve", "same claim in both runs (red = wrong-valued)"),
       legendKey("open stub", "step only this run took — nothing to pair with"),
-      dec ? legendKey("solid red ring", "decisive step") : null,
-      root ? legendKey("dashed red ring", "attributed root") : null,
+      dec ? legendKey(dec.verification === "replay-verified" ? "solid red ring" : "long-dashed red ring",
+                      "decisive step — " + (dec.verification === "replay-verified"
+                        ? "replay-verified" : "hypothesized, not replay-verified")) : null,
+      root ? legendKey("short-dashed red ring", "attributed root") : null,
       dec ? legendKey("amber halo", "on the causal account") : null,
       claimsChip,
     ]);
@@ -7519,19 +7832,19 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       "min-width:0}",
       ".tjl-head:hover{background:var(--surface-2)}",
       ".tjl-step.sel .tjl-head{box-shadow:inset 2px 0 0 var(--accent)}",
-      ".tjl-idx{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);flex:none;",
+      ".tjl-idx{font-family:var(--mono);font-size:11px;color:var(--ink-3);flex:none;",
       "width:20px;text-align:right}",
       ".tjl-name{font-family:var(--mono);font-size:11.5px;color:var(--ink);min-width:0;",
       "overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
       ".tjl-badges{margin-left:auto;display:inline-flex;gap:4px;flex:none;align-items:center}",
-      ".tjl-b{font-size:9px;text-transform:uppercase;letter-spacing:.06em;",
+      ".tjl-b{font-size:11px;text-transform:uppercase;letter-spacing:.06em;",
       "border:1px solid var(--rule-2);border-radius:4px;padding:0 4px;color:var(--ink-3);",
       "line-height:1.6;white-space:nowrap}",
       ".tjl-b.err{border-color:var(--bad);color:var(--bad)}",
       ".tjl-b.mark{border-color:var(--bad);color:var(--bad);font-weight:600}",
       ".tjl-b.acct{border-color:var(--warn);color:var(--warn)}",
       ".tjl-body{padding:2px 9px 9px 36px}",
-      ".tjl-meta{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin:2px 0 4px}",
+      ".tjl-meta{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin:2px 0 4px}",
     ].join("");
     var tag = document.createElement("style");
     tag.textContent = css;
@@ -7646,8 +7959,11 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       var inv = invented[step.index];
       var isOpen = !!Lens.open[step.index];
 
+      var role = readingRole(report, side, step.index);
       var badges = H("div", { class: "tjl-badges" }, [
         isDecisive ? H("span", { class: "tjl-b mark", text: "decisive" }) : null,
+        role ? H("span", { class: "tjl-b role " + role.key, text: role.label,
+                           title: "the reading's role for this step" }) : null,
         !isDecisive && isRoot ? H("span", { class: "tjl-b mark", text: "root" }) : null,
         onAccount && !isDecisive && !isRoot
           ? H("span", { class: "tjl-b acct", text: "account" }) : null,
@@ -7763,7 +8079,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     ".cost-detail{margin-top:6px;border-top:1px solid var(--rule);padding-top:6px}",
     ".cost-prehead{display:flex;align-items:center;justify-content:space-between;",
     "gap:8px;margin-top:8px}",
-    ".cost-prehead span{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;",
+    ".cost-prehead span{font-size:11px;text-transform:uppercase;letter-spacing:.07em;",
     "color:var(--ink-3)}",
     "pre.cost-pre{margin:5px 0 0;padding:8px 9px;background:var(--surface-2);",
     "border:1px solid var(--rule);border-radius:7px;white-space:pre-wrap;",
@@ -9923,7 +10239,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     ".ig-note{font-size:11.5px;line-height:1.45;color:var(--ink-2);margin:5px 0 0}",
     ".ig-mini{font-size:11px;line-height:1.45;color:var(--ink-3);margin:5px 0 0}",
     ".ig-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}",
-    ".ig-chip{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);background:var(--surface-2);",
+    ".ig-chip{font-family:var(--mono);font-size:11px;color:var(--ink-2);background:var(--surface-2);",
     "border:1px solid var(--rule);border-radius:5px;padding:1px 5px;white-space:nowrap}",
     ".ig-chip.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 50%,transparent)}",
     ".ig-chip.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 50%,transparent)}",
@@ -9954,9 +10270,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
 
     /* the 2x2: outcome across, process down */
     ".ig-quad{display:grid;grid-template-columns:auto 1fr 1fr;gap:4px;margin:2px 0 4px}",
-    ".ig-quad .hd{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;",
+    ".ig-quad .hd{font-size:11px;text-transform:uppercase;letter-spacing:.08em;",
     "color:var(--ink-3);align-self:end;padding-bottom:2px}",
-    ".ig-quad .rw{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;",
+    ".ig-quad .rw{font-size:11px;text-transform:uppercase;letter-spacing:.08em;",
     "color:var(--ink-3);align-self:center;writing-mode:horizontal-tb;max-width:66px;line-height:1.25}",
     ".ig-cell{border:1px solid var(--rule);border-radius:8px;padding:6px 7px;min-height:56px;",
     "display:flex;flex-direction:column;gap:5px;justify-content:space-between;min-width:0}",
@@ -9974,7 +10290,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
 
     /* flag matrix */
     "table.ig-mx{border-collapse:collapse;width:100%;font-size:11.5px}",
-    ".ig-mx th{font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);",
+    ".ig-mx th{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);",
     "font-weight:500;text-align:left;padding:0 6px 4px 0;white-space:nowrap}",
     ".ig-mx th.c,.ig-mx td.c{text-align:center;width:40px;padding-left:2px;padding-right:2px}",
     ".ig-mx td{padding:3px 6px 3px 0;border-top:1px solid var(--rule);vertical-align:middle;line-height:1.3}",
@@ -9983,9 +10299,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     ".ig-mx tr.differs td.k{box-shadow:inset 2px 0 0 var(--accent)}",
     ".ig-mx tr.shared td.k{box-shadow:inset 2px 0 0 var(--bad)}",
     ".ig-mx tr.differs td.k,.ig-mx tr.shared td.k{font-weight:600}",
-    ".ig-mx .dag{font-size:9.5px;color:var(--ink-3);vertical-align:super;margin-left:1px}",
+    ".ig-mx .dag{font-size:11px;color:var(--ink-3);vertical-align:super;margin-left:1px}",
     ".ig-legend{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;margin-top:7px;",
-    "font-size:10.5px;color:var(--ink-3)}",
+    "font-size:11px;color:var(--ink-3)}",
     ".ig-legend .k{display:inline-flex;align-items:center;gap:4px}",
 
     /* bars + ledgers */
@@ -10011,8 +10327,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     ".ig-unmeas p{margin:4px 0 0;font-size:11px;line-height:1.45;color:var(--ink-2)}",
     ".ig-unmeas b{color:var(--ink)}",
     ".ig-badge{display:inline-flex;align-items:center;gap:4px;border:1px dashed var(--rule-2);",
-    "border-radius:999px;padding:0 7px;font-size:10.5px;color:var(--ink-3);background:var(--surface)}",
-    ".ig-basis{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;color:var(--ink-3);",
+    "border-radius:999px;padding:0 7px;font-size:11px;color:var(--ink-3);background:var(--surface)}",
+    ".ig-basis{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--ink-3);",
     "border:1px solid var(--rule);border-radius:999px;padding:0 7px;background:var(--surface-2);white-space:nowrap}",
     ".ig-basis.inferred{border-style:dashed;color:var(--warn);",
     "border-color:color-mix(in srgb,var(--warn) 45%,transparent)}",
@@ -10658,7 +10974,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       }));
       canvas.appendChild(S("text", {
         x: ((bx0 + bx1) / 2).toFixed(1), y: labelY + 19, "text-anchor": "middle",
-        "font-size": 9.5, fill: C.warn,
+        "font-size": 11.5, fill: C.warn,
         text: "period " + block.period + " × " + block.repeats,
       }));
     }
@@ -10675,7 +10991,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       if (cell >= 13 || i % 2 === 0) {
         canvas.appendChild(S("text", {
           x: cx(i).toFixed(1), y: labelY, "text-anchor": "middle",
-          "font-size": 9, fill: C.muted, text: String(step.index),
+          "font-size": 11, fill: C.muted, text: String(step.index),
         }));
       }
     });
@@ -14086,7 +14402,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         ".ax-row.open .ax-body{display:block}",
         ".ax-sec{margin:0 0 12px;min-width:0}",
         ".ax-sec:last-child{margin-bottom:0}",
-        ".ax-k{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;",
+        ".ax-k{font-size:11px;text-transform:uppercase;letter-spacing:.08em;",
         "color:var(--ink-3);font-weight:700;margin:0 0 5px}",
         ".ax-p{font-size:12.3px;line-height:1.55;color:var(--ink);margin:0 0 5px}",
         ".ax-ul{margin:0;padding-left:16px;font-size:12.3px;line-height:1.55;color:var(--ink)}",
@@ -14094,7 +14410,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         ".ax-basis{font-family:var(--mono);font-size:11px;line-height:1.6;color:var(--ink-2);",
         "margin:0;padding-left:14px}",
         ".ax-basis li{margin:0 0 2px;overflow-wrap:anywhere}",
-        ".ax-fp{font-family:var(--mono);font-size:10.5px;background:var(--surface-2);",
+        ".ax-fp{font-family:var(--mono);font-size:11px;background:var(--surface-2);",
         "border:1px solid var(--rule);border-radius:5px;padding:1px 5px;",
         "overflow-wrap:anywhere;word-break:break-all;display:inline-block;margin:1px 0}",
         ".ax-caveat{font-size:11px;color:var(--ink-3);line-height:1.5;margin:5px 0 0}",
@@ -14116,10 +14432,10 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         "background:color-mix(in srgb, var(--warn) 8%, var(--surface));border-radius:7px;",
         "padding:7px 9px;margin:6px 0 0;font-size:12.3px;line-height:1.55;color:var(--ink);",
         "font-weight:600}",
-        ".ax-luck .lbl{display:block;font-size:10px;font-weight:700;letter-spacing:.08em;",
+        ".ax-luck .lbl{display:block;font-size:11px;font-weight:700;letter-spacing:.08em;",
         "text-transform:uppercase;color:var(--warn);margin-bottom:2px}",
         ".ax-task{display:inline-block;border:1px solid var(--rule-2);border-radius:999px;",
-        "padding:0 8px;font-size:10.5px;line-height:1.8;font-family:var(--mono);",
+        "padding:0 8px;font-size:11px;line-height:1.8;font-family:var(--mono);",
         "color:var(--ink-2);margin:1px 2px 1px 0;overflow-wrap:anywhere}",
         ".ax-task.passed{border-color:color-mix(in srgb, var(--warn) 55%, transparent);",
         "color:var(--warn)}",
@@ -14135,7 +14451,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         ".ax-refusal .det{font-size:11px;color:var(--ink-3);margin-top:2px;line-height:1.5;",
         "overflow-wrap:anywhere}",
         "@media (max-width:520px){.ax-head{gap:7px;padding:8px}.ax-rank{width:20px;",
-        "height:20px;font-size:10.5px}}",
+        "height:20px;font-size:11px}}",
       ].join("");
       document.head.appendChild(node);
     } catch (err) { /* styling is a nicety; the list still reads */ }

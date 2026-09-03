@@ -1822,6 +1822,37 @@ decoy families at 1.0 on cause kind; the valueless ticket domain, which
 has no typed wrong fact to re-anchor on, stays adjacent by one step and
 is reported as such.
 
+## The reading on the page, graded rings, and a quiet first visit (v38)
+
+UI only; the report contract is unchanged.
+
+- **Reading block** (`web/blocks/08_reading.js`, id `reading`, group
+  outcome): the eval reasoning layer rendered from `report.reading[side]`
+  verbatim — A/B toggle defaulting to the failing run, summary, the
+  validity warning when the measurement is not clean, phases, the
+  `rests_on` table (value · status · first step · source · matches / not
+  in expected / contradicts), why it ended, findings ordered observable →
+  annotation → stated, take-forward as a list. Every step reference is a
+  ⌖ chip that dispatches `agentdiff:select-step` with the step's
+  alignment row, so the map, step detail and run lens follow.
+- **Run lens** shows the reading's per-step role (`feeds answer`, `dead
+  end`, `no information`) as a chip beside `decisive`.
+- **Confidence-graded decisive ring**: the map draws the decisive step's
+  ring by `diagnosis.decisive_step.verification`, never by score — solid
+  only when `replay-verified`, long-dashed (`6,3`) while `hypothesized`;
+  the attributed root stays short-dashed; the legend says which. Class
+  names `tj-ring dec verified|hypothesized` / `tj-ring root`.
+- **First visit**: no visitor-id toast (the You panel states what is
+  stored); the reorder suggestion never appears before the second visit
+  (a `visits` counter in durable storage).
+- **Accessibility**: every root chart `<svg>` a block draws gets
+  `role="img"`, an accessible name from the block's title and question,
+  and a `<title>` (core post-pass after each render, lead lane included);
+  the page has one `<h1>` — the task prompt; no CSS text below 11px
+  (63 sizes floored) and no SVG tick label below 10px.
+- `explain --html` renders phases from `reading.phases` (the first cut
+  read the per-step list and printed empty spans).
+
 ## The verdict card, the demo, and sentences worth printing (v37)
 
 Every pair report carries `verdict_card`: `{version: 1, lines: [{key,

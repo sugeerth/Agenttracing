@@ -48,7 +48,7 @@
     ".ig-note{font-size:11.5px;line-height:1.45;color:var(--ink-2);margin:5px 0 0}",
     ".ig-mini{font-size:11px;line-height:1.45;color:var(--ink-3);margin:5px 0 0}",
     ".ig-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}",
-    ".ig-chip{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);background:var(--surface-2);",
+    ".ig-chip{font-family:var(--mono);font-size:11px;color:var(--ink-2);background:var(--surface-2);",
     "border:1px solid var(--rule);border-radius:5px;padding:1px 5px;white-space:nowrap}",
     ".ig-chip.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 50%,transparent)}",
     ".ig-chip.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 50%,transparent)}",
@@ -79,9 +79,9 @@
 
     /* the 2x2: outcome across, process down */
     ".ig-quad{display:grid;grid-template-columns:auto 1fr 1fr;gap:4px;margin:2px 0 4px}",
-    ".ig-quad .hd{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;",
+    ".ig-quad .hd{font-size:11px;text-transform:uppercase;letter-spacing:.08em;",
     "color:var(--ink-3);align-self:end;padding-bottom:2px}",
-    ".ig-quad .rw{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;",
+    ".ig-quad .rw{font-size:11px;text-transform:uppercase;letter-spacing:.08em;",
     "color:var(--ink-3);align-self:center;writing-mode:horizontal-tb;max-width:66px;line-height:1.25}",
     ".ig-cell{border:1px solid var(--rule);border-radius:8px;padding:6px 7px;min-height:56px;",
     "display:flex;flex-direction:column;gap:5px;justify-content:space-between;min-width:0}",
@@ -99,7 +99,7 @@
 
     /* flag matrix */
     "table.ig-mx{border-collapse:collapse;width:100%;font-size:11.5px}",
-    ".ig-mx th{font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);",
+    ".ig-mx th{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);",
     "font-weight:500;text-align:left;padding:0 6px 4px 0;white-space:nowrap}",
     ".ig-mx th.c,.ig-mx td.c{text-align:center;width:40px;padding-left:2px;padding-right:2px}",
     ".ig-mx td{padding:3px 6px 3px 0;border-top:1px solid var(--rule);vertical-align:middle;line-height:1.3}",
@@ -108,9 +108,9 @@
     ".ig-mx tr.differs td.k{box-shadow:inset 2px 0 0 var(--accent)}",
     ".ig-mx tr.shared td.k{box-shadow:inset 2px 0 0 var(--bad)}",
     ".ig-mx tr.differs td.k,.ig-mx tr.shared td.k{font-weight:600}",
-    ".ig-mx .dag{font-size:9.5px;color:var(--ink-3);vertical-align:super;margin-left:1px}",
+    ".ig-mx .dag{font-size:11px;color:var(--ink-3);vertical-align:super;margin-left:1px}",
     ".ig-legend{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;margin-top:7px;",
-    "font-size:10.5px;color:var(--ink-3)}",
+    "font-size:11px;color:var(--ink-3)}",
     ".ig-legend .k{display:inline-flex;align-items:center;gap:4px}",
 
     /* bars + ledgers */
@@ -136,8 +136,8 @@
     ".ig-unmeas p{margin:4px 0 0;font-size:11px;line-height:1.45;color:var(--ink-2)}",
     ".ig-unmeas b{color:var(--ink)}",
     ".ig-badge{display:inline-flex;align-items:center;gap:4px;border:1px dashed var(--rule-2);",
-    "border-radius:999px;padding:0 7px;font-size:10.5px;color:var(--ink-3);background:var(--surface)}",
-    ".ig-basis{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;color:var(--ink-3);",
+    "border-radius:999px;padding:0 7px;font-size:11px;color:var(--ink-3);background:var(--surface)}",
+    ".ig-basis{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--ink-3);",
     "border:1px solid var(--rule);border-radius:999px;padding:0 7px;background:var(--surface-2);white-space:nowrap}",
     ".ig-basis.inferred{border-style:dashed;color:var(--warn);",
     "border-color:color-mix(in srgb,var(--warn) 45%,transparent)}",
@@ -783,7 +783,7 @@
       }));
       canvas.appendChild(S("text", {
         x: ((bx0 + bx1) / 2).toFixed(1), y: labelY + 19, "text-anchor": "middle",
-        "font-size": 9.5, fill: C.warn,
+        "font-size": 11.5, fill: C.warn,
         text: "period " + block.period + " × " + block.repeats,
       }));
     }
@@ -800,7 +800,7 @@
       if (cell >= 13 || i % 2 === 0) {
         canvas.appendChild(S("text", {
           x: cx(i).toFixed(1), y: labelY, "text-anchor": "middle",
-          "font-size": 9, fill: C.muted, text: String(step.index),
+          "font-size": 11, fill: C.muted, text: String(step.index),
         }));
       }
     });

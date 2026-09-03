@@ -33,9 +33,10 @@ ol,ul{margin:6px 0;padding-left:22px}.muted{color:var(--ink2)}code{font-size:12.
 
 def _phase_rows(reading: dict) -> str:
     rows = []
-    for w in reading.get("what_happened", []):
-        rows.append(f"<li><b>steps {escape(str(w.get('from')))}–{escape(str(w.get('to')))}</b>"
-                    f" — {escape(str(w.get('label') or w.get('role') or ''))}</li>")
+    for phase in reading.get("phases", []):
+        steps = phase.get("steps") or []
+        span = (f"steps {steps[0]}–{steps[-1]}" if steps else "no steps")
+        rows.append(f"<li><b>{escape(span)}</b>: {escape(str(phase.get('summary') or ''))}</li>")
     return "\n".join(rows)
 
 
@@ -48,7 +49,7 @@ def reading_html(reading: dict, title: Optional[str] = None) -> str:
              f"<style>{_CSS}</style><main>",
              f"<h1>Reading of {name} on {task}</h1>",
              f"<p class=card>{escape(str(reading.get('summary', '')))}</p>"]
-    if reading.get("what_happened"):
+    if reading.get("phases"):
         parts.append("<h2>What happened</h2><ol>" + _phase_rows(reading) + "</ol>")
     if reading.get("rests_on"):
         parts.append(f"<h2>The answer rests on ({escape(str(basis.get('status')))})</h2>"

@@ -595,6 +595,109 @@ class DecisiveStepBlockTest(unittest.TestCase):
         self.assertEqual(errors, [])
         context.close()
 
+    def _open_page(self, report):
+        context = self.browser.new_context()
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"file://{report}")
+        page.wait_for_timeout(500)
+        return context, page, errors
+
+    def test_the_reading_block_quotes_the_reading_and_its_chips_move_the_cursor(self):
+        # the eval reasoning layer on the page: defaults to the failing
+        # run, every value of the answer with its status, findings by
+        # evidence class, take-forward as a list; a step chip moves the
+        # shared cursor to that step's alignment row
+        context, page, errors = self._open_page(self.t05_report)
+        block = page.locator('.block[data-block="reading"]')
+        self.assertEqual(block.count(), 1, "Reading block is not on the page")
+        if "collapsed" in (block.get_attribute("class") or ""):
+            block.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(250)
+            block = page.locator('.block[data-block="reading"]')
+        reading = self.t05["reading"]["b"]
+        text = block.inner_text()
+        self.assertIn(reading["summary"], text)
+        for r in reading["rests_on"]:
+            self.assertIn(str(r["value"]), text)
+        for f in reading["what_it_means"]:
+            self.assertIn(f["statement"], text)
+        for t in reading["take_forward"]:
+            self.assertIn(t["instead"], text)
+        self.assertEqual(block.locator(".rd-head button[aria-pressed='true']").inner_text(),
+                         self.t05["b"]["agent"]["name"])
+        first = reading["take_forward"][0]
+        row = next(i for i, r in enumerate(self.t05["alignment"])
+                   if r.get("b_index") == first["at_step"])
+        block.locator(f".rd-todo .rd-step[data-step='{first['at_step']}']").first.dispatch_event("click")
+        page.wait_for_timeout(300)
+        detail = page.locator('.block[data-block="step-detail"]')
+        if detail.count():
+            self.assertEqual(detail.locator(".tag.mono").first.inner_text(), f"row {row}")
+        # the A/B toggle reads the other run
+        block.locator(".rd-head button").first.click()
+        page.wait_for_timeout(200)
+        self.assertIn(self.t05["reading"]["a"]["summary"],
+                      page.locator('.block[data-block="reading"]').inner_text())
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_decisive_ring_is_graded_by_verification(self):
+        # hypothesized → long-dashed ring and a legend that says so;
+        # only a replay-verified step earns a solid ring
+        context, page, errors = self._open_page(self.t05_report)
+        ring = page.locator("svg .tj-ring.dec")
+        self.assertGreaterEqual(ring.count(), 1, "no decisive ring on the map")
+        self.assertIn("hypothesized", ring.first.get_attribute("class"))
+        self.assertEqual(ring.first.get_attribute("stroke-dasharray"), "6,3")
+        legend = page.locator('.block[data-block="trajectory-map"] .tjm-foot, .tjm-foot').first.inner_text()
+        self.assertIn("hypothesized, not replay-verified", legend)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_run_lens_shows_the_readings_step_roles(self):
+        context, page, errors = self._open_page(self.t05_report)
+        lens = page.locator('.block[data-block="run-lens"]')
+        self.assertEqual(lens.count(), 1)
+        if "collapsed" in (lens.get_attribute("class") or ""):
+            lens.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(250)
+        roles = page.locator(".tjl-b.role")
+        self.assertGreaterEqual(roles.count(), 1, "no reading role chips in the run lens")
+        # the chips are uppercased by CSS; compare the words
+        labels = {roles.nth(i).inner_text().lower() for i in range(roles.count())}
+        self.assertTrue(labels & {"feeds answer", "dead end", "no information"}, labels)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_first_open_is_quiet_accessible_and_titled(self):
+        # no toast greets a first visit; every chart svg is an image with
+        # a name; the page has one h1 naming the task; no CSS text under 11px
+        context, page, errors = self._open_page(self.t05_report)
+        page.wait_for_timeout(400)   # 900ms since load
+        toast = page.locator("#toast")
+        visible = toast.count() and toast.first.is_visible() and toast.first.inner_text().strip()
+        self.assertFalse(visible, "a toast greets the first visit")
+        self.assertEqual(page.locator("svg:not([role]):not([aria-hidden='true'])").evaluate_all(
+            "els => els.filter(e => !e.parentNode.closest('svg')).length"), 0)
+        h1 = page.locator("h1")
+        self.assertEqual(h1.count(), 1)
+        self.assertIn(self.t05["task"]["prompt"][:40], h1.inner_text())
+        small = page.evaluate("""() => {
+          const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+          let n = 0; let node;
+          while ((node = walker.nextNode())) {
+            if (!node.textContent.trim()) continue;
+            const el = node.parentElement; if (!el || el.closest('svg')) continue;
+            const fs = parseFloat(getComputedStyle(el).fontSize);
+            if (fs < 11) n++;
+          }
+          return n; }""")
+        self.assertEqual(small, 0, f"{small} HTML text node(s) under 11px")
+        self.assertEqual(errors, [])
+        context.close()
+
     def test_decisive_step_and_causal_account_render_verbatim(self):
         context, page, block, errors = self.open_diagnosis(self.t05_report)
         diagnosis = self.t05["diagnosis"]

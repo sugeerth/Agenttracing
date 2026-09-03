@@ -725,6 +725,7 @@
   function renderAll() {
     var ctx = makeCtx();
     var hero = resolveHero(ctx);
+    renderTitle(ctx);
     renderLead(ctx);
     renderHero(hero, ctx);
     renderReading(hero);
@@ -771,6 +772,17 @@
   /* The lane. Nothing here knows what a trace looks like: the hero is
    * rendered through the same render(el, ctx) as any other block, in a
    * container that happens to be the full content width. */
+  /* The page's one <h1>: the task under comparison, so a screen reader
+   * and a skim both start from what was asked. */
+  function renderTitle(ctx) {
+    var host = els.title;
+    if (!host) return;
+    var task = ctx.report && ctx.report.task;
+    var prompt = task && (task.prompt || task.id);
+    host.textContent = prompt ? String(prompt) : "AgentDiff report";
+    host.hidden = false;
+  }
+
   /* The lead lane: every block registered with `lead: true` that has
    * something to say, in registration order, full width, above the hero.
    * No star, no collapse, no remove — a lead block is the page's opening
@@ -796,10 +808,37 @@
         body.innerHTML = "";
         body.appendChild(h("div", { class: "empty", text: "This block could not render: " + String(err && err.message || err) }));
       }
+      accessibleCharts(body, entry);
       host.appendChild(card);
       shown++;
     });
     host.hidden = shown === 0;
+  }
+
+  /* Every chart is an image to assistive technology: a root <svg> that
+   * a block drew without a role gets role="img", an accessible name from
+   * the block's title, and a <title> child — the block's own <title>s and
+   * aria-hidden glyphs are left as they are. */
+  function accessibleCharts(body, entry) {
+    var svgs;
+    try { svgs = body.querySelectorAll("svg"); } catch (err) { return; }
+    for (var i = 0; i < svgs.length; i++) {
+      var node = svgs[i];
+      if (node.getAttribute("role") || node.getAttribute("aria-hidden") === "true") continue;
+      if (node.parentNode && node.parentNode.closest && node.parentNode.closest("svg")) continue;
+      node.setAttribute("role", "img");
+      var name = entry.title + (entry.question ? " — " + entry.question : "");
+      if (!node.getAttribute("aria-label")) node.setAttribute("aria-label", name);
+      var hasTitle = false;
+      for (var k = 0; k < node.childNodes.length; k++) {
+        if (node.childNodes[k].nodeName === "title") { hasTitle = true; break; }
+      }
+      if (!hasTitle) {
+        var title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+        title.textContent = name;
+        node.insertBefore(title, node.firstChild);
+      }
+    }
   }
 
   function renderHero(hero, ctx) {
@@ -940,6 +979,7 @@
       blockCtx.signal = function (kind) { recordSignal(item.id, kind || "inspect"); };
       try {
         entry.render(body, blockCtx);
+        accessibleCharts(body, entry);
       } catch (err) {
         // One broken block must not take the page with it.
         console.error("AgentDiff: block", item.id, "failed to render", err);
@@ -1375,6 +1415,7 @@
       return;
     }
     if (State.suggestion.moved < 2) return;   // not worth interrupting for
+    if (State.visits < 2) return;             // never on the first visit
     toast("Your layout could be reordered to match what you use", "Reorder", function () {
       applySuggestion(false);
     });
@@ -1810,6 +1851,7 @@
       stacks: document.getElementById("stacks"),
       hero: document.getElementById("hero-lane"),
       lead: document.getElementById("lead-lane"),
+      title: document.getElementById("page-title"),
       reading: document.getElementById("reading"),
       picker: document.getElementById("task-picker"),
       drawer: document.getElementById("drawer"),
@@ -1875,14 +1917,18 @@
     });
     Explain.wire();
 
+    // how many times this visitor has opened a report here (durable
+    // storage only; a private window is always a first visit)
+    try {
+      State.visits = (parseInt(Store.get(key("visits")), 10) || 0) + 1;
+      Store.set(key("visits"), String(State.visits));
+    } catch (err) { State.visits = 1; }
+
     renderAll();
 
-    if (Identity.minted) {
-      toast("New visitor id created — see “You” for what is stored", "You", function () {
-        renderYou();
-        openPanel(els.you);
-      });
-    } else if (!Store.durable) {
+    // A first visit opens on the report, not on a toast about identity:
+    // the You panel already states what is stored and why.
+    if (!Identity.minted && !Store.durable) {
       toast("Storage is unavailable here; your layout lasts only this tab");
     }
   }

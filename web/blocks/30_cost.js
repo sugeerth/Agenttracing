@@ -46,7 +46,7 @@
     ".cost-detail{margin-top:6px;border-top:1px solid var(--rule);padding-top:6px}",
     ".cost-prehead{display:flex;align-items:center;justify-content:space-between;",
     "gap:8px;margin-top:8px}",
-    ".cost-prehead span{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;",
+    ".cost-prehead span{font-size:11px;text-transform:uppercase;letter-spacing:.07em;",
     "color:var(--ink-3)}",
     "pre.cost-pre{margin:5px 0 0;padding:8px 9px;background:var(--surface-2);",
     "border:1px solid var(--rule);border-radius:7px;white-space:pre-wrap;",

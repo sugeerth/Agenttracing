@@ -31,7 +31,7 @@
     ".oc-side.sa{border-left:3px solid var(--a)}",
     ".oc-side.sb{border-left:3px solid var(--b)}",
     ".oc-name{font-weight:620;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-    ".oc-model{font-size:10.5px;color:var(--ink-3);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+    ".oc-model{font-size:11px;color:var(--ink-3);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
     ".oc-row{display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-top:6px}",
     ".oc-item{border:1px solid var(--rule);border-radius:9px;padding:8px 9px;margin-bottom:7px;",
     "background:transparent;cursor:pointer;text-align:left;width:100%;font:inherit;color:inherit;display:block}",
@@ -40,7 +40,7 @@
     ".oc-item.causal{border-left:3px solid var(--bad)}",
     ".oc-sum{font-size:12px;line-height:1.45;color:var(--ink-2);margin:5px 0 0}",
     ".oc-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}",
-    ".oc-chip{font-size:10.5px;font-family:var(--mono);color:var(--ink-3);",
+    ".oc-chip{font-size:11px;font-family:var(--mono);color:var(--ink-3);",
     "background:var(--surface-2);border-radius:5px;padding:1px 5px;white-space:nowrap}",
     ".oc-bar{height:6px;border-radius:3px;background:var(--rule);overflow:hidden;margin-top:5px}",
     ".oc-bar>i{display:block;height:100%;border-radius:3px}",
@@ -56,7 +56,7 @@
     "color:var(--ink);border-bottom:1px solid color-mix(in srgb,var(--a) 55%,transparent)}",
     ".oc-diff ins{background:color-mix(in srgb,var(--b) 20%,transparent);",
     "color:var(--ink);border-bottom:1px solid color-mix(in srgb,var(--b) 55%,transparent)}",
-    ".oc-legend{display:flex;gap:10px;flex-wrap:wrap;font-size:10.5px;color:var(--ink-3);margin:7px 0 0}",
+    ".oc-legend{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--ink-3);margin:7px 0 0}",
     ".oc-swatch{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}",
     ".oc-panel{border:1px solid var(--rule);border-radius:9px;padding:8px 9px;margin-top:8px}",
     ".oc-panel.bad{border-left:3px solid var(--bad)}",
@@ -479,7 +479,7 @@
       }));
       if (node.role !== "link") {
         root.appendChild(ctx.svg("text", {
-          x: W - 14, y: y + NH / 2 + 4, "font-size": 9, "text-anchor": "end",
+          x: W - 14, y: y + NH / 2 + 4, "font-size": 11, "text-anchor": "end",
           fill: ctx.color.bad,
           text: node.role === "root" ? "root cause" : "outcome",
         }));

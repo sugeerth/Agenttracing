@@ -158,6 +158,10 @@ class TestOneCommandDemo(unittest.TestCase):
             self.assertIn("The answer rests on", html)
             self.assertIn("Take forward", html)
             self.assertNotIn("(not declared)", html)
+            # phases, not per-step roles: the first cut printed
+            # "steps None–None" because it read the wrong list
+            self.assertIn("steps 0–0", html)
+            self.assertNotIn("None", html)
 
 
 class TestVersionAgrees(unittest.TestCase):

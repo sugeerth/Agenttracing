@@ -27,6 +27,22 @@ AgentDiff.block({
 });
 ```
 
+### `lead: true`
+
+A lead block renders in the **lead lane** above the hero — first on the
+page, full width, in registration order — and never in a column. It has
+no star, collapse or remove control: it is the page's opening sentence,
+not a card in the layout. The verdict card (`04_verdict.js`) is one; use
+it only for something every reader must see before anything else, and
+keep it quoting the report verbatim.
+
+### Charts and assistive technology
+
+After every render the core gives each root `<svg>` a block drew
+`role="img"`, an accessible name from the block's title and question,
+and a `<title>` child, unless the block set a role or `aria-hidden`
+itself. Decorative glyphs should carry `aria-hidden="true"`.
+
 ### `relevance(ctx)`
 
 Data-driven, not preference-driven: return how much this block has to say

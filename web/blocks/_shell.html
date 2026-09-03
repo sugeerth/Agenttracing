@@ -146,7 +146,7 @@ select.picker {
 .stack-label { padding-left: 2px; }
 .stack-label .name {
   display: flex; align-items: center; gap: 7px;
-  font-size: 10.5px; text-transform: uppercase; letter-spacing: .09em;
+  font-size:11px; text-transform: uppercase; letter-spacing: .09em;
   color: var(--ink-2); font-weight: 600;
 }
 .stack-label .sub {
@@ -161,12 +161,15 @@ select.picker {
   display: inline-flex; align-items: center; justify-content: center;
   width: 16px; height: 16px; border-radius: 999px; flex: none;
   background: var(--surface-2); border: 1px solid var(--rule-2); color: var(--ink-3);
-  font-size: 9.5px; font-weight: 700; letter-spacing: 0; font-variant-numeric: tabular-nums;
+  font-size:11px; font-weight: 700; letter-spacing: 0; font-variant-numeric: tabular-nums;
 }
 
 /* ---------- the hero lane ---------- */
 /* One block at the full content width, above the columns. A trajectory is a
    wide thing; read 300px at a time it is not a trajectory, it is a list. */
+.page-title { margin: 0; padding: 16px 18px 0; font-size: 15px; font-weight: 600;
+  line-height: 1.4; color: var(--ink-2); }
+.page-title[hidden] { display: none; }
 .lead-lane { padding: 16px 18px 0; }
 .lead-lane[hidden] { display: none; }
 .block.lead { border-color: color-mix(in srgb, var(--accent) 34%, var(--rule)); }
@@ -184,7 +187,7 @@ select.picker {
 .block.hero .block-body { padding: 14px 16px; }
 .block.hero .block-actions { opacity: 1; }
 .hero-tag {
-  flex: none; font-size: 9.5px; text-transform: uppercase; letter-spacing: .09em;
+  flex: none; font-size:11px; text-transform: uppercase; letter-spacing: .09em;
   font-weight: 700; color: #fff; background: var(--accent);
   border-radius: 999px; padding: 2px 8px;
 }
@@ -202,7 +205,7 @@ select.picker {
 }
 .reading[hidden] { display: none; }
 .reading .lead {
-  font-size: 10px; text-transform: uppercase; letter-spacing: .09em;
+  font-size:11px; text-transform: uppercase; letter-spacing: .09em;
   color: var(--ink-3); flex: none;
 }
 .step-chip {
@@ -271,7 +274,7 @@ select.picker {
 .mono { font-family: var(--mono); font-size: 11.5px; }
 .tag {
   display: inline-block; padding: 1px 6px; border-radius: 999px;
-  font-size: 10.5px; letter-spacing: .03em; border: 1px solid var(--rule-2);
+  font-size:11px; letter-spacing: .03em; border: 1px solid var(--rule-2);
   color: var(--ink-2); background: var(--surface-2);
 }
 .tag.good { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, transparent); }
@@ -376,7 +379,7 @@ table.grid td.num, table.grid th.num { text-align: right; font-variant-numeric: 
 .explain-tip.show { display: block; }
 .explain-tip.pinned { border-color: var(--accent); }
 .explain-tip .x-label {
-  font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  font-size:11px; font-weight: 700; text-transform: uppercase;
   letter-spacing: .07em; color: var(--accent);
 }
 .explain-tip .x-short { margin-top: 3px; }
@@ -395,7 +398,7 @@ table.grid td.num, table.grid th.num { text-align: right; font-variant-numeric: 
   border-radius: 6px; padding: 1px 8px; font-size: 11px; cursor: pointer;
 }
 .explain-tip .x-more:hover { border-color: var(--accent); color: var(--accent); }
-.explain-tip .x-hint { font-size: 10px; color: var(--ink-3); }
+.explain-tip .x-hint { font-size:11px; color: var(--ink-3); }
 
 .vid { font-family: var(--mono); font-size: 11px; color: var(--ink-2);
   background: var(--surface-2); padding: 5px 8px; border-radius: 6px;
@@ -423,6 +426,7 @@ label.check input { margin-top: 2px; }
 <!-- The lead lane: blocks registered with `lead: true` render here, first
      on the page and at full width, above the hero. They have one home and
      no layout controls — a verdict is not a card you rearrange. -->
+<h1 class="page-title" id="page-title" hidden></h1>
 <div class="lead-lane" id="lead-lane" hidden></div>
 <div class="hero-lane" id="hero-lane" hidden></div>
 
