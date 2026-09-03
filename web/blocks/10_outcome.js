@@ -226,6 +226,9 @@
     relevance: function (ctx) {
       var report = ctx.report;
       if (!report || !report.a || !report.b) return 0;
+      // the verdict card leads the page with the same answer and more:
+      // this block stands down (still one click away in the drawer)
+      if (report.verdict_card && report.verdict_card.lines && report.verdict_card.lines.length) return 0;
       var oa = report.a.outcome || {};
       var ob = report.b.outcome || {};
       if (oa.success === undefined && ob.success === undefined) return 0.4;

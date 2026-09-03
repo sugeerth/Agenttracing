@@ -1178,8 +1178,10 @@ class RunLensTest(unittest.TestCase):
                 if c.get("a_steps") and c.get("b_steps")]
         self.assertTrue(both, "t05 must carry cross-run claims")
         context, page, block, errors = self.open_lens()
+        # a bezier's bounding-box centre is not on the curve, so the click
+        # is dispatched to the hit path rather than aimed at a pixel
         page.locator('.block[data-block="trajectory-map"] '
-                     'svg.tj .tjm-claim-hit').nth(0).click()
+                     'svg.tj .tjm-claim-hit').nth(0).dispatch_event("click")
         page.wait_for_timeout(250)
         mapblock = page.locator('.block[data-block="trajectory-map"]')
         readout = mapblock.locator(".tj-read").inner_text()
@@ -1331,7 +1333,7 @@ class MapRedesignTest(unittest.TestCase):
         if "collapsed" in (block.get_attribute("class") or ""):
             block.locator(".block-actions .icon-btn").nth(1).click()
             page.wait_for_timeout(250)
-        if hero:
+        if hero and not page.locator('#hero-lane .block[data-block="trajectory-map"]').count():
             page.locator('.block[data-block="trajectory-map"] .block-actions .icon-btn.star').first.click()
             page.wait_for_timeout(500)
         return context, page, errors
@@ -2007,7 +2009,9 @@ class AdversarialMapTest(unittest.TestCase):
             const svg = document.querySelector(
                 '.block[data-block="trajectory-map"] svg.tj');
             const out = [];
-            svg.querySelectorAll('g.tj-hit text').forEach(function (t) {
+            // one name label per node; excerpts, tokens and badges are
+            // extra text the wide (hero) map draws beside it
+            svg.querySelectorAll('g.tj-hit text.tjm-name').forEach(function (t) {
                 out.push(t.textContent);
             });
             return out;

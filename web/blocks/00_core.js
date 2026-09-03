@@ -30,7 +30,15 @@
    * width and everything else reads as evidence underneath it. It is still
    * an ordinary block rendered through the ordinary render(el, ctx); the
    * lane is a place, not a special case. */
-  var DEFAULT_HERO = "tracks";
+  var DEFAULT_HERO = "trajectory-map";
+
+  //: Story mode: after the hero, these blocks follow at full width in this
+  //: order — the reading of the failing run, the adjudicated diagnosis,
+  //: what to do next, the step under the cursor, what the difference cost.
+  //: They answer the reader's next five questions; everything else stays in
+  //: the columns. Dashboard mode puts them back.
+  var STORY_BLOCKS = ["reading", "diagnosis", "actions", "step-detail", "deltas"];
+  function isStoryBlock(id) { return State.prefs && State.prefs.story && STORY_BLOCKS.indexOf(id) >= 0; }
 
   // ---------------------------------------------------------------- identity
 
@@ -322,7 +330,7 @@
   };
 
   function defaultPrefs() {
-    return { personalize: true, autoApply: false, theme: "system", reading: true };
+    return { personalize: true, autoApply: false, theme: "system", reading: true, story: true };
   }
 
   /* The default composition. Groups map to stacks so a first-time visitor
@@ -376,8 +384,10 @@
       // The hero is placed, just not in a column. Leaving it out of both
       // the stacks and the hidden list keeps exactly one home for it.
       if (hero && entry.id === hero.id) return;
-      // Lead blocks live in the lead lane, never in a column.
+      // Lead blocks live in the lead lane, never in a column; story blocks
+      // live in the story lane while Story mode is on.
       if (entry.lead) return;
+      if (isStoryBlock(entry.id)) return;
       if (relevance <= 0) { hidden.push(entry.id); return; }
       stacks[target].push({ id: entry.id, collapsed: false });
     });
@@ -725,9 +735,11 @@
   function renderAll() {
     var ctx = makeCtx();
     var hero = resolveHero(ctx);
+    renderTaskStrip(ctx);
     renderTitle(ctx);
     renderLead(ctx);
     renderHero(hero, ctx);
+    renderStory(ctx, hero);
     renderReading(hero);
 
     els.stacks.setAttribute("data-cols", State.layout.cols);
@@ -739,8 +751,10 @@
       stack.forEach(function (item) {
         // A substituted hero is still in its column; render it once.
         if (hero && item.id === hero.item.id) return;
-        // A lead block found in a stored layout renders in its lane only.
+        // A lead block found in a stored layout renders in its lane only;
+        // so does a story block while Story mode is on.
         if (BY_ID[item.id] && BY_ID[item.id].lead) return;
+        if (isStoryBlock(item.id)) return;
         column.appendChild(renderBlock(item, index, ctx, null));
       });
       wireStackDrop(column, index);
@@ -772,6 +786,91 @@
   /* The lane. Nothing here knows what a trace looks like: the hero is
    * rendered through the same render(el, ctx) as any other block, in a
    * container that happens to be the full content width. */
+  /* The task strip: one chip per task in the batch — both outcomes as
+   * dots, the decisive step as a number — the whole batch at a glance,
+   * and the current task marked. Clicking switches the task. */
+  function renderTaskStrip(ctx) {
+    var host = els.strip;
+    if (!host) return;
+    host.innerHTML = "";
+    var reports = (State.data.reports || []).filter(function (r) { return r && r.task; });
+    if (reports.length < 2) { host.hidden = true; return; }
+    host.hidden = false;
+    reports.forEach(function (report) {
+      var id = report.task.id;
+      var oa = (report.a && report.a.outcome) || {}, ob = (report.b && report.b.outcome) || {};
+      var dec = report.diagnosis && report.diagnosis.decisive_step;
+      var step = dec && dec.step !== null && dec.step !== undefined ? dec.step : null;
+      var label = String(id).replace(/^t\d+_/, "").replace(/_/g, " ");
+      var chip = h("button", {
+        class: "tchip", type: "button", "aria-current": id === State.task ? "true" : "false",
+        title: id + " — " + (report.a.agent.name + (oa.success ? " solved" : " failed")) + ", "
+             + (report.b.agent.name + (ob.success ? " solved" : " failed"))
+             + (step !== null ? "; decisive step " + step : ""),
+        onclick: function () { selectTask(id); },
+      }, [
+        h("span", { class: "dots" }, [
+          h("i", { class: "dot a" + (oa.success ? "" : " failed") }),
+          h("i", { class: "dot b" + (ob.success ? "" : " failed") }),
+        ]),
+        h("span", { text: label }),
+        step !== null ? h("span", { class: "step", text: "@" + step }) : null,
+      ]);
+      host.appendChild(chip);
+    });
+  }
+
+  /* The story lane: Story mode's ordered sequence after the hero. Each
+   * block keeps its ordinary controls (collapse, star, remove) and its
+   * collapse state persists in the layout under `story`. */
+  function renderStory(ctx, hero) {
+    var host = els.story;
+    if (!host) return;
+    host.innerHTML = "";
+    if (!State.prefs.story) { host.hidden = true; return; }
+    if (!Array.isArray(State.layout.story)) {
+      State.layout.story = STORY_BLOCKS.map(function (id) { return { id: id, collapsed: false }; });
+    }
+    var shown = 0;
+    State.layout.story.forEach(function (item) {
+      var entry = BY_ID[item.id];
+      if (!entry) return;
+      if (State.layout.hidden.indexOf(item.id) >= 0) return;
+      if (hero && hero.item.id === item.id) return;
+      if (safeRelevance(entry, ctx) <= 0) return;
+      host.appendChild(renderBlock(item, null, ctx, null));
+      shown++;
+    });
+    host.hidden = shown === 0;
+  }
+
+  function toggleStory() {
+    State.prefs.story = !State.prefs.story;
+    savePrefs();
+    if (State.prefs.story) {
+      STORY_BLOCKS.forEach(function (id) { if (BY_ID[id]) removeFromLayoutKeepHidden(id); });
+    } else {
+      STORY_BLOCKS.forEach(function (id) {
+        if (BY_ID[id] && State.layout.hidden.indexOf(id) < 0) placeBack({ id: id, collapsed: false });
+      });
+    }
+    saveLayout();
+    if (els.storyBtn) {
+      els.storyBtn.setAttribute("aria-pressed", State.prefs.story ? "true" : "false");
+      els.storyBtn.textContent = State.prefs.story ? "Story" : "Dashboard";
+    }
+    renderAll();
+    toast(State.prefs.story ? "Story: the page reads top to bottom" : "Dashboard: every block in its column");
+  }
+
+  function removeFromLayoutKeepHidden(id) {
+    State.layout.stacks.forEach(function (stack) {
+      for (var i = stack.length - 1; i >= 0; i--) {
+        if (stack[i].id === id) stack.splice(i, 1);
+      }
+    });
+  }
+
   /* The page's one <h1>: the task under comparison, so a screen reader
    * and a skim both start from what was asked. */
   function renderTitle(ctx) {
@@ -1852,6 +1951,9 @@
       hero: document.getElementById("hero-lane"),
       lead: document.getElementById("lead-lane"),
       title: document.getElementById("page-title"),
+      strip: document.getElementById("task-strip"),
+      story: document.getElementById("story-lane"),
+      storyBtn: document.getElementById("btn-story"),
       reading: document.getElementById("reading"),
       picker: document.getElementById("task-picker"),
       drawer: document.getElementById("drawer"),
@@ -1867,6 +1969,12 @@
     measureTopbar();
     global.addEventListener("resize", measureTopbar);
     State.layout = reconcile(Store.get(key("layout")), makeCtx());
+
+    if (els.storyBtn) {
+      els.storyBtn.setAttribute("aria-pressed", State.prefs.story ? "true" : "false");
+      els.storyBtn.textContent = State.prefs.story ? "Story" : "Dashboard";
+      els.storyBtn.addEventListener("click", toggleStory);
+    }
 
     // Task picker
     if (reports.length) {

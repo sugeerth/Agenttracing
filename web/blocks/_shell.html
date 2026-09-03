@@ -170,6 +170,29 @@ select.picker {
 .page-title { margin: 0; padding: 16px 18px 0; font-size: 15px; font-weight: 600;
   line-height: 1.4; color: var(--ink-2); }
 .page-title[hidden] { display: none; }
+.task-strip { display: flex; gap: 8px; padding: 12px 18px 0; overflow-x: auto;
+  scrollbar-width: thin; }
+.task-strip[hidden] { display: none; }
+.tchip { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px;
+  border: 1px solid var(--rule); background: var(--surface); border-radius: 999px;
+  padding: 5px 12px 5px 9px; font: 500 12.5px/1.2 inherit; color: var(--ink-2);
+  cursor: pointer; white-space: nowrap; }
+.tchip:hover { border-color: var(--accent); color: var(--ink); }
+.tchip[aria-current="true"] { border-color: var(--accent); color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
+.tchip .dots { display: inline-flex; gap: 3px; }
+.tchip .dot { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid transparent; }
+.tchip .dot.a { background: var(--a, #3b6ea5); } .tchip .dot.b { background: var(--b, #c2702a); }
+.tchip .dot.failed { background: transparent; border-color: var(--bad); }
+.tchip .dot.a.failed { border-color: var(--a, #3b6ea5); } .tchip .dot.b.failed { border-color: var(--b, #c2702a); }
+.tchip .step { font: 600 11px/1 var(--mono); color: var(--ink-3); }
+.tchip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.story-lane { display: flex; flex-direction: column; gap: 14px; padding: 16px 18px 0;
+  max-width: 1240px; margin: 0 auto; box-sizing: border-box; }
+.story-lane[hidden] { display: none; }
+.story-lane > .block { width: 100%; }
+/* anything scrolled into view lands below the sticky bar, not under it */
+.block, svg.tj, g.tj-hit, .tchip { scroll-margin-top: 72px; }
 .lead-lane { padding: 16px 18px 0; }
 .lead-lane[hidden] { display: none; }
 .block.lead { border-color: color-mix(in srgb, var(--accent) 34%, var(--rule)); }
@@ -229,6 +252,8 @@ select.picker {
   .reading { gap: 5px 6px; padding: 10px 10px 0; }
   .hero-lane { padding: 12px 10px 0; }
   .lead-lane { padding: 12px 10px 0; }
+  .story-lane { padding: 12px 10px 0; }
+  .task-strip { padding: 10px 10px 0; }
   /* a narrow hero header wraps its question under the title instead of
      squeezing it into a one-word-per-line column beside it */
   .block.hero .block-head { flex-wrap: wrap; }
@@ -417,6 +442,7 @@ label.check input { margin-top: 2px; }
   <div class="brand"><strong>AgentDiff</strong><span>blocks</span></div>
   <select class="picker" id="task-picker" aria-label="Task"></select>
   <div class="spacer"></div>
+  <button class="btn ghost" id="btn-story" title="Story: the page as a narrative; Dashboard: every block in columns" aria-pressed="true">Story</button>
   <button class="btn ghost" id="btn-cols" title="Columns">▥ 3</button>
   <button class="btn ghost" id="btn-theme" title="Theme">◐</button>
   <button class="btn" id="btn-drawer">Blocks</button>
@@ -430,9 +456,19 @@ label.check input { margin-top: 2px; }
 <!-- The lead lane: blocks registered with `lead: true` render here, first
      on the page and at full width, above the hero. They have one home and
      no layout controls — a verdict is not a card you rearrange. -->
+<!-- The task strip: every task in the batch as one chip — who solved it,
+     where the decisive step sits — so the whole batch is one glance and
+     switching tasks is one click. -->
+<nav class="task-strip" id="task-strip" aria-label="Tasks" hidden></nav>
 <h1 class="page-title" id="page-title" hidden></h1>
 <div class="lead-lane" id="lead-lane" hidden></div>
 <div class="hero-lane" id="hero-lane" hidden></div>
+<!-- The story lane: in Story mode the blocks that answer the reader's next
+     questions — the reading of the failing run, the adjudicated diagnosis,
+     what to do next, the step under the cursor, the cost — follow the hero
+     at full width, in that order. Everything else stays in the columns
+     below. Dashboard mode empties this lane and puts them back. -->
+<section class="story-lane" id="story-lane" aria-label="The story" hidden></section>
 
 <nav class="reading" id="reading" aria-label="Reading order"></nav>
 

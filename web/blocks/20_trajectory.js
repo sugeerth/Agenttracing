@@ -103,10 +103,17 @@
   var resizeTimer = null;
 
   function measure(el) {
-    var w = 0;
-    try { w = el.clientWidth || 0; } catch (err) { w = 0; }
+    var w = 0, pad = 24;
+    try {
+      w = el.clientWidth || 0;
+      // the body's real padding: the hero lane pads wider than a column,
+      // and a drawing that assumes the column's padding overflows the hero
+      var cs = getComputedStyle(el);
+      var p = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+      if (p > 0) pad = p;
+    } catch (err) { w = 0; }
     if (!w) w = 340;
-    return Math.max(220, w - 24);
+    return Math.max(220, w - pad);
   }
 
   function sized(el, ctx, draw) {
@@ -2483,6 +2490,13 @@
         var g = S("g", { class: "tj-hit", tabindex: "0", role: "button",
                          "aria-label": label, "data-side": side, "data-i": i,
                          "data-index": step.index });
+        // the node's hit area is its whole lane row, not the glyph: a
+        // click or tap anywhere on the name, the excerpt or the tokens
+        // opens the step, and the target is the same size on every width
+        g.appendChild(S("rect", {
+          x: side === "a" ? x - laneW : x, y: y - rowH / 2, width: laneW, height: rowH,
+          fill: "transparent", class: "tjm-hitarea",
+        }));
         if (onAccount) {
           g.appendChild(S("circle", { cx: x, cy: y, r: 10.5, fill: C.warn, opacity: 0.16 }));
         }
