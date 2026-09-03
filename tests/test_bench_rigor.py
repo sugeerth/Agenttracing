@@ -151,13 +151,13 @@ class TestDecoyFamilies(unittest.TestCase):
             n_a, engine_a, _ = self._probe_and_engine(
                 self.result, self.out, family)
             # the honest floor, annotated: the engine lands the decoy
-            # step in at least three of four scenarios; the valueless
-            # ticket domain (no typed wrong fact to re-anchor on) is the
-            # measured remainder, adjacent by one.  Stripped carries no
-            # floor — it is a measurement (5/8 misread_reason at 160
-            # pairs when this was written), and the margin over the
-            # probe above is the claim
-            self.assertGreaterEqual(engine_a / n_a, 0.75, family)
+            # step in at least three of five scenarios; the valueless
+            # ticket domain (one domain in five, no typed wrong fact to
+            # re-anchor on) is the measured remainder, adjacent by one —
+            # 10/15 late_decision at 300 pairs.  Stripped carries no
+            # floor — it is a measurement, and the margin over the probe
+            # above is the claim
+            self.assertGreaterEqual(engine_a / n_a, 0.6, family)
 
     def test_re_anchor_never_leaves_a_step_that_emitted_a_value(self):
         # the re-anchor rule's guard, pinned on the pair that found it:

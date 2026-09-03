@@ -36,6 +36,8 @@ House rules, applied to explanation itself:
 
 from __future__ import annotations
 
+import re
+
 from typing import Optional
 
 from .trace import HARNESS_TERMINATIONS, Trajectory
@@ -115,12 +117,55 @@ _DISCRIMINATORS = {
 # evidence ledger
 
 
-class _Ledger:
-    """Collects evidence items and hands out stable ids."""
+#: what kind of thing an evidence item rests on.  Observable: recorded
+#: tool input and output, answers, outcomes, alignment, effects — events
+#: the trace shows.  Annotation: quality and note fields — someone's
+#: judgement written onto the trace.  Stated: plan and reason text — what
+#: the agent said, which the CoT-faithfulness literature warns is not what
+#: it did.  At equal score, observable support outranks the other two.
+EVIDENCE_CLASSES = ("observable", "annotation", "stated")
+
+
+class Ledger:
+    """The one registry of evidence: every hypothesis cites items here by
+    id, and every item knows what class of thing it rests on."""
 
     def __init__(self) -> None:
         self.items: list[dict] = []
         self._seen: dict[tuple, str] = {}
+
+    def classify(self, a: "Trajectory", b: "Trajectory") -> None:
+        """Stamp ``evidence_class`` on every item, from the step it quotes."""
+        for item in self.items:
+            if item.get("evidence_class"):
+                continue
+            if item["type"] == "metric":
+                basis = str(item.get("basis") or "").lower()
+                item["evidence_class"] = ("annotation" if "annotat" in basis
+                                          else "observable")
+                continue
+            traj = a if item.get("agent") == "a" else b
+            step = None
+            try:
+                step = traj.steps[item["step"]]
+            except (IndexError, TypeError, AttributeError):
+                step = None
+            field = item.get("field")
+            if field in ("quality", "note"):
+                item["evidence_class"] = "annotation"
+            elif step is not None and step.type in ("plan", "reason"):
+                item["evidence_class"] = "stated"
+            else:
+                item["evidence_class"] = "observable"
+
+    def classes_of(self, ids: list) -> dict:
+        by_id = {item["id"]: item for item in self.items}
+        counts = {cls: 0 for cls in EVIDENCE_CLASSES}
+        for eid in ids or []:
+            item = by_id.get(eid)
+            if item:
+                counts[item.get("evidence_class") or "observable"] += 1
+        return counts
 
     def span(self, agent: str, step: int, field: str, quote: str,
              signal: str, basis: str) -> str:
@@ -149,6 +194,10 @@ class _Ledger:
         })
         self._seen[key] = eid
         return eid
+
+
+#: the earlier private name, kept for callers that used it
+_Ledger = Ledger
 
 
 def _resolve_path(report: dict, path: str):
@@ -219,7 +268,7 @@ def _answer_verdict(report: dict, side: str) -> tuple[Optional[str], Optional[fl
     return entry.get("verdict"), entry.get("coverage")
 
 
-def _gen_grader(report: dict, side: str, traj: Trajectory, led: _Ledger) -> list[dict]:
+def _gen_grader(report: dict, side: str, traj: Trajectory, led: Ledger) -> list[dict]:
     """Failed, yet the answer matches the expected answer / process is clean."""
     verdict, coverage = _answer_verdict(report, side)
     ae = report.get("answer_eval") or {}
@@ -362,7 +411,7 @@ def _gen_grader(report: dict, side: str, traj: Trajectory, led: _Ledger) -> list
     }]
 
 
-def _gen_harness(report: dict, side: str, traj: Trajectory, led: _Ledger) -> list[dict]:
+def _gen_harness(report: dict, side: str, traj: Trajectory, led: Ledger) -> list[dict]:
     term = _side(report, side).get("termination") or {}
     reason = term.get("reason")
     out = []
@@ -387,7 +436,7 @@ def _gen_harness(report: dict, side: str, traj: Trajectory, led: _Ledger) -> lis
     return out
 
 
-def _gen_environment(report: dict, side: str, traj: Trajectory, led: _Ledger) -> list[dict]:
+def _gen_environment(report: dict, side: str, traj: Trajectory, led: Ledger) -> list[dict]:
     rec = _side(report, side).get("recovery") or {}
     if not rec.get("errors"):
         return []
@@ -452,7 +501,7 @@ def _gen_environment(report: dict, side: str, traj: Trajectory, led: _Ledger) ->
     }]
 
 
-def _gen_wrong_fact(report: dict, side: str, traj: Trajectory, led: _Ledger) -> list[dict]:
+def _gen_wrong_fact(report: dict, side: str, traj: Trajectory, led: Ledger) -> list[dict]:
     claims = (report.get("semantic") or {}).get("claims", [])
     supports = []
     origins = []
@@ -509,7 +558,7 @@ def _root_category(traj: Trajectory, root: Optional[int], fallback: str) -> str:
     return fallback
 
 
-def _gen_divergence(report: dict, side: str, traj: Trajectory, led: _Ledger) -> list[dict]:
+def _gen_divergence(report: dict, side: str, traj: Trajectory, led: Ledger) -> list[dict]:
     attribution = report.get("attribution") or {}
     root = attribution.get("root_cause_step")
     divergences = report.get("divergences") or []
@@ -610,7 +659,7 @@ def _flag_steps(side_report: dict, flag: str) -> list[dict]:
     return []
 
 
-def _gen_process(report: dict, side: str, traj: Trajectory, led: _Ledger,
+def _gen_process(report: dict, side: str, traj: Trajectory, led: Ledger,
                  failed: bool) -> list[dict]:
     gap = _side(report, side).get("gap") or {}
     raised = gap.get("raised", []) or []
@@ -685,7 +734,7 @@ def _gen_process(report: dict, side: str, traj: Trajectory, led: _Ledger,
     return out
 
 
-def _gen_budget(report: dict, side: str, traj: Trajectory, led: _Ledger) -> list[dict]:
+def _gen_budget(report: dict, side: str, traj: Trajectory, led: Ledger) -> list[dict]:
     term = _side(report, side).get("termination") or {}
     if not term.get("under_budget_pressure"):
         return []
@@ -938,7 +987,7 @@ def _assign_status(ranked: list[dict]) -> tuple[Optional[str], Optional[float]]:
 ACCOUNT_LINK_FLOOR = 0.15
 
 
-def _anchor_step(leading: dict, led: _Ledger) -> Optional[int]:
+def _anchor_step(leading: dict, led: Ledger) -> Optional[int]:
     """The leading hypothesis's own anchor — the same step decisive_step
     commits to."""
     kind = leading.get("kind")
@@ -953,7 +1002,7 @@ def _anchor_step(leading: dict, led: _Ledger) -> Optional[int]:
 
 
 def _causal_account(report: dict, leading: Optional[dict], side: Optional[str],
-                    traj: Optional[Trajectory], led: _Ledger) -> list[dict]:
+                    traj: Optional[Trajectory], led: Ledger) -> list[dict]:
     """Mechanism-annotated account of the leading hypothesis.
 
     Anchored at the hypothesis's own decisive step (an environment-led
@@ -1088,6 +1137,27 @@ def _causal_account(report: dict, leading: Optional[dict], side: Optional[str],
     return account
 
 
+def _class_mix_phrase(mix: dict) -> str:
+    """``on observable evidence (4 items; 1 annotation)`` — what the
+    leading account rests on, so a reader knows whether to trust the
+    trace or go and look."""
+    observable = mix.get("observable", 0)
+    annotation = mix.get("annotation", 0)
+    stated = mix.get("stated", 0)
+    if observable:
+        extra = [f"{annotation} annotation" for _ in [0] if annotation] + \
+                [f"{stated} stated" for _ in [0] if stated]
+        return (f"on observable evidence ({observable} item(s)"
+                + (f"; {', '.join(extra)}" if extra else "") + ")")
+    if annotation and not stated:
+        return "on annotations only — someone's judgement, verify by hand"
+    if stated and not annotation:
+        return "on stated reasoning only — what the agent said, not what it did"
+    if annotation or stated:
+        return "on annotations and stated reasoning only, nothing observable"
+    return "with no cited evidence"
+
+
 def _verdict_text(mode: str, subject_name: Optional[str], ranked: list[dict],
                   leading_id: Optional[str], margin: Optional[float]) -> str:
     scored = [h for h in ranked
@@ -1105,6 +1175,7 @@ def _verdict_text(mode: str, subject_name: Optional[str], ranked: list[dict],
         if len(scored) > 1:
             text += (f"; leads the runner-up ({scored[1]['kind']}) by "
                      f"{margin:.2f}")
+        text += "; " + _class_mix_phrase(top.get("evidence_classes") or {})
         return text
     names = ", ".join(h["kind"] for h in scored[:3])
     return (
@@ -1137,21 +1208,24 @@ def _contradictions(report: dict, side: Optional[str]) -> list[str]:
     return out
 
 
-def _confidence(mode: str, leading_id: Optional[str], ranked: list[dict]) -> dict:
+def _confidence(mode: str, leading_id: Optional[str], ranked: list[dict],
+                verified: str = "hypothesized") -> dict:
+    from .confidence import confidence
     plausible_others = [
         h["kind"] for h in ranked
         if h["status"] == "plausible" and h["id"] != leading_id]
     if leading_id is None:
-        return {"level": "low",
-                "basis": "no hypothesis clears the runner-up by the lead "
-                         "margin; single pair, alternatives not ruled out"}
+        return confidence("low", 1,
+                          "no hypothesis clears the runner-up by the lead "
+                          "margin; single pair, alternatives not ruled out",
+                          "n/a")
     if plausible_others:
-        return {"level": "medium",
-                "basis": "single pair (n=1); plausible alternatives remain: "
-                         + ", ".join(plausible_others)}
-    return {"level": "medium",
-            "basis": "single pair (n=1); the ranking is consistent but one "
-                     "comparison cannot rule out task-specific luck"}
+        return confidence("medium", 1,
+                          "single pair (n=1); plausible alternatives remain: "
+                          + ", ".join(plausible_others), verified)
+    return confidence("medium", 1,
+                      "single pair (n=1); the ranking is consistent but one "
+                      "comparison cannot rule out task-specific luck", verified)
 
 
 #: the counterfactual criterion the field converged on (Who&When): the
@@ -1168,6 +1242,19 @@ DECISIVE_CRITERION = (
 #: itself never claims more than "hypothesized".
 DECISIVE_VERIFICATION = "hypothesized"
 
+#: the one overdetermination signature a trace can show without a replay
+#: (Thought Anchors' warning, applied narrowly): the run OBSERVED a wrong
+#: value and then ASSERTED a different wrong value of the same kind that
+#: reached the answer.  Correcting the observation leaves the assertion;
+#: correcting the assertion leaves the wrong observation — each fault is
+#: sufficient on its own.  Anything looser (a visible pathology at another
+#: step) is a distractor as often as a cause, and the engine says nothing.
+OVERDETERMINED_NOTE = (
+    "two wrong values of the same kind, each exclusive to this run: the "
+    "observation returned one and the run asserted another that reached the "
+    "answer; correcting either alone leaves the other, so neither step is "
+    "sufficient by itself — replay each alone before treating either as the cause")
+
 _CORRECTION_HINTS = {
     "divergence": "take the decision the passing run took at this step",
     "wrong_fact_propagation": "replace the wrong value with the sourced one",
@@ -1176,7 +1263,7 @@ _CORRECTION_HINTS = {
 }
 
 
-def _decisive_step(mode: str, leading: Optional[dict], led: _Ledger,
+def _decisive_step(mode: str, leading: Optional[dict], led: Ledger,
                    ranked: Optional[list] = None,
                    account: Optional[list] = None,
                    traj: Optional[Trajectory] = None,
@@ -1209,7 +1296,7 @@ def _decisive_step(mode: str, leading: Optional[dict], led: _Ledger,
     base = {"step": None, "criterion": DECISIVE_CRITERION, "basis": None,
             "reason": None, "point_of_no_return": None, "window": None,
             "verification": None, "replay_recipe": None,
-            "joint_candidates": []}
+            "joint_candidates": [], "overdetermined": None}
     if mode != "single_failure":
         return dict(base, reason="no failure to localize")
     if leading is None:
@@ -1280,11 +1367,109 @@ def _decisive_step(mode: str, leading: Optional[dict], led: _Ledger,
 # public API
 
 
+class HypothesisGenerator:
+    """One kind of explanation: a function ``(report, side, traj, ledger,
+    failed) -> list[hypothesis]`` and the conditions under which it runs.
+    Adding a kind is adding one entry to :data:`HYPOTHESIS_GENERATORS`."""
+
+    def __init__(self, name: str, fn, *, failed_only: bool = True,
+                 single_failure_only: bool = False) -> None:
+        self.name = name
+        self.fn = fn
+        self.failed_only = failed_only
+        self.single_failure_only = single_failure_only
+
+    def applies(self, mode: str, failed: bool) -> bool:
+        if self.failed_only and not failed:
+            return False
+        if self.single_failure_only and mode != "single_failure":
+            return False
+        return True
+
+
+def _adapt(fn):
+    """Wrap the four-argument generators so every entry has one signature."""
+    def run(report, side, traj, led, failed):
+        return fn(report, side, traj, led)
+    run.__name__ = fn.__name__
+    return run
+
+
+#: the registry, in the order the ledger first cites their evidence; the
+#: process generator runs for passers too (a clean outcome can hide a
+#: pathological process)
+HYPOTHESIS_GENERATORS = [
+    HypothesisGenerator("grader_or_label", _adapt(_gen_grader)),
+    HypothesisGenerator("harness_termination", _adapt(_gen_harness)),
+    HypothesisGenerator("environment_error", _adapt(_gen_environment)),
+    HypothesisGenerator("wrong_fact_propagation", _adapt(_gen_wrong_fact)),
+    HypothesisGenerator("divergence", _adapt(_gen_divergence),
+                        single_failure_only=True),
+    HypothesisGenerator("budget_pressure", _adapt(_gen_budget)),
+    HypothesisGenerator("process_pathology", _gen_process, failed_only=False),
+]
+
+
+def _two_wrong_values(report: dict, side: str, traj: Trajectory,
+                      step: int) -> Optional[dict]:
+    """The overdetermination signature: an observed wrong value at or after
+    the decisive step, and a *different* wrong value of the same kind,
+    exclusive to this run, asserted later in a plan/reason/answer step and
+    carried into the answer.  Returns the guard object or ``None``."""
+    claims = (report.get("semantic") or {}).get("claims", []) or []
+    other = "b" if side == "a" else "a"
+    answer_idx = len(traj.steps) - 1
+    wrong: list = []
+    for i, claim in enumerate(claims):
+        if claim.get("matches_expected") is not False:
+            continue
+        if not claim.get(f"{side}_steps") or claim.get(f"{other}_steps"):
+            continue
+        origin = claim.get("origin") or {}
+        if origin.get("agent") != side or origin.get("step") is None:
+            continue
+        idx = origin["step"]
+        if idx < step or idx >= len(traj.steps):
+            continue
+        wrong.append({"index": i, "kind": claim.get("kind"),
+                      "value": claim.get("value"), "norm": claim.get("normalized"),
+                      "origin": idx, "in_answer": answer_idx in claim[f"{side}_steps"],
+                      "stated": traj.steps[idx].type in ("plan", "reason", "answer")})
+    for observed in wrong:
+        if observed["stated"] or observed["in_answer"]:
+            continue
+        for asserted in wrong:
+            if (asserted is observed or asserted["kind"] != observed["kind"]
+                    or asserted["norm"] == observed["norm"]
+                    or asserted["origin"] <= observed["origin"]
+                    or not asserted["stated"] or not asserted["in_answer"]):
+                continue
+            return {
+                "status": "possible",
+                "candidates": [
+                    {"kind": "wrong_fact_propagation", "step": observed["origin"],
+                     "value": observed["value"], "role": "observed wrong value"},
+                    {"kind": "wrong_fact_propagation", "step": asserted["origin"],
+                     "value": asserted["value"], "role": "asserted wrong value, in the answer"},
+                ],
+                "note": OVERDETERMINED_NOTE,
+                "replay_recipe": [
+                    {"side": side, "step": observed["origin"],
+                     "correction": "replace the observed value with the sourced one",
+                     "expects": "the answer still carries the asserted value — no flip"},
+                    {"side": side, "step": asserted["origin"],
+                     "correction": "answer from the observation, not from memory",
+                     "expects": "the answer carries the observed wrong value — no flip"},
+                ],
+            }
+    return None
+
+
 def diagnose(report: dict, a: Trajectory, b: Trajectory) -> dict:
     """Build the SCHEMA.md ``diagnosis`` object for a compared pair."""
     success_a = a.outcome.success
     success_b = b.outcome.success
-    led = _Ledger()
+    led = Ledger()
 
     if success_a == success_b:
         mode = "both_succeeded" if success_a else "both_failed"
@@ -1308,15 +1493,10 @@ def diagnose(report: dict, a: Trajectory, b: Trajectory) -> dict:
         traj = a if side == "a" else b
         failed = not (success_a if side == "a" else success_b)
         generated: list[dict] = []
-        if failed:
-            generated += _gen_grader(report, side, traj, led)
-            generated += _gen_harness(report, side, traj, led)
-            generated += _gen_environment(report, side, traj, led)
-            generated += _gen_wrong_fact(report, side, traj, led)
-            if mode == "single_failure":
-                generated += _gen_divergence(report, side, traj, led)
-            generated += _gen_budget(report, side, traj, led)
-        generated += _gen_process(report, side, traj, led, failed)
+        for generator in HYPOTHESIS_GENERATORS:
+            if not generator.applies(mode, failed):
+                continue
+            generated += generator.fn(report, side, traj, led, failed)
         for h in generated:
             h["agent"] = side
         raw += generated
@@ -1324,11 +1504,20 @@ def diagnose(report: dict, a: Trajectory, b: Trajectory) -> dict:
     if mode == "single_failure":
         _fuse(raw, report, led.items, a, b)
 
-    # rank: scored first (descending), then untestable; ties break by the
-    # KINDS order and statement text so the ordering is deterministic.
+    # every evidence item knows its class; every hypothesis counts its mix
+    led.classify(a, b)
+    for h in raw:
+        h["evidence_classes"] = led.classes_of(h.get("supports") or [])
+
+    # rank: scored first (descending); at equal score a hypothesis with
+    # observable support outranks one resting on annotations or stated
+    # reasoning alone; then the KINDS order and statement text, so the
+    # ordering is deterministic.
     def _key(h: dict):
         score = h["score"] if h["score"] is not None else -1.0
-        return (-score, KINDS.index(h["kind"]) if h["kind"] in KINDS else 99,
+        observable = (h.get("evidence_classes") or {}).get("observable", 0)
+        return (-score, 0 if observable else 1,
+                KINDS.index(h["kind"]) if h["kind"] in KINDS else 99,
                 h["statement"])
 
     ranked = sorted(raw, key=_key)
@@ -1349,7 +1538,29 @@ def diagnose(report: dict, a: Trajectory, b: Trajectory) -> dict:
         report, leading, account_side, account_traj, led
     ) if mode == "single_failure" else []
 
+    decisive = _decisive_step(
+        mode, leading, led, ranked, account,
+        (a if account_side == "a" else b) if account_side else None,
+        account_side)
+
+    if decisive.get("step") is not None and account_side:
+        over = _two_wrong_values(report, account_side,
+                                 a if account_side == "a" else b, decisive["step"])
+        if over:
+            decisive["overdetermined"] = over
+            decisive["joint_candidates"] = list(over["candidates"])
+
+    # evidence added while building the account or the decisive step is
+    # classified too (idempotent: items already stamped are skipped)
+    led.classify(a, b)
+
     verdict = _verdict_text(mode, subject_name, ranked, leading_id, margin)
+    if decisive.get("overdetermined"):
+        cands = decisive["overdetermined"]["candidates"]
+        verdict += ("; possibly overdetermined — "
+                    + " and ".join(f"{c['role']} at step {c['step']} ({c['value']})"
+                                   for c in cands)
+                    + ": correcting either alone leaves the other")
     if mode == "both_succeeded" and not ranked:
         verdict = "both passed cleanly; nothing to diagnose"
     elif mode == "both_succeeded":
@@ -1385,14 +1596,13 @@ def diagnose(report: dict, a: Trajectory, b: Trajectory) -> dict:
         "margin": margin,
         "evidence": led.items,
         "causal_account": account,
-        "decisive_step": _decisive_step(
-            mode, leading, led, ranked, account,
-            (a if account_side == "a" else b) if account_side else None,
-            account_side),
+        "decisive_step": decisive,
         "contradictions": _contradictions(
             report, subject if mode == "single_failure" else None),
-        "confidence": _confidence(mode, leading_id, ranked)
-        if ranked else {"level": None, "basis": "nothing to adjudicate"},
+        "confidence": _confidence(mode, leading_id, ranked,
+                                  "hypothesized" if decisive.get("step") is not None else "n/a")
+        if ranked else {"level": None, "n": None, "basis": "nothing to adjudicate",
+                        "verified": "n/a"},
     }
 
 

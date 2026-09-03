@@ -42,7 +42,7 @@ FAMILIES = (
     "blind_write", "divergence_only", "late_symptom", "distractor",
     "cascade", "multi_cause", "paraphrase_grader",
     "negation_answer", "wrong_entity", "causal_duplicate", "garbage_args",
-    "null_agent", "late_decision", "misread_reason",
+    "null_agent", "late_decision", "misread_reason", "overdetermined",
 )
 
 #: paraphrase_grader is the corpus's deliberate open challenge: the failing
@@ -470,6 +470,12 @@ def _scenario(family, index, rng):
         family = "divergence_only"
         entry["cause"] = family
 
+    elif family == "overdetermined" and not wrong_value:
+        # two wrong values need a typed value; a valueless domain falls
+        # back to divergence_only, as blind_write does
+        family = "divergence_only"
+        entry["cause"] = family
+
     if family == "divergence_only":
         fail = [json.loads(json.dumps(s)) for s in passing[:inj]]
         sname, sinp, sout = domain["stale_read"]
@@ -725,6 +731,39 @@ def _scenario(family, index, rng):
             note="two inconsequential novel reads precede the real cause; "
                  "the first step without a twin is a decoy")
 
+    elif family == "overdetermined" and wrong_value:
+        # two faults on one value path, each sufficient alone: a quiet
+        # stale read returns one wrong value, then the run ASSERTS a
+        # different wrong value of the same kind and answers with it.
+        # Correct the read and the assertion still answers wrong; correct
+        # the assertion and the run answers the wrong observation.  The
+        # engine must name both — and only a replay of each can rank them.
+        second = wrong_value
+        for _ in range(20):
+            _, second = _values(domain, rng)
+            if second not in (true_value, wrong_value):
+                break
+        if second in (true_value, wrong_value):
+            second = wrong_value + "0"
+        sname, sinp, sout = domain["stale_read"]
+        fail = [json.loads(json.dumps(s)) for s in passing[:inj]]
+        fail.append(_step(0, "tool_call", sname, sinp.format(e=entity),
+                          sout.format(e=entity, w=wrong_value),
+                          effect="read", error=False, quality="weak",
+                          note="fault one: the observation itself is wrong"))
+        fail.append(_step(0, "reason", "reason",
+                          f"Reading the figure as {second} for {entity}.", "",
+                          quality="weak",
+                          note="fault two: a different wrong value asserted from nowhere"))
+        fail.append(_answer(domain["wrong_answer"].format(e=entity, w=second)))
+        entry.update(
+            acceptable=["wrong_fact_propagation", "divergence"],
+            decisive_steps=[inj, inj + 1],
+            overdetermined=True,
+            chain=[inj, inj + 1, answer_of(fail)],
+            note="observed wrong value then asserted a different wrong value; "
+                 "the diagnosis must flag possible overdetermination")
+
     elif family == "misread_reason":
         # both runs take identical steps through the key read of the TRUE
         # value; the failing run then adds one benign novel remark and
@@ -757,6 +796,7 @@ def _scenario(family, index, rng):
     artifacts = {
         "wrong_fact": wrong_value, "cascade": wrong_value,
         "late_symptom": wrong_value or "stale reference",
+        "overdetermined": wrong_value,
         "distractor": wrong_value or "unofficial",
         "multi_cause": ((wrong_value or "stale") if domain["write_tool"]
                         else "503"),
@@ -801,7 +841,7 @@ def generate(out_dir: Path, pairs: int, strip: bool = False) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     for stale in out_dir.glob("*.json"):
         stale.unlink()
-    manifest = {"version": 6, "generated": True, "pairs": pairs,
+    manifest = {"version": 7, "generated": True, "pairs": pairs,
                 "seed": SEED, "stripped": bool(strip), "scenarios": []}
     for i in range(pairs):
         family = FAMILIES[i % len(FAMILIES)]

@@ -1822,6 +1822,57 @@ decoy families at 1.0 on cause kind; the valueless ticket domain, which
 has no typed wrong fact to re-anchor on, stays adjacent by one step and
 is reported as such.
 
+## Evidence classes, overdetermination, meltdown, intervals, one confidence (v41)
+
+- **Evidence classes.** Every `diagnosis.evidence` item carries
+  `evidence_class`: `observable` (recorded tool input/output, answers,
+  outcomes, alignment, effects), `annotation` (`quality`/`note` fields),
+  `stated` (plan and reason text). Every hypothesis carries
+  `evidence_classes: {observable, annotation, stated}` counts over its
+  `supports`. At equal score a hypothesis with observable support ranks
+  above one resting on annotations or stated reasoning alone; the
+  verdict sentence ends with what the lead rests on ("on observable
+  evidence (3 item(s); 1 annotation)" / "on annotations only — someone's
+  judgement, verify by hand" / "on stated reasoning only"). Measured:
+  identical kind and step outcomes to the previous engine on the same
+  300-pair corpora in both conditions — the class is information, not
+  a re-ranking of anything already decided.
+- **Overdetermination guard** (`decisive_step.overdetermined`): the one
+  signature a trace can show without a replay — the run *observed* a
+  wrong value and then *asserted* a different wrong value of the same
+  kind that reached the answer, both exclusive to this run. Correcting
+  either alone leaves the other. The object is `{status: "possible",
+  candidates: [{kind, step, value, role}], note, replay_recipe: [...]}`,
+  mirrored into `joint_candidates`; the verdict and the card's CAUSE
+  line say "possibly overdetermined … correcting either alone leaves the
+  other". Anything looser (a visible pathology at another step) fires on
+  distractors as often as on causes — the first two cuts of this guard
+  did, at 35–130 of 252 single-cause scenarios — so the engine says
+  nothing there. Corpus family `overdetermined` (manifest v7, nineteen
+  families; typed-value domains only, else divergence_only): the engine
+  flags 10/10 in both conditions and 0 of 290 elsewhere.
+- **Meltdown onset** (reading finding `meltdown_onset`, R7): five or more
+  consecutive observation steps that are one tool with one unchanged
+  input — tool-choice entropy collapsed to zero while the run kept
+  stepping; observable; take-forward "stop and re-plan when the last
+  calls are one tool with unchanged input".
+- **pass^k intervals**: each point of `pass_hat_k.curve` carries
+  `ci95: [lo, hi]` — the 95% Wilson interval of the pooled per-run rate
+  raised to k (`ci95_basis` states the plug-in assumption); `runs`
+  prints `k=2:0.667 [0.21, 0.94]`.
+- **One confidence vocabulary** (`deepcompare/confidence.py`):
+  `{level, n, basis, verified}` with `verified ∈ hypothesized |
+  replay-verified | replay-refuted | replay-mixed | n/a`; `n ≤ 1` can
+  never be `high`. `diagnosis.confidence` (n=1, verified from the
+  decisive step), `reading.confidence` (n=1), the verdict card and
+  recommendations quote it; a recommendation from one task says
+  "n=1; not a gain estimate" instead of "+100pt success (1/1 tasks)".
+- **Hypothesis generators** are a registry (`HYPOTHESIS_GENERATORS`, one
+  `HypothesisGenerator(name, fn, failed_only, single_failure_only)` per
+  kind); `Ledger` is the public evidence registry (`_Ledger` kept as an
+  alias). Behavior-preserving: the strict bench and the 300-pair
+  corpora score identically.
+
 ## Any agent, replay from the CLI, why (v40)
 
 - **Report `task` carries `expected`** (`{id, prompt, expected}`), so a

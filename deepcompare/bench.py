@@ -417,12 +417,19 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
             "secondary_visible": secondary_visible,
             "probe": probe, "probe_kind_correct": probe_kind_ok,
             "artifact_reachable": validity["artifact_reachable"],
+            "overdetermined_truth": bool(scenario.get("overdetermined")),
+            "overdetermined_flagged": bool(
+                (diagnosis.get("decisive_step") or {}).get("overdetermined")),
         }
         results.append(entry)
 
         bucket = by_cause.setdefault(
             scenario["cause"], {"correct": 0, "total": 0, "accuracy": 0.0})
         bucket["total"] += 1
+        if scenario.get("overdetermined"):
+            # the family's own question: was the second cause named?
+            bucket.setdefault("overdetermined_flagged", 0)
+            bucket["overdetermined_flagged"] += 1 if entry["overdetermined_flagged"] else 0
         if outcome == "correct":
             bucket["correct"] += 1
             correct_total += 1

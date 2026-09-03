@@ -248,7 +248,11 @@ def _failure_recommendations(reports: list[dict]) -> list[dict]:
                if _extra_spend(g) else "each of ")
             + "these runs ended in failure."
         )
-        gain = f"up to +{n / total * 100:.0f}pt success ({n}/{total} tasks)"
+        if total <= 1:
+            # one task cannot estimate a gain; say what was seen, not a rate
+            gain = "n=1; not a gain estimate — one failing task, fix and re-run"
+        else:
+            gain = f"up to +{n / total * 100:.0f}pt success ({n}/{total} tasks)"
         if g["tokens"] > 0:
             gain += f", −{g['tokens']:,} wasted tokens"
         recs.append(

@@ -86,10 +86,17 @@ def verdict_card(report: dict) -> dict:
         else:
             mechanism = "the divergent decision"
             basis = "the divergence"
+        over = decisive.get("overdetermined") or {}
+        suffix = ""
+        if over.get("candidates"):
+            suffix = (" — possibly overdetermined: "
+                      + " and ".join(f"{c.get('role') or c['kind']} at step {c['step']}"
+                                     for c in over["candidates"])
+                      + "; correcting either alone leaves the other")
         lines.append({
             "key": "cause",
             "text": f"step {step_idx} of {_side_name(report, subject)} "
-                    f"({category}, {verification}): {mechanism}",
+                    f"({category}, {verification}): {mechanism}{suffix}",
             "source": f"diagnosis.decisive_step; mechanism from {basis}",
             "step": step_idx, "side": subject})
     elif diagnosis.get("verdict"):

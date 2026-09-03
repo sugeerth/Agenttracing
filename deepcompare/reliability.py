@@ -553,9 +553,23 @@ def _agent_reliability(name: str,
         "no task has an eligible run after excluding harness failures"
     )
 
+    # a plug-in interval per k: the 95% Wilson interval of the pooled
+    # per-run rate raised to the k-th power.  Stated as plug-in because it
+    # treats runs as exchangeable across tasks; the curve's own value stays
+    # the tau-bench mean over tasks
+    from .statistics import wilson_interval
+    lo, hi = wilson_interval(successes_total, runs_used) if runs_used else (0.0, 1.0)
+    for point in hat_curve_all:
+        if point["value"] is None:
+            point["ci95"] = None
+        else:
+            point["ci95"] = [round(lo ** point["k"], 4), round(hi ** point["k"], 4)]
     pass_hat_block = {
         "curve": hat_curve_all,
         "max_k": max_k,
+        "ci95_basis": ("plug-in: the 95% Wilson interval of the pooled per-run "
+                       "success rate, raised to k; treats runs as exchangeable "
+                       "across tasks"),
         "value_at_max_k": hat_curve_all[-1]["value"] if hat_curve_all else None,
         "tasks": len(scored_tasks),
         "runs": runs_used,

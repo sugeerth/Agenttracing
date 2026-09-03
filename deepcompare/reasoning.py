@@ -654,6 +654,18 @@ def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
             "evidence": [ev.span(i, "input", "what the observation was asked",
                                  "observable") for i in basis_steps[:3]],
             "evidence_class": "observable"})
+    meltdown = _meltdown_onset(steps, answer_idx)
+    if meltdown is not None:
+        findings.append({
+            "kind": "meltdown_onset",
+            "statement": (f"from step {meltdown['start']} the run repeated one call "
+                          f"({meltdown['name']}) with unchanged input {meltdown['length']} "
+                          f"times in a row — tool-choice entropy collapsed to zero while "
+                          f"the steps continued"),
+            "steps": list(range(meltdown["start"], meltdown["start"] + meltdown["length"])),
+            "evidence": [ev.span(i, "input", "identical repeated call", "observable")
+                         for i in range(meltdown["start"], min(meltdown["start"] + 3, answer_idx))],
+            "evidence_class": "observable"})
     if answer_basis["steps_after_basis_complete"]:
         findings.append({
             "kind": "spent_after_basis",
@@ -755,6 +767,9 @@ def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
             action = "re-read before answering: the basis was superseded by a later call"
         elif f["kind"] == "contradicted_by_own_observation":
             action = "answer from the observation, not from memory — the right value was in the trace"
+        elif f["kind"] == "meltdown_onset":
+            action = ("stop and re-plan when the last calls are one tool with unchanged "
+                      "input — a repeated identical call cannot return new information")
         elif f["kind"] == "faithful_to_wrong_observation":
             action = "check what the observation was asked before trusting what it returned — the answer relayed it faithfully and was still wrong"
         elif f["kind"] == "spent_after_basis":
@@ -792,13 +807,17 @@ def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
             validity["reason"] or validity["status"], "validity",
             validity.get("leak_steps") or [], []))
 
-    # --- confidence: by evidence class, never by eloquence
+    # --- confidence: by evidence class, never by eloquence — through the
+    # one vocabulary every output shares (n = one run; a reading is not a
+    # comparison, and it can never say more than medium on its own)
+    from .confidence import confidence as _shared_confidence
     classes = {f["evidence_class"] for f in findings}
     level = ("high" if "observable" in classes and findings else
              "medium" if findings else "low")
     basis = (f"{sum(1 for f in findings if f['evidence_class'] == 'observable')} "
              f"of {len(findings)} finding(s) rest on observable events"
              if findings else "no finding rises from the trace alone")
+    conf = _shared_confidence(level, 1, basis, "n/a")
 
     return {
         "version": READING_VERSION,
@@ -816,7 +835,7 @@ def read_trace(traj: Trajectory, *, expected: Optional[str] = None) -> dict:
         "why_it_ended": why_it_ended,
         "what_it_means": findings,
         "take_forward": take_forward,
-        "confidence": {"level": level, "basis": basis},
+        "confidence": conf,
         "evidence": ev.items,
         "summary": _summary(traj, what_happened, rests_on, why_it_ended, findings,
                             critical_error),
@@ -845,6 +864,38 @@ def _next_action(instead: str, what: str, because: str, steps: list,
                           if at_step is not None else None),
         "conditional_on_validity": False,
     }
+
+
+MELTDOWN_WINDOW = 5
+
+
+def _meltdown_onset(steps: list, answer_idx: int) -> Optional[dict]:
+    """R7 (Beyond pass@1): the first run of ``MELTDOWN_WINDOW`` or more
+    consecutive observation steps that are one tool with one unchanged
+    input.  Tool-choice entropy over the window is zero while the run
+    keeps stepping — the signature of a run that has stopped learning
+    anything and not stopped acting.  Returns the onset or ``None``."""
+    run_start, run_len = None, 0
+    prev_key = None
+    for i in range(answer_idx):
+        step = steps[i]
+        key = ((step.type, step.name, (step.input or "").strip())
+               if step.type in OBSERVATION_TYPES else None)
+        if key is not None and key == prev_key:
+            run_len += 1
+        else:
+            if run_len >= MELTDOWN_WINDOW:
+                break
+            run_start, run_len = (i if key is not None else None), (1 if key else 0)
+        prev_key = key
+        if run_len >= MELTDOWN_WINDOW and run_start is not None:
+            # extend to the end of the run of identical calls
+            j = i + 1
+            while j < answer_idx and ((steps[j].type, steps[j].name,
+                                       (steps[j].input or "").strip()) == key):
+                j += 1
+            return {"start": run_start, "length": j - run_start, "name": step.name}
+    return None
 
 
 def _summary(traj, what_happened, rests_on, why, findings, critical=None) -> str:

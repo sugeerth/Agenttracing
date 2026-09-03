@@ -111,7 +111,10 @@ class TestFindingsAndActions(unittest.TestCase):
         for f in r["what_it_means"]:
             self.assertTrue(f["evidence"], f["kind"])
             self.assertIn(f["evidence_class"], ("observable", "annotation", "stated"))
-        self.assertEqual(r["confidence"]["level"], "high")
+        # one run is one observation: the shared vocabulary caps it at
+        # medium, and says so in the basis
+        self.assertEqual(r["confidence"]["level"], "medium")
+        self.assertEqual(r["confidence"]["n"], 1)
 
     def test_unverified_success_is_still_a_finding(self):
         _, r = reading(T01_PASS)
