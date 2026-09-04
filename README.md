@@ -80,6 +80,7 @@ testable offline, and the tests do exactly that.
 | who won, why, at what cost, what next, how sure | `compare`, the verdict card | five lines, each quoting the report |
 | which step was decisive, and on what evidence | `diagnosis` | competing hypotheses ranked with an evidence ledger, class mix (observable / annotation / stated), a causal window, contested when nothing leads, possibly-overdetermined when two wrong values each suffice |
 | what one run did, what its answer rests on | `explain`, the Reading block | phases, per-step roles, every answer value with its basis, why it ended, findings by evidence class, located next actions, meltdown onset |
+| the story, as charts | the Story view | three D3 charts on one step line: what happened (roles, answer-value arcs, the decisive ring, spend after the basis), why (hypotheses at their scores with evidence), take forward (numbered pins per next action, what the fix buys, labelled an estimate) |
 | is a failure real or luck | `runs` | pass^k with intervals, consistency, paired inference that refuses to rank below ten tasks |
 | what to fix first, and did the fix work | triage, `progress` | ranked actions with verification contracts, before/after matching |
 | whether the number can be trusted | `bench --strict` | the diagnoser's own benchmark with a leakage probe: the margin over a surface-cue detector is the headline |

@@ -635,21 +635,28 @@ class DecisiveStepBlockTest(unittest.TestCase):
             self.assertIn(str(r["value"]), text)
         for f in reading["what_it_means"]:
             self.assertIn(f["statement"], text)
+        # in the story the next actions are their own section (take-forward),
+        # numbered and verbatim; elsewhere the reading lists them itself
+        forward = page.locator('.block[data-block="take-forward"]')
+        todo_text = forward.inner_text() if forward.count() else text
         for t in reading["take_forward"]:
-            self.assertIn(t["instead"], text)
+            self.assertIn(t["instead"], todo_text)
         self.assertEqual(block.locator(".rd-head button[aria-pressed='true']").inner_text(),
                          self.t05["b"]["agent"]["name"])
         first = reading["take_forward"][0]
         row = next(i for i, r in enumerate(self.t05["alignment"])
                    if r.get("b_index") == first["at_step"])
-        block.locator(f".rd-todo .rd-step[data-step='{first['at_step']}']").first.dispatch_event("click")
+        if forward.count():
+            forward.locator(f".d3c-list li[data-n='1'] .step").first.dispatch_event("click")
+        else:
+            block.locator(f".rd-todo .rd-step[data-step='{first['at_step']}']").first.dispatch_event("click")
         page.wait_for_timeout(300)
         detail = page.locator('.block[data-block="step-detail"]')
         if detail.count():
             self.assertEqual(detail.locator(".tag.mono").first.inner_text(), f"row {row}")
-        # the A/B toggle reads the other run
+        # the A/B toggle reads the other run (the whole story follows it)
         block.locator(".rd-head button").first.click()
-        page.wait_for_timeout(200)
+        page.wait_for_timeout(700)
         self.assertIn(self.t05["reading"]["a"]["summary"],
                       page.locator('.block[data-block="reading"]').inner_text())
         self.assertEqual(errors, [])
@@ -2477,6 +2484,220 @@ class IntervalsAndInternalsTest(unittest.TestCase):
         page.wait_for_timeout(250)
         self.assertEqual(page.locator(".tj-internals").count(), 0)
         self.assertEqual(page.locator(".tj-conf").count(), 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class StoryChartsTest(unittest.TestCase):
+    """The story view is a numbered sequence — what happened, why, take
+    forward — and each section opens with a D3 chart drawn from the report
+    as written: one mark per step with the reading's role, one arc per
+    answer value from the step that first produced it, the decisive ring,
+    one bar per hypothesis at the engine's score with its evidence, one
+    numbered pin per located next action. Clicking any of them moves the
+    same cursor the map uses. Every count here is computed from the
+    embedded report.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "deepcompare", "batch",
+                        str(ROOT / "demo" / "traces"), "-o", str(out),
+                        "--template", str(ROOT / "web" / "blocks.html")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        cls.report = out / "report.html"
+        cls.t05 = json.loads((out / "report_t05_flight_duration.json").read_text(encoding="utf-8"))
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def open(self, width=1280, reduced_motion=False):
+        context = self.browser.new_context(viewport={"width": width, "height": 900},
+                                           reduced_motion="reduce" if reduced_motion else "no-preference")
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.report}#view=story")
+        page.wait_for_timeout(600)
+        page.select_option("#task-picker", "t05_flight_duration")
+        page.wait_for_timeout(900)
+        return context, page, errors
+
+    def failing(self):
+        rep = self.t05
+        return "b" if rep["a"]["outcome"]["success"] else "a"
+
+    def test_d3_is_vendored_and_the_story_is_a_numbered_sequence(self):
+        context, page, errors = self.open()
+        self.assertTrue(str(page.evaluate("() => window.d3 && d3.version")).startswith("7."))
+        titles = page.evaluate("() => [...document.querySelectorAll('#story-lane .block-title')].map(e => e.textContent)")
+        self.assertEqual(titles[:3], ["1 · What happened", "2 · Why", "3 · Take forward"])
+        self.assertEqual(len(titles), len(set(titles)))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_what_happened_draws_every_step_phase_value_and_the_decisive_ring(self):
+        context, page, errors = self.open()
+        side = self.failing()
+        rep = self.t05
+        reading = rep["reading"][side]
+        svg = page.locator("svg.d3c-story")
+        self.assertEqual(svg.count(), 1)
+        self.assertEqual(svg.locator("g.d3c-step").count(), len(rep[side]["steps"]))
+        roles = svg.locator("g.d3c-step").evaluate_all("els => els.map(e => e.getAttribute('data-role'))")
+        self.assertEqual(roles, [w["role"] for w in reading["what_happened"]])
+        self.assertEqual(svg.locator("g.d3c-phase").count(), len(reading["phases"]))
+        answer = max(w["step"] for w in reading["what_happened"] if w["role"] == "answer")
+        arcs = [r for r in reading["rests_on"] if r.get("first_step") is not None and r["first_step"] < answer]
+        self.assertEqual(svg.locator("path.d3c-arc").count(), len(arcs))
+        statuses = svg.locator("path.d3c-arc").evaluate_all("els => els.map(e => e.getAttribute('data-status'))")
+        self.assertEqual(sorted(statuses), sorted(r["status"] for r in arcs))
+        wrong = sum(1 for r in arcs if r.get("matches_expected") is False)
+        labels = svg.locator("text.d3c-arc-label").all_text_contents()
+        self.assertEqual(sum(1 for t in labels if "✗" in t), min(wrong, 4))
+        dec = rep["diagnosis"]["decisive_step"]
+        rings = svg.locator("g.d3c-decisive")
+        self.assertEqual(rings.count(), 1 if rep["diagnosis"]["subject"] == side else 0)
+        if rings.count():
+            self.assertEqual(rings.first.get_attribute("transform"),
+                             svg.locator(f'g.d3c-step[data-step="{dec["step"]}"]').first.get_attribute("transform"))
+        basis = reading["answer_basis"]
+        self.assertEqual(svg.locator("g.d3c-spent").count(), 1 if basis.get("steps_after_basis_complete") else 0)
+        # the arc labels are backed so the arc never shows through the text
+        self.assertEqual(svg.locator("rect.d3c-backing").count(), len(labels))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_clicking_a_step_mark_opens_it_in_the_inspector(self):
+        context, page, errors = self.open()
+        side = self.failing()
+        target = 1
+        page.locator(f'svg.d3c-story g.d3c-step[data-step="{target}"]').first.dispatch_event("click")
+        page.wait_for_timeout(300)
+        pane = page.locator(".tj-pane", has_text=side.upper() + " ·").first
+        self.assertIn(f"step {target}", pane.locator("h4").text_content())
+        # keyboard: Enter on a focused mark does the same
+        page.locator(f'svg.d3c-story g.d3c-step[data-step="0"]').first.focus()
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(300)
+        pane = page.locator(".tj-pane", has_text=side.upper() + " ·").first
+        self.assertIn("step 0", pane.locator("h4").text_content())
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_why_draws_one_bar_per_hypothesis_at_its_score_with_its_evidence(self):
+        context, page, errors = self.open()
+        diag = self.t05["diagnosis"]
+        svg = page.locator("svg.d3c-why")
+        self.assertEqual(svg.count(), 1)
+        rows = svg.locator("g.d3c-hyprow")
+        self.assertEqual(rows.count(), len(diag["hypotheses"]))
+        self.assertEqual(rows.evaluate_all("els => els.map(e => e.getAttribute('data-status'))"),
+                         [h["status"] for h in diag["hypotheses"]])
+        self.assertEqual(rows.evaluate_all("els => els.map(e => e.getAttribute('data-kind'))"),
+                         [h["kind"] for h in diag["hypotheses"]])
+        page.wait_for_timeout(600)  # bars finish their transition
+        widths = rows.locator("rect.d3c-bar").evaluate_all("els => els.map(e => +e.getAttribute('width'))")
+        scores = [h["score"] for h in diag["hypotheses"]]
+        for w, sc in zip(widths, scores):
+            if sc == 0:
+                self.assertEqual(w, 0)
+        best = scores.index(max(scores))
+        self.assertEqual(widths.index(max(widths)), best, "the widest bar is the highest score")
+        for i, h in enumerate(diag["hypotheses"]):
+            dots = rows.nth(i).locator(".d3c-ev")
+            self.assertEqual(dots.count(), min(len(h["supports"]) + len(h["contradicts"]),
+                                               dots.count()) if dots.count() else 0)
+            self.assertEqual(rows.nth(i).locator(".d3c-ev-con").count(),
+                             min(len(h["contradicts"]), rows.nth(i).locator(".d3c-ev-con").count()))
+        lead = diag["hypotheses"][0]
+        self.assertEqual(rows.nth(0).locator(".d3c-ev").count(), len(lead["supports"]) + len(lead["contradicts"]))
+        self.assertEqual(svg.locator("g.d3c-window").count(), 1)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_take_forward_pins_match_the_numbered_list_verbatim(self):
+        context, page, errors = self.open()
+        side = self.failing()
+        items = self.t05["reading"][side]["take_forward"]
+        block = page.locator('[data-block="take-forward"]')
+        self.assertEqual(block.count(), 1)
+        pins = block.locator("svg.d3c-forward g.d3c-pin")
+        located = [t for t in items if isinstance(t.get("at_step"), int)]
+        self.assertEqual(pins.count(), len(located))
+        self.assertEqual(pins.evaluate_all("els => els.map(e => +e.getAttribute('data-step'))"),
+                         [t["at_step"] for t in located])
+        lis = block.locator(".d3c-list li")
+        self.assertEqual(lis.count(), len(items))
+        for i, t in enumerate(items):
+            self.assertIn(t["instead"], lis.nth(i).locator("strong").text_content())
+            self.assertEqual(lis.nth(i).get_attribute("data-n"), str(i + 1))
+        dec = self.t05["diagnosis"]["decisive_step"]["step"]
+        self.assertEqual(lis.evaluate_all("els => els.map(e => e.classList.contains('decisive'))"),
+                         [t.get("at_step") == dec for t in items])
+        cf = self.t05.get("counterfactual") or {}
+        if cf.get("estimate"):
+            self.assertIn("estimate", block.locator(".d3c-note").text_content())
+            self.assertIn(str(cf.get("confidence")), block.locator(".d3c-note").text_content())
+        # a pin moves the shared cursor
+        pins.first.dispatch_event("click")
+        page.wait_for_timeout(300)
+        pane = page.locator(".tj-pane", has_text=side.upper() + " ·").first
+        self.assertIn(f"step {located[0]['at_step']}", pane.locator("h4").text_content())
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_reading_toggle_switches_every_chart_to_the_other_run(self):
+        context, page, errors = self.open()
+        side = self.failing()
+        other = "a" if side == "b" else "b"
+        rep = self.t05
+        page.locator('[data-block="reading"] .rd-head button').filter(has_text=rep[other]["agent"]["name"]).first.click()
+        page.wait_for_timeout(900)
+        self.assertEqual(page.locator("svg.d3c-story g.d3c-step").count(), len(rep[other]["steps"]))
+        items = rep["reading"][other]["take_forward"]
+        if items:
+            self.assertEqual(page.locator('[data-block="take-forward"] .d3c-list li').count(), len(items))
+        else:
+            self.assertEqual(page.locator('[data-block="take-forward"]').count(), 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_phone_width_keeps_every_chart_inside_the_page(self):
+        context, page, errors = self.open(width=390)
+        self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth"), 390)
+        for cls in ("d3c-story", "d3c-why", "d3c-forward"):
+            box = page.locator(f"svg.{cls}").first.bounding_box()
+            self.assertIsNotNone(box, cls)
+            self.assertLessEqual(box["x"] + box["width"], 390 + 1, cls)
+        self.assertEqual(page.locator("svg.d3c-story g.d3c-step").count(),
+                         len(self.t05[self.failing()]["steps"]))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_reduced_motion_disables_chart_transitions(self):
+        context, page, errors = self.open(reduced_motion=True)
+        self.assertEqual(page.evaluate("() => AgentDiff.charts.motion()"), 0)
+        widths = page.locator("svg.d3c-why rect.d3c-bar").evaluate_all("els => els.map(e => +e.getAttribute('width'))")
+        self.assertGreater(max(widths), 0, "bars are at their final width immediately")
         self.assertEqual(errors, [])
         context.close()
 

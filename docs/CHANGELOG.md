@@ -1666,6 +1666,42 @@ decoy families at 1.0 on cause kind; the valueless ticket domain, which
 has no typed wrong fact to re-anchor on, stays adjacent by one step and
 is reported as such.
 
+## The story as three charts (v43)
+
+The story view is now a numbered sequence — *1 · What happened, 2 · Why,
+3 · Take forward, 4 · Across the batch, 5 · Cost* — and the first three
+sections open with a D3 chart drawn on one shared idea: a run is a line
+of steps, and everything worth understanding about it sits on that line.
+
+- **What happened** (`AgentDiff.charts.story`): the reading's phases as
+  bands over the step line; one mark per step shaped by its role (fed
+  the answer, framed, decided, checked, dead end, repeat, error, the
+  answer); an arc from the step that first produced each answer value to
+  the answer, coloured by its basis status and marked ✗ when the value
+  does not match the expected answer; the decisive ring (dashed while
+  hypothesized, solid once replay-verified); the basis-complete tick and
+  a hatched span for the steps spent after it.
+- **Why** (`charts.why`): one bar per hypothesis at the engine's score,
+  filled by status (leading, merged, plausible, ruled out); its evidence
+  as marks — supports by evidence class (filled observable, dashed
+  annotation, hollow stated), contradictions as ×; the margin as a
+  bracket; the decisive window on the subject run's step line.
+- **Take forward** (`charts.forward`, new block `take-forward`): the
+  reading's located next actions as numbered pins on the step line,
+  stacked when they share a step and red at the decisive one; a list
+  numbered to match that quotes each `instead` verbatim with its reason,
+  replay recipe and references; when the report carries a counterfactual
+  splice, *what the fix buys* as actual-vs-estimate bars, labelled an
+  estimate with its confidence.
+- Every mark is focusable; a click or Enter moves the trajectory
+  family's cursor, so the map's inspector opens the same step. Tooltips
+  quote the report. Transitions run 380 ms and 0 under
+  `prefers-reduced-motion`. Charts measure their host once attached and
+  redraw on resize, so a phone gets the same chart at its width.
+- D3 7.9.0 is vendored under `web/vendor/` with its licence, inlined by
+  the build; the page stays one offline file (about 1 MB). Build tests
+  pin the licence and that no module of ours fetches through D3.
+
 ## Intervals on the confidence line, model internals as evidence (v42)
 
 - **Per-step confidence interval.** `deepcompare.logprobs` now writes

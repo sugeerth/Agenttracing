@@ -17,7 +17,9 @@
 
   var STYLE_ID = "agentdiff-reading-css";
   var styled = false;
-  var Lens = { side: null };  // the side being read; null = decide from data
+  // the side being read; null = decide from data. Shared with the
+  // take-forward block so both read the same run.
+  var Lens = AgentDiff.readLens = AgentDiff.readLens || { side: null };
 
   function ensureStyle() {
     if (styled) return;
@@ -138,7 +140,11 @@
         return H("button", {
           text: agentName(report, s), type: "button",
           "aria-pressed": side === s ? "true" : "false",
-          onclick: function () { Lens.side = s; try { ctx.signal("inspect"); } catch (e) { /* optional */ } render(clear(el), ctx); }
+          onclick: function () {
+            Lens.side = s;
+            try { ctx.signal("inspect"); } catch (e) { /* optional */ }
+            if (AgentDiff._rerender) AgentDiff._rerender(); else render(clear(el), ctx);
+          }
         });
       })),
       H("span", { class: "rd-status", text: (reading.outcome && reading.outcome.success === false ? "failed" : "succeeded")
@@ -146,6 +152,16 @@
     ]));
 
     el.appendChild(H("p", { class: "rd-sum", text: reading.summary || "" }));
+
+    // the run as a line: phases, what each step was for, where every
+    // answer value entered, the decisive step, the spend after the basis
+    if (AgentDiff.charts && AgentDiff.charts.available()) {
+      var chartHost = H("div", { class: "rd-chart" });
+      el.appendChild(chartHost);
+      try { AgentDiff.charts.story(chartHost, ctx, side); }
+      catch (err) { console.warn("AgentDiff reading: story chart failed", err); }
+      if (!chartHost.childNodes.length) chartHost.remove();
+    }
 
     var validity = reading.validity;
     if (validity && validity.status && validity.status !== "clean") {
@@ -212,7 +228,8 @@
       })));
     }
 
-    if (reading.take_forward && reading.take_forward.length) {
+    // in the story the next actions are their own section (take-forward)
+    if (!inStory && reading.take_forward && reading.take_forward.length) {
       el.appendChild(H("div", { class: "rd-h", text: "Take forward" }));
       el.appendChild(H("ul", { class: "rd-list rd-todo" }, reading.take_forward.map(function (t) {
         var kids = [];
@@ -246,6 +263,7 @@
 
   AgentDiff.block({
     id: "reading",
+    storyTitle: "What happened",
     title: "Reading",
     question: "What did this run do, what does its answer rest on, and what should it take forward?",
     group: "outcome",

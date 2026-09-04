@@ -414,6 +414,7 @@
 
   AgentDiff.block({
     id: "diagnosis",
+    storyTitle: "Why",
     title: "Diagnosis",
     question: "Which explanation best fits the evidence — and what would settle it?",
     group: "outcome",
@@ -462,6 +463,16 @@
       var decisive = diag.decisive_step;
       if (decisive && typeof decisive === "object") {
         el.appendChild(decisiveLine(ctx, decisive));
+      }
+
+      // 1c. The scores as bars, the evidence as marks, the decisive
+      // window on the step line — the same numbers the rows below quote.
+      if (AgentDiff.charts && AgentDiff.charts.available()) {
+        var chartHost = ctx.h("div", { class: "dx-chart" });
+        el.appendChild(chartHost);
+        try { AgentDiff.charts.why(chartHost, ctx); }
+        catch (err) { console.warn("AgentDiff diagnosis: why chart failed", err); }
+        if (!chartHost.childNodes.length) chartHost.remove();
       }
 
       // 2. The hypotheses, in the order the report ranked them.

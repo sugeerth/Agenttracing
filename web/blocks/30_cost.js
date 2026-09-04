@@ -264,6 +264,7 @@
 
   AgentDiff.block({
     id: "deltas",
+    storyTitle: "Cost",
     title: "Cost of the difference",
     question: "What did the difference cost?",
     group: "cost",

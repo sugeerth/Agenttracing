@@ -76,6 +76,25 @@ class TestBuild(unittest.TestCase):
                     re.search(r"\.(js|css|woff2?|png|svg)(\?|$)", match),
                     f"external asset referenced: {match}")
 
+    def test_vendored_libraries_carry_their_licence_and_stay_inline(self):
+        vendor = WEB / "vendor"
+        libs = sorted(vendor.glob("*.min.js"))
+        self.assertTrue(libs, "D3 is expected under web/vendor")
+        for lib in libs:
+            name = lib.name.split(".")[0]
+            self.assertTrue((vendor / f"LICENSE.{name}").is_file(), f"{lib.name} has no licence beside it")
+            self.assertIn(f"<!-- vendor: {lib.name} -->", self.page)
+        self.assertIn("Copyright 2010-2023 Mike Bostock", self.page)
+        self.assertRegex(self.page, r"window\.d3|d3\.version|\bd3\b")
+
+    def test_our_modules_never_fetch_through_d3(self):
+        # d3-fetch ships inside the bundle; nothing of ours may call it —
+        # the page reads only the data injected into it
+        for module in sorted(BLOCKS.glob("*.js")):
+            source = module.read_text(encoding="utf-8")
+            for forbidden in ("d3.json(", "d3.csv(", "d3.text(", "d3.dsv(", "d3.fetch", "fetch("):
+                self.assertNotIn(forbidden, source, f"{module.name} uses {forbidden}")
+
     def test_no_module_closes_the_script_tag_early(self):
         # A literal </script> inside a JS string ends the tag and silently
         # dumps the rest of the module into the document as text.

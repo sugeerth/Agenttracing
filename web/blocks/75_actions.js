@@ -261,6 +261,7 @@
 
   AgentDiff.block({
     id: "actions",
+    storyTitle: "Across the batch",
     title: "Do this next",
     question: "The ranked fixes, with their evidence and how to verify each.",
     group: "outcome",

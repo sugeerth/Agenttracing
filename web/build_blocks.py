@@ -21,6 +21,8 @@ BLOCKS = ROOT / "blocks"
 SHELL = BLOCKS / "_shell.html"
 OUTPUT = ROOT / "blocks.html"
 
+VENDOR = ROOT / "vendor"
+VENDOR_MARKER = "<!--@VENDOR@-->"
 CORE_MARKER = "<!--@CORE@-->"
 MODULES_MARKER = "<!--@MODULES@-->"
 
@@ -31,6 +33,28 @@ def module_files() -> list[Path]:
         path for path in BLOCKS.glob("*.js")
         if path.name != "00_core.js" and not path.name.startswith("_")
     )
+
+
+def vendor_files() -> list[Path]:
+    """Third-party libraries inlined before the core, in filename order.
+    Each ships with its licence file beside it (``LICENSE.<name>``)."""
+    if not VENDOR.is_dir():
+        return []
+    return sorted(VENDOR.glob("*.min.js"))
+
+
+def wrap_vendor(path: Path) -> str:
+    """A vendored library as an inline script, its licence quoted first so
+    the built page carries the attribution the licence asks for."""
+    name = path.name.split(".")[0]
+    licence = VENDOR / f"LICENSE.{name}"
+    if not licence.is_file():
+        raise SystemExit(f"{path.name} has no {licence.name} beside it")
+    text = licence.read_text(encoding="utf-8").strip().replace("*/", "* /")
+    source = path.read_text(encoding="utf-8")
+    if "</script>" in source:
+        source = source.replace("</script>", "<\\/script>")
+    return (f"<!-- vendor: {path.name} -->\n<script>\n/*\n{text}\n*/\n{source}\n</script>")
 
 
 def wrap(path: Path) -> str:
@@ -45,15 +69,17 @@ def wrap(path: Path) -> str:
 
 def build() -> str:
     shell = SHELL.read_text(encoding="utf-8")
-    for marker in (CORE_MARKER, MODULES_MARKER):
+    for marker in (VENDOR_MARKER, CORE_MARKER, MODULES_MARKER):
         if marker not in shell:
             raise SystemExit(f"{SHELL} is missing the {marker} marker")
 
+    vendor = "\n".join(wrap_vendor(path) for path in vendor_files())
     core = wrap(BLOCKS / "00_core.js")
     modules = module_files()
     body = "\n".join(wrap(path) for path in modules)
 
-    page = shell.replace(CORE_MARKER, core).replace(MODULES_MARKER, body)
+    page = (shell.replace(VENDOR_MARKER, vendor).replace(CORE_MARKER, core)
+                 .replace(MODULES_MARKER, body))
 
     # render_html() replaces the single line carrying this marker, so exactly
     # one must survive the build or the CLI cannot inject report data.
@@ -72,7 +98,8 @@ def main() -> int:
     registered = len(re.findall(r"AgentDiff\.block\(", page))
     size = len(page.encode("utf-8"))
     print(f"wrote {OUTPUT.relative_to(ROOT.parent)} "
-          f"— {len(modules)} module(s), {registered} block(s), {size/1024:.0f} KB")
+          f"— {len(vendor_files())} vendored librar{'y' if len(vendor_files()) == 1 else 'ies'}, "
+          f"{len(modules)} module(s), {registered} block(s), {size/1024:.0f} KB")
     for path in modules:
         count = len(re.findall(r"AgentDiff\.block\(", path.read_text(encoding="utf-8")))
         print(f"  {path.name:<28} {count} block(s)")

@@ -37,7 +37,7 @@
   //: what to do next, the step under the cursor, what the difference cost.
   //: They answer the reader's next five questions; everything else stays in
   //: the columns. Dashboard mode puts them back.
-  var STORY_BLOCKS = ["reading", "diagnosis", "actions", "deltas"];
+  var STORY_BLOCKS = ["reading", "diagnosis", "take-forward", "actions", "deltas"];
   function isStoryBlock(id) { return State.prefs && State.prefs.view === "story" && STORY_BLOCKS.indexOf(id) >= 0; }
 
   //: the three views. Story: lead + hero + the story lane. Evidence: the
@@ -215,6 +215,8 @@
       render: spec.render,
       // lead blocks open the page in their own lane; see renderLead
       lead: spec.lead === true,
+      // the section name the story view numbers ("1 · What happened")
+      storyTitle: typeof spec.storyTitle === "string" ? spec.storyTitle : null,
     };
     REGISTRY.push(entry);
     BY_ID[spec.id] = entry;
@@ -920,8 +922,13 @@
       if (State.layout.hidden.indexOf(item.id) >= 0) return;
       if (hero && hero.item.id === item.id) return;
       if (safeRelevance(entry, ctx) <= 0) return;
-      host.appendChild(renderBlock(item, null, ctx, null));
+      var card = renderBlock(item, null, ctx, null);
       shown++;
+      // the story is numbered and titled as a sequence — what happened,
+      // why, take forward — so the reader always knows where they are
+      var title = card.querySelector(".block-title");
+      if (title) title.textContent = shown + " · " + (entry.storyTitle || entry.title);
+      host.appendChild(card);
     });
     host.hidden = shown === 0;
   }
