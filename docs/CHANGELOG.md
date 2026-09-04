@@ -1669,9 +1669,9 @@ is reported as such.
 ## The story as three charts (v43)
 
 The story view is now a numbered sequence — *1 · What happened, 2 · The
-trace as a tree, 3 · Why, 4 · Take forward, 5 · Across the batch,
-6 · Cost* — and the first four sections open with a D3 chart drawn on one
-shared idea: a run is a line
+trace as a tree, 3 · Why, 4 · Reconcile, 5 · Take forward, 6 · Across
+the batch, 7 · Cost* — and the first five sections open with a D3 chart
+drawn on one shared idea: a run is a line
 of steps, and everything worth understanding about it sits on that line.
 
 - **What happened** (`AgentDiff.charts.story`): the reading's phases as
@@ -1698,6 +1698,24 @@ of steps, and everything worth understanding about it sits on that line.
   holds the decisive step); a step opens in the inspector; a value
   selects the step that produced it. A collapsible tidy tree, animated
   under the same motion rule.
+- **How it became a failure** (in *What happened*): under the step line,
+  one cell per step whose state is read from the report — the fault
+  (causal account / attribution chain: *fault enters* at the decisive
+  step, *carried*, *wrong answer* at the commit), a ranked divergence,
+  drifted from or same as the other run (alignment op), or only this run
+  took the step. On a passing run the strip reads *how it stayed on
+  track*. Each cell's tooltip names its source field.
+- **Reconcile** (`charts.reconcile`, new block `reconcile`, story
+  section 4): the report's counterfactual splice as three lanes — the
+  passing run, the reconciled trajectory (the failing run's prefix, the
+  passing run's decision at the cut, the passing run's steps after it),
+  the failing run — with links from every reconciled step to the run it
+  came from, the cut at the decisive step, ✓/✗ at the real lanes' ends
+  and *est. success* at the reconciled one. Beneath, the strategy as
+  numbered steps: keep, correct (the replay recipe's correction,
+  verbatim), follow, replay (≥3, what it expects), expect (the estimate
+  with its deltas, called a splice estimate with its confidence). Absent
+  when the report carries neither a splice nor a replay recipe.
 - **Take forward** (`charts.forward`, new block `take-forward`): the
   reading's located next actions as numbered pins on the step line,
   stacked when they share a step and red at the decisive one; a list

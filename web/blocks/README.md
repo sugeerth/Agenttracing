@@ -74,7 +74,7 @@ pointer the card actions are always visible; under
 `build_blocks.py` inlines every `web/vendor/*.min.js` before the core, so
 the page stays one offline file. `03_d3charts.js` exposes
 `AgentDiff.charts` — `story(host, ctx, side)`, `tree(host, ctx)`,
-`why(host, ctx)`, `forward(host, ctx, side)`, plus `available()`, `motion()` (0 under
+`why(host, ctx)`, `reconcile(host, ctx)`, `forward(host, ctx, side)`, plus `available()`, `motion()` (0 under
 `prefers-reduced-motion`) and `responsive(host, draw)` — and the story
 blocks call them at the top of their render. The rules: draw only what
 the report says (the engine's scores, statuses, steps, estimates; never
@@ -84,8 +84,8 @@ as one. Nothing of ours may call `d3.json`/`d3.csv`/`fetch` — the build
 tests pin it.
 
 A block's `storyTitle` is the section name the story view numbers
-("1 · What happened", "2 · The trace as a tree", "3 · Why", "4 · Take
-forward", …).
+("1 · What happened", "2 · The trace as a tree", "3 · Why",
+"4 · Reconcile", "5 · Take forward", …).
 
 ### Composites
 

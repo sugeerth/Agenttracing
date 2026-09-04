@@ -37,7 +37,7 @@
   //: what to do next, the step under the cursor, what the difference cost.
   //: They answer the reader's next five questions; everything else stays in
   //: the columns. Dashboard mode puts them back.
-  var STORY_BLOCKS = ["reading", "trace-tree", "diagnosis", "take-forward", "actions", "deltas"];
+  var STORY_BLOCKS = ["reading", "trace-tree", "diagnosis", "reconcile", "take-forward", "actions", "deltas"];
   function isStoryBlock(id) { return State.prefs && State.prefs.view === "story" && STORY_BLOCKS.indexOf(id) >= 0; }
 
   //: the three views. Story: lead + hero + the story lane. Evidence: the

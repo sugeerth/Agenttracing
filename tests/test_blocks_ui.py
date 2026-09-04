@@ -1646,9 +1646,10 @@ class SmallScreensKeysAndMotionTest(unittest.TestCase):
     def test_the_story_fits_the_phone_budget_with_the_inspector_folded(self):
         context, page, errors = self._open(viewport={"width": 390, "height": 844}, has_touch=True)
         height = page.evaluate("() => document.documentElement.scrollHeight")
-        # the budget grew once with the story's sections 2 (the tree, folded
-        # on a phone) and 4 (take forward, with its numbered list): 5100 → 5500
-        self.assertLessEqual(height, 5500, f"story is {height}px tall on a phone")
+        # the budget grew with the story's sections: 2 (the tree, folded on
+        # a phone), 4 (reconcile: three lanes and a five-step strategy) and
+        # 5 (take forward, with its numbered list): 5100 → 5500 → 6200
+        self.assertLessEqual(height, 6200, f"story is {height}px tall on a phone")
         self.assertFalse(page.evaluate("() => document.documentElement.scrollWidth > document.documentElement.clientWidth"))
         fold = page.locator("#hero-lane details.tj-inspector-fold")
         self.assertEqual(fold.count(), 1)
@@ -2551,7 +2552,7 @@ class StoryChartsTest(unittest.TestCase):
         context, page, errors = self.open()
         self.assertTrue(str(page.evaluate("() => window.d3 && d3.version")).startswith("7."))
         titles = page.evaluate("() => [...document.querySelectorAll('#story-lane .block-title')].map(e => e.textContent)")
-        self.assertEqual(titles[:4], ["1 · What happened", "2 · The trace as a tree", "3 · Why", "4 · Take forward"])
+        self.assertEqual(titles[:5], ["1 · What happened", "2 · The trace as a tree", "3 · Why", "4 · Reconcile", "5 · Take forward"])
         self.assertEqual(len(titles), len(set(titles)))
         self.assertEqual(errors, [])
         context.close()
@@ -2687,7 +2688,7 @@ class StoryChartsTest(unittest.TestCase):
     def test_phone_width_keeps_every_chart_inside_the_page(self):
         context, page, errors = self.open(width=390)
         self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth"), 390)
-        for cls in ("d3c-story", "d3c-why", "d3c-forward"):
+        for cls in ("d3c-story", "d3c-why", "d3c-reconcile", "d3c-forward"):
             box = page.locator(f"svg.{cls}").first.bounding_box()
             self.assertIsNotNone(box, cls)
             self.assertLessEqual(box["x"] + box["width"], 390 + 1, cls)
@@ -2763,6 +2764,83 @@ class StoryChartsTest(unittest.TestCase):
                              if r.get("first_step") is not None and r.get("matches_expected") is False)
         marked = page.locator(f"svg.d3c-tree g.d3c-tnode[data-kind='value'][data-side='{failing}']").all_text_contents()
         self.assertEqual(sum(1 for t in marked if "✗" in t), expected_wrong)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_how_it_became_a_failure_reads_the_causal_account_and_the_alignment(self):
+        context, page, errors = self.open()
+        rep = self.t05
+        side = self.failing()
+        cells = page.locator("svg.d3c-story g.d3c-pcell")
+        self.assertEqual(cells.count(), len(rep[side]["steps"]))
+        states = cells.evaluate_all("els => els.map(e => e.getAttribute('data-state'))")
+        account = {l["step"] for l in rep["diagnosis"]["causal_account"]} | set(rep["attribution"]["chain"])
+        answer = len(rep[side]["steps"]) - 1
+        for i, st in enumerate(states):
+            if i in account:
+                self.assertEqual(st, "committed" if i == answer else "fault", f"step {i}")
+            else:
+                self.assertIn(st, ("same", "drift", "diverged", "alone"), f"step {i}")
+        # the decisive step is where the fault enters; the answer is where it is committed
+        dec = rep["diagnosis"]["decisive_step"]["step"]
+        self.assertEqual(cells.nth(dec).locator("text").first.text_content(), "fault enters")
+        self.assertEqual(cells.nth(answer).locator("text").first.text_content(), "wrong answer")
+        # a matched row reads as "same", read from the alignment
+        rows = {r[f"{side}_index"]: r for r in rep["alignment"] if r.get(f"{side}_index") is not None}
+        other = "a" if side == "b" else "b"
+        for i, st in enumerate(states):
+            if i in account:
+                continue
+            row = rows.get(i)
+            if row and row.get(f"{other}_index") is not None and row["op"] == "match":
+                self.assertEqual(st, "same", f"step {i}")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_reconcile_draws_the_splice_and_states_the_estimate_as_one(self):
+        context, page, errors = self.open()
+        rep = self.t05
+        cf = rep["counterfactual"]
+        block = page.locator('[data-block="reconcile"]')
+        self.assertEqual(block.count(), 1)
+        svg = block.locator("svg.d3c-reconcile")
+        self.assertEqual(svg.count(), 1)
+        self.assertEqual(svg.locator("g.d3c-lane").count(), 3)
+        merged = len(cf["splice"]["prefix_steps"]) + len(cf["splice"]["adopted_steps"])
+        rec = svg.locator("g.d3c-lane-reconciled g.d3c-rmark")
+        self.assertEqual(rec.count(), merged)
+        froms = rec.evaluate_all("els => els.map(e => e.getAttribute('data-from'))")
+        failing = "b" if cf["splice"]["adopted_from"] == "a" else "a"
+        self.assertEqual(froms, [failing] * len(cf["splice"]["prefix_steps"]) + [cf["splice"]["adopted_from"]] * len(cf["splice"]["adopted_steps"]))
+        self.assertEqual(svg.locator("path.d3c-rlink").count(), merged)
+        self.assertEqual(svg.locator("line.d3c-cut").count(), 1)
+        self.assertIn(f"step {rep['diagnosis']['decisive_step']['step']}", svg.locator("text", has_text="cut ·").text_content())
+        ends = svg.locator("text.d3c-rend").all_text_contents()
+        self.assertIn("est. " + cf["estimate"]["outcome"], ends)
+        self.assertTrue(any(e.startswith("✓") for e in ends) and any(e.startswith("✗") for e in ends), ends)
+        # the strategy quotes the replay recipe and calls the estimate an estimate with its confidence
+        text = block.locator(".d3c-strategy").text_content()
+        self.assertIn(rep["diagnosis"]["decisive_step"]["replay_recipe"]["correction"], text)
+        self.assertIn("splice estimate", text)
+        self.assertIn("confidence " + cf["confidence"], text)
+        self.assertIn(cf["narrative"], block.locator(".d3c-narrative").text_content())
+        # a reconciled mark opens the run it came from
+        rec.last.dispatch_event("click")
+        page.wait_for_timeout(300)
+        adopted_side = cf["splice"]["adopted_from"]
+        pane = page.locator(".tj-pane", has_text=adopted_side.upper() + " ·").first
+        self.assertIn(f"step {cf['splice']['adopted_steps'][-1]}", pane.locator("h4").text_content())
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_task_without_a_counterfactual_has_no_reconcile_section(self):
+        context, page, errors = self.open()
+        page.select_option("#task-picker", "t02_cve_libfoo")
+        page.wait_for_timeout(900)
+        self.assertEqual(page.locator('#story-lane [data-block="reconcile"]').count(), 0)
+        self.assertEqual(page.locator("svg.d3c-story g.d3c-pcell").count(),
+                         len(json.loads((Path(self.tmp.name) / "report_t02_cve_libfoo.json").read_text(encoding="utf-8"))["b"]["steps"])
+                         if page.locator("svg.d3c-story").count() else 0)
         self.assertEqual(errors, [])
         context.close()
 

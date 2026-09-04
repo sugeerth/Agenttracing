@@ -395,6 +395,7 @@
     var slot = x.step();
     var wide = slot >= 54;
     var yPhase = 18, yStep = 62, yArcTop = 84;
+    var path = failureStates(report, side, n);
     var spent = isNum(basis.basis_complete_at) && isNum(basis.steps_after_basis_complete) &&
                 basis.steps_after_basis_complete > 0 && basis.basis_complete_at < answerIdx;
     var maxStack = 0;
@@ -402,7 +403,9 @@
     rests.forEach(function (r) { seen[r.first_step] = (seen[r.first_step] || 0) + 1; if (seen[r.first_step] > maxStack) maxStack = seen[r.first_step]; });
     var captioned = spent && wide && (x(answerIdx) - x(basis.basis_complete_at) - slot) >= 160;
     var arcSpan = rests.length ? 46 + Math.min(4, maxStack) * 13 + (captioned ? 12 : 0) : 0;
-    var H = yArcTop + arcSpan + (wide ? 28 : 18) + (spent && !rests.length ? 14 : 0);
+    var stripTop = yArcTop + arcSpan + (wide ? 28 : 18) + (spent && !rests.length ? 14 : 0);
+    var stripH = path ? 44 : 0;
+    var H = stripTop + stripH;
 
     var wrap = d3.select(host).append("div").attr("class", "d3c-wrap");
     var svg = wrap.append("svg")
@@ -585,6 +588,41 @@
         r.matches_expected === false ? { text: "does not match the expected answer" } : null]);
     }).on("mouseleave", hideTip);
 
+    // ---- how it became a failure: one cell per step, its state read from
+    // the alignment (same / drifted / only this run), the divergences and
+    // the causal account (the fault enters, is carried, is committed)
+    if (path) {
+      var sg = svg.append("g").attr("class", "d3c-path").attr("transform", "translate(0," + (stripTop + 6) + ")");
+      sg.append("text").attr("class", "d3c-cap").attr("x", x(0) - slot / 2 + 2).attr("y", -1)
+        .attr("fill", failed ? P.bad : P.good).attr("font-weight", 600)
+        .text(failed ? "how it became a failure" : "how it stayed on track");
+      var cellW = Math.max(6, slot - 6);
+      var cells = sg.selectAll("g.d3c-pcell").data(path).join("g")
+        .attr("class", function (d) { return "d3c-pcell " + d.state; })
+        .attr("data-state", function (d) { return d.state; })
+        .attr("data-step", function (d) { return d.step; })
+        .attr("transform", function (d) { return "translate(" + (x(d.step) - cellW / 2) + ",4)"; });
+      cells.append("rect").attr("width", cellW).attr("height", 12).attr("rx", 2)
+        .attr("fill", function (d) { return d.state === "fault" || d.state === "committed" ? P.bad
+          : d.state === "diverged" ? P.warn : d.state === "drift" ? P.warn : d.state === "same" ? P.good : P.rule2; })
+        .attr("opacity", function (d) { return d.state === "fault" || d.state === "committed" ? 0.9 : d.state === "diverged" ? 0.85 : d.state === "drift" ? 0.45 : d.state === "same" ? 0.45 : 0.6; })
+        .attr("stroke", function (d) { return d.error ? P.bad : "none"; }).attr("stroke-width", 1.5)
+        .attr("stroke-dasharray", function (d) { return d.state === "alone" ? "3 2" : null; });
+      cells.filter(function (d) { return d.state === "fault" && d.enters; })
+        .append("text").attr("class", "d3c-cap").attr("x", cellW / 2).attr("y", 25).attr("text-anchor", "middle")
+        .attr("fill", P.bad).attr("font-weight", 700).text(wide ? "fault enters" : "enters");
+      cells.filter(function (d) { return d.state === "committed"; })
+        .append("text").attr("class", "d3c-cap").attr("x", cellW / 2).attr("y", 25).attr("text-anchor", "middle")
+        .attr("fill", P.bad).attr("font-weight", 700).text(wide ? "wrong answer" : "wrong");
+      cells.filter(function (d) { return d.state === "fault" && !d.enters && wide && slot >= 96; })
+        .append("text").attr("class", "d3c-cap").attr("x", cellW / 2).attr("y", 25).attr("text-anchor", "middle")
+        .attr("fill", P.bad).text("carried");
+      cells.append("title").text(function (d) { return "step " + d.step + " · " + d.label + (d.detail ? "\n" + d.detail : ""); });
+      cells.on("mousemove", function (event, d) {
+        showTip(event, [{ b: true, text: "step " + d.step + " · " + d.label }, d.detail ? { text: d.detail } : null, { mono: true, text: "source: " + d.source }]);
+      }).on("mouseleave", hideTip).on("click", function (event, d) { hideTip(); selectStep(report, side, d.step); });
+    }
+
     // ---- legend
     var legend = document.createElement("div");
     legend.className = "d3c-legend";
@@ -612,8 +650,85 @@
     if (isNum(basis.steps_after_basis_complete) && basis.steps_after_basis_complete > 0) {
       legend.appendChild(legendItem(P, { hatch: true }, P.warn, "spent after the basis was complete"));
     }
+    if (path) {
+      var states = {};
+      path.forEach(function (d) { states[d.state] = true; });
+      var STATE_KEY = { same: [P.good, "same as the other run"], drift: [P.warn, "drifted from the other run"],
+        diverged: [P.warn, "diverged (a divergence the report ranks)"], alone: [P.rule2, "only this run took this step"],
+        fault: [P.bad, "the fault (causal account)"], committed: [P.bad, "the wrong answer committed"] };
+      Object.keys(STATE_KEY).forEach(function (st) {
+        if (states[st]) legend.appendChild(legendItem(P, { hatch: true }, STATE_KEY[st][0], STATE_KEY[st][1]));
+      });
+    }
     host.appendChild(legend);
     return svg.node();
+  }
+
+  /* One state per step of `side`, read from the report: the causal account
+   * (fault carried), the ranked divergences, the alignment op against the
+   * other run, and the outcome. Null when the report aligns nothing. */
+  function failureStates(report, side, n) {
+    var rows = report && Array.isArray(report.alignment) ? report.alignment : [];
+    if (!rows.length || !n) return null;
+    var other = side === "a" ? "b" : "a";
+    var diag = report.diagnosis || {};
+    var account = {};
+    if (diag.subject === side) {
+      (Array.isArray(diag.causal_account) ? diag.causal_account : []).forEach(function (l) {
+        if (l && isNum(l.step)) account[l.step] = l;
+      });
+    }
+    var attr = report.attribution || {};
+    var chain = {};
+    if (attr.failed_agent === side && Array.isArray(attr.chain)) attr.chain.forEach(function (i) { if (isNum(i)) chain[i] = true; });
+    var diverged = {};
+    (Array.isArray(report.divergences) ? report.divergences : []).forEach(function (d) {
+      if (d && isNum(d[side + "_index"])) diverged[d[side + "_index"]] = d;
+    });
+    var dec = decisiveOf(report);
+    var failed = !(report[side] && report[side].outcome && report[side].outcome.success === true);
+    var errors = {};
+    var reading = readingOf(report, side);
+    ((reading && reading.errors) || []).forEach(function (e) { if (e && isNum(e.step)) errors[e.step] = true; });
+    var byStep = {};
+    rows.forEach(function (row) { if (row && isNum(row[side + "_index"])) byStep[row[side + "_index"]] = row; });
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      var row = byStep[i];
+      var op = row ? String(row.op || "") : "";
+      var alone = !row || row[other + "_index"] === null || row[other + "_index"] === undefined;
+      var d = { step: i, error: !!errors[i], enters: false };
+      var isAnswer = report[side].steps[i] && report[side].steps[i].type === "answer";
+      if (account[i] || chain[i]) {
+        d.state = failed && isAnswer ? "committed" : "fault";
+        d.enters = dec && dec.side === side && dec.step === i;
+        d.label = account[i] ? account[i].happened : "on the attribution chain";
+        d.detail = account[i] && account[i].mechanism ? account[i].mechanism : (attr.category ? "attributed: " + String(attr.category).replace(/_/g, " ") : "");
+        d.source = account[i] ? "diagnosis.causal_account" : "attribution.chain";
+      } else if (diverged[i]) {
+        d.state = "diverged";
+        d.label = "diverged: " + String(diverged[i].kind || "").replace(/_/g, " ");
+        d.detail = diverged[i].summary || "";
+        d.source = "divergences";
+      } else if (alone) {
+        d.state = "alone";
+        d.label = "only this run took this step";
+        d.detail = "";
+        d.source = "alignment (" + (op || "unpaired") + ")";
+      } else if (op === "match") {
+        d.state = "same";
+        d.label = "same as " + agentName(report, other) + " step " + row[other + "_index"];
+        d.detail = isNum(row.similarity) ? "similarity " + row.similarity.toFixed(2) : "";
+        d.source = "alignment (match)";
+      } else {
+        d.state = "drift";
+        d.label = "drifted from " + agentName(report, other) + " step " + row[other + "_index"];
+        d.detail = isNum(row.similarity) ? "similarity " + row.similarity.toFixed(2) : "";
+        d.source = "alignment (" + (op || "drift") + ")";
+      }
+      out.push(d);
+    }
+    return out;
   }
 
   // ============================================================ 2. why
@@ -1215,6 +1330,224 @@
     legend.appendChild(legendItem(P, { line: true, dashed: true }, P.rule2, "dead end / repeat"));
     legend.appendChild(legendItem(P, { hatch: true }, P.good, "value in the answer, by basis status"));
     if (dec) legend.appendChild(legendItem(P, { ring: true, dashed: dec.verification !== "replay-verified" }, P.bad, "decisive step"));
+    host.appendChild(legend);
+    return svg.node();
+  }
+
+  // ========================================================= 5. reconcile
+
+  /* The reconciling strategy: the report's counterfactual splice drawn as
+   * three lanes — the passing run, the failing run, and the reconciled
+   * trajectory that keeps the failing run's prefix, takes the passing
+   * run's decision at the decisive step, and follows the passing run from
+   * there — with the cut marked and the estimate stated as an estimate.
+   * Below it, the strategy as steps a person can run: keep, correct,
+   * follow, replay, and what to expect. Everything quoted from
+   * `counterfactual`, `diagnosis.decisive_step.replay_recipe` and the
+   * outcomes; nothing is estimated here. */
+  charts.reconcile = function (host, ctx) {
+    ensureStyle();
+    if (!charts.available()) return null;
+    var report = ctx.report;
+    var plan = reconcilePlan(report);
+    if (!plan) return null;
+    var drawn = null;
+    responsive(host, function () { drawn = drawReconcile(host, ctx, report, plan); });
+    return drawn;
+  };
+
+  function reconcilePlan(report) {
+    if (!report) return null;
+    var cf = report.counterfactual && typeof report.counterfactual === "object" ? report.counterfactual : null;
+    var dec = decisiveOf(report);
+    var diag = report.diagnosis || {};
+    var recipe = diag.decisive_step && diag.decisive_step.replay_recipe && typeof diag.decisive_step.replay_recipe === "object"
+      ? diag.decisive_step.replay_recipe : null;
+    var splice = cf && cf.splice && typeof cf.splice === "object" ? cf.splice : null;
+    if (!splice && !recipe) return null;
+    var failing = splice && (splice.adopted_from === "a" || splice.adopted_from === "b")
+      ? (splice.adopted_from === "a" ? "b" : "a")
+      : (dec && dec.side) || (recipe && (recipe.side === "a" || recipe.side === "b") ? recipe.side : null);
+    if (!failing) return null;
+    var passing = failing === "a" ? "b" : "a";
+    var prefix = splice && Array.isArray(splice.prefix_steps) ? splice.prefix_steps.filter(isNum) : [];
+    var adopted = splice && Array.isArray(splice.adopted_steps) ? splice.adopted_steps.filter(isNum) : [];
+    var cut = dec && dec.side === failing ? dec.step : (recipe && isNum(recipe.step) ? recipe.step : null);
+    return { cf: cf, splice: splice, recipe: recipe, failing: failing, passing: passing, prefix: prefix, adopted: adopted,
+             cut: cut, estimate: cf && cf.estimate && typeof cf.estimate === "object" ? cf.estimate : null,
+             confidence: cf ? cf.confidence : null, premise: cf ? cf.premise : null, narrative: cf ? cf.narrative : null,
+             verification: dec ? dec.verification : null };
+  }
+
+  function drawReconcile(host, ctx, report, plan) {
+    var P = palette();
+    var duration = charts.motion();
+    var stepsP = stepsOf(report, plan.passing), stepsF = stepsOf(report, plan.failing);
+    var readP = readingOf(report, plan.passing), readF = readingOf(report, plan.failing);
+    var roleOf = function (reading, i) {
+      var w = ((reading && reading.what_happened) || []).filter(function (x) { return x && x.step === i; })[0];
+      return w ? w.role : null;
+    };
+    // the reconciled lane: the failing run's prefix, then the passing run's adopted steps
+    var merged = plan.prefix.map(function (i) { return { from: plan.failing, step: i }; })
+      .concat(plan.adopted.map(function (i) { return { from: plan.passing, step: i }; }));
+    var hasSplice = merged.length > 0;
+    var n = Math.max(stepsP.length, stepsF.length, merged.length, 1);
+
+    var W = width(host, ctx);
+    var laneLabelW = Math.min(120, Math.round(W * 0.2));
+    var x = d3.scalePoint().domain(d3.range(n)).range([laneLabelW + 14, W - 70]).padding(0.5);
+    var slot = x.step();
+    var lanes = [
+      { key: "passing", side: plan.passing, name: agentName(report, plan.passing), steps: stepsP, reading: readP,
+        outcome: report[plan.passing].outcome, y: 24 },
+      { key: "reconciled", side: null, name: "reconciled", steps: merged, y: hasSplice ? 74 : null },
+      { key: "failing", side: plan.failing, name: agentName(report, plan.failing), steps: stepsF, reading: readF,
+        outcome: report[plan.failing].outcome, y: hasSplice ? 124 : 74 },
+    ].filter(function (l) { return l.y !== null; });
+    var H = (hasSplice ? 150 : 100) + 6;
+
+    var wrap = d3.select(host).append("div").attr("class", "d3c-wrap");
+    var svg = wrap.append("svg").attr("class", "d3c d3c-reconcile").attr("width", W).attr("height", H)
+      .attr("viewBox", "0 0 " + W + " " + H).attr("role", "img")
+      .attr("aria-label", "Reconciling strategy: the failing run's prefix, the passing run's decision at the cut, the passing run's steps after it");
+    svg.append("title").text("Reconcile: the splice that the report estimates would flip the outcome");
+
+    // cut line first, beneath everything
+    if (hasSplice && isNum(plan.cut)) {
+      var cutPos = plan.prefix.length;   // the reconciled lane's position where the adopted steps begin
+      var cx = x(Math.min(cutPos, n - 1)) - slot / 2;
+      svg.append("line").attr("x1", cx).attr("x2", cx).attr("y1", 8).attr("y2", H - 10)
+        .attr("stroke", P.bad).attr("stroke-width", 1.2).attr("stroke-dasharray", "4 3").attr("class", "d3c-cut");
+      svg.append("text").attr("class", "d3c-cap").attr("x", cx + 4).attr("y", H - 2).attr("fill", P.bad).attr("font-weight", 700)
+        .text("cut · " + agentName(report, plan.failing) + " step " + plan.cut + (plan.verification ? " (" + plan.verification + ")" : ""));
+    }
+
+    lanes.forEach(function (lane) {
+      var g = svg.append("g").attr("class", "d3c-lane d3c-lane-" + lane.key).attr("data-lane", lane.key);
+      var tint = lane.side ? sideColor(lane.side) : P.ink2;
+      g.append("text").attr("x", laneLabelW).attr("y", lane.y + 4).attr("text-anchor", "end").attr("font-size", 11.5)
+        .attr("font-weight", 650).attr("fill", tint).text(truncate(lane.name, Math.floor(laneLabelW / 6.6)));
+      if (lane.steps.length) {
+        g.append("line").attr("x1", x(0)).attr("x2", x(lane.steps.length - 1)).attr("y1", lane.y).attr("y2", lane.y)
+          .attr("stroke", P.rule2).attr("stroke-width", 1.2);
+      }
+      var marks = g.selectAll("g.d3c-rmark").data(lane.steps.map(function (s, i) {
+        var from = lane.key === "reconciled" ? s.from : lane.side;
+        var index = lane.key === "reconciled" ? s.step : i;
+        var src = stepsOf(report, from)[index] || {};
+        var reading = readingOf(report, from);
+        return { pos: i, from: from, index: index, step: src, role: roleOf(reading, index) || (src.type === "answer" ? "answer" : "dead_end") };
+      })).join("g").attr("class", "d3c-rmark").attr("data-from", function (d) { return d.from; })
+        .attr("data-index", function (d) { return d.index; }).attr("tabindex", 0).attr("role", "button")
+        .attr("aria-label", function (d) { return agentName(report, d.from) + " step " + d.index + " · " + (d.step.name || d.step.type || ""); })
+        .attr("transform", function (d) { return "translate(" + x(d.pos) + "," + lane.y + ")"; });
+      marks.each(function (d) {
+        var gg = d3.select(this);
+        gg.append("circle").attr("r", Math.max(9, slot / 2)).attr("fill", "transparent");
+        drawMark(gg, d.role, sideColor(d.from), 5);
+        if (lane.key !== "reconciled" && isNum(plan.cut) && d.from === plan.failing && d.index === plan.cut) {
+          gg.append("circle").attr("class", "d3c-ring " + (plan.verification === "replay-verified" ? "verified" : "hypothesized")).attr("r", 9.5);
+        }
+        if (slot >= 22) gg.append("text").attr("class", "d3c-idx").attr("y", 17).attr("text-anchor", "middle").text(String(d.index));
+        gg.append("title").text(agentName(report, d.from) + " step " + d.index + " · " + (d.step.name || d.step.type || "") +
+          "\n" + truncate(d.step.output || d.step.input || "", 160));
+      });
+      marks.on("click", function (event, d) { hideTip(); selectStep(report, d.from, d.index); })
+        .on("keydown", function (event, d) { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectStep(report, d.from, d.index); } })
+        .on("mousemove", function (event, d) {
+          showTip(event, [{ b: true, text: agentName(report, d.from) + " · step " + d.index + " · " + (d.step.name || d.step.type || "") },
+            { text: ((ROLE[d.role] || {}).label || d.role) }, { mono: true, text: truncate(d.step.output || d.step.input || "", 140) }]);
+        }).on("mouseleave", hideTip);
+      // the outcome at the lane's end
+      var endX = x(Math.max(0, lane.steps.length - 1)) + slot / 2 + 6;
+      var label, fill;
+      if (lane.key === "reconciled") {
+        label = plan.estimate && plan.estimate.outcome ? "est. " + String(plan.estimate.outcome) : "estimate";
+        fill = plan.estimate && plan.estimate.outcome === "success" ? P.good : P.muted;
+      } else {
+        var ok = lane.outcome && lane.outcome.success === true;
+        label = ok ? "✓ solved" : "✗ failed";
+        fill = ok ? P.good : P.bad;
+      }
+      g.append("text").attr("class", "d3c-cap d3c-rend").attr("x", Math.min(endX, W - 4)).attr("y", lane.y + 4).attr("fill", fill)
+        .attr("font-weight", 700).attr("text-anchor", endX > W - 60 ? "end" : "start").text(label);
+    });
+
+    // links: every reconciled step back to the run it came from
+    if (hasSplice) {
+      var yBy = {}; lanes.forEach(function (l) { yBy[l.key] = l.y; });
+      var yRec = yBy.reconciled;
+      var linkG = svg.insert("g", ":first-child").attr("class", "d3c-rlinks");
+      merged.forEach(function (m, pos) {
+        var srcLane = m.from === plan.passing ? "passing" : "failing";
+        var sy = yBy[srcLane], sx = x(Math.min(m.step, n - 1)), tx = x(pos);
+        var d = "M" + sx + "," + (sy + (sy < yRec ? 7 : -7)) + " C" + sx + "," + ((sy + yRec) / 2) + " " + tx + "," + ((sy + yRec) / 2) + " " + tx + "," + (yRec + (sy < yRec ? -7 : 7));
+        var l = linkG.append("path").attr("class", "d3c-rlink").attr("d", d).attr("fill", "none")
+          .attr("stroke", sideColor(m.from)).attr("stroke-width", 1.3).attr("opacity", 0.55).attr("data-from", m.from).attr("data-step", m.step);
+        if (duration && l.node().getTotalLength) {
+          var len = l.node().getTotalLength();
+          l.attr("stroke-dasharray", len + " " + len).attr("stroke-dashoffset", len)
+            .transition().duration(duration).delay(50 * pos).ease(d3.easeCubicOut).attr("stroke-dashoffset", 0);
+        }
+      });
+    }
+
+    // ---- the strategy, as steps a person can run
+    var list = document.createElement("ol");
+    list.className = "d3c-list d3c-strategy";
+    var k = 0;
+    function item(text, sub, cls) {
+      k++;
+      var li = document.createElement("li");
+      li.setAttribute("data-n", String(k));
+      if (cls) li.className = cls;
+      var num = document.createElement("span"); num.className = "n"; num.textContent = String(k);
+      var body = document.createElement("div");
+      var main = document.createElement("div"); var strong = document.createElement("strong"); strong.textContent = text; main.appendChild(strong);
+      body.appendChild(main);
+      if (sub) { var w = document.createElement("div"); w.className = "what"; w.textContent = sub; body.appendChild(w); }
+      li.appendChild(num); li.appendChild(body); list.appendChild(li);
+      return li;
+    }
+    var fName = agentName(report, plan.failing), pName = agentName(report, plan.passing);
+    if (plan.prefix.length) {
+      item("Keep " + fName + "'s step" + (plan.prefix.length === 1 ? " " : "s ") + plan.prefix[0] + (plan.prefix.length > 1 ? "–" + plan.prefix[plan.prefix.length - 1] : ""),
+           "the prefix before the cut is unchanged");
+    }
+    if (isNum(plan.cut)) {
+      item("At step " + plan.cut + ", " + (plan.recipe && plan.recipe.correction ? plan.recipe.correction : "take the decision " + pName + " took"),
+           plan.premise ? plan.premise : null, "decisive");
+    }
+    if (plan.adopted.length) {
+      item("Then follow " + pName + " from its step " + plan.adopted[0] + (plan.adopted.length > 1 ? " to " + plan.adopted[plan.adopted.length - 1] : ""),
+           plan.adopted.length + " adopted step" + (plan.adopted.length === 1 ? "" : "s"));
+    }
+    if (plan.recipe) {
+      item("Replay " + String(plan.recipe.replays || "").split(" — ")[0].trim() + (plan.recipe.expects ? " · expects " + plan.recipe.expects : ""),
+           String(plan.recipe.replays || "").indexOf(" — ") > 0 ? plan.recipe.replays.split(" — ").slice(1).join(" — ") : null);
+    }
+    if (plan.estimate) {
+      var e = plan.estimate;
+      var parts = [];
+      if (e.outcome) parts.push("outcome " + e.outcome);
+      if (isNum(e.steps)) parts.push(e.steps + " steps" + (isNum(e.steps_delta) ? " (" + (e.steps_delta >= 0 ? "+" : "") + e.steps_delta + ")" : ""));
+      if (isNum(e.tokens)) parts.push((ctx.fmt && ctx.fmt.int ? ctx.fmt.int(e.tokens) : e.tokens) + " tokens" + (isNum(e.tokens_delta) ? " (" + (e.tokens_delta >= 0 ? "+" : "") + e.tokens_delta + ")" : ""));
+      if (isNum(e.latency_s)) parts.push((ctx.fmt && ctx.fmt.sec ? ctx.fmt.sec(e.latency_s) : e.latency_s + "s") + (isNum(e.latency_delta_s) ? " (" + (e.latency_delta_s >= 0 ? "+" : "") + e.latency_delta_s.toFixed(2) + "s)" : ""));
+      item("Expect: " + parts.join(" · "),
+           "a splice estimate, not a replay — confidence " + String(plan.confidence || "unstated") + "; the replay above is what would verify it");
+    }
+    host.appendChild(list);
+    if (plan.narrative) {
+      var note = document.createElement("p"); note.className = "d3c-note d3c-narrative"; note.textContent = String(plan.narrative);
+      host.appendChild(note);
+    }
+    var legend = document.createElement("div");
+    legend.className = "d3c-legend";
+    legend.appendChild(legendItem(P, { role: "feeds_answer" }, sideColor(plan.passing), pName + " (passing)"));
+    legend.appendChild(legendItem(P, { role: "feeds_answer" }, sideColor(plan.failing), fName + " (failing)"));
+    if (hasSplice) legend.appendChild(legendItem(P, { line: true }, P.rule2, "where each reconciled step comes from"));
+    legend.appendChild(legendItem(P, { line: true, dashed: true }, P.bad, "the cut, at the decisive step"));
     host.appendChild(legend);
     return svg.node();
   }
