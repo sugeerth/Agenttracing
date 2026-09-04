@@ -274,6 +274,7 @@ body[data-view="story"] .hero-lane .tj-inspector { border-left: 1px solid var(--
 body[data-view="story"] .hero-lane .tj-inspector .block-body { padding: 6px 0 0 14px; }
 body[data-view="story"] .hero-lane .tj-inspector-title { padding-left: 14px; }
 body[data-view="story"] .hero-lane .tj-text { background: var(--surface-2); border-radius: 6px; }
+body[data-view="story"] .hero-lane .caveat { display: none; }
 body[data-view="story"] .story-lane .dx-verdict,
 body[data-view="story"] .story-lane .dx-decisive,
 body[data-view="story"] .story-lane .rd-validity { border-left-color: var(--accent); border-left-width: 3px; padding-left: 12px; }
@@ -292,6 +293,12 @@ body[data-view="story"] .story-lane .dx-conf,
 body[data-view="story"] .story-lane .rd-conf,
 body[data-view="story"] .story-lane .ax-gate:empty { display: none; }
 body[data-view="story"] .stacks { display: none; }
+/* composite cards: parts one after another, each under a small title */
+.cx-summary { margin: 0 0 10px; font-size: var(--fs-s); color: var(--ink-2); }
+.cx-part + .cx-part { margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--rule); }
+.cx-title { margin: 0 0 8px; font-size: var(--fs-xs); font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--ink-3); }
+body[data-view="story"] .cx-part + .cx-part { border-top: 0; }
 /* anything scrolled into view lands below the sticky bar, not under it */
 .block, svg.tj, g.tj-hit, .tchip { scroll-margin-top: 72px; }
 .lead-lane { padding: 16px 18px 0; }
@@ -625,7 +632,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   var YEAR = 60 * 60 * 24 * 365;
   var HALF_LIFE_DAYS = 14;
   //: blocks past this position in a stack open collapsed by default.
-  var OPEN_PER_STACK = 3;
+  var OPEN_PER_STACK = 2;
   //: a rendered block taller than this is clamped with a "show all" control.
   var CLAMP_HEIGHT = 760;
   /*: The block the page leads with, full width, above the columns.
@@ -1044,8 +1051,13 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     return index < 0 ? groups.length : index;
   }
 
-  function safeRelevance(entry, ctx) {
+  //: part id → composite id: a block folded into a composite card leaves
+  //: the layout (it stays in the drawer, and renders inside its composite)
+  var COMPOSED = {};
+
+  function safeRelevance(entry, ctx, raw) {
     if (!entry) return 0;
+    if (!raw && COMPOSED[entry.id] && BY_ID[COMPOSED[entry.id]]) return 0;
     try {
       var value = entry.relevance(ctx);
       if (typeof value !== "number" || isNaN(value)) return 0;
@@ -2774,6 +2786,62 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     // exposed for the smoke test, not for block modules
     // blocks that keep local state (a show-all toggle) ask for a re-render
     _rerender: function () { renderAll(); },
+    /* A composite: one card that lays several blocks out one after another,
+     * each under its own small title, only the parts that have something to
+     * say, and a repeated note said once. The parts leave the default
+     * layout (they stay in the drawer). spec: {id, title, question, group,
+     * size, parts: [ids], summary?(ctx, shown, silent) -> string} */
+    composite: function (spec) {
+      var parts = spec.parts.slice();
+      parts.forEach(function (id) { COMPOSED[id] = spec.id; });
+      block({
+        id: spec.id, title: spec.title, question: spec.question,
+        group: spec.group, size: spec.size || "normal",
+        relevance: function (ctx) {
+          var best = 0;
+          parts.forEach(function (id) {
+            var entry = BY_ID[id];
+            if (entry) best = Math.max(best, safeRelevance(entry, ctx, true));
+          });
+          return spec.relevance ? spec.relevance(ctx, best) : best;
+        },
+        render: function (el, ctx) {
+          var shown = [], silent = [], seenNotes = {};
+          parts.forEach(function (id) {
+            var entry = BY_ID[id];
+            if (!entry) return;
+            if (safeRelevance(entry, ctx, true) <= 0) { silent.push(entry); return; }
+            var body = h("div", { class: "cx-body" });
+            var section = h("section", { class: "cx-part", "data-part": id }, [
+              h("h4", { class: "cx-title", text: entry.title }), body]);
+            try { entry.render(body, ctx); } catch (err) {
+              body.innerHTML = "";
+              body.appendChild(h("div", { class: "empty", text: "This part could not render: " + String(err && err.message || err) }));
+            }
+            // a part that rendered only an empty state has nothing to say
+            var kids = Array.prototype.slice.call(body.children);
+            if (!kids.length || kids.every(function (k) { return k.classList && k.classList.contains("empty"); })) {
+              silent.push(entry);
+              return;
+            }
+            // the same note, said once
+            var notes = body.querySelectorAll(".vz-note, .caveat, .note, .ig-note, .dx-lede, .ax-lede");
+            for (var i = 0; i < notes.length; i++) {
+              var text = (notes[i].textContent || "").trim().replace(/\s+/g, " ");
+              if (!text) continue;
+              if (seenNotes[text]) notes[i].hidden = true; else seenNotes[text] = true;
+            }
+            el.appendChild(section);
+            shown.push(entry);
+          });
+          if (spec.summary) {
+            var line = spec.summary(ctx, shown, silent);
+            if (line) el.insertBefore(h("p", { class: "cx-summary", text: line }), el.firstChild);
+          }
+          if (!shown.length) ctx.empty(el, spec.emptyText || "Nothing to show for this run.");
+        },
+      });
+    },
     // a block may host another block's renderer (the map hosts the timeline)
     blockEntry: function (id) { return BY_ID[id] || null; },
     _internals: {
@@ -3142,8 +3210,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
 
     relevance: function (ctx) {
       var report = ctx.report;
-      // The narrative leads whenever there is a paired report to narrate.
-      return report && report.a && report.b ? 1 : 0;
+      // The narrative is the story view's job now; here it is a fallback
+      // reading for the columns, demoted below the blocks it quotes.
+      return report && report.a && report.b ? 0.3 : 0;
     },
 
     render: function (el, ctx) {
@@ -5342,7 +5411,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       if (!attribution) return 0;
       // The object is always emitted; a null failed_agent means nobody failed.
       if (attribution.failed_agent !== "a" && attribution.failed_agent !== "b") return 0;
-      return 1;
+      // more to say with a traced chain than with a bare root step
+      var chain = Array.isArray(attribution.chain) ? attribution.chain.length : 0;
+      return chain > 1 ? 0.9 : 0.6;
     },
 
     render: function (el, ctx) {
@@ -5503,8 +5574,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       var allocations = shapley.allocations || [];
       if (!allocations.length) return 0;
       // Splitting credit only earns its space once there is more than one
-      // region to split it between.
-      return allocations.length > 1 ? 0.9 : 0.55;
+      // region to split it between; with one, the verdict already said it
+      return allocations.length > 1 ? 0.9 : 0;
     },
 
     render: function (el, ctx) {
@@ -7304,9 +7375,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     relevance: function (ctx) {
       var report = ctx.report;
       if (!report || !rowsOf(report).length) return 0;
-      // With a failure attributed, the text of the step that caused it is the
-      // next thing worth reading after the tracks themselves.
-      return rootInfo(report) ? 0.94 : 0.62;
+      // the map's inspector already shows the step under the cursor; the
+      // standalone block is a second copy for the columns, ranked low
+      return rootInfo(report) ? 0.35 : 0.25;
     },
     render: function (el, ctx) {
       bind(ctx);
@@ -16057,6 +16128,66 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     return footer;
   }
 
+})(typeof window !== "undefined" ? window : this);
+
+</script>
+<!-- 80_composites.js -->
+<script>
+/* AgentDiff blocks — the composites.
+ *
+ * Three cards that say once what several blocks said separately:
+ *
+ *   root-cause      = attribution + divergences         (Evidence)
+ *   process-checks  = the six process-integrity checks  (Evidence)
+ *   variance-all    = the four variance blocks           (Batch)
+ *
+ * A composite lays its parts out one after another under small titles,
+ * shows only the parts with something to say, says a repeated note once,
+ * and opens with a one-line summary. The parts leave the default layout
+ * and stay in the drawer for anyone who wants one on its own.
+ */
+(function (global) {
+  "use strict";
+
+  var AgentDiff = global.AgentDiff;
+  if (!AgentDiff || typeof AgentDiff.composite !== "function") return;
+
+  AgentDiff.composite({
+    id: "root-cause",
+    title: "Root cause",
+    question: "Where did the runs first part, and what did the failure trace back to?",
+    group: "outcome",
+    size: "wide",
+    parts: ["attribution", "divergences"],
+    emptyText: "No failure to attribute: neither run failed, or the runs never diverged.",
+  });
+
+  var CHECKS = ["integrity-flags", "gap", "claims-vs-actions", "side-effects",
+                "loops-repeats", "recovery-errors"];
+  AgentDiff.composite({
+    id: "process-checks",
+    title: "Process checks",
+    question: "Did the way the work was done hold up — flags, gaps, side effects, loops, errors?",
+    group: "integrity",
+    size: "wide",
+    parts: CHECKS,
+    summary: function (ctx, shown, silent) {
+      if (!shown.length) return null;
+      return shown.length + " of " + CHECKS.length + " checks have something to show"
+           + (silent.length ? "; " + silent.length + " found nothing or could not be measured" : "");
+    },
+    emptyText: "No process check separates the runs, and none found anything worth showing.",
+  });
+
+  AgentDiff.composite({
+    id: "variance-all",
+    title: "Variance",
+    question: "Where does the variation in outcomes come from — model, harness, task, or noise?",
+    group: "signal",
+    size: "wide",
+    parts: ["variance", "variance-design", "variance-corrected", "variance-residual"],
+    emptyText: "No repeated runs, so nothing to attribute variation to.",
+  });
 })(typeof window !== "undefined" ? window : this);
 
 </script>

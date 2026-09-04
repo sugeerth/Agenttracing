@@ -236,8 +236,9 @@
 
     relevance: function (ctx) {
       var report = ctx.report;
-      // The narrative leads whenever there is a paired report to narrate.
-      return report && report.a && report.b ? 1 : 0;
+      // The narrative is the story view's job now; here it is a fallback
+      // reading for the columns, demoted below the blocks it quotes.
+      return report && report.a && report.b ? 0.3 : 0;
     },
 
     render: function (el, ctx) {

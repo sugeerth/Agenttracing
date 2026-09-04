@@ -19,7 +19,7 @@
   var YEAR = 60 * 60 * 24 * 365;
   var HALF_LIFE_DAYS = 14;
   //: blocks past this position in a stack open collapsed by default.
-  var OPEN_PER_STACK = 3;
+  var OPEN_PER_STACK = 2;
   //: a rendered block taller than this is clamped with a "show all" control.
   var CLAMP_HEIGHT = 760;
   /*: The block the page leads with, full width, above the columns.
@@ -438,8 +438,13 @@
     return index < 0 ? groups.length : index;
   }
 
-  function safeRelevance(entry, ctx) {
+  //: part id → composite id: a block folded into a composite card leaves
+  //: the layout (it stays in the drawer, and renders inside its composite)
+  var COMPOSED = {};
+
+  function safeRelevance(entry, ctx, raw) {
     if (!entry) return 0;
+    if (!raw && COMPOSED[entry.id] && BY_ID[COMPOSED[entry.id]]) return 0;
     try {
       var value = entry.relevance(ctx);
       if (typeof value !== "number" || isNaN(value)) return 0;
@@ -2168,6 +2173,62 @@
     // exposed for the smoke test, not for block modules
     // blocks that keep local state (a show-all toggle) ask for a re-render
     _rerender: function () { renderAll(); },
+    /* A composite: one card that lays several blocks out one after another,
+     * each under its own small title, only the parts that have something to
+     * say, and a repeated note said once. The parts leave the default
+     * layout (they stay in the drawer). spec: {id, title, question, group,
+     * size, parts: [ids], summary?(ctx, shown, silent) -> string} */
+    composite: function (spec) {
+      var parts = spec.parts.slice();
+      parts.forEach(function (id) { COMPOSED[id] = spec.id; });
+      block({
+        id: spec.id, title: spec.title, question: spec.question,
+        group: spec.group, size: spec.size || "normal",
+        relevance: function (ctx) {
+          var best = 0;
+          parts.forEach(function (id) {
+            var entry = BY_ID[id];
+            if (entry) best = Math.max(best, safeRelevance(entry, ctx, true));
+          });
+          return spec.relevance ? spec.relevance(ctx, best) : best;
+        },
+        render: function (el, ctx) {
+          var shown = [], silent = [], seenNotes = {};
+          parts.forEach(function (id) {
+            var entry = BY_ID[id];
+            if (!entry) return;
+            if (safeRelevance(entry, ctx, true) <= 0) { silent.push(entry); return; }
+            var body = h("div", { class: "cx-body" });
+            var section = h("section", { class: "cx-part", "data-part": id }, [
+              h("h4", { class: "cx-title", text: entry.title }), body]);
+            try { entry.render(body, ctx); } catch (err) {
+              body.innerHTML = "";
+              body.appendChild(h("div", { class: "empty", text: "This part could not render: " + String(err && err.message || err) }));
+            }
+            // a part that rendered only an empty state has nothing to say
+            var kids = Array.prototype.slice.call(body.children);
+            if (!kids.length || kids.every(function (k) { return k.classList && k.classList.contains("empty"); })) {
+              silent.push(entry);
+              return;
+            }
+            // the same note, said once
+            var notes = body.querySelectorAll(".vz-note, .caveat, .note, .ig-note, .dx-lede, .ax-lede");
+            for (var i = 0; i < notes.length; i++) {
+              var text = (notes[i].textContent || "").trim().replace(/\s+/g, " ");
+              if (!text) continue;
+              if (seenNotes[text]) notes[i].hidden = true; else seenNotes[text] = true;
+            }
+            el.appendChild(section);
+            shown.push(entry);
+          });
+          if (spec.summary) {
+            var line = spec.summary(ctx, shown, silent);
+            if (line) el.insertBefore(h("p", { class: "cx-summary", text: line }), el.firstChild);
+          }
+          if (!shown.length) ctx.empty(el, spec.emptyText || "Nothing to show for this run.");
+        },
+      });
+    },
     // a block may host another block's renderer (the map hosts the timeline)
     blockEntry: function (id) { return BY_ID[id] || null; },
     _internals: {

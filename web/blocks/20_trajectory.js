@@ -1516,9 +1516,9 @@
     relevance: function (ctx) {
       var report = ctx.report;
       if (!report || !rowsOf(report).length) return 0;
-      // With a failure attributed, the text of the step that caused it is the
-      // next thing worth reading after the tracks themselves.
-      return rootInfo(report) ? 0.94 : 0.62;
+      // the map's inspector already shows the step under the cursor; the
+      // standalone block is a second copy for the columns, ranked low
+      return rootInfo(report) ? 0.35 : 0.25;
     },
     render: function (el, ctx) {
       bind(ctx);

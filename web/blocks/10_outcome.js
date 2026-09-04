@@ -523,7 +523,9 @@
       if (!attribution) return 0;
       // The object is always emitted; a null failed_agent means nobody failed.
       if (attribution.failed_agent !== "a" && attribution.failed_agent !== "b") return 0;
-      return 1;
+      // more to say with a traced chain than with a bare root step
+      var chain = Array.isArray(attribution.chain) ? attribution.chain.length : 0;
+      return chain > 1 ? 0.9 : 0.6;
     },
 
     render: function (el, ctx) {
@@ -684,8 +686,8 @@
       var allocations = shapley.allocations || [];
       if (!allocations.length) return 0;
       // Splitting credit only earns its space once there is more than one
-      // region to split it between.
-      return allocations.length > 1 ? 0.9 : 0.55;
+      // region to split it between; with one, the verdict already said it
+      return allocations.length > 1 ? 0.9 : 0;
     },
 
     render: function (el, ctx) {

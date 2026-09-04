@@ -46,6 +46,25 @@ node calls the family's `select(row, side)`; the `agentdiff:select-step`
 event does the same from outside. Keep these selectors when changing the
 map — the browser tests measure the drawn SVG against the report.
 
+### Lanes and views (`ctx.lane`)
+
+The page has three views — Story (the one-column narrative), Evidence
+(outcome · trajectory · integrity columns) and Batch (cost · signal ·
+other columns) — chosen with the segmented control or `#view=…` in the
+URL. `ctx.lane` tells a block where it is being drawn: `"story"`,
+`"hero"` or `"stack"`. A block may show less in the story (fold a walk
+behind a disclosure, show three rows with a "show all") and must never
+show *different numbers*.
+
+### Composites
+
+`AgentDiff.composite({id, title, question, group, size, parts, summary?,
+emptyText?})` registers one card that lays several blocks out one after
+another under small titles — only the parts with something to say, a
+repeated note said once, an optional summary line first. The parts leave
+the default layout (they stay in the drawer). Register composites in
+`80_composites.js`, after their parts.
+
 ### Charts and assistive technology
 
 After every render the core gives each root `<svg>` a block drew

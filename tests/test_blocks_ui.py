@@ -1511,6 +1511,93 @@ class MapRedesignTest(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
                      "playwright + chromium required for browser tests")
+class CompositeViewsTest(unittest.TestCase):
+    """The Evidence and Batch views say things once: one root-cause card,
+    one process-checks card, one variance card; their parts stand down to
+    the drawer; no open block shows an empty state."""
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+        subprocess.run([sys.executable, "-m", "deepcompare", "batch",
+                        str(ROOT / "demo" / "traces"), "-o", str(out / "batch")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        cls.report = out / "batch" / "report.html"
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _open(self, view):
+        context = self.browser.new_context(viewport={"width": 1440, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"file://{self.report}#view={view}")
+        page.wait_for_timeout(600)
+        page.select_option("#task-picker", "t05_flight_duration")
+        page.wait_for_timeout(500)
+        return context, page, errors
+
+    def _expand(self, page, block_id):
+        block = page.locator(f'#stacks .block[data-block="{block_id}"]')
+        self.assertEqual(block.count(), 1, f"{block_id} is not in the columns")
+        if "collapsed" in (block.get_attribute("class") or ""):
+            block.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(250)
+        return page.locator(f'#stacks .block[data-block="{block_id}"]')
+
+    def test_evidence_has_one_root_cause_and_one_process_checks_card(self):
+        context, page, errors = self._open("evidence")
+        root = self._expand(page, "root-cause")
+        parts = root.locator(".cx-part")
+        self.assertGreaterEqual(parts.count(), 1)
+        self.assertIn("attribution", [parts.nth(i).get_attribute("data-part") for i in range(parts.count())])
+        checks = self._expand(page, "process-checks")
+        self.assertGreaterEqual(checks.locator(".cx-part").count(), 1)
+        self.assertIn("checks have something to show", checks.locator(".cx-summary").inner_text())
+        for old in ("attribution", "divergences", "integrity-flags", "gap", "claims-vs-actions",
+                    "side-effects", "loops-repeats", "recovery-errors"):
+            self.assertEqual(page.locator(f'#stacks .block[data-block="{old}"]').count(), 0, old)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_batch_has_one_variance_card_that_says_confounded_once(self):
+        context, page, errors = self._open("batch")
+        card = self._expand(page, "variance-all")
+        self.assertGreaterEqual(card.locator(".cx-part").count(), 2)
+        # the confounding caveat is one note, not one per part: at most one
+        # note element says it (the design part's own title may too)
+        notes = card.locator(".vz-note").filter(has_text="confounded")
+        visible = [i for i in range(notes.count()) if notes.nth(i).is_visible()]
+        self.assertLessEqual(len(visible), 1)
+        for old in ("variance", "variance-design", "variance-corrected", "variance-residual"):
+            self.assertEqual(page.locator(f'#stacks .block[data-block="{old}"]').count(), 0, old)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_no_open_block_shows_an_empty_state_on_any_view(self):
+        for view in ("story", "evidence", "batch"):
+            context, page, errors = self._open(view)
+            empties = page.evaluate("""() => [...document.querySelectorAll('.block:not(.collapsed) .empty')]
+                .filter(e => e.offsetParent !== null).map(e => e.closest('.block').getAttribute('data-block'))""")
+            self.assertEqual(empties, [], f"{view}: {empties}")
+            context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
 class OneSidedMapTest(unittest.TestCase):
     """One-sided steps are SEEN, not just unlinked.
 
