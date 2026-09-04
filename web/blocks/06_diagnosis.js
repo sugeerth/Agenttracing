@@ -470,9 +470,10 @@
       if (AgentDiff.charts && AgentDiff.charts.available()) {
         var chartHost = ctx.h("div", { class: "dx-chart" });
         el.appendChild(chartHost);
-        try { AgentDiff.charts.why(chartHost, ctx); }
+        var drawn = null;
+      try { drawn = AgentDiff.charts.why(chartHost, ctx); }
         catch (err) { console.warn("AgentDiff diagnosis: why chart failed", err); }
-        if (!chartHost.childNodes.length) chartHost.remove();
+        if (!drawn) chartHost.remove();
       }
 
       // 2. The hypotheses, in the order the report ranked them.

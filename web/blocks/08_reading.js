@@ -158,9 +158,10 @@
     if (AgentDiff.charts && AgentDiff.charts.available()) {
       var chartHost = H("div", { class: "rd-chart" });
       el.appendChild(chartHost);
-      try { AgentDiff.charts.story(chartHost, ctx, side); }
+      var drawn = null;
+      try { drawn = AgentDiff.charts.story(chartHost, ctx, side); }
       catch (err) { console.warn("AgentDiff reading: story chart failed", err); }
-      if (!chartHost.childNodes.length) chartHost.remove();
+      if (!drawn) chartHost.remove();
     }
 
     var validity = reading.validity;

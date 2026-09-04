@@ -1728,6 +1728,26 @@ of steps, and everything worth understanding about it sits on that line.
   quote the report. Transitions run 380 ms and 0 under
   `prefers-reduced-motion`. Charts measure their host once attached and
   redraw on resize, so a phone gets the same chart at its width.
+- **Long trajectories: details on demand.** Every step-line chart draws
+  a *window* of steps at a readable size (at least 44 px each, so 24 on
+  a desktop and 8 on a phone) and, when the run is longer than that, an
+  *overview* of every step above it: a thin strip tinted by each step's
+  state, the decisive step ticked, the window as a brush that drags, a
+  click on the strip that centres the window there, arrows that page it,
+  and a caption (*steps 12–35 of 305*). `←` `→` page, `Home` `End` jump,
+  `a` shows every step compressed. The window is one piece of state per
+  run per task, so the story, the forward pins and the reconcile lanes
+  move together; `AgentDiff.charts.focus.{get,set,all}` drives it from
+  outside. Arcs from steps outside the window start at the edge and say
+  which step they come from; values whose both ends are outside are
+  counted in the caption. The tree pages a phase of more than twenty
+  steps: the page around the decisive step when it holds one, else the
+  first, with *more* nodes at either end. A 306-step pair first-paints
+  in about two seconds and the story stays under 6,000 px; pinned by
+  `LongTrajectoryTest`.
+- Charts draw once their host is in the document (one paint, not two)
+  and again only when its width changes or a shared key repaints; the
+  tooltip is one element; state maps are keyed by task and stay small.
 - D3 7.9.0 is vendored under `web/vendor/` with its licence, inlined by
   the build; the page stays one offline file (about 1 MB). Build tests
   pin the licence and that no module of ours fetches through D3.

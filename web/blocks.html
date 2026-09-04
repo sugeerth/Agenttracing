@@ -3058,6 +3058,10 @@ THIS SOFTWARE.
       ".d3c-buys .bars i.actual{top:1px;background:var(--ink-3)}",
       ".d3c-buys .bars i.estimate{top:8px;background:var(--accent);opacity:.7}",
       ".d3c-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:6px}",
+      ".d3c:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}",
+      ".d3c .d3c-brush .selection{cursor:grab}",
+      ".d3c .d3c-ov-arrow{user-select:none}",
+      ".d3c-list .step.outside{color:var(--accent)}",
       ".tt-fold > summary{cursor:pointer;font-size:var(--fs-s);color:var(--ink-2);padding:6px 0;list-style:none}",
       ".tt-fold > summary::before{content:'▸ '}.tt-fold[open] > summary::before{content:'▾ '}",
       ".d3c-scroll{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;max-width:100%}",
@@ -3149,22 +3153,32 @@ THIS SOFTWARE.
    * itself into a loop. */
   var painters = [];
   var resizeTimer = null;
-  function responsive(host, draw) {
+  function responsive(host, draw, key) {
     var last = -1;
-    function go() {
+    function go(force) {
       if (!host.isConnected && last >= 0) return;
       var w = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0;
-      if (w && Math.abs(w - last) < 2) return;
+      if (!force && w && Math.abs(w - last) < 2) return;
       last = w || last;
       host.innerHTML = "";
       draw();
     }
-    go();
+    // a detached host has no width: draw once it is in the document
+    if (host.isConnected && host.clientWidth) go();
     if (typeof global.requestAnimationFrame === "function") {
       global.requestAnimationFrame(function () { if (host.isConnected) go(); });
+    } else if (last < 0) {
+      go();
     }
-    painters.push({ host: host, go: go });
+    painters.push({ host: host, go: go, key: key || null });
     if (painters.length > 64) painters = painters.filter(function (p) { return p.host.isConnected; });
+    return host;
+  }
+  /* Redraw every chart that shares a focus key — the story, the forward
+   * pins and the reconcile lanes of one run move their window together. */
+  function repaint(key) {
+    painters = painters.filter(function (p) { return p.host.isConnected; });
+    painters.forEach(function (p) { if (p.key === key) { try { p.go(true); } catch (err) { /* keep the rest */ } } });
   }
   try {
     global.addEventListener("resize", function () {
@@ -3248,6 +3262,118 @@ THIS SOFTWARE.
   }
   charts._tip = { show: showTip, hide: hideTip };
 
+  // ------------------------------------------------ the focus window
+
+  /* Long trajectories: every step-line chart draws a window of steps at a
+   * readable size (≥ minSlot px each) and an overview of all of them
+   * beneath a brush. The window is state per key — one per run per task —
+   * so the story, the forward pins and the reconcile lanes move together.
+   * The first window is centred on the anchor (the decisive step where
+   * there is one); `all` shows every step compressed, labels off. */
+  var Focus = {};
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  function focusWindow(key, n, W, left, right, anchor, minSlot) {
+    var cap = Math.max(8, Math.floor((W - left - right) / (minSlot || 44)));
+    var state = Focus[key] || (Focus[key] = { start: null, all: false });
+    if (n <= cap || state.all) {
+      return { key: key, state: state, n: n, cap: cap, start: 0, end: n, size: n, windowed: false, compressed: n > cap,
+               x: d3.scalePoint().domain(d3.range(n)).range([left, W - right]).padding(0.5),
+               has: function (i) { return i >= 0 && i < n; } };
+    }
+    if (state.start === null) state.start = clamp((isNum(anchor) ? anchor - Math.floor(cap / 2) : n - cap), 0, n - cap);
+    var start = clamp(state.start, 0, n - cap), end = start + cap;
+    state.start = start;
+    return { key: key, state: state, n: n, cap: cap, start: start, end: end, size: cap, windowed: true, compressed: false,
+             x: d3.scalePoint().domain(d3.range(start, end)).range([left, W - right]).padding(0.5),
+             has: function (i) { return i >= start && i < end; } };
+  }
+  charts.focus = {
+    get: function (key) { var st = Focus[key]; return st ? { start: st.start, all: st.all } : null; },
+    set: function (key, start) { var st = Focus[key] || (Focus[key] = { start: null, all: false }); st.start = Math.max(0, Math.round(start)); st.all = false; repaint(key); },
+    all: function (key, on) { var st = Focus[key] || (Focus[key] = { start: null, all: false }); st.all = on === undefined ? !st.all : !!on; repaint(key); },
+    keys: function () { return Object.keys(Focus); },
+  };
+  function moveWindow(win, delta) {
+    if (!win.windowed) return;
+    charts.focus.set(win.key, clamp(win.start + delta, 0, win.n - win.cap));
+  }
+  function bindWindowKeys(svg, win) {
+    if (!win.windowed && !win.compressed) return;
+    svg.attr("tabindex", 0).on("keydown.focus", function (event) {
+      var k = event.key;
+      if (k === "ArrowRight") { event.preventDefault(); moveWindow(win, Math.max(1, Math.floor(win.cap / 2))); }
+      else if (k === "ArrowLeft") { event.preventDefault(); moveWindow(win, -Math.max(1, Math.floor(win.cap / 2))); }
+      else if (k === "Home") { event.preventDefault(); charts.focus.set(win.key, 0); }
+      else if (k === "End") { event.preventDefault(); charts.focus.set(win.key, win.n - win.cap); }
+      else if (k === "a" || k === "A") { event.preventDefault(); charts.focus.all(win.key); }
+    });
+  }
+
+  /* The overview: every step as a thin cell (tinted by its state when the
+   * caller has one), the decisive step ticked, the window as a brush that
+   * drags; arrows at either end page it; the caption says where you are. */
+  function overviewStrip(svg, y, W, left, right, win, states, marks, label) {
+    var P = palette();
+    var n = win.n;
+    var g = svg.append("g").attr("class", "d3c-overview").attr("transform", "translate(0," + y + ")");
+    var trackX0 = left + 16, trackX1 = W - right - 16;
+    var cw = (trackX1 - trackX0) / n;
+    g.append("rect").attr("x", trackX0).attr("y", 0).attr("width", trackX1 - trackX0).attr("height", 10).attr("rx", 2).attr("fill", P.rule).attr("opacity", 0.7);
+    var STATE_FILL = { fault: P.bad, committed: P.bad, diverged: P.warn, drift: P.warn, same: P.good, alone: P.rule2 };
+    if (states) {
+      var cells = g.append("g").attr("class", "d3c-ov-cells");
+      // at most ~600 cells: past that, cells are merged into bins
+      var bins = Math.min(n, Math.max(1, Math.floor(trackX1 - trackX0)));
+      var per = n / bins;
+      for (var b = 0; b < bins; b++) {
+        var i0 = Math.floor(b * per), i1 = Math.max(i0 + 1, Math.floor((b + 1) * per));
+        var worst = null, rank = { fault: 4, committed: 4, diverged: 3, drift: 2, alone: 1, same: 0 };
+        for (var i = i0; i < i1; i++) {
+          var st = states[i] && states[i].state;
+          if (st && (worst === null || rank[st] > rank[worst])) worst = st;
+        }
+        if (!worst) continue;
+        cells.append("rect").attr("x", trackX0 + i0 * cw).attr("y", 1).attr("width", Math.max(1, (i1 - i0) * cw)).attr("height", 8)
+          .attr("fill", STATE_FILL[worst] || P.rule2).attr("opacity", worst === "same" ? 0.5 : 0.85);
+      }
+    }
+    (marks || []).forEach(function (m) {
+      if (!isNum(m.step)) return;
+      g.append("line").attr("class", "d3c-ov-mark").attr("x1", trackX0 + (m.step + 0.5) * cw).attr("x2", trackX0 + (m.step + 0.5) * cw)
+        .attr("y1", -3).attr("y2", 13).attr("stroke", m.color || P.bad).attr("stroke-width", 2);
+    });
+    var x0 = trackX0 + win.start * cw, x1 = trackX0 + win.end * cw;
+    var brush = d3.brushX().extent([[trackX0, -2], [trackX1, 12]]).handleSize(6)
+      .on("end", function (event) {
+        if (!event.sourceEvent) return;
+        var centre;
+        if (event.selection) {
+          centre = (event.selection[0] + event.selection[1]) / 2;
+        } else {
+          // a plain click on the track: centre the window there
+          try { centre = d3.pointer(event.sourceEvent, this)[0]; } catch (err) { centre = null; }
+          if (!isNum(centre)) { d3.select(this).call(brush.move, [x0, x1]); return; }
+        }
+        var start = clamp(Math.round((centre - trackX0) / cw - win.cap / 2), 0, n - win.cap);
+        if (start !== win.start) charts.focus.set(win.key, start);
+        else d3.select(this).call(brush.move, [x0, x1]);
+      });
+    var bg = g.append("g").attr("class", "d3c-brush").call(brush);
+    bg.call(brush.move, [x0, x1]);
+    bg.selectAll(".selection").attr("fill", P.accent).attr("fill-opacity", 0.18).attr("stroke", P.accent).attr("stroke-width", 1.2);
+    bg.selectAll(".overlay").attr("cursor", "pointer");
+    // paging arrows
+    [["◀", left, -Math.max(1, Math.floor(win.cap / 2)), win.start > 0], ["▶", W - right - 12, Math.max(1, Math.floor(win.cap / 2)), win.end < n]].forEach(function (a) {
+      var t = g.append("text").attr("class", "d3c-ov-arrow").attr("x", a[1]).attr("y", 9).attr("font-size", 10)
+        .attr("fill", a[3] ? P.ink2 : P.rule2).attr("cursor", a[3] ? "pointer" : "default").attr("role", "button")
+        .attr("aria-label", a[2] < 0 ? "earlier steps" : "later steps").text(a[0]);
+      if (a[3]) t.on("click", function () { moveWindow(win, a[2]); });
+    });
+    g.append("text").attr("class", "d3c-cap d3c-ov-caption").attr("x", trackX0).attr("y", 24).attr("fill", P.ink2)
+      .text("steps " + win.start + "–" + (win.end - 1) + " of " + n + (label ? " · " + label : "") + " · drag the window, ← → to page, a for all");
+    return g;
+  }
+
   // ---------------------------------------------------- the step line
 
   /* One scale for a run's steps, shared by the story and the forward
@@ -3319,6 +3445,10 @@ THIS SOFTWARE.
 
   // ================================================ 1. what happened
 
+  function focusKey(report, side) {
+    return (report && report.task && report.task.id ? report.task.id : "task") + ":" + side;
+  }
+
   charts.story = function (host, ctx, side) {
     ensureStyle();
     if (!charts.available()) return null;
@@ -3326,9 +3456,7 @@ THIS SOFTWARE.
     var reading = readingOf(report, side);
     var steps = stepsOf(report, side);
     if (!reading || !steps.length) return null;
-    var drawn = null;
-    responsive(host, function () { drawn = drawStory(host, ctx, side, report, reading, steps); });
-    return drawn;
+    return responsive(host, function () { drawStory(host, ctx, side, report, reading, steps); }, focusKey(report, side));
   };
 
   function drawStory(host, ctx, side, report, reading, steps) {
@@ -3353,17 +3481,25 @@ THIS SOFTWARE.
 
     var W = width(host, ctx);
     var m = { l: 14, r: 14 };
-    var x = stepScale(n, W, m.l, m.r);
+    var anchor = dec && dec.side === side ? dec.step : (critical !== null ? critical : answerIdx);
+    var win = focusWindow(focusKey(report, side), n, W, m.l, m.r, anchor, 44);
+    var x = win.x;
     var slot = x.step();
     var wide = slot >= 54;
-    var yPhase = 18, yStep = 62, yArcTop = 84;
+    var tiny = slot < 14;
+    var top = win.windowed ? 34 : 0;
+    var yPhase = 18 + top, yStep = 62 + top, yArcTop = 84 + top;
     var path = failureStates(report, side, n);
+    var visible = d3.range(win.start, win.end);
     var spent = isNum(basis.basis_complete_at) && isNum(basis.steps_after_basis_complete) &&
-                basis.steps_after_basis_complete > 0 && basis.basis_complete_at < answerIdx;
+                basis.steps_after_basis_complete > 0 && basis.basis_complete_at < answerIdx &&
+                (win.has(basis.basis_complete_at) || win.has(answerIdx) || (basis.basis_complete_at < win.start && answerIdx >= win.end));
+    // an x for any step: inside the window it is its own; outside it is the edge
+    var xe = function (i) { return win.has(i) ? x(i) : (i < win.start ? m.l : W - m.r); };
     var maxStack = 0;
     var seen = {};
     rests.forEach(function (r) { seen[r.first_step] = (seen[r.first_step] || 0) + 1; if (seen[r.first_step] > maxStack) maxStack = seen[r.first_step]; });
-    var captioned = spent && wide && (x(answerIdx) - x(basis.basis_complete_at) - slot) >= 160;
+    var captioned = spent && wide && (xe(answerIdx) - xe(basis.basis_complete_at) - slot) >= 160;
     var arcSpan = rests.length ? 46 + Math.min(4, maxStack) * 13 + (captioned ? 12 : 0) : 0;
     var stripTop = yArcTop + arcSpan + (wide ? 28 : 18) + (spent && !rests.length ? 14 : 0);
     var stripH = path ? 44 : 0;
@@ -3374,14 +3510,21 @@ THIS SOFTWARE.
       .attr("class", "d3c d3c-story")
       .attr("width", W).attr("height", H).attr("viewBox", "0 0 " + W + " " + H)
       .attr("role", "img")
-      .attr("aria-label", agentName(report, side) + ": " + n + " steps in order, phases, where each answer value entered, and the decisive step");
+      .attr("aria-label", agentName(report, side) + ": " + n + " steps in order, phases, where each answer value entered, and the decisive step" +
+            (win.windowed ? "; showing steps " + win.start + " to " + (win.end - 1) : ""));
     svg.append("title").text("What happened in " + agentName(report, side) + ", step by step");
+    bindWindowKeys(svg, win);
+    if (win.windowed) {
+      overviewStrip(svg, 6, W, m.l, m.r, win, path,
+        dec && dec.side === side ? [{ step: dec.step, color: P.bad }] : [],
+        dec && dec.side === side ? "decisive at " + dec.step : null);
+    }
 
     // ---- phases: a band per phase, tinted by intent, labelled when there is room
     var phases = Array.isArray(reading.phases) ? reading.phases : [];
     var phaseG = svg.append("g").attr("class", "d3c-phases");
     phases.forEach(function (ph) {
-      var st = Array.isArray(ph.steps) ? ph.steps.filter(isNum) : [];
+      var st = Array.isArray(ph.steps) ? ph.steps.filter(function (i) { return isNum(i) && win.has(i); }) : [];
       if (!st.length) return;
       var x0 = x(d3.min(st)) - slot / 2 + 2, x1 = x(d3.max(st)) + slot / 2 - 2;
       var tint = P[INTENT_TINT[ph.intent] || "rule2"] || P.rule2;
@@ -3399,7 +3542,8 @@ THIS SOFTWARE.
 
     // ---- the spent-after-basis region, behind the marks
     if (spent) {
-      var sx0 = x(basis.basis_complete_at) + slot / 2, sx1 = x(answerIdx) - slot / 2;
+      var sx0 = win.has(basis.basis_complete_at) ? x(basis.basis_complete_at) + slot / 2 : m.l;
+      var sx1 = win.has(answerIdx) ? x(answerIdx) - slot / 2 : W - m.r;
       if (sx1 > sx0) {
         var g2 = svg.append("g").attr("class", "d3c-spent");
         g2.append("rect").attr("x", sx0).attr("y", yStep - 11).attr("width", sx1 - sx0).attr("height", 22)
@@ -3418,18 +3562,23 @@ THIS SOFTWARE.
     }
 
     // ---- spine
-    svg.append("line").attr("x1", x(0)).attr("x2", x(n - 1)).attr("y1", yStep).attr("y2", yStep)
+    svg.append("line").attr("x1", x(win.start)).attr("x2", x(win.end - 1)).attr("y1", yStep).attr("y2", yStep)
       .attr("stroke", P.rule2).attr("stroke-width", 1.4);
+    if (win.windowed && win.start > 0) svg.append("text").attr("class", "d3c-cap").attr("x", m.l).attr("y", yStep - 16).attr("text-anchor", "start").text("← " + win.start + " earlier");
+    if (win.windowed && win.end < n) svg.append("text").attr("class", "d3c-cap").attr("x", W - m.r).attr("y", yStep - 16).attr("text-anchor", "end").text((n - win.end) + " later →");
 
     // ---- answer-basis arcs: from the step that first produced a value to the answer
     var arcG = svg.append("g").attr("class", "d3c-arcs");
     var byOrigin = {};
     rests.forEach(function (r) { (byOrigin[r.first_step] = byOrigin[r.first_step] || []).push(r); });
     var labelJobs = [];
+    var outside = 0;
     rests.forEach(function (r, i) {
       var group = byOrigin[r.first_step];
       var k = group.indexOf(r);
-      var x0 = x(r.first_step), x1 = x(answerIdx);
+      if (!win.has(r.first_step) && !win.has(answerIdx)) { outside++; return; }
+      var x0 = xe(r.first_step), x1 = xe(answerIdx);
+      if (x1 <= x0) { outside++; return; }
       var depth = 20 + k * 13 + Math.min(30, (x1 - x0) / 12) + (captioned ? 12 : 0);
       var key = STATUS_COLOR[r.status] || "muted";
       var stroke = P[key];
@@ -3447,11 +3596,12 @@ THIS SOFTWARE.
       // a value that does not match the expected answer is only *wrong*
       // on a run that failed; on a passing run it is an intermediate
       var wrong = failed && r.matches_expected === false;
-      if (k < 4 && (x1 - x0) >= 40) {
+      if (k < 4 && (x1 - x0) >= 40 && !tiny) {
         // the label sits on the curve's apex (cubic with both controls at yArcTop+depth)
         labelJobs.push({ r: r, wrong: wrong, stroke: stroke, x: (x0 + x1) / 2,
                          y: (yStep + 8) + 0.75 * ((yArcTop + depth) - (yStep + 8)) + 3,
-                         label: truncate(r.value, Math.max(6, Math.floor((x1 - x0) / 6.5))) });
+                         label: (win.has(r.first_step) ? "" : "from step " + r.first_step + " · ") +
+                                truncate(r.value, Math.max(6, Math.floor((x1 - x0) / 6.5))) });
       }
       path.append("title").text(String(r.value) + " — " + humanKind(r.status) + ", first at step " + r.first_step +
         (r.source ? " via " + r.source : "") + (wrong ? " · does not match the expected answer" : ""));
@@ -3465,13 +3615,14 @@ THIS SOFTWARE.
       t.append("title").text(String(r.value) + " — " + humanKind(r.status) + (r.source ? " (" + r.source + ")" : "") +
         (job.wrong ? " · does not match the expected answer" : r.matches_expected === true ? " · matches the expected answer" : ""));
     });
-    if (rests.length > 4) {
-      arcG.append("text").attr("class", "d3c-cap").attr("x", x(answerIdx)).attr("y", yArcTop + arcSpan + 4)
-        .attr("text-anchor", "end").text(rests.length + " values in the answer, " + Object.keys(byOrigin).length + " origin step(s)");
+    if (rests.length > 4 || outside) {
+      arcG.append("text").attr("class", "d3c-cap").attr("x", xe(answerIdx)).attr("y", yArcTop + arcSpan + 4)
+        .attr("text-anchor", "end").text(rests.length + " values in the answer, " + Object.keys(byOrigin).length + " origin step(s)" +
+          (outside ? " · " + outside + " from steps outside this window" : ""));
     }
 
     // ---- basis-complete tick
-    if (isNum(basis.basis_complete_at) && basis.basis_complete_at < answerIdx) {
+    if (isNum(basis.basis_complete_at) && basis.basis_complete_at < answerIdx && win.has(basis.basis_complete_at)) {
       var bx = x(basis.basis_complete_at);
       var bt = svg.append("g").attr("class", "d3c-basis");
       bt.append("line").attr("x1", bx).attr("x2", bx).attr("y1", yStep - 14).attr("y2", yStep + 14)
@@ -3481,7 +3632,7 @@ THIS SOFTWARE.
 
     // ---- steps: one focusable mark each
     var marks = svg.append("g").attr("class", "d3c-steps").selectAll("g.d3c-step")
-      .data(steps.map(function (s, i) { return { i: i, step: s, w: byStep[i] || {} }; }))
+      .data(visible.map(function (i) { return { i: i, step: steps[i], w: byStep[i] || {} }; }))
       .join("g")
       .attr("class", "d3c-step")
       .attr("data-step", function (d) { return d.i; })
@@ -3496,24 +3647,26 @@ THIS SOFTWARE.
       g.append("circle").attr("r", Math.max(10, slot / 2)).attr("fill", "transparent");
       var role = d.w.role || (d.step.type === "answer" ? "answer" : "dead_end");
       if (d.step.error === true) role = "error";
-      drawMark(g, role, color, 6);
+      drawMark(g, role, color, tiny ? 3 : 6);
       if (d.w.invented_argument) {
         g.append("text").attr("class", "d3c-cap").attr("x", 0).attr("y", -13).attr("text-anchor", "middle")
           .attr("fill", P.warn).attr("font-weight", 700).text("invented");
       }
-      g.append("text").attr("class", "d3c-idx").attr("x", 0).attr("y", wide ? 20 : 19).attr("text-anchor", "middle").text(String(d.i));
+      if (!tiny || d.i % Math.ceil(14 / Math.max(1, slot)) === 0) {
+        g.append("text").attr("class", "d3c-idx").attr("x", 0).attr("y", wide ? 20 : 19).attr("text-anchor", "middle").text(String(d.i));
+      }
       if (wide) {
         var name = truncate(d.step.name || d.step.type || "", Math.floor(slot / 6.2));
         g.append("text").attr("class", "d3c-name").attr("x", 0).attr("y", 31).attr("text-anchor", "middle").text(name);
       }
     });
-    if (duration) {
-      marks.attr("opacity", 0).transition().duration(duration * 0.6).delay(function (d) { return 30 * d.i; }).attr("opacity", 1);
+    if (duration && !win.compressed) {
+      marks.attr("opacity", 0).transition().duration(duration * 0.6).delay(function (d) { return 30 * (d.i - win.start); }).attr("opacity", 1);
     }
 
     // ---- errors and the critical one
     errors.forEach(function (e) {
-      if (!e || !isNum(e.step) || e.step >= n) return;
+      if (!e || !isNum(e.step) || e.step >= n || !win.has(e.step)) return;
       var eg = svg.append("g").attr("class", "d3c-error").attr("transform", "translate(" + x(e.step) + "," + (yStep - 16) + ")");
       eg.append("text").attr("text-anchor", "middle").attr("fill", P.bad).attr("font-weight", 800).attr("font-size", 11)
         .text(e.step === critical ? "!!" : "!");
@@ -3521,9 +3674,9 @@ THIS SOFTWARE.
     });
 
     // ---- decisive ring
-    if (dec && dec.side === side && dec.step < n) {
+    if (dec && dec.side === side && dec.step < n && win.has(dec.step)) {
       var ring = svg.append("g").attr("class", "d3c-decisive").attr("transform", "translate(" + x(dec.step) + "," + yStep + ")");
-      ring.append("circle").attr("class", "d3c-ring " + (dec.verification === "replay-verified" ? "verified" : "hypothesized")).attr("r", 12);
+      ring.append("circle").attr("class", "d3c-ring " + (dec.verification === "replay-verified" ? "verified" : "hypothesized")).attr("r", tiny ? 7 : 12);
       ring.append("text").attr("class", "d3c-cap").attr("x", 0).attr("y", -17).attr("text-anchor", "middle")
         .attr("fill", P.bad).attr("font-weight", 700).text("decisive");
       ring.append("title").text("decisive step " + dec.step + " — " + dec.criterion + " (" + dec.verification + ")");
@@ -3555,11 +3708,11 @@ THIS SOFTWARE.
     // the causal account (the fault enters, is carried, is committed)
     if (path) {
       var sg = svg.append("g").attr("class", "d3c-path").attr("transform", "translate(0," + (stripTop + 6) + ")");
-      sg.append("text").attr("class", "d3c-cap").attr("x", x(0) - slot / 2 + 2).attr("y", -1)
+      sg.append("text").attr("class", "d3c-cap").attr("x", x(win.start) - slot / 2 + 2).attr("y", -1)
         .attr("fill", failed ? P.bad : P.good).attr("font-weight", 600)
         .text(failed ? "how it became a failure" : "how it stayed on track");
-      var cellW = Math.max(6, slot - 6);
-      var cells = sg.selectAll("g.d3c-pcell").data(path).join("g")
+      var cellW = Math.max(2, slot - (tiny ? 1 : 6));
+      var cells = sg.selectAll("g.d3c-pcell").data(path.filter(function (d) { return win.has(d.step); })).join("g")
         .attr("class", function (d) { return "d3c-pcell " + d.state; })
         .attr("data-state", function (d) { return d.state; })
         .attr("data-step", function (d) { return d.step; })
@@ -3570,10 +3723,10 @@ THIS SOFTWARE.
         .attr("opacity", function (d) { return d.state === "fault" || d.state === "committed" ? 0.9 : d.state === "diverged" ? 0.85 : d.state === "drift" ? 0.45 : d.state === "same" ? 0.45 : 0.6; })
         .attr("stroke", function (d) { return d.error ? P.bad : "none"; }).attr("stroke-width", 1.5)
         .attr("stroke-dasharray", function (d) { return d.state === "alone" ? "3 2" : null; });
-      cells.filter(function (d) { return d.state === "fault" && d.enters; })
+      cells.filter(function (d) { return d.state === "fault" && d.enters && !tiny; })
         .append("text").attr("class", "d3c-cap").attr("x", cellW / 2).attr("y", 25).attr("text-anchor", "middle")
         .attr("fill", P.bad).attr("font-weight", 700).text(wide ? "fault enters" : "enters");
-      cells.filter(function (d) { return d.state === "committed"; })
+      cells.filter(function (d) { return d.state === "committed" && !tiny; })
         .append("text").attr("class", "d3c-cap").attr("x", cellW / 2).attr("y", 25).attr("text-anchor", "middle")
         .attr("fill", P.bad).attr("font-weight", 700).text(wide ? "wrong answer" : "wrong");
       cells.filter(function (d) { return d.state === "fault" && !d.enters && wide && slot >= 96; })
@@ -3702,9 +3855,7 @@ THIS SOFTWARE.
     var diag = report && report.diagnosis;
     var hyps = diag && Array.isArray(diag.hypotheses) ? diag.hypotheses : [];
     if (!hyps.length) return null;
-    var drawn = null;
-    responsive(host, function () { drawn = drawWhy(host, ctx, report, diag, hyps); });
-    return drawn;
+    return responsive(host, function () { drawWhy(host, ctx, report, diag, hyps); });
   };
 
   function drawWhy(host, ctx, report, diag, hyps) {
@@ -3822,10 +3973,18 @@ THIS SOFTWARE.
       var sy = top + hyps.length * rowH + 22 + 18;
       var sx = stepScale(steps.length, W, 14, 14);
       svg.append("line").attr("x1", sx(0)).attr("x2", sx(steps.length - 1)).attr("y1", sy).attr("y2", sy).attr("stroke", P.rule2).attr("stroke-width", 1.2);
+      // a long run keeps the line and the window; per-step dots would be a smear
+      var dotEvery = sx.step() >= 6 ? 1 : Math.ceil(6 / Math.max(0.1, sx.step()));
       steps.forEach(function (s, i) {
+        if (i % dotEvery) return;
         svg.append("circle").attr("cx", sx(i)).attr("cy", sy).attr("r", 2.5).attr("fill", P.rule2);
         if (sx.step() >= 18) svg.append("text").attr("class", "d3c-idx").attr("x", sx(i)).attr("y", sy + 14).attr("text-anchor", "middle").text(String(i));
       });
+      if (sx.step() < 18) {
+        [0, steps.length - 1].forEach(function (i) {
+          svg.append("text").attr("class", "d3c-idx").attr("x", sx(i)).attr("y", sy + 14).attr("text-anchor", i ? "end" : "start").text(String(i));
+        });
+      }
       var win = dec.window || {};
       if (isNum(win.earliest) && isNum(win.point_of_no_return) && win.point_of_no_return >= win.earliest) {
         var wg = svg.append("g").attr("class", "d3c-window");
@@ -3866,9 +4025,7 @@ THIS SOFTWARE.
     var steps = stepsOf(report, side);
     var items = reading && Array.isArray(reading.take_forward) ? reading.take_forward : [];
     if (!steps.length || !items.length) return null;
-    var drawn = null;
-    responsive(host, function () { drawn = drawForward(host, ctx, side, report, steps, items); });
-    return drawn;
+    return responsive(host, function () { drawForward(host, ctx, side, report, steps, items); }, focusKey(report, side));
   };
 
   function drawForward(host, ctx, side, report, steps, items) {
@@ -3879,17 +4036,20 @@ THIS SOFTWARE.
     var n = steps.length;
 
     var W = width(host, ctx);
-    var x = stepScale(n, W, 14, 14);
+    var firstAt = items.map(function (t) { return t.at_step; }).filter(isNum)[0];
+    var win = focusWindow(focusKey(report, side), n, W, 14, 14, dec && dec.side === side ? dec.step : firstAt, 44);
+    var x = win.x;
     var slot = x.step();
+    var tiny = slot < 14;
     // pins at the same step stack upward
     var lanes = {};
     var pinned = items.map(function (t, i) {
       var at = isNum(t.at_step) && t.at_step < n ? t.at_step : null;
       var lane = at === null ? 0 : (lanes[at] = (lanes[at] || 0) + 1) - 1;
-      return { i: i, n: i + 1, t: t, at: at, lane: lane };
+      return { i: i, n: i + 1, t: t, at: at, lane: lane, shown: at !== null && win.has(at) };
     });
     var maxLane = d3.max(pinned, function (p) { return p.lane; }) || 0;
-    var pinTop = 14, pinGap = 24;
+    var pinTop = 14 + (win.windowed ? 34 : 0), pinGap = 24;
     var ySpine = pinTop + (maxLane + 1) * pinGap + 8;
     var H = ySpine + 24;
 
@@ -3899,16 +4059,23 @@ THIS SOFTWARE.
       .attr("role", "img").attr("aria-label", items.length + " next action(s) for " + agentName(report, side) + ", pinned to the steps they apply to");
     svg.append("title").text("Take forward: where to intervene in " + agentName(report, side));
 
-    svg.append("line").attr("x1", x(0)).attr("x2", x(n - 1)).attr("y1", ySpine).attr("y2", ySpine).attr("stroke", P.rule2).attr("stroke-width", 1.4);
-    steps.forEach(function (s, i) {
+    bindWindowKeys(svg, win);
+    if (win.windowed) {
+      overviewStrip(svg, 6, W, 14, 14, win, null,
+        pinned.filter(function (p) { return p.at !== null; }).map(function (p) { return { step: p.at, color: dec && dec.side === side && dec.step === p.at ? P.bad : color }; }),
+        items.length + " action(s)");
+    }
+    svg.append("line").attr("x1", x(win.start)).attr("x2", x(win.end - 1)).attr("y1", ySpine).attr("y2", ySpine).attr("stroke", P.rule2).attr("stroke-width", 1.4);
+    d3.range(win.start, win.end).forEach(function (i) {
+      var s = steps[i];
       var g = svg.append("g").attr("class", "d3c-ghost").attr("transform", "translate(" + x(i) + "," + ySpine + ")");
       var isDec = dec && dec.side === side && dec.step === i;
-      g.append("circle").attr("r", isDec ? 4 : 3).attr("fill", isDec ? P.bad : P.surface).attr("stroke", isDec ? P.bad : P.rule2).attr("stroke-width", 1.4);
+      g.append("circle").attr("r", isDec ? 4 : tiny ? 1.5 : 3).attr("fill", isDec ? P.bad : P.surface).attr("stroke", isDec ? P.bad : P.rule2).attr("stroke-width", 1.4);
       if (slot >= 18) g.append("text").attr("class", "d3c-idx").attr("y", 16).attr("text-anchor", "middle").text(String(i));
       g.append("title").text("step " + i + " · " + (s.name || s.type || "") + (isDec ? " · decisive" : ""));
     });
 
-    var pins = svg.append("g").selectAll("g.d3c-pin").data(pinned.filter(function (p) { return p.at !== null; })).join("g")
+    var pins = svg.append("g").selectAll("g.d3c-pin").data(pinned.filter(function (p) { return p.shown; })).join("g")
       .attr("class", "d3c-pin").attr("tabindex", 0).attr("role", "button")
       .attr("data-n", function (p) { return p.n; }).attr("data-step", function (p) { return p.at; })
       .attr("aria-label", function (p) { return "action " + p.n + " at step " + p.at + ": " + (p.t.instead || p.t.action || ""); })
@@ -3938,11 +4105,15 @@ THIS SOFTWARE.
       var body = document.createElement("div");
       var main = document.createElement("div");
       if (p.at !== null) {
-        var stepLink = document.createElement("span"); stepLink.className = "step";
-        stepLink.textContent = "at step " + p.at + " ";
+        var stepLink = document.createElement("span"); stepLink.className = "step" + (p.shown ? "" : " outside");
+        stepLink.textContent = "at step " + p.at + (p.shown ? " " : " (outside the window — jump) ");
         stepLink.setAttribute("role", "button"); stepLink.tabIndex = 0;
-        stepLink.addEventListener("click", function () { selectStep(report, side, p.at); });
-        stepLink.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectStep(report, side, p.at); } });
+        var jump = function () {
+          if (!p.shown && win.windowed) charts.focus.set(win.key, p.at - Math.floor(win.cap / 2));
+          selectStep(report, side, p.at);
+        };
+        stepLink.addEventListener("click", jump);
+        stepLink.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); jump(); } });
         main.appendChild(stepLink);
       } else {
         var noStep = document.createElement("span"); noStep.className = "step"; noStep.textContent = "no single step ";
@@ -4028,8 +4199,9 @@ THIS SOFTWARE.
    * are the reading's roles, the values are `rests_on` as written. */
   var TreeState = {};   // per task: which node keys are collapsed
 
-  function treeData(report) {
+  function treeData(report, pages, dec) {
     var task = report && report.task ? report.task : {};
+    pages = pages || {};
     var runs = ["a", "b"].map(function (side) {
       var reading = readingOf(report, side);
       var steps = stepsOf(report, side);
@@ -4059,9 +4231,26 @@ THIS SOFTWARE.
         success: outcome.success === true, steps: steps.length,
         children: phases.map(function (ph, pi) {
           var idx = (ph.steps || []).filter(function (i) { return isNum(i) && i < steps.length; });
-          return { kind: "phase", key: side + ":p:" + pi, side: side, intent: ph.intent || "phase",
-                   summary: ph.summary || "", count: idx.length,
-                   children: idx.map(stepNode).filter(Boolean) };
+          var key = side + ":p:" + pi;
+          var kids;
+          if (idx.length > TREE_PAGE) {
+            // a long phase shows one page at a time: the page around the
+            // decisive step when it holds one, else the first; "more"
+            // nodes at either end page it
+            var page = pages[key];
+            if (!page) {
+              var at = dec && dec.side === side ? idx.indexOf(dec.step) : -1;
+              var from = at >= 0 ? Math.max(0, at - Math.floor(TREE_PAGE / 2)) : 0;
+              page = pages[key] = { from: from, to: Math.min(idx.length, from + TREE_PAGE) };
+            }
+            kids = idx.slice(page.from, page.to).map(stepNode).filter(Boolean);
+            if (page.from > 0) kids.unshift({ kind: "more", key: key + ":before", side: side, phase: key, dir: -1, count: page.from });
+            if (page.to < idx.length) kids.push({ kind: "more", key: key + ":after", side: side, phase: key, dir: 1, count: idx.length - page.to });
+          } else {
+            kids = idx.map(stepNode).filter(Boolean);
+          }
+          return { kind: "phase", key: key, side: side, intent: ph.intent || "phase",
+                   summary: ph.summary || "", count: idx.length, children: kids };
         }),
       };
     });
@@ -4087,19 +4276,19 @@ THIS SOFTWARE.
     if (!charts.available()) return null;
     var report = ctx.report;
     if (!report || (!stepsOf(report, "a").length && !stepsOf(report, "b").length)) return null;
-    var drawn = null;
-    responsive(host, function () { drawn = drawTree(host, ctx, report); });
-    return drawn;
+    return responsive(host, function () { drawTree(host, ctx, report); }, "tree:" + (report.task && report.task.id));
   };
+  var TREE_PAGE = 20;   // steps a phase shows at a time; "more" nodes page it
 
   function drawTree(host, ctx, report) {
     var P = palette();
     var duration = charts.motion();
-    var data = treeData(report);
     var dec = decisiveOf(report);
     var fault = faultPath(report);
     var taskKey = report.task && report.task.id ? report.task.id : "task";
-    var collapsed = TreeState[taskKey] = TreeState[taskKey] || {};
+    var tstate = TreeState[taskKey] = TreeState[taskKey] || { collapsed: {}, pages: {} };
+    var collapsed = tstate.collapsed, pages = tstate.pages;
+    var data = treeData(report, pages, dec);
 
     var avail = width(host, ctx);
     // five columns need room; below ~640px the tree keeps its width and
@@ -4138,7 +4327,15 @@ THIS SOFTWARE.
       if (k.kind === "run") return truncate(k.name, Math.floor((colW - 40) / 6.4));
       if (k.kind === "phase") return truncate(k.intent, Math.floor((colW - 60) / 6.4));
       if (k.kind === "step") return truncate(k.index + " · " + k.name, Math.floor((colW - 30) / 6.4));
+      if (k.kind === "more") return (k.dir < 0 ? "▲ " : "▼ ") + k.count + " more";
       return truncate(k.value, Math.max(6, Math.floor((W - d.y - left - 44) / 6.6)));
+    }
+    function pageMore(k) {
+      var page = pages[k.phase];
+      if (!page) return;
+      if (k.dir < 0) page.from = Math.max(0, page.from - TREE_PAGE);
+      else page.to = page.to + TREE_PAGE;
+      repaint("tree:" + taskKey);
     }
     function isFault(d) { return d.data.kind === "step" && fault[d.data.side] && fault[d.data.side][d.data.index]; }
     function linkStroke(l) {
@@ -4176,6 +4373,7 @@ THIS SOFTWARE.
         .attr("aria-label", function (d) {
           var k = d.data;
           if (k.kind === "task") return "task " + k.name;
+          if (k.kind === "more") return "show " + k.count + " more step" + (k.count === 1 ? "" : "s") + (k.dir < 0 ? " before" : " after");
           if (k.kind === "run") return k.name + (k.success ? " solved" : " failed") + ", " + k.steps + " steps";
           if (k.kind === "phase") return "phase " + k.intent + ", " + k.count + " steps";
           if (k.kind === "step") return "step " + k.index + " " + k.name + " · " + ((ROLE[k.role] || {}).label || k.role);
@@ -4196,6 +4394,8 @@ THIS SOFTWARE.
           var tint = P[INTENT_TINT[k.intent] || "rule2"] || P.rule2;
           gg.append("rect").attr("x", -6).attr("y", -6).attr("width", 12).attr("height", 12).attr("rx", 3)
             .attr("fill", tint).attr("opacity", 0.85);
+        } else if (k.kind === "more") {
+          gg.append("circle").attr("r", 5).attr("fill", P.surface).attr("stroke", P.ink2).attr("stroke-width", 1.4).attr("stroke-dasharray", "2 2");
         } else if (k.kind === "step") {
           drawMark(gg, k.error ? "error" : k.role, sideColor(k.side), 5);
           if (dec && dec.side === k.side && dec.step === k.index) {
@@ -4209,7 +4409,7 @@ THIS SOFTWARE.
         var label = gg.append("text").attr("class", "d3c-tlabel" + (k.kind === "value" ? " mono" : ""))
           .attr("x", tx).attr("y", 4).attr("font-size", k.kind === "value" ? 10.5 : 11.5)
           .attr("fill", k.kind === "value" ? (k.wrong ? P.bad : P[STATUS_COLOR[k.status] || "muted"]) :
-                        k.kind === "phase" ? P.ink2 : P.ink)
+                        k.kind === "phase" || k.kind === "more" ? P.ink2 : P.ink)
           .attr("font-weight", k.kind === "run" || k.kind === "task" ? 650 : k.kind === "phase" ? 600 : 400)
           .text(labelFor(d) + (k.kind === "value" && k.wrong ? " ✗" : k.kind === "value" && k.right ? " ✓" : ""));
         // a branch's label sits over its outgoing links: back it so the
@@ -4261,23 +4461,24 @@ THIS SOFTWARE.
       nodes.forEach(function (d) { d.x0 = d.x; d.y0 = d.y; });
 
       // interactions, rebound on every update so new nodes get them
-      merged.on("click", function (event, d) {
-        hideTip();
+      function act(d) {
         if (d.data.kind === "step") selectStep(report, d.data.side, d.data.index);
         else if (d.data.kind === "value") selectStep(report, d.data.side, d.data.step);
+        else if (d.data.kind === "more") pageMore(d.data);
         else toggle(d);
-      }).on("keydown", function (event, d) {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        if (d.data.kind === "step") selectStep(report, d.data.side, d.data.index);
-        else if (d.data.kind === "value") selectStep(report, d.data.side, d.data.step);
-        else toggle(d);
-      }).on("mousemove", function (event, d) {
+      }
+      merged.on("click", function (event, d) { hideTip(); act(d); })
+        .on("keydown", function (event, d) {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          act(d);
+        }).on("mousemove", function (event, d) {
         var k = d.data;
         if (k.kind === "step") showTip(event, [{ b: true, text: "step " + k.index + " · " + k.name }, { text: k.type + " · " + ((ROLE[k.role] || {}).label || k.role) }, k.excerpt ? { mono: true, text: k.excerpt } : null]);
         else if (k.kind === "phase") showTip(event, [{ b: true, text: k.intent }, { text: k.summary }, { text: d.children ? "click to collapse" : "click to expand" }]);
         else if (k.kind === "value") showTip(event, [{ b: true, text: k.value }, { text: humanKind(k.status) + (k.source ? " via " + k.source : "") + " · first at step " + k.step }, k.wrong ? { text: "does not match the expected answer" } : null]);
         else if (k.kind === "run") showTip(event, [{ b: true, text: k.name }, { text: (k.success ? "solved" : "failed") + " in " + k.steps + " steps" }]);
+        else if (k.kind === "more") showTip(event, [{ b: true, text: k.count + " more step" + (k.count === 1 ? "" : "s") }, { text: "click to show the next " + Math.min(TREE_PAGE, k.count) }]);
         else hideTip();
       }).on("mouseleave", hideTip);
     }
@@ -4313,9 +4514,8 @@ THIS SOFTWARE.
     var report = ctx.report;
     var plan = reconcilePlan(report);
     if (!plan) return null;
-    var drawn = null;
-    responsive(host, function () { drawn = drawReconcile(host, ctx, report, plan); });
-    return drawn;
+    return responsive(host, function () { drawReconcile(host, ctx, report, plan); },
+                      (report.task && report.task.id ? report.task.id : "task") + ":reconcile");
   };
 
   function reconcilePlan(report) {
@@ -4358,16 +4558,19 @@ THIS SOFTWARE.
 
     var W = width(host, ctx);
     var laneLabelW = Math.min(120, Math.round(W * 0.2));
-    var x = d3.scalePoint().domain(d3.range(n)).range([laneLabelW + 14, W - 70]).padding(0.5);
+    var win = focusWindow((report.task && report.task.id ? report.task.id : "task") + ":reconcile", n, W, laneLabelW + 14, 70,
+                          isNum(plan.cut) ? plan.prefix.length : null, 36);
+    var x = win.x;
     var slot = x.step();
+    var top = win.windowed ? 34 : 0;
     var lanes = [
       { key: "passing", side: plan.passing, name: agentName(report, plan.passing), steps: stepsP, reading: readP,
-        outcome: report[plan.passing].outcome, y: 24 },
-      { key: "reconciled", side: null, name: "reconciled", steps: merged, y: hasSplice ? 74 : null },
+        outcome: report[plan.passing].outcome, y: 24 + top },
+      { key: "reconciled", side: null, name: "reconciled", steps: merged, y: hasSplice ? 74 + top : null },
       { key: "failing", side: plan.failing, name: agentName(report, plan.failing), steps: stepsF, reading: readF,
-        outcome: report[plan.failing].outcome, y: hasSplice ? 124 : 74 },
+        outcome: report[plan.failing].outcome, y: hasSplice ? 124 + top : 74 + top },
     ].filter(function (l) { return l.y !== null; });
-    var H = (hasSplice ? 150 : 100) + 6;
+    var H = (hasSplice ? 150 : 100) + 6 + top;
 
     var wrap = d3.select(host).append("div").attr("class", "d3c-wrap");
     var svg = wrap.append("svg").attr("class", "d3c d3c-reconcile").attr("width", W).attr("height", H)
@@ -4375,8 +4578,13 @@ THIS SOFTWARE.
       .attr("aria-label", "Reconciling strategy: the failing run's prefix, the passing run's decision at the cut, the passing run's steps after it");
     svg.append("title").text("Reconcile: the splice that the report estimates would flip the outcome");
 
+    bindWindowKeys(svg, win);
+    if (win.windowed) {
+      overviewStrip(svg, 6, W, laneLabelW + 14, 70, win, null,
+        isNum(plan.cut) ? [{ step: plan.prefix.length, color: P.bad }] : [], "positions along the lanes");
+    }
     // cut line first, beneath everything
-    if (hasSplice && isNum(plan.cut)) {
+    if (hasSplice && isNum(plan.cut) && win.has(plan.prefix.length)) {
       var cutPos = plan.prefix.length;   // the reconciled lane's position where the adopted steps begin
       var cx = x(Math.min(cutPos, n - 1)) - slot / 2;
       svg.append("line").attr("x1", cx).attr("x2", cx).attr("y1", 8).attr("y2", H - 10)
@@ -4390,8 +4598,9 @@ THIS SOFTWARE.
       var tint = lane.side ? sideColor(lane.side) : P.ink2;
       g.append("text").attr("x", laneLabelW).attr("y", lane.y + 4).attr("text-anchor", "end").attr("font-size", 11.5)
         .attr("font-weight", 650).attr("fill", tint).text(truncate(lane.name, Math.floor(laneLabelW / 6.6)));
-      if (lane.steps.length) {
-        g.append("line").attr("x1", x(0)).attr("x2", x(lane.steps.length - 1)).attr("y1", lane.y).attr("y2", lane.y)
+      var laneEnd = Math.min(lane.steps.length, win.end) - 1;
+      if (laneEnd >= win.start) {
+        g.append("line").attr("x1", x(win.start)).attr("x2", x(laneEnd)).attr("y1", lane.y).attr("y2", lane.y)
           .attr("stroke", P.rule2).attr("stroke-width", 1.2);
       }
       var marks = g.selectAll("g.d3c-rmark").data(lane.steps.map(function (s, i) {
@@ -4400,7 +4609,7 @@ THIS SOFTWARE.
         var src = stepsOf(report, from)[index] || {};
         var reading = readingOf(report, from);
         return { pos: i, from: from, index: index, step: src, role: roleOf(reading, index) || (src.type === "answer" ? "answer" : "dead_end") };
-      })).join("g").attr("class", "d3c-rmark").attr("data-from", function (d) { return d.from; })
+      }).filter(function (d) { return win.has(d.pos); })).join("g").attr("class", "d3c-rmark").attr("data-from", function (d) { return d.from; })
         .attr("data-index", function (d) { return d.index; }).attr("tabindex", 0).attr("role", "button")
         .attr("aria-label", function (d) { return agentName(report, d.from) + " step " + d.index + " · " + (d.step.name || d.step.type || ""); })
         .attr("transform", function (d) { return "translate(" + x(d.pos) + "," + lane.y + ")"; });
@@ -4422,6 +4631,7 @@ THIS SOFTWARE.
             { text: ((ROLE[d.role] || {}).label || d.role) }, { mono: true, text: truncate(d.step.output || d.step.input || "", 140) }]);
         }).on("mouseleave", hideTip);
       // the outcome at the lane's end
+      if (!win.has(lane.steps.length - 1)) return;   // the lane's end is outside the window
       var endX = x(Math.max(0, lane.steps.length - 1)) + slot / 2 + 6;
       var label, fill;
       if (lane.key === "reconciled") {
@@ -4442,6 +4652,7 @@ THIS SOFTWARE.
       var yRec = yBy.reconciled;
       var linkG = svg.insert("g", ":first-child").attr("class", "d3c-rlinks");
       merged.forEach(function (m, pos) {
+        if (!win.has(pos) || !win.has(m.step)) return;
         var srcLane = m.from === plan.passing ? "passing" : "failing";
         var sy = yBy[srcLane], sx = x(Math.min(m.step, n - 1)), tx = x(pos);
         var d = "M" + sx + "," + (sy + (sy < yRec ? 7 : -7)) + " C" + sx + "," + ((sy + yRec) / 2) + " " + tx + "," + ((sy + yRec) / 2) + " " + tx + "," + (yRec + (sy < yRec ? -7 : 7));
@@ -5866,9 +6077,10 @@ THIS SOFTWARE.
       if (AgentDiff.charts && AgentDiff.charts.available()) {
         var chartHost = ctx.h("div", { class: "dx-chart" });
         el.appendChild(chartHost);
-        try { AgentDiff.charts.why(chartHost, ctx); }
+        var drawn = null;
+      try { drawn = AgentDiff.charts.why(chartHost, ctx); }
         catch (err) { console.warn("AgentDiff diagnosis: why chart failed", err); }
-        if (!chartHost.childNodes.length) chartHost.remove();
+        if (!drawn) chartHost.remove();
       }
 
       // 2. The hypotheses, in the order the report ranked them.
@@ -6454,9 +6666,10 @@ THIS SOFTWARE.
     if (AgentDiff.charts && AgentDiff.charts.available()) {
       var chartHost = H("div", { class: "rd-chart" });
       el.appendChild(chartHost);
-      try { AgentDiff.charts.story(chartHost, ctx, side); }
+      var drawn = null;
+      try { drawn = AgentDiff.charts.story(chartHost, ctx, side); }
       catch (err) { console.warn("AgentDiff reading: story chart failed", err); }
-      if (!chartHost.childNodes.length) chartHost.remove();
+      if (!drawn) chartHost.remove();
     }
 
     var validity = reading.validity;

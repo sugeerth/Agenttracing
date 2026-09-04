@@ -21,6 +21,7 @@ import socketserver
 import subprocess
 import sys
 import tempfile
+import time
 import threading
 import unittest
 from pathlib import Path
@@ -2849,6 +2850,185 @@ class StoryChartsTest(unittest.TestCase):
         self.assertEqual(page.evaluate("() => AgentDiff.charts.motion()"), 0)
         widths = page.locator("svg.d3c-why rect.d3c-bar").evaluate_all("els => els.map(e => +e.getAttribute('width'))")
         self.assertGreater(max(widths), 0, "bars are at their final width immediately")
+        self.assertEqual(errors, [])
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class LongTrajectoryTest(unittest.TestCase):
+    """Details on demand for long runs. A 306-step pair (the t05 demo with
+    300 lookup steps spliced in before the answer) must render as a window
+    of readable steps with an overview of all of them: the story, the
+    forward pins and the reconcile lanes page together, the tree pages a
+    long phase twenty steps at a time, and the page stays bounded in
+    height, in width, and in time to first paint.
+    """
+
+    tmp = None
+    EXTRA = 300
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        root = Path(cls.tmp.name)
+        traces = root / "traces"
+        traces.mkdir()
+        for name in ("t05_flight_duration__atlas-v2.json", "t05_flight_duration__bolt-v3.json"):
+            trace = json.loads((ROOT / "demo" / "traces" / name).read_text(encoding="utf-8"))
+            steps = trace["steps"]
+            answer, body = steps[-1], steps[:-1]
+            template = body[2] if len(body) > 2 else body[0]
+            filler = []
+            for k in range(cls.EXTRA):
+                step = json.loads(json.dumps(template))
+                step.update({"name": "lookup", "type": "tool_call", "quality": "good", "tokens": 40, "latency_s": 0.3,
+                             "input": f"lookup segment {k}", "output": f"segment {k}: {k % 7}h{(k * 13) % 60:02d}m"})
+                filler.append(step)
+            new = body + filler + [answer]
+            for i, step in enumerate(new):
+                step["index"] = i
+            trace["steps"] = new
+            (traces / name).write_text(json.dumps(trace), encoding="utf-8")
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(traces), "-o", str(root / "out"),
+                        "--template", str(ROOT / "web" / "blocks.html")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        cls.report = root / "out" / "report.html"
+        cls.rep = json.loads((root / "out" / "report_t05_flight_duration.json").read_text(encoding="utf-8"))
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def open(self, width=1280):
+        context = self.browser.new_context(viewport={"width": width, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        started = time.time()
+        page.goto(f"file://{self.report}#view=story")
+        page.wait_for_selector("svg.d3c-story g.d3c-step", timeout=15000)
+        page.wait_for_timeout(600)
+        return context, page, errors, time.time() - started
+
+    def failing(self):
+        return "b" if self.rep["a"]["outcome"]["success"] else "a"
+
+    def caption(self, page, cls):
+        return page.locator(f"svg.{cls} .d3c-ov-caption").first.text_content()
+
+    def test_the_story_draws_a_window_with_an_overview_and_paints_quickly(self):
+        context, page, errors, elapsed = self.open()
+        side = self.failing()
+        n = len(self.rep[side]["steps"])
+        self.assertGreater(n, 300)
+        marks = page.locator("svg.d3c-story g.d3c-step")
+        self.assertLessEqual(marks.count(), 40)
+        self.assertGreaterEqual(marks.count(), 8)
+        self.assertEqual(page.locator("svg.d3c-story .d3c-overview").count(), 1)
+        self.assertEqual(page.locator("svg.d3c-story .d3c-brush .selection").count(), 1)
+        self.assertIn(f"of {n}", self.caption(page, "d3c-story"))
+        dec = self.rep["diagnosis"]["decisive_step"]["step"]
+        self.assertEqual(page.locator(f'svg.d3c-story g.d3c-step[data-step="{dec}"]').count(), 1,
+                         "the first window holds the decisive step")
+        self.assertEqual(page.locator("svg.d3c-story g.d3c-decisive").count(), 1)
+        # the failure strip is windowed too; the overview carries every step's state
+        self.assertEqual(page.locator("svg.d3c-story g.d3c-pcell").count(), marks.count())
+        self.assertGreater(page.locator("svg.d3c-story .d3c-ov-cells rect").count(), 0)
+        self.assertLess(elapsed, 8, f"first paint took {elapsed:.1f}s")
+        self.assertLess(page.evaluate("() => document.documentElement.scrollHeight"), 8000)
+        self.assertEqual(page.evaluate("() => document.documentElement.scrollWidth"), 1280)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_window_pages_by_keyboard_brush_and_api_and_the_charts_move_together(self):
+        context, page, errors, _ = self.open()
+        side = self.failing()
+        n = len(self.rep[side]["steps"])
+        key = f"t05_flight_duration:{side}"
+        first = int(page.locator("svg.d3c-story g.d3c-step").first.get_attribute("data-step"))
+        page.locator("svg.d3c-story").first.focus()
+        page.keyboard.press("ArrowRight")
+        page.wait_for_timeout(700)
+        moved = int(page.locator("svg.d3c-story g.d3c-step").first.get_attribute("data-step"))
+        self.assertGreater(moved, first)
+        self.assertEqual(self.caption(page, "d3c-story")[:14], self.caption(page, "d3c-forward")[:14],
+                         "the forward pins share the story's window")
+        page.evaluate(f"() => AgentDiff.charts.focus.set('{key}', {n - 10})")
+        page.wait_for_timeout(700)
+        state = page.evaluate(f"() => AgentDiff.charts.focus.get('{key}')")
+        self.assertLessEqual(state["start"] + 8, n)
+        last = int(page.locator("svg.d3c-story g.d3c-step").last.get_attribute("data-step"))
+        self.assertEqual(last, n - 1, "End of the run is reachable")
+        self.assertEqual(page.locator("svg.d3c-story g.d3c-step[data-role='answer']").count(), 1)
+        # the brush: dragging the window left moves the start earlier
+        box = page.locator("svg.d3c-story .d3c-brush .selection").first.bounding_box()
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.mouse.down()
+        page.mouse.move(box["x"] + box["width"] / 2 - 250, box["y"] + box["height"] / 2, steps=8)
+        page.mouse.up()
+        page.wait_for_timeout(700)
+        self.assertLess(page.evaluate(f"() => AgentDiff.charts.focus.get('{key}').start"), state["start"])
+        # "all": every step, compressed, no overview
+        page.evaluate(f"() => AgentDiff.charts.focus.all('{key}', true)")
+        page.wait_for_timeout(800)
+        self.assertEqual(page.locator("svg.d3c-story g.d3c-step").count(), n)
+        self.assertEqual(page.locator("svg.d3c-story .d3c-overview").count(), 0)
+        self.assertEqual(page.evaluate("() => document.documentElement.scrollWidth"), 1280)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_tree_pages_a_long_phase(self):
+        context, page, errors, _ = self.open()
+        big = page.locator("svg.d3c-tree g.d3c-tnode[data-kind='phase'].collapsed")
+        self.assertGreaterEqual(big.count(), 1, "a phase of 300 steps starts folded")
+        self.assertIn("300 steps", big.first.locator(".d3c-tcount").text_content())
+        before = page.locator("svg.d3c-tree g.d3c-tnode").count()
+        self.assertLess(before, 80)
+        big.first.dispatch_event("click")
+        page.wait_for_timeout(800)
+        after = page.locator("svg.d3c-tree g.d3c-tnode").count()
+        self.assertGreater(after, before)
+        self.assertLessEqual(after - before, 22, "one page of steps plus a 'more' node")
+        more = page.locator("svg.d3c-tree g.d3c-tnode[data-kind='more']")
+        self.assertGreaterEqual(more.count(), 1)
+        more.first.dispatch_event("click")
+        page.wait_for_timeout(800)
+        grown = page.locator("svg.d3c-tree g.d3c-tnode").count()
+        self.assertGreater(grown, after)
+        self.assertLessEqual(grown - after, 21)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_reconcile_lanes_are_windowed_around_the_cut(self):
+        context, page, errors, _ = self.open()
+        svg = page.locator("svg.d3c-reconcile")
+        self.assertEqual(svg.count(), 1)
+        for lane in ("passing", "reconciled", "failing"):
+            self.assertLessEqual(svg.locator(f"g.d3c-lane-{lane} g.d3c-rmark").count(), 40, lane)
+        self.assertEqual(svg.locator(".d3c-overview").count(), 1)
+        self.assertEqual(svg.locator("line.d3c-cut").count(), 1, "the first window holds the cut")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_phone_gets_the_same_window_without_sideways_scroll(self):
+        context, page, errors, _ = self.open(width=390)
+        self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth"), 390)
+        marks = page.locator("svg.d3c-story g.d3c-step").count()
+        self.assertGreaterEqual(marks, 8)
+        self.assertLessEqual(marks, 12)
+        self.assertEqual(page.locator("svg.d3c-story .d3c-overview").count(), 1)
         self.assertEqual(errors, [])
         context.close()
 

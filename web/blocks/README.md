@@ -83,6 +83,20 @@ map's inspector follows, keep every mark focusable, and label an estimate
 as one. Nothing of ours may call `d3.json`/`d3.csv`/`fetch` — the build
 tests pin it.
 
+Long runs: every step-line chart takes a **focus window** from
+`focusWindow(key, n, W, left, right, anchor, minSlot)` — a window of
+steps at ≥ `minSlot` px each, centred on the anchor (the decisive step)
+the first time — and draws `overviewStrip(...)` above it when the run is
+longer than the window: all steps as a strip, a brush, arrows, a
+caption. Keys are `"<task>:<side>"` for the story and forward charts and
+`"<task>:reconcile"` for the lanes, so charts that share a key page
+together; `AgentDiff.charts.focus.{get,set,all}(key, …)` moves them and
+`repaint(key)` redraws every chart on that key. Draw only the window's
+steps; put anything outside it in the overview, the caption, or an
+edge label ("from step 12 ·", "← 280 earlier"); never shrink labels to
+illegibility. The tree pages a long phase with `more` nodes
+(`TREE_PAGE`).
+
 A block's `storyTitle` is the section name the story view numbers
 ("1 · What happened", "2 · The trace as a tree", "3 · Why",
 "4 · Reconcile", "5 · Take forward", …).
