@@ -1668,9 +1668,10 @@ is reported as such.
 
 ## The story as three charts (v43)
 
-The story view is now a numbered sequence — *1 · What happened, 2 · Why,
-3 · Take forward, 4 · Across the batch, 5 · Cost* — and the first three
-sections open with a D3 chart drawn on one shared idea: a run is a line
+The story view is now a numbered sequence — *1 · What happened, 2 · The
+trace as a tree, 3 · Why, 4 · Take forward, 5 · Across the batch,
+6 · Cost* — and the first four sections open with a D3 chart drawn on one
+shared idea: a run is a line
 of steps, and everything worth understanding about it sits on that line.
 
 - **What happened** (`AgentDiff.charts.story`): the reading's phases as
@@ -1686,6 +1687,17 @@ of steps, and everything worth understanding about it sits on that line.
   as marks — supports by evidence class (filled observable, dashed
   annotation, hollow stated), contradictions as ×; the margin as a
   bracket; the decisive window on the subject run's step line.
+- **The trace as a tree** (`charts.tree`, new block `trace-tree`, story
+  section 2): the pair as one hierarchy — the task at the root, each run
+  a branch, the reading's phases, their steps, and under a step the
+  answer values it first produced (`rests_on`, coloured by basis status,
+  ✗ when wrong). Links along the fault's path (the attribution chain and
+  the causal account of the failed run) are red; dead ends and repeats
+  dashed; the decisive step ringed. Phases fold and unfold with a click
+  or Enter (a phase of more than eight steps starts folded unless it
+  holds the decisive step); a step opens in the inspector; a value
+  selects the step that produced it. A collapsible tidy tree, animated
+  under the same motion rule.
 - **Take forward** (`charts.forward`, new block `take-forward`): the
   reading's located next actions as numbered pins on the step line,
   stacked when they share a step and red at the decisive one; a list

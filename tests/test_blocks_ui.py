@@ -1646,7 +1646,9 @@ class SmallScreensKeysAndMotionTest(unittest.TestCase):
     def test_the_story_fits_the_phone_budget_with_the_inspector_folded(self):
         context, page, errors = self._open(viewport={"width": 390, "height": 844}, has_touch=True)
         height = page.evaluate("() => document.documentElement.scrollHeight")
-        self.assertLessEqual(height, 5100, f"story is {height}px tall on a phone")
+        # the budget grew once with the story's sections 2 (the tree, folded
+        # on a phone) and 4 (take forward, with its numbered list): 5100 → 5500
+        self.assertLessEqual(height, 5500, f"story is {height}px tall on a phone")
         self.assertFalse(page.evaluate("() => document.documentElement.scrollWidth > document.documentElement.clientWidth"))
         fold = page.locator("#hero-lane details.tj-inspector-fold")
         self.assertEqual(fold.count(), 1)
@@ -2549,7 +2551,7 @@ class StoryChartsTest(unittest.TestCase):
         context, page, errors = self.open()
         self.assertTrue(str(page.evaluate("() => window.d3 && d3.version")).startswith("7."))
         titles = page.evaluate("() => [...document.querySelectorAll('#story-lane .block-title')].map(e => e.textContent)")
-        self.assertEqual(titles[:3], ["1 · What happened", "2 · Why", "3 · Take forward"])
+        self.assertEqual(titles[:4], ["1 · What happened", "2 · The trace as a tree", "3 · Why", "4 · Take forward"])
         self.assertEqual(len(titles), len(set(titles)))
         self.assertEqual(errors, [])
         context.close()
@@ -2570,7 +2572,8 @@ class StoryChartsTest(unittest.TestCase):
         self.assertEqual(svg.locator("path.d3c-arc").count(), len(arcs))
         statuses = svg.locator("path.d3c-arc").evaluate_all("els => els.map(e => e.getAttribute('data-status'))")
         self.assertEqual(sorted(statuses), sorted(r["status"] for r in arcs))
-        wrong = sum(1 for r in arcs if r.get("matches_expected") is False)
+        failed = rep[side]["outcome"]["success"] is not True
+        wrong = sum(1 for r in arcs if r.get("matches_expected") is False) if failed else 0
         labels = svg.locator("text.d3c-arc-label").all_text_contents()
         self.assertEqual(sum(1 for t in labels if "✗" in t), min(wrong, 4))
         dec = rep["diagnosis"]["decisive_step"]
@@ -2688,8 +2691,78 @@ class StoryChartsTest(unittest.TestCase):
             box = page.locator(f"svg.{cls}").first.bounding_box()
             self.assertIsNotNone(box, cls)
             self.assertLessEqual(box["x"] + box["width"], 390 + 1, cls)
+        # on a phone the tree waits behind a disclosure; opened, it keeps its
+        # five columns and scrolls inside its own box
+        fold = page.locator('[data-block="trace-tree"] .tt-fold > summary')
+        self.assertEqual(fold.count(), 1)
+        fold.first.click()
+        page.wait_for_timeout(800)
+        tree = page.locator("svg.d3c-tree").first
+        self.assertGreater(tree.bounding_box()["width"], 390)
+        scroller = page.locator(".d3c-scroll").first
+        self.assertEqual(scroller.count(), 1)
+        self.assertLessEqual(scroller.bounding_box()["x"] + scroller.bounding_box()["width"], 390 + 1)
+        self.assertEqual(page.evaluate("() => getComputedStyle(document.querySelector('.d3c-scroll')).overflowX"), "auto")
         self.assertEqual(page.locator("svg.d3c-story g.d3c-step").count(),
                          len(self.t05[self.failing()]["steps"]))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_tree_holds_every_phase_step_and_value_and_folds(self):
+        context, page, errors = self.open()
+        rep = self.t05
+        svg = page.locator("svg.d3c-tree")
+        self.assertEqual(svg.count(), 1)
+        phases = sum(len(rep["reading"][s]["phases"]) for s in "ab")
+        steps = sum(len(rep[s]["steps"]) for s in "ab")
+        values = sum(1 for s in "ab" for r in rep["reading"][s]["rests_on"] if r.get("first_step") is not None)
+        nodes = svg.locator("g.d3c-tnode")
+        self.assertEqual(nodes.count(), 1 + 2 + phases + steps + values)
+        self.assertEqual(svg.locator("g.d3c-tnode[data-kind='step']").count(), steps)
+        self.assertEqual(svg.locator("g.d3c-tnode[data-kind='value']").count(), values)
+        self.assertEqual(svg.locator("path.d3c-tlink").count(), nodes.count() - 1, "a tree has one link per non-root node")
+        # the fault's path: every step on the attribution chain / causal account of the failed run
+        attr = rep["attribution"]
+        chain = set(attr["chain"]) | {l["step"] for l in rep["diagnosis"]["causal_account"]}
+        self.assertEqual(svg.locator("path.d3c-tlink.fault").count(), len(chain))
+        # the decisive ring sits on the decisive step of the subject run
+        dec = rep["diagnosis"]["decisive_step"]
+        ringed = svg.locator("g.d3c-tnode[data-kind='step']").filter(has=page.locator(".d3c-ring"))
+        self.assertEqual(ringed.count(), 1)
+        self.assertEqual(ringed.first.get_attribute("data-side"), rep["diagnosis"]["subject"])
+        self.assertEqual(ringed.first.get_attribute("data-step"), str(dec["step"]))
+        # fold a phase: its steps leave; unfold: they return
+        phase = svg.locator("g.d3c-tnode[data-kind='phase']").nth(1)
+        side = phase.get_attribute("data-side")
+        before = nodes.count()
+        phase.dispatch_event("click")
+        page.wait_for_timeout(700)
+        self.assertLess(page.locator("svg.d3c-tree g.d3c-tnode").count(), before)
+        self.assertEqual(page.locator("svg.d3c-tree g.d3c-tnode.collapsed").count(), 1)
+        page.locator("svg.d3c-tree g.d3c-tnode[data-kind='phase']").nth(1).dispatch_event("click")
+        page.wait_for_timeout(700)
+        self.assertEqual(page.locator("svg.d3c-tree g.d3c-tnode").count(), before)
+        # a step node opens the inspector on that step
+        target = page.locator(f"svg.d3c-tree g.d3c-tnode[data-kind='step'][data-side='{side}']").first
+        index = target.get_attribute("data-step")
+        target.dispatch_event("click")
+        page.wait_for_timeout(300)
+        pane = page.locator(".tj-pane", has_text=side.upper() + " ·").first
+        self.assertIn(f"step {index}", pane.locator("h4").text_content())
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_passing_run_never_has_its_intermediate_values_marked_wrong(self):
+        context, page, errors = self.open()
+        rep = self.t05
+        passing = "a" if rep["a"]["outcome"]["success"] else "b"
+        wrong_on_passing = page.locator(f"svg.d3c-tree g.d3c-tnode[data-kind='value'][data-side='{passing}']").all_text_contents()
+        self.assertFalse(any("✗" in t for t in wrong_on_passing), wrong_on_passing)
+        failing = "b" if passing == "a" else "a"
+        expected_wrong = sum(1 for r in rep["reading"][failing]["rests_on"]
+                             if r.get("first_step") is not None and r.get("matches_expected") is False)
+        marked = page.locator(f"svg.d3c-tree g.d3c-tnode[data-kind='value'][data-side='{failing}']").all_text_contents()
+        self.assertEqual(sum(1 for t in marked if "✗" in t), expected_wrong)
         self.assertEqual(errors, [])
         context.close()
 

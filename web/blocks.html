@@ -718,7 +718,7 @@ THIS SOFTWARE.
   //: what to do next, the step under the cursor, what the difference cost.
   //: They answer the reader's next five questions; everything else stays in
   //: the columns. Dashboard mode puts them back.
-  var STORY_BLOCKS = ["reading", "diagnosis", "take-forward", "actions", "deltas"];
+  var STORY_BLOCKS = ["reading", "trace-tree", "diagnosis", "take-forward", "actions", "deltas"];
   function isStoryBlock(id) { return State.prefs && State.prefs.view === "story" && STORY_BLOCKS.indexOf(id) >= 0; }
 
   //: the three views. Story: lead + hero + the story lane. Evidence: the
@@ -3058,8 +3058,20 @@ THIS SOFTWARE.
       ".d3c-buys .bars i.actual{top:1px;background:var(--ink-3)}",
       ".d3c-buys .bars i.estimate{top:8px;background:var(--accent);opacity:.7}",
       ".d3c-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:6px}",
+      ".tt-fold > summary{cursor:pointer;font-size:var(--fs-s);color:var(--ink-2);padding:6px 0;list-style:none}",
+      ".tt-fold > summary::before{content:'▸ '}.tt-fold[open] > summary::before{content:'▾ '}",
+      ".d3c-scroll{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;max-width:100%}",
+      ".d3c-scroll > svg{display:block;max-width:none}",
+      ".d3c .d3c-tnode{cursor:pointer;outline:none}",
+      ".d3c .d3c-tnode.kind-task{cursor:default}",
+      ".d3c .d3c-tnode:focus-visible > circle:first-child{fill:var(--accent);fill-opacity:.15;stroke:var(--accent);stroke-width:1.5px}",
+      ".d3c .d3c-tnode.branch.collapsed .d3c-tlabel{fill:var(--ink-3)}",
+      ".d3c .d3c-tlabel{font-family:var(--sans)}",
+      ".d3c .d3c-tlabel.mono{font-family:var(--mono)}",
       "body[data-view=\"story\"] .d3c-list li.on{background:transparent;box-shadow:inset 3px 0 0 var(--accent)}",
-      "@media (max-width:480px){.d3c-list li{grid-template-columns:20px 1fr}}",
+      "@media (max-width:480px){.d3c-list li{grid-template-columns:20px 1fr}",
+      ".d3c-list .what{display:none}.d3c-list li[data-n]:hover .what,.d3c-list li[data-n]:focus-within .what{display:block}",
+      ".d3c-buys{grid-template-columns:auto 1fr;}.d3c-buys .v{grid-column:2;text-align:left}}",
     ].join("");
     document.head.appendChild(node);
   }
@@ -3330,6 +3342,7 @@ THIS SOFTWARE.
     var answerIdx = -1;
     what.forEach(function (w) { if (w.role === "answer") answerIdx = w.step; });
     if (answerIdx < 0) answerIdx = n - 1;
+    var failed = !(report && report[side] && report[side].outcome && report[side].outcome.success === true);
     var rests = (Array.isArray(reading.rests_on) ? reading.rests_on : []).filter(function (r) {
       return r && isNum(r.first_step) && r.first_step < answerIdx;
     });
@@ -3428,7 +3441,9 @@ THIS SOFTWARE.
           path.transition().duration(duration).delay(60 * i).ease(d3.easeCubicOut).attr("stroke-dashoffset", 0);
         }
       }
-      var wrong = r.matches_expected === false;
+      // a value that does not match the expected answer is only *wrong*
+      // on a run that failed; on a passing run it is an intermediate
+      var wrong = failed && r.matches_expected === false;
       if (k < 4 && (x1 - x0) >= 40) {
         // the label sits on the curve's apex (cubic with both controls at yArcTop+depth)
         labelJobs.push({ r: r, wrong: wrong, stroke: stroke, x: (x0 + x1) / 2,
@@ -3547,7 +3562,7 @@ THIS SOFTWARE.
         legend.appendChild(legendItem(P, { line: true, dashed: st === "contradicted" || st === "stale" }, P[STATUS_COLOR[st] || "muted"],
           "value " + humanKind(st) + " → answer"));
       });
-      if (rests.some(function (r) { return r.matches_expected === false; })) {
+      if (failed && rests.some(function (r) { return r.matches_expected === false; })) {
         var wrongKey = document.createElement("span");
         wrongKey.style.color = P.bad;
         wrongKey.textContent = "✗ value does not match the expected answer";
@@ -3827,9 +3842,10 @@ THIS SOFTWARE.
       if (t.because) { var b = document.createElement("span"); b.className = "tag"; b.textContent = humanKind(t.because); meta.appendChild(b); }
       if (t.replay_recipe && typeof t.replay_recipe === "object") {
         var rr = document.createElement("span"); rr.className = "tag";
-        rr.textContent = "replay" + (t.replay_recipe.replays ? " " + t.replay_recipe.replays : "") +
-          (t.replay_recipe.expects ? " · expects " + t.replay_recipe.expects : "");
-        rr.title = String(t.replay_recipe.correction || "");
+        var replays = String(t.replay_recipe.replays || "");
+        rr.textContent = "replay " + (replays.split(" — ")[0] || "").trim();
+        rr.title = (t.replay_recipe.expects ? "expects " + t.replay_recipe.expects + ". " : "") +
+          (replays ? replays + ". " : "") + String(t.replay_recipe.correction || "");
         meta.appendChild(rr);
       }
       (Array.isArray(t.refs) ? t.refs : []).slice(0, 4).forEach(function (ref) {
@@ -3882,6 +3898,286 @@ THIS SOFTWARE.
         host.appendChild(buys);
       }
     }
+    return svg.node();
+  }
+
+  // ================================================== 4. the trace as a tree
+
+  /* The pair as one tree: the task at the root, each run a branch, each
+   * run's phases, each phase's steps, and under a step the answer values
+   * it first produced. Links along the fault's path (the attribution
+   * chain on the failed run) are drawn in red; the decisive step keeps
+   * its ring. Phases collapse and expand (click or Enter); a step moves
+   * the shared cursor; a value selects the step that produced it.
+   * Nothing is derived: the hierarchy is the reading's phases, the roles
+   * are the reading's roles, the values are `rests_on` as written. */
+  var TreeState = {};   // per task: which node keys are collapsed
+
+  function treeData(report) {
+    var task = report && report.task ? report.task : {};
+    var runs = ["a", "b"].map(function (side) {
+      var reading = readingOf(report, side);
+      var steps = stepsOf(report, side);
+      var outcome = report && report[side] && report[side].outcome ? report[side].outcome : {};
+      var what = {};
+      ((reading && reading.what_happened) || []).forEach(function (w) { if (w && isNum(w.step)) what[w.step] = w; });
+      var rests = (reading && Array.isArray(reading.rests_on) ? reading.rests_on : []).filter(function (r) { return r && isNum(r.first_step); });
+      var phases = reading && Array.isArray(reading.phases) && reading.phases.length
+        ? reading.phases
+        : [{ intent: "steps", steps: steps.map(function (s, i) { return i; }), summary: steps.length + " steps" }];
+      var stepNode = function (i) {
+        var st = steps[i];
+        if (!st) return null;
+        var w = what[i] || {};
+        var values = rests.filter(function (r) { return r.first_step === i; }).map(function (r) {
+          return { kind: "value", key: side + ":v:" + i + ":" + String(r.value), side: side, step: i,
+                   value: String(r.value), status: r.status || "", wrong: outcome.success !== true && r.matches_expected === false,
+                   right: r.matches_expected === true, source: r.source || "" };
+        });
+        return { kind: "step", key: side + ":s:" + i, side: side, index: i, name: st.name || st.type || "step",
+                 type: st.type || "", role: w.role || (st.type === "answer" ? "answer" : "dead_end"),
+                 error: st.error === true, quality: st.quality || null, invented: !!w.invented_argument,
+                 excerpt: truncate(st.output || st.input || "", 140), children: values.length ? values : null };
+      };
+      return {
+        kind: "run", key: side + ":run", side: side, name: agentName(report, side),
+        success: outcome.success === true, steps: steps.length,
+        children: phases.map(function (ph, pi) {
+          var idx = (ph.steps || []).filter(function (i) { return isNum(i) && i < steps.length; });
+          return { kind: "phase", key: side + ":p:" + pi, side: side, intent: ph.intent || "phase",
+                   summary: ph.summary || "", count: idx.length,
+                   children: idx.map(stepNode).filter(Boolean) };
+        }),
+      };
+    });
+    return { kind: "task", key: "task", name: task.id || "task", prompt: task.prompt || "", children: runs };
+  }
+
+  function faultPath(report) {
+    // the steps the report says the fault travelled through, by side
+    var out = { a: {}, b: {} };
+    var attr = report && report.attribution;
+    if (attr && (attr.failed_agent === "a" || attr.failed_agent === "b") && Array.isArray(attr.chain)) {
+      attr.chain.forEach(function (i) { if (isNum(i)) out[attr.failed_agent][i] = true; });
+    }
+    var diag = report && report.diagnosis;
+    if (diag && (diag.subject === "a" || diag.subject === "b") && Array.isArray(diag.causal_account)) {
+      diag.causal_account.forEach(function (link) { if (link && isNum(link.step)) out[diag.subject][link.step] = true; });
+    }
+    return out;
+  }
+
+  charts.tree = function (host, ctx) {
+    ensureStyle();
+    if (!charts.available()) return null;
+    var report = ctx.report;
+    if (!report || (!stepsOf(report, "a").length && !stepsOf(report, "b").length)) return null;
+    var drawn = null;
+    responsive(host, function () { drawn = drawTree(host, ctx, report); });
+    return drawn;
+  };
+
+  function drawTree(host, ctx, report) {
+    var P = palette();
+    var duration = charts.motion();
+    var data = treeData(report);
+    var dec = decisiveOf(report);
+    var fault = faultPath(report);
+    var taskKey = report.task && report.task.id ? report.task.id : "task";
+    var collapsed = TreeState[taskKey] = TreeState[taskKey] || {};
+
+    var avail = width(host, ctx);
+    // five columns need room; below ~640px the tree keeps its width and
+    // scrolls inside its own box rather than shrinking labels to nothing
+    var W = Math.max(avail, 640);
+    var rowH = 22;
+    var colW = Math.max(112, Math.min(230, Math.floor((W - 30) / 4.4)));
+    var left = 12, pad = 16;
+    var wide = colW >= 150;
+
+    var root = d3.hierarchy(data);
+    root.descendants().forEach(function (d) {
+      d.id = d.data.key;
+      d._children = d.children;
+      var big = d.data.kind === "phase" && d.data.count > 8;
+      var holdsDecisive = dec && d.data.kind === "phase" && d.data.side === dec.side &&
+        (d._children || []).some(function (c) { return c.data.index === dec.step; });
+      if (collapsed[d.id] === undefined) collapsed[d.id] = big && !holdsDecisive;
+      if (collapsed[d.id] && d._children) d.children = null;
+    });
+    root.x0 = 0; root.y0 = 0;
+
+    var wrap = d3.select(host).append("div").attr("class", "d3c-wrap" + (W > avail ? " d3c-scroll" : ""));
+    var svg = wrap.append("svg").attr("class", "d3c d3c-tree").attr("width", W)
+      .attr("role", "img").attr("aria-label", "The task as a tree: each run a branch, its phases, their steps, and the answer values each step produced");
+    svg.append("title").text("The trace as a tree");
+    var g = svg.append("g");
+    var linkG = g.append("g").attr("class", "d3c-tree-links");
+    var nodeG = g.append("g").attr("class", "d3c-tree-nodes");
+    var layout = d3.tree().nodeSize([rowH, colW]);
+    var linkPath = d3.linkHorizontal().x(function (d) { return d.y; }).y(function (d) { return d.x; });
+
+    function labelFor(d) {
+      var k = d.data;
+      if (k.kind === "task") return truncate(k.name, Math.floor((colW - 24) / 6.4));
+      if (k.kind === "run") return truncate(k.name, Math.floor((colW - 40) / 6.4));
+      if (k.kind === "phase") return truncate(k.intent, Math.floor((colW - 60) / 6.4));
+      if (k.kind === "step") return truncate(k.index + " · " + k.name, Math.floor((colW - 30) / 6.4));
+      return truncate(k.value, Math.max(6, Math.floor((W - d.y - left - 44) / 6.6)));
+    }
+    function isFault(d) { return d.data.kind === "step" && fault[d.data.side] && fault[d.data.side][d.data.index]; }
+    function linkStroke(l) {
+      var t = l.target.data;
+      if (t.kind === "step" && isFault(l.target) && isFault(l.source) === undefined) { /* phase → step */ }
+      if (t.kind === "step" && fault[t.side] && fault[t.side][t.index]) return P.bad;
+      if (t.kind === "value") return P[STATUS_COLOR[t.status] || "muted"];
+      if (t.kind === "run") return sideColor(t.side);
+      return P.rule2;
+    }
+
+    function toggle(d) {
+      if (!d._children) return;
+      collapsed[d.id] = !collapsed[d.id];
+      d.children = collapsed[d.id] ? null : d._children;
+      update(d);
+    }
+
+    function update(source) {
+      layout(root);
+      var nodes = root.descendants(), links = root.links();
+      var minX = d3.min(nodes, function (d) { return d.x; }), maxX = d3.max(nodes, function (d) { return d.x; });
+      var H = Math.max(60, maxX - minX + pad * 2 + 8);
+      svg.transition().duration(duration).attr("height", H).attr("viewBox", "0 0 " + W + " " + H);
+      g.transition().duration(duration).attr("transform", "translate(" + left + "," + (pad - minX) + ")");
+
+      var node = nodeG.selectAll("g.d3c-tnode").data(nodes, function (d) { return d.id; });
+      var enter = node.enter().append("g")
+        .attr("class", function (d) { return "d3c-tnode kind-" + d.data.kind + (d._children ? " branch" : ""); })
+        .attr("data-kind", function (d) { return d.data.kind; })
+        .attr("data-side", function (d) { return d.data.side || ""; })
+        .attr("data-step", function (d) { return d.data.kind === "step" ? d.data.index : null; })
+        .attr("data-key", function (d) { return d.id; })
+        .attr("tabindex", 0).attr("role", "button")
+        .attr("aria-label", function (d) {
+          var k = d.data;
+          if (k.kind === "task") return "task " + k.name;
+          if (k.kind === "run") return k.name + (k.success ? " solved" : " failed") + ", " + k.steps + " steps";
+          if (k.kind === "phase") return "phase " + k.intent + ", " + k.count + " steps";
+          if (k.kind === "step") return "step " + k.index + " " + k.name + " · " + ((ROLE[k.role] || {}).label || k.role);
+          return "value " + k.value + " · " + humanKind(k.status);
+        })
+        .attr("transform", function () { return "translate(" + source.y0 + "," + source.x0 + ")"; })
+        .attr("opacity", 0);
+      enter.append("circle").attr("r", 9).attr("fill", "transparent");   // hit area
+      enter.each(function (d) {
+        var gg = d3.select(this), k = d.data;
+        if (k.kind === "task") {
+          gg.append("circle").attr("r", 5).attr("fill", P.ink);
+        } else if (k.kind === "run") {
+          gg.append("circle").attr("r", 6).attr("fill", sideColor(k.side));
+          gg.append("text").attr("class", "d3c-cap").attr("x", 11).attr("y", 4).attr("fill", k.success ? P.good : P.bad)
+            .attr("font-weight", 700).text(k.success ? "✓" : "✗");
+        } else if (k.kind === "phase") {
+          var tint = P[INTENT_TINT[k.intent] || "rule2"] || P.rule2;
+          gg.append("rect").attr("x", -6).attr("y", -6).attr("width", 12).attr("height", 12).attr("rx", 3)
+            .attr("fill", tint).attr("opacity", 0.85);
+        } else if (k.kind === "step") {
+          drawMark(gg, k.error ? "error" : k.role, sideColor(k.side), 5);
+          if (dec && dec.side === k.side && dec.step === k.index) {
+            gg.append("circle").attr("class", "d3c-ring " + (dec.verification === "replay-verified" ? "verified" : "hypothesized")).attr("r", 10);
+          }
+        } else {
+          gg.append("rect").attr("x", -4).attr("y", -4).attr("width", 8).attr("height", 8).attr("rx", 1.5)
+            .attr("fill", P[STATUS_COLOR[k.status] || "muted"]);
+        }
+        var tx = k.kind === "run" ? 22 : k.kind === "step" && dec && dec.side === k.side && dec.step === k.index ? 15 : 12;
+        var label = gg.append("text").attr("class", "d3c-tlabel" + (k.kind === "value" ? " mono" : ""))
+          .attr("x", tx).attr("y", 4).attr("font-size", k.kind === "value" ? 10.5 : 11.5)
+          .attr("fill", k.kind === "value" ? (k.wrong ? P.bad : P[STATUS_COLOR[k.status] || "muted"]) :
+                        k.kind === "phase" ? P.ink2 : P.ink)
+          .attr("font-weight", k.kind === "run" || k.kind === "task" ? 650 : k.kind === "phase" ? 600 : 400)
+          .text(labelFor(d) + (k.kind === "value" && k.wrong ? " ✗" : k.kind === "value" && k.right ? " ✓" : ""));
+        // a branch's label sits over its outgoing links: back it so the
+        // links never run through the words
+        if (k.kind !== "value") backed(gg, label, P.surface, 2);
+        if (k.kind === "phase") {
+          gg.append("text").attr("class", "d3c-cap d3c-tcount").attr("y", 4)
+            .attr("x", tx + (label.node().getComputedTextLength ? label.node().getComputedTextLength() : 40) + 6)
+            .text("");
+        }
+        if (k.kind === "step" && k.quality && k.quality !== "good" && wide) {
+          gg.append("text").attr("class", "d3c-cap").attr("y", 4)
+            .attr("x", tx + (label.node().getComputedTextLength ? label.node().getComputedTextLength() : 40) + 6)
+            .attr("fill", k.quality === "bad" ? P.bad : P.warn).text(k.quality);
+        }
+        gg.selectAll("text.d3c-tcount").each(function () { backed(gg, d3.select(this), P.surface, 2); });
+        var title = k.kind === "phase" ? k.intent + " — " + k.summary
+          : k.kind === "step" ? "step " + k.index + " · " + k.name + " · " + ((ROLE[k.role] || {}).label || k.role) + "\n" + k.excerpt
+          : k.kind === "value" ? k.value + " — " + humanKind(k.status) + (k.source ? " via " + k.source : "") + (k.wrong ? " · does not match the expected answer" : "")
+          : k.kind === "run" ? k.name + " — " + (k.success ? "solved" : "failed") + " in " + k.steps + " steps"
+          : k.name + (k.prompt ? " — " + truncate(k.prompt, 160) : "");
+        gg.append("title").text(title);
+      });
+
+      var merged = enter.merge(node);
+      merged.classed("collapsed", function (d) { return !!(d._children && !d.children); });
+      merged.select("text.d3c-tcount").text(function (d) {
+        return (d._children && !d.children ? "▸ " : "") + d.data.count + " step" + (d.data.count === 1 ? "" : "s");
+      });
+      merged.transition().duration(duration)
+        .attr("transform", function (d) { return "translate(" + d.y + "," + d.x + ")"; }).attr("opacity", 1);
+      node.exit().transition().duration(duration)
+        .attr("transform", function () { return "translate(" + source.y + "," + source.x + ")"; }).attr("opacity", 0).remove();
+
+      var link = linkG.selectAll("path.d3c-tlink").data(links, function (l) { return l.target.id; });
+      var linkEnter = link.enter().insert("path", "g").attr("class", "d3c-tlink")
+        .attr("fill", "none")
+        .attr("d", function () { var o = { x: source.x0, y: source.y0 }; return linkPath({ source: o, target: o }); });
+      linkEnter.merge(link)
+        .attr("class", function (l) { return "d3c-tlink" + (l.target.data.kind === "step" && fault[l.target.data.side] && fault[l.target.data.side][l.target.data.index] ? " fault" : ""); })
+        .attr("stroke", linkStroke)
+        .attr("stroke-width", function (l) { return l.target.data.kind === "step" && fault[l.target.data.side] && fault[l.target.data.side][l.target.data.index] ? 2 : 1.2; })
+        .attr("stroke-dasharray", function (l) { return l.target.data.kind === "step" && (l.target.data.role === "dead_end" || l.target.data.role === "no_information" || l.target.data.role === "repeat") ? "3 3" : null; })
+        .attr("opacity", 0.85)
+        .transition().duration(duration).attr("d", linkPath);
+      link.exit().transition().duration(duration)
+        .attr("d", function () { var o = { x: source.x, y: source.y }; return linkPath({ source: o, target: o }); }).remove();
+
+      nodes.forEach(function (d) { d.x0 = d.x; d.y0 = d.y; });
+
+      // interactions, rebound on every update so new nodes get them
+      merged.on("click", function (event, d) {
+        hideTip();
+        if (d.data.kind === "step") selectStep(report, d.data.side, d.data.index);
+        else if (d.data.kind === "value") selectStep(report, d.data.side, d.data.step);
+        else toggle(d);
+      }).on("keydown", function (event, d) {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        if (d.data.kind === "step") selectStep(report, d.data.side, d.data.index);
+        else if (d.data.kind === "value") selectStep(report, d.data.side, d.data.step);
+        else toggle(d);
+      }).on("mousemove", function (event, d) {
+        var k = d.data;
+        if (k.kind === "step") showTip(event, [{ b: true, text: "step " + k.index + " · " + k.name }, { text: k.type + " · " + ((ROLE[k.role] || {}).label || k.role) }, k.excerpt ? { mono: true, text: k.excerpt } : null]);
+        else if (k.kind === "phase") showTip(event, [{ b: true, text: k.intent }, { text: k.summary }, { text: d.children ? "click to collapse" : "click to expand" }]);
+        else if (k.kind === "value") showTip(event, [{ b: true, text: k.value }, { text: humanKind(k.status) + (k.source ? " via " + k.source : "") + " · first at step " + k.step }, k.wrong ? { text: "does not match the expected answer" } : null]);
+        else if (k.kind === "run") showTip(event, [{ b: true, text: k.name }, { text: (k.success ? "solved" : "failed") + " in " + k.steps + " steps" }]);
+        else hideTip();
+      }).on("mouseleave", hideTip);
+    }
+    update(root);
+
+    var legend = document.createElement("div");
+    legend.className = "d3c-legend";
+    legend.appendChild(legendItem(P, { role: "feeds_answer" }, P.a, agentName(report, "a")));
+    legend.appendChild(legendItem(P, { role: "feeds_answer" }, P.b, agentName(report, "b")));
+    legend.appendChild(legendItem(P, { hatch: true }, P.rule2, "phase (click to fold)"));
+    legend.appendChild(legendItem(P, { line: true }, P.bad, "the fault's path"));
+    legend.appendChild(legendItem(P, { line: true, dashed: true }, P.rule2, "dead end / repeat"));
+    legend.appendChild(legendItem(P, { hatch: true }, P.good, "value in the answer, by basis status"));
+    if (dec) legend.appendChild(legendItem(P, { ring: true, dashed: dec.verification !== "replay-verified" }, P.bad, "decisive step"));
+    host.appendChild(legend);
     return svg.node();
   }
 
@@ -6021,6 +6317,84 @@ THIS SOFTWARE.
           ]);
         })));
       }
+    },
+  });
+
+})(typeof window !== "undefined" ? window : this);
+
+</script>
+<!-- 09_tree.js -->
+<script>
+/* AgentDiff block — The trace as a tree.
+ *
+ * The pair as one hierarchy: the task at the root, each run a branch,
+ * the reading's phases under each run, their steps, and under a step the
+ * answer values it first produced. The fault's path is red, the decisive
+ * step ringed, dead ends dashed; phases fold and unfold; a step opens in
+ * the inspector. Story section 2. Reads the same report fields the
+ * reading and the map read; draws nothing derived.
+ */
+(function (global) {
+  "use strict";
+  var AgentDiff = global.AgentDiff;
+  if (!AgentDiff) return;
+
+  function stepsOf(report, side) {
+    var box = report && report[side];
+    return box && Array.isArray(box.steps) ? box.steps : [];
+  }
+
+  AgentDiff.block({
+    id: "trace-tree",
+    title: "The trace as a tree",
+    storyTitle: "The trace as a tree",
+    question: "How does each run branch from the task, and where does the fault run?",
+    group: "trajectory",
+    size: "wide",
+
+    relevance: function (ctx) {
+      var report = ctx.report;
+      if (!report || (!stepsOf(report, "a").length && !stepsOf(report, "b").length)) return 0;
+      if (!AgentDiff.charts || !AgentDiff.charts.available()) return 0;
+      return report.reading ? 0.86 : 0.6;
+    },
+
+    render: function (el, ctx) {
+      var report = ctx.report;
+      if (!report) return ctx.empty(el, "No report loaded.");
+      var n = stepsOf(report, "a").length + stepsOf(report, "b").length;
+      if (!n) return ctx.empty(el, "Neither run recorded a step, so there is nothing to branch.");
+      el.appendChild(ctx.h("p", {
+        class: "tt-lede",
+        text: "One tree for the pair: the task at the root, each run a branch, the reading's phases, their steps, " +
+              "and the answer values a step first produced. Red links follow the fault; dashed links are dead ends. " +
+              "Click a phase to fold it, a step to open it.",
+      }));
+      var host = ctx.h("div", { class: "tt-chart" });
+      var narrow = false;
+      try { narrow = (global.innerWidth || 1024) <= 700; } catch (err) { narrow = false; }
+      if (narrow) {
+        // on a phone the tree scrolls sideways, so it opens on request and
+        // draws only then — the story's height budget stays honest
+        var fold = ctx.h("details", { class: "tt-fold" }, [
+          ctx.h("summary", { text: "Open the tree (" + n + " steps; scrolls sideways)" }),
+        ]);
+        fold.appendChild(host);
+        var drawnLazy = false;
+        fold.addEventListener("toggle", function () {
+          if (!fold.open || drawnLazy) return;
+          drawnLazy = true;
+          try { AgentDiff.charts.tree(host, ctx); }
+          catch (err) { console.warn("AgentDiff trace-tree: chart failed", err); }
+        });
+        el.appendChild(fold);
+        return;
+      }
+      el.appendChild(host);
+      var drawn = null;
+      try { drawn = AgentDiff.charts.tree(host, ctx); }
+      catch (err) { console.warn("AgentDiff trace-tree: chart failed", err); }
+      if (!drawn) host.remove();
     },
   });
 
