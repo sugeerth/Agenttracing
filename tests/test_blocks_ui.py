@@ -1598,6 +1598,92 @@ class CompositeViewsTest(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
                      "playwright + chromium required for browser tests")
+class SmallScreensKeysAndMotionTest(unittest.TestCase):
+    """The phone budget, the keyboard help, touch-visible actions, and
+    reduced motion."""
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+        subprocess.run([sys.executable, "-m", "deepcompare", "batch",
+                        str(ROOT / "demo" / "traces"), "-o", str(out / "batch")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        cls.report = out / "batch" / "report.html"
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _open(self, **context_args):
+        context = self.browser.new_context(**context_args)
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"file://{self.report}")
+        page.wait_for_timeout(600)
+        page.select_option("#task-picker", "t05_flight_duration")
+        page.wait_for_timeout(500)
+        return context, page, errors
+
+    def test_the_story_fits_the_phone_budget_with_the_inspector_folded(self):
+        context, page, errors = self._open(viewport={"width": 390, "height": 844}, has_touch=True)
+        height = page.evaluate("() => document.documentElement.scrollHeight")
+        self.assertLessEqual(height, 5100, f"story is {height}px tall on a phone")
+        self.assertFalse(page.evaluate("() => document.documentElement.scrollWidth > document.documentElement.clientWidth"))
+        fold = page.locator("#hero-lane details.tj-inspector-fold")
+        self.assertEqual(fold.count(), 1)
+        self.assertFalse(fold.evaluate("d => d.open"))
+        self.assertIn("row", fold.locator("summary").inner_text())
+        # touch: the card actions are visible without a hover
+        self.assertEqual(page.evaluate("() => getComputedStyle(document.querySelector('#story-lane .block-actions')).opacity"), "1")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_keyboard_help_opens_with_question_mark_and_closes_with_escape(self):
+        context, page, errors = self._open(viewport={"width": 1280, "height": 900})
+        page.locator('#view-tabs [data-view="story"]').focus()
+        page.keyboard.press("?")
+        page.wait_for_timeout(200)
+        self.assertIn("open", page.locator("#help").get_attribute("class"))
+        self.assertIn("previous / next task", page.locator("#help").inner_text())
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(200)
+        self.assertNotIn("open", page.locator("#help").get_attribute("class"))
+        # focus went back to where it was
+        self.assertEqual(page.evaluate("() => document.activeElement && document.activeElement.getAttribute('data-view')"), "story")
+        page.locator("#btn-help").click()
+        page.wait_for_timeout(200)
+        self.assertIn("open", page.locator("#help").get_attribute("class"))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_reduced_motion_replays_do_not_run(self):
+        context, page, errors = self._open(viewport={"width": 1280, "height": 900}, reduced_motion="reduce")
+        page.locator('#hero-lane [data-mapview="timeline"]').click()
+        page.wait_for_timeout(400)
+        play = page.locator("#hero-lane .tjm-cell .tj-ctl button").filter(has_text="▶")
+        if play.count():
+            play.first.click()
+            page.wait_for_timeout(1000)
+            running = page.evaluate("() => !!(window.AgentDiff && AgentDiff._replayRunning && AgentDiff._replayRunning())")
+            self.assertFalse(running)
+        self.assertEqual(errors, [])
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
 class OneSidedMapTest(unittest.TestCase):
     """One-sided steps are SEEN, not just unlinked.
 

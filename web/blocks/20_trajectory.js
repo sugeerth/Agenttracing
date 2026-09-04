@@ -457,6 +457,9 @@
 
   var REPLAY_WALL_S = 12;   // at ×1 a full replay takes at most this long
 
+  // for the reduced-motion test: is a replay animating right now?
+  AgentDiff._replayRunning = function () { return !!Replay.playing; };
+
   function prefersReduced() {
     try {
       return !!(global.matchMedia &&
@@ -2224,7 +2227,25 @@
       var inspector = H("div", { class: "tj-inspector block", "data-block": "step-detail",
                                  "aria-label": "the step under the cursor" });
       grid.appendChild(cell);
-      grid.appendChild(inspector);
+      // a narrow screen folds the inspector under the map: the row and
+      // the two steps on the summary, the panes inside
+      var narrow = false;
+      try { narrow = (el.clientWidth || global.innerWidth || 0) <= 700; } catch (err) { narrow = false; }
+      if (narrow) {
+        var foldSummary = H("summary", { text: "Step under the cursor" });
+        var fold = H("details", { class: "tj-inspector-fold" }, [foldSummary, inspector]);
+        function foldLabel() {
+          var sel = resolved(report), row = rowsOf(report)[sel.row];
+          foldSummary.textContent = "Step under the cursor — row " + sel.row
+            + (row ? " · A " + (row.a_index === null || row.a_index === undefined ? "—" : "step " + row.a_index)
+                   + " / B " + (row.b_index === null || row.b_index === undefined ? "—" : "step " + row.b_index) : "");
+        }
+        foldLabel();
+        subscribe(fold, foldLabel);
+        grid.appendChild(fold);
+      } else {
+        grid.appendChild(inspector);
+      }
       el.appendChild(grid);
 
       if (MapView.mode === "timeline") {

@@ -15,7 +15,7 @@
   --surface-2: #f4f4f2;
   --ink: #1a1a18;
   --ink-2: #4a4a46;
-  --ink-3: #86867e;
+  --ink-3: #6b6a63;
   --rule: #e2e2dd;
   --rule-2: #cfcfc8;
   --a: #2f6f9f;
@@ -293,6 +293,32 @@ body[data-view="story"] .story-lane .dx-conf,
 body[data-view="story"] .story-lane .rd-conf,
 body[data-view="story"] .story-lane .ax-gate:empty { display: none; }
 body[data-view="story"] .stacks { display: none; }
+/* keyboard help */
+.keys { display: grid; grid-template-columns: max-content 1fr; gap: 8px 14px; margin: 0; font-size: var(--fs-s); }
+.keys dt { margin: 0; } .keys dd { margin: 0; color: var(--ink-2); }
+.keys kbd { display: inline-block; border: 1px solid var(--rule-2); border-bottom-width: 2px; border-radius: 5px;
+  padding: 0 6px; font: 600 var(--fs-xs)/20px var(--mono); background: var(--surface-2); color: var(--ink); }
+/* touch: the card actions cannot be hovered into view, so they are visible */
+@media (hover: none) {
+  .block-actions, body[data-view="story"] .hero-lane .block-actions,
+  body[data-view="story"] .story-lane .block-actions { opacity: 1; }
+}
+/* reduced motion: nothing slides or fades */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; scroll-behavior: auto !important; }
+}
+/* the map's inspector folds under the map on a narrow screen */
+.tj-inspector-fold > summary { cursor: pointer; font-size: var(--fs-s); color: var(--ink-2); list-style: none;
+  padding: 8px 0; }
+.tj-inspector-fold > summary::before { content: '▸ '; } .tj-inspector-fold[open] > summary::before { content: '▾ '; }
+@media (max-width: 480px) {
+  /* the answer's values as a two-line list: value and status, then where */
+  .rd-table thead, .rd-table th { display: none; }
+  .rd-table tr { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 6px 0; border-bottom: 1px solid var(--rule); }
+  .rd-table td { border: 0; padding: 0; }
+  .rd-table td:nth-child(4), .rd-table td:nth-child(5) { grid-column: 1 / -1; font-size: var(--fs-xs); color: var(--ink-3); }
+  .rd-table td:nth-child(5) { display: none; }
+}
 /* composite cards: parts one after another, each under a small title */
 .cx-summary { margin: 0 0 10px; font-size: var(--fs-s); color: var(--ink-2); }
 .cx-part + .cx-part { margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--rule); }
@@ -558,6 +584,7 @@ label.check input { margin-top: 2px; }
   <button class="btn ghost" id="btn-cols" title="Columns">▥ 3</button>
   <button class="btn ghost" id="btn-theme" title="Theme">◐</button>
   <button class="btn" id="btn-drawer">Blocks</button>
+  <button class="btn ghost" id="btn-help" title="Keyboard help (?)" aria-label="Keyboard help">?</button>
   <button class="btn" id="btn-you">You</button>
 </div>
 
@@ -594,6 +621,26 @@ label.check input { margin-top: 2px; }
     <button class="btn ghost" data-close>✕</button>
   </div>
   <div class="panel-body" id="drawer-body"></div>
+</div>
+
+<div class="panel" id="help" role="dialog" aria-label="Keyboard help">
+  <div class="panel-head">
+    <h2>Keys</h2>
+    <button class="btn ghost" data-close>✕</button>
+  </div>
+  <div class="panel-body">
+    <dl class="keys">
+      <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>previous / next task</dd>
+      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>on the view tabs: Story · Evidence · Batch</dd>
+      <dt><kbd>Tab</kbd></dt><dd>reach a step on the map</dd>
+      <dt><kbd>Enter</kbd> <kbd>Space</kbd></dt><dd>open the step under focus in the inspector</dd>
+      <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>walk along one run</dd>
+      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>cross the gutter to the other run</dd>
+      <dt><kbd>?</kbd></dt><dd>this help</dd>
+      <dt><kbd>Esc</kbd></dt><dd>close a tooltip, then a panel</dd>
+    </dl>
+    <p class="caveat">A link can open a view directly: <code>report.html#view=evidence</code>.</p>
+  </div>
 </div>
 
 <div class="panel" id="you">
@@ -2650,6 +2697,8 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       drawer: document.getElementById("drawer"),
       drawerBody: document.getElementById("drawer-body"),
       you: document.getElementById("you"),
+      help: document.getElementById("help"),
+      helpBtn: document.getElementById("btn-help"),
       youBody: document.getElementById("you-body"),
       scrim: document.getElementById("scrim"),
       toast: document.getElementById("toast"),
@@ -2661,6 +2710,11 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     global.addEventListener("resize", measureTopbar);
     State.layout = reconcile(Store.get(key("layout")), makeCtx());
 
+    if (els.helpBtn && els.help) {
+      els.helpBtn.addEventListener("click", function () {
+        if (els.help.classList.contains("open")) closePanels(); else openPanel(els.help);
+      });
+    }
     if (els.tabs) {
       var tabButtons = els.tabs.querySelectorAll("[role=tab]");
       for (var t = 0; t < tabButtons.length; t++) {
@@ -2725,6 +2779,11 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       if (!typing && !event.metaKey && !event.ctrlKey && !event.altKey) {
         if (event.key === "[") { event.preventDefault(); stepTask(-1); return; }
         if (event.key === "]") { event.preventDefault(); stepTask(1); return; }
+        if (event.key === "?" && els.help) {
+          event.preventDefault();
+          if (els.help.classList.contains("open")) closePanels(); else openPanel(els.help);
+          return;
+        }
       }
       // Escape closes the innermost thing first: an open tooltip, then the
       // panels — one keypress should never dismiss both at once.
@@ -2760,16 +2819,30 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     document.documentElement.style.setProperty("--topbar-h", bar.offsetHeight + "px");
   }
 
+  var panelOpener = null;   // the element that had focus when a panel opened
+
   function openPanel(panel) {
     closePanels();
+    try { panelOpener = document.activeElement; } catch (err) { panelOpener = null; }
     panel.classList.add("open");
     els.scrim.classList.add("open");
+    try {
+      var first = panel.querySelector("[data-close], button, [tabindex]");
+      if (first) first.focus();
+    } catch (err) { /* fine */ }
   }
 
   function closePanels() {
-    els.drawer.classList.remove("open");
-    els.you.classList.remove("open");
+    var wasOpen = false;
+    [els.drawer, els.you, els.help].forEach(function (panel) {
+      if (panel && panel.classList.contains("open")) wasOpen = true;
+      if (panel) panel.classList.remove("open");
+    });
     els.scrim.classList.remove("open");
+    if (wasOpen && panelOpener && panelOpener.focus) {
+      try { panelOpener.focus(); } catch (err) { /* fine */ }
+    }
+    panelOpener = null;
   }
 
   global.AgentDiff = {
@@ -6316,6 +6389,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
 
   var REPLAY_WALL_S = 12;   // at ×1 a full replay takes at most this long
 
+  // for the reduced-motion test: is a replay animating right now?
+  AgentDiff._replayRunning = function () { return !!Replay.playing; };
+
   function prefersReduced() {
     try {
       return !!(global.matchMedia &&
@@ -8083,7 +8159,25 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       var inspector = H("div", { class: "tj-inspector block", "data-block": "step-detail",
                                  "aria-label": "the step under the cursor" });
       grid.appendChild(cell);
-      grid.appendChild(inspector);
+      // a narrow screen folds the inspector under the map: the row and
+      // the two steps on the summary, the panes inside
+      var narrow = false;
+      try { narrow = (el.clientWidth || global.innerWidth || 0) <= 700; } catch (err) { narrow = false; }
+      if (narrow) {
+        var foldSummary = H("summary", { text: "Step under the cursor" });
+        var fold = H("details", { class: "tj-inspector-fold" }, [foldSummary, inspector]);
+        function foldLabel() {
+          var sel = resolved(report), row = rowsOf(report)[sel.row];
+          foldSummary.textContent = "Step under the cursor — row " + sel.row
+            + (row ? " · A " + (row.a_index === null || row.a_index === undefined ? "—" : "step " + row.a_index)
+                   + " / B " + (row.b_index === null || row.b_index === undefined ? "—" : "step " + row.b_index) : "");
+        }
+        foldLabel();
+        subscribe(fold, foldLabel);
+        grid.appendChild(fold);
+      } else {
+        grid.appendChild(inspector);
+      }
       el.appendChild(grid);
 
       if (MapView.mode === "timeline") {

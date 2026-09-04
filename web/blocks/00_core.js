@@ -2037,6 +2037,8 @@
       drawer: document.getElementById("drawer"),
       drawerBody: document.getElementById("drawer-body"),
       you: document.getElementById("you"),
+      help: document.getElementById("help"),
+      helpBtn: document.getElementById("btn-help"),
       youBody: document.getElementById("you-body"),
       scrim: document.getElementById("scrim"),
       toast: document.getElementById("toast"),
@@ -2048,6 +2050,11 @@
     global.addEventListener("resize", measureTopbar);
     State.layout = reconcile(Store.get(key("layout")), makeCtx());
 
+    if (els.helpBtn && els.help) {
+      els.helpBtn.addEventListener("click", function () {
+        if (els.help.classList.contains("open")) closePanels(); else openPanel(els.help);
+      });
+    }
     if (els.tabs) {
       var tabButtons = els.tabs.querySelectorAll("[role=tab]");
       for (var t = 0; t < tabButtons.length; t++) {
@@ -2112,6 +2119,11 @@
       if (!typing && !event.metaKey && !event.ctrlKey && !event.altKey) {
         if (event.key === "[") { event.preventDefault(); stepTask(-1); return; }
         if (event.key === "]") { event.preventDefault(); stepTask(1); return; }
+        if (event.key === "?" && els.help) {
+          event.preventDefault();
+          if (els.help.classList.contains("open")) closePanels(); else openPanel(els.help);
+          return;
+        }
       }
       // Escape closes the innermost thing first: an open tooltip, then the
       // panels — one keypress should never dismiss both at once.
@@ -2147,16 +2159,30 @@
     document.documentElement.style.setProperty("--topbar-h", bar.offsetHeight + "px");
   }
 
+  var panelOpener = null;   // the element that had focus when a panel opened
+
   function openPanel(panel) {
     closePanels();
+    try { panelOpener = document.activeElement; } catch (err) { panelOpener = null; }
     panel.classList.add("open");
     els.scrim.classList.add("open");
+    try {
+      var first = panel.querySelector("[data-close], button, [tabindex]");
+      if (first) first.focus();
+    } catch (err) { /* fine */ }
   }
 
   function closePanels() {
-    els.drawer.classList.remove("open");
-    els.you.classList.remove("open");
+    var wasOpen = false;
+    [els.drawer, els.you, els.help].forEach(function (panel) {
+      if (panel && panel.classList.contains("open")) wasOpen = true;
+      if (panel) panel.classList.remove("open");
+    });
     els.scrim.classList.remove("open");
+    if (wasOpen && panelOpener && panelOpener.focus) {
+      try { panelOpener.focus(); } catch (err) { /* fine */ }
+    }
+    panelOpener = null;
   }
 
   global.AgentDiff = {

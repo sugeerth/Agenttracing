@@ -193,7 +193,7 @@ card v37; replay v40).
 
 | command | what |
 |---|---|
-| `demo` | one command to the first insight: compares the shipped pairs, writes the report page, prints the flagship verdict card |
+| `demo` | one command to the first insight: compares the shipped pairs, writes the report page (three views: Story, Evidence, Batch — `#view=…` in the URL opens one), prints the flagship verdict card |
 | `compare A B [--html]` | one pair: card, diagnosis, reading; the blocks page with `--html` |
 | `batch DIR -o OUT` | a directory of two agents' traces, pairwise by task, with an aggregate and the report page |
 | `runs DIR -o OUT` | repeated runs: stability, pass^k with intervals, consolidation, paired inference |

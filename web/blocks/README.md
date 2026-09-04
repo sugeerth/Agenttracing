@@ -56,6 +56,17 @@ URL. `ctx.lane` tells a block where it is being drawn: `"story"`,
 behind a disclosure, show three rows with a "show all") and must never
 show *different numbers*.
 
+### Keys and small screens
+
+`[` / `]` walk the tasks; `←` `→` on the view tabs; on the map `Tab`
+reaches a step, `Enter`/`Space` opens it in the inspector, `↑` `↓` walk
+one run, `←` `→` cross the gutter; `?` opens the keyboard help; `Esc`
+closes a tooltip, then a panel, and focus returns to where it was. At
+or under 700px the map's inspector folds under the map; at or under
+480px the reading's value table becomes a two-line list; under a touch
+pointer the card actions are always visible; under
+`prefers-reduced-motion` nothing slides, fades or replays.
+
 ### Composites
 
 `AgentDiff.composite({id, title, question, group, size, parts, summary?,
