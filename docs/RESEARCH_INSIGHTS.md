@@ -148,6 +148,31 @@ CKA/SVCCA representational similarity (requires activations, and its
 own literature calls scalar similarity a weak explanandum); crosscoder
 diffing (requires activations — only its null-control lesson transfers).
 
+## Model internals (fifth survey: what Neuronpedia teaches a trace diff)
+
+Neuronpedia hosts sparse-autoencoder (SAE) feature dashboards for
+open-weights models (Gemma Scope, GPT-2, Llama Scope): per feature, an
+auto-interpreted label, the tokens that activate it most, an activation
+histogram, and an API that returns the features a text activates
+(`/search-all`) or explains one feature (`/feature`, `/explanation/search`).
+Its attribution graphs (circuit tracing) show which features feed which on
+a single prompt. What transfers to AgentDiff, and what does not:
+
+| # | Item | Source insight | Status |
+|---|------|----------------|--------|
+| I1 | **Per-step feature telemetry** — the top-k features a step's output activates, recorded by the harness with the model and SAE named, and a dashboard URL per feature | Neuronpedia feature dashboards; Gemma Scope (2024) | shipped (v42; `harness/neuronpedia.py`) |
+| I2 | **Exclusive-feature diff at the decisive step** — features that fire only on the failing side, aligned row by row, as an *observation* cited on the leading hypothesis | crosscoder / model-diffing null-control lesson; "which feature separates the runs" is a diff question | shipped (v42; `report.internals`) |
+| I3 | **Interval on the confidence line** — a step's own tokens disagree; the band says by how much, never how often the model is right | calibration literature; the v41 rule that every estimate states its basis | shipped (v42; `logprobs.confidence_interval`) |
+| I4 | **Steering / ablation replay** — clamp the exclusive feature and replay the decisive step; only a flipped outcome upgrades the signature from observation to cause | Neuronpedia steering UI; activation patching | queued (needs a steerable open-weights server) |
+| I5 | **Attribution graph on the decisive step** — which upstream features feed the exclusive one | circuit tracing (2025) | not adopted: single-prompt, needs the transcoder stack; the diff needs only the endpoint features |
+
+Adopted as a rule, not a feature: **correlation is not attribution**.
+The engine writes the causal boundary into the section itself (an
+activation difference is an observation of internal state; only an
+intervention can show it caused the outcome), the signature never moves a
+hypothesis score, and synthetic demo labels are marked `synthetic` in the
+trace, the report, the evidence basis, the chart key and the inspector.
+
 ## Sources
 
 Zhang et al., *Which Agent Causes Task Failures and When?*, ICML 2025 —

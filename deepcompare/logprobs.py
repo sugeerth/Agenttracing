@@ -83,6 +83,25 @@ def _binary_entropy(probability: float) -> float:
     return -(p * math.log(p) + (1 - p) * math.log(1 - p))
 
 
+def confidence_interval(probabilities: list, z: float = 1.96) -> Optional[dict]:
+    """A 95% interval for the step's mean token probability, over the
+    tokens the step generated (normal approximation of the mean; the
+    tokens of one step are treated as exchangeable draws).  ``None`` with
+    fewer than three scored tokens — an interval from two numbers is not
+    one.  This is the interval the page draws as a band around the
+    confidence line: it says how much the step's own tokens disagree, not
+    how often the model is right."""
+    n = len(probabilities)
+    if n < 3:
+        return None
+    mean = sum(probabilities) / n
+    variance = sum((p - mean) ** 2 for p in probabilities) / (n - 1)
+    half = z * (variance ** 0.5) / (n ** 0.5)
+    return {"low": round(max(0.0, mean - half), 4), "high": round(min(1.0, mean + half), 4),
+            "n": n, "basis": "95% normal interval of the mean token probability over "
+                             "the step's scored tokens"}
+
+
 def telemetry_from_logprobs(
     logprobs: Iterable[Any],
     temperature: Optional[float] = None,
@@ -118,6 +137,7 @@ def telemetry_from_logprobs(
     mean_probability = sum(probabilities) / len(probabilities)
     block = {
         "confidence": round(min(1.0, max(0.0, mean_probability)), 4),
+        "interval": confidence_interval(probabilities),
         "min_token_confidence": round(min(probabilities), 4),
         "entropy": round(sum(entropies) / len(entropies), 4),
         "tokens_scored": len(probabilities),

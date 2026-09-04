@@ -65,6 +65,22 @@ def confidence_series(trajectory: Trajectory) -> list[Optional[float]]:
     return [step_confidence(step) for step in trajectory.steps]
 
 
+def step_interval(step: Step) -> Optional[list[float]]:
+    """This step's [low, high] confidence interval, or None when absent."""
+    if not step.model or not isinstance(step.model.get("interval"), dict):
+        return None
+    band = step.model["interval"]
+    low, high = band.get("low"), band.get("high")
+    if low is None or high is None:
+        return None
+    return [round(float(low), 4), round(float(high), 4)]
+
+
+def interval_series(trajectory: Trajectory) -> list[Optional[list[float]]]:
+    """Per-step confidence intervals, None where a step carries none."""
+    return [step_interval(step) for step in trajectory.steps]
+
+
 def _stats(trajectory: Trajectory) -> dict:
     series = confidence_series(trajectory)
     known = [value for value in series if value is not None]
@@ -78,8 +94,20 @@ def _stats(trajectory: Trajectory) -> dict:
         for step in trajectory.steps
         if step.model and step.model.get("min_token_confidence") is not None
     ]
+    intervals = interval_series(trajectory)
+    bases = sorted({
+        str(step.model["interval"].get("basis"))
+        for step in trajectory.steps
+        if step.model and isinstance(step.model.get("interval"), dict)
+        and step.model["interval"].get("basis")
+    })
     return {
         "series": [round(v, 4) if v is not None else None for v in series],
+        # per-step [low, high] around the confidence, None where the step
+        # carried no interval; the basis is the trace's own words, so a
+        # synthetic band says so here rather than looking like a measurement
+        "interval": intervals,
+        "interval_basis": bases,
         "mean_confidence": round(sum(known) / len(known), 4) if known else None,
         "min_confidence": round(min(known), 4) if known else None,
         "mean_entropy": round(sum(entropies) / len(entropies), 4) if entropies else None,

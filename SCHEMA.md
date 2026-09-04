@@ -62,6 +62,33 @@ the same task are the unit of comparison.
 | reason     | intermediate reasoning/decision text                 |
 | answer     | emits the final answer (always the last step)        |
 
+### Step model telemetry (optional `model` object)
+
+A step may carry what the serving stack knew about its own generation.
+Every field is read as written; nothing here is estimated by the engine.
+
+```json
+"model": {
+  "confidence": 0.91,            "min_token_confidence": 0.62,  "entropy": 0.27,
+  "tokens_scored": 64,           "temperature": 0.2,            "source": "provider-logprobs",
+  "interval": {"low": 0.85, "high": 0.97, "n": 64,
+               "basis": "95% normal interval of the mean token probability over the step's scored tokens"},
+  "internals": {"model": "gemma-2-2b", "sae": "20-gemmascope-res-16k", "source": "neuronpedia",
+                "features": [{"index": 12480, "activation": 9.5, "max_activation": 12.0,
+                              "label": "unit / time-zone confusion", "tokens": ["11:45"],
+                              "url": "https://www.neuronpedia.org/gemma-2-2b/20-gemmascope-res-16k/12480"}],
+                "note": "features that fire on the text this step produced; ..."}
+}
+```
+
+- `interval` is written by `deepcompare.logprobs` from the step's own
+  token probabilities (`None` under three tokens). A `basis` beginning
+  `SYNTHETIC` is a demo band and is drawn and labelled as one.
+- `internals` is written by the harness (`deepcompare.harness.neuronpedia`:
+  the Neuronpedia API with `NEURONPEDIA_API_KEY` from the environment, or a
+  `ScriptedNeuronpedia` table offline). A `source` beginning `synthetic`
+  is labelled synthetic wherever it surfaces.
+
 ## Comparison report (engine output, consumed by the viewer)
 
 ```json
@@ -180,6 +207,20 @@ Every pairwise report carries, beyond the sections above:
   take_forward (located next actions), confidence, evidence, summary.
 - `verdict_card` — five lines (verdict, cause, cost, fix, confidence),
   each quoting a section above.
+- `uncertainty.{a,b}.interval` — per-step `[low, high]` beside `series`
+  (`None` where the step carries none) with `interval_basis`, the bases
+  quoted from the traces.
+- `internals` — `{available, provenance {model, sae, source}, synthetic,
+  rows[{row, a_index, b_index, features_a, features_b, only_a, only_b,
+  shared[{index, label, activation_a, activation_b, delta_b_minus_a}]}],
+  decisive {side, step, row, counterpart_step, exclusive_features,
+  counterpart_only, shared, signature, note}, note}` — the feature diff
+  across aligned steps, and at the decisive step the features that fired
+  only on the failing side. The signature is cited as `observable`
+  evidence for the leading hypothesis (path
+  `internals.decisive.exclusive_features`) and never moves a score; the
+  note says an activation difference is an observation, not a cause,
+  until a steering or ablation replay flips the outcome.
 - `task.expected` rides on the report so a replay can grade from it.
 - `narration` — optional, written by `narrate --ingest` or `why`;
   read by no analysis.
@@ -201,6 +242,7 @@ card v37; replay v40).
 | `explain TRACE [--html]` | read one run end to end |
 | `bench [DIR] [--strict]` | the diagnoser's own benchmark with the leakage probe |
 | `run --provider … --agent … --tasks …` | the harness: any model, any agent, graded SCHEMA traces |
+| `deepcompare.harness.neuronpedia` | record SAE feature activations per step (Neuronpedia or a scripted table) |
 | `replay REPORT --provider …` | verify the decisive step by re-execution; writes the verdict back |
 | `why REPORT --provider …` | narrate through a provider under the covenant |
 | `narrate` / `convert` / `check` | brief in/out by hand; foreign traces in; validate a trace |

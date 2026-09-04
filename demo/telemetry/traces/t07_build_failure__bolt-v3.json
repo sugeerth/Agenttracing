@@ -3,7 +3,7 @@
   "trace_id": "t07_build_failure__bolt-v3",
   "agent": {
     "name": "bolt-v3",
-    "model": "gpt-5",
+    "model": "sim-sprinter-3",
     "version": "v3"
   },
   "task": {
@@ -39,7 +39,37 @@
         "entropy": 0.2476,
         "tokens_scored": 80,
         "temperature": 0.7,
-        "source": "synthetic-demo"
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.8514,
+          "high": 0.9666,
+          "n": 80,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 1040,
+              "activation": 3.13,
+              "max_activation": 12.0,
+              "label": "task framing / enumerating sub-goals (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 2211,
+              "activation": 2.229,
+              "max_activation": 12.0,
+              "label": "instruction following (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
       }
     },
     {
@@ -58,7 +88,37 @@
         "entropy": 0.4117,
         "tokens_scored": 132,
         "temperature": 0.7,
-        "source": "synthetic-demo"
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.7969,
+          "high": 0.9359,
+          "n": 132,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 6021,
+              "activation": 6.044,
+              "max_activation": 12.0,
+              "label": "table / number extraction (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 7332,
+              "activation": 3.771,
+              "max_activation": 12.0,
+              "label": "arithmetic on units (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
       }
     },
     {
@@ -77,7 +137,37 @@
         "entropy": 0.2881,
         "tokens_scored": 84,
         "temperature": 0.7,
-        "source": "synthetic-demo"
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.7972,
+          "high": 0.946,
+          "n": 84,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 5183,
+              "activation": 7.275,
+              "max_activation": 12.0,
+              "label": "quoting a source (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 6021,
+              "activation": 2.281,
+              "max_activation": 12.0,
+              "label": "table / number extraction (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
       }
     },
     {
@@ -96,7 +186,37 @@
         "entropy": 0.3659,
         "tokens_scored": 79,
         "temperature": 0.7,
-        "source": "synthetic-demo"
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.8287,
+          "high": 0.9733,
+          "n": 79,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 6021,
+              "activation": 5.229,
+              "max_activation": 12.0,
+              "label": "table / number extraction (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 7332,
+              "activation": 3.98,
+              "max_activation": 12.0,
+              "label": "arithmetic on units (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
       }
     },
     {
@@ -115,7 +235,37 @@
         "entropy": 0.3651,
         "tokens_scored": 101,
         "temperature": 0.7,
-        "source": "synthetic-demo"
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.7789,
+          "high": 0.9411,
+          "n": 101,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 9045,
+              "activation": 5.849,
+              "max_activation": 12.0,
+              "label": "hedging language (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 8110,
+              "activation": 4.282,
+              "max_activation": 12.0,
+              "label": "self-check / verification (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
       }
     },
     {
@@ -134,7 +284,37 @@
         "entropy": 0.316,
         "tokens_scored": 105,
         "temperature": 0.7,
-        "source": "synthetic-demo"
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.7849,
+          "high": 0.9461,
+          "n": 105,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 9902,
+              "activation": 4.23,
+              "max_activation": 12.0,
+              "label": "final answer commitment (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 2211,
+              "activation": 2.299,
+              "max_activation": 12.0,
+              "label": "instruction following (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
       }
     }
   ]

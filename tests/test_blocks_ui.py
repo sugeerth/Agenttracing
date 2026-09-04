@@ -2302,5 +2302,184 @@ class AdversarialMapTest(unittest.TestCase):
         context.close()
 
 
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class IntervalsAndInternalsTest(unittest.TestCase):
+    """Per-step confidence intervals and recorded model internals reach
+    the page as bands, whiskers, marks and an inspector section, and a
+    synthetic source is labelled synthetic at every one of those places.
+
+    Driven by the telemetry demo (synthetic intervals + internals) for the
+    per-step views and by the multi-run demo for the pass^k band. Every
+    expectation is computed from the embedded reports.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run(
+            [sys.executable, "-m", "deepcompare", "batch",
+             str(ROOT / "demo" / "telemetry" / "traces"), "-o", str(out / "tel"),
+             "--template", str(ROOT / "web" / "blocks.html")],
+            cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run(
+            [sys.executable, "-m", "deepcompare", "runs",
+             str(ROOT / "demo" / "runs" / "traces"), "-o", str(out / "runs"),
+             "--template", str(ROOT / "web" / "blocks.html")],
+            cwd=str(ROOT), check=True, capture_output=True)
+        cls.tel = out / "tel" / "report.html"
+        cls.runs = out / "runs" / "report.html"
+        assert cls.tel.is_file() and cls.runs.is_file()
+        cls.t05 = json.loads((out / "tel" / "report_t05_flight_duration.json").read_text(encoding="utf-8"))
+        cls.runs_agg = json.loads((out / "runs" / "aggregate.json").read_text(encoding="utf-8"))
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM,
+                                              args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def open(self, report, fragment=""):
+        context = self.browser.new_context(viewport={"width": 1280, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{report}{fragment}")
+        page.wait_for_timeout(600)
+        return context, page, errors
+
+    def expand(self, page, block_id):
+        block = page.locator(f'.block[data-block="{block_id}"]')
+        if block.count() and "collapsed" in (block.get_attribute("class") or ""):
+            block.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(250)
+
+    def pick_t05(self, page):
+        page.locator('.tchip[title^="t05"]').first.click()
+        page.wait_for_timeout(400)
+
+    def test_every_scored_step_gets_a_whisker_and_an_internals_mark(self):
+        context, page, errors = self.open(self.tel)
+        self.pick_t05(page)
+        rep = self.t05
+        scored = sum(1 for side in ("a", "b") for st in rep[side]["steps"]
+                     if st.get("model") and st["model"].get("interval"))
+        with_internals = sum(1 for side in ("a", "b") for st in rep[side]["steps"]
+                             if st.get("model") and (st["model"].get("internals") or {}).get("features"))
+        self.assertGreater(scored, 0)
+        self.assertEqual(page.locator("svg.tj g.tjm-interval").count(), scored)
+        self.assertEqual(page.locator("svg.tj line.tjm-interval-band").count(), scored)
+        self.assertEqual(page.locator("svg.tj text.tjm-internals").count(), with_internals)
+        self.assertEqual(page.locator('svg.tj text.tjm-internals[data-synthetic="1"]').count(), with_internals,
+                         "synthetic internals are marked synthetic on every node")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_exclusive_feature_is_marked_only_at_the_decisive_step(self):
+        context, page, errors = self.open(self.tel)
+        self.pick_t05(page)
+        dec = self.t05["internals"]["decisive"]
+        self.assertTrue(dec["exclusive_features"])
+        marks = page.locator("svg.tj text.tjm-internals.exclusive")
+        self.assertEqual(marks.count(), 1)
+        where = marks.first.evaluate(
+            "e => e.closest('g').getAttribute('data-side') + ':' + e.closest('g').getAttribute('data-index')")
+        self.assertEqual(where, f"{dec['side']}:{dec['step']}")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_inspector_lists_features_with_bars_links_and_the_synthetic_label(self):
+        context, page, errors = self.open(self.tel)
+        self.pick_t05(page)
+        dec = self.t05["internals"]["decisive"]
+        side, index = dec["side"], dec["step"]
+        page.locator(f'svg.tj g.tj-hit[data-side="{side}"][data-index="{index}"]').first.dispatch_event("click")
+        page.wait_for_timeout(300)
+        step = next(st for st in self.t05[side]["steps"] if st["index"] == index)
+        feats = step["model"]["internals"]["features"]
+        pane = page.locator(".tj-pane", has_text=side.upper() + " ·").first
+        self.assertEqual(pane.locator(".tj-feat").count(), min(8, len(feats)))
+        exclusive = pane.locator(".tj-feat.exclusive")
+        self.assertEqual(exclusive.count(), len(dec["exclusive_features"]))
+        self.assertEqual(exclusive.first.get_attribute("data-feature"),
+                         str(dec["exclusive_features"][0]["index"]))
+        self.assertIn(dec["exclusive_features"][0]["label"],
+                      exclusive.first.locator(".tj-feat-name").text_content())
+        self.assertEqual(pane.locator(".tj-feat.exclusive .tag.bad").text_content(), "only here")
+        self.assertEqual(pane.locator(".tj-internals .tag.warn").count(), 1,
+                         "synthetic internals carry a synthetic tag in the inspector")
+        widths = pane.locator(".tj-feat-bar i").evaluate_all("els => els.map(e => parseFloat(e.style.width))")
+        self.assertEqual(len(widths), min(8, len(feats)))
+        self.assertTrue(all(0 < w <= 100 for w in widths), widths)
+        conf = pane.locator(".tj-conf").text_content()
+        band = step["model"]["interval"]
+        self.assertIn(f"{band['low'] * 100:.1f}%", conf)
+        self.assertIn(f"{band['high'] * 100:.1f}%", conf)
+        self.assertIn("SYNTHETIC", conf, "the interval basis is quoted, in the trace's own words")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_confidence_chart_shades_the_interval_and_names_its_basis(self):
+        context, page, errors = self.open(self.tel, "#view=batch")
+        self.pick_t05(page)
+        self.expand(page, "confidence")
+        block = page.locator('.block[data-block="confidence"]')
+        self.assertEqual(block.locator("polygon.sig-band").count(), 2, "one band per run")
+        self.assertEqual(block.locator("polyline").count(), 2, "the lines still sit on top")
+        key = block.locator(".sig-band-key")
+        self.assertEqual(key.count(), 1)
+        self.assertIn("SYNTHETIC", key.text_content())
+        self.assertIn("synthetic", key.get_attribute("class"))
+        # the band never claims a measurement outside the run's own data:
+        # every y in the polygon is within the chart's plotted range
+        u = self.t05["uncertainty"]
+        lows = [b[0] for side in ("a", "b") for b in u[side]["interval"] if b]
+        highs = [b[1] for side in ("a", "b") for b in u[side]["interval"] if b]
+        self.assertTrue(lows and highs)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_pass_curve_draws_the_ci95_band_with_its_basis(self):
+        context, page, errors = self.open(self.runs, "#view=batch")
+        self.expand(page, "passk")
+        block = page.locator('.block[data-block="passk"]')
+        per_agent = self.runs_agg["reliability"]["per_agent"]
+        with_ci = sum(1 for side in per_agent.values()
+                      if any(pt.get("ci95") for pt in (side.get("pass_hat_k") or {}).get("curve") or []))
+        self.assertGreater(with_ci, 0)
+        self.assertEqual(block.locator("polygon.sci-ci-band").count(), with_ci)
+        keys = block.locator(".sc-ci-key")
+        self.assertEqual(keys.count(), with_ci)
+        basis = next(side["pass_hat_k"]["ci95_basis"] for side in per_agent.values()
+                     if (side.get("pass_hat_k") or {}).get("ci95_basis"))
+        self.assertIn(basis[:40], keys.first.text_content())
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_plain_batch_draws_no_band_no_whisker_no_mark(self):
+        context, page, errors = self.open(self.runs)
+        self.assertEqual(page.locator("svg.tj g.tjm-interval").count(), 0)
+        self.assertEqual(page.locator("svg.tj text.tjm-internals").count(), 0)
+        page.locator('svg.tj g.tj-hit[data-side="a"]').first.dispatch_event("click")
+        page.wait_for_timeout(250)
+        self.assertEqual(page.locator(".tj-internals").count(), 0)
+        self.assertEqual(page.locator(".tj-conf").count(), 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+
 if __name__ == "__main__":
     unittest.main()

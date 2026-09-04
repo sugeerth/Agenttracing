@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from deepcompare import Trajectory
 from deepcompare.logprobs import (
     attach_telemetry,
+    confidence_interval,
     extract_logprobs,
     telemetry_from_logprobs,
 )
@@ -81,6 +82,42 @@ class TestTelemetryMath(unittest.TestCase):
         entries = [{"logprob": -0.2}, {"logprob": -1.1}]
         self.assertEqual(telemetry_from_logprobs(entries),
                          telemetry_from_logprobs(entries))
+
+
+class TestConfidenceInterval(unittest.TestCase):
+    def test_interval_brackets_the_mean_and_states_its_basis(self):
+        probs = [0.9, 0.8, 0.95, 0.7, 0.85]
+        band = confidence_interval(probs)
+        mean = sum(probs) / len(probs)
+        self.assertLess(band["low"], mean)
+        self.assertGreater(band["high"], mean)
+        self.assertEqual(band["n"], 5)
+        self.assertIn("95%", band["basis"])
+        self.assertIn("scored tokens", band["basis"])
+
+    def test_fewer_than_three_tokens_is_no_interval(self):
+        self.assertIsNone(confidence_interval([]))
+        self.assertIsNone(confidence_interval([0.9]))
+        self.assertIsNone(confidence_interval([0.9, 0.5]))
+
+    def test_interval_is_clamped_to_probabilities(self):
+        band = confidence_interval([0.999, 0.998, 0.997, 0.2])
+        self.assertGreaterEqual(band["low"], 0.0)
+        self.assertLessEqual(band["high"], 1.0)
+
+    def test_identical_tokens_give_a_zero_width_band(self):
+        band = confidence_interval([0.6, 0.6, 0.6, 0.6])
+        self.assertAlmostEqual(band["low"], 0.6, places=4)
+        self.assertAlmostEqual(band["high"], 0.6, places=4)
+
+    def test_telemetry_block_carries_the_interval(self):
+        entries = [{"logprob": math.log(p)} for p in (0.9, 0.5, 0.7, 0.8)]
+        block = telemetry_from_logprobs(entries)
+        self.assertEqual(block["interval"]["n"], 4)
+        self.assertLessEqual(block["interval"]["low"], block["confidence"])
+        self.assertLessEqual(block["confidence"], block["interval"]["high"])
+        short = telemetry_from_logprobs([{"logprob": math.log(0.9)}, {"logprob": math.log(0.5)}])
+        self.assertIsNone(short["interval"])
 
 
 class TestExtraction(unittest.TestCase):

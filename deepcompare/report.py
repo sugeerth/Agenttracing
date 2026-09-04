@@ -31,9 +31,39 @@ from .tradeoff import pair_tradeoff
 from .shapley import shapley_attribution
 from .uncertainty import analyze as analyze_uncertainty
 from .verdict import verdict_card
+from .internals import internals_analysis
 
 #: the template line containing this marker is replaced wholesale.
 DATA_MARKER = "window.DEEPCOMPARE_DATA"
+
+
+def _cite_internals(report: dict) -> None:
+    """Attach the decisive step's internal signature to the leading
+    hypothesis as observable evidence (recorded state), score untouched."""
+    internals = report.get("internals") or {}
+    decisive = internals.get("decisive")
+    diagnosis = report.get("diagnosis") or {}
+    if not decisive or not decisive.get("exclusive_features") or not diagnosis.get("leading"):
+        return
+    items = diagnosis.setdefault("evidence", [])
+    eid = f"E{len(items) + 1}"
+    labels = ", ".join(decisive["signature"])
+    items.append({
+        "id": eid, "type": "metric", "path": "internals.decisive.exclusive_features",
+        "value": len(decisive["exclusive_features"]),
+        "signal": f"features active at the decisive step and not at its counterpart: {labels}",
+        "basis": ("recorded model internals" + (" (SYNTHETIC demo labels)"
+                  if internals.get("synthetic") else "")),
+        "evidence_class": "observable",
+    })
+    for h in diagnosis.get("hypotheses", []):
+        if h.get("id") == diagnosis["leading"]:
+            h.setdefault("supports", []).append(eid)
+            classes = h.get("evidence_classes") or {}
+            classes["observable"] = classes.get("observable", 0) + 1
+            h["evidence_classes"] = classes
+            h["internal_signature"] = decisive["signature"]
+            break
 
 
 def compare(a: Trajectory, b: Trajectory) -> dict:
@@ -120,6 +150,11 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
     report["tradeoff"] = pair_tradeoff(report)
     report["efficiency"] = compare_efficiency(a, b)
     report["diagnosis"] = diagnose(report, a, b)
+    # recorded model internals (feature activations), read after the
+    # diagnosis so the decisive step's internal signature can be named;
+    # the section never changes a score — it adds evidence, labelled
+    report["internals"] = internals_analysis(report, a, b)
+    _cite_internals(report)
     # the reasoning layer: each run understood on its own, before and
     # independent of the comparison — what happened, what the answer rests
     # on, why it ended that way, what it means, what to take forward

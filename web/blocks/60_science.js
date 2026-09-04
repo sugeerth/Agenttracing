@@ -278,6 +278,38 @@
     plot.appendChild(svgText(ctx, (pad.l + W - pad.r) / 2, H - 3,
       "k — runs asked for", color.muted, 8.5, "middle"));
 
+    // The pass^k confidence band, from each point's recorded ci95, drawn
+    // beneath everything: it says how much the reliability curve could
+    // move with these few runs. Points without a ci95 leave a gap.
+    function ci95At(k) {
+      var rows = arr(hat.curve);
+      for (var i = 0; i < rows.length; i++) {
+        var row = obj(rows[i]);
+        if (row && row.k === k && Array.isArray(row.ci95) && isNum(row.ci95[0]) && isNum(row.ci95[1])) return row.ci95;
+      }
+      return null;
+    }
+    var bandRun = [];
+    function flushBand() {
+      if (bandRun.length >= 2) {
+        var up = bandRun.map(function (p) { return x(p.k) + "," + y(p.hi); });
+        var down = bandRun.slice().reverse().map(function (p) { return x(p.k) + "," + y(p.lo); });
+        plot.appendChild(ctx.svg("polygon", {
+          points: up.concat(down).join(" "),
+          fill: accent, "fill-opacity": 0.14, stroke: "none", class: "sci-ci-band",
+        }));
+      }
+      bandRun = [];
+    }
+    for (var kk = 1; kk <= maxK; kk++) {
+      var ci = ci95At(kk);
+      if (!ci) { flushBand(); continue; }
+      bandRun.push({ k: kk, lo: ci[0], hi: ci[1] });
+    }
+    flushBand();
+    var hasCi = false;
+    for (var kc = 1; kc <= maxK; kc++) if (ci95At(kc)) { hasCi = true; break; }
+
     // The gap, as an area. Drawn first so the lines sit on top of it.
     if (both.length >= 2) {
       var top = both.map(function (p) { return x(p.k) + "," + y(p.cov); });
@@ -420,11 +452,20 @@
 
         panel.appendChild(ctx.h("div", { class: "scroll-x" }, [passCurveChart(ctx, entry)]));
 
+        var hatCurve = arr(hat.curve);
+        var hasCi = hatCurve.some(function (pt) {
+          var row = obj(pt);
+          return row && Array.isArray(row.ci95) && isNum(row.ci95[0]) && isNum(row.ci95[1]);
+        });
         panel.appendChild(ctx.h("div", { class: "sc-legend" }, [
           ctx.h("span", null, [
             ctx.h("i", { class: "sc-dot", style: { borderTopColor: accent } }),
             "pass^k — all k runs pass (reliability)",
           ]),
+          hasCi ? ctx.h("span", { class: "sc-ci-key" }, [
+            ctx.h("i", { class: "sc-swatch", style: { background: accent, opacity: "0.25" } }),
+            "95% band on pass^k" + (str(hat.ci95_basis) ? " — " + str(hat.ci95_basis) : ""),
+          ]) : null,
           ctx.h("span", null, [
             ctx.h("i", {
               class: "sc-dot",

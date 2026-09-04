@@ -44,6 +44,18 @@
       ".tj-pane.absent{border-style:dashed;opacity:.72}",
       ".tj-pane h4{display:flex;align-items:center;gap:6px;font-size:var(--fs-xs);margin:0 0 5px;",
       "text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);font-weight:600}",
+      ".tj-internals{margin-top:8px}",
+      ".tj-feats{list-style:none;margin:2px 0 0;padding:0}",
+      ".tj-feat{padding:3px 0}",
+      ".tj-feat-row{display:flex;gap:6px;align-items:baseline;font-size:var(--fs-s);min-width:0}",
+      ".tj-feat-idx{color:var(--ink-3);font-size:var(--fs-xs)}",
+      ".tj-feat-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      ".tj-feat-act{color:var(--ink-3);font-size:var(--fs-xs)}",
+      ".tj-feat-bar{height:4px;background:var(--grid,#eee);border-radius:2px;margin-top:2px;overflow:hidden}",
+      ".tj-feat-bar i{display:block;height:100%;border-radius:2px}",
+      ".tj-feat.exclusive .tj-feat-name{color:var(--bad);font-weight:600}",
+      ".tj-band{color:var(--ink-3)}",
+      ".tj-band-basis{color:var(--ink-3);font-size:var(--fs-xs)}",
       ".tj-lbl{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin:6px 0 2px}",
       ".tj-text{font-family:var(--mono);font-size:var(--fs-xs);line-height:1.45;white-space:pre-wrap;",
       "word-break:break-word;background:var(--surface-2);border:1px solid var(--rule);",
@@ -1664,6 +1676,88 @@
     return btn;
   }
 
+  // ---- model telemetry on a step: the confidence interval and any
+  // recorded internals (feature activations). Both are read from the step
+  // as written; nothing here estimates.
+  function stepModel(step) {
+    return step && step.model && typeof step.model === "object" ? step.model : null;
+  }
+  function stepInterval(step) {
+    var m = stepModel(step);
+    var band = m && m.interval && typeof m.interval === "object" ? m.interval : null;
+    if (!band || typeof band.low !== "number" || typeof band.high !== "number") return null;
+    return band;
+  }
+  function stepInternals(step) {
+    var m = stepModel(step);
+    var it = m && m.internals && typeof m.internals === "object" ? m.internals : null;
+    if (!it || !Array.isArray(it.features) || !it.features.length) return null;
+    return it;
+  }
+  function internalsSynthetic(it) {
+    return !!(it && /^synthetic/i.test(String(it.source || it.model || "")));
+  }
+  // the decisive step's exclusive features, so the inspector and the map can
+  // mark the feature that fired only on the failing side
+  function decisiveInternals(report) {
+    var it = report && report.internals && typeof report.internals === "object" ? report.internals : null;
+    return it && it.available !== false && it.decisive && typeof it.decisive === "object" ? it.decisive : null;
+  }
+  function exclusiveIndexSet(report, side, index) {
+    var d = decisiveInternals(report);
+    var set = {};
+    if (!d || d.side !== side || d.step !== index) return set;
+    (Array.isArray(d.exclusive_features) ? d.exclusive_features : []).forEach(function (f) {
+      if (f && typeof f.index === "number") set[f.index] = true;
+    });
+    return set;
+  }
+
+  function internalsSection(report, side, step) {
+    var it = stepInternals(step);
+    if (!it) return null;
+    var exclusive = exclusiveIndexSet(report, side, step.index);
+    var synthetic = internalsSynthetic(it);
+    var box = H("div", { class: "tj-internals", "data-synthetic": synthetic ? "1" : "0" });
+    box.appendChild(H("div", { class: "tj-lbl" }, [
+      H("span", { text: "internals · " + String(it.model || "model") +
+                        (it.sae ? " / " + String(it.sae) : "") }),
+      synthetic ? H("span", { class: "tag warn", style: { marginLeft: "6px" }, text: "synthetic" }) : null,
+    ]));
+    var feats = it.features.slice(0, 8);
+    var maxAct = 0;
+    feats.forEach(function (f) {
+      var top = typeof f.max_activation === "number" ? f.max_activation : f.activation;
+      if (typeof top === "number" && top > maxAct) maxAct = top;
+    });
+    var list = H("ul", { class: "tj-feats" });
+    feats.forEach(function (f) {
+      if (!f || typeof f !== "object") return;
+      var act = typeof f.activation === "number" ? f.activation : null;
+      var width = act !== null && maxAct > 0 ? Math.max(2, Math.round(100 * act / maxAct)) : 0;
+      var isExclusive = typeof f.index === "number" && exclusive[f.index];
+      var item = H("li", { class: "tj-feat" + (isExclusive ? " exclusive" : ""),
+                           "data-feature": String(f.index) });
+      var label = String(f.label || ("feature " + f.index));
+      var name = typeof f.url === "string" && f.url
+        ? H("a", { href: f.url, target: "_blank", rel: "noopener", class: "tj-feat-name", text: label })
+        : H("span", { class: "tj-feat-name", text: label });
+      item.appendChild(H("div", { class: "tj-feat-row" }, [
+        H("span", { class: "mono tj-feat-idx", text: "#" + String(f.index) }),
+        name,
+        isExclusive ? H("span", { class: "tag bad", text: "only here" }) : null,
+        H("span", { class: "mono tj-feat-act", text: act !== null ? F.num(act, 2) : "—" }),
+      ]));
+      var bar = H("div", { class: "tj-feat-bar" });
+      bar.appendChild(H("i", { style: { width: width + "%", background: isExclusive ? C.bad : sideColor(side) } }));
+      item.appendChild(bar);
+      list.appendChild(item);
+    });
+    box.appendChild(list);
+    if (it.note) box.appendChild(H("div", { class: "tj-note", text: String(it.note) }));
+    return box;
+  }
+
   function detailPane(report, side, row, root, ctx) {
     var index = row[side + "_index"];
     var step = stepAt(report, side, index);
@@ -1695,9 +1789,18 @@
       isRoot ? H("span", { class: "tag bad", text: "root cause" }) : null,
     ]));
 
+    var model = stepModel(step);
+    var band = stepInterval(step);
     pane.appendChild(H("dl", { class: "kv" }, [
       H("dt", { text: "tokens" }), H("dd", { text: F.int(step.tokens) }),
       H("dt", { text: "latency" }), H("dd", { text: F.sec(step.latency_s) }),
+      model && typeof model.confidence === "number" ? H("dt", { text: "confidence" }) : null,
+      model && typeof model.confidence === "number" ? H("dd", { class: "tj-conf" }, [
+        H("span", { text: F.pct(model.confidence, 1) }),
+        band ? H("span", { class: "tj-band", text: " [" + F.pct(band.low, 1) + " – " + F.pct(band.high, 1) + "]" +
+                                                   (typeof band.n === "number" ? " n=" + band.n : "") }) : null,
+        band && band.basis ? H("span", { class: "tj-band-basis", text: " · " + String(band.basis) }) : null,
+      ]) : null,
     ]));
 
     pane.appendChild(H("div", { class: "tj-lbl", text: "input" }));
@@ -1705,6 +1808,8 @@
     pane.appendChild(H("div", { class: "tj-lbl", text: "output" }));
     pane.appendChild(H("div", { class: "tj-text", text: textOr(step.output) }));
     if (step.note) pane.appendChild(H("div", { class: "tj-note", text: step.note }));
+    var internals = internalsSection(report, side, step);
+    if (internals) pane.appendChild(internals);
 
     if (ctx && ctx.signal) {
       pane.addEventListener("mouseenter", function () { ctx.signal("hover"); }, { once: true });
@@ -2671,6 +2776,58 @@
               text: F.int(step.tokens) + "t",
             }));
           }
+          // the step's confidence interval, as a whisker on a 0–1 rule in
+          // the tokens column: the mark is the confidence, the bar its band
+          var band = stepInterval(step);
+          var conf = stepModel(step) && typeof stepModel(step).confidence === "number"
+            ? stepModel(step).confidence : null;
+          if (band || conf !== null) {
+            var ruleW = tokensW - 6;
+            var rx0 = side === "a" ? x - laneW + 8 : x + laneW - 8 - ruleW;
+            var ry = y + 11;
+            var whisker = S("g", { class: "tjm-interval" });
+            whisker.appendChild(S("line", { x1: rx0, x2: rx0 + ruleW, y1: ry, y2: ry,
+                                            stroke: C.grid, "stroke-width": 1 }));
+            if (band) {
+              whisker.appendChild(S("line", {
+                x1: rx0 + ruleW * Math.max(0, Math.min(1, band.low)),
+                x2: rx0 + ruleW * Math.max(0, Math.min(1, band.high)),
+                y1: ry, y2: ry, stroke: side === "a" ? C.a : C.b, "stroke-width": 3, opacity: 0.55,
+                class: "tjm-interval-band",
+              }));
+            }
+            if (conf !== null) {
+              whisker.appendChild(S("line", {
+                x1: rx0 + ruleW * conf, x2: rx0 + ruleW * conf, y1: ry - 3, y2: ry + 3,
+                stroke: side === "a" ? C.a : C.b, "stroke-width": 1.4,
+              }));
+            }
+            whisker.appendChild(S("title", {
+              text: "confidence " + (conf !== null ? F.pct(conf, 1) : "—") +
+                    (band ? " · interval " + F.pct(band.low, 1) + "–" + F.pct(band.high, 1) +
+                            (band.basis ? " · " + band.basis : "") : ""),
+            }));
+            g.appendChild(whisker);
+          }
+        }
+        // recorded internals: a small mark beside the glyph; red when one of
+        // the step's features is exclusive to it at the decisive step
+        var internals = stepInternals(step);
+        if (internals) {
+          var exclusiveHere = Object.keys(exclusiveIndexSet(report, side, step.index)).length > 0;
+          var mark = S("text", {
+            x: side === "a" ? x + 8 : x - 8, y: y - 6,
+            "text-anchor": "middle", "font-size": 8,
+            fill: exclusiveHere ? C.bad : C.muted, class: "tjm-internals" + (exclusiveHere ? " exclusive" : ""),
+            "data-synthetic": internalsSynthetic(internals) ? "1" : "0",
+            text: "◈",
+          });
+          mark.appendChild(S("title", {
+            text: internals.features.length + " recorded feature" + (internals.features.length === 1 ? "" : "s") +
+                  (exclusiveHere ? " · one fires only on this side at the decisive step" : "") +
+                  (internalsSynthetic(internals) ? " · SYNTHETIC demo internals" : ""),
+          }));
+          g.appendChild(mark);
         }
         var full = "input: " + String(step.input || "—") + "\noutput: " + String(step.output || "—");
         g.appendChild(S("title", {

@@ -71,6 +71,57 @@ def confidence_for(profile: dict, quality: str | None, rng: random.Random) -> fl
     return max(0.01, min(0.999, value))
 
 
+def interval_for(model: dict, rng: random.Random) -> dict:
+    """A synthetic 95% interval around the synthetic confidence: wider on
+    the low-confidence steps, as real token spreads are."""
+    c = model["confidence"]
+    half = round(min(0.2, 0.02 + (1 - c) * 0.35 + rng.random() * 0.02), 4)
+    return {"low": round(max(0.0, c - half), 4), "high": round(min(1.0, c + half), 4),
+            "n": model["tokens_scored"],
+            "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"}
+
+
+#: a small synthetic feature vocabulary.  These are NOT Neuronpedia
+#: features: the indices are arbitrary, the labels invented, and every
+#: record says so — they exist so the page can show what recorded
+#: internals look like.  Real runs get real features through
+#: deepcompare.harness.neuronpedia.
+FEATURE_POOL = {
+    "plan": [(1040, "task framing / enumerating sub-goals"), (2211, "instruction following")],
+    "search": [(3312, "web lookup intent"), (4470, "named-entity retrieval")],
+    "retrieve": [(4470, "named-entity retrieval"), (5183, "quoting a source")],
+    "read": [(5183, "quoting a source"), (6021, "table / number extraction")],
+    "tool_call": [(6021, "table / number extraction"), (7332, "arithmetic on units")],
+    "reason": [(8110, "self-check / verification"), (9045, "hedging language")],
+    "answer": [(9902, "final answer commitment"), (2211, "instruction following")],
+}
+FAULT_FEATURES = {
+    "weak": (11711, "unverified assumption"),
+    "bad": (12480, "unit / time-zone confusion"),
+}
+
+
+def internals_for(step: dict, agent: str, task: str, rng: random.Random) -> dict:
+    kind = step.get("type") or "reason"
+    picks = list(FEATURE_POOL.get(kind, FEATURE_POOL["reason"]))
+    features = []
+    for index, label in picks:
+        features.append({"index": index, "activation": round(2.0 + rng.random() * 6.0, 3),
+                         "max_activation": 12.0, "label": label + " (synthetic label)",
+                         "tokens": [], "url": None})
+    quality = step.get("quality")
+    if quality in FAULT_FEATURES:
+        index, label = FAULT_FEATURES[quality]
+        features.append({"index": index, "activation": round(6.0 + rng.random() * 5.0, 3),
+                         "max_activation": 12.0, "label": label + " (synthetic label)",
+                         "tokens": [], "url": None})
+    features.sort(key=lambda f: -f["activation"])
+    return {"model": "synthetic-demo", "sae": "synthetic-sae", "source": "synthetic-demo",
+            "features": features,
+            "note": "SYNTHETIC internals: invented feature labels to exercise the view; "
+                    "real runs record Neuronpedia features"}
+
+
 def telemetry_for(step: dict, profile: dict, rng: random.Random) -> dict:
     confidence = confidence_for(profile, step.get("quality"), rng)
     # The weakest token in a step sits below its mean; the gap widens as the
@@ -104,6 +155,8 @@ def main() -> int:
         for step in data["steps"]:
             rng = random.Random(f"telemetry|{agent}|{data['task']['id']}|{step['index']}")
             step["model"] = telemetry_for(step, profile, rng)
+            step["model"]["interval"] = interval_for(step["model"], rng)
+            step["model"]["internals"] = internals_for(step, agent, data["task"]["id"], rng)
         out_path = DEST / path.name
         out_path.write_text(
             json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"

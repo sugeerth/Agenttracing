@@ -50,6 +50,9 @@
         "color:var(--ink-3);margin-top:7px}",
         ".sig-dot{display:inline-block;width:9px;height:9px;border-radius:50%;",
         "vertical-align:-1px;margin-right:4px}",
+        ".sig-swatch{display:inline-block;width:12px;height:9px;border-radius:2px;",
+        "vertical-align:-1px;margin-right:4px}",
+        ".sig-band-key.synthetic{color:var(--warn,#b45309)}",
         ".sig-ring{display:inline-block;width:9px;height:9px;border-radius:50%;",
         "vertical-align:-1px;margin-right:4px;border:1.5px solid currentColor}",
         ".sig-h{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.06em;",
@@ -279,10 +282,28 @@
         ]),
         signal ? ctx.h("span", { style: { color: color.bad }, text: "▎ root cause step " + signal.root_cause_step }) : null,
       ]);
+      var bandBases = arr(u.a && u.a.interval_basis).concat(arr(u.b && u.b.interval_basis))
+        .filter(function (b, i, all) { return typeof b === "string" && all.indexOf(b) === i; });
+      var hasBand = arr(u.a && u.a.interval).concat(arr(u.b && u.b.interval)).some(function (band) {
+        return Array.isArray(band) && isNum(band[0]) && isNum(band[1]);
+      });
+      if (hasBand) {
+        var synthetic = bandBases.some(function (b) { return /synthetic/i.test(b); });
+        legend.appendChild(ctx.h("span", { class: "sig-band-key" + (synthetic ? " synthetic" : "") }, [
+          ctx.h("i", { class: "sig-swatch", style: { background: color.a, opacity: 0.25 } }),
+          ctx.h("span", { text: "shaded: interval per step" +
+            (bandBases.length ? " — " + bandBases.join("; ") : "") }),
+        ]));
+      }
 
       var W = 320, H = 150;
       var pad = { l: 27, r: 6, t: 9, b: 19 };
+      var bandA = arr(u.a && u.a.interval);
+      var bandB = arr(u.b && u.b.interval);
       var values = seriesA.concat(seriesB).filter(isNum);
+      bandA.concat(bandB).forEach(function (band) {
+        if (Array.isArray(band) && isNum(band[0]) && isNum(band[1])) values.push(band[0], band[1]);
+      });
       var lo = Math.max(0, Math.floor((Math.min.apply(null, values) - 0.04) * 20) / 20);
       var hi = Math.min(1, Math.ceil((Math.max.apply(null, values) + 0.04) * 20) / 20);
       if (hi - lo < 0.05) { hi = Math.min(1, lo + 0.1); }
@@ -313,6 +334,38 @@
           stroke: color.bad, "stroke-width": 1.2, "stroke-dasharray": "3 2",
         }));
       }
+
+      // ---- the interval band: [low, high] around each scored step, filled
+      // in the run's colour beneath its line. The band is drawn only where
+      // consecutive steps both carry an interval — a gap in the telemetry is
+      // a gap in the band, never bridged. Its basis is written in the legend
+      // in the trace's own words, so a synthetic band reads as synthetic.
+      function drawBand(band, fill) {
+        var run = [];
+        function flush() {
+          if (run.length > 1) {
+            var top = run.map(function (p) { return p[0] + "," + p[1]; });
+            var bottom = run.slice().reverse().map(function (p) { return p[0] + "," + p[2]; });
+            plot.appendChild(ctx.svg("polygon", {
+              points: top.concat(bottom).join(" "),
+              fill: fill, "fill-opacity": 0.16, stroke: "none", class: "sig-band",
+            }));
+          } else if (run.length === 1) {
+            plot.appendChild(ctx.svg("line", {
+              x1: run[0][0], x2: run[0][0], y1: run[0][1], y2: run[0][2],
+              stroke: fill, "stroke-width": 3, opacity: 0.3, class: "sig-band",
+            }));
+          }
+          run = [];
+        }
+        band.forEach(function (value, index) {
+          if (!Array.isArray(value) || !isNum(value[0]) || !isNum(value[1])) { flush(); return; }
+          run.push([x(index), y(value[1]), y(value[0])]);
+        });
+        flush();
+      }
+      drawBand(bandA, color.a);
+      drawBand(bandB, color.b);
 
       function drawSeries(series, stroke) {
         // Break the line at unscored steps rather than bridging them: a

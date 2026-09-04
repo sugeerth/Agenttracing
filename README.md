@@ -131,6 +131,13 @@ and agent-evaluation literature — counterfactual decisive steps
 faithfulness), overdetermination (Thought Anchors), pass^k reliability
 (τ-bench), leaky implanted benchmarks, paired designs — with each item's
 status in [`docs/RESEARCH_INSIGHTS.md`](docs/RESEARCH_INSIGHTS.md).
-Still open: MAST cross-mapping, strained coherence, structural anchors,
+With an open-weights model the harness also records what the model's
+own tokens say (a per-step confidence interval from its logprobs) and
+what its internals say (the Neuronpedia SAE features each step
+activates, with `NEURONPEDIA_API_KEY` set outside the chat); the report
+then names the features that fired only on the failing side at the
+decisive step, as cited evidence that never moves a score, and the page
+draws the band, the whiskers and the feature bars with their dashboard
+links. Still open: MAST cross-mapping, strained coherence, structural anchors,
 a same-configuration noise floor, and turning single failing logs into
 pairs by recording a passing run through the harness.

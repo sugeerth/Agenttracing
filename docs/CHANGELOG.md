@@ -1666,6 +1666,47 @@ decoy families at 1.0 on cause kind; the valueless ticket domain, which
 has no typed wrong fact to re-anchor on, stays adjacent by one step and
 is reported as such.
 
+## Intervals on the confidence line, model internals as evidence (v42)
+
+- **Per-step confidence interval.** `deepcompare.logprobs` now writes
+  `model.interval` `{low, high, n, basis}` — the 95% normal interval of
+  the step's mean token probability over its own scored tokens, `None`
+  under three tokens. `uncertainty.{a,b}.interval` carries the series
+  beside `series`, with `interval_basis` quoted from the traces. The
+  page shades the band under each run's confidence line, breaks it at
+  unscored steps, draws a whisker on every map node in the tokens
+  column, and prints `[low – high] n=…` with the basis in the inspector.
+  A basis beginning `SYNTHETIC` colours the legend key and says so.
+- **pass^k band.** The reliability curve shades each point's recorded
+  `ci95` (plug-in Wilson, raised to k) beneath the pass^k line with the
+  `ci95_basis` in the legend; points without a `ci95` leave a gap.
+- **Model internals.** The harness can stamp each step with the SAE
+  features its text activates: `deepcompare.harness.neuronpedia` talks
+  to the Neuronpedia API (`/search-all`, `/feature`, `/explanation/search`)
+  with `NEURONPEDIA_API_KEY` read from the environment only, or answers
+  from a `ScriptedNeuronpedia` table offline; `attach_internals(step,
+  client)` writes `model.internals` `{model, sae, source, features[{index,
+  activation, max_activation, label, tokens, url}], note}`. The network
+  boundary is unchanged: only the harness package imports `urllib`.
+- **`report.internals`.** Pure engine code diffs features across aligned
+  steps (`only_a`, `only_b`, `shared` with signed deltas) and, at the
+  decisive step, reports `exclusive_features` — what fired only on the
+  failing side — as the *internal signature*. The signature is appended
+  as `observable` evidence (path `internals.decisive.exclusive_features`)
+  on the leading hypothesis and never changes a score, so a pair with and
+  without internals ranks identically. Its note states the causal
+  boundary: an activation difference is an observation until steering or
+  ablating the feature and replaying flips the outcome.
+- **On the page.** A `◈` mark beside every node that carries internals
+  (red at the decisive step when a feature is exclusive there); an
+  *internals* section in the inspector with activation bars, dashboard
+  links and an `only here` tag on the exclusive feature; `synthetic` tags
+  wherever the source is synthetic.
+- **Demo.** `demo/telemetry` traces carry SYNTHETIC intervals and
+  SYNTHETIC internals (labelled in every field) so the views can be seen
+  without a key; the Colab notebook records real ones from an open-weights
+  model through Neuronpedia.
+
 ## Evidence classes, overdetermination, meltdown, intervals, one confidence (v41)
 
 - **Evidence classes.** Every `diagnosis.evidence` item carries
