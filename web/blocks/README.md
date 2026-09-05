@@ -73,7 +73,8 @@ pointer the card actions are always visible; under
 (ISC; its licence file sits beside it and is quoted into the built page).
 `build_blocks.py` inlines every `web/vendor/*.min.js` before the core, so
 the page stays one offline file. `03_d3charts.js` exposes
-`AgentDiff.charts` — `story(host, ctx, side)`, `tree(host, ctx)`,
+`AgentDiff.charts` — `body(host, ctx)` (the story's hero: the two runs
+over time, zoomable), `story(host, ctx, side)`, `tree(host, ctx)`,
 `why(host, ctx)`, `reconcile(host, ctx)`, `forward(host, ctx, side)`, plus `available()`, `motion()` (0 under
 `prefers-reduced-motion`) and `responsive(host, draw)` — and the story
 blocks call them at the top of their render. The rules: draw only what
@@ -114,6 +115,10 @@ re-renders (task, view, layout, chart windows and modes survive).
 `12_live.js` draws `State.data.live.runs` for the selected task and
 runs no analysis on them. `AgentDiff.taskIds()` is the reports' tasks
 plus the live ones. Never `fetch`; the build tests pin it.
+
+The hero is view-dependent: `defaultHeroId()` is `trace-body` in the
+story and `trajectory-map` elsewhere; a hero the user promoted wins in
+both.
 
 A block's `storyTitle` is the section name the story view numbers
 ("1 · What happened", "2 · The trace as a tree", "3 · Why",

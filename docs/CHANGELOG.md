@@ -1689,6 +1689,23 @@ is reported as such.
   units, no window needed. `AgentDiff.charts.mode.{get,set,expand}`
   drives it from outside.
 
+- **The two runs over time — the story's hero** (`charts.body`, block
+  `trace-body`). A super panel first: A beside B on outcome, decisive
+  step, first divergence, and five paired stats from `metrics_delta`
+  (steps, tool calls, tokens, latency, cost) with paired bars, then the
+  semantic similarity mean, the confidence and the trade-off statement.
+  Under it the body chart: each run a trunk along wall-clock time
+  (cumulative latency); its thinking — plan, reason, decide, verify — on
+  the trunk as squares and diamonds; every tool call a branch to a leaf
+  placed within the call's own duration, filled when its result fed the
+  answer, dashed when a dead end; the answer ending the trunk with ✓ or
+  ✗ and its time. A's branches grow up, B's down, so the gutter holds
+  the alignment: matched steps joined, drift in amber, a ranked
+  divergence in red; the fault's path reddens the failed trunk and the
+  decisive step is ringed. `d3.zoom` on time (wheel or drag; `+` `-`
+  `0`; double-click resets; labels drop at a zoom too tight for them).
+  A click opens the step in the inspector docked under the chart. The
+  Evidence view keeps the trajectory map as its hero.
 - **AgentDiff Live — the deployed demo** (`web/build_live.py` →
   `web/live.html`, published as a claude.ai artifact). Two real Claude
   agents — *atlas*, told to normalise before arithmetic and verify twice,

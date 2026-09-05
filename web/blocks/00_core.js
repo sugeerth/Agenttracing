@@ -31,6 +31,11 @@
    * an ordinary block rendered through the ordinary render(el, ctx); the
    * lane is a place, not a special case. */
   var DEFAULT_HERO = "trajectory-map";
+  //: the story opens on the two runs over time; the evidence view on the map
+  var STORY_HERO = "trace-body";
+  function defaultHeroId() {
+    return State.prefs && State.prefs.view === "story" && BY_ID[STORY_HERO] ? STORY_HERO : DEFAULT_HERO;
+  }
 
   //: Story mode: after the hero, these blocks follow at full width in this
   //: order — the reading of the failing run, the adjudicated diagnosis,
@@ -395,7 +400,7 @@
   function defaultLayout(ctx) {
     var stacks = STACK_PLAN.map(function () { return []; });
     var hidden = [];
-    var hero = BY_ID[DEFAULT_HERO] ? { id: DEFAULT_HERO, collapsed: false } : null;
+    var hero = BY_ID[defaultHeroId()] ? { id: defaultHeroId(), collapsed: false } : null;
     REGISTRY.forEach(function (entry) {
       var relevance = safeRelevance(entry, ctx);
       var target = 0;
@@ -561,9 +566,10 @@
     var stored = State.layout.hero;
     if (stored === null) return null;
 
-    var wanted = stored && BY_ID[stored.id] ? stored : null;
+    // a stored default (either view's) is not a choice: the view decides
+    var wanted = stored && BY_ID[stored.id] && stored.id !== DEFAULT_HERO && stored.id !== STORY_HERO ? stored : null;
     var source = wanted ? "chosen" : "default";
-    if (!wanted && BY_ID[DEFAULT_HERO]) wanted = { id: DEFAULT_HERO, collapsed: false };
+    if (!wanted && BY_ID[defaultHeroId()]) wanted = { id: defaultHeroId(), collapsed: !!(stored && stored.collapsed) };
     if (wanted && safeRelevance(BY_ID[wanted.id], ctx) > 0) {
       return { item: wanted, source: source, instead: null };
     }

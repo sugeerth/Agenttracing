@@ -667,6 +667,8 @@ class DecisiveStepBlockTest(unittest.TestCase):
         # hypothesized → long-dashed ring and a legend that says so;
         # only a replay-verified step earns a solid ring
         context, page, errors = self._open_page(self.t05_report)
+        page.locator('#view-tabs [data-view="evidence"]').click()
+        page.wait_for_timeout(600)
         ring = page.locator("svg .tj-ring.dec")
         self.assertGreaterEqual(ring.count(), 1, "no decisive ring on the map")
         self.assertIn("hypothesized", ring.first.get_attribute("class"))
@@ -987,7 +989,7 @@ class TrajectoryMapTest(unittest.TestCase):
         page = context.new_page()
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.goto(f"file://{self.report}")
+        page.goto(f"file://{self.report}#view=evidence")
         page.wait_for_timeout(400)
         block = page.locator('.block[data-block="trajectory-map"]')
         self.assertEqual(block.count(), 1, "Trajectory map is not on the page")
@@ -1383,7 +1385,7 @@ class MapRedesignTest(unittest.TestCase):
         page = context.new_page()
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.goto(f"file://{report}")
+        page.goto(f"file://{report}#view=evidence")
         page.wait_for_timeout(500)
         block = page.locator('.block[data-block="trajectory-map"]')
         self.assertEqual(block.count(), 1)
@@ -1633,12 +1635,15 @@ class SmallScreensKeysAndMotionTest(unittest.TestCase):
         if cls.tmp:
             cls.tmp.cleanup()
 
-    def _open(self, **context_args):
+    def _open_evidence(self, **context_args):
+        return self._open(view="evidence", **context_args)
+
+    def _open(self, view="story", **context_args):
         context = self.browser.new_context(**context_args)
         page = context.new_page()
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.goto(f"file://{self.report}")
+        page.goto(f"file://{self.report}#view={view}")
         page.wait_for_timeout(600)
         page.select_option("#task-picker", "t05_flight_duration")
         page.wait_for_timeout(500)
@@ -1649,14 +1654,15 @@ class SmallScreensKeysAndMotionTest(unittest.TestCase):
         height = page.evaluate("() => document.documentElement.scrollHeight")
         # the budget grew with the story's sections: 2 (the tree, folded on
         # a phone), 4 (reconcile: three lanes and a five-step strategy),
-        # 5 (take forward, with its numbered list) and 6 (next horizon: the
-        # prompts, the reward table, the pair): 5100 → 5500 → 6200 → 7200
-        self.assertLessEqual(height, 7200, f"story is {height}px tall on a phone")
+        # 5 (take forward, with its numbered list), 6 (next horizon: the
+        # prompts, the reward table, the pair) and the hero's super panel
+        # over the body chart: 5100 → 5500 → 6200 → 7200 → 7700
+        self.assertLessEqual(height, 7700, f"story is {height}px tall on a phone")
         self.assertFalse(page.evaluate("() => document.documentElement.scrollWidth > document.documentElement.clientWidth"))
         fold = page.locator("#hero-lane details.tj-inspector-fold")
         self.assertEqual(fold.count(), 1)
         self.assertFalse(fold.evaluate("d => d.open"))
-        self.assertIn("row", fold.locator("summary").inner_text())
+        self.assertIn("Step", fold.locator("summary").inner_text())
         # touch: the card actions are visible without a hover
         self.assertEqual(page.evaluate("() => getComputedStyle(document.querySelector('#story-lane .block-actions')).opacity"), "1")
         self.assertEqual(errors, [])
@@ -1681,7 +1687,7 @@ class SmallScreensKeysAndMotionTest(unittest.TestCase):
         context.close()
 
     def test_reduced_motion_replays_do_not_run(self):
-        context, page, errors = self._open(viewport={"width": 1280, "height": 900}, reduced_motion="reduce")
+        context, page, errors = self._open_evidence(viewport={"width": 1280, "height": 900}, reduced_motion="reduce")
         page.locator('#hero-lane [data-mapview="timeline"]').click()
         page.wait_for_timeout(400)
         play = page.locator("#hero-lane .tjm-cell .tj-ctl button").filter(has_text="▶")
@@ -1747,7 +1753,7 @@ class OneSidedMapTest(unittest.TestCase):
         page = context.new_page()
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.goto(f"file://{self.report}")
+        page.goto(f"file://{self.report}#view=evidence")
         page.wait_for_timeout(400)
         block = page.locator('.block[data-block="trajectory-map"]')
         self.assertEqual(block.count(), 1)
@@ -2363,7 +2369,7 @@ class IntervalsAndInternalsTest(unittest.TestCase):
         if cls.tmp:
             cls.tmp.cleanup()
 
-    def open(self, report, fragment=""):
+    def open(self, report, fragment="#view=evidence"):   # the map (whiskers, marks, inspector) is the Evidence view's hero
         context = self.browser.new_context(viewport={"width": 1280, "height": 900})
         page = context.new_page()
         errors = []
@@ -2934,6 +2940,79 @@ class StoryChartsTest(unittest.TestCase):
         self.assertEqual(link.count(), 1)
         self.assertTrue(link.get_attribute("href").startswith("data:application/json"))
         self.assertIn("deepcompare feedback", block.locator(".nh-export code").text_content())
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_story_opens_on_the_two_runs_over_time_with_the_super_panel(self):
+        context, page, errors = self.open()
+        rep = self.t05
+        hero = page.evaluate("() => [...document.querySelectorAll('#hero-lane > .block')].map(e => e.getAttribute('data-block'))")
+        self.assertEqual(hero, ["trace-body"])
+        # the super panel: outcome, decisive step, five paired stats from metrics_delta
+        lede = page.locator(".bd-lede").text_content()
+        self.assertIn(rep["a"]["agent"]["name"] + " ✓", lede)
+        self.assertIn(rep["b"]["agent"]["name"] + " ✗", lede)
+        self.assertIn(f"step {rep['diagnosis']['decisive_step']['step']}", lede)
+        keys = page.locator(".bd-stats .k").all_text_contents()
+        self.assertEqual(keys, ["steps", "tool calls", "tokens", "latency", "cost"])
+        md = rep["metrics_delta"]
+        nums = page.locator(".bd-stats .nums").all_text_contents()
+        self.assertEqual(nums[0], f"{md['steps']['a']} / {md['steps']['b']}")
+        self.assertEqual(nums[1], f"{md['tool_calls']['a']} / {md['tool_calls']['b']}")
+        # the body: one node per step of both runs, a branch per tool step, one alignment per paired row
+        svg = page.locator("svg.d3c-body")
+        self.assertEqual(svg.count(), 1)
+        n = len(rep["a"]["steps"]) + len(rep["b"]["steps"])
+        self.assertEqual(svg.locator("g.d3c-bnode").count(), n)
+        tools = sum(1 for s in "ab" for st in rep[s]["steps"] if st["type"] in ("tool_call", "search", "retrieve", "read"))
+        self.assertEqual(svg.locator("g.d3c-bnode.kind-branch").count(), tools)
+        paired = sum(1 for r in rep["alignment"] if r.get("a_index") is not None and r.get("b_index") is not None)
+        self.assertEqual(svg.locator("path.d3c-body-align").count(), paired)
+        self.assertEqual(svg.locator("path.d3c-body-align.diverge").count(), len(rep["divergences"]))
+        # the fault's path reddens the failed trunk; the decisive node is ringed
+        chain = set(rep["attribution"]["chain"]) | {l["step"] for l in rep["diagnosis"]["causal_account"]}
+        self.assertEqual(svg.locator("g.d3c-bnode.fault").count(), len(chain))
+        dec = rep["diagnosis"]["decisive_step"]
+        ringed = svg.locator("g.d3c-bnode.decisive")
+        self.assertEqual(ringed.count(), 1)
+        self.assertEqual((ringed.first.get_attribute("data-side"), ringed.first.get_attribute("data-step")), (rep["diagnosis"]["subject"], str(dec["step"])))
+        self.assertEqual(ringed.first.locator(".d3c-ring").count(), 1)
+        # time runs left to right: the answer node is the rightmost of its run
+        for side in "ab":
+            xs = svg.locator(f"g.d3c-bnode[data-side='{side}'] g.d3c-bmark").evaluate_all(
+                "els => els.map(e => +/translate\\(([-\\d.]+)/.exec(e.getAttribute('transform'))[1])")
+            self.assertEqual(xs, sorted(xs), side)
+        # the ruler labels seconds and ends near the longer run's total
+        ticks = svg.locator(".d3c-body-axis text.d3c-idx").all_text_contents()
+        self.assertTrue(all(t.endswith("s") for t in ticks), ticks)
+        # a click opens the step in the inspector docked under the chart
+        page.locator("svg.d3c-body g.d3c-bnode[data-side='b'][data-step='1']").first.dispatch_event("click")
+        page.wait_for_timeout(300)
+        pane = page.locator('[data-block="trace-body"] .tj-pane', has_text="B ·").first
+        self.assertIn("step 1", pane.locator("h4").text_content())
+        # zoom: a wheel over the chart rescales time and the nodes move; double-click resets
+        before = page.locator("svg.d3c-body g.d3c-bnode[data-side='a'][data-step='2'] g.d3c-bmark").first.get_attribute("transform")
+        page.evaluate("() => { const s = document.querySelector('svg.d3c-body'); s.dispatchEvent(new WheelEvent('wheel', {deltaY: -400, clientX: 600, clientY: 150, bubbles: true})); }")
+        page.wait_for_timeout(400)
+        after = page.locator("svg.d3c-body g.d3c-bnode[data-side='a'][data-step='2'] g.d3c-bmark").first.get_attribute("transform")
+        self.assertNotEqual(before, after)
+        page.locator("svg.d3c-body").first.dispatch_event("dblclick")
+        page.wait_for_timeout(700)
+        reset = page.locator("svg.d3c-body g.d3c-bnode[data-side='a'][data-step='2'] g.d3c-bmark").first.get_attribute("transform")
+        self.assertEqual(reset, before)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_evidence_view_keeps_the_map_as_its_hero(self):
+        context, page, errors = self.open()
+        page.locator('#view-tabs [data-view="evidence"]').click()
+        page.wait_for_timeout(700)
+        hero = page.evaluate("() => [...document.querySelectorAll('#hero-lane > .block')].map(e => e.getAttribute('data-block'))")
+        self.assertEqual(hero, ["trajectory-map"])
+        page.locator('#view-tabs [data-view="story"]').click()
+        page.wait_for_timeout(700)
+        hero = page.evaluate("() => [...document.querySelectorAll('#hero-lane > .block')].map(e => e.getAttribute('data-block'))")
+        self.assertEqual(hero, ["trace-body"])
         self.assertEqual(errors, [])
         context.close()
 

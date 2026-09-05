@@ -119,6 +119,9 @@
       ".tt-fold > summary::before{content:'▸ '}.tt-fold[open] > summary::before{content:'▾ '}",
       ".d3c-scroll{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;max-width:100%}",
       ".d3c-scroll > svg{display:block;max-width:none}",
+      ".d3c .d3c-bnode{cursor:pointer;outline:none}",
+      ".d3c .d3c-bnode:focus-visible .d3c-bmark path,.d3c .d3c-bnode:focus-visible .d3c-bmark circle,.d3c .d3c-bnode:focus-visible .d3c-bleaf circle{stroke:var(--accent);stroke-width:3px}",
+      ".d3c-body{cursor:grab}.d3c-body:active{cursor:grabbing}",
       ".d3c .d3c-tnode{cursor:pointer;outline:none}",
       ".d3c .d3c-tnode.kind-task{cursor:default}",
       ".d3c .d3c-tnode:focus-visible > circle:first-child{fill:var(--accent);fill-opacity:.15;stroke:var(--accent);stroke-width:1.5px}",
@@ -2058,6 +2061,271 @@
     legend.appendChild(legendItem(P, { role: "feeds_answer" }, sideColor(plan.failing), fName + " (failing)"));
     if (hasSplice) legend.appendChild(legendItem(P, { line: true }, P.rule2, "where each reconciled step comes from"));
     legend.appendChild(legendItem(P, { line: true, dashed: true }, P.bad, "the cut, at the decisive step"));
+    host.appendChild(legend);
+    return svg.node();
+  }
+
+  // ======================================================= 6. the body
+
+  /* The two runs over time, as bodies with branches. Each run is a trunk
+   * along one wall-clock axis (cumulative latency): the thinking — plan,
+   * reason, decide — sits on the trunk; every tool call branches off it
+   * to a leaf that names the tool, filled when its result fed the answer,
+   * dashed when it was a dead end; the answer ends the trunk with ✓ or ✗.
+   * A's branches grow up, B's grow down, so the gutter between the trunks
+   * holds the alignment: matched steps joined by a faint curve, drift in
+   * amber, a ranked divergence in red. The fault's path (attribution
+   * chain) reddens the failed trunk; the decisive step is ringed. Wheel
+   * or drag zooms and pans time (d3.zoom); double-click resets; a click
+   * on any node opens it in the inspector. Nothing here is derived: the
+   * times are the steps' latencies, the roles the reading's, the links
+   * the alignment's. */
+  charts.body = function (host, ctx) {
+    ensureStyle();
+    if (!charts.available()) return null;
+    var report = ctx.report;
+    if (!report || (!stepsOf(report, "a").length && !stepsOf(report, "b").length)) return null;
+    return responsive(host, function () { drawBody(host, ctx, report); }, "body:" + (report.task && report.task.id));
+  };
+
+  var BodyZoom = {};   // per task: the current zoom transform, kept across repaints
+
+  function drawBody(host, ctx, report) {
+    var P = palette();
+    var duration = charts.motion();
+    var taskKey = report.task && report.task.id ? report.task.id : "task";
+    var dec = decisiveOf(report);
+    var fault = faultPath(report);
+    var rows = Array.isArray(report.alignment) ? report.alignment : [];
+    // a ranked divergence names a step on each side; the alignment link
+    // that touches either step is the divergence's link
+    var diverged = { a: {}, b: {} };
+    (Array.isArray(report.divergences) ? report.divergences : []).forEach(function (d) {
+      if (!d) return;
+      if (isNum(d.a_index)) diverged.a[d.a_index] = d;
+      if (isNum(d.b_index)) diverged.b[d.b_index] = d;
+    });
+    var runs = ["a", "b"].map(function (side) {
+      var steps = stepsOf(report, side);
+      var reading = readingOf(report, side);
+      var roles = {};
+      ((reading && reading.what_happened) || []).forEach(function (w) { if (w && isNum(w.step)) roles[w.step] = w.role; });
+      var t = 0, nodes = [];
+      steps.forEach(function (st, i) {
+        var lat = isNum(st.latency_s) ? Math.max(0, st.latency_s) : 0;
+        var kind = st.type === "answer" ? "answer"
+          : (st.type === "tool_call" || st.type === "search" || st.type === "retrieve" || st.type === "read") ? "branch" : "trunk";
+        nodes.push({ side: side, i: i, step: st, t0: t, t1: t + lat, lat: lat, kind: kind, role: roles[i] || null,
+                     fault: !!(fault[side] && fault[side][i]), decisive: !!(dec && dec.side === side && dec.step === i),
+                     error: st.error === true });
+        t += lat;
+      });
+      var outcome = report[side] && report[side].outcome ? report[side].outcome : {};
+      return { side: side, name: agentName(report, side), nodes: nodes, total: t, success: outcome.success === true, steps: steps };
+    });
+    var tMax = Math.max(1e-6, d3.max(runs, function (r) { return r.total; }));
+
+    var W = width(host, ctx);
+    var H = W >= 700 ? 340 : 300;
+    var m = { l: 16, r: 16 };
+    var yA = Math.round(H * 0.36), yB = Math.round(H * 0.64), yAxis = Math.round(H / 2);
+    var reach = Math.min(74, Math.round(H * 0.2));
+    var x0 = d3.scaleLinear().domain([0, tMax]).range([m.l + 30, W - m.r - 46]);
+    var zoomState = BodyZoom[taskKey] || d3.zoomIdentity;
+    var x = zoomState.rescaleX(x0);
+
+    var wrap = d3.select(host).append("div").attr("class", "d3c-wrap d3c-body-wrap");
+    var svg = wrap.append("svg").attr("class", "d3c d3c-body").attr("width", W).attr("height", H)
+      .attr("viewBox", "0 0 " + W + " " + H).attr("role", "img")
+      .attr("aria-label", "Both runs over time: the thinking on each trunk, tool calls as branches, the alignment between them");
+    svg.append("title").text("The two runs over time, as bodies with branches");
+    var defs = svg.append("defs");
+    defs.append("clipPath").attr("id", "d3c-body-clip-" + taskKey.replace(/[^a-zA-Z0-9_-]/g, "_"))
+      .append("rect").attr("x", 0).attr("y", 0).attr("width", W).attr("height", H);
+    var clip = "url(#d3c-body-clip-" + taskKey.replace(/[^a-zA-Z0-9_-]/g, "_") + ")";
+    var scene = svg.append("g").attr("class", "d3c-scene").attr("clip-path", clip);
+    var gLinks = scene.append("g").attr("class", "d3c-body-links");
+    var gTrunks = scene.append("g").attr("class", "d3c-body-trunks");
+    var gAxis = scene.append("g").attr("class", "d3c-body-axis");
+    var gNodes = scene.append("g").attr("class", "d3c-body-nodes");
+    var gEnds = scene.append("g").attr("class", "d3c-body-ends");
+
+    // run names in the corners, clear of every leaf label; never scroll away
+    [["a", 12], ["b", H - 6]].forEach(function (pair) {
+      var run = runs[pair[0] === "a" ? 0 : 1];
+      svg.append("text").attr("class", "d3c-cap").attr("x", m.l).attr("y", pair[1])
+        .attr("fill", sideColor(pair[0])).attr("font-weight", 700).attr("font-size", 11.5).text(run.name);
+    });
+
+    var link = d3.linkVertical().x(function (d) { return d.x; }).y(function (d) { return d.y; });
+    var timeFmt = function (t) { return t >= 100 ? Math.round(t) + "s" : t >= 10 ? t.toFixed(0) + "s" : t.toFixed(1) + "s"; };
+
+    function leafY(node, k) {
+      var dir = node.side === "a" ? -1 : 1;
+      var base = node.side === "a" ? yA : yB;
+      return base + dir * (reach * (k % 2 ? 1 : 0.62));
+    }
+
+    function render(first) {
+      var span = x.domain()[1] - x.domain()[0];
+      var pxPerS = (x.range()[1] - x.range()[0]) / Math.max(1e-6, span);
+
+      // ---- the alignment, beneath everything
+      var pairs = rows.filter(function (r) { return r && isNum(r.a_index) && isNum(r.b_index); }).map(function (r) {
+        var na = runs[0].nodes[r.a_index], nb = runs[1].nodes[r.b_index];
+        return na && nb ? { r: r, na: na, nb: nb, div: !!(diverged.a[r.a_index] || diverged.b[r.b_index]) } : null;
+      }).filter(Boolean);
+      var al = gLinks.selectAll("path.d3c-body-align").data(pairs, function (d) { return d.r.a_index + ":" + d.r.b_index; });
+      al.enter().append("path").attr("class", function (d) { return "d3c-body-align " + (d.div ? "diverge" : d.r.op === "match" ? "match" : "drift"); })
+        .attr("fill", "none").attr("stroke", function (d) { return d.div ? P.bad : d.r.op === "match" ? P.rule2 : P.warn; })
+        .attr("stroke-width", function (d) { return d.div ? 1.6 : 1; })
+        .attr("stroke-dasharray", function (d) { return d.r.op === "match" ? null : "3 3"; })
+        .attr("opacity", 0.8)
+        .merge(al)
+        .attr("d", function (d) { return link({ source: { x: x(d.na.t0), y: yA + 6 }, target: { x: x(d.nb.t0), y: yB - 6 } }); })
+        .each(function (d) {
+          var t = d3.select(this).select("title");
+          if (t.empty()) d3.select(this).append("title").text("row " + rows.indexOf(d.r) + " · " + d.r.op + (isNum(d.r.similarity) ? " · similarity " + d.r.similarity.toFixed(2) : "") + (d.div ? " · divergence" : ""));
+        });
+      al.exit().remove();
+
+      // ---- trunks: one thick line per run, red along the fault's path
+      runs.forEach(function (run) {
+        var y = run.side === "a" ? yA : yB;
+        var segs = [];
+        run.nodes.forEach(function (n, i) {
+          var next = run.nodes[i + 1];
+          var end = next ? next.t0 : n.t1;
+          segs.push({ key: run.side + ":" + i, t0: n.t0, t1: Math.max(end, n.t0), fault: n.fault && (!next || next.fault || next.kind === "answer") });
+        });
+        var seg = gTrunks.selectAll("line.d3c-trunk-" + run.side).data(segs, function (d) { return d.key; });
+        seg.enter().append("line").attr("class", "d3c-trunk d3c-trunk-" + run.side)
+          .attr("stroke-linecap", "round").merge(seg)
+          .attr("x1", function (d) { return x(d.t0); }).attr("x2", function (d) { return Math.max(x(d.t0), x(d.t1)); })
+          .attr("y1", y).attr("y2", y)
+          .attr("stroke", function (d) { return d.fault ? P.bad : sideColor(run.side); })
+          .attr("stroke-width", function (d) { return d.fault ? 5 : 3.5; })
+          .attr("opacity", function (d) { return d.fault ? 0.85 : 0.55; });
+        seg.exit().remove();
+      });
+
+      // ---- the time ruler in the gutter
+      gAxis.selectAll("*").remove();
+      var ticks = x.ticks(Math.max(3, Math.floor((W - 40) / 90)));
+      gAxis.append("line").attr("x1", x.range()[0]).attr("x2", x.range()[1]).attr("y1", yAxis).attr("y2", yAxis).attr("stroke", P.rule).attr("stroke-width", 1);
+      ticks.forEach(function (t) {
+        gAxis.append("line").attr("x1", x(t)).attr("x2", x(t)).attr("y1", yAxis - 3).attr("y2", yAxis + 3).attr("stroke", P.rule2);
+        gAxis.append("text").attr("class", "d3c-idx").attr("x", x(t)).attr("y", yAxis + 13).attr("text-anchor", "middle").text(timeFmt(t));
+      });
+      gAxis.append("text").attr("class", "d3c-cap").attr("x", x.range()[1]).attr("y", yAxis - 6).attr("text-anchor", "end").text("elapsed, from each run's own latencies");
+
+      // ---- nodes: thinking on the trunk, tools as branches, the answer at the end
+      var all = runs[0].nodes.concat(runs[1].nodes);
+      var node = gNodes.selectAll("g.d3c-bnode").data(all, function (d) { return d.side + ":" + d.i; });
+      var enter = node.enter().append("g")
+        .attr("class", function (d) { return "d3c-bnode kind-" + d.kind + (d.fault ? " fault" : "") + (d.decisive ? " decisive" : ""); })
+        .attr("data-side", function (d) { return d.side; }).attr("data-step", function (d) { return d.i; })
+        .attr("data-kind", function (d) { return d.kind; })
+        .attr("tabindex", 0).attr("role", "button")
+        .attr("aria-label", function (d) { return d.side.toUpperCase() + " step " + d.i + " · " + (d.step.name || d.step.type) + " at " + timeFmt(d.t0) + (d.decisive ? " · decisive" : ""); });
+      enter.append("path").attr("class", "d3c-branch").attr("fill", "none");
+      enter.append("g").attr("class", "d3c-bleaf");
+      enter.append("g").attr("class", "d3c-bmark");
+      enter.append("text").attr("class", "d3c-blabel");
+      enter.append("title");
+      var merged = enter.merge(node);
+      merged.each(function (d, k) {
+        var g = d3.select(this);
+        var y = d.side === "a" ? yA : yB;
+        var px = x(d.t0);
+        var color = d.fault ? P.bad : sideColor(d.side);
+        var dense = pxPerS * Math.max(d.lat, 0.4) < 26;   // too tight for a label at this zoom
+        var mark = g.select("g.d3c-bmark").attr("transform", "translate(" + px + "," + y + ")");
+        mark.selectAll("*").remove();
+        var leaf = g.select("g.d3c-bleaf");
+        leaf.selectAll("*").remove();
+        var branch = g.select("path.d3c-branch");
+        var label = g.select("text.d3c-blabel");
+        if (d.kind === "branch") {
+          // a branch: from the trunk out to a leaf placed within the call's own duration
+          var ly = leafY(d, d.i);
+          var lx = px + Math.max(10, Math.min(60, pxPerS * d.lat * 0.5));
+          branch.attr("d", "M" + px + "," + y + " C" + px + "," + ((y + ly) / 2) + " " + lx + "," + ((y + ly) / 2) + " " + lx + "," + ly)
+            .attr("stroke", color).attr("stroke-width", d.fault ? 2 : 1.4)
+            .attr("stroke-dasharray", d.role === "dead_end" || d.role === "no_information" || d.role === "repeat" ? "3 3" : null)
+            .attr("opacity", 0.9).style("display", null);
+          mark.append("circle").attr("r", 3).attr("fill", color);
+          leaf.attr("transform", "translate(" + lx + "," + ly + ")");
+          var fed = d.role === "feeds_answer";
+          leaf.append("circle").attr("r", d.decisive ? 7 : 6).attr("fill", fed ? color : P.surface).attr("stroke", color)
+            .attr("stroke-width", 1.8).attr("stroke-dasharray", d.role === "dead_end" || d.role === "no_information" || d.role === "repeat" ? "2.5 2" : null);
+          if (d.error) leaf.append("text").attr("class", "d3c-cap").attr("y", 4).attr("text-anchor", "middle").attr("fill", P.bad).attr("font-weight", 800).text("!");
+          if (d.decisive) leaf.append("circle").attr("class", "d3c-ring " + (dec.verification === "replay-verified" ? "verified" : "hypothesized")).attr("r", 12);
+          label.attr("x", lx).attr("y", ly + (d.side === "a" ? -12 : 18)).attr("text-anchor", "middle").attr("fill", d.fault ? P.bad : P.ink2)
+            .attr("font-size", 10.5).attr("font-family", "var(--mono)")
+            .text(dense ? "" : truncate(d.step.name || d.step.type, 16) + (d.decisive ? " · decisive" : ""));
+        } else if (d.kind === "answer") {
+          branch.style("display", "none");
+          mark.append("circle").attr("r", 10).attr("fill", "none").attr("stroke", d.step && runs[d.side === "a" ? 0 : 1].success ? P.good : P.bad).attr("stroke-width", 2);
+          mark.append("circle").attr("r", 5).attr("fill", color);
+          if (d.decisive) mark.append("circle").attr("class", "d3c-ring hypothesized").attr("r", 14);
+          label.attr("x", px).attr("y", y + (d.side === "a" ? -16 : 22)).attr("text-anchor", "middle").attr("fill", runs[d.side === "a" ? 0 : 1].success ? P.good : P.bad)
+            .attr("font-size", 11).attr("font-weight", 700).attr("font-family", "var(--sans)")
+            .text((runs[d.side === "a" ? 0 : 1].success ? "✓ solved" : "✗ failed") + " · " + timeFmt(d.t0));
+        } else {
+          // thinking on the trunk
+          branch.style("display", "none");
+          var role = d.role || d.step.type;
+          var shape = role === "verify" ? "diamond" : "square";
+          var pathD = markPath(shape, d.decisive ? 6 : 4.5);
+          mark.append("path").attr("d", pathD).attr("fill", P.surface).attr("stroke", color).attr("stroke-width", 1.8);
+          if (d.decisive) mark.append("circle").attr("class", "d3c-ring " + (dec.verification === "replay-verified" ? "verified" : "hypothesized")).attr("r", 11);
+          label.attr("x", px).attr("y", y + (d.side === "a" ? 18 : -12)).attr("text-anchor", "middle").attr("fill", P.muted)
+            .attr("font-size", 10).attr("font-family", "var(--mono)")
+            .text(dense ? "" : truncate(role === "feeds_answer" ? (d.step.name || d.step.type) : role.replace(/_/g, " "), 12) + (d.decisive ? " · decisive" : ""));
+        }
+        g.select("title").text(d.side.toUpperCase() + " step " + d.i + " · " + (d.step.name || d.step.type) + " · " + timeFmt(d.t0) + (d.lat ? " +" + d.lat.toFixed(2) + "s" : "") +
+          (d.role ? " · " + ((ROLE[d.role] || {}).label || d.role.replace(/_/g, " ")) : "") + "\n" + truncate(d.step.output || d.step.input || "", 220));
+      });
+      node.exit().remove();
+      merged.on("mousemove", function (event, d) {
+        showTip(event, [{ b: true, text: d.side.toUpperCase() + " · step " + d.i + " · " + (d.step.name || d.step.type) },
+          { text: timeFmt(d.t0) + (d.lat ? " + " + d.lat.toFixed(2) + "s" : "") + (isNum(d.step.tokens) ? " · " + d.step.tokens + " tokens" : "") + (d.role ? " · " + ((ROLE[d.role] || {}).label || d.role.replace(/_/g, " ")) : "") },
+          { mono: true, text: truncate(d.step.input || "", 110) }, { mono: true, text: "→ " + truncate(d.step.output || "", 140) }]);
+      }).on("mouseleave", hideTip)
+        .on("click", function (event, d) { hideTip(); selectStep(report, d.side, d.i); })
+        .on("keydown", function (event, d) { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectStep(report, d.side, d.i); } });
+      if (first && duration && !zoomState.k) { /* no entrance animation beyond the arrival of nodes */ }
+    }
+    render(true);
+
+    // ---- zoom & pan on time; double-click resets
+    var zoom = d3.zoom().scaleExtent([1, 40])
+      .translateExtent([[x0.range()[0] - 8, 0], [x0.range()[1] + 8, H]])
+      .extent([[x0.range()[0], 0], [x0.range()[1], H]])
+      .on("zoom", function (event) {
+        BodyZoom[taskKey] = event.transform;
+        x = event.transform.rescaleX(x0);
+        render(false);
+        hideTip();
+      });
+    svg.call(zoom).on("dblclick.zoom", null).on("dblclick", function () { svg.transition().duration(duration).call(zoom.transform, d3.zoomIdentity); });
+    if (zoomState !== d3.zoomIdentity) svg.call(zoom.transform, zoomState);
+    svg.attr("tabindex", 0).on("keydown.body", function (event) {
+      if (event.key === "0") { svg.call(zoom.transform, d3.zoomIdentity); }
+      else if (event.key === "+" || event.key === "=") { svg.call(zoom.scaleBy, 1.5); }
+      else if (event.key === "-") { svg.call(zoom.scaleBy, 1 / 1.5); }
+    });
+
+    var legend = document.createElement("div");
+    legend.className = "d3c-legend";
+    legend.appendChild(legendItem(P, { line: true }, P.ink2, "trunk = the run over time; squares think, diamonds verify"));
+    legend.appendChild(legendItem(P, { role: "feeds_answer" }, P.ink2, "leaf = a tool call; filled when its result fed the answer, dashed when a dead end"));
+    legend.appendChild(legendItem(P, { line: true }, P.bad, "the fault's path"));
+    legend.appendChild(legendItem(P, { line: true, dashed: true }, P.warn, "aligned but drifted; red = a ranked divergence"));
+    if (dec) legend.appendChild(legendItem(P, { ring: true, dashed: dec.verification !== "replay-verified" }, P.bad, "decisive step"));
+    var hint = document.createElement("span"); hint.textContent = "wheel or drag to zoom time · double-click to reset · click a node to open it";
+    legend.appendChild(hint);
     host.appendChild(legend);
     return svg.node();
   }
