@@ -97,6 +97,24 @@ edge label ("from step 12 ·", "← 280 earlier"); never shrink labels to
 illegibility. The tree pages a long phase with `more` nodes
 (`TREE_PAGE`).
 
+The story chart draws a *view model* — real steps, or units when the
+run is compressed (`compressView`) — and every downstream element uses
+unit indices, with `data-step` carrying the first real step for the
+cursor. Its toolbar (`storyToolbar`) holds the axis, the compression
+toggle and the replay controls; replay tags elements with `data-order`
+and only changes opacity and a class. Keep `data-unit`, `data-count`,
+`.group`, `.d3c-future`, `.d3c-now`, `.d3c-toolbar button.{play,reset,
+compress,axis-steps,axis-time}` and `.d3c-scrub` — the browser tests
+drive them.
+
+Live: `90_live.js` is the only module that speaks to a server, and only
+when the data the server injected carries `live.enabled`; it hands every
+event to `AgentDiff.load(data)`, which swaps the data in place and
+re-renders (task, view, layout, chart windows and modes survive).
+`12_live.js` draws `State.data.live.runs` for the selected task and
+runs no analysis on them. `AgentDiff.taskIds()` is the reports' tasks
+plus the live ones. Never `fetch`; the build tests pin it.
+
 A block's `storyTitle` is the section name the story view numbers
 ("1 · What happened", "2 · The trace as a tree", "3 · Why",
 "4 · Reconcile", "5 · Take forward", …).

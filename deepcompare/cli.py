@@ -55,7 +55,7 @@ from .variance import METRICS as VARIANCE_METRICS, variance_report
 #: default viewer template, relative to the repo root (parent of the package).
 from .commands.paths import DEFAULT_TEMPLATE, LEGACY_TEMPLATE  # noqa: E402
 from .commands.live import (  # noqa: E402
-    _cmd_replay, _cmd_run, _cmd_why, _load_report, _provider_options,
+    _cmd_replay, _cmd_run, _cmd_watch, _cmd_why, _load_report, _provider_options,
     _save_report, _split_spec,
 )
 #: template for the lightweight agent-selection view.
@@ -568,6 +568,46 @@ def _run_id_from_name(path: Path) -> Optional[str]:
     """Run id from a ``<task>__<agent>__<run>.json`` filename, else None."""
     parts = path.stem.split("__")
     return parts[2] if len(parts) >= 3 else None
+
+
+def _cmd_feedback(args: argparse.Namespace) -> int:
+    """The loop back: step labels, preference pairs, prompt suggestions
+    from one report or a directory of them."""
+    from .feedback import feedback_signal, to_jsonl
+    target = Path(args.target)
+    paths = sorted(target.glob("report_*.json")) if target.is_dir() else [target]
+    if not paths:
+        print(f"error: no report_*.json under {target}", file=sys.stderr)
+        return 2
+    signals = []
+    for path in paths:
+        try:
+            report = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            print(f"error: {path}: {exc}", file=sys.stderr)
+            return 2
+        signals.append(feedback_signal(report))
+    out = Path(args.output) if args.output else None
+    payload = signals if target.is_dir() else signals[0]
+    if out:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(payload, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"wrote {out}")
+    if args.jsonl:
+        Path(args.jsonl).parent.mkdir(parents=True, exist_ok=True)
+        text = to_jsonl(signals)
+        Path(args.jsonl).write_text(text, encoding="utf-8")
+        print(f"wrote {args.jsonl} — {text.count(chr(10))} preference pair(s)")
+    pairs = sum(1 for s in signals if s["preference_pair"])
+    suggestions = sum(len(s["prompt_suggestions"]) for s in signals)
+    print(f"{len(signals)} report(s): {pairs} preference pair(s), {suggestions} prompt suggestion(s), "
+          f"{sum(len(s['step_labels']) for s in signals)} labelled step(s)")
+    for sig in signals:
+        for sug in sig["prompt_suggestions"]:
+            print(f"  [{sig['task_id']}] {sug['kind']}: {sug['text']}")
+    if not out and not args.jsonl:
+        print(json.dumps(payload, indent=1, ensure_ascii=False))
+    return 0
 
 
 def _cmd_runs(args: argparse.Namespace) -> int:
@@ -1616,6 +1656,35 @@ def build_parser() -> argparse.ArgumentParser:
     p_why.add_argument("--provider", required=True, metavar="NAME=KIND:MODEL")
     _provider_option_args(p_why)
     p_why.set_defaults(func=_cmd_why)
+
+    p_feedback = sub.add_parser(
+        "feedback", help="the loop back: per-step labels, a preference pair "
+                         "(chosen = the passing run or the reconciled splice, "
+                         "rejected = the failing run) and prompt suggestions, "
+                         "from a report or a directory of reports")
+    p_feedback.add_argument("target", help="a report_*.json, or a directory of them")
+    p_feedback.add_argument("-o", "--output", default=None, help="write the signal JSON here")
+    p_feedback.add_argument("--jsonl", default=None,
+                            help="write preference pairs as JSONL here (prompt, chosen, rejected)")
+    p_feedback.set_defaults(func=_cmd_feedback)
+
+    p_watch = sub.add_parser(
+        "watch", help="serve the report page live over a trace directory: "
+                      "running agents (recorder stream=True) stream in step by "
+                      "step, finished pairs become the full story (localhost)")
+    p_watch.add_argument("tracesdir", nargs="?", default=None,
+                         help="directory the recorder writes to (with --demo: a scratch "
+                              "directory, default a temporary one)")
+    p_watch.add_argument("--demo", default=None, metavar="TRACES",
+                         help="replay these traces as if their agents were running now")
+    p_watch.add_argument("--pace", type=float, default=0.4, help="demo: seconds between steps (default 0.4)")
+    p_watch.add_argument("--loop", action="store_true", help="demo: start over when done")
+    p_watch.add_argument("--host", default="127.0.0.1")
+    p_watch.add_argument("--port", type=int, default=8765)
+    p_watch.add_argument("--poll", type=float, default=0.5, help="directory poll interval in seconds")
+    p_watch.add_argument("--template", default=None, help=f"viewer template (default: {DEFAULT_TEMPLATE})")
+    p_watch.add_argument("--verbose", action="store_true", help="log every request")
+    p_watch.set_defaults(func=_cmd_watch)
 
     p_explain = sub.add_parser(
         "explain", help="read ONE trace: what happened, what the answer "

@@ -210,6 +210,16 @@ Every pairwise report carries, beyond the sections above:
 - `uncertainty.{a,b}.interval` — per-step `[low, high]` beside `series`
   (`None` where the step carries none) with `interval_basis`, the bases
   quoted from the traces.
+- `feedback` — the loop back, derived read-only: `{version, task_id,
+  failing_side, failing_agent, step_labels[{side, agent, step, type,
+  name, labels[{label, source, mechanism?}]}], preference_pair {prompt,
+  task_id, expected, chosen {agent, side, basis, turns[]}, rejected {…},
+  diverges_at, estimate, confidence} | null, prompt_suggestions[{text,
+  kind, derived_from {finding, instead, refs, at_step, tools?}, test
+  (a replay recipe), status}], reward_shaping[{event, sign, count,
+  basis}], note}`. Labels: `fault_enters`, `fault_carried`,
+  `wrong_answer`, `dead_end`, `no_information`, `repeat`, `error`,
+  `spent_after_basis`, `invented_argument`, `fed_answer`, `clean`.
 - `internals` — `{available, provenance {model, sae, source}, synthetic,
   rows[{row, a_index, b_index, features_a, features_b, only_a, only_b,
   shared[{index, label, activation_a, activation_b, delta_b_minus_a}]}],
@@ -243,6 +253,8 @@ card v37; replay v40).
 | `bench [DIR] [--strict]` | the diagnoser's own benchmark with the leakage probe |
 | `run --provider … --agent … --tasks …` | the harness: any model, any agent, graded SCHEMA traces |
 | `deepcompare.harness.neuronpedia` | record SAE feature activations per step (Neuronpedia or a scripted table) |
+| `feedback <report.json|dir> [-o signal.json] [--jsonl pairs.jsonl]` | the loop back: step labels, preference pairs, prompt suggestions |
+| `watch [traces/] [--demo TRACES --pace S --loop]` | serve the page live (localhost, server-sent events): running agents stream in, finished pairs become the story |
 | `replay REPORT --provider …` | verify the decisive step by re-execution; writes the verdict back |
 | `why REPORT --provider …` | narrate through a provider under the covenant |
 | `narrate` / `convert` / `check` | brief in/out by hand; foreign traces in; validate a trace |

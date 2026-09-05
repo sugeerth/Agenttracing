@@ -80,6 +80,7 @@ testable offline, and the tests do exactly that.
 | who won, why, at what cost, what next, how sure | `compare`, the verdict card | five lines, each quoting the report |
 | which step was decisive, and on what evidence | `diagnosis` | competing hypotheses ranked with an evidence ledger, class mix (observable / annotation / stated), a causal window, contested when nothing leads, possibly-overdetermined when two wrong values each suffice |
 | what one run did, what its answer rests on | `explain`, the Reading block | phases, per-step roles, every answer value with its basis, why it ended, findings by evidence class, located next actions, meltdown onset |
+| what to hand to the next run, the reward, the training loop | `feedback`, the Next horizon section | prompt suggestions per finding (with the replay that tests each), reward-shaping events from per-step labels, a preference pair (chosen = passing run or reconciled splice, rejected = failing run) as JSON/JSONL |
 | the story, as charts | the Story view | D3 charts in sequence: what happened (roles, answer-value arcs, the decisive ring, spend after the basis), how it became a failure (fault enters, carried, committed, read from the causal account and the alignment), the trace as a tree (task → runs → phases → steps → values, the fault's path in red, phases that fold), why (hypotheses at their scores with evidence), reconcile (the splice that keeps the failing prefix, takes the passing decision at the cut, follows the passing run; its estimate called an estimate), take forward (numbered pins per next action, what the fix buys, labelled an estimate); long runs draw a window of steps over an overview brush, and page together |
 | is a failure real or luck | `runs` | pass^k with intervals, consistency, paired inference that refuses to rank below ten tasks |
 | what to fix first, and did the fix work | triage, `progress` | ranked actions with verification contracts, before/after matching |
@@ -123,6 +124,33 @@ demo/                   shipped traces (scripted agents), the diagnosis benchmar
 docs/                   RESEARCH_INSIGHTS.md, BENCHMARK.md, CHANGELOG.md, CITATIONS.md
 tests/                  1,160+ tests, including browser tests of the page and offline harness tests
 ```
+
+## Watch it run
+
+```bash
+python -m deepcompare watch --demo demo/traces --pace 0.4 --loop   # then open http://127.0.0.1:8765/
+```
+
+Record with `Recorder(..., stream=True)` (or run the harness with it) and
+point `watch` at the trace directory: each agent's steps arrive on the
+page as they happen, the newest pulsing; when a pair finishes, the story
+replaces the stream in place. A run in progress is shown, never analysed.
+
+## Why use it: the loop
+
+Mapping a failure is the first half. The second half is what the page
+hands back. Read the story (what happened, why, where the fault
+entered); go back with `replay` to test the decisive step against the
+passing run's decision; then take three things forward. *Prompt
+suggestions* — one sentence per finding the reading located, in the
+next run's system prompt. *Reward shaping* — the step labels (fault
+enters, carried, wrong answer, dead end, spent after basis, fed the
+answer) as a process signal for an RL environment. A *preference pair* —
+the passing run, or the reconciled splice, against the failing one, in
+the shape a preference-optimisation loader reads. `deepcompare feedback
+out/ --jsonl pairs.jsonl` writes them for a whole batch; every item is
+derived from the report and labelled a hypothesis until a replay confirms
+it.
 
 ## Research direction
 

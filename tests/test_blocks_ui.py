@@ -1648,9 +1648,10 @@ class SmallScreensKeysAndMotionTest(unittest.TestCase):
         context, page, errors = self._open(viewport={"width": 390, "height": 844}, has_touch=True)
         height = page.evaluate("() => document.documentElement.scrollHeight")
         # the budget grew with the story's sections: 2 (the tree, folded on
-        # a phone), 4 (reconcile: three lanes and a five-step strategy) and
-        # 5 (take forward, with its numbered list): 5100 → 5500 → 6200
-        self.assertLessEqual(height, 6200, f"story is {height}px tall on a phone")
+        # a phone), 4 (reconcile: three lanes and a five-step strategy),
+        # 5 (take forward, with its numbered list) and 6 (next horizon: the
+        # prompts, the reward table, the pair): 5100 → 5500 → 6200 → 7200
+        self.assertLessEqual(height, 7200, f"story is {height}px tall on a phone")
         self.assertFalse(page.evaluate("() => document.documentElement.scrollWidth > document.documentElement.clientWidth"))
         fold = page.locator("#hero-lane details.tj-inspector-fold")
         self.assertEqual(fold.count(), 1)
@@ -2845,6 +2846,97 @@ class StoryChartsTest(unittest.TestCase):
         self.assertEqual(errors, [])
         context.close()
 
+    def test_replay_retells_the_run_and_ends_on_the_static_picture(self):
+        context, page, errors = self.open()
+        side = self.failing()
+        n = len(self.t05[side]["steps"])
+        bar = page.locator('[data-block="reading"] .d3c-toolbar')
+        self.assertEqual(bar.count(), 1)
+        self.assertEqual(bar.locator("button.axis-steps").get_attribute("aria-pressed"), "true")
+        total = page.locator("svg.d3c-story [data-unit], svg.d3c-story [data-order], svg.d3c-story .d3c-pcell").count()
+        bar.locator("button.play").click()
+        page.wait_for_timeout(300)
+        self.assertTrue(page.evaluate("() => document.querySelector('svg.d3c-story').classList.contains('d3c-replaying')"))
+        self.assertGreater(page.locator("svg.d3c-story .d3c-future").count(), 0, "later steps are dimmed while replaying")
+        self.assertGreaterEqual(page.locator("svg.d3c-story .d3c-now").count(), 1, "the current step is marked")
+        self.assertRegex(page.locator(".d3c-where").first.text_content(), rf"step \d+ of {n}")
+        page.wait_for_timeout(9000)
+        self.assertEqual(page.locator("svg.d3c-story .d3c-future").count(), 0, "the last frame is the full picture")
+        self.assertEqual(page.locator("svg.d3c-story .d3c-now").count(), 0)
+        self.assertEqual(bar.locator("button.play").text_content(), "▶ play how it went")
+        pane = page.locator(".tj-pane", has_text=side.upper() + " ·").first
+        self.assertIn(f"step {n - 1}", pane.locator("h4").text_content(), "the inspector followed to the answer")
+        # seek with the scrubber; reset restores the static render
+        page.locator(".d3c-scrub").first.evaluate("e => { e.value = '1'; e.dispatchEvent(new Event('input')); }")
+        page.wait_for_timeout(200)
+        self.assertGreater(page.locator("svg.d3c-story .d3c-future").count(), 0)
+        self.assertEqual(page.locator("svg.d3c-story g.d3c-step:not(.d3c-future)").count(), 2)
+        bar.locator("button.reset").click()
+        page.wait_for_timeout(200)
+        self.assertEqual(page.locator("svg.d3c-story .d3c-future").count(), 0)
+        self.assertFalse(page.evaluate("() => document.querySelector('svg.d3c-story').classList.contains('d3c-replaying')"))
+        self.assertEqual(total, page.locator("svg.d3c-story [data-unit], svg.d3c-story [data-order], svg.d3c-story .d3c-pcell").count())
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_time_axis_places_steps_by_cumulative_latency(self):
+        context, page, errors = self.open()
+        side = self.failing()
+        steps = self.t05[side]["steps"]
+        page.locator('[data-block="reading"] .d3c-toolbar button.axis-time').click()
+        page.wait_for_timeout(700)
+        self.assertEqual(page.locator('[data-block="reading"] .d3c-toolbar button.axis-time').get_attribute("aria-pressed"), "true")
+        xs = page.locator("svg.d3c-story g.d3c-step").evaluate_all(
+            "els => els.map(e => +/translate\\(([-\\d.]+)/.exec(e.getAttribute('transform'))[1])")
+        self.assertEqual(len(xs), len(steps))
+        self.assertEqual(xs, sorted(xs), "time never runs backwards")
+        # a step's x grows with the latency before it: the gap after the
+        # slowest step is the widest gap (given the 9px floor for near-zero steps)
+        gaps = [xs[i + 1] - xs[i] for i in range(len(xs) - 1)]
+        lat = [s.get("latency_s") or 0 for s in steps[:-1]]
+        self.assertEqual(gaps.index(max(gaps)), lat.index(max(lat)))
+        page.locator('[data-block="reading"] .d3c-toolbar button.axis-steps').click()
+        page.wait_for_timeout(500)
+        self.assertEqual(page.locator('[data-block="reading"] .d3c-toolbar button.axis-steps').get_attribute("aria-pressed"), "true")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_reduced_motion_replay_jumps_to_the_end(self):
+        context, page, errors = self.open(reduced_motion=True)
+        page.locator('[data-block="reading"] .d3c-toolbar button.play').click()
+        page.wait_for_timeout(300)
+        self.assertEqual(page.locator("svg.d3c-story .d3c-future").count(), 0)
+        self.assertEqual(page.locator("svg.d3c-story .d3c-now").count(), 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_next_horizon_lists_the_feedback_signal_verbatim_with_its_tests(self):
+        context, page, errors = self.open()
+        fb = self.t05["feedback"]
+        block = page.locator('[data-block="next-horizon"]')
+        self.assertEqual(block.count(), 1)
+        titles = page.evaluate("() => [...document.querySelectorAll('#story-lane .block-title')].map(e => e.textContent)")
+        self.assertIn("6 · Next horizon", titles)
+        items = block.locator(".nh-prompts li")
+        self.assertEqual(items.count(), len(fb["prompt_suggestions"]))
+        for i, sug in enumerate(fb["prompt_suggestions"]):
+            self.assertEqual(items.nth(i).locator(".nh-prompt").text_content(), sug["text"])
+            self.assertEqual(items.nth(i).get_attribute("data-kind"), sug["kind"])
+            self.assertIn("hypothesis", items.nth(i).locator(".nh-status").text_content())
+            if sug.get("test"):
+                self.assertIn("replay", items.nth(i).locator(".nh-status").text_content())
+        rows = block.locator(".nh-table tr")
+        self.assertEqual(rows.count(), len(fb["reward_shaping"]))
+        self.assertEqual(rows.evaluate_all("els => els.map(e => e.getAttribute('data-event'))"),
+                         [r["event"] for r in fb["reward_shaping"]])
+        self.assertIn("chosen: " + fb["preference_pair"]["chosen"]["agent"], block.locator(".nh-pair").text_content())
+        link = block.locator("a[download]")
+        self.assertEqual(link.count(), 1)
+        self.assertTrue(link.get_attribute("href").startswith("data:application/json"))
+        self.assertIn("deepcompare feedback", block.locator(".nh-export code").text_content())
+        self.assertEqual(errors, [])
+        context.close()
+
     def test_reduced_motion_disables_chart_transitions(self):
         context, page, errors = self.open(reduced_motion=True)
         self.assertEqual(page.evaluate("() => AgentDiff.charts.motion()"), 0)
@@ -3022,6 +3114,41 @@ class LongTrajectoryTest(unittest.TestCase):
         self.assertEqual(errors, [])
         context.close()
 
+    def test_compression_folds_the_repeated_calls_into_one_unit_that_opens(self):
+        context, page, errors, _ = self.open()
+        side = self.failing()
+        n = len(self.rep[side]["steps"])
+        bar = page.locator('[data-block="reading"] .d3c-toolbar')
+        self.assertEqual(bar.locator("button.compress").count(), 1)
+        bar.locator("button.compress").click()
+        page.wait_for_timeout(800)
+        units = page.locator("svg.d3c-story g.d3c-step")
+        self.assertLessEqual(units.count(), 8, "300 identical lookups fold into one unit")
+        self.assertEqual(page.locator("svg.d3c-story .d3c-overview").count(), 0, "no window needed once compressed")
+        group = page.locator("svg.d3c-story g.d3c-step.group")
+        self.assertEqual(group.count(), 1)
+        self.assertEqual(group.first.get_attribute("data-count"), str(self.EXTRA))
+        self.assertIn(f"×{self.EXTRA}", group.first.locator(".d3c-name").text_content())
+        self.assertIn(f"of {n}", bar.locator("button.compress").text_content())
+        # every step of the run is still accounted for: the units' counts sum to n
+        counts = units.evaluate_all("els => els.map(e => +e.getAttribute('data-count'))")
+        self.assertEqual(sum(counts), n)
+        # the decisive step and the answer stay their own units
+        dec = self.rep["diagnosis"]["decisive_step"]["step"]
+        self.assertEqual(page.locator(f'svg.d3c-story g.d3c-step[data-step="{dec}"][data-count="1"]').count(), 1)
+        self.assertEqual(page.locator("svg.d3c-story g.d3c-step[data-role='answer'][data-count='1']").count(), 1)
+        # opening the group brings its steps back (windowed again)
+        group.first.dispatch_event("click")
+        page.wait_for_timeout(900)
+        self.assertGreater(page.locator("svg.d3c-story g.d3c-step").count(), 8)
+        self.assertEqual(page.locator("svg.d3c-story g.d3c-step.group").count(), 0)
+        bar = page.locator('[data-block="reading"] .d3c-toolbar')
+        bar.locator("button.compress").click()
+        page.wait_for_timeout(700)
+        self.assertEqual(page.locator("svg.d3c-story g.d3c-step.group").count(), 0)
+        self.assertEqual(errors, [])
+        context.close()
+
     def test_a_phone_gets_the_same_window_without_sideways_scroll(self):
         context, page, errors, _ = self.open(width=390)
         self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth"), 390)
@@ -3029,6 +3156,80 @@ class LongTrajectoryTest(unittest.TestCase):
         self.assertGreaterEqual(marks, 8)
         self.assertLessEqual(marks, 12)
         self.assertEqual(page.locator("svg.d3c-story .d3c-overview").count(), 1)
+        self.assertEqual(errors, [])
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class LiveWatchTest(unittest.TestCase):
+    """Streaming: served by `deepcompare watch`, the page shows the runs
+    as they arrive — a mark per step, the newest pulsing, the count
+    growing — and when the pair finishes the story replaces the stream,
+    without a reload. Driven by the demo simulator at a fast pace."""
+
+    @classmethod
+    def setUpClass(cls):
+        import threading
+        from deepcompare.harness.watch import serve
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.src = Path(cls.tmp.name) / "src"
+        cls.src.mkdir()
+        for name in ("t05_flight_duration__atlas-v2.json", "t05_flight_duration__bolt-v3.json"):
+            (cls.src / name).write_text((ROOT / "demo" / "traces" / name).read_text(encoding="utf-8"), encoding="utf-8")
+        cls.out = Path(cls.tmp.name) / "live"
+        cls.stop = threading.Event()
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        cls.server = serve(cls.out, ROOT / "web" / "blocks.html", port=0, poll=0.05, stop=cls.stop)
+        cls.port = cls.server.server_address[1]
+        threading.Thread(target=cls.server.serve_forever, kwargs={"poll_interval": 0.1}, daemon=True).start()
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.server.shutdown_all()
+        except Exception:
+            pass
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        cls.tmp.cleanup()
+
+    def test_the_stream_arrives_and_becomes_the_story(self):
+        import threading
+        from deepcompare.harness.watch import simulate
+        context = self.browser.new_context(viewport={"width": 1280, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"http://127.0.0.1:{self.port}/#view=story")
+        page.wait_for_selector("#live-badge", timeout=10000)
+        self.assertIn("LIVE", page.locator("#live-badge").text_content())
+        # nothing running yet: no story, no runs
+        self.assertEqual(page.locator('[data-block="live-run"]').count(), 0)
+        threading.Thread(target=simulate, args=(self.src, self.out, 0.25, False, self.stop), daemon=True).start()
+        page.wait_for_selector('[data-block="live-run"] .lv-run', timeout=15000)
+        first = int(page.locator('[data-block="live-run"] .lv-run').first.get_attribute("data-steps"))
+        page.wait_for_timeout(900)
+        later = int(page.locator('[data-block="live-run"] .lv-run').first.get_attribute("data-steps"))
+        self.assertGreaterEqual(later, first)
+        runs = page.locator('[data-block="live-run"] .lv-run[data-agent]')
+        self.assertGreaterEqual(runs.count(), 1)
+        self.assertGreaterEqual(page.locator('[data-block="live-run"] .lv-line .lv-mark').count(), 1)
+        self.assertEqual(page.locator('[data-block="live-run"] .lv-line .lv-now').count(), runs.count(), "the newest step pulses on every running lane")
+        self.assertIn("running", page.locator("#live-badge").text_content())
+        self.assertEqual(page.locator("#task-picker option").count(), 1, "a live-only task is listed")
+        # the pair finishes: the story replaces the stream, no reload
+        page.wait_for_selector('#story-lane [data-block="reading"] svg.d3c-story', timeout=30000)
+        self.assertEqual(page.locator('[data-block="live-run"]').count(), 0)
+        self.assertEqual(page.locator('[data-block="verdict-card"]').count(), 1)
+        self.assertIn("1 compared", page.locator("#live-badge").text_content())
+        self.assertFalse(page.evaluate("() => performance.getEntriesByType('navigation').length > 1"))
         self.assertEqual(errors, [])
         context.close()
 

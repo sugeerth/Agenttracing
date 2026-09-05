@@ -1666,6 +1666,72 @@ decoy families at 1.0 on cause kind; the valueless ticket domain, which
 has no typed wrong fact to re-anchor on, stays adjacent by one step and
 is reported as such.
 
+## Replay, time, compression, and the loop back (v44)
+
+- **Replay.** *What happened* gains a toolbar: *play how it went*
+  re-tells the run one step at a time — later steps dimmed, the current
+  step pulsing, the answer's value arcs and the decisive ring arriving
+  in order, the failure strip filling in — with a scrubber, a speed
+  (×1–×8), and *inspector follows* (the map's inspector opens each step
+  as it arrives). Replay only changes opacity and a class, so its last
+  frame is exactly the static picture; state lives with the run, so a
+  window move or a resize resumes where it was; reduced motion jumps to
+  the end. `space` on a focused chart plays and pauses.
+- **Time axis.** *steps | time* switches the x axis to wall-clock time
+  (cumulative latency): a slow tool call takes the room it took, and
+  near-zero steps keep a 9 px floor so they stay distinct.
+- **Compression.** *compress repeats* folds consecutive steps with the
+  same type and name into one unit — *lookup ×300* — drawn as a stacked
+  mark with its count and its steps' range; the decisive step, an error,
+  a step that produced an answer value, and the answer are never folded.
+  A unit's failure-strip cell is the worst of its members; its tooltip
+  sums tokens and latency; a click opens it. A 306-step run becomes six
+  units, no window needed. `AgentDiff.charts.mode.{get,set,expand}`
+  drives it from outside.
+
+- **Live: watch agents run.** `Recorder(stream=True)` writes the
+  run-so-far to `<trace>.live.json` after every step and every
+  observation, and removes it when the final lands. `deepcompare watch
+  traces/` serves the page from localhost and pushes every change over
+  server-sent events (`/events`; `/data.json` for scripts): finished
+  pairs go through the ordinary engine and become reports; a trace still
+  being written is handed over as it is, marked in progress, and **never
+  analysed** — a diagnosis on half a run would flip around as it grows.
+  The page's *Running now* section (story section 0) draws each running
+  agent as a line of steps, the newest pulsing, new arrivals popping in,
+  with tokens and latency so far and the last three steps in full; a
+  live-only task is listed in the picker; when the pair finishes the
+  story replaces the stream in place, without a reload. A badge says
+  *LIVE · connected · n running · m compared · time*. `deepcompare watch
+  --demo demo/traces --pace 0.4 [--loop]` replays the demo as if its
+  agents were running now. The page's privacy claim holds: opened from a
+  file it has no live data and the client does nothing; served, it
+  listens to the server that served it and nothing else. The server
+  lives in the harness package, the network boundary.
+- **The loop back** (`deepcompare/feedback.py`, `report.feedback`, CLI
+  `feedback`, story section *Next horizon*). Why anyone reads a diff: to
+  change something. Each report now carries what the pair hands forward,
+  derived read-only from its own fields: **step labels** — every step of
+  both runs tagged `fault_enters` / `fault_carried` / `wrong_answer`
+  (diagnosis), `dead_end` / `no_information` / `repeat` / `fed_answer`
+  (the reading's roles), `spent_after_basis`, `invented_argument`,
+  `error`, or `clean`, each with its source field — dense supervision for
+  a process reward; **reward shaping** — the events those labels support,
+  with sign, count and basis; a **preference pair** — chosen = the passing
+  run, or the reconciled splice when the report has one (labelled an
+  estimate with its confidence), rejected = the failing run, with the step
+  they diverge at, in the prompt/chosen/rejected shape a preference
+  loader reads (`feedback --jsonl`); **prompt suggestions** — one
+  sentence per finding kind the reading located on the failing run
+  (faithful to a wrong observation, spent after basis, wasted work, dead
+  ends, repeats, invented arguments, …) plus one from the attribution's
+  category naming the actual tools (*use datetime_diff rather than
+  calculator*), each citing its finding and references and carrying the
+  replay that would test it, each marked *suggested — a hypothesis until
+  a replay flips the outcome*. A human's quality mark never becomes a
+  prompt. The page's *Next horizon* section lists them with a copy
+  button, the reward table, the pair, and a download of the signal.
+
 ## The story as three charts (v43)
 
 The story view is now a numbered sequence — *1 · What happened, 2 · The

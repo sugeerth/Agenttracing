@@ -97,6 +97,21 @@
       ".d3c-buys .bars i.estimate{top:8px;background:var(--accent);opacity:.7}",
       ".d3c-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:6px}",
       ".d3c:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}",
+      ".d3c-toolbar{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin:2px 0 4px;font-size:var(--fs-xs);color:var(--ink-3)}",
+      ".d3c-seg{display:inline-flex;gap:4px;align-items:center}",
+      ".d3c-tb{font:inherit;font-size:var(--fs-xs);padding:2px 8px;border:1px solid var(--rule-2);border-radius:999px;background:var(--surface);color:var(--ink-2);cursor:pointer}",
+      ".d3c-tb[aria-pressed=\"true\"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}",
+      ".d3c-tb.play{font-weight:600}",
+      ".d3c-scrub{width:140px;vertical-align:middle;accent-color:var(--accent)}",
+      ".d3c-where{min-width:9ch;color:var(--ink-2)}",
+      ".d3c-speed{font:inherit;font-size:var(--fs-xs);border:1px solid var(--rule-2);border-radius:4px;background:var(--surface);color:var(--ink-2)}",
+      ".d3c-follow{display:inline-flex;gap:4px;align-items:center;cursor:pointer}",
+      ".d3c .d3c-now .d3c-mark{stroke:var(--accent);stroke-width:3px;animation:d3c-pulse .7s ease-in-out infinite alternate}",
+      ".d3c .d3c-pcell.d3c-now rect{stroke:var(--accent);stroke-width:2px}",
+      ".d3c-replaying .d3c-future{transition:opacity .12s}",
+      "@keyframes d3c-pulse{from{stroke-opacity:.5}to{stroke-opacity:1}}",
+      "@media (prefers-reduced-motion:reduce){.d3c .d3c-now .d3c-mark{animation:none}}",
+      "@media (max-width:480px){.d3c-scrub{width:90px}.d3c-follow{display:none}}",
       ".d3c .d3c-brush .selection{cursor:grab}",
       ".d3c .d3c-ov-arrow{user-select:none}",
       ".d3c-list .step.outside{color:var(--accent)}",
@@ -487,6 +502,77 @@
     return (report && report.task && report.task.id ? report.task.id : "task") + ":" + side;
   }
 
+  /* View modes per run: the x axis (step order or wall-clock time),
+   * compression (runs of identical tool calls fold into one unit that
+   * opens on click), and replay (the run re-told step by step). */
+  var Modes = {};
+  function modeOf(key) { return Modes[key] || (Modes[key] = { axis: "steps", compress: false, expanded: {}, play: null }); }
+  charts.mode = {
+    get: function (key) { var m = modeOf(key); return { axis: m.axis, compress: m.compress }; },
+    set: function (key, patch) { var m = modeOf(key); Object.keys(patch || {}).forEach(function (k) { m[k] = patch[k]; }); repaint(key); },
+    expand: function (key, steps, on) {
+      var m = modeOf(key);
+      (Array.isArray(steps) ? steps : [steps]).forEach(function (i) { if (on === false) delete m.expanded[i]; else m.expanded[i] = true; });
+      repaint(key);
+    },
+  };
+
+  /* The compressed view: consecutive steps with the same type and name —
+   * and nothing that matters on its own (the decisive step, an error, a
+   * step that produced an answer value, the answer) — become one unit
+   * "lookup ×300". Everything downstream draws units; `real` maps a unit
+   * back to its first step for selection and the inspector. */
+  function compressView(steps, what, rests, dec, side, errors, path, expanded) {
+    var byStep = {};
+    what.forEach(function (w) { if (w && isNum(w.step)) byStep[w.step] = w; });
+    var keep = {};
+    rests.forEach(function (r) { keep[r.first_step] = true; });
+    if (dec && dec.side === side) keep[dec.step] = true;
+    errors.forEach(function (e) { if (e && isNum(e.step)) keep[e.step] = true; });
+    var units = [], unitOf = [];
+    var i = 0;
+    while (i < steps.length) {
+      var st = steps[i];
+      var sig = (st.type || "") + "\u0000" + (st.name || "");
+      var j = i + 1;
+      var solo = keep[i] || st.type === "answer" || st.error === true || expanded[i];
+      if (!solo) {
+        while (j < steps.length) {
+          var nx = steps[j];
+          if ((nx.type || "") + "\u0000" + (nx.name || "") !== sig) break;
+          if (keep[j] || nx.type === "answer" || nx.error === true || expanded[j]) break;
+          j++;
+        }
+      }
+      if (j - i >= 2) {
+        var members = d3.range(i, j);
+        var roles = {};
+        members.forEach(function (k) { var r = (byStep[k] || {}).role || "dead_end"; roles[r] = (roles[r] || 0) + 1; });
+        var role = Object.keys(roles).sort(function (a, b) { return roles[b] - roles[a]; })[0];
+        var tokens = d3.sum(members, function (k) { return isNum(steps[k].tokens) ? steps[k].tokens : 0; });
+        var latency = d3.sum(members, function (k) { return isNum(steps[k].latency_s) ? steps[k].latency_s : 0; });
+        units.push({ kind: "group", from: i, to: j - 1, count: j - i, members: members,
+                     step: { index: i, type: st.type, name: (st.name || st.type || "step") + " ×" + (j - i),
+                             tokens: tokens, latency_s: latency, input: st.input, output: steps[j - 1].output },
+                     w: { role: role, intent: (byStep[i] || {}).intent } });
+        members.forEach(function () { unitOf.push(units.length - 1); });
+        i = j;
+      } else {
+        units.push({ kind: "step", from: i, to: i, count: 1, members: [i], step: st, w: byStep[i] || {} });
+        unitOf.push(units.length - 1);
+        i = i + 1;
+      }
+    }
+    return { units: units, unitOf: unitOf };
+  }
+
+  // wall-clock start of every step (cumulative latency), for the time axis
+  function startTimes(steps) {
+    var t = 0, out = [];
+    steps.forEach(function (st) { out.push(t); t += isNum(st.latency_s) ? Math.max(0, st.latency_s) : 0; });
+    return { starts: out, total: t };
+  }
+
   charts.story = function (host, ctx, side) {
     ensureStyle();
     if (!charts.available()) return null;
@@ -501,33 +587,74 @@
     var P = palette();
     var color = sideColor(side);
     var duration = charts.motion();
-    var what = Array.isArray(reading.what_happened) ? reading.what_happened : [];
-    var byStep = {};
-    what.forEach(function (w) { if (w && isNum(w.step)) byStep[w.step] = w; });
-    var n = steps.length;
-    var answerIdx = -1;
-    what.forEach(function (w) { if (w.role === "answer") answerIdx = w.step; });
-    if (answerIdx < 0) answerIdx = n - 1;
+    var key = focusKey(report, side);
+    var mode = modeOf(key);
+    var realSteps = steps;
+    var what0 = Array.isArray(reading.what_happened) ? reading.what_happened : [];
     var failed = !(report && report[side] && report[side].outcome && report[side].outcome.success === true);
-    var rests = (Array.isArray(reading.rests_on) ? reading.rests_on : []).filter(function (r) {
-      return r && isNum(r.first_step) && r.first_step < answerIdx;
+    var dec0 = decisiveOf(report);
+    var errors0 = Array.isArray(reading.errors) ? reading.errors : [];
+    var realAnswer = realSteps.length - 1;
+    what0.forEach(function (w) { if (w && w.role === "answer") realAnswer = w.step; });
+    var rests0 = (Array.isArray(reading.rests_on) ? reading.rests_on : []).filter(function (r) {
+      return r && isNum(r.first_step) && r.first_step < realAnswer;
     });
-    var basis = reading.answer_basis || {};
-    var dec = decisiveOf(report);
-    var errors = Array.isArray(reading.errors) ? reading.errors : [];
-    var critical = reading.critical_error && isNum(reading.critical_error.step) ? reading.critical_error.step : null;
+    var path0 = failureStates(report, side, realSteps.length);
+
+    // ---- the view model: real steps, or compressed units
+    var view = compressView(realSteps, what0, rests0, dec0, side, errors0, path0, mode.compress ? mode.expanded : null || {});
+    if (!mode.compress) view = { units: realSteps.map(function (st, i) { return { kind: "step", from: i, to: i, count: 1, members: [i], step: st, w: (function () { var f = null; what0.forEach(function (w) { if (w && w.step === i) f = w; }); return f || {}; })() }; }),
+                                 unitOf: realSteps.map(function (st, i) { return i; }) };
+    var units = view.units, unitOf = view.unitOf;
+    var U = function (i) { return unitOf[i]; };                         // real step → unit index
+    var real = function (u) { return units[u] ? units[u].from : u; };  // unit → its first real step
+    var steps = units.map(function (u) { return u.step; });
+    var byStep = {};
+    units.forEach(function (u, i) { byStep[i] = u.w || {}; });
+    var what = units.map(function (u, i) { return Object.assign({ step: i }, u.w || {}); });
+    var n = units.length;
+    var answerIdx = U(realAnswer);
+    var rests = rests0.map(function (r) { return Object.assign({}, r, { first_step: U(r.first_step), real_step: r.first_step }); });
+    var basis0 = reading.answer_basis || {};
+    var basis = Object.assign({}, basis0, isNum(basis0.basis_complete_at) ? { basis_complete_at: U(basis0.basis_complete_at) } : {});
+    var dec = dec0 && dec0.side === side ? Object.assign({}, dec0, { step: U(dec0.step), real_step: dec0.step }) : dec0;
+    var errors = errors0.map(function (e) { return e && isNum(e.step) ? Object.assign({}, e, { step: U(e.step) }) : e; });
+    var critical = reading.critical_error && isNum(reading.critical_error.step) ? U(reading.critical_error.step) : null;
+    // the failure states per unit: the worst of its members
+    var path = null;
+    if (path0) {
+      var rank = { fault: 5, committed: 6, diverged: 4, drift: 3, alone: 2, same: 1 };
+      path = units.map(function (u, i) {
+        var worst = null;
+        u.members.forEach(function (k) { var d = path0[k]; if (d && (!worst || rank[d.state] > rank[worst.state])) worst = d; });
+        var d = Object.assign({}, worst || { state: "alone", label: "", detail: "", source: "" }, { step: i });
+        if (u.count > 1) d.label = u.count + " steps · " + (worst ? worst.label : "");
+        return d;
+      });
+    }
 
     var W = width(host, ctx);
     var m = { l: 14, r: 14 };
     var anchor = dec && dec.side === side ? dec.step : (critical !== null ? critical : answerIdx);
-    var win = focusWindow(focusKey(report, side), n, W, m.l, m.r, anchor, 44);
+    var win = focusWindow(key, n, W, m.l, m.r, anchor, 44);
     var x = win.x;
     var slot = x.step();
+    // the time axis: units placed at their wall-clock start inside the
+    // window, never closer than 9px so zero-latency steps stay distinct
+    var times = startTimes(steps);
+    if (mode.axis === "time") {
+      var t0 = times.starts[win.start], t1 = times.starts[win.end - 1] + (isNum(steps[win.end - 1].latency_s) ? steps[win.end - 1].latency_s : 0);
+      var tScale = d3.scaleLinear().domain([t0, Math.max(t1, t0 + 1e-6)]).range([m.l + 8, W - m.r - 8]);
+      var pos = {}, prev = -Infinity;
+      d3.range(win.start, win.end).forEach(function (i) { var px = Math.max(tScale(times.starts[i]), prev + 9); pos[i] = px; prev = px; });
+      x = function (i) { return pos[i]; };
+      x.step = function () { return slot; };
+      slot = Math.min(slot, 44);
+    }
     var wide = slot >= 54;
     var tiny = slot < 14;
     var top = win.windowed ? 34 : 0;
     var yPhase = 18 + top, yStep = 62 + top, yArcTop = 84 + top;
-    var path = failureStates(report, side, n);
     var visible = d3.range(win.start, win.end);
     var spent = isNum(basis.basis_complete_at) && isNum(basis.steps_after_basis_complete) &&
                 basis.steps_after_basis_complete > 0 && basis.basis_complete_at < answerIdx &&
@@ -555,23 +682,24 @@
     if (win.windowed) {
       overviewStrip(svg, 6, W, m.l, m.r, win, path,
         dec && dec.side === side ? [{ step: dec.step, color: P.bad }] : [],
-        dec && dec.side === side ? "decisive at " + dec.step : null);
+        (dec && dec.side === side ? "decisive at " + dec.real_step : "") + (mode.compress && n < realSteps.length ? " · " + realSteps.length + " steps as " + n + " units" : ""));
     }
 
     // ---- phases: a band per phase, tinted by intent, labelled when there is room
     var phases = Array.isArray(reading.phases) ? reading.phases : [];
     var phaseG = svg.append("g").attr("class", "d3c-phases");
     phases.forEach(function (ph) {
-      var st = Array.isArray(ph.steps) ? ph.steps.filter(function (i) { return isNum(i) && win.has(i); }) : [];
+      var st = Array.isArray(ph.steps) ? ph.steps.filter(isNum).map(U).filter(function (i, k, all) { return win.has(i) && all.indexOf(i) === k; }) : [];
       if (!st.length) return;
-      var x0 = x(d3.min(st)) - slot / 2 + 2, x1 = x(d3.max(st)) + slot / 2 - 2;
+      var pad0 = mode.axis === "time" ? 5 : slot / 2 - 2;
+      var x0 = x(d3.min(st)) - pad0, x1 = x(d3.max(st)) + pad0;
       var tint = P[INTENT_TINT[ph.intent] || "rule2"] || P.rule2;
       var g = phaseG.append("g").attr("class", "d3c-phase").attr("data-intent", ph.intent || "");
       g.append("rect").attr("x", x0).attr("y", yPhase - 8).attr("width", Math.max(4, x1 - x0)).attr("height", 16)
         .attr("rx", 3).attr("fill", tint).attr("opacity", 0.16);
       g.append("rect").attr("x", x0).attr("y", yPhase + 6).attr("width", Math.max(4, x1 - x0)).attr("height", 2)
         .attr("fill", tint).attr("opacity", 0.7);
-      if (x1 - x0 >= 44) {
+      if (x1 - x0 >= (mode.axis === "time" ? 64 : 44)) {
         g.append("text").attr("class", "d3c-phase-label").attr("x", (x0 + x1) / 2).attr("y", yPhase + 3)
           .attr("text-anchor", "middle").attr("fill", tint).text(truncate(ph.intent || "phase", Math.floor((x1 - x0) / 7)));
       }
@@ -638,10 +766,10 @@
         // the label sits on the curve's apex (cubic with both controls at yArcTop+depth)
         labelJobs.push({ r: r, wrong: wrong, stroke: stroke, x: (x0 + x1) / 2,
                          y: (yStep + 8) + 0.75 * ((yArcTop + depth) - (yStep + 8)) + 3,
-                         label: (win.has(r.first_step) ? "" : "from step " + r.first_step + " · ") +
+                         label: (win.has(r.first_step) ? "" : "from step " + r.real_step + " · ") +
                                 truncate(r.value, Math.max(6, Math.floor((x1 - x0) / 6.5))) });
       }
-      path.append("title").text(String(r.value) + " — " + humanKind(r.status) + ", first at step " + r.first_step +
+      path.append("title").text(String(r.value) + " — " + humanKind(r.status) + ", first at step " + r.real_step +
         (r.source ? " via " + r.source : "") + (wrong ? " · does not match the expected answer" : ""));
     });
     labelJobs.forEach(function (job) {
@@ -670,28 +798,45 @@
 
     // ---- steps: one focusable mark each
     var marks = svg.append("g").attr("class", "d3c-steps").selectAll("g.d3c-step")
-      .data(visible.map(function (i) { return { i: i, step: steps[i], w: byStep[i] || {} }; }))
+      .data(visible.map(function (i) { return { i: i, step: steps[i], w: byStep[i] || {}, unit: units[i] }; }))
       .join("g")
-      .attr("class", "d3c-step")
-      .attr("data-step", function (d) { return d.i; })
+      .attr("class", function (d) { return "d3c-step" + (d.unit.count > 1 ? " group" : ""); })
+      .attr("data-step", function (d) { return d.unit.from; })
+      .attr("data-unit", function (d) { return d.i; })
+      .attr("data-count", function (d) { return d.unit.count; })
       .attr("data-role", function (d) { return d.w.role || ""; })
       .attr("tabindex", 0).attr("role", "button")
       .attr("aria-label", function (d) {
-        return "step " + d.i + " · " + (d.step.name || d.step.type || "step") + " · " + ((ROLE[d.w.role] || {}).label || d.w.role || "");
+        return (d.unit.count > 1 ? "steps " + d.unit.from + " to " + d.unit.to + " · " : "step " + d.unit.from + " · ") +
+               (d.step.name || d.step.type || "step") + " · " + ((ROLE[d.w.role] || {}).label || d.w.role || "") +
+               (d.unit.count > 1 ? " · click to open" : "");
       })
       .attr("transform", function (d) { return "translate(" + x(d.i) + "," + yStep + ")"; });
     marks.each(function (d) {
       var g = d3.select(this);
-      g.append("circle").attr("r", Math.max(10, slot / 2)).attr("fill", "transparent");
+      // the hit area is the step's own row slot, never taller than the row:
+      // a wide slot must not reach up over the toolbar or down over the arcs
+      var hw = Math.max(10, Math.min(slot, 120) / 2);
+      g.append("rect").attr("class", "d3c-hit").attr("x", -hw).attr("y", -16).attr("width", hw * 2).attr("height", wide ? 52 : 40).attr("fill", "transparent");
       var role = d.w.role || (d.step.type === "answer" ? "answer" : "dead_end");
       if (d.step.error === true) role = "error";
+      if (d.unit.count > 1) {
+        // a folded run of identical calls: a stacked mark with its count
+        g.append("circle").attr("r", tiny ? 4 : 7.5).attr("cx", 2).attr("cy", -2).attr("fill", P.surface).attr("stroke", color).attr("stroke-width", 1.2).attr("opacity", 0.7);
+        g.append("circle").attr("r", tiny ? 4 : 7.5).attr("cx", 1).attr("cy", -1).attr("fill", P.surface).attr("stroke", color).attr("stroke-width", 1.2).attr("opacity", 0.85);
+      }
       drawMark(g, role, color, tiny ? 3 : 6);
+      if (d.unit.count > 1 && !tiny) {
+        g.append("text").attr("class", "d3c-cap").attr("x", 0).attr("y", -12).attr("text-anchor", "middle")
+          .attr("fill", color).attr("font-weight", 700).text("×" + d.unit.count);
+      }
       if (d.w.invented_argument) {
         g.append("text").attr("class", "d3c-cap").attr("x", 0).attr("y", -13).attr("text-anchor", "middle")
           .attr("fill", P.warn).attr("font-weight", 700).text("invented");
       }
       if (!tiny || d.i % Math.ceil(14 / Math.max(1, slot)) === 0) {
-        g.append("text").attr("class", "d3c-idx").attr("x", 0).attr("y", wide ? 20 : 19).attr("text-anchor", "middle").text(String(d.i));
+        g.append("text").attr("class", "d3c-idx").attr("x", 0).attr("y", wide ? 20 : 19).attr("text-anchor", "middle")
+          .text(d.unit.count > 1 ? d.unit.from + "–" + d.unit.to : String(d.unit.from));
       }
       if (wide) {
         var name = truncate(d.step.name || d.step.type || "", Math.floor(slot / 6.2));
@@ -717,27 +862,36 @@
       ring.append("circle").attr("class", "d3c-ring " + (dec.verification === "replay-verified" ? "verified" : "hypothesized")).attr("r", tiny ? 7 : 12);
       ring.append("text").attr("class", "d3c-cap").attr("x", 0).attr("y", -17).attr("text-anchor", "middle")
         .attr("fill", P.bad).attr("font-weight", 700).text("decisive");
-      ring.append("title").text("decisive step " + dec.step + " — " + dec.criterion + " (" + dec.verification + ")");
+      ring.append("title").text("decisive step " + (isNum(dec.real_step) ? dec.real_step : dec.step) + " — " + dec.criterion + " (" + dec.verification + ")");
     }
 
     // ---- interactions
+    function actStep(d) {
+      if (d.unit.count > 1) { charts.mode.expand(key, d.unit.members, true); return; }
+      selectStep(report, side, d.unit.from);
+    }
     marks.on("mousemove", function (event, d) {
-      var lines = [{ b: true, text: "step " + d.i + " · " + (d.step.name || d.step.type || "step") },
+      var head = d.unit.count > 1 ? "steps " + d.unit.from + "–" + d.unit.to + " · " + (d.step.name || d.step.type || "step")
+                                  : "step " + d.unit.from + " · " + (d.step.name || d.step.type || "step");
+      var lines = [{ b: true, text: head },
         { text: (d.step.type || "") + " · " + ((ROLE[d.w.role] || {}).label || humanKind(d.w.role)) +
-                (d.w.intent ? " · " + d.w.intent : "") }];
+                (d.w.intent ? " · " + d.w.intent : "") +
+                (isNum(d.step.tokens) ? " · " + d.step.tokens + " tokens" : "") +
+                (isNum(d.step.latency_s) ? " · " + d.step.latency_s.toFixed(2) + "s" : "") }];
       var out = truncate(d.step.output || d.step.input || "", 140);
       if (out) lines.push({ mono: true, text: out });
+      if (d.unit.count > 1) lines.push({ text: "click to open these " + d.unit.count + " steps" });
       showTip(event, lines);
     }).on("mouseleave", hideTip)
-      .on("click", function (event, d) { hideTip(); selectStep(report, side, d.i); })
+      .on("click", function (event, d) { hideTip(); actStep(d); })
       .on("keydown", function (event, d) {
-        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectStep(report, side, d.i); }
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); actStep(d); }
       });
     arcG.selectAll("path.d3c-arc").on("mousemove", function (event) {
       var r = rests[arcG.selectAll("path.d3c-arc").nodes().indexOf(this)];
       if (!r) return;
       showTip(event, [{ b: true, text: String(r.value) },
-        { text: humanKind(r.status) + " · first at step " + r.first_step + (r.source ? " via " + r.source : "") },
+        { text: humanKind(r.status) + " · first at step " + r.real_step + (r.source ? " via " + r.source : "") },
         r.matches_expected === false ? { text: "does not match the expected answer" } : null]);
     }).on("mouseleave", hideTip);
 
@@ -750,30 +904,36 @@
         .attr("fill", failed ? P.bad : P.good).attr("font-weight", 600)
         .text(failed ? "how it became a failure" : "how it stayed on track");
       var cellW = Math.max(2, slot - (tiny ? 1 : 6));
+      var cellWidth = function (d) {
+        if (mode.axis !== "time") return cellW;
+        var next = d.step + 1 < win.end ? x(d.step + 1) : x(d.step) + slot;
+        return Math.max(2, Math.min(cellW, next - x(d.step) - 2));
+      };
       var cells = sg.selectAll("g.d3c-pcell").data(path.filter(function (d) { return win.has(d.step); })).join("g")
         .attr("class", function (d) { return "d3c-pcell " + d.state; })
         .attr("data-state", function (d) { return d.state; })
         .attr("data-step", function (d) { return d.step; })
-        .attr("transform", function (d) { return "translate(" + (x(d.step) - cellW / 2) + ",4)"; });
-      cells.append("rect").attr("width", cellW).attr("height", 12).attr("rx", 2)
+        .attr("transform", function (d) { return "translate(" + (x(d.step) - cellWidth(d) / 2) + ",4)"; });
+      cells.append("rect").attr("width", cellWidth).attr("height", 12).attr("rx", 2)
         .attr("fill", function (d) { return d.state === "fault" || d.state === "committed" ? P.bad
           : d.state === "diverged" ? P.warn : d.state === "drift" ? P.warn : d.state === "same" ? P.good : P.rule2; })
         .attr("opacity", function (d) { return d.state === "fault" || d.state === "committed" ? 0.9 : d.state === "diverged" ? 0.85 : d.state === "drift" ? 0.45 : d.state === "same" ? 0.45 : 0.6; })
         .attr("stroke", function (d) { return d.error ? P.bad : "none"; }).attr("stroke-width", 1.5)
         .attr("stroke-dasharray", function (d) { return d.state === "alone" ? "3 2" : null; });
       cells.filter(function (d) { return d.state === "fault" && d.enters && !tiny; })
-        .append("text").attr("class", "d3c-cap").attr("x", cellW / 2).attr("y", 25).attr("text-anchor", "middle")
+        .append("text").attr("class", "d3c-cap").attr("x", function (d) { return cellWidth(d) / 2; }).attr("y", 25).attr("text-anchor", "middle")
         .attr("fill", P.bad).attr("font-weight", 700).text(wide ? "fault enters" : "enters");
       cells.filter(function (d) { return d.state === "committed" && !tiny; })
-        .append("text").attr("class", "d3c-cap").attr("x", cellW / 2).attr("y", 25).attr("text-anchor", "middle")
+        .append("text").attr("class", "d3c-cap").attr("x", function (d) { return cellWidth(d) / 2; }).attr("y", 25).attr("text-anchor", "middle")
         .attr("fill", P.bad).attr("font-weight", 700).text(wide ? "wrong answer" : "wrong");
-      cells.filter(function (d) { return d.state === "fault" && !d.enters && wide && slot >= 96; })
-        .append("text").attr("class", "d3c-cap").attr("x", cellW / 2).attr("y", 25).attr("text-anchor", "middle")
+      cells.filter(function (d) { return d.state === "fault" && !d.enters && wide && slot >= 96 && cellWidth(d) >= 60; })
+        .append("text").attr("class", "d3c-cap").attr("x", function (d) { return cellWidth(d) / 2; }).attr("y", 25).attr("text-anchor", "middle")
         .attr("fill", P.bad).text("carried");
-      cells.append("title").text(function (d) { return "step " + d.step + " · " + d.label + (d.detail ? "\n" + d.detail : ""); });
+      var cellName = function (d) { var u = units[d.step]; return u && u.count > 1 ? "steps " + u.from + "–" + u.to : "step " + real(d.step); };
+      cells.append("title").text(function (d) { return cellName(d) + " · " + d.label + (d.detail ? "\n" + d.detail : ""); });
       cells.on("mousemove", function (event, d) {
-        showTip(event, [{ b: true, text: "step " + d.step + " · " + d.label }, d.detail ? { text: d.detail } : null, { mono: true, text: "source: " + d.source }]);
-      }).on("mouseleave", hideTip).on("click", function (event, d) { hideTip(); selectStep(report, side, d.step); });
+        showTip(event, [{ b: true, text: cellName(d) + " · " + d.label }, d.detail ? { text: d.detail } : null, { mono: true, text: "source: " + d.source }]);
+      }).on("mouseleave", hideTip).on("click", function (event, d) { hideTip(); selectStep(report, side, real(d.step)); });
     }
 
     // ---- legend
@@ -814,7 +974,145 @@
       });
     }
     host.appendChild(legend);
+
+    // ---- the toolbar: axis, compression, replay
+    storyToolbar(host, wrap.node(), svg, key, mode, {
+      n: n, realN: realSteps.length, answerIdx: answerIdx, decStep: dec && dec.side === side ? dec.step : null,
+      compressible: (function () { var c = compressView(realSteps, what0, rests0, dec0, side, errors0, path0, {}); return c.units.length < realSteps.length; })(),
+      win: win, report: report, side: side, real: real, units: units, duration: duration,
+    });
     return svg.node();
+  }
+
+  /* Replay: the run re-told one unit at a time. Everything the static
+   * render drew carries an order (a step, the answer for the arcs, the
+   * decisive step for its ring); replay only changes opacity and a class,
+   * so the final frame is exactly the static picture. State lives in the
+   * mode so a repaint — a window move, a resize — resumes where it was. */
+  function storyToolbar(host, wrapEl, svg, key, mode, info) {
+    var P = palette();
+    var bar = document.createElement("div");
+    bar.className = "d3c-toolbar";
+    bar.setAttribute("role", "toolbar");
+    bar.setAttribute("aria-label", "view and replay controls");
+    function button(text, title, on, cls) {
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "d3c-tb" + (cls ? " " + cls : ""); b.textContent = text; b.title = title;
+      b.addEventListener("click", on);
+      return b;
+    }
+    // axis
+    var axis = document.createElement("span"); axis.className = "d3c-seg"; axis.setAttribute("role", "group"); axis.setAttribute("aria-label", "x axis");
+    [["steps", "steps in order"], ["time", "wall-clock time (cumulative latency)"]].forEach(function (a) {
+      var b = button(a[0], a[1], function () { charts.mode.set(key, { axis: a[0] }); }, "axis-" + a[0]);
+      b.setAttribute("aria-pressed", mode.axis === a[0] ? "true" : "false");
+      axis.appendChild(b);
+    });
+    bar.appendChild(axis);
+    // compression
+    if (info.compressible || mode.compress) {
+      var c = button(mode.compress ? "compressed · " + info.n + " of " + info.realN : "compress repeats",
+        "fold runs of identical calls into one unit each (click a unit to open it)",
+        function () { charts.mode.set(key, { compress: !mode.compress, expanded: {} }); }, "compress");
+      c.setAttribute("aria-pressed", mode.compress ? "true" : "false");
+      bar.appendChild(c);
+    }
+    // replay
+    var play = mode.play || (mode.play = { t: null, playing: false, speed: 1, follow: true, timer: 0 });
+    var reduced = charts.motion() === 0;
+    var pace = Math.max(45, Math.min(650, 7000 / Math.max(1, info.n)));
+    var rep = document.createElement("span"); rep.className = "d3c-seg d3c-replay"; rep.setAttribute("role", "group"); rep.setAttribute("aria-label", "replay");
+    var playBtn = button(play.playing ? "⏸ pause" : "▶ play how it went", "re-tell the run step by step (space)", function () { toggle(); }, "play");
+    var scrub = document.createElement("input");
+    scrub.type = "range"; scrub.min = "0"; scrub.max = String(Math.max(0, info.n - 1)); scrub.step = "1";
+    scrub.value = String(play.t === null ? info.n - 1 : play.t); scrub.className = "d3c-scrub";
+    scrub.setAttribute("aria-label", "replay position");
+    var where = document.createElement("span"); where.className = "d3c-where mono";
+    var speed = document.createElement("select"); speed.className = "d3c-speed"; speed.setAttribute("aria-label", "replay speed");
+    [1, 2, 4, 8].forEach(function (v) { var o = document.createElement("option"); o.value = String(v); o.textContent = "×" + v; if (play.speed === v) o.selected = true; speed.appendChild(o); });
+    var followLab = document.createElement("label"); followLab.className = "d3c-follow";
+    var follow = document.createElement("input"); follow.type = "checkbox"; follow.checked = !!play.follow;
+    followLab.appendChild(follow); followLab.appendChild(document.createTextNode(" inspector follows"));
+    var reset = button("⟲", "back to the full picture", function () { stop(); play.t = null; apply(); }, "reset");
+    rep.appendChild(playBtn); rep.appendChild(scrub); rep.appendChild(where); rep.appendChild(speed); rep.appendChild(followLab); rep.appendChild(reset);
+    bar.appendChild(rep);
+    host.insertBefore(bar, wrapEl);
+
+    var svgEl = svg.node();
+    function orderOf(el) {
+      var v = el.getAttribute("data-unit");
+      if (v === null) v = el.getAttribute("data-order");
+      if (v === null && el.classList.contains("d3c-pcell")) v = el.getAttribute("data-step");
+      return v === null ? null : +v;
+    }
+    // tag the drawn groups with their order once
+    svg.selectAll(".d3c-arcs, .d3c-basis, .d3c-spent").attr("data-order", info.answerIdx);
+    svg.selectAll(".d3c-decisive").attr("data-order", info.decStep === null ? 0 : info.decStep);
+    svg.selectAll(".d3c-error").each(function () {
+      var m = /translate\(([-\d.]+),/.exec(this.getAttribute("transform") || "");
+      if (!m) return;
+      var units = info.units, best = 0, bx = +m[1];
+      for (var i = info.win.start; i < info.win.end; i++) { if (Math.abs(info.win.x(i) - bx) < 0.5) { best = i; break; } }
+      this.setAttribute("data-order", best);
+    });
+    function apply() {
+      var t = play.t;
+      var nodes = svgEl.querySelectorAll("[data-unit], [data-order], .d3c-pcell");
+      for (var i = 0; i < nodes.length; i++) {
+        var el = nodes[i], o = orderOf(el);
+        if (o === null) continue;
+        var shown = t === null || o <= t;
+        el.style.opacity = shown ? "" : "0.12";
+        el.classList.toggle("d3c-now", t !== null && o === t && play.playing);
+        el.classList.toggle("d3c-future", !shown);
+      }
+      svgEl.classList.toggle("d3c-replaying", t !== null);
+      scrub.value = String(t === null ? info.n - 1 : t);
+      var unit = t === null ? null : info.units[t];
+      where.textContent = t === null ? "" : (unit && unit.count > 1 ? "steps " + unit.from + "–" + unit.to : "step " + (unit ? unit.from : t)) + " of " + info.realN;
+      playBtn.textContent = play.playing ? "⏸ pause" : "▶ play how it went";
+      playBtn.setAttribute("aria-pressed", play.playing ? "true" : "false");
+      if (t !== null && !info.win.has(t) && info.win.windowed) {
+        // the playhead left the window: follow it (the repaint resumes replay)
+        charts.focus.set(key, t - 2);
+      }
+    }
+    function stop() {
+      if (play.timer) { clearTimeout(play.timer); play.timer = 0; }
+      play.playing = false;
+    }
+    function tick() {
+      play.timer = 0;
+      if (!play.playing || !svgEl.isConnected) return;
+      if (play.t === null || play.t >= info.n - 1) { play.playing = false; play.t = info.n - 1; apply(); return; }
+      play.t += 1;
+      apply();
+      if (play.follow && pace / play.speed >= 120) {
+        try { selectStep(info.report, info.side, info.real(play.t)); } catch (err) { /* optional */ }
+      }
+      if (play.t >= info.n - 1) { play.playing = false; apply(); return; }
+      play.timer = setTimeout(tick, pace / play.speed);
+    }
+    function start() {
+      if (reduced) { play.t = info.n - 1; play.playing = false; apply(); return; }
+      if (play.t === null || play.t >= info.n - 1) play.t = -1;
+      play.playing = true;
+      apply();
+      play.timer = setTimeout(tick, 60);
+    }
+    function toggle() { if (play.playing) { stop(); apply(); } else start(); }
+    scrub.addEventListener("input", function () { stop(); play.t = +scrub.value; apply(); });
+    speed.addEventListener("change", function () { play.speed = +speed.value; });
+    follow.addEventListener("change", function () { play.follow = follow.checked; });
+    svg.on("keydown.replay", function (event) {
+      if (event.key === " " && event.target === svgEl) { event.preventDefault(); toggle(); }
+    });
+    // resume after a repaint (window move, resize) without losing the playhead
+    if (play.timer) { clearTimeout(play.timer); play.timer = 0; }
+    apply();
+    if (play.playing) play.timer = setTimeout(tick, pace / play.speed);
+    charts._play = charts._play || {};
+    charts._play[key] = { start: start, stop: stop, toggle: toggle, state: play };
   }
 
   /* One state per step of `side`, read from the report: the causal account
@@ -1653,7 +1951,8 @@
         .attr("transform", function (d) { return "translate(" + x(d.pos) + "," + lane.y + ")"; });
       marks.each(function (d) {
         var gg = d3.select(this);
-        gg.append("circle").attr("r", Math.max(9, slot / 2)).attr("fill", "transparent");
+        var hw = Math.max(9, Math.min(slot, 60) / 2);
+        gg.append("rect").attr("class", "d3c-hit").attr("x", -hw).attr("y", -12).attr("width", hw * 2).attr("height", 30).attr("fill", "transparent");
         drawMark(gg, d.role, sideColor(d.from), 5);
         if (lane.key !== "reconciled" && isNum(plan.cut) && d.from === plan.failing && d.index === plan.cut) {
           gg.append("circle").attr("class", "d3c-ring " + (plan.verification === "replay-verified" ? "verified" : "hypothesized")).attr("r", 9.5);

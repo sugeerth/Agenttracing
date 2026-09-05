@@ -37,7 +37,7 @@
   //: what to do next, the step under the cursor, what the difference cost.
   //: They answer the reader's next five questions; everything else stays in
   //: the columns. Dashboard mode puts them back.
-  var STORY_BLOCKS = ["reading", "trace-tree", "diagnosis", "reconcile", "take-forward", "actions", "deltas"];
+  var STORY_BLOCKS = ["live-run", "reading", "trace-tree", "diagnosis", "reconcile", "take-forward", "next-horizon", "actions", "deltas"];
   function isStoryBlock(id) { return State.prefs && State.prefs.view === "story" && STORY_BLOCKS.indexOf(id) >= 0; }
 
   //: the three views. Story: lead + hero + the story lane. Evidence: the
@@ -749,6 +749,28 @@
     };
   }
 
+  /* every task the page knows: the reports', then the live runs' */
+  function taskIds() {
+    var ids = [];
+    (State.data.reports || []).forEach(function (r) { if (r && r.task && ids.indexOf(r.task.id) < 0) ids.push(r.task.id); });
+    var live = State.data.live && Array.isArray(State.data.live.runs) ? State.data.live.runs : [];
+    live.forEach(function (run) { if (run && run.task && ids.indexOf(run.task) < 0) ids.push(run.task); });
+    return ids;
+  }
+
+  /* Replace the page's data in place — the live client calls this on every
+   * server event. The selected task survives when it still exists; view,
+   * layout and every chart's window and mode state are keyed by task and
+   * stay as they are. */
+  function load(data) {
+    if (!data || typeof data !== "object") return;
+    State.data = { reports: data.reports || [], aggregate: data.aggregate || {}, live: data.live || null, fleet: data.fleet };
+    var ids = taskIds();
+    if (!State.task || ids.indexOf(State.task) < 0) State.task = ids.length ? ids[0] : null;
+    State.layout = reconcile(Store.get(key("layout")), makeCtx());
+    renderAll();
+  }
+
   function currentReport() {
     var reports = State.data.reports || [];
     if (!reports.length) return null;
@@ -828,7 +850,7 @@
     var reports = (State.data.reports || []).filter(function (r) { return r && r.task; });
     if (reports.length < 2) { host.hidden = true; return; }
     host.hidden = false;
-    var ids = reports.map(function (r) { return r.task.id; });
+    var ids = taskIds();
     var at = ids.indexOf(State.task);
     host.appendChild(h("button", {
       class: "tstrip-nav", type: "button", text: "‹", title: "previous task  [",
@@ -870,8 +892,7 @@
   }
 
   function stepTask(delta) {
-    var ids = (State.data.reports || []).filter(function (r) { return r && r.task; })
-      .map(function (r) { return r.task.id; });
+    var ids = taskIds();
     var at = ids.indexOf(State.task);
     var next = ids[at + delta];
     if (next) selectTask(next);
@@ -1468,7 +1489,8 @@
     body.appendChild(h("p", {
       class: "caveat",
       text: "Stored in: " + Store.backendName() + ". Nothing leaves this browser — " +
-            "the page contains no network code, which is why it works offline from a file.",
+            "the page contains no network code, which is why it works offline from a file " +
+            "(served by `deepcompare watch`, it listens to that local server for new steps and nothing else).",
     }));
 
     body.appendChild(h("h3", { text: "Personalization" }));
@@ -2195,6 +2217,10 @@
   global.AgentDiff = {
     block: block,
     boot: boot,
+    load: load,
+    taskIds: taskIds,
+    // the page's data, for blocks that read beyond ctx.report (the live runs)
+    state: function () { return State; },
     /* Look a glossary term up by id — {term, label, short, long} or null.
      * For blocks that want the text inline (or tests that check it exists)
      * rather than the tooltip behaviour. */

@@ -372,8 +372,13 @@ class Recorder:
                  run_id: Optional[str] = None,
                  out_dir: Optional[Union[str, Path]] = "traces",
                  trace_id: Optional[str] = None,
-                 input_tokens: Optional[int] = None) -> None:
+                 input_tokens: Optional[int] = None,
+                 stream: bool = False) -> None:
         self.task = _component(task, "task")
+        #: stream=True writes the run-so-far to ``<file>.live.json`` after
+        #: every step (and every observation), for a watcher to draw while
+        #: the agent is still running; the live file is removed on close
+        self.stream = bool(stream)
         self.agent = _component(agent, "agent")
         self.run_id = _component(run_id, "run_id") if run_id else None
         _check(isinstance(prompt, str) and prompt.strip() != "",
@@ -526,7 +531,34 @@ class Recorder:
             # exists keeps one code path for "response now" and "response
             # later", and lets it correct an estimated count into a real one.
             self._observe(data, None, response=response, latency_s=latency_s)
+        self._stream_now()
         return handle
+
+    # ------------------------------------------------------------ streaming
+
+    @property
+    def live_path(self) -> Optional[Path]:
+        """Where the run-so-far is written while streaming, else None."""
+        if not self.stream or self.out_dir is None:
+            return None
+        return Path(self.out_dir) / (self.filename[:-len(".json")] + ".live.json")
+
+    def _stream_now(self) -> None:
+        """Write the partial trace (no validation: it has no answer yet)."""
+        path = self.live_path
+        if path is None or self._closed:
+            return
+        data = self._payload(validate=False)
+        data["in_progress"] = True
+        data["updated_at"] = time.time()
+        try:
+            directory = path.parent
+            directory.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_name(path.name + f".tmp{os.getpid()}")
+            temporary.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            temporary.replace(path)
+        except OSError:
+            pass   # streaming is best-effort; the final write is what counts
 
     # ------------------------------------------------------------------
     # sugar
@@ -654,6 +686,15 @@ class Recorder:
                  tokens: Optional[int] = None, response: Any = None,
                  note: Optional[str] = None, quality: Optional[str] = None,
                  latency_s: Optional[float] = None) -> None:
+        self._observe_inner(data, output, error=error, tokens=tokens, response=response,
+                            note=note, quality=quality, latency_s=latency_s)
+        # an observation changes a step a watcher may already be drawing
+        self._stream_now()
+
+    def _observe_inner(self, data: dict, output: Any, *, error: Optional[bool] = None,
+                       tokens: Optional[int] = None, response: Any = None,
+                       note: Optional[str] = None, quality: Optional[str] = None,
+                       latency_s: Optional[float] = None) -> None:
         """Apply an observation to a step dict (the one path for all forms)."""
         _check(error is None or isinstance(error, bool),
                "error must be True, False or None (None = undeclared)")
@@ -855,6 +896,12 @@ class Recorder:
         data = self.to_dict()
         if self.out_dir is not None:
             self._path = self._write(data)
+            live = self.live_path
+            if live is not None:
+                try:
+                    live.unlink()
+                except OSError:
+                    pass
         return self._path
 
     def to_dict(self) -> dict:
@@ -863,6 +910,9 @@ class Recorder:
         Validation happens here rather than in :meth:`_write` so the check is
         the same whether the trace is written, posted, or kept in memory.
         """
+        return self._payload(validate=True)
+
+    def _payload(self, validate: bool = True) -> dict:
         steps = []
         for raw in self._steps:
             step = dict(raw)
@@ -890,9 +940,9 @@ class Recorder:
             "task": {"id": self.task, "prompt": self.prompt,
                      "expected": self.expected},
             "outcome": {
-                "success": bool(self._outcome["success"]),
-                "answer": self._outcome["answer"],
-                "score": self._outcome["score"],
+                "success": bool(self._outcome["success"]) if self._answered else False,
+                "answer": self._outcome["answer"] if self._answered else "",
+                "score": self._outcome["score"] if self._answered else None,
                 "termination": self._termination,
             },
             "totals": {
@@ -906,6 +956,8 @@ class Recorder:
             "budget": self.budget,
             "token_accounting": self.token_accounting(steps, estimated_input),
         }
+        if not validate:
+            return data
         try:
             Trajectory.from_json(data)
         except ValueError as exc:

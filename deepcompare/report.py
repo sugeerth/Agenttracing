@@ -32,6 +32,7 @@ from .shapley import shapley_attribution
 from .uncertainty import analyze as analyze_uncertainty
 from .verdict import verdict_card
 from .internals import internals_analysis
+from .feedback import feedback_signal
 
 #: the template line containing this marker is replaced wholesale.
 DATA_MARKER = "window.DEEPCOMPARE_DATA"
@@ -162,6 +163,9 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
     # the five-line card the reader sees first; every line quotes a
     # section above, so it is computed last
     report["verdict_card"] = verdict_card(report)
+    # the loop back: what this pair hands to an environment or the next
+    # prompt — labels, a preference pair, suggestions; read-only over the report
+    report["feedback"] = feedback_signal(report)
     return report
 
 

@@ -251,4 +251,37 @@ def _cmd_why(args: argparse.Namespace) -> int:
               "or exit code depends on this text")
     return 0
 
+def _cmd_watch(args: argparse.Namespace) -> int:
+    """Serve the report page live over a trace directory (localhost)."""
+    from deepcompare.harness.watch import clear_demo_dir, serve
+    import threading
+    template = Path(args.template) if args.template else Path(__file__).resolve().parents[2] / "web" / "blocks.html"
+    if not template.is_file():
+        print(f"error: template {template} not found", file=sys.stderr)
+        return 2
+    traces = Path(args.tracesdir) if args.tracesdir else None
+    demo = None
+    if args.demo:
+        demo = Path(args.demo)
+        if not demo.is_dir():
+            print(f"error: {demo} is not a directory", file=sys.stderr)
+            return 2
+        traces = clear_demo_dir(traces) if traces else clear_demo_dir(None)
+    if traces is None:
+        print("error: give a trace directory, or --demo <traces-to-replay>", file=sys.stderr)
+        return 2
+    stop = threading.Event()
+    server = serve(traces, template, host=args.host, port=args.port, poll=args.poll,
+                   demo=demo, pace=args.pace, loop=args.loop, stop=stop, quiet=not args.verbose)
+    host, port = server.server_address[:2]
+    print(f"watching {traces} — open http://{host}:{port}/  (Ctrl-C to stop)")
+    if demo:
+        print(f"demo: replaying {demo} one step every {args.pace}s" + (" in a loop" if args.loop else ""))
+    try:
+        server.serve_forever(poll_interval=0.5)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.shutdown_all()
+    return 0
 
