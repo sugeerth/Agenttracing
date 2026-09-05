@@ -1689,6 +1689,33 @@ is reported as such.
   units, no window needed. `AgentDiff.charts.mode.{get,set,expand}`
   drives it from outside.
 
+- **Statistics, checkpoints, replay, equality, and the holistic case.**
+  *Equality of output* (`deepcompare/equality.py`, `aggregate.equality`,
+  block *Output equality*): per task and agent, the distinct answers
+  over the runs (after a named normalisation), the equality rate (runs
+  agreeing with the majority), whether the majority matches the expected
+  answer, and whether the two agents' majorities agree — the divergence
+  of outputs at a glance, as dot strips per answer; folded per family
+  into the router's features (`equality_rate`, `mean_distinct_answers`,
+  `consistently_wrong_tasks`). *Checkpoints*: `Recorder.checkpoint()`
+  writes the run-so-far beside the trace; the store keeps a
+  `checkpoints` table (one per run and step, idempotent) that `watch
+  --db` fills from every live update, `db checkpoints` lists, and
+  `replay --from-step` resumes from. *A holistic rationale*
+  (`router.rationale`, in `routing.json` and the Routing block): for
+  each family and overall, who is picked and how surely, the interval
+  against the runner-up, cost, latency, steps and tool calls per run,
+  output equality, the diagnosed fault kinds, and what would settle an
+  open pick — every number in it is in the table.
+- **A second model judges the output** (`deepcompare/harness/judge.py`,
+  CLI `judge`). A judging model — any provider, scripted for tests —
+  reads the task, the final answer and optionally the steps, and returns
+  solved-or-not, a score and a rationale; recorded as `outcome.judge`
+  beside the existing grade with the model, the rubric, agreement with
+  the prior grade and a `self_judged` flag when the judge is the agent's
+  own model; applied to `outcome.success` only with `--apply`, which
+  marks `graded_by: model`. The outcome block shows the judge's tag and
+  its disagreement. The engine never calls a judge.
 - **Trace Claude Code — live and after the fact** (`deepcompare/claude_code.py`,
   CLI `hook`, format `claude-code`). Claude Code runs shell hooks around
   every tool call and at the end of a turn; `python -m deepcompare hook

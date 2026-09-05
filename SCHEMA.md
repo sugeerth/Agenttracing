@@ -210,6 +210,20 @@ Every pairwise report carries, beyond the sections above:
 - `uncertainty.{a,b}.interval` — per-step `[low, high]` beside `series`
   (`None` where the step carries none) with `interval_basis`, the bases
   quoted from the traces.
+- `outcome.judge` (on a trace, written by `judge`) — `{model, provider,
+  rubric, with_steps, success, score, rationale, raw, error, self_judged,
+  applied, prior {success, score, graded_by}, agrees_with_prior}`;
+  `outcome.graded_by: "model"` only after `--apply`.
+- `aggregate.equality` (runs) — `{normalisation, tasks {task: {agents
+  {name: {runs, distinct_answers, equality_rate, majority_answer,
+  majority_matches_expected, successes, answers[{answer, runs,
+  success}]}}, expected, cross_agent}}, per_agent, cross_agent, note}`.
+- `aggregate.routing` (batch, runs) / `routing.json` (`route`) —
+  `{objective, min_runs, families {family: {pick, confidence, why,
+  either, candidates[{agent, features {n, successes, rate, ci95,
+  cost_usd, latency_s, tokens, steps, tool_calls, terminations,
+  equality_rate?, mean_distinct_answers?, consistently_wrong_tasks?},
+  fault_kinds}]}}, overall, rationale {families, overall}, hints}`.
 - `feedback` — the loop back, derived read-only: `{version, task_id,
   failing_side, failing_agent, step_labels[{side, agent, step, type,
   name, labels[{label, source, mechanism?}]}], preference_pair {prompt,
@@ -256,7 +270,8 @@ card v37; replay v40).
 | `feedback <report.json|dir> [-o signal.json] [--jsonl pairs.jsonl]` | the loop back: step labels, preference pairs, prompt suggestions |
 | `hook --traces DIR --task ID [--expected X] [--db FILE]` | a Claude Code hook: live steps on PostToolUse, the final trace on Stop |
 | `route <traces/ or --db FILE> [--objective …] [-o routing.json]` | per task family: each agent's success interval, cost, latency, steps, tool calls; the pick and its confidence |
-| `db --db FILE import/summary/query/search/export` | the trace database (SQLite): ingest, list, full-text search, export |
+| `judge <trace|dir|report> --provider … [--with-steps] [--apply] [--db FILE]` | a second model grades the answer; recorded as outcome.judge, applied only with --apply |
+| `db --db FILE import/summary/query/search/checkpoints/export` | the trace database (SQLite): ingest, list, full-text search, export |
 | `watch [traces/] [--demo TRACES --pace S --loop]` | serve the page live (localhost, server-sent events): running agents stream in, finished pairs become the story |
 | `replay REPORT --provider …` | verify the decisive step by re-execution; writes the verdict back |
 | `why REPORT --provider …` | narrate through a provider under the covenant |

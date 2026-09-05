@@ -34,6 +34,9 @@
       ".rt-bar b{position:absolute;top:-2px;width:2px;height:10px;background:var(--ink)}",
       ".rt-why{font-size:var(--fs-xs);color:var(--ink-3)}",
       ".rt-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:8px;max-width:72ch}",
+      ".rt-rationale{font-size:var(--fs-m);color:var(--ink);margin:10px 0 4px;max-width:78ch}",
+      ".rt-fold>summary{cursor:pointer;font-size:var(--fs-xs);color:var(--ink-3)}",
+      ".rt-fam{margin:6px 0;max-width:78ch;font-size:var(--fs-s);color:var(--ink-2)}",
     ].join("");
     document.head.appendChild(node);
   }
@@ -90,6 +93,14 @@
         });
       });
       el.appendChild(H("div", { class: "scroll-x" }, [table]));
+      var ra = rt.rationale || {};
+      if (ra.overall) el.appendChild(H("p", { class: "rt-rationale", text: ra.overall }));
+      var famKeys = Object.keys(ra.families || {});
+      if (famKeys.length) {
+        var fold = H("details", { class: "rt-fold" }, [H("summary", { text: "the case for each family (" + famKeys.length + ")" })]);
+        famKeys.forEach(function (fam) { fold.appendChild(H("p", { class: "rt-why rt-fam", "data-family": fam, text: ra.families[fam] })); });
+        el.appendChild(fold);
+      }
       if (rt.note) el.appendChild(H("p", { class: "rt-note", text: rt.note }));
     },
   });

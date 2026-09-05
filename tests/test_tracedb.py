@@ -90,6 +90,19 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(self.db.count(), 0)
         self.assertEqual(family_of("t05_flight_duration__r2"), "t05_flight_duration")
 
+    def test_checkpoints_keep_the_run_so_far_per_step(self):
+        raw = json.loads((DEMO / "t05_flight_duration__bolt-v3.json").read_text(encoding="utf-8"))
+        for k in (1, 2, 3):
+            partial = dict(raw); partial["steps"] = raw["steps"][:k]; partial["in_progress"] = True
+            self.db.checkpoint(partial, label=f"after step {k - 1}", source="watch", recorded_at=100.0 + k)
+        self.db.checkpoint({**raw, "steps": raw["steps"][:3]}, source="watch")   # same step: replaced
+        cps = self.db.checkpoints("t05_flight_duration__bolt-v3")
+        self.assertEqual([c["step"] for c in cps], [1, 2, 3])
+        self.assertEqual(cps[0]["label"], "after step 0")
+        self.assertEqual(len(cps[2]["trace"]["steps"]), 3)
+        self.assertEqual(self.db.checkpoint_ids()[0]["latest"], 3)
+        self.assertEqual(self.db.summary()["checkpoints"], {"count": 3, "runs": 1})
+
     def test_remove_and_export(self):
         self.db.add_directory(DEMO)
         self.assertTrue(self.db.remove("t05_flight_duration__bolt-v3"))

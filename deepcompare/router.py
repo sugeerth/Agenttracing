@@ -87,7 +87,7 @@ def _rank_key(objective: str):
 
 
 def routing_table(trajectories: list, *, objective: str = "success", family_pattern: Optional[str] = None,
-                  reports: Optional[list] = None) -> dict:
+                  reports: Optional[list] = None, equality: Optional[dict] = None) -> dict:
     """Per family, every candidate's features and the pick under
     ``objective`` (``success`` — highest lower-bound success, then
     cheaper; ``cost``/``latency``/``steps`` — cheapest/fastest/shortest
@@ -109,11 +109,23 @@ def routing_table(trajectories: list, *, objective: str = "success", family_patt
             kinds.setdefault(fam, {}).setdefault(agent, {})
             kinds[fam][agent][lead["kind"]] = kinds[fam][agent].get(lead["kind"], 0) + 1
 
+    # output equality per agent per family, when the caller computed it
+    eq_by_agent: dict = {}
+    if equality:
+        from .equality import equality_features
+        agents_seen = {t.agent.name for t in trajectories}
+        for agent in agents_seen:
+            eq_by_agent[agent] = equality_features(equality, agent, lambda tid: family_of(tid, family_pattern))
     families = {}
     for fam in sorted(by_family):
         rows = []
         for agent in sorted(by_family[fam]):
             feats = _features(by_family[fam][agent])
+            eq = (eq_by_agent.get(agent) or {}).get(fam)
+            if eq:
+                feats["equality_rate"] = eq["equality_rate"]
+                feats["mean_distinct_answers"] = eq["mean_distinct_answers"]
+                feats["consistently_wrong_tasks"] = eq["consistently_wrong_tasks"]
             rows.append({"agent": agent, "features": feats,
                          "fault_kinds": kinds.get(fam, {}).get(agent, {})})
         rows.sort(key=_rank_key(objective))
@@ -137,10 +149,17 @@ def routing_table(trajectories: list, *, objective: str = "success", family_patt
                          "either": [r["agent"] for r in rows[:2]] if confidence == "overlapping" else None,
                          "candidates": rows}
     overall = _features_overall(trajectories, objective)
+    table = {
+        "version": 1, "objective": objective, "min_runs": MIN_RUNS,
+        "families": families,
+        "overall": overall,
+    }
+    table["rationale"] = rationale(table)
     return {
         "version": 1, "objective": objective, "min_runs": MIN_RUNS,
         "families": families,
         "overall": overall,
+        "rationale": table["rationale"],
         "note": ("picks rank by the lower bound of the 95% Wilson interval on success, then cost; "
                  "'overlapping' means the top two intervals overlap — treat as either, or gather runs; "
                  "'insufficient' means a candidate has fewer than three runs"),
@@ -154,6 +173,74 @@ def _features_overall(trajectories: list, objective: str) -> dict:
     rows = [{"agent": a, "features": _features(ts), "fault_kinds": {}} for a, ts in sorted(by_agent.items())]
     rows.sort(key=_rank_key(objective))
     return {"pick": rows[0]["agent"] if rows else None, "candidates": rows}
+
+
+def _pct(v) -> str:
+    return f"{v:.0%}" if isinstance(v, (int, float)) else "—"
+
+
+def rationale(table: dict) -> dict:
+    """The holistic case, in sentences a person can check: for each family
+    and overall — who is picked, how sure, at what cost and speed, how
+    consistent its answers are, what it tends to get wrong, and what
+    would change the pick. Every number in it is in the table."""
+    obj = table.get("objective", "success")
+    out = {"families": {}, "overall": ""}
+    for fam, row in (table.get("families") or {}).items():
+        cands = row.get("candidates") or []
+        if not cands:
+            continue
+        top = cands[0]
+        f = top["features"]
+        parts = []
+        head = (f"{top['agent']} is the pick for {fam} under '{obj}'" if row["confidence"] == "clear"
+                else f"{fam}: {' or '.join(row['either'])} — no clear pick" if row["confidence"] == "overlapping"
+                else f"{fam}: not enough runs to pick")
+        parts.append(head + ".")
+        parts.append(f"Success {_pct(f['rate'])} over {f['n']} run(s), 95% interval "
+                     f"{f['ci95'][0]:.2f}–{f['ci95'][1]:.2f}"
+                     + (f"; runner-up {cands[1]['agent']} {_pct(cands[1]['features']['rate'])} "
+                        f"[{cands[1]['features']['ci95'][0]:.2f}–{cands[1]['features']['ci95'][1]:.2f}]" if len(cands) > 1 else "") + ".")
+        spend = []
+        if f.get("cost_usd") is not None:
+            spend.append(f"${f['cost_usd']:.4f}")
+        if f.get("latency_s") is not None:
+            spend.append(f"{f['latency_s']:.1f}s")
+        if f.get("steps") is not None:
+            spend.append(f"{f['steps']:.1f} steps")
+        if f.get("tool_calls") is not None:
+            spend.append(f"{f['tool_calls']:.1f} tool calls")
+        if spend:
+            parts.append("Per run: " + ", ".join(spend) + (f"; runner-up ${cands[1]['features']['cost_usd']:.4f}, "
+                         f"{cands[1]['features']['latency_s']:.1f}s" if len(cands) > 1 and cands[1]['features'].get('cost_usd') is not None
+                         and cands[1]['features'].get('latency_s') is not None else "") + ".")
+        if f.get("equality_rate") is not None:
+            eq = f["equality_rate"]
+            parts.append(f"Output equality {_pct(eq)}: " +
+                         ("its runs agree with each other" if eq >= 0.99 else
+                          f"runs give {f.get('mean_distinct_answers', '?')} distinct answers on average") +
+                         (f"; consistently wrong on {f['consistently_wrong_tasks']} task(s)" if f.get("consistently_wrong_tasks") else "") + ".")
+        if top.get("fault_kinds"):
+            kinds = sorted(top["fault_kinds"].items(), key=lambda kv: -kv[1])
+            parts.append("When it fails, the diagnosed cause is " + ", ".join(f"{k.replace('_', ' ')} ×{v}" for k, v in kinds[:3]) + ".")
+        if row["confidence"] == "overlapping":
+            parts.append("What would settle it: more runs per candidate until the intervals separate, or a stricter objective.")
+        elif row["confidence"] == "insufficient":
+            parts.append(f"What would settle it: at least {table.get('min_runs', MIN_RUNS)} runs per candidate.")
+        out["families"][fam] = " ".join(parts)
+    ov = table.get("overall") or {}
+    cands = ov.get("candidates") or []
+    if cands:
+        top = cands[0]["features"]
+        out["overall"] = (f"Over every task: {ov['pick']} leads with success {_pct(top['rate'])} over {top['n']} run(s) "
+                          f"[{top['ci95'][0]:.2f}–{top['ci95'][1]:.2f}]"
+                          + (f", against {cands[1]['agent']} at {_pct(cands[1]['features']['rate'])} "
+                             f"[{cands[1]['features']['ci95'][0]:.2f}–{cands[1]['features']['ci95'][1]:.2f}]" if len(cands) > 1 else "")
+                          + f". A per-family router beats the single pick only on families where another agent's lower bound is higher; "
+                          f"{sum(1 for r in table['families'].values() if r['confidence'] == 'clear' and r['pick'] != ov['pick'])} "
+                          f"famil{'y' if sum(1 for r in table['families'].values() if r['confidence'] == 'clear' and r['pick'] != ov['pick']) == 1 else 'ies'} "
+                          f"clearly prefer another agent.")
+    return out
 
 
 def router_hints(table: dict) -> list:

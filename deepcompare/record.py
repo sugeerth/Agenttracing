@@ -543,6 +543,21 @@ class Recorder:
             return None
         return Path(self.out_dir) / (self.filename[:-len(".json")] + ".live.json")
 
+    def checkpoint(self, label: Optional[str] = None) -> Optional[Path]:
+        """Write the run-so-far to ``<file>.ckpt-<steps>.json`` — a point a
+        replay can start from — whether or not streaming is on."""
+        if self.out_dir is None or self._closed:
+            return None
+        data = self._payload(validate=False)
+        data["in_progress"] = True
+        data["checkpoint"] = {"step": len(self._steps), "label": label, "at": time.time()}
+        path = Path(self.out_dir) / (self.filename[:-len(".json")] + f".ckpt-{len(self._steps)}.json")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(path.name + f".tmp{os.getpid()}")
+        temporary.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(path)
+        return path
+
     def _stream_now(self) -> None:
         """Write the partial trace (no validation: it has no answer yet)."""
         path = self.live_path

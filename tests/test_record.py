@@ -597,3 +597,23 @@ class TestInstrument(RecorderCase):
 
 if __name__ == "__main__":   # pragma: no cover
     unittest.main()
+
+
+class CheckpointTest(unittest.TestCase):
+    def test_checkpoint_writes_the_run_so_far_beside_the_trace(self):
+        import json as _json
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        with _tempfile.TemporaryDirectory() as tmp:
+            with Recorder(task="t1", prompt="p", agent="bot", expected="4", out_dir=tmp) as rec:
+                rec.plan("add")
+                path = rec.checkpoint("after the plan")
+                self.assertTrue(path.name.endswith(".ckpt-1.json"))
+                data = _json.loads(path.read_text(encoding="utf-8"))
+                self.assertTrue(data["in_progress"])
+                self.assertEqual(data["checkpoint"]["label"], "after the plan")
+                self.assertEqual(len(data["steps"]), 1)
+                rec.answer("4", success=True)
+            self.assertTrue((_Path(tmp) / "t1__bot.json").is_file())
+
+

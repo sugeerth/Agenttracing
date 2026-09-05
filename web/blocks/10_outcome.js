@@ -299,6 +299,16 @@
         if (outcome.success === true) tags.appendChild(ctx.h("span", { class: "tag good", text: "✓ success" }));
         else if (outcome.success === false) tags.appendChild(ctx.h("span", { class: "tag bad", text: "✗ failed" }));
         else tags.appendChild(ctx.h("span", { class: "tag", text: "outcome unknown" }));
+        if (outcome.graded_by === "model") tags.appendChild(ctx.h("span", { class: "tag warn", text: "graded by a model" }));
+        if (outcome.judge && typeof outcome.judge === "object" && outcome.judge.success !== null && outcome.judge.success !== undefined) {
+          var j = outcome.judge;
+          tags.appendChild(ctx.h("span", {
+            class: "tag " + (j.success ? "good" : "bad"),
+            title: (j.rationale || "") + (j.self_judged ? " (self-judged: the same model as the agent)" : ""),
+            text: "judge " + (j.model || "model") + ": " + (j.success ? "✓" : "✗") + (num(j.score) !== null ? " " + ctx.fmt.num(j.score, 2) : "") +
+                  (j.agrees_with_prior === false ? " · disagrees with the grade" : "") + (j.self_judged ? " · self" : ""),
+          }));
+        }
         if (num(outcome.score) !== null) {
           tags.appendChild(ctx.h("span", { class: "tag " + sideClass(which), text: "score " + ctx.fmt.num(outcome.score, 2) }));
         }

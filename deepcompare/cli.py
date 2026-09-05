@@ -39,6 +39,7 @@ from .claude_code import register_format as _register_claude_code
 _register_claude_code()
 from .router import routing_table, router_hints
 from .tracedb import TraceDB
+from .equality import equality_analysis
 from .profile import build_profile, profile_suite
 from .cohort import GROUPERS, compare_cohorts, group_runs
 from .issues import build_issues, load_suppressions, render_issues_markdown
@@ -59,7 +60,7 @@ from .variance import METRICS as VARIANCE_METRICS, variance_report
 #: default viewer template, relative to the repo root (parent of the package).
 from .commands.paths import DEFAULT_TEMPLATE, LEGACY_TEMPLATE  # noqa: E402
 from .commands.live import (  # noqa: E402
-    _cmd_replay, _cmd_run, _cmd_watch, _cmd_why, _load_report, _provider_options,
+    _cmd_judge, _cmd_replay, _cmd_run, _cmd_watch, _cmd_why, _load_report, _provider_options,
     _save_report, _split_spec,
 )
 #: template for the lightweight agent-selection view.
@@ -642,6 +643,15 @@ def _cmd_db(args: argparse.Namespace) -> int:
                 print(f"{h['trace_id']} step {h['idx']} {h['type']} {h['name'] or ''}: {(h['output'] or '')[:90]!r}")
             print(f"{len(hits)} hit(s)")
             return 0
+        if args.db_cmd == "checkpoints":
+            if args.trace_id:
+                for c in db.checkpoints(args.trace_id):
+                    print(f"{c['trace_id']} step {c['step']:>4} {c['label'] or ''} {c['source'] or ''} "
+                          f"{len(c['trace'].get('steps') or [])} step(s) recorded")
+            else:
+                for c in db.checkpoint_ids():
+                    print(f"{c['trace_id']:<44} {c['n']:>3} checkpoint(s), latest at step {c['latest']}")
+            return 0
         if args.db_cmd == "export":
             out = Path(args.output)
             out.mkdir(parents=True, exist_ok=True)
@@ -688,9 +698,16 @@ def _cmd_route(args: argparse.Namespace) -> int:
                 reports.append(json.loads(path.read_text(encoding="utf-8")))
             except (OSError, ValueError):
                 pass
+    by_task: dict = {}
+    for t in trajectories:
+        by_task.setdefault(t.task.id, {}).setdefault(t.agent.name, []).append(t)
+    repeated = any(len(runs) > 1 for agents in by_task.values() for runs in agents.values())
+    equality = equality_analysis(by_task) if repeated else None
     table = routing_table(trajectories, objective=args.objective, family_pattern=args.family_pattern,
-                          reports=reports or None)
+                          reports=reports or None, equality=equality)
     table["hints"] = router_hints(table)
+    if equality:
+        table["equality"] = equality["per_agent"]
     if args.output:
         Path(args.output).parent.mkdir(parents=True, exist_ok=True)
         Path(args.output).write_text(json.dumps(table, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -702,6 +719,11 @@ def _cmd_route(args: argparse.Namespace) -> int:
         print(f"  {hint['family']:<28} → {route if isinstance(route, str) else ('either of ' + ' / '.join(route) if route else '—'):<24} {hint['basis']}")
     ov = table["overall"]
     print("  overall: " + ", ".join(f"{c['agent']} {c['features']['rate']:.0%} [{c['features']['ci95'][0]:.2f}–{c['features']['ci95'][1]:.2f}] n={c['features']['n']}" for c in ov["candidates"]))
+    if table.get("rationale", {}).get("overall"):
+        print("  rationale: " + table["rationale"]["overall"])
+    if args.verbose:
+        for fam, text in table["rationale"]["families"].items():
+            print(f"  {fam}: {text}")
     return 0
 
 
@@ -794,7 +816,8 @@ def _cmd_runs(args: argparse.Namespace) -> int:
     reliability_analysis = reliability(runs_by_task)
     reports = [compare(a, b) for a, b in medoid_pairs(runs_by_task)]
     agg = build_aggregate(reports)
-    agg["routing"] = routing_table(trajectories)
+    agg["equality"] = equality_analysis(runs_by_task)
+    agg["routing"] = routing_table(trajectories, equality=agg["equality"])
     agg["stability"] = stability
     agg["reliability"] = reliability_analysis
     agg["task_signal"] = task_signal(reports, stability)
@@ -1789,6 +1812,19 @@ def build_parser() -> argparse.ArgumentParser:
     _provider_option_args(p_replay)
     p_replay.set_defaults(func=_cmd_replay)
 
+    p_judge = sub.add_parser(
+        "judge", help="a second model judges each trace's final answer (talks to a network unless "
+                      "the provider is scripted); recorded as outcome.judge, applied to "
+                      "outcome.success only with --apply")
+    p_judge.add_argument("target", help="a trace file, a directory of traces, or a report_*.json")
+    p_judge.add_argument("--provider", required=True, metavar="NAME=KIND:MODEL")
+    p_judge.add_argument("--rubric", default=None, help="the judging instruction (default: strict correctness, JSON verdict)")
+    p_judge.add_argument("--with-steps", action="store_true", help="show the judge the steps, not only the answer")
+    p_judge.add_argument("--apply", action="store_true", help="replace outcome.success/score with the judge's verdict (marked graded_by: model)")
+    p_judge.add_argument("--db", default=None, help="also update the judged traces in this trace database")
+    _provider_option_args(p_judge)
+    p_judge.set_defaults(func=_cmd_judge)
+
     p_why = sub.add_parser(
         "why", help="narrate a report through a model provider — commentary "
                     "checked number by number, read by no analysis")
@@ -1814,6 +1850,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_db_query.add_argument("--json", action="store_true")
     p_db_search = db_sub.add_parser("search", help="full-text search over step names, inputs and outputs")
     p_db_search.add_argument("text"); p_db_search.add_argument("--limit", type=int, default=50)
+    p_db_ckpt = db_sub.add_parser("checkpoints", help="runs with checkpoints (the run-so-far at each step a watcher or recorder kept)")
+    p_db_ckpt.add_argument("trace_id", nargs="?", default=None)
     p_db_export = db_sub.add_parser("export", help="write matching traces back out as JSON files")
     p_db_export.add_argument("-o", "--output", required=True)
     p_db_export.add_argument("--task"); p_db_export.add_argument("--family"); p_db_export.add_argument("--agent")
@@ -1840,6 +1878,7 @@ def build_parser() -> argparse.ArgumentParser:
                          help="regex whose first group names a task's family (default: the task id minus a run suffix)")
     p_route.add_argument("--reports", default=None, help="a batch/runs output directory, to count fault kinds per agent")
     p_route.add_argument("-o", "--output", default=None, help="write routing.json here")
+    p_route.add_argument("--verbose", action="store_true", help="print the rationale for every family")
     p_route.set_defaults(func=_cmd_route)
 
     p_feedback = sub.add_parser(

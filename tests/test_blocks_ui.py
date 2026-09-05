@@ -2512,6 +2512,45 @@ class IntervalsAndInternalsTest(unittest.TestCase):
         self.assertEqual(errors, [])
         context.close()
 
+    def test_the_equality_block_counts_every_run_per_answer_and_the_routing_block_gives_its_rationale(self):
+        context, page, errors = self.open(self.runs, "#view=batch")
+        agg = self.runs_agg
+        eq = agg.get("equality")
+        self.assertTrue(eq and eq["tasks"], "the runs aggregate carries an equality analysis")
+        block = page.locator('.block[data-block="equality"]')
+        self.assertEqual(block.count(), 1)
+        if "collapsed" in (block.get_attribute("class") or ""):
+            block.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(300)
+            block = page.locator('.block[data-block="equality"]')
+        agents = list(eq["per_agent"])
+        for tid, row in eq["tasks"].items():
+            tr = block.locator(f'tr[data-task="{tid}"]')
+            self.assertEqual(tr.count(), 1, tid)
+            for i, agent in enumerate(agents):
+                entry = row["agents"].get(agent)
+                cell = tr.locator("td").nth(i + 1)
+                if not entry:
+                    self.assertEqual(cell.text_content(), "—")
+                    continue
+                self.assertEqual(cell.locator(".eq-dots i").count(), entry["runs"], f"{tid} {agent}: one dot per run")
+                self.assertEqual(cell.locator(".eq-dots i.wrong").count(), entry["runs"] - entry["successes"])
+                self.assertIn(f'{entry["distinct_answers"]} distinct', cell.locator(".eq-num").text_content())
+            cross = row.get("cross_agent")
+            if cross:
+                self.assertEqual(tr.locator(".eq-cross").text_content(),
+                                 "same answer" if cross["majorities_equal"] else "different answers")
+        self.assertIn("equality_rate", block.locator(".eq-note").text_content())
+        rt = agg["routing"]
+        routing = page.locator('.block[data-block="routing"]')
+        if "collapsed" in (routing.get_attribute("class") or ""):
+            routing.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(300)
+            routing = page.locator('.block[data-block="routing"]')
+        self.assertEqual(routing.locator(".rt-rationale").text_content(), rt["rationale"]["overall"])
+        self.assertEqual(errors, [])
+        context.close()
+
     def test_a_plain_batch_draws_no_band_no_whisker_no_mark(self):
         context, page, errors = self.open(self.runs)
         self.assertEqual(page.locator("svg.tj g.tjm-interval").count(), 0)

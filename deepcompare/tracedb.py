@@ -84,6 +84,16 @@ CREATE TABLE IF NOT EXISTS steps (
 );
 CREATE INDEX IF NOT EXISTS steps_name ON steps (name, type);
 CREATE INDEX IF NOT EXISTS steps_type ON steps (type);
+CREATE TABLE IF NOT EXISTS checkpoints (
+  trace_id    TEXT NOT NULL,
+  step        INTEGER NOT NULL,
+  label       TEXT,
+  source      TEXT,
+  recorded_at REAL NOT NULL,
+  json        TEXT NOT NULL,
+  PRIMARY KEY (trace_id, step)
+);
+CREATE INDEX IF NOT EXISTS checkpoints_when ON checkpoints (recorded_at);
 """
 
 _FTS_DDL = """
@@ -167,6 +177,36 @@ class TraceDB:
                 self.conn.executemany("INSERT INTO steps_fts (trace_id, idx, name, input, output) VALUES (?,?,?,?,?)",
                                       [(trace_id, s.index, s.name or "", s.input or "", s.output or "") for s in traj.steps])
         return trace_id
+
+    # ---------------------------------------------------------- checkpoints
+
+    def checkpoint(self, partial: dict, *, label: Optional[str] = None, source: str = "watch",
+                   recorded_at: Optional[float] = None) -> Optional[str]:
+        """Keep a run-so-far (a live or partial trace) under its trace id and
+        step count, so a run can be replayed from any point it reached and a
+        crash loses nothing it had already done. Idempotent per (id, step)."""
+        if not isinstance(partial, dict):
+            return None
+        steps = partial.get("steps") or []
+        task = ((partial.get("task") or {}).get("id")) or "task"
+        agent = ((partial.get("agent") or {}).get("name")) or "agent"
+        trace_id = partial.get("trace_id") or f"{task}__{agent}"
+        with self.conn:
+            self.conn.execute("INSERT OR REPLACE INTO checkpoints (trace_id, step, label, source, recorded_at, json) VALUES (?,?,?,?,?,?)",
+                              (trace_id, len(steps), label, source,
+                               recorded_at if recorded_at is not None else time.time(),
+                               json.dumps(partial, ensure_ascii=False)))
+        return trace_id
+
+    def checkpoints(self, trace_id: str) -> list:
+        """The checkpoints of one run, oldest first: step, label, when, and the partial trace."""
+        return [{"trace_id": r["trace_id"], "step": r["step"], "label": r["label"], "source": r["source"],
+                 "recorded_at": r["recorded_at"], "trace": json.loads(r["json"])}
+                for r in self.conn.execute("SELECT * FROM checkpoints WHERE trace_id = ? ORDER BY step", (trace_id,))]
+
+    def checkpoint_ids(self) -> list:
+        return [dict(r) for r in self.conn.execute(
+            "SELECT trace_id, COUNT(*) AS n, MAX(step) AS latest, MAX(recorded_at) AS updated FROM checkpoints GROUP BY trace_id ORDER BY updated DESC")]
 
     def add_directory(self, directory: Union[str, Path], *, source: str = "import") -> dict:
         """Ingest every trace JSON in a directory; live and non-trace files are skipped."""
@@ -271,7 +311,9 @@ class TraceDB:
         rate = {r["agent"]: {"n": r["n"], "successes": r["s"], "rate": round(r["s"] / r["n"], 4) if r["n"] else None}
                 for r in self.conn.execute("SELECT agent, COUNT(*) AS n, SUM(success) AS s FROM traces GROUP BY agent")}
         span = self.conn.execute("SELECT MIN(recorded_at) AS lo, MAX(recorded_at) AS hi, COUNT(*) AS n, SUM(steps) AS steps FROM traces").fetchone()
+        ckpt = self.conn.execute("SELECT COUNT(*) AS n, COUNT(DISTINCT trace_id) AS runs FROM checkpoints").fetchone()
         return {"path": str(self.path), "traces": span["n"], "steps": span["steps"] or 0,
+                "checkpoints": {"count": ckpt["n"], "runs": ckpt["runs"]},
                 "recorded_between": [span["lo"], span["hi"]] if span["n"] else None,
                 "by": by, "success_by_agent": rate, "fts": self.fts, "schema_version": SCHEMA_VERSION}
 

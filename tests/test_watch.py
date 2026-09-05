@@ -99,6 +99,26 @@ class WatcherTest(unittest.TestCase):
             self.assertEqual(w.payload()["live"]["runs"], [])
 
 
+class CheckpointingWatcherTest(unittest.TestCase):
+    def test_every_live_update_becomes_a_checkpoint_and_the_final_a_trace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            db = out / "t.sqlite"
+            b = json.loads((DEMO / "t05_flight_duration__bolt-v3.json").read_text(encoding="utf-8"))
+            w = Watcher(out, poll=0.05, db=db)
+            for k in (1, 2):
+                partial = dict(b); partial["steps"] = b["steps"][:k]; partial["in_progress"] = True
+                (out / ("t05_flight_duration__bolt-v3" + LIVE_SUFFIX)).write_text(json.dumps(partial), encoding="utf-8")
+                w.refresh(force=True)
+            (out / "t05_flight_duration__bolt-v3.json").write_text(json.dumps(b), encoding="utf-8")
+            (out / ("t05_flight_duration__bolt-v3" + LIVE_SUFFIX)).unlink()
+            w.refresh(force=True)
+            from deepcompare.tracedb import TraceDB
+            with TraceDB(db) as store:
+                self.assertEqual([c["step"] for c in store.checkpoints("t05_flight_duration__bolt-v3")], [1, 2])
+                self.assertEqual(store.count(source="watch"), 1)
+
+
 class SimulatorTest(unittest.TestCase):
     def test_the_demo_streams_steps_then_lands_the_finals(self):
         with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as out:

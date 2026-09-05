@@ -160,24 +160,28 @@ Run another coding agent on the same task through the harness (`run
 runs, `route traces/` (or `--db traces.sqlite`) gives a router what it
 needs per task family: each agent's success rate with its interval,
 cost, latency, steps, tool calls, and a pick whose confidence is stated
-— *clear*, *either*, or *gather more runs*. `db import` keeps every
-trace in one SQLite file with full-text search over steps.
+— *clear*, *either*, or *gather more runs* — with its rationale: the
+interval against the runner-up, cost, speed, equality, fault kinds, and
+what would settle an open call. `db import` keeps every trace in one
+SQLite file with full-text search over steps and a checkpoint per step
+for running agents. `runs` adds output equality: do repeated runs say
+the same thing, and do the two agents. `judge` lets a second model
+grade answers no exact match can, recorded beside the grade and applied
+only on request.
 
 ## Why use it: the loop
 
 Mapping a failure is the first half. The second half is what the page
-hands back. Read the story (what happened, why, where the fault
-entered); go back with `replay` to test the decisive step against the
-passing run's decision; then take three things forward. *Prompt
-suggestions* — one sentence per finding the reading located, in the
-next run's system prompt. *Reward shaping* — the step labels (fault
-enters, carried, wrong answer, dead end, spent after basis, fed the
-answer) as a process signal for an RL environment. A *preference pair* —
-the passing run, or the reconciled splice, against the failing one, in
-the shape a preference-optimisation loader reads. `deepcompare feedback
+hands back. Read the story; go back with `replay` to test the decisive
+step against the passing run's decision; then take three things
+forward. *Prompt suggestions* — one sentence per finding, in the next
+run's system prompt. *Reward shaping* — the step labels (fault enters,
+carried, wrong answer, dead end, spent after basis, fed the answer) as
+a process signal for an RL environment. A *preference pair* — the
+passing run, or the reconciled splice, against the failing one, in the
+shape a preference-optimisation loader reads. `deepcompare feedback
 out/ --jsonl pairs.jsonl` writes them for a whole batch; every item is
-derived from the report and labelled a hypothesis until a replay confirms
-it.
+labelled a hypothesis until a replay confirms it.
 
 ## Research direction
 
@@ -187,13 +191,10 @@ and agent-evaluation literature — counterfactual decisive steps
 faithfulness), overdetermination (Thought Anchors), pass^k reliability
 (τ-bench), leaky implanted benchmarks, paired designs — with each item's
 status in [`docs/RESEARCH_INSIGHTS.md`](docs/RESEARCH_INSIGHTS.md).
-With an open-weights model the harness also records what the model's
-own tokens say (a per-step confidence interval from its logprobs) and
-what its internals say (the Neuronpedia SAE features each step
-activates, with `NEURONPEDIA_API_KEY` set outside the chat); the report
-then names the features that fired only on the failing side at the
-decisive step, as cited evidence that never moves a score, and the page
-draws the band, the whiskers and the feature bars with their dashboard
-links. Still open: MAST cross-mapping, strained coherence, structural anchors,
-a same-configuration noise floor, and turning single failing logs into
-pairs by recording a passing run through the harness.
+With an open-weights model the harness also records a per-step
+confidence interval from the model's logprobs and the Neuronpedia SAE
+features each step activates (`NEURONPEDIA_API_KEY` set outside the
+chat); the report names the features that fired only on the failing
+side at the decisive step, as cited evidence that never moves a score.
+Still open: MAST cross-mapping, strained coherence, structural anchors,
+a same-configuration noise floor.

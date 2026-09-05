@@ -286,3 +286,59 @@ def _cmd_watch(args: argparse.Namespace) -> int:
         server.shutdown_all()
     return 0
 
+
+def _cmd_judge(args: argparse.Namespace) -> int:
+    """A second model judges each trace's final answer."""
+    import json
+    from deepcompare.harness import provider_from_spec
+    from deepcompare.harness.judge import DEFAULT_RUBRIC, judge_many
+    target = Path(args.target)
+    if target.is_dir():
+        paths = sorted(p for p in target.glob("*.json")
+                       if not p.name.endswith(".live.json") and not p.name.startswith(("report_", "aggregate", "RUN_MANIFEST", "fleet")))
+    else:
+        paths = [target]
+    traces = []
+    for path in paths:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            print(f"skipped {path.name}: {exc}", file=sys.stderr)
+            continue
+        if "steps" in data and "outcome" in data:
+            traces.append((path, data, None))
+        elif "a" in data and "b" in data:   # a report: judge both sides
+            traces.append((path, data["a"], data)); traces.append((path, data["b"], data))
+    if not traces:
+        print("error: nothing to judge", file=sys.stderr)
+        return 2
+    _name, spec = _split_spec(args.provider)
+    options = _provider_options(args)
+    kind = spec.split(":", 1)[0].strip().lower()
+    factory = lambda: provider_from_spec(spec, **({} if kind == "scripted" else options))  # noqa: E731
+    rubric = args.rubric or DEFAULT_RUBRIC
+    counts = judge_many([t[1] for t in traces], factory, rubric=rubric, with_steps=args.with_steps, apply=args.apply)
+    written = set()
+    for path, data, report in traces:
+        if path in written:
+            continue
+        payload = report if report is not None else data
+        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        written.add(path)
+    if args.db:
+        from deepcompare.tracedb import TraceDB
+        with TraceDB(args.db) as db:
+            for path, data, report in traces:
+                if report is None:
+                    db.add(data, source="judge")
+    for path, data, report in traces:
+        j = (data.get("outcome") or {}).get("judge") or {}
+        agent = (data.get("agent") or {}).get("name")
+        print(f"  {path.name} · {agent}: " + (f"judge says {'✓' if j.get('success') else '✗'} score {j.get('score')}"
+              f" — {j.get('rationale', '')[:90]}" if not j.get("error") else f"no verdict ({j.get('error')})")
+              + ("  [applied]" if j.get("applied") else "") + ("  [self-judged]" if j.get("self_judged") else ""))
+    print(f"{counts['judged']} judged, {counts['agreed_with_prior']} agree with the prior grade, "
+          f"{counts['disagreed_with_prior']} disagree, {counts['failed']} without a verdict"
+          + ("; verdicts applied to outcome.success (graded_by: model)" if args.apply else "; recorded as outcome.judge only"))
+    return 0
+

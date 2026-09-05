@@ -101,6 +101,16 @@ class Watcher:
             if path.name.endswith(LIVE_SUFFIX):
                 task = ((data.get("task") or {}).get("id")) or path.name.split("__")[0]
                 agent = ((data.get("agent") or {}).get("name")) or _agent_of(path.stem) or "agent"
+                if self.db_path is not None:
+                    key = (path.name, len(data.get("steps") or []))
+                    if key not in self._ingested:
+                        try:
+                            from ..tracedb import TraceDB
+                            with TraceDB(self.db_path) as store:
+                                store.checkpoint(data, source="watch", recorded_at=path.stat().st_mtime)
+                            self._ingested.add(key)
+                        except Exception as exc:  # noqa: BLE001
+                            self.errors.append(f"db checkpoint: {path.name}: {exc}")
                 lives.append({"task": task, "agent": agent, "file": path.name,
                               "steps": data.get("steps") or [], "in_progress": True,
                               "updated_at": data.get("updated_at"),
