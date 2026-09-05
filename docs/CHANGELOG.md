@@ -1689,6 +1689,25 @@ is reported as such.
   units, no window needed. `AgentDiff.charts.mode.{get,set,expand}`
   drives it from outside.
 
+- **Debug session** (block *Debug session*, Evidence view). One run, or
+  the pair, debugged step by step: an aligned A/B strip with a cell per
+  step (model turn, tool call, answer; a red outline for an error) and a
+  gap per one-sided alignment row, the reading's phases as state bands
+  beneath, and marks for errors, retries (a call to the same tool after
+  it returned an error, identical or changed arguments), model switches
+  (a step whose recorded model differs from the one before), no-
+  information steps, and the decisive step with its replay verdict.
+  Per-run aggregates on top (model turns, tool calls, tool errors,
+  retries, model switches, no-info steps, phases and transitions,
+  tokens, latency, cost). For the selected step, six layers side by
+  side with the aligned step of the other run: the model call (model,
+  tokens, latency, confidence when recorded), the tool selection
+  (against the other side's tool, with the argument diff), the tool
+  response, the state transition, the output values the answer rests on
+  that this step produced, and the replay at the decisive step — with
+  the step's own, cumulative and run-total statistics. Clicking a cell
+  moves the shared cursor (`agentdiff:select-step`), so the timeline,
+  map and inspector follow, and their clicks move this block.
 - **The evaluation scorecard, golden sets, offline and online, the judge
   beside the grade** (`deepcompare/scorecard.py`, CLI `eval`, `--golden`/
   `--policy` on `runs`, `batch` and `loop`, `--judge` on `loop`, block

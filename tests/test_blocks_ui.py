@@ -3641,3 +3641,108 @@ class ScorecardBlockTest(unittest.TestCase):
         self.assertIn(str(card["agents"][agents[0]]["tools"]["calls"]), table.text_content())
         self.assertEqual(errors, [])
         context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class DebugSessionBlockTest(unittest.TestCase):
+    """The Debug session block: an aligned A/B strip with one cell per
+    step and a gap per one-sided row, per-run aggregates counted from the
+    steps, six layers for the selected step, and a cursor shared with
+    the rest of the page."""
+
+    TOOLISH = ("tool_call", "search", "retrieve", "read")
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "traces"), "-o", str(out),
+                        "--template", str(ROOT / "web" / "blocks.html")], cwd=str(ROOT), check=True, capture_output=True)
+        cls.page_path = out / "report.html"
+        cls.report = json.loads((out / "report_t05_flight_duration.json").read_text(encoding="utf-8"))
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _open(self):
+        context = self.browser.new_context(viewport={"width": 1280, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view=evidence")
+        page.wait_for_timeout(700)
+        page.locator('#task-select, select[data-role="task"], select').first.select_option("t05_flight_duration") if page.locator("select").count() else None
+        page.wait_for_timeout(500)
+        block = page.locator('.block[data-block="debug-session"]')
+        if block.count() and "collapsed" in (block.get_attribute("class") or ""):
+            block.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(300)
+            block = page.locator('.block[data-block="debug-session"]')
+        return context, page, block, errors
+
+    def test_the_strip_the_aggregates_and_the_layers_are_counted_from_the_report(self):
+        context, page, block, errors = self._open()
+        self.assertEqual(block.count(), 1)
+        rep = self.report
+        if block.locator(".dbg-strip th").first.text_content() != rep["a"]["agent"]["name"]:
+            self.skipTest("the page opened on another task; the counts below are for t05")
+        rows = rep["alignment"]
+        for side in ("a", "b"):
+            present = sum(1 for r in rows if r.get(f"{side}_index") is not None)
+            self.assertEqual(block.locator(f'.dbg-cell[data-side="{side}"]:not(.gap)').count(), present, side)
+            self.assertEqual(block.locator(f'tr[data-side="{side}"] .dbg-cell.gap').count(), len(rows) - present, side)
+            steps = rep[side]["steps"]
+            tools = sum(1 for s in steps if s["type"] in self.TOOLISH)
+            turns = len(steps) - tools
+            self.assertEqual(block.locator(f'.dbg-kpi td.v[data-side="{side}"][data-kpi="tool calls"]').text_content(), str(tools))
+            self.assertEqual(block.locator(f'.dbg-kpi td.v[data-side="{side}"][data-kpi="model turns"]').text_content(), str(turns))
+            tot = rep[side]["totals"]
+            self.assertEqual(block.locator(f'.dbg-kpi td.v[data-side="{side}"][data-kpi="tokens"]').text_content(), str(tot["input_tokens"] + tot["output_tokens"]))
+        # the decisive step opens selected, with its replay layer
+        dec = rep["diagnosis"]["decisive_step"]
+        subject = rep["diagnosis"]["subject"]
+        sel = block.locator(".dbg-cell.selected")
+        self.assertEqual(sel.count(), 1)
+        self.assertEqual((sel.get_attribute("data-side"), sel.get_attribute("data-step")), (subject, str(dec["step"])))
+        first = block.locator(".dbg-run").first
+        self.assertEqual((first.get_attribute("data-side"), first.get_attribute("data-step")), (subject, str(dec["step"])))
+        layers = [first.locator(".dbg-layer").nth(i).get_attribute("data-layer") for i in range(first.locator(".dbg-layer").count())]
+        self.assertEqual(layers, ["model call", "tool selection", "tool response", "state", "output", "replay"])
+        self.assertIn(dec["verification"], first.locator('[data-layer="replay"]').text_content())
+        step = next(s for s in rep[subject]["steps"] if s["index"] == dec["step"])
+        if step["type"] in self.TOOLISH:
+            self.assertIn(step["name"], first.locator('[data-layer="tool selection"]').text_content())
+            other = "a" if subject == "b" else "b"
+            row = next(r for r in rows if r.get(f"{subject}_index") == dec["step"])
+            if row.get(f"{other}_index") is not None:
+                counterpart = next(s for s in rep[other]["steps"] if s["index"] == row[f"{other}_index"])
+                if counterpart["type"] in self.TOOLISH and counterpart["name"] != step["name"]:
+                    self.assertIn(counterpart["name"], first.locator('[data-layer="tool selection"]').text_content())
+        # clicking another cell moves the selection and the layers; the shared cursor moves this block too
+        target = block.locator('.dbg-cell[data-side="a"]:not(.gap)').first
+        target.click()
+        page.wait_for_timeout(300)
+        self.assertEqual(block.locator(".dbg-run").first.get_attribute("data-side"), "a")
+        self.assertEqual(block.locator(".dbg-run").first.get_attribute("data-step"), target.get_attribute("data-step"))
+        last_row = len(rows) - 1
+        page.evaluate("row => document.dispatchEvent(new CustomEvent('agentdiff:select-step', {detail: {row: row, side: 'b'}}))", last_row)
+        page.wait_for_timeout(300)
+        want = rows[last_row].get("b_index")
+        if want is not None:
+            sel = block.locator(".dbg-cell.selected")
+            self.assertEqual((sel.get_attribute("data-side"), sel.get_attribute("data-step")), ("b", str(want)))
+        self.assertEqual(errors, [])
+        context.close()
