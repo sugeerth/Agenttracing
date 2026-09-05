@@ -36,6 +36,9 @@
       ".bd-outcome{font-family:var(--mono);font-size:var(--fs-s)}",
       ".bd-outcome .ok{color:var(--good);font-weight:700}.bd-outcome .no{color:var(--bad);font-weight:700}",
       "body[data-view=\"story\"] .hero-lane .bd-panel{margin-top:2px}",
+      ".bd-axis{display:inline-flex;gap:3px}",
+      ".bd-axis-btn{font:inherit;font-size:var(--fs-xs);padding:1px 8px;border:1px solid var(--rule-2);border-radius:999px;background:var(--surface);color:var(--ink-2);cursor:pointer}",
+      ".bd-axis-btn[aria-pressed=\"true\"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}",
       ".bd-inspector{margin-top:10px}",
       "body[data-view=\"story\"] .hero-lane .bd-inspector{border:0;border-top:1px solid var(--rule);border-radius:0;background:transparent;padding-top:6px}",
     ].join("");
@@ -109,6 +112,18 @@
         var row = (r.alignment || []).findIndex(function (x) { return x[fs + "_index"] === idx; });
         lede.appendChild(H("span", { class: "tag", text: "first divergence: " + (row >= 0 ? "row " + row : name(r, fs) + " step " + idx) + " · " + String(firstDiv.kind || "").replace(/_/g, " ") }));
       }
+      // what the trunk measures: tokens (the amount each step produced), time, or steps
+      var taskKey = r.task && r.task.id ? r.task.id : "task";
+      var axisNow = AgentDiff.charts && AgentDiff.charts.bodyAxis ? AgentDiff.charts.bodyAxis.get(taskKey) : "tokens";
+      var axisCtl = H("span", { class: "bd-axis", role: "group", "aria-label": "what the trunk's length measures" });
+      [["tokens", "trunk length ∝ tokens each step produced"], ["time", "trunk length ∝ each step's latency"], ["steps", "one unit per step"]].forEach(function (pair) {
+        var b = H("button", { type: "button", class: "bd-axis-btn axis-" + pair[0], text: pair[0], title: pair[1],
+                              "aria-pressed": axisNow === pair[0] ? "true" : "false" });
+        b.addEventListener("click", function () { AgentDiff.charts.bodyAxis.set(taskKey, pair[0]); AgentDiff._rerender ? AgentDiff._rerender() : null; });
+        axisCtl.appendChild(b);
+      });
+      lede.appendChild(H("span", { class: "tag", text: "length ∝" }));
+      lede.appendChild(axisCtl);
       var chartHost = H("div", { class: "bd-chart" });
       var left = H("div", null, [lede, chartHost]);
       var stats = H("div", { class: "bd-stats", role: "list", "aria-label": "A versus B" });

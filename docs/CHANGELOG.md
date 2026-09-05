@@ -1706,6 +1706,11 @@ is reported as such.
   `0`; double-click resets; labels drop at a zoom too tight for them).
   A click opens the step in the inspector docked under the chart. The
   Evidence view keeps the trajectory map as its hero.
+  **What the trunk measures** is a switch in the super panel: *tokens*
+  (the default — the trunk's length is proportional to what each step
+  produced, so a long-thinking step is long), *time* (each step's
+  latency) or *steps* (one unit each); the ruler, the end labels and
+  every tooltip follow, and the zoom resets on a switch.
   **At scale, the body folds.** At every zoom, steps of one run that
   land within 30 px of each other fold into a *bubble*: a capsule on the
   trunk spanning their time, labelled ×N and the dominant tool, with what

@@ -2091,6 +2091,27 @@
   };
 
   var BodyZoom = {};   // per task: the current zoom transform, kept across repaints
+  /* What the trunk's length measures: wall-clock time (each step's
+   * latency), tokens (what each step produced), or steps (one unit each).
+   * Tokens is the default: the trunk is then proportional to the amount
+   * of stuff the run generated, and a long-thinking step is long. */
+  var BodyAxis = {};
+  var BODY_AXES = {
+    time:   { label: "elapsed, from each run's own latencies", unit: function (v) { return v >= 100 ? Math.round(v) + "s" : v >= 10 ? v.toFixed(0) + "s" : v.toFixed(1) + "s"; },
+              end: function (v) { return BODY_AXES.time.unit(v); },
+              of: function (st) { return isNum(st.latency_s) ? Math.max(0, st.latency_s) : 0; } },
+    tokens: { label: "tokens generated so far", unit: function (v) { return v >= 10000 ? (v / 1000).toFixed(1) + "k" : String(Math.round(v)); },
+              end: function (v) { return Math.round(v) + " tokens"; },
+              of: function (st) { return isNum(st.tokens) ? Math.max(0, st.tokens) : 0; } },
+    steps:  { label: "steps, in order", unit: function (v) { return String(Math.round(v)); },
+              end: function (v) { return Math.round(v) + " steps"; },
+              of: function () { return 1; } },
+  };
+  charts.bodyAxis = {
+    get: function (task) { return BodyAxis[task] || "tokens"; },
+    set: function (task, axis) { if (!BODY_AXES[axis]) return; BodyAxis[task] = axis; BodyZoom[task] = null; repaint("body:" + task); },
+    names: function () { return Object.keys(BODY_AXES); },
+  };
 
   /* Time-adaptive clustering. At the current zoom, steps of one run that
    * land within `minGap` pixels of each other fold into one bubble: a
@@ -2152,6 +2173,8 @@
       if (isNum(d.a_index)) diverged.a[d.a_index] = d;
       if (isNum(d.b_index)) diverged.b[d.b_index] = d;
     });
+    var axisName = charts.bodyAxis.get(taskKey);
+    var AX = BODY_AXES[axisName];
     var runs = ["a", "b"].map(function (side) {
       var steps = stepsOf(report, side);
       var reading = readingOf(report, side);
@@ -2159,7 +2182,7 @@
       ((reading && reading.what_happened) || []).forEach(function (w) { if (w && isNum(w.step)) roles[w.step] = w.role; });
       var t = 0, nodes = [];
       steps.forEach(function (st, i) {
-        var lat = isNum(st.latency_s) ? Math.max(0, st.latency_s) : 0;
+        var lat = AX.of(st);
         var kind = st.type === "answer" ? "answer"
           : (st.type === "tool_call" || st.type === "search" || st.type === "retrieve" || st.type === "read") ? "branch" : "trunk";
         nodes.push({ side: side, i: i, step: st, t0: t, t1: t + lat, lat: lat, kind: kind, role: roles[i] || null,
@@ -2183,8 +2206,8 @@
 
     var wrap = d3.select(host).append("div").attr("class", "d3c-wrap d3c-body-wrap");
     var svg = wrap.append("svg").attr("class", "d3c d3c-body").attr("width", W).attr("height", H)
-      .attr("viewBox", "0 0 " + W + " " + H).attr("role", "img")
-      .attr("aria-label", "Both runs over time: the thinking on each trunk, tool calls as branches, the alignment between them");
+      .attr("viewBox", "0 0 " + W + " " + H).attr("role", "img").attr("data-axis", axisName)
+      .attr("aria-label", "Both runs along " + axisName + ": the thinking on each trunk, tool calls as branches, the alignment between them");
     svg.append("title").text("The two runs over time, as bodies with branches");
     var defs = svg.append("defs");
     defs.append("clipPath").attr("id", "d3c-body-clip-" + taskKey.replace(/[^a-zA-Z0-9_-]/g, "_"))
@@ -2206,7 +2229,8 @@
 
     var link = d3.linkVertical().x(function (d) { return d.x; }).y(function (d) { return d.y; });
     var zoom = null;   // set below; bubbles zoom through it
-    var timeFmt = function (t) { return t >= 100 ? Math.round(t) + "s" : t >= 10 ? t.toFixed(0) + "s" : t.toFixed(1) + "s"; };
+    var timeFmt = AX.unit;
+    var secs = BODY_AXES.time.unit;
 
     function leafY(node, k) {
       var dir = node.side === "a" ? -1 : 1;
@@ -2348,7 +2372,7 @@
         gAxis.append("line").attr("x1", x(t)).attr("x2", x(t)).attr("y1", yAxis - 3).attr("y2", yAxis + 3).attr("stroke", P.rule2);
         gAxis.append("text").attr("class", "d3c-idx").attr("x", x(t)).attr("y", yAxis + 13).attr("text-anchor", "middle").text(timeFmt(t));
       });
-      gAxis.append("text").attr("class", "d3c-cap").attr("x", x.range()[1]).attr("y", yAxis - 6).attr("text-anchor", "end").text("elapsed, from each run's own latencies");
+      gAxis.append("text").attr("class", "d3c-cap").attr("x", x.range()[1]).attr("y", yAxis - 6).attr("text-anchor", "end").text(AX.label);
 
       // ---- nodes: thinking on the trunk, tools as branches, the answer at the end
       var all = [];
@@ -2403,7 +2427,7 @@
           if (d.decisive) mark.append("circle").attr("class", "d3c-ring hypothesized").attr("r", 14);
           label.attr("x", px).attr("y", y + (d.side === "a" ? -16 : 22)).attr("text-anchor", "middle").attr("fill", runs[d.side === "a" ? 0 : 1].success ? P.good : P.bad)
             .attr("font-size", 11).attr("font-weight", 700).attr("font-family", "var(--sans)")
-            .text((runs[d.side === "a" ? 0 : 1].success ? "✓ solved" : "✗ failed") + " · " + timeFmt(d.t0));
+            .text((runs[d.side === "a" ? 0 : 1].success ? "✓ solved" : "✗ failed") + " · " + AX.end(d.t0));
         } else {
           // thinking on the trunk
           branch.style("display", "none");
@@ -2416,13 +2440,13 @@
             .attr("font-size", 10).attr("font-family", "var(--mono)")
             .text(dense ? "" : truncate(role === "feeds_answer" ? (d.step.name || d.step.type) : role.replace(/_/g, " "), 12) + (d.decisive ? " · decisive" : ""));
         }
-        g.select("title").text(d.side.toUpperCase() + " step " + d.i + " · " + (d.step.name || d.step.type) + " · " + timeFmt(d.t0) + (d.lat ? " +" + d.lat.toFixed(2) + "s" : "") +
+        g.select("title").text(d.side.toUpperCase() + " step " + d.i + " · " + (d.step.name || d.step.type) + " · at " + timeFmt(d.t0) + (isNum(d.step.latency_s) ? " · " + secs(d.step.latency_s) : "") + (isNum(d.step.tokens) ? " · " + d.step.tokens + " tokens" : "") +
           (d.role ? " · " + ((ROLE[d.role] || {}).label || d.role.replace(/_/g, " ")) : "") + "\n" + truncate(d.step.output || d.step.input || "", 220));
       });
       node.exit().remove();
       merged.on("mousemove", function (event, d) {
         showTip(event, [{ b: true, text: d.side.toUpperCase() + " · step " + d.i + " · " + (d.step.name || d.step.type) },
-          { text: timeFmt(d.t0) + (d.lat ? " + " + d.lat.toFixed(2) + "s" : "") + (isNum(d.step.tokens) ? " · " + d.step.tokens + " tokens" : "") + (d.role ? " · " + ((ROLE[d.role] || {}).label || d.role.replace(/_/g, " ")) : "") },
+          { text: "at " + timeFmt(d.t0) + (isNum(d.step.latency_s) ? " · " + secs(d.step.latency_s) : "") + (isNum(d.step.tokens) ? " · " + d.step.tokens + " tokens" : "") + (d.role ? " · " + ((ROLE[d.role] || {}).label || d.role.replace(/_/g, " ")) : "") },
           { mono: true, text: truncate(d.step.input || "", 110) }, { mono: true, text: "→ " + truncate(d.step.output || "", 140) }]);
       }).on("mouseleave", hideTip)
         .on("click", function (event, d) { hideTip(); selectStep(report, d.side, d.i); })
@@ -2451,13 +2475,13 @@
 
     var legend = document.createElement("div");
     legend.className = "d3c-legend";
-    legend.appendChild(legendItem(P, { line: true }, P.ink2, "trunk = the run over time; squares think, diamonds verify"));
+    legend.appendChild(legendItem(P, { line: true }, P.ink2, "trunk = the run, its length ∝ " + axisName + "; squares think, diamonds verify"));
     legend.appendChild(legendItem(P, { role: "feeds_answer" }, P.ink2, "leaf = a tool call; filled when its result fed the answer, dashed when a dead end"));
     legend.appendChild(legendItem(P, { line: true }, P.bad, "the fault's path"));
     legend.appendChild(legendItem(P, { line: true, dashed: true }, P.warn, "aligned but drifted; red = a ranked divergence"));
     if (dec) legend.appendChild(legendItem(P, { ring: true, dashed: dec.verification !== "replay-verified" }, P.bad, "decisive step"));
     legend.appendChild(legendItem(P, { hatch: true }, P.rule2, "capsule = steps folded at this zoom (×N, what is inside); click it to zoom in"));
-    var hint = document.createElement("span"); hint.textContent = "wheel or drag to zoom time · double-click to reset · click a node to open it";
+    var hint = document.createElement("span"); hint.textContent = "wheel or drag to zoom · double-click to reset · click a node to open it";
     legend.appendChild(hint);
     host.appendChild(legend);
     return svg.node();

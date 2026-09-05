@@ -2983,9 +2983,32 @@ class StoryChartsTest(unittest.TestCase):
             xs = svg.locator(f"g.d3c-bnode[data-side='{side}'] g.d3c-bmark").evaluate_all(
                 "els => els.map(e => +/translate\\(([-\\d.]+)/.exec(e.getAttribute('transform'))[1])")
             self.assertEqual(xs, sorted(xs), side)
-        # the ruler labels seconds and ends near the longer run's total
+        # the trunk measures tokens by default: the answer's end label carries the
+        # run's token total; the ruler is in tokens; time and steps are one click away
+        self.assertEqual(svg.get_attribute("data-axis"), "tokens")
+        self.assertEqual(page.locator(".bd-axis-btn[aria-pressed='true']").text_content(), "tokens")
+        ends = svg.locator("g.d3c-bnode.kind-answer text.d3c-blabel").all_text_contents()
+        self.assertEqual(len(ends), 2)
+        md = rep["metrics_delta"]
+        for side in "ab":
+            total = sum(st.get("tokens") or 0 for st in rep[side]["steps"][:-1])
+            self.assertTrue(any(str(total) in e for e in ends), (total, ends))
+        self.assertIn("tokens", svg.locator(".d3c-body-axis text.d3c-cap").text_content())
+        page.locator(".bd-axis-btn.axis-time").click()
+        page.wait_for_timeout(800)
+        svg = page.locator("svg.d3c-body")
+        self.assertEqual(svg.get_attribute("data-axis"), "time")
         ticks = svg.locator(".d3c-body-axis text.d3c-idx").all_text_contents()
         self.assertTrue(all(t.endswith("s") for t in ticks), ticks)
+        self.assertIn("latencies", svg.locator(".d3c-body-axis text.d3c-cap").text_content())
+        page.locator(".bd-axis-btn.axis-steps").click()
+        page.wait_for_timeout(800)
+        svg = page.locator("svg.d3c-body")
+        self.assertEqual(svg.get_attribute("data-axis"), "steps")
+        self.assertTrue(all(t.isdigit() for t in svg.locator(".d3c-body-axis text.d3c-idx").all_text_contents()))
+        page.locator(".bd-axis-btn.axis-time").click()
+        page.wait_for_timeout(800)
+        svg = page.locator("svg.d3c-body")
         # a click opens the step in the inspector docked under the chart
         page.locator("svg.d3c-body g.d3c-bnode[data-side='b'][data-step='1']").first.dispatch_event("click")
         page.wait_for_timeout(300)
