@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from .statistics import sign_test, wilson_interval
+from .statistics import paired_inference, sign_test, wilson_interval
 
 VERSION = 1
 
@@ -249,6 +249,18 @@ def decide_prompt(baseline: dict, variant: dict, *, agent: str, candidate: dict)
     p = sign_test(wins, losses) if wins + losses else None
     b_ci = wilson_interval(*b_tot) if b_tot[1] else None
     v_ci = wilson_interval(*v_tot) if v_tot[1] else None
+    # the paired difference (variant minus baseline) over per-task rates,
+    # with its paired standard error and interval — the same inference
+    # the runs comparison uses between two agents
+    paired = paired_inference([((variant[t][0] / variant[t][1]) if variant[t][1] else None,
+                                (baseline[t][0] / baseline[t][1]) if baseline[t][1] else None) for t in tasks],
+                              labels=("with the change", "without")) if tasks else None
+    per_task = [{"task": t, "baseline": [baseline[t][0], baseline[t][1]], "variant": [variant[t][0], variant[t][1]],
+                 "baseline_rate": round(baseline[t][0] / baseline[t][1], 4) if baseline[t][1] else None,
+                 "variant_rate": round(variant[t][0] / variant[t][1], 4) if variant[t][1] else None,
+                 "outcome": ("win" if (variant[t][0] / variant[t][1] if variant[t][1] else 0) > (baseline[t][0] / baseline[t][1] if baseline[t][1] else 0)
+                             else "loss" if (variant[t][0] / variant[t][1] if variant[t][1] else 0) < (baseline[t][0] / baseline[t][1] if baseline[t][1] else 0)
+                             else "tie")} for t in tasks]
     keep = wins > losses and not regressions
     if keep:
         status = "kept" if (p is not None and p < 0.05) else "kept (provisional)"
@@ -268,8 +280,11 @@ def decide_prompt(baseline: dict, variant: dict, *, agent: str, candidate: dict)
         "status": status, "why": why,
         "evidence": {"tasks": len(tasks), "wins": wins, "losses": losses, "ties": ties, "sign_test_p": p,
                      "regressions": regressions, "improvements": improvements,
-                     "baseline": {"successes": b_tot[0], "runs": b_tot[1], "ci95": list(b_ci) if b_ci else None},
-                     "variant": {"successes": v_tot[0], "runs": v_tot[1], "ci95": list(v_ci) if v_ci else None}},
+                     "baseline": {"successes": b_tot[0], "runs": b_tot[1], "rate": round(b_tot[0] / b_tot[1], 4) if b_tot[1] else None,
+                                  "ci95": [round(b_ci[0], 4), round(b_ci[1], 4)] if b_ci else None},
+                     "variant": {"successes": v_tot[0], "runs": v_tot[1], "rate": round(v_tot[0] / v_tot[1], 4) if v_tot[1] else None,
+                                 "ci95": [round(v_ci[0], 4), round(v_ci[1], 4)] if v_ci else None},
+                     "paired": paired, "per_task": per_task},
     }
 
 
@@ -292,7 +307,12 @@ def summarise(state: dict) -> dict:
     the last comparison and how the prompt ended; plus the stop reason."""
     last = _last_compare(state)
     out = {"iterations": len(state["iterations"]), "spent_runs": state["spent_runs"], "stop": state.get("stop"),
-           "agents": {}, "kept_changes": 0, "reverted_changes": 0, "dropped_changes": 0}
+           "agents": {}, "kept_changes": 0, "reverted_changes": 0, "dropped_changes": 0,
+           "paired": (last or {}).get("paired"),
+           "routing": {"families": len(((last or {}).get("routing") or {}).get("families") or {}),
+                       "clear": sum(1 for r in (((last or {}).get("routing") or {}).get("families") or {}).values()
+                                    if r.get("confidence") == "clear"),
+                       "overall_pick": ((last or {}).get("routing") or {}).get("overall_pick")} if last else None}
     for agent in state["agents"]:
         slot = state["prompts"].get(agent) or {}
         hist = slot.get("history") or []

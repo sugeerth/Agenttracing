@@ -76,8 +76,7 @@ testable offline, and the tests do exactly that.
 - **Convert what you have**: `agentdiff convert --format otel|openai
   file -o traces/` (`--dry-run` says what it would recover and what it
   would have to estimate).
-- **Run an existing agent through the harness**: `agentdiff run --agent
-  …` — the harness grades, declares the termination, names the file.
+- **Run an existing agent through the harness**: `agentdiff run --agent …`.
 
 ## What it does
 
@@ -90,6 +89,7 @@ testable offline, and the tests do exactly that.
 | both runs over time, at a glance | the Story view's hero | a super panel (outcome, decisive step, first divergence, five paired stats) over the body chart: each run a trunk along wall-clock time, thinking on the trunk, tool calls as branches, alignment in the gutter, the fault's path in red, zoomable |
 | the story, as charts | the Story view | D3 charts in sequence: what happened (roles, answer-value arcs, the decisive ring, spend after the basis), how it became a failure (fault enters, carried, committed, read from the causal account and the alignment), the trace as a tree (task → runs → phases → steps → values, the fault's path in red, phases that fold), why (hypotheses at their scores with evidence), reconcile (the splice that keeps the failing prefix, takes the passing decision at the cut, follows the passing run; its estimate called an estimate), take forward (numbered pins per next action, what the fix buys, labelled an estimate); long runs draw a window of steps over an overview brush, and page together |
 | is a failure real or luck | `runs` | pass^k with intervals, consistency, paired inference that refuses to rank below ten tasks |
+| how the agents score, on every dimension | `eval`, the Evaluation scorecard | success, correct tool, grounding, policy, risk flags, stopping, loops, recovery (each with a Wilson interval), spend per run, risk vs reward, a judge beside the grade; offline against a golden set or online as recorded ([`docs/EVAL.md`](docs/EVAL.md)) |
 | what to fix first, and did the fix work | triage, `progress` | ranked actions with verification contracts, before/after matching |
 | whether the number can be trusted | `bench --strict` | the diagnoser's own benchmark with a leakage probe: the margin over a surface-cue detector is the headline |
 | N agents, selection, CI | `fleet`, `select`, `gate`, `experiments`, `variance` | rankings, interchangeability, a regression gate, variance attribution |

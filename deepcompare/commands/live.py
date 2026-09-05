@@ -384,10 +384,20 @@ def _cmd_loop(args: argparse.Namespace) -> int:
             from ..tracedb import TraceDB
             db = TraceDB(args.db)
         template = Path(args.template) if args.template else DEFAULT_TEMPLATE
+        from ..scorecard import load_golden, load_policy
+        golden = load_golden(args.golden) if args.golden else None
+        policy = load_policy(args.policy) if args.policy else None
+        judge_factory = None
+        if args.judge:
+            _jname, jspec = _split_spec(args.judge)
+            jkind = jspec.split(":", 1)[0].strip().lower()
+            judge_factory = lambda: provider_from_spec(jspec, **({} if jkind == "scripted" else options))  # noqa: E731
+            judge_factory()  # validates the spec now
         loop = Loop(tasks, specs, out_dir=args.output, provider_factory=make_provider, agents=agents, tools=tools,
                     runs=args.runs, max_iterations=args.iterations, max_runs=args.max_runs,
                     budget={"max_steps": args.max_steps}, db=db, progress=print, template=template,
-                    family_pattern=args.family, seed_suggestions=seeds, resume=args.resume)
+                    family_pattern=args.family, seed_suggestions=seeds, resume=args.resume,
+                    golden=golden, policy=policy, judge_factory=judge_factory, judge_with_steps=args.judge_with_steps)
     except (ValueError, OSError, ImportError, AttributeError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

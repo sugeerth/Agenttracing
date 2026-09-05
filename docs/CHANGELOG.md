@@ -1689,6 +1689,37 @@ is reported as such.
   units, no window needed. `AgentDiff.charts.mode.{get,set,expand}`
   drives it from outside.
 
+- **The evaluation scorecard, golden sets, offline and online, the judge
+  beside the grade** (`deepcompare/scorecard.py`, CLI `eval`, `--golden`/
+  `--policy` on `runs`, `batch` and `loop`, `--judge` on `loop`, block
+  *Evaluation scorecard*, `docs/EVAL.md`). Per agent, every dimension an
+  agent evaluation asks about, each a count or an interval over the runs
+  listed: task success, correct tool called, answer grounded, policy
+  compliant, no risk flag, stopped when done, no loop, no tool error,
+  errors recovered — all with 95% Wilson intervals; latency, cost,
+  tokens, steps and tool calls per run; risk against reward (reward =
+  success rate, risk = share of runs with a flag, ratio = reward / risk,
+  none when nothing was flagged); trajectory counts (repeats, cycles,
+  loops, steps after done, no-information steps, step-limit runs, writes
+  and blind writes, terminations); and the judging model's verdicts
+  beside the grade with agreement and the 2×2 of grade × judge. A golden
+  dataset (the tasks file with `expected_tools`, `any_of_tools`,
+  `only_expected_tools`, `forbidden_tools`, and a `policy` with
+  forbidden tools and patterns, `write_requires_read`,
+  `verify_after_write`, `max_writes`) makes tool correctness and policy
+  measurable; without one they read not measurable, never a guess. The
+  card says whether it was offline (a golden set) or online (traces as
+  recorded). `loop --judge` makes the judging model the grader, so tasks
+  without an expected answer can be run; such traces say
+  `graded_by: "model"` and keep the exact match as the reference. Loop
+  page redesigned as statistics: KPI tiles (pooled success with
+  interval, the paired difference with its interval and sign test, runs
+  against budget, hypotheses kept/reverted/dropped, routing picks
+  clear), success by iteration with interval bands and experiments
+  marked, each experiment as a per-task dumbbell over the two pooled
+  intervals, a grid of interval width per family per comparison, a table
+  view, and the ledger with the statistics on every row. The variance
+  block's per-metric reason is a note, not an empty state.
 - **The agentic loop** (`deepcompare/planner.py`, `deepcompare/harness/loop.py`,
   CLI `loop`, block *Agent loop*, `docs/AGENTIC.md`). AgentDiff runs
   itself: given a task set and two agents it runs a baseline, compares,

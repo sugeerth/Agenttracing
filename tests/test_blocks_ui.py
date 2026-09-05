@@ -3495,20 +3495,57 @@ class LoopBlockTest(unittest.TestCase):
             page.wait_for_timeout(300)
             block = page.locator('.block[data-block="loop"]')
         iters = self.ledger["state"]["iterations"]
+        summary = self.ledger["summary"]
+        agents = self.ledger["state"]["agents"]
+        # KPI tiles: one per agent with its pooled success and interval, plus paired, runs, hypotheses, routing
+        for a in agents:
+            tile = block.locator(f'.lp-tile[data-agent="{a}"]')
+            r = summary["agents"][a]
+            self.assertEqual(tile.locator(".v .num").text_content().strip(), f"{round(r['success'] * 100)}%")
+            self.assertIn(f"{r['ci95'][0]:.2f}–{r['ci95'][1]:.2f}", tile.locator(".s").text_content())
+        self.assertEqual(block.locator('.lp-tile[data-kpi="runs"] .v .num').text_content().strip(), str(summary["spent_runs"]))
+        self.assertIn(f"{summary['kept_changes']} kept", block.locator('.lp-tile[data-kpi="decisions"]').text_content())
+        # the ledger: one row per iteration with its statistics
         rows = block.locator("li[data-iteration]")
         self.assertEqual(rows.count(), len(iters))
         for it in iters:
             row = block.locator(f'li[data-iteration="{it["n"]}"]')
             self.assertEqual(row.get_attribute("data-action"), it["action"])
             self.assertIn(it["why"][:40], row.locator(".why").text_content())
+            for a, r in it["results"].items():
+                self.assertIn(f"{a} {r['successes']}/{r['runs']}", row.locator(".stats").text_content())
             if it["action"] == "test-prompt":
-                self.assertEqual(row.locator(".dec b").text_content(), it["decision"]["status"])
+                self.assertEqual(row.locator(".lp-tag").text_content(), it["decision"]["status"])
                 self.assertIn(it["decision"]["text"][:30], row.locator(".txt").text_content())
-        points = sum(1 for it in iters for a, r in it["results"].items() if r.get("runs"))
+        # success by iteration: one point per pooled rate, one hollow point per variant under test
         page.wait_for_timeout(300)
-        self.assertEqual(block.locator("svg circle.lp-pt").count(), points, "one point per measured rate")
-        tags = block.locator("svg text.lp-tag")
-        self.assertEqual(tags.count(), sum(1 for it in iters if it["action"] == "test-prompt"))
+        chart = block.locator('[data-chart="success"]')
+        pooled = sum(1 for it in iters for a in agents if it["results"].get(a, {}).get("runs"))
+        variants = sum(1 for it in iters if it["action"] == "test-prompt")
+        self.assertEqual(chart.locator("circle.pt:not(.variant)").count(), pooled)
+        self.assertEqual(chart.locator("circle.pt.variant").count(), variants)
+        # each experiment: a dumbbell per task and the two pooled intervals, with the paired statistics
+        for it in iters:
+            if it["action"] != "test-prompt":
+                continue
+            card = block.locator(f'.lp-exp[data-iteration="{it["n"]}"]')
+            ev = it["decision"]["evidence"]
+            self.assertEqual(card.locator("g.task").count(), ev["tasks"])
+            self.assertEqual(card.locator("g.task[data-outcome=win]").count(), ev["wins"])
+            self.assertEqual(card.locator("g.pooled").count(), 2)
+            head = card.locator(".head").text_content()
+            self.assertIn(it["decision"]["status"], head)
+            self.assertIn(f"wins {ev['wins']}", head)
+            pr = ev["paired"]
+            self.assertIn(("+" if pr["diff"] >= 0 else "−") + f"{abs(pr['diff']):.2f}", head)
+        # where the runs went: a cell per family per comparison
+        compares = [it for it in iters if it["action"] == "compare"]
+        cells = sum(len(it["routing"]["families"]) for it in compares)
+        self.assertEqual(block.locator(".lp-grid td[data-state]").count(), cells)
+        for it in compares:
+            for fam, row in it["routing"]["families"].items():
+                cell = block.locator(f'.lp-grid tr[data-family="{fam}"] td[data-state]').nth(compares.index(it))
+                self.assertEqual(cell.get_attribute("data-state"), "tie" if row.get("tie") else row["confidence"])
         self.assertIn(self.ledger["state"]["stop"]["reason"], block.locator(".lp-stop").text_content())
         self.assertIn("no model is in the control path", block.locator(".lp-note").last.text_content())
         self.assertEqual(errors, [])
@@ -3522,3 +3559,85 @@ class LoopBlockTest(unittest.TestCase):
             self.assertEqual(empties, [], f"{view}: {empties}")
             self.assertEqual(errors, [], view)
             context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class ScorecardBlockTest(unittest.TestCase):
+    """The Evaluation scorecard block draws every rate as a dot with its
+    Wilson interval, every spend as a bar, risk against reward, and the
+    judge beside the grade — all counted from the embedded aggregate."""
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "runs"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "deepcompare", "runs", str(ROOT / "demo" / "runs" / "traces"), "-o", str(out),
+                        "--golden", str(ROOT / "demo" / "golden" / "tasks.json"), "--template", str(ROOT / "web" / "blocks.html")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        cls.page_path = out / "report.html"
+        cls.card = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))["scorecard"]
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def test_every_dimension_is_drawn_from_its_counts(self):
+        context = self.browser.new_context(viewport={"width": 1280, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view=batch")
+        page.wait_for_timeout(700)
+        block = page.locator('.block[data-block="scorecard"]')
+        self.assertEqual(block.count(), 1)
+        if "collapsed" in (block.get_attribute("class") or ""):
+            block.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(300)
+            block = page.locator('.block[data-block="scorecard"]')
+        card = self.card
+        agents = list(card["agents"])
+        self.assertIn(card["mode"], block.locator(".sc-lede .mode").text_content())
+        for key, _label in card["dimensions"]["rates"]:
+            strip = block.locator(f'.sc-strip[data-dim="{key}"]')
+            self.assertEqual(strip.count(), 1, key)
+            measurable = [a for a in agents if card["agents"][a]["rates"][key]["runs"]]
+            if not measurable:
+                self.assertIn("not measurable", strip.text_content() + " no tool error", key)
+                continue
+            self.assertEqual(strip.locator(".pt").count(), len(measurable), key)
+            for a in measurable:
+                r = card["agents"][a]["rates"][key]
+                pt = strip.locator(f'.pt[data-agent="{a}"]')
+                self.assertAlmostEqual(float(pt.evaluate("e => parseFloat(e.style.left)")), r["rate"] * 100, places=2)
+                if r["ci95"]:
+                    bar = strip.locator(f'.ci[data-agent="{a}"]')
+                    self.assertAlmostEqual(float(bar.evaluate("e => parseFloat(e.style.left)")), r["ci95"][0] * 100, places=2)
+        for key, _label in card["dimensions"]["spend"]:
+            bar = block.locator(f'.sc-bar[data-dim="{key}"]')
+            self.assertEqual(bar.locator(".row").count(), sum(1 for a in agents if card["agents"][a]["spend"][key]))
+        self.assertEqual(block.locator(".sc-rr circle").count(), sum(1 for a in agents if card["agents"][a]["risk_reward"]["risk"] is not None))
+        for a in agents:
+            rr = card["agents"][a]["risk_reward"]
+            self.assertIn(f"reward {round(rr['reward'] * 100)}%", block.locator('[data-sec="risk-reward"]').text_content())
+        judged = [a for a in agents if card["agents"][a]["judge"]]
+        if judged:
+            self.assertEqual(block.locator(".sc-judge .card").count(), len(agents))
+        else:
+            self.assertIn("No judging model", block.locator('[data-sec="judge"]').text_content())
+        table = block.locator('table[data-sec="trajectory"]')
+        self.assertIn(str(card["agents"][agents[0]]["tools"]["calls"]), table.text_content())
+        self.assertEqual(errors, [])
+        context.close()

@@ -18,6 +18,7 @@ from .metrics import aggregate as build_aggregate, task_signal
 from .reliability import reliability
 from .report import compare
 from .router import routing_table
+from .scorecard import scorecard
 from .stability import medoid_pairs, stability_analysis
 from .statistics import paired_inference
 from .trace import Trajectory
@@ -50,7 +51,11 @@ def group_runs(trajectories: list, warn=None) -> tuple:
     return name_a, name_b, runs_by_task
 
 
-def analyse_runs(trajectories: list, *, warn=None, family_pattern: Optional[str] = None) -> dict:
+def analyse_runs(trajectories: list, *, warn=None, family_pattern: Optional[str] = None,
+                 golden: Optional[dict] = None, policy: Optional[dict] = None, raws: Optional[dict] = None) -> dict:
+    """``golden``/``policy`` (see :mod:`deepcompare.scorecard`) make tool
+    correctness and policy compliance measurable; ``raws`` (trace_id →
+    trace dict) lets the scorecard report a judge's verdicts."""
     name_a, name_b, runs_by_task = group_runs(trajectories, warn)
     stability = stability_analysis(runs_by_task)
     reliability_analysis = reliability(runs_by_task)
@@ -74,6 +79,7 @@ def analyse_runs(trajectories: list, *, warn=None, family_pattern: Optional[str]
     # can tell triage to stop ranking cross-agent claims confidently, and it
     # arrives after aggregate() has already run.
     agg["triage"] = triage(reports, agg)
+    agg["scorecard"] = scorecard(trajectories, golden, policy, raws)
     return {"names": (name_a, name_b), "runs_by_task": runs_by_task, "reports": reports,
             "aggregate": agg, "stability": stability, "reliability": reliability_analysis}
 

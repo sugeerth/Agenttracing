@@ -32,13 +32,13 @@ from pathlib import Path
 from typing import Callable, Optional, Union
 
 from ..feedback import feedback_signal
-from ..planner import add_candidates, apply_decision, decide_prompt, new_state, plan, summarise
+from ..planner import TIE_RUNS, add_candidates, apply_decision, decide_prompt, new_state, plan, summarise
 from ..report import render_html
 from ..router import family_of
 from ..statistics import wilson_interval
 from ..suite import SuiteError, analyse_runs, success_by_task
 from ..trace import Trajectory
-from .agent import DEFAULT_SYSTEM
+from .agent import DEFAULT_SYSTEM, contains_grader
 from .runner import run_suite
 
 VERSION = 1
@@ -68,7 +68,9 @@ class Loop:
                  max_runs: Optional[int] = None, budget: Optional[dict] = None,
                  base_prompt: str = DEFAULT_SYSTEM, db=None, progress: Optional[Callable[[str], None]] = None,
                  template: Optional[Union[str, Path]] = None, family_pattern: Optional[str] = None,
-                 seed_suggestions: Optional[dict] = None, resume: bool = False) -> None:
+                 seed_suggestions: Optional[dict] = None, resume: bool = False,
+                 golden: Optional[dict] = None, policy: Optional[dict] = None,
+                 judge_factory: Optional[Callable[[], object]] = None, judge_with_steps: bool = False) -> None:
         self.tasks = list(tasks)
         self.by_id = {t["id"]: t for t in self.tasks}
         self.providers = dict(providers)
@@ -84,6 +86,11 @@ class Loop:
         self.progress = progress or (lambda line: None)
         self.template = Path(template) if template else None
         self.family_pattern = family_pattern
+        self.golden = golden
+        self.policy = policy
+        self.judge_factory = judge_factory
+        self.judge_with_steps = judge_with_steps
+        self._judged: dict = {}
         self.out = Path(out_dir)
         self.out.mkdir(parents=True, exist_ok=True)
         names = sorted(list(self.providers) + list(self.agents))
@@ -123,6 +130,8 @@ class Loop:
         offset = self.offset.get(agent, 0)
         common = dict(out_dir=traces_dir, runs=per, budget=self.budget, run_offset=offset,
                       progress=lambda line: self.progress(f"    {line}"))
+        if self.judge_factory is not None:
+            common["grader"] = self._judge_grader
         if agent in self.providers:
             manifest = run_suite({label: self.providers[agent]}, task_dicts, self.tools, system_prompt=prompt,
                                  provider_factory=self.provider_factory, version=version, **common)
@@ -141,16 +150,57 @@ class Loop:
                 else:
                     os.environ[PROMPT_ENV] = previous
         paths = [traces_dir / entry["file"] for entry in manifest["traces"]]
+        if self.judge_factory is not None:
+            self._record_judge(paths)
         if self.db is not None:
             for path in paths:
                 self.db.add(json.loads(path.read_text(encoding="utf-8")), source="loop")
         self.state["spent_runs"] += len(paths)
         return paths
 
+    # ---------------------------------------------------------------- judge
+
+    def _judge_grader(self, answer: str, task: dict) -> bool:
+        """The judging model as the grader, so a task with no expected
+        answer still yields a verdict; the exact match is kept beside it
+        when the task has one. A judge that cannot answer is an error,
+        never a silent False."""
+        from .judge import judge_trace
+        exact = contains_grader(answer, task)
+        probe = {"task": dict(task), "outcome": {"answer": answer, "success": exact if isinstance(exact, bool) else False},
+                 "agent": {}, "steps": []}
+        block = judge_trace(probe, self.judge_factory(), with_steps=False, apply=True)
+        if block.get("error"):
+            raise ValueError(f"the judge could not grade task {task.get('id')!r}: {block['error']}")
+        block["prior"] = {"success": exact, "graded_by": "exact-match" if isinstance(exact, bool) else "ungraded"}
+        block["agrees_with_prior"] = (block["success"] == exact) if isinstance(exact, bool) else None
+        self._judged[(str(task.get("id")), answer)] = block
+        return bool(block["success"])
+
+    def _record_judge(self, paths: list) -> None:
+        for path in paths:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            key = (str((data.get("task") or {}).get("id")), (data.get("outcome") or {}).get("answer", ""))
+            block = self._judged.get(key)
+            if block is None:
+                continue
+            data["outcome"]["graded_by"] = "model"
+            data["outcome"]["judge"] = block
+            if block.get("score") is not None:
+                data["outcome"]["score"] = block["score"]
+            path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
     def _analyse(self, entries: list, out_dir: Path, ledger_extra: Optional[dict] = None):
         trajectories = _load(entries)
+        raws = {}
+        for path, _label in entries:
+            try:
+                data = json.loads(Path(path).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            raws[data.get("trace_id") or Path(path).stem] = data
         analysed = analyse_runs(trajectories, warn=lambda m: self.progress(f"    warning: {m}"),
-                                family_pattern=self.family_pattern)
+                                family_pattern=self.family_pattern, golden=self.golden, policy=self.policy, raws=raws)
         agg = analysed["aggregate"]
         if ledger_extra:
             agg["loop"] = ledger_extra
@@ -177,20 +227,29 @@ class Loop:
             n = sum(c[side][1] for c in counts.values())
             lo, hi = wilson_interval(s, n) if n else (None, None)
             eq = ((analysed["aggregate"].get("equality") or {}).get("per_agent") or {}).get(name) or {}
+            card = ((analysed["aggregate"].get("scorecard") or {}).get("agents") or {}).get(name) or {}
             out[name] = {"successes": s, "runs": n, "success": round(s / n, 4) if n else None,
                          "ci95": [round(lo, 4), round(hi, 4)] if n else None,
                          "equality_rate": eq.get("equality_rate"),
-                         "per_task": {tid: list(c[side]) for tid, c in counts.items()}}
+                         "per_task": {tid: list(c[side]) for tid, c in counts.items()},
+                         "scorecard": {"rates": card.get("rates"), "spend": card.get("spend"),
+                                       "risk_reward": card.get("risk_reward"), "judge": card.get("judge")} if card else None}
         return out
 
     def _routing_slim(self, analysed: dict) -> dict:
         rt = analysed["aggregate"].get("routing") or {}
         fams = {}
         for fam, row in (rt.get("families") or {}).items():
-            fams[fam] = {"pick": row.get("pick"), "confidence": row.get("confidence"), "why": row.get("why"),
+            cands = [{"agent": c["agent"], "features": {k: c["features"].get(k) for k in ("rate", "n", "ci95", "successes")}}
+                     for c in row.get("candidates") or []]
+            widths = [c["features"]["ci95"][1] - c["features"]["ci95"][0] for c in cands if c["features"].get("ci95")]
+            tie = (row.get("confidence") == "overlapping" and len(cands) >= 2
+                   and cands[0]["features"].get("rate") == cands[1]["features"].get("rate")
+                   and min(cands[0]["features"].get("n", 0), cands[1]["features"].get("n", 0)) >= TIE_RUNS)
+            fams[fam] = {"pick": row.get("pick"), "confidence": row.get("confidence"), "why": row.get("why"), "tie": tie,
                          "tasks": [tid for tid in analysed["runs_by_task"] if family_of(tid, self.family_pattern) == fam],
-                         "candidates": [{"agent": c["agent"], "features": {k: c["features"].get(k) for k in ("rate", "n", "ci95")}}
-                                        for c in row.get("candidates") or []]}
+                         "width": round(max(widths), 4) if widths else None,
+                         "candidates": cands}
         return {"families": fams, "overall_pick": (rt.get("overall") or {}).get("pick"),
                 "rationale": (rt.get("rationale") or {}).get("overall")}
 
@@ -231,7 +290,8 @@ class Loop:
                 sources.setdefault(failing, []).append(tid)
         return {"n": n, "action": "compare", "why": p["why"], "tasks": p["tasks"], "runs": p["runs"], "agents": p["agents"],
                 "dir": str(it_dir), "results": results, "routing": self._routing_slim(analysed),
-                "paired": {k: (analysed["aggregate"].get("paired_inference") or {}).get(k) for k in ("diff", "ci95", "sign_test_p", "verdict")},
+                "paired": {k: (analysed["aggregate"].get("paired_inference") or {}).get(k)
+                           for k in ("labels", "n_pairs", "a_wins", "b_wins", "ties", "diff", "se", "ci95", "sign_test_p", "verdict")},
                 "suggestions_added": added, "suggestion_sources": sources}
 
     def _test_prompt(self, p: dict, n: int) -> dict:
@@ -344,11 +404,20 @@ def render_ledger_markdown(ledger: dict) -> str:
         lines.append("")
         lines.append(f"Why: {it['why']}")
         lines.append("")
+        lines.append("| agent | successes / runs | rate | 95% Wilson | output equality |")
+        lines.append("|---|---|---|---|---|")
         for agent, r in (it.get("results") or {}).items():
             if r.get("runs"):
-                lines.append(f"- {agent}: {r['successes']}/{r['runs']} succeeded, 95% interval {r['ci95'][0]:.2f}–{r['ci95'][1]:.2f}"
-                             + (f", output equality {r['equality_rate']:.0%}" if r.get("equality_rate") is not None else ""))
+                lines.append(f"| {agent} | {r['successes']} / {r['runs']} | {r['success']:.0%} | {r['ci95'][0]:.2f}–{r['ci95'][1]:.2f} | "
+                             + (f"{r['equality_rate']:.0%}" if r.get("equality_rate") is not None else "—") + " |")
+        lines.append("")
         if it["action"] == "compare":
+            pr = it.get("paired") or {}
+            if pr.get("diff") is not None:
+                lines.append(f"- paired difference {pr['labels'][0]} − {pr['labels'][1]} = {pr['diff']:+.2f}"
+                             + (f" (95% {pr['ci95'][0]:+.2f} to {pr['ci95'][1]:+.2f})" if pr.get("ci95") else "")
+                             + (f", sign test p = {pr['sign_test_p']:.3g}" if pr.get("sign_test_p") is not None else "")
+                             + f" over {pr.get('n_pairs')} task(s) — {pr.get('verdict')}")
             for fam, row in (it.get("routing") or {}).get("families", {}).items():
                 lines.append(f"- routing {fam}: {row['confidence']} — {row['why']}")
             if it.get("suggestions_added"):
@@ -356,7 +425,14 @@ def render_ledger_markdown(ledger: dict) -> str:
                              f"{', '.join(t for ts in it['suggestion_sources'].values() for t in ts)}")
         else:
             d = it["decision"]
+            ev = d.get("evidence") or {}
+            pr = ev.get("paired") or {}
             lines.append(f"- **{d['status']}** — {d['why']}")
+            if pr.get("diff") is not None:
+                lines.append(f"- paired difference with − without = {pr['diff']:+.2f}"
+                             + (f" (95% {pr['ci95'][0]:+.2f} to {pr['ci95'][1]:+.2f})" if pr.get("ci95") else "")
+                             + f"; wins {ev.get('wins')}, losses {ev.get('losses')}, ties {ev.get('ties')}"
+                             + (f"; sign test p = {ev['sign_test_p']:.3g}" if ev.get("sign_test_p") is not None else "; sign test: no discordant task"))
             lines.append(f"- change tested: “{d['text']}”")
             if d.get("relabel"):
                 lines.append(f"- {d['relabel']}")

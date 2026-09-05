@@ -15,6 +15,8 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
 from helpers_loop import GROUNDING, TASKS, run_demo_loop  # noqa: E402
+from deepcompare.scorecard import load_golden  # noqa: E402
+from deepcompare.harness.providers import provider_from_spec  # noqa: E402
 from deepcompare.harness.loop import PROMPT_ENV, render_ledger_markdown  # noqa: E402
 
 
@@ -90,6 +92,29 @@ class LoopApiTest(unittest.TestCase):
         self.assertIn(f"## Stopped: {stop['reason']}", md)
         self.assertIn("no model is in the control path", md)
         self.assertEqual((self.out / "LOOP.md").read_text(encoding="utf-8"), md)
+
+    def test_a_golden_set_and_a_judging_model_enter_every_iteration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            golden = Path(tmp) / "golden.json"
+            golden.write_text(json.dumps({"policy": {"forbidden_tools": ["shell"]},
+                                          "tasks": [{"id": t["id"], "expected_tools": ["get_refund"]} for t in TASKS]}), encoding="utf-8")
+            script = Path(tmp) / "judge.json"
+            script.write_text(json.dumps([{"text": '{"success": true, "score": 0.9, "rationale": "scripted"}'}]), encoding="utf-8")
+            out = Path(tmp) / "loop"
+            ledger = run_demo_loop(out, template=None, max_iterations=1, golden=load_golden(golden),
+                                   judge_factory=lambda: provider_from_spec(f"scripted:{script}"))
+            it = ledger["state"]["iterations"][0]
+            card = it["results"]["sloppy"]["scorecard"]
+            self.assertEqual(card["rates"]["tool_correct"]["rate"], 0.0, "sloppy never called the tool")
+            self.assertEqual(card["rates"]["policy_compliant"]["rate"], 1.0)
+            self.assertEqual(card["judge"]["judged"], 8)
+            self.assertEqual(card["judge"]["confusion"]["grade_fail_judge_pass"], 8, "the exact match stays the reference")
+            trace = json.loads(sorted(Path(it["dir"], "traces").glob("refund-BK1__sloppy*.json"))[0].read_text(encoding="utf-8"))
+            self.assertEqual(trace["outcome"]["graded_by"], "model")
+            self.assertTrue(trace["outcome"]["success"], "the judge's verdict is the grade when a judge is given")
+            self.assertEqual(trace["outcome"]["judge"]["prior"], {"success": False, "graded_by": "exact-match"})
+            agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
+            self.assertEqual(agg["scorecard"]["mode"], "offline — golden set")
 
     def test_resume_continues_from_the_ledger_without_rerunning(self):
         with tempfile.TemporaryDirectory() as tmp:

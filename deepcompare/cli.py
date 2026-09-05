@@ -40,6 +40,7 @@ _register_claude_code()
 from .router import routing_table, router_hints
 from .tracedb import TraceDB
 from .equality import equality_analysis
+from .scorecard import load_golden, load_policy, render_scorecard_markdown, scorecard as build_scorecard
 from .profile import build_profile, profile_suite
 from .cohort import GROUPERS, compare_cohorts, group_runs
 from .issues import build_issues, load_suppressions, render_issues_markdown
@@ -272,6 +273,13 @@ def _cmd_batch(args: argparse.Namespace) -> int:
 
     agg = build_aggregate(reports)
     agg["routing"] = routing_table(trajectories)
+    try:
+        agg["scorecard"] = build_scorecard(
+            trajectories, load_golden(args.golden) if getattr(args, "golden", None) else None,
+            load_policy(args.policy) if getattr(args, "policy", None) else None)
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     # Re-cluster with any .agentdiffignore found beside the traces or in cwd.
     patterns = (load_suppressions(traces_dir) or load_suppressions(Path.cwd()))
     if patterns:
@@ -766,6 +774,72 @@ def _cmd_feedback(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_eval(args: argparse.Namespace) -> int:
+    """The evaluation scorecard over a directory of traces or the trace
+    database, offline (against a golden set) or online (as recorded);
+    with --judge, a second model grades every answer first (the only
+    part that talks to a network)."""
+    try:
+        trajectories = _load_source(args)
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if not trajectories:
+        print("error: no valid traces found", file=sys.stderr)
+        return 2
+    raws: dict = {}
+    if args.tracesdir and Path(args.tracesdir).is_dir():
+        for path in sorted(Path(args.tracesdir).glob("*.json")):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(data, dict) and "steps" in data:
+                raws[data.get("trace_id") or path.stem] = data
+                raws.setdefault(path.stem, data)
+    try:
+        golden = load_golden(args.golden) if args.golden else None
+        policy = load_policy(args.policy) if args.policy else None
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    judged = None
+    if args.judge:
+        from .harness import provider_from_spec
+        from .harness.judge import judge_many
+        _name, spec = _split_spec(args.judge)
+        options = _provider_options(args)
+        kind = spec.split(":", 1)[0].strip().lower()
+        factory = lambda: provider_from_spec(spec, **({} if kind == "scripted" else options))  # noqa: E731
+        targets = []
+        for t in trajectories:
+            raw = raws.get(t.trace_id)
+            if raw is None:
+                raw = t.to_dict()
+                raws[t.trace_id] = raw
+            targets.append(raw)
+        judged = judge_many(targets, factory, with_steps=args.with_steps, apply=False)
+        if args.write and args.tracesdir:
+            for path in sorted(Path(args.tracesdir).glob("*.json")):
+                data = raws.get(path.stem)
+                if data is not None:
+                    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    card = build_scorecard(trajectories, golden, policy, raws)
+    if judged:
+        card["judge_run"] = judged
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "eval.json").write_text(json.dumps(card, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    md = render_scorecard_markdown(card)
+    (out_dir / "EVAL.md").write_text(md, encoding="utf-8")
+    print(md)
+    if judged:
+        print(f"judge: {judged['judged']} judged, agreed with the grade on {judged['agreed_with_prior']}, "
+              f"disagreed on {judged['disagreed_with_prior']}, {judged['failed']} failed")
+    print(f"Wrote {out_dir / 'eval.json'} and {out_dir / 'EVAL.md'}")
+    return 0
+
+
 def _cmd_runs(args: argparse.Namespace) -> int:
     runs_dir = Path(args.runsdir)
     if not runs_dir.is_dir():
@@ -773,6 +847,7 @@ def _cmd_runs(args: argparse.Namespace) -> int:
         return 2
 
     trajectories: list[Trajectory] = []
+    trace_paths: list[Path] = []
     for path in sorted(runs_dir.glob("*.json")):
         try:
             t = Trajectory.from_json(path)
@@ -783,14 +858,19 @@ def _cmd_runs(args: argparse.Namespace) -> int:
         if name_run:
             t.run_id = name_run
         trajectories.append(t)
+        trace_paths.append(path)
     if not trajectories:
         print("error: no valid traces found", file=sys.stderr)
         return 2
 
     from .suite import SuiteError, analyse_runs
     try:
-        analysed = analyse_runs(trajectories, warn=lambda m: print(f"warning: {m}", file=sys.stderr))
-    except SuiteError as exc:
+        golden = load_golden(args.golden) if getattr(args, "golden", None) else None
+        policy = load_policy(args.policy) if getattr(args, "policy", None) else None
+        raws = {t.trace_id: json.loads(path.read_text(encoding="utf-8")) for t, path in zip(trajectories, trace_paths)}
+        analysed = analyse_runs(trajectories, warn=lambda m: print(f"warning: {m}", file=sys.stderr),
+                                golden=golden, policy=policy, raws=raws)
+    except (SuiteError, ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     name_a, name_b = analysed["names"]
@@ -1532,6 +1612,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--template",
         help=f"viewer HTML template (default: {DEFAULT_TEMPLATE})",
     )
+    p_batch.add_argument("--golden", default=None, help="golden dataset (tasks JSON with expected_tools, forbidden_tools, …): scores tool correctness and policy")
+    p_batch.add_argument("--policy", default=None, help="safety policy JSON (forbidden_tools, forbidden_patterns, max_writes, write_requires_read)")
     p_batch.set_defaults(func=_cmd_batch)
 
     p_fleet = sub.add_parser("fleet", help="rank and cross-compare N agents on a shared task set")
@@ -1573,6 +1655,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_runs.add_argument("-o", "--output", default="out", help="output directory (default: out)")
     p_runs.add_argument("--template",
                         help=f"viewer HTML template (default: {DEFAULT_TEMPLATE})")
+    p_runs.add_argument("--golden", default=None, help="golden dataset (tasks JSON with expected_tools, forbidden_tools, …): scores tool correctness and policy")
+    p_runs.add_argument("--policy", default=None, help="safety policy JSON (forbidden_tools, forbidden_patterns, max_writes, write_requires_read)")
     p_runs.set_defaults(func=_cmd_runs)
 
     p_profile = sub.add_parser(
@@ -1772,6 +1856,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_loop.add_argument("--db", default=None, help="ingest every trace into this trace database")
     p_loop.add_argument("--template", default=None, help="page template (default: the blocks page)")
     p_loop.add_argument("--resume", action="store_true", help="continue from the ledger in the output directory")
+    p_loop.add_argument("--golden", default=None, help="golden dataset: scores tool correctness and policy every iteration")
+    p_loop.add_argument("--policy", default=None, help="safety policy JSON")
+    p_loop.add_argument("--judge", default=None, metavar="NAME=KIND:MODEL",
+                        help="a judging model grades every answer (tasks without an expected answer become gradable; "
+                             "traces say graded_by: model)")
+    p_loop.add_argument("--judge-with-steps", action="store_true")
     _provider_option_args(p_loop)
     p_loop.set_defaults(func=_cmd_loop)
 
@@ -1853,6 +1943,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_hook.add_argument("--prompt", default=None, help="the task prompt, if UserPromptSubmit is not hooked")
     p_hook.add_argument("--db", default=None, help="also ingest the final trace into this trace database")
     p_hook.set_defaults(func=_cmd_hook)
+
+    p_eval = sub.add_parser(
+        "eval", help="the evaluation scorecard per agent: success, correct tool, grounding, latency, cost, "
+                     "safety and policy, risk vs reward, trajectory quality (loops, stopping, recovery), "
+                     "and a judge's verdicts beside the grade — offline against a golden set or online as recorded")
+    p_eval.add_argument("tracesdir", nargs="?", default=None, help="directory of traces")
+    _db_source_args(p_eval)
+    p_eval.add_argument("--golden", default=None, help="golden dataset (tasks JSON; may carry a policy)")
+    p_eval.add_argument("--policy", default=None, help="safety policy JSON")
+    p_eval.add_argument("--judge", default=None, metavar="NAME=KIND:MODEL",
+                        help="grade every answer with a second model first (talks to a network unless scripted)")
+    p_eval.add_argument("--with-steps", action="store_true", help="show the judge the steps, not only the answer")
+    p_eval.add_argument("--write", action="store_true", help="write the judge's verdicts back into the trace files")
+    p_eval.add_argument("-o", "--output", default="eval", help="output directory (default: eval)")
+    _provider_option_args(p_eval)
+    p_eval.set_defaults(func=_cmd_eval)
 
     p_route = sub.add_parser(
         "route", help="routing features per task family: each agent's success interval, "
