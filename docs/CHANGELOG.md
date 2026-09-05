@@ -1689,6 +1689,23 @@ is reported as such.
   units, no window needed. `AgentDiff.charts.mode.{get,set,expand}`
   drives it from outside.
 
+- **AgentDiff Live — the deployed demo** (`web/build_live.py` →
+  `web/live.html`, published as a claude.ai artifact). Two real Claude
+  agents — *atlas*, told to normalise before arithmetic and verify twice,
+  and *bolt*, told to use the fewest tool calls — solve the same task in
+  the viewer's browser through the artifact runtime's `sample`
+  capability, with the task's tools defined in the page (`convert_to_utc`,
+  `datetime_diff`, `calculator`; `search`, `open` over a fixture corpus).
+  Every thought between tool calls and every call streams into a step
+  line, the newest pulsing; a browser-side diff follows (alignment by
+  type, tool and argument overlap, outcome against the expected answer,
+  first divergence), labelled the light version. The engine's findings
+  for each task's recorded pair are precomputed and cached in the page;
+  finished live runs are cached in the artifact's shared store and
+  replay for anyone; traces save as SCHEMA JSON for `deepcompare batch`.
+  Opened outside claude.ai the page replays the recorded pair and calls
+  nothing. No public model endpoint is reachable from the build
+  sandbox, which is why the agents run on the viewer's account.
 - **Live: watch agents run.** `Recorder(stream=True)` writes the
   run-so-far to `<trace>.live.json` after every step and every
   observation, and removes it when the final lands. `deepcompare watch

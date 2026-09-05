@@ -136,6 +136,11 @@ point `watch` at the trace directory: each agent's steps arrive on the
 page as they happen, the newest pulsing; when a pair finishes, the story
 replaces the stream in place. A run in progress is shown, never analysed.
 
+`python web/build_live.py` writes `web/live.html`, the deployable demo:
+published as a claude.ai artifact, it runs two real Claude agents on the
+viewer's account with tools defined in the page and streams every step;
+elsewhere it replays the recorded pair.
+
 ## Why use it: the loop
 
 Mapping a failure is the first half. The second half is what the page
