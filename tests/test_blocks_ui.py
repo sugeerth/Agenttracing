@@ -3693,56 +3693,104 @@ class DebugSessionBlockTest(unittest.TestCase):
             block = page.locator('.block[data-block="debug-session"]')
         return context, page, block, errors
 
-    def test_the_strip_the_aggregates_and_the_layers_are_counted_from_the_report(self):
+    def test_the_body_chart_in_debug_mode_the_aggregates_and_the_layers_are_counted_from_the_report(self):
         context, page, block, errors = self._open()
         self.assertEqual(block.count(), 1)
         rep = self.report
-        if block.locator(".dbg-strip th").first.text_content() != rep["a"]["agent"]["name"]:
+        if block.locator(".dbg-kpi td.side").first.text_content().split()[0] != rep["a"]["agent"]["name"]:
             self.skipTest("the page opened on another task; the counts below are for t05")
-        rows = rep["alignment"]
+        svg = block.locator("svg.d3c-body")
+        self.assertEqual(svg.count(), 1, "the debug session draws the body chart, not a strip")
+        self.assertEqual(svg.get_attribute("data-debug"), "true")
         for side in ("a", "b"):
-            present = sum(1 for r in rows if r.get(f"{side}_index") is not None)
-            self.assertEqual(block.locator(f'.dbg-cell[data-side="{side}"]:not(.gap)').count(), present, side)
-            self.assertEqual(block.locator(f'tr[data-side="{side}"] .dbg-cell.gap').count(), len(rows) - present, side)
             steps = rep[side]["steps"]
+            self.assertEqual(svg.locator(f'g.d3c-bnode[data-side="{side}"]').count(), len(steps), "one node per step at the default zoom")
+            phases = rep["reading"][side]["phases"]
+            # one band per run of consecutive steps in one phase
+            runs_of_phase, last = 0, None
+            for st in steps:
+                ph = next((p["intent"] for p in phases if st["index"] in p["steps"]), None)
+                if ph != last:
+                    runs_of_phase += 1
+                    last = ph
+            self.assertEqual(svg.locator(f'rect.d3c-phase[data-side="{side}"]').count(), runs_of_phase, side)
             tools = sum(1 for s in steps if s["type"] in self.TOOLISH)
-            turns = len(steps) - tools
             self.assertEqual(block.locator(f'.dbg-kpi td.v[data-side="{side}"][data-kpi="tool calls"]').text_content(), str(tools))
-            self.assertEqual(block.locator(f'.dbg-kpi td.v[data-side="{side}"][data-kpi="model turns"]').text_content(), str(turns))
+            self.assertEqual(block.locator(f'.dbg-kpi td.v[data-side="{side}"][data-kpi="model turns"]').text_content(), str(len(steps) - tools))
+            self.assertEqual(block.locator(f'.dbg-kpi td.v[data-side="{side}"][data-kpi="phases · transitions"]').text_content().split(" · ")[0], str(len(phases)))
             tot = rep[side]["totals"]
             self.assertEqual(block.locator(f'.dbg-kpi td.v[data-side="{side}"][data-kpi="tokens"]').text_content(), str(tot["input_tokens"] + tot["output_tokens"]))
-        # the decisive step opens selected, with its replay layer
+        # the decisive step carries its replay verdict on the chart and opens in the layers
         dec = rep["diagnosis"]["decisive_step"]
         subject = rep["diagnosis"]["subject"]
-        sel = block.locator(".dbg-cell.selected")
-        self.assertEqual(sel.count(), 1)
-        self.assertEqual((sel.get_attribute("data-side"), sel.get_attribute("data-step")), (subject, str(dec["step"])))
+        self.assertEqual(svg.locator("text.d3c-dbg-replay").count(), 1)
+        self.assertIn("hypothesis" if not dec.get("replay") else dec["verification"], svg.locator("text.d3c-dbg-replay").text_content())
         first = block.locator(".dbg-run").first
         self.assertEqual((first.get_attribute("data-side"), first.get_attribute("data-step")), (subject, str(dec["step"])))
         layers = [first.locator(".dbg-layer").nth(i).get_attribute("data-layer") for i in range(first.locator(".dbg-layer").count())]
         self.assertEqual(layers, ["model call", "tool selection", "tool response", "state", "output", "replay"])
         self.assertIn(dec["verification"], first.locator('[data-layer="replay"]').text_content())
         step = next(s for s in rep[subject]["steps"] if s["index"] == dec["step"])
-        if step["type"] in self.TOOLISH:
-            self.assertIn(step["name"], first.locator('[data-layer="tool selection"]').text_content())
-            other = "a" if subject == "b" else "b"
-            row = next(r for r in rows if r.get(f"{subject}_index") == dec["step"])
-            if row.get(f"{other}_index") is not None:
-                counterpart = next(s for s in rep[other]["steps"] if s["index"] == row[f"{other}_index"])
-                if counterpart["type"] in self.TOOLISH and counterpart["name"] != step["name"]:
-                    self.assertIn(counterpart["name"], first.locator('[data-layer="tool selection"]').text_content())
-        # clicking another cell moves the selection and the layers; the shared cursor moves this block too
-        target = block.locator('.dbg-cell[data-side="a"]:not(.gap)').first
-        target.click()
+        other = "a" if subject == "b" else "b"
+        row = next(r for r in rep["alignment"] if r.get(f"{subject}_index") == dec["step"])
+        if step["type"] in self.TOOLISH and row.get(f"{other}_index") is not None:
+            counterpart = next(s for s in rep[other]["steps"] if s["index"] == row[f"{other}_index"])
+            if counterpart["type"] in self.TOOLISH and counterpart["name"] != step["name"]:
+                self.assertIn(counterpart["name"], first.locator('[data-layer="tool selection"]').text_content())
+        # clicking a node on the chart moves the layers; the shared cursor moves them too
+        target = svg.locator('g.d3c-bnode[data-side="a"]').first
+        target.dispatch_event("click")
         page.wait_for_timeout(300)
-        self.assertEqual(block.locator(".dbg-run").first.get_attribute("data-side"), "a")
-        self.assertEqual(block.locator(".dbg-run").first.get_attribute("data-step"), target.get_attribute("data-step"))
+        first = block.locator(".dbg-run").first
+        self.assertEqual((first.get_attribute("data-side"), first.get_attribute("data-step")), ("a", target.get_attribute("data-step")))
+        rows = rep["alignment"]
         last_row = len(rows) - 1
         page.evaluate("row => document.dispatchEvent(new CustomEvent('agentdiff:select-step', {detail: {row: row, side: 'b'}}))", last_row)
         page.wait_for_timeout(300)
         want = rows[last_row].get("b_index")
         if want is not None:
-            sel = block.locator(".dbg-cell.selected")
-            self.assertEqual((sel.get_attribute("data-side"), sel.get_attribute("data-step")), ("b", str(want)))
+            first = block.locator(".dbg-run").first
+            self.assertEqual((first.get_attribute("data-side"), first.get_attribute("data-step")), ("b", str(want)))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_story_hero_has_a_debug_toggle_that_adds_bands_marks_stats_and_layers(self):
+        context = self.browser.new_context(viewport={"width": 1280, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view=story")
+        page.wait_for_timeout(700)
+        btn = page.locator(".bd-axis-btn.axis-debug")
+        self.assertEqual(btn.count(), 1)
+        self.assertEqual(btn.get_attribute("aria-pressed"), "false")
+        svg = page.locator("svg.d3c-body").first
+        self.assertEqual(svg.get_attribute("data-debug"), "false")
+        self.assertEqual(svg.locator("rect.d3c-phase").count(), 0, "no bands until debug is on")
+        self.assertEqual(page.locator(".bd-layers").count(), 0)
+        btn.click()
+        page.wait_for_timeout(700)
+        svg = page.locator("svg.d3c-body").first
+        self.assertEqual(page.locator(".bd-axis-btn.axis-debug").get_attribute("aria-pressed"), "true")
+        self.assertEqual(svg.get_attribute("data-debug"), "true")
+        self.assertGreater(svg.locator("rect.d3c-phase").count(), 0)
+        self.assertEqual(svg.locator("text.d3c-dbg-replay").count(), 1)
+        keys = page.locator(".bd-stats .k").all_text_contents()
+        for k in ("tool errors", "retries", "model switches", "no-info steps", "transitions"):
+            self.assertIn(k, keys)
+        self.assertGreaterEqual(page.locator(".bd-layers .dbg-run").count(), 1)
+        self.assertTrue(page.locator(".d3c-legend-debug").count() == 1 and page.locator(".d3c-phase-chip").count() >= 1)
+        # a node click moves the layers under the inspector
+        node = svg.locator('g.d3c-bnode[data-side="a"]').first
+        node.dispatch_event("click")
+        page.wait_for_timeout(400)
+        first = page.locator(".bd-layers .dbg-run").first
+        self.assertEqual((first.get_attribute("data-side"), first.get_attribute("data-step")), ("a", node.get_attribute("data-step")))
+        # off again: bands gone, layers gone
+        page.locator(".bd-axis-btn.axis-debug").click()
+        page.wait_for_timeout(600)
+        self.assertEqual(page.locator("svg.d3c-body").first.get_attribute("data-debug"), "false")
+        self.assertEqual(page.locator(".bd-layers").count(), 0)
         self.assertEqual(errors, [])
         context.close()

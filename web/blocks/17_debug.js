@@ -82,14 +82,6 @@
     return steps[index] || null;
   }
   function agentOf(report, side) { return (report && report[side] && report[side].agent) || {}; }
-  function modelName(step) {
-    var m = step && step.model;
-    if (!m) return null;
-    if (typeof m === "string") return m;
-    return m.name || m.model || null;
-  }
-  //: the environment-facing step types (SCHEMA STEP_TYPES): a call the
-  //: run made and a response it got back; plan and reason are model turns
   var TOOLISH = ["tool_call", "search", "retrieve", "read"];
   function kindOf(step) {
     var t = String(step && step.type || "");
@@ -97,61 +89,13 @@
     if (TOOLISH.indexOf(t) >= 0) return "tool";
     return "reason";
   }
-  function isErr(step, side, report) {
-    if (!step) return false;
-    if (step.error) return true;
-    var rec = report && report.process && report.process[side] && report.process[side].recovery;
-    return !!(rec && Array.isArray(rec.error_steps) && rec.error_steps.indexOf(step.index) >= 0);
-  }
-  function normInput(s) { return String(s || "").replace(/\s+/g, " ").trim().toLowerCase(); }
 
-  /* the per-run analysis the strip and the layers read */
+  /* the per-run analysis, shared with the body chart (charts.debugInfo) */
   function analyseRun(report, side) {
-    var steps = stepsOf(report, side);
-    var agent = agentOf(report, side);
-    var reading = (report.reading || {})[side] || {};
-    var phases = reading.phases || [];
-    var phaseOf = {};
-    phases.forEach(function (p) { (p.steps || []).forEach(function (i) { phaseOf[i] = p.intent; }); });
-    var proc = (report.process || {})[side] || {};
-    var noInfo = ((proc.repeats || {}).no_information_detail || []).map(function (d) { return typeof d === "number" ? d : d && (d.index !== undefined ? d.index : d.step); });
-    var baseModel = agent.model || null;
-    var lastModel = baseModel, lastTool = {};
-    var info = {}, retries = 0, switches = 0, errors = 0, toolCalls = 0, turns = 0, transitions = 0, prevPhase = null;
-    var basisSteps = ((reading.answer_basis || {}).basis_steps) || [];
-    var restsOn = reading.rests_on || [];
-    steps.forEach(function (s, k) {
-      var kind = kindOf(s);
-      var e = { kind: kind, error: isErr(s, side, report), retry: null, modelSwitch: null, noInfo: noInfo.indexOf(s.index) >= 0,
-                phase: phaseOf[s.index] || null, transition: null, values: [] };
-      if (kind === "tool") toolCalls++; else turns++;
-      if (e.error) errors++;
-      var m = modelName(s);
-      if (m && lastModel && m !== lastModel) { e.modelSwitch = { from: lastModel, to: m }; switches++; }
-      if (m) lastModel = m;
-      if (kind === "tool") {
-        var prev = lastTool[s.name];
-        if (prev && prev.error) {
-          e.retry = { of: prev.index, same: normInput(prev.input) === normInput(s.input) };
-          retries++;
-        }
-        lastTool[s.name] = { index: s.index, input: s.input, error: e.error };
-      }
-      if (e.phase && prevPhase && e.phase !== prevPhase) { e.transition = { from: prevPhase, to: e.phase }; transitions++; }
-      if (e.phase) prevPhase = e.phase;
-      restsOn.forEach(function (r) {
-        var at = r && (r.first_step !== undefined ? r.first_step : r.step !== undefined ? r.step : r.source_step);
-        if (at === s.index && r.value !== undefined) {
-          e.values.push({ value: String(r.value) + (r.kind ? " (" + r.kind + ")" : "") + (r.matches_expected === true ? " · matches expected" : r.matches_expected === false ? " · not the expected value" : ""),
-                          status: r.status || r.support || "" });
-        }
-      });
-      if (basisSteps.indexOf(s.index) >= 0 && !e.values.length) e.values.push({ value: "(a value the answer rests on)", status: "basis" });
-      info[s.index] = e;
-    });
+    var d = AgentDiff.charts && AgentDiff.charts.debugInfo ? AgentDiff.charts.debugInfo(report, side) : { info: {}, agg: {}, phases: [], agent: agentOf(report, side), steps: stepsOf(report, side) };
     var tot = (report[side] && report[side].totals) || {};
-    return { steps: steps, info: info, phases: phases, agent: agent, retries: retries, switches: switches, errors: errors,
-             toolCalls: toolCalls, turns: turns, transitions: transitions, noInfo: noInfo.length,
+    return { steps: d.steps, info: d.info, phases: d.phases, agent: d.agent, retries: d.agg.retries || 0, switches: d.agg.switches || 0, errors: d.agg.errors || 0,
+             toolCalls: d.agg.toolCalls || 0, turns: d.agg.turns || 0, transitions: d.agg.transitions || 0, noInfo: d.agg.noInfo || 0,
              tokens: (tot.input_tokens || 0) + (tot.output_tokens || 0), latency: tot.latency_s, cost: tot.cost_usd,
              outcome: (report[side] && report[side].outcome) || {} };
   }
@@ -162,11 +106,95 @@
              verification: dec.verification || null, replay: dec.replay || null, recipe: dec.replay_recipe || null };
   }
 
+  function alignedRow(report, side, step) {
+    var rows = Array.isArray(report.alignment) ? report.alignment : [];
+    for (var i = 0; i < rows.length; i++) if (rows[i][side + "_index"] === step) return { row: rows[i], ri: i };
+    return null;
+  }
+
+  /* The six layers of one step, beside the aligned step of the other run.
+   * Exported as AgentDiff.debugSession.layers so the body block's docked
+   * inspector can show the same. */
+  function renderLayers(H, report, side, step, runs) {
+    runs = runs || { a: analyseRun(report, "a"), b: analyseRun(report, "b") };
+    var dec = decisive(report);
+    function layer(host, key, sub, body, quiet) {
+      var l = H("div", { class: "dbg-layer" + (quiet ? " quiet" : ""), "data-layer": key });
+      l.appendChild(H("span", { class: "k" }, [H("b", { text: key }), H("span", { text: sub || "" })]));
+      var b = H("div", { class: "b" });
+      (Array.isArray(body) ? body : [body]).forEach(function (x) { if (x) b.appendChild(typeof x === "string" ? H("span", { text: x }) : x); });
+      l.appendChild(b);
+      host.appendChild(l);
+    }
+    function renderRun(sd, st, counterpart) {
+      var r = runs[sd], e = r.info[st.index] || {}, m = e.model;
+      var card = H("div", { class: "dbg-run", "data-side": sd, "data-step": st.index });
+      card.appendChild(H("h5", null, [H("i", { style: { background: "var(--dbg-" + sd + ")" } }), H("span", { text: (r.agent.name || sd) + " · step " + st.index + " · " + (st.type || "") + (st.name ? " " + st.name : "") }),
+        H("span", { class: "st", text: e.phase ? "state: " + e.phase : "" })]));
+      var conf = st.model && isNum(st.model.confidence) ? st.model.confidence : null;
+      layer(card, "model call", e.kind === "tool" ? "the turn that chose this call" : "the turn", [
+        H("span", null, [H("b", { text: m || r.agent.model || "model not recorded" }), H("span", { text: (isNum(st.tokens) ? " · " + st.tokens + " tokens" + (st.tokens_basis ? " (" + st.tokens_basis + ")" : "") : "") + (isNum(st.latency_s) ? " · " + st.latency_s.toFixed(2) + "s" : "") + (conf !== null ? " · confidence " + conf.toFixed(2) : "") })]),
+        e.modelSwitch ? H("div", null, [H("span", { class: "tag warn", text: "model switch" }), H("span", { text: e.modelSwitch.from + " → " + e.modelSwitch.to })]) : null,
+        e.kind === "reason" ? H("pre", { text: trunc(st.input || st.output, 600) }) : null,
+      ]);
+      if (e.kind === "tool") {
+        var same = counterpart && kindOf(counterpart) === "tool" ? (counterpart.name === st.name) : null;
+        var tdiff = ((alignedRow(report, sd, st.index) || {}).row || {}).tool_diff;
+        layer(card, "tool selection", "which tool, with what", [
+          H("span", null, [H("b", { text: st.name || "?" }), H("span", { text: same === null ? (counterpart ? " · the other side did not call a tool here" : " · no aligned step on the other side") : same ? " · same tool as the other side" : " · the other side used " + counterpart.name })]),
+          e.retry ? H("div", null, [H("span", { class: "tag warn", text: e.retry.same ? "retry, identical arguments" : "retry, changed arguments" }), H("span", { text: "of step " + e.retry.of })]) : null,
+          tdiff && tdiff.changed && tdiff.changed.length ? H("div", null, [H("span", { class: "tag", text: "argument diff" }), H("span", { text: tdiff.changed.map(function (c) { return c.key + ": " + trunc(c.a, 40) + " ↔ " + trunc(c.b, 40); }).join("; ") })]) : null,
+          H("pre", { text: trunc(st.input, 500) }),
+        ]);
+        layer(card, "tool response", "what came back", [
+          e.error ? H("span", { class: "tag bad", text: "error" }) : null,
+          e.noInfo ? H("span", { class: "tag warn", text: "no new information" }) : null,
+          H("pre", { text: trunc(st.output || st.error || "(empty)", 600) }),
+        ]);
+      } else {
+        layer(card, "tool selection", "", "no tool at this step", true);
+        layer(card, "tool response", "", "—", true);
+      }
+      layer(card, "state", "phase from the reading", e.transition ? [H("span", { class: "tag", text: e.transition.from + " → " + e.transition.to }), H("span", { text: "a transition at this step" })]
+        : e.phase ? "stays in " + e.phase : "no phase assigned", !e.transition);
+      var out = [];
+      if (e.kind === "answer") out.push(H("div", null, [H("span", { class: "tag " + (r.outcome.success ? "good" : "bad"), text: r.outcome.success ? "final answer · solved" : "final answer · failed" }), H("pre", { text: trunc(st.output || st.input, 600) })]));
+      (e.values || []).forEach(function (v) { out.push(H("div", null, [H("span", { class: "tag " + (v.status === "wrong" || v.status === "unsupported" ? "bad" : v.status === "supported" || v.status === "basis" ? "good" : ""), text: String(v.status || "value") }), H("span", { text: String(v.value) })])); });
+      layer(card, "output", "what this step gave the answer", out.length ? out : "nothing the answer rests on", !out.length);
+      if (dec.side === sd && dec.step === st.index) {
+        var rp = dec.replay;
+        layer(card, "replay", "the decisive step", rp ? [H("span", { class: "tag " + (String(dec.verification).indexOf("verified") >= 0 ? "good" : String(dec.verification).indexOf("refuted") >= 0 ? "bad" : "warn"), text: String(dec.verification) }),
+          H("span", { text: (rp.flipped !== undefined ? rp.flipped + " of " + rp.replays + " replay(s) flipped the outcome" : "") })]
+          : [H("span", { class: "tag warn", text: dec.verification || "hypothesized" }), H("span", { text: dec.recipe ? "not replayed yet — `deepcompare replay` from step " + (dec.recipe.step !== undefined ? dec.recipe.step : st.index) + " would test it" : "not replayed yet" })]);
+      }
+      var cum = { tokens: 0, latency: 0, calls: 0, errors: 0 };
+      r.steps.forEach(function (s2) { if (s2.index <= st.index) { cum.tokens += isNum(s2.tokens) ? s2.tokens : 0; cum.latency += isNum(s2.latency_s) ? s2.latency_s : 0; if (kindOf(s2) === "tool") cum.calls++; if ((r.info[s2.index] || {}).error) cum.errors++; } });
+      card.appendChild(H("div", { class: "dbg-stats" }, [
+        H("span", null, [H("span", { text: "this step " }), H("b", { text: (isNum(st.tokens) ? st.tokens : 0) + " tok" }), H("span", { text: " · " }), H("b", { text: (isNum(st.latency_s) ? st.latency_s.toFixed(2) : "0.00") + "s" })]),
+        H("span", null, [H("span", { text: "so far " }), H("b", { text: cum.tokens + " tok" }), H("span", { text: " · " }), H("b", { text: cum.latency.toFixed(2) + "s" }), H("span", { text: " · " }), H("b", { text: cum.calls + " call(s)" }), H("span", { text: " · " }), H("b", { text: cum.errors + " error(s)" })]),
+        H("span", null, [H("span", { text: "run total " }), H("b", { text: r.tokens + " tok" }), H("span", { text: " · " }), H("b", { text: (isNum(r.latency) ? r.latency.toFixed(2) : "?") + "s" })]),
+      ]));
+      return card;
+    }
+    var wrap = H("div", { class: "dbg-layers" });
+    var st = stepAt(report, side, step);
+    if (!st) return wrap;
+    var ar = alignedRow(report, side, step);
+    var other = side === "a" ? "b" : "a";
+    var otherIdx = ar && ar.row ? ar.row[other + "_index"] : null;
+    var otherStep = (otherIdx !== null && otherIdx !== undefined) ? stepAt(report, other, otherIdx) : null;
+    wrap.appendChild(renderRun(side, st, otherStep));
+    if (otherStep) wrap.appendChild(renderRun(other, otherStep, st));
+    else if (stepsOf(report, other).length) wrap.appendChild(H("div", { class: "dbg-run", "data-side": other, "data-step": "" }, [H("h5", { text: (agentOf(report, other).name || other) + " · no aligned step" }), H("p", { class: "dbg-note", text: "The other run has no step aligned with this one — a one-sided row of the alignment." })]));
+    return wrap;
+  }
+  AgentDiff.debugSession = { analyse: analyseRun, layers: renderLayers, ensureStyle: ensureStyle };
+
   // -------------------------------------------------------------- render
   AgentDiff.block({
     id: "debug-session",
     title: "Debug session",
-    question: "Step by step, what did each run do — model turns, tool choices and responses, retries, model switches, state changes — and what did the selected step produce?",
+    question: "Step by step on the timeline: model turns, tool choices and responses, retries, model switches, state changes — and, layer by layer, what the selected step did.",
     group: "trajectory",
     size: "wide",
 
@@ -208,144 +236,23 @@
       });
       root.appendChild(H("div", { class: "scroll-x" }, [kpi]));
 
-      // the aligned A/B strip
+      // the body chart in debug mode: the two runs over time, tools as branches,
+      // the phases as state bands, retries / switches / no-info marked, the replay at the decisive step
       var selected = { side: dec.side || sides[0], step: dec.step !== null ? dec.step : stepsOf(report, dec.side || sides[0])[0].index };
-      var strip = H("div", { class: "dbg-strip" });
-      var table = H("table");
-      var cellIndex = {};
-      sides.forEach(function (s) {
-        var r = runs[s];
-        var tr = H("tr", { "data-side": s });
-        tr.appendChild(H("th", { text: r.agent.name || s }));
-        rows.forEach(function (row, ri) {
-          var idx = row[s + "_index"];
-          var td = H("td");
-          if (idx === null || idx === undefined) { td.appendChild(H("div", { class: "dbg-cell gap" })); tr.appendChild(td); return; }
-          var step = stepAt(report, s, idx), e = r.info[idx] || {};
-          var cell = H("div", { class: "dbg-cell " + e.kind + (e.error ? " error" : ""), "data-side": s, "data-step": idx, "data-row": ri,
-                               style: { "--side": "var(--dbg-" + s + ")" },
-                               title: "step " + idx + " · " + (step.type || "") + (step.name ? " " + step.name : "") + (e.phase ? " · " + e.phase : "") });
-          cell.appendChild(H("span", { class: "i", text: String(idx) }));
-          var marks = [];
-          if (e.error) marks.push("✕");
-          if (e.retry) marks.push("↻");
-          if (e.modelSwitch) marks.push("⇄");
-          if (e.noInfo) marks.push("∅");
-          if (dec.side === s && dec.step === idx) marks.push(dec.verification === "replay-verified" ? "◉" : "◎");
-          if (marks.length) cell.appendChild(H("span", { class: "m" + (e.error ? " warn" : ""), text: marks.join("") }));
-          cell.addEventListener("click", function () {
-            selected = { side: s, step: idx };
-            paintSelection(); renderLayers();
-            if (AgentDiff.charts && AgentDiff.charts.selectStep) AgentDiff.charts.selectStep(report, s, idx);
-          });
-          td.appendChild(cell);
-          td.appendChild(H("div", { class: "dbg-phase " + (e.phase || ""), title: e.phase ? "phase: " + e.phase : "" }));
-          cellIndex[s + ":" + idx] = cell;
-          tr.appendChild(td);
-        });
-        table.appendChild(tr);
-      });
-      strip.appendChild(table);
-      root.appendChild(strip);
-      root.appendChild(H("div", { class: "dbg-legend" }, [
-        H("span", null, [H("b", { text: "cells" }), H("span", { text: " light = model turn, mid = tool call, solid = answer; red outline = error" })]),
-        H("span", null, [H("b", { text: "marks" }), H("span", { text: " ✕ error · ↻ retry · ⇄ model switch · ∅ no information · ◎ decisive (hypothesized) · ◉ decisive (replay-verified)" })]),
-        H("span", null, [H("b", { text: "bands" }), H("span", { text: " the phase (state) each step belongs to; a colour change is a transition" })]),
-      ]));
-
-      var layers = H("div", { class: "dbg-layers" });
-      root.appendChild(layers);
-      root.appendChild(H("p", { class: "dbg-note", text: "Every layer quotes the trace as recorded: the model turn's own tokens and latency, the tool call's input and its response, the phase the reading assigned, the values the answer rests on that this step produced, and the replay verdict at the decisive step when a replay ran. A retry is a call to the same tool after that tool returned an error; a model switch is a step whose recorded model differs from the one before it." }));
-
-      function paintSelection() {
-        Object.keys(cellIndex).forEach(function (k) { cellIndex[k].classList.remove("selected"); });
-        var c = cellIndex[selected.side + ":" + selected.step];
-        if (c) c.classList.add("selected");
+      var chartHost = H("div", { class: "dbg-chart" });
+      var drawn = null;
+      try { drawn = AgentDiff.charts && AgentDiff.charts.body ? AgentDiff.charts.body(chartHost, ctx, { debug: true }) : null; }
+      catch (err) { drawn = null; console.warn("AgentDiff debug-session: chart failed", err); }
+      if (drawn) root.appendChild(drawn); else root.appendChild(H("p", { class: "dbg-note", text: "The body chart needs D3; the layers below still read the selected step." }));
+      var layersHost = H("div");
+      root.appendChild(layersHost);
+      root.appendChild(H("p", { class: "dbg-note", text: "Every layer quotes the trace as recorded: the model turn's own tokens and latency, the tool call's input and its response, the phase the reading assigned, the values the answer rests on that this step produced, and the replay verdict at the decisive step when a replay ran. A retry is a call to the same tool after that tool returned an error; a model switch is a step whose recorded model differs from the one before it. Click a node on the chart to open its layers; the timeline, map and inspector follow the same cursor." }));
+      var rows = Array.isArray(report.alignment) ? report.alignment : [];
+      function renderLayersNow() {
+        layersHost.innerHTML = "";
+        layersHost.appendChild(renderLayers(H, report, selected.side, selected.step, runs));
       }
-      function alignedRow(side, step) {
-        for (var i = 0; i < rows.length; i++) if (rows[i][side + "_index"] === step) return { row: rows[i], ri: i };
-        return null;
-      }
-      function layer(host, key, sub, body, quiet) {
-        var l = H("div", { class: "dbg-layer" + (quiet ? " quiet" : ""), "data-layer": key });
-        l.appendChild(H("span", { class: "k" }, [H("b", { text: key }), H("span", { text: sub || "" })]));
-        var b = H("div", { class: "b" });
-        (Array.isArray(body) ? body : [body]).forEach(function (x) { if (x) b.appendChild(typeof x === "string" ? H("span", { text: x }) : x); });
-        l.appendChild(b);
-        host.appendChild(l);
-      }
-      function renderRun(side, step, counterpart, counterSide) {
-        var r = runs[side], e = r.info[step.index] || {}, m = modelName(step);
-        var card = H("div", { class: "dbg-run", "data-side": side, "data-step": step.index });
-        card.appendChild(H("h5", null, [H("i", { style: { background: "var(--dbg-" + side + ")" } }), H("span", { text: (r.agent.name || side) + " · step " + step.index + " · " + (step.type || "") + (step.name ? " " + step.name : "") }),
-          H("span", { class: "st", text: e.phase ? "state: " + e.phase : "" })]));
-        // 1 · model call
-        var conf = step.model && isNum(step.model.confidence) ? step.model.confidence : null;
-        layer(card, "model call", e.kind === "tool" ? "the turn that chose this call" : "the turn", [
-          H("span", null, [H("b", { text: m || r.agent.model || "model not recorded" }), H("span", { text: (isNum(step.tokens) ? " · " + step.tokens + " tokens" + (step.tokens_basis ? " (" + step.tokens_basis + ")" : "") : "") + (isNum(step.latency_s) ? " · " + step.latency_s.toFixed(2) + "s" : "") + (conf !== null ? " · confidence " + conf.toFixed(2) : "") })]),
-          e.modelSwitch ? H("div", null, [H("span", { class: "tag warn", text: "model switch" }), H("span", { text: e.modelSwitch.from + " → " + e.modelSwitch.to })]) : null,
-          e.kind === "reason" ? H("pre", { text: trunc(step.input || step.output, 600) }) : null,
-        ]);
-        // 2 · tool selection
-        if (e.kind === "tool") {
-          var same = counterpart && kindOf(counterpart) === "tool" ? (counterpart.name === step.name) : null;
-          var tdiff = counterpart && counterSide ? ((alignedRow(side, step.index) || {}).row || {}).tool_diff : null;
-          layer(card, "tool selection", "which tool, with what", [
-            H("span", null, [H("b", { text: step.name || "?" }), H("span", { text: same === null ? (counterpart ? " · the other side did not call a tool here" : " · no aligned step on the other side") : same ? " · same tool as the other side" : " · the other side used " + counterpart.name })]),
-            e.retry ? H("div", null, [H("span", { class: "tag warn", text: e.retry.same ? "retry, identical arguments" : "retry, changed arguments" }), H("span", { text: "of step " + e.retry.of })]) : null,
-            tdiff && tdiff.changed && tdiff.changed.length ? H("div", null, [H("span", { class: "tag", text: "argument diff" }), H("span", { text: tdiff.changed.map(function (c) { return c.key + ": " + trunc(c.a, 40) + " ↔ " + trunc(c.b, 40); }).join("; ") })]) : null,
-            H("pre", { text: trunc(step.input, 500) }),
-          ]);
-          // 3 · tool response
-          layer(card, "tool response", "what came back", [
-            e.error ? H("span", { class: "tag bad", text: "error" }) : null,
-            e.noInfo ? H("span", { class: "tag warn", text: "no new information" }) : null,
-            H("pre", { text: trunc(step.output || step.error || "(empty)", 600) }),
-          ]);
-        } else {
-          layer(card, "tool selection", "", "no tool at this step", true);
-          layer(card, "tool response", "", "—", true);
-        }
-        // 4 · state transition
-        layer(card, "state", "phase from the reading", e.transition ? [H("span", { class: "tag", text: e.transition.from + " → " + e.transition.to }), H("span", { text: "a transition at this step" })]
-          : e.phase ? "stays in " + e.phase : "no phase assigned", !e.transition);
-        // 5 · output
-        var out = [];
-        if (e.kind === "answer") {
-          out.push(H("div", null, [H("span", { class: "tag " + (r.outcome.success ? "good" : "bad"), text: r.outcome.success ? "final answer · solved" : "final answer · failed" }), H("pre", { text: trunc(step.output || step.input, 600) })]));
-        }
-        e.values.forEach(function (v) { out.push(H("div", null, [H("span", { class: "tag " + (v.status === "wrong" || v.status === "unsupported" ? "bad" : v.status === "supported" || v.status === "basis" ? "good" : ""), text: String(v.status || "value") }), H("span", { text: String(v.value) })])); });
-        layer(card, "output", "what this step gave the answer", out.length ? out : "nothing the answer rests on", !out.length);
-        // 6 · replay
-        if (dec.side === side && dec.step === step.index) {
-          var rp = dec.replay;
-          layer(card, "replay", "the decisive step", rp ? [H("span", { class: "tag " + (String(dec.verification).indexOf("verified") >= 0 ? "good" : String(dec.verification).indexOf("refuted") >= 0 ? "bad" : "warn"), text: String(dec.verification) }),
-            H("span", { text: (rp.flipped !== undefined ? rp.flipped + " of " + rp.replays + " replay(s) flipped the outcome" : "") + (rp.provider ? " · " + (rp.provider.name || "") : "") })]
-            : [H("span", { class: "tag warn", text: dec.verification || "hypothesized" }), H("span", { text: dec.recipe ? "not replayed yet — `deepcompare replay` from step " + (dec.recipe.step !== undefined ? dec.recipe.step : step.index) + " would test it" : "not replayed yet" })]);
-        }
-        // stats: own and cumulative
-        var cum = { tokens: 0, latency: 0, calls: 0, errors: 0 };
-        r.steps.forEach(function (s) { if (s.index <= step.index) { cum.tokens += isNum(s.tokens) ? s.tokens : 0; cum.latency += isNum(s.latency_s) ? s.latency_s : 0; if (kindOf(s) === "tool") cum.calls++; if ((r.info[s.index] || {}).error) cum.errors++; } });
-        card.appendChild(H("div", { class: "dbg-stats" }, [
-          H("span", null, [H("span", { text: "this step " }), H("b", { text: (isNum(step.tokens) ? step.tokens : 0) + " tok" }), H("span", { text: " · " }), H("b", { text: (isNum(step.latency_s) ? step.latency_s.toFixed(2) : "0.00") + "s" })]),
-          H("span", null, [H("span", { text: "so far " }), H("b", { text: cum.tokens + " tok" }), H("span", { text: " · " }), H("b", { text: cum.latency.toFixed(2) + "s" }), H("span", { text: " · " }), H("b", { text: cum.calls + " call(s)" }), H("span", { text: " · " }), H("b", { text: cum.errors + " error(s)" })]),
-          H("span", null, [H("span", { text: "run total " }), H("b", { text: r.tokens + " tok" }), H("span", { text: " · " }), H("b", { text: (isNum(r.latency) ? r.latency.toFixed(2) : "?") + "s" })]),
-        ]));
-        return card;
-      }
-      function renderLayers() {
-        layers.innerHTML = "";
-        var step = stepAt(report, selected.side, selected.step);
-        if (!step) return;
-        var ar = alignedRow(selected.side, selected.step);
-        var other = selected.side === "a" ? "b" : "a";
-        var otherIdx = ar && ar.row ? ar.row[other + "_index"] : null;
-        var otherStep = (otherIdx !== null && otherIdx !== undefined) ? stepAt(report, other, otherIdx) : null;
-        layers.appendChild(renderRun(selected.side, step, otherStep, other));
-        if (otherStep && sides.indexOf(other) >= 0) layers.appendChild(renderRun(other, otherStep, step, selected.side));
-        else if (sides.indexOf(other) >= 0) layers.appendChild(H("div", { class: "dbg-run", "data-side": other, "data-step": "" }, [H("h5", { text: (runs[other].agent.name || other) + " · no aligned step" }), H("p", { class: "dbg-note", text: "The other run has no step aligned with this one — a one-sided row of the alignment." })]));
-      }
-      paintSelection(); renderLayers();
+      renderLayersNow();
 
       // follow the shared cursor
       try {
@@ -358,7 +265,7 @@
           if (!side || row[side + "_index"] === null || row[side + "_index"] === undefined) side = sides.filter(function (s) { return row[s + "_index"] !== null && row[s + "_index"] !== undefined; })[0];
           if (!side) return;
           selected = { side: side, step: row[side + "_index"] };
-          paintSelection(); renderLayers();
+          renderLayersNow();
         });
       } catch (err) { /* no document */ }
     },

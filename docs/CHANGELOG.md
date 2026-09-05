@@ -1689,14 +1689,18 @@ is reported as such.
   units, no window needed. `AgentDiff.charts.mode.{get,set,expand}`
   drives it from outside.
 
-- **Debug session** (block *Debug session*, Evidence view). One run, or
-  the pair, debugged step by step: an aligned A/B strip with a cell per
-  step (model turn, tool call, answer; a red outline for an error) and a
-  gap per one-sided alignment row, the reading's phases as state bands
-  beneath, and marks for errors, retries (a call to the same tool after
-  it returned an error, identical or changed arguments), model switches
-  (a step whose recorded model differs from the one before), no-
-  information steps, and the decisive step with its replay verdict.
+- **Debug session, on the body chart** (block *Debug session*, Evidence
+  view; and a *debug* toggle on the story hero). The two runs over time
+  — trunks, tool calls as branches, the alignment in the gutter — with
+  the reading's phases drawn as state bands along each trunk (a tick at
+  every transition, the phases named in the legend), marks beside the
+  nodes for retries (↻: a call to the same tool after it returned an
+  error, identical or changed arguments), model switches (⇄: a step
+  whose recorded model differs from the one before), no-information
+  steps (∅) and errors (✕), and the replay verdict written under the
+  decisive step. The hero's stats rail gains tool errors, retries, model
+  switches, no-info steps and transitions; its docked inspector gains the
+  six layers of the step under the cursor.
   Per-run aggregates on top (model turns, tool calls, tool errors,
   retries, model switches, no-info steps, phases and transitions,
   tokens, latency, cost). For the selected step, six layers side by

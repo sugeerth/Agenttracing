@@ -2082,12 +2082,13 @@
    * on any node opens it in the inspector. Nothing here is derived: the
    * times are the steps' latencies, the roles the reading's, the links
    * the alignment's. */
-  charts.body = function (host, ctx) {
+  charts.body = function (host, ctx, opts) {
     ensureStyle();
     if (!charts.available()) return null;
     var report = ctx.report;
     if (!report || (!stepsOf(report, "a").length && !stepsOf(report, "b").length)) return null;
-    return responsive(host, function () { drawBody(host, ctx, report); }, "body:" + (report.task && report.task.id));
+    opts = opts || {};
+    return responsive(host, function () { drawBody(host, ctx, report, opts); }, "body:" + (report.task && report.task.id));
   };
 
   var BodyZoom = {};   // per task: the current zoom transform, kept across repaints
@@ -2106,6 +2107,71 @@
     steps:  { label: "steps, in order", unit: function (v) { return String(Math.round(v)); },
               end: function (v) { return Math.round(v) + " steps"; },
               of: function () { return 1; } },
+  };
+  /* Debug mode: the same body, with the reading's phases as state bands
+   * along each trunk, marks for retries (↻), model switches (⇄) and
+   * no-information steps (∅) beside the nodes, and the replay verdict at
+   * the decisive step. Per task, or forced by the caller (ctx.debug). */
+  var BodyDebug = {};
+  charts.bodyDebug = {
+    get: function (task) { return !!BodyDebug[task]; },
+    set: function (task, on) { BodyDebug[task] = !!on; repaint("body:" + task); },
+  };
+  var TOOLISH_TYPES = ["tool_call", "search", "retrieve", "read"];
+  var PHASE_COLORS = { frame: "#9aa5b1", plan: "#9aa5b1", gather: "#7fa7c9", acquire: "#7fa7c9", transform: "#c9a26b", act: "#c9a26b",
+                       verify: "#8fbf8f", check: "#8fbf8f", commit: "#8f8fbf", decide: "#a08fbf", recover: "#d98f8f" };
+  charts.phaseColor = function (intent) { return PHASE_COLORS[intent] || "#b0b0aa"; };
+  /* Per-step debugging facts for one run, all read from the report: the
+   * step's kind, whether it errored, whether it retries an earlier call
+   * of the same tool that errored (identical or changed arguments),
+   * whether its recorded model differs from the step before, whether it
+   * returned no new information, its phase and the transition into it,
+   * and the answer values it produced. */
+  charts.debugInfo = function (report, side) {
+    var steps = stepsOf(report, side);
+    var agent = (report && report[side] && report[side].agent) || {};
+    var reading = readingOf(report, side) || {};
+    var phaseOf = {};
+    (reading.phases || []).forEach(function (p) { (p.steps || []).forEach(function (i) { phaseOf[i] = p.intent; }); });
+    var proc = (report.process || {})[side] || {};
+    var errSteps = ((proc.recovery || {}).error_steps) || [];
+    var noInfo = ((proc.repeats || {}).no_information_detail || []).map(function (d) { return typeof d === "number" ? d : d && (d.index !== undefined ? d.index : d.step); });
+    var lastModel = agent.model || null, lastTool = {}, prevPhase = null;
+    var info = {}, agg = { turns: 0, toolCalls: 0, errors: 0, retries: 0, switches: 0, noInfo: 0, transitions: 0, phases: (reading.phases || []).length };
+    var restsOn = reading.rests_on || [];
+    var basisSteps = ((reading.answer_basis || {}).basis_steps) || [];
+    steps.forEach(function (st) {
+      var t = String(st.type || "");
+      var kind = t === "answer" ? "answer" : TOOLISH_TYPES.indexOf(t) >= 0 ? "tool" : "reason";
+      var m = st.model && (typeof st.model === "string" ? st.model : (st.model.name || st.model.model)) || null;
+      var e = { kind: kind, error: st.error === true || !!st.error || errSteps.indexOf(st.index) >= 0, retry: null, modelSwitch: null,
+                noInfo: noInfo.indexOf(st.index) >= 0, phase: phaseOf[st.index] || null, transition: null, values: [], model: m };
+      if (kind === "tool") agg.toolCalls++; else agg.turns++;
+      if (e.error) agg.errors++;
+      if (e.noInfo) agg.noInfo++;
+      if (m && lastModel && m !== lastModel) { e.modelSwitch = { from: lastModel, to: m }; agg.switches++; }
+      if (m) lastModel = m;
+      if (kind === "tool") {
+        var prev = lastTool[st.name];
+        if (prev && prev.error) {
+          e.retry = { of: prev.index, same: String(prev.input || "").replace(/\s+/g, " ").trim().toLowerCase() === String(st.input || "").replace(/\s+/g, " ").trim().toLowerCase() };
+          agg.retries++;
+        }
+        lastTool[st.name] = { index: st.index, input: st.input, error: e.error };
+      }
+      if (e.phase && prevPhase && e.phase !== prevPhase) { e.transition = { from: prevPhase, to: e.phase }; agg.transitions++; }
+      if (e.phase) prevPhase = e.phase;
+      restsOn.forEach(function (r) {
+        var at = r && (r.first_step !== undefined ? r.first_step : r.step !== undefined ? r.step : r.source_step);
+        if (at === st.index && r.value !== undefined) {
+          e.values.push({ value: String(r.value) + (r.kind ? " (" + r.kind + ")" : "") + (r.matches_expected === true ? " · matches expected" : r.matches_expected === false ? " · not the expected value" : ""),
+                          status: r.status || r.support || "" });
+        }
+      });
+      if (basisSteps.indexOf(st.index) >= 0 && !e.values.length) e.values.push({ value: "(a value the answer rests on)", status: "basis" });
+      info[st.index] = e;
+    });
+    return { info: info, agg: agg, phases: reading.phases || [], agent: agent, steps: steps };
   };
   charts.bodyAxis = {
     get: function (task) { return BodyAxis[task] || "tokens"; },
@@ -2158,7 +2224,8 @@
     return items;
   }
 
-  function drawBody(host, ctx, report) {
+  function drawBody(host, ctx, report, opts) {
+    opts = opts || {};
     var P = palette();
     var duration = charts.motion();
     var taskKey = report.task && report.task.id ? report.task.id : "task";
@@ -2175,6 +2242,9 @@
     });
     var axisName = charts.bodyAxis.get(taskKey);
     var AX = BODY_AXES[axisName];
+    var debugOn = opts.debug === true || ctx.debug === true || charts.bodyDebug.get(taskKey);
+    var dbg = debugOn ? { a: charts.debugInfo(report, "a"), b: charts.debugInfo(report, "b") } : null;
+    var replay = (report.diagnosis && report.diagnosis.decisive_step && report.diagnosis.decisive_step.replay) || null;
     var runs = ["a", "b"].map(function (side) {
       var steps = stepsOf(report, side);
       var reading = readingOf(report, side);
@@ -2217,7 +2287,9 @@
     var gLinks = scene.append("g").attr("class", "d3c-body-links");
     var gTrunks = scene.append("g").attr("class", "d3c-body-trunks");
     var gAxis = scene.append("g").attr("class", "d3c-body-axis");
+    var gPhase = scene.append("g").attr("class", "d3c-body-phases");
     var gNodes = scene.append("g").attr("class", "d3c-body-nodes");
+    svg.attr("data-debug", debugOn ? "true" : "false");
     var gEnds = scene.append("g").attr("class", "d3c-body-ends");
 
     // run names in the corners, clear of every leaf label; never scroll away
@@ -2364,6 +2436,30 @@
         seg.exit().remove();
       });
 
+      // ---- debug: the phases as state bands along each trunk, a tick at every transition
+      gPhase.selectAll("*").remove();
+      if (dbg) {
+        runs.forEach(function (run) {
+          var side = run.side, y = side === "a" ? yA - 9 : yB + 5;
+          var bands = [];
+          run.nodes.forEach(function (n, i) {
+            var e = dbg[side].info[n.step.index] || {};
+            var next = run.nodes[i + 1];
+            var end = next ? next.t0 : n.t1;
+            var last = bands[bands.length - 1];
+            if (last && last.phase === e.phase) { last.t1 = Math.max(end, n.t0); last.to = n.step.index; }
+            else bands.push({ phase: e.phase, t0: n.t0, t1: Math.max(end, n.t0), from: n.step.index, to: n.step.index, transition: !!e.transition });
+          });
+          bands.forEach(function (b) {
+            gPhase.append("rect").attr("class", "d3c-phase").attr("data-side", side).attr("data-phase", b.phase || "").attr("data-from", b.from).attr("data-to", b.to)
+              .attr("x", x(b.t0)).attr("y", y).attr("width", Math.max(3, x(b.t1) - x(b.t0))).attr("height", 4).attr("rx", 2)
+              .attr("fill", b.phase ? charts.phaseColor(b.phase) : P.rule).attr("opacity", 0.9)
+              .append("title").text((b.phase || "no phase") + " · steps " + b.from + (b.to !== b.from ? "–" + b.to : "") + (b.transition ? " · a transition into this phase" : ""));
+            if (b.transition) gPhase.append("line").attr("class", "d3c-phase-tick").attr("x1", x(b.t0)).attr("x2", x(b.t0)).attr("y1", y - 2).attr("y2", y + 6).attr("stroke", P.ink2).attr("stroke-width", 1);
+          });
+        });
+      }
+
       // ---- the time ruler in the gutter
       gAxis.selectAll("*").remove();
       var ticks = x.ticks(Math.max(3, Math.floor((W - 40) / 90)));
@@ -2440,6 +2536,30 @@
             .attr("font-size", 10).attr("font-family", "var(--mono)")
             .text(dense ? "" : truncate(role === "feeds_answer" ? (d.step.name || d.step.type) : role.replace(/_/g, " "), 12) + (d.decisive ? " · decisive" : ""));
         }
+        // ---- debug: retry, model switch, no-information marks; the replay at the decisive step
+        g.select("g.d3c-dbg").remove();
+        if (dbg) {
+          var e = dbg[d.side].info[d.step.index] || {};
+          var glyphs = [];
+          if (e.retry) glyphs.push({ t: "↻", title: "retry of step " + e.retry.of + (e.retry.same ? ", identical arguments" : ", changed arguments") });
+          if (e.modelSwitch) glyphs.push({ t: "⇄", title: "model switch " + e.modelSwitch.from + " → " + e.modelSwitch.to });
+          if (e.noInfo) glyphs.push({ t: "∅", title: "returned no new information" });
+          if (e.error && d.kind !== "branch") glyphs.push({ t: "✕", title: "error" });
+          if (glyphs.length || (d.decisive && replay !== undefined)) {
+            var gd = g.append("g").attr("class", "d3c-dbg");
+            var ax = d.kind === "branch" ? +leaf.attr("transform").replace(/translate\(([^,]+),.*/, "$1") : px;
+            var ay = d.kind === "branch" ? +leaf.attr("transform").replace(/.*,\s*([^)]+)\)/, "$1") : y;
+            glyphs.forEach(function (gl, gi) {
+              gd.append("text").attr("class", "d3c-dbg-mark").attr("x", ax + 9 + gi * 10).attr("y", ay - 6).attr("font-size", 10).attr("font-family", "var(--mono)")
+                .attr("fill", gl.t === "✕" ? P.bad : P.ink).text(gl.t).append("title").text(gl.title);
+            });
+            if (d.decisive) {
+              var rtext = replay ? (String(dec.verification || "") + " · " + replay.flipped + "/" + replay.replays + " flipped") : "not replayed · hypothesis";
+              gd.append("text").attr("class", "d3c-dbg-replay").attr("x", ax).attr("y", ay + (d.side === "a" ? -24 : 30)).attr("text-anchor", "middle")
+                .attr("font-size", 9.5).attr("font-family", "var(--mono)").attr("fill", replay && String(dec.verification).indexOf("verified") >= 0 ? P.good : P.muted).text(rtext);
+            }
+          }
+        }
         g.select("title").text(d.side.toUpperCase() + " step " + d.i + " · " + (d.step.name || d.step.type) + " · at " + timeFmt(d.t0) + (isNum(d.step.latency_s) ? " · " + secs(d.step.latency_s) : "") + (isNum(d.step.tokens) ? " · " + d.step.tokens + " tokens" : "") +
           (d.role ? " · " + ((ROLE[d.role] || {}).label || d.role.replace(/_/g, " ")) : "") + "\n" + truncate(d.step.output || d.step.input || "", 220));
       });
@@ -2481,6 +2601,23 @@
     legend.appendChild(legendItem(P, { line: true, dashed: true }, P.warn, "aligned but drifted; red = a ranked divergence"));
     if (dec) legend.appendChild(legendItem(P, { ring: true, dashed: dec.verification !== "replay-verified" }, P.bad, "decisive step"));
     legend.appendChild(legendItem(P, { hatch: true }, P.rule2, "capsule = steps folded at this zoom (×N, what is inside); click it to zoom in"));
+    if (dbg) {
+      var dl = document.createElement("span"); dl.className = "d3c-legend-debug";
+      dl.textContent = "debug: bands = the phase (state) each step is in, a tick at a transition · ↻ retry · ⇄ model switch · ∅ no new information · ✕ error · the replay verdict under the decisive step";
+      legend.appendChild(dl);
+      var phasesSeen = [];
+      ["a", "b"].forEach(function (side) { dbg[side].phases.forEach(function (ph) { if (ph && ph.intent && phasesSeen.indexOf(ph.intent) < 0) phasesSeen.push(ph.intent); }); });
+      if (phasesSeen.length) {
+        var pl = document.createElement("span"); pl.className = "d3c-legend-phases";
+        phasesSeen.forEach(function (ph) {
+          var chip = document.createElement("span"); chip.className = "d3c-phase-chip"; chip.setAttribute("data-phase", ph);
+          var sw = document.createElement("i"); sw.style.cssText = "display:inline-block;width:12px;height:4px;border-radius:2px;vertical-align:middle;margin-right:4px;background:" + charts.phaseColor(ph);
+          chip.appendChild(sw); chip.appendChild(document.createTextNode(ph)); chip.style.marginRight = "10px";
+          pl.appendChild(chip);
+        });
+        legend.appendChild(pl);
+      }
+    }
     var hint = document.createElement("span"); hint.textContent = "wheel or drag to zoom · double-click to reset · click a node to open it";
     legend.appendChild(hint);
     host.appendChild(legend);

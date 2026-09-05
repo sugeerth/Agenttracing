@@ -124,6 +124,13 @@
       });
       lede.appendChild(H("span", { class: "tag", text: "length ∝" }));
       lede.appendChild(axisCtl);
+      // debug mode: phases as state bands, retries / model switches / no-info marked,
+      // the replay at the decisive step, and the six layers of the step under the cursor
+      var debugOn = AgentDiff.charts && AgentDiff.charts.bodyDebug ? AgentDiff.charts.bodyDebug.get(taskKey) : false;
+      var dbgBtn = H("button", { type: "button", class: "bd-axis-btn axis-debug", text: "debug", "aria-pressed": debugOn ? "true" : "false",
+                                 title: "show the phases as state bands, mark retries, model switches and no-information steps, and open each step layer by layer" });
+      dbgBtn.addEventListener("click", function () { AgentDiff.charts.bodyDebug.set(taskKey, !debugOn); AgentDiff._rerender ? AgentDiff._rerender() : null; });
+      lede.appendChild(H("span", { class: "bd-axis" }, [dbgBtn]));
       var chartHost = H("div", { class: "bd-chart" });
       var left = H("div", null, [lede, chartHost]);
       var stats = H("div", { class: "bd-stats", role: "list", "aria-label": "A versus B" });
@@ -137,6 +144,14 @@
       if (isNum(meanSim)) stats.appendChild(H("span", { class: "one" }, [H("b", { text: "semantic similarity " + meanSim.toFixed(2) }), H("span", { text: " mean over " + simRows.length + " aligned rows" + (isNum(sem.first_semantic_break) ? " · first break at row " + sem.first_semantic_break : "") })]));
       if (conf.level) stats.appendChild(H("span", { class: "one" }, [H("b", { text: "confidence " + conf.level }), H("span", { text: isNum(conf.n) ? " · n=" + conf.n : "" })]));
       if (r.tradeoff && r.tradeoff.statement) stats.appendChild(H("span", { class: "one", text: String(r.tradeoff.statement) }));
+      var dbgInfo = null;
+      if (debugOn && AgentDiff.charts && AgentDiff.charts.debugInfo) {
+        dbgInfo = { a: AgentDiff.charts.debugInfo(r, "a"), b: AgentDiff.charts.debugInfo(r, "b") };
+        [["tool errors", "errors"], ["retries", "retries"], ["model switches", "switches"], ["no-info steps", "noInfo"], ["transitions", "transitions"]].forEach(function (pair) {
+          var f = stat(ctx, pair[0], dbgInfo.a.agg[pair[1]], dbgInfo.b.agg[pair[1]], function (v) { return String(v); });
+          if (f) stats.appendChild(f);
+        });
+      }
       panel.appendChild(left);
       panel.appendChild(stats);
       el.appendChild(panel);
@@ -154,6 +169,27 @@
         var body = H("div", { class: "block-body" });
         dock.appendChild(body);
         try { detail.render(body, ctx); } catch (err) { console.warn("AgentDiff trace-body: inspector failed", err); }
+        if (debugOn && AgentDiff.debugSession) {
+          // the six layers of the step under the cursor, beside its aligned step
+          AgentDiff.debugSession.ensureStyle();
+          var layers = H("div", { class: "bd-layers dbg" });
+          var dsub = diag.subject === "a" || diag.subject === "b" ? diag.subject : "a";
+          var sel = { side: dsub, step: isNum(dec.step) ? dec.step : (stepsOf(r, dsub)[0] || {}).index };
+          function paintLayers() { layers.innerHTML = ""; if (sel.step !== undefined) layers.appendChild(AgentDiff.debugSession.layers(H, r, sel.side, sel.step)); }
+          paintLayers();
+          dock.appendChild(layers);
+          var rows = Array.isArray(r.alignment) ? r.alignment : [];
+          document.addEventListener("agentdiff:select-step", function (event) {
+            var d = event && event.detail;
+            if (!layers.isConnected || !d || typeof d.row !== "number" || !rows[d.row]) return;
+            var side = d.side === "a" || d.side === "b" ? d.side : null;
+            var row = rows[d.row];
+            if (!side || row[side + "_index"] === null || row[side + "_index"] === undefined) side = ["a", "b"].filter(function (x) { return row[x + "_index"] !== null && row[x + "_index"] !== undefined; })[0];
+            if (!side) return;
+            sel = { side: side, step: row[side + "_index"] };
+            paintLayers();
+          });
+        }
         var narrow = false;
         try { narrow = (global.innerWidth || 1024) <= 700; } catch (err) { narrow = false; }
         if (narrow) {
