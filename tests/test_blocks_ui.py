@@ -2977,6 +2977,7 @@ class StoryChartsTest(unittest.TestCase):
         self.assertEqual(ringed.count(), 1)
         self.assertEqual((ringed.first.get_attribute("data-side"), ringed.first.get_attribute("data-step")), (rep["diagnosis"]["subject"], str(dec["step"])))
         self.assertEqual(ringed.first.locator(".d3c-ring").count(), 1)
+        self.assertEqual(svg.get_attribute("data-bubbles"), "0", "a short run needs no folding at the default zoom")
         # time runs left to right: the answer node is the rightmost of its run
         for side in "ab":
             xs = svg.locator(f"g.d3c-bnode[data-side='{side}'] g.d3c-bmark").evaluate_all(
@@ -3225,6 +3226,43 @@ class LongTrajectoryTest(unittest.TestCase):
         bar.locator("button.compress").click()
         page.wait_for_timeout(700)
         self.assertEqual(page.locator("svg.d3c-story g.d3c-step.group").count(), 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_body_folds_the_long_run_into_bubbles_that_open_on_demand(self):
+        context, page, errors, _ = self.open()
+        page.wait_for_selector("svg.d3c-body", timeout=15000)
+        svg = page.locator("svg.d3c-body").first
+        n = len(self.rep["a"]["steps"]) + len(self.rep["b"]["steps"])
+        items = int(svg.get_attribute("data-items"))
+        bubbles = int(svg.get_attribute("data-bubbles"))
+        self.assertGreaterEqual(bubbles, 1, "dense stretches fold into bubbles at the default zoom")
+        self.assertLess(items, n / 4, "the picture stays readable: far fewer things drawn than steps")
+        # what matters never folds: the decisive step and both answers stay nodes
+        self.assertEqual(page.locator("svg.d3c-body g.d3c-bnode.decisive").count(), 1)
+        self.assertEqual(page.locator("svg.d3c-body g.d3c-bnode.kind-answer").count(), 2)
+        # every step is accounted for: nodes plus bubble counts sum to the steps
+        counts = page.locator("svg.d3c-body g.d3c-bubble").evaluate_all("els => els.map(e => +e.getAttribute('data-count'))")
+        self.assertEqual(page.locator("svg.d3c-body g.d3c-bnode").count() + sum(counts), n)
+        # a bubble that holds the fault says so; its label names the dominant tool and the count
+        fault_bubbles = page.locator("svg.d3c-body g.d3c-bubble.fault")
+        self.assertGreaterEqual(fault_bubbles.count(), 1)
+        labels = page.locator("svg.d3c-body .d3c-bubble-label").all_text_contents()
+        self.assertTrue(any(l.startswith("×") for l in labels), labels)
+        # click a bubble: the chart zooms to it and it splits into its steps
+        big = page.locator("svg.d3c-body g.d3c-bubble").first
+        first_count = int(big.get_attribute("data-count"))
+        big.dispatch_event("click")
+        page.wait_for_timeout(900)
+        svg = page.locator("svg.d3c-body").first
+        self.assertGreater(int(svg.get_attribute("data-items")), items)
+        zoomed_bubbles = int(svg.get_attribute("data-bubbles"))
+        zoomed_counts = page.locator("svg.d3c-body g.d3c-bubble").evaluate_all("els => els.map(e => +e.getAttribute('data-count'))")
+        self.assertTrue(not zoomed_counts or max(zoomed_counts) < first_count, "zooming in splits the bubble")
+        # double-click resets to the folded picture
+        page.locator("svg.d3c-body").first.dispatch_event("dblclick")
+        page.wait_for_timeout(900)
+        self.assertEqual(int(page.locator("svg.d3c-body").first.get_attribute("data-bubbles")), bubbles)
         self.assertEqual(errors, [])
         context.close()
 

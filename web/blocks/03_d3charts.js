@@ -122,6 +122,8 @@
       ".d3c .d3c-bnode{cursor:pointer;outline:none}",
       ".d3c .d3c-bnode:focus-visible .d3c-bmark path,.d3c .d3c-bnode:focus-visible .d3c-bmark circle,.d3c .d3c-bnode:focus-visible .d3c-bleaf circle{stroke:var(--accent);stroke-width:3px}",
       ".d3c-body{cursor:grab}.d3c-body:active{cursor:grabbing}",
+      ".d3c .d3c-bubble{cursor:zoom-in;outline:none}",
+      ".d3c .d3c-bubble:focus-visible rect{stroke:var(--accent);stroke-width:3px}",
       ".d3c .d3c-tnode{cursor:pointer;outline:none}",
       ".d3c .d3c-tnode.kind-task{cursor:default}",
       ".d3c .d3c-tnode:focus-visible > circle:first-child{fill:var(--accent);fill-opacity:.15;stroke:var(--accent);stroke-width:1.5px}",
@@ -2090,6 +2092,51 @@
 
   var BodyZoom = {};   // per task: the current zoom transform, kept across repaints
 
+  /* Time-adaptive clustering. At the current zoom, steps of one run that
+   * land within `minGap` pixels of each other fold into one bubble: a
+   * capsule on the trunk spanning their time, labelled with what is
+   * inside (×N, the dominant tool, how many thoughts), flagged red when
+   * the fault runs through it, with a "!" for errors inside. The decisive
+   * step, the answer and an error never fold, so what matters stays a
+   * node at every zoom. Zoom in and a bubble splits into its steps; click
+   * one and the chart zooms to fit it — details on demand. */
+  function clusterRun(run, x, minGap, binPx) {
+    // a bubble also never spans more than binPx of screen: uniform runs
+    // then fold into a row of capsules that split level by level as the
+    // zoom grows, instead of one capsule bursting into hundreds of steps
+    binPx = binPx || 160;
+    var items = [], cur = null;
+    function anchor(n) { return n.decisive || n.kind === "answer" || n.error; }
+    function flush() {
+      if (!cur) return;
+      if (cur.nodes.length === 1) items.push({ kind: "node", node: cur.nodes[0], side: run.side });
+      else {
+        var tools = {}, thoughts = 0, fault = false, errors = 0, dead = 0, fed = 0, lat = 0;
+        cur.nodes.forEach(function (n) {
+          if (n.kind === "branch") tools[n.step.name || n.step.type] = (tools[n.step.name || n.step.type] || 0) + 1; else thoughts++;
+          if (n.fault) fault = true; if (n.error) errors++;
+          if (n.role === "dead_end" || n.role === "no_information" || n.role === "repeat") dead++;
+          if (n.role === "feeds_answer") fed++;
+          lat += n.lat;
+        });
+        var top = Object.keys(tools).sort(function (a, b) { return tools[b] - tools[a]; })[0] || null;
+        items.push({ kind: "bubble", side: run.side, nodes: cur.nodes, t0: cur.nodes[0].t0, t1: cur.nodes[cur.nodes.length - 1].t1,
+                     count: cur.nodes.length, tools: tools, top: top, topCount: top ? tools[top] : 0, thoughts: thoughts,
+                     fault: fault, errors: errors, dead: dead, fed: fed, lat: lat,
+                     from: cur.nodes[0].i, to: cur.nodes[cur.nodes.length - 1].i, key: run.side + ":c:" + cur.nodes[0].i });
+      }
+      cur = null;
+    }
+    run.nodes.forEach(function (n) {
+      if (anchor(n)) { flush(); items.push({ kind: "node", node: n, side: run.side }); return; }
+      if (cur && x(n.t0) - x(cur.last.t0) < minGap && x(n.t0) - x(cur.nodes[0].t0) < binPx) { cur.nodes.push(n); cur.last = n; return; }
+      flush();
+      cur = { nodes: [n], last: n };
+    });
+    flush();
+    return items;
+  }
+
   function drawBody(host, ctx, report) {
     var P = palette();
     var duration = charts.motion();
@@ -2158,6 +2205,7 @@
     });
 
     var link = d3.linkVertical().x(function (d) { return d.x; }).y(function (d) { return d.y; });
+    var zoom = null;   // set below; bubbles zoom through it
     var timeFmt = function (t) { return t >= 100 ? Math.round(t) + "s" : t >= 10 ? t.toFixed(0) + "s" : t.toFixed(1) + "s"; };
 
     function leafY(node, k) {
@@ -2166,28 +2214,111 @@
       return base + dir * (reach * (k % 2 ? 1 : 0.62));
     }
 
+    var MIN_GAP = 40;
     function render(first) {
       var span = x.domain()[1] - x.domain()[0];
       var pxPerS = (x.range()[1] - x.range()[0]) / Math.max(1e-6, span);
 
-      // ---- the alignment, beneath everything
-      var pairs = rows.filter(function (r) { return r && isNum(r.a_index) && isNum(r.b_index); }).map(function (r) {
-        var na = runs[0].nodes[r.a_index], nb = runs[1].nodes[r.b_index];
-        return na && nb ? { r: r, na: na, nb: nb, div: !!(diverged.a[r.a_index] || diverged.b[r.b_index]) } : null;
-      }).filter(Boolean);
-      var al = gLinks.selectAll("path.d3c-body-align").data(pairs, function (d) { return d.r.a_index + ":" + d.r.b_index; });
-      al.enter().append("path").attr("class", function (d) { return "d3c-body-align " + (d.div ? "diverge" : d.r.op === "match" ? "match" : "drift"); })
-        .attr("fill", "none").attr("stroke", function (d) { return d.div ? P.bad : d.r.op === "match" ? P.rule2 : P.warn; })
-        .attr("stroke-width", function (d) { return d.div ? 1.6 : 1; })
-        .attr("stroke-dasharray", function (d) { return d.r.op === "match" ? null : "3 3"; })
-        .attr("opacity", 0.8)
+      // ---- cluster each run at this zoom; where every step sits now
+      var clustered = runs.map(function (run) { return clusterRun(run, x, MIN_GAP, 160); });
+      var where = { a: {}, b: {} };   // side → step → {x, key, bubble?}
+      clustered.forEach(function (items, ri) {
+        var side = ri === 0 ? "a" : "b";
+        items.forEach(function (it) {
+          if (it.kind === "node") where[side][it.node.i] = { x: x(it.node.t0), key: side + ":" + it.node.i, bubble: null };
+          else it.nodes.forEach(function (n) { where[side][n.i] = { x: x(n.t0), key: it.key, bubble: it }; });
+        });
+      });
+      var visibleItems = clustered[0].length + clustered[1].length;
+      svg.attr("data-items", visibleItems).attr("data-bubbles", clustered[0].concat(clustered[1]).filter(function (it) { return it.kind === "bubble"; }).length);
+
+      // ---- the alignment, beneath everything; one link per pair of places
+      var seen = {};
+      var pairs = [];
+      rows.forEach(function (r) {
+        if (!r || !isNum(r.a_index) || !isNum(r.b_index)) return;
+        var wa = where.a[r.a_index], wb = where.b[r.b_index];
+        if (!wa || !wb) return;
+        var div = !!(diverged.a[r.a_index] || diverged.b[r.b_index]);
+        var key = wa.key + "|" + wb.key;
+        var rank = div ? 3 : r.op === "match" ? 1 : 2;
+        if (seen[key]) { seen[key].n++; if (rank > seen[key].rank) { seen[key].rank = rank; seen[key].r = r; seen[key].div = div; } return; }
+        seen[key] = { key: key, wa: wa, wb: wb, r: r, div: div, rank: rank, n: 1 };
+        pairs.push(seen[key]);
+      });
+      var al = gLinks.selectAll("path.d3c-body-align").data(pairs, function (d) { return d.key; });
+      al.enter().append("path").attr("fill", "none").attr("opacity", 0.8)
         .merge(al)
-        .attr("d", function (d) { return link({ source: { x: x(d.na.t0), y: yA + 6 }, target: { x: x(d.nb.t0), y: yB - 6 } }); })
+        .attr("class", function (d) { return "d3c-body-align " + (d.div ? "diverge" : d.r.op === "match" ? "match" : "drift"); })
+        .attr("stroke", function (d) { return d.div ? P.bad : d.r.op === "match" ? P.rule2 : P.warn; })
+        .attr("stroke-width", function (d) { return d.div ? 1.6 : Math.min(3, 1 + Math.log(d.n)); })
+        .attr("stroke-dasharray", function (d) { return d.r.op === "match" ? null : "3 3"; })
+        .attr("d", function (d) { return link({ source: { x: d.wa.x, y: yA + 6 }, target: { x: d.wb.x, y: yB - 6 } }); })
         .each(function (d) {
           var t = d3.select(this).select("title");
-          if (t.empty()) d3.select(this).append("title").text("row " + rows.indexOf(d.r) + " · " + d.r.op + (isNum(d.r.similarity) ? " · similarity " + d.r.similarity.toFixed(2) : "") + (d.div ? " · divergence" : ""));
+          if (t.empty()) t = d3.select(this).append("title");
+          t.text((d.n > 1 ? d.n + " aligned rows · " : "row " + rows.indexOf(d.r) + " · ") + d.r.op + (isNum(d.r.similarity) ? " · similarity " + d.r.similarity.toFixed(2) : "") + (d.div ? " · divergence" : ""));
         });
       al.exit().remove();
+
+      // ---- bubbles: folded stretches of a run, on the trunk
+      var bubbles = clustered[0].concat(clustered[1]).filter(function (it) { return it.kind === "bubble"; });
+      var bub = gNodes.selectAll("g.d3c-bubble").data(bubbles, function (d) { return d.key; });
+      var bEnter = bub.enter().append("g").attr("class", "d3c-bubble").attr("tabindex", 0).attr("role", "button");
+      bEnter.append("rect").attr("class", "d3c-bubble-box").attr("rx", 9).attr("ry", 9);
+      bEnter.append("rect").attr("class", "d3c-bubble-tint").attr("rx", 9).attr("ry", 9).attr("pointer-events", "none");
+      bEnter.append("text").attr("class", "d3c-bubble-label").attr("text-anchor", "middle").attr("font-family", "var(--mono)").attr("font-size", 10.5);
+      bEnter.append("text").attr("class", "d3c-bubble-sub").attr("text-anchor", "middle").attr("font-family", "var(--mono)").attr("font-size", 9.5);
+      bEnter.append("title");
+      var bMerged = bEnter.merge(bub);
+      bMerged.each(function (d) {
+        var g = d3.select(this);
+        var y = d.side === "a" ? yA : yB;
+        var bx0 = x(d.t0) - 10, bx1 = x(d.t1) + 10, bw = Math.max(26, bx1 - bx0);
+        var color = d.fault ? P.bad : sideColor(d.side);
+        g.attr("data-side", d.side).attr("data-from", d.from).attr("data-to", d.to).attr("data-count", d.count)
+          .attr("class", "d3c-bubble" + (d.fault ? " fault" : "") + (d.errors ? " errors" : ""))
+          .attr("aria-label", d.side.toUpperCase() + " steps " + d.from + " to " + d.to + ": " + d.count + " steps folded" + (d.top ? ", mostly " + d.top : "") + (d.fault ? ", the fault runs through them" : "") + " — press Enter to zoom in");
+        g.select("rect.d3c-bubble-box").attr("x", bx0).attr("y", y - 9).attr("width", bw).attr("height", 18)
+          .attr("fill", P.surface)
+          .attr("stroke", color).attr("stroke-width", d.fault ? 2 : 1.6)
+          .attr("stroke-dasharray", d.dead === d.count ? "3 3" : null);
+        g.select("rect.d3c-bubble-tint").attr("x", bx0).attr("y", y - 9).attr("width", bw).attr("height", 18)
+          .attr("fill", d.fault ? P.bad : sideColor(d.side)).attr("fill-opacity", d.fault ? 0.14 : 0.06);
+        var label = "×" + d.count + (d.top && bw >= 70 ? " " + truncate(d.top, Math.floor((bw - 34) / 6.5)) : "");
+        g.select("text.d3c-bubble-label").attr("x", bx0 + bw / 2).attr("y", y + 4).attr("fill", d.fault ? P.bad : P.ink).attr("font-weight", 600).text(label);
+        var sub = (d.topCount && d.top ? d.top + " ×" + d.topCount : "") + (d.thoughts ? (d.top ? " · " : "") + d.thoughts + " thought" + (d.thoughts === 1 ? "" : "s") : "") +
+                  (d.errors ? " · " + d.errors + " error" + (d.errors === 1 ? "" : "s") : "") + (d.fed ? " · " + d.fed + " fed the answer" : "");
+        g.select("text.d3c-bubble-sub").attr("x", bx0 + bw / 2).attr("y", y + (d.side === "a" ? -14 : 22)).attr("fill", d.errors ? P.bad : P.muted)
+          .text(bw >= 90 ? truncate(sub, Math.floor(bw / 5.6)) : (d.errors ? "!" : ""));
+        g.select("title").text(d.side.toUpperCase() + " steps " + d.from + "–" + d.to + " · " + d.count + " steps over " + timeFmt(d.lat) + "\n" +
+          Object.keys(d.tools).map(function (k) { return d.tools[k] + "× " + k; }).join(", ") + (d.thoughts ? (Object.keys(d.tools).length ? ", " : "") + d.thoughts + " thought(s)" : "") +
+          (d.fault ? "\nthe fault runs through these steps" : "") + (d.errors ? "\n" + d.errors + " error(s) inside" : "") + "\nclick to zoom in");
+      });
+      bub.exit().remove();
+      function zoomTo(d) {
+        // zoom so the bubble's steps get room to stand apart (MIN_GAP each),
+        // never past the zoom's limit; anchored on the bubble's first step
+        var width = x0.range()[1] - x0.range()[0];
+        var span = Math.max(1e-6, x0(d.t1) - x0(d.t0));
+        var fit = width / Math.max(span, width * 0.05);
+        var spread = (d.count * MIN_GAP * 1.3) / span;
+        var k = Math.max(fit, spread);
+        var cur = d3.zoomTransform(svg.node()).k;
+        if (k <= cur * 1.05) k = cur * 2;            // already fitted: keep zooming in
+        k = Math.min(40, k, cur * 4);                // one click, one level: bubbles split into bubbles, then steps
+        var t0 = Math.max(0, d.t0 - 0.02 * (d.t1 - d.t0));
+        var tx = Math.min(0, x0.range()[0] - k * x0(t0));
+        svg.transition().duration(duration).call(zoom.transform, d3.zoomIdentity.translate(tx, 0).scale(k));
+      }
+      bMerged.on("click", function (event, d) { hideTip(); zoomTo(d); })
+        .on("keydown", function (event, d) { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); zoomTo(d); } })
+        .on("mousemove", function (event, d) {
+          showTip(event, [{ b: true, text: d.side.toUpperCase() + " · steps " + d.from + "–" + d.to + " · " + d.count + " folded" },
+            { text: Object.keys(d.tools).map(function (k) { return d.tools[k] + "× " + k; }).join(", ") + (d.thoughts ? (Object.keys(d.tools).length ? ", " : "") + d.thoughts + " thought(s)" : "") + " · " + timeFmt(d.lat) },
+            d.fault ? { text: "the fault runs through these steps" } : null, d.errors ? { text: d.errors + " error(s) inside" } : null,
+            { text: "click to zoom in" }]);
+        }).on("mouseleave", hideTip);
 
       // ---- trunks: one thick line per run, red along the fault's path
       runs.forEach(function (run) {
@@ -2220,7 +2351,8 @@
       gAxis.append("text").attr("class", "d3c-cap").attr("x", x.range()[1]).attr("y", yAxis - 6).attr("text-anchor", "end").text("elapsed, from each run's own latencies");
 
       // ---- nodes: thinking on the trunk, tools as branches, the answer at the end
-      var all = runs[0].nodes.concat(runs[1].nodes);
+      var all = [];
+      clustered.forEach(function (items) { items.forEach(function (it) { if (it.kind === "node") all.push(it.node); }); });
       var node = gNodes.selectAll("g.d3c-bnode").data(all, function (d) { return d.side + ":" + d.i; });
       var enter = node.enter().append("g")
         .attr("class", function (d) { return "d3c-bnode kind-" + d.kind + (d.fault ? " fault" : "") + (d.decisive ? " decisive" : ""); })
@@ -2239,7 +2371,7 @@
         var y = d.side === "a" ? yA : yB;
         var px = x(d.t0);
         var color = d.fault ? P.bad : sideColor(d.side);
-        var dense = pxPerS * Math.max(d.lat, 0.4) < 26;   // too tight for a label at this zoom
+        var dense = !d.decisive && pxPerS * Math.max(d.lat, 0.4) < 26;   // too tight for a label at this zoom; the decisive step always keeps its
         var mark = g.select("g.d3c-bmark").attr("transform", "translate(" + px + "," + y + ")");
         mark.selectAll("*").remove();
         var leaf = g.select("g.d3c-bleaf");
@@ -2300,7 +2432,7 @@
     render(true);
 
     // ---- zoom & pan on time; double-click resets
-    var zoom = d3.zoom().scaleExtent([1, 40])
+    zoom = d3.zoom().scaleExtent([1, 40])
       .translateExtent([[x0.range()[0] - 8, 0], [x0.range()[1] + 8, H]])
       .extent([[x0.range()[0], 0], [x0.range()[1], H]])
       .on("zoom", function (event) {
@@ -2324,6 +2456,7 @@
     legend.appendChild(legendItem(P, { line: true }, P.bad, "the fault's path"));
     legend.appendChild(legendItem(P, { line: true, dashed: true }, P.warn, "aligned but drifted; red = a ranked divergence"));
     if (dec) legend.appendChild(legendItem(P, { ring: true, dashed: dec.verification !== "replay-verified" }, P.bad, "decisive step"));
+    legend.appendChild(legendItem(P, { hatch: true }, P.rule2, "capsule = steps folded at this zoom (×N, what is inside); click it to zoom in"));
     var hint = document.createElement("span"); hint.textContent = "wheel or drag to zoom time · double-click to reset · click a node to open it";
     legend.appendChild(hint);
     host.appendChild(legend);

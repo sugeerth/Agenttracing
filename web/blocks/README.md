@@ -116,6 +116,11 @@ re-renders (task, view, layout, chart windows and modes survive).
 runs no analysis on them. `AgentDiff.taskIds()` is the reports' tasks
 plus the live ones. Never `fetch`; the build tests pin it.
 
+`charts.body` clusters at draw time (`clusterRun(run, x, minGap)`): a
+gap-based fold in screen space, recomputed on every zoom event, with
+anchors (decisive, answer, error) that never fold; keep any new mark on
+that chart inside this rule so the picture stays bounded at any length.
+
 The hero is view-dependent: `defaultHeroId()` is `trace-body` in the
 story and `trajectory-map` elsewhere; a hero the user promoted wins in
 both.

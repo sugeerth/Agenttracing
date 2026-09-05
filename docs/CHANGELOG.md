@@ -1706,6 +1706,18 @@ is reported as such.
   `0`; double-click resets; labels drop at a zoom too tight for them).
   A click opens the step in the inspector docked under the chart. The
   Evidence view keeps the trajectory map as its hero.
+  **At scale, the body folds.** At every zoom, steps of one run that
+  land within 30 px of each other fold into a *bubble*: a capsule on the
+  trunk spanning their time, labelled ×N and the dominant tool, with what
+  is inside beneath it (tools by count, thoughts, errors, how many fed
+  the answer), tinted red when the fault runs through it, dashed when
+  every step inside was a dead end. The decisive step, the answers and
+  errors never fold, so what matters stays a node at every zoom; the
+  alignment lands on the bubble at each member's own time, one link per
+  pair of places. Zoom in and a bubble splits into bubbles, then steps;
+  click one and the chart zooms one level into it — details on demand,
+  reconstructed as you go. A 306-step pair opens as two capsules and one
+  ringed step. Pinned by `LongTrajectoryTest`.
 - **AgentDiff Live — the deployed demo** (`web/build_live.py` →
   `web/live.html`, published as a claude.ai artifact). Two real Claude
   agents — *atlas*, told to normalise before arithmetic and verify twice,
