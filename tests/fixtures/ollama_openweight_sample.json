@@ -1,0 +1,186 @@
+{
+  "meta": {
+    "agent": {
+      "name": "llama-local",
+      "model": "llama-4-70b-instruct",
+      "version": "vllm-0.9"
+    },
+    "task": {
+      "id": "t01_acme_revenue",
+      "prompt": "Find ACME Corp's total revenue for fiscal year 2025.",
+      "expected": "$4.82 billion"
+    },
+    "success": true
+  },
+  "turns": [
+    {
+      "model": "llama-4-70b-instruct",
+      "done": true,
+      "eval_count": 48,
+      "prompt_eval_count": 90,
+      "options": {
+        "temperature": 0.2
+      },
+      "message": {
+        "role": "assistant",
+        "content": "I will search the investor-relations release rather than commentary."
+      },
+      "logprobs": {
+        "content": [
+          {
+            "token": "I",
+            "logprob": -0.05,
+            "top_logprobs": [
+              {
+                "token": "I",
+                "logprob": -0.05
+              },
+              {
+                "token": "Let",
+                "logprob": -3.2
+              }
+            ]
+          },
+          {
+            "token": " will",
+            "logprob": -0.11,
+            "top_logprobs": [
+              {
+                "token": " will",
+                "logprob": -0.11
+              },
+              {
+                "token": " shall",
+                "logprob": -2.9
+              }
+            ]
+          },
+          {
+            "token": " search",
+            "logprob": -0.22,
+            "top_logprobs": [
+              {
+                "token": " search",
+                "logprob": -0.22
+              },
+              {
+                "token": " look",
+                "logprob": -1.8
+              }
+            ]
+          }
+        ]
+      },
+      "total_duration": 1840000000
+    },
+    {
+      "model": "llama-4-70b-instruct",
+      "done": true,
+      "eval_count": 36,
+      "prompt_eval_count": 120,
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "c1",
+            "function": {
+              "name": "web_search",
+              "arguments": {
+                "query": "ACME Corp FY2025 annual results revenue"
+              }
+            }
+          }
+        ]
+      },
+      "logprobs": {
+        "content": [
+          {
+            "token": "web",
+            "logprob": -0.02
+          },
+          {
+            "token": "_search",
+            "logprob": -0.03
+          }
+        ]
+      },
+      "total_duration": 1120000000
+    },
+    {
+      "model": "llama-4-70b-instruct",
+      "done": true,
+      "eval_count": 12,
+      "prompt_eval_count": 200,
+      "message": {
+        "role": "user",
+        "content": "[1] ir.acmecorp.com \u2014 ACME Corp Reports Full Year Fiscal 2025 Results: total revenue of $4.82 billion, up 11% year over year."
+      },
+      "total_duration": 210000000
+    },
+    {
+      "model": "llama-4-70b-instruct",
+      "done": true,
+      "eval_count": 64,
+      "prompt_eval_count": 260,
+      "options": {
+        "temperature": 0.2
+      },
+      "message": {
+        "role": "assistant",
+        "content": "ACME Corp's total revenue for fiscal year 2025 was $4.82 billion, per the investor-relations release."
+      },
+      "logprobs": {
+        "content": [
+          {
+            "token": "ACME",
+            "logprob": -0.01,
+            "top_logprobs": [
+              {
+                "token": "ACME",
+                "logprob": -0.01
+              },
+              {
+                "token": "The",
+                "logprob": -4.6
+              }
+            ]
+          },
+          {
+            "token": " $4",
+            "logprob": -0.09,
+            "top_logprobs": [
+              {
+                "token": " $4",
+                "logprob": -0.09
+              },
+              {
+                "token": " $5",
+                "logprob": -2.7
+              }
+            ]
+          },
+          {
+            "token": ".82",
+            "logprob": -0.35,
+            "top_logprobs": [
+              {
+                "token": ".82",
+                "logprob": -0.35
+              },
+              {
+                "token": ".8",
+                "logprob": -1.4
+              }
+            ]
+          },
+          {
+            "token": " billion",
+            "logprob": -0.02
+          }
+        ]
+      },
+      "total_duration": 2460000000
+    }
+  ]
+}

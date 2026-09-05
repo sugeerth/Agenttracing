@@ -1,0 +1,18 @@
+{
+  "meta": {
+    "agent": {"name": "atlas-v2", "model": "claude-sonnet-5", "version": "v2"},
+    "task": {"id": "t01_acme_revenue", "prompt": "Find ACME Corp's total revenue for fiscal year 2025.", "expected": "$4.82 billion"},
+    "success": true
+  },
+  "messages": [
+    {"role": "system", "content": "You are a research agent. Prefer primary sources."},
+    {"role": "user", "content": "Find ACME Corp's total revenue for fiscal year 2025."},
+    {"role": "assistant", "content": "I will search investor relations first, then read the official release.",
+     "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "web_search", "arguments": "{\"query\": \"ACME Corp FY2025 annual results revenue\"}"}}]},
+    {"role": "tool", "tool_call_id": "call_1", "content": "[1] ir.acmecorp.com - ACME Corp Reports Full Year Fiscal 2025 Results | [2] financeblog.net - What ACME's year really means"},
+    {"role": "assistant", "content": "Result [1] is the official investor-relations release; opening it.",
+     "tool_calls": [{"id": "call_2", "type": "function", "function": {"name": "fetch_page", "arguments": "{\"url\": \"https://ir.acmecorp.com/news/fy2025-results\"}"}}]},
+    {"role": "tool", "tool_call_id": "call_2", "content": "ACME Corp Reports Fourth Quarter and Full Year Fiscal 2025 Results. Total revenue of $4.82 billion, up 11% year over year."},
+    {"role": "assistant", "content": "ACME Corp's total revenue for fiscal year 2025 was $4.82 billion, up 11% year over year, per the company's FY2025 results press release."}
+  ]
+}

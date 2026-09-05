@@ -1,0 +1,75 @@
+{
+ "schema_version": 1,
+ "trace_id": "a10_name_swap-scout-v2",
+ "agent": {
+  "name": "scout-v2",
+  "model": "model-x",
+  "version": "1"
+ },
+ "task": {
+  "id": "a10_name_swap",
+  "prompt": "Who is the on-call engineer for the payments service this week?",
+  "expected": "The on-call engineer is Priya Sharma."
+ },
+ "outcome": {
+  "success": false,
+  "answer": "The on-call engineer is Marco Ruiz.",
+  "score": 0.0,
+  "termination": "agent_stop"
+ },
+ "totals": {
+  "input_tokens": 400,
+  "output_tokens": 160,
+  "cost_usd": 0.001,
+  "latency_s": 4.0
+ },
+ "steps": [
+  {
+   "type": "plan",
+   "name": "plan",
+   "input": "Check the rota, then answer.",
+   "output": "",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "index": 0
+  },
+  {
+   "type": "tool_call",
+   "name": "get_rota",
+   "input": "get_rota(service='payments')",
+   "output": "Rota: Priya Sharma (primary on-call), Marco Ruiz (backup).",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "effect": "read",
+   "error": false,
+   "index": 1
+  },
+  {
+   "type": "reason",
+   "name": "reason",
+   "input": "The rota lists the on-call assignment.",
+   "output": "",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "index": 2
+  },
+  {
+   "type": "answer",
+   "name": "final",
+   "input": "The on-call engineer is Marco Ruiz.",
+   "output": "The on-call engineer is Marco Ruiz.",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "index": 3
+  }
+ ],
+ "tools": [
+  {
+   "name": "get_rota",
+   "effect": "read"
+  }
+ ],
+ "budget": {
+  "max_steps": 12
+ }
+}

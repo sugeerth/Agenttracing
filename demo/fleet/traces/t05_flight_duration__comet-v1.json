@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "trace_id": "t05_flight_duration__comet-v1",
+  "agent": {
+    "name": "comet-v1",
+    "model": "gemini-3-flash",
+    "version": "v1"
+  },
+  "task": {
+    "id": "t05_flight_duration",
+    "prompt": "A traveler flies SQ306 from Singapore (SIN) to London Heathrow (LHR), connects, then flies BA117 from LHR to New York (JFK), all on 10 June 2025. Scheduled times: SQ306 departs SIN 09:00 SGT, arrives LHR 15:40 BST; BA117 departs LHR 17:55 BST, arrives JFK 20:45 EDT. What is the total elapsed journey time from SIN departure to JFK arrival?",
+    "expected": "23 hours 45 minutes"
+  },
+  "outcome": {
+    "success": true,
+    "answer": "Total elapsed time is 23 hours 45 minutes — 13h40m SIN-LHR, a 2h15m Heathrow connection, and 7h50m LHR-JFK, all computed in UTC.",
+    "score": 1.0
+  },
+  "totals": {
+    "input_tokens": 791,
+    "output_tokens": 356,
+    "cost_usd": 0.007713,
+    "latency_s": 15.99
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "1) Work out the duration of each flight leg and the layover from the scheduled times. 2) Sum them. 3) Sanity-check the total against the end-to-end departure/arrival difference. 4) Answer.",
+      "output": "Plan set. Working through the legs in order.",
+      "tokens": 156,
+      "latency_s": 1.94,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "search",
+      "name": "web_search",
+      "input": "SQ306 Singapore London flight time",
+      "output": "[1] flighttrack-style page — SQ306 SIN-LHR, typically ~13h50m | [2] singaporeair.com — SQ306 schedule | [3] airport timetable",
+      "tokens": 137,
+      "latency_s": 2.31,
+      "quality": "weak",
+      "note": "Redundant: this query re-finds what the previous search already surfaced."
+    },
+    {
+      "index": 2,
+      "type": "search",
+      "name": "web_search",
+      "input": "BA117 London New York duration",
+      "output": "[1] flighttrack-style page — BA117 LHR-JFK, typically ~8h | [2] britishairways.com — BA117 schedule | [3] airport timetable",
+      "tokens": 137,
+      "latency_s": 2.45,
+      "quality": "weak",
+      "note": "Redundant confirmation query; no new information gained."
+    },
+    {
+      "index": 3,
+      "type": "reason",
+      "name": "reason",
+      "input": "Normalize every timestamp before any arithmetic.",
+      "output": "These times are in three zones, so convert to UTC first: SGT is UTC+8, BST is UTC+1, EDT is UTC-4. SIN dep 09:00 SGT = 01:00 UTC. LHR arr 15:40 BST = 14:40 UTC; LHR dep 17:55 BST = 16:55 UTC. JFK arr 20:45 EDT = 00:45 UTC on 11 June.",
+      "tokens": 168,
+      "latency_s": 2.19,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 4,
+      "type": "tool_call",
+      "name": "datetime_diff",
+      "input": "diff(2025-06-10T01:00Z, 2025-06-10T14:40Z); diff(2025-06-10T14:40Z, 2025-06-10T16:55Z); diff(2025-06-10T16:55Z, 2025-06-11T00:45Z)",
+      "output": "13h40m; 2h15m; 7h50m",
+      "tokens": 135,
+      "latency_s": 1.94,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 5,
+      "type": "tool_call",
+      "name": "datetime_diff",
+      "input": "sum(13h40m, 2h15m, 7h50m); diff(2025-06-10T01:00Z, 2025-06-11T00:45Z)",
+      "output": "23h45m; 23h45m",
+      "tokens": 119,
+      "latency_s": 1.52,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 6,
+      "type": "reason",
+      "name": "reason",
+      "input": "Cross-check the leg sum against the end-to-end difference.",
+      "output": "Leg sum (13h40m flight + 2h15m layover + 7h50m flight) is 23h45m, and the end-to-end UTC difference is also 23h45m. Consistent, and plausible for SIN-LHR-JFK.",
+      "tokens": 152,
+      "latency_s": 1.79,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 7,
+      "type": "answer",
+      "name": "final_answer",
+      "input": "Compose the final answer from the verified findings.",
+      "output": "Total elapsed time is 23 hours 45 minutes — 13h40m SIN-LHR, a 2h15m Heathrow connection, and 7h50m LHR-JFK, all computed in UTC.",
+      "tokens": 143,
+      "latency_s": 1.85,
+      "quality": "good",
+      "note": null
+    }
+  ]
+}

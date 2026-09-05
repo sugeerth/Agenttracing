@@ -1,0 +1,2329 @@
+# AgentDiff changelog — every report section, in the order it was added
+
+The current contract is `SCHEMA.md`. This file is the history: each
+section below was written when its feature shipped and is kept verbatim,
+so a field's meaning can be read next to the reason it exists. Version
+numbers are the schema/report versions the sections were introduced in.
+
+## Tool-call diff (added to pairwise reports)
+
+Each alignment entry pairing two `tool_call` (or `search`) steps may carry:
+
+```json
+"tool_diff": {
+  "name_a": "regex_extract", "name_b": "regex_extract", "same_tool": true,
+  "args_a": {"pattern": "..."}, "args_b": {"pattern": "..."},
+  "changed": [{"key": "pattern", "a": "...", "b": "..."}],
+  "only_a": ["first_match"], "only_b": [],
+  "raw_diff": [["eq", "text "], ["del", "old"], ["ins", "new"]]
+}
+```
+
+`args_*` parsed heuristically from `name(k=v, ...)` style inputs; `raw_diff`
+is a token-level LCS diff of the raw inputs as a fallback for unparseable args.
+
+When both sides call the same tool with byte-identical input the engine emits
+the short form `{"same_tool": true, "identical": true}` **without** `name_a` /
+`name_b` / `args_*`; consumers should fall back to the steps' own names.
+
+## Step-level evaluation detail (pairwise reports, v5)
+
+Every alignment entry pairing two present steps carries an `eval` object:
+
+```json
+"eval": {
+  "similarity": {"type_match": true, "name_jaccard": 0.5, "input_jaccard": 0.82},
+  "delta": {"tokens": 40, "latency_s": 1.2, "cost_usd": 0.0006},
+  "quality": {"a": "good", "b": "bad", "verdict": "equal | a_degraded | b_degraded"},
+  "propagation": {"a": 0.0, "b": 0.45}
+}
+```
+
+`eval` is present **only on alignment rows with both sides present** — one-sided
+(`a_only` / `b_only`) rows have nothing to compare and carry no `eval`.
+
+`delta` is B minus A. `propagation` (only when one agent failed) is the word
+Jaccard between this step's input and the root divergent step's output on each
+side — how much of the root mistake's content this step carries forward.
+
+Report-level answer evaluation:
+
+```json
+"answer_eval": {
+  "expected": "string|null",
+  "diff_ab": [["eq", "..."], ["del", "..."], ["ins", "..."]],
+  "a_vs_expected": {"coverage": 0.8, "verdict": "match | partial | mismatch"},
+  "b_vs_expected": {"coverage": 0.2, "verdict": "mismatch"}
+}
+```
+
+`diff_ab` is the token-level diff of A's final answer against B's.
+`coverage` is the fraction of expected-answer tokens present in the answer
+(numeric tokens like "4.82" kept whole). Verdicts: `match` >= 0.6 coverage
+with every digit-bearing expected token present (a wrong number caps the
+verdict at `partial`), `partial` >= 0.3, else `mismatch`; `null` expected
+gives verdict "unknown".
+
+## Success analysis (pairwise reports, v6) — the positive mirror
+
+Failure attribution explains what went wrong; `success_analysis` explains what
+the winner did *right*, decision by decision.
+
+```json
+"success_analysis": {
+  "winner": "a | b | null",
+  "basis": "outcome | efficiency",
+  "winning_decisions": [
+    {
+      "step_index": 2, "agent": "atlas-v2", "kind": "retrieval",
+      "decision": "selected the official investor-relations release",
+      "counterpart": "selected a commentary blog (bolt-v3)",
+      "why": "primary source held the correct figure; avoided circular corroboration",
+      "impact": {"avoided_extra_steps": 5, "avoided_tokens": 682,
+                 "avoided_latency_s": 8.5, "avoided_failure": true}
+    }
+  ],
+  "narrative": "plain-language explanation of why the winner won"
+}
+```
+
+`winner`: the successful agent when exactly one failed (`basis: "outcome"`);
+the leaner side when both succeeded but diverged (`basis: "efficiency"`);
+null when trajectories are equivalent. One winning decision per divergence
+region, from the winner's side of it; `impact` is the loser's downstream
+extras re-read as what the winner avoided.
+
+Aggregate-level playbook — winning habits generalized across tasks:
+
+```json
+"playbook": [
+  {"habit": "Prefer primary/official sources over commentary",
+   "kind": "retrieval", "agents": ["atlas-v2"],
+   "evidence": "decided 3 tasks (t01, t02, t06)",
+   "impact": "avoided 2 failures, saved 2,745 tokens and 34.8s"}
+]
+```
+
+Derived by grouping winning decisions by kind across a batch; only habits
+with non-trivial impact are emitted.
+
+## Semantic analysis (pairwise reports, v7)
+
+Lexical alignment measures wording; the `semantic` object measures meaning,
+via two complementary approaches: corpus-weighted similarity (TF-IDF cosine
+over both trajectories' step texts) and claim-level provenance (typed,
+meaning-bearing facts traced through the steps).
+
+```json
+"semantic": {
+  "methods": ["tfidf_cosine", "claim_provenance"],
+  "rows": [
+    {"row": 0, "a_index": 0, "b_index": 0, "lexical": 0.93, "semantic": 0.97}
+  ],
+  "first_semantic_break": 2,
+  "claims": [
+    {"id": "c1", "kind": "money | percent | duration | version | cve | url | date | number",
+     "value": "$4.82 billion", "normalized": "4.82e9",
+     "matches_expected": true,
+     "a_steps": [2, 3, 4], "b_steps": [],
+     "origin": {"agent": "a", "step": 2, "source": "ir.acmecorp.com"}}
+  ],
+  "conflicts": [
+    {"kind": "money", "a_claim": "c1", "b_claim": "c2",
+     "summary": "A carried $4.82 billion (from ir.acmecorp.com); B carried $4.5 billion (from financeblog.net); expected: $4.82 billion."}
+  ],
+  "narrative": "2-3 sentences: where meaning (not just wording) diverged and which claims decided the outcome"
+}
+```
+
+- `rows`: one entry per alignment row with both sides present; `lexical` is
+  the alignment similarity, `semantic` the TF-IDF cosine of the paired step
+  texts. A large lexical-semantic gap flags "same words, different meaning"
+  (or the reverse).
+- `first_semantic_break`: first row where semantic similarity < 0.5, null if none.
+- `claims`: deduplicated typed facts found in step inputs/outputs and answers;
+  `a_steps`/`b_steps` list the step indices carrying the claim; `origin` is
+  the earliest carrying step (with URL domain when extractable);
+  `matches_expected` non-null only when the expected answer contains a
+  comparable claim of the same kind.
+- `conflicts`: pairs of same-kind claims where the agents carried different
+  values into their answers.
+
+### Extended semantic suite (v7, continued)
+
+The `semantic` object additionally carries:
+
+```json
+"intents": {
+  "a": [{"step": 0, "intent": "frame | acquire | verify | transform | decide | commit"}],
+  "b": [{"step": 0, "intent": "frame"}],
+  "missing": {"a": [], "b": ["verify"]}
+},
+"grounding": {
+  "a": {"claims_total": 2, "claims_grounded": 2, "score": 1.0, "ungrounded": []},
+  "b": {"claims_total": 2, "claims_grounded": 1, "score": 0.5,
+        "ungrounded": [{"claim": "c3", "value": "..."}]}
+},
+"independence": [
+  {"claim": "c2", "agent": "b", "sources": ["financeblog.net", "moneymirror.com"],
+   "circular": true,
+   "evidence": "the corroborating source's text cites financeblog.net itself"}
+],
+"contradictions": [
+  {"agent": "b", "steps": [7, 8], "kind": "money",
+   "values": ["$4.5 billion", "$4.82 billion"],
+   "summary": "bolt-v3 carried conflicting money values within its own trajectory"}
+]
+```
+
+- `intents`: every step classified by *what it does for the process* —
+  frame (plan/scope), acquire (search/retrieve/read), verify (cross-check,
+  confirm, validate), transform (compute/convert), decide (select/judge),
+  commit (final answer). Derived from step type + text cues. `missing` lists
+  intents absent from one side but present in the other — "B never verified"
+  is a process-grammar finding, not a wording one.
+- `grounding`: for each side, the fraction of its final-answer claims that
+  trace to some step output (provenance exists). Ungrounded answer claims are
+  hallucination flags.
+- `independence`: when a side corroborates a claim with a second source,
+  checks whether that source's text itself cites the first (circular
+  corroboration — two quotes, one voice).
+- `contradictions`: same-kind claims with different values inside ONE agent's
+  trajectory — internal inconsistency the agent never resolved.
+
+Aggregate gains a per-agent semantic profile:
+
+```json
+"semantic_profile": {
+  "a": {"verification_rate": 0.875, "grounding": 0.95,
+        "circular_incidents": 0, "contradictions": 0},
+  "b": {"verification_rate": 0.25, "grounding": 0.71,
+        "circular_incidents": 1, "contradictions": 1},
+  "narrative": "cross-task semantic comparison in plain language"
+}
+```
+
+## Counterfactual replay (pairwise reports, v8)
+
+When a failure was attributed, the report estimates the counterfactual: the
+failing agent adopts the winner's decision at the root divergence and inherits
+its suffix.
+
+```json
+"counterfactual": {
+  "premise": "had bolt-v3 made atlas-v2's decision at step 2",
+  "splice": {"prefix_steps": [0, 1], "adopted_from": "a", "adopted_steps": [2, 3, 4]},
+  "estimate": {
+    "outcome": "success",
+    "steps": 5, "steps_delta": -5,
+    "tokens": 840, "tokens_delta": -682,
+    "latency_s": 9.95, "latency_delta_s": -8.47,
+    "cost_usd": 0.0051, "cost_delta_usd": -0.0039
+  },
+  "confidence": "high | medium | low",
+  "narrative": "plain-language what-if with the numbers"
+}
+```
+
+`confidence`: high when the shared prefix is identical (all match rows before
+the root) and the divergence is the attributed cause; medium when the prefix
+contains drift; low otherwise. Estimates come from splicing the winner's
+post-divergence suffix onto the failing agent's prefix (token/latency/cost
+summed from the actual steps).
+
+## Regression gate (CLI, v8)
+
+`python -m deepcompare gate BASELINE_DIR CANDIDATE_DIR [thresholds] [-o out/] [--markdown gate.md]`
+
+Pairs traces by task id across two directories (e.g. agent v1 vs v2 runs),
+compares them, and evaluates gate checks:
+
+- success rate must not drop more than `--max-success-drop` (default 0)
+- mean cost must not rise more than `--max-cost-increase` (fraction, default 0.10)
+- mean latency must not rise more than `--max-latency-increase` (default 0.25)
+- no NEW failure-origin category may appear (disable with `--allow-new-failure-modes`)
+
+Exit code 0 = pass, 1 = gate failed, 2 = usage/data error. `gate.json` and an
+optional shareable `gate.md` summary (verdict table, per-check numbers, top
+divergences with attributions and counterfactual savings) are written to `-o`.
+
+## Multi-run stability (v9)
+
+Trajectories may carry an optional `"run_id"` (default `"r1"`); multi-run
+trace files are named `<task_id>__<agent_name>__<run_id>.json`. With N runs
+per (agent, task), the batch payload gains:
+
+```json
+"stability": {
+  "runs_per_agent": {"atlas-v2": 3, "bolt-v3": 3},
+  "per_task": [
+    {"task": "t01_acme_revenue",
+     "a": {"successes": 3, "runs": 3, "verdict": "stable-pass | stable-fail | flaky",
+           "token_cv": 0.04, "latency_cv": 0.09},
+     "b": {"successes": 0, "runs": 3, "verdict": "stable-fail",
+           "token_cv": 0.12, "latency_cv": 0.15},
+     "divergence_reproducibility": {"rate": 1.0, "kind": "retrieval",
+                                    "verdict": "systematic | variable | none"}}
+  ],
+  "flaky_tasks": {"atlas-v2": [], "bolt-v3": ["t02_cve_libfoo"]},
+  "medoid_runs": {"t01_acme_revenue": {"a": "r2", "b": "r1"}},
+  "narrative": "which failures reproduce, which are noise"
+}
+```
+
+- `verdict`: stable-pass (all runs succeed), stable-fail (none), flaky (mixed).
+- `divergence_reproducibility`: over all run-pair comparisons for the task,
+  the fraction whose FIRST divergence agrees in kind (and roughly location);
+  `systematic` >= 0.8, `variable` >= 0.3, else `none`.
+- `medoid_runs`: the most-representative run per side (minimum summed
+  step-type-sequence distance to that side's other runs) — the pair shown in
+  the compare view; `token_cv`/`latency_cv` are coefficients of variation.
+
+## Task signal (aggregate, v9)
+
+```json
+"task_signal": [
+  {"task": "t06_bls_unemployment", "difficulty": 0.5,
+   "discrimination": 1.0, "note": "separates the agents: one side always fails it"}
+]
+```
+
+`difficulty` = 1 − mean success across sides/runs; `discrimination` = how
+strongly the task separates the two agents (success gap, plus normalized
+cost/latency gap when successes tie). Sorted most-discriminating first.
+
+## Trace adapters (CLI, v9)
+
+`python -m deepcompare convert --format otel|openai IN.json -o OUT_DIR/`
+converts foreign trace formats to SCHEMA trajectories: `otel` reads OpenTelemetry
+GenAI-convention spans (gen_ai.* attributes), `openai` reads a chat-completions
+style message array with tool calls; both use heuristic step typing
+(tool name / content cues → search/retrieve/read/tool_call/reason) and emit
+warnings for unmapped items rather than failing.
+
+## Behavioral similarity and agent selection (v10)
+
+`python -m deepcompare select TRACESDIR -o out/` writes `select.json` and a
+lightweight `select.html`, with payload `{"similarity": {...}, "routing": {...}}`.
+
+Similarity is measured on four facets rather than one number, because the
+combinations imply different decisions: same outcomes + same cost = duplicate;
+same outcomes + cost gap = redundancy; different outcomes = complementarity.
+
+```json
+"similarity": {
+  "agents": [{"name": "...", "model": "...", "success_rate": 1.0,
+              "mean_cost_usd": 0.0, "mean_tokens": 0.0, "mean_latency_s": 0.0,
+              "mean_steps": 0.0, "tool_usage": {"web_search": 8}}],
+  "facet_weights": {"outcome": 0.40, "process": 0.25,
+                    "tools": 0.20, "resources": 0.15},
+  "pairs": [{"a": "...", "b": "...", "composite": 0.93,
+             "facets": {"outcome": 1.0, "process": 0.88, "tools": 0.95,
+                        "resources": 0.81, "shared_tasks": 8}}],
+  "clusters": [{"members": ["..."], "size": 3, "success_rate": 1.0,
+                "cheapest": "...", "representative": "..."}],
+  "redundancies": [{"keep": "...", "drop": "...", "similarity": 0.90,
+                    "cost_gap": 0.31, "saving_per_task_usd": 0.0025,
+                    "also_dominated_by": ["..."], "summary": "..."}],
+  "complementarities": [{"a": "...", "b": "...", "union_coverage": 1.0,
+                         "best_alone_coverage": 0.75, "gain_tasks": 2,
+                         "only_a": ["t05"], "only_b": ["t01"], "summary": "..."}],
+  "narrative": "..."
+}
+```
+
+- `outcome` = fraction of shared tasks where both agents got the same result.
+- `process` = mean normalized LCS over step-type sequences (trajectory shape).
+- `tools` = cosine over tool-usage counts.
+- `resources` = mean of `min/max` ratios for tokens, latency and steps, so the
+  measure is scale-free.
+- `redundancies` carries **one row per droppable agent** (its best replacement),
+  and only when outcomes match on every shared task and the cost gap exceeds 15%.
+
+```json
+"routing": {
+  "tasks": ["t01", "..."], "agents": 33,
+  "per_task": [{"task": "t01", "solvers": ["..."], "solver_count": 21,
+                "champion_solves": true, "cheapest_solver": "...",
+                "cheapest_cost_usd": 0.004, "champion_cost_usd": 0.005}],
+  "best_single": {"agent": "...", "coverage": 1.0,
+                  "covered_tasks": ["..."], "cost_usd": 0.045},
+  "oracle": {"coverage": 1.0, "cost_usd": 0.039, "coverage_headroom": 0.0,
+             "cost_saving_usd": 0.0057, "note": "ceiling assuming per-task ..."},
+  "portfolios": [{"k": 2, "members": ["..."], "coverage": 1.0,
+                  "covered_tasks": ["..."], "cost_usd": 0.043,
+                  "search": "exact | greedy"}],
+  "unique_solves": {"agent": ["t04"]},
+  "narrative": "..."
+}
+```
+
+`oracle` is a **ceiling, not a policy** — it assumes per-task knowledge of which
+agent will succeed. The gap between `best_single` and `oracle` is the headroom a
+router could win, and no more. `portfolios[].search` is `greedy` for fleets
+larger than 14 agents, so the reader knows the search was not exhaustive.
+
+## Model telemetry (Step, optional, v12)
+
+A step may carry the model's own signal alongside what the agent did:
+
+```json
+"model": {
+  "confidence": 0.86,
+  "min_token_confidence": 0.41,
+  "entropy": 0.72,
+  "tokens_scored": 120,
+  "temperature": 0.7,
+  "source": "provider logprobs | synthetic-demo | ..."
+}
+```
+
+`confidence` and `min_token_confidence` are probabilities in [0, 1] — the mean
+and minimum per-token probability over the text the step generated (from
+provider logprobs: OpenAI `logprobs`, vLLM/TGI `logprobs` for open-weight
+models, etc.). `entropy` is mean per-token entropy in nats. All fields are
+optional; steps without a `model` block are simply unscored. No weights or
+model internals are required — only the per-token probabilities an inference
+API already returns.
+
+Pairwise reports gain an `uncertainty` object:
+
+```json
+"uncertainty": {
+  "available": true,
+  "a": {"series": [0.92, null, 0.88], "mean_confidence": 0.90,
+        "min_confidence": 0.88, "mean_entropy": 0.2,
+        "min_token_confidence": 0.7, "steps_scored": 2},
+  "b": {"...": "..."},
+  "signal": {
+    "failed_agent": "b", "root_cause_step": 2,
+    "confidence_at_root": 0.88, "baseline_confidence": 0.85,
+    "drop": -0.03, "verdict": "flagged | silent", "lead_steps": 0,
+    "mitigation": "..."
+  },
+  "calibration": {"confident_when_wrong": true,
+                  "confidence_at_wrong_step": 0.88},
+  "narrative": "..."
+}
+```
+
+Field notes (these tripped up a consumer, so they are stated explicitly):
+
+- `drop` is `baseline_confidence − confidence_at_root`. **Positive means
+  confidence fell below the run's own baseline**; a negative value means the
+  model was *more* sure at the failing step than elsewhere. Present it with
+  that sign convention or flip it explicitly.
+- `signal` is `null` whenever no failure was attributed (both runs succeeded,
+  both failed, or the failing step carries no telemetry), even though
+  `available` is `true`. Consumers must handle the null.
+- `calibration` is likewise `null` without a signal.
+
+`verdict` is the operational finding, not a score:
+
+- **flagged** — confidence fell at least 0.15 below the run's own baseline at
+  the step that caused the failure (`lead_steps` says how many steps earlier
+  the drop began). A runtime confidence gate would have caught this run.
+- **silent** — the model was as confident there as anywhere. No threshold on
+  its own uncertainty helps; only external verification catches this class.
+
+Aggregate gains `calibration`: per agent, how many of its failures were
+flagged versus silent, and a verdict of `supervisable` (≥50% flagged) or
+`silent-failing`. An agent that fails silently cannot be supervised by
+thresholding its own confidence however good its success rate looks.
+
+## Systematic issues (aggregate, v13)
+
+A batch produces one divergence per place two runs parted company — dozens of
+findings on a real task set. `aggregate["issues"]` collapses them into
+recurring problems so the output is a short list of decisions, not a long list
+of incidents.
+
+```json
+"issues": {
+  "issues": [
+    {"id": "retrieval/a:retrieve.select_result/b:retrieve.select_result/q:b",
+     "kind": "retrieval",
+     "title": "Selects a lower-quality source at \"select_result\"",
+     "severity": "critical | major | minor",
+     "recurring": true, "suppressed": false,
+     "tasks": ["t01", "t02", "t06"], "agents": ["bolt-v3"],
+     "occurrence_count": 3, "failures_caused": 2,
+     "extra_steps": 10, "extra_tokens": 2136, "extra_latency_s": 34.8,
+     "occurrences": [{"task": "t01", "rank": 1, "caused_failure": true,
+                      "extra_tokens": 682, "summary": "..."}],
+     "example": {"...": "the costliest fatal occurrence"},
+     "summary": "..."}
+  ],
+  "active": 6, "suppressed": 0, "total_divergences": 8,
+  "counts": {"critical": 3, "major": 0, "minor": 3},
+  "narrative": "..."
+}
+```
+
+The **fingerprint** (`id`) is a stable, readable signature:
+`kind/a:<type>.<name>/b:<type>.<name>[/q:<sides>]`. Volatile detail is
+normalized away (digits and URLs collapse), so the same behavior on different
+tasks clusters together; `q` records only *which side* was annotated poor, not
+whether it was `weak` or `bad`, since those are severities of one behavior.
+
+Severity: `critical` when the issue caused any failure, `major` when it wasted
+≥500 tokens, else `minor`.
+
+### Suppression
+
+Fingerprints can be listed in a `.agentdiffignore` file (beside the traces or
+in the working directory) to mark issues a team has judged benign:
+
+```
+# known benign — our agent legitimately re-queries on this corpus
+stopping/a:none/b:reason.reason
+retrieval/*
+```
+
+One pattern per line, `#` starts a comment, a trailing `*` is a prefix match.
+Suppressed issues are **still reported and marked**, and excluded only from the
+headline counts — silently dropping findings is how a gate stops being
+trustworthy.
+
+## Gate statistics (v14)
+
+The `success_rate_drop` check carries a noise floor so a gate cannot fire
+confidently on a single flipped task:
+
+```json
+{"name": "success_rate_drop", "pass": false,
+ "baseline": 1.0, "candidate": 0.75, "threshold": 0.0,
+ "baseline_ci": [0.676, 1.0], "candidate_ci": [0.409, 0.927],
+ "bootstrap": {"observed": 0.25, "low": 0.0, "high": 0.625,
+               "significant": false, "samples": 2000},
+ "significant": false,
+ "detail": "... The 25.0% drop is within noise for 8 task(s) ..."}
+```
+
+- `baseline_ci` / `candidate_ci` are Wilson score intervals — chosen over the
+  normal approximation because short eval suites live at the extremes (0/8 and
+  8/8 are common) where the normal approximation breaks.
+- `bootstrap` resamples tasks **in pairs**, since both agents ran the same
+  suite; resampling independently would discard that pairing and overstate the
+  uncertainty. Fixed seed, so a gate decision never changes between runs on
+  identical data.
+- `significant` is true only when the whole interval sits above zero.
+
+`pass` (the threshold decision) and `significant` (the evidence strength) are
+reported **separately and deliberately**: a team's policy may be "block on any
+drop" even when the evidence is thin, and the gate should say both things
+rather than conflate them. `pass_at_k` is available for multi-run suites — the
+strict reading of reliability, where passing 2 of 3 runs is not 67% reliable
+if a user needs it to work three times running.
+
+## Shapley credit assignment (pairwise reports, v15)
+
+When a run goes wrong in more than one place, summing each divergence's
+downstream cost double-counts — later divergences inherit the extra work
+earlier ones created. `report["shapley"]` allocates the gap fairly instead:
+
+```json
+"shapley": {
+  "available": true, "metric": "tokens", "method": "exact",
+  "_note": "splice-Shapley: exact with respect to the splice surrogate, not
+            with respect to the agent — see below",
+  "loser": "bolt-v3", "winner": "atlas-v2", "regions": 2,
+  "total_saving": 691.0,
+  "allocations": [
+    {"region": 0, "rank": 1, "kind": "retrieval", "summary": "...",
+     "alignment_rows": [2, 3], "shapley": 691.0, "share": 1.0,
+     "caused_failure": true}
+  ],
+  "efficiency_check": 0.0,
+  "outcome_attributable": true,
+  "outcome_note": "...",
+  "narrative": "..."
+}
+```
+
+Each divergence region is a player; a coalition's value is what the run would
+have cost taking the reference path at those regions. **The value function
+never simulates anything** — a coalition's trajectory is assembled from steps
+that were actually recorded on one side or the other, and costed with the
+observed per-token rates. `efficiency_check` is `sum(allocations) −
+total_saving` and must be ~0: the Shapley efficiency axiom, checked
+numerically on every report.
+
+Exact enumeration runs while there are ≤ 12 regions; beyond that the field
+reports `available: false` with a reason rather than silently sampling.
+
+The honest name for this is **splice-Shapley**: the allocation is exact with
+respect to the splice surrogate (adopting the reference path at a decision
+yields the steps the reference actually took), not with respect to the agent,
+which would require re-running it. Rigorous causal replay for agents does
+exist in the literature but re-executes the agent, which this engine — seeing
+only logged traces — deliberately does not do.
+
+`outcome_attributable` is true **only** when exactly one divergence was
+causal. Splitting a binary outcome across several decisions would require
+counterfactual re-runs the engine cannot perform on logged traces, so it
+declines rather than guessing.
+
+## Attribute-based failure analysis (v15)
+
+Which *behavioural attributes* travel with failure across a corpus:
+
+```json
+{
+  "runs": 264, "failures": 30, "notable": 2,
+  "attributes": [
+    {"attribute": "poor_quality_step",
+     "phrasing": "the run contains a step annotated weak or bad",
+     "with": {"runs": 101, "failures": 30, "failure_rate": 0.297,
+              "ci": [0.216, 0.393]},
+     "without": {"runs": 163, "failures": 0, "failure_rate": 0.0,
+                 "ci": [0.0, 0.023]},
+     "lift": 0.297, "interval": {"...": "paired bootstrap"},
+     "notable": true, "measurable": true}
+  ],
+  "caveat": "...", "narrative": "..."
+}
+```
+
+Each row also carries a **stratified** lift, and this is a guard rather than a
+refinement:
+
+```json
+"stratified": {"lift": -0.65, "strata": 6,
+               "method": "Mantel-Haenszel pooled within-task risk difference"},
+"reverses_under_stratification": false
+```
+
+Task difficulty confounds every marginal association: hard tasks both provoke
+different behavior and cause more failures, and the trajectory-length signal in
+agent traces is documented to *reverse* once difficulty is controlled. The
+stratified figure compares runs only **within the same task**, pooling strata
+with Mantel-Haenszel weights (`n_with · n_without / n`); strata where every run
+falls on one side carry no information and are skipped. An attribute whose sign
+flips is flagged, forced to `notable: false`, and named in the narrative —
+reported **whether or not anything else was notable**, since "the only strong
+signal is an artifact" is precisely when the reader needs telling.
+
+Attributes are binary predicates over a trajectory (no verification step, no
+plan step, a weak/bad step, a low-confidence step, many tool calls, a long
+trajectory, repeated searches). `lift` is the raw failure-rate difference
+between runs that have the attribute and runs that do not; `notable` requires
+|lift| ≥ 0.25 **and** at least 2 runs on each side, so tiny groups cannot
+produce confident findings. A predicate returning None (e.g. confidence on a run with
+no telemetry) excludes that run from that attribute rather than counting it as
+false.
+
+**These are associations, never causes**, and the module says so in its own
+output: an attribute may travel with failure because it causes it, because a
+common factor causes both, or because harder tasks provoke it. The honest use
+is triage — where to look next — not a conclusion to act on blindly.
+
+## Joint attribute model (aggregate, v16)
+
+Marginal lifts cannot tell several signals from one signal counted several
+times. `aggregate["attributes_joint"]` fits failure on all measurable
+attributes at once, so each coefficient reads "holding the others fixed":
+
+```json
+"attributes_joint": {
+  "available": true, "runs": 264, "failures": 30, "parameters": 7,
+  "intercept": -3.9, "ridge": 1.0, "iterations": 8,
+  "converged": true, "reliable": true,
+  "coefficients": [
+    {"attribute": "poor_quality_step", "phrasing": "...",
+     "coefficient": 3.146, "odds_ratio": 23.246,
+     "separates": false, "direction": "raises"}
+  ],
+  "dropped": [{"attribute": "low_confidence_step",
+               "reason": "not measurable for every run"}],
+  "method": "ridge-penalised logistic regression (IRLS, fixed iteration cap, deterministic)",
+  "caveat": "...", "narrative": "..."
+}
+```
+
+Implementation notes that matter for trusting the numbers:
+
+- **Deterministic** — fixed iteration cap, fixed tolerance, no random start and
+  no sampling, so a gate may depend on the result.
+- **Ridge-penalised** (slopes only; the intercept is unpenalised so the base
+  rate is not shrunk). Eval corpora routinely contain a perfectly separating
+  attribute, where unpenalised maximum likelihood diverges silently. Separation
+  is *detected* and reported per attribute via `separates`, with the narrative
+  noting that such a coefficient's magnitude is set by the penalty rather than
+  the data.
+- **Attributes that cannot be measured for every run are dropped, not imputed**,
+  and named in `dropped`.
+- `reliable` is false when there are fewer than 5 runs per fitted parameter, and
+  the narrative says so rather than letting a thin fit read as authoritative.
+
+Read alongside `attributes` rather than instead of it: the joint coefficients
+control for the other *measured* attributes only — not for task difficulty,
+which is what the stratified marginal lift handles. Where the two disagree,
+that disagreement is itself the finding.
+
+## Reference profiles — a base style (v18)
+
+`python -m deepcompare profile TRACESDIR [--build-from DIR] -o out/`
+
+Every other comparison needs a partner run. A **profile** removes that: a norm
+distilled from many runs, against which any single run can be scored alone.
+
+```json
+{"name": "t01_acme_revenue", "tasks": ["t01_acme_revenue"],
+ "runs_used": 27, "runs_excluded": 6, "successes_only": true,
+ "thin_evidence": false,
+ "canonical_path": ["plan", "search", "retrieve", "read", "answer"],
+ "expected_step_types": ["answer", "plan", "read", "retrieve", "search"],
+ "step_type_mix": {"search": 31}, "tool_mix": {"web_search": 31},
+ "bands": {"tokens": {"median": 840.0, "low": 831.0, "high": 1105.0,
+                      "min": 800.0, "max": 1274.0}},
+ "caveat": "..."}
+```
+
+- Built from **successful runs only** by default — a norm assembled from
+  failures would make repeating them "normal". `--include-failures` overrides.
+- `canonical_path` is a **medoid**, an actually-recorded path, never an
+  averaged one that nobody took.
+- Bands are median plus interquartile range, so "outside the norm" means
+  outside where the middle half of runs sat.
+- A profile from fewer than 5 runs sets `thin_evidence`, and that caveat is
+  repeated in every score built on it.
+
+Scoring a run needs no partner:
+
+```json
+{"agent": "bolt-v3", "task": "t01", "verdict": "on-profile | costly | off-profile | failed",
+ "path_similarity": 0.67, "tool_similarity": 1.0,
+ "missing_step_types": [], "unexpected_step_types": [],
+ "measures": {"tokens": {"value": 1522, "position": "above", "phrasing": "...",
+                         "band": {"...": 0}}},
+ "outside_band": ["tokens"], "narrative": "..."}
+```
+
+Verdicts are ordered by what matters: `failed` first, then `off-profile` (it
+left the canonical path or skipped an expected step type), then `costly` (on
+the path but above the usual spend), then `on-profile`.
+
+## Cohort comparison — combinations (v18)
+
+`python -m deepcompare cohort TRACESDIR --by model|agent|version|task -o out/`
+
+Compares **groups as populations** rather than picking a representative run:
+model family vs model family, prompt v1 vs v2, and so on.
+
+```json
+{"cohorts": [{"cohort": "claude-opus-5", "runs": 8, "successes": 8,
+              "success_rate": 1.0, "success_ci": [0.676, 1.0],
+              "mean_cost_usd": 0.0065, "agents": ["..."], "tasks": ["..."]}],
+ "pairs": [{"left": "claude-opus-5", "right": "gemini-3-flash",
+            "shared_tasks": 8, "comparable": true,
+            "success_difference": {"observed": 0.19, "low": 0.06, "high": 0.31,
+                                   "significant": true, "samples": 2000},
+            "cost_ratio": 1.14,
+            "behaviour": {"process": 0.9, "tools": 0.95, "resources": 0.88},
+            "attribute_gaps": [{"attribute": "no_verification_step",
+                                "difference": 0.35, "interval": {"...": 0}}],
+            "verdict": "..."}],
+ "narrative": "..."}
+```
+
+Two guards make the verdicts trustworthy:
+
+- **Success rates are compared only on shared tasks.** Cohorts that ran
+  different task sets are marked `comparable: false` rather than compared —
+  one may simply have drawn easier work.
+- **A difference whose interval includes zero is never called a win.** The
+  verdict then says the cohorts are indistinguishable on outcome and falls
+  back to cost, which is the decision the evidence actually supports.
+
+## Open-weight models and real logprobs (v19)
+
+Open-weight models are the **strongest** case for the model-telemetry
+analysis, not the weakest: a self-hosted vLLM, TGI, llama.cpp or Ollama
+server returns logprobs for every generated token — often the full top-k —
+because there is no reason to withhold them. `deepcompare.logprobs` turns
+those into the `model` block on each step, so `uncertainty.py` runs on real
+data rather than the demo's synthetic numbers.
+
+```json
+"model": {
+  "confidence": 0.8832,          // mean token probability
+  "min_token_confidence": 0.8025,
+  "entropy": 0.2832,
+  "entropy_basis": "top_k | binary_floor",
+  "tokens_scored": 3,
+  "low_confidence_tokens": 0,
+  "temperature": 0.2,
+  "source": "ollama-logprobs | openai-compatible-logprobs | provider-logprobs"
+}
+```
+
+- `entropy_basis` is stated because it changes what the number means. With
+  top-k logprobs, entropy is computed over the returned distribution
+  (approximate — the tail is truncated). With only the chosen token's
+  logprob, it falls back to the binary entropy of that probability, which is
+  a **floor**, not an estimate.
+- **Nothing is invented.** A payload with no logprobs yields no `model` block
+  and a warning, rather than a fabricated confidence.
+- Layouts handled: OpenAI/vLLM/TGI `choices[0].logprobs.content[]`, a bare
+  `logprobs.content`, TGI `details.tokens`, and a plain list.
+
+### Reaching the tool from an open-weight stack
+
+| serving stack | route |
+|---|---|
+| vLLM, TGI (OpenAI-compatible endpoints) | `--format openai`, pass `responses` alongside `messages` to carry logprobs |
+| Ollama | `--format ollama` (or auto) — keeps `eval_count` token counts and logprobs |
+| anything OTel-instrumented | `--format otel` — `gen_ai.provider.name` and `gen_ai.request.model` are recorded onto the agent |
+
+Telemetry is attached to steps by **matching the generated text**, not by
+zipping turns to steps positionally: a tool-result turn fills an existing
+step's output rather than creating one, so a positional pairing would put a
+turn's confidence on the wrong step. Unmatched telemetry is dropped with a
+warning rather than guessed.
+
+### What the Ollama route carries (v20)
+
+The same text match decides where a turn's **usage and timing** land, not
+just its confidence:
+
+| reported by the server | becomes | when absent |
+|---|---|---|
+| `eval_count` (assistant turns only) | `steps[].tokens` | `len(text)/4` estimate |
+| `prompt_eval_count`, summed over turns | `totals.input_tokens` | estimate from the prompt text |
+| `total_duration`, else `eval_duration` (ns) — or `latency_s` in seconds | `steps[].latency_s`, summed into `totals.latency_s` | stays `0.0` |
+
+Summing `prompt_eval_count` counts re-sent history more than once, which is
+what the server actually processed and what a provider bills for.
+`eval_count` is taken only from assistant turns: a tool-result turn generated
+nothing, so counting it would inflate the run's output tokens.
+
+Tool results are the other half. Ollama has no `tool` role, so runners record
+observations as ordinary user turns; read literally, the first one is taken
+for a second task prompt and **discarded along with the retrieved evidence** —
+the text divergence, claim-provenance and semantic analysis all read. A user
+or `tool` turn arriving while a tool call is outstanding is therefore treated
+as that call's result and fills the step's `output`.
+
+None of this is invented: what the server did not report keeps its estimate
+or its zero, and `--dry-run` counts steps with text, timing, tokens and
+observations so a lossy mapping is visible before anything depends on it.
+
+---
+
+## Process integrity (v22)
+
+Outcome-only evaluation is blind by construction. A run can satisfy its
+oracle while looping, swallowing an error, writing something nobody asked
+for, or stopping because it hit the step ceiling; and a run can fail with a
+completely clean process because the *oracle* is wrong. Claw-Eval measures
+44% of safety violations and 13% of robustness failures as invisible to
+outcome-only grading ([arXiv 2604.06132](https://arxiv.org/abs/2604.06132));
+OpenClawBench names it the **outcome-process gap** and needed 31,264
+annotated trajectories to characterise it
+([arXiv 2605.29253](https://arxiv.org/abs/2605.29253)).
+
+`deepcompare.process` computes the deterministic subset of that from a
+logged trace — no judge, no re-execution. That restriction is deliberate:
+replaying *frozen* transitions under different evaluator channels flips the
+sign of the same step's score, with cross-channel disagreement exceeding
+same-channel retry disagreement by 48 percentage points
+([arXiv 2607.04419](https://arxiv.org/abs/2607.04419)). What can be settled
+by counting is settled by counting; the rest is left to a human, with the
+evidence laid out.
+
+### New optional trace fields
+
+All optional and backward compatible. Declared beats inferred, and the
+difference is always reported.
+
+```json
+"steps": [
+  {"index": 3, "type": "tool_call", "name": "cancel_booking",
+   "error": false,          // was the observation an error? null = undeclared
+   "effect": "write"}       // "read" | "write" | null (then inferred from the name)
+],
+"outcome": {
+  "termination": "agent_stop"   // see below; null = undeclared, never guessed
+},
+"tools": [                       // what the agent was offered
+  {"name": "cancel_booking", "effect": "write",
+   "parameters": {"properties": {"reference": {"type": "string"}},
+                  "required": ["reference"]}}
+],
+"budget": {"max_steps": 10}      // limits the harness enforced
+```
+
+`termination` takes tau2-bench's `TerminationReason` values verbatim, rather
+than an invented set, so a run logged for one tool is comparable in the
+other: `agent_stop`, `user_stop`, `max_steps`, `timeout`,
+`context_window_exceeded`, `too_many_errors`, `agent_error`,
+`infrastructure_error`, `unexpected_error`. The last two are *harness*
+failures and are excluded from reliability statistics — counting a
+rate-limited run as an agent failure makes the agent look worse and the
+harness look fine.
+
+**Termination is never inferred.** "The last step was an answer" does not
+distinguish an agent that decided it was done from one the harness cut off,
+and every per-step rate conditioned on it would inherit the guess. Undeclared
+stays `undeclared`. The same discipline applies throughout: without a `tools`
+list, schema grounding and permission are reported **unmeasurable** rather
+than scored 100% — an unchecked call is not a valid one.
+
+### What is computed
+
+| check | what it counts |
+|---|---|
+| `termination` | declared reason, steps, budget used, budget pressure (≥80%) |
+| `side_effects` | reads, writes, **writes before any successful read** |
+| `repeats` | repeated calls, `(call, result)` cycles, no-information steps |
+| `loops` | longest back-to-back repeated k-gram with its period; max call multiplicity |
+| `recovery` | errors, adaptation attempts, recoveries, abandonment after error |
+| `grounding` | calls to undeclared tools; argument values with no source in the trace or prompt |
+| `schema` | missing required / unknown / mistyped arguments against declared parameters |
+| `false_success` | the answer claims completion while nothing was written |
+
+Three distinctions that make the counts mean what they say:
+
+- **A retry after an error is not a repeat.** Retrying a failed call is
+  correct behaviour; counting it as looping would penalise recovery.
+- **Only a read that *worked* counts as having looked.** Three failed
+  lookups followed by a write is the blind-write case exactly.
+- **A no-information step** returns an observation byte-identical to an
+  earlier one — the call was new, the run advanced nothing.
+
+### The gap verdict
+
+| verdict | meaning |
+|---|---|
+| `passed cleanly` | the oracle is satisfied and nothing contradicts it |
+| `passed but pathological` | passed, but looped / swallowed an error / wrote blind. A leaderboard scores this identically to a clean pass |
+| `failed with cause` | failed, and the process shows why |
+| `failed but clean` | failed with nothing visibly wrong — **evidence about the grader**, not only the agent |
+
+There is deliberately **no single process score**. Weighting a loop against a
+blind write needs a judgement about the domain that this tool does not have;
+the flags are reported so a reader can apply their own.
+
+`demo/process/` generates traces exercising all four verdicts — including
+the headline pair, where the run that *passes* is the one that looped,
+ignored three errors and wrote blind, and the run that *fails* has a
+spotless process.
+
+---
+
+## Reference tool-call comparison (v22)
+
+`deepcompare.toolmatch` deliberately borrows other people's vocabulary,
+because this is the one place where a shared one exists: the four match
+modes are LangChain `agentevals`, the argument modes its `ToolArgsMatchMode`,
+the F1 is Ragas `ToolCallF1`, the order-aware partial credit is DeepEval's
+weighted-LCS `ToolCorrectness`, and the permission check is DeepEval's
+`ToolPermission`.
+
+**Every result names the algorithm that produced it**, because four
+widely-used libraries ship a metric called "tool call accuracy" and compute
+four different numbers from the same trace:
+
+| library | same trace, different answer |
+|---|---|
+| `agentevals` | boolean; no partial credit at all |
+| Ragas `ToolCallAccuracy` | argument accuracy × an order gate — right calls in the wrong order score **0.0** |
+| DeepEval default | greedy best match, arguments scored as matching keys over the **union** of keys |
+| DeepEval ordering mode | weighted LCS ÷ number of reference calls |
+
+So "tool call accuracy: 0.67" is meaningless without its algorithm, and a
+leaderboard mixing them compares nothing. The same applies to argument
+matching: `exact`, `ignore`, `subset`, `superset` and `key_fraction` give
+0.0, 1.0, 0.0, 0.0 and 0.67 for one realistic pair.
+
+Two footguns are inherited and documented rather than silently fixed:
+**subset/superset polarity** (in `agentevals`, `subset` means the *run's*
+calls are a subset of the reference — its implementation reads
+`_is_trajectory_superset(reference, outputs)`), and the fact that `strict`
+compares message structure while `unordered`/`subset`/`superset` discard it
+and compare flattened tool calls only. Each result spells out its direction
+in words.
+
+All four modes are reported together, because they disagree by construction:
+a run can be a `superset` match and not a `strict` one, and seeing which
+modes pass is more informative than any single verdict.
+
+---
+
+## Recording a trace (v23)
+
+`deepcompare.record.Recorder` writes conformant trajectories from a live
+agent, so the schema is something you emit rather than something you
+hand-write. It carries the v22 fields by default — declared `tools` with
+effects and parameter schemas, `budget`, `outcome.termination`, per-step
+`error` and `effect` — because a recorder that omits them makes half the
+process analysis unmeasurable.
+
+Two fields exist so a recorded run cannot quietly overstate itself:
+
+```json
+"steps": [{"tokens": 4, "tokens_basis": "estimated"}],
+"token_accounting": {
+  "basis": "estimated | measured | mixed",
+  "measured_steps": 0, "estimated_steps": 2,
+  "estimator": "len(text)/4"
+}
+```
+
+`tokens_basis` is `measured` when the provider reported the count and
+`estimated` when it was derived from text length. **Both are carried through
+load and save.** A basis that survives to disk but is dropped by the loader
+is worse than no basis at all: the next comparison treats a `len(text)/4`
+guess as a provider-reported number, and nothing downstream can tell the
+difference. An absent basis stays absent rather than defaulting to
+`measured`.
+
+The recorder never invents a termination reason. Clean exit is `agent_stop`,
+an exception becomes `agent_error` (or `timeout`/`user_stop` where the
+exception says so), and `max_steps` or a harness failure must be declared
+explicitly through `terminate()` — only the harness knows why it stopped.
+
+---
+
+## The trade-off and the efficiency block (pairwise reports, v25)
+
+Every report carries `tradeoff` — the speed-quality exchange stated rather
+than left to the reader:
+
+```json
+"tradeoff": {
+  "case": "dominance | price_of_correctness | quality_for_spend |
+           equal_outcome_cheaper_run | both_failed | equivalent",
+  "dominant": "agent name or null",
+  "spend_delta_b_minus_a": {"tokens": 682, "cost_usd": 0.0039,
+                            "latency_s": 8.45, "steps": 5},
+  "statement": "plain-language exchange, e.g. 'the correct answer cost +8.5s'",
+  "caveat": "one task, one run per side: descriptive only"
+}
+```
+
+The three cases are kept apart on purpose: dominance is never dressed up as
+a dilemma, a fast failure is "slower to nothing" rather than a saving, and
+exchange rates (`score per dollar` etc.) appear only under
+`quality_for_spend`, where quality and spend actually moved together.
+
+`efficiency` carries what the trace implies about serving cost, per side:
+`context_growth` (prompt-cache-absorbable resend overhead), `result_cache`
+(identical call+result repeats, with a retry after an error excluded),
+`parallel_reads` (independent consecutive reads, broken conservatively by
+any provenance link), `latency` (concentration, gated to runs ≥5 steps),
+`throughput` (refused outright on estimated token counts), and a ranked
+`opportunities` list whose savings are **ceilings with their assumption
+named**. The aggregate rolls up per agent, adding `cost_per_success` with
+numerator and denominator.
+
+## Triage verification and the fix loop (v26)
+
+Every triage action carries `verification` — how the fixer will know it
+worked:
+
+```json
+"verification": {
+  "how": "re-run the same tasks, then `agentdiff progress <before> <after>`",
+  "checks": [
+    {"kind": "fingerprint", "fingerprints": ["..."],
+     "confirms": "binary and deterministic; the strongest signal at any suite size"},
+    {"kind": "process_flag", "flags": ["blind_write"], "tasks": ["..."]},
+    {"kind": "success_rate", "current": "2/4", "hoped": "4/4",
+     "chance_of_hoped_result_without_a_fix": 0.32,
+     "single_rerun_can_confirm": false,
+     "note": "an unchanged agent reaches 4/4 32% of the time by pure luck ..."}
+  ],
+  "caveat": "absence confirms only if the same tasks ran (task-set drift)"
+}
+```
+
+The success-rate criterion is the exact binomial tail under the
+unchanged-agent null — **not** a Wilson-interval comparison, which describes
+uncertainty about the old rate rather than the sampling noise of the next
+run, and would call a 3-of-4 → 4-of-4 jump (32% likely with no fix at all)
+a confirmation.
+
+`agentdiff progress before/ after/` writes `progress.json`: per
+before-action `status ∈ resolved | improved | persists | worsened |
+unobservable | untrackable` (a fingerprint whose task did not re-run is
+unobservable, not cured; fewer occurrences is improved, not resolved),
+`new_issues` the before-run did not have, `success_by_agent` with per-task
+flips and the same luck criterion, `task_drift`, and `efficiency_shift`
+(realised cost per success beside estimated overheads, labelled apart).
+
+## Narration under covenant (v25)
+
+`agentdiff narrate` emits a numbered-fact brief and prompt for **any**
+external model; the returned text is checked number-by-number and stored as:
+
+```json
+"narration": {
+  "text": "...", "model": "...", "source": "external-llm",
+  "brief_digest": "sha256 prefix binding the narration to what it saw",
+  "faithfulness": {"numbers_checked": 9, "unsupported_numbers": ["93%"],
+                   "citations": 3, "invalid_citations": [], "faithful": false,
+                   "limit": "numeric and citation checking only; ..."},
+  "authority": "commentary only ... deleting it changes no finding"
+}
+```
+
+Nothing in the engine reads `narration`; a fabricated figure is stored
+flagged rather than trusted or dropped. Briefs exist for four shapes —
+pairwise report, batch aggregate, experiments comparison, progress result —
+and the covenant does not vary with scale.
+
+## Experiments and variance (v24–v25)
+
+`agentdiff experiments A/ B/` writes `experiments.json`: per-experiment
+summaries (Wilson intervals, harness failures excluded), pairwise diffs
+paired on shared tasks (success is the single primary endpoint; the four
+resource metrics are Benjamini–Hochberg corrected among themselves, both
+raw and adjusted verdicts kept), and a behavioural `similarity` block —
+cross-experiment action-sequence similarity against each experiment's own
+within-baseline, because outcome agreement is not behaviour agreement in
+either direction.
+
+`agentdiff variance DIR/` writes `variance.json`: sequential
+sums-of-squares shares swept over **every attribution order** (a factor's
+share is a range; its width is variance the factors share and no ordering
+can assign), beside bias-corrected omega squared with each factor's
+`expected_by_chance` — a 33-level factor explains 12% of variance before
+any real effect exists. Confounded designs are named as such, with the fix
+("run one harness on a second model") rather than a split that would be an
+artefact of ordering.
+
+## Adjudicated diagnosis (v27)
+
+`attribution` tells one story: the first structural divergence, walked to the
+answer. That story can be wrong in an identifiable way — the same report can
+say the failed run's answer *matched the expected answer* while the winner
+passed writing blind. Every report now carries `diagnosis`: one hypothesis
+per diagnostic signal (grader/label, harness termination, environment error,
+wrong-fact propagation, the divergence itself, each process flag, budget
+pressure), scored against an explicit evidence ledger and **adjudicated**
+rather than smoothed into a single narrative.
+
+```json
+"diagnosis": {
+  "version": 1,
+  "mode": "single_failure | both_failed | both_succeeded",
+  "subject": "a | b | null", "subject_name": "bolt-v3",
+  "verdict": "bolt-v3: best explained by divergence — ...; leads the runner-up by 0.35",
+  "hypotheses": [
+    {"id": "H1", "kind": "divergence", "agent": "b",
+     "statement": "the run went wrong at step 2, a retrieval decision ...",
+     "score": 0.7, "status": "leading",
+     "supports": ["E1", "E3"], "contradicts": [],
+     "discriminator": "splice the other agent's decision at the divergent step and re-run ..."}
+  ],
+  "leading": "H1", "margin": 0.35,
+  "evidence": [
+    {"id": "E1", "type": "span", "agent": "b", "step": 2, "field": "output",
+     "quote": "random blog", "signal": "the divergent retrieval step",
+     "basis": "measured"},
+    {"id": "E2", "type": "metric",
+     "path": "answer_eval.b_vs_expected.coverage", "value": 0.95,
+     "signal": "answer matches the expected answer", "basis": "measured"}
+  ],
+  "causal_account": [{"step": 2, "happened": "...", "mechanism": "...",
+                      "evidence": ["E1"]}],
+  "contradictions": ["the failed run's answer matched the expected answer ..."],
+  "confidence": {"level": "medium", "basis": "single pair (n=1); ..."}
+}
+```
+
+**Statuses.** Each hypothesis lands in exactly one:
+
+- `leading` — the top-scored hypothesis, and only when it clears the
+  runner-up by the **lead margin** (≥ 0.15) with a score of at least 0.2.
+  Anything closer and `leading` is `null`: the diagnosis is **contested**
+  and the verdict says so — two plausible causes with a thin margin are not
+  one confident cause.
+- `plausible` — scored ≥ 0.2 but not leading; a live alternative.
+- `weak` — supported but under 0.2; recorded, not argued for.
+- `ruled_out` — contradicting evidence exists and the score fell under 0.1.
+- `merged` — absorbed into another hypothesis by fusion (below); kept with a
+  `merged_into_kind` pointer so nothing disappears silently, and excluded
+  from the margin computation.
+- `untestable` — the check cannot be run from the trace (e.g. a grader
+  hypothesis with no `expected` answer recorded); carried with `score: null`
+  rather than dropped or guessed.
+
+**Evidence is machine-checkable, in two types.** `span` evidence quotes a
+substring of a named field of a named step of a named trajectory; `metric`
+evidence names a path into the report and the value found there.
+`check_diagnosis(diagnosis, report, a, b)` verifies **both** — the quote must
+appear in that step field, the path must resolve to that exact value, and
+every `supports`/`contradicts`/`causal_account` reference must point at a
+ledger entry — the same contract `check_narration` applies to narration text.
+
+**Fusion: corroborating signals are one story at two depths.** A structural
+divergence and a wrong fact are usually not competitors, so before
+adjudication:
+
+- a wrong fact entering **at or after** the divergent step merges into the
+  divergence hypothesis as its *mechanism* (the divergence takes the max of
+  the two scores plus a corroboration bonus; the wrong-fact hypothesis is
+  marked `merged`);
+- a wrong fact entering **before** the divergent step re-anchors the root:
+  the earlier anomaly is boosted, the divergence is penalised and restated
+  as downstream symptom, with both statements saying why;
+- a raised process flag whose evidence spans sit **on the attribution
+  chain** merges into the divergence account as its mechanism, adding its
+  evidence and a corroboration bonus.
+
+**Every hypothesis carries a `discriminator`**: the concrete check that
+would confirm or refute it (re-grade the quoted answer by hand, replay the
+failing call in isolation, raise the budget for one re-run, ...). A
+diagnosis that cannot say what evidence would change it is a story, not a
+diagnosis.
+
+### Batch rollup (aggregate, v27)
+
+`aggregate["diagnosis"]` rolls leading-hypothesis kinds up across the batch
+— which causes repeat, with the denominator always stated:
+
+```json
+"diagnosis": {
+  "diagnosed_failures": 4,
+  "contested": 0,
+  "by_leading_kind": [
+    {"kind": "divergence", "count": 3, "of": 4,
+     "tasks": ["t01_acme_revenue", "t05_flight_duration", "t06_bls_unemployment"]},
+    {"kind": "wrong_fact_propagation", "count": 1, "of": 4,
+     "tasks": ["t07_build_failure"]}
+  ],
+  "note": "divergence leads 3 of 4 diagnosed failures — a repeated cause is worth one central fix, not 3 local ones"
+}
+```
+
+Only `single_failure` pairs are counted (`diagnosed_failures`); contested
+diagnoses are tallied separately rather than assigned to their top kind, and
+a process-flag lead is qualified as `process_pathology:<flag>` so "looped"
+and "wrote blind" do not pool into one bucket. The `note` appears when a
+kind leads at least twice — a cause that repeats is systemic, worth one
+central fix rather than N local ones — and the `batch` command prints it.
+
+
+## Cross-run diagnosis consolidation (v28)
+
+A pair diagnosis is honest about being n=1: its confidence is capped and
+every hypothesis carries the check that would settle it. When the corpus
+holds repeated runs of the same task, `deepcompare runs` performs the two
+upgrades that repetition makes possible, and writes the result to
+`aggregate["diagnosis_consolidated"]`:
+
+1. **Consolidation.** Every failing run is diagnosed against the other
+   agent's medoid run — not one representative pair — and the question
+   becomes whether the same hypothesis leads each time. Failure
+   reproduction gets its own denominator first: an agent that fails 1 of
+   3 runs has a flake, not a systematic fault, whatever any single-run
+   story says.
+2. **Executed discriminators.** Checks a pair diagnosis can only
+   *recommend* are answered offline from the runs already on disk:
+   *grader consistency* (a failing answer near-identical to a passing
+   run's answer proves the grader inconsistent — token Jaccard ≥ 0.8, both
+   runs named), *environment reproduction* (the exact failing call
+   succeeding elsewhere proves the error transient; erring everywhere
+   points at the environment), and *harness flake rate* (kills counted
+   over all runs). No re-running, no network, no model calls.
+
+```json
+"diagnosis_consolidated": {
+  "per_task_agent": [
+    {"task": "t01_acme_revenue", "agent": "bolt-v3",
+     "runs": 3, "failures": 3,
+     "failure_reproduction": {"k": 3, "n": 3, "verdict": "reproducible"},
+     "diagnosed_runs": 3,
+     "leading_kinds": {"divergence": 3},
+     "contested_runs": 0,
+     "per_run": [{"run": "r1", "leading": "divergence", "margin": 0.8}],
+     "checks_run": [
+       {"check": "grader_consistency", "outcome": "inconclusive",
+        "hypothesis_kind": "grader_or_label",
+        "detail": "no passing run in this corpus carries an answer ...",
+        "basis": "measured", "runs": ["bolt-v3/r1"]}
+     ],
+     "consolidated": {
+       "kind": "divergence", "status": "reproducible",
+       "statement": "divergence leads the diagnosis in all 3 diagnosed runs — the cause reproduces, not just the failure",
+       "basis": "consistent leading hypothesis across 3 runs"}}
+  ],
+  "summary": {"tasks": 8, "entries_with_failures": 4,
+              "confirmed_by_checks": 0, "reproducible_causes": 4,
+              "unstable_diagnoses": 0, "flaky_failures": 1},
+  "narrative": "4 cause(s) reproduce across every failing run; ..."
+}
+```
+
+`failure_reproduction.verdict` is one of `reproducible` (fails every run,
+n > 1), `flaky` (fails some), `single run` (n = 1), `no failures`. An entry
+with no failures keeps `consolidated: null` — it is the denominator, not a
+diagnosis. `per_run` entries carry either the leading kind and its margin,
+`"contested"`, or a note that the reference run also failed (pairwise
+diagnosis not applicable there). One check instance per (check, outcome)
+pair is kept; an `inconclusive` outcome is a result and is reported, not
+dropped.
+
+**Statuses.** The consolidated verdict lands in exactly one, and the
+vocabulary is deliberately strict — **scores can make a hypothesis leading;
+only an executed check can make it confirmed or refuted**:
+
+- `confirmed` — an executed check confirmed the hypothesis against the
+  corpus itself; `basis` says "executed check, not a score".
+- `refuted` — a kind led every per-run diagnosis, but an executed check
+  contradicts it. The check outranks the scored ranking: a refuted
+  hypothesis does not get to stay leading because a heuristic scored it
+  first.
+- `reproducible` — the same kind leads all diagnosed runs (≥ 2): the
+  *cause* reproduces, not just the failure. Still a scored finding, so it
+  sits below `confirmed`.
+- `unstable` — the per-run diagnoses disagree. The disagreement is itself
+  the diagnosis: the cause is noise-sensitive, and no single-run story
+  should be trusted for that task.
+- `single_run` — one diagnosed run; n=1, unconfirmed, add runs to confirm.
+- `all_contested` — every diagnosed run was contested; the evidence never
+  picks a cause.
+
+The `summary` counts each status with its denominators, and the
+`narrative` string is what the `runs` command prints — flaky failures are
+named with their k of n ("treat as flakes until they repeat") rather than
+promoted to systematic faults.
+
+## The decisive error step (v29)
+
+Every pair `diagnosis` now carries a `decisive_step` object committing to
+the field's ground-truth criterion (Who&When): the **earliest step whose
+correction is expected to flip the outcome**.
+
+```json
+"decisive_step": {
+  "step": 2,
+  "criterion": "earliest step whose correction is expected to flip the outcome",
+  "basis": "where the wrong fact entered, per claim provenance",
+  "reason": null
+}
+```
+
+Anchors per leading kind: a divergence anchors at its root, a wrong fact
+at its provenance origin, an environment error at the failing call, a
+process pathology at its first flagged step.  Three causes have **no
+agent step to correct**, and the honest answer there is `step: null`
+with the `reason` stated: a grader mislabel (the correction is to the
+label), a harness kill (no corrected step prevents it), and budget
+pressure (the constraint is a harness setting).  A contested diagnosis
+commits to no step — refusing to localize is part of refusing to
+adjudicate.  Two claim-exclusivity rules keep the anchor honest: a
+claim the passing run also carries can neither anchor the wrong-fact
+hypothesis nor contradict the grader hypothesis (shared context cannot
+explain a one-sided failure), and the answer-coverage "match" verdict
+counts as grader-suspect evidence only at coverage ≥ 0.85 — below
+that, the missing words may *be* the contradiction.
+
+The benchmark (`demo/diagnosis_bench`, `deepcompare/bench.py` v2)
+scores this axis directly: `step_localization` (exact and within ±1,
+denominators stated), `abstention` (predicting a step where no agent
+step exists is a `spurious_step` miss), and per-scenario
+`step_outcome` values `exact | adjacent | wrong_step | missed_step |
+correct_abstain | spurious_step`.
+
+The causal account itself is anchored at the leading hypothesis's own
+decisive step and walked **transitively**: a step joins when it carries
+a contradicting claim's typed value (claim provenance, strongest link),
+measurable word overlap with any step already in the chain, a weak/bad
+log annotation, or — only when the environment hypothesis leads — a
+declared error downstream of the failing call. Outputs identical to one
+already in the chain are skipped (a repeated call is a pathology, not
+propagation), and the benchmark scores the account as `chain_recovery`
+(mean recall/precision against the implanted propagation path, with
+scenarios that produced no account counted at recall 0, never skipped).
+
+## The measured eval, and the rules it forced (v30)
+
+Everything from v29 onward is driven by one loop: measure the diagnoser
+against implanted ground truth, fix the miss families principledly,
+re-measure. The artifacts:
+
+- **`agentdiff bench [traces] [--strict] [-o out.json]`** — the
+  scorecard CLI. Floors live in `bench.FLOORS`, shared verbatim with the
+  test suite; `--strict` exits non-zero on any floor violation.
+- **Multi-cause scoring** — manifest scenarios may carry `secondary`
+  kinds; leading with only the secondary is its own `secondary_only`
+  outcome, and the `multi_cause` metric counts whether the secondary
+  stayed visible among the hypotheses.
+- **The procedural corpus** — `demo/diagnosis_bench/generate_scale.py
+  --pairs N` composes eleven cause families across domains, lengths and
+  distractors with mechanically derived truth (seeded; byte-identical
+  per N). The `paraphrase_grader` family is the deliberate open
+  challenge: reworded-but-correct answers whose valueless-domain cases
+  are expected misses that stay in the measured number.
+- **Anchor rules the eval forced, all instances of one exclusivity
+  principle** (shared evidence cannot explain a one-sided failure):
+  a claim the passing run also carries neither anchors the wrong-fact
+  hypothesis nor contradicts the grader hypothesis; an exclusive
+  contradicting claim voids the grader's coverage support outright; the
+  **twin rule** advances the divergence anchor past any step whose
+  (type, name, input) has an exact twin in the other run; and the
+  typed-value grader rule (a clean failure whose answer asserts the
+  exact expected value) is gated on flags *exclusive* to the failing
+  side, not absolute cleanliness.
+- **Account adjacency rules** — a repeated declared error is part of
+  the fault's story (never skipped as a duplicate), and a reason step
+  immediately following an on-chain declared error joins as the agent's
+  response, labelled `adjacency, declared — not traced propagation`.
+- **Spectrum surfaced** — the `runs` command prints per-signature
+  suspiciousness under each cross-run entry, and the aggregate
+  narration brief carries `diagnosis.spectrum` facts (top signature
+  with its counts, or the both-classes refusal), all numbers entering
+  the narrator's allowed set.
+
+## The adversarial round (v31)
+
+An independent red-team evaluation built trace pairs to make the engine
+tell confident wrong stories, and every fix it forced is another
+application of the same exclusivity principle:
+
+- **Negation guard** — a negator-count mismatch between the answer and
+  the expected answer voids the grader's coverage support ("not
+  refundable" is no near-match of "refundable", however high the
+  lexical overlap).
+- **Answer-evidence requirement** — a grader hypothesis whose only
+  support is a clean process gap carries `answer_evidence: false` and
+  may rank but never lead.
+- **Twin-rule write exception** — a write-effect step the failing run
+  performed more times than the passing run is a real anomaly and may
+  anchor (the duplicated charge IS the failure); duplicate reads stay
+  excused as alignment noise.
+- **Grounding dock** — an error on a call whose arguments have no
+  source in the trace is capped below the invention hypothesis (the cap
+  survives fusion's timing boosts) and its discriminator flips to a
+  provenance-first check, because a garbage-argument call errors
+  deterministically and replaying it cannot exonerate the agent.
+- **Shared-flag dock** — a process flag the other run also raises is
+  shared behaviour and cannot explain a one-sided outcome; for
+  `invented_arguments` exclusivity is decided per (tool, argument,
+  value) invention, never per flag bit, so a shared filler literal
+  cannot mask an entity only the failing run made up.
+- **Root-signature merge** — a flag whose evidence sits on a step with
+  the divergence root's exact (type, name, input) signature is the same
+  repeated decision, and merges into the divergence account instead of
+  contesting it.
+- **Four adversarial corpus families** — `negation_answer`,
+  `wrong_entity`, `causal_duplicate`, `garbage_args` joined the
+  procedural generator (fifteen families total); the corrected engine
+  holds the middle two at 1.0, and the other two are named open
+  challenges that stay in the measured number.
+- **The stripped condition** — `generate_scale.py --strip-annotations`
+  nulls every step's `error`/`quality`/`note` so the engine must infer
+  from observation text alone: the de-circularized scorecard is
+  published alongside the annotated one, and the gap between them is
+  the measured value of structured step metadata.
+- **`check_diagnosis` structural checks** — beyond grounding (quotes,
+  metric paths, dangling refs), the verifier now checks the
+  adjudication's own bookkeeping: statuses in vocabulary, scores in
+  [0, 1], `leading` naming a hypothesis actually marked leading. Its
+  docstring states the boundary: empty means GROUNDED, not TRUE.
+- **Known limit: carriage vs assertion** — claim evidence reads typed
+  values out of step text without distinguishing a value the agent
+  asserted from one it merely carried (an echoed tool payload, a quoted
+  document). The exclusivity rules bound the damage — a value the
+  passing run also carried can anchor nothing — but a failing run that
+  merely quotes a wrong value it never acted on can still anchor a
+  wrong-fact hypothesis. This stays a named limit rather than a
+  heuristic patch: telling assertion from carriage needs evidence the
+  trace format does not yet record (which step consumed the value),
+  and guessing would trade a visible limit for invisible errors.
+
+## The causal window, replay verification, and the harness (v33)
+
+Three literatures were surveyed and their insights distilled into a
+program (`docs/RESEARCH_INSIGHTS.md`); this version ships its first
+items.
+
+- **`decisive_step` commits to a window, not a point.** The earliest
+  flip is not the whole story (AgentRx, DRIFT, Causal Agent Replay):
+  agents recover from early wobbles and a wrong commitment is often
+  still correctable later. So the object now carries
+  `point_of_no_return` — the last causal-account step before the answer
+  at which, on the account's own propagation evidence, a correction
+  would still reach the outcome — and `window: {earliest,
+  point_of_no_return, steps}`. `step` keeps its v29 meaning and the
+  benchmark keeps scoring it.
+- **`verification: "hypothesized"`.** A committed step is a
+  counterfactual claim read from trace evidence; only re-execution can
+  verify it. The engine never says more than "hypothesized"; the
+  harness's replay hook is what turns that into `replay-verified`,
+  `replay-refuted` or `replay-mixed`.
+- **`replay_recipe`.** Machine-readable: `{side, step, correction,
+  expects, replays}` — the correction hint is per leading kind (take the
+  passing run's decision; replace the wrong value with the sourced one;
+  make the call succeed or ground its arguments; remove the flagged
+  behaviour) and the recipe asks for ≥3 replays because agent policies
+  are stochastic.
+- **`joint_candidates`.** A contested diagnosis no longer drops its
+  anchored contenders: they are listed with kind, flag, step and score,
+  so "no single step is committed" also says which steps are in play.
+  Abstentions (grader, harness, budget) carry `null` window, recipe and
+  verification, as before.
+- **The harness** (`deepcompare/harness/`) is the one place in the
+  project that talks to a network, and the engine never imports it —
+  both pinned by AST tests. Providers for OpenAI-compatible endpoints,
+  Anthropic Messages and Ollama chat share one neutral turn contract;
+  a scripted provider replays canned turns for tests. A generic tool
+  loop records every turn and call through `Recorder`, so a run from
+  any model is a first-class SCHEMA trajectory with declared
+  terminations. `agentdiff run --provider name=kind:model --tasks
+  tasks.json` writes the `task__agent__run.json` layout every command
+  reads.
+- **Counterfactual replay** (`harness.replay`) executes a recipe:
+  rebuild the conversation from the recorded steps up to the decisive
+  one, substitute the correction (a tool's result, the agent's words,
+  or what it asked of the tool), let the same model continue, N times.
+  Every replay is itself a recorded trajectory (prefix steps marked
+  `replayed prefix`, the corrected step `counterfactual correction`),
+  diffable against the original. The verdict is three-valued and the
+  flip count and rate are always reported, because replay conclusions
+  are themselves unstable — editing one step changes every downstream
+  prompt.
+- **Sanity checks** (`tests/test_diagnosis_sanity.py`), in the lineage
+  of sanity checks for saliency maps: identical traces manufacture no
+  decisive difference; swapping outcome labels moves the story to the
+  other run; swapping argument order changes nothing of substance.
+
+### The eval reasoning layer: `reading` (v33)
+
+Everything else compares; the reading *understands one run*. Every pair
+report now carries `reading: {a, b}`, and `agentdiff explain
+<trace.json>` produces the same object for a single trace. It is
+mechanical, deterministic, and grounded: every finding cites a ledger
+of quotes (`evidence`, verified by `check_reading` — empty means
+grounded, not true, the same boundary as `check_diagnosis`).
+
+```json
+"reading": {
+  "phases": [{"intent": "acquire", "steps": [1], "summary": "1 step — gathered information (web_search)"}],
+  "what_happened": [{"step": 3, "type": "read", "intent": "acquire",
+                     "role": "feeds_answer", "feeds_answer": true,
+                     "invented_argument": false, "evidence": "R4"}],
+  "rests_on": [{"kind": "money", "value": "$4.5 billion", "first_step": 3,
+                "source": "open_page", "matches_expected": false}],
+  "why_it_ended": {"success": false, "termination": "undeclared", "declared": false,
+                   "verdict_basis": "the answer contradicts the expected value",
+                   "grounds": ["R11", "R12"]},
+  "what_it_means": [{"kind": "pathology", "flag": "blind_write",
+                     "statement": "the run wrote before reading anything that justified the write",
+                     "steps": [1], "evidence": ["R2"], "evidence_class": "observable"}],
+  "take_forward": [{"action": "require a read that justifies the write before any write",
+                    "because": "pathology", "steps": [1]}],
+  "confidence": {"level": "high", "basis": "6 of 7 finding(s) rest on observable events"},
+  "summary": "hasty-v2 took 7 step(s) and succeeded. Findings: …"
+}
+```
+
+- **Phases** are contiguous runs of one intent (frame / acquire / decide
+  / verify / transform / commit), the run's outline in order.
+- **Roles** are decided by observables: `error`, `repeat`,
+  `no_information`, `feeds_answer` (the step first carried a typed value
+  the answer asserts — provenance beats overlap — or its output shares
+  measurable words with the answer), `dead_end`, or the intent itself.
+- **`rests_on`** traces every typed value in the answer to the earliest
+  step that carried it, with a `status` per atom (v2): `supported`
+  (first carried by an observation step's output — the world told the
+  agent), `self_asserted` (only plan/reason steps or the agent's own
+  tool inputs carried it), `unsupported` (nothing carried it), `stale`
+  (the supporting observation was later superseded by the same call
+  returning something else) or `contradicted` (the run observed the
+  expected value and answered a different one). **`answer_basis`** rolls
+  the atoms up — overall status, `basis_steps`, `basis_complete_at`
+  (the last step that added a supported value) and
+  `steps_after_basis_complete` (spend after the answer was available) —
+  and stale, contradicted, unsourced and spent-after-basis all become
+  findings with actions.
+- **`validity`** (v2) is judged *before* anything is attributed to the
+  agent: `harness_terminated`, `tool_failure_rate` with its
+  denominator, `environment_error_steps`, `answer_without_basis`, and
+  `expected_leaked` (the gold answer appearing verbatim in an
+  observation — the environment leaked it, so success measures nothing).
+  A status other than `clean` puts a "fix the measurement first" action
+  at the head of `take_forward` and marks every agent-attributed action
+  `conditional_on_validity`.
+- **`verdict_basis`** names one of four honest cases: the answer carries
+  the expected value; it contradicts it; it carries the expected value
+  *yet the run failed* (the grader, or the deed behind the words, is
+  suspect — the wrong-entity case); or the two share no typed value and
+  the verdict rests on the grader's reading of the text.
+- **Evidence classes.** Reasoning models verbalize what actually drove
+  them only a minority of the time (Anthropic 2025; Arcuschin et al.
+  2025), so every finding is tagged `observable` (a call, an output, an
+  answer, a declared termination), `annotation` (a quality mark someone
+  wrote) or `stated` (the agent's own words), and `confidence` is set by
+  the strongest class supporting the findings — never by how articulate
+  the agent was.
+- **`phase_checks`** (v2) are the order-of-work checks from the
+  coding-agent literature: `first_write_before_any_read`,
+  `verification_after_last_write` (with the checking step),
+  `regression_cycles` (act → look → act patterns over the read/write
+  effect sequence, each cycle's steps listed) — all with evidence refs;
+  each raised check is a finding with an action.
+- **`errors`** and **`critical_error`** (v2) give every tool error its
+  lifecycle: `resolved` (a later changed call of the same tool
+  succeeded — `resolved_at` names it), `unresolved_with_footprint` (an
+  atom from the error's output reached the answer, or the value the
+  call should have produced is absent and the answer has no observed
+  basis), or `unresolved_without_footprint`. The critical error is the
+  earliest unresolved one with a footprint, labelled `hypothesized` and
+  carrying a replay recipe ("make the call succeed or route around it")
+  — the same contract as the pair diagnosis's decisive step.
+- **`take_forward`** (v2 shape) is the actionable-critique contract from
+  Reflexion and AgentDebug — a located, evidenced, directional
+  instruction: `{at_step, what, instead, refs, replay_recipe, because,
+  steps, conditional_on_validity}` (`action` mirrors `instead` for v1
+  readers). Two findings that yield the same instruction merge into one
+  entry carrying both findings' steps and statements. A clean failure
+  with no finding says so: compare against a passing run.
+- **The evidence window** (`narrate.evidence_window`, v2): the
+  narration brief never carries the whole trace. For each run it shows
+  only the steps the reading cites — findings, errors, the critical
+  error, the answer basis, the next actions — in trace order, each cut
+  to `WINDOW_STEP_BYTES` (600), stopping at `WINDOW_TOTAL_BYTES` (8000),
+  with a fact stating how many referenced steps were shown, how many
+  omitted for budget, and how many steps of the run no finding cites.
+  The run's summary bookends its facts (primacy and recency), because
+  long-context readers degrade monotonically and lose the middle.
+
+## The benchmark audits itself (v35)
+
+From the Agentic Benchmark Checklist (NeurIPS 2025) and the Leaky Model
+Organisms critique (2026), three checks run before any score:
+
+- **`null_agent` control** — a sixteenth generated family: plan to skip
+  every tool, restate the prompt. Truth is a divergence at the plan or
+  the answer; abstention is a miss by construction, because a diagnoser
+  that abstains on a do-nothing run is scoring luck.
+- **Injection contract** — `bench.pair_validity`: the clean twin must
+  pass its own grader (expected text contained, punctuation-tolerant),
+  else the pair is `invalid_pairs` — excluded from every denominator
+  and counted, never silent; the manifest's `artifact` (the wrong
+  value, error string, invented entity, duplicated call…) must appear
+  in the failing trace between the decisive step and the answer, else
+  the scenario is `unreachable_artifact`. The scorecard prints both.
+  The first run of this contract flagged two handcrafted pairs — and
+  the defect was the check's: containment failed on a trailing full
+  stop versus a comma. One tolerant normalization
+  (`semantic.normalize_for_containment`) now serves the contract and
+  the harness's default grader alike.
+- **Leakage probe** — `bench.leakage_probe`: a surface-cue detector
+  with no engine (termination value, expected text verbatim, write
+  before read, duplicate write, error text, annotation marks, template
+  words, first step without a twin). Its kind and step accuracy are
+  scored beside the engine's and `engine_minus_probe` is the headline.
+  Measured at 2,200 pairs: kind margin +0.33 annotated / +0.28
+  stripped; step margin +0.09 annotated and **−0.02 stripped** — the
+  probe matches the engine at step localization once annotations are
+  gone, because the implanted decisive step is usually the first novel
+  step. The corpus leaks on that axis, and says so — v36 fixes it.
+
+## Decoy families and the re-anchor rule (v36)
+
+The v35 leak was a property of the corpus, not the engine: in every
+original family the decisive step happened to be the first step the
+passing run did not also take, so a detector with no causal model
+could match the engine. Two generated families (manifest version 6,
+eighteen families) break that regularity on purpose:
+
+- **`late_decision`** — the failing run diverges harmlessly first: two
+  value-free cross-check reads the passing run never made, carrying
+  nothing forward; the real cause is a *later* read of the key tool
+  from a secondary source that returns the wrong value. Decisive step
+  = that read, two steps after the first novel step.
+- **`misread_reason`** — both runs observe the true value; the failing
+  run adds one benign remark, then a reason step that misreads the
+  figure as a value no observation returned. Decisive = the misreading,
+  the second novel step.
+
+The engine meets them with one rule, in `_fuse`: when the wrong fact
+enters *after* the divergence root and every step in between is
+inconsequential — no write effect, no typed value or number in its
+output, no measurable word overlap with any later step or the answer —
+the divergence re-anchors to the wrong fact's entry, and its statement
+says so (`— the steps from r to o−1 carried nothing forward, so the
+anchor moves to step o`). This is the decisive-step criterion applied
+consistently: a step whose correction changes nothing downstream
+cannot be the earliest step whose correction flips the outcome.
+
+The guard matters as much as the rule. Its first cut tested only for
+values that *reappeared* downstream, and moved the t05 demo pair's
+anchor off a wrong local-time calculation (`11:45`) to the reason step
+that first showed it as `11h45m`. Any step that emitted a typed value
+or a bare number is now consequential by construction — a normaliser's
+blind spot must never move an anchor. Pinned in `tests/test_bench_rigor`.
+
+Measured at 2,200 pairs after the fix: engine step margin over the
+probe **+0.07 annotated, +0.10 stripped** (was +0.09 / −0.02); both
+decoy families at 1.0 on cause kind; the valueless ticket domain, which
+has no typed wrong fact to re-anchor on, stays adjacent by one step and
+is reported as such.
+
+## Replay, time, compression, and the loop back (v44)
+
+- **Replay.** *What happened* gains a toolbar: *play how it went*
+  re-tells the run one step at a time — later steps dimmed, the current
+  step pulsing, the answer's value arcs and the decisive ring arriving
+  in order, the failure strip filling in — with a scrubber, a speed
+  (×1–×8), and *inspector follows* (the map's inspector opens each step
+  as it arrives). Replay only changes opacity and a class, so its last
+  frame is exactly the static picture; state lives with the run, so a
+  window move or a resize resumes where it was; reduced motion jumps to
+  the end. `space` on a focused chart plays and pauses.
+- **Time axis.** *steps | time* switches the x axis to wall-clock time
+  (cumulative latency): a slow tool call takes the room it took, and
+  near-zero steps keep a 9 px floor so they stay distinct.
+- **Compression.** *compress repeats* folds consecutive steps with the
+  same type and name into one unit — *lookup ×300* — drawn as a stacked
+  mark with its count and its steps' range; the decisive step, an error,
+  a step that produced an answer value, and the answer are never folded.
+  A unit's failure-strip cell is the worst of its members; its tooltip
+  sums tokens and latency; a click opens it. A 306-step run becomes six
+  units, no window needed. `AgentDiff.charts.mode.{get,set,expand}`
+  drives it from outside.
+
+- **Debug session** (block *Debug session*, Evidence view). One run, or
+  the pair, debugged step by step: an aligned A/B strip with a cell per
+  step (model turn, tool call, answer; a red outline for an error) and a
+  gap per one-sided alignment row, the reading's phases as state bands
+  beneath, and marks for errors, retries (a call to the same tool after
+  it returned an error, identical or changed arguments), model switches
+  (a step whose recorded model differs from the one before), no-
+  information steps, and the decisive step with its replay verdict.
+  Per-run aggregates on top (model turns, tool calls, tool errors,
+  retries, model switches, no-info steps, phases and transitions,
+  tokens, latency, cost). For the selected step, six layers side by
+  side with the aligned step of the other run: the model call (model,
+  tokens, latency, confidence when recorded), the tool selection
+  (against the other side's tool, with the argument diff), the tool
+  response, the state transition, the output values the answer rests on
+  that this step produced, and the replay at the decisive step — with
+  the step's own, cumulative and run-total statistics. Clicking a cell
+  moves the shared cursor (`agentdiff:select-step`), so the timeline,
+  map and inspector follow, and their clicks move this block.
+- **The evaluation scorecard, golden sets, offline and online, the judge
+  beside the grade** (`deepcompare/scorecard.py`, CLI `eval`, `--golden`/
+  `--policy` on `runs`, `batch` and `loop`, `--judge` on `loop`, block
+  *Evaluation scorecard*, `docs/EVAL.md`). Per agent, every dimension an
+  agent evaluation asks about, each a count or an interval over the runs
+  listed: task success, correct tool called, answer grounded, policy
+  compliant, no risk flag, stopped when done, no loop, no tool error,
+  errors recovered — all with 95% Wilson intervals; latency, cost,
+  tokens, steps and tool calls per run; risk against reward (reward =
+  success rate, risk = share of runs with a flag, ratio = reward / risk,
+  none when nothing was flagged); trajectory counts (repeats, cycles,
+  loops, steps after done, no-information steps, step-limit runs, writes
+  and blind writes, terminations); and the judging model's verdicts
+  beside the grade with agreement and the 2×2 of grade × judge. A golden
+  dataset (the tasks file with `expected_tools`, `any_of_tools`,
+  `only_expected_tools`, `forbidden_tools`, and a `policy` with
+  forbidden tools and patterns, `write_requires_read`,
+  `verify_after_write`, `max_writes`) makes tool correctness and policy
+  measurable; without one they read not measurable, never a guess. The
+  card says whether it was offline (a golden set) or online (traces as
+  recorded). `loop --judge` makes the judging model the grader, so tasks
+  without an expected answer can be run; such traces say
+  `graded_by: "model"` and keep the exact match as the reference. Loop
+  page redesigned as statistics: KPI tiles (pooled success with
+  interval, the paired difference with its interval and sign test, runs
+  against budget, hypotheses kept/reverted/dropped, routing picks
+  clear), success by iteration with interval bands and experiments
+  marked, each experiment as a per-task dumbbell over the two pooled
+  intervals, a grid of interval width per family per comparison, a table
+  view, and the ledger with the statistics on every row. The variance
+  block's per-metric reason is a note, not an empty state.
+- **The agentic loop** (`deepcompare/planner.py`, `deepcompare/harness/loop.py`,
+  CLI `loop`, block *Agent loop*, `docs/AGENTIC.md`). AgentDiff runs
+  itself: given a task set and two agents it runs a baseline, compares,
+  reads the failures, turns a finding into a prompt hypothesis, tests
+  the hypothesis as a paired experiment (the agent with its current
+  prompt against the same agent with the change, same tasks, same
+  number of runs), keeps or reverts it on the paired result, spends
+  further runs on the task families whose routing pick is still unclear
+  (widest interval first), and stops for a stated reason. The
+  controller is `planner.py`: rules over the engine's numbers, pure and
+  deterministic, with a sentence attached to every decision — no model
+  is in the control path, so the loop cannot be talked into a
+  conclusion. Rules: one variable per experiment; a change is kept when
+  it wins more tasks than it loses with no always-pass→always-fail
+  regression, `kept` under a sign test below 0.05 and `kept
+  (provisional)` otherwise; a kept change retires the agent's older
+  runs and re-measures any task the experiment did not cover; a queued
+  hypothesis whose source failure no longer reproduces is dropped, not
+  run; equal rates over six runs a side are a tie no further run can
+  break. Every iteration is a full `runs` analysis (page included) in
+  `iter-NN/`; the ledger `loop.json` carries the state, every decision
+  with its evidence, the pools, and is what `--resume` continues from;
+  `LOOP.md` is the same in prose; the closing page carries the ledger as
+  `aggregate.loop`. Prompt changes reach provider agents as the system
+  prompt and command agents through `DEEPCOMPARE_SYSTEM_PROMPT`; runs
+  under a kept change were recorded as `<agent>+p<n>` and the ledger
+  names the relabelling. `--suggest AGENT=TEXT` queues a hypothesis of
+  your own to test first. The feedback templates now cover the kinds the
+  reading actually emits (unsourced answer value, contradicted by own
+  observation, stale basis, unresolved error, meltdown onset, regression
+  cycle, wrote before reading, unchecked write, unverified) and the
+  `stopping` attribution category — before, a failing run's most common
+  findings produced no sentence for the next prompt.
+- **Statistics, checkpoints, replay, equality, and the holistic case.**
+  *Equality of output* (`deepcompare/equality.py`, `aggregate.equality`,
+  block *Output equality*): per task and agent, the distinct answers
+  over the runs (after a named normalisation), the equality rate (runs
+  agreeing with the majority), whether the majority matches the expected
+  answer, and whether the two agents' majorities agree — the divergence
+  of outputs at a glance, as dot strips per answer; folded per family
+  into the router's features (`equality_rate`, `mean_distinct_answers`,
+  `consistently_wrong_tasks`). *Checkpoints*: `Recorder.checkpoint()`
+  writes the run-so-far beside the trace; the store keeps a
+  `checkpoints` table (one per run and step, idempotent) that `watch
+  --db` fills from every live update, `db checkpoints` lists, and
+  `replay --from-step` resumes from. *A holistic rationale*
+  (`router.rationale`, in `routing.json` and the Routing block): for
+  each family and overall, who is picked and how surely, the interval
+  against the runner-up, cost, latency, steps and tool calls per run,
+  output equality, the diagnosed fault kinds, and what would settle an
+  open pick — every number in it is in the table.
+- **A second model judges the output** (`deepcompare/harness/judge.py`,
+  CLI `judge`). A judging model — any provider, scripted for tests —
+  reads the task, the final answer and optionally the steps, and returns
+  solved-or-not, a score and a rationale; recorded as `outcome.judge`
+  beside the existing grade with the model, the rubric, agreement with
+  the prior grade and a `self_judged` flag when the judge is the agent's
+  own model; applied to `outcome.success` only with `--apply`, which
+  marks `graded_by: model`. The outcome block shows the judge's tag and
+  its disagreement. The engine never calls a judge.
+- **Trace Claude Code — live and after the fact** (`deepcompare/claude_code.py`,
+  CLI `hook`, format `claude-code`). Claude Code runs shell hooks around
+  every tool call and at the end of a turn; `python -m deepcompare hook
+  --traces DIR --task ID [--expected …]` is such a hook: `PostToolUse`
+  appends a `tool_call` step to `DIR/<task>__claude-code.live.json` (what
+  `watch` draws as it grows), `Stop` writes the final trace from the
+  session transcript — the assistant's text between calls as `reason`
+  steps, each `tool_use` with its `tool_result`, the usage counts as
+  tokens — and removes the live file. A transcript JSONL converts on its
+  own (`convert session.jsonl`; the registry detects the shape). A run
+  with no expected answer is written ungraded (`success: false`,
+  `score: null`, a note) — never a guessed success. The same trace
+  compares with any other coding agent's: run the other through the
+  harness (`run --agent cmd:…`) or convert its log, and `batch` the pair.
+- **Router features** (`deepcompare/router.py`, CLI `route`,
+  `aggregate.routing`, block *Routing*). Per task family, every agent's
+  success rate with its 95% Wilson interval, mean cost, latency, tokens,
+  steps and tool calls, terminations, and — with reports — the fault
+  kinds it tends to make; then the pick under an objective (`success`:
+  highest lower bound, then cheaper; `cost`/`latency`/`steps`: best of
+  those with a lower bound of at least one half). The pick's confidence
+  is stated: *clear* only when the top two intervals do not overlap,
+  *overlapping* (either) when they do, *insufficient* under three runs
+  per candidate. `router_hints` is one line per family a router can
+  act on. The demo's three-run families come out *overlapping* — as
+  they should. (Agent selection — best single, portfolios, the oracle
+  ceiling — stays in `routing.py` and the `select` command.)
+- **A database for traces** (`deepcompare/tracedb.py`, CLI `db`,
+  `--db FILE` on `route`). One SQLite file (stdlib): a row per
+  trajectory with the SCHEMA JSON beside indexed columns (task, family,
+  agent, model, run, outcome, termination, tokens, cost, latency, steps,
+  tool calls, source, recorded time) and a row per step, with FTS5
+  full-text search over step text where the build has it. `db import`
+  is idempotent by trace id; `db summary`, `db query`, `db search`,
+  `db export`; `watch --db` and `hook --db` ingest as traces land, each
+  with its provenance. What comes out is the same `Trajectory` a
+  directory would give; an invalid trace is refused, not stored.
+- **The two runs over time — the story's hero** (`charts.body`, block
+  `trace-body`). A super panel first: A beside B on outcome, decisive
+  step, first divergence, and five paired stats from `metrics_delta`
+  (steps, tool calls, tokens, latency, cost) with paired bars, then the
+  semantic similarity mean, the confidence and the trade-off statement.
+  Under it the body chart: each run a trunk along wall-clock time
+  (cumulative latency); its thinking — plan, reason, decide, verify — on
+  the trunk as squares and diamonds; every tool call a branch to a leaf
+  placed within the call's own duration, filled when its result fed the
+  answer, dashed when a dead end; the answer ending the trunk with ✓ or
+  ✗ and its time. A's branches grow up, B's down, so the gutter holds
+  the alignment: matched steps joined, drift in amber, a ranked
+  divergence in red; the fault's path reddens the failed trunk and the
+  decisive step is ringed. `d3.zoom` on time (wheel or drag; `+` `-`
+  `0`; double-click resets; labels drop at a zoom too tight for them).
+  A click opens the step in the inspector docked under the chart. The
+  Evidence view keeps the trajectory map as its hero.
+  **What the trunk measures** is a switch in the super panel: *tokens*
+  (the default — the trunk's length is proportional to what each step
+  produced, so a long-thinking step is long), *time* (each step's
+  latency) or *steps* (one unit each); the ruler, the end labels and
+  every tooltip follow, and the zoom resets on a switch.
+  **At scale, the body folds.** At every zoom, steps of one run that
+  land within 30 px of each other fold into a *bubble*: a capsule on the
+  trunk spanning their time, labelled ×N and the dominant tool, with what
+  is inside beneath it (tools by count, thoughts, errors, how many fed
+  the answer), tinted red when the fault runs through it, dashed when
+  every step inside was a dead end. The decisive step, the answers and
+  errors never fold, so what matters stays a node at every zoom; the
+  alignment lands on the bubble at each member's own time, one link per
+  pair of places. Zoom in and a bubble splits into bubbles, then steps;
+  click one and the chart zooms one level into it — details on demand,
+  reconstructed as you go. A 306-step pair opens as two capsules and one
+  ringed step. Pinned by `LongTrajectoryTest`.
+- **AgentDiff Live — the deployed demo** (`web/build_live.py` →
+  `web/live.html`, published as a claude.ai artifact). Two real Claude
+  agents — *atlas*, told to normalise before arithmetic and verify twice,
+  and *bolt*, told to use the fewest tool calls — solve the same task in
+  the viewer's browser through the artifact runtime's `sample`
+  capability, with the task's tools defined in the page (`convert_to_utc`,
+  `datetime_diff`, `calculator`; `search`, `open` over a fixture corpus).
+  Every thought between tool calls and every call streams into a step
+  line, the newest pulsing; a browser-side diff follows (alignment by
+  type, tool and argument overlap, outcome against the expected answer,
+  first divergence), labelled the light version. The engine's findings
+  for each task's recorded pair are precomputed and cached in the page;
+  finished live runs are cached in the artifact's shared store and
+  replay for anyone; traces save as SCHEMA JSON for `deepcompare batch`.
+  Opened outside claude.ai the page replays the recorded pair and calls
+  nothing. No public model endpoint is reachable from the build
+  sandbox, which is why the agents run on the viewer's account.
+- **Live: watch agents run.** `Recorder(stream=True)` writes the
+  run-so-far to `<trace>.live.json` after every step and every
+  observation, and removes it when the final lands. `deepcompare watch
+  traces/` serves the page from localhost and pushes every change over
+  server-sent events (`/events`; `/data.json` for scripts): finished
+  pairs go through the ordinary engine and become reports; a trace still
+  being written is handed over as it is, marked in progress, and **never
+  analysed** — a diagnosis on half a run would flip around as it grows.
+  The page's *Running now* section (story section 0) draws each running
+  agent as a line of steps, the newest pulsing, new arrivals popping in,
+  with tokens and latency so far and the last three steps in full; a
+  live-only task is listed in the picker; when the pair finishes the
+  story replaces the stream in place, without a reload. A badge says
+  *LIVE · connected · n running · m compared · time*. `deepcompare watch
+  --demo demo/traces --pace 0.4 [--loop]` replays the demo as if its
+  agents were running now. The page's privacy claim holds: opened from a
+  file it has no live data and the client does nothing; served, it
+  listens to the server that served it and nothing else. The server
+  lives in the harness package, the network boundary.
+- **The loop back** (`deepcompare/feedback.py`, `report.feedback`, CLI
+  `feedback`, story section *Next horizon*). Why anyone reads a diff: to
+  change something. Each report now carries what the pair hands forward,
+  derived read-only from its own fields: **step labels** — every step of
+  both runs tagged `fault_enters` / `fault_carried` / `wrong_answer`
+  (diagnosis), `dead_end` / `no_information` / `repeat` / `fed_answer`
+  (the reading's roles), `spent_after_basis`, `invented_argument`,
+  `error`, or `clean`, each with its source field — dense supervision for
+  a process reward; **reward shaping** — the events those labels support,
+  with sign, count and basis; a **preference pair** — chosen = the passing
+  run, or the reconciled splice when the report has one (labelled an
+  estimate with its confidence), rejected = the failing run, with the step
+  they diverge at, in the prompt/chosen/rejected shape a preference
+  loader reads (`feedback --jsonl`); **prompt suggestions** — one
+  sentence per finding kind the reading located on the failing run
+  (faithful to a wrong observation, spent after basis, wasted work, dead
+  ends, repeats, invented arguments, …) plus one from the attribution's
+  category naming the actual tools (*use datetime_diff rather than
+  calculator*), each citing its finding and references and carrying the
+  replay that would test it, each marked *suggested — a hypothesis until
+  a replay flips the outcome*. A human's quality mark never becomes a
+  prompt. The page's *Next horizon* section lists them with a copy
+  button, the reward table, the pair, and a download of the signal.
+
+## The story as three charts (v43)
+
+The story view is now a numbered sequence — *1 · What happened, 2 · The
+trace as a tree, 3 · Why, 4 · Reconcile, 5 · Take forward, 6 · Across
+the batch, 7 · Cost* — and the first five sections open with a D3 chart
+drawn on one shared idea: a run is a line
+of steps, and everything worth understanding about it sits on that line.
+
+- **What happened** (`AgentDiff.charts.story`): the reading's phases as
+  bands over the step line; one mark per step shaped by its role (fed
+  the answer, framed, decided, checked, dead end, repeat, error, the
+  answer); an arc from the step that first produced each answer value to
+  the answer, coloured by its basis status and marked ✗ when the value
+  does not match the expected answer; the decisive ring (dashed while
+  hypothesized, solid once replay-verified); the basis-complete tick and
+  a hatched span for the steps spent after it.
+- **Why** (`charts.why`): one bar per hypothesis at the engine's score,
+  filled by status (leading, merged, plausible, ruled out); its evidence
+  as marks — supports by evidence class (filled observable, dashed
+  annotation, hollow stated), contradictions as ×; the margin as a
+  bracket; the decisive window on the subject run's step line.
+- **The trace as a tree** (`charts.tree`, new block `trace-tree`, story
+  section 2): the pair as one hierarchy — the task at the root, each run
+  a branch, the reading's phases, their steps, and under a step the
+  answer values it first produced (`rests_on`, coloured by basis status,
+  ✗ when wrong). Links along the fault's path (the attribution chain and
+  the causal account of the failed run) are red; dead ends and repeats
+  dashed; the decisive step ringed. Phases fold and unfold with a click
+  or Enter (a phase of more than eight steps starts folded unless it
+  holds the decisive step); a step opens in the inspector; a value
+  selects the step that produced it. A collapsible tidy tree, animated
+  under the same motion rule.
+- **How it became a failure** (in *What happened*): under the step line,
+  one cell per step whose state is read from the report — the fault
+  (causal account / attribution chain: *fault enters* at the decisive
+  step, *carried*, *wrong answer* at the commit), a ranked divergence,
+  drifted from or same as the other run (alignment op), or only this run
+  took the step. On a passing run the strip reads *how it stayed on
+  track*. Each cell's tooltip names its source field.
+- **Reconcile** (`charts.reconcile`, new block `reconcile`, story
+  section 4): the report's counterfactual splice as three lanes — the
+  passing run, the reconciled trajectory (the failing run's prefix, the
+  passing run's decision at the cut, the passing run's steps after it),
+  the failing run — with links from every reconciled step to the run it
+  came from, the cut at the decisive step, ✓/✗ at the real lanes' ends
+  and *est. success* at the reconciled one. Beneath, the strategy as
+  numbered steps: keep, correct (the replay recipe's correction,
+  verbatim), follow, replay (≥3, what it expects), expect (the estimate
+  with its deltas, called a splice estimate with its confidence). Absent
+  when the report carries neither a splice nor a replay recipe.
+- **Take forward** (`charts.forward`, new block `take-forward`): the
+  reading's located next actions as numbered pins on the step line,
+  stacked when they share a step and red at the decisive one; a list
+  numbered to match that quotes each `instead` verbatim with its reason,
+  replay recipe and references; when the report carries a counterfactual
+  splice, *what the fix buys* as actual-vs-estimate bars, labelled an
+  estimate with its confidence.
+- Every mark is focusable; a click or Enter moves the trajectory
+  family's cursor, so the map's inspector opens the same step. Tooltips
+  quote the report. Transitions run 380 ms and 0 under
+  `prefers-reduced-motion`. Charts measure their host once attached and
+  redraw on resize, so a phone gets the same chart at its width.
+- **Long trajectories: details on demand.** Every step-line chart draws
+  a *window* of steps at a readable size (at least 44 px each, so 24 on
+  a desktop and 8 on a phone) and, when the run is longer than that, an
+  *overview* of every step above it: a thin strip tinted by each step's
+  state, the decisive step ticked, the window as a brush that drags, a
+  click on the strip that centres the window there, arrows that page it,
+  and a caption (*steps 12–35 of 305*). `←` `→` page, `Home` `End` jump,
+  `a` shows every step compressed. The window is one piece of state per
+  run per task, so the story, the forward pins and the reconcile lanes
+  move together; `AgentDiff.charts.focus.{get,set,all}` drives it from
+  outside. Arcs from steps outside the window start at the edge and say
+  which step they come from; values whose both ends are outside are
+  counted in the caption. The tree pages a phase of more than twenty
+  steps: the page around the decisive step when it holds one, else the
+  first, with *more* nodes at either end. A 306-step pair first-paints
+  in about two seconds and the story stays under 6,000 px; pinned by
+  `LongTrajectoryTest`.
+- Charts draw once their host is in the document (one paint, not two)
+  and again only when its width changes or a shared key repaints; the
+  tooltip is one element; state maps are keyed by task and stay small.
+- D3 7.9.0 is vendored under `web/vendor/` with its licence, inlined by
+  the build; the page stays one offline file (about 1 MB). Build tests
+  pin the licence and that no module of ours fetches through D3.
+
+## Intervals on the confidence line, model internals as evidence (v42)
+
+- **Per-step confidence interval.** `deepcompare.logprobs` now writes
+  `model.interval` `{low, high, n, basis}` — the 95% normal interval of
+  the step's mean token probability over its own scored tokens, `None`
+  under three tokens. `uncertainty.{a,b}.interval` carries the series
+  beside `series`, with `interval_basis` quoted from the traces. The
+  page shades the band under each run's confidence line, breaks it at
+  unscored steps, draws a whisker on every map node in the tokens
+  column, and prints `[low – high] n=…` with the basis in the inspector.
+  A basis beginning `SYNTHETIC` colours the legend key and says so.
+- **pass^k band.** The reliability curve shades each point's recorded
+  `ci95` (plug-in Wilson, raised to k) beneath the pass^k line with the
+  `ci95_basis` in the legend; points without a `ci95` leave a gap.
+- **Model internals.** The harness can stamp each step with the SAE
+  features its text activates: `deepcompare.harness.neuronpedia` talks
+  to the Neuronpedia API (`/search-all`, `/feature`, `/explanation/search`)
+  with `NEURONPEDIA_API_KEY` read from the environment only, or answers
+  from a `ScriptedNeuronpedia` table offline; `attach_internals(step,
+  client)` writes `model.internals` `{model, sae, source, features[{index,
+  activation, max_activation, label, tokens, url}], note}`. The network
+  boundary is unchanged: only the harness package imports `urllib`.
+- **`report.internals`.** Pure engine code diffs features across aligned
+  steps (`only_a`, `only_b`, `shared` with signed deltas) and, at the
+  decisive step, reports `exclusive_features` — what fired only on the
+  failing side — as the *internal signature*. The signature is appended
+  as `observable` evidence (path `internals.decisive.exclusive_features`)
+  on the leading hypothesis and never changes a score, so a pair with and
+  without internals ranks identically. Its note states the causal
+  boundary: an activation difference is an observation until steering or
+  ablating the feature and replaying flips the outcome.
+- **On the page.** A `◈` mark beside every node that carries internals
+  (red at the decisive step when a feature is exclusive there); an
+  *internals* section in the inspector with activation bars, dashboard
+  links and an `only here` tag on the exclusive feature; `synthetic` tags
+  wherever the source is synthetic.
+- **Demo.** `demo/telemetry` traces carry SYNTHETIC intervals and
+  SYNTHETIC internals (labelled in every field) so the views can be seen
+  without a key; the Colab notebook records real ones from an open-weights
+  model through Neuronpedia.
+
+## Evidence classes, overdetermination, meltdown, intervals, one confidence (v41)
+
+- **Evidence classes.** Every `diagnosis.evidence` item carries
+  `evidence_class`: `observable` (recorded tool input/output, answers,
+  outcomes, alignment, effects), `annotation` (`quality`/`note` fields),
+  `stated` (plan and reason text). Every hypothesis carries
+  `evidence_classes: {observable, annotation, stated}` counts over its
+  `supports`. At equal score a hypothesis with observable support ranks
+  above one resting on annotations or stated reasoning alone; the
+  verdict sentence ends with what the lead rests on ("on observable
+  evidence (3 item(s); 1 annotation)" / "on annotations only — someone's
+  judgement, verify by hand" / "on stated reasoning only"). Measured:
+  identical kind and step outcomes to the previous engine on the same
+  300-pair corpora in both conditions — the class is information, not
+  a re-ranking of anything already decided.
+- **Overdetermination guard** (`decisive_step.overdetermined`): the one
+  signature a trace can show without a replay — the run *observed* a
+  wrong value and then *asserted* a different wrong value of the same
+  kind that reached the answer, both exclusive to this run. Correcting
+  either alone leaves the other. The object is `{status: "possible",
+  candidates: [{kind, step, value, role}], note, replay_recipe: [...]}`,
+  mirrored into `joint_candidates`; the verdict and the card's CAUSE
+  line say "possibly overdetermined … correcting either alone leaves the
+  other". Anything looser (a visible pathology at another step) fires on
+  distractors as often as on causes — the first two cuts of this guard
+  did, at 35–130 of 252 single-cause scenarios — so the engine says
+  nothing there. Corpus family `overdetermined` (manifest v7, nineteen
+  families; typed-value domains only, else divergence_only): the engine
+  flags 10/10 in both conditions and 0 of 290 elsewhere.
+- **Meltdown onset** (reading finding `meltdown_onset`, R7): five or more
+  consecutive observation steps that are one tool with one unchanged
+  input — tool-choice entropy collapsed to zero while the run kept
+  stepping; observable; take-forward "stop and re-plan when the last
+  calls are one tool with unchanged input".
+- **pass^k intervals**: each point of `pass_hat_k.curve` carries
+  `ci95: [lo, hi]` — the 95% Wilson interval of the pooled per-run rate
+  raised to k (`ci95_basis` states the plug-in assumption); `runs`
+  prints `k=2:0.667 [0.21, 0.94]`.
+- **One confidence vocabulary** (`deepcompare/confidence.py`):
+  `{level, n, basis, verified}` with `verified ∈ hypothesized |
+  replay-verified | replay-refuted | replay-mixed | n/a`; `n ≤ 1` can
+  never be `high`. `diagnosis.confidence` (n=1, verified from the
+  decisive step), `reading.confidence` (n=1), the verdict card and
+  recommendations quote it; a recommendation from one task says
+  "n=1; not a gain estimate" instead of "+100pt success (1/1 tasks)".
+- **Hypothesis generators** are a registry (`HYPOTHESIS_GENERATORS`, one
+  `HypothesisGenerator(name, fn, failed_only, single_failure_only)` per
+  kind); `Ledger` is the public evidence registry (`_Ledger` kept as an
+  alias). Behavior-preserving: the strict bench and the 300-pair
+  corpora score identically.
+
+## Any agent, replay from the CLI, why (v40)
+
+- **Report `task` carries `expected`** (`{id, prompt, expected}`), so a
+  replay can grade its rollouts from the report alone.
+- **`diagnosis.decisive_step.verification`** is written back by
+  `agentdiff replay`: `replay-verified` / `replay-refuted` /
+  `replay-mixed`, with `decisive_step.replay = {verdict, replays,
+  flipped, flip_rate, step, correction {input, output, borrowed_from |
+  text}, provider {name, model}, runs [{run, success, termination,
+  flipped}], note}`. The correction defaults to the passing run's
+  aligned step, verbatim. The verdict card is recomputed and its
+  `confidence` line reads `replay-verified (3/3 replays flipped the
+  outcome)`; a page beside the report (`<report>.html`) is re-rendered,
+  so the map's ring goes solid.
+- **External agents** (`deepcompare/harness/external.py`):
+  `--agent NAME=python:module:callable` — the callable receives
+  `(task, tools)` and returns a SCHEMA trace dict or an OpenAI-style
+  message list; `--agent NAME=cmd:TEMPLATE` — a shell command with
+  `{prompt_file}` (task JSON) and `{out_file}`. The harness grades the
+  answer, declares the termination (`agent_stop` with an answer step,
+  `agent_error` without one — an empty answer step is appended so the
+  trace stays valid — `infrastructure_error` on a crash or a non-zero
+  exit), stamps identity and task, and names the file
+  `<task>__<agent>[__<run>].json`; the trace carries
+  `harness: {adapter, graded_by: "harness"}`. `trace_id` equals the
+  file stem for every harness-written trace.
+- **Provider options on the CLI** for `run`, `replay`, `why`:
+  `--base-url`, `--temperature`, `--api-key-env` (the variable's name,
+  never a key); scripted providers ignore them.
+- **`agentdiff why REPORT --provider …`**: builds the narration brief,
+  calls the provider once, ingests the text through the existing
+  number-and-citation check, stores it under `narration` with
+  `source: "harness-provider"` and `facts_in_brief`, prints it under the
+  verdict card. A provider failure exits 3 and writes nothing. The
+  covenant holds by construction: nothing but `narration` changes.
+
+## The trajectory map redesigned (v39)
+
+UI only; the report contract is unchanged. `web/blocks/20_trajectory.js`:
+
+- **Geometry**: two lanes of at most 420px each, placed adjacent around
+  a gutter of 240px (≥ 960px wide), 200px (≥ 720px) or 28% of the width
+  floored at 84px, centred in the card. Below a 200px lane the excerpt
+  line is dropped and rows tighten to 26px; the name is never cut — a
+  name wider than its lane is squeezed with `textLength`.
+- **Nodes** (`g.tj-hit`, one per visible step): glyph, `N · name`
+  (`text.tjm-name`), a one-line excerpt (`text.tjm-excerpt`; output for
+  observation steps, input otherwise), tokens (`text.tjm-tokens`), a
+  `<title>` with the full recorded input and output (600 chars). Each is
+  `tabindex="0"`, `role="button"`, `aria-label="A step 2 · name …"`,
+  `data-side`, `data-i` (lane position), `data-index` (step index).
+  Enter/Space select; ↑↓ move within the lane; ←→ cross to the other
+  lane at the same position; the focused node is re-focused after the
+  redraw a selection triggers.
+- **Gutter labels** (`text.tjm-edge-label`, drawn with a surface-colour
+  halo): `match`, `drift s`, `diverge s` on alignment edges;
+  `claim value ✓|✗` on claim curves (`tjm-claim-label`); omitted when
+  the gutter is under 120px.
+- **Loop collapse**: three or more consecutive steps identical in type,
+  name and input draw as one node with a `×N` badge (`text.tjm-loop`);
+  clicking it expands the group (`▾ ×N` collapses again). Edges to
+  hidden steps land on the group's node; one-sided stubs for hidden
+  steps are not drawn.
+- **Phase bands** (`rect.tjm-phase[data-intent]`): a 4px band at each
+  lane's outer edge per `reading[side].phases`, tinted by phase order,
+  labelled with the intent when the lane is wide.
+- **Step detail**: `.tj-diff` with a word-level LCS diff of input and of
+  output when both runs have text at the selected row and it differs
+  (`<del>` only A said it, `<ins>` only B); capped at 400 words a side.
+- The claim readout line is `aria-live="polite"`.
+
+Tests: `tests/test_blocks_ui.py::MapRedesignTest` (geometry as hero and
+in a column, no truncated names at 1440/390, keyboard select with focus
+survival, word diff, ×4 collapse on a synthetic loop).
+
+## The reading on the page, graded rings, and a quiet first visit (v38)
+
+UI only; the report contract is unchanged.
+
+- **Reading block** (`web/blocks/08_reading.js`, id `reading`, group
+  outcome): the eval reasoning layer rendered from `report.reading[side]`
+  verbatim — A/B toggle defaulting to the failing run, summary, the
+  validity warning when the measurement is not clean, phases, the
+  `rests_on` table (value · status · first step · source · matches / not
+  in expected / contradicts), why it ended, findings ordered observable →
+  annotation → stated, take-forward as a list. Every step reference is a
+  ⌖ chip that dispatches `agentdiff:select-step` with the step's
+  alignment row, so the map, step detail and run lens follow.
+- **Run lens** shows the reading's per-step role (`feeds answer`, `dead
+  end`, `no information`) as a chip beside `decisive`.
+- **Confidence-graded decisive ring**: the map draws the decisive step's
+  ring by `diagnosis.decisive_step.verification`, never by score — solid
+  only when `replay-verified`, long-dashed (`6,3`) while `hypothesized`;
+  the attributed root stays short-dashed; the legend says which. Class
+  names `tj-ring dec verified|hypothesized` / `tj-ring root`.
+- **First visit**: no visitor-id toast (the You panel states what is
+  stored); the reorder suggestion never appears before the second visit
+  (a `visits` counter in durable storage).
+- **Accessibility**: every root chart `<svg>` a block draws gets
+  `role="img"`, an accessible name from the block's title and question,
+  and a `<title>` (core post-pass after each render, lead lane included);
+  the page has one `<h1>` — the task prompt; no CSS text below 11px
+  (63 sizes floored) and no SVG tick label below 10px.
+- `explain --html` renders phases from `reading.phases` (the first cut
+  read the per-step list and printed empty spans).
+
+## The verdict card, the demo, and sentences worth printing (v37)
+
+Every pair report carries `verdict_card`: `{version: 1, lines: [{key,
+text, source, step?, side?}]}` with keys `verdict`, `cause`, `cost`,
+`fix`, `confidence`, in that order, computed last by `verdict.verdict_card`
+so that every line quotes a section already on the report:
+
+- `verdict` from the two outcomes ("A solved t; B failed.");
+- `cause` from `diagnosis.decisive_step` — the step, the leading
+  hypothesis's category, the verification state — with the mechanism
+  taken from the trace's own step `note` when the decisive step carries
+  one, else the leading hypothesis's statement; carries `step`/`side`;
+- `cost` from `tradeoff.spend_delta_b_minus_a`, listing only the parts
+  that differ, and "faster to nothing" when the cheaper run failed;
+- `fix` from the failing (or costlier) side's first located
+  `reading.take_forward` entry, carrying `step`/`side`;
+- `confidence` from `diagnosis.confidence`, plus whether the decisive
+  step is replay-verified.
+
+A line with nothing to say is omitted — no `cost` when nothing differed.
+The CLI prints the card first (`compare`, `demo`); the blocks page renders
+it in a new **lead lane** above the hero (`web/blocks/04_verdict.js`,
+registered with `lead: true`; lead blocks have one home, no layout
+controls, and their step lines are chips that move the shared cursor).
+
+New commands and flags: `agentdiff demo [-o DIR] [--open]` compares the
+shipped pairs, writes the blocks report and prints the flagship card;
+`compare --html PATH` writes the blocks page for one pair; `explain
+--html PATH` writes a stdlib-rendered page of one reading
+(`deepcompare/htmlout.py`). `web/blocks.html` is now the default report
+template for `batch`, `runs` and `fleet`; `--template web/viewer.html`
+keeps the earlier viewer.
+
+Sentences with nothing in them are no longer emitted: success analysis
+lists only the steps/tokens/latency actually avoided; recommendations
+list only non-zero extra spend; a run's ending reads "termination not
+declared" rather than "undeclared (not declared)"; an answer-step root
+"committed to a different answer" rather than "made an incorrect tool
+call". The demo agents' `model` labels are `sim-*` — they are scripts,
+and vendor names implied a comparison of real models that never ran.
+`deepcompare.__version__` matches `pyproject.toml`.
+
+## Paired inference and clustered error bars (v34)
+
+Two agents on the same tasks is a paired design, and a paired test has
+far more power than eyeballing two rates; tasks that share a source are
+not independent draws, and a naive standard error can be several times
+too small (Miller, *Adding Error Bars to Evals*, 2024). `statistics.py`
+gains three pure-stdlib tools and three surfaces use them:
+
+- **`paired_inference(pairs, labels)`** — per-task outcome pairs
+  (booleans, or success rates for multi-run tasks) → mean difference (A
+  minus B) with a paired standard error and 95% interval, the
+  discordant-pair counts, an **exact two-sided sign test** (McNemar's
+  exact form) on the discordant pairs, and a verdict that refuses to
+  distinguish below ten paired tasks — the denominator stated either
+  way. Unpaired tasks are dropped and counted, never silently.
+- **`clustered_se(values, clusters)`** — the cluster-robust standard
+  error of a mean (the sandwich estimator with the G/(G−1) factor),
+  reported beside the naive SE with their ratio and both intervals.
+- **`runs`** writes `aggregate.paired_inference` for the two agents
+  over the task set (per-task success rates paired) and prints it;
+  **`fleet`** writes `fleet.paired_inference`, one entry per agent pair,
+  so the ranking of means is accompanied by which orderings the tasks
+  can actually distinguish; the **benchmark scorecard** carries
+  `overall.clustered_by_cause` — scenarios in one cause family share a
+  template, so the honest error bar on the accuracy is the clustered
+  one, and the terminal scorecard prints both.
+
+## The trajectory map (v32)
+
+The report page grew two blocks that put the individual trajectories
+themselves in front of the reader, and the pins that keep them honest:
+
+- **Trajectory map** — each run as its own vertical lane, every single
+  step a clickable node in run order (Tracks compresses; the map does
+  not). The gutter carries the conversation between the runs: one edge
+  per two-sided alignment row (solid matched, dashed drifted, red
+  divergent), an open stub where only one run took a step — the agent
+  named in its title, the other side of the gutter honestly empty —
+  and a dotted claim curve where the same fact surfaces in both runs
+  (red = contradicts the expected answer). Diagnosis overlays: decisive
+  step ringed solid, attributed root ringed dashed, causal-account
+  steps haloed; a contested diagnosis prints its abstention under the
+  map instead of committing to a ring.
+- **Claim readout** — a claim curve is never tooltip-only: clicking it
+  (through a wider invisible hit twin) rings both endpoint nodes,
+  writes the claim into a wrapping readout line — value verbatim,
+  wrong/shared status, `A step i ↔ B step j` — and moves the family
+  cursor to the carrying step; a `claims: N` footer chip cycles the
+  edges without hover.
+- **Run lens** — one run read end to end: A/B toggle defaulting to the
+  failing run, every step expandable to its full recorded input and
+  output, the diagnosis marks (decisive, root, on-account,
+  no-source-argument) inline. Lens state — chosen side, open steps —
+  is task-scoped and resets on task switch, like the cursor and the
+  claim selection.
+- **The family cursor grew a documented door** — the walkthrough's
+  `agentdiff:select-step` CustomEvent fallback ("any module may listen")
+  had no listener anywhere and fired into silence; the trajectory
+  family's cursor now listens, so the documented path moves Step
+  detail, Tracks, the map and the lens exactly as a hand click would.
+- **Fits its column** — only the hero block gets the full-width lane,
+  and the map's early 480px width floor clipped the entire B lane off a
+  ~340px layout column; the map now draws in exactly the width its
+  container has, with the label budget charging the index prefix.
+- **Pinned honesty at scale** — browser tests computed from the reports
+  they run against pin: one node per step (a 70-vs-76-step pair draws
+  all 146 — no silent caps), one edge per two-sided row and one stub
+  per one-sided row (never both), claim readout value verbatim with
+  both endpoints ringed, batch task-switching resetting map, lens and
+  claim state with no stale highlights, scrolling instead of squashing,
+  and click-to-cursor sync at row 65.

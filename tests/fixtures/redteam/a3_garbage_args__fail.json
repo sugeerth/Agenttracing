@@ -1,0 +1,75 @@
+{
+ "schema_version": 1,
+ "trace_id": "a3_garbage_args-scout-v2",
+ "agent": {
+  "name": "scout-v2",
+  "model": "model-x",
+  "version": "1"
+ },
+ "task": {
+  "id": "a3_garbage_args",
+  "prompt": "What is the total of invoice INV-7001 after the partner discount?",
+  "expected": "Invoice INV-7001 totals $1,850.00 after the discount."
+ },
+ "outcome": {
+  "success": false,
+  "answer": "I could not complete the task for INV-7001: the invoice service returned an error.",
+  "score": 0.0,
+  "termination": "agent_stop"
+ },
+ "totals": {
+  "input_tokens": 400,
+  "output_tokens": 160,
+  "cost_usd": 0.001,
+  "latency_s": 4.0
+ },
+ "steps": [
+  {
+   "type": "plan",
+   "name": "plan",
+   "input": "Fetch the invoice and compute the total.",
+   "output": "",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "index": 0
+  },
+  {
+   "type": "tool_call",
+   "name": "get_invoice",
+   "input": "get_invoice(id='INVOICE-9938')",
+   "output": "Error: no such invoice INVOICE-9938 (404).",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "effect": "read",
+   "error": true,
+   "index": 1
+  },
+  {
+   "type": "reason",
+   "name": "reason",
+   "input": "The invoice system is failing; the total cannot be read.",
+   "output": "",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "index": 2
+  },
+  {
+   "type": "answer",
+   "name": "final",
+   "input": "I could not complete the task for INV-7001: the invoice service returned an error.",
+   "output": "I could not complete the task for INV-7001: the invoice service returned an error.",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "index": 3
+  }
+ ],
+ "tools": [
+  {
+   "name": "get_invoice",
+   "effect": "read"
+  }
+ ],
+ "budget": {
+  "max_steps": 12
+ }
+}

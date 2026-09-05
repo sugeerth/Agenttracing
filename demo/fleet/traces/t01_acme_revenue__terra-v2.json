@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "trace_id": "t01_acme_revenue__terra-v2",
+  "agent": {
+    "name": "terra-v2",
+    "model": "gemini-3-pro",
+    "version": "v2"
+  },
+  "task": {
+    "id": "t01_acme_revenue",
+    "prompt": "Find ACME Corp's total revenue for fiscal year 2025. Report a single dollar figure and say where it came from.",
+    "expected": "$4.82 billion"
+  },
+  "outcome": {
+    "success": false,
+    "answer": "ACME Corp's total revenue for fiscal year 2025 was around $4.6 billion, per stockchatter.io.",
+    "score": 0.0
+  },
+  "totals": {
+    "input_tokens": 681,
+    "output_tokens": 226,
+    "cost_usd": 0.005433,
+    "latency_s": 10.45
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "1) Search for ACME Corp's FY2025 annual results. 2) Open the investor-relations press release or 10-K. 3) Extract total revenue from the full-year highlights. 4) Report the figure with its source.",
+      "output": "Plan set. Starting with a targeted search of investor sources.",
+      "tokens": 162,
+      "latency_s": 1.98,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "search",
+      "name": "web_search",
+      "input": "ACME Corp FY2025 annual results total revenue investor relations",
+      "output": "[1] ir.acmecorp.com — \"ACME Corp Reports Fourth Quarter and Full Year Fiscal 2025 Results\" | [2] marketpulse.io — \"ACME beats estimates as cloud unit accelerates\" | [3] financeblog.net — \"What ACME's monster 2025 really means for shareholders\" | [4] wikipedia.org — ACME Corp",
+      "tokens": 183,
+      "latency_s": 2.59,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 2,
+      "type": "retrieve",
+      "name": "select_result",
+      "input": "Open the stockchatter.io write-up — it looks like a handy summary of the 2025 numbers.",
+      "output": "Selected https://stockchatter.io/posts/acme-fy25-hot-take (third-party commentary blog, no primary citation visible).",
+      "tokens": 149,
+      "latency_s": 1.2,
+      "quality": "bad",
+      "note": "Divergence: picked a commentary blog over the official investor-relations release in result [1]."
+    },
+    {
+      "index": 3,
+      "type": "read",
+      "name": "open_page",
+      "input": "https://stockchatter.io/posts/acme-fy25-hot-take",
+      "output": "stockchatter.io: \"Hot take: ACME's fiscal 2025 haul lands somewhere around $4.6 billion by my count — the cloud segment did the heavy lifting while margins treaded water.\"",
+      "tokens": 153,
+      "latency_s": 2.05,
+      "quality": "weak",
+      "note": null
+    },
+    {
+      "index": 4,
+      "type": "reason",
+      "name": "reason",
+      "input": "Confidence check.",
+      "output": "The figure is repeated across commentary sites, which is corroboration enough for a revenue headline. Reporting it.",
+      "tokens": 131,
+      "latency_s": 1.28,
+      "quality": "bad",
+      "note": "Commentary-site consensus mistaken for corroboration; the primary source was never opened."
+    },
+    {
+      "index": 5,
+      "type": "answer",
+      "name": "final_answer",
+      "input": "Report the corroborated figure.",
+      "output": "ACME Corp's total revenue for fiscal year 2025 was around $4.6 billion, per stockchatter.io.",
+      "tokens": 129,
+      "latency_s": 1.35,
+      "quality": "bad",
+      "note": null
+    }
+  ]
+}

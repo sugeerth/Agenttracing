@@ -1,0 +1,2109 @@
+"""Command-line interface for DeepCompare AI.
+
+Usage::
+
+    python -m deepcompare compare a.json b.json -o report.json
+    python -m deepcompare batch tracesdir/ -o out/ [--template web/viewer.html]
+    python -m deepcompare fleet tracesdir/ -o out/ [--weights success=0.5,...]
+    python -m deepcompare gate baseline/ candidate/ -o out/ [--markdown gate.md]
+
+``compare`` diffs a single pair of traces and prints a terminal summary
+(first divergence + attribution).  ``batch`` pairs traces by task id across
+the two agent names found in a directory, writes per-task reports,
+``aggregate.json``, and ``report.html`` rendered from the viewer template.
+``fleet`` auto-discovers all agents in a directory, ranks them (composite
+score, Pareto frontier, failure fingerprints), and writes ``fleet.json``
+plus a fleet ``report.html`` with spotlight pairwise reports.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import os
+import sys
+from pathlib import Path
+from typing import Optional
+
+from .adapters import from_openai_messages, from_otel_genai
+from .ci import (
+    DEFAULT_FAIL_ON,
+    FAIL_ON_CHOICES,
+    collect_trace_paths,
+    exit_code as ci_exit_code,
+    write_ci_artifacts,
+)
+from .registry import convert as registry_convert, dry_run, formats
+from .claude_code import register_format as _register_claude_code
+_register_claude_code()
+from .router import routing_table, router_hints
+from .tracedb import TraceDB
+from .equality import equality_analysis
+from .scorecard import load_golden, load_policy, render_scorecard_markdown, scorecard as build_scorecard
+from .profile import build_profile, profile_suite
+from .cohort import GROUPERS, compare_cohorts, group_runs
+from .issues import build_issues, load_suppressions, render_issues_markdown
+from .conformance import check_suite, render_conformance_markdown
+from .routing import routing_analysis
+from .similarity import similarity_analysis
+from .fleet import DEFAULT_WEIGHTS, fleet_analysis
+from .gate import evaluate_gate, pair_gate_traces, render_gate_markdown
+from .metrics import aggregate as build_aggregate
+from .recommend import recommend
+from .triage import render_triage_text, triage
+from .reliability import reliability
+from .report import compare, render_html
+from .trace import Trajectory
+from .variance import METRICS as VARIANCE_METRICS, variance_report
+
+#: default viewer template, relative to the repo root (parent of the package).
+from .commands.paths import DEFAULT_TEMPLATE, LEGACY_TEMPLATE  # noqa: E402
+from .commands.live import (  # noqa: E402
+    _cmd_judge, _cmd_loop, _cmd_replay, _cmd_run, _cmd_watch, _cmd_why, _load_report, _provider_options,
+    _save_report, _split_spec,
+)
+#: template for the lightweight agent-selection view.
+SELECT_TEMPLATE = Path(__file__).resolve().parent.parent / "web" / "select.html"
+
+
+def _load(path: str) -> Trajectory:
+    return Trajectory.from_json(path)
+
+
+def _fmt_outcome(side: str, report_side: dict) -> str:
+    outcome = report_side["outcome"]
+    status = "SUCCESS" if outcome["success"] else "FAILURE"
+    return f"  {side}: {report_side['agent']['name']:<20} {status:<8} answer: {outcome['answer'][:70]}"
+
+
+def _print_summary(report: dict) -> None:
+    card = report.get("verdict_card")
+    if card and card.get("lines"):
+        from .verdict import format_verdict_card
+        print(format_verdict_card(card))
+        print()
+    print(f"Task: {report['task']['id']}")
+    print(f"Prompt: {report['task']['prompt'][:100]}")
+    print(_fmt_outcome("A", report["a"]))
+    print(_fmt_outcome("B", report["b"]))
+
+    delta = report["metrics_delta"]
+    print("Metrics (A vs B):")
+    for key in ("steps", "tokens", "cost_usd", "latency_s", "tool_calls", "searches"):
+        pair = delta[key]
+        print(f"  {key:<10} a={pair['a']:<10g} b={pair['b']:<10g}")
+
+    divergences = report["divergences"]
+    if divergences:
+        first = divergences[0]
+        print(f"Divergences: {len(divergences)}")
+        print(
+            f"  #1 [{first['kind']}] at a_index={first['a_index']} "
+            f"b_index={first['b_index']}"
+        )
+        print(f"     {first['summary']}")
+        print(f"     downstream: {json.dumps(first['downstream'])}")
+    else:
+        print("Divergences: none (trajectories fully match)")
+
+    attribution = report["attribution"]
+    print("Attribution:")
+    print(f"  failed_agent: {attribution['failed_agent']}")
+    if attribution["failed_agent"] is not None:
+        print(f"  root_cause_step: {attribution['root_cause_step']}")
+        print(f"  chain: {attribution['chain']}")
+        print(f"  category: {attribution['category']}")
+    print(f"  {attribution['explanation']}")
+
+    diagnosis = report.get("diagnosis") or {}
+    hypotheses = [h for h in diagnosis.get("hypotheses", [])
+                  if h.get("status") != "merged"]
+    if hypotheses:
+        # The adjudication, right after the single story it adjudicates:
+        # attribution above is one hypothesis among these, not the answer.
+        print("Diagnosis (attribution is one hypothesis; this ranks them all):")
+        print(f"  {diagnosis['verdict']}")
+        for h in hypotheses[:4]:
+            kind = h["kind"] + (f":{h['flag']}" if h.get("flag") else "")
+            score = "—" if h["score"] is None else f"{h['score']:.2f}"
+            print(f"  {h['id']} [{h['status']:>9}] {score}  {kind}: "
+                  f"{h['statement']}")
+        for clash in diagnosis.get("contradictions", []):
+            print(f"  ! {clash}")
+        lead = next((h for h in hypotheses
+                     if h["id"] == diagnosis.get("leading")), None)
+        if lead is not None and lead.get("discriminator"):
+            print(f"  to settle it: {lead['discriminator']}")
+        conf = diagnosis.get("confidence") or {}
+        if conf.get("basis"):
+            print(f"  confidence: {conf.get('level')} — {conf['basis']}")
+
+    sa = report.get("success_analysis")
+    if sa:
+        print("Success analysis:")
+        print(f"  {sa['narrative']}")
+
+    recs = recommend([report])
+    if recs:
+        print("Recommendations:")
+        for rec in recs:
+            print(f"  [{rec['severity']}/{rec['category']}] {rec['agent']} — {rec['finding']}")
+            print(f"    suggested prompt: {rec['suggested_prompt']}")
+            print(f"    expected gain: {rec['expected_gain']}")
+
+
+def _cmd_compare(args: argparse.Namespace) -> int:
+    try:
+        a = _load(args.a)
+        b = _load(args.b)
+        report = compare(a, b)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.output:
+        out = Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"Wrote {out}")
+    if getattr(args, "html", None):
+        html_out = Path(args.html)
+        html_out.parent.mkdir(parents=True, exist_ok=True)
+        render_html([report], {}, DEFAULT_TEMPLATE, html_out)
+        print(f"Wrote {html_out}")
+    _print_summary(report)
+    return 0
+
+
+DEMO_TRACES = Path(__file__).resolve().parent.parent / "demo" / "traces"
+DEMO_FLAGSHIP = "t05_flight_duration"
+
+
+def _cmd_demo(args: argparse.Namespace) -> int:
+    """One command to the first insight: compare the shipped demo pairs,
+    write the report page, print the flagship pair's verdict card."""
+    import contextlib
+    import io
+    if not DEMO_TRACES.is_dir():
+        print(f"error: demo traces not found at {DEMO_TRACES}", file=sys.stderr)
+        return 2
+    out_dir = Path(args.output)
+    batch_args = argparse.Namespace(tracesdir=str(DEMO_TRACES), output=str(out_dir),
+                                    template=None)
+    quiet = io.StringIO()
+    with contextlib.redirect_stdout(quiet):
+        code = _cmd_batch(batch_args)
+    if code != 0:
+        sys.stdout.write(quiet.getvalue())
+        return code
+    flagship = out_dir / f"report_{_safe_name(DEMO_FLAGSHIP)}.json"
+    reports = sorted(out_dir.glob("report_*.json"))
+    chosen = flagship if flagship.is_file() else (reports[0] if reports else None)
+    if chosen is None:
+        print("error: the demo batch produced no reports", file=sys.stderr)
+        return 2
+    report = json.loads(chosen.read_text(encoding="utf-8"))
+    from .verdict import format_verdict_card
+    print(f"AgentDiff demo — {len(reports)} task pair(s) compared; the flagship pair:")
+    print()
+    print(format_verdict_card(report.get("verdict_card") or {}))
+    print()
+    html_path = out_dir / "report.html"
+    if html_path.is_file():
+        print(f"Report: {html_path.resolve()}  (open it in a browser; every pair is in it)")
+        if getattr(args, "open", False):
+            import webbrowser
+            webbrowser.open(html_path.resolve().as_uri())
+    print(f"Per-pair JSON: {out_dir}/report_<task>.json — "
+          f"`agentdiff explain {DEMO_TRACES}/{DEMO_FLAGSHIP}__bolt-v3.json` reads one run")
+    return 0
+
+
+def _safe_name(task_id: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", task_id)
+
+
+def _cmd_batch(args: argparse.Namespace) -> int:
+    traces_dir = Path(args.tracesdir)
+    if not traces_dir.is_dir():
+        print(f"error: {traces_dir} is not a directory", file=sys.stderr)
+        return 2
+
+    trajectories = _load_traces_dir(traces_dir)
+    if not trajectories:
+        print("error: no valid traces found", file=sys.stderr)
+        return 2
+
+    agent_names = sorted({t.agent.name for t in trajectories})
+    if len(agent_names) != 2:
+        print(
+            f"error: batch mode needs traces from exactly 2 agents, "
+            f"found {len(agent_names)}: {', '.join(agent_names) or '(none)'}",
+            file=sys.stderr,
+        )
+        return 2
+    name_a, name_b = agent_names
+    print(f"Agents: A={name_a}  B={name_b}")
+
+    by_task: dict[str, dict[str, Trajectory]] = {}
+    for t in trajectories:
+        by_task.setdefault(t.task.id, {}).setdefault(t.agent.name, t)
+
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    reports: list[dict] = []
+    for task_id in sorted(by_task):
+        pair = by_task[task_id]
+        if name_a not in pair or name_b not in pair:
+            print(f"warning: task {task_id!r} lacks a trace for both agents; skipped",
+                  file=sys.stderr)
+            continue
+        report = compare(pair[name_a], pair[name_b])
+        reports.append(report)
+        report_path = out_dir / f"report_{_safe_name(task_id)}.json"
+        report_path.write_text(
+            json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        print(f"Wrote {report_path}")
+
+    if not reports:
+        print("error: no complete task pairs found", file=sys.stderr)
+        return 2
+
+    agg = build_aggregate(reports)
+    agg["routing"] = routing_table(trajectories)
+    try:
+        agg["scorecard"] = build_scorecard(
+            trajectories, load_golden(args.golden) if getattr(args, "golden", None) else None,
+            load_policy(args.policy) if getattr(args, "policy", None) else None)
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    # Re-cluster with any .agentdiffignore found beside the traces or in cwd.
+    patterns = (load_suppressions(traces_dir) or load_suppressions(Path.cwd()))
+    if patterns:
+        agg["issues"] = build_issues(reports, patterns)
+    agg_path = out_dir / "aggregate.json"
+    agg_path.write_text(json.dumps(agg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"Wrote {agg_path}")
+
+    template = Path(args.template) if args.template else DEFAULT_TEMPLATE
+    if template.is_file():
+        try:
+            html_path = render_html(reports, agg, template, out_dir / "report.html")
+            print(f"Wrote {html_path}")
+        except ValueError as exc:
+            print(f"warning: could not render HTML: {exc}", file=sys.stderr)
+    else:
+        print(f"warning: viewer template not found at {template}; skipping report.html",
+              file=sys.stderr)
+
+    print(
+        f"Done: {len(reports)} task pair(s), "
+        f"success A={agg['success_rate']['a']:.0%} B={agg['success_rate']['b']:.0%}"
+    )
+    for flag in agg["regressions"]:
+        print(f"  regression: {flag}")
+    if agg["recommendations"]:
+        print("Recommendations:")
+        for rec in agg["recommendations"]:
+            print(f"  [{rec['severity']}/{rec['category']}] {rec['agent']} — {rec['finding']}")
+    issues = agg.get("issues") or {}
+    if issues.get("issues"):
+        print(f"\nSystematic issues: {issues['narrative']}")
+        for issue in issues["issues"]:
+            if issue["suppressed"]:
+                continue
+            print(f"  [{issue['severity']}] {issue['title']}")
+            print(f"    {len(issue['tasks'])} task(s): {', '.join(issue['tasks'])}"
+                  f"  |  {issue['failures_caused']} failure(s)"
+                  f"  |  +{issue['extra_tokens']:,} tokens")
+            print(f"    fingerprint: {issue['id']}")
+        if issues["suppressed"]:
+            print(f"  ({issues['suppressed']} suppressed by .agentdiffignore)")
+    diagnosis = agg.get("diagnosis") or {}
+    if diagnosis.get("note"):
+        print(f"Diagnosis: {diagnosis['note']}")
+    if agg["playbook"]:
+        print("Playbook — what good looks like:")
+        for habit in agg["playbook"]:
+            agents = ", ".join(habit["agents"])
+            print(f"  [{habit['kind']}] {agents}: {habit['habit']} — "
+                  f"{habit['evidence']}; {habit['impact']}")
+    # Printed last because it is the answer to "so which of all that first?" —
+    # a reader who stops here has still been told what to do.
+    for line in render_triage_text(agg.get("triage") or {}):
+        print(line)
+    return 0
+
+
+def _load_source(args: argparse.Namespace, attr: str = "tracesdir") -> list[Trajectory]:
+    """Trajectories from ``--db FILE`` when given, else from the directory."""
+    db_path = getattr(args, "db", None)
+    if db_path:
+        with TraceDB(db_path) as db:
+            filters = {}
+            if getattr(args, "db_agent", None):
+                filters["agent"] = list(args.db_agent)
+            if getattr(args, "db_family", None):
+                filters["family"] = args.db_family
+            return db.trajectories(**filters)
+    directory = getattr(args, attr, None)
+    if not directory:
+        print("error: give a trace directory or --db FILE", file=sys.stderr)
+        return []
+    return _load_traces_dir(Path(directory))
+
+
+def _db_source_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--db", default=None, metavar="FILE",
+                        help="read traces from this trace database instead of a directory")
+    parser.add_argument("--db-agent", action="append", default=None, metavar="NAME",
+                        help="with --db: only these agents (repeatable)")
+    parser.add_argument("--db-family", default=None, metavar="FAMILY", help="with --db: only this task family")
+
+
+def _load_traces_dir(traces_dir: Path) -> list[Trajectory]:
+    """Load all valid trajectory JSON files in a directory (sorted, with
+    warnings to stderr for invalid ones)."""
+    trajectories: list[Trajectory] = []
+    for path in sorted(traces_dir.glob("*.json")):
+        try:
+            trajectories.append(Trajectory.from_json(path))
+        except ValueError as exc:
+            print(f"warning: skipping invalid trace: {exc}", file=sys.stderr)
+    return trajectories
+
+
+def _parse_weights(spec: Optional[str]) -> Optional[dict[str, float]]:
+    """Parse a --weights spec like 'success=0.45,cost=0.15' into a dict."""
+    if not spec:
+        return None
+    weights: dict[str, float] = {}
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        key, sep, value = part.partition("=")
+        key = key.strip()
+        if not sep or key not in DEFAULT_WEIGHTS:
+            raise ValueError(
+                f"bad --weights entry {part!r}; expected one of "
+                f"{', '.join(sorted(DEFAULT_WEIGHTS))} as key=value"
+            )
+        try:
+            weights[key] = float(value)
+        except ValueError as exc:
+            raise ValueError(f"bad --weights value in {part!r}") from exc
+    return weights or None
+
+
+def _cmd_fleet(args: argparse.Namespace) -> int:
+    traces_dir = Path(args.tracesdir)
+    if not traces_dir.is_dir():
+        print(f"error: {traces_dir} is not a directory", file=sys.stderr)
+        return 2
+    try:
+        weights = _parse_weights(args.weights)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    trajectories = _load_traces_dir(traces_dir)
+    if not trajectories:
+        print("error: no valid traces found", file=sys.stderr)
+        return 2
+
+    by_agent: dict[str, dict[str, Trajectory]] = {}
+    for t in trajectories:
+        by_agent.setdefault(t.agent.name, {}).setdefault(t.task.id, t)
+
+    all_tasks = sorted({tid for tasks in by_agent.values() for tid in tasks})
+    complete: dict[str, list[Trajectory]] = {}
+    for name in sorted(by_agent):
+        missing = [tid for tid in all_tasks if tid not in by_agent[name]]
+        if missing:
+            print(
+                f"warning: agent {name!r} is missing task(s) "
+                f"{', '.join(missing)}; skipped",
+                file=sys.stderr,
+            )
+            continue
+        complete[name] = [by_agent[name][tid] for tid in all_tasks]
+    if len(complete) < 2:
+        print(
+            f"error: fleet mode needs at least 2 complete agents, "
+            f"found {len(complete)}",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        result = fleet_analysis(complete, weights=weights)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    fleet, reports = result["fleet"], result["reports"]
+
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    payload = {"fleet": fleet, "reports": reports, "aggregate": {}}
+    fleet_path = out_dir / "fleet.json"
+    fleet_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    print(f"Wrote {fleet_path}")
+
+    template = Path(args.template) if args.template else DEFAULT_TEMPLATE
+    if template.is_file():
+        try:
+            html_path = render_html(reports, {}, template, out_dir / "report.html", fleet=fleet)
+            print(f"Wrote {html_path}")
+        except ValueError as exc:
+            print(f"warning: could not render HTML: {exc}", file=sys.stderr)
+    else:
+        print(f"warning: viewer template not found at {template}; skipping report.html",
+              file=sys.stderr)
+
+    agents = fleet["agents"]
+    print(f"Fleet: {len(agents)} agents x {len(fleet['tasks'])} tasks")
+    header = f"{'rank':>4}  {'agent':<24} {'score':>6} {'success':>8} {'tokens':>9} {'calls':>6}  pareto"
+    print(header)
+    print("-" * len(header))
+    for a in agents:
+        m = a["metrics"]
+        calls = m["mean_tool_calls"] + m["mean_searches"]
+        star = "*" if a["pareto"] else ""
+        print(
+            f"{a['rank']:>4}  {a['name']:<24} {a['score']:>6.2f} "
+            f"{m['success_rate']:>8.0%} {m['mean_tokens']:>9.0f} {calls:>6.1f}  {star}"
+        )
+    print("Top rationales:")
+    for a in agents[:3]:
+        print(f"  #{a['rank']} {a['name']}: {a['rationale']}")
+    print("Spotlight pairs:")
+    for pair in fleet["spotlight_pairs"]:
+        print(f"  {pair['a']} vs {pair['b']} — {pair['why']} "
+              f"(reports {pair['report_indices']})")
+    return 0
+
+
+def _add_ci_args(parser: argparse.ArgumentParser) -> None:
+    """CI-artifact flags, shared by the commands that produce a verdict."""
+    parser.add_argument("--junit", nargs="?", const="junit.xml",
+                        help="write JUnit XML (default name: junit.xml, "
+                             "relative to -o)")
+    parser.add_argument("--sarif", nargs="?", const="results.sarif",
+                        help="write SARIF 2.1.0 for code scanning "
+                             "(default name: results.sarif, relative to -o)")
+    parser.add_argument("--job-summary", nargs="?", const="ci-summary.md",
+                        help="write the Markdown job summary "
+                             "(default name: ci-summary.md, relative to -o)")
+    parser.add_argument("--github-annotations", action="store_true",
+                        help="print ::error/::warning/::notice workflow "
+                             "commands on stdout, and append the job summary "
+                             "to $GITHUB_STEP_SUMMARY when set")
+    parser.add_argument("--fail-on", choices=FAIL_ON_CHOICES,
+                        default=DEFAULT_FAIL_ON,
+                        help="severity that fails the build: never | "
+                             "regression (default) | pathology | any "
+                             "(any includes checks that could not be "
+                             "measured). Exit 0 = clean, 1 = findings at or "
+                             "above the threshold, 2 = usage/data error")
+    parser.set_defaults(ci=True)
+
+
+def _emit_ci(args: argparse.Namespace, result: dict, out_dir: Path,
+             reports: Optional[list[dict]] = None,
+             trace_dir: Optional[Path] = None) -> int:
+    """Write the requested CI artifacts and return the policy exit code."""
+    trace_paths = collect_trace_paths(trace_dir) if trace_dir else None
+    for path in write_ci_artifacts(
+        result,
+        out_dir,
+        reports=reports,
+        trace_paths=trace_paths,
+        junit=args.junit,
+        sarif=args.sarif,
+        summary=args.job_summary,
+        annotations=args.github_annotations,
+        fail_on=args.fail_on,
+    ):
+        print(f"Wrote {path}")
+    return ci_exit_code(result, reports=reports, fail_on=args.fail_on,
+                        trace_paths=trace_paths)
+
+
+def _cmd_gate(args: argparse.Namespace) -> int:
+    base_dir = Path(args.baseline)
+    cand_dir = Path(args.candidate)
+    for d in (base_dir, cand_dir):
+        if not d.is_dir():
+            print(f"error: {d} is not a directory", file=sys.stderr)
+            return 2
+
+    baseline = _load_traces_dir(base_dir)
+    candidate = _load_traces_dir(cand_dir)
+    try:
+        base_name, cand_name, pairs = pair_gate_traces(baseline, candidate)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    dropped = (
+        {t.task.id for t in baseline} | {t.task.id for t in candidate}
+    ) - {b.task.id for b, _ in pairs}
+    for tid in sorted(dropped):
+        print(f"warning: task {tid!r} present on one side only; skipped", file=sys.stderr)
+
+    reports = [compare(base, cand) for base, cand in pairs]
+    gate = evaluate_gate(
+        reports,
+        thresholds={
+            "max_success_drop": args.max_success_drop,
+            "max_cost_increase": args.max_cost_increase,
+            "max_latency_increase": args.max_latency_increase,
+        },
+        allow_new_failure_modes=args.allow_new_failure_modes,
+    )
+
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    gate_path = out_dir / "gate.json"
+    gate_path.write_text(json.dumps(gate, indent=2, ensure_ascii=False) + "\n",
+                         encoding="utf-8")
+    print(f"Wrote {gate_path}")
+    if args.markdown:
+        md_path = Path(args.markdown)
+        if not md_path.is_absolute():
+            md_path = out_dir / md_path
+        md_path.write_text(render_gate_markdown(gate, reports), encoding="utf-8")
+        print(f"Wrote {md_path}")
+
+    print(f"Gate: baseline {base_name} vs candidate {cand_name} "
+          f"({gate['tasks']} task(s))")
+    for check in gate["checks"]:
+        status = "PASS" if check["pass"] else "FAIL"
+        print(f"  [{status}] {check['name']}: {check['detail']}")
+    regressed = [s["task"] for s in gate["reports_summary"] if s["regressed"]]
+    if regressed:
+        print(f"  regressed tasks: {', '.join(regressed)}")
+        # A blocked candidate deserves a cause, not just a verdict: each
+        # regressed task's pair report already carries an adjudicated
+        # diagnosis of the candidate's new failure.
+        by_task = {r["task"]["id"]: r for r in reports}
+        for tid in regressed:
+            diag = (by_task.get(tid) or {}).get("diagnosis") or {}
+            if diag.get("mode") == "single_failure":
+                print(f"    why {tid}: {diag['verdict']}")
+    print(f"Verdict: {gate['verdict'].upper()}")
+    # The exit code is the CI policy, not the verdict: --fail-on regression
+    # (the default) reproduces "gate failed -> 1" exactly, while a looser or
+    # stricter threshold moves the line without changing what was reported.
+    return _emit_ci(args, gate, out_dir, reports=reports, trace_dir=cand_dir)
+
+
+def _run_id_from_name(path: Path) -> Optional[str]:
+    """Run id from a ``<task>__<agent>__<run>.json`` filename, else None."""
+    parts = path.stem.split("__")
+    return parts[2] if len(parts) >= 3 else None
+
+
+def _cmd_db(args: argparse.Namespace) -> int:
+    """The trace database: import, summary, query, search, export."""
+    with TraceDB(args.db) as db:
+        if args.db_cmd == "import":
+            total = {"added": 0, "skipped": []}
+            for directory in args.dirs:
+                result = db.add_directory(directory, source=args.source)
+                total["added"] += result["added"]
+                total["skipped"] += result["skipped"]
+            print(f"imported {total['added']} trace(s) into {args.db}" +
+                  (f"; skipped {len(total['skipped'])}" if total["skipped"] else ""))
+            for line in total["skipped"][:10]:
+                print("  skipped " + line, file=sys.stderr)
+            return 0
+        if args.db_cmd == "summary":
+            summary = db.summary()
+            print(json.dumps(summary, indent=1, ensure_ascii=False) if args.json else
+                  f"{summary['path']}: {summary['traces']} trace(s), {summary['steps']} step(s)"
+                  + (", full-text search on" if summary["fts"] else "")
+                  + "\n  agents: " + ", ".join(f"{a} {v['successes']}/{v['n']}" for a, v in summary["success_by_agent"].items())
+                  + "\n  families: " + ", ".join(f"{k} ×{v}" for k, v in list(summary["by"]["family"].items())[:12])
+                  + "\n  sources: " + ", ".join(f"{k or '?'} ×{v}" for k, v in summary["by"]["source"].items()))
+            return 0
+        if args.db_cmd == "query":
+            success = None if args.outcome == "any" else (args.outcome == "solved")
+            rows = db.query(limit=args.limit, task=args.task, family=args.family, agent=args.agent,
+                            success=success, source=args.source_filter)
+            if args.json:
+                print(json.dumps(rows, indent=1, ensure_ascii=False))
+            else:
+                for r in rows:
+                    print(f"{r['trace_id']:<44} {'✓' if r['success'] else '✗'} {r['steps']:>3} steps "
+                          f"{(r['cost_usd'] or 0):>8.4f}$ {(r['latency_s'] or 0):>7.2f}s  {r['source'] or ''}")
+                print(f"{len(rows)} of {db.count()} trace(s)")
+            return 0
+        if args.db_cmd == "search":
+            hits = db.search(args.text, limit=args.limit)
+            for h in hits:
+                print(f"{h['trace_id']} step {h['idx']} {h['type']} {h['name'] or ''}: {(h['output'] or '')[:90]!r}")
+            print(f"{len(hits)} hit(s)")
+            return 0
+        if args.db_cmd == "checkpoints":
+            if args.trace_id:
+                for c in db.checkpoints(args.trace_id):
+                    print(f"{c['trace_id']} step {c['step']:>4} {c['label'] or ''} {c['source'] or ''} "
+                          f"{len(c['trace'].get('steps') or [])} step(s) recorded")
+            else:
+                for c in db.checkpoint_ids():
+                    print(f"{c['trace_id']:<44} {c['n']:>3} checkpoint(s), latest at step {c['latest']}")
+            return 0
+        if args.db_cmd == "export":
+            out = Path(args.output)
+            out.mkdir(parents=True, exist_ok=True)
+            n = 0
+            for row in db.query(task=args.task, family=args.family, agent=args.agent):
+                data = db.get(row["trace_id"])
+                if data is None:
+                    continue
+                (out / (row["trace_id"] + ".json")).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+                n += 1
+            print(f"exported {n} trace(s) to {out}")
+            return 0
+    print("error: unknown db command", file=sys.stderr)
+    return 2
+
+
+def _cmd_hook(args: argparse.Namespace) -> int:
+    """Claude Code hook: stdin payload → a live step or the final trace."""
+    from .claude_code import main_hook
+    argv = ["--traces", args.traces, "--task", args.task, "--agent", args.agent]
+    if args.expected:
+        argv += ["--expected", args.expected]
+    if args.prompt:
+        argv += ["--prompt", args.prompt]
+    if args.db:
+        argv += ["--db", args.db]
+    return main_hook(argv)
+
+
+def _cmd_route(args: argparse.Namespace) -> int:
+    """Routing features: per task family, every agent's success interval,
+    cost, latency, steps and tool calls, and the pick under an objective."""
+    if not args.db and not Path(args.tracesdir or "").is_dir():
+        print(f"error: {args.tracesdir} is not a directory", file=sys.stderr)
+        return 2
+    trajectories = _load_source(args)
+    if not trajectories:
+        print("error: no valid traces", file=sys.stderr)
+        return 2
+    reports = []
+    if args.reports:
+        for path in sorted(Path(args.reports).glob("report_*.json")):
+            try:
+                reports.append(json.loads(path.read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                pass
+    by_task: dict = {}
+    for t in trajectories:
+        by_task.setdefault(t.task.id, {}).setdefault(t.agent.name, []).append(t)
+    repeated = any(len(runs) > 1 for agents in by_task.values() for runs in agents.values())
+    equality = equality_analysis(by_task) if repeated else None
+    table = routing_table(trajectories, objective=args.objective, family_pattern=args.family_pattern,
+                          reports=reports or None, equality=equality)
+    table["hints"] = router_hints(table)
+    if equality:
+        table["equality"] = equality["per_agent"]
+    if args.output:
+        Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.output).write_text(json.dumps(table, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"wrote {args.output}")
+    print(f"objective: {args.objective} · {len(table['families'])} famil{'y' if len(table['families']) == 1 else 'ies'} · "
+          f"{len(table['overall']['candidates'])} agent(s)")
+    for hint in table["hints"]:
+        route = hint["route_to"]
+        print(f"  {hint['family']:<28} → {route if isinstance(route, str) else ('either of ' + ' / '.join(route) if route else '—'):<24} {hint['basis']}")
+    ov = table["overall"]
+    print("  overall: " + ", ".join(f"{c['agent']} {c['features']['rate']:.0%} [{c['features']['ci95'][0]:.2f}–{c['features']['ci95'][1]:.2f}] n={c['features']['n']}" for c in ov["candidates"]))
+    if table.get("rationale", {}).get("overall"):
+        print("  rationale: " + table["rationale"]["overall"])
+    if args.verbose:
+        for fam, text in table["rationale"]["families"].items():
+            print(f"  {fam}: {text}")
+    return 0
+
+
+def _cmd_feedback(args: argparse.Namespace) -> int:
+    """The loop back: step labels, preference pairs, prompt suggestions
+    from one report or a directory of them."""
+    from .feedback import feedback_signal, to_jsonl
+    target = Path(args.target)
+    paths = sorted(target.glob("report_*.json")) if target.is_dir() else [target]
+    if not paths:
+        print(f"error: no report_*.json under {target}", file=sys.stderr)
+        return 2
+    signals = []
+    for path in paths:
+        try:
+            report = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            print(f"error: {path}: {exc}", file=sys.stderr)
+            return 2
+        signals.append(feedback_signal(report))
+    out = Path(args.output) if args.output else None
+    payload = signals if target.is_dir() else signals[0]
+    if out:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(payload, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"wrote {out}")
+    if args.jsonl:
+        Path(args.jsonl).parent.mkdir(parents=True, exist_ok=True)
+        text = to_jsonl(signals)
+        Path(args.jsonl).write_text(text, encoding="utf-8")
+        print(f"wrote {args.jsonl} — {text.count(chr(10))} preference pair(s)")
+    pairs = sum(1 for s in signals if s["preference_pair"])
+    suggestions = sum(len(s["prompt_suggestions"]) for s in signals)
+    print(f"{len(signals)} report(s): {pairs} preference pair(s), {suggestions} prompt suggestion(s), "
+          f"{sum(len(s['step_labels']) for s in signals)} labelled step(s)")
+    for sig in signals:
+        for sug in sig["prompt_suggestions"]:
+            print(f"  [{sig['task_id']}] {sug['kind']}: {sug['text']}")
+    if not out and not args.jsonl:
+        print(json.dumps(payload, indent=1, ensure_ascii=False))
+    return 0
+
+
+def _cmd_eval(args: argparse.Namespace) -> int:
+    """The evaluation scorecard over a directory of traces or the trace
+    database, offline (against a golden set) or online (as recorded);
+    with --judge, a second model grades every answer first (the only
+    part that talks to a network)."""
+    try:
+        trajectories = _load_source(args)
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if not trajectories:
+        print("error: no valid traces found", file=sys.stderr)
+        return 2
+    raws: dict = {}
+    if args.tracesdir and Path(args.tracesdir).is_dir():
+        for path in sorted(Path(args.tracesdir).glob("*.json")):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(data, dict) and "steps" in data:
+                raws[data.get("trace_id") or path.stem] = data
+                raws.setdefault(path.stem, data)
+    try:
+        golden = load_golden(args.golden) if args.golden else None
+        policy = load_policy(args.policy) if args.policy else None
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    judged = None
+    if args.judge:
+        from .harness import provider_from_spec
+        from .harness.judge import judge_many
+        _name, spec = _split_spec(args.judge)
+        options = _provider_options(args)
+        kind = spec.split(":", 1)[0].strip().lower()
+        factory = lambda: provider_from_spec(spec, **({} if kind == "scripted" else options))  # noqa: E731
+        targets = []
+        for t in trajectories:
+            raw = raws.get(t.trace_id)
+            if raw is None:
+                raw = t.to_dict()
+                raws[t.trace_id] = raw
+            targets.append(raw)
+        judged = judge_many(targets, factory, with_steps=args.with_steps, apply=False)
+        if args.write and args.tracesdir:
+            for path in sorted(Path(args.tracesdir).glob("*.json")):
+                data = raws.get(path.stem)
+                if data is not None:
+                    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    card = build_scorecard(trajectories, golden, policy, raws)
+    if judged:
+        card["judge_run"] = judged
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "eval.json").write_text(json.dumps(card, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    md = render_scorecard_markdown(card)
+    (out_dir / "EVAL.md").write_text(md, encoding="utf-8")
+    print(md)
+    if judged:
+        print(f"judge: {judged['judged']} judged, agreed with the grade on {judged['agreed_with_prior']}, "
+              f"disagreed on {judged['disagreed_with_prior']}, {judged['failed']} failed")
+    print(f"Wrote {out_dir / 'eval.json'} and {out_dir / 'EVAL.md'}")
+    return 0
+
+
+def _cmd_runs(args: argparse.Namespace) -> int:
+    runs_dir = Path(args.runsdir)
+    if not runs_dir.is_dir():
+        print(f"error: {runs_dir} is not a directory", file=sys.stderr)
+        return 2
+
+    trajectories: list[Trajectory] = []
+    trace_paths: list[Path] = []
+    for path in sorted(runs_dir.glob("*.json")):
+        try:
+            t = Trajectory.from_json(path)
+        except ValueError as exc:
+            print(f"warning: skipping invalid trace: {exc}", file=sys.stderr)
+            continue
+        name_run = _run_id_from_name(path)
+        if name_run:
+            t.run_id = name_run
+        trajectories.append(t)
+        trace_paths.append(path)
+    if not trajectories:
+        print("error: no valid traces found", file=sys.stderr)
+        return 2
+
+    from .suite import SuiteError, analyse_runs
+    try:
+        golden = load_golden(args.golden) if getattr(args, "golden", None) else None
+        policy = load_policy(args.policy) if getattr(args, "policy", None) else None
+        raws = {t.trace_id: json.loads(path.read_text(encoding="utf-8")) for t, path in zip(trajectories, trace_paths)}
+        analysed = analyse_runs(trajectories, warn=lambda m: print(f"warning: {m}", file=sys.stderr),
+                                golden=golden, policy=policy, raws=raws)
+    except (SuiteError, ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    name_a, name_b = analysed["names"]
+    print(f"Agents: A={name_a}  B={name_b}")
+    reports, agg = analysed["reports"], analysed["aggregate"]
+    stability, reliability_analysis = analysed["stability"], analysed["reliability"]
+
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for report in reports:
+        path = out_dir / f"report_{_safe_name(report['task']['id'])}.json"
+        path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+                        encoding="utf-8")
+        print(f"Wrote {path}")
+    agg_path = out_dir / "aggregate.json"
+    agg_path.write_text(json.dumps(agg, indent=2, ensure_ascii=False) + "\n",
+                        encoding="utf-8")
+    print(f"Wrote {agg_path}")
+
+    template = Path(args.template) if args.template else DEFAULT_TEMPLATE
+    if template.is_file():
+        try:
+            html_path = render_html(reports, agg, template, out_dir / "report.html")
+            print(f"Wrote {html_path}")
+        except ValueError as exc:
+            print(f"warning: could not render HTML: {exc}", file=sys.stderr)
+    else:
+        print(f"warning: viewer template not found at {template}; skipping report.html",
+              file=sys.stderr)
+
+    paired = agg["paired_inference"]
+    print(f"Paired inference over {paired['n_pairs']} task(s): "
+          f"{paired['labels'][0]} minus {paired['labels'][1]} = {paired['diff']}"
+          + (f" ± {paired['se']} (95% {paired['ci95']})" if paired['se'] is not None else "")
+          + f"; sign test p={paired['sign_test_p']} — {paired['verdict']}")
+    print(f"Runs: {stability['runs_per_agent']}")
+    for entry in stability["per_task"]:
+        repro = entry["divergence_reproducibility"]
+        print(f"  {entry['task']}: A {entry['a']['verdict']} "
+              f"B {entry['b']['verdict']} | divergence {repro['verdict']}"
+              + (f" ({repro['kind']}, rate {repro['rate']:g})" if repro["kind"] else ""))
+    print(stability["narrative"])
+    consolidated = agg["diagnosis_consolidated"]
+    print("Diagnosis across runs:")
+    for entry in consolidated["per_task_agent"]:
+        if not entry["failures"]:
+            continue
+        verdict = entry["consolidated"]
+        repro = entry["failure_reproduction"]
+        print(f"  {entry['task']} / {entry['agent']} "
+              f"(fails {repro['k']} of {repro['n']}): "
+              f"[{verdict['status']}] {verdict['statement']}")
+        spectrum = entry.get("spectrum") or {}
+        if spectrum.get("measurable"):
+            for row in spectrum["signatures"][:3]:
+                step = row["step"]
+                print(f"    spectrum {row['suspiciousness']:.2f}  "
+                      f"{step['name']}({step['input'][:50]!r}) — in "
+                      f"{row['in_failing']} of {row['of_failing']} failing, "
+                      f"{row['in_passing']} of {row['of_passing']} passing "
+                      f"run(s)")
+        elif spectrum.get("note"):
+            print(f"    spectrum: {spectrum['note']}")
+    print(f"  {consolidated['narrative']}")
+    _print_reliability(reliability_analysis)
+    return 0
+
+
+def _print_reliability(analysis: dict) -> None:
+    """Print the reliability block: the k-curves, the consistency scores, and
+    every qualifier that keeps them honest."""
+    print("\nReliability (repeated runs):")
+    for side in sorted(analysis["per_agent"]):
+        row = analysis["per_agent"][side]
+        print(f"  {row['agent']}: {row['successes']}/{row['runs_used']} run(s) "
+              f"succeeded across {row['tasks_scored']} task(s); max_k={row['max_k']}")
+        for label, key in (("pass^k ", "pass_hat_k"), ("pass@k ", "pass_at_k")):
+            curve = row[key]["curve"]
+            rendered = "  ".join(
+                f"k={point['k']}:"
+                + ("n/a" if point["value"] is None else f"{point['value']:.3f}")
+                + (f" [{point['ci95'][0]:.2f}, {point['ci95'][1]:.2f}]"
+                   if point.get("ci95") else "")
+                for point in curve
+            ) or "n/a"
+            print(f"    {label} {rendered}")
+        if row["pass_hat_k"].get("ci95_basis"):
+            print(f"    interval: {row['pass_hat_k']['ci95_basis']}")
+        for label, key in (("outcome  ", "outcome_consistency"),
+                           ("trajectory", "trajectory_consistency"),
+                           ("resources ", "resource_consistency")):
+            block = row[key]
+            value = block["value"]
+            detail = (f"{value:.3f} over {block['tasks_scored']}/{block['of_tasks']} task(s)"
+                      if value is not None else f"n/a ({block['reason']})")
+            print(f"    {label} consistency: {detail}")
+        icc = row["icc"]
+        if icc.get("icc1") is not None:
+            print(f"    ICC(1): {icc['icc1_clamped']:.3f} "
+                  f"({icc['within_task_variance_share']:.0%} of variance is "
+                  f"within-task, i.e. the agent itself)")
+        else:
+            print(f"    ICC(1): n/a ({icc['reason']})")
+        excluded = row["excluded_runs"]
+        if excluded["count"]:
+            print(f"    excluded {excluded['count']}/{excluded['of_runs']} run(s) "
+                  f"as harness failures: "
+                  + ", ".join(f"{k} x{v}" for k, v in excluded["by_termination"].items()))
+        if row["unequal_trials"]["flagged"]:
+            print(f"    warning: unequal trial counts "
+                  f"({row['unequal_trials']['min']}-{row['unequal_trials']['max']} "
+                  f"runs per task); curves capped at the thinnest task")
+        print(f"    runs advisory [{row['runs_advisory']['tier']}]: "
+              f"{row['runs_advisory']['message']}")
+
+
+def _cmd_select(args: argparse.Namespace) -> int:
+    """Behavioral similarity + agent-selection analysis over a fleet."""
+    traces_dir = Path(args.tracesdir)
+    if not traces_dir.is_dir():
+        print(f"error: {traces_dir} is not a directory", file=sys.stderr)
+        return 2
+
+    trajectories = _load_traces_dir(traces_dir)
+    if not trajectories:
+        print("error: no valid traces found", file=sys.stderr)
+        return 2
+
+    by_agent: dict[str, dict[str, Trajectory]] = {}
+    for t in trajectories:
+        by_agent.setdefault(t.agent.name, {}).setdefault(t.task.id, t)
+    complete = {name: [by_agent[name][tid] for tid in sorted(by_agent[name])]
+                for name in sorted(by_agent)}
+    if len(complete) < 2:
+        print("error: select mode needs at least 2 agents", file=sys.stderr)
+        return 2
+
+    similarity = similarity_analysis(complete)
+    routing = routing_analysis(complete)
+
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    payload = {"similarity": similarity, "routing": routing}
+    (out_dir / "select.json").write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    print(f"Wrote {out_dir / 'select.json'}")
+
+    template = Path(args.template) if args.template else SELECT_TEMPLATE
+    if template.is_file():
+        html_path = out_dir / "select.html"
+        render_html([], {}, template, html_path, extra=payload)
+        print(f"Wrote {html_path}")
+    else:
+        print(f"warning: template {template} not found; skipped HTML",
+              file=sys.stderr)
+
+    print(f"\nBehavioral similarity — {len(complete)} agents")
+    print(similarity["narrative"])
+    if similarity["clusters"]:
+        print("\nBehavioral groups:")
+        for cluster in similarity["clusters"]:
+            if cluster["size"] > 1:
+                print(f"  [{cluster['size']}] {', '.join(cluster['members'])}"
+                      f"  (cheapest: {cluster['cheapest']})")
+    if similarity["redundancies"]:
+        print("\nRedundant agents:")
+        for row in similarity["redundancies"][:5]:
+            print(f"  drop {row['drop']} -> keep {row['keep']}: {row['summary']}")
+    if similarity["complementarities"]:
+        print("\nComplementary pairs:")
+        for row in similarity["complementarities"][:5]:
+            print(f"  {row['a']} + {row['b']}: +{row['gain_tasks']} task(s), "
+                  f"{row['union_coverage']:.0%} together")
+
+    print(f"\nAgent selection")
+    print(routing["narrative"])
+    for portfolio in routing["portfolios"]:
+        print(f"  k={portfolio['k']}: {', '.join(portfolio['members'])} -> "
+              f"{portfolio['coverage']:.0%} coverage, "
+              f"${portfolio['cost_usd']:.4f} ({portfolio['search']})")
+    if routing["unique_solves"]:
+        print("  uniquely solved:")
+        for agent, tasks in routing["unique_solves"].items():
+            print(f"    {agent}: {', '.join(tasks)}")
+    return 0
+
+
+def _cmd_check(args: argparse.Namespace) -> int:
+    """Check runs against golden/reference trajectories."""
+    golden_dir, run_dir = Path(args.golden), Path(args.tracesdir)
+    for label, path in (("--golden", golden_dir), ("tracesdir", run_dir)):
+        if not path.is_dir():
+            print(f"error: {label} {path} is not a directory", file=sys.stderr)
+            return 2
+
+    goldens = {t.task.id: t for t in _load_traces_dir(golden_dir)}
+    runs = {t.task.id: t for t in _load_traces_dir(run_dir)}
+    if not goldens:
+        print(f"error: no valid reference traces in {golden_dir}", file=sys.stderr)
+        return 2
+    if not runs:
+        print(f"error: no valid run traces in {run_dir}", file=sys.stderr)
+        return 2
+
+    suite = check_suite(goldens, runs, max_extra_steps=args.max_extra_steps)
+
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # Per-task pairwise reports are large; keep them out of the summary file.
+    summary = {k: v for k, v in suite.items() if k != "checks"}
+    summary["checks"] = [
+        {k: v for k, v in check.items() if k != "report"} for check in suite["checks"]
+    ]
+    (out_dir / "conformance.json").write_text(
+        json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    print(f"Wrote {out_dir / 'conformance.json'}")
+
+    if args.markdown:
+        md_path = Path(args.markdown)
+        if not md_path.is_absolute():
+            md_path = out_dir / md_path
+        md_path.parent.mkdir(parents=True, exist_ok=True)
+        md_path.write_text(render_conformance_markdown(suite), encoding="utf-8")
+        print(f"Wrote {md_path}")
+
+    print()
+    print(suite["narrative"])
+    print(f"{'task':<28} {'verdict':<12} conformance  steps ref->run")
+    for check in suite["checks"]:
+        print(f"{check['task']:<28} {check['verdict']:<12} "
+              f"{check['conformance']:>10.0%}  "
+              f"{check['steps']['reference']:>3} -> {check['steps']['run']}")
+    for check in suite["checks"]:
+        if check["verdict"] != "conformant":
+            print(f"\n  {check['task']}: {check['narrative']}")
+            for deviation in check["deviations"][:2]:
+                print(f"    [{deviation['kind']}] {deviation['summary']}")
+    for task in suite["missing_reference"]:
+        print(f"warning: no reference trajectory for {task}; not checked",
+              file=sys.stderr)
+    # Same policy as the gate: --fail-on regression means "a violation fails
+    # the build", which is what this command did before the flag existed.
+    return _emit_ci(args, suite, out_dir, trace_dir=run_dir)
+
+
+def _cmd_profile(args: argparse.Namespace) -> int:
+    """Build per-task reference profiles and score runs against them."""
+    traces_dir = Path(args.tracesdir)
+    if not traces_dir.is_dir():
+        print(f"error: {traces_dir} is not a directory", file=sys.stderr)
+        return 2
+    trajectories = _load_traces_dir(traces_dir)
+    if not trajectories:
+        print("error: no valid traces found", file=sys.stderr)
+        return 2
+
+    source_dir = Path(args.build_from) if args.build_from else traces_dir
+    source = (_load_traces_dir(source_dir) if args.build_from else trajectories)
+
+    by_task: dict[str, list[Trajectory]] = {}
+    for t in source:
+        by_task.setdefault(t.task.id, []).append(t)
+
+    profiles: dict[str, dict] = {}
+    for task_id, runs in sorted(by_task.items()):
+        try:
+            profiles[task_id] = build_profile(
+                runs, name=task_id, successes_only=not args.include_failures)
+        except ValueError as exc:
+            print(f"warning: no profile for {task_id}: {exc}", file=sys.stderr)
+    if not profiles:
+        print("error: could not build any profile", file=sys.stderr)
+        return 2
+
+    suite = profile_suite(profiles, trajectories)
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "profiles.json").write_text(
+        json.dumps({"profiles": profiles, "suite": suite}, indent=2,
+                   ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"Wrote {out_dir / 'profiles.json'}")
+
+    print(f"\nBuilt {len(profiles)} profile(s) from "
+          f"{sum(p['runs_used'] for p in profiles.values())} run(s).")
+    for task_id, profile in profiles.items():
+        print(f"  {task_id:<26} {' -> '.join(profile['canonical_path'])}"
+              f"   [{profile['runs_used']} run(s)"
+              f"{', thin' if profile['thin_evidence'] else ''}]")
+    print(f"\n{suite['narrative']}")
+    for row in suite["scored"]:
+        if row["verdict"] in ("failed", "off-profile"):
+            print(f"  [{row['verdict']}] {row['task']}/{row['agent']}: "
+                  f"{row['narrative'][:150]}")
+    return 0
+
+
+
+
+
+
+def _cmd_bench(args: argparse.Namespace) -> int:
+    """Measure the diagnoser against its ground-truth benchmark corpus."""
+    from .bench import floor_violations, format_scorecard, run_benchmark
+    traces_dir = Path(args.traces)
+    if not (traces_dir / "MANIFEST.json").is_file():
+        print(f"error: no MANIFEST.json in {traces_dir} — generate the "
+              f"corpus with demo/diagnosis_bench/generate.py",
+              file=sys.stderr)
+        return 2
+    result = run_benchmark(traces_dir)
+    if args.output:
+        out = Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n",
+                       encoding="utf-8")
+        print(f"Wrote {out}")
+    print(format_scorecard(result))
+    problems = floor_violations(result)
+    if problems:
+        print("Floor violations:")
+        for problem in problems:
+            print(f"  {problem}")
+    if args.strict and problems:
+        return 1
+    return 0
+
+
+def _cmd_progress(args: argparse.Namespace) -> int:
+    """Compare two batch outputs: did the fixes from the first land?"""
+    from .progress import compare_progress
+    result = compare_progress(args.before, args.after)
+    if "error" in result:
+        print(f"error: {result['error']}", file=sys.stderr)
+        return 2
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "progress.json").write_text(
+        json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"Wrote {out_dir / 'progress.json'}")
+    print()
+    print(result["narrative"])
+    print()
+    for entry in result["actions"]:
+        marker = {"resolved": "+", "improved": "~", "persists": "!",
+                  "worsened": "!!", "unobservable": "?",
+                  "untrackable": "?"}.get(entry["status"], " ")
+        print(f"  [{marker}] {entry['status'].upper():<12} "
+              f"(was #{entry['rank_before']}) {entry['action'][:80]}")
+        if entry.get("reason"):
+            print(f"        {entry['reason']}")
+        if entry.get("occurrences"):
+            occ = entry["occurrences"]
+            print(f"        occurrences {occ['before']} -> {occ['after']}")
+    if result["new_issues"]:
+        print()
+        print("  NEW issues the before-run did not have:")
+        for issue in result["new_issues"]:
+            print(f"    - {issue['title']} ({issue['occurrences']} occurrence(s))")
+    shift = result.get("efficiency_shift") or {}
+    if shift.get("available"):
+        for name, entry in shift["per_agent"].items():
+            cps = entry.get("cost_per_success_usd")
+            if cps:
+                arrow = "improved" if cps["delta"] < 0 else (
+                    "worsened" if cps["delta"] > 0 else "unchanged")
+                print(f"  {name}: cost/success ${cps['before']:.5f} -> "
+                      f"${cps['after']:.5f} ({arrow})")
+    for name, s_ in result["success_by_agent"].items():
+        print(f"  {name}: success {s_['before']} -> {s_['after']} on "
+              f"{s_['tasks_compared']} shared task(s)"
+              + (f"; fixed {', '.join(s_['flips_fixed'])}" if s_['flips_fixed'] else "")
+              + (f"; BROKE {', '.join(s_['flips_broken'])}" if s_['flips_broken'] else ""))
+        if s_.get("note"):
+            print(f"        note: {s_['note']}")
+    from .progress import regressions_in
+    regressions = regressions_in(result)
+    if regressions:
+        print()
+        print("  REGRESSIONS (the after-run is worse than the before-run):")
+        for finding in regressions:
+            print(f"    - {finding}")
+    if args.strict and regressions:
+        print(f"\n  --strict: failing with {len(regressions)} regression(s)")
+        return 1
+    return 0
+
+
+def _cmd_experiments(args: argparse.Namespace) -> int:
+    """Compare whole experiments: diffs of averages, with behaviour beside."""
+    from .experiments import compare_experiments, load_experiment
+    named = []
+    for directory in args.dirs:
+        path = Path(directory)
+        if not path.is_dir():
+            print(f"error: {path} is not a directory", file=sys.stderr)
+            return 2
+        runs = load_experiment(path)
+        if not runs:
+            print(f"error: no valid traces in {path}", file=sys.stderr)
+            return 2
+        named.append((path.name or str(path), runs))
+    if len(named) < 2:
+        print("error: need at least two experiment directories", file=sys.stderr)
+        return 2
+
+    result = compare_experiments(named)
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "experiments.json").write_text(
+        json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"Wrote {out_dir / 'experiments.json'}")
+    print()
+    print(result["narrative"])
+    for d in result["diffs"]:
+        print()
+        print(f"{d['a']} vs {d['b']}:")
+        if "reason" in d:
+            print(f"  {d['reason']}")
+            continue
+        s_ = d["success_diff"]
+        print(f"  success (B-A): {s_['observed']:+.0%}  "
+              f"[{s_['low']:+.0%}, {s_['high']:+.0%}]  "
+              f"{'REAL' if s_['significant'] else 'noise-level'} "
+              f"over {d['shared_tasks']} shared task(s)")
+        for metric, m in d["metric_diffs"].items():
+            if m.get("significant_adjusted"):
+                tag = "REAL (survives correction)"
+            elif m["significant"]:
+                tag = "interval clear, but not after correcting for 4 tests"
+            else:
+                tag = "noise"
+            print(f"  {metric:>9} (B-A): {m['observed']:+.4g}  "
+                  f"[{m['low']:+.4g}, {m['high']:+.4g}]  {tag}")
+        sim = d["similarity"]
+        if sim.get("cross") is not None:
+            base = (f" vs within {sim['within']:.2f}" if sim.get("within") is not None else "")
+            print(f"  behaviour: cross-experiment similarity {sim['cross']:.2f}{base}"
+                  f" — {sim.get('note', '')}")
+        if d.get("only_in_a") or d.get("only_in_b"):
+            print(f"  unpaired tasks excluded: only in A {d['only_in_a']}, "
+                  f"only in B {d['only_in_b']}")
+    return 0
+
+
+def _cmd_narrate(args: argparse.Namespace) -> int:
+    """Emit a narration prompt for a report, or ingest a model's answer.
+
+    The engine never calls a model. Emit mode prints the prompt; the user
+    pipes it through any LLM they like and hands the text back with
+    --ingest, where it is checked number-by-number against the brief and
+    stored as labelled commentary that no analysis reads.
+    """
+    from .narrate import (check_narration, ingest_narration, narration_brief,
+                          narration_prompt)
+    report_path = Path(args.report)
+    if not report_path.is_file():
+        print(f"error: {report_path} is not a file", file=sys.stderr)
+        return 2
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"error: {report_path}: {exc}", file=sys.stderr)
+        return 2
+    brief = narration_brief(report)
+
+    if args.ingest is None:
+        print(narration_prompt(brief))
+        return 0
+
+    text = (sys.stdin.read() if args.ingest == "-" else
+            Path(args.ingest).read_text(encoding="utf-8"))
+    ingest_narration(report, text, brief=brief, model=args.model)
+    report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+                           encoding="utf-8")
+    check = report["narration"]["faithfulness"]
+    print(f"narration stored in {report_path} (model: {args.model})")
+    print(f"  numbers checked: {check['numbers_checked']}  "
+          f"citations: {check['citations']}")
+    if check["faithful"]:
+        print("  faithful: every number and citation traces to the brief")
+    else:
+        if check["unsupported_numbers"]:
+            print(f"  UNSUPPORTED numbers (not in the evidence): "
+                  f"{', '.join(check['unsupported_numbers'])}")
+        if check["invalid_citations"]:
+            print(f"  INVALID citations: {', '.join(check['invalid_citations'])}")
+        print("  stored anyway, flagged — the reader sees the warning, "
+              "and no analysis reads narration either way")
+    print(f"  note: {check['limit']}")
+    return 0
+
+
+def _cmd_variance(args: argparse.Namespace) -> int:
+    """Attribute variation in outcomes to model, harness, task and noise."""
+    traces_dir = Path(args.tracesdir)
+    if not traces_dir.is_dir():
+        print(f"error: {traces_dir} is not a directory", file=sys.stderr)
+        return 2
+    trajectories = _load_traces_dir(traces_dir)
+    if not trajectories:
+        print("error: no valid traces found", file=sys.stderr)
+        return 2
+
+    result = variance_report(trajectories, metrics=args.metrics)
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "variance.json").write_text(
+        json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"Wrote {out_dir / 'variance.json'}")
+
+    # A decomposition with no page is a decomposition nobody looks at. There
+    # are no pairwise reports here, so the payload carries the aggregate
+    # alone and the report-shaped blocks correctly hide themselves.
+    template = Path(args.template) if args.template else DEFAULT_TEMPLATE
+    if template.is_file():
+        try:
+            html_path = render_html([], {"variance": result}, template,
+                                    out_dir / "report.html")
+            print(f"Wrote {html_path}")
+        except (OSError, ValueError) as exc:
+            print(f"warning: could not write report.html: {exc}", file=sys.stderr)
+    print()
+    print(result["narrative"])
+    for metric, block in result["metrics"].items():
+        print()
+        print(f"{metric}:")
+        if not block["components"]:
+            print(f"  {block['reason']}")
+            continue
+        rows = sorted(block["components"].items(),
+                      key=lambda kv: -(kv[1]["omega_squared_min"] or -1))
+        width = max(len(name) for name, _ in rows)
+        for name, comp in rows:
+            raw = (f"{comp['min_share']:6.1%}" if comp["identified"]
+                   else f"{comp['min_share']:5.1%}-{comp['max_share']:.1%}")
+            omega = comp["omega_squared_min"]
+            corrected = "at chance" if omega is None or omega <= 0 else f"{omega:.1%}"
+            print(f"  {name:<{width}}  raw {raw}   corrected {corrected:>9}"
+                  f"   ({comp['levels']} level(s), {comp['expected_by_chance']:.1%} "
+                  f"expected by chance)")
+        print(f"  {'residual':<{width}}  {block['residual']:6.1%}   "
+              f"— {block['residual_meaning']}")
+        if block["caveat"]:
+            print(f"  caveat: {block['caveat']}")
+    return 0
+
+
+def _cmd_cohort(args: argparse.Namespace) -> int:
+    """Compare groups of runs rather than individuals."""
+    traces_dir = Path(args.tracesdir)
+    if not traces_dir.is_dir():
+        print(f"error: {traces_dir} is not a directory", file=sys.stderr)
+        return 2
+    trajectories = _load_traces_dir(traces_dir)
+    if not trajectories:
+        print("error: no valid traces found", file=sys.stderr)
+        return 2
+
+    try:
+        cohorts = group_runs(trajectories, by=args.by)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    result = compare_cohorts(cohorts)
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "cohorts.json").write_text(
+        json.dumps(result, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8")
+    print(f"Wrote {out_dir / 'cohorts.json'}")
+
+    print(f"\nCohorts by {args.by}:")
+    for summary in result["cohorts"]:
+        low, high = summary["success_ci"]
+        print(f"  {summary['cohort']:<22} {summary['runs']:>4} run(s)  "
+              f"success {summary['success_rate']:>6.0%} "
+              f"[{low:.0%}-{high:.0%}]  "
+              f"${summary['mean_cost_usd']:.4f}/run")
+    print(f"\n{result['narrative']}")
+    for pair in result["pairs"]:
+        marker = "*" if pair["success_difference"]["significant"] else " "
+        print(f" {marker} {pair['verdict']}")
+    return 0
+
+
+def _cmd_convert(args: argparse.Namespace) -> int:
+    if args.list_formats:
+        print("Known trace formats:")
+        for entry in formats():
+            print(f"  {entry['name']:<12} {entry['description']}")
+        return 0
+    in_path = Path(args.input)
+    if not in_path.is_file():
+        print(f"error: {in_path} is not a file", file=sys.stderr)
+        return 2
+    try:
+        text = in_path.read_text(encoding="utf-8")
+        if in_path.suffix == ".jsonl":
+            data = [json.loads(line) for line in text.splitlines() if line.strip()]
+        else:
+            data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        print(f"error: {in_path}: not valid JSON: {exc}", file=sys.stderr)
+        return 2
+
+    if args.list_formats:
+        print("Known trace formats:")
+        for entry in formats():
+            print(f"  {entry['name']:<12} {entry['description']}")
+        return 0
+
+    if args.dry_run:
+        report = dry_run(data, None if args.format == "auto" else args.format)
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        return 0 if report.get("ok") else 2
+
+    if args.format == "auto":
+        try:
+            result = registry_convert(data, None)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        trajectory, warnings = result["trajectory"], result["warnings"]
+        print(f"Detected format: {result['format']} "
+              f"(confidence {result['confidence']:.0%})")
+        for warning in warnings:
+            print(f"warning: {warning}", file=sys.stderr)
+        out_dir = Path(args.output)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        tid = _safe_name(trajectory["task"]["id"])
+        agent = _safe_name(trajectory["agent"]["name"])
+        out_path = out_dir / f"{tid}__{agent}.json"
+        out_path.write_text(
+            json.dumps(trajectory, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8")
+        print(f"Wrote {out_path}")
+        return 0
+
+    try:
+        if args.format == "otel":
+            if not isinstance(data, dict) or "spans" not in data:
+                print("error: otel input must be an object with a 'spans' array "
+                      "(plus 'meta', or top-level 'agent' and 'task')",
+                      file=sys.stderr)
+                return 2
+            # Metadata may sit under "meta" (same shape as the openai adapter
+            # takes) or at the top level; accept either so one convention
+            # works for both formats.
+            meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+            outcome = data.get("outcome") or meta.get("outcome")
+            if outcome is None and ("success" in meta or "answer" in meta):
+                outcome = {k: meta[k] for k in ("success", "answer", "score")
+                           if k in meta}
+            trajectory, warnings = from_otel_genai(
+                data["spans"],
+                agent=data.get("agent") or meta.get("agent") or "otel-agent",
+                task=data.get("task") or meta.get("task") or "task",
+                outcome=outcome,
+            )
+        else:
+            if not isinstance(data, dict) or "messages" not in data:
+                print("error: openai input must be an object with a 'messages' "
+                      "array (plus optional 'meta')", file=sys.stderr)
+                return 2
+            trajectory, warnings = from_openai_messages(
+                data["messages"], data.get("meta")
+            )
+    except ValueError as exc:
+        print(f"error: conversion failed: {exc}", file=sys.stderr)
+        return 2
+
+    for warning in warnings:
+        print(f"warning: {warning}", file=sys.stderr)
+
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tid = _safe_name(trajectory["task"]["id"])
+    agent = _safe_name(trajectory["agent"]["name"])
+    out_path = out_dir / f"{tid}__{agent}.json"
+    out_path.write_text(json.dumps(trajectory, indent=2, ensure_ascii=False) + "\n",
+                        encoding="utf-8")
+    print(f"Wrote {out_path}")
+    return 0
+
+
+
+def _program_name() -> str:
+    """How this invocation should tell the user to call it again."""
+    invoked = os.path.basename(sys.argv[0] or "")
+    if invoked in ("__main__.py", "-c", ""):
+        return "python -m deepcompare"
+    return invoked
+
+
+def _provider_option_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--base-url", default=None,
+                        help="endpoint base URL (default: the provider's env var or "
+                             "public API)")
+    parser.add_argument("--temperature", type=float, default=None,
+                        help="sampling temperature (default: the provider's, 0.0)")
+    parser.add_argument("--api-key-env", default=None,
+                        help="name of the environment variable holding the key "
+                             "(never the key itself)")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the deepcompare argument parser."""
+    parser = argparse.ArgumentParser(
+        # The installed console script is `agentdiff`; running from a clone
+        # is `python -m deepcompare`. Printing the wrong one sends people to
+        # a command they do not have.
+        prog=_program_name(), description="git diff for AI agents"
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p_compare = sub.add_parser("compare", help="compare one pair of trace files")
+    p_compare.add_argument("a", help="trajectory JSON for agent A")
+    p_compare.add_argument("b", help="trajectory JSON for agent B")
+    p_compare.add_argument("-o", "--output", help="write the comparison report JSON here")
+    p_compare.add_argument("--html", default=None,
+                           help="also write a self-contained report page for this pair")
+    p_compare.set_defaults(func=_cmd_compare)
+
+    p_demo = sub.add_parser("demo", help="one command to the first insight: compare the "
+                                         "shipped demo pairs and write the report page")
+    p_demo.add_argument("-o", "--output", default="out_demo",
+                        help="directory for the reports and report.html (default: out_demo)")
+    p_demo.add_argument("--open", action="store_true",
+                        help="open report.html in the default browser")
+    p_demo.set_defaults(func=_cmd_demo)
+
+    p_batch = sub.add_parser("batch", help="compare a directory of traces pairwise by task")
+    p_batch.add_argument("tracesdir", help="directory of trajectory *.json files")
+    p_batch.add_argument("-o", "--output", default="out", help="output directory (default: out)")
+    p_batch.add_argument(
+        "--template",
+        help=f"viewer HTML template (default: {DEFAULT_TEMPLATE})",
+    )
+    p_batch.add_argument("--golden", default=None, help="golden dataset (tasks JSON with expected_tools, forbidden_tools, …): scores tool correctness and policy")
+    p_batch.add_argument("--policy", default=None, help="safety policy JSON (forbidden_tools, forbidden_patterns, max_writes, write_requires_read)")
+    p_batch.set_defaults(func=_cmd_batch)
+
+    p_fleet = sub.add_parser("fleet", help="rank and cross-compare N agents on a shared task set")
+    p_fleet.add_argument("tracesdir", help="directory of trajectory *.json files (all agents)")
+    p_fleet.add_argument("-o", "--output", default="out", help="output directory (default: out)")
+    p_fleet.add_argument(
+        "--template",
+        help=f"viewer HTML template (default: {DEFAULT_TEMPLATE})",
+    )
+    p_fleet.add_argument(
+        "--weights",
+        help="composite weight overrides, e.g. success=0.45,cost=0.15 "
+        f"(defaults: {', '.join(f'{k}={v}' for k, v in DEFAULT_WEIGHTS.items())})",
+    )
+    p_fleet.set_defaults(func=_cmd_fleet)
+
+    p_gate = sub.add_parser(
+        "gate", help="regression-gate a candidate agent's traces against a baseline"
+    )
+    p_gate.add_argument("baseline", help="directory of baseline agent traces")
+    p_gate.add_argument("candidate", help="directory of candidate agent traces")
+    p_gate.add_argument("-o", "--output", default="out", help="output directory (default: out)")
+    p_gate.add_argument("--markdown", help="also write a Markdown summary (path, relative to -o)")
+    p_gate.add_argument("--max-success-drop", type=float, default=0.0,
+                        help="max allowed success-rate drop (default 0)")
+    p_gate.add_argument("--max-cost-increase", type=float, default=0.10,
+                        help="max allowed relative mean-cost rise (default 0.10)")
+    p_gate.add_argument("--max-latency-increase", type=float, default=0.25,
+                        help="max allowed relative mean-latency rise (default 0.25)")
+    p_gate.add_argument("--allow-new-failure-modes", action="store_true",
+                        help="do not fail the gate on new failure-origin categories")
+    _add_ci_args(p_gate)
+    p_gate.set_defaults(func=_cmd_gate)
+
+    p_runs = sub.add_parser(
+        "runs", help="multi-run stability analysis over <task>__<agent>__<run>.json traces"
+    )
+    p_runs.add_argument("runsdir", help="directory of multi-run trajectory *.json files")
+    p_runs.add_argument("-o", "--output", default="out", help="output directory (default: out)")
+    p_runs.add_argument("--template",
+                        help=f"viewer HTML template (default: {DEFAULT_TEMPLATE})")
+    p_runs.add_argument("--golden", default=None, help="golden dataset (tasks JSON with expected_tools, forbidden_tools, …): scores tool correctness and policy")
+    p_runs.add_argument("--policy", default=None, help="safety policy JSON (forbidden_tools, forbidden_patterns, max_writes, write_requires_read)")
+    p_runs.set_defaults(func=_cmd_runs)
+
+    p_profile = sub.add_parser(
+        "profile",
+        help="build reference profiles from many runs and score runs against them",
+    )
+    p_profile.add_argument("tracesdir", help="directory of trajectory *.json files")
+    p_profile.add_argument("--build-from",
+                           help="directory to learn the profiles from "
+                                "(default: the same directory)")
+    p_profile.add_argument("--include-failures", action="store_true",
+                           help="learn the norm from failures too (default: "
+                                "successes only)")
+    p_profile.add_argument("-o", "--output", default="out",
+                           help="output directory (default: out)")
+    p_profile.set_defaults(func=_cmd_profile)
+
+    p_progress = sub.add_parser(
+        "progress",
+        help="compare two batch outputs: which triage actions resolved, "
+             "which persist, what newly appeared")
+    p_progress.add_argument("before", help="batch output directory from before the fix")
+    p_progress.add_argument("after", help="batch output directory from after the fix")
+    p_progress.add_argument("-o", "--output", default="out",
+                            help="output directory (default: out)")
+    p_progress.add_argument("--strict", action="store_true",
+                            help="exit non-zero when the after-run is worse: "
+                                 "a broken task, a worsened action, or a new "
+                                 "issue (persisting is not a regression)")
+    p_progress.set_defaults(func=_cmd_progress)
+
+    p_bench = sub.add_parser(
+        "bench",
+        help="measure the diagnoser against its ground-truth benchmark "
+             "(cause kind, decisive step, abstention, chain recovery)")
+    p_bench.add_argument(
+        "traces", nargs="?",
+        default=str(Path(__file__).resolve().parent.parent
+                    / "demo" / "diagnosis_bench" / "traces"),
+        help="benchmark corpus directory with MANIFEST.json "
+             "(default: the shipped demo/diagnosis_bench/traces)")
+    p_bench.add_argument("-o", "--output", default=None,
+                         help="also write the full result JSON here")
+    p_bench.add_argument("--strict", action="store_true",
+                         help="exit non-zero when any CI floor is broken "
+                              "(the same floors the test suite enforces)")
+    p_bench.set_defaults(func=_cmd_bench)
+
+    p_experiments = sub.add_parser(
+        "experiments",
+        help="compare whole experiments: averaged diffs with intervals, plus "
+             "whether behaviour (not just scores) moved")
+    p_experiments.add_argument("dirs", nargs="+",
+                               help="two or more experiment directories of traces")
+    p_experiments.add_argument("-o", "--output", default="out",
+                               help="output directory (default: out)")
+    p_experiments.set_defaults(func=_cmd_experiments)
+
+    p_narrate = sub.add_parser(
+        "narrate",
+        help="emit an LLM narration prompt for a report, or ingest the answer "
+             "(checked against the evidence; commentary only)")
+    p_narrate.add_argument("report", help="a report_*.json produced by batch/compare")
+    p_narrate.add_argument("--ingest", metavar="FILE",
+                           help="narration text to attach ('-' for stdin); "
+                                "omit to print the prompt")
+    p_narrate.add_argument("--model", default="unspecified",
+                           help="model name recorded as provenance")
+    p_narrate.set_defaults(func=_cmd_narrate)
+
+    p_variance = sub.add_parser(
+        "variance",
+        help="attribute variation in outcomes to model, harness, task and noise")
+    p_variance.add_argument("tracesdir", help="directory of traces")
+    p_variance.add_argument("-o", "--output", default="out",
+                            help="output directory (default: out)")
+    p_variance.add_argument("--template", default=None,
+                            help="HTML template (default: the standard viewer)")
+    p_variance.add_argument("--metrics", nargs="+",
+                            default=["success", "tokens", "latency_s"],
+                            choices=sorted(VARIANCE_METRICS),
+                            help="metrics to decompose")
+    p_variance.set_defaults(func=_cmd_variance)
+
+    p_cohort = sub.add_parser(
+        "cohort", help="compare groups of runs (by model, agent, version, task)")
+    p_cohort.add_argument("tracesdir", help="directory of trajectory *.json files")
+    p_cohort.add_argument("--by", default="model",
+                          choices=sorted(GROUPERS),
+                          help="how to group runs into cohorts (default: model)")
+    p_cohort.add_argument("-o", "--output", default="out",
+                          help="output directory (default: out)")
+    p_cohort.set_defaults(func=_cmd_cohort)
+
+    p_check = sub.add_parser(
+        "check",
+        help="check runs against golden/reference trajectories (conformance)",
+    )
+    p_check.add_argument("tracesdir", help="directory of run trajectory *.json files")
+    p_check.add_argument("--golden", required=True,
+                         help="directory of reference trajectory *.json files")
+    p_check.add_argument("-o", "--output", default="out",
+                         help="output directory (default: out)")
+    p_check.add_argument("--markdown",
+                         help="also write a shareable markdown summary")
+    p_check.add_argument("--max-extra-steps", type=int, default=0,
+                         help="added/skipped steps tolerated before a run counts "
+                              "as a deviation (default: 0)")
+    _add_ci_args(p_check)
+    p_check.set_defaults(func=_cmd_check)
+
+    p_select = sub.add_parser(
+        "select",
+        help="behavioral similarity between agents and which to actually use",
+    )
+    p_select.add_argument("tracesdir",
+                          help="directory of trajectory *.json files (all agents)")
+    p_select.add_argument("-o", "--output", default="out",
+                          help="output directory (default: out)")
+    p_select.add_argument("--template",
+                          help=f"viewer HTML template (default: {SELECT_TEMPLATE})")
+    p_select.set_defaults(func=_cmd_select)
+
+    p_convert = sub.add_parser(
+        "convert", help="convert foreign trace formats to SCHEMA trajectories"
+    )
+    # Derived from the registry, not hardcoded: a format that --list-formats
+    # advertises must be selectable, including one a third party registered.
+    p_convert.add_argument("--format", default="auto",
+                           choices=("auto",) + tuple(sorted(f["name"] for f in formats())),
+                           help="input format")
+    p_convert.add_argument("input", nargs="?", default="",
+                           help="input JSON file")
+    p_convert.add_argument("-o", "--output", default="out",
+                           help="output directory (default: out)")
+    p_convert.add_argument("--dry-run", action="store_true",
+                           help="report what the conversion would produce, "
+                                "including fidelity counters, without writing")
+    p_convert.add_argument("--list-formats", action="store_true",
+                           help="list the known trace formats and exit")
+    p_convert.set_defaults(func=_cmd_convert)
+
+    p_run = sub.add_parser(
+        "run", help="run a task set against one or more model providers and "
+                    "record SCHEMA traces (the only command that talks to a "
+                    "network)")
+    p_run.add_argument("--provider", action="append", default=[],
+                       metavar="NAME=KIND:MODEL",
+                       help="an agent to run, e.g. atlas=openai:gpt-4o, "
+                            "local=ollama:llama3.1, ref=anthropic:claude-…, "
+                            "or fixture=scripted:turns.json; repeatable — "
+                            "the NAME= prefix is optional and defaults to "
+                            "kind-model")
+    p_run.add_argument("--tasks", required=True,
+                       help="tasks JSON: a list of {id, prompt, expected}")
+    p_run.add_argument("--tools", default=None, metavar="MODULE:ATTR",
+                       help="Python module attribute yielding a list of "
+                            "harness.Tool (default: no tools)")
+    p_run.add_argument("-o", "--output", default="traces",
+                       help="trace directory (default: traces)")
+    p_run.add_argument("--runs", type=int, default=1,
+                       help="repetitions per (task, agent) — writes "
+                            "task__agent__rN.json for the runs command")
+    p_run.add_argument("--max-steps", type=int, default=12,
+                       help="provider turns per task before max_steps "
+                            "termination (default 12)")
+    p_run.add_argument("--agent", action="append", default=[],
+                       metavar="NAME=python:MODULE:CALLABLE | NAME=cmd:TEMPLATE",
+                       help="bring your own agent: a Python callable (task, tools) "
+                            "-> SCHEMA trace or OpenAI-style messages, or a shell "
+                            "command with {prompt_file} and {out_file}; the harness "
+                            "grades, declares termination, names the file")
+    _provider_option_args(p_run)
+    p_run.set_defaults(func=_cmd_run)
+
+    p_loop = sub.add_parser(
+        "loop", help="the agentic loop: run two agents, compare, read the failures, test a "
+                     "prompt hypothesis as a paired experiment, keep or revert it, spend runs "
+                     "where the routing pick is unclear, stop for a stated reason (talks to a "
+                     "network unless the providers are scripted)")
+    p_loop.add_argument("--provider", action="append", default=[], metavar="NAME=KIND:MODEL",
+                        help="an agent to run (as for `run`); the loop needs exactly two agents in all")
+    p_loop.add_argument("--agent", action="append", default=[],
+                        metavar="NAME=python:MODULE:CALLABLE | NAME=cmd:TEMPLATE",
+                        help="bring your own agent (as for `run`); a cmd agent receives prompt changes "
+                             "in DEEPCOMPARE_SYSTEM_PROMPT")
+    p_loop.add_argument("--tasks", required=True, help="tasks JSON: a list of {id, prompt, expected}")
+    p_loop.add_argument("--tools", default=None, metavar="MODULE:ATTR")
+    p_loop.add_argument("-o", "--output", default="loop", help="output directory (default: loop)")
+    p_loop.add_argument("--runs", type=int, default=3, help="runs per (task, agent) per batch (default 3)")
+    p_loop.add_argument("--iterations", type=int, default=4, help="iteration budget (default 4)")
+    p_loop.add_argument("--max-runs", type=int, default=None, help="run budget over the whole loop")
+    p_loop.add_argument("--max-steps", type=int, default=12)
+    p_loop.add_argument("--suggest", action="append", default=[], metavar="AGENT=TEXT",
+                        help="a prompt hypothesis of your own to test first, as a paired experiment")
+    p_loop.add_argument("--family", default=None, help="regex whose first group is a task's family")
+    p_loop.add_argument("--db", default=None, help="ingest every trace into this trace database")
+    p_loop.add_argument("--template", default=None, help="page template (default: the blocks page)")
+    p_loop.add_argument("--resume", action="store_true", help="continue from the ledger in the output directory")
+    p_loop.add_argument("--golden", default=None, help="golden dataset: scores tool correctness and policy every iteration")
+    p_loop.add_argument("--policy", default=None, help="safety policy JSON")
+    p_loop.add_argument("--judge", default=None, metavar="NAME=KIND:MODEL",
+                        help="a judging model grades every answer (tasks without an expected answer become gradable; "
+                             "traces say graded_by: model)")
+    p_loop.add_argument("--judge-with-steps", action="store_true")
+    _provider_option_args(p_loop)
+    p_loop.set_defaults(func=_cmd_loop)
+
+    p_replay = sub.add_parser(
+        "replay", help="verify the decisive step by re-executing the failing run "
+                       "from a corrected step, several times (talks to a network "
+                       "unless the provider is scripted)")
+    p_replay.add_argument("report", help="a report_*.json produced by compare/batch")
+    p_replay.add_argument("--provider", required=True, metavar="NAME=KIND:MODEL",
+                          help="the model that continues the replayed run")
+    p_replay.add_argument("--from-step", type=int, default=None,
+                          help="replay from this step (default: the diagnosis's decisive step)")
+    p_replay.add_argument("--replays", type=int, default=3,
+                          help="rollouts (default 3; one proves nothing)")
+    p_replay.add_argument("--correction", default=None,
+                          help="text to substitute at the step (default: the passing "
+                               "run's aligned step, verbatim)")
+    p_replay.add_argument("--side", choices=["a", "b"], default=None,
+                          help="which run to replay (default: the diagnosed failing side)")
+    p_replay.add_argument("--tools", default=None, metavar="MODULE:ATTR",
+                          help="tools the replayed run may call")
+    p_replay.add_argument("--traces", default=None,
+                          help="write every replayed trace here")
+    _provider_option_args(p_replay)
+    p_replay.set_defaults(func=_cmd_replay)
+
+    p_judge = sub.add_parser(
+        "judge", help="a second model judges each trace's final answer (talks to a network unless "
+                      "the provider is scripted); recorded as outcome.judge, applied to "
+                      "outcome.success only with --apply")
+    p_judge.add_argument("target", help="a trace file, a directory of traces, or a report_*.json")
+    p_judge.add_argument("--provider", required=True, metavar="NAME=KIND:MODEL")
+    p_judge.add_argument("--rubric", default=None, help="the judging instruction (default: strict correctness, JSON verdict)")
+    p_judge.add_argument("--with-steps", action="store_true", help="show the judge the steps, not only the answer")
+    p_judge.add_argument("--apply", action="store_true", help="replace outcome.success/score with the judge's verdict (marked graded_by: model)")
+    p_judge.add_argument("--db", default=None, help="also update the judged traces in this trace database")
+    _provider_option_args(p_judge)
+    p_judge.set_defaults(func=_cmd_judge)
+
+    p_why = sub.add_parser(
+        "why", help="narrate a report through a model provider — commentary "
+                    "checked number by number, read by no analysis")
+    p_why.add_argument("report", help="a report_*.json produced by compare/batch")
+    p_why.add_argument("--provider", required=True, metavar="NAME=KIND:MODEL")
+    _provider_option_args(p_why)
+    p_why.set_defaults(func=_cmd_why)
+
+    p_db = sub.add_parser("db", help="the trace database (SQLite): import directories of traces, "
+                                     "summarise, query, full-text search, export")
+    p_db.add_argument("--db", default="traces.sqlite", help="database file (default traces.sqlite)")
+    db_sub = p_db.add_subparsers(dest="db_cmd", required=True)
+    p_db_import = db_sub.add_parser("import", help="ingest every trace JSON in the directories (idempotent by trace id)")
+    p_db_import.add_argument("dirs", nargs="+")
+    p_db_import.add_argument("--source", default="import", help="provenance label (default import)")
+    p_db_summary = db_sub.add_parser("summary", help="what the store holds")
+    p_db_summary.add_argument("--json", action="store_true")
+    p_db_query = db_sub.add_parser("query", help="list traces by task, family, agent, outcome, source")
+    p_db_query.add_argument("--task"); p_db_query.add_argument("--family"); p_db_query.add_argument("--agent")
+    p_db_query.add_argument("--outcome", choices=["any", "solved", "failed"], default="any")
+    p_db_query.add_argument("--source", dest="source_filter", default=None)
+    p_db_query.add_argument("--limit", type=int, default=50)
+    p_db_query.add_argument("--json", action="store_true")
+    p_db_search = db_sub.add_parser("search", help="full-text search over step names, inputs and outputs")
+    p_db_search.add_argument("text"); p_db_search.add_argument("--limit", type=int, default=50)
+    p_db_ckpt = db_sub.add_parser("checkpoints", help="runs with checkpoints (the run-so-far at each step a watcher or recorder kept)")
+    p_db_ckpt.add_argument("trace_id", nargs="?", default=None)
+    p_db_export = db_sub.add_parser("export", help="write matching traces back out as JSON files")
+    p_db_export.add_argument("-o", "--output", required=True)
+    p_db_export.add_argument("--task"); p_db_export.add_argument("--family"); p_db_export.add_argument("--agent")
+    p_db.set_defaults(func=_cmd_db)
+
+    p_hook = sub.add_parser(
+        "hook", help="Claude Code hook (reads the hook payload on stdin): PostToolUse "
+                     "appends a live step, Stop writes the final trace from the transcript")
+    p_hook.add_argument("--traces", default="traces", help="trace directory (watch it with `deepcompare watch`)")
+    p_hook.add_argument("--task", required=True, help="task id the session is working on")
+    p_hook.add_argument("--agent", default="claude-code")
+    p_hook.add_argument("--expected", default=None, help="expected answer, for grading (else the run is ungraded)")
+    p_hook.add_argument("--prompt", default=None, help="the task prompt, if UserPromptSubmit is not hooked")
+    p_hook.add_argument("--db", default=None, help="also ingest the final trace into this trace database")
+    p_hook.set_defaults(func=_cmd_hook)
+
+    p_eval = sub.add_parser(
+        "eval", help="the evaluation scorecard per agent: success, correct tool, grounding, latency, cost, "
+                     "safety and policy, risk vs reward, trajectory quality (loops, stopping, recovery), "
+                     "and a judge's verdicts beside the grade — offline against a golden set or online as recorded")
+    p_eval.add_argument("tracesdir", nargs="?", default=None, help="directory of traces")
+    _db_source_args(p_eval)
+    p_eval.add_argument("--golden", default=None, help="golden dataset (tasks JSON; may carry a policy)")
+    p_eval.add_argument("--policy", default=None, help="safety policy JSON")
+    p_eval.add_argument("--judge", default=None, metavar="NAME=KIND:MODEL",
+                        help="grade every answer with a second model first (talks to a network unless scripted)")
+    p_eval.add_argument("--with-steps", action="store_true", help="show the judge the steps, not only the answer")
+    p_eval.add_argument("--write", action="store_true", help="write the judge's verdicts back into the trace files")
+    p_eval.add_argument("-o", "--output", default="eval", help="output directory (default: eval)")
+    _provider_option_args(p_eval)
+    p_eval.set_defaults(func=_cmd_eval)
+
+    p_route = sub.add_parser(
+        "route", help="routing features per task family: each agent's success interval, "
+                      "cost, latency, steps, tool calls, and the pick under an objective")
+    p_route.add_argument("tracesdir", nargs="?", default=None, help="directory of traces (several agents, several runs)")
+    _db_source_args(p_route)
+    p_route.add_argument("--objective", choices=["success", "cost", "latency", "steps"], default="success")
+    p_route.add_argument("--family-pattern", default=None,
+                         help="regex whose first group names a task's family (default: the task id minus a run suffix)")
+    p_route.add_argument("--reports", default=None, help="a batch/runs output directory, to count fault kinds per agent")
+    p_route.add_argument("-o", "--output", default=None, help="write routing.json here")
+    p_route.add_argument("--verbose", action="store_true", help="print the rationale for every family")
+    p_route.set_defaults(func=_cmd_route)
+
+    p_feedback = sub.add_parser(
+        "feedback", help="the loop back: per-step labels, a preference pair "
+                         "(chosen = the passing run or the reconciled splice, "
+                         "rejected = the failing run) and prompt suggestions, "
+                         "from a report or a directory of reports")
+    p_feedback.add_argument("target", help="a report_*.json, or a directory of them")
+    p_feedback.add_argument("-o", "--output", default=None, help="write the signal JSON here")
+    p_feedback.add_argument("--jsonl", default=None,
+                            help="write preference pairs as JSONL here (prompt, chosen, rejected)")
+    p_feedback.set_defaults(func=_cmd_feedback)
+
+    p_watch = sub.add_parser(
+        "watch", help="serve the report page live over a trace directory: "
+                      "running agents (recorder stream=True) stream in step by "
+                      "step, finished pairs become the full story (localhost)")
+    p_watch.add_argument("tracesdir", nargs="?", default=None,
+                         help="directory the recorder writes to (with --demo: a scratch "
+                              "directory, default a temporary one)")
+    p_watch.add_argument("--demo", default=None, metavar="TRACES",
+                         help="replay these traces as if their agents were running now")
+    p_watch.add_argument("--pace", type=float, default=0.4, help="demo: seconds between steps (default 0.4)")
+    p_watch.add_argument("--loop", action="store_true", help="demo: start over when done")
+    p_watch.add_argument("--host", default="127.0.0.1")
+    p_watch.add_argument("--port", type=int, default=8765)
+    p_watch.add_argument("--poll", type=float, default=0.5, help="directory poll interval in seconds")
+    p_watch.add_argument("--template", default=None, help=f"viewer template (default: {DEFAULT_TEMPLATE})")
+    p_watch.add_argument("--verbose", action="store_true", help="log every request")
+    p_watch.add_argument("--db", default=None, help="also ingest every finished trace into this trace database")
+    p_watch.set_defaults(func=_cmd_watch)
+
+    p_explain = sub.add_parser(
+        "explain", help="read ONE trace: what happened, what the answer "
+                        "rests on, why it ended that way, what it means, "
+                        "what to take forward — every finding cited")
+    p_explain.add_argument("trace", help="a SCHEMA trajectory JSON file")
+    p_explain.add_argument("-o", "--output", default=None,
+                           help="also write the reading as JSON to this path")
+    p_explain.add_argument("--expected", default=None,
+                           help="override the task's expected answer")
+    p_explain.add_argument("--html", default=None,
+                           help="also write the reading as a self-contained HTML page")
+    p_explain.set_defaults(func=_cmd_explain)
+    return parser
+
+
+def _cmd_explain(args: argparse.Namespace) -> int:
+    from .reasoning import check_reading, read_trace
+    from .trace import Trajectory
+    try:
+        traj = Trajectory.from_json(args.trace)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    reading = read_trace(traj, expected=args.expected)
+    problems = check_reading(reading, traj)
+    if getattr(args, "html", None):
+        from .htmlout import reading_html
+        html_out = Path(args.html)
+        html_out.parent.mkdir(parents=True, exist_ok=True)
+        html_out.write_text(reading_html(reading), encoding="utf-8")
+        print(f"Wrote {html_out}")
+    print(f"Reading of {reading['agent']} on {reading['task']}")
+    print(f"  {reading['summary']}")
+    print("  What happened:")
+    for phase in reading["phases"]:
+        print(f"    steps {phase['steps'][0]}–{phase['steps'][-1]}: {phase['summary']}")
+    validity = reading.get("validity") or {}
+    if validity.get("status") and validity["status"] != "clean":
+        print(f"  VALIDITY {validity['status'].upper()}: {validity.get('reason')}")
+    basis = reading.get("answer_basis") or {}
+    if reading["rests_on"]:
+        print(f"  The answer rests on ({basis.get('status')}"
+              + (f"; basis complete at step {basis['basis_complete_at']}, "
+                 f"{basis['steps_after_basis_complete']} step(s) spent after it"
+                 if basis.get("basis_complete_at") is not None else "") + "):")
+        for r in reading["rests_on"]:
+            where = (f"first at step {r['first_step']} ({r['source']})"
+                     if r["first_step"] is not None else "NO earlier step")
+            match = ("matches expected" if r["matches_expected"] is True else
+                     ("contradicts expected" if r["status"] == "contradicted"
+                      else "not in expected") if r["matches_expected"] is False else
+                     "no expected value to compare")
+            print(f"    {r['value']} [{r['status'].replace('_', ' ')}] — {where}; {match}")
+    checks = reading.get("phase_checks") or {}
+    if checks.get("writes"):
+        print("  Order of work: "
+              + ("wrote before any read; " if checks["first_write_before_any_read"] else "")
+              + ("last write never checked; " if checks["verification_after_last_write"] is False
+                 else f"checked after the last write at step {checks['verification_step']}; "
+                 if checks["verification_after_last_write"] else "")
+              + f"{checks['regression_cycles']} act→look→act cycle(s)")
+    critical = reading.get("critical_error") or {}
+    if reading.get("errors"):
+        print(f"  Errors ({len(reading['errors'])}):")
+        for e in reading["errors"]:
+            print(f"    step {e['step']} {e['name']}: {e['state'].replace('_', ' ')}"
+                  + (f", resolved at step {e['resolved_at']}" if e.get("resolved_at") is not None else "")
+                  + (f" — {e['footprint_reason']}" if e.get("footprint_reason") else ""))
+        if critical.get("step") is not None:
+            print(f"  Critical error: step {critical['step']} ({critical['name']}) — "
+                  f"{critical['why']}; {critical['verification']} until replayed")
+    why = reading["why_it_ended"]
+    term = (f"termination {why['termination']}" if why["declared"]
+            else "termination not declared")
+    print(f"  Why it ended: {'succeeded' if why['success'] else 'failed'}, "
+          f"{term} — {why['verdict_basis']}")
+    if reading["what_it_means"]:
+        print("  What it means:")
+        for f in reading["what_it_means"]:
+            steps = f"steps {f['steps']}" if f["steps"] else "run-level"
+            print(f"    [{f['evidence_class']}] {f['statement']} ({steps})")
+    if reading["take_forward"]:
+        print("  Take forward:")
+        for t in reading["take_forward"]:
+            where = f"at step {t['at_step']}: " if t.get("at_step") is not None else ""
+            print(f"    - {where}{t.get('instead') or t.get('action')}"
+                  + (" (conditional on fixing the measurement)"
+                     if t.get("conditional_on_validity") else ""))
+    print(f"  Confidence: {reading['confidence']['level']} — "
+          f"{reading['confidence']['basis']}")
+    print(f"  Grounding check: {'every quote verified' if not problems else problems}")
+    if args.output:
+        Path(args.output).write_text(json.dumps(reading, indent=2,
+                                                ensure_ascii=False) + "\n",
+                                     encoding="utf-8")
+        print(f"Wrote {args.output}")
+    return 0 if not problems else 1
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    """CLI entry point; returns a process exit code."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    return args.func(args)

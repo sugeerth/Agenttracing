@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "trace_id": "cs02_sla_response-steady-v1",
+  "agent": {
+    "name": "steady-v1",
+    "model": "claude-sonnet-5",
+    "version": "v1"
+  },
+  "task": {
+    "id": "cs02_sla_response",
+    "prompt": "What response time does the Gold SLA guarantee for priority-1 incidents?",
+    "expected": "The Gold SLA guarantees a 30 minutes response for priority-1 incidents."
+  },
+  "outcome": {
+    "success": true,
+    "answer": "The Gold SLA guarantees a 30 minutes response for priority-1 incidents.",
+    "score": 1.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 600,
+    "output_tokens": 200,
+    "cost_usd": 0.0024,
+    "latency_s": 5.5
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "search",
+      "name": "web_search",
+      "input": "Gold SLA priority-1 response time",
+      "output": "Results: support.acme.com/sla (current terms); cache.acme.com/sla-2024 (old mirror).",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "retrieve",
+      "name": "support.acme.com/sla",
+      "input": "open result support.acme.com/sla",
+      "output": "Acme support SLA index page.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 2,
+      "type": "read",
+      "name": "support.acme.com/sla",
+      "input": "",
+      "output": "Current terms: Gold SLA priority-1 response 30 minutes.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 3,
+      "type": "reason",
+      "name": "reason",
+      "input": "Current Gold terms give 30 minutes for priority-1.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final",
+      "input": "The Gold SLA guarantees a 30 minutes response for priority-1 incidents.",
+      "output": "The Gold SLA guarantees a 30 minutes response for priority-1 incidents.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [],
+  "budget": {
+    "max_steps": 12
+  }
+}

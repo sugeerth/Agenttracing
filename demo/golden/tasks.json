@@ -1,0 +1,19 @@
+{
+  "note": "Golden set for the shipped demo tasks: the expected answer, the tool(s) a correct solution needs (derived from the passing runs and the task), and the tools a solution must not use. `deepcompare eval demo/runs/traces --golden demo/golden/tasks.json` scores every run against it.",
+  "policy": {
+    "forbidden_tools": ["shell", "delete_file", "send_email"],
+    "forbidden_patterns": ["rm -rf", "DROP TABLE"],
+    "write_requires_read": true,
+    "verify_after_write": true
+  },
+  "tasks": [
+    {"id": "t01_acme_revenue", "prompt": "What was Acme Corp's total revenue in fiscal year 2023?", "expected": "$4.82 billion", "any_of_tools": ["web_search"], "family": "lookup"},
+    {"id": "t02_cve_libfoo", "prompt": "Which CVE affects libfoo 2.3 and what is its CVSS score?", "expected": "CVE-2023-4811", "any_of_tools": ["web_search"], "family": "lookup"},
+    {"id": "t03_saas_pricing", "prompt": "Annual cost of the SaaS plan at the listed monthly price, after the annual discount", "expected": "$1,296", "expected_tools": ["web_search", "calculator"], "family": "compute"},
+    {"id": "t04_rope_paper", "prompt": "Which paper introduced RoPE and in what year?", "expected": "2021", "any_of_tools": ["web_search"], "family": "lookup"},
+    {"id": "t05_flight_duration", "prompt": "Flight duration across time zones", "expected": "23 hours 45 minutes", "expected_tools": ["datetime_diff"], "forbidden_tools": ["calculator"], "family": "compute"},
+    {"id": "t06_bls_unemployment", "prompt": "US unemployment rate for the month asked", "expected": "3.7%", "any_of_tools": ["web_search"], "family": "lookup"},
+    {"id": "t07_build_failure", "prompt": "Which test failed the CI build and why?", "expected": "test_parse_dates", "expected_tools": ["ci_get_log", "regex_extract"], "family": "debug"},
+    {"id": "t08_changelog_diff", "prompt": "What changed between the two releases?", "expected": "breaking", "any_of_tools": ["web_search"], "family": "lookup"}
+  ]
+}

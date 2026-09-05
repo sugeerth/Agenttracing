@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "trace_id": "p04_policy_lookup-steady-v1",
+  "agent": {
+    "name": "steady-v1",
+    "model": "claude-sonnet-5",
+    "version": "v1"
+  },
+  "task": {
+    "id": "p04_policy_lookup",
+    "prompt": "What is the baggage allowance for a basic economy fare?",
+    "expected": "One personal item; no cabin bag."
+  },
+  "outcome": {
+    "success": true,
+    "answer": "Basic economy includes one personal item and no cabin bag.",
+    "score": 1.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 240,
+    "output_tokens": 80,
+    "cost_usd": 0.00096,
+    "latency_s": 2.4
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "tool_call",
+      "name": "get_policy",
+      "input": "get_policy(topic='baggage')",
+      "output": "Basic economy: one personal item. No cabin bag.",
+      "tokens": 40,
+      "latency_s": 1.2,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 1,
+      "type": "answer",
+      "name": "final",
+      "input": "Basic economy includes one personal item and no cabin bag.",
+      "output": "Basic economy includes one personal item and no cabin bag.",
+      "tokens": 40,
+      "latency_s": 1.2,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "search_flights",
+      "effect": "read",
+      "parameters": {
+        "properties": {
+          "origin": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "origin",
+          "destination",
+          "date"
+        ]
+      }
+    },
+    {
+      "name": "get_booking",
+      "effect": "read",
+      "parameters": {
+        "properties": {
+          "reference": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference"
+        ]
+      }
+    },
+    {
+      "name": "get_policy",
+      "effect": "read",
+      "parameters": {
+        "properties": {
+          "topic": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic"
+        ]
+      }
+    },
+    {
+      "name": "cancel_booking",
+      "effect": "write",
+      "parameters": {
+        "properties": {
+          "reference": {
+            "type": "string"
+          },
+          "refund": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "reference"
+        ]
+      }
+    },
+    {
+      "name": "book_flight",
+      "effect": "write",
+      "parameters": {
+        "properties": {
+          "flight": {
+            "type": "string"
+          },
+          "seats": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "flight",
+          "seats"
+        ]
+      }
+    }
+  ],
+  "budget": {
+    "max_steps": 10
+  }
+}
