@@ -1689,6 +1689,43 @@ is reported as such.
   units, no window needed. `AgentDiff.charts.mode.{get,set,expand}`
   drives it from outside.
 
+- **Trace Claude Code — live and after the fact** (`deepcompare/claude_code.py`,
+  CLI `hook`, format `claude-code`). Claude Code runs shell hooks around
+  every tool call and at the end of a turn; `python -m deepcompare hook
+  --traces DIR --task ID [--expected …]` is such a hook: `PostToolUse`
+  appends a `tool_call` step to `DIR/<task>__claude-code.live.json` (what
+  `watch` draws as it grows), `Stop` writes the final trace from the
+  session transcript — the assistant's text between calls as `reason`
+  steps, each `tool_use` with its `tool_result`, the usage counts as
+  tokens — and removes the live file. A transcript JSONL converts on its
+  own (`convert session.jsonl`; the registry detects the shape). A run
+  with no expected answer is written ungraded (`success: false`,
+  `score: null`, a note) — never a guessed success. The same trace
+  compares with any other coding agent's: run the other through the
+  harness (`run --agent cmd:…`) or convert its log, and `batch` the pair.
+- **Router features** (`deepcompare/router.py`, CLI `route`,
+  `aggregate.routing`, block *Routing*). Per task family, every agent's
+  success rate with its 95% Wilson interval, mean cost, latency, tokens,
+  steps and tool calls, terminations, and — with reports — the fault
+  kinds it tends to make; then the pick under an objective (`success`:
+  highest lower bound, then cheaper; `cost`/`latency`/`steps`: best of
+  those with a lower bound of at least one half). The pick's confidence
+  is stated: *clear* only when the top two intervals do not overlap,
+  *overlapping* (either) when they do, *insufficient* under three runs
+  per candidate. `router_hints` is one line per family a router can
+  act on. The demo's three-run families come out *overlapping* — as
+  they should. (Agent selection — best single, portfolios, the oracle
+  ceiling — stays in `routing.py` and the `select` command.)
+- **A database for traces** (`deepcompare/tracedb.py`, CLI `db`,
+  `--db FILE` on `route`). One SQLite file (stdlib): a row per
+  trajectory with the SCHEMA JSON beside indexed columns (task, family,
+  agent, model, run, outcome, termination, tokens, cost, latency, steps,
+  tool calls, source, recorded time) and a row per step, with FTS5
+  full-text search over step text where the build has it. `db import`
+  is idempotent by trace id; `db summary`, `db query`, `db search`,
+  `db export`; `watch --db` and `hook --db` ingest as traces land, each
+  with its provenance. What comes out is the same `Trajectory` a
+  directory would give; an invalid trace is refused, not stored.
 - **The two runs over time — the story's hero** (`charts.body`, block
   `trace-body`). A super panel first: A beside B on outcome, decisive
   step, first divergence, and five paired stats from `metrics_delta`

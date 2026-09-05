@@ -2487,6 +2487,31 @@ class IntervalsAndInternalsTest(unittest.TestCase):
         self.assertEqual(errors, [])
         context.close()
 
+    def test_the_routing_block_states_each_pick_with_its_confidence(self):
+        context, page, errors = self.open(self.runs, "#view=batch")
+        agg = self.runs_agg
+        rt = agg.get("routing")
+        self.assertTrue(rt and rt["families"], "the runs aggregate carries a routing table")
+        block = page.locator('.block[data-block="routing"]')
+        self.assertEqual(block.count(), 1)
+        if "collapsed" in (block.get_attribute("class") or ""):
+            block.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(300)
+            block = page.locator('.block[data-block="routing"]')
+        rows = block.locator("table.rt-table tr[data-family]")
+        expected_rows = sum(len(f["candidates"]) for f in rt["families"].values())
+        self.assertEqual(rows.count(), expected_rows)
+        for fam, entry in rt["families"].items():
+            first = block.locator(f'tr[data-family="{fam}"][data-rank="0"]')
+            self.assertEqual(first.locator("td").nth(1).text_content(), entry["candidates"][0]["agent"])
+            conf = first.locator(".rt-conf").text_content()
+            self.assertEqual(conf, "either" if entry["confidence"] == "overlapping" else entry["confidence"])
+            n = entry["candidates"][0]["features"]["n"]
+            self.assertEqual(first.locator("td").nth(3).text_content(), str(n))
+        self.assertIn("Wilson", block.locator(".rt-note").text_content())
+        self.assertEqual(errors, [])
+        context.close()
+
     def test_a_plain_batch_draws_no_band_no_whisker_no_mark(self):
         context, page, errors = self.open(self.runs)
         self.assertEqual(page.locator("svg.tj g.tjm-interval").count(), 0)

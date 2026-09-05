@@ -272,7 +272,8 @@ def _cmd_watch(args: argparse.Namespace) -> int:
         return 2
     stop = threading.Event()
     server = serve(traces, template, host=args.host, port=args.port, poll=args.poll,
-                   demo=demo, pace=args.pace, loop=args.loop, stop=stop, quiet=not args.verbose)
+                   demo=demo, pace=args.pace, loop=args.loop, stop=stop, quiet=not args.verbose,
+                   db=getattr(args, "db", None))
     host, port = server.server_address[:2]
     print(f"watching {traces} — open http://{host}:{port}/  (Ctrl-C to stop)")
     if demo:

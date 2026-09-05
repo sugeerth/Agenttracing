@@ -56,9 +56,11 @@ class Watcher:
     """Turns a directory of (possibly still growing) traces into the
     page payload, and knows when it changed."""
 
-    def __init__(self, traces_dir: Union[str, Path], poll: float = 0.5) -> None:
+    def __init__(self, traces_dir: Union[str, Path], poll: float = 0.5, db: Optional[Union[str, Path]] = None) -> None:
         self.dir = Path(traces_dir)
         self.poll = poll
+        self.db_path = Path(db) if db else None
+        self._ingested: set = set()
         self.version = 0
         self._signature: Optional[dict] = None
         self._payload: Optional[dict] = None
@@ -112,6 +114,14 @@ class Watcher:
                 continue
             finals.setdefault(traj.task.id, {})[traj.agent.name] = traj
             raw_finals.setdefault(traj.task.id, {})[traj.agent.name] = data
+            if self.db_path is not None and path.name not in self._ingested:
+                try:
+                    from ..tracedb import TraceDB
+                    with TraceDB(self.db_path) as store:
+                        store.add(data, source="watch", recorded_at=path.stat().st_mtime)
+                    self._ingested.add(path.name)
+                except Exception as exc:  # noqa: BLE001 — the stream must not stop for the store
+                    self.errors.append(f"db: {path.name}: {exc}")
         # a live file whose final exists is stale: drop it
         done = {(t, a) for t, agents in finals.items() for a in agents}
         lives = [r for r in lives if (r["task"], r["agent"]) not in done]
@@ -311,13 +321,13 @@ def serve(traces_dir: Union[str, Path], template: Union[str, Path], *,
           host: str = "127.0.0.1", port: int = 8765, poll: float = 0.5,
           demo: Optional[Union[str, Path]] = None, pace: float = 0.4, loop: bool = False,
           ready: Optional[threading.Event] = None, stop: Optional[threading.Event] = None,
-          quiet: bool = True) -> ThreadingHTTPServer:
+          quiet: bool = True, db: Optional[Union[str, Path]] = None) -> ThreadingHTTPServer:
     """Serve the live page. Returns the server after it has started (so a
     caller can ``serve_forever`` on it or stop it); with ``demo`` a
     simulator thread streams those traces into ``traces_dir``."""
     traces_dir = Path(traces_dir)
     traces_dir.mkdir(parents=True, exist_ok=True)
-    watcher = Watcher(traces_dir, poll=poll)
+    watcher = Watcher(traces_dir, poll=poll, db=db)
     stop = stop or threading.Event()
     threading.Thread(target=watcher.run, name="deepcompare-watch", daemon=True).start()
     if demo is not None:

@@ -254,6 +254,9 @@ card v37; replay v40).
 | `run --provider … --agent … --tasks …` | the harness: any model, any agent, graded SCHEMA traces |
 | `deepcompare.harness.neuronpedia` | record SAE feature activations per step (Neuronpedia or a scripted table) |
 | `feedback <report.json|dir> [-o signal.json] [--jsonl pairs.jsonl]` | the loop back: step labels, preference pairs, prompt suggestions |
+| `hook --traces DIR --task ID [--expected X] [--db FILE]` | a Claude Code hook: live steps on PostToolUse, the final trace on Stop |
+| `route <traces/ or --db FILE> [--objective …] [-o routing.json]` | per task family: each agent's success interval, cost, latency, steps, tool calls; the pick and its confidence |
+| `db --db FILE import/summary/query/search/export` | the trace database (SQLite): ingest, list, full-text search, export |
 | `watch [traces/] [--demo TRACES --pace S --loop]` | serve the page live (localhost, server-sent events): running agents stream in, finished pairs become the story |
 | `replay REPORT --provider …` | verify the decisive step by re-execution; writes the verdict back |
 | `why REPORT --provider …` | narrate through a provider under the covenant |

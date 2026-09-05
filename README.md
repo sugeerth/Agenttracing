@@ -142,6 +142,27 @@ published as a claude.ai artifact, it runs two real Claude agents on the
 viewer's account with tools defined in the page and streams every step;
 elsewhere it replays the recorded pair.
 
+## Trace Claude Code, and route
+
+Add two hooks to `.claude/settings.json` and every tool call streams
+into a trace while Claude Code works; the final trace comes from the
+session transcript, with the reasoning between calls:
+
+```json
+{"hooks": {"PostToolUse": [{"matcher": "", "hooks": [{"type": "command",
+   "command": "python -m deepcompare hook --traces traces --task fix-482 --db traces.sqlite"}]}],
+ "Stop": [{"hooks": [{"type": "command",
+   "command": "python -m deepcompare hook --traces traces --task fix-482 --db traces.sqlite --expected 'field_validator'"}]}]}}
+```
+
+Run another coding agent on the same task through the harness (`run
+--agent cmd:…`) or convert its log, then `batch` the pair. Over many
+runs, `route traces/` (or `--db traces.sqlite`) gives a router what it
+needs per task family: each agent's success rate with its interval,
+cost, latency, steps, tool calls, and a pick whose confidence is stated
+— *clear*, *either*, or *gather more runs*. `db import` keeps every
+trace in one SQLite file with full-text search over steps.
+
 ## Why use it: the loop
 
 Mapping a failure is the first half. The second half is what the page

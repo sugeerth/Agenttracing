@@ -35,6 +35,10 @@ from .ci import (
     write_ci_artifacts,
 )
 from .registry import convert as registry_convert, dry_run, formats
+from .claude_code import register_format as _register_claude_code
+_register_claude_code()
+from .router import routing_table, router_hints
+from .tracedb import TraceDB
 from .profile import build_profile, profile_suite
 from .cohort import GROUPERS, compare_cohorts, group_runs
 from .issues import build_issues, load_suppressions, render_issues_markdown
@@ -267,6 +271,7 @@ def _cmd_batch(args: argparse.Namespace) -> int:
         return 2
 
     agg = build_aggregate(reports)
+    agg["routing"] = routing_table(trajectories)
     # Re-cluster with any .agentdiffignore found beside the traces or in cwd.
     patterns = (load_suppressions(traces_dir) or load_suppressions(Path.cwd()))
     if patterns:
@@ -323,6 +328,32 @@ def _cmd_batch(args: argparse.Namespace) -> int:
     for line in render_triage_text(agg.get("triage") or {}):
         print(line)
     return 0
+
+
+def _load_source(args: argparse.Namespace, attr: str = "tracesdir") -> list[Trajectory]:
+    """Trajectories from ``--db FILE`` when given, else from the directory."""
+    db_path = getattr(args, "db", None)
+    if db_path:
+        with TraceDB(db_path) as db:
+            filters = {}
+            if getattr(args, "db_agent", None):
+                filters["agent"] = list(args.db_agent)
+            if getattr(args, "db_family", None):
+                filters["family"] = args.db_family
+            return db.trajectories(**filters)
+    directory = getattr(args, attr, None)
+    if not directory:
+        print("error: give a trace directory or --db FILE", file=sys.stderr)
+        return []
+    return _load_traces_dir(Path(directory))
+
+
+def _db_source_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--db", default=None, metavar="FILE",
+                        help="read traces from this trace database instead of a directory")
+    parser.add_argument("--db-agent", action="append", default=None, metavar="NAME",
+                        help="with --db: only these agents (repeatable)")
+    parser.add_argument("--db-family", default=None, metavar="FAMILY", help="with --db: only this task family")
 
 
 def _load_traces_dir(traces_dir: Path) -> list[Trajectory]:
@@ -570,6 +601,110 @@ def _run_id_from_name(path: Path) -> Optional[str]:
     return parts[2] if len(parts) >= 3 else None
 
 
+def _cmd_db(args: argparse.Namespace) -> int:
+    """The trace database: import, summary, query, search, export."""
+    with TraceDB(args.db) as db:
+        if args.db_cmd == "import":
+            total = {"added": 0, "skipped": []}
+            for directory in args.dirs:
+                result = db.add_directory(directory, source=args.source)
+                total["added"] += result["added"]
+                total["skipped"] += result["skipped"]
+            print(f"imported {total['added']} trace(s) into {args.db}" +
+                  (f"; skipped {len(total['skipped'])}" if total["skipped"] else ""))
+            for line in total["skipped"][:10]:
+                print("  skipped " + line, file=sys.stderr)
+            return 0
+        if args.db_cmd == "summary":
+            summary = db.summary()
+            print(json.dumps(summary, indent=1, ensure_ascii=False) if args.json else
+                  f"{summary['path']}: {summary['traces']} trace(s), {summary['steps']} step(s)"
+                  + (", full-text search on" if summary["fts"] else "")
+                  + "\n  agents: " + ", ".join(f"{a} {v['successes']}/{v['n']}" for a, v in summary["success_by_agent"].items())
+                  + "\n  families: " + ", ".join(f"{k} ×{v}" for k, v in list(summary["by"]["family"].items())[:12])
+                  + "\n  sources: " + ", ".join(f"{k or '?'} ×{v}" for k, v in summary["by"]["source"].items()))
+            return 0
+        if args.db_cmd == "query":
+            success = None if args.outcome == "any" else (args.outcome == "solved")
+            rows = db.query(limit=args.limit, task=args.task, family=args.family, agent=args.agent,
+                            success=success, source=args.source_filter)
+            if args.json:
+                print(json.dumps(rows, indent=1, ensure_ascii=False))
+            else:
+                for r in rows:
+                    print(f"{r['trace_id']:<44} {'✓' if r['success'] else '✗'} {r['steps']:>3} steps "
+                          f"{(r['cost_usd'] or 0):>8.4f}$ {(r['latency_s'] or 0):>7.2f}s  {r['source'] or ''}")
+                print(f"{len(rows)} of {db.count()} trace(s)")
+            return 0
+        if args.db_cmd == "search":
+            hits = db.search(args.text, limit=args.limit)
+            for h in hits:
+                print(f"{h['trace_id']} step {h['idx']} {h['type']} {h['name'] or ''}: {(h['output'] or '')[:90]!r}")
+            print(f"{len(hits)} hit(s)")
+            return 0
+        if args.db_cmd == "export":
+            out = Path(args.output)
+            out.mkdir(parents=True, exist_ok=True)
+            n = 0
+            for row in db.query(task=args.task, family=args.family, agent=args.agent):
+                data = db.get(row["trace_id"])
+                if data is None:
+                    continue
+                (out / (row["trace_id"] + ".json")).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+                n += 1
+            print(f"exported {n} trace(s) to {out}")
+            return 0
+    print("error: unknown db command", file=sys.stderr)
+    return 2
+
+
+def _cmd_hook(args: argparse.Namespace) -> int:
+    """Claude Code hook: stdin payload → a live step or the final trace."""
+    from .claude_code import main_hook
+    argv = ["--traces", args.traces, "--task", args.task, "--agent", args.agent]
+    if args.expected:
+        argv += ["--expected", args.expected]
+    if args.prompt:
+        argv += ["--prompt", args.prompt]
+    if args.db:
+        argv += ["--db", args.db]
+    return main_hook(argv)
+
+
+def _cmd_route(args: argparse.Namespace) -> int:
+    """Routing features: per task family, every agent's success interval,
+    cost, latency, steps and tool calls, and the pick under an objective."""
+    if not args.db and not Path(args.tracesdir or "").is_dir():
+        print(f"error: {args.tracesdir} is not a directory", file=sys.stderr)
+        return 2
+    trajectories = _load_source(args)
+    if not trajectories:
+        print("error: no valid traces", file=sys.stderr)
+        return 2
+    reports = []
+    if args.reports:
+        for path in sorted(Path(args.reports).glob("report_*.json")):
+            try:
+                reports.append(json.loads(path.read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                pass
+    table = routing_table(trajectories, objective=args.objective, family_pattern=args.family_pattern,
+                          reports=reports or None)
+    table["hints"] = router_hints(table)
+    if args.output:
+        Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.output).write_text(json.dumps(table, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"wrote {args.output}")
+    print(f"objective: {args.objective} · {len(table['families'])} famil{'y' if len(table['families']) == 1 else 'ies'} · "
+          f"{len(table['overall']['candidates'])} agent(s)")
+    for hint in table["hints"]:
+        route = hint["route_to"]
+        print(f"  {hint['family']:<28} → {route if isinstance(route, str) else ('either of ' + ' / '.join(route) if route else '—'):<24} {hint['basis']}")
+    ov = table["overall"]
+    print("  overall: " + ", ".join(f"{c['agent']} {c['features']['rate']:.0%} [{c['features']['ci95'][0]:.2f}–{c['features']['ci95'][1]:.2f}] n={c['features']['n']}" for c in ov["candidates"]))
+    return 0
+
+
 def _cmd_feedback(args: argparse.Namespace) -> int:
     """The loop back: step labels, preference pairs, prompt suggestions
     from one report or a directory of them."""
@@ -659,6 +794,7 @@ def _cmd_runs(args: argparse.Namespace) -> int:
     reliability_analysis = reliability(runs_by_task)
     reports = [compare(a, b) for a, b in medoid_pairs(runs_by_task)]
     agg = build_aggregate(reports)
+    agg["routing"] = routing_table(trajectories)
     agg["stability"] = stability
     agg["reliability"] = reliability_analysis
     agg["task_signal"] = task_signal(reports, stability)
@@ -1272,7 +1408,11 @@ def _cmd_convert(args: argparse.Namespace) -> int:
         print(f"error: {in_path} is not a file", file=sys.stderr)
         return 2
     try:
-        data = json.loads(in_path.read_text(encoding="utf-8"))
+        text = in_path.read_text(encoding="utf-8")
+        if in_path.suffix == ".jsonl":
+            data = [json.loads(line) for line in text.splitlines() if line.strip()]
+        else:
+            data = json.loads(text)
     except json.JSONDecodeError as exc:
         print(f"error: {in_path}: not valid JSON: {exc}", file=sys.stderr)
         return 2
@@ -1657,6 +1797,51 @@ def build_parser() -> argparse.ArgumentParser:
     _provider_option_args(p_why)
     p_why.set_defaults(func=_cmd_why)
 
+    p_db = sub.add_parser("db", help="the trace database (SQLite): import directories of traces, "
+                                     "summarise, query, full-text search, export")
+    p_db.add_argument("--db", default="traces.sqlite", help="database file (default traces.sqlite)")
+    db_sub = p_db.add_subparsers(dest="db_cmd", required=True)
+    p_db_import = db_sub.add_parser("import", help="ingest every trace JSON in the directories (idempotent by trace id)")
+    p_db_import.add_argument("dirs", nargs="+")
+    p_db_import.add_argument("--source", default="import", help="provenance label (default import)")
+    p_db_summary = db_sub.add_parser("summary", help="what the store holds")
+    p_db_summary.add_argument("--json", action="store_true")
+    p_db_query = db_sub.add_parser("query", help="list traces by task, family, agent, outcome, source")
+    p_db_query.add_argument("--task"); p_db_query.add_argument("--family"); p_db_query.add_argument("--agent")
+    p_db_query.add_argument("--outcome", choices=["any", "solved", "failed"], default="any")
+    p_db_query.add_argument("--source", dest="source_filter", default=None)
+    p_db_query.add_argument("--limit", type=int, default=50)
+    p_db_query.add_argument("--json", action="store_true")
+    p_db_search = db_sub.add_parser("search", help="full-text search over step names, inputs and outputs")
+    p_db_search.add_argument("text"); p_db_search.add_argument("--limit", type=int, default=50)
+    p_db_export = db_sub.add_parser("export", help="write matching traces back out as JSON files")
+    p_db_export.add_argument("-o", "--output", required=True)
+    p_db_export.add_argument("--task"); p_db_export.add_argument("--family"); p_db_export.add_argument("--agent")
+    p_db.set_defaults(func=_cmd_db)
+
+    p_hook = sub.add_parser(
+        "hook", help="Claude Code hook (reads the hook payload on stdin): PostToolUse "
+                     "appends a live step, Stop writes the final trace from the transcript")
+    p_hook.add_argument("--traces", default="traces", help="trace directory (watch it with `deepcompare watch`)")
+    p_hook.add_argument("--task", required=True, help="task id the session is working on")
+    p_hook.add_argument("--agent", default="claude-code")
+    p_hook.add_argument("--expected", default=None, help="expected answer, for grading (else the run is ungraded)")
+    p_hook.add_argument("--prompt", default=None, help="the task prompt, if UserPromptSubmit is not hooked")
+    p_hook.add_argument("--db", default=None, help="also ingest the final trace into this trace database")
+    p_hook.set_defaults(func=_cmd_hook)
+
+    p_route = sub.add_parser(
+        "route", help="routing features per task family: each agent's success interval, "
+                      "cost, latency, steps, tool calls, and the pick under an objective")
+    p_route.add_argument("tracesdir", nargs="?", default=None, help="directory of traces (several agents, several runs)")
+    _db_source_args(p_route)
+    p_route.add_argument("--objective", choices=["success", "cost", "latency", "steps"], default="success")
+    p_route.add_argument("--family-pattern", default=None,
+                         help="regex whose first group names a task's family (default: the task id minus a run suffix)")
+    p_route.add_argument("--reports", default=None, help="a batch/runs output directory, to count fault kinds per agent")
+    p_route.add_argument("-o", "--output", default=None, help="write routing.json here")
+    p_route.set_defaults(func=_cmd_route)
+
     p_feedback = sub.add_parser(
         "feedback", help="the loop back: per-step labels, a preference pair "
                          "(chosen = the passing run or the reconciled splice, "
@@ -1684,6 +1869,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_watch.add_argument("--poll", type=float, default=0.5, help="directory poll interval in seconds")
     p_watch.add_argument("--template", default=None, help=f"viewer template (default: {DEFAULT_TEMPLATE})")
     p_watch.add_argument("--verbose", action="store_true", help="log every request")
+    p_watch.add_argument("--db", default=None, help="also ingest every finished trace into this trace database")
     p_watch.set_defaults(func=_cmd_watch)
 
     p_explain = sub.add_parser(
