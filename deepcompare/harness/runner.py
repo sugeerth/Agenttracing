@@ -47,12 +47,16 @@ def run_suite(providers: dict, tasks: list, tools: Optional[list] = None, *,
               system_prompt: str = DEFAULT_SYSTEM,
               provider_factory: Optional[Callable[[str], Provider]] = None,
               progress: Optional[Callable[[str], None]] = None,
-              agents: Optional[dict] = None) -> dict:
+              agents: Optional[dict] = None, run_offset: int = 0,
+              version: str = "") -> dict:
     """``providers`` maps agent name → :class:`Provider` (or, with
     ``provider_factory``, agent name → spec string, so scripted providers
     can be rebuilt fresh for every task and run instead of replaying an
-    exhausted script).  Returns a manifest: every trace written, with its
-    task, agent, run and outcome, plus the count of provider failures."""
+    exhausted script).  ``run_offset`` numbers the runs from ``r<offset+1>``
+    so a later batch on the same tasks never reuses an id; ``version`` is
+    recorded as the agent's version (the loop writes its prompt version
+    there).  Returns a manifest: every trace written, with its task,
+    agent, run and outcome, plus the count of provider failures."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     agents = dict(agents or {})
@@ -65,7 +69,7 @@ def run_suite(providers: dict, tasks: list, tools: Optional[list] = None, *,
                  [(name, "agent", ext) for name, ext in agents.items()]
         for agent, kind, spec in lineup:
             for run_index in range(runs):
-                run_id = f"r{run_index + 1}" if runs > 1 else None
+                run_id = f"r{run_offset + run_index + 1}" if (runs > 1 or run_offset) else None
                 if progress:
                     progress(f"{task['id']} · {agent}"
                              + (f" · {run_id}" if run_id else ""))
@@ -77,7 +81,8 @@ def run_suite(providers: dict, tasks: list, tools: Optional[list] = None, *,
                                 else spec)
                     trace = run_task(provider, task, tools, agent=agent,
                                      run_id=run_id, budget=budget, grader=grader,
-                                     system_prompt=system_prompt, out_dir=out)
+                                     system_prompt=system_prompt, out_dir=out,
+                                     version=version)
                 outcome = trace.get("outcome") or {}
                 if outcome.get("termination") == "infrastructure_error":
                     manifest["provider_failures"] += 1

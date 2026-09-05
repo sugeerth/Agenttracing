@@ -16,7 +16,7 @@ from typing import Optional
 from ..report import render_html
 from .paths import DEFAULT_TEMPLATE
 
-__all__ = ["_cmd_run", "_cmd_replay", "_cmd_why", "_provider_options",
+__all__ = ["_cmd_run", "_cmd_loop", "_cmd_replay", "_cmd_why", "_provider_options",
            "_split_spec", "_load_report", "_save_report"]
 
 
@@ -342,3 +342,67 @@ def _cmd_judge(args: argparse.Namespace) -> int:
           + ("; verdicts applied to outcome.success (graded_by: model)" if args.apply else "; recorded as outcome.judge only"))
     return 0
 
+
+
+def _cmd_loop(args: argparse.Namespace) -> int:
+    """The agentic loop: run, compare, read, test a prompt hypothesis,
+    keep or revert it, spend runs where the pick is unclear, stop for a
+    reason — with every decision in a ledger."""
+    from ..harness import agent_from_spec, provider_from_spec
+    from ..harness.loop import Loop
+    from ..harness.runner import load_tasks, load_tools
+    from .paths import DEFAULT_TEMPLATE
+    options = _provider_options(args)
+
+    def make_provider(spec: str):
+        kind = spec.split(":", 1)[0].strip().lower()
+        return provider_from_spec(spec, **({} if kind == "scripted" else options))
+
+    try:
+        tasks = load_tasks(args.tasks)
+        tools = load_tools(args.tools) if args.tools else []
+        specs: dict = {}
+        for entry in args.provider or []:
+            name, spec = _split_spec(entry)
+            provider = make_provider(spec)
+            specs[name or provider.name] = spec
+        agents: dict = {}
+        for entry in args.agent or []:
+            name, spec = _split_spec(entry)
+            ext = agent_from_spec(spec, name)
+            agents[ext.name] = ext
+        if len(specs) + len(agents) != 2:
+            raise ValueError("the loop compares exactly two agents: give two --provider/--agent entries")
+        seeds: dict = {}
+        for entry in args.suggest or []:
+            agent, sep, text = entry.partition("=")
+            if not sep or agent not in specs and agent not in agents:
+                raise ValueError(f"--suggest wants AGENT=TEXT with a named agent: {entry!r}")
+            seeds.setdefault(agent, []).append(text)
+        db = None
+        if args.db:
+            from ..tracedb import TraceDB
+            db = TraceDB(args.db)
+        template = Path(args.template) if args.template else DEFAULT_TEMPLATE
+        loop = Loop(tasks, specs, out_dir=args.output, provider_factory=make_provider, agents=agents, tools=tools,
+                    runs=args.runs, max_iterations=args.iterations, max_runs=args.max_runs,
+                    budget={"max_steps": args.max_steps}, db=db, progress=print, template=template,
+                    family_pattern=args.family, seed_suggestions=seeds, resume=args.resume)
+    except (ValueError, OSError, ImportError, AttributeError, KeyError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    try:
+        ledger = loop.run()
+    finally:
+        if db is not None:
+            db.close()
+    summary = ledger["summary"]
+    print(f"Wrote {Path(args.output) / 'loop.json'} and LOOP.md — {summary['iterations']} iteration(s), "
+          f"{summary['spent_runs']} run(s), {summary['kept_changes']} prompt change(s) kept, "
+          f"{summary['reverted_changes']} reverted, {summary.get('dropped_changes', 0)} dropped; "
+          f"stopped: {(summary.get('stop') or {}).get('reason')}")
+    for agent, a in summary["agents"].items():
+        if a.get("runs"):
+            print(f"  {agent}: success {a['success']:.0%} over {a['runs']} run(s) [{a['ci95'][0]:.2f}–{a['ci95'][1]:.2f}], "
+                  f"prompt version {a['prompt_version']}")
+    return 0

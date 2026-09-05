@@ -3440,3 +3440,85 @@ class LiveWatchTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class LoopBlockTest(unittest.TestCase):
+    """The Agent loop block draws what the ledger says: one row per
+    iteration, the decision with its status, a point per measured rate,
+    and the stop reason — from a loop run with the prompt-aware fake
+    provider, no network."""
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "loop"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        sys.path.insert(0, str(ROOT / "tests"))
+        from helpers_loop import run_demo_loop
+        cls.ledger = run_demo_loop(out, template=ROOT / "web" / "blocks.html")
+        cls.page_path = out / "report.html"
+        assert cls.page_path.is_file()
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def open(self, fragment="#view=batch"):
+        context = self.browser.new_context(viewport={"width": 1280, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}{fragment}")
+        page.wait_for_timeout(700)
+        return context, page, errors
+
+    def test_the_block_lists_every_iteration_with_its_decision_and_the_stop_reason(self):
+        context, page, errors = self.open()
+        block = page.locator('.block[data-block="loop"]')
+        self.assertEqual(block.count(), 1)
+        if "collapsed" in (block.get_attribute("class") or ""):
+            block.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(300)
+            block = page.locator('.block[data-block="loop"]')
+        iters = self.ledger["state"]["iterations"]
+        rows = block.locator("li[data-iteration]")
+        self.assertEqual(rows.count(), len(iters))
+        for it in iters:
+            row = block.locator(f'li[data-iteration="{it["n"]}"]')
+            self.assertEqual(row.get_attribute("data-action"), it["action"])
+            self.assertIn(it["why"][:40], row.locator(".why").text_content())
+            if it["action"] == "test-prompt":
+                self.assertEqual(row.locator(".dec b").text_content(), it["decision"]["status"])
+                self.assertIn(it["decision"]["text"][:30], row.locator(".txt").text_content())
+        points = sum(1 for it in iters for a, r in it["results"].items() if r.get("runs"))
+        page.wait_for_timeout(300)
+        self.assertEqual(block.locator("svg circle.lp-pt").count(), points, "one point per measured rate")
+        tags = block.locator("svg text.lp-tag")
+        self.assertEqual(tags.count(), sum(1 for it in iters if it["action"] == "test-prompt"))
+        self.assertIn(self.ledger["state"]["stop"]["reason"], block.locator(".lp-stop").text_content())
+        self.assertIn("no model is in the control path", block.locator(".lp-note").last.text_content())
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_no_open_block_shows_an_empty_state_on_the_loop_page(self):
+        for view in ("story", "evidence", "batch"):
+            context, page, errors = self.open(f"#view={view}")
+            empties = page.evaluate("""() => [...document.querySelectorAll('.block:not(.collapsed) .empty')]
+                .filter(e => e.offsetParent !== null).map(e => e.closest('.block').getAttribute('data-block'))""")
+            self.assertEqual(empties, [], f"{view}: {empties}")
+            self.assertEqual(errors, [], view)
+            context.close()

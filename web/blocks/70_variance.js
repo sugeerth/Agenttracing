@@ -58,6 +58,7 @@
       var node = document.createElement("style");
       node.id = STYLE_ID;
       node.textContent = [
+        ".vz-reason{font-size:var(--fs-s);color:var(--ink-3);padding:6px 0 2px}",
         ".vz-note{border:1px solid var(--rule);border-left-width:3px;border-radius:7px;",
         "padding:7px 9px;font-size:var(--fs-s);line-height:1.45;margin:0 0 10px;",
         "background:var(--surface-2);color:var(--ink-2)}",
@@ -512,8 +513,10 @@
 
         if (!usable(m)) {
           // A metric with nothing to split says why, in the engine's words.
+          // a per-metric reason inside a block that has content is a note,
+          // not the block's empty state
           section.appendChild(ctx.h("div", {
-            class: "empty",
+            class: "vz-reason",
             text: str(m.reason) || "no decomposition for this metric",
           }));
           el.appendChild(section);

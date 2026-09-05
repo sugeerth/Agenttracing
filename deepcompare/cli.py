@@ -48,19 +48,18 @@ from .routing import routing_analysis
 from .similarity import similarity_analysis
 from .fleet import DEFAULT_WEIGHTS, fleet_analysis
 from .gate import evaluate_gate, pair_gate_traces, render_gate_markdown
-from .metrics import aggregate as build_aggregate, task_signal
+from .metrics import aggregate as build_aggregate
 from .recommend import recommend
 from .triage import render_triage_text, triage
 from .reliability import reliability
 from .report import compare, render_html
-from .stability import medoid_pairs, stability_analysis
 from .trace import Trajectory
 from .variance import METRICS as VARIANCE_METRICS, variance_report
 
 #: default viewer template, relative to the repo root (parent of the package).
 from .commands.paths import DEFAULT_TEMPLATE, LEGACY_TEMPLATE  # noqa: E402
 from .commands.live import (  # noqa: E402
-    _cmd_judge, _cmd_replay, _cmd_run, _cmd_watch, _cmd_why, _load_report, _provider_options,
+    _cmd_judge, _cmd_loop, _cmd_replay, _cmd_run, _cmd_watch, _cmd_why, _load_report, _provider_options,
     _save_report, _split_spec,
 )
 #: template for the lightweight agent-selection view.
@@ -788,56 +787,16 @@ def _cmd_runs(args: argparse.Namespace) -> int:
         print("error: no valid traces found", file=sys.stderr)
         return 2
 
-    agent_names = sorted({t.agent.name for t in trajectories})
-    if len(agent_names) != 2:
-        print(
-            f"error: runs mode needs traces from exactly 2 agents, "
-            f"found {len(agent_names)}: {', '.join(agent_names)}",
-            file=sys.stderr,
-        )
+    from .suite import SuiteError, analyse_runs
+    try:
+        analysed = analyse_runs(trajectories, warn=lambda m: print(f"warning: {m}", file=sys.stderr))
+    except SuiteError as exc:
+        print(f"error: {exc}", file=sys.stderr)
         return 2
-    name_a, name_b = agent_names
+    name_a, name_b = analysed["names"]
     print(f"Agents: A={name_a}  B={name_b}")
-
-    runs_by_task: dict[str, dict[str, list[Trajectory]]] = {}
-    for t in trajectories:
-        side = "a" if t.agent.name == name_a else "b"
-        runs_by_task.setdefault(t.task.id, {"a": [], "b": []})[side].append(t)
-    for tid in sorted(runs_by_task):
-        if not runs_by_task[tid]["a"] or not runs_by_task[tid]["b"]:
-            print(f"warning: task {tid!r} lacks runs for both agents; skipped",
-                  file=sys.stderr)
-            del runs_by_task[tid]
-    if not runs_by_task:
-        print("error: no tasks with runs on both sides", file=sys.stderr)
-        return 2
-
-    stability = stability_analysis(runs_by_task)
-    reliability_analysis = reliability(runs_by_task)
-    reports = [compare(a, b) for a, b in medoid_pairs(runs_by_task)]
-    agg = build_aggregate(reports)
-    agg["equality"] = equality_analysis(runs_by_task)
-    agg["routing"] = routing_table(trajectories, equality=agg["equality"])
-    agg["stability"] = stability
-    agg["reliability"] = reliability_analysis
-    agg["task_signal"] = task_signal(reports, stability)
-    from .consolidate import consolidate_diagnoses
-    agg["diagnosis_consolidated"] = consolidate_diagnoses(runs_by_task)
-    # the paired design the runs layout IS: both agents on the same tasks,
-    # so the comparison is a paired difference with a sign test, never two
-    # rates eyeballed against each other
-    from .statistics import paired_inference
-    agg["paired_inference"] = paired_inference(
-        [(sum(1.0 for t in runs_by_task[tid]["a"] if t.outcome.success)
-          / len(runs_by_task[tid]["a"]),
-          sum(1.0 for t in runs_by_task[tid]["b"] if t.outcome.success)
-          / len(runs_by_task[tid]["b"]))
-         for tid in sorted(runs_by_task)],
-        labels=(name_a, name_b))
-    # Re-triage now that reliability is attached: it is the only block that
-    # can tell triage to stop ranking cross-agent claims confidently, and it
-    # arrives after aggregate() has already run.
-    agg["triage"] = triage(reports, agg)
+    reports, agg = analysed["reports"], analysed["aggregate"]
+    stability, reliability_analysis = analysed["stability"], analysed["reliability"]
 
     out_dir = Path(args.output)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1788,6 +1747,33 @@ def build_parser() -> argparse.ArgumentParser:
                             "grades, declares termination, names the file")
     _provider_option_args(p_run)
     p_run.set_defaults(func=_cmd_run)
+
+    p_loop = sub.add_parser(
+        "loop", help="the agentic loop: run two agents, compare, read the failures, test a "
+                     "prompt hypothesis as a paired experiment, keep or revert it, spend runs "
+                     "where the routing pick is unclear, stop for a stated reason (talks to a "
+                     "network unless the providers are scripted)")
+    p_loop.add_argument("--provider", action="append", default=[], metavar="NAME=KIND:MODEL",
+                        help="an agent to run (as for `run`); the loop needs exactly two agents in all")
+    p_loop.add_argument("--agent", action="append", default=[],
+                        metavar="NAME=python:MODULE:CALLABLE | NAME=cmd:TEMPLATE",
+                        help="bring your own agent (as for `run`); a cmd agent receives prompt changes "
+                             "in DEEPCOMPARE_SYSTEM_PROMPT")
+    p_loop.add_argument("--tasks", required=True, help="tasks JSON: a list of {id, prompt, expected}")
+    p_loop.add_argument("--tools", default=None, metavar="MODULE:ATTR")
+    p_loop.add_argument("-o", "--output", default="loop", help="output directory (default: loop)")
+    p_loop.add_argument("--runs", type=int, default=3, help="runs per (task, agent) per batch (default 3)")
+    p_loop.add_argument("--iterations", type=int, default=4, help="iteration budget (default 4)")
+    p_loop.add_argument("--max-runs", type=int, default=None, help="run budget over the whole loop")
+    p_loop.add_argument("--max-steps", type=int, default=12)
+    p_loop.add_argument("--suggest", action="append", default=[], metavar="AGENT=TEXT",
+                        help="a prompt hypothesis of your own to test first, as a paired experiment")
+    p_loop.add_argument("--family", default=None, help="regex whose first group is a task's family")
+    p_loop.add_argument("--db", default=None, help="ingest every trace into this trace database")
+    p_loop.add_argument("--template", default=None, help="page template (default: the blocks page)")
+    p_loop.add_argument("--resume", action="store_true", help="continue from the ledger in the output directory")
+    _provider_option_args(p_loop)
+    p_loop.set_defaults(func=_cmd_loop)
 
     p_replay = sub.add_parser(
         "replay", help="verify the decisive step by re-executing the failing run "

@@ -58,6 +58,12 @@ agentdiff replay out/report_t01.json --provider atlas=openai:gpt-4o --replays 3
 
 # 4. Why: narrate through any provider, checked number by number
 agentdiff why out/report_t01.json --provider atlas=openai:gpt-4o
+
+# 5. Or let it run itself: baseline → reading → prompt hypothesis, tested as a
+#    paired experiment and kept only on the evidence → runs where the pick is
+#    unclear → a ledger with every decision and why it stopped (docs/AGENTIC.md)
+agentdiff loop --tasks tasks.json --provider atlas=openai:gpt-4o \
+    --provider local=ollama:llama3.1 --runs 3 --iterations 4 -o loop/
 ```
 
 Scripted providers (`scripted:turns.json`) make every step of this loop
@@ -185,16 +191,10 @@ labelled a hypothesis until a replay confirms it.
 
 ## Research direction
 
-AgentDiff implements a ranked program distilled from the interpretability
-and agent-evaluation literature — counterfactual decisive steps
-(Who&When, AgenTracer), evidence classes over stated reasoning (CoT
-faithfulness), overdetermination (Thought Anchors), pass^k reliability
-(τ-bench), leaky implanted benchmarks, paired designs — with each item's
-status in [`docs/RESEARCH_INSIGHTS.md`](docs/RESEARCH_INSIGHTS.md).
-With an open-weights model the harness also records a per-step
-confidence interval from the model's logprobs and the Neuronpedia SAE
-features each step activates (`NEURONPEDIA_API_KEY` set outside the
-chat); the report names the features that fired only on the failing
-side at the decisive step, as cited evidence that never moves a score.
-Still open: MAST cross-mapping, strained coherence, structural anchors,
-a same-configuration noise floor.
+A ranked program distilled from the interpretability and
+agent-evaluation literature — counterfactual decisive steps, evidence
+classes over stated reasoning, overdetermination, pass^k, leaky
+benchmarks, paired designs — each item's status in
+[`docs/RESEARCH_INSIGHTS.md`](docs/RESEARCH_INSIGHTS.md). With an
+open-weights model the harness also records per-step logprob intervals
+and Neuronpedia SAE features, cited as evidence that never moves a score.

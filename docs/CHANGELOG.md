@@ -1689,6 +1689,39 @@ is reported as such.
   units, no window needed. `AgentDiff.charts.mode.{get,set,expand}`
   drives it from outside.
 
+- **The agentic loop** (`deepcompare/planner.py`, `deepcompare/harness/loop.py`,
+  CLI `loop`, block *Agent loop*, `docs/AGENTIC.md`). AgentDiff runs
+  itself: given a task set and two agents it runs a baseline, compares,
+  reads the failures, turns a finding into a prompt hypothesis, tests
+  the hypothesis as a paired experiment (the agent with its current
+  prompt against the same agent with the change, same tasks, same
+  number of runs), keeps or reverts it on the paired result, spends
+  further runs on the task families whose routing pick is still unclear
+  (widest interval first), and stops for a stated reason. The
+  controller is `planner.py`: rules over the engine's numbers, pure and
+  deterministic, with a sentence attached to every decision — no model
+  is in the control path, so the loop cannot be talked into a
+  conclusion. Rules: one variable per experiment; a change is kept when
+  it wins more tasks than it loses with no always-pass→always-fail
+  regression, `kept` under a sign test below 0.05 and `kept
+  (provisional)` otherwise; a kept change retires the agent's older
+  runs and re-measures any task the experiment did not cover; a queued
+  hypothesis whose source failure no longer reproduces is dropped, not
+  run; equal rates over six runs a side are a tie no further run can
+  break. Every iteration is a full `runs` analysis (page included) in
+  `iter-NN/`; the ledger `loop.json` carries the state, every decision
+  with its evidence, the pools, and is what `--resume` continues from;
+  `LOOP.md` is the same in prose; the closing page carries the ledger as
+  `aggregate.loop`. Prompt changes reach provider agents as the system
+  prompt and command agents through `DEEPCOMPARE_SYSTEM_PROMPT`; runs
+  under a kept change were recorded as `<agent>+p<n>` and the ledger
+  names the relabelling. `--suggest AGENT=TEXT` queues a hypothesis of
+  your own to test first. The feedback templates now cover the kinds the
+  reading actually emits (unsourced answer value, contradicted by own
+  observation, stale basis, unresolved error, meltdown onset, regression
+  cycle, wrote before reading, unchecked write, unverified) and the
+  `stopping` attribution category — before, a failing run's most common
+  findings produced no sentence for the next prompt.
 - **Statistics, checkpoints, replay, equality, and the holistic case.**
   *Equality of output* (`deepcompare/equality.py`, `aggregate.equality`,
   block *Output equality*): per task and agent, the distinct answers

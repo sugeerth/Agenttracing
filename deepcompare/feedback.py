@@ -66,6 +66,38 @@ _PROMPT_TEMPLATES = {
     "invented_argument": (
         "Only pass a tool arguments that appear in the task or in an earlier "
         "observation; never invent an identifier or a value."),
+    # the kinds the reading actually emits (reasoning.py), so a finding on
+    # a failing run can become a sentence in the next prompt
+    "unsourced_answer_value": (
+        "Every value in the final answer must come from an observation in "
+        "this run; if a value has not been observed, obtain it with a tool "
+        "before answering."),
+    "contradicted_by_own_observation": (
+        "If the answer would contradict something a tool returned earlier in "
+        "the run, resolve the contradiction before answering, and say which "
+        "observation the answer rests on."),
+    "stale_basis": (
+        "When a later observation updates a value used earlier, recompute "
+        "the answer from the latest observation."),
+    "unresolved_error": (
+        "Do not answer while a tool error stands unresolved; retry with "
+        "corrected arguments or a different tool, or say that the value "
+        "could not be obtained."),
+    "meltdown_onset": (
+        "If the same call has been made several times in a row, stop and "
+        "re-plan instead of continuing."),
+    "regression_cycle": (
+        "Do not undo a change that a check has already confirmed; when a "
+        "check fails, change something else."),
+    "wrote_before_reading": (
+        "Read the current state before writing to it; never modify what "
+        "has not been observed in this run."),
+    "unchecked_write": (
+        "After every write, read back or test what was written before "
+        "moving on."),
+    "unverified": (
+        "Before the final answer, check it against the task as posed and "
+        "against the values observed in this run."),
 }
 
 _CATEGORY_TEMPLATES = {
@@ -74,6 +106,7 @@ _CATEGORY_TEMPLATES = {
     "reasoning": "Verify each intermediate value before it enters the answer.",
     "retrieval": "Prefer a primary or official source; do not commit on a secondary one.",
     "planning": "Write the plan as the values the answer needs and the step that yields each.",
+    "stopping": "Do not answer until every value the answer needs has been observed in this run; if one is missing, obtain it first.",
 }
 
 

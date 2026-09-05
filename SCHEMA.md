@@ -224,6 +224,20 @@ Every pairwise report carries, beyond the sections above:
   cost_usd, latency_s, tokens, steps, tool_calls, terminations,
   equality_rate?, mean_distinct_answers?, consistently_wrong_tasks?},
   fault_kinds}]}}, overall, rationale {families, overall}, hints}`.
+- `aggregate.loop` (the closing page of `loop`) / `loop.json` — the
+  ledger: `{version, started, finished, config {runs, max_iterations,
+  max_runs, tasks, agents, prompt_tunable, base_prompt}, state {agents,
+  tasks, spent_runs, iterations[{n, action: compare|test-prompt, why,
+  tasks, runs, dir, results {agent: {successes, runs, success, ci95,
+  equality_rate, per_task}}, routing? {families {family: {pick,
+  confidence, why, tasks, candidates}}, overall_pick, rationale},
+  suggestions_added?, decision? {agent, kind, text, source, status:
+  kept|kept (provisional)|reverted, why, evidence {tasks, wins, losses,
+  ties, sign_test_p, regressions, improvements, baseline, variant},
+  variant, relabel?}}], prompts {agent: {current, version, candidates,
+  history[{…, status: kept|kept (provisional)|reverted|dropped}]}},
+  latest, needs_runs?, stop {reason, kind, after_iteration}}, summary,
+  pools, offsets, note}`.
 - `feedback` — the loop back, derived read-only: `{version, task_id,
   failing_side, failing_agent, step_labels[{side, agent, step, type,
   name, labels[{label, source, mechanism?}]}], preference_pair {prompt,
@@ -271,6 +285,7 @@ card v37; replay v40).
 | `hook --traces DIR --task ID [--expected X] [--db FILE]` | a Claude Code hook: live steps on PostToolUse, the final trace on Stop |
 | `route <traces/ or --db FILE> [--objective …] [-o routing.json]` | per task family: each agent's success interval, cost, latency, steps, tool calls; the pick and its confidence |
 | `judge <trace|dir|report> --provider … [--with-steps] [--apply] [--db FILE]` | a second model grades the answer; recorded as outcome.judge, applied only with --apply |
+| `loop --tasks … --provider/--agent ×2 [--runs N] [--iterations N] [--max-runs N] [--suggest AGENT=TEXT] [--db FILE] [--resume]` | the agentic loop: baseline, hypothesis from the reading, paired prompt experiment, keep/revert, runs where the pick is unclear, a ledger with every decision |
 | `db --db FILE import/summary/query/search/checkpoints/export` | the trace database (SQLite): ingest, list, full-text search, export |
 | `watch [traces/] [--demo TRACES --pace S --loop]` | serve the page live (localhost, server-sent events): running agents stream in, finished pairs become the story |
 | `replay REPORT --provider …` | verify the decisive step by re-execution; writes the verdict back |
