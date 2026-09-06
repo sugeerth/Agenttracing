@@ -1689,6 +1689,25 @@ is reported as such.
   units, no window needed. `AgentDiff.charts.mode.{get,set,expand}`
   drives it from outside.
 
+- **Where the time went** (`deepcompare/timing.py`, `report.timing`,
+  story section *Where the time went*). Every recorded second of a run
+  attributed to thinking, waiting on tools (each tool named, with calls
+  and seconds) or the answer; the seconds in steps the reading marks as
+  wasted (nothing new, a repeat, a dead end, an error, or after the
+  answer's basis was complete) counted and named; the slowest steps; a
+  rationale in sentences whose every number is in the ledger; the pair
+  narrative says who took longer, by how much, and what share of the gap
+  is wasted steps. A run with no latencies is unmeasurable, never fast.
+  The page draws a waterfall per run (wasted steps hatched and named), a
+  share bar, the tools ranked by cost, and a table view.
+- **Retrieval quality, accuracy and time in the scorecard.** New rates:
+  useful tool results (calls whose result fed the answer, over calls) and
+  expected evidence retrieved (over the golden task's `expected_evidence`
+  list); new spend rows: wasted seconds, share of time waiting on tools,
+  and the accuracy score (mean `outcome.score` when a grader gives one);
+  per-agent retrieval counts (no-information calls, dead ends, missing
+  evidence) and time by category. `docs/PLAYBOOK.md` says how to show all
+  of this online and in the room, and what to build next.
 - **Debug session, on the body chart** (block *Debug session*, Evidence
   view; and a *debug* toggle on the story hero). The two runs over time
   — trunks, tool calls as branches, the alignment in the gutter — with

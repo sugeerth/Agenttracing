@@ -188,7 +188,7 @@
     wrap.appendChild(host);
     if (d3) {
       var W = 260, Hh = 190, m = { top: 12, right: 16, bottom: 30, left: 36 };
-      var svg = d3.select(host).append("svg").attr("width", W).attr("height", Hh);
+      var svg = d3.select(host).append("svg").attr("width", W).attr("height", Hh).attr("role", "img").attr("aria-label", "risk against reward per agent");
       var x = d3.scaleLinear().domain([0, 1]).range([m.left, W - m.right]);
       var y = d3.scaleLinear().domain([0, 1]).range([Hh - m.bottom, m.top]);
       svg.append("g").attr("class", "axis").attr("transform", "translate(0," + (Hh - m.bottom) + ")").call(d3.axisBottom(x).ticks(4).tickSize(3).tickFormat(d3.format(".0%")));

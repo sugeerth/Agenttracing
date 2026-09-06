@@ -31,7 +31,9 @@ from typing import Optional, Union
 
 from .process import analyse as process_analyse
 from .reasoning import read_trace
+from .semantic import normalize_for_containment
 from .statistics import wilson_interval
+from .timing import time_attribution
 from .trace import Trajectory
 
 VERSION = 1
@@ -40,6 +42,8 @@ VERSION = 1
 RATE_DIMENSIONS = [
     ("success", "task success"),
     ("tool_correct", "correct tool called"),
+    ("retrieval_useful", "useful tool results (over calls)"),
+    ("retrieval_recall", "expected evidence retrieved (golden)"),
     ("grounded", "answer grounded"),
     ("policy_compliant", "policy compliant"),
     ("risk_free", "no risk flag"),
@@ -47,8 +51,9 @@ RATE_DIMENSIONS = [
     ("loop_free", "no loop"),
     ("error_free", "no tool error"),
 ]
-SPEND_DIMENSIONS = [("latency_s", "latency (s)"), ("cost_usd", "cost (USD)"), ("tokens", "tokens"), ("steps", "steps"),
-                    ("tool_calls", "tool calls")]
+SPEND_DIMENSIONS = [("latency_s", "latency (s)"), ("wasted_s", "wasted seconds"), ("tool_wait_share", "share of time waiting on tools"),
+                    ("cost_usd", "cost (USD)"), ("tokens", "tokens"), ("steps", "steps"), ("tool_calls", "tool calls"),
+                    ("accuracy_score", "accuracy score (outcome.score)")]
 RISK_KINDS = ("forbidden_tool", "forbidden_pattern", "blind_write", "unverified_write", "over_write_budget",
               "undeclared_tool", "invented_argument", "looping", "step_limit")
 
@@ -59,7 +64,8 @@ def load_golden(path: Union[str, Path]) -> dict:
     """A golden dataset: the tasks file (a list or ``{"tasks": [...],
     "policy": {...}}``); every task may carry ``expected_tools``
     (all must be called), ``any_of_tools`` (at least one), ``forbidden_tools``,
-    ``only_expected_tools`` (no other tool), ``family``. Returns
+    ``only_expected_tools`` (no other tool), ``expected_evidence`` (strings a
+    good retrieval brings back), ``family``. Returns
     ``{"tasks": {id: task}, "policy": {...} or None, "path": str}``."""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     tasks = data["tasks"] if isinstance(data, dict) else data
@@ -142,6 +148,18 @@ def score_run(traj: Trajectory, golden_task: Optional[dict] = None, policy: Opti
         flags.append({"step": item.get("index") if isinstance(item, dict) else item, "kind": "invented_argument",
                       "detail": "argument value with no source in the task or an observation"})
 
+    # --- retrieval quality: did what came back feed the answer, and did it
+    # bring the evidence the golden task expects
+    roles = {w.get("step"): w.get("role") for w in (reading.get("what_happened") or []) if isinstance(w, dict)}
+    useful_calls = sum(1 for s in calls if roles.get(s.index) == "feeds_answer")
+    no_info_calls = sum(1 for s in calls if roles.get(s.index) == "no_information")
+    dead_end_calls = sum(1 for s in calls if roles.get(s.index) == "dead_end")
+    expected_evidence = [str(x) for x in (golden_task.get("expected_evidence") or [])]
+    observations = normalize_for_containment(" \n ".join(str(s.output or "") for s in calls))
+    evidence_found = [x for x in expected_evidence if normalize_for_containment(x) in observations]
+    retrieval_recall = (len(evidence_found) / len(expected_evidence)) if expected_evidence else None
+    timing = time_attribution(traj, reading)
+
     # --- grounding of the answer
     basis = reading.get("answer_basis") or {}
     atoms, supported = basis.get("atoms") or 0, basis.get("supported") or 0
@@ -203,8 +221,17 @@ def score_run(traj: Trajectory, golden_task: Optional[dict] = None, policy: Opti
                   "errors": recovery.get("errors") or 0},
         "grounding": {"status": basis.get("status"), "values": atoms, "supported": supported,
                       "grounded": grounded, "unsourced_values": max(0, atoms - supported)},
+        "retrieval": {"calls": len(calls), "useful": useful_calls, "no_information": no_info_calls, "dead_ends": dead_end_calls,
+                      "useful_rate": round(useful_calls / len(calls), 4) if calls else None,
+                      "expected_evidence": len(expected_evidence), "evidence_found": len(evidence_found),
+                      "missing_evidence": [x for x in expected_evidence if x not in evidence_found], "recall": retrieval_recall},
+        "time": {"measurable": timing["measurable"], "total_s": timing["total_s"], "wasted_s": timing["wasted_s"],
+                 "wasted_share": timing.get("wasted_share"), "by_category": timing.get("by_category"), "rationale": timing["rationale"]},
         "spend": {"latency_s": totals.latency_s, "cost_usd": totals.cost_usd,
-                  "tokens": (totals.input_tokens or 0) + (totals.output_tokens or 0), "steps": len(steps), "tool_calls": len(calls)},
+                  "tokens": (totals.input_tokens or 0) + (totals.output_tokens or 0), "steps": len(steps), "tool_calls": len(calls),
+                  "wasted_s": timing["wasted_s"] if timing["measurable"] else None,
+                  "tool_wait_share": (timing["by_category"].get("tool") or {}).get("share") if timing["measurable"] else None,
+                  "accuracy_score": traj.outcome.score if isinstance(traj.outcome.score, (int, float)) else None},
         "trajectory": {"repeated_calls": repeats.get("repeated_calls") or 0, "cycles": repeats.get("cycles") or 0,
                        "looping": bool(loops.get("looping")), "loop_repeats": (loops.get("longest_repeated_block") or {}).get("repeats") or 0,
                        "max_call_multiplicity": loops.get("max_call_multiplicity"),
@@ -260,6 +287,9 @@ def scorecard(trajectories: list, golden: Optional[dict] = None, policy: Optiona
         errors = sum(r["recovery"]["errors"] for r in runs)
         recovered = sum(r["recovery"]["recovered"] for r in runs)
         rates["recovered_errors"] = _rate(recovered, errors)
+        calls_total = sum(r["retrieval"]["calls"] for r in runs)
+        rates["retrieval_useful"] = _rate(sum(r["retrieval"]["useful"] for r in runs), calls_total)
+        rates["retrieval_recall"] = _rate(sum(r["retrieval"]["evidence_found"] for r in runs), sum(r["retrieval"]["expected_evidence"] for r in runs))
         spend = {k: _summary([r["spend"][k] for r in runs]) for k, _ in SPEND_DIMENSIONS}
         flag_kinds: dict = {}
         for r in runs:
@@ -308,6 +338,18 @@ def scorecard(trajectories: list, golden: Optional[dict] = None, policy: Optiona
                       "errors": errors, "distinct": sorted({t for r in runs for t in r["tools"]["distinct"]})},
             "grounding": {"values": sum(r["grounding"]["values"] for r in runs), "supported": sum(r["grounding"]["supported"] for r in runs),
                           "unsourced_values": sum(r["grounding"]["unsourced_values"] for r in runs)},
+            "retrieval": {"calls": calls_total, "useful": sum(r["retrieval"]["useful"] for r in runs),
+                          "no_information": sum(r["retrieval"]["no_information"] for r in runs), "dead_ends": sum(r["retrieval"]["dead_ends"] for r in runs),
+                          "expected_evidence": sum(r["retrieval"]["expected_evidence"] for r in runs), "evidence_found": sum(r["retrieval"]["evidence_found"] for r in runs),
+                          "missing_evidence": sorted({x for r in runs for x in r["retrieval"]["missing_evidence"]})},
+            "time": {"measurable_runs": sum(1 for r in runs if r["time"]["measurable"]),
+                     "total_s": round(sum(r["time"]["total_s"] for r in runs), 4),
+                     "wasted_s": round(sum(r["time"]["wasted_s"] for r in runs if r["time"]["measurable"]), 4),
+                     "wasted_share": (round(sum(r["time"]["wasted_s"] for r in runs if r["time"]["measurable"]) /
+                                            max(1e-9, sum(r["time"]["total_s"] for r in runs if r["time"]["measurable"])), 4)
+                                      if any(r["time"]["measurable"] for r in runs) else None),
+                     "by_category": {cat: round(sum(((r["time"]["by_category"] or {}).get(cat) or {}).get("seconds", 0) for r in runs if r["time"]["measurable"]), 4)
+                                     for cat in ("think", "tool", "answer")}},
             "safety": {"writes": sum(r["safety"]["writes"] for r in runs), "blind_writes": sum(r["safety"]["blind_writes"] for r in runs),
                        "flags": sum(flag_kinds.values()), "flag_kinds": flag_kinds, "flagged_runs": flagged_runs,
                        "policy_applies": any(r["safety"]["policy_applies"] for r in runs)},
@@ -331,7 +373,8 @@ def scorecard(trajectories: list, golden: Optional[dict] = None, policy: Optiona
         "agents": out_agents,
         "per_run": per_run,
         "dimensions": {"rates": RATE_DIMENSIONS + [("recovered_errors", "errors recovered (over errors)")], "spend": SPEND_DIMENSIONS},
-        "note": ("every rate is successes/runs with a 95% Wilson interval; 'correct tool' and 'policy compliant' need a golden set "
+        "note": ("every rate is successes/runs with a 95% Wilson interval (useful tool results over calls, expected evidence over the golden "
+                 "list, recovered errors over errors); 'correct tool', 'expected evidence' and 'policy compliant' need a golden set "
                  "or a policy and read None without one; write/read effects are declared by the tool or inferred from its name "
                  "(the basis is stated per run); the judge's verdicts are reported beside the grade, never merged into it"),
     }
@@ -368,6 +411,13 @@ def render_scorecard_markdown(card: dict) -> str:
         rr = card["agents"][a]["risk_reward"]
         cells.append(f"reward {rr['reward']:.0%} · risk {rr['risk']:.0%} · ratio " + (f"{rr['ratio']:g}" if rr["ratio"] is not None else "— (no flag)"))
     lines.append("| risk vs reward | " + " | ".join(cells) + " |")
+    cells = []
+    for a in agents:
+        rv = card["agents"][a]["retrieval"]; tm = card["agents"][a]["time"]
+        cells.append(f"{rv['useful']}/{rv['calls']} calls fed the answer, {rv['no_information']} returned nothing, {rv['dead_ends']} dead ends"
+                     + (f"; evidence {rv['evidence_found']}/{rv['expected_evidence']}" if rv["expected_evidence"] else "")
+                     + (f"; {tm['wasted_share']:.0%} of time wasted" if tm.get("wasted_share") is not None else ""))
+    lines.append("| retrieval and time | " + " | ".join(cells) + " |")
     cells = []
     for a in agents:
         sf = card["agents"][a]["safety"]

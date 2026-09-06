@@ -13,6 +13,8 @@ scorecard* block.
 |---|---|---|
 | task success | `outcome.success` over runs, 95% Wilson interval | a graded run (expected answer or a judge) |
 | correct tool called | every `expected_tools` entry called, at least one of `any_of_tools`, no other tool when `only_expected_tools` | golden set |
+| useful tool results | tool calls whose result fed the answer (the reading's `feeds_answer` role), over calls | — |
+| expected evidence retrieved | golden `expected_evidence` strings found in any observation, over the list | golden set |
 | answer grounded | every value in the final answer traces to an observation in the run (the reading's `answer_basis`: `supported == atoms`) | — |
 | policy compliant | no forbidden tool, no forbidden pattern in a tool input, writes within `max_writes`, no write before a read when `write_requires_read` | policy or `forbidden_tools` |
 | no risk flag | none of: forbidden tool, forbidden pattern, blind write, unverified write, undeclared tool, invented argument, loop, step limit | — |
@@ -20,7 +22,7 @@ scorecard* block.
 | no loop | no repeated block and no call cycle (`process.loops`, `process.repeats`) | — |
 | no tool error | no tool step returned an error | — |
 | errors recovered | recovered errors / errors (over errors, not runs) | at least one error |
-| latency, cost, tokens, steps, tool calls | mean, median, min, max per run, as recorded | — |
+| latency, wasted seconds, share waiting on tools, cost, tokens, steps, tool calls, accuracy score | mean, median, min, max per run, as recorded (`report.timing` for the wasted seconds; `outcome.score` for the accuracy score) | — |
 | risk vs reward | reward = success rate; risk = share of runs with a flag; ratio = reward / risk, none when nothing was flagged | — |
 | trajectory counts | repeated calls, cycles, looping runs, steps after done, no-information steps, step-limit runs, writes and blind writes, terminations | — |
 | LLM judge | judged-solved rate with interval; agreement with the exact-match grade; the 2×2 of grade × judge | `--judge` |
@@ -38,7 +40,8 @@ The tasks file the harness already reads, with evaluation fields:
             "write_requires_read": true, "verify_after_write": true, "max_writes": 3},
  "tasks": [
   {"id": "t05_flight_duration", "prompt": "…", "expected": "23 hours 45 minutes",
-   "expected_tools": ["datetime_diff"], "forbidden_tools": ["calculator"], "family": "compute"},
+   "expected_tools": ["datetime_diff"], "forbidden_tools": ["calculator"],
+   "expected_evidence": ["13h40m", "7h50m"], "family": "compute"},
   {"id": "t01_acme_revenue", "prompt": "…", "expected": "$4.82 billion",
    "any_of_tools": ["web_search"], "only_expected_tools": false}
  ]}

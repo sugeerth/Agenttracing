@@ -224,6 +224,8 @@ Every pairwise report carries, beyond the sections above:
   cost_usd, latency_s, tokens, steps, tool_calls, terminations,
   equality_rate?, mean_distinct_answers?, consistently_wrong_tasks?},
   fault_kinds}]}}, overall, rationale {families, overall}, hints}`.
+- `timing` — `{a, b: {measurable, total_s, steps[{index, name, latency_s, share,
+  category, wasted?, retry_of?}], by_category, by_tool, wasted_s, slowest, rationale}, delta, narrative}`.
 - `aggregate.scorecard` (batch, runs, loop) / `eval.json` (`eval`) —
   `{version, mode: offline|online, golden?, policy?, agents {agent: {runs,
   tasks, rates {success, tool_correct, grounded, policy_compliant,
@@ -231,8 +233,7 @@ Every pairwise report carries, beyond the sections above:
   {successes, runs, rate, ci95}}, spend {latency_s, cost_usd, tokens,
   steps, tool_calls: {n, mean, median, min, max, total}}, trajectory,
   tools, grounding, safety {flags, flag_kinds, flagged_runs, …},
-  risk_reward {reward, risk, ratio}, judge {success, agreement,
-  confusion}?, graded_by}}, per_run[], note}`; fields in `docs/EVAL.md`.
+  retrieval, time, risk_reward, judge?, graded_by}}, per_run[], note}`; `docs/EVAL.md`.
 - `aggregate.loop` (the closing page of `loop`) / `loop.json` — the
   ledger: `{version, started, finished, config, state {agents, tasks,
   spent_runs, iterations[{n, action: compare|test-prompt, why, tasks,
@@ -240,8 +241,7 @@ Every pairwise report carries, beyond the sections above:
   equality_rate, per_task, scorecard?}}, routing?, paired?,
   suggestions_added?, decision? {agent, kind, text, status: kept|kept
   (provisional)|reverted, why, evidence {wins, losses, ties, sign_test_p,
-  regressions, baseline, variant, paired, per_task}}}], prompts, latest,
-  needs_runs?, stop}, summary, pools, offsets, note}`; rules in `docs/AGENTIC.md`.
+  regressions, baseline, variant, paired, per_task}}}], prompts, latest, needs_runs?, stop}, summary, pools, offsets, note}`; `docs/AGENTIC.md`.
 - `feedback` — the loop back, derived read-only: `{version, task_id,
   failing_side, failing_agent, step_labels[{side, agent, step, type,
   name, labels[{label, source, mechanism?}]}], preference_pair {prompt,

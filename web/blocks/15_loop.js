@@ -260,7 +260,7 @@
     var W = Math.max(360, host.clientWidth || 680);
     var rowH = 22, m = { top: 18, right: 70, bottom: 8, left: 120 };
     var H = m.top + rows.length * rowH + 14 + 2 * 18 + m.bottom;
-    var svg = d3.select(host).append("svg").attr("viewBox", "0 0 " + W + " " + H);
+    var svg = d3.select(host).append("svg").attr("viewBox", "0 0 " + W + " " + H).attr("role", "img").attr("aria-label", "the experiment task by task");
     var x = d3.scaleLinear().domain([0, 1]).range([m.left, W - m.right]);
     svg.append("g").attr("class", "grid").selectAll("line").data([0, 0.5, 1]).enter().append("line").attr("x1", x).attr("x2", x).attr("y1", m.top - 6).attr("y2", H - m.bottom);
     svg.append("g").attr("class", "axis").attr("transform", "translate(0," + (m.top - 8) + ")")

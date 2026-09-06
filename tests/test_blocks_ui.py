@@ -1656,8 +1656,9 @@ class SmallScreensKeysAndMotionTest(unittest.TestCase):
         # a phone), 4 (reconcile: three lanes and a five-step strategy),
         # 5 (take forward, with its numbered list), 6 (next horizon: the
         # prompts, the reward table, the pair) and the hero's super panel
-        # over the body chart: 5100 → 5500 → 6200 → 7200 → 7700
-        self.assertLessEqual(height, 7700, f"story is {height}px tall on a phone")
+        # over the body chart, then where the time went (two waterfalls):
+        # 5100 → 5500 → 6200 → 7200 → 7700 → 8600
+        self.assertLessEqual(height, 8600, f"story is {height}px tall on a phone")
         self.assertFalse(page.evaluate("() => document.documentElement.scrollWidth > document.documentElement.clientWidth"))
         fold = page.locator("#hero-lane details.tj-inspector-fold")
         self.assertEqual(fold.count(), 1)
@@ -2624,7 +2625,7 @@ class StoryChartsTest(unittest.TestCase):
         context, page, errors = self.open()
         self.assertTrue(str(page.evaluate("() => window.d3 && d3.version")).startswith("7."))
         titles = page.evaluate("() => [...document.querySelectorAll('#story-lane .block-title')].map(e => e.textContent)")
-        self.assertEqual(titles[:5], ["1 · What happened", "2 · The trace as a tree", "3 · Why", "4 · Reconcile", "5 · Take forward"])
+        self.assertEqual(titles[:6], ["1 · What happened", "2 · Where the time went", "3 · The trace as a tree", "4 · Why", "5 · Reconcile", "6 · Take forward"])
         self.assertEqual(len(titles), len(set(titles)))
         self.assertEqual(errors, [])
         context.close()
@@ -2986,7 +2987,7 @@ class StoryChartsTest(unittest.TestCase):
         block = page.locator('[data-block="next-horizon"]')
         self.assertEqual(block.count(), 1)
         titles = page.evaluate("() => [...document.querySelectorAll('#story-lane .block-title')].map(e => e.textContent)")
-        self.assertIn("6 · Next horizon", titles)
+        self.assertIn("7 · Next horizon", titles)
         items = block.locator(".nh-prompts li")
         self.assertEqual(items.count(), len(fb["prompt_suggestions"]))
         for i, sug in enumerate(fb["prompt_suggestions"]):
@@ -3792,5 +3793,77 @@ class DebugSessionBlockTest(unittest.TestCase):
         page.wait_for_timeout(600)
         self.assertEqual(page.locator("svg.d3c-body").first.get_attribute("data-debug"), "false")
         self.assertEqual(page.locator(".bd-layers").count(), 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class TimeBlockTest(unittest.TestCase):
+    """Where the time went: one waterfall segment per step, wasted steps
+    hatched and named, shares that sum to the run, the tools ranked by
+    their seconds, and the rationale — all from report.timing."""
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "traces"), "-o", str(out),
+                        "--template", str(ROOT / "web" / "blocks.html")], cwd=str(ROOT), check=True, capture_output=True)
+        cls.page_path = out / "report.html"
+        cls.reports = {p.stem[len("report_"):]: json.loads(p.read_text(encoding="utf-8")) for p in out.glob("report_*.json")}
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def test_the_story_block_draws_every_step_and_names_the_wasted_ones(self):
+        context = self.browser.new_context(viewport={"width": 1280, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view=story")
+        page.wait_for_timeout(800)
+        block = page.locator('#story-lane .block[data-block="time"]')
+        self.assertEqual(block.count(), 1)
+        task = page.evaluate("() => (AgentDiff.state().task) || null")
+        rep = self.reports.get(task) or next(iter(self.reports.values()))
+        tm = rep["timing"]
+        self.assertIn(tm["narrative"][:40], block.locator(".tm-narr").text_content())
+        for side in ("a", "b"):
+            t = tm[side]
+            sec = block.locator(f'section.tm-run[data-side="{side}"]')
+            if not t["measurable"]:
+                self.assertIn("unmeasurable", sec.text_content())
+                continue
+            svg = sec.locator("svg")
+            self.assertEqual(svg.locator("g.step").count(), len(t["steps"]))
+            wasted = [r for r in t["steps"] if r["wasted"]]
+            self.assertEqual(svg.locator("g.step rect.seg.wasted").count(), len(wasted))
+            for r in wasted:
+                self.assertEqual(svg.locator(f'g.step[data-step="{r["index"]}"]').get_attribute("data-wasted"), r["wasted"])
+            widths = [float(w) for w in sec.locator(".tm-share i").evaluate_all("els => els.map(e => parseFloat(e.style.width))")]
+            self.assertAlmostEqual(sum(widths), 100, delta=0.5)
+            for k in ("think", "tool", "answer"):
+                self.assertAlmostEqual(float(sec.locator(f'.tm-share i[data-category="{k}"]').evaluate("e => parseFloat(e.style.width)")), t["by_category"][k]["share"] * 100, places=1)
+            chips = sec.locator(".tm-tools .chip").all_text_contents()
+            self.assertEqual(len(chips), len(t["by_tool"]))
+            for tool, v in t["by_tool"].items():
+                self.assertTrue(any(c.startswith(tool + " ×" + str(v["calls"])) for c in chips), tool)
+            self.assertIn(t["rationale"][:60], sec.locator(".tm-rat").text_content())
+        rows = block.locator(".tm-details table tr").count() - 1
+        self.assertEqual(rows, sum(len(tm[s]["steps"]) for s in ("a", "b") if tm[s]["measurable"]))
         self.assertEqual(errors, [])
         context.close()
