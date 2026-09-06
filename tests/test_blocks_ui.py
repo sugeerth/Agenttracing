@@ -2625,7 +2625,7 @@ class StoryChartsTest(unittest.TestCase):
         context, page, errors = self.open()
         self.assertTrue(str(page.evaluate("() => window.d3 && d3.version")).startswith("7."))
         titles = page.evaluate("() => [...document.querySelectorAll('#story-lane .block-title')].map(e => e.textContent)")
-        self.assertEqual(titles[:7], ["1 · What happened", "2 · Where the time went", "3 · The trace as a tree", "4 · Subdivisions and sub-agents", "5 · Why", "6 · Reconcile", "7 · Take forward"])
+        self.assertEqual(titles[:7], ["1 · What happened", "2 · Where the time went", "3 · The trace as a tree", "4 · Parts and sub-agents", "5 · Why", "6 · Reconcile", "7 · Take forward"])
         self.assertEqual(len(titles), len(set(titles)))
         self.assertEqual(errors, [])
         context.close()
@@ -3931,7 +3931,8 @@ class HorizonBlockTest(unittest.TestCase):
             self.assertEqual(svg.locator(f'g.d3c-hz-node[data-side="{side}"][data-kind="step"] rect.d3c-hz-waste').count(), len(wasted_steps), side)
             fault_steps = [n for n in nodes if n["kind"] == "step" and n["fault"]]
             self.assertEqual(svg.locator(f'g.d3c-hz-node[data-side="{side}"][data-kind="step"].fault').count(), len(fault_steps), side)
-            self.assertIn(hz[side]["summary"][:50], block.locator(f'.hz-sum[data-side="{side}"]').text_content())
+            self.assertIn(hz[side]["summary"][:50], block.locator(f'.hz-full[data-side="{side}"]').text_content())
+            self.assertIn(name := (self.report[side]["agent"]["name"]), block.locator(f'.hz-sum .who[data-side="{side}"]').text_content())
             for a in hz[side]["agents"]:
                 row = block.locator(f'.hz-agents tr[data-side="{side}"][data-agent="{a["agent"]}"]')
                 self.assertEqual(row.count(), 1)

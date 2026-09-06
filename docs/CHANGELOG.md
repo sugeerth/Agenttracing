@@ -1709,7 +1709,12 @@ is reported as such.
   hatched; steps on the fault's path red and spans the path runs through
   carrying a red rule; the decisive step ringed. Click a node to zoom into
   it, with a breadcrumb per run; double-click resets; a step click moves
-  the shared cursor. A sub-agents' ledger beneath. `demo/horizon` ships a
+  the shared cursor. A sub-agents' ledger beneath, folded away with the
+  full account. The section keeps to the ink that carries information:
+  the gutter names each row (run, sub-agents, parts, steps), each cell
+  says what it is and how much, the breadcrumb appears only when zoomed,
+  and one line per run names the longest part, the costliest sub-agent
+  and where the decisive step sits. `demo/horizon` ships a
   SYNTHETIC multi-agent pair (an orchestrator delegating to a researcher,
   a coder with its own test span, and a verifier) to exercise it.
 - **Where the time went** (`deepcompare/timing.py`, `report.timing`,

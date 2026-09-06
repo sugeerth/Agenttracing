@@ -2132,36 +2132,50 @@
     var unit = BODY_AXES[axisName].unit;
     var W = width(host, ctx);
     var sides = ["a", "b"].filter(function (s) { return hz[s] && hz[s].tree; });
-    var depthMax = Math.max.apply(null, sides.map(function (s) { return hz[s].depth || 1; }));
-    var rowH = W >= 700 ? 22 : 18, gap = 3;
-    var half = depthMax * (rowH + gap) + 26;
-    var H = half * sides.length + (sides.length > 1 ? 30 : 10) + 18;
-    var m = { l: 14, r: 14 };
+    var rowH = W >= 700 ? 20 : 17, gap = 2;
+    var m = { l: 60, r: 10 };            // the left gutter names what each row is
+    var KIND_LABEL = { run: "run", span: "sub-agents", episode: "parts", step: "steps" };
+
+    // per side: the hierarchy, the focus, and the rows the focus needs
+    var built = sides.map(function (side) {
+      var root = d3.hierarchy(hz[side].tree, function (d) { return d.children && d.children.length ? d.children : null; })
+        .sum(function (d) { return (d.children && d.children.length) ? 0 : Math.max(0, measure(d)); });
+      var zoomKey = charts.horizonZoom.get(taskKey, side);
+      var focus = zoomKey ? (root.descendants().filter(function (n) { return n.data.key === zoomKey; })[0] || root) : root;
+      var depthMax = 1 + Math.max.apply(null, focus.descendants().map(function (n) { return n.depth - focus.depth; }));
+      d3.partition().size([1, 1])(root);
+      return { side: side, root: root, focus: focus, rows: depthMax };
+    });
+    var rowsTotal = built.reduce(function (a, b) { return a + b.rows; }, 0);
+    var axisH = sides.length > 1 ? 14 : 0;
+    var H = rowsTotal * (rowH + gap) + axisH + 6;
     var wrap = d3.select(host).append("div").attr("class", "d3c-wrap d3c-horizon-wrap");
     var svg = wrap.append("svg").attr("class", "d3c d3c-horizon").attr("width", W).attr("height", H).attr("viewBox", "0 0 " + W + " " + H)
       .attr("role", "img").attr("data-axis", axisName)
-      .attr("aria-label", "Each run as a time-weighted tree: spans (sub-agents), subdivisions and steps, widths ∝ " + axisName);
-    svg.append("title").text("The long horizon: subdivisions and sub-agents, sized by " + axisName);
-    var yAxis = sides.length > 1 ? half + 15 : H - 6;
+      .attr("aria-label", "Each run as a time-weighted tree: sub-agents, parts and steps, widths ∝ " + axisName);
+    svg.append("title").text("The long horizon: parts and sub-agents, sized by " + axisName);
+    var yAxis = sides.length > 1 ? built[0].rows * (rowH + gap) + axisH / 2 + 2 : null;
     var crumbs = wrap.append("div").attr("class", "d3c-crumbs");
 
-    sides.forEach(function (side, si) {
-      var tree = hz[side].tree;
+    built.forEach(function (b, si) {
+      var side = b.side, root = b.root, focus = b.focus;
       var color = sideColor(side);
-      // hierarchy with values = the chosen measure, leaves = steps
-      var root = d3.hierarchy(tree, function (d) { return d.children && d.children.length ? d.children : null; })
-        .sum(function (d) { return (d.children && d.children.length) ? 0 : Math.max(0, measure(d)); })
-        .each(function (n) { n.data._depth = n.depth; });
-      var zoomKey = charts.horizonZoom.get(taskKey, side);
-      var focus = zoomKey ? (root.descendants().filter(function (n) { return n.data.key === zoomKey; })[0] || root) : root;
-      var x = d3.scaleLinear().domain([focus.x0 === undefined ? 0 : 0, 1]).range([m.l, W - m.r]);
-      d3.partition().size([1, depthMax])(root);
       var xs = d3.scaleLinear().domain([focus.x0, focus.x1]).range([m.l, W - m.r]);
-      var top = si === 0 ? (sides.length > 1 ? half - 22 : H - 30) : half + 34;
-      var dir = si === 0 && sides.length > 1 ? -1 : 1;    // A grows upward from the axis, B downward
-      function rowY(depth) { return si === 0 && sides.length > 1 ? top - depth * (rowH + gap) - rowH : top + depth * (rowH + gap); }
+      // A grows upward from the axis, B downward; a lone run grows downward from the top
+      var upward = si === 0 && sides.length > 1;
+      function rowY(depth) { return upward ? (b.rows - 1 - depth) * (rowH + gap) + 2 : (built[0].rows * (rowH + gap) + axisH + 2 + depth * (rowH + gap)) * (si === 1 ? 1 : 0) + (si === 0 ? 2 + depth * (rowH + gap) : 0); }
       var g = svg.append("g").attr("class", "d3c-hz-side").attr("data-side", side);
       var nodes = root.descendants().filter(function (n) { return n.x1 > focus.x0 && n.x0 < focus.x1 && n.depth >= focus.depth; });
+      // the gutter: what each row holds
+      var kindsByDepth = {};
+      nodes.forEach(function (n) { var d = n.depth - focus.depth; kindsByDepth[d] = kindsByDepth[d] || {}; kindsByDepth[d][n.data.kind] = (kindsByDepth[d][n.data.kind] || 0) + 1; });
+      Object.keys(kindsByDepth).forEach(function (d) {
+        var ks = kindsByDepth[d];
+        // a row that holds any sub-agent is named for them; otherwise for what it mostly holds
+        var label = ks.span ? KIND_LABEL.span : KIND_LABEL[Object.keys(ks).sort(function (p, q) { return ks[q] - ks[p]; })[0]];
+        svg.append("text").attr("class", "d3c-hz-gutter").attr("x", m.l - 6).attr("y", rowY(+d) + rowH / 2 + 3.5).attr("text-anchor", "end")
+          .attr("font-size", 10).attr("fill", +d === 0 ? color : P.muted).attr("font-weight", +d === 0 ? 700 : 400).text(+d === 0 && focus === root ? agentName(report, side) : label);
+      });
       var cells = g.selectAll("g.d3c-hz-node").data(nodes, function (n) { return n.data.key; }).enter().append("g")
         .attr("class", function (n) { return "d3c-hz-node kind-" + n.data.kind + (n.data.fault ? " fault" : "") + (n.data.decisive ? " decisive" : ""); })
         .attr("data-side", side).attr("data-key", function (n) { return n.data.key; }).attr("data-kind", function (n) { return n.data.kind; })
@@ -2174,34 +2188,33 @@
         var y = rowY(d);
         var isStep = n.data.kind === "step";
         var agentDepth = 0, p = n; while (p) { if (p.data.kind === "span") agentDepth++; p = p.parent; }
-        var fill = n.data.kind === "run" ? color : n.data.kind === "span" ? color : n.data.kind === "episode" ? color : color;
         var opacity = n.data.kind === "run" ? 0.9 : n.data.kind === "span" ? 0.55 + Math.min(0.3, agentDepth * 0.12) : n.data.kind === "episode" ? 0.38 : (n.data.type === "answer" ? 0.95 : /tool_call|search|retrieve|read/.test(n.data.type || "") ? 0.62 : 0.3);
         var wastedShare = n.data.seconds ? Math.min(1, (n.data.wasted_s || 0) / n.data.seconds) : (isStep && n.data.wasted ? 1 : 0);
-        // a step on the fault's path is red; a span or subdivision the path
-        // runs through keeps its colour and carries a red rule along its edge
         var faultStep = n.data.fault && isStep;
         sel.append("rect").attr("class", "d3c-hz-box").attr("x", x0).attr("y", y).attr("width", w).attr("height", rowH).attr("rx", 3)
-          .attr("fill", faultStep ? P.bad : fill).attr("fill-opacity", faultStep ? 0.85 : opacity)
-          .attr("stroke", n.data.decisive ? P.bad : P.surface).attr("stroke-width", n.data.decisive ? 2 : 1);
+          .attr("fill", faultStep ? P.bad : color).attr("fill-opacity", faultStep ? 0.85 : opacity)
+          .attr("stroke", P.surface).attr("stroke-width", 1);
         if (n.data.fault && !isStep && w > 2) {
-          sel.append("rect").attr("class", "d3c-hz-fault").attr("x", x0).attr("y", dir < 0 ? y : y + rowH - 3).attr("width", w).attr("height", 3).attr("fill", P.bad).attr("pointer-events", "none");
+          sel.append("rect").attr("class", "d3c-hz-fault").attr("x", x0).attr("y", upward ? y : y + rowH - 3).attr("width", w).attr("height", 3).attr("fill", P.bad).attr("pointer-events", "none");
         }
         if (wastedShare > 0 && w > 4) {
           sel.append("rect").attr("class", "d3c-hz-waste").attr("x", x1 - 1.5 - w * wastedShare).attr("y", y).attr("width", w * wastedShare).attr("height", rowH).attr("rx", 3)
             .attr("fill", hatchId(svg, P.bad, side + "-w")).attr("pointer-events", "none");
         }
-        var label = n.data.kind === "step" ? (n.data.label || n.data.type) : n.data.kind === "span" ? (n.data.agent || n.data.label) + (n.data.delegations ? " ⤷" + n.data.delegations : "") : n.data.label;
-        var meta = n.data.kind === "step" ? "" : " · " + unit(measure(n.data)) + (n.data.kind !== "run" ? "" : " · " + n.data.count + " steps");
-        var text = label + meta;
+        // one label per cell: what it is, then how much — nothing the row name already says
+        var label = n.data.kind === "step" ? (n.data.label || n.data.type)
+          : n.data.kind === "run" ? unit(measure(n.data)) + " · " + n.data.count + " steps" + (hz[side].subdivisions ? " · " + hz[side].subdivisions + " parts" : "") + (hz[side].agents && hz[side].agents.length ? " · " + hz[side].agents.length + " sub-agents" : "")
+          : n.data.kind === "span" ? (n.data.agent || n.data.label) + (n.data.delegations ? " ⤷" + n.data.delegations : "") + " · " + unit(measure(n.data))
+          : n.data.label + " · " + unit(measure(n.data));
         var fits = Math.floor(w / 6.2);
-        if (fits >= 4) {
+        if (fits >= 3) {
           sel.append("text").attr("class", "d3c-hz-label").attr("x", x0 + 5).attr("y", y + rowH / 2 + 3.5).attr("font-size", 10.5).attr("font-family", "var(--mono)")
-            .attr("fill", opacity >= 0.6 || n.data.fault ? P.surface : P.ink).text(truncate(text, fits));
+            .attr("fill", opacity >= 0.6 || faultStep ? P.surface : P.ink).text(truncate(label, fits));
         }
-        if (n.data.decisive && isStep) sel.append("circle").attr("class", "d3c-ring hypothesized").attr("cx", x0 + w / 2).attr("cy", y + rowH / 2).attr("r", Math.min(rowH / 2 + 4, 14));
+        if (n.data.decisive && isStep) sel.append("circle").attr("class", "d3c-ring hypothesized").attr("cx", x0 + w / 2).attr("cy", y + rowH / 2).attr("r", Math.min(rowH / 2 + 3, 13));
         sel.append("title").text(
-          (n.data.kind === "span" ? "sub-agent " + n.data.agent : n.data.kind === "episode" ? "subdivision · " + n.data.label : n.data.kind === "step" ? "step " + n.data.from + " · " + (n.data.label || n.data.type) : side.toUpperCase() + " · " + n.data.label) +
-          "\nsteps " + n.data.from + (n.data.to !== n.data.from ? "–" + n.data.to : "") + " · " + n.data.count + " step(s) · " + unit(n.data.seconds || 0).replace(/s$/, "") + "s" +
+          (n.data.kind === "span" ? "sub-agent " + n.data.agent : n.data.kind === "episode" ? "part · " + n.data.label : n.data.kind === "step" ? "step " + n.data.from + " · " + (n.data.label || n.data.type) : agentName(report, side)) +
+          "\nsteps " + n.data.from + (n.data.to !== n.data.from ? "–" + n.data.to : "") + " · " + n.data.count + " step(s) · " + BODY_AXES.time.unit(n.data.seconds || 0) +
           (n.data.wasted_s ? " · " + BODY_AXES.time.unit(n.data.wasted_s) + " wasted" : "") + (n.data.tokens ? " · " + n.data.tokens + " tokens" : "") +
           (n.data.tool_calls ? " · " + n.data.tool_calls + " tool call(s)" + (n.data.top_tool ? ", mostly " + n.data.top_tool : "") : "") +
           (n.data.errors ? " · " + n.data.errors + " error(s)" : "") + (n.data.fault ? "\nthe fault's path runs through here" : "") + (n.data.decisive ? "\nthe decisive step is here" : "") +
@@ -2216,35 +2229,29 @@
         if (event.key === "Enter" || event.key === " ") { event.preventDefault(); if (n.data.kind === "step") selectStep(report, side, n.data.from); else charts.horizonZoom.set(taskKey, side, n.data.key === "run" ? null : n.data.key); }
       }).on("mousemove", function (event, n) {
         var d = n.data;
-        showTip(event, [{ b: true, text: (d.kind === "span" ? "sub-agent " + d.agent : d.kind === "episode" ? "subdivision · " + d.label : d.kind === "step" ? "step " + d.from + " · " + (d.label || d.type) : agentName(report, side)) },
+        showTip(event, [{ b: true, text: (d.kind === "span" ? "sub-agent " + d.agent : d.kind === "episode" ? "part · " + d.label : d.kind === "step" ? "step " + d.from + " · " + (d.label || d.type) : agentName(report, side)) },
           { text: "steps " + d.from + (d.to !== d.from ? "–" + d.to : "") + " · " + d.count + " step(s) · " + BODY_AXES.time.unit(d.seconds || 0) + (d.tokens ? " · " + d.tokens + " tokens" : "") },
           d.wasted_s ? { text: BODY_AXES.time.unit(d.wasted_s) + " wasted (" + Math.round(100 * d.wasted_s / Math.max(1e-9, d.seconds)) + "%)" + (d.kind === "step" && d.wasted_label ? " — " + d.wasted_label : "") } : null,
           d.tool_calls ? { text: d.tool_calls + " tool call(s)" + (d.top_tool ? ", mostly " + d.top_tool : "") + (d.errors ? " · " + d.errors + " error(s)" : "") } : null,
           d.fault ? { text: "the fault's path runs through here" } : null, d.decisive ? { text: "the decisive step is here" } : null,
           { text: d.kind === "step" ? "click to open the step" : "click to zoom in · double-click the chart to reset" }]);
       }).on("mouseleave", hideTip);
-      // the run name and the breadcrumb of the zoom
-      svg.append("text").attr("class", "d3c-cap").attr("x", m.l).attr("y", si === 0 && sides.length > 1 ? 12 : H - 6).attr("fill", color).attr("font-weight", 700).attr("font-size", 11.5)
-        .text(agentName(report, side) + (hz[side].subdivisions ? " · " + hz[side].subdivisions + " subdivisions" : "") + (hz[side].agents && hz[side].agents.length ? " · " + hz[side].agents.length + " sub-agent(s)" : ""));
-      var path = focus.ancestors().reverse();
-      var crumb = crumbs.append("div").attr("class", "d3c-crumb").attr("data-side", side);
-      crumb.append("span").attr("class", "d3c-crumb-side").style("color", color).text(agentName(report, side) + ": ");
-      path.forEach(function (n, i) {
-        var b = crumb.append("button").attr("type", "button").attr("class", "d3c-crumb-btn" + (i === path.length - 1 ? " current" : "")).text(n.data.kind === "run" ? "run" : n.data.kind === "span" ? n.data.agent : n.data.label);
-        b.on("click", function () { charts.horizonZoom.set(taskKey, side, n.data.kind === "run" ? null : n.data.key); });
-        if (i < path.length - 1) crumb.append("span").text(" › ");
-      });
+      // the breadcrumb, only when zoomed
+      if (focus !== root) {
+        var path = focus.ancestors().reverse();
+        var crumb = crumbs.append("div").attr("class", "d3c-crumb").attr("data-side", side);
+        crumb.append("span").attr("class", "d3c-crumb-side").style("color", color).text(agentName(report, side) + " ");
+        path.forEach(function (n, i) {
+          var btn = crumb.append("button").attr("type", "button").attr("class", "d3c-crumb-btn" + (i === path.length - 1 ? " current" : "")).text(n.data.kind === "run" ? "run" : n.data.kind === "span" ? n.data.agent : n.data.label);
+          btn.on("click", function () { charts.horizonZoom.set(taskKey, side, n.data.kind === "run" ? null : n.data.key); });
+          if (i < path.length - 1) crumb.append("span").text(" › ");
+        });
+        crumb.append("button").attr("type", "button").attr("class", "d3c-crumb-btn d3c-crumb-reset").attr("title", "back to the whole run").text("✕")
+          .on("click", function () { charts.horizonZoom.set(taskKey, side, null); });
+      }
     });
-    // the shared axis in the middle: what the widths mean
-    svg.append("line").attr("x1", m.l).attr("x2", W - m.r).attr("y1", yAxis).attr("y2", yAxis).attr("stroke", P.rule);
-    svg.append("text").attr("class", "d3c-cap").attr("x", W - m.r).attr("y", yAxis - 5).attr("text-anchor", "end").text("width ∝ " + axisName + " · click a node to zoom in, a step to open it");
+    if (yAxis !== null) svg.append("line").attr("x1", m.l).attr("x2", W - m.r).attr("y1", yAxis).attr("y2", yAxis).attr("stroke", P.rule);
     svg.on("dblclick", function () { sides.forEach(function (s) { HorizonZoom[taskKey + ":" + s] = null; }); repaint("horizon:" + taskKey); });
-    var legend = document.createElement("div");
-    legend.className = "d3c-legend";
-    legend.appendChild(legendItem(P, { line: true }, P.ink2, "rows, outward from the axis: the run · its sub-agents (⤷n delegations) · subdivisions · steps"));
-    legend.appendChild(legendItem(P, { hatch: true }, P.bad, "hatched = seconds the reading marks as wasted"));
-    legend.appendChild(legendItem(P, { line: true }, P.bad, "red = the fault's path; ring = the decisive step"));
-    host.appendChild(legend);
     return svg.node();
   }
 
