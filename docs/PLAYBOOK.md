@@ -75,13 +75,16 @@ question, and every number on it can be pointed at.
    replay verdict, and open any step layer by layer.
 2. **Where the time went** — the waterfall and the rationale: "bolt-v3
    took 7.8s; 34% of it went to two steps the reading marks as wasted".
-3. **The tree, why, reconcile, take forward** — the cause, the evidence
+3. **Subdivisions and sub-agents** — for a long run: which parts and
+   which delegations took the time, zooming into any of them; the
+   sub-agents' ledger settles "which sub-agent should we fix first".
+4. **The tree, why, reconcile, take forward** — the cause, the evidence
    for it, the splice that would have worked, and the sentences for the
    next prompt.
-4. **The Evaluation scorecard** (Batch view) — the columns above, with
+5. **The Evaluation scorecard** (Batch view) — the columns above, with
    intervals; the risk-against-reward scatter is the slide that settles a
    "which agent" discussion.
-5. **The Agent loop** (Batch view) — if the loop ran: what it tried, kept
+6. **The Agent loop** (Batch view) — if the loop ran: what it tried, kept
    and reverted, and why it stopped.
 
 Everything has a table view, so a number can be read without hovering,

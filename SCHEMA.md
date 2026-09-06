@@ -62,6 +62,8 @@ the same task are the unit of comparison.
 | reason     | intermediate reasoning/decision text                 |
 | answer     | emits the final answer (always the last step)        |
 
+Optional `span: {id, agent, parent?}` — the (sub-)agent acting at this step and the span it was delegated from (absent = the root agent); `Recorder.span("name")` stamps it.
+
 ### Step model telemetry (optional `model` object)
 
 A step may carry what the serving stack knew about its own generation.
@@ -224,8 +226,10 @@ Every pairwise report carries, beyond the sections above:
   cost_usd, latency_s, tokens, steps, tool_calls, terminations,
   equality_rate?, mean_distinct_answers?, consistently_wrong_tasks?},
   fault_kinds}]}}, overall, rationale {families, overall}, hints}`.
-- `timing` — `{a, b: {measurable, total_s, steps[{index, name, latency_s, share,
-  category, wasted?, retry_of?}], by_category, by_tool, wasted_s, slowest, rationale}, delta, narrative}`.
+- `horizon` — `{a, b: {subdivisions, spans, agents[{agent, delegations, steps, seconds, wasted_s, errors}],
+  depth, tree {kind: run|span|episode|step, key, label, agent, from, to, count, seconds, wasted_s, tokens,
+  tool_calls, errors, fault, decisive, values, children}, summary}}`.
+- `timing` — `{a, b: {measurable, total_s, steps[], by_category, by_tool, wasted_s, slowest, rationale}, delta, narrative}`.
 - `aggregate.scorecard` (batch, runs, loop) / `eval.json` (`eval`) —
   `{version, mode: offline|online, golden?, policy?, agents {agent: {runs,
   tasks, rates {success, tool_correct, grounded, policy_compliant,
@@ -234,14 +238,10 @@ Every pairwise report carries, beyond the sections above:
   steps, tool_calls: {n, mean, median, min, max, total}}, trajectory,
   tools, grounding, safety {flags, flag_kinds, flagged_runs, …},
   retrieval, time, risk_reward, judge?, graded_by}}, per_run[], note}`; `docs/EVAL.md`.
-- `aggregate.loop` (the closing page of `loop`) / `loop.json` — the
-  ledger: `{version, started, finished, config, state {agents, tasks,
-  spent_runs, iterations[{n, action: compare|test-prompt, why, tasks,
-  runs, dir, results {agent: {successes, runs, success, ci95,
-  equality_rate, per_task, scorecard?}}, routing?, paired?,
-  suggestions_added?, decision? {agent, kind, text, status: kept|kept
-  (provisional)|reverted, why, evidence {wins, losses, ties, sign_test_p,
-  regressions, baseline, variant, paired, per_task}}}], prompts, latest, needs_runs?, stop}, summary, pools, offsets, note}`; `docs/AGENTIC.md`.
+- `aggregate.loop` / `loop.json` — the ledger: `{config, state {agents, tasks, spent_runs,
+  iterations[{n, action: compare|test-prompt, why, results, routing?, paired?, decision? {status:
+  kept|kept (provisional)|reverted, evidence {wins, losses, ties, sign_test_p, paired, per_task}}}],
+  prompts, stop}, summary, pools, note}`; the rules in `docs/AGENTIC.md`.
 - `feedback` — the loop back, derived read-only: `{version, task_id,
   failing_side, failing_agent, step_labels[{side, agent, step, type,
   name, labels[{label, source, mechanism?}]}], preference_pair {prompt,

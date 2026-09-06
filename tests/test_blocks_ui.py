@@ -1656,9 +1656,9 @@ class SmallScreensKeysAndMotionTest(unittest.TestCase):
         # a phone), 4 (reconcile: three lanes and a five-step strategy),
         # 5 (take forward, with its numbered list), 6 (next horizon: the
         # prompts, the reward table, the pair) and the hero's super panel
-        # over the body chart, then where the time went (two waterfalls):
-        # 5100 → 5500 → 6200 → 7200 → 7700 → 8600
-        self.assertLessEqual(height, 8600, f"story is {height}px tall on a phone")
+        # over the body chart, then where the time went (two waterfalls),
+        # then the horizon tree: 5100 → 5500 → 6200 → 7200 → 7700 → 8600 → 9400
+        self.assertLessEqual(height, 9400, f"story is {height}px tall on a phone")
         self.assertFalse(page.evaluate("() => document.documentElement.scrollWidth > document.documentElement.clientWidth"))
         fold = page.locator("#hero-lane details.tj-inspector-fold")
         self.assertEqual(fold.count(), 1)
@@ -2625,7 +2625,7 @@ class StoryChartsTest(unittest.TestCase):
         context, page, errors = self.open()
         self.assertTrue(str(page.evaluate("() => window.d3 && d3.version")).startswith("7."))
         titles = page.evaluate("() => [...document.querySelectorAll('#story-lane .block-title')].map(e => e.textContent)")
-        self.assertEqual(titles[:6], ["1 · What happened", "2 · Where the time went", "3 · The trace as a tree", "4 · Why", "5 · Reconcile", "6 · Take forward"])
+        self.assertEqual(titles[:7], ["1 · What happened", "2 · Where the time went", "3 · The trace as a tree", "4 · Subdivisions and sub-agents", "5 · Why", "6 · Reconcile", "7 · Take forward"])
         self.assertEqual(len(titles), len(set(titles)))
         self.assertEqual(errors, [])
         context.close()
@@ -2987,7 +2987,7 @@ class StoryChartsTest(unittest.TestCase):
         block = page.locator('[data-block="next-horizon"]')
         self.assertEqual(block.count(), 1)
         titles = page.evaluate("() => [...document.querySelectorAll('#story-lane .block-title')].map(e => e.textContent)")
-        self.assertIn("7 · Next horizon", titles)
+        self.assertIn("8 · Next horizon", titles)
         items = block.locator(".nh-prompts li")
         self.assertEqual(items.count(), len(fb["prompt_suggestions"]))
         for i, sug in enumerate(fb["prompt_suggestions"]):
@@ -3865,5 +3865,99 @@ class TimeBlockTest(unittest.TestCase):
             self.assertIn(t["rationale"][:60], sec.locator(".tm-rat").text_content())
         rows = block.locator(".tm-details table tr").count() - 1
         self.assertEqual(rows, sum(len(tm[s]["steps"]) for s in ("a", "b") if tm[s]["measurable"]))
+        self.assertEqual(errors, [])
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class HorizonBlockTest(unittest.TestCase):
+    """The long-horizon tree on the page: one node per span, subdivision
+    and step of the embedded horizon, both runs around a shared axis,
+    wasted time hatched, the fault's path marked, zoom on click with a
+    breadcrumb, and the sub-agents' ledger — from the multi-agent demo."""
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        if not (ROOT / "demo" / "horizon" / "traces" / "h01_release_report__orbit-v1.json").is_file():
+            subprocess.run([sys.executable, str(ROOT / "demo" / "horizon" / "generate_horizon.py")], cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "horizon" / "traces"), "-o", str(out),
+                        "--template", str(ROOT / "web" / "blocks.html")], cwd=str(ROOT), check=True, capture_output=True)
+        cls.page_path = out / "report.html"
+        cls.report = json.loads((out / "report_h01_release_report.json").read_text(encoding="utf-8"))
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    @staticmethod
+    def _walk(node):
+        yield node
+        for c in node.get("children") or []:
+            yield from HorizonBlockTest._walk(c)
+
+    def test_the_tree_is_drawn_node_for_node_and_zooms_on_click(self):
+        context = self.browser.new_context(viewport={"width": 1280, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view=story")
+        page.wait_for_timeout(900)
+        block = page.locator('#story-lane .block[data-block="horizon"]')
+        self.assertEqual(block.count(), 1)
+        svg = block.locator("svg.d3c-horizon")
+        self.assertEqual(svg.count(), 1)
+        hz = self.report["horizon"]
+        for side in ("a", "b"):
+            nodes = list(self._walk(hz[side]["tree"]))
+            self.assertEqual(svg.locator(f'g.d3c-hz-node[data-side="{side}"]').count(), len(nodes), side)
+            for kind in ("span", "episode", "step"):
+                self.assertEqual(svg.locator(f'g.d3c-hz-node[data-side="{side}"][data-kind="{kind}"]').count(), sum(1 for n in nodes if n["kind"] == kind), f"{side} {kind}")
+            wasted_steps = [n for n in nodes if n["kind"] == "step" and n["wasted_s"]]
+            self.assertEqual(svg.locator(f'g.d3c-hz-node[data-side="{side}"][data-kind="step"] rect.d3c-hz-waste').count(), len(wasted_steps), side)
+            fault_steps = [n for n in nodes if n["kind"] == "step" and n["fault"]]
+            self.assertEqual(svg.locator(f'g.d3c-hz-node[data-side="{side}"][data-kind="step"].fault').count(), len(fault_steps), side)
+            self.assertIn(hz[side]["summary"][:50], block.locator(f'.hz-sum[data-side="{side}"]').text_content())
+            for a in hz[side]["agents"]:
+                row = block.locator(f'.hz-agents tr[data-side="{side}"][data-agent="{a["agent"]}"]')
+                self.assertEqual(row.count(), 1)
+                self.assertEqual(row.locator("td").nth(2).text_content(), str(a["delegations"]))
+                self.assertEqual(row.locator("td").nth(3).text_content(), str(a["steps"]))
+        # the decisive step is ringed on the failing side
+        failing = self.report["diagnosis"]["subject"]
+        self.assertEqual(svg.locator(f'g.d3c-hz-node[data-side="{failing}"][data-kind="step"].decisive circle.d3c-ring').count(), 1)
+        # zoom into the first span of A: only its subtree remains, the breadcrumb says so, the axis switch repaints
+        span = svg.locator('g.d3c-hz-node[data-side="a"][data-kind="span"]').first
+        key = span.get_attribute("data-key")
+        agent = next(n for n in self._walk(hz["a"]["tree"]) if n["key"] == key)
+        span.dispatch_event("click")
+        page.wait_for_timeout(500)
+        svg = block.locator("svg.d3c-horizon")
+        subtree = list(self._walk(agent))
+        self.assertEqual(svg.locator('g.d3c-hz-node[data-side="a"]').count(), len(subtree))
+        crumb = block.locator('.d3c-crumb[data-side="a"]').text_content()
+        self.assertIn(agent["agent"], crumb)
+        self.assertIn("run", crumb)
+        block.locator(".hz-axis-btn.axis-tokens").click()
+        page.wait_for_timeout(500)
+        self.assertEqual(block.locator("svg.d3c-horizon").get_attribute("data-axis"), "tokens")
+        self.assertEqual(block.locator("svg.d3c-horizon").locator('g.d3c-hz-node[data-side="a"]').count(), len(subtree), "the zoom survives an axis change")
+        # a step click moves the shared cursor
+        page.locator('svg.d3c-horizon g.d3c-hz-node[data-side="b"][data-kind="step"]').first.dispatch_event("click")
+        page.wait_for_timeout(300)
         self.assertEqual(errors, [])
         context.close()

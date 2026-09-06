@@ -406,6 +406,8 @@ class Recorder:
         self._termination: Optional[str] = None
         self._declared_termination = False
         self._outcome: dict = {"success": None, "answer": "", "score": None}
+        self._spans: list = []      # open delegation spans, innermost last
+        self._span_count = 0
         self._cost_usd = 0.0
         self._measured_input_tokens = 0
         self._input_tokens = input_tokens
@@ -469,7 +471,7 @@ class Recorder:
              quality: Optional[str] = None, note: Optional[str] = None,
              error: Optional[bool] = None, effect: Optional[str] = None,
              response: Any = None, cost_usd: float = 0.0,
-             model: Optional[dict] = None) -> RecordedStep:
+             model: Optional[dict] = None, span: Optional[dict] = None) -> RecordedStep:
         """Record one step; every other method here is sugar over this one.
 
         Arguments are named for the SCHEMA fields they fill, so the API is
@@ -517,6 +519,9 @@ class Recorder:
             "model": model,
             "error": error,
             "effect": effect,
+            # the delegation span: given explicitly, else the innermost open
+            # `with recorder.span(...)`, else None (the root agent acted)
+            "span": span if span is not None else (dict(self._spans[-1]) if self._spans else None),
             # Not a SCHEMA field: metadata about the recording, kept beside the
             # number it qualifies so an estimate cannot read as a measurement.
             "tokens_basis": "measured" if tokens is not None else "estimated",
@@ -533,6 +538,27 @@ class Recorder:
             self._observe(data, None, response=response, latency_s=latency_s)
         self._stream_now()
         return handle
+
+    # ------------------------------------------------------------ spans
+
+    def span(self, agent: str, *, span_id: Optional[str] = None):
+        """Record the steps inside the ``with`` as a sub-agent's: a
+        delegation span named for the acting agent, nested under the span
+        that was open when it began. The parent's steps before and after
+        stay the parent's."""
+        recorder = self
+
+        class _Span:
+            def __enter__(self_inner):
+                recorder._span_count += 1
+                parent = recorder._spans[-1]["id"] if recorder._spans else None
+                recorder._spans.append({"id": span_id or f"s{recorder._span_count}", "agent": str(agent), "parent": parent})
+                return recorder
+
+            def __exit__(self_inner, *exc):
+                recorder._spans.pop()
+                return False
+        return _Span()
 
     # ------------------------------------------------------------ streaming
 

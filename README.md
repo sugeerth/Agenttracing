@@ -72,9 +72,8 @@ testable offline, and the tests do exactly that.
 ## Bring your own traces
 
 - **Record as it happens**: `deepcompare.record.Recorder` writes a SCHEMA trace.
-- **Convert what you have**: `agentdiff convert --format otel|openai
-  file -o traces/` (`--dry-run` says what it would recover and what it
-  would have to estimate).
+- **Convert what you have**: `agentdiff convert --format otel|openai file -o traces/`
+  (`--dry-run` says what it would recover and what it would estimate).
 - **Run an existing agent through the harness**: `agentdiff run --agent …`.
 
 ## What it does
@@ -90,6 +89,7 @@ testable offline, and the tests do exactly that.
 | is a failure real or luck | `runs` | pass^k with intervals, consistency, paired inference that refuses to rank below ten tasks |
 | how the agents score, on every dimension | `eval`, the Evaluation scorecard | accuracy, correct tool, retrieval quality, grounding, policy, risk flags, stopping, loops, recovery (each with a Wilson interval), spend and wasted time per run, risk vs reward, a judge beside the grade; offline against a golden set or online as recorded ([`docs/EVAL.md`](docs/EVAL.md), [`docs/PLAYBOOK.md`](docs/PLAYBOOK.md)) |
 | why a run took as long as it did | the Where the time went section | each second attributed to thinking, a named tool, or the answer; wasted steps hatched and named; a rationale with every number in its table |
+| a long run, and its sub-agents | the Subdivisions and sub-agents section | the run folded into spans (sub-agents, nested via `step.span`), subdivisions and steps as a time-weighted tree; zoom into any node; a ledger per sub-agent |
 | what to fix first, and did the fix work | triage, `progress` | ranked actions with verification contracts, before/after matching |
 | whether the number can be trusted | `bench --strict` | the diagnoser's own benchmark with a leakage probe: the margin over a surface-cue detector is the headline |
 | N agents, selection, CI | `fleet`, `select`, `gate`, `experiments`, `variance` | rankings, interchangeability, a regression gate, variance attribution |

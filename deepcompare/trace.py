@@ -188,6 +188,10 @@ class Step:
     #: Writes are where offline analysis has the most leverage, because they
     #: are the steps you cannot re-run to check.
     effect: Optional[str] = None
+    #: optional delegation span (SCHEMA.md): ``{"id", "agent", "parent"?}`` —
+    #: the (sub-)agent acting at this step and the span it was delegated
+    #: from. None means the root agent acted. Spans nest through ``parent``.
+    span: Optional[dict] = None
 
     @classmethod
     def from_dict(cls, d: dict, position: int) -> "Step":
@@ -250,6 +254,12 @@ class Step:
                 f"{where}: invalid effect {effect!r}; must be one of "
                 f"{', '.join(EFFECTS)} or null"
             )
+        span = d.get("span")
+        if span is not None:
+            if not isinstance(span, dict) or not span.get("id") or not span.get("agent"):
+                raise ValueError(f"{where}: span must be an object with id and agent (and an optional parent)")
+            span = {"id": str(span["id"]), "agent": str(span["agent"]),
+                    "parent": (str(span["parent"]) if span.get("parent") is not None else None)}
         return cls(
             index=index,
             type=stype,
@@ -264,6 +274,7 @@ class Step:
             tokens_basis=tokens_basis,
             error=error,
             effect=effect,
+            span=span,
         )
 
     def to_dict(self) -> dict:
@@ -281,6 +292,7 @@ class Step:
             "tokens_basis": self.tokens_basis,
             "error": self.error,
             "effect": self.effect,
+            "span": self.span,
         }
 
 

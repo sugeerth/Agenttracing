@@ -1689,6 +1689,29 @@ is reported as such.
   units, no window needed. `AgentDiff.charts.mode.{get,set,expand}`
   drives it from outside.
 
+- **Long horizons: subdivisions and sub-agents** (`deepcompare/horizon.py`,
+  `report.horizon`, story section *Subdivisions and sub-agents*,
+  `charts.horizon`, `step.span`, `Recorder.span`, `demo/horizon`). A long
+  run folded into a tree a reader opens on demand: the run, the
+  delegation spans inside it (which sub-agent acted, nested through the
+  new optional `step.span {id, agent, parent}`; `with recorder.span("name")`
+  stamps them), the subdivisions within each span (the reading's phases,
+  split again wherever the agent framed or decided, never bridging a
+  child span), and the steps. Every node carries its steps, seconds,
+  wasted seconds, tokens, tool calls and dominant tool, errors, whether
+  the fault's path runs through it, whether the decisive step is inside,
+  and the values it produced. The summary names the count, the longest
+  subdivision and its share, each sub-agent's delegations, steps, seconds,
+  wasted seconds and errors, and where the decisive step sits. Drawn as a
+  time-weighted icicle for both runs around a shared axis (the body
+  chart's axis: seconds, tokens or steps) — rows outward from the axis:
+  run, sub-agents (⤷n delegations), subdivisions, steps; wasted time
+  hatched; steps on the fault's path red and spans the path runs through
+  carrying a red rule; the decisive step ringed. Click a node to zoom into
+  it, with a breadcrumb per run; double-click resets; a step click moves
+  the shared cursor. A sub-agents' ledger beneath. `demo/horizon` ships a
+  SYNTHETIC multi-agent pair (an orchestrator delegating to a researcher,
+  a coder with its own test span, and a verifier) to exercise it.
 - **Where the time went** (`deepcompare/timing.py`, `report.timing`,
   story section *Where the time went*). Every recorded second of a run
   attributed to thinking, waiting on tools (each tool named, with calls

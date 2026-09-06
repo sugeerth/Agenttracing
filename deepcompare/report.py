@@ -27,6 +27,7 @@ from .trace import Trajectory
 from .efficiency import compare_efficiency
 from .reasoning import read_trace
 from .timing import compare_timing
+from .horizon import horizon_pair
 from .process import compare_process
 from .tradeoff import pair_tradeoff
 from .shapley import shapley_attribution
@@ -164,6 +165,9 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
     # where the time went: each run's latencies attributed to thinking,
     # tools and the answer, with the reading's wasted steps named
     report["timing"] = compare_timing(a, b, report["reading"])
+    # the long horizon: each run folded into spans (sub-agents),
+    # subdivisions and steps, with time and the fault on every node
+    report["horizon"] = horizon_pair(report, a, b)
     # the five-line card the reader sees first; every line quotes a
     # section above, so it is computed last
     report["verdict_card"] = verdict_card(report)
