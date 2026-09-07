@@ -246,7 +246,7 @@
       if (drawn) root.appendChild(drawn); else root.appendChild(H("p", { class: "dbg-note", text: "The body chart needs D3; the layers below still read the selected step." }));
       var layersHost = H("div");
       root.appendChild(layersHost);
-      root.appendChild(H("p", { class: "dbg-note", text: "Every layer quotes the trace as recorded: the model turn's own tokens and latency, the tool call's input and its response, the phase the reading assigned, the values the answer rests on that this step produced, and the replay verdict at the decisive step when a replay ran. A retry is a call to the same tool after that tool returned an error; a model switch is a step whose recorded model differs from the one before it. Click a node on the chart to open its layers; the timeline, map and inspector follow the same cursor." }));
+      root.appendChild(H("p", { class: "dbg-note", text: "click a node to open its layers · ↻ retry · ⇄ model switch · ∅ nothing new · ✕ error" }));
       var rows = Array.isArray(report.alignment) ? report.alignment : [];
       function renderLayersNow() {
         layersHost.innerHTML = "";

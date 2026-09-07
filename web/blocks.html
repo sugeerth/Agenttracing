@@ -9743,7 +9743,8 @@ THIS SOFTWARE.
       ".eq-ans{font-size:var(--fs-xs);color:var(--ink-3);max-width:34ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:middle;margin-left:6px}",
       ".eq-cross{font-family:var(--mono);font-size:var(--fs-xs)}",
       ".eq-cross.same{color:var(--good)}.eq-cross.diff{color:var(--warn)}",
-      ".eq-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:8px;max-width:72ch}",
+      ".eq-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:4px;max-width:72ch}",
+      ".eq-more{margin-top:6px;font-size:var(--fs-xs)}.eq-more summary{cursor:pointer;color:var(--ink-3)}",
     ].join("");
     document.head.appendChild(node);
   }
@@ -9800,7 +9801,10 @@ THIS SOFTWARE.
         table.appendChild(tr);
       });
       el.appendChild(H("div", { class: "scroll-x" }, [table]));
-      el.appendChild(H("p", { class: "eq-note", text: "equal = " + String(eq.normalisation || "") + ". " + String(eq.note || "") }));
+      var det = H("details", { class: "eq-more" });
+      det.appendChild(H("summary", { text: "what counts as equal" }));
+      det.appendChild(H("p", { class: "eq-note", text: "equal = " + String(eq.normalisation || "") + ". " + String(eq.note || "") }));
+      el.appendChild(det);
     },
   });
 
@@ -9837,13 +9841,13 @@ THIS SOFTWARE.
       ".lp{--lp-a:var(--a);--lp-b:var(--b);--lp-good:var(--good);--lp-warn:var(--warn);position:relative}",
       "@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .lp{--lp-a:#3987e5;--lp-b:#d95926}}",
       ":root[data-theme=dark] .lp{--lp-a:#3987e5;--lp-b:#d95926}",
-      ".lp-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:0 0 12px}",
-      ".lp-tile{border:1px solid var(--rule);border-radius:8px;padding:8px 10px;background:var(--surface);min-width:0}",
-      ".lp-tile .k{font-size:var(--fs-xs);color:var(--ink-3);display:flex;align-items:center;gap:6px}",
+      ".lp-kpi{display:flex;flex-wrap:wrap;gap:4px 18px;margin:0 0 8px;align-items:baseline}",
+      ".lp-tile{min-width:0;display:flex;flex-wrap:wrap;gap:2px 6px;align-items:baseline}",
+      ".lp-tile .k{font-size:var(--fs-xs);color:var(--ink-3);display:inline-flex;align-items:center;gap:5px}",
       ".lp-tile .k i{width:10px;height:3px;border-radius:2px;display:inline-block}",
-      ".lp-tile .v{font-family:var(--sans);font-weight:600;font-size:26px;line-height:1.15;color:var(--ink);margin:3px 0 2px}",
-      ".lp-tile .v small{font-size:var(--fs-s);font-weight:500;color:var(--ink-2);margin-left:4px}",
-      ".lp-tile .s{font-size:var(--fs-xs);color:var(--ink-3);font-variant-numeric:tabular-nums}",
+      ".lp-tile .v{font-family:var(--sans);font-weight:600;font-size:var(--fs-l);line-height:1.2;color:var(--ink)}",
+      ".lp-tile .v small{font-size:var(--fs-xs);font-weight:400;color:var(--ink-3);margin-left:3px}",
+      ".lp-tile .s{font-size:var(--fs-xs);color:var(--ink-3);font-variant-numeric:tabular-nums;flex-basis:100%}",
       ".lp-meter{height:6px;border-radius:3px;background:var(--surface-2);margin-top:6px;overflow:hidden}",
       ".lp-meter b{display:block;height:100%;background:var(--accent);border-radius:3px}",
       ".lp-tag{font-family:var(--mono);font-weight:500;font-size:var(--fs-xs);padding:1px 7px;border-radius:9px;background:var(--surface-2);color:var(--ink-2);white-space:nowrap}",
@@ -9865,7 +9869,8 @@ THIS SOFTWARE.
       ".lp-chart .hit{fill:transparent;cursor:crosshair}.lp-chart .xhair{stroke:var(--ink-3);stroke-width:1;pointer-events:none}",
       ".lp-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);min-width:150px}",
       ".lp-tip b{color:var(--ink);font-variant-numeric:tabular-nums}.lp-tip .row{display:flex;gap:8px;align-items:center;margin-top:2px}.lp-tip .row i{display:inline-block;width:12px;height:2px}",
-      ".lp-exp{border:1px solid var(--rule);border-radius:8px;padding:10px 12px;margin:8px 0;background:var(--surface)}",
+      ".lp-exp{border:1px solid var(--rule);border-radius:8px;padding:8px 10px;margin:6px 0;background:var(--surface)}",
+      ".lp-fold{font-size:var(--fs-xs)}.lp-fold summary{cursor:pointer;color:var(--ink-3)}",
       ".lp-exp .head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:4px}",
       ".lp-exp .head .t{font-weight:600;color:var(--ink);font-size:var(--fs-s)}",
       ".lp-exp .stat{font-size:var(--fs-xs);color:var(--ink-2);font-variant-numeric:tabular-nums}",
@@ -9983,8 +9988,8 @@ THIS SOFTWARE.
   function drawSuccess(host, loop, tip) {
     if (!d3) return;
     var st = loop.state, iters = st.iterations || [], agents = st.agents || [];
-    var W = Math.max(360, host.clientWidth || 680), H = 210;
-    var m = { top: 26, right: 96, bottom: 26, left: 40 };
+    var W = Math.max(360, host.clientWidth || 680), H = 160;
+    var m = { top: 22, right: 96, bottom: 22, left: 40 };
     var svg = d3.select(host).append("svg").attr("viewBox", "0 0 " + W + " " + H);
     var x = d3.scalePoint().domain(iters.map(function (it) { return it.n; })).range([m.left, W - m.right]).padding(0.5);
     var y = d3.scaleLinear().domain([0, 1]).range([H - m.bottom, m.top]);
@@ -10124,8 +10129,11 @@ THIS SOFTWARE.
     var host = H("div", { class: "lp-chart" });
     card.appendChild(AgentDiff.charts && AgentDiff.charts.responsive ? AgentDiff.charts.responsive(host, function () { drawExperiment(host, it, agents, tip); }) : host);
     if (!(AgentDiff.charts && AgentDiff.charts.responsive)) drawExperiment(host, it, agents, tip);
-    card.appendChild(H("div", { class: "txt", text: "“" + d.text + "”" }));
-    card.appendChild(H("div", { class: "why", text: d.why + (d.relabel ? " " + d.relabel + "." : "") }));
+    var fold = H("details", { class: "lp-fold" });
+    fold.appendChild(H("summary", { text: "the change, and the decision in words" }));
+    fold.appendChild(H("div", { class: "txt", text: "“" + d.text + "”" }));
+    fold.appendChild(H("div", { class: "why", text: d.why + (d.relabel ? " " + d.relabel + "." : "") }));
+    card.appendChild(fold);
     return card;
   }
 
@@ -10182,8 +10190,7 @@ THIS SOFTWARE.
   // ------------------------------------------------------------ table view
   function tableView(H, loop) {
     var st = loop.state, iters = st.iterations || [];
-    var det = H("details", { class: "lp-table" });
-    det.appendChild(H("summary", { text: "Table view — every number behind the charts" }));
+    var det = H("div", { class: "lp-table" });
     var t = H("table");
     t.appendChild(H("tr", null, ["iteration", "action", "agent", "successes", "runs", "rate", "95% Wilson", "output equality"].map(function (h) { return H("th", { text: h }); })));
     iters.forEach(function (it) {
@@ -10269,7 +10276,7 @@ THIS SOFTWARE.
 
       var sec = H("section", { class: "lp-sec", "data-sec": "success" });
       sec.appendChild(H("h4", { text: "Success by iteration" }));
-      sec.appendChild(H("p", { class: "sub", text: "Pooled success per agent after each iteration (line), its 95% Wilson interval (band); in an experiment (⚗) the hollow point is the agent with the change, whisker its interval. Hover a column for every number." }));
+      sec.appendChild(H("p", { class: "sub", text: "line = pooled success, band = 95% interval; ⚗ = an experiment, hollow point = with the change" }));
       var legend = H("div", { class: "lp-legend" });
       agents.forEach(function (a) { legend.appendChild(H("span", null, [H("i", { style: { background: agentColor(agents, a) } }), H("span", { text: a })])); });
       legend.appendChild(H("span", null, [H("i", { class: "hollow" }), H("span", { text: "with the change under test" })]));
@@ -10283,7 +10290,7 @@ THIS SOFTWARE.
       if (experiments.length) {
         sec = H("section", { class: "lp-sec", "data-sec": "experiments" });
         sec.appendChild(H("h4", { text: "Each experiment, task by task" }));
-        sec.appendChild(H("p", { class: "sub", text: "The agent without the change (light) → with it (dark), success rate per task; below, the two pooled rates with their 95% Wilson intervals. Kept only when wins exceed losses with no always-pass → always-fail regression; the sign test is exact over the discordant tasks." }));
+        sec.appendChild(H("p", { class: "sub", text: "per task: without the change (light) → with it (dark); below, the two pooled rates with intervals" }));
         experiments.forEach(function (it) { sec.appendChild(experimentCard(H, it, agents, tip)); });
         root.appendChild(sec);
       }
@@ -10292,23 +10299,22 @@ THIS SOFTWARE.
       if (grid) {
         sec = H("section", { class: "lp-sec", "data-sec": "uncertainty" });
         sec.appendChild(H("h4", { text: "Where the runs went" }));
-        sec.appendChild(H("p", { class: "sub", text: "Per task family and comparison: the widest 95% interval among the candidates (darker = wider = less certain) and the routing state. The loop spends runs on the widest first; a tie is equal rates no run can separate." }));
+        sec.appendChild(H("p", { class: "sub", text: "per family and comparison: darker = a wider interval = less certain; the loop spends runs on the widest first" }));
         sec.appendChild(grid);
         root.appendChild(sec);
       }
 
-      root.appendChild(tableView(H, loop));
-
-      sec = H("section", { class: "lp-sec", "data-sec": "ledger" });
-      sec.appendChild(H("h4", { text: "The ledger" }));
+      var stop = st.stop || {};
+      root.appendChild(H("p", { class: "lp-stop" }, [H("b", { text: "stopped · " }), H("span", { text: stop.reason || "not stopped" })]));
+      sec = H("details", { class: "lp-sec lp-fold", "data-sec": "ledger" });
+      sec.appendChild(H("summary", { text: "the ledger — every iteration, decision and number" }));
       sec.appendChild(ledger(H, loop));
       var dropped = [];
       Object.keys(st.prompts || {}).forEach(function (a) {
         (st.prompts[a].history || []).forEach(function (h) { if (h.status === "dropped") dropped.push(a + ": " + h.kind.replace(/_/g, " ") + " — " + h.why); });
       });
       if (dropped.length) sec.appendChild(H("p", { class: "lp-note", text: "Dropped without a run: " + dropped.join("; ") }));
-      var stop = st.stop || {};
-      sec.appendChild(H("p", { class: "lp-stop" }, [H("b", { text: "stopped · " }), H("span", { text: stop.reason || "not stopped" })]));
+      sec.appendChild(tableView(H, loop));
       if (loop.note) sec.appendChild(H("p", { class: "lp-note", text: loop.note }));
       root.appendChild(sec);
     },
@@ -10346,26 +10352,29 @@ THIS SOFTWARE.
       ".sc{--sc-a:var(--a);--sc-b:var(--b);position:relative}",
       "@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .sc{--sc-a:#3987e5;--sc-b:#d95926}}",
       ":root[data-theme=dark] .sc{--sc-a:#3987e5;--sc-b:#d95926}",
-      ".sc-lede{font-size:var(--fs-s);color:var(--ink-2);margin:0 0 8px;max-width:90ch}",
+      ".sc-lede{font-size:var(--fs-xs);color:var(--ink-2);margin:0 0 8px;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}",
+      ".sc-lede .sc-agent i,.sc-judgeline .sc-agent i{display:inline-block;width:9px;height:9px;border-radius:50%;vertical-align:-1px;margin-right:5px}.sc-lede .sc-dim,.sc-judgeline .sc-dim{color:var(--ink-3)}",
+      ".sc-judgeline{font-size:var(--fs-xs);color:var(--ink-2);margin:10px 0 0;display:flex;flex-wrap:wrap;gap:4px 14px}",
       ".sc-lede .mode{font-family:var(--mono);font-size:var(--fs-xs);padding:1px 7px;border-radius:9px;background:var(--surface-2);color:var(--ink-2);margin-right:6px}",
       ".sc-legend{display:flex;gap:14px;font-size:var(--fs-xs);color:var(--ink-2);margin:0 0 6px;flex-wrap:wrap}",
       ".sc-legend i{display:inline-block;width:9px;height:9px;border-radius:50%;vertical-align:-1px;margin-right:5px}",
-      ".sc-sec{margin:12px 0 0}.sc-sec h4{margin:0 0 2px;font-size:var(--fs-m);font-weight:600;color:var(--ink)}",
+      ".sc-sec{margin:8px 0 0}.sc-sec h4{margin:0 0 2px;font-size:var(--fs-m);font-weight:600;color:var(--ink)}",
       ".sc-sec .sub{margin:0 0 6px;font-size:var(--fs-xs);color:var(--ink-3);max-width:90ch}",
-      ".sc-grid{display:grid;grid-template-columns:minmax(120px,11em) 1fr minmax(120px,auto);gap:4px 12px;align-items:center;font-size:var(--fs-xs)}",
+      ".sc-grid{display:grid;grid-template-columns:minmax(96px,9em) 1fr minmax(96px,auto);gap:2px 10px;align-items:center;font-size:var(--fs-xs)}",
+      ".sc-na{font-size:var(--fs-xs);color:var(--ink-3);padding:2px 0}.sc-na .sc-strip.na{display:inline;height:auto;border:0;padding:0;background:none;font-size:var(--fs-xs);line-height:inherit;color:var(--ink-3)}",
       ".sc-grid .lab{color:var(--ink-2)}.sc-grid .lab.na{color:var(--ink-3)}",
       ".sc-grid .val{font-family:var(--mono);color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}",
       ".sc-grid .val b{color:var(--ink);font-weight:500}",
       ".sc-grid .axis{grid-column:2;display:flex;justify-content:space-between;font-family:var(--mono);color:var(--ink-3);font-size:10px;padding:0 0 2px}",
-      ".sc-strip{position:relative;height:22px;background:var(--surface-2);border-radius:4px}",
+      ".sc-strip{position:relative;height:18px;background:var(--surface-2);border-radius:4px}",
       ".sc-strip .tick{position:absolute;top:0;bottom:0;width:1px;background:var(--rule)}",
       ".sc-strip .ci{position:absolute;height:6px;border-radius:3px;opacity:.35}",
       ".sc-strip .pt{position:absolute;width:9px;height:9px;border-radius:50%;border:2px solid var(--surface);box-sizing:content-box;transform:translate(-50%,-50%)}",
       ".sc-strip .hit{position:absolute;inset:0;cursor:default}",
       ".sc-strip.na{background:transparent;border:1px dashed var(--rule);color:var(--ink-3);font-size:10px;line-height:22px;padding-left:8px}",
-      ".sc-bar{position:relative;height:22px}",
-      ".sc-bar .row{position:absolute;left:0;height:8px;border-radius:0 4px 4px 0}",
-      ".sc-bar .row.a{top:2px}.sc-bar .row.b{top:12px}",
+      ".sc-bar{position:relative;height:18px}",
+      ".sc-bar .row{position:absolute;left:0;height:7px;border-radius:0 4px 4px 0}",
+      ".sc-bar .row.a{top:1px}.sc-bar .row.b{top:10px}",
       ".sc-rr{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}",
       ".sc-rr svg{display:block;font-family:var(--sans)}",
       ".sc-rr .axis text{font-size:10px;fill:var(--ink-3)}.sc-rr .axis line,.sc-rr .axis path{stroke:var(--rule)}",
@@ -10401,6 +10410,10 @@ THIS SOFTWARE.
     return Math.round(v * 10) / 10 + "";
   }
   function color(agents, a) { return a === agents[0] ? "var(--sc-a)" : "var(--sc-b)"; }
+  var SHORT = { "correct tool called": "correct tool", "useful tool results (over calls)": "useful tool results", "expected evidence retrieved (golden)": "expected evidence",
+                "errors recovered (over errors)": "errors recovered", "latency (s)": "latency", "wasted seconds": "wasted time", "share of time waiting on tools": "waiting on tools",
+                "cost (USD)": "cost", "accuracy score (outcome.score)": "accuracy score" };
+  function shortLabel(l) { return SHORT[l] || l; }
 
   function tooltip(root) {
     var tip = document.createElement("div"); tip.className = "sc-tip"; tip.hidden = true; root.appendChild(tip);
@@ -10429,22 +10442,23 @@ THIS SOFTWARE.
     grid.appendChild(H("span"));
     grid.appendChild(H("div", { class: "axis" }, ["0%", "50%", "100%"].map(function (t) { return H("span", { text: t }); })));
     grid.appendChild(H("span"));
+    var na = [];
     (card.dimensions.rates || []).forEach(function (dim) {
-      var key = dim[0], label = dim[1];
+      var key = dim[0], label = shortLabel(dim[1]);
       var rows = agents.map(function (a) { return { agent: a, r: card.agents[a].rates[key] }; });
       var measurable = rows.some(function (x) { return x.r && x.r.runs; });
-      grid.appendChild(H("span", { class: "lab" + (measurable ? "" : " na"), text: label }));
       if (!measurable) {
-        grid.appendChild(H("div", { class: "sc-strip na", "data-dim": key, text: key === "tool_correct" ? "not measurable — needs a golden set with expected_tools" : key === "policy_compliant" ? "not measurable — needs a policy or forbidden_tools" : key === "recovered_errors" ? "no tool error to recover from" : "not measurable for these runs" }));
-        grid.appendChild(H("span", { class: "val", text: "—" }));
+        // said once, in one line, instead of an empty row each
+        na.push(H("span", { class: "sc-strip na", "data-dim": key, text: label + " (" + (key === "tool_correct" ? "needs a golden set" : key === "policy_compliant" ? "needs a policy" : key === "recovered_errors" ? "no tool error" : key === "retrieval_recall" ? "needs expected_evidence" : "not measurable") + ")" }));
         return;
       }
+      grid.appendChild(H("span", { class: "lab", text: label }));
       var strip = H("div", { class: "sc-strip", "data-dim": key });
       [0.25, 0.5, 0.75].forEach(function (t) { strip.appendChild(H("i", { class: "tick", style: { left: (t * 100) + "%" } })); });
       rows.forEach(function (x, i) {
         var r = x.r;
         if (!r || !r.runs) return;
-        var top = agents.length > 1 ? (i === 0 ? 7 : 15) : 11;
+        var top = agents.length > 1 ? (i === 0 ? 5 : 13) : 9;
         var col = color(agents, x.agent);
         if (r.ci95) strip.appendChild(H("i", { class: "ci", "data-agent": x.agent, style: { left: (r.ci95[0] * 100) + "%", width: Math.max(0.5, (r.ci95[1] - r.ci95[0]) * 100) + "%", top: (top - 3) + "px", background: col } }));
         strip.appendChild(H("i", { class: "pt", "data-agent": x.agent, style: { left: (r.rate * 100) + "%", top: top + "px", background: col } }));
@@ -10466,6 +10480,11 @@ THIS SOFTWARE.
       });
       grid.appendChild(val);
     });
+    if (na.length) {
+      var line = H("div", { class: "sc-na" }, [H("span", { class: "sc-dim", text: "not measurable here: " })]);
+      na.forEach(function (chip, i) { if (i) line.appendChild(H("span", { class: "sc-dim", text: " · " })); line.appendChild(chip); });
+      grid.appendChild(H("span")); grid.appendChild(line); grid.appendChild(H("span"));
+    }
     return grid;
   }
 
@@ -10473,10 +10492,11 @@ THIS SOFTWARE.
   function spendRows(H, card, agents, tip) {
     var grid = H("div", { class: "sc-grid", "data-sec": "spend" });
     (card.dimensions.spend || []).forEach(function (dim) {
-      var key = dim[0], label = dim[1];
+      var key = dim[0], label = shortLabel(dim[1]);
       var rows = agents.map(function (a) { return { agent: a, s: card.agents[a].spend[key] }; });
+      if (!rows.some(function (x) { return x.s; })) return;   // recorded for no run: no row
       var max = Math.max.apply(null, rows.map(function (x) { return x.s ? x.s.max : 0; }).concat([0]));
-      grid.appendChild(H("span", { class: "lab", text: label + " per run" }));
+      grid.appendChild(H("span", { class: "lab", text: label }));
       var bar = H("div", { class: "sc-bar", "data-dim": key });
       rows.forEach(function (x, i) {
         if (!x.s) return;
@@ -10507,7 +10527,7 @@ THIS SOFTWARE.
     var host = H("div");
     wrap.appendChild(host);
     if (d3) {
-      var W = 260, Hh = 190, m = { top: 12, right: 16, bottom: 30, left: 36 };
+      var W = 220, Hh = 150, m = { top: 10, right: 14, bottom: 28, left: 34 };
       var svg = d3.select(host).append("svg").attr("width", W).attr("height", Hh).attr("role", "img").attr("aria-label", "risk against reward per agent");
       var x = d3.scaleLinear().domain([0, 1]).range([m.left, W - m.right]);
       var y = d3.scaleLinear().domain([0, 1]).range([Hh - m.bottom, m.top]);
@@ -10587,8 +10607,7 @@ THIS SOFTWARE.
   }
 
   function tableView(H, card, agents) {
-    var det = H("details", { class: "sc-details" });
-    det.appendChild(H("summary", { text: "Table view — every rate with its counts and interval" }));
+    var det = H("div", { class: "sc-tableview" });
     var t = H("table", { class: "sc-table" });
     t.appendChild(H("tr", null, [H("th", { text: "dimension" })].concat(agents.map(function (a) { return H("th", { text: a }); }))));
     card.dimensions.rates.forEach(function (dim) {
@@ -10630,45 +10649,48 @@ THIS SOFTWARE.
       var tip = tooltip(root);
       var lede = H("p", { class: "sc-lede" });
       lede.appendChild(H("span", { class: "mode", text: card.mode }));
-      lede.appendChild(H("span", { text: (card.golden ? "golden set covers " + card.golden.covered + " of " + card.golden.tasks + " tasks" + (card.golden.uncovered_runs_tasks && card.golden.uncovered_runs_tasks.length ? " (" + card.golden.uncovered_runs_tasks.length + " task(s) in the runs have no golden entry)" : "") : "no golden set: tool correctness and policy read as not measurable") +
-        (card.policy ? " · policy: " + Object.keys(card.policy).map(function (k) { var v = card.policy[k]; return k.replace(/_/g, " ") + (Array.isArray(v) ? " " + v.length : v === true ? "" : " " + v); }).join(", ") : " · no policy") + " · " +
-        agents.map(function (a) { return a + " " + card.agents[a].runs + " run(s)"; }).join(", ") }));
+      agents.forEach(function (a) { lede.appendChild(H("span", { class: "sc-agent" }, [H("i", { style: { background: color(agents, a) } }), H("span", { text: a + " · " + card.agents[a].runs + " runs" })])); });
+      lede.appendChild(H("span", { class: "sc-dim", text: (card.golden ? "golden set " + card.golden.covered + "/" + card.golden.tasks + " tasks" : "no golden set") + (card.policy ? " · policy" : "") }));
       root.appendChild(lede);
-      var legend = H("div", { class: "sc-legend" });
-      agents.forEach(function (a) { legend.appendChild(H("span", null, [H("i", { style: { background: color(agents, a) } }), H("span", { text: a })])); });
-      root.appendChild(legend);
 
       var sec = H("section", { class: "sc-sec" });
       sec.appendChild(H("h4", { text: "Rates, each with its 95% Wilson interval" }));
-      sec.appendChild(H("p", { class: "sub", text: "Dot = successes / runs; bar = the interval. A dimension that needs a golden set or a policy says so instead of guessing." }));
+      sec.appendChild(H("p", { class: "sub", text: "dot = successes / runs · bar = 95% Wilson interval" }));
       sec.appendChild(rateRows(H, card, agents, tip));
       root.appendChild(sec);
 
       sec = H("section", { class: "sc-sec" });
       sec.appendChild(H("h4", { text: "Spend per run" }));
-      sec.appendChild(H("p", { class: "sub", text: "Mean per run as the bar (scaled to the larger of the two maxima); hover for median and range. Tokens and cost are as recorded — the trace says whether they were measured or estimated." }));
+      sec.appendChild(H("p", { class: "sub", text: "bar = mean per run · hover for median and range" }));
       sec.appendChild(spendRows(H, card, agents, tip));
       root.appendChild(sec);
 
       sec = H("section", { class: "sc-sec" });
       sec.appendChild(H("h4", { text: "Risk against reward" }));
-      sec.appendChild(H("p", { class: "sub", text: "Reward is the success rate; risk is the share of runs with at least one risk flag (forbidden tool or pattern, blind or unverified write, undeclared tool, invented argument, loop, step limit). The ratio is reward / risk — a run that never flags has no ratio, not an infinite one." }));
+      sec.appendChild(H("p", { class: "sub", text: "reward = success rate · risk = share of runs with a flag · ratio = reward / risk (none when nothing was flagged)" }));
       sec.appendChild(riskReward(H, card, agents, tip));
       root.appendChild(sec);
 
-      sec = H("section", { class: "sc-sec" });
-      sec.appendChild(H("h4", { text: "Trajectory quality, as counts" }));
-      sec.appendChild(H("p", { class: "sub", text: "Correct tool, loops and repeats, steps spent after the answer was in hand, recovery after tool errors, writes without a read or a check, how runs ended." }));
-      sec.appendChild(H("div", { class: "scroll-x" }, [trajectoryTable(H, card, agents)]));
-      root.appendChild(sec);
-
-      sec = H("section", { class: "sc-sec" });
-      sec.appendChild(H("h4", { text: "LLM as a judge, beside the grade" }));
-      sec.appendChild(judgeCards(H, card, agents));
-      root.appendChild(sec);
-
-      root.appendChild(tableView(H, card, agents));
-      if (card.note) root.appendChild(H("p", { class: "sc-note", text: card.note }));
+      // the judge, one line per agent; the 2×2, the counts and every number fold away
+      var judgeLine = H("p", { class: "sc-judgeline", "data-sec": "judge-line" });
+      var anyJudge = agents.some(function (a) { return card.agents[a].judge; });
+      if (anyJudge) {
+        agents.forEach(function (a) {
+          var j = card.agents[a].judge;
+          judgeLine.appendChild(H("span", { class: "sc-agent" }, [H("i", { style: { background: color(agents, a) } }),
+            H("span", { text: j ? "judge says solved " + j.success.successes + "/" + j.success.runs + (j.agreement.runs ? " · agrees with the grade " + j.agreement.successes + "/" + j.agreement.runs : "") : a + ": not judged" })]));
+        });
+      } else {
+        judgeLine.appendChild(H("span", { class: "sc-dim", text: "no judge yet — `eval … --judge` adds a second model's verdict beside the grade" }));
+      }
+      root.appendChild(judgeLine);
+      var more = H("details", { class: "sc-details" });
+      more.appendChild(H("summary", { text: "trajectory counts, the judge's 2×2, and every number" }));
+      more.appendChild(H("div", { class: "scroll-x" }, [trajectoryTable(H, card, agents)]));
+      more.appendChild(judgeCards(H, card, agents));
+      more.appendChild(tableView(H, card, agents));
+      if (card.note) more.appendChild(H("p", { class: "sc-note", text: card.note }));
+      root.appendChild(more);
     },
   });
 })(typeof window !== "undefined" ? window : this);
@@ -10924,7 +10946,7 @@ THIS SOFTWARE.
       if (drawn) root.appendChild(drawn); else root.appendChild(H("p", { class: "dbg-note", text: "The body chart needs D3; the layers below still read the selected step." }));
       var layersHost = H("div");
       root.appendChild(layersHost);
-      root.appendChild(H("p", { class: "dbg-note", text: "Every layer quotes the trace as recorded: the model turn's own tokens and latency, the tool call's input and its response, the phase the reading assigned, the values the answer rests on that this step produced, and the replay verdict at the decisive step when a replay ran. A retry is a call to the same tool after that tool returned an error; a model switch is a step whose recorded model differs from the one before it. Click a node on the chart to open its layers; the timeline, map and inspector follow the same cursor." }));
+      root.appendChild(H("p", { class: "dbg-note", text: "click a node to open its layers · ↻ retry · ⇄ model switch · ∅ nothing new · ✕ error" }));
       var rows = Array.isArray(report.alignment) ? report.alignment : [];
       function renderLayersNow() {
         layersHost.innerHTML = "";
@@ -10980,11 +11002,11 @@ THIS SOFTWARE.
       "@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .tm{--tm-a:#3987e5;--tm-b:#d95926}}",
       ":root[data-theme=dark] .tm{--tm-a:#3987e5;--tm-b:#d95926}",
       ".tm-narr{font-size:var(--fs-m);color:var(--ink);margin:0 0 8px;max-width:90ch}",
-      ".tm-run{margin:10px 0 0}",
+      ".tm-run{margin:6px 0 0}",
       ".tm-run h5{margin:0 0 4px;font-size:var(--fs-s);font-weight:600;color:var(--ink);display:flex;gap:8px;align-items:center;flex-wrap:wrap}",
       ".tm-run h5 i{width:10px;height:10px;border-radius:50%;display:inline-block}",
       ".tm-run h5 .tot{font-family:var(--mono);font-weight:500;color:var(--ink-3);font-size:var(--fs-xs)}",
-      ".tm-share{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--surface-2);margin:2px 0 6px}",
+      ".tm-share{display:flex;height:4px;border-radius:2px;overflow:hidden;background:var(--surface-2);margin:2px 0 0;width:180px}",
       ".tm-share i{display:block;height:100%;border-right:2px solid var(--surface)}",
       ".tm-share i:last-child{border-right:0}",
       ".tm-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 6px}",
@@ -10993,7 +11015,7 @@ THIS SOFTWARE.
       ".tm-chart .axis text{font-size:var(--fs-xs);fill:var(--ink-3);font-variant-numeric:tabular-nums}.tm-chart .axis line,.tm-chart .axis path{stroke:var(--rule)}",
       ".tm-chart .seg{cursor:default}.tm-chart .seg.wasted{stroke:var(--bad);stroke-width:1}",
       ".tm-chart .lab{font-size:var(--fs-xs);fill:var(--ink-2);font-family:var(--mono)}.tm-chart .lab.why{fill:var(--bad)}",
-      ".tm-rat{font-size:var(--fs-xs);color:var(--ink-2);margin:6px 0 0;max-width:90ch}",
+      ".tm-rat{font-size:var(--fs-xs);color:var(--ink-3);margin:2px 0 0;max-width:100ch}",
       ".tm-tools{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}",
       ".tm-tools .chip{font-family:var(--mono);font-size:var(--fs-xs);background:var(--surface-2);border-radius:9px;padding:1px 7px;color:var(--ink-2);font-variant-numeric:tabular-nums}",
       ".tm-tools .chip.w{border:1px solid var(--warn)}",
@@ -11027,43 +11049,46 @@ THIS SOFTWARE.
     };
   }
 
+  /* One strip per run: every step a segment along wall-clock, left to
+   * right; thinking light, tools darker, the answer solid; wasted steps
+   * hatched. The slowest few steps are named above the strip; every
+   * other step is a hover away. A 300-step run is one line. */
   function waterfall(host, report, side, t, xMax, tip) {
     if (!d3) return;
-    var W = Math.max(320, host.clientWidth || 640), rowH = 16, m = { top: 18, right: 12, bottom: 4, left: 12 };
+    var W = Math.max(320, host.clientWidth || 640), barH = 18, m = { top: 30, right: 8, bottom: 18, left: 8 };
     var rows = t.steps || [];
-    var H = m.top + rows.length * rowH + m.bottom;
+    var H = m.top + barH + m.bottom;
     var svg = d3.select(host).append("svg").attr("viewBox", "0 0 " + W + " " + H).attr("data-side", side).attr("role", "img")
       .attr("aria-label", name(report, side) + ": each step's seconds along wall-clock, wasted steps hatched");
     var x = d3.scaleLinear().domain([0, Math.max(1e-6, xMax)]).range([m.left, W - m.right]);
-    svg.append("g").attr("class", "axis").attr("transform", "translate(0," + (m.top - 6) + ")").call(d3.axisTop(x).ticks(Math.max(3, Math.floor(W / 110))).tickSize(3).tickFormat(function (v) { return secs(v); })).select(".domain").remove();
+    svg.append("g").attr("class", "axis").attr("transform", "translate(0," + (m.top + barH + 1) + ")").call(d3.axisBottom(x).ticks(Math.max(3, Math.floor(W / 120))).tickSize(3).tickFormat(function (v) { return secs(v); })).select(".domain").remove();
     var c = color(side);
-    var acc = 0;
     var defs = svg.append("defs");
     var pid = "tm-hatch-" + side + "-" + Math.random().toString(36).slice(2, 7);
     var pat = defs.append("pattern").attr("id", pid).attr("width", 6).attr("height", 6).attr("patternUnits", "userSpaceOnUse").attr("patternTransform", "rotate(45)");
     pat.append("rect").attr("width", 6).attr("height", 6).attr("fill", "var(--surface)");
     pat.append("line").attr("x1", 0).attr("y1", 0).attr("x2", 0).attr("y2", 6).attr("stroke", "var(--bad)").attr("stroke-width", 2);
-    rows.forEach(function (r, i) {
-      var y = m.top + i * rowH + 2;
+    var acc = 0, placed = [];
+    var top3 = rows.slice().sort(function (p, q) { return q.latency_s - p.latency_s; }).slice(0, 3).map(function (r) { return r.index; });
+    rows.forEach(function (r) {
+      var y = m.top;
       var g = svg.append("g").attr("class", "step").attr("data-step", r.index).attr("data-category", r.category).attr("data-wasted", r.wasted || "");
-      var x0 = x(acc), x1 = x(acc + r.latency_s);
-      g.append("rect").attr("class", "seg" + (r.wasted ? " wasted" : "")).attr("x", x0).attr("y", y).attr("width", Math.max(2, x1 - x0)).attr("height", rowH - 5).attr("rx", 3)
+      var x0 = x(acc), x1 = x(acc + r.latency_s), w = Math.max(1.5, x1 - x0 - 1);
+      g.append("rect").attr("class", "seg" + (r.wasted ? " wasted" : "")).attr("x", x0).attr("y", y).attr("width", w).attr("height", barH).attr("rx", 2)
         .attr("fill", r.wasted ? "url(#" + pid + ")" : c).attr("fill-opacity", r.wasted ? 1 : CAT[r.category].alpha);
-      if (r.wasted) g.append("rect").attr("x", x0).attr("y", y).attr("width", Math.max(2, x1 - x0)).attr("height", rowH - 5).attr("rx", 3).attr("fill", c).attr("fill-opacity", 0.25);
-      var label = r.index + " · " + (r.name || r.type) + " · " + secs(r.latency_s) + (r.share >= 0.15 ? " (" + Math.round(r.share * 100) + "%)" : "");
-      var why = r.wasted && r.share >= 0.1 ? " — " + r.wasted_label : "";
-      // the label goes right of the bar, else left of it; the reason rides
-      // along only where it fits (the tooltip and the table carry it always)
-      var fits = function (text, left) { return left ? x0 - 6 - text.length * 5.8 > m.left : x1 + 6 + text.length * 5.8 < W - m.right; };
-      var text = label + why, tx = x1 + 6, anchor = "start";
-      if (!fits(text, false)) {
-        if (fits(text, true)) { tx = x0 - 6; anchor = "end"; }
-        else if (fits(label, false)) { text = label; }
-        else if (fits(label, true)) { text = label; tx = x0 - 6; anchor = "end"; }
-        else { text = label; }
+      if (r.wasted) g.append("rect").attr("x", x0).attr("y", y).attr("width", w).attr("height", barH).attr("rx", 2).attr("fill", c).attr("fill-opacity", 0.25).attr("pointer-events", "none");
+      // name the slowest steps above the strip, never on top of each other
+      if (top3.indexOf(r.index) >= 0 && w > 6) {
+        var label = r.index + " · " + (r.name || r.type) + " " + secs(r.latency_s) + (r.wasted && r.share >= 0.1 ? " — " + r.wasted_label : "");
+        var lw = label.length * 5.6, lx = Math.min(Math.max(m.left, x0 + w / 2 - lw / 2), W - m.right - lw);
+        var collide = placed.some(function (p) { return lx < p.x1 + 8 && lx + lw > p.x0 - 8; });
+        if (!collide) {
+          placed.push({ x0: lx, x1: lx + lw });
+          g.append("line").attr("x1", x0 + w / 2).attr("x2", x0 + w / 2).attr("y1", y - 3).attr("y2", y - 9).attr("stroke", "var(--ink-3)").attr("stroke-width", 1);
+          g.append("text").attr("class", "lab" + (r.wasted && r.share >= 0.1 ? " why" : "")).attr("x", lx).attr("y", y - 12).text(label);
+        }
       }
-      g.append("text").attr("class", "lab" + (why && text !== label ? " why" : "")).attr("x", tx).attr("y", y + rowH - 7).attr("text-anchor", anchor).text(text);
-      g.append("rect").attr("x", 0).attr("y", y - 2).attr("width", W).attr("height", rowH).attr("fill", "transparent")
+      g.append("rect").attr("x", x0).attr("y", y - 14).attr("width", Math.max(6, x1 - x0)).attr("height", barH + 14).attr("fill", "transparent")
         .on("pointermove", function (evt) {
           tip.show(evt, [{ b: true, text: name(report, side) + " · step " + r.index + " · " + (r.name || r.type) },
             { text: secs(r.latency_s) + " · " + Math.round(r.share * 100) + "% of the run · " + CAT[r.category].label + (isNum(r.tokens) ? " · " + r.tokens + " tokens" : "") },
@@ -11099,7 +11124,8 @@ THIS SOFTWARE.
       if (tm.narrative) root.appendChild(H("p", { class: "tm-narr", text: tm.narrative }));
       var legend = H("div", { class: "tm-legend" });
       Object.keys(CAT).forEach(function (k) { legend.appendChild(H("span", null, [H("b", { style: { background: "var(--ink-3)", opacity: CAT[k].alpha } }), H("span", { text: CAT[k].label })])); });
-      legend.appendChild(H("span", null, [H("b", { style: { background: "repeating-linear-gradient(45deg, var(--bad) 0 2px, transparent 2px 5px)" } }), H("span", { text: "wasted — nothing new, a repeat, a dead end, an error, or after the answer's basis was complete" })]));
+      legend.appendChild(H("span", null, [H("b", { style: { background: "repeating-linear-gradient(45deg, var(--bad) 0 2px, transparent 2px 5px)" } }), H("span", { text: "wasted" })]));
+      legend.appendChild(H("span", { text: "· hover a bar for the why, click it to open the step" }));
       root.appendChild(legend);
       var xMax = Math.max((tm.a && tm.a.total_s) || 0, (tm.b && tm.b.total_s) || 0);
       ["a", "b"].forEach(function (side) {
@@ -11107,28 +11133,34 @@ THIS SOFTWARE.
         if (!t) return;
         var run = H("section", { class: "tm-run", "data-side": side });
         run.appendChild(H("h5", null, [H("i", { style: { background: color(side) } }), H("span", { text: name(report, side) }),
-          H("span", { class: "tot", text: t.measurable ? secs(t.total_s) + " over " + t.steps.length + " steps" + (isNum(t.wasted_share) ? " · " + Math.round(t.wasted_share * 100) + "% wasted" : "") + (isNum(t.tokens_per_s) ? " · " + t.tokens_per_s + " tokens/s" : "") : "unmeasurable" })]));
+          H("span", { class: "tot", text: t.measurable ? secs(t.total_s) + " · " + t.steps.length + " steps · " + ["think", "tool", "answer"].map(function (k) { var c = t.by_category[k] || { share: 0 }; return Math.round(c.share * 100) + "% " + CAT[k].label; }).join(", ") + (isNum(t.wasted_share) ? " · " + Math.round(t.wasted_share * 100) + "% wasted" : "") : "unmeasurable" })]));
         if (!t.measurable) { run.appendChild(H("p", { class: "tm-rat", text: t.rationale })); root.appendChild(run); return; }
-        var share = H("div", { class: "tm-share", title: "thinking · tools · answer" });
+        // the category shares, kept for the table view and tests; the header says them in words
+        var share = H("div", { class: "tm-share", hidden: true });
         ["think", "tool", "answer"].forEach(function (k) {
           var c = t.by_category[k] || { share: 0 };
-          share.appendChild(H("i", { "data-category": k, style: { width: (c.share * 100) + "%", background: color(side), opacity: CAT[k].alpha }, title: CAT[k].label + " " + secs(c.seconds) + " (" + Math.round(c.share * 100) + "%)" }));
+          share.appendChild(H("i", { "data-category": k, style: { width: (c.share * 100) + "%" } }));
         });
         run.appendChild(share);
         var host = H("div", { class: "tm-chart" });
         run.appendChild(AgentDiff.charts && AgentDiff.charts.responsive ? AgentDiff.charts.responsive(host, function () { waterfall(host, report, side, t, xMax, tip); }) : host);
         if (!(AgentDiff.charts && AgentDiff.charts.responsive)) waterfall(host, report, side, t, xMax, tip);
-        var tools = H("div", { class: "tm-tools" });
-        Object.keys(t.by_tool || {}).sort(function (p, q) { return t.by_tool[q].seconds - t.by_tool[p].seconds; }).forEach(function (k) {
-          var v = t.by_tool[k];
-          tools.appendChild(H("span", { class: "chip" + (v.wasted_calls ? " w" : ""), text: k + " ×" + v.calls + " · " + secs(v.seconds) + " (" + Math.round(v.share * 100) + "%)" + (v.wasted_calls ? " · " + v.wasted_calls + " wasted" : "") }));
-        });
-        if (tools.childNodes.length) run.appendChild(tools);
         run.appendChild(H("p", { class: "tm-rat", text: t.rationale }));
         root.appendChild(run);
       });
       var det = H("details", { class: "tm-details" });
-      det.appendChild(H("summary", { text: "Table view — every step's seconds and share" }));
+      det.appendChild(H("summary", { text: "every step's seconds, and each tool's" }));
+      var toolsT = H("table");
+      toolsT.appendChild(H("tr", null, ["run", "tool", "calls", "seconds", "share", "wasted calls"].map(function (h) { return H("th", { text: h }); })));
+      ["a", "b"].forEach(function (side) {
+        var t = tm[side];
+        if (!t || !t.measurable) return;
+        Object.keys(t.by_tool || {}).sort(function (p, q) { return t.by_tool[q].seconds - t.by_tool[p].seconds; }).forEach(function (k) {
+          var v = t.by_tool[k];
+          toolsT.appendChild(H("tr", { class: "tm-tool", "data-side": side, "data-tool": k }, [name(report, side), k, String(v.calls), v.seconds.toFixed(2), Math.round(v.share * 100) + "%", String(v.wasted_calls)].map(function (x) { return H("td", { text: x }); })));
+        });
+      });
+      det.appendChild(H("div", { class: "scroll-x" }, [toolsT]));
       var tbl = H("table");
       tbl.appendChild(H("tr", null, ["run", "step", "name", "category", "seconds", "share", "wasted"].map(function (h) { return H("th", { text: h }); })));
       ["a", "b"].forEach(function (side) {
@@ -11137,8 +11169,8 @@ THIS SOFTWARE.
         });
       });
       det.appendChild(H("div", { class: "scroll-x" }, [tbl]));
+      det.appendChild(H("p", { class: "tm-note", text: (tm.a && tm.a.basis) || "" }));
       root.appendChild(det);
-      root.appendChild(H("p", { class: "tm-note", text: (tm.a && tm.a.basis) || "" }));
     },
   });
 })(typeof window !== "undefined" ? window : this);

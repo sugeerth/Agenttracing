@@ -26,26 +26,29 @@
       ".sc{--sc-a:var(--a);--sc-b:var(--b);position:relative}",
       "@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .sc{--sc-a:#3987e5;--sc-b:#d95926}}",
       ":root[data-theme=dark] .sc{--sc-a:#3987e5;--sc-b:#d95926}",
-      ".sc-lede{font-size:var(--fs-s);color:var(--ink-2);margin:0 0 8px;max-width:90ch}",
+      ".sc-lede{font-size:var(--fs-xs);color:var(--ink-2);margin:0 0 8px;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}",
+      ".sc-lede .sc-agent i,.sc-judgeline .sc-agent i{display:inline-block;width:9px;height:9px;border-radius:50%;vertical-align:-1px;margin-right:5px}.sc-lede .sc-dim,.sc-judgeline .sc-dim{color:var(--ink-3)}",
+      ".sc-judgeline{font-size:var(--fs-xs);color:var(--ink-2);margin:10px 0 0;display:flex;flex-wrap:wrap;gap:4px 14px}",
       ".sc-lede .mode{font-family:var(--mono);font-size:var(--fs-xs);padding:1px 7px;border-radius:9px;background:var(--surface-2);color:var(--ink-2);margin-right:6px}",
       ".sc-legend{display:flex;gap:14px;font-size:var(--fs-xs);color:var(--ink-2);margin:0 0 6px;flex-wrap:wrap}",
       ".sc-legend i{display:inline-block;width:9px;height:9px;border-radius:50%;vertical-align:-1px;margin-right:5px}",
-      ".sc-sec{margin:12px 0 0}.sc-sec h4{margin:0 0 2px;font-size:var(--fs-m);font-weight:600;color:var(--ink)}",
+      ".sc-sec{margin:8px 0 0}.sc-sec h4{margin:0 0 2px;font-size:var(--fs-m);font-weight:600;color:var(--ink)}",
       ".sc-sec .sub{margin:0 0 6px;font-size:var(--fs-xs);color:var(--ink-3);max-width:90ch}",
-      ".sc-grid{display:grid;grid-template-columns:minmax(120px,11em) 1fr minmax(120px,auto);gap:4px 12px;align-items:center;font-size:var(--fs-xs)}",
+      ".sc-grid{display:grid;grid-template-columns:minmax(96px,9em) 1fr minmax(96px,auto);gap:2px 10px;align-items:center;font-size:var(--fs-xs)}",
+      ".sc-na{font-size:var(--fs-xs);color:var(--ink-3);padding:2px 0}.sc-na .sc-strip.na{display:inline;height:auto;border:0;padding:0;background:none;font-size:var(--fs-xs);line-height:inherit;color:var(--ink-3)}",
       ".sc-grid .lab{color:var(--ink-2)}.sc-grid .lab.na{color:var(--ink-3)}",
       ".sc-grid .val{font-family:var(--mono);color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}",
       ".sc-grid .val b{color:var(--ink);font-weight:500}",
       ".sc-grid .axis{grid-column:2;display:flex;justify-content:space-between;font-family:var(--mono);color:var(--ink-3);font-size:10px;padding:0 0 2px}",
-      ".sc-strip{position:relative;height:22px;background:var(--surface-2);border-radius:4px}",
+      ".sc-strip{position:relative;height:18px;background:var(--surface-2);border-radius:4px}",
       ".sc-strip .tick{position:absolute;top:0;bottom:0;width:1px;background:var(--rule)}",
       ".sc-strip .ci{position:absolute;height:6px;border-radius:3px;opacity:.35}",
       ".sc-strip .pt{position:absolute;width:9px;height:9px;border-radius:50%;border:2px solid var(--surface);box-sizing:content-box;transform:translate(-50%,-50%)}",
       ".sc-strip .hit{position:absolute;inset:0;cursor:default}",
       ".sc-strip.na{background:transparent;border:1px dashed var(--rule);color:var(--ink-3);font-size:10px;line-height:22px;padding-left:8px}",
-      ".sc-bar{position:relative;height:22px}",
-      ".sc-bar .row{position:absolute;left:0;height:8px;border-radius:0 4px 4px 0}",
-      ".sc-bar .row.a{top:2px}.sc-bar .row.b{top:12px}",
+      ".sc-bar{position:relative;height:18px}",
+      ".sc-bar .row{position:absolute;left:0;height:7px;border-radius:0 4px 4px 0}",
+      ".sc-bar .row.a{top:1px}.sc-bar .row.b{top:10px}",
       ".sc-rr{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}",
       ".sc-rr svg{display:block;font-family:var(--sans)}",
       ".sc-rr .axis text{font-size:10px;fill:var(--ink-3)}.sc-rr .axis line,.sc-rr .axis path{stroke:var(--rule)}",
@@ -81,6 +84,10 @@
     return Math.round(v * 10) / 10 + "";
   }
   function color(agents, a) { return a === agents[0] ? "var(--sc-a)" : "var(--sc-b)"; }
+  var SHORT = { "correct tool called": "correct tool", "useful tool results (over calls)": "useful tool results", "expected evidence retrieved (golden)": "expected evidence",
+                "errors recovered (over errors)": "errors recovered", "latency (s)": "latency", "wasted seconds": "wasted time", "share of time waiting on tools": "waiting on tools",
+                "cost (USD)": "cost", "accuracy score (outcome.score)": "accuracy score" };
+  function shortLabel(l) { return SHORT[l] || l; }
 
   function tooltip(root) {
     var tip = document.createElement("div"); tip.className = "sc-tip"; tip.hidden = true; root.appendChild(tip);
@@ -109,22 +116,23 @@
     grid.appendChild(H("span"));
     grid.appendChild(H("div", { class: "axis" }, ["0%", "50%", "100%"].map(function (t) { return H("span", { text: t }); })));
     grid.appendChild(H("span"));
+    var na = [];
     (card.dimensions.rates || []).forEach(function (dim) {
-      var key = dim[0], label = dim[1];
+      var key = dim[0], label = shortLabel(dim[1]);
       var rows = agents.map(function (a) { return { agent: a, r: card.agents[a].rates[key] }; });
       var measurable = rows.some(function (x) { return x.r && x.r.runs; });
-      grid.appendChild(H("span", { class: "lab" + (measurable ? "" : " na"), text: label }));
       if (!measurable) {
-        grid.appendChild(H("div", { class: "sc-strip na", "data-dim": key, text: key === "tool_correct" ? "not measurable — needs a golden set with expected_tools" : key === "policy_compliant" ? "not measurable — needs a policy or forbidden_tools" : key === "recovered_errors" ? "no tool error to recover from" : "not measurable for these runs" }));
-        grid.appendChild(H("span", { class: "val", text: "—" }));
+        // said once, in one line, instead of an empty row each
+        na.push(H("span", { class: "sc-strip na", "data-dim": key, text: label + " (" + (key === "tool_correct" ? "needs a golden set" : key === "policy_compliant" ? "needs a policy" : key === "recovered_errors" ? "no tool error" : key === "retrieval_recall" ? "needs expected_evidence" : "not measurable") + ")" }));
         return;
       }
+      grid.appendChild(H("span", { class: "lab", text: label }));
       var strip = H("div", { class: "sc-strip", "data-dim": key });
       [0.25, 0.5, 0.75].forEach(function (t) { strip.appendChild(H("i", { class: "tick", style: { left: (t * 100) + "%" } })); });
       rows.forEach(function (x, i) {
         var r = x.r;
         if (!r || !r.runs) return;
-        var top = agents.length > 1 ? (i === 0 ? 7 : 15) : 11;
+        var top = agents.length > 1 ? (i === 0 ? 5 : 13) : 9;
         var col = color(agents, x.agent);
         if (r.ci95) strip.appendChild(H("i", { class: "ci", "data-agent": x.agent, style: { left: (r.ci95[0] * 100) + "%", width: Math.max(0.5, (r.ci95[1] - r.ci95[0]) * 100) + "%", top: (top - 3) + "px", background: col } }));
         strip.appendChild(H("i", { class: "pt", "data-agent": x.agent, style: { left: (r.rate * 100) + "%", top: top + "px", background: col } }));
@@ -146,6 +154,11 @@
       });
       grid.appendChild(val);
     });
+    if (na.length) {
+      var line = H("div", { class: "sc-na" }, [H("span", { class: "sc-dim", text: "not measurable here: " })]);
+      na.forEach(function (chip, i) { if (i) line.appendChild(H("span", { class: "sc-dim", text: " · " })); line.appendChild(chip); });
+      grid.appendChild(H("span")); grid.appendChild(line); grid.appendChild(H("span"));
+    }
     return grid;
   }
 
@@ -153,10 +166,11 @@
   function spendRows(H, card, agents, tip) {
     var grid = H("div", { class: "sc-grid", "data-sec": "spend" });
     (card.dimensions.spend || []).forEach(function (dim) {
-      var key = dim[0], label = dim[1];
+      var key = dim[0], label = shortLabel(dim[1]);
       var rows = agents.map(function (a) { return { agent: a, s: card.agents[a].spend[key] }; });
+      if (!rows.some(function (x) { return x.s; })) return;   // recorded for no run: no row
       var max = Math.max.apply(null, rows.map(function (x) { return x.s ? x.s.max : 0; }).concat([0]));
-      grid.appendChild(H("span", { class: "lab", text: label + " per run" }));
+      grid.appendChild(H("span", { class: "lab", text: label }));
       var bar = H("div", { class: "sc-bar", "data-dim": key });
       rows.forEach(function (x, i) {
         if (!x.s) return;
@@ -187,7 +201,7 @@
     var host = H("div");
     wrap.appendChild(host);
     if (d3) {
-      var W = 260, Hh = 190, m = { top: 12, right: 16, bottom: 30, left: 36 };
+      var W = 220, Hh = 150, m = { top: 10, right: 14, bottom: 28, left: 34 };
       var svg = d3.select(host).append("svg").attr("width", W).attr("height", Hh).attr("role", "img").attr("aria-label", "risk against reward per agent");
       var x = d3.scaleLinear().domain([0, 1]).range([m.left, W - m.right]);
       var y = d3.scaleLinear().domain([0, 1]).range([Hh - m.bottom, m.top]);
@@ -267,8 +281,7 @@
   }
 
   function tableView(H, card, agents) {
-    var det = H("details", { class: "sc-details" });
-    det.appendChild(H("summary", { text: "Table view — every rate with its counts and interval" }));
+    var det = H("div", { class: "sc-tableview" });
     var t = H("table", { class: "sc-table" });
     t.appendChild(H("tr", null, [H("th", { text: "dimension" })].concat(agents.map(function (a) { return H("th", { text: a }); }))));
     card.dimensions.rates.forEach(function (dim) {
@@ -310,45 +323,48 @@
       var tip = tooltip(root);
       var lede = H("p", { class: "sc-lede" });
       lede.appendChild(H("span", { class: "mode", text: card.mode }));
-      lede.appendChild(H("span", { text: (card.golden ? "golden set covers " + card.golden.covered + " of " + card.golden.tasks + " tasks" + (card.golden.uncovered_runs_tasks && card.golden.uncovered_runs_tasks.length ? " (" + card.golden.uncovered_runs_tasks.length + " task(s) in the runs have no golden entry)" : "") : "no golden set: tool correctness and policy read as not measurable") +
-        (card.policy ? " · policy: " + Object.keys(card.policy).map(function (k) { var v = card.policy[k]; return k.replace(/_/g, " ") + (Array.isArray(v) ? " " + v.length : v === true ? "" : " " + v); }).join(", ") : " · no policy") + " · " +
-        agents.map(function (a) { return a + " " + card.agents[a].runs + " run(s)"; }).join(", ") }));
+      agents.forEach(function (a) { lede.appendChild(H("span", { class: "sc-agent" }, [H("i", { style: { background: color(agents, a) } }), H("span", { text: a + " · " + card.agents[a].runs + " runs" })])); });
+      lede.appendChild(H("span", { class: "sc-dim", text: (card.golden ? "golden set " + card.golden.covered + "/" + card.golden.tasks + " tasks" : "no golden set") + (card.policy ? " · policy" : "") }));
       root.appendChild(lede);
-      var legend = H("div", { class: "sc-legend" });
-      agents.forEach(function (a) { legend.appendChild(H("span", null, [H("i", { style: { background: color(agents, a) } }), H("span", { text: a })])); });
-      root.appendChild(legend);
 
       var sec = H("section", { class: "sc-sec" });
       sec.appendChild(H("h4", { text: "Rates, each with its 95% Wilson interval" }));
-      sec.appendChild(H("p", { class: "sub", text: "Dot = successes / runs; bar = the interval. A dimension that needs a golden set or a policy says so instead of guessing." }));
+      sec.appendChild(H("p", { class: "sub", text: "dot = successes / runs · bar = 95% Wilson interval" }));
       sec.appendChild(rateRows(H, card, agents, tip));
       root.appendChild(sec);
 
       sec = H("section", { class: "sc-sec" });
       sec.appendChild(H("h4", { text: "Spend per run" }));
-      sec.appendChild(H("p", { class: "sub", text: "Mean per run as the bar (scaled to the larger of the two maxima); hover for median and range. Tokens and cost are as recorded — the trace says whether they were measured or estimated." }));
+      sec.appendChild(H("p", { class: "sub", text: "bar = mean per run · hover for median and range" }));
       sec.appendChild(spendRows(H, card, agents, tip));
       root.appendChild(sec);
 
       sec = H("section", { class: "sc-sec" });
       sec.appendChild(H("h4", { text: "Risk against reward" }));
-      sec.appendChild(H("p", { class: "sub", text: "Reward is the success rate; risk is the share of runs with at least one risk flag (forbidden tool or pattern, blind or unverified write, undeclared tool, invented argument, loop, step limit). The ratio is reward / risk — a run that never flags has no ratio, not an infinite one." }));
+      sec.appendChild(H("p", { class: "sub", text: "reward = success rate · risk = share of runs with a flag · ratio = reward / risk (none when nothing was flagged)" }));
       sec.appendChild(riskReward(H, card, agents, tip));
       root.appendChild(sec);
 
-      sec = H("section", { class: "sc-sec" });
-      sec.appendChild(H("h4", { text: "Trajectory quality, as counts" }));
-      sec.appendChild(H("p", { class: "sub", text: "Correct tool, loops and repeats, steps spent after the answer was in hand, recovery after tool errors, writes without a read or a check, how runs ended." }));
-      sec.appendChild(H("div", { class: "scroll-x" }, [trajectoryTable(H, card, agents)]));
-      root.appendChild(sec);
-
-      sec = H("section", { class: "sc-sec" });
-      sec.appendChild(H("h4", { text: "LLM as a judge, beside the grade" }));
-      sec.appendChild(judgeCards(H, card, agents));
-      root.appendChild(sec);
-
-      root.appendChild(tableView(H, card, agents));
-      if (card.note) root.appendChild(H("p", { class: "sc-note", text: card.note }));
+      // the judge, one line per agent; the 2×2, the counts and every number fold away
+      var judgeLine = H("p", { class: "sc-judgeline", "data-sec": "judge-line" });
+      var anyJudge = agents.some(function (a) { return card.agents[a].judge; });
+      if (anyJudge) {
+        agents.forEach(function (a) {
+          var j = card.agents[a].judge;
+          judgeLine.appendChild(H("span", { class: "sc-agent" }, [H("i", { style: { background: color(agents, a) } }),
+            H("span", { text: j ? "judge says solved " + j.success.successes + "/" + j.success.runs + (j.agreement.runs ? " · agrees with the grade " + j.agreement.successes + "/" + j.agreement.runs : "") : a + ": not judged" })]));
+        });
+      } else {
+        judgeLine.appendChild(H("span", { class: "sc-dim", text: "no judge yet — `eval … --judge` adds a second model's verdict beside the grade" }));
+      }
+      root.appendChild(judgeLine);
+      var more = H("details", { class: "sc-details" });
+      more.appendChild(H("summary", { text: "trajectory counts, the judge's 2×2, and every number" }));
+      more.appendChild(H("div", { class: "scroll-x" }, [trajectoryTable(H, card, agents)]));
+      more.appendChild(judgeCards(H, card, agents));
+      more.appendChild(tableView(H, card, agents));
+      if (card.note) more.appendChild(H("p", { class: "sc-note", text: card.note }));
+      root.appendChild(more);
     },
   });
 })(typeof window !== "undefined" ? window : this);

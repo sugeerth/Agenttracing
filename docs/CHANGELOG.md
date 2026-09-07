@@ -1689,6 +1689,18 @@ is reported as such.
   units, no window needed. `AgentDiff.charts.mode.{get,set,expand}`
   drives it from outside.
 
+- **Less ink, everywhere this window added.** *Where the time went* is one
+  strip per run (every step a segment along wall-clock, the slowest few
+  named above it, the rest a hover away) instead of a row per step, with
+  the shares said in words in the run's header; the tools' seconds and
+  every step's fold away. The *Agent loop* KPI tiles are one line, each
+  experiment's sentences fold under its chart, and the ledger, the table
+  view and the notes fold under one summary. The *Evaluation scorecard*
+  opens with one line (mode, agents, golden set), uses short row labels,
+  says the dimensions it cannot measure in one line instead of a row
+  each, drops spend rows recorded for no run, and puts the judge on one
+  line with the 2×2, the trajectory counts and every number folded away.
+  *Debug session* and *Output equality* lose their explanatory paragraphs.
 - **Long horizons: subdivisions and sub-agents** (`deepcompare/horizon.py`,
   `report.horizon`, story section *Subdivisions and sub-agents*,
   `charts.horizon`, `step.span`, `Recorder.span`, `demo/horizon`). A long

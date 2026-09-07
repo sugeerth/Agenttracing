@@ -32,7 +32,8 @@
       ".eq-ans{font-size:var(--fs-xs);color:var(--ink-3);max-width:34ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:middle;margin-left:6px}",
       ".eq-cross{font-family:var(--mono);font-size:var(--fs-xs)}",
       ".eq-cross.same{color:var(--good)}.eq-cross.diff{color:var(--warn)}",
-      ".eq-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:8px;max-width:72ch}",
+      ".eq-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:4px;max-width:72ch}",
+      ".eq-more{margin-top:6px;font-size:var(--fs-xs)}.eq-more summary{cursor:pointer;color:var(--ink-3)}",
     ].join("");
     document.head.appendChild(node);
   }
@@ -89,7 +90,10 @@
         table.appendChild(tr);
       });
       el.appendChild(H("div", { class: "scroll-x" }, [table]));
-      el.appendChild(H("p", { class: "eq-note", text: "equal = " + String(eq.normalisation || "") + ". " + String(eq.note || "") }));
+      var det = H("details", { class: "eq-more" });
+      det.appendChild(H("summary", { text: "what counts as equal" }));
+      det.appendChild(H("p", { class: "eq-note", text: "equal = " + String(eq.normalisation || "") + ". " + String(eq.note || "") }));
+      el.appendChild(det);
     },
   });
 

@@ -26,13 +26,13 @@
       ".lp{--lp-a:var(--a);--lp-b:var(--b);--lp-good:var(--good);--lp-warn:var(--warn);position:relative}",
       "@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .lp{--lp-a:#3987e5;--lp-b:#d95926}}",
       ":root[data-theme=dark] .lp{--lp-a:#3987e5;--lp-b:#d95926}",
-      ".lp-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:0 0 12px}",
-      ".lp-tile{border:1px solid var(--rule);border-radius:8px;padding:8px 10px;background:var(--surface);min-width:0}",
-      ".lp-tile .k{font-size:var(--fs-xs);color:var(--ink-3);display:flex;align-items:center;gap:6px}",
+      ".lp-kpi{display:flex;flex-wrap:wrap;gap:4px 18px;margin:0 0 8px;align-items:baseline}",
+      ".lp-tile{min-width:0;display:flex;flex-wrap:wrap;gap:2px 6px;align-items:baseline}",
+      ".lp-tile .k{font-size:var(--fs-xs);color:var(--ink-3);display:inline-flex;align-items:center;gap:5px}",
       ".lp-tile .k i{width:10px;height:3px;border-radius:2px;display:inline-block}",
-      ".lp-tile .v{font-family:var(--sans);font-weight:600;font-size:26px;line-height:1.15;color:var(--ink);margin:3px 0 2px}",
-      ".lp-tile .v small{font-size:var(--fs-s);font-weight:500;color:var(--ink-2);margin-left:4px}",
-      ".lp-tile .s{font-size:var(--fs-xs);color:var(--ink-3);font-variant-numeric:tabular-nums}",
+      ".lp-tile .v{font-family:var(--sans);font-weight:600;font-size:var(--fs-l);line-height:1.2;color:var(--ink)}",
+      ".lp-tile .v small{font-size:var(--fs-xs);font-weight:400;color:var(--ink-3);margin-left:3px}",
+      ".lp-tile .s{font-size:var(--fs-xs);color:var(--ink-3);font-variant-numeric:tabular-nums;flex-basis:100%}",
       ".lp-meter{height:6px;border-radius:3px;background:var(--surface-2);margin-top:6px;overflow:hidden}",
       ".lp-meter b{display:block;height:100%;background:var(--accent);border-radius:3px}",
       ".lp-tag{font-family:var(--mono);font-weight:500;font-size:var(--fs-xs);padding:1px 7px;border-radius:9px;background:var(--surface-2);color:var(--ink-2);white-space:nowrap}",
@@ -54,7 +54,8 @@
       ".lp-chart .hit{fill:transparent;cursor:crosshair}.lp-chart .xhair{stroke:var(--ink-3);stroke-width:1;pointer-events:none}",
       ".lp-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);min-width:150px}",
       ".lp-tip b{color:var(--ink);font-variant-numeric:tabular-nums}.lp-tip .row{display:flex;gap:8px;align-items:center;margin-top:2px}.lp-tip .row i{display:inline-block;width:12px;height:2px}",
-      ".lp-exp{border:1px solid var(--rule);border-radius:8px;padding:10px 12px;margin:8px 0;background:var(--surface)}",
+      ".lp-exp{border:1px solid var(--rule);border-radius:8px;padding:8px 10px;margin:6px 0;background:var(--surface)}",
+      ".lp-fold{font-size:var(--fs-xs)}.lp-fold summary{cursor:pointer;color:var(--ink-3)}",
       ".lp-exp .head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:4px}",
       ".lp-exp .head .t{font-weight:600;color:var(--ink);font-size:var(--fs-s)}",
       ".lp-exp .stat{font-size:var(--fs-xs);color:var(--ink-2);font-variant-numeric:tabular-nums}",
@@ -172,8 +173,8 @@
   function drawSuccess(host, loop, tip) {
     if (!d3) return;
     var st = loop.state, iters = st.iterations || [], agents = st.agents || [];
-    var W = Math.max(360, host.clientWidth || 680), H = 210;
-    var m = { top: 26, right: 96, bottom: 26, left: 40 };
+    var W = Math.max(360, host.clientWidth || 680), H = 160;
+    var m = { top: 22, right: 96, bottom: 22, left: 40 };
     var svg = d3.select(host).append("svg").attr("viewBox", "0 0 " + W + " " + H);
     var x = d3.scalePoint().domain(iters.map(function (it) { return it.n; })).range([m.left, W - m.right]).padding(0.5);
     var y = d3.scaleLinear().domain([0, 1]).range([H - m.bottom, m.top]);
@@ -313,8 +314,11 @@
     var host = H("div", { class: "lp-chart" });
     card.appendChild(AgentDiff.charts && AgentDiff.charts.responsive ? AgentDiff.charts.responsive(host, function () { drawExperiment(host, it, agents, tip); }) : host);
     if (!(AgentDiff.charts && AgentDiff.charts.responsive)) drawExperiment(host, it, agents, tip);
-    card.appendChild(H("div", { class: "txt", text: "“" + d.text + "”" }));
-    card.appendChild(H("div", { class: "why", text: d.why + (d.relabel ? " " + d.relabel + "." : "") }));
+    var fold = H("details", { class: "lp-fold" });
+    fold.appendChild(H("summary", { text: "the change, and the decision in words" }));
+    fold.appendChild(H("div", { class: "txt", text: "“" + d.text + "”" }));
+    fold.appendChild(H("div", { class: "why", text: d.why + (d.relabel ? " " + d.relabel + "." : "") }));
+    card.appendChild(fold);
     return card;
   }
 
@@ -371,8 +375,7 @@
   // ------------------------------------------------------------ table view
   function tableView(H, loop) {
     var st = loop.state, iters = st.iterations || [];
-    var det = H("details", { class: "lp-table" });
-    det.appendChild(H("summary", { text: "Table view — every number behind the charts" }));
+    var det = H("div", { class: "lp-table" });
     var t = H("table");
     t.appendChild(H("tr", null, ["iteration", "action", "agent", "successes", "runs", "rate", "95% Wilson", "output equality"].map(function (h) { return H("th", { text: h }); })));
     iters.forEach(function (it) {
@@ -458,7 +461,7 @@
 
       var sec = H("section", { class: "lp-sec", "data-sec": "success" });
       sec.appendChild(H("h4", { text: "Success by iteration" }));
-      sec.appendChild(H("p", { class: "sub", text: "Pooled success per agent after each iteration (line), its 95% Wilson interval (band); in an experiment (⚗) the hollow point is the agent with the change, whisker its interval. Hover a column for every number." }));
+      sec.appendChild(H("p", { class: "sub", text: "line = pooled success, band = 95% interval; ⚗ = an experiment, hollow point = with the change" }));
       var legend = H("div", { class: "lp-legend" });
       agents.forEach(function (a) { legend.appendChild(H("span", null, [H("i", { style: { background: agentColor(agents, a) } }), H("span", { text: a })])); });
       legend.appendChild(H("span", null, [H("i", { class: "hollow" }), H("span", { text: "with the change under test" })]));
@@ -472,7 +475,7 @@
       if (experiments.length) {
         sec = H("section", { class: "lp-sec", "data-sec": "experiments" });
         sec.appendChild(H("h4", { text: "Each experiment, task by task" }));
-        sec.appendChild(H("p", { class: "sub", text: "The agent without the change (light) → with it (dark), success rate per task; below, the two pooled rates with their 95% Wilson intervals. Kept only when wins exceed losses with no always-pass → always-fail regression; the sign test is exact over the discordant tasks." }));
+        sec.appendChild(H("p", { class: "sub", text: "per task: without the change (light) → with it (dark); below, the two pooled rates with intervals" }));
         experiments.forEach(function (it) { sec.appendChild(experimentCard(H, it, agents, tip)); });
         root.appendChild(sec);
       }
@@ -481,23 +484,22 @@
       if (grid) {
         sec = H("section", { class: "lp-sec", "data-sec": "uncertainty" });
         sec.appendChild(H("h4", { text: "Where the runs went" }));
-        sec.appendChild(H("p", { class: "sub", text: "Per task family and comparison: the widest 95% interval among the candidates (darker = wider = less certain) and the routing state. The loop spends runs on the widest first; a tie is equal rates no run can separate." }));
+        sec.appendChild(H("p", { class: "sub", text: "per family and comparison: darker = a wider interval = less certain; the loop spends runs on the widest first" }));
         sec.appendChild(grid);
         root.appendChild(sec);
       }
 
-      root.appendChild(tableView(H, loop));
-
-      sec = H("section", { class: "lp-sec", "data-sec": "ledger" });
-      sec.appendChild(H("h4", { text: "The ledger" }));
+      var stop = st.stop || {};
+      root.appendChild(H("p", { class: "lp-stop" }, [H("b", { text: "stopped · " }), H("span", { text: stop.reason || "not stopped" })]));
+      sec = H("details", { class: "lp-sec lp-fold", "data-sec": "ledger" });
+      sec.appendChild(H("summary", { text: "the ledger — every iteration, decision and number" }));
       sec.appendChild(ledger(H, loop));
       var dropped = [];
       Object.keys(st.prompts || {}).forEach(function (a) {
         (st.prompts[a].history || []).forEach(function (h) { if (h.status === "dropped") dropped.push(a + ": " + h.kind.replace(/_/g, " ") + " — " + h.why); });
       });
       if (dropped.length) sec.appendChild(H("p", { class: "lp-note", text: "Dropped without a run: " + dropped.join("; ") }));
-      var stop = st.stop || {};
-      sec.appendChild(H("p", { class: "lp-stop" }, [H("b", { text: "stopped · " }), H("span", { text: stop.reason || "not stopped" })]));
+      sec.appendChild(tableView(H, loop));
       if (loop.note) sec.appendChild(H("p", { class: "lp-note", text: loop.note }));
       root.appendChild(sec);
     },

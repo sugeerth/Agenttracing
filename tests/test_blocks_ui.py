@@ -3616,7 +3616,7 @@ class ScorecardBlockTest(unittest.TestCase):
             self.assertEqual(strip.count(), 1, key)
             measurable = [a for a in agents if card["agents"][a]["rates"][key]["runs"]]
             if not measurable:
-                self.assertIn("not measurable", strip.text_content() + " no tool error", key)
+                self.assertTrue(strip.evaluate("e => e.classList.contains('na')"), key)
                 continue
             self.assertEqual(strip.locator(".pt").count(), len(measurable), key)
             for a in measurable:
@@ -3628,7 +3628,10 @@ class ScorecardBlockTest(unittest.TestCase):
                     self.assertAlmostEqual(float(bar.evaluate("e => parseFloat(e.style.left)")), r["ci95"][0] * 100, places=2)
         for key, _label in card["dimensions"]["spend"]:
             bar = block.locator(f'.sc-bar[data-dim="{key}"]')
-            self.assertEqual(bar.locator(".row").count(), sum(1 for a in agents if card["agents"][a]["spend"][key]))
+            recorded = sum(1 for a in agents if card["agents"][a]["spend"][key])
+            self.assertEqual(bar.locator(".row").count(), recorded, key)
+            if not recorded:
+                self.assertEqual(bar.count(), 0, "a spend recorded for no run has no row")
         self.assertEqual(block.locator(".sc-rr circle").count(), sum(1 for a in agents if card["agents"][a]["risk_reward"]["risk"] is not None))
         for a in agents:
             rr = card["agents"][a]["risk_reward"]
@@ -3858,12 +3861,12 @@ class TimeBlockTest(unittest.TestCase):
             self.assertAlmostEqual(sum(widths), 100, delta=0.5)
             for k in ("think", "tool", "answer"):
                 self.assertAlmostEqual(float(sec.locator(f'.tm-share i[data-category="{k}"]').evaluate("e => parseFloat(e.style.width)")), t["by_category"][k]["share"] * 100, places=1)
-            chips = sec.locator(".tm-tools .chip").all_text_contents()
-            self.assertEqual(len(chips), len(t["by_tool"]))
             for tool, v in t["by_tool"].items():
-                self.assertTrue(any(c.startswith(tool + " ×" + str(v["calls"])) for c in chips), tool)
+                row = block.locator(f'.tm-details tr.tm-tool[data-side="{side}"][data-tool="{tool}"]')
+                self.assertEqual(row.count(), 1, tool)
+                self.assertEqual(row.locator("td").nth(2).text_content(), str(v["calls"]))
             self.assertIn(t["rationale"][:60], sec.locator(".tm-rat").text_content())
-        rows = block.locator(".tm-details table tr").count() - 1
+        rows = block.locator(".tm-details table").last.locator("tr").count() - 1
         self.assertEqual(rows, sum(len(tm[s]["steps"]) for s in ("a", "b") if tm[s]["measurable"]))
         self.assertEqual(errors, [])
         context.close()
