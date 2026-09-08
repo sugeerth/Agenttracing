@@ -269,10 +269,11 @@ def blame(h: dict) -> Optional[dict]:
     return {"agent": agent_node["agent"], "step": step["from"], "step_name": step["label"], "span": agent_node["key"],
             "delegated_by": delegator, "depth": len(spans) - 1, "part": part["label"] if part else None,
             "chain": [n["agent"] for n in spans],
-            "sentence": (f"responsible agent: {agent_node['agent']}"
-                         + (f", delegated by {delegator}" if delegator else " (the root agent)")
-                         + f"; decisive step {step['from']} ({step['label']})" + (f" in '{part['label']}'" if part else "")
-                         + (f", {len(spans) - 1} delegation(s) deep" if len(spans) > 1 else ""))}
+            "sentence": ((f"The decisive step is inside sub-agent {agent_node['agent']} (delegated by {delegator}"
+                          + (f", {len(spans) - 1} levels deep" if len(spans) > 2 else "") + f"): step {step['from']}, {step['label']}"
+                          if delegator else
+                          f"The decisive step is {agent_node['agent']}'s own step {step['from']}, {step['label']} — not a sub-agent's")
+                         + (f", in the part '{part['label']}'" if part else "") + ".")}
 
 
 def graph_diff(ga: dict, gb: dict, labels=("a", "b")) -> dict:
@@ -327,14 +328,22 @@ def horizon_pair(report: dict, a: Trajectory, b: Trajectory) -> dict:
     d = out["diff"]
     failing = subject if subject in ("a", "b") else None
     bl = out[failing]["blame"] if failing else None
+    def who(name: str, side_name: str) -> str:
+        return side_name if name == "root" else name
+
+    def times(n: int) -> str:
+        return "once" if n == 1 else "twice" if n == 2 else f"{n} times"
+    uneven_text = "; ".join(
+        f"{who(e['from'], a.agent.name)} delegated to {e['to']} {times(e['count_a'])}, {who(e['from'], b.agent.name)} {times(e['count_b'])}"
+        for e in d["uneven"])
     out["narrative"] = (
-        (f"{bl['sentence']}. " if bl else "")
-        + ("Both runs organised the work the same way: the same agents, the same delegations, the same number of times." if d["same_shape"]
+        (f"{bl['sentence']} " if bl else "")
+        + ("Both runs organised the work the same way: the same agents, delegated the same number of times." if d["same_shape"]
            else " ".join(x for x in [
-               "The same agents and delegations" + (", but" if d["uneven"] else ".") if d["same_agents"] else "",
-               f"Only {a.agent.name} used: {', '.join(d['only_a'])}." if d["only_a"] else "",
-               f"Only {b.agent.name} used: {', '.join(d['only_b'])}." if d["only_b"] else "",
-               (", ".join(f"{e['from']}→{e['to']} {e['count_a']}× in {a.agent.name} against {e['count_b']}× in {b.agent.name}" for e in d["uneven"]) + ".") if d["uneven"] else ""] if x))
+               ("Both runs used the same agents" + (f", but {uneven_text}." if d["uneven"] else ".")) if d["same_agents"] else "",
+               f"Only {a.agent.name} used {', '.join(d['only_a'])}." if d["only_a"] else "",
+               f"Only {b.agent.name} used {', '.join(d['only_b'])}." if d["only_b"] else "",
+               (uneven_text[0].upper() + uneven_text[1:] + ".") if d["uneven"] and not d["same_agents"] else ""] if x))
     ).strip()
     return out
 

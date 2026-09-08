@@ -4029,8 +4029,18 @@ class HorizonBlockTest(unittest.TestCase):
             self.assertEqual(node.get_attribute("data-in"), n["in"], n["agent"])
         self.assertEqual(svg.locator("path.d3c-gd-link").count(), len(diff["nodes"]) - 1)
         labels = svg.locator("text.d3c-gd-edge").all_text_contents()
-        for e in diff["edges"]:
-            self.assertIn(f"{e['count_a']} · {e['count_b']}", labels, f"{e['from']}→{e['to']}")
+        names = {"a": self.report["a"]["agent"]["name"], "b": self.report["b"]["agent"]["name"]}
+        differing = [e for e in diff["edges"] if e["in"] != "both" or e["count_a"] != e["count_b"]]
+        self.assertEqual(len(labels), len(differing), "an edge is labelled only where the two runs differ")
+        for e in differing:
+            want = f"{names['a']} ×{e['count_a']} · {names['b']} ×{e['count_b']}" if e["in"] == "both" else f"only {e['in']}"
+            self.assertTrue(any(l.startswith(want) for l in labels), want)
+        for n in diff["nodes"]:
+            node = svg.locator(f'g.d3c-gd-node[data-agent="{n["agent"]}"]')
+            self.assertEqual(node.locator("path.half").count(), int(bool(n["a"])) + int(bool(n["b"])), n["agent"])
+            runs = node.locator("text.d3c-gd-run").all_text_contents()
+            self.assertEqual(len(runs), 2)
+            self.assertTrue(runs[0].startswith("● " if n["a"] else "○ "))
         failing = self.report["diagnosis"]["subject"]
         blamed = hz[failing]["blame"]["agent"]
         ringed = svg.locator("g.d3c-gd-node.blamed")

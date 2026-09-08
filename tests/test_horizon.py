@@ -154,7 +154,8 @@ class DelegationGraphTest(unittest.TestCase):
         self.assertEqual(bl["agent"], want_agent)
         self.assertEqual(bl["chain"][0], self.report[failing]["agent"]["name"])
         self.assertEqual(bl["depth"], len(bl["chain"]) - 1)
-        self.assertTrue(bl["sentence"].startswith(f"responsible agent: {want_agent}"))
+        self.assertIn(want_agent, bl["sentence"])
+        self.assertIn(f"step {dec}", bl["sentence"])
         self.assertIsNone(self.hz["a" if failing == "b" else "b"]["blame"], "the passing run has no decisive step")
         # a decisive step inside a sub-agent blames that sub-agent and names its delegator
         h = segment(self.b, read_trace(self.b), decisive_step=next(s.index for s in self.b.steps if s.span and s.span["agent"] == "coder.tests"))
@@ -170,8 +171,8 @@ class DelegationGraphTest(unittest.TestCase):
         self.assertFalse(d["same_shape"])
         uneven = {(e["from"], e["to"]): (e["count_a"], e["count_b"]) for e in d["uneven"]}
         self.assertEqual(uneven, {("root", "researcher"): (1, 2)})
-        self.assertIn("root→researcher 1× in orbit-v1 against 2× in comet-v2", self.hz["narrative"])
-        self.assertTrue(self.hz["narrative"].startswith("responsible agent:"))
+        self.assertIn("orbit-v1 delegated to researcher once, comet-v2 twice", self.hz["narrative"])
+        self.assertTrue(self.hz["narrative"].startswith("The decisive step is"))
         # a run without a verifier: the node and its edge are only on one side
         gb = delegation_graph(self.hz["b"])
         ga = {"nodes": [n for n in self.hz["a"]["graph"]["nodes"] if n["agent"] != "verifier"],

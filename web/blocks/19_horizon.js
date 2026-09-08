@@ -20,7 +20,7 @@
     var node = document.createElement("style");
     node.textContent = [
       ".hz-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 6px}",
-      ".hz-axis{display:inline-flex;gap:2px}",
+      ".hz-axis{display:inline-flex;gap:2px}.hz-grp{display:inline-flex;gap:6px;align-items:center;padding-right:10px;border-right:1px solid var(--rule)}",
       ".hz-axis-btn{font:inherit;font-size:var(--fs-xs);padding:0 7px;border:1px solid var(--rule-2);border-radius:999px;background:var(--surface);color:var(--ink-2);cursor:pointer;line-height:1.5}",
       ".hz-axis-btn[aria-pressed=\"true\"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}",
       ".hz-key i{display:inline-block;width:10px;height:8px;border-radius:2px;vertical-align:-1px;margin:0 3px 0 8px}",
@@ -90,7 +90,7 @@
         b.addEventListener("click", function () { AgentDiff.charts.bodyAxis.set(taskKey, pair[0]); AgentDiff._rerender ? AgentDiff._rerender() : null; });
         ctl.appendChild(b);
       });
-      el.appendChild(H("div", { class: "hz-bar" }, [H("span", { text: "width ∝" }), ctl,
+      el.appendChild(H("div", { class: "hz-bar" }, [H("span", { class: "hz-grp" }, [H("span", { text: "view" })]), H("span", { class: "hz-grp" }, [H("span", { text: "width ∝" }), ctl]),
         H("span", { class: "hz-key" }, [H("i", { class: "w" }), H("span", { text: "wasted" }), H("i", { class: "f" }), H("span", { text: "fault" }), H("i", { class: "d" }), H("span", { text: "decisive" })]),
         H("span", { text: "· click a part to zoom, a step to open" })]));
       // two drawings of one tree: the icicle (time along x) and the nodes-and-links (delegation as depth)
@@ -100,7 +100,7 @@
         b.addEventListener("click", function () { HzView[taskKey] = pair[0]; AgentDiff._rerender ? AgentDiff._rerender() : null; });
         viewCtl.appendChild(b);
       });
-      el.firstChild.insertBefore(viewCtl, el.firstChild.firstChild);
+      el.firstChild.firstChild.appendChild(viewCtl);
       var host = H("div", { class: "hz-chart" });
       var drawn = null;
       try {

@@ -1689,6 +1689,14 @@ is reported as such.
   units, no window needed. `AgentDiff.charts.mode.{get,set,expand}`
   drives it from outside.
 
+- **The diff view, made legible.** One node per agent with the agent's
+  name above and one line per run beneath in that run's colour (its
+  seconds, wasted share and errors; "not used" when a run never
+  delegated to it); the node's halves are the two runs' time; links are
+  labelled in words only where the runs differ; the sentences say
+  "comet-v2 delegated to researcher twice, orbit-v1 once" and "the
+  decisive step is inside sub-agent X (delegated by Y)" instead of
+  graph shorthand; the controls are grouped as *view* and *width*.
 - **The delegation graph, its diff, and agent-level blame** (`horizon.graph`,
   `horizon.blame`, `horizon.diff`, `horizon.narrative`; the *diff* view of
   *Parts and sub-agents*; OTel `invoke_agent` nesting → `step.span`). Per

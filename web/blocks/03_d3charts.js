@@ -2382,68 +2382,73 @@
     var P = palette();
     var d = hz.diff, names = opts.names || { a: "A", b: "B" };
     var W = Math.max(320, host.clientWidth || 640);
-    var byAgent = {};
-    d.nodes.forEach(function (n) { byAgent[n.agent] = n; });
-    // a tree by first delegator; agents with no parent edge hang off the root
     var parentOf = {};
     d.edges.forEach(function (e) { if (!parentOf[e.to]) parentOf[e.to] = e.from; });
     var root = d3.stratify().id(function (n) { return n.agent; }).parentId(function (n) { return n.agent === "root" ? null : (parentOf[n.agent] || "root"); })(d.nodes);
-    var leaves = root.leaves().length;
     var longest = 0;
-    d.nodes.forEach(function (n) { longest = Math.max(longest, (n.agent === "root" ? names.a.length + names.b.length + 3 : n.agent.length), 30); });
-    var rowH = 40, m = { l: 16, r: Math.min(300, 30 + longest * 6.5), t: 14, b: 14 };
-    var h = Math.max(rowH, leaves * rowH);
+    d.nodes.forEach(function (n) { longest = Math.max(longest, Math.max(names.a.length, names.b.length) + 30, n.agent.length + 4); });
+    var rowH = 58, m = { l: 18, r: Math.min(320, 40 + longest * 6.8), t: 16, b: 14 };
+    var h = Math.max(rowH, root.leaves().length * rowH);
     d3.tree().size([h, W - m.l - m.r])(root);
     var svg = d3.select(host).append("svg").attr("class", "d3c d3c-graph-diff").attr("width", W).attr("height", h + m.t + m.b).attr("viewBox", "0 0 " + W + " " + (h + m.t + m.b))
-      .attr("role", "img").attr("aria-label", "the two runs' delegation graphs aligned: grey in both, coloured where only one run delegated");
+      .attr("role", "img").attr("aria-label", "the two runs' delegation graphs aligned: one node per agent, each run's share as a half, a ring on the blamed agent");
     var g = svg.append("g").attr("transform", "translate(" + m.l + "," + m.t + ")");
     var blameAgent = null;
     ["a", "b"].forEach(function (side) { if (hz[side] && hz[side].blame) blameAgent = hz[side].blame.agent; });
     var rootNames = { a: hz.a && hz.a.tree.agent, b: hz.b && hz.b.tree.agent };
+    function isBlamed(n) { return n.data.agent === blameAgent || (n.data.agent === "root" && (rootNames.a === blameAgent || rootNames.b === blameAgent)); }
     function inColor(where) { return where === "both" ? P.rule2 : where === names.a ? P.a : P.b; }
     var maxSecs = 1e-9;
     d.nodes.forEach(function (n) { maxSecs = Math.max(maxSecs, (n.a || {}).seconds || 0, (n.b || {}).seconds || 0); });
     var edgeOf = {};
     d.edges.forEach(function (e) { edgeOf[e.to] = e; });
+    function r(n) { var v = Math.max((n.data.a || {}).seconds || 0, (n.data.b || {}).seconds || 0); return 9 + 11 * Math.sqrt(v / maxSecs); }
+    function rs(n, side) { var v = ((n.data[side] || {}).seconds) || 0; return 9 + 11 * Math.sqrt(v / maxSecs); }
+    // links: grey in both runs, a run's colour where only it delegated; thick where the counts differ
     g.selectAll("path.d3c-gd-link").data(root.links()).enter().append("path").attr("class", "d3c-gd-link").attr("fill", "none")
       .attr("stroke", function (l) { var e = edgeOf[l.target.data.agent]; return e ? inColor(e["in"]) : P.rule; })
-      .attr("stroke-width", function (l) { var e = edgeOf[l.target.data.agent]; return e && e["in"] === "both" && e.count_a !== e.count_b ? 3 : 1.5; })
-      .attr("stroke-dasharray", function (l) { var e = edgeOf[l.target.data.agent]; return e && e["in"] !== "both" ? "4 3" : null; })
+      .attr("stroke-width", function (l) { var e = edgeOf[l.target.data.agent]; return e && e["in"] === "both" && e.count_a !== e.count_b ? 3.5 : 1.6; })
+      .attr("stroke-dasharray", function (l) { var e = edgeOf[l.target.data.agent]; return e && e["in"] !== "both" ? "5 4" : null; })
       .attr("d", d3.linkHorizontal().x(function (n) { return n.y; }).y(function (n) { return n.x; }));
-    g.selectAll("text.d3c-gd-edge").data(root.links()).enter().append("text").attr("class", "d3c-gd-edge").attr("font-size", 9.5).attr("font-family", "var(--mono)").attr("fill", P.muted).attr("text-anchor", "middle")
-      .attr("x", function (l) { return (l.source.y + l.target.y) / 2; }).attr("y", function (l) { return (l.source.x + l.target.x) / 2 - 4; })
-      .text(function (l) { var e = edgeOf[l.target.data.agent]; return e ? (e.count_a + " · " + e.count_b) : ""; });
+    // edge labels in words, only where the two runs differ; a surface halo keeps them legible over the link
+    var el = g.selectAll("text.d3c-gd-edge").data(root.links().filter(function (l) { var e = edgeOf[l.target.data.agent]; return e && (e["in"] !== "both" || e.count_a !== e.count_b); })).enter().append("text")
+      .attr("class", "d3c-gd-edge").attr("font-size", 10.5).attr("font-family", "var(--sans)").attr("fill", P.ink).attr("text-anchor", "middle")
+      .attr("stroke", P.surface).attr("stroke-width", 4).attr("paint-order", "stroke")
+      .attr("x", function (l) { return l.source.y + (l.target.y - l.source.y) * 0.72; }).attr("y", function (l) { return l.source.x + (l.target.x - l.source.x) * 0.72 - 9; })
+      .text(function (l) { var e = edgeOf[l.target.data.agent]; return e["in"] === "both" ? names.a + " ×" + e.count_a + " · " + names.b + " ×" + e.count_b : "only " + e["in"] + (Math.max(e.count_a, e.count_b) > 1 ? " ×" + Math.max(e.count_a, e.count_b) : ""); });
     var node = g.selectAll("g.d3c-gd-node").data(root.descendants()).enter().append("g")
-      .attr("class", function (n) { return "d3c-gd-node in-" + (n.data["in"] === "both" ? "both" : n.data["in"] === names.a ? "a" : "b") + (n.data.agent === blameAgent || (n.data.agent === "root" && (rootNames.a === blameAgent || rootNames.b === blameAgent)) ? " blamed" : ""); })
+      .attr("class", function (n) { return "d3c-gd-node in-" + (n.data["in"] === "both" ? "both" : n.data["in"] === names.a ? "a" : "b") + (isBlamed(n) ? " blamed" : ""); })
       .attr("data-agent", function (n) { return n.data.agent; }).attr("data-in", function (n) { return n.data["in"]; })
       .attr("transform", function (n) { return "translate(" + n.y + "," + n.x + ")"; }).attr("tabindex", 0);
-    function r(n) { var v = Math.max((n.data.a || {}).seconds || 0, (n.data.b || {}).seconds || 0); return 6 + 12 * Math.sqrt(v / maxSecs); }
-    node.append("circle").attr("r", r).attr("fill", function (n) { return inColor(n.data["in"]); }).attr("fill-opacity", function (n) { return n.data["in"] === "both" ? 0.5 : 0.75; }).attr("stroke", P.surface).attr("stroke-width", 1.5);
-    // the two runs' halves: left = A's seconds, right = B's, as arcs so a difference shows
-    node.filter(function (n) { return n.data.a && n.data.b; }).each(function (n) {
-      var sel = d3.select(this), ra = 6 + 12 * Math.sqrt(((n.data.a || {}).seconds || 0) / maxSecs), rb = 6 + 12 * Math.sqrt(((n.data.b || {}).seconds || 0) / maxSecs);
-      sel.append("path").attr("d", d3.arc()({ innerRadius: 0, outerRadius: ra, startAngle: Math.PI, endAngle: 2 * Math.PI })).attr("fill", P.a).attr("fill-opacity", 0.85);
-      sel.append("path").attr("d", d3.arc()({ innerRadius: 0, outerRadius: rb, startAngle: 0, endAngle: Math.PI })).attr("fill", P.b).attr("fill-opacity", 0.85);
+    // the node: left half = the first run's time, right half = the second's; a missing half = that run never used the agent
+    node.each(function (n) {
+      var sel = d3.select(this);
+      sel.append("circle").attr("r", r(n)).attr("fill", P.surface2).attr("stroke", P.rule2).attr("stroke-width", 1);
+      if (n.data.a) sel.append("path").attr("class", "half a").attr("d", d3.arc()({ innerRadius: 0, outerRadius: rs(n, "a"), startAngle: Math.PI, endAngle: 2 * Math.PI })).attr("fill", P.a).attr("fill-opacity", 0.85);
+      if (n.data.b) sel.append("path").attr("class", "half b").attr("d", d3.arc()({ innerRadius: 0, outerRadius: rs(n, "b"), startAngle: 0, endAngle: Math.PI })).attr("fill", P.b).attr("fill-opacity", 0.85);
+      sel.append("line").attr("x1", 0).attr("x2", 0).attr("y1", -r(n)).attr("y2", r(n)).attr("stroke", P.surface).attr("stroke-width", 1.5);
+      if (isBlamed(n)) sel.append("circle").attr("class", "d3c-ring hypothesized").attr("r", r(n) + 5);
     });
-    node.filter(function (n) { return n.data.agent === blameAgent || (n.data.agent === "root" && (rootNames.a === blameAgent || rootNames.b === blameAgent)); })
-      .append("circle").attr("class", "d3c-ring hypothesized").attr("r", function (n) { return r(n) + 5; });
-    node.append("text").attr("class", "d3c-gd-label").attr("x", function (n) { return r(n) + 6; }).attr("y", -2).attr("font-size", 10.5).attr("font-weight", function (n) { return n.depth === 0 ? 700 : 500; }).attr("fill", P.ink)
-      .text(function (n) { return n.data.agent === "root" ? names.a + " · " + names.b : n.data.agent; });
-    node.append("text").attr("class", "d3c-gd-sub").attr("x", function (n) { return r(n) + 6; }).attr("y", 10).attr("font-size", 9.5).attr("font-family", "var(--mono)").attr("fill", P.muted)
-      .text(function (n) {
-        var a = n.data.a, b = n.data.b;
-        var fa = a ? BODY_AXES.time.unit(a.seconds) + (a.wasted_s ? " (" + Math.round(100 * a.wasted_s / Math.max(1e-9, a.seconds)) + "% wasted)" : "") : "—";
-        var fb = b ? BODY_AXES.time.unit(b.seconds) + (b.wasted_s ? " (" + Math.round(100 * b.wasted_s / Math.max(1e-9, b.seconds)) + "% wasted)" : "") : "—";
-        return fa + " · " + fb + (n.data["in"] !== "both" ? " · only " + n.data["in"] : "");
-      });
+    // labels: the agent, then one line per run in its colour
+    node.append("text").attr("class", "d3c-gd-label").attr("x", function (n) { return r(n) + 8; }).attr("y", -9).attr("font-size", 12).attr("font-weight", 600).attr("fill", P.ink)
+      .text(function (n) { return n.data.agent === "root" ? "the two runs" : n.data.agent; });
+    ["a", "b"].forEach(function (side, i) {
+      node.append("text").attr("class", "d3c-gd-run " + side).attr("x", function (n) { return r(n) + 8; }).attr("y", 5 + i * 13).attr("font-size", 10.5).attr("font-family", "var(--mono)").attr("fill", P.ink2)
+        .text(function (n) {
+          var v = n.data[side], nm = names[side];
+          if (!v) return "○ " + nm + ": not used";
+          return "● " + nm + ": " + BODY_AXES.time.unit(v.seconds) + (v.wasted_s ? ", " + Math.round(100 * v.wasted_s / Math.max(1e-9, v.seconds)) + "% wasted" : "") + (v.errors ? ", " + v.errors + " error" + (v.errors === 1 ? "" : "s") : "");
+        }).attr("fill", function () { return side === "a" ? P.a : P.b; });
+    });
     node.append("title").text(function (n) {
       var a = n.data.a, b = n.data.b;
-      return (n.data.agent === "root" ? "the root agents" : "sub-agent " + n.data.agent) + "\n" + names.a + ": " + (a ? a.delegations + " delegation(s), " + a.steps + " step(s), " + BODY_AXES.time.unit(a.seconds) + ", " + a.errors + " error(s)" : "not used") +
+      return (n.data.agent === "root" ? "the two runs themselves" : "sub-agent " + n.data.agent) + "\n" + names.a + ": " + (a ? a.delegations + " delegation(s), " + a.steps + " step(s), " + BODY_AXES.time.unit(a.seconds) + ", " + a.errors + " error(s)" : "not used") +
         "\n" + names.b + ": " + (b ? b.delegations + " delegation(s), " + b.steps + " step(s), " + BODY_AXES.time.unit(b.seconds) + ", " + b.errors + " error(s)" : "not used") +
-        ((n.data.agent === blameAgent) ? "\nthe diagnosis blames this agent" : "");
+        (isBlamed(n) ? "\nthe diagnosis blames this agent" : "");
     });
     var legend = document.createElement("div"); legend.className = "d3c-legend";
-    legend.appendChild(legendItem(P, { line: true }, P.rule2, "grey = both runs; " + names.a + " / " + names.b + " colour = only that run; edge label = delegations " + names.a + " · " + names.b + ", thick where they differ"));
+    legend.appendChild(legendItem(P, { line: true }, P.rule2, "left half = " + names.a + "'s time, right half = " + names.b + "'s; a missing half = that run never used the agent"));
+    legend.appendChild(legendItem(P, { line: true, dashed: true }, P.b, "dashed link = only one run delegated; thick = delegated a different number of times"));
     legend.appendChild(legendItem(P, { ring: true, dashed: true }, P.bad, "the agent the diagnosis blames"));
     host.appendChild(legend);
     return svg.node();
