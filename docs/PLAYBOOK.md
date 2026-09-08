@@ -48,6 +48,32 @@ router or an engineer needs to see (an agent that is right more often
 because it retries five times is a different agent from one that is
 right first time); the page lets the reader weigh the columns.
 
+## Streaming and multi-agent: one tree
+
+A run that streams and a run that delegates are the same object seen
+twice. Both are a tree of spans over time: a step arrives carrying its
+span (which agent acted, delegated from which span), a span is a node
+under its parent, and the run is the root. Streaming adds one fact —
+the span holding the last step is still *open* — and delegation adds
+one dimension — depth. So the page draws both with one model and two
+drawings:
+
+- the **icicle** (`charts.horizon`): time along x, rows outward from the
+  axis — the run, its sub-agents, their parts, their steps; wasted time
+  hatched, the fault red, the decisive step ringed; an open span's right
+  edge dashed and pulsing while it still receives steps;
+- the **nodes and links** (`charts.agentTree`): the run at the left, each
+  sub-agent under its parent, nested delegations further right; node
+  area is time, a wedge the wasted share, red the fault's path, a dashed
+  pulsing ring a span still open. Click a node and the icicle zooms to it.
+
+Finished pairs get both from `report.horizon` (with the reading's parts
+and wasted seconds). Running agents get both from their steps alone
+(`charts.spanTree` builds the same tree in the page as they stream);
+when the pair finishes, the story replaces them with the full analysis.
+`deepcompare watch --demo demo/horizon/traces` shows the multi-agent
+pair arriving live.
+
 ## Online — the same page, live
 
 - Run agents through the harness with `record(stream=True)` or the

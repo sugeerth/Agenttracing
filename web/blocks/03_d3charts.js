@@ -38,7 +38,8 @@
     st.textContent = ".d3c-crumbs{display:flex;flex-direction:column;gap:2px;font-size:var(--fs-xs);color:var(--ink-3);margin:4px 0 0}" +
       ".d3c-crumb-side{font-weight:600}.d3c-crumb-btn{font:inherit;font-size:var(--fs-xs);background:none;border:0;padding:0 2px;color:var(--ink-2);cursor:pointer;text-decoration:underline dotted}" +
       ".d3c-crumb-btn.current{color:var(--ink);font-weight:600;text-decoration:none;cursor:default}" +
-      ".d3c-hz-node{cursor:pointer}.d3c-hz-node:focus{outline:none}.d3c-hz-node:focus rect.d3c-hz-box{stroke:var(--ink);stroke-width:2}";
+      ".d3c-hz-node{cursor:pointer}.d3c-hz-node:focus{outline:none}.d3c-hz-node:focus rect.d3c-hz-box{stroke:var(--ink);stroke-width:2}" +
+      ".d3c-anode{cursor:pointer;outline:none}.d3c-anode:focus circle.d3c-abody{stroke:var(--ink);stroke-width:2}.d3c-anode.open circle.d3c-aopen{animation:d3c-pulse .7s ease-in-out infinite alternate}";
     document.head.appendChild(st);
   };
   charts.motion = function () {
@@ -2102,12 +2103,119 @@
   charts.horizon = function (host, ctx, opts) {
     ensureStyle();
     if (!charts.available()) return null;
-    var report = ctx.report;
-    var hz = report && report.horizon;
-    if (!hz || !(hz.a || hz.b)) return null;
     opts = opts || {};
-    return responsive(host, function () { drawHorizon(host, ctx, report, opts); }, "horizon:" + (report.task && report.task.id));
+    var report = opts.report || ctx.report;
+    var hz = opts.horizon || (report && report.horizon);
+    if (!hz || !(hz.a || hz.b)) return null;
+    return responsive(host, function () { drawHorizon(host, ctx, report, opts); }, (opts.key || "horizon") + ":" + (report && report.task && report.task.id));
   };
+
+  /* One model for a run as it streams and for a run that delegated: a tree
+   * of spans over time. A step arrives with its span (which agent acted,
+   * delegated from which span); a span whose last step is the run's last
+   * step is still open. Builds the same tree the engine's horizon carries
+   * (run → spans → steps; no parts, the reading has not run yet), from the
+   * steps alone — so a running multi-agent run draws as it goes. */
+  charts.spanTree = function (run) {
+    var steps = Array.isArray(run.steps) ? run.steps : [];
+    var name = run.agent && run.agent.name ? run.agent.name : (run.agent || "run");
+    var spans = { root: { id: "root", agent: name, parent: null, steps: [] } }, order = ["root"];
+    steps.forEach(function (st, i) {
+      var sp = st.span || null, sid = sp ? String(sp.id) : "root";
+      if (!spans[sid]) { spans[sid] = { id: sid, agent: String(sp.agent), parent: sp.parent ? String(sp.parent) : "root", steps: [] }; order.push(sid); }
+      spans[sid].steps.push(i);
+    });
+    order.forEach(function (sid) { var sp = spans[sid]; if (sid !== "root" && !spans[sp.parent]) sp.parent = "root"; });
+    var lastIndex = steps.length - 1;
+    function node(kind, key, label, idx, agent) {
+      var secs = 0, tokens = 0, errors = 0, tools = {}, from = null, to = null;
+      idx.forEach(function (i) {
+        var st = steps[i]; if (!st) return;
+        secs += isNum(st.latency_s) ? st.latency_s : 0; tokens += isNum(st.tokens) ? st.tokens : 0;
+        if (st.error === true) errors++;
+        if (["tool_call", "search", "retrieve", "read"].indexOf(st.type) >= 0) tools[st.name || "?"] = (tools[st.name || "?"] || 0) + 1;
+        from = from === null ? i : Math.min(from, i); to = to === null ? i : Math.max(to, i);
+      });
+      var top = Object.keys(tools).sort(function (a, b) { return tools[b] - tools[a]; })[0] || null;
+      return { kind: kind, key: key, label: label, agent: agent, from: from, to: to, count: idx.length, seconds: secs, wasted_s: 0, tokens: tokens,
+               tool_calls: Object.keys(tools).reduce(function (a, k) { return a + tools[k]; }, 0), tools: tools, top_tool: top, errors: errors,
+               fault: false, decisive: false, values: [], children: [], open: run.in_progress === true && to === lastIndex };
+    }
+    function all(sid) { return spans[sid].steps.concat(order.filter(function (c) { return spans[c].parent === sid && c !== sid; }).reduce(function (a, c) { return a.concat(all(c)); }, [])); }
+    function build(sid) {
+      var sp = spans[sid];
+      var n = node(sid === "root" ? "run" : "span", sid === "root" ? "run" : "span:" + sid, sp.agent, all(sid).sort(function (a, b) { return a - b; }), sp.agent);
+      var kids = sp.steps.map(function (i) { var st = steps[i]; var leaf = node("step", "step:" + i, st.name || st.type, [i], sp.agent); leaf.type = st.type; return leaf; });
+      order.forEach(function (c) { if (spans[c].parent === sid && c !== sid) kids.push(build(c)); });
+      kids.sort(function (a, b) { return a.from - b.from; });
+      n.children = kids;
+      n.delegations = order.filter(function (c) { return spans[c].parent === sid && c !== sid; }).length;
+      return n;
+    }
+    var tree = build("root");
+    var agents = {};
+    order.forEach(function (sid) { if (sid === "root") return; var n = node("span", sid, spans[sid].agent, all(sid), spans[sid].agent); var a = agents[spans[sid].agent] = agents[spans[sid].agent] || { agent: spans[sid].agent, delegations: 0, steps: 0, seconds: 0, wasted_s: 0, errors: 0 }; a.delegations++; a.steps += n.count; a.seconds += n.seconds; a.errors += n.errors; });
+    return { tree: tree, steps: steps.length, spans: order.length, subdivisions: 0, agents: Object.keys(agents).map(function (k) { return agents[k]; }).sort(function (a, b) { return b.seconds - a.seconds; }),
+             depth: (function d(n) { return 1 + Math.max.apply(null, [0].concat((n.children || []).map(d))); })(tree), measurable: steps.some(function (st) { return isNum(st.latency_s) && st.latency_s > 0; }), open: run.in_progress === true };
+  };
+
+  /* The same tree as nodes and links: the run at the left, each sub-agent
+   * a node under its parent, nested delegations further right. Node area ∝
+   * seconds (steps when no second was recorded); an inner wedge = the
+   * wasted share when the reading has run; red = the fault's path; a
+   * dashed, pulsing ring = still open (streaming). Steps are counted, not
+   * drawn — the icicle has them. Click a node to zoom the icicle into it. */
+  charts.agentTree = function (host, trees, opts) {
+    ensureStyle(); charts._horizonStyle();
+    if (!charts.available()) return null;
+    opts = opts || {};
+    return responsive(host, function () { drawAgentTree(host, trees, opts); }, opts.key || null);
+  };
+  function drawAgentTree(host, trees, opts) {
+    var P = palette();
+    var sides = Object.keys(trees).filter(function (k) { return trees[k] && trees[k].tree; });
+    var W = Math.max(320, host.clientWidth || 640);
+    var longest = 0;
+    Object.keys(trees).forEach(function (k) { (function walk(n) { if (n && n.kind !== "step") longest = Math.max(longest, String(n.agent || "").length + 8); (n.children || []).forEach(walk); })(trees[k] && trees[k].tree); });
+    var rowH = 34, m = { l: 14, r: Math.min(260, 40 + longest * 6.5), t: 10, b: 6 };
+    var svg = d3.select(host).append("svg").attr("class", "d3c d3c-agent-tree").attr("width", W).attr("role", "img")
+      .attr("aria-label", "each run's sub-agents as a tree: node area is time, a wedge the wasted share, red the fault's path, a dashed ring a span still open");
+    var y = m.t;
+    var maxSecs = 1e-9;
+    sides.forEach(function (side) { (function walk(n) { if (n.kind !== "step") { maxSecs = Math.max(maxSecs, n.seconds || 0, n.count || 0); } (n.children || []).forEach(walk); })(trees[side].tree); });
+    sides.forEach(function (side) {
+      var color = side === "a" || side === "b" ? sideColor(side) : P.accent;
+      var root = d3.hierarchy(trees[side].tree, function (d) { return (d.children || []).filter(function (c) { return c.kind === "span"; }); });
+      var leaves = root.leaves().length;
+      var h = Math.max(rowH, leaves * rowH);
+      var layout = d3.tree().size([h, W - m.l - m.r]);
+      layout(root);
+      var g = svg.append("g").attr("class", "d3c-atree").attr("data-side", side).attr("transform", "translate(" + m.l + "," + y + ")");
+      var r = function (d) { var v = d.data.seconds > 0 ? d.data.seconds : d.data.count; return 5 + 13 * Math.sqrt(Math.max(0, v) / maxSecs); };
+      g.selectAll("path.d3c-alink").data(root.links()).enter().append("path").attr("class", "d3c-alink").attr("fill", "none").attr("stroke", function (l) { return l.target.data.fault ? P.bad : P.rule2; }).attr("stroke-width", function (l) { return l.target.data.fault ? 2 : 1.2; })
+        .attr("d", d3.linkHorizontal().x(function (d) { return d.y; }).y(function (d) { return d.x; }));
+      var node = g.selectAll("g.d3c-anode").data(root.descendants()).enter().append("g")
+        .attr("class", function (d) { return "d3c-anode kind-" + d.data.kind + (d.data.open ? " open" : "") + (d.data.fault ? " fault" : "") + (d.data.decisive ? " decisive" : ""); })
+        .attr("data-side", side).attr("data-key", function (d) { return d.data.key; }).attr("data-agent", function (d) { return d.data.agent; })
+        .attr("transform", function (d) { return "translate(" + d.y + "," + d.x + ")"; }).attr("tabindex", 0).attr("role", "button");
+      node.append("circle").attr("class", "d3c-abody").attr("r", r).attr("fill", color).attr("fill-opacity", function (d) { return d.depth === 0 ? 0.9 : 0.45; })
+        .attr("stroke", function (d) { return d.data.fault ? P.bad : color; }).attr("stroke-width", function (d) { return d.data.fault ? 2.2 : 1.4; });
+      node.filter(function (d) { return d.data.seconds > 0 && d.data.wasted_s > 0; }).append("path").attr("class", "d3c-awaste").attr("fill", P.bad).attr("fill-opacity", 0.75)
+        .attr("d", function (d) { return d3.arc()({ innerRadius: 0, outerRadius: r(d), startAngle: 0, endAngle: 2 * Math.PI * Math.min(1, d.data.wasted_s / d.data.seconds) }); });
+      node.filter(function (d) { return d.data.open; }).append("circle").attr("class", "d3c-aopen").attr("r", function (d) { return r(d) + 4; }).attr("fill", "none").attr("stroke", color).attr("stroke-width", 1.6).attr("stroke-dasharray", "3 3");
+      node.filter(function (d) { return d.data.decisive; }).append("circle").attr("class", "d3c-ring hypothesized").attr("r", function (d) { return r(d) + 5; });
+      node.append("text").attr("class", "d3c-alabel").attr("x", function (d) { return r(d) + 5; }).attr("y", -2).attr("font-size", 10.5).attr("font-weight", function (d) { return d.depth === 0 ? 700 : 500; }).attr("fill", P.ink).text(function (d) { return d.data.agent + (d.data.delegations ? " ⤷" + d.data.delegations : "") + (d.data.open ? " · running" : ""); });
+      node.append("text").attr("class", "d3c-asub").attr("x", function (d) { return r(d) + 5; }).attr("y", 10).attr("font-size", 9.5).attr("fill", P.muted).attr("font-family", "var(--mono)")
+        .text(function (d) { return d.data.count + " steps" + (d.data.seconds > 0 ? " · " + BODY_AXES.time.unit(d.data.seconds) : "") + (d.data.wasted_s ? " · " + Math.round(100 * d.data.wasted_s / d.data.seconds) + "% wasted" : "") + (d.data.errors ? " · " + d.data.errors + " err" : ""); });
+      node.append("title").text(function (d) { return (d.depth === 0 ? "run " : "sub-agent ") + d.data.agent + "\nsteps " + d.data.from + "–" + d.data.to + " · " + d.data.count + " step(s)" + (d.data.seconds > 0 ? " · " + BODY_AXES.time.unit(d.data.seconds) : "") + (d.data.top_tool ? " · mostly " + d.data.top_tool : "") + (d.data.open ? "\nstill running" : "") + (d.data.fault ? "\nthe fault's path runs through here" : "") + (opts.onSelect ? "\nclick to zoom the icicle here" : ""); });
+      node.on("click", function (event, d) { if (opts.onSelect) opts.onSelect(side, d.data.key === "run" ? null : d.data.key); })
+        .on("keydown", function (event, d) { if ((event.key === "Enter" || event.key === " ") && opts.onSelect) { event.preventDefault(); opts.onSelect(side, d.data.key === "run" ? null : d.data.key); } });
+      y += h + m.b + 8;
+    });
+    svg.attr("height", y + 4).attr("viewBox", "0 0 " + W + " " + (y + 4));
+    return svg.node();
+  }
+
   charts.horizonZoom = {
     get: function (task, side) { return HorizonZoom[task + ":" + side] || null; },
     set: function (task, side, key) { HorizonZoom[task + ":" + side] = key; repaint("horizon:" + task); },
@@ -2125,8 +2233,8 @@
   function drawHorizon(host, ctx, report, opts) {
     charts._horizonStyle();
     var P = palette();
-    var taskKey = report.task && report.task.id ? report.task.id : "task";
-    var hz = report.horizon;
+    var taskKey = (opts.key ? opts.key + ":" : "") + (report && report.task && report.task.id ? report.task.id : "task");
+    var hz = opts.horizon || report.horizon;
     var axisName = charts.bodyAxis.get(taskKey);
     var measure = axisName === "tokens" ? function (n) { return n.tokens || 0; } : axisName === "steps" ? function (n) { return n.count || 0; } : function (n) { return n.seconds || 0; };
     var unit = BODY_AXES[axisName].unit;
@@ -2197,13 +2305,16 @@
         if (n.data.fault && !isStep && w > 2) {
           sel.append("rect").attr("class", "d3c-hz-fault").attr("x", x0).attr("y", upward ? y : y + rowH - 3).attr("width", w).attr("height", 3).attr("fill", P.bad).attr("pointer-events", "none");
         }
+        if (n.data.open) {   // streaming: the span's right edge is not final
+          sel.append("line").attr("class", "d3c-hz-open d3c-now").attr("x1", x1 - 1).attr("x2", x1 - 1).attr("y1", y).attr("y2", y + rowH).attr("stroke", P.ink).attr("stroke-width", 2).attr("stroke-dasharray", "2 2");
+        }
         if (wastedShare > 0 && w > 4) {
           sel.append("rect").attr("class", "d3c-hz-waste").attr("x", x1 - 1.5 - w * wastedShare).attr("y", y).attr("width", w * wastedShare).attr("height", rowH).attr("rx", 3)
             .attr("fill", hatchId(svg, P.bad, side + "-w")).attr("pointer-events", "none");
         }
         // one label per cell: what it is, then how much — nothing the row name already says
         var label = n.data.kind === "step" ? (n.data.label || n.data.type)
-          : n.data.kind === "run" ? unit(measure(n.data)) + " · " + n.data.count + " steps" + (hz[side].subdivisions ? " · " + hz[side].subdivisions + " parts" : "") + (hz[side].agents && hz[side].agents.length ? " · " + hz[side].agents.length + " sub-agents" : "")
+          : n.data.kind === "run" ? unit(measure(n.data)) + " · " + n.data.count + " steps" + (hz[side].subdivisions ? " · " + hz[side].subdivisions + " parts" : "") + (hz[side].agents && hz[side].agents.length ? " · " + hz[side].agents.length + " sub-agents" : "") + (n.data.open ? " · running" : "")
           : n.data.kind === "span" ? (n.data.agent || n.data.label) + (n.data.delegations ? " ⤷" + n.data.delegations : "") + " · " + unit(measure(n.data))
           : n.data.label + " · " + unit(measure(n.data));
         var fits = Math.floor(w / 6.2);

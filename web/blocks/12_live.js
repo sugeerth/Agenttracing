@@ -29,6 +29,7 @@
       "@keyframes lv-pop{from{transform:scale(2.2);opacity:.2}to{transform:scale(1);opacity:1}}",
       ".lv-line .lv-now circle,.lv-line .lv-now path{stroke:var(--accent);stroke-width:2.5px;animation:lv-pulse .8s ease-in-out infinite alternate}",
       "@keyframes lv-pulse{from{stroke-opacity:.4}to{stroke-opacity:1}}",
+      ".lv-tree{margin:8px 0 0}.lv-tree-head{font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 4px}",
       "@media (prefers-reduced-motion:reduce){.lv-line .lv-new,.lv-line .lv-now circle,.lv-line .lv-now path{animation:none}}",
       ".lv-last{list-style:none;margin:4px 0 0;padding:0;font-size:var(--fs-s)}",
       ".lv-last li{display:grid;grid-template-columns:5ch 1fr;gap:8px;padding:2px 0;color:var(--ink-2)}",
@@ -147,6 +148,31 @@
         }
         el.appendChild(box);
       });
+      // the runs as one tree over time — spans (sub-agents) nested, the open
+      // span's edge dashed and pulsing — and as nodes and links
+      if (runs.length && AgentDiff.charts && AgentDiff.charts.spanTree) {
+        var trees = {};
+        runs.slice(0, 2).forEach(function (run, i) {
+          trees[i === 0 ? "a" : "b"] = AgentDiff.charts.spanTree({ agent: { name: run.agent }, steps: run.steps || [], in_progress: true });
+        });
+        var pseudo = { task: { id: ctx.task }, a: { agent: { name: runs[0].agent } }, b: runs[1] ? { agent: { name: runs[1].agent } } : undefined };
+        var hasSpans = Object.keys(trees).some(function (k) { return trees[k].spans > 1; });
+        var wrap = H("div", { class: "lv-tree" + (hasSpans ? " multi" : "") });
+        wrap.appendChild(H("div", { class: "lv-tree-head mono", text: (hasSpans ? "sub-agents as they run · " : "") + "width ∝ steps so far · dashed edge = still open" }));
+        var icicle = H("div");
+        var viewKey = "live:" + ctx.task;
+        try {
+          AgentDiff.charts.bodyAxis.set(viewKey, "steps");
+          var d1 = AgentDiff.charts.horizon(icicle, ctx, { horizon: trees, report: pseudo, key: "live" });
+          if (d1) wrap.appendChild(d1);
+          if (hasSpans) {
+            var nodes = H("div");
+            var d2 = AgentDiff.charts.agentTree(nodes, trees, { key: "live-tree:" + ctx.task });
+            if (d2) wrap.appendChild(d2);
+          }
+        } catch (err) { console.warn("AgentDiff live: tree failed", err); }
+        el.appendChild(wrap);
+      }
       finished.forEach(function (f) {
         if (runs.some(function (r) { return r.agent === f.agent; })) return;
         el.appendChild(H("div", { class: "lv-run" }, [

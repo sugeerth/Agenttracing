@@ -38,6 +38,7 @@
     document.head.appendChild(node);
   }
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
+  var HzView = {};   // per task: icicle | tree
   function secs(v) { return typeof v !== "number" ? "—" : v >= 100 ? Math.round(v) + "s" : v >= 10 ? v.toFixed(0) + "s" : v.toFixed(1) + "s"; }
   function walk(n, out) { out.push(n); (n.children || []).forEach(function (c) { walk(c, out); }); return out; }
 
@@ -91,9 +92,21 @@
       el.appendChild(H("div", { class: "hz-bar" }, [H("span", { text: "width ∝" }), ctl,
         H("span", { class: "hz-key" }, [H("i", { class: "w" }), H("span", { text: "wasted" }), H("i", { class: "f" }), H("span", { text: "fault" }), H("i", { class: "d" }), H("span", { text: "decisive" })]),
         H("span", { text: "· click a part to zoom, a step to open" })]));
+      // two drawings of one tree: the icicle (time along x) and the nodes-and-links (delegation as depth)
+      var viewCtl = H("span", { class: "hz-axis", role: "group", "aria-label": "how to draw the tree" });
+      [["icicle", "the run over time, rows outward from the axis"], ["tree", "the run and its sub-agents as nodes and links"]].forEach(function (pair) {
+        var b = H("button", { type: "button", class: "hz-axis-btn view-" + pair[0], text: pair[0], title: pair[1], "aria-pressed": (HzView[taskKey] || "icicle") === pair[0] ? "true" : "false" });
+        b.addEventListener("click", function () { HzView[taskKey] = pair[0]; AgentDiff._rerender ? AgentDiff._rerender() : null; });
+        viewCtl.appendChild(b);
+      });
+      el.firstChild.insertBefore(viewCtl, el.firstChild.firstChild);
       var host = H("div", { class: "hz-chart" });
       var drawn = null;
-      try { drawn = AgentDiff.charts && AgentDiff.charts.horizon ? AgentDiff.charts.horizon(host, ctx) : null; } catch (err) { console.warn("AgentDiff horizon: chart failed", err); }
+      try {
+        drawn = (HzView[taskKey] || "icicle") === "tree"
+          ? AgentDiff.charts.agentTree(host, hz, { key: "agent-tree:" + taskKey, onSelect: function (side, key) { HzView[taskKey] = "icicle"; AgentDiff.charts.horizonZoom.set(taskKey, side, key); AgentDiff._rerender ? AgentDiff._rerender() : null; } })
+          : AgentDiff.charts.horizon(host, ctx);
+      } catch (err) { console.warn("AgentDiff horizon: chart failed", err); }
       if (drawn) el.appendChild(drawn);
       var sum = H("div", { class: "hz-sum" });
       ["a", "b"].forEach(function (side) {

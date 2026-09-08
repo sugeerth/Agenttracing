@@ -1689,6 +1689,18 @@ is reported as such.
   units, no window needed. `AgentDiff.charts.mode.{get,set,expand}`
   drives it from outside.
 
+- **Streaming and multi-agent, one tree** (`charts.spanTree`,
+  `charts.agentTree`, the *Running now* block, an icicle | tree switch
+  on *Parts and sub-agents*). A run that streams and a run that
+  delegates are one object: a tree of spans over time, where streaming
+  adds "still open" and delegation adds depth. The page builds that tree
+  from the steps alone as agents run (`step.span` carried through the
+  live files), and draws it two ways — the icicle (an open span's edge
+  dashed and pulsing) and nodes-and-links (the run at the left, each
+  sub-agent under its parent; node area = time, a wedge = wasted share,
+  red = the fault's path, a dashed pulsing ring = still open). Finished
+  pairs draw the same two views from `report.horizon`; a node click zooms
+  the icicle to that span. `docs/PLAYBOOK.md` states the model.
 - **Less ink, everywhere this window added.** *Where the time went* is one
   strip per run (every step a segment along wall-clock, the slowest few
   named above it, the rest a hover away) instead of a row per step, with

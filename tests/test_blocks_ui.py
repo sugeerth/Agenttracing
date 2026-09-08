@@ -3404,6 +3404,46 @@ class LiveWatchTest(unittest.TestCase):
             pass
         cls.tmp.cleanup()
 
+    def test_sub_agents_stream_in_as_a_growing_tree(self):
+        import threading
+        from deepcompare.harness.watch import simulate
+        for path in Path(self.out).glob("*.json"):
+            path.unlink()
+        stop = threading.Event()
+        sim = threading.Thread(target=simulate, args=(ROOT / "demo" / "horizon" / "traces", self.out, 0.2, False, stop), daemon=True)
+        sim.start()
+        context = self.browser.new_context(viewport={"width": 1280, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"http://127.0.0.1:{self.port}/#view=story")
+        info = None
+        for _ in range(60):
+            page.wait_for_timeout(250)
+            info = page.evaluate("""() => { const b = document.querySelector('.block[data-block="live-run"]'); if (!b) return null;
+              const ic = b.querySelector('svg.d3c-horizon'); const tr = b.querySelector('svg.d3c-agent-tree');
+              return {runs: b.querySelectorAll('.lv-run').length, spans: ic ? ic.querySelectorAll('g.d3c-hz-node[data-kind="span"]').length : 0,
+                      open: ic ? ic.querySelectorAll('line.d3c-hz-open').length : 0, tnodes: tr ? tr.querySelectorAll('g.d3c-anode').length : 0,
+                      topen: tr ? tr.querySelectorAll('g.d3c-anode.open').length : 0,
+                      running: [...b.querySelectorAll('g.d3c-anode.open text.d3c-alabel')].map(t => t.textContent)}; }""")
+            if info and info["spans"] >= 2 and info["tnodes"] >= 3:
+                break
+        stop.set()
+        sim.join(timeout=5)
+        for path in Path(self.out).glob("*.json"):   # leave the directory as found, for the next test
+            path.unlink()
+        page.wait_for_timeout(600)
+        self.assertTrue(info, "the live block never appeared")
+        self.assertEqual(info["runs"], 2)
+        self.assertGreaterEqual(info["spans"], 2, "sub-agents appear as spans while the runs stream")
+        self.assertGreaterEqual(info["open"], 1, "the span still receiving steps has an open edge")
+        self.assertGreaterEqual(info["tnodes"], 3, "the same tree as nodes and links")
+        self.assertGreaterEqual(info["topen"], 1)
+        self.assertTrue(all("running" in t for t in info["running"]))
+        self.assertEqual(errors, [])
+        context.close()
+
     def test_the_stream_arrives_and_becomes_the_story(self):
         import threading
         from deepcompare.harness.watch import simulate
@@ -3963,5 +4003,41 @@ class HorizonBlockTest(unittest.TestCase):
         # a step click moves the shared cursor
         page.locator('svg.d3c-horizon g.d3c-hz-node[data-side="b"][data-kind="step"]').first.dispatch_event("click")
         page.wait_for_timeout(300)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_same_tree_draws_as_nodes_and_links_and_a_node_click_zooms_the_icicle(self):
+        context = self.browser.new_context(viewport={"width": 1280, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view=story")
+        page.wait_for_timeout(900)
+        block = page.locator('#story-lane .block[data-block="horizon"]')
+        block.locator(".hz-axis-btn.view-tree").click()
+        page.wait_for_timeout(600)
+        block = page.locator('#story-lane .block[data-block="horizon"]')
+        svg = block.locator("svg.d3c-agent-tree")
+        self.assertEqual(svg.count(), 1)
+        self.assertEqual(block.locator("svg.d3c-horizon").count(), 0, "one drawing at a time")
+        hz = self.report["horizon"]
+        for side in ("a", "b"):
+            spans = [n for n in self._walk(hz[side]["tree"]) if n["kind"] in ("run", "span")]
+            self.assertEqual(svg.locator(f'g.d3c-anode[data-side="{side}"]').count(), len(spans), side)
+            self.assertEqual(svg.locator(f'g.d3c-anode[data-side="{side}"] path.d3c-awaste').count(), sum(1 for n in spans if n["wasted_s"] > 0 and n["seconds"] > 0))
+            self.assertEqual(svg.locator(f'g.d3c-anode[data-side="{side}"].fault').count(), sum(1 for n in spans if n["fault"]))
+            for n in spans:
+                label = svg.locator(f'g.d3c-anode[data-side="{side}"][data-key="{n["key"]}"] text.d3c-asub').text_content()
+                self.assertTrue(label.startswith(f"{n['count']} steps"), label)
+        # clicking a sub-agent node switches back to the icicle, zoomed into that span
+        target = svg.locator('g.d3c-anode[data-side="a"].kind-span').first
+        key = target.get_attribute("data-key")
+        target.dispatch_event("click")
+        page.wait_for_timeout(600)
+        block = page.locator('#story-lane .block[data-block="horizon"]')
+        self.assertEqual(block.locator("svg.d3c-horizon").count(), 1)
+        agent = next(n for n in self._walk(hz["a"]["tree"]) if n["key"] == key)
+        self.assertIn(agent["agent"], block.locator('.d3c-crumb[data-side="a"]').text_content())
         self.assertEqual(errors, [])
         context.close()
