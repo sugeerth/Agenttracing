@@ -5591,7 +5591,8 @@ THIS SOFTWARE.
     var root = d3.stratify().id(function (n) { return n.agent; }).parentId(function (n) { return n.agent === "root" ? null : (parentOf[n.agent] || "root"); })(d.nodes);
     var longest = 0;
     d.nodes.forEach(function (n) { longest = Math.max(longest, Math.max(names.a.length, names.b.length) + 30, n.agent.length + 4); });
-    var rowH = 58, m = { l: 18, r: Math.min(320, 40 + longest * 6.8), t: 16, b: 14 };
+    var compact = opts.compact === true;
+    var rowH = compact ? 40 : 58, m = { l: 18, r: Math.min(320, 40 + (compact ? Math.max(longest, 42) : longest) * 6.8), t: 16, b: 14 };
     var h = Math.max(rowH, root.leaves().length * rowH);
     d3.tree().size([h, W - m.l - m.r])(root);
     var svg = d3.select(host).append("svg").attr("class", "d3c d3c-graph-diff").attr("width", W).attr("height", h + m.t + m.b).attr("viewBox", "0 0 " + W + " " + (h + m.t + m.b))
@@ -5615,11 +5616,14 @@ THIS SOFTWARE.
       .attr("stroke-dasharray", function (l) { var e = edgeOf[l.target.data.agent]; return e && e["in"] !== "both" ? "5 4" : null; })
       .attr("d", d3.linkHorizontal().x(function (n) { return n.y; }).y(function (n) { return n.x; }));
     // edge labels in words, only where the two runs differ; a surface halo keeps them legible over the link
-    var el = g.selectAll("text.d3c-gd-edge").data(root.links().filter(function (l) { var e = edgeOf[l.target.data.agent]; return e && (e["in"] !== "both" || e.count_a !== e.count_b); })).enter().append("text")
-      .attr("class", "d3c-gd-edge").attr("font-size", 10.5).attr("font-family", "var(--sans)").attr("fill", P.ink).attr("text-anchor", "middle")
+    // compact: every edge carries "a · b" counts; full: words, only where the runs differ
+    var labelled = compact ? root.links().filter(function (l) { return !!edgeOf[l.target.data.agent]; })
+      : root.links().filter(function (l) { var e = edgeOf[l.target.data.agent]; return e && (e["in"] !== "both" || e.count_a !== e.count_b); });
+    g.selectAll("text.d3c-gd-edge").data(labelled).enter().append("text")
+      .attr("class", "d3c-gd-edge").attr("font-size", compact ? 9.5 : 10.5).attr("font-family", compact ? "var(--mono)" : "var(--sans)").attr("fill", compact ? P.muted : P.ink).attr("text-anchor", "middle")
       .attr("stroke", P.surface).attr("stroke-width", 4).attr("paint-order", "stroke")
-      .attr("x", function (l) { return l.source.y + (l.target.y - l.source.y) * 0.72; }).attr("y", function (l) { return l.source.x + (l.target.x - l.source.x) * 0.72 - 9; })
-      .text(function (l) { var e = edgeOf[l.target.data.agent]; return e["in"] === "both" ? names.a + " ×" + e.count_a + " · " + names.b + " ×" + e.count_b : "only " + e["in"] + (Math.max(e.count_a, e.count_b) > 1 ? " ×" + Math.max(e.count_a, e.count_b) : ""); });
+      .attr("x", function (l) { return l.source.y + (l.target.y - l.source.y) * (compact ? 0.5 : 0.72); }).attr("y", function (l) { return l.source.x + (l.target.x - l.source.x) * (compact ? 0.5 : 0.72) - (compact ? 5 : 9); })
+      .text(function (l) { var e = edgeOf[l.target.data.agent]; return compact ? (e.count_a + " · " + e.count_b) : e["in"] === "both" ? names.a + " ×" + e.count_a + " · " + names.b + " ×" + e.count_b : "only " + e["in"] + (Math.max(e.count_a, e.count_b) > 1 ? " ×" + Math.max(e.count_a, e.count_b) : ""); });
     var node = g.selectAll("g.d3c-gd-node").data(root.descendants()).enter().append("g")
       .attr("class", function (n) { return "d3c-gd-node in-" + (n.data["in"] === "both" ? "both" : n.data["in"] === names.a ? "a" : "b") + (isBlamed(n) ? " blamed" : ""); })
       .attr("data-agent", function (n) { return n.data.agent; }).attr("data-in", function (n) { return n.data["in"]; })
@@ -5633,10 +5637,20 @@ THIS SOFTWARE.
       sel.append("line").attr("x1", 0).attr("x2", 0).attr("y1", -r(n)).attr("y2", r(n)).attr("stroke", P.surface).attr("stroke-width", 1.5);
       if (isBlamed(n)) sel.append("circle").attr("class", "d3c-ring hypothesized").attr("r", r(n) + 5);
     });
-    // labels: the agent, then one line per run in its colour
-    node.append("text").attr("class", "d3c-gd-label").attr("x", function (n) { return r(n) + 8; }).attr("y", -9).attr("font-size", 12).attr("font-weight", 600).attr("fill", P.ink)
-      .text(function (n) { return n.data.agent === "root" ? "the two runs" : n.data.agent; });
+    // labels: the agent, then one line per run in its colour — or, compact, one line for both
+    node.append("text").attr("class", "d3c-gd-label").attr("x", function (n) { return r(n) + 8; }).attr("y", compact ? -2 : -9).attr("font-size", compact ? 10.5 : 12).attr("font-weight", 600).attr("fill", P.ink)
+      .text(function (n) { return n.data.agent === "root" ? (compact ? names.a + " · " + names.b : "the two runs") : n.data.agent; });
+    if (compact) {
+      node.append("text").attr("class", "d3c-gd-sub").attr("x", function (n) { return r(n) + 8; }).attr("y", 10).attr("font-size", 9.5).attr("font-family", "var(--mono)").attr("fill", P.muted)
+        .text(function (n) {
+          var a = n.data.a, b = n.data.b;
+          var fa = a ? BODY_AXES.time.unit(a.seconds) + (a.wasted_s ? " (" + Math.round(100 * a.wasted_s / Math.max(1e-9, a.seconds)) + "% wasted)" : "") : "—";
+          var fb = b ? BODY_AXES.time.unit(b.seconds) + (b.wasted_s ? " (" + Math.round(100 * b.wasted_s / Math.max(1e-9, b.seconds)) + "% wasted)" : "") : "—";
+          return fa + " · " + fb + (n.data["in"] !== "both" ? " · only " + n.data["in"] : "");
+        });
+    }
     ["a", "b"].forEach(function (side, i) {
+      if (compact) return;
       node.append("text").attr("class", "d3c-gd-run " + side).attr("x", function (n) { return r(n) + 8; }).attr("y", 5 + i * 13).attr("font-size", 10.5).attr("font-family", "var(--mono)").attr("fill", P.ink2)
         .text(function (n) {
           var v = n.data[side], nm = names[side];
@@ -5651,7 +5665,7 @@ THIS SOFTWARE.
         (isBlamed(n) ? "\nthe diagnosis blames this agent" : "");
     });
     var legend = document.createElement("div"); legend.className = "d3c-legend";
-    legend.appendChild(legendItem(P, { line: true }, P.rule2, "left half = " + names.a + "'s time, right half = " + names.b + "'s; a missing half = that run never used the agent"));
+    legend.appendChild(legendItem(P, { line: true }, P.rule2, "left half = " + names.a + "'s time, right half = " + names.b + "'s; a missing half = that run never used the agent" + (compact ? "; under each agent and on each link: " + names.a + " · " + names.b : "")));
     legend.appendChild(legendItem(P, { line: true, dashed: true }, P.b, "dashed link = only one run delegated; thick = delegated a different number of times"));
     legend.appendChild(legendItem(P, { ring: true, dashed: true }, P.bad, "the agent the diagnosis blames"));
     host.appendChild(legend);
@@ -11444,7 +11458,8 @@ THIS SOFTWARE.
     document.head.appendChild(node);
   }
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
-  var HzView = {};   // per task: icicle | tree
+  var HzView = {};   // per task: icicle | tree | diff
+  var HzLabels = {};   // per task: the diff's labels, words | compact
   function secs(v) { return typeof v !== "number" ? "—" : v >= 100 ? Math.round(v) + "s" : v >= 10 ? v.toFixed(0) + "s" : v.toFixed(1) + "s"; }
   function walk(n, out) { out.push(n); (n.children || []).forEach(function (c) { walk(c, out); }); return out; }
 
@@ -11506,6 +11521,16 @@ THIS SOFTWARE.
         viewCtl.appendChild(b);
       });
       el.firstChild.firstChild.appendChild(viewCtl);
+      if ((HzView[taskKey] || "icicle") === "diff") {
+        // the diff's labels two ways: in words where the runs differ, or compact numbers everywhere
+        var labelCtl = H("span", { class: "hz-axis", role: "group", "aria-label": "how the diff is labelled" });
+        [["words", "names and one line per run; links labelled only where the runs differ"], ["compact", "one line per agent and a count on every link, as " + name(report, "a") + " · " + name(report, "b")]].forEach(function (pair) {
+          var b = H("button", { type: "button", class: "hz-axis-btn labels-" + pair[0], text: pair[0], title: pair[1], "aria-pressed": (HzLabels[taskKey] || "words") === pair[0] ? "true" : "false" });
+          b.addEventListener("click", function () { HzLabels[taskKey] = pair[0]; AgentDiff._rerender ? AgentDiff._rerender() : null; });
+          labelCtl.appendChild(b);
+        });
+        el.firstChild.appendChild(H("span", { class: "hz-grp" }, [H("span", { text: "labels" }), labelCtl]));
+      }
       var host = H("div", { class: "hz-chart" });
       var drawn = null;
       try {
@@ -11513,7 +11538,7 @@ THIS SOFTWARE.
         drawn = view === "tree"
           ? AgentDiff.charts.agentTree(host, hz, { key: "agent-tree:" + taskKey, onSelect: function (side, key) { HzView[taskKey] = "icicle"; AgentDiff.charts.horizonZoom.set(taskKey, side, key); AgentDiff._rerender ? AgentDiff._rerender() : null; } })
           : view === "diff" && hz.diff
-          ? AgentDiff.charts.graphDiff(host, hz, { key: "graph-diff:" + taskKey, names: { a: name(report, "a"), b: name(report, "b") } })
+          ? AgentDiff.charts.graphDiff(host, hz, { key: "graph-diff:" + taskKey, names: { a: name(report, "a"), b: name(report, "b") }, compact: HzLabels[taskKey] === "compact" })
           : AgentDiff.charts.horizon(host, ctx);
       } catch (err) { console.warn("AgentDiff horizon: chart failed", err); }
       if (drawn) el.appendChild(drawn);

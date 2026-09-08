@@ -39,7 +39,8 @@
     document.head.appendChild(node);
   }
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
-  var HzView = {};   // per task: icicle | tree
+  var HzView = {};   // per task: icicle | tree | diff
+  var HzLabels = {};   // per task: the diff's labels, words | compact
   function secs(v) { return typeof v !== "number" ? "—" : v >= 100 ? Math.round(v) + "s" : v >= 10 ? v.toFixed(0) + "s" : v.toFixed(1) + "s"; }
   function walk(n, out) { out.push(n); (n.children || []).forEach(function (c) { walk(c, out); }); return out; }
 
@@ -101,6 +102,16 @@
         viewCtl.appendChild(b);
       });
       el.firstChild.firstChild.appendChild(viewCtl);
+      if ((HzView[taskKey] || "icicle") === "diff") {
+        // the diff's labels two ways: in words where the runs differ, or compact numbers everywhere
+        var labelCtl = H("span", { class: "hz-axis", role: "group", "aria-label": "how the diff is labelled" });
+        [["words", "names and one line per run; links labelled only where the runs differ"], ["compact", "one line per agent and a count on every link, as " + name(report, "a") + " · " + name(report, "b")]].forEach(function (pair) {
+          var b = H("button", { type: "button", class: "hz-axis-btn labels-" + pair[0], text: pair[0], title: pair[1], "aria-pressed": (HzLabels[taskKey] || "words") === pair[0] ? "true" : "false" });
+          b.addEventListener("click", function () { HzLabels[taskKey] = pair[0]; AgentDiff._rerender ? AgentDiff._rerender() : null; });
+          labelCtl.appendChild(b);
+        });
+        el.firstChild.appendChild(H("span", { class: "hz-grp" }, [H("span", { text: "labels" }), labelCtl]));
+      }
       var host = H("div", { class: "hz-chart" });
       var drawn = null;
       try {
@@ -108,7 +119,7 @@
         drawn = view === "tree"
           ? AgentDiff.charts.agentTree(host, hz, { key: "agent-tree:" + taskKey, onSelect: function (side, key) { HzView[taskKey] = "icicle"; AgentDiff.charts.horizonZoom.set(taskKey, side, key); AgentDiff._rerender ? AgentDiff._rerender() : null; } })
           : view === "diff" && hz.diff
-          ? AgentDiff.charts.graphDiff(host, hz, { key: "graph-diff:" + taskKey, names: { a: name(report, "a"), b: name(report, "b") } })
+          ? AgentDiff.charts.graphDiff(host, hz, { key: "graph-diff:" + taskKey, names: { a: name(report, "a"), b: name(report, "b") }, compact: HzLabels[taskKey] === "compact" })
           : AgentDiff.charts.horizon(host, ctx);
       } catch (err) { console.warn("AgentDiff horizon: chart failed", err); }
       if (drawn) el.appendChild(drawn);

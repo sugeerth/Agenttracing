@@ -1689,6 +1689,10 @@ is reported as such.
   units, no window needed. `AgentDiff.charts.mode.{get,set,expand}`
   drives it from outside.
 
+- **Both readings of the diff.** A *labels* switch on the diff view:
+  *words* (names, one line per run, links labelled only where the runs
+  differ) or *compact* (one line per agent as A · B, a count on every
+  link) — the earlier reading kept beside the legible one.
 - **The diff view, made legible.** One node per agent with the agent's
   name above and one line per run beneath in that run's colour (its
   seconds, wasted share and errors; "not used" when a run never

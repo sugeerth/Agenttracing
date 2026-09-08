@@ -4041,6 +4041,21 @@ class HorizonBlockTest(unittest.TestCase):
             runs = node.locator("text.d3c-gd-run").all_text_contents()
             self.assertEqual(len(runs), 2)
             self.assertTrue(runs[0].startswith("● " if n["a"] else "○ "))
+        # compact labels: the earlier reading — a count on every link, one line per agent
+        block.locator(".hz-axis-btn.labels-compact").click()
+        page.wait_for_timeout(500)
+        block = page.locator('#story-lane .block[data-block="horizon"]')
+        svg = block.locator("svg.d3c-graph-diff")
+        compact_labels = svg.locator("text.d3c-gd-edge").all_text_contents()
+        self.assertEqual(len(compact_labels), len(diff["edges"]))
+        for e in diff["edges"]:
+            self.assertIn(f"{e['count_a']} · {e['count_b']}", compact_labels)
+        self.assertEqual(svg.locator("text.d3c-gd-run").count(), 0)
+        self.assertEqual(svg.locator("text.d3c-gd-sub").count(), len(diff["nodes"]))
+        block.locator(".hz-axis-btn.labels-words").click()
+        page.wait_for_timeout(500)
+        block = page.locator('#story-lane .block[data-block="horizon"]')
+        svg = block.locator("svg.d3c-graph-diff")
         failing = self.report["diagnosis"]["subject"]
         blamed = hz[failing]["blame"]["agent"]
         ringed = svg.locator("g.d3c-gd-node.blamed")
