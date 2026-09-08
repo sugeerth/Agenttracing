@@ -147,6 +147,33 @@ def _span_attrs(span: dict) -> dict:
     return {}
 
 
+def _span_id(span: dict) -> Optional[str]:
+    for key in ("span_id", "spanId", "id"):
+        v = span.get(key)
+        if v:
+            return str(v)
+    return None
+
+
+def _parent_id(span: dict) -> Optional[str]:
+    for key in ("parent_span_id", "parentSpanId", "parent_id", "parent"):
+        v = span.get(key)
+        if v:
+            return str(v)
+    return None
+
+
+def _ancestors(span: dict, by_id: dict) -> list:
+    out: list = []
+    pid = _parent_id(span)
+    seen = set()
+    while pid and pid in by_id and pid not in seen:
+        out.append(pid)
+        seen.add(pid)
+        pid = _parent_id(by_id[pid])
+    return out
+
+
 def _span_time(span: dict, which: str) -> int:
     """Span timestamp in nanoseconds, accepting snake_case or camelCase keys
     (OTLP JSON exports use camelCase; values may arrive as strings)."""
@@ -182,6 +209,35 @@ def from_otel_genai(
                                            s.get("name", "")))
     steps: list[dict] = []
     total_in = total_out = 0
+
+    # delegation: an ``invoke_agent`` span nested under another agent's span
+    # is a sub-agent; every span beneath it carries that sub-agent's
+    # SCHEMA ``span`` (id, agent, parent). The outermost agent span is the
+    # root agent and stamps nothing.
+    by_id: dict[str, dict] = {}
+    for span in ordered:
+        sid = _span_id(span)
+        if sid:
+            by_id[sid] = span
+    agent_spans: dict[str, dict] = {}
+    for span in ordered:
+        attrs_ = _span_attrs(span)
+        op_ = attrs_.get("gen_ai.operation.name") or (str(span.get("name", "")).split(" ")[0].lower())
+        if op_ in _AGENT_OPS and _span_id(span):
+            agent_spans[_span_id(span)] = span
+    root_agent_ids = {sid for sid, sp in agent_spans.items()
+                      if not any(anc in agent_spans for anc in _ancestors(sp, by_id))}
+
+    def delegation_of(span: dict) -> Optional[dict]:
+        chain = [a for a in _ancestors(span, by_id) if a in agent_spans and a not in root_agent_ids]
+        if _span_id(span) in agent_spans and _span_id(span) not in root_agent_ids:
+            chain = [_span_id(span)] + chain
+        if not chain:
+            return None
+        own = chain[0]
+        parent = next((a for a in chain[1:]), None)
+        return {"id": own, "agent": str(_span_attrs(agent_spans[own]).get("gen_ai.agent.name") or agent_spans[own].get("name") or own),
+                "parent": parent}
 
     for span in ordered:
         name = str(span.get("name", ""))
@@ -237,19 +293,21 @@ def from_otel_genai(
 
         total_in += tok_in
         total_out += tok_out
-        steps.append(
-            {
-                "index": len(steps),
-                "type": step_type,
-                "name": step_name,
-                "input": step_input,
-                "output": step_output,
-                "tokens": tok_in + tok_out,
-                "latency_s": latency,
-                "quality": None,
-                "note": None,
-            }
-        )
+        step = {
+            "index": len(steps),
+            "type": step_type,
+            "name": step_name,
+            "input": step_input,
+            "output": step_output,
+            "tokens": tok_in + tok_out,
+            "latency_s": latency,
+            "quality": None,
+            "note": None,
+        }
+        delegated = delegation_of(span)
+        if delegated:
+            step["span"] = delegated
+        steps.append(step)
 
     if not steps:
         raise ValueError("no spans could be mapped to steps")

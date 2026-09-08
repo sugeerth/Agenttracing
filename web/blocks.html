@@ -5380,7 +5380,7 @@ THIS SOFTWARE.
     var sides = Object.keys(trees).filter(function (k) { return trees[k] && trees[k].tree; });
     var W = Math.max(320, host.clientWidth || 640);
     var longest = 0;
-    Object.keys(trees).forEach(function (k) { (function walk(n) { if (n && n.kind !== "step") longest = Math.max(longest, String(n.agent || "").length + 8); (n.children || []).forEach(walk); })(trees[k] && trees[k].tree); });
+    Object.keys(trees).forEach(function (k) { if (!trees[k] || !trees[k].tree) return; (function walk(n) { if (n && n.kind !== "step") longest = Math.max(longest, String(n.agent || "").length + 8); (n.children || []).forEach(walk); })(trees[k].tree); });
     var rowH = 34, m = { l: 14, r: Math.min(260, 40 + longest * 6.5), t: 10, b: 6 };
     var svg = d3.select(host).append("svg").attr("class", "d3c d3c-agent-tree").attr("width", W).attr("role", "img")
       .attr("aria-label", "each run's sub-agents as a tree: node area is time, a wedge the wasted share, red the fault's path, a dashed ring a span still open");
@@ -5567,6 +5567,89 @@ THIS SOFTWARE.
     });
     if (yAxis !== null) svg.append("line").attr("x1", m.l).attr("x2", W - m.r).attr("y1", yAxis).attr("y2", yAxis).attr("stroke", P.rule);
     svg.on("dblclick", function () { sides.forEach(function (s) { HorizonZoom[taskKey + ":" + s] = null; }); repaint("horizon:" + taskKey); });
+    return svg.node();
+  }
+
+  /* Two runs' delegation graphs, aligned by agent: one node per agent
+   * (the two roots as one), one edge per delegation. Grey = in both runs,
+   * A's colour = only A did it, B's colour = only B; an edge's label is
+   * "how often" on each side, thick where the counts differ; a red ring on
+   * the agent the diagnosis blames. The diff of how two runs organised
+   * their work — what a single-run agent graph cannot show. */
+  charts.graphDiff = function (host, hz, opts) {
+    ensureStyle(); charts._horizonStyle();
+    if (!charts.available() || !hz || !hz.diff) return null;
+    opts = opts || {};
+    return responsive(host, function () { drawGraphDiff(host, hz, opts); }, opts.key || null);
+  };
+  function drawGraphDiff(host, hz, opts) {
+    var P = palette();
+    var d = hz.diff, names = opts.names || { a: "A", b: "B" };
+    var W = Math.max(320, host.clientWidth || 640);
+    var byAgent = {};
+    d.nodes.forEach(function (n) { byAgent[n.agent] = n; });
+    // a tree by first delegator; agents with no parent edge hang off the root
+    var parentOf = {};
+    d.edges.forEach(function (e) { if (!parentOf[e.to]) parentOf[e.to] = e.from; });
+    var root = d3.stratify().id(function (n) { return n.agent; }).parentId(function (n) { return n.agent === "root" ? null : (parentOf[n.agent] || "root"); })(d.nodes);
+    var leaves = root.leaves().length;
+    var longest = 0;
+    d.nodes.forEach(function (n) { longest = Math.max(longest, (n.agent === "root" ? names.a.length + names.b.length + 3 : n.agent.length), 30); });
+    var rowH = 40, m = { l: 16, r: Math.min(300, 30 + longest * 6.5), t: 14, b: 14 };
+    var h = Math.max(rowH, leaves * rowH);
+    d3.tree().size([h, W - m.l - m.r])(root);
+    var svg = d3.select(host).append("svg").attr("class", "d3c d3c-graph-diff").attr("width", W).attr("height", h + m.t + m.b).attr("viewBox", "0 0 " + W + " " + (h + m.t + m.b))
+      .attr("role", "img").attr("aria-label", "the two runs' delegation graphs aligned: grey in both, coloured where only one run delegated");
+    var g = svg.append("g").attr("transform", "translate(" + m.l + "," + m.t + ")");
+    var blameAgent = null;
+    ["a", "b"].forEach(function (side) { if (hz[side] && hz[side].blame) blameAgent = hz[side].blame.agent; });
+    var rootNames = { a: hz.a && hz.a.tree.agent, b: hz.b && hz.b.tree.agent };
+    function inColor(where) { return where === "both" ? P.rule2 : where === names.a ? P.a : P.b; }
+    var maxSecs = 1e-9;
+    d.nodes.forEach(function (n) { maxSecs = Math.max(maxSecs, (n.a || {}).seconds || 0, (n.b || {}).seconds || 0); });
+    var edgeOf = {};
+    d.edges.forEach(function (e) { edgeOf[e.to] = e; });
+    g.selectAll("path.d3c-gd-link").data(root.links()).enter().append("path").attr("class", "d3c-gd-link").attr("fill", "none")
+      .attr("stroke", function (l) { var e = edgeOf[l.target.data.agent]; return e ? inColor(e["in"]) : P.rule; })
+      .attr("stroke-width", function (l) { var e = edgeOf[l.target.data.agent]; return e && e["in"] === "both" && e.count_a !== e.count_b ? 3 : 1.5; })
+      .attr("stroke-dasharray", function (l) { var e = edgeOf[l.target.data.agent]; return e && e["in"] !== "both" ? "4 3" : null; })
+      .attr("d", d3.linkHorizontal().x(function (n) { return n.y; }).y(function (n) { return n.x; }));
+    g.selectAll("text.d3c-gd-edge").data(root.links()).enter().append("text").attr("class", "d3c-gd-edge").attr("font-size", 9.5).attr("font-family", "var(--mono)").attr("fill", P.muted).attr("text-anchor", "middle")
+      .attr("x", function (l) { return (l.source.y + l.target.y) / 2; }).attr("y", function (l) { return (l.source.x + l.target.x) / 2 - 4; })
+      .text(function (l) { var e = edgeOf[l.target.data.agent]; return e ? (e.count_a + " · " + e.count_b) : ""; });
+    var node = g.selectAll("g.d3c-gd-node").data(root.descendants()).enter().append("g")
+      .attr("class", function (n) { return "d3c-gd-node in-" + (n.data["in"] === "both" ? "both" : n.data["in"] === names.a ? "a" : "b") + (n.data.agent === blameAgent || (n.data.agent === "root" && (rootNames.a === blameAgent || rootNames.b === blameAgent)) ? " blamed" : ""); })
+      .attr("data-agent", function (n) { return n.data.agent; }).attr("data-in", function (n) { return n.data["in"]; })
+      .attr("transform", function (n) { return "translate(" + n.y + "," + n.x + ")"; }).attr("tabindex", 0);
+    function r(n) { var v = Math.max((n.data.a || {}).seconds || 0, (n.data.b || {}).seconds || 0); return 6 + 12 * Math.sqrt(v / maxSecs); }
+    node.append("circle").attr("r", r).attr("fill", function (n) { return inColor(n.data["in"]); }).attr("fill-opacity", function (n) { return n.data["in"] === "both" ? 0.5 : 0.75; }).attr("stroke", P.surface).attr("stroke-width", 1.5);
+    // the two runs' halves: left = A's seconds, right = B's, as arcs so a difference shows
+    node.filter(function (n) { return n.data.a && n.data.b; }).each(function (n) {
+      var sel = d3.select(this), ra = 6 + 12 * Math.sqrt(((n.data.a || {}).seconds || 0) / maxSecs), rb = 6 + 12 * Math.sqrt(((n.data.b || {}).seconds || 0) / maxSecs);
+      sel.append("path").attr("d", d3.arc()({ innerRadius: 0, outerRadius: ra, startAngle: Math.PI, endAngle: 2 * Math.PI })).attr("fill", P.a).attr("fill-opacity", 0.85);
+      sel.append("path").attr("d", d3.arc()({ innerRadius: 0, outerRadius: rb, startAngle: 0, endAngle: Math.PI })).attr("fill", P.b).attr("fill-opacity", 0.85);
+    });
+    node.filter(function (n) { return n.data.agent === blameAgent || (n.data.agent === "root" && (rootNames.a === blameAgent || rootNames.b === blameAgent)); })
+      .append("circle").attr("class", "d3c-ring hypothesized").attr("r", function (n) { return r(n) + 5; });
+    node.append("text").attr("class", "d3c-gd-label").attr("x", function (n) { return r(n) + 6; }).attr("y", -2).attr("font-size", 10.5).attr("font-weight", function (n) { return n.depth === 0 ? 700 : 500; }).attr("fill", P.ink)
+      .text(function (n) { return n.data.agent === "root" ? names.a + " · " + names.b : n.data.agent; });
+    node.append("text").attr("class", "d3c-gd-sub").attr("x", function (n) { return r(n) + 6; }).attr("y", 10).attr("font-size", 9.5).attr("font-family", "var(--mono)").attr("fill", P.muted)
+      .text(function (n) {
+        var a = n.data.a, b = n.data.b;
+        var fa = a ? BODY_AXES.time.unit(a.seconds) + (a.wasted_s ? " (" + Math.round(100 * a.wasted_s / Math.max(1e-9, a.seconds)) + "% wasted)" : "") : "—";
+        var fb = b ? BODY_AXES.time.unit(b.seconds) + (b.wasted_s ? " (" + Math.round(100 * b.wasted_s / Math.max(1e-9, b.seconds)) + "% wasted)" : "") : "—";
+        return fa + " · " + fb + (n.data["in"] !== "both" ? " · only " + n.data["in"] : "");
+      });
+    node.append("title").text(function (n) {
+      var a = n.data.a, b = n.data.b;
+      return (n.data.agent === "root" ? "the root agents" : "sub-agent " + n.data.agent) + "\n" + names.a + ": " + (a ? a.delegations + " delegation(s), " + a.steps + " step(s), " + BODY_AXES.time.unit(a.seconds) + ", " + a.errors + " error(s)" : "not used") +
+        "\n" + names.b + ": " + (b ? b.delegations + " delegation(s), " + b.steps + " step(s), " + BODY_AXES.time.unit(b.seconds) + ", " + b.errors + " error(s)" : "not used") +
+        ((n.data.agent === blameAgent) ? "\nthe diagnosis blames this agent" : "");
+    });
+    var legend = document.createElement("div"); legend.className = "d3c-legend";
+    legend.appendChild(legendItem(P, { line: true }, P.rule2, "grey = both runs; " + names.a + " / " + names.b + " colour = only that run; edge label = delegations " + names.a + " · " + names.b + ", thick where they differ"));
+    legend.appendChild(legendItem(P, { ring: true, dashed: true }, P.bad, "the agent the diagnosis blames"));
+    host.appendChild(legend);
     return svg.node();
   }
 
@@ -11342,6 +11425,7 @@ THIS SOFTWARE.
       ".hz-axis-btn[aria-pressed=\"true\"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}",
       ".hz-key i{display:inline-block;width:10px;height:8px;border-radius:2px;vertical-align:-1px;margin:0 3px 0 8px}",
       ".hz-key i.w{background:repeating-linear-gradient(45deg,var(--bad) 0 1.5px,transparent 1.5px 4.5px)}.hz-key i.f{background:var(--bad)}.hz-key i.d{border:2px solid var(--bad);border-radius:50%;width:6px;height:6px}",
+      ".hz-narr{font-size:var(--fs-m);color:var(--ink);margin:8px 0 0;max-width:100ch}",
       ".hz-sum{font-size:var(--fs-s);color:var(--ink-2);margin:6px 0 0;display:grid;grid-template-columns:auto 1fr;gap:2px 8px;align-items:baseline}",
       ".hz-sum .who{font-weight:600;white-space:nowrap}.hz-sum .who i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:-1px}",
       ".hz-sum .what b{color:var(--ink);font-weight:600}",
@@ -11411,7 +11495,7 @@ THIS SOFTWARE.
         H("span", { text: "· click a part to zoom, a step to open" })]));
       // two drawings of one tree: the icicle (time along x) and the nodes-and-links (delegation as depth)
       var viewCtl = H("span", { class: "hz-axis", role: "group", "aria-label": "how to draw the tree" });
-      [["icicle", "the run over time, rows outward from the axis"], ["tree", "the run and its sub-agents as nodes and links"]].forEach(function (pair) {
+      [["icicle", "the run over time, rows outward from the axis"], ["tree", "the run and its sub-agents as nodes and links"], ["diff", "the two runs' delegation graphs aligned: who delegated to whom, how often, and what only one run did"]].forEach(function (pair) {
         var b = H("button", { type: "button", class: "hz-axis-btn view-" + pair[0], text: pair[0], title: pair[1], "aria-pressed": (HzView[taskKey] || "icicle") === pair[0] ? "true" : "false" });
         b.addEventListener("click", function () { HzView[taskKey] = pair[0]; AgentDiff._rerender ? AgentDiff._rerender() : null; });
         viewCtl.appendChild(b);
@@ -11420,11 +11504,15 @@ THIS SOFTWARE.
       var host = H("div", { class: "hz-chart" });
       var drawn = null;
       try {
-        drawn = (HzView[taskKey] || "icicle") === "tree"
+        var view = HzView[taskKey] || "icicle";
+        drawn = view === "tree"
           ? AgentDiff.charts.agentTree(host, hz, { key: "agent-tree:" + taskKey, onSelect: function (side, key) { HzView[taskKey] = "icicle"; AgentDiff.charts.horizonZoom.set(taskKey, side, key); AgentDiff._rerender ? AgentDiff._rerender() : null; } })
+          : view === "diff" && hz.diff
+          ? AgentDiff.charts.graphDiff(host, hz, { key: "graph-diff:" + taskKey, names: { a: name(report, "a"), b: name(report, "b") } })
           : AgentDiff.charts.horizon(host, ctx);
       } catch (err) { console.warn("AgentDiff horizon: chart failed", err); }
       if (drawn) el.appendChild(drawn);
+      if (hz.narrative) el.appendChild(H("p", { class: "hz-narr", text: hz.narrative }));
       var sum = H("div", { class: "hz-sum" });
       ["a", "b"].forEach(function (side) {
         var h = hz[side];

@@ -209,6 +209,102 @@ def segment(traj: Trajectory, reading: Optional[dict] = None, *, fault_steps: Op
     }
 
 
+def delegation_graph(h: dict) -> dict:
+    """The aggregated view of a run's delegations (what a graph view of an
+    agent framework shows for one run): every agent once, with how often it
+    was delegated to and what it cost; every delegation edge parent → child
+    with its count. Built from the horizon tree."""
+    nodes: dict = {}
+    edges: dict = {}
+
+    def visit(n: dict, parent_agent: Optional[str]) -> None:
+        if n["kind"] in ("run", "span"):
+            a = nodes.setdefault(n["agent"], {"agent": n["agent"], "delegations": 0, "steps": 0, "seconds": 0.0, "wasted_s": 0.0,
+                                               "errors": 0, "tool_calls": 0, "fault": False, "decisive": False, "root": n["kind"] == "run"})
+            if n["kind"] == "span":
+                a["delegations"] += 1
+                key = f"{parent_agent}→{n['agent']}"
+                e = edges.setdefault(key, {"from": parent_agent, "to": n["agent"], "count": 0, "seconds": 0.0})
+                e["count"] += 1
+                e["seconds"] = round(e["seconds"] + n["seconds"], 4)
+            own = [c for c in n["children"] if c["kind"] != "span"]
+            a["steps"] += sum(c["count"] for c in own)
+            a["seconds"] = round(a["seconds"] + sum(c["seconds"] for c in own), 4)
+            a["wasted_s"] = round(a["wasted_s"] + sum(c["wasted_s"] for c in own), 4)
+            a["errors"] += sum(c["errors"] for c in own)
+            a["tool_calls"] += sum(c["tool_calls"] for c in own)
+            a["fault"] = a["fault"] or any(c["fault"] for c in own)
+            a["decisive"] = a["decisive"] or any(c["decisive"] for c in own)
+            for c in n["children"]:
+                if c["kind"] == "span":
+                    visit(c, n["agent"])
+    visit(h["tree"], None)
+    return {"nodes": list(nodes.values()), "edges": list(edges.values())}
+
+
+def blame(h: dict) -> Optional[dict]:
+    """Which agent, which step: the decisive step's agent, the span it
+    worked in, who delegated it, and how deep — the Who&When shape,
+    derived from the diagnosis's decisive step, not guessed."""
+    path: list = []
+
+    def find(n: dict, trail: list) -> Optional[dict]:
+        trail = trail + [n]
+        if n["kind"] == "step" and n["decisive"]:
+            return {"trail": trail}
+        for c in n["children"]:
+            hit = find(c, trail)
+            if hit:
+                return hit
+        return None
+    hit = find(h["tree"], path)
+    if not hit:
+        return None
+    trail = hit["trail"]
+    spans = [n for n in trail if n["kind"] in ("run", "span")]
+    step = trail[-1]
+    part = next((n for n in reversed(trail) if n["kind"] == "episode"), None)
+    agent_node = spans[-1]
+    delegator = spans[-2]["agent"] if len(spans) >= 2 else None
+    return {"agent": agent_node["agent"], "step": step["from"], "step_name": step["label"], "span": agent_node["key"],
+            "delegated_by": delegator, "depth": len(spans) - 1, "part": part["label"] if part else None,
+            "chain": [n["agent"] for n in spans],
+            "sentence": (f"responsible agent: {agent_node['agent']}"
+                         + (f", delegated by {delegator}" if delegator else " (the root agent)")
+                         + f"; decisive step {step['from']} ({step['label']})" + (f" in '{part['label']}'" if part else "")
+                         + (f", {len(spans) - 1} delegation(s) deep" if len(spans) > 1 else ""))}
+
+
+def graph_diff(ga: dict, gb: dict, labels=("a", "b")) -> dict:
+    """Two runs' delegation graphs, aligned by agent name: every node and
+    edge marked as in both, only in the first, or only in the second, with
+    the deltas — the diff of how two runs organised their work."""
+    # the two root agents are the same role under different names: aligned as "root"
+    def canon(g: dict):
+        root = next((n["agent"] for n in g["nodes"] if n.get("root")), None)
+        key = lambda name: "root" if name == root else name  # noqa: E731
+        return ({key(n["agent"]): n for n in g["nodes"]},
+                {f"{key(e['from'])}→{key(e['to'])}": dict(e, from_key=key(e["from"]), to_key=key(e["to"])) for e in g["edges"]})
+    na, ea = canon(ga)
+    nb, eb = canon(gb)
+    nodes = []
+    for agent in sorted(set(na) | set(nb), key=lambda k: (k != "root", k)):
+        a, b = na.get(agent), nb.get(agent)
+        nodes.append({"agent": agent, "in": "both" if a and b else labels[0] if a else labels[1], "a": a, "b": b,
+                      "delta": {k: round((b or {}).get(k, 0) - (a or {}).get(k, 0), 4) for k in ("delegations", "steps", "seconds", "wasted_s", "errors")} if a and b else None})
+    edges = []
+    for key in sorted(set(ea) | set(eb)):
+        a, b = ea.get(key), eb.get(key)
+        edges.append({"from": (a or b)["from_key"], "to": (a or b)["to_key"], "in": "both" if a and b else labels[0] if a else labels[1],
+                      "count_a": a["count"] if a else 0, "count_b": b["count"] if b else 0})
+    only_a = [n["agent"] for n in nodes if n["in"] == labels[0]]
+    only_b = [n["agent"] for n in nodes if n["in"] == labels[1]]
+    uneven = [e for e in edges if e["in"] == "both" and e["count_a"] != e["count_b"]]
+    return {"nodes": nodes, "edges": edges, "only_a": only_a, "only_b": only_b, "uneven": uneven,
+            "same_agents": not only_a and not only_b and all(e["in"] == "both" for e in edges),
+            "same_shape": not only_a and not only_b and all(e["in"] == "both" for e in edges) and not uneven}
+
+
 def _depth(n: dict) -> int:
     return 1 + max((_depth(c) for c in n.get("children") or []), default=0)
 
@@ -224,7 +320,23 @@ def horizon_pair(report: dict, a: Trajectory, b: Trajectory) -> dict:
         fault[side] = set(i for i in acc if isinstance(i, int))
     out = {"a": segment(a, reading.get("a"), fault_steps=fault["a"], decisive_step=dec.get("step") if subject == "a" else None),
            "b": segment(b, reading.get("b"), fault_steps=fault["b"], decisive_step=dec.get("step") if subject == "b" else None)}
+    for side in ("a", "b"):
+        out[side]["graph"] = delegation_graph(out[side])
+        out[side]["blame"] = blame(out[side])
+    out["diff"] = graph_diff(out["a"]["graph"], out["b"]["graph"], labels=(a.agent.name, b.agent.name))
+    d = out["diff"]
+    failing = subject if subject in ("a", "b") else None
+    bl = out[failing]["blame"] if failing else None
+    out["narrative"] = (
+        (f"{bl['sentence']}. " if bl else "")
+        + ("Both runs organised the work the same way: the same agents, the same delegations, the same number of times." if d["same_shape"]
+           else " ".join(x for x in [
+               "The same agents and delegations" + (", but" if d["uneven"] else ".") if d["same_agents"] else "",
+               f"Only {a.agent.name} used: {', '.join(d['only_a'])}." if d["only_a"] else "",
+               f"Only {b.agent.name} used: {', '.join(d['only_b'])}." if d["only_b"] else "",
+               (", ".join(f"{e['from']}→{e['to']} {e['count_a']}× in {a.agent.name} against {e['count_b']}× in {b.agent.name}" for e in d["uneven"]) + ".") if d["uneven"] else ""] if x))
+    ).strip()
     return out
 
 
-__all__ = ["segment", "horizon_pair"]
+__all__ = ["segment", "horizon_pair", "delegation_graph", "blame", "graph_diff"]

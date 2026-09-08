@@ -67,8 +67,12 @@ drawings:
   area is time, a wedge the wasted share, red the fault's path, a dashed
   pulsing ring a span still open. Click a node and the icicle zooms to it.
 
-Finished pairs get both from `report.horizon` (with the reading's parts
-and wasted seconds). Running agents get both from their steps alone
+A third drawing is the pair's *diff*: the two runs' delegation graphs
+aligned by agent — grey where both runs delegated, a run's colour where
+only it did, the count per side on every edge, and a ring on the agent
+the diagnosis blames (`horizon.blame`: which agent, which step, delegated
+by whom, how deep). Finished pairs get all three from `report.horizon`
+(with the reading's parts and wasted seconds). Running agents get both from their steps alone
 (`charts.spanTree` builds the same tree in the page as they stream);
 when the pair finishes, the story replaces them with the full analysis.
 `deepcompare watch --demo demo/horizon/traces` shows the multi-agent

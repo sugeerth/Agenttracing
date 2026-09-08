@@ -214,3 +214,63 @@ All of these are pure-stdlib and deterministic unless flagged.
   ([Cisco](https://blogs.cisco.com/news/cisco-announces-the-intent-to-acquire-galileo)).
 - **Do not add a database or a server process.** The static, dependency-free artifact is a feature
   in CI, air-gapped, and research contexts — it is why anyone would run this over a hosted tool.
+
+
+---
+
+## 7. Addendum, September 2026 — multi-agent and streaming traces: what exists, what was missing
+
+*Method as above: search summaries only; vendor pages were not fetchable from this session.*
+
+**What exists, and what each does well.**
+
+- **OpenTelemetry GenAI semantic conventions** are the common wire format: an `invoke_agent` span
+  holds `chat` spans for model calls and `execute_tool` spans for tools, and nested `invoke_agent`
+  spans are sub-agents ([OpenTelemetry blog](https://opentelemetry.io/blog/2026/genai-observability/),
+  [Greptime](https://greptime.com/blogs/2026-05-09-opentelemetry-genai-semantic-conventions),
+  [Uptrace](https://uptrace.dev/blog/opentelemetry-ai-systems)). Still experimental as of March 2026,
+  now covering agent orchestration and MCP tool calls
+  ([veraexmachina](https://veraexmachina.com/tech/opentelemetry-genai-agent-observability-production/)).
+  *Good:* one shape every tool can emit and read.
+- **Langfuse Agent Graphs** draw one trace two ways: an *aggregated* graph where steps sharing a
+  name merge into a node with a counter (`retrieve_docs (3/3)`) and a loop is a cycle, and an
+  *as-it-ran* graph where every call is its own node unrolled in execution order
+  ([Langfuse docs](https://langfuse.com/docs/observability/features/agent-graphs),
+  [changelog](https://langfuse.com/changelog/2025-02-14-trace-graph-view)). *Good:* the
+  aggregated view is the right summary of a long run.
+- **Arize Phoenix Agent Graph / Path Visualization** abstracts spans into a node graph of the
+  application flow ([Medium](https://medium.com/@ap3617180/debugging-agent-loops-bridging-the-observability-gap-with-arize-phoenix-de78cb093496));
+  **LangSmith** has native LangGraph graph views and a Studio for stepping through them
+  ([Latitude](https://latitude.so/blog/best-ai-agent-observability-tools-2026-comparison));
+  **AgentOps** does time-travel debugging over waterfall views with parent–child hierarchy
+  ([Galileo](https://galileo.ai/blog/best-agent-monitoring-tools-production)). *Good:* live capture,
+  waterfalls, replay of one run.
+- **Research on multi-agent failure attribution** frames the question as *which agent, which
+  step*: Who&When (184 annotated failures; the best released method found the agent 53.5% of the
+  time and the step 14.2%) ([arXiv 2505.00212](https://arxiv.org/pdf/2505.00212)), AgenTracer
+  (ICLR 2026; counterfactual replay with oracle guidance to find the decisive step)
+  ([arXiv 2509.03312](https://arxiv.org/pdf/2509.03312)), Who&When Pro (12,326 traces across 26
+  benchmarks) ([arXiv 2607.09996](https://arxiv.org/html/2607.09996v1)), TRAIL (joint accuracy as
+  low as 18.3% for top models) and cascade-failure attribution ([arXiv 2608.29646](https://arxiv.org/html/2608.29646v1)),
+  FALAT's dependency-guided search ([arXiv 2606.00765](https://arxiv.org/pdf/2606.00765)).
+  *Good:* the shape of the answer is settled — an agent and a step — and the benchmarks exist.
+
+**What was missing, and what this window built.**
+
+1. Every product's agent graph is a view of *one* run. None surfaced diffs two runs' delegation
+   graphs. AgentDiff now aligns the two runs' graphs by agent (the two roots as one role) and
+   reports every agent and every delegation as *in both*, *only A*, *only B*, with counts per side
+   and the uneven ones named — `horizon.diff`, the *diff* view of *Parts and sub-agents*.
+2. The research answer is *which agent, which step*; products stop at the span tree. AgentDiff's
+   diagnosis already names the step deterministically; `horizon.blame` now lifts it to the agent,
+   its delegator, its depth and its part, in the Who&When shape — read from the tree, never guessed.
+3. Streaming and delegation were two features everywhere else; here they are one tree of spans
+   (`charts.spanTree`), drawn as the icicle and as nodes-and-links while agents run and after.
+4. Delegation now enters from the OTel span tree: nested `invoke_agent` spans become SCHEMA
+   `step.span`, so Langfuse, Phoenix, LangSmith and OTLP exports feed the same views.
+
+**Honest limits.** The blame is only as right as the decisive step, which is a hypothesis until a
+replay flips the outcome; on Who&When-style logs without a passing twin the pairwise diagnoser
+cannot run at all (section 4 above). The graph diff aligns by agent *name*; two frameworks that
+name the same role differently need a mapping. Parallel sub-agents are read from OTel timestamps as
+sequential steps; a critical-path analysis over overlapping spans is the next thing to build.

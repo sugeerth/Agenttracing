@@ -25,6 +25,7 @@
       ".hz-axis-btn[aria-pressed=\"true\"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}",
       ".hz-key i{display:inline-block;width:10px;height:8px;border-radius:2px;vertical-align:-1px;margin:0 3px 0 8px}",
       ".hz-key i.w{background:repeating-linear-gradient(45deg,var(--bad) 0 1.5px,transparent 1.5px 4.5px)}.hz-key i.f{background:var(--bad)}.hz-key i.d{border:2px solid var(--bad);border-radius:50%;width:6px;height:6px}",
+      ".hz-narr{font-size:var(--fs-m);color:var(--ink);margin:8px 0 0;max-width:100ch}",
       ".hz-sum{font-size:var(--fs-s);color:var(--ink-2);margin:6px 0 0;display:grid;grid-template-columns:auto 1fr;gap:2px 8px;align-items:baseline}",
       ".hz-sum .who{font-weight:600;white-space:nowrap}.hz-sum .who i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:-1px}",
       ".hz-sum .what b{color:var(--ink);font-weight:600}",
@@ -94,7 +95,7 @@
         H("span", { text: "· click a part to zoom, a step to open" })]));
       // two drawings of one tree: the icicle (time along x) and the nodes-and-links (delegation as depth)
       var viewCtl = H("span", { class: "hz-axis", role: "group", "aria-label": "how to draw the tree" });
-      [["icicle", "the run over time, rows outward from the axis"], ["tree", "the run and its sub-agents as nodes and links"]].forEach(function (pair) {
+      [["icicle", "the run over time, rows outward from the axis"], ["tree", "the run and its sub-agents as nodes and links"], ["diff", "the two runs' delegation graphs aligned: who delegated to whom, how often, and what only one run did"]].forEach(function (pair) {
         var b = H("button", { type: "button", class: "hz-axis-btn view-" + pair[0], text: pair[0], title: pair[1], "aria-pressed": (HzView[taskKey] || "icicle") === pair[0] ? "true" : "false" });
         b.addEventListener("click", function () { HzView[taskKey] = pair[0]; AgentDiff._rerender ? AgentDiff._rerender() : null; });
         viewCtl.appendChild(b);
@@ -103,11 +104,15 @@
       var host = H("div", { class: "hz-chart" });
       var drawn = null;
       try {
-        drawn = (HzView[taskKey] || "icicle") === "tree"
+        var view = HzView[taskKey] || "icicle";
+        drawn = view === "tree"
           ? AgentDiff.charts.agentTree(host, hz, { key: "agent-tree:" + taskKey, onSelect: function (side, key) { HzView[taskKey] = "icicle"; AgentDiff.charts.horizonZoom.set(taskKey, side, key); AgentDiff._rerender ? AgentDiff._rerender() : null; } })
+          : view === "diff" && hz.diff
+          ? AgentDiff.charts.graphDiff(host, hz, { key: "graph-diff:" + taskKey, names: { a: name(report, "a"), b: name(report, "b") } })
           : AgentDiff.charts.horizon(host, ctx);
       } catch (err) { console.warn("AgentDiff horizon: chart failed", err); }
       if (drawn) el.appendChild(drawn);
+      if (hz.narrative) el.appendChild(H("p", { class: "hz-narr", text: hz.narrative }));
       var sum = H("div", { class: "hz-sum" });
       ["a", "b"].forEach(function (side) {
         var h = hz[side];

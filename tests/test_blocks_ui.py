@@ -4006,6 +4006,40 @@ class HorizonBlockTest(unittest.TestCase):
         self.assertEqual(errors, [])
         context.close()
 
+    def test_the_diff_view_aligns_the_two_delegation_graphs_and_rings_the_blamed_agent(self):
+        context = self.browser.new_context(viewport={"width": 1280, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view=story")
+        page.wait_for_timeout(900)
+        block = page.locator('#story-lane .block[data-block="horizon"]')
+        hz = self.report["horizon"]
+        self.assertIn(hz["narrative"][:60], block.locator(".hz-narr").text_content())
+        block.locator(".hz-axis-btn.view-diff").click()
+        page.wait_for_timeout(600)
+        block = page.locator('#story-lane .block[data-block="horizon"]')
+        svg = block.locator("svg.d3c-graph-diff")
+        self.assertEqual(svg.count(), 1)
+        diff = hz["diff"]
+        self.assertEqual(svg.locator("g.d3c-gd-node").count(), len(diff["nodes"]))
+        for n in diff["nodes"]:
+            node = svg.locator(f'g.d3c-gd-node[data-agent="{n["agent"]}"]')
+            self.assertEqual(node.get_attribute("data-in"), n["in"], n["agent"])
+        self.assertEqual(svg.locator("path.d3c-gd-link").count(), len(diff["nodes"]) - 1)
+        labels = svg.locator("text.d3c-gd-edge").all_text_contents()
+        for e in diff["edges"]:
+            self.assertIn(f"{e['count_a']} · {e['count_b']}", labels, f"{e['from']}→{e['to']}")
+        failing = self.report["diagnosis"]["subject"]
+        blamed = hz[failing]["blame"]["agent"]
+        ringed = svg.locator("g.d3c-gd-node.blamed")
+        self.assertEqual(ringed.count(), 1)
+        agent_key = "root" if blamed == self.report[failing]["agent"]["name"] else blamed
+        self.assertEqual(ringed.get_attribute("data-agent"), agent_key)
+        self.assertEqual(errors, [])
+        context.close()
+
     def test_the_same_tree_draws_as_nodes_and_links_and_a_node_click_zooms_the_icicle(self):
         context = self.browser.new_context(viewport={"width": 1280, "height": 900})
         page = context.new_page()

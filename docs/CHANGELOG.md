@@ -1689,6 +1689,23 @@ is reported as such.
   units, no window needed. `AgentDiff.charts.mode.{get,set,expand}`
   drives it from outside.
 
+- **The delegation graph, its diff, and agent-level blame** (`horizon.graph`,
+  `horizon.blame`, `horizon.diff`, `horizon.narrative`; the *diff* view of
+  *Parts and sub-agents*; OTel `invoke_agent` nesting → `step.span`). Per
+  run, the aggregated delegation graph — every agent once with its
+  delegations, steps, seconds, wasted seconds, errors; every delegation
+  edge with its count (what an agent framework's graph view shows for
+  one run). Across the pair, the graphs aligned by agent with the two
+  roots as one role: every node and edge *in both*, *only A* or *only B*,
+  counts per side, the uneven delegations named; drawn as one graph with
+  half-circles per run, dashed edges where only one run delegated, thick
+  where the counts differ, and a ring on the agent the diagnosis blames.
+  Blame is the decisive step lifted to its agent, delegator, depth and
+  part — the *which agent, which step* shape of the failure-attribution
+  benchmarks — read from the tree, never guessed. The OpenTelemetry
+  adapter turns nested `invoke_agent` spans into delegation spans, so
+  multi-agent traces exported from other tools feed the same views.
+  `docs/LANDSCAPE.md` §7 records what exists and what was missing.
 - **Streaming and multi-agent, one tree** (`charts.spanTree`,
   `charts.agentTree`, the *Running now* block, an icicle | tree switch
   on *Parts and sub-agents*). A run that streams and a run that
