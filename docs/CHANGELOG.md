@@ -2287,9 +2287,27 @@ Tests: `tests/test_blocks_ui.py::MapRedesignTest` (geometry as hero and
 in a column, no truncated names at 1440/390, keyboard select with focus
 survival, word diff, ×4 collapse on a synthetic loop).
 
-## The Panels view and the timing panels
+## The Panels view, the timing panels, and the quiet chrome
 
 UI only; the report contract is unchanged.
+
+- **Quiet chrome** (`web/blocks/_shell.html`, the closing "quiet" rules):
+  no borders anywhere. A block is a small uppercase label, its chart, and
+  air; tabs underline, chips and tags are tints, tables keep one hairline
+  under the header. The data colours (A, B, the fault's red) are the only
+  saturated ink. A block's question moves to its title's tooltip.
+- **Where the seconds went** (`web/blocks/21_heat.js`, id `treemap`): a
+  treemap per run on one scale — the longer run is the larger map — from
+  `report.horizon[side].tree` (sub-agents and parts as boxes, steps as
+  tiles, area = seconds) or, without a horizon, from `report.timing`
+  grouped by tool. Light tiles think, solid ones call a tool, hatched =
+  wasted, a red edge = the fault's path, the decisive step a heavier one.
+  Click a box to zoom into it (a way back appears), a tile to open the
+  step. The panels default opens with it: overview first, then the runs
+  over time, then the heat map, the latency strip and the matrix.
+- **The personal nudge**: when the page has recorded which block this
+  reader opens and keeps most and it is not in the grid, one chip offers
+  to add it first.
 
 - **Panels view** (`web/blocks/00_core.js`, `#view=panels`): a grid the
   reader composes from any block — move, widen, remove, one to three

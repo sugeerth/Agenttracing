@@ -4172,7 +4172,7 @@ class PanelsAndHeatTest(unittest.TestCase):
         self.assertTrue(page.locator("#story-lane").is_hidden())
         self.assertTrue(page.locator("#stacks").is_hidden())
         self.assertTrue(page.locator("#hero-lane").is_hidden() if page.locator("#hero-lane").count() else True)
-        self.assertEqual(self._ids(page), ["trace-body*", "heatmap", "tool-matrix", "latency-strip"])
+        self.assertEqual(self._ids(page), ["treemap*", "trace-body*", "heatmap", "latency-strip", "tool-matrix"])
         presets = page.locator("#panels-lane [data-preset]")
         self.assertEqual([presets.nth(i).get_attribute("data-preset") for i in range(presets.count())], ["time", "tools", "agents", "eval", "all", "used"])
         self.assertEqual(page.locator('#panels-lane [data-cols="2"]').get_attribute("aria-pressed"), "true")
@@ -4186,25 +4186,26 @@ class PanelsAndHeatTest(unittest.TestCase):
 
     def test_the_grid_is_the_readers_and_survives_a_reload(self):
         context, page, errors = self._open()
-        page.click('#panels-lane .panels-grid > [data-block="trace-body"] .panel-ctl button[title="remove this panel"]')
-        page.wait_for_timeout(300)
-        self.assertEqual(self._ids(page), ["heatmap", "tool-matrix", "latency-strip"])
+        for bid in ("trace-body", "treemap"):
+            page.click(f'#panels-lane .panels-grid > [data-block="{bid}"] .panel-ctl button[title="remove this panel"]')
+            page.wait_for_timeout(300)
+        self.assertEqual(self._ids(page), ["heatmap", "latency-strip", "tool-matrix"])
         page.click('#panels-lane [data-cols="3"]')
         page.wait_for_timeout(300)
         page.click("#panels-lane [data-picker] summary")
         page.wait_for_timeout(200)
         page.click('#panels-lane [data-add="time"]')
         page.wait_for_timeout(300)
-        self.assertEqual(self._ids(page), ["heatmap", "tool-matrix", "latency-strip", "time"])
+        self.assertEqual(self._ids(page), ["heatmap", "latency-strip", "tool-matrix", "time"])
         page.click('#panels-lane .panels-grid > [data-block="time"] .panel-ctl button[title="move left"]')
         page.wait_for_timeout(300)
         page.click('#panels-lane .panels-grid > [data-block="time"] .panel-ctl button[title="full width"]')
         page.wait_for_timeout(300)
-        self.assertEqual(self._ids(page), ["heatmap", "tool-matrix", "time*", "latency-strip"])
+        self.assertEqual(self._ids(page), ["heatmap", "latency-strip", "time*", "tool-matrix"])
         self.assertEqual(page.evaluate("() => getComputedStyle(document.querySelector('#panels-lane .panels-grid')).gridTemplateColumns.split(' ').length"), 3)
         page.reload()
         page.wait_for_timeout(900)
-        self.assertEqual(self._ids(page), ["heatmap", "tool-matrix", "time*", "latency-strip"])
+        self.assertEqual(self._ids(page), ["heatmap", "latency-strip", "time*", "tool-matrix"])
         self.assertEqual(page.locator('#panels-lane [data-cols="3"]').get_attribute("aria-pressed"), "true")
         page.click('#panels-lane [data-preset="tools"]')
         page.wait_for_timeout(300)
@@ -4261,5 +4262,54 @@ class PanelsAndHeatTest(unittest.TestCase):
         context, page, errors = self._open(width=390)
         self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), 392)
         self.assertEqual(page.evaluate("() => getComputedStyle(document.querySelector('#panels-lane .panels-grid')).gridTemplateColumns.split(' ').length"), 1)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_treemap_is_proportional_zooms_and_the_page_nudges_with_what_you_open(self):
+        context, page, errors = self._open()
+        hz = self.report["horizon"]
+        tmap = page.locator('#panels-lane [data-block="treemap"]')
+        self.assertEqual(tmap.locator("svg").get_attribute("role"), "img")
+        # both runs on one scale: widths in the ratio of their seconds
+        widths = page.evaluate("""() => Object.fromEntries([...document.querySelectorAll('#panels-lane [data-block="treemap"] .tmap-side')]
+            .map(g => [g.dataset.side, g.querySelector('.tmap-node') && g.getBBox().width]))""")
+        sa, sb = hz["a"]["tree"]["seconds"], hz["b"]["tree"]["seconds"]
+        self.assertAlmostEqual(widths["a"] / widths["b"], sa / sb, delta=0.08)
+        # one tile per step, one box per span or part, on each side
+        for side in ("a", "b"):
+            nodes = list(HorizonBlockTest._walk(hz[side]["tree"]))
+            self.assertEqual(tmap.locator(f'.tmap-node.leaf[data-side="{side}"]').count(), sum(1 for n in nodes if n["kind"] == "step"))
+            self.assertEqual(tmap.locator(f'.tmap-node.box[data-side="{side}"]').count(), sum(1 for n in nodes if n["kind"] in ("span", "episode")))
+            self.assertEqual(tmap.locator(f'.tmap-node.leaf[data-side="{side}"] rect.waste').count(), sum(1 for n in nodes if n["kind"] == "step" and n["wasted_s"]))
+        head = tmap.locator('.tmap-head').first.text_content()
+        self.assertIn(self.report["a"]["agent"]["name"], head)
+        # zoom into the first sub-agent box: its name heads the map, a way back appears
+        box = tmap.locator('.tmap-node.box[data-side="a"][data-kind="span"]').first
+        key = box.get_attribute("data-key")
+        span = next(n for n in HorizonBlockTest._walk(hz["a"]["tree"]) if n["key"] == key)
+        box.dispatch_event("click")
+        page.wait_for_timeout(400)
+        self.assertIn(span["agent"], tmap.locator('.tmap-head[data-side="a"], .tmap-side[data-side="a"] .tmap-head').first.text_content())
+        self.assertEqual(tmap.locator(".tmap-back").count(), 1)
+        tmap.locator(".tmap-back").click()
+        page.wait_for_timeout(400)
+        self.assertEqual(tmap.locator(".tmap-back").count(), 0)
+        # a tile opens its step in the shared inspector
+        tile = tmap.locator('.tmap-node.leaf[data-side="b"]').first
+        step = next(n for n in HorizonBlockTest._walk(hz["b"]["tree"]) if n["key"] == tile.get_attribute("data-key"))["from"]
+        tile.dispatch_event("click")
+        page.wait_for_timeout(300)
+        self.assertIn(f"STEP {step}", page.locator('#panels-lane [data-block="trace-body"] .tj-inspector').inner_text().upper())
+        # the nudge: no signals, no chip; a block this reader opens most, one chip that adds it first
+        self.assertEqual(page.locator("#panels-lane [data-suggest]").count(), 0)
+        page.evaluate("() => { AgentDiff._internals.State.signals['time'] = {weight: 40, count: 8, last: Date.now()}; AgentDiff._internals.renderAll(); }")
+        page.wait_for_timeout(300)
+        chip = page.locator("#panels-lane [data-suggest]")
+        self.assertEqual(chip.count(), 1)
+        self.assertEqual(chip.get_attribute("data-suggest"), "time")
+        chip.click()
+        page.wait_for_timeout(300)
+        self.assertEqual(self._ids(page)[0], "time")
+        self.assertEqual(page.locator("#panels-lane [data-suggest]").count(), 0)
         self.assertEqual(errors, [])
         context.close()

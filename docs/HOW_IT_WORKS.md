@@ -144,9 +144,16 @@ three columns; presets (*time*, *tools*, *agents*, *eval*, *all*) fill
 it in one click, and *what you use* fills it from the blocks the page
 has recorded the reader opening and starring most. The choice is kept
 in the browser, so a reader who wants the heat map beside the latency
-strip opens the page that way next time. Three panels were drawn for
-this view and stand as evidence too, all from `report.timing`:
+strip opens the page that way next time; when the page has seen which
+block a reader opens most, one chip offers to add it. Four panels were
+drawn for this view and stand as evidence too, ordered overview first:
 
+- **Where the seconds went** — a treemap per run, both on one scale, so
+  the run that took longer is the larger map; inside it sub-agents and
+  parts as boxes and every step a tile whose area is its seconds. Light
+  tiles think, solid ones call a tool, hatched means wasted, a red edge
+  marks the fault's path. The eye finds the big tile before reading a
+  number; a click on a box zooms into it, on a tile opens the step.
 - **Calls × time** — a heat map: one row per tool (by total seconds),
   then thinking and the answer; time in bins along the run; each cell
   split, A over B, darker for more seconds, hatched where those seconds
@@ -164,6 +171,9 @@ in the body chart's inspector.
 The design rule applied everywhere: one line of controls and key, one
 chart, one line per run saying what mattered, everything else behind a
 single fold. Every chart has a table view; tooltips enhance, never gate.
+The chrome is quiet: no borders, no boxes, a block is a small label and
+its chart with air around it, and the only saturated ink on the page is
+data — run A, run B, the fault's red — so the charts carry the eye.
 
 ## 5. The agentic loop
 

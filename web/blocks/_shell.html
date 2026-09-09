@@ -592,6 +592,48 @@ table.grid td.num, table.grid th.num { text-align: right; font-variant-numeric: 
 label.check { display: flex; gap: 8px; align-items: flex-start; font-size:var(--fs-s);
   color: var(--ink-2); margin: 8px 0; cursor: pointer; }
 label.check input { margin-top: 2px; }
+/* ---------- quiet: no borders anywhere, ink only where there is data ----------
+   Tufte's rule applied to the chrome: a block is a small label, its chart,
+   and air. Nothing is boxed; the data colours (A, B, the fault's red) are
+   the only saturated ink on the page, so they carry the eye. Details stay
+   one click away: a block's question is its title's tooltip, notes fold. */
+.block { background: transparent; border: 0; border-radius: 0; box-shadow: none; overflow: visible; }
+.block-head { background: transparent; border-bottom: 0; padding: 0 0 6px; }
+.block-title { font-size: var(--fs-xs); font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3); }
+.block-q { display: none; }
+.block-body { padding: 0; }
+.block.lead, .block.hero { border: 0; }
+.lead-lane .block-head { display: none; }
+.block.flash { outline: none; }
+.stacks { gap: 34px 40px; }
+.stack { gap: 34px; }
+.panels-grid { gap: 30px 40px; }
+.btn, .tstrip-nav, .task-picker, .tchip { border-color: transparent; background: transparent; }
+.btn:hover, .tchip:hover, .tstrip-nav:hover { border-color: transparent; background: var(--surface-2); }
+.seg { border: 0; background: transparent; }
+.seg .tab + .tab { border-left: 0; }
+.seg .tab[aria-selected="true"] { background: transparent; color: var(--ink); box-shadow: inset 0 -2px 0 var(--ink); border-radius: 0; }
+.panels-bar .grp { border-right: 0; padding-right: 8px; }
+.panels-bar .chip { border-color: transparent; background: var(--surface-2); }
+.panels-bar .chip.add { border: 1px dashed var(--rule-2); background: transparent; }
+.panels-bar .chip.suggest { background: transparent; color: var(--accent); border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent); }
+.tag { border-color: transparent; background: var(--surface-2); }
+table.grid th, table.grid td { border-bottom: 0; }
+table.grid tr:first-child th { border-bottom: 1px solid var(--rule); }
+.tm-matrix td { border-top: 0 !important; }
+.tj-inspector, .tj-pane, .tj-text, .tj-diff, .dx-verdict, .dx-decisive, .ax-row, .rd-validity, .tjm-wrap, .cx-part + .cx-part, .rd-table tr { border-color: transparent; box-shadow: none; }
+.tj-inspector { background: transparent; }
+.tj-pane, .tj-text { background: var(--surface-2); border-radius: 6px; }
+.step-chip { border-color: transparent; background: var(--surface-2); }
+.vc-src { display: none; }
+.caveat, .hm-note { color: var(--ink-3); }
+.hm-bar { color: var(--ink-3); }
+.tmap-crumbs:empty { display: none; }
+.tmap-crumbs { margin: 0 0 4px; }
+.tmap-back { font: inherit; font-size: var(--fs-xs); border: 0; background: var(--surface-2); color: var(--ink-2); border-radius: 999px; padding: 1px 8px; cursor: pointer; }
+.tmap-head { font-size: var(--fs-xs); font-weight: 700; letter-spacing: .04em; }
+.tmap-lab { font-size: var(--fs-xs); font-family: var(--mono); pointer-events: none; }
+.tmap-lab.leaf { font-weight: 600; }
 </style>
 </head>
 <body>

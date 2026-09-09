@@ -117,10 +117,11 @@ question, and every number on it can be pointed at.
 6. **The Agent loop** (Batch view) — if the loop ran: what it tried, kept
    and reverted, and why it stopped.
 
-7. **Your panels** (Panels view) — the grid you composed: the body chart
-   over the calls × time heat map, the tool matrix and latency by tool,
-   or whatever the room asks for; *what you use* fills it from the
-   blocks you open most, and the browser remembers it.
+7. **Your panels** (Panels view) — overview first: the two treemaps on
+   one scale settle "which run took longer, and on what" before a number
+   is read; then the body chart, the calls × time heat map, latency by
+   tool and the tool matrix, or whatever the room asks for; *what you
+   use* fills it from the blocks you open most, and the browser remembers.
 
 Everything has a table view, so a number can be read without hovering,
 and a page is a single file, so it can be sent afterwards.

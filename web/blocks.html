@@ -592,6 +592,48 @@ table.grid td.num, table.grid th.num { text-align: right; font-variant-numeric: 
 label.check { display: flex; gap: 8px; align-items: flex-start; font-size:var(--fs-s);
   color: var(--ink-2); margin: 8px 0; cursor: pointer; }
 label.check input { margin-top: 2px; }
+/* ---------- quiet: no borders anywhere, ink only where there is data ----------
+   Tufte's rule applied to the chrome: a block is a small label, its chart,
+   and air. Nothing is boxed; the data colours (A, B, the fault's red) are
+   the only saturated ink on the page, so they carry the eye. Details stay
+   one click away: a block's question is its title's tooltip, notes fold. */
+.block { background: transparent; border: 0; border-radius: 0; box-shadow: none; overflow: visible; }
+.block-head { background: transparent; border-bottom: 0; padding: 0 0 6px; }
+.block-title { font-size: var(--fs-xs); font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3); }
+.block-q { display: none; }
+.block-body { padding: 0; }
+.block.lead, .block.hero { border: 0; }
+.lead-lane .block-head { display: none; }
+.block.flash { outline: none; }
+.stacks { gap: 34px 40px; }
+.stack { gap: 34px; }
+.panels-grid { gap: 30px 40px; }
+.btn, .tstrip-nav, .task-picker, .tchip { border-color: transparent; background: transparent; }
+.btn:hover, .tchip:hover, .tstrip-nav:hover { border-color: transparent; background: var(--surface-2); }
+.seg { border: 0; background: transparent; }
+.seg .tab + .tab { border-left: 0; }
+.seg .tab[aria-selected="true"] { background: transparent; color: var(--ink); box-shadow: inset 0 -2px 0 var(--ink); border-radius: 0; }
+.panels-bar .grp { border-right: 0; padding-right: 8px; }
+.panels-bar .chip { border-color: transparent; background: var(--surface-2); }
+.panels-bar .chip.add { border: 1px dashed var(--rule-2); background: transparent; }
+.panels-bar .chip.suggest { background: transparent; color: var(--accent); border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent); }
+.tag { border-color: transparent; background: var(--surface-2); }
+table.grid th, table.grid td { border-bottom: 0; }
+table.grid tr:first-child th { border-bottom: 1px solid var(--rule); }
+.tm-matrix td { border-top: 0 !important; }
+.tj-inspector, .tj-pane, .tj-text, .tj-diff, .dx-verdict, .dx-decisive, .ax-row, .rd-validity, .tjm-wrap, .cx-part + .cx-part, .rd-table tr { border-color: transparent; box-shadow: none; }
+.tj-inspector { background: transparent; }
+.tj-pane, .tj-text { background: var(--surface-2); border-radius: 6px; }
+.step-chip { border-color: transparent; background: var(--surface-2); }
+.vc-src { display: none; }
+.caveat, .hm-note { color: var(--ink-3); }
+.hm-bar { color: var(--ink-3); }
+.tmap-crumbs:empty { display: none; }
+.tmap-crumbs { margin: 0 0 4px; }
+.tmap-back { font: inherit; font-size: var(--fs-xs); border: 0; background: var(--surface-2); color: var(--ink-2); border-radius: 999px; padding: 1px 8px; cursor: pointer; }
+.tmap-head { font-size: var(--fs-xs); font-weight: 700; letter-spacing: .04em; }
+.tmap-lab { font-size: var(--fs-xs); font-family: var(--mono); pointer-events: none; }
+.tmap-lab.leaf { font-weight: 600; }
 </style>
 </head>
 <body>
@@ -765,13 +807,14 @@ THIS SOFTWARE.
   };
   //: the panels view's presets: which blocks, in which order
   var PANEL_PRESETS = {
-    time: ["time", "heatmap", "latency-strip", "trace-body"],
+    time: ["treemap", "time", "heatmap", "latency-strip"],
     tools: ["tool-matrix", "heatmap", "latency-strip", "debug-session"],
-    agents: ["horizon", "trace-body", "debug-session", "tool-matrix"],
+    agents: ["treemap", "horizon", "trace-body", "tool-matrix"],
     eval: ["scorecard", "equality", "routing", "loop"],
-    all: ["trace-body", "time", "heatmap", "tool-matrix", "latency-strip", "horizon", "debug-session", "scorecard"],
+    all: ["treemap", "trace-body", "time", "heatmap", "latency-strip", "tool-matrix", "horizon", "debug-session", "scorecard"],
   };
-  var DEFAULT_PANELS = { ids: ["trace-body", "heatmap", "tool-matrix", "latency-strip"], wide: { "trace-body": true }, cols: 2 };
+  // overview first (area, then the runs over time), then the detail
+  var DEFAULT_PANELS = { ids: ["treemap", "trace-body", "heatmap", "latency-strip", "tool-matrix"], wide: { treemap: true, "trace-body": true }, cols: 2 };
   function stacksForView(view) {
     var groups = VIEW_GROUPS[view];
     if (!groups) return [];
@@ -1726,6 +1769,14 @@ THIS SOFTWARE.
         setPanels({ ids: ranked });
       } }));
     bar.appendChild(presets);
+    // the personal nudge: the block this reader opens most, when it is not here yet
+    var nowT = Date.now();
+    var top = available.filter(function (e) { return ids.indexOf(e.id) < 0 && interestScore(e.id, nowT) > 0; })
+      .sort(function (x, y) { return interestScore(y.id, nowT) - interestScore(x.id, nowT); })[0];
+    if (top) {
+      bar.appendChild(h("span", { class: "grp" }, [h("button", { class: "chip suggest", "data-suggest": top.id, text: "+ " + top.title + " · you open it most",
+        title: "add the block this page has seen you open and keep most often", onclick: function () { setPanels({ ids: [top.id].concat(ids) }); } })]));
+    }
     var colsGrp = h("span", { class: "grp" }, [h("span", { text: "columns" })]);
     [1, 2, 3].forEach(function (n) {
       colsGrp.appendChild(h("button", { class: "chip", "data-cols": n, text: String(n), "aria-pressed": p.cols === n ? "true" : "false", onclick: function () { setPanels({ cols: n }); } }));
@@ -1798,7 +1849,7 @@ THIS SOFTWARE.
       var body = h("div", { class: "block-body" });
       var card = h("div", { class: "block lead", "data-block": entry.id }, [
         h("div", { class: "block-head" }, [
-          h("div", { class: "block-title", text: entry.title }),
+          h("div", { class: "block-title", text: entry.title, title: entry.question || "" }),
           entry.question ? h("div", { class: "block-q", text: entry.question }) : null,
         ]),
         body,
@@ -3110,7 +3161,7 @@ THIS SOFTWARE.
       DEFAULT_HERO: DEFAULT_HERO,
       State: State, REGISTRY: REGISTRY, BY_ID: BY_ID, fmt: fmt, uuid: uuid,
       decay: decay, Store: Store, STACK_PLAN: STACK_PLAN,
-      TERMS: TERMS, Explain: Explain,
+      TERMS: TERMS, Explain: Explain, renderAll: renderAll, panelsState: panelsState,
     },
   };
 })(typeof window !== "undefined" ? window : this);
@@ -14938,7 +14989,10 @@ THIS SOFTWARE.
  *                  the line and B below, the mean as a tick — the spread,
  *                  not only the mean.
  *
- * All three read `report.timing` (seconds, category, wasted per step) and
+ *   treemap        where the seconds went as area: both runs on one scale,
+ *                  sub-agents and parts as boxes, steps as tiles; zoom.
+ *
+ * All four read `report.timing` (seconds, category, wasted per step) and
  * the steps themselves; every number is a count or a sum over the steps.
  */
 (function (global) {
@@ -15226,6 +15280,138 @@ THIS SOFTWARE.
       if (!(AgentDiff.charts && AgentDiff.charts.responsive)) drawStrip(host, report, tm, tip);
     },
   });
+
+  // ------------------------------------------------------------ treemap
+  //
+  // Where the seconds went, as area: both runs on one scale, so the run
+  // that took longer is the larger map; inside, sub-agents and parts as
+  // nested boxes, every step a tile whose area is its seconds. Overview
+  // first — a big tile is what the eye finds — then click a box to zoom.
+  var TmZoom = {};   // task+side → the node key zoomed into
+  function treeOf(report, side, tm) {
+    var hz = report && report.horizon && report.horizon[side];
+    if (hz && hz.tree) return hz.tree;
+    var steps = (tm && tm[side] && tm[side].steps) || [];
+    if (!steps.length) return null;
+    var groups = {}, order = [];
+    steps.forEach(function (r) {
+      var k = rowKey(r);
+      if (!groups[k]) { groups[k] = { kind: "group", key: "g:" + k, label: k, children: [], seconds: 0, wasted_s: 0 }; order.push(k); }
+      var g = groups[k];
+      g.children.push({ kind: "step", key: "step:" + r.index, label: r.name || r.type, type: r.type, from: r.index, seconds: r.latency_s || 0, wasted: r.wasted, wasted_label: r.wasted_label, wasted_s: r.wasted ? (r.latency_s || 0) : 0, fault: false, decisive: false });
+      g.seconds += r.latency_s || 0; if (r.wasted) g.wasted_s += r.latency_s || 0;
+    });
+    var kids = order.map(function (k) { return groups[k]; });
+    return { kind: "run", key: "run", label: name(report, side), children: kids, seconds: kids.reduce(function (s, g) { return s + g.seconds; }, 0), wasted_s: kids.reduce(function (s, g) { return s + g.wasted_s; }, 0) };
+  }
+  function findNode(node, key) {
+    if (!node) return null;
+    if (node.key === key) return node;
+    var kids = node.children || [];
+    for (var i = 0; i < kids.length; i++) { var f = findNode(kids[i], key); if (f) return f; }
+    return null;
+  }
+  function tileOpacity(d) {
+    var t = d.type || "";
+    return t === "answer" ? 1 : (t === "plan" || t === "reason" || t === "think") ? 0.38 : 0.8;
+  }
+  function drawTreemap(host, report, tm, tip, crumbs) {
+    if (!d3) return;
+    var W = Math.max(360, host.clientWidth || 640), Hh = 190, gap = 18, head = 16;
+    var task = report && report.task && report.task.id;
+    var sides = ["a", "b"].filter(function (s) { return treeOf(report, s, tm); });
+    if (!sides.length) return;
+    var roots = {}, secs_ = {};
+    sides.forEach(function (s) { roots[s] = treeOf(report, s, tm); secs_[s] = roots[s].seconds || 0; });
+    var totalS = sides.reduce(function (t, s) { return t + secs_[s]; }, 0) || 1;
+    var avail = W - gap * (sides.length - 1);
+    var svg = d3.select(host).append("svg").attr("viewBox", "0 0 " + W + " " + (Hh + head)).attr("role", "img")
+      .attr("aria-label", "where each run's seconds went, as area, both runs on one scale");
+    var defs = svg.append("defs");
+    var pat = defs.append("pattern").attr("id", "tm-hatch").attr("width", 5).attr("height", 5).attr("patternUnits", "userSpaceOnUse").attr("patternTransform", "rotate(45)");
+    pat.append("line").attr("x1", 0).attr("y1", 0).attr("x2", 0).attr("y2", 5).attr("stroke", "var(--bad)").attr("stroke-width", 1).attr("stroke-opacity", 0.5);
+    var x0 = 0;
+    crumbs.innerHTML = "";
+    sides.forEach(function (side) {
+      var zoomKey = TmZoom[task + ":" + side];
+      var zoomed = zoomKey ? findNode(roots[side], zoomKey) : null;
+      var w = sides.length === 1 ? avail : Math.max(70, Math.round(avail * secs_[side] / totalS));
+      if (zoomed) w = Math.max(w, Math.round(avail * 0.5));
+      var data = zoomed || roots[side];
+      var root = d3.hierarchy(data, function (d) { return d.children; }).sum(function (d) { return d.kind === "step" ? (d.seconds || 0) : 0; }).sort(function (p, q) { return q.value - p.value; });
+      d3.treemap().size([w, Hh]).paddingOuter(1.5).paddingInner(1.5)
+        .paddingTop(function (d) { return d.depth > 0 && d.children && labelled(d) ? 12 : 1.5; })(root);
+      // a box is labelled when it is a sub-agent, or a part large enough to read
+      function labelled(d) { return d.data.kind === "span" || d.depth === 1 || (d.x1 - d.x0 > 130 && d.y1 - d.y0 > 44); }
+      var g = svg.append("g").attr("class", "tmap-side").attr("data-side", side).attr("transform", "translate(" + x0 + ",0)");
+      // the run's line: name, seconds, wasted share — the overview in words
+      var wasted = data.wasted_s || 0;
+      g.append("text").attr("class", "tmap-head").attr("x", 0).attr("y", 10).attr("fill", color(side)).text(
+        (zoomed ? (data.label || data.agent || data.key) : name(report, side)) + " · " + secs(data.seconds || 0)
+        + (wasted && data.seconds ? " · " + Math.round(100 * wasted / data.seconds) + "% wasted" : ""));
+      var nodes = g.append("g").attr("transform", "translate(0," + head + ")");
+      root.descendants().forEach(function (d) {
+        if (d.depth === 0) return;
+        var dw = d.x1 - d.x0, dh = d.y1 - d.y0;
+        if (dw <= 0 || dh <= 0) return;
+        var leaf = !d.children;
+        var n = nodes.append("g").attr("class", "tmap-node" + (leaf ? " leaf" : " box")).attr("data-side", side).attr("data-kind", d.data.kind).attr("data-key", d.data.key)
+          .attr("transform", "translate(" + d.x0 + "," + d.y0 + ")").style("cursor", "pointer");
+        n.append("rect").attr("width", dw).attr("height", dh).attr("rx", leaf ? 1.5 : 2)
+          .attr("fill", leaf ? color(side) : "var(--surface-2)").attr("fill-opacity", leaf ? tileOpacity(d.data) : 0.55)
+          .attr("stroke", d.data.decisive && leaf ? "var(--bad)" : d.data.fault ? "var(--bad)" : "none").attr("stroke-width", d.data.decisive && leaf ? 2.2 : 1.2);
+        if (leaf && d.data.wasted_s > 0) n.append("rect").attr("class", "waste").attr("width", dw).attr("height", dh).attr("rx", 1.5).attr("fill", "url(#tm-hatch)").attr("pointer-events", "none");
+        var label = leaf ? (d.data.label || d.data.type || "") : (d.data.agent && d.data.kind === "span" ? d.data.agent : (d.data.label || d.data.key));
+        var fits = Math.floor((dw - 6) / 5.8);
+        if (leaf ? (dw >= 40 && dh >= 16) : (labelled(d) && dw > 40 && dh > 14)) {
+          n.append("text").attr("class", leaf ? "tmap-lab leaf" : "tmap-lab").attr("x", 3).attr("y", leaf ? Math.min(dh - 3, 10) : 9)
+            .attr("fill", leaf ? (tileOpacity(d.data) < 0.5 ? "var(--ink)" : "var(--bg)") : "var(--ink-2)").text(label.length > fits ? label.slice(0, Math.max(1, fits - 1)) + "…" : label);
+        }
+        n.on("pointermove", function (evt) {
+          tip.show(evt, [{ b: true, text: name(report, side) + " · " + (leaf ? "step " + d.data.from + " · " + label : (d.data.kind + " · " + label)) },
+            { text: secs(d.data.seconds || 0) + (d.data.wasted_s ? ", " + secs(d.data.wasted_s) + " wasted" : "") + (d.data.wasted_label ? " — " + d.data.wasted_label : "") + (d.data.fault ? " · on the fault's path" : "") + (d.data.decisive ? " · decisive" : "") },
+            leaf ? null : { text: "click to zoom in" }]);
+        }).on("pointerleave", tip.hide)
+          .on("click", function () {
+            if (leaf) { if (AgentDiff.charts && AgentDiff.charts.selectStep) AgentDiff.charts.selectStep(report, side, d.data.from); return; }
+            TmZoom[task + ":" + side] = d.data.key; redraw();
+          });
+      });
+      if (zoomed) {
+        var back = document.createElement("button"); back.className = "tmap-back"; back.setAttribute("data-side", side);
+        back.textContent = "‹ " + name(report, side) + " · whole run"; back.onclick = function () { delete TmZoom[task + ":" + side]; redraw(); };
+        crumbs.appendChild(back);
+      }
+      x0 += w + gap;
+    });
+    function redraw() { host.innerHTML = ""; drawTreemap(host, report, tm, tip, crumbs); }
+  }
+
+  AgentDiff.block({
+    id: "treemap",
+    title: "Where the seconds went",
+    question: "Which run took longer, and inside it, which sub-agent, part and step — area is seconds, both runs on one scale.",
+    group: "trajectory",
+    size: "wide",
+    relevance: function (ctx) { var tm = ctx.report && ctx.report.timing; return tm && ((tm.a && tm.a.measurable) || (tm.b && tm.b.measurable)) ? 0.75 : 0; },
+    render: function (el, ctx) {
+      ensureStyle();
+      var H = ctx.h, report = ctx.report, tm = report && report.timing;
+      if (!tm || !((tm.a && tm.a.measurable) || (tm.b && tm.b.measurable))) return ctx.empty(el, "No step latencies were recorded, so time cannot be placed.");
+      var root = H("div", { class: "hm" });
+      el.appendChild(root);
+      var tip = tooltip(root);
+      var crumbs = H("div", { class: "tmap-crumbs" });
+      root.appendChild(crumbs);
+      var host = H("div", { class: "hm-chart" });
+      root.appendChild(AgentDiff.charts && AgentDiff.charts.responsive ? AgentDiff.charts.responsive(host, function () { drawTreemap(host, report, tm, tip, crumbs); }) : host);
+      if (!(AgentDiff.charts && AgentDiff.charts.responsive)) drawTreemap(host, report, tm, tip, crumbs);
+      root.appendChild(H("div", { class: "hm-bar" }, [
+        H("span", { text: "area = seconds, on one scale for both runs · a box is a sub-agent or a part, a tile a step · light tiles think, solid ones call a tool · hatched = wasted · red edge = the fault's path · click a box to zoom, a tile to open the step" }),
+      ]));
+    },
+  });
+
 })(typeof window !== "undefined" ? window : this);
 
 </script>

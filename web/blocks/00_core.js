@@ -57,13 +57,14 @@
   };
   //: the panels view's presets: which blocks, in which order
   var PANEL_PRESETS = {
-    time: ["time", "heatmap", "latency-strip", "trace-body"],
+    time: ["treemap", "time", "heatmap", "latency-strip"],
     tools: ["tool-matrix", "heatmap", "latency-strip", "debug-session"],
-    agents: ["horizon", "trace-body", "debug-session", "tool-matrix"],
+    agents: ["treemap", "horizon", "trace-body", "tool-matrix"],
     eval: ["scorecard", "equality", "routing", "loop"],
-    all: ["trace-body", "time", "heatmap", "tool-matrix", "latency-strip", "horizon", "debug-session", "scorecard"],
+    all: ["treemap", "trace-body", "time", "heatmap", "latency-strip", "tool-matrix", "horizon", "debug-session", "scorecard"],
   };
-  var DEFAULT_PANELS = { ids: ["trace-body", "heatmap", "tool-matrix", "latency-strip"], wide: { "trace-body": true }, cols: 2 };
+  // overview first (area, then the runs over time), then the detail
+  var DEFAULT_PANELS = { ids: ["treemap", "trace-body", "heatmap", "latency-strip", "tool-matrix"], wide: { treemap: true, "trace-body": true }, cols: 2 };
   function stacksForView(view) {
     var groups = VIEW_GROUPS[view];
     if (!groups) return [];
@@ -1018,6 +1019,14 @@
         setPanels({ ids: ranked });
       } }));
     bar.appendChild(presets);
+    // the personal nudge: the block this reader opens most, when it is not here yet
+    var nowT = Date.now();
+    var top = available.filter(function (e) { return ids.indexOf(e.id) < 0 && interestScore(e.id, nowT) > 0; })
+      .sort(function (x, y) { return interestScore(y.id, nowT) - interestScore(x.id, nowT); })[0];
+    if (top) {
+      bar.appendChild(h("span", { class: "grp" }, [h("button", { class: "chip suggest", "data-suggest": top.id, text: "+ " + top.title + " · you open it most",
+        title: "add the block this page has seen you open and keep most often", onclick: function () { setPanels({ ids: [top.id].concat(ids) }); } })]));
+    }
     var colsGrp = h("span", { class: "grp" }, [h("span", { text: "columns" })]);
     [1, 2, 3].forEach(function (n) {
       colsGrp.appendChild(h("button", { class: "chip", "data-cols": n, text: String(n), "aria-pressed": p.cols === n ? "true" : "false", onclick: function () { setPanels({ cols: n }); } }));
@@ -1090,7 +1099,7 @@
       var body = h("div", { class: "block-body" });
       var card = h("div", { class: "block lead", "data-block": entry.id }, [
         h("div", { class: "block-head" }, [
-          h("div", { class: "block-title", text: entry.title }),
+          h("div", { class: "block-title", text: entry.title, title: entry.question || "" }),
           entry.question ? h("div", { class: "block-q", text: entry.question }) : null,
         ]),
         body,
@@ -2402,7 +2411,7 @@
       DEFAULT_HERO: DEFAULT_HERO,
       State: State, REGISTRY: REGISTRY, BY_ID: BY_ID, fmt: fmt, uuid: uuid,
       decay: decay, Store: Store, STACK_PLAN: STACK_PLAN,
-      TERMS: TERMS, Explain: Explain,
+      TERMS: TERMS, Explain: Explain, renderAll: renderAll, panelsState: panelsState,
     },
   };
 })(typeof window !== "undefined" ? window : this);
