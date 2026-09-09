@@ -4102,6 +4102,8 @@ class HorizonBlockTest(unittest.TestCase):
         context.close()
 
 
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
 class PanelsAndHeatTest(unittest.TestCase):
     """The Panels view: a grid the reader composes (presets, add, move,
     widen, remove, columns) that persists in the browser; and the three
