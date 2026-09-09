@@ -2287,6 +2287,40 @@ Tests: `tests/test_blocks_ui.py::MapRedesignTest` (geometry as hero and
 in a column, no truncated names at 1440/390, keyboard select with focus
 survival, word diff, ×4 collapse on a synthetic loop).
 
+## Predictable replay: cassettes, `rerun`, `context`, and the pipeline
+
+Harness and CLI; the report contract is unchanged. `docs/REPLAY.md` is
+the guide.
+
+- **Cassette** (`deepcompare/harness/cassette.py`): a recorded run's
+  tool results, keyed by the call as the agent made it (name and
+  canonical arguments; a raw search query keys as itself), replayed in
+  order; `cassette.tools()` serves them as harness tools without running
+  any tool code. A call the recording never made is a **miss**, kept for
+  the report; the policy (`strict` / `empty` / `live`) says what the
+  agent is told.
+- **`agentdiff rerun`** (`deepcompare/harness/rerun.py`): replays every
+  trace hermetically — the model's own turns and the cassette's world —
+  through the recorder and grader, and diffs it against the recording
+  (family, name, call, output, error per step; measurements ignored).
+  `--provider` drives a different model through the recorded world: the
+  first miss is where it departed. `faithful`, `first_divergence`,
+  `differences`, the cassette summary and both outcomes per trace;
+  `rerun.json`, JUnit, a Markdown summary, `::error` annotations; exit
+  1 on drift. Every shipped demo trace reproduces, and a test keeps it
+  so.
+- **`agentdiff context`** (`deepcompare/harness/context.py`): the
+  message list a model had before a step, rebuilt from the trace and
+  labelled as reconstruction; for a report and `--row`, both runs'
+  contexts at the aligned row and their unified diff.
+- **The drive loop** hands a tool an argument string the provider could
+  not parse verbatim, as one positional string, so a call is recorded as
+  the model made it.
+- **`.github/workflows/agentdiff.yml`**: engine tests; the replay job
+  (rerun over the shipped traces, a two-pass byte-identical report
+  check, the demo gate with SARIF); the browser suite. Every job is
+  hermetic.
+
 ## The Panels view, the timing panels, and the quiet chrome
 
 UI only; the report contract is unchanged.

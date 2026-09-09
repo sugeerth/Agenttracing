@@ -182,8 +182,14 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
                 result_text = f"error: no such tool {call.name!r}"
                 tool_errors += 1
             else:
+                # an argument string the provider could not parse is the
+                # call as the model made it: recorded verbatim, handed to
+                # the tool as one positional string
+                args = call.arguments
+                if isinstance(args, dict) and set(args) == {"_raw"}:
+                    args = str(args["_raw"])
                 try:
-                    result = recorder.tool(call.name, call.arguments,
+                    result = recorder.tool(call.name, args,
                                            call=tool.fn, effect=tool.effect)
                     result_text = _render_result(result)
                 except Exception as exc:

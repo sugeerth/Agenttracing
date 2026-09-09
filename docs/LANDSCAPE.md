@@ -205,7 +205,14 @@ All of these are pure-stdlib and deterministic unless flagged.
   owns reliability metrics. Integrate as a consumer of their logs instead.
 - **Do not build live re-execution/replay.** It requires an agent runtime and LLM spend, and Retrace
   already ships it ([retraceai.tech](https://retraceai.tech/)). AgentDiff's offline estimate is the
-  cheaper, complementary product.
+  cheaper, complementary product. *Addendum (2026-09):* hermetic replay is a different thing and is
+  built — `rerun` replays a recording from itself with the world served from a cassette, the
+  discipline Temporal's durable execution, VCR cassettes, Docker cagent's session recording and
+  langchain-replay share ([deterministic replay](https://tianpan.co/blog/2026-04-12-deterministic-replay-debugging-non-deterministic-ai-agents),
+  [cagent](https://www.docker.com/blog/deterministic-ai-testing-with-session-recording-in-cagent/),
+  [langchain-replay](https://github.com/sixty-north/langchain-replay)); Langfuse and LangSmith run
+  the same idea as CI gates ([experiment-action](https://github.com/langfuse/experiment-action)).
+  No LLM spend, no runtime: a trace is the fixture. See `docs/REPLAY.md`.
 - **Do not build a per-query router.** Not Diamond, Martian and RouteLLM own that category
   ([list](https://github.com/Not-Diamond/awesome-ai-model-routing)); stay on post-hoc portfolio
   analysis.

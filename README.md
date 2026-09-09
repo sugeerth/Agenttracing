@@ -93,6 +93,7 @@ testable offline, and the tests do exactly that.
 | what to fix first, and did the fix work | triage, `progress` | ranked actions with verification contracts, before/after matching |
 | whether the number can be trusted | `bench --strict` | the diagnoser's own benchmark with a leakage probe: the margin over a surface-cue detector is the headline |
 | N agents, selection, CI | `fleet`, `select`, `gate`, `experiments`, `variance` | rankings, interchangeability, a regression gate, variance attribution |
+| does the recording reproduce; what does the next model do in it; what did the model see | `rerun`, `rerun --provider`, `context` | hermetic replay with the world served from a cassette, the first miss named, a step-for-step diff, JUnit and annotations for CI; the context before any step, and the diff of two ([docs/REPLAY.md](docs/REPLAY.md)) |
 
 Every finding cites the step and field it rests on; abstention is an
 answer ("contested", "not estimable", "n=1; not a gain estimate");
@@ -124,8 +125,7 @@ not claim field accuracy.
 
 ```
 deepcompare/            the engine (no network code) — diagnosis, reasoning, verdict, statistics, …
-deepcompare/harness/    the ONE networked package: providers, tool-loop agent, external agents, replay
-deepcompare/commands/   the CLI commands that may talk to a network (run, replay, why)
+deepcompare/harness/    the ONE networked package: providers, tool-loop agent, cassette + hermetic rerun, replay; commands/ holds their CLI
 web/blocks/             the report page, one block per file; build with web/build_blocks.py
 demo/                   shipped traces (scripted agents), the diagnosis benchmark, the Who&When converter
 docs/                   RESEARCH_INSIGHTS.md, BENCHMARK.md, CHANGELOG.md, CITATIONS.md

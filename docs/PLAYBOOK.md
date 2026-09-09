@@ -128,6 +128,12 @@ and a page is a single file, so it can be sent afterwards.
 
 ## Taking it forward
 
+- **Replay before you believe**: `agentdiff rerun` proves a recording
+  reproduces from itself; `rerun --provider` puts the next model into
+  the recorded world and names the first call it makes that the old one
+  never made; `context --row` shows what each model saw where they
+  parted. The pipeline in `.github/workflows/agentdiff.yml` runs all of
+  it hermetically (`docs/REPLAY.md`).
 - **Time as a lever in the loop**: a prompt hypothesis that cuts wasted
   seconds without costing success is a keep; today the loop keeps on
   success alone.

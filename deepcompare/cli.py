@@ -60,7 +60,7 @@ from .variance import METRICS as VARIANCE_METRICS, variance_report
 #: default viewer template, relative to the repo root (parent of the package).
 from .commands.paths import DEFAULT_TEMPLATE, LEGACY_TEMPLATE  # noqa: E402
 from .commands.live import (  # noqa: E402
-    _cmd_judge, _cmd_loop, _cmd_replay, _cmd_run, _cmd_watch, _cmd_why, _load_report, _provider_options,
+    _cmd_context, _cmd_judge, _cmd_loop, _cmd_replay, _cmd_rerun, _cmd_run, _cmd_watch, _cmd_why, _load_report, _provider_options,
     _save_report, _split_spec,
 )
 #: template for the lightweight agent-selection view.
@@ -1887,6 +1887,42 @@ def build_parser() -> argparse.ArgumentParser:
                           help="write every replayed trace here")
     _provider_option_args(p_replay)
     p_replay.set_defaults(func=_cmd_replay)
+
+    p_rerun = sub.add_parser(
+        "rerun", help="replay recorded runs hermetically — the model's own turns and the recording's "
+                      "tool results, or a named model in the recorded world — and diff each against "
+                      "its recording; exit 1 on drift (no network unless --provider names a live one)")
+    p_rerun.add_argument("target", help="a trace file or a directory of traces")
+    p_rerun.add_argument("-o", "--output", default="out/rerun", help="output directory (default: out/rerun)")
+    p_rerun.add_argument("--provider", default=None, metavar="NAME=KIND:MODEL",
+                         help="drive this model through the recorded world instead of the recording's own turns")
+    p_rerun.add_argument("--tools", default=None, metavar="MODULE:ATTR",
+                         help="declared tools: schemas for the model, and the live fallback under --policy live")
+    p_rerun.add_argument("--policy", choices=["strict", "empty", "live"], default="strict",
+                         help="what a call the recording never made gets: an error naming the miss (strict, default), "
+                              "an empty result, or the declared tool run for real (live)")
+    p_rerun.add_argument("--traces", action="store_true", help="write every replayed trace under <output>/traces")
+    p_rerun.add_argument("--junit", nargs="?", const="junit.xml", default=None, help="write JUnit XML (default name: junit.xml)")
+    p_rerun.add_argument("--job-summary", nargs="?", const="rerun-summary.md", default=None,
+                         help="write the Markdown summary (default name: rerun-summary.md)")
+    p_rerun.add_argument("--github-annotations", action="store_true",
+                         help="print ::error workflow commands for drifted traces; append the summary to GITHUB_STEP_SUMMARY")
+    p_rerun.add_argument("--no-fail-on-drift", dest="fail_on_drift", action="store_false",
+                         help="exit 0 even when a trace drifted (report only)")
+    _provider_option_args(p_rerun)
+    p_rerun.set_defaults(func=_cmd_rerun)
+
+    p_context = sub.add_parser(
+        "context", help="print what the model saw before a step, rebuilt from the trace — or, for a "
+                        "report with --row, both runs' contexts at an aligned row and their diff")
+    p_context.add_argument("target", help="a trace file or a report_*.json")
+    p_context.add_argument("--step", type=int, default=None, help="the step (default: the report's decisive step)")
+    p_context.add_argument("--side", choices=["a", "b"], default=None, help="for a report: which run (default: the diagnosed side)")
+    p_context.add_argument("--row", type=int, default=None, help="for a report: an alignment row — both runs' contexts and their diff")
+    p_context.add_argument("--against", default=None, help="a second trace file to diff the context against")
+    p_context.add_argument("--against-step", type=int, default=None, help="the step in the second trace (default: the same step)")
+    p_context.add_argument("--diff-only", action="store_true", help="with --row: print only the diff")
+    p_context.set_defaults(func=_cmd_context)
 
     p_judge = sub.add_parser(
         "judge", help="a second model judges each trace's final answer (talks to a network unless "

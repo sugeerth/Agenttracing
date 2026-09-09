@@ -1,4 +1,6 @@
-"""The commands that may talk to a network: run, replay, why.
+"""The commands that may talk to a network: run, replay, why — and the
+hermetic replay commands, rerun and context, which load the harness
+but never a provider unless one is named.
 
 Every harness import happens inside the command function, so the
 analysis commands never load network code (pinned by
@@ -16,8 +18,8 @@ from typing import Optional
 from ..report import render_html
 from .paths import DEFAULT_TEMPLATE
 
-__all__ = ["_cmd_run", "_cmd_loop", "_cmd_replay", "_cmd_why", "_provider_options",
-           "_split_spec", "_load_report", "_save_report"]
+__all__ = ["_cmd_run", "_cmd_loop", "_cmd_replay", "_cmd_rerun", "_cmd_context", "_cmd_why",
+           "_provider_options", "_split_spec", "_load_report", "_save_report"]
 
 
 def _provider_options(args: argparse.Namespace) -> dict:
@@ -415,4 +417,120 @@ def _cmd_loop(args: argparse.Namespace) -> int:
         if a.get("runs"):
             print(f"  {agent}: success {a['success']:.0%} over {a['runs']} run(s) [{a['ci95'][0]:.2f}–{a['ci95'][1]:.2f}], "
                   f"prompt version {a['prompt_version']}")
+    return 0
+
+
+def _trace_paths(target: str) -> list:
+    path = Path(target)
+    if path.is_dir():
+        return sorted(p for p in path.glob("*.json")
+                      if not p.name.startswith(("report_", "aggregate", "rerun", "cassette", "loop", "manifest")))
+    if path.is_file():
+        return [path]
+    raise ValueError(f"{target} is neither a trace file nor a directory")
+
+
+def _cmd_rerun(args: argparse.Namespace) -> int:
+    """Replay recorded runs hermetically and diff each against its
+    recording: the model's own turns and the recording's tool results,
+    or a named model in the recorded world.  Exit 1 on any drift."""
+    from ..harness.rerun import rerun_paths, to_annotations, to_junit, to_markdown
+    from ..harness.runner import load_tools
+    provider = None
+    try:
+        paths = _trace_paths(args.target)
+        tools = load_tools(args.tools) if args.tools else None
+        if args.provider:
+            from ..harness import provider_from_spec
+            _name, spec = _split_spec(args.provider)
+            kind = spec.split(":", 1)[0].strip().lower()
+            provider = provider_from_spec(spec, **({} if kind == "scripted" else _provider_options(args)))
+        if not paths:
+            raise ValueError(f"no trace files under {args.target}")
+        out = Path(args.output)
+        out.mkdir(parents=True, exist_ok=True)
+        summary = rerun_paths(paths, provider=provider, tools=tools, policy=args.policy,
+                              out_dir=(out / "traces") if args.traces else None, keep_traces=False)
+    except (ValueError, OSError, ImportError, AttributeError, KeyError, TypeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    (out / "rerun.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8")
+    written = [out / "rerun.json"]
+    if args.junit:
+        (out / args.junit).write_text(to_junit(summary), encoding="utf-8"); written.append(out / args.junit)
+    if args.job_summary:
+        (out / args.job_summary).write_text(to_markdown(summary), encoding="utf-8"); written.append(out / args.job_summary)
+    if args.github_annotations:
+        print(to_annotations(summary), end="")
+        import os
+        step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+        if step_summary:
+            with open(step_summary, "a", encoding="utf-8") as handle:
+                handle.write(to_markdown(summary))
+    print(f"Replayed {summary['traces']} trace(s) hermetically ({summary['mode']}, policy {args.policy}): "
+          f"{summary['faithful']} reproduced, {summary['drifted']} drifted")
+    for r in summary["results"]:
+        print(("  ✓ " if r.get("faithful") else "  ✗ ") + str(r.get("reading") or ""))
+    print("  written: " + ", ".join(str(p) for p in written))
+    if summary["drifted"] and args.fail_on_drift:
+        return 1
+    return 0
+
+
+def _cmd_context(args: argparse.Namespace) -> int:
+    """Print what the model saw before a step, rebuilt from the trace;
+    with a report and --row, both runs' contexts at that aligned row and
+    their diff."""
+    from ..harness import context as ctx
+    path = Path(args.target)
+    if not path.is_file():
+        print(f"error: {path} is not a file", file=sys.stderr)
+        return 2
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"error: {path}: {exc}", file=sys.stderr)
+        return 2
+    is_report = isinstance(data, dict) and "alignment" in data and "a" in data and "b" in data
+    try:
+        if is_report and args.row is not None:
+            rows = data.get("alignment") or []
+            if not (0 <= args.row < len(rows)):
+                raise ValueError(f"row {args.row} is outside the alignment's {len(rows)} rows")
+            row = rows[args.row]
+            sides = {}
+            for side in ("a", "b"):
+                idx = row.get(f"{side}_index")
+                if idx is not None:
+                    sides[side] = int(idx)
+            traces = {s: {"agent": data[s]["agent"], "task": data["task"], "steps": data[s]["steps"]} for s in sides}
+            for side, idx in sides.items():
+                print(f"=== {traces[side]['agent']['name']} ({side}) before step {idx} — {json.dumps(ctx.summary(traces[side], idx))}")
+                if not args.diff_only:
+                    print(ctx.render(ctx.context_at(traces[side], idx)))
+            if len(sides) == 2:
+                print("=== diff")
+                print(ctx.diff(traces["a"], sides["a"], traces["b"], sides["b"]) or "(the two contexts are identical)\n")
+            return 0
+        if is_report:
+            side = args.side or (data.get("diagnosis") or {}).get("subject") or "a"
+            trace = {"agent": data[side]["agent"], "task": data["task"], "steps": data[side]["steps"]}
+        else:
+            trace = data
+        step = args.step
+        if step is None:
+            dec = ((data.get("diagnosis") or {}).get("decisive_step") or {}) if is_report else {}
+            step = dec.get("step")
+        if step is None:
+            raise ValueError("pass --step N (a report without a decisive step names none)")
+        print(f"=== {(trace.get('agent') or {}).get('name', '?')} before step {step} — {json.dumps(ctx.summary(trace, int(step)))}")
+        print(ctx.render(ctx.context_at(trace, int(step))))
+        if args.against:
+            other = json.loads(Path(args.against).read_text(encoding="utf-8"))
+            other_step = args.against_step if args.against_step is not None else int(step)
+            print("=== diff")
+            print(ctx.diff(trace, int(step), other, other_step) or "(the two contexts are identical)\n")
+    except (ValueError, KeyError, OSError, json.JSONDecodeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     return 0
