@@ -259,6 +259,7 @@
     });
   } catch (err) { /* no window */ }
   charts.responsive = responsive;
+  charts.selectStep = selectStep;
   /* A solid backing behind an SVG label, sized from its box, so a line
    * running underneath never shows through the spaces between words. */
   function backed(parent, textSel, fill, pad) {

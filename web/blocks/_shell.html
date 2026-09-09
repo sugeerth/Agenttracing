@@ -206,6 +206,29 @@ select.picker {
   max-width: 1240px; margin: 0 auto; box-sizing: border-box; }
 .story-lane[hidden] { display: none; }
 .story-lane > .block { width: 100%; }
+/* ---------- the panels view: a grid the reader composes ---------- */
+.panels-lane { padding: 12px 18px 60px; }
+.panels-lane[hidden] { display: none; }
+.panels-bar { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: var(--fs-xs); color: var(--ink-3); margin: 0 0 10px; }
+.panels-bar .grp { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; padding-right: 12px; border-right: 1px solid var(--rule); }
+.panels-bar details.grp { display: inline-block; }
+.panels-bar details.grp summary { cursor: pointer; list-style: none; color: var(--ink-2); }
+.panels-bar details.grp summary::-webkit-details-marker { display: none; }
+.panels-bar details.grp summary::after { content: " ▾"; }
+.panels-bar details.grp[open] summary::after { content: " ▴"; }
+.panels-bar details.grp .chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 0 2px; }
+.panels-bar .grp:last-child { border-right: 0; }
+.panels-bar .chip { font: inherit; font-size: var(--fs-xs); padding: 1px 8px; border: 1px solid var(--rule-2); border-radius: 999px; background: var(--surface); color: var(--ink-2); cursor: pointer; }
+.panels-bar .chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.panels-bar .chip.add { border-style: dashed; }
+.panels-grid { display: grid; grid-template-columns: repeat(var(--panel-cols, 2), minmax(0, 1fr)); gap: 12px; align-items: start; }
+.panels-grid .block { margin: 0; }
+.panels-grid .block.wide { grid-column: 1 / -1; }
+.panels-grid .block-body { max-height: none; }
+.panel-ctl { display: inline-flex; gap: 2px; margin-right: 4px; }
+.panel-ctl button { font: inherit; font-size: var(--fs-xs); border: 0; background: none; color: var(--ink-3); cursor: pointer; padding: 0 3px; }
+.panel-ctl button:hover { color: var(--ink); }
+@media (max-width: 760px) { .panels-grid { grid-template-columns: 1fr; } }
 /* ---------- the story view: one column, no chrome ----------
    In Story view the lanes are a single reading column. Blocks lose their
    card: no border, no shadow, no header bar — a small section label, the
@@ -580,6 +603,7 @@ label.check input { margin-top: 2px; }
     <button class="tab" role="tab" data-view="story" aria-selected="true" title="The story: verdict, map, reading, what to do">Story</button>
     <button class="tab" role="tab" data-view="evidence" aria-selected="false" title="Every block behind the verdict: hypotheses, alignment, process checks">Evidence</button>
     <button class="tab" role="tab" data-view="batch" aria-selected="false" title="Across all tasks: cost, issues, recommendations, variance">Batch</button>
+    <button class="tab" role="tab" data-view="panels" aria-selected="false" title="Your panels: pick the charts you want side by side; the page remembers them">Panels</button>
   </div>
   <button class="btn ghost" id="btn-cols" title="Columns">▥ 3</button>
   <button class="btn ghost" id="btn-theme" title="Theme">◐</button>
@@ -608,6 +632,9 @@ label.check input { margin-top: 2px; }
      at full width, in that order. Everything else stays in the columns
      below. Dashboard mode empties this lane and puts them back. -->
 <section class="story-lane" id="story-lane" aria-label="The story" hidden></section>
+<!-- The panels lane: the charts the reader chose, side by side, in the order
+     and width they chose; remembered per browser. -->
+<section class="panels-lane" id="panels-lane" aria-label="Your panels" hidden></section>
 
 <nav class="reading" id="reading" aria-label="Reading order"></nav>
 
@@ -631,7 +658,7 @@ label.check input { margin-top: 2px; }
   <div class="panel-body">
     <dl class="keys">
       <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>previous / next task</dd>
-      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>on the view tabs: Story · Evidence · Batch</dd>
+      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>on the view tabs: Story · Evidence · Batch · Panels</dd>
       <dt><kbd>Tab</kbd></dt><dd>reach a step on the map</dd>
       <dt><kbd>Enter</kbd> <kbd>Space</kbd></dt><dd>open the step under focus in the inspector</dd>
       <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>walk along one run</dd>

@@ -49,11 +49,21 @@
   //: per-task columns (outcome, trajectory, integrity). Batch: the
   //: cross-task columns (cost, signal, other) — they do not change with the
   //: task and do not deserve to scroll past on every task page.
-  var VIEWS = ["story", "evidence", "batch"];
+  var VIEWS = ["story", "evidence", "batch", "panels"];
   var VIEW_GROUPS = {
     evidence: ["outcome", "trajectory", "integrity"],
     batch: ["cost", "signal", "other"],
+    panels: [],
   };
+  //: the panels view's presets: which blocks, in which order
+  var PANEL_PRESETS = {
+    time: ["time", "heatmap", "latency-strip", "trace-body"],
+    tools: ["tool-matrix", "heatmap", "latency-strip", "debug-session"],
+    agents: ["horizon", "trace-body", "debug-session", "tool-matrix"],
+    eval: ["scorecard", "equality", "routing", "loop"],
+    all: ["trace-body", "time", "heatmap", "tool-matrix", "latency-strip", "horizon", "debug-session", "scorecard"],
+  };
+  var DEFAULT_PANELS = { ids: ["trace-body", "heatmap", "tool-matrix", "latency-strip"], wide: { "trace-body": true }, cols: 2 };
   function stacksForView(view) {
     var groups = VIEW_GROUPS[view];
     if (!groups) return [];
@@ -796,9 +806,10 @@
     renderHero(hero, ctx);
     renderStory(ctx, hero);
     renderReading(hero);
+    renderPanels(ctx);
 
     els.stacks.innerHTML = "";
-    var visibleStacks = stacksForView(State.prefs.view);
+    var visibleStacks = State.prefs.view === "panels" ? [] : stacksForView(State.prefs.view);
     els.stacks.hidden = visibleStacks.length === 0;
     els.stacks.setAttribute("data-cols", Math.min(State.layout.cols, Math.max(1, visibleStacks.length)));
     if (els.cols) els.cols.hidden = visibleStacks.length === 0;
@@ -960,6 +971,92 @@
     host.hidden = shown === 0;
   }
 
+  /* The panels view: the blocks the reader chose, side by side. A bar of
+   * presets and a picker of every block that has something to show for
+   * this task; each panel can move, widen, or go; the choice is kept in
+   * prefs (per browser), and "what you use" orders by the interest the
+   * page has recorded for each block. */
+  function panelsState() {
+    var p = State.prefs.panels;
+    if (!p || !Array.isArray(p.ids)) {
+      p = { ids: DEFAULT_PANELS.ids.slice(), wide: Object.assign({}, DEFAULT_PANELS.wide), cols: DEFAULT_PANELS.cols };
+      State.prefs.panels = p;
+    }
+    return p;
+  }
+  function setPanels(patch) {
+    var p = panelsState();
+    Object.keys(patch).forEach(function (k) { p[k] = patch[k]; });
+    savePrefs();
+    renderAll();
+  }
+  function renderPanels(ctx) {
+    var host = els.panels;
+    if (!host) return;
+    host.innerHTML = "";
+    if (State.prefs.view !== "panels") { host.hidden = true; return; }
+    host.hidden = false;
+    var p = panelsState();
+    var available = REGISTRY.filter(function (e) { return !e.lead && safeRelevance(e, ctx) > 0; });
+    var availableIds = available.map(function (e) { return e.id; });
+    var ids = p.ids.filter(function (id) { return BY_ID[id] && availableIds.indexOf(id) >= 0; });
+    var bar = h("div", { class: "panels-bar" });
+    var presets = h("span", { class: "grp" }, [h("span", { text: "presets" })]);
+    Object.keys(PANEL_PRESETS).forEach(function (name) {
+      var want = PANEL_PRESETS[name].filter(function (id) { return availableIds.indexOf(id) >= 0; });
+      if (!want.length) return;
+      var on = want.join(",") === ids.join(",");
+      presets.appendChild(h("button", { class: "chip", "data-preset": name, text: name, "aria-pressed": on ? "true" : "false",
+        onclick: function () { setPanels({ ids: want }); } }));
+    });
+    presets.appendChild(h("button", { class: "chip", "data-preset": "used", text: "what you use", title: "the blocks you open and keep, most used first",
+      onclick: function () {
+        var now = Date.now();
+        var ranked = available.slice().sort(function (x, y) { return interestScore(y.id, now) - interestScore(x.id, now); })
+          .filter(function (e) { return interestScore(e.id, now) > 0; }).slice(0, 6).map(function (e) { return e.id; });
+        if (!ranked.length) { toast("Nothing recorded yet — open and star a few blocks first"); return; }
+        setPanels({ ids: ranked });
+      } }));
+    bar.appendChild(presets);
+    var colsGrp = h("span", { class: "grp" }, [h("span", { text: "columns" })]);
+    [1, 2, 3].forEach(function (n) {
+      colsGrp.appendChild(h("button", { class: "chip", "data-cols": n, text: String(n), "aria-pressed": p.cols === n ? "true" : "false", onclick: function () { setPanels({ cols: n }); } }));
+    });
+    bar.appendChild(colsGrp);
+    var chips = h("div", { class: "chips" });
+    available.forEach(function (e) {
+      if (ids.indexOf(e.id) >= 0) return;
+      chips.appendChild(h("button", { class: "chip add", "data-add": e.id, text: e.title, title: e.question || "",
+        onclick: function () { setPanels({ ids: ids.concat([e.id]) }); } }));
+    });
+    if (chips.childNodes.length) {
+      var picker = h("details", { class: "grp", "data-picker": "1" }, [h("summary", { text: "add a panel (" + chips.childNodes.length + ")" }), chips]);
+      if (State.prefs.panelsPickerOpen) picker.open = true;
+      picker.addEventListener("toggle", function () { State.prefs.panelsPickerOpen = picker.open; savePrefs(); });
+      bar.appendChild(picker);
+    }
+    host.appendChild(bar);
+    var grid = h("div", { class: "panels-grid" });
+    grid.style.setProperty("--panel-cols", String(p.cols || 2));
+    if (!ids.length) {
+      grid.appendChild(h("div", { class: "empty", text: "No panels yet: pick a preset or add a block above." }));
+    }
+    ids.forEach(function (id, i) {
+      var card = renderBlock({ id: id, collapsed: false }, null, ctx, null);
+      if (p.wide && p.wide[id]) card.classList.add("wide");
+      var ctl = h("span", { class: "panel-ctl", role: "group", "aria-label": "panel controls" }, [
+        h("button", { text: "◀", title: "move left", disabled: i === 0 ? "disabled" : null, onclick: function (ev) { ev.stopPropagation(); var next = ids.slice(); next.splice(i, 1); next.splice(i - 1, 0, id); setPanels({ ids: next }); } }),
+        h("button", { text: "▶", title: "move right", disabled: i === ids.length - 1 ? "disabled" : null, onclick: function (ev) { ev.stopPropagation(); var next = ids.slice(); next.splice(i, 1); next.splice(i + 1, 0, id); setPanels({ ids: next }); } }),
+        h("button", { text: p.wide && p.wide[id] ? "⊟" : "⊞", title: p.wide && p.wide[id] ? "normal width" : "full width", onclick: function (ev) { ev.stopPropagation(); var wide = Object.assign({}, p.wide || {}); if (wide[id]) delete wide[id]; else wide[id] = true; setPanels({ wide: wide }); } }),
+        h("button", { text: "✕", title: "remove this panel", onclick: function (ev) { ev.stopPropagation(); setPanels({ ids: ids.filter(function (x) { return x !== id; }) }); } }),
+      ]);
+      var head = card.querySelector(".block-head");
+      if (head) head.insertBefore(ctl, head.firstChild);
+      grid.appendChild(card);
+    });
+    host.appendChild(grid);
+  }
+
   function removeFromLayoutKeepHidden(id) {
     State.layout.stacks.forEach(function (stack) {
       for (var i = stack.length - 1; i >= 0; i--) {
@@ -1039,7 +1136,8 @@
 
   function renderHero(hero, ctx) {
     els.hero.innerHTML = "";
-    if (!hero) {
+    // the panels view is the reader's own grid: no hero above it
+    if (!hero || State.prefs.view === "panels") {
       els.hero.hidden = true;
       return;
     }
@@ -1051,7 +1149,7 @@
     var host = els.reading;
     host.innerHTML = "";
     // the story lane IS the reading order; the strip guides the columns
-    if (!State.prefs.reading || State.prefs.view === "story") { host.hidden = true; return; }
+    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels") { host.hidden = true; return; }
     host.hidden = false;
     host.appendChild(h("span", { class: "lead", text: "Read in this order" }));
     if (hero) {
@@ -2050,7 +2148,7 @@
     // a view named in the URL (report.html#view=evidence) wins for this
     // load — a link can open the page on its evidence or its batch
     try {
-      var m = /(?:^|[#&])view=(story|evidence|batch)\b/.exec(global.location.hash || "");
+      var m = /(?:^|[#&])view=(story|evidence|batch|panels)\b/.exec(global.location.hash || "");
       if (m) State.prefs.view = m[1];
     } catch (err) { /* no location: keep the preference */ }
     State.signals = Store.get(key("signals")) || {};
@@ -2066,6 +2164,7 @@
       title: document.getElementById("page-title"),
       strip: document.getElementById("task-strip"),
       story: document.getElementById("story-lane"),
+      panels: document.getElementById("panels-lane"),
       tabs: document.getElementById("view-tabs"),
       reading: document.getElementById("reading"),
       picker: document.getElementById("task-picker"),

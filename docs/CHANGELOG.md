@@ -2287,6 +2287,27 @@ Tests: `tests/test_blocks_ui.py::MapRedesignTest` (geometry as hero and
 in a column, no truncated names at 1440/390, keyboard select with focus
 survival, word diff, ×4 collapse on a synthetic loop).
 
+## The Panels view and the timing panels
+
+UI only; the report contract is unchanged.
+
+- **Panels view** (`web/blocks/00_core.js`, `#view=panels`): a grid the
+  reader composes from any block — move, widen, remove, one to three
+  columns — with presets (*time*, *tools*, *agents*, *eval*, *all*) and
+  *what you use*, ranked by the page's recorded interest per block; kept
+  in prefs (`prefs.panels`: `ids`, `wide`, `cols`) per browser. The hero
+  and the reading strip stay out of this view.
+- **Calls × time** (`web/blocks/21_heat.js`, id `heatmap`): a heat map
+  from `report.timing` — rows per tool by seconds, then thinking and the
+  answer; time bins; each cell A over B, darker for more seconds, hatched
+  for the wasted share; row totals A · B.
+- **Tool matrix** (id `tool-matrix`): per tool, A over B: calls, seconds,
+  per call, wasted, errors, bars scaled to the larger of the pair.
+- **Latency by tool** (id `latency-strip`): one dot per call at its
+  latency, hollow when wasted, a tick at the mean, both runs per row.
+- `AgentDiff.charts.selectStep` is now exported, so any block can move
+  the shared step cursor.
+
 ## The reading on the page, graded rings, and a quiet first visit (v38)
 
 UI only; the report contract is unchanged.

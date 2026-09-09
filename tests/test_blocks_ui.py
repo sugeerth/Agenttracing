@@ -4100,3 +4100,166 @@ class HorizonBlockTest(unittest.TestCase):
         self.assertIn(agent["agent"], block.locator('.d3c-crumb[data-side="a"]').text_content())
         self.assertEqual(errors, [])
         context.close()
+
+
+class PanelsAndHeatTest(unittest.TestCase):
+    """The Panels view: a grid the reader composes (presets, add, move,
+    widen, remove, columns) that persists in the browser; and the three
+    comparison panels drawn from `report.timing` — calls × time heat map,
+    tool matrix, latency by tool — checked cell for cell against the JSON."""
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        if not (ROOT / "demo" / "horizon" / "traces" / "h01_release_report__orbit-v1.json").is_file():
+            subprocess.run([sys.executable, str(ROOT / "demo" / "horizon" / "generate_horizon.py")], cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "horizon" / "traces"), "-o", str(out),
+                        "--template", str(ROOT / "web" / "blocks.html")], cwd=str(ROOT), check=True, capture_output=True)
+        cls.page_path = out / "report.html"
+        cls.report = json.loads((out / "report_h01_release_report.json").read_text(encoding="utf-8"))
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    @staticmethod
+    def _row_key(r):
+        return r["name"] or "?" if r["category"] == "tool" else "the answer" if r["category"] == "answer" else "thinking"
+
+    def _rows(self):
+        tm = self.report["timing"]
+        totals = {}
+        for side in ("a", "b"):
+            for r in tm[side]["steps"]:
+                k = self._row_key(r)
+                totals[k] = totals.get(k, 0.0) + (r["latency_s"] or 0.0)
+        tools = sorted((k for k in totals if k not in ("thinking", "the answer")), key=lambda k: -totals[k])
+        if "thinking" in totals:
+            tools.append("thinking")
+        if "the answer" in totals:
+            tools.append("the answer")
+        return tools
+
+    def _open(self, width=1280):
+        context = self.browser.new_context(viewport={"width": width, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view=panels")
+        page.wait_for_timeout(900)
+        return context, page, errors
+
+    def _ids(self, page):
+        return page.evaluate("() => [...document.querySelectorAll('#panels-lane .panels-grid > [data-block]')].map(e => e.dataset.block + (e.classList.contains('wide') ? '*' : ''))")
+
+    def test_the_view_opens_from_the_url_with_its_default_grid_and_nothing_else(self):
+        context, page, errors = self._open()
+        self.assertEqual(page.locator('.tab[data-view="panels"]').get_attribute("aria-selected"), "true")
+        self.assertFalse(page.locator("#panels-lane").is_hidden())
+        self.assertTrue(page.locator("#story-lane").is_hidden())
+        self.assertTrue(page.locator("#stacks").is_hidden())
+        self.assertTrue(page.locator("#hero-lane").is_hidden() if page.locator("#hero-lane").count() else True)
+        self.assertEqual(self._ids(page), ["trace-body*", "heatmap", "tool-matrix", "latency-strip"])
+        presets = page.locator("#panels-lane [data-preset]")
+        self.assertEqual([presets.nth(i).get_attribute("data-preset") for i in range(presets.count())], ["time", "tools", "agents", "eval", "all", "used"])
+        self.assertEqual(page.locator('#panels-lane [data-cols="2"]').get_attribute("aria-pressed"), "true")
+        # every svg in the grid that is a chart carries a role and a label
+        for i in range(page.locator('#panels-lane [data-block="heatmap"] svg, #panels-lane [data-block="latency-strip"] svg').count()):
+            svg = page.locator('#panels-lane [data-block="heatmap"] svg, #panels-lane [data-block="latency-strip"] svg').nth(i)
+            self.assertEqual(svg.get_attribute("role"), "img")
+            self.assertTrue(svg.get_attribute("aria-label"))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_grid_is_the_readers_and_survives_a_reload(self):
+        context, page, errors = self._open()
+        page.click('#panels-lane .panels-grid > [data-block="trace-body"] .panel-ctl button[title="remove this panel"]')
+        page.wait_for_timeout(300)
+        self.assertEqual(self._ids(page), ["heatmap", "tool-matrix", "latency-strip"])
+        page.click('#panels-lane [data-cols="3"]')
+        page.wait_for_timeout(300)
+        page.click("#panels-lane [data-picker] summary")
+        page.wait_for_timeout(200)
+        page.click('#panels-lane [data-add="time"]')
+        page.wait_for_timeout(300)
+        self.assertEqual(self._ids(page), ["heatmap", "tool-matrix", "latency-strip", "time"])
+        page.click('#panels-lane .panels-grid > [data-block="time"] .panel-ctl button[title="move left"]')
+        page.wait_for_timeout(300)
+        page.click('#panels-lane .panels-grid > [data-block="time"] .panel-ctl button[title="full width"]')
+        page.wait_for_timeout(300)
+        self.assertEqual(self._ids(page), ["heatmap", "tool-matrix", "time*", "latency-strip"])
+        self.assertEqual(page.evaluate("() => getComputedStyle(document.querySelector('#panels-lane .panels-grid')).gridTemplateColumns.split(' ').length"), 3)
+        page.reload()
+        page.wait_for_timeout(900)
+        self.assertEqual(self._ids(page), ["heatmap", "tool-matrix", "time*", "latency-strip"])
+        self.assertEqual(page.locator('#panels-lane [data-cols="3"]').get_attribute("aria-pressed"), "true")
+        page.click('#panels-lane [data-preset="tools"]')
+        page.wait_for_timeout(300)
+        self.assertEqual(self._ids(page), ["tool-matrix", "heatmap", "latency-strip", "debug-session"])
+        self.assertEqual(page.locator('#panels-lane [data-preset="tools"]').get_attribute("aria-pressed"), "true")
+        # the same blocks stay ordinary evidence in the Evidence view
+        page.click('.tab[data-view="evidence"]')
+        page.wait_for_timeout(500)
+        ev = page.evaluate("() => [...document.querySelectorAll('#stacks [data-block]')].map(e => e.dataset.block)")
+        for bid in ("heatmap", "tool-matrix", "latency-strip"):
+            self.assertIn(bid, ev)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_heat_map_matrix_and_strip_agree_with_the_timing_json(self):
+        context, page, errors = self._open()
+        tm = self.report["timing"]
+        rows = self._rows()
+        heat = page.locator('#panels-lane [data-block="heatmap"] svg')
+        bins = int(heat.get_attribute("data-bins"))
+        self.assertGreaterEqual(bins, 8)
+        self.assertEqual(heat.locator("g.cell").count(), len(rows) * bins * 2)
+        # each row's cells sum to that row's seconds per side; the totals text agrees
+        for k in rows:
+            for side in ("a", "b"):
+                want = sum((r["latency_s"] or 0.0) for r in tm[side]["steps"] if self._row_key(r) == k)
+                got = page.evaluate("([k, s]) => [...document.querySelectorAll('#panels-lane [data-block=\"heatmap\"] g.cell[data-side=\"' + s + '\"]')].filter(e => e.dataset.row === k).reduce((a, e) => a + Number(e.dataset.seconds), 0)", [k, side])
+                self.assertAlmostEqual(got, want, places=2, msg=f"{k} {side}")
+            self.assertEqual(heat.locator(f'text.tot[data-row="{k}"]').count(), 1)
+        # the matrix: one row per key, calls and seconds A over B
+        matrix = page.locator('#panels-lane [data-block="tool-matrix"] table.tm-matrix')
+        got_rows = [matrix.locator("tr[data-tool]").nth(i).get_attribute("data-tool") for i in range(matrix.locator("tr[data-tool]").count())]
+        self.assertEqual(got_rows, rows)
+        for k in rows:
+            for side in ("a", "b"):
+                calls = [r for r in tm[side]["steps"] if self._row_key(r) == k]
+                cell = matrix.locator(f'tr[data-tool="{k}"] td[data-col="calls"] .pair span.{side}')
+                self.assertEqual(cell.text_content().strip(), str(len(calls)), f"{k} {side}")
+        # the strip: one dot per call, hollow when wasted
+        strip = page.locator('#panels-lane [data-block="latency-strip"] svg')
+        for side in ("a", "b"):
+            self.assertEqual(strip.locator(f'circle.call[data-side="{side}"]').count(), len(tm[side]["steps"]))
+            self.assertEqual(strip.locator(f'circle.call.wasted[data-side="{side}"]').count(), sum(1 for r in tm[side]["steps"] if r["wasted"]))
+        # a dot opens its step
+        first = strip.locator('circle.call[data-side="a"]').first
+        step = int(first.get_attribute("data-step"))
+        first.dispatch_event("click")
+        page.wait_for_timeout(300)
+        self.assertIn(f"step {step}".upper(), page.locator("#panels-lane").inner_text().upper())
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_nothing_overflows_on_a_phone(self):
+        context, page, errors = self._open(width=390)
+        self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), 392)
+        self.assertEqual(page.evaluate("() => getComputedStyle(document.querySelector('#panels-lane .panels-grid')).gridTemplateColumns.split(' ').length"), 1)
+        self.assertEqual(errors, [])
+        context.close()

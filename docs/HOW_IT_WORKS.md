@@ -103,7 +103,7 @@ scorecard (§6).
 ## 4. What the page draws, and how to read it
 
 The page is one file (`web/blocks.html`, built from `web/blocks/*.js`)
-with three views. The **Story** is a numbered sequence:
+with four views. The **Story** is a numbered sequence:
 
 1. **What happened** — the reading as charts.
 2. **Where the time went** — one strip per run along wall-clock, every
@@ -137,6 +137,29 @@ tool response, state, output values, replay).
 The **Evidence** view holds the map, the run lens and the debug session;
 the **Batch** view holds the cross-task blocks: the scorecard, output
 equality, routing, and the agent loop.
+
+The **Panels** view is the reader's own grid. Any block can be a panel;
+a panel moves, widens to the full row, or goes; the grid has one to
+three columns; presets (*time*, *tools*, *agents*, *eval*, *all*) fill
+it in one click, and *what you use* fills it from the blocks the page
+has recorded the reader opening and starring most. The choice is kept
+in the browser, so a reader who wants the heat map beside the latency
+strip opens the page that way next time. Three panels were drawn for
+this view and stand as evidence too, all from `report.timing`:
+
+- **Calls × time** — a heat map: one row per tool (by total seconds),
+  then thinking and the answer; time in bins along the run; each cell
+  split, A over B, darker for more seconds, hatched where those seconds
+  were wasted; row totals A · B at the right. Where one run spent its
+  time on which tool, and whether the other did, is read in one look.
+- **Tool matrix** — per tool, side by side: calls, seconds, per call,
+  wasted, errors, each cell A over B with a bar scaled to the larger.
+- **Latency by tool** — every call as a dot at its latency, A above the
+  line, B below, hollow when wasted, a tick at the mean: the spread of
+  a tool's latency, not only its mean, and the outlier that cost the run.
+
+A click on a cell or a dot moves the shared cursor, so the step opens
+in the body chart's inspector.
 
 The design rule applied everywhere: one line of controls and key, one
 chart, one line per run saying what mattered, everything else behind a
