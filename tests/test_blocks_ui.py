@@ -37,12 +37,27 @@ except ImportError:
 
 
 def find_chromium():
-    """A Chromium the installed Playwright can actually launch."""
-    base = Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "/opt/pw-browsers"))
-    if base.is_dir():
-        for candidate in sorted(base.glob("chromium-*/chrome-linux/chrome")):
-            if candidate.is_file():
-                return str(candidate)
+    """A Chromium the installed Playwright can actually launch: the
+    browsers path this environment names, then Playwright's own cache
+    (a CI runner after `playwright install chromium`), then whatever
+    Playwright itself says it would launch."""
+    bases = [Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "/opt/pw-browsers")),
+             Path.home() / ".cache" / "ms-playwright", Path.home() / "Library" / "Caches" / "ms-playwright"]
+    for base in bases:
+        if not base.is_dir():
+            continue
+        for pattern in ("chromium-*/chrome-linux/chrome", "chromium-*/chrome-linux64/chrome",
+                        "chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium"):
+            for candidate in sorted(base.glob(pattern)):
+                if candidate.is_file():
+                    return str(candidate)
+    try:
+        with sync_playwright() as p:
+            path = p.chromium.executable_path
+            if path and Path(path).is_file():
+                return path
+    except Exception:
+        pass
     return None
 
 
