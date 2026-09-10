@@ -37,11 +37,14 @@
       if (!report) return ctx.empty(el, "No report loaded.");
       var n = stepsOf(report, "a").length + stepsOf(report, "b").length;
       if (!n) return ctx.empty(el, "Neither run recorded a step, so there is nothing to branch.");
+      var long = stepsOf(report, "a").length > 80 || stepsOf(report, "b").length > 80;
       el.appendChild(ctx.h("p", {
         class: "tt-lede",
         text: "One tree for the pair: the task at the root, each run a branch, the reading's phases, their steps, " +
               "and the answer values a step first produced. Red links follow the fault; dashed links are dead ends. " +
-              "Click a phase to fold it, a step to open it.",
+              "Click a phase to fold it, a step to open it." +
+              (long ? " A long run: stretches that carry nothing notable start folded into capsules (×N steps, the dominant tool); " +
+                      "what carries the fault, the decisive step, an error or an answer stays open. Click a capsule to open it." : ""),
       }));
       var host = ctx.h("div", { class: "tt-chart" });
       var narrow = false;

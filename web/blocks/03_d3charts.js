@@ -140,6 +140,7 @@
       ".d3c .d3c-tnode.branch.collapsed .d3c-tlabel{fill:var(--ink-3)}",
       ".d3c .d3c-tlabel{font-family:var(--sans)}",
       ".d3c .d3c-tlabel.mono{font-family:var(--mono)}",
+      ".d3c-tree-chips .d3c-tshown{font-family:var(--mono);color:var(--ink-2)}",
       "body[data-view=\"story\"] .d3c-list li.on{background:transparent;box-shadow:inset 3px 0 0 var(--accent)}",
       "@media (max-width:480px){.d3c-list li{grid-template-columns:20px 1fr}",
       ".d3c-list .what{display:none}.d3c-list li[data-n]:hover .what,.d3c-list li[data-n]:focus-within .what{display:block}",
@@ -1549,11 +1550,55 @@
    * the shared cursor; a value selects the step that produced it.
    * Nothing is derived: the hierarchy is the reading's phases, the roles
    * are the reading's roles, the values are `rests_on` as written. */
-  var TreeState = {};   // per task: which node keys are collapsed
+  /* Fold state, per task, so the page's re-render keeps it: which phases
+   * are folded, which page each long phase shows, which capsules a
+   * reader opened, which phases they opened in full, and "open all". */
+  var TreeState = {};
+  var TREE_LONG = 80;   // a run past this many steps folds its quiet stretches into capsules
+  var TOOL_TYPES = { tool_call: true, search: true, retrieve: true, read: true };   // the body chart's "branch" steps
+  function treeState(taskKey) {
+    var s = TreeState[taskKey] = TreeState[taskKey] || {};
+    s.collapsed = s.collapsed || {}; s.pages = s.pages || {}; s.opened = s.opened || {}; s.full = s.full || {};
+    s.all = s.all === true;
+    return s;
+  }
+  charts.treeState = treeState;
 
-  function treeData(report, pages, dec) {
+  /* What a step carries that must stay in view when a long run folds:
+   * a place on the fault's path (the attribution chain and its root
+   * cause), the decisive step, an error, the answer, or the first
+   * appearance of an answer value — the anchors the body chart's
+   * capsules never swallow either. The causal account's "carried the
+   * fault forward" steps are not anchors: on a long run they number in
+   * the hundreds, and their red links still read through the capsules
+   * that hold them. */
+  function notableSteps(report, side, dec) {
+    var out = {};
+    var attr = report && report.attribution;
+    if (attr && attr.failed_agent === side) {
+      (Array.isArray(attr.chain) ? attr.chain : []).forEach(function (i) { if (isNum(i)) out[i] = "fault"; });
+      if (isNum(attr.root_cause_step)) out[attr.root_cause_step] = "fault";
+    }
+    if (dec && dec.side === side) out[dec.step] = out[dec.step] || "decisive";
+    var reading = readingOf(report, side);
+    ((reading && reading.what_happened) || []).forEach(function (w) {
+      if (w && isNum(w.step) && w.role === "answer") out[w.step] = out[w.step] || "answer";
+    });
+    (reading && Array.isArray(reading.rests_on) ? reading.rests_on : []).forEach(function (r) {
+      if (r && isNum(r.first_step)) out[r.first_step] = out[r.first_step] || "value";
+    });
+    stepsOf(report, side).forEach(function (st, i) {
+      if (!st) return;
+      if (st.error === true) out[i] = out[i] || "error";
+      else if (st.type === "answer") out[i] = out[i] || "answer";
+    });
+    return out;
+  }
+
+  function treeData(report, dec, opts) {
     var task = report && report.task ? report.task : {};
-    pages = pages || {};
+    var state = opts.state, long = opts.long, all = state.all, fault = opts.fault || {};
+    var pages = state.pages;
     var runs = ["a", "b"].map(function (side) {
       var reading = readingOf(report, side);
       var steps = stepsOf(report, side);
@@ -1564,6 +1609,7 @@
       var phases = reading && Array.isArray(reading.phases) && reading.phases.length
         ? reading.phases
         : [{ intent: "steps", steps: steps.map(function (s, i) { return i; }), summary: steps.length + " steps" }];
+      var notable = long ? notableSteps(report, side, dec) : {};
       var stepNode = function (i) {
         var st = steps[i];
         if (!st) return null;
@@ -1578,32 +1624,93 @@
                  error: st.error === true, quality: st.quality || null, invented: !!w.invented_argument,
                  excerpt: truncate(st.output || st.input || "", 140), children: values.length ? values : null };
       };
+      var wastedStep = function (i) {
+        var role = what[i] && what[i].role;
+        return role === "dead_end" || role === "no_information" || role === "repeat" || role === "error" || (steps[i] && steps[i].error === true);
+      };
+      // what a capsule holds, in the body chart's words: how many steps,
+      // the dominant tool, how many thoughts, how many were wasted, and
+      // whether the fault runs through it
+      var summarise = function (idx) {
+        var tools = {}, thoughts = 0, wasted = 0, red = 0;
+        idx.forEach(function (i) {
+          var st = steps[i];
+          if (!st) return;
+          if (TOOL_TYPES[st.type]) tools[st.name || st.type] = (tools[st.name || st.type] || 0) + 1; else thoughts++;
+          if (wastedStep(i)) wasted++;
+          if (fault[side] && fault[side][i]) red++;
+        });
+        var top = Object.keys(tools).sort(function (a, b) { return tools[b] - tools[a]; })[0] || null;
+        return { tools: tools, top: top, topCount: top ? tools[top] : 0, thoughts: thoughts, wasted: wasted, fault: red };
+      };
+      var indexOf = function (ph) { return (ph.steps || []).filter(function (i) { return isNum(i) && i < steps.length; }); };
+      var phaseNode = function (ph, pi, isNotable) {
+        var idx = indexOf(ph);
+        var key = side + ":p:" + pi;
+        var kids;
+        // on a long run a phase that carries something notable starts
+        // open on just that: its notable steps, the quiet ones folded
+        // behind the count until the phase is opened in full
+        var partial = long && !all && isNotable && !state.full[key] && idx.some(function (i) { return !notable[i]; });
+        if (partial) {
+          kids = idx.filter(function (i) { return notable[i]; }).map(stepNode).filter(Boolean);
+        } else if (idx.length > TREE_PAGE && !all) {
+          // a long phase shows one page at a time: the page around the
+          // decisive step when it holds one, else the first; "more"
+          // nodes at either end page it
+          var page = pages[key];
+          if (!page) {
+            var at = dec && dec.side === side ? idx.indexOf(dec.step) : -1;
+            var from = at >= 0 ? Math.max(0, at - Math.floor(TREE_PAGE / 2)) : 0;
+            page = pages[key] = { from: from, to: Math.min(idx.length, from + TREE_PAGE) };
+          }
+          kids = idx.slice(page.from, page.to).map(stepNode).filter(Boolean);
+          if (page.from > 0) kids.unshift({ kind: "more", key: key + ":before", side: side, phase: key, dir: -1, count: page.from });
+          if (page.to < idx.length) kids.push({ kind: "more", key: key + ":after", side: side, phase: key, dir: 1, count: idx.length - page.to });
+        } else {
+          kids = idx.map(stepNode).filter(Boolean);
+        }
+        return { kind: "phase", key: key, side: side, intent: ph.intent || "phase",
+                 summary: ph.summary || "", count: idx.length, quiet: long && !isNotable,
+                 partial: partial, shown: partial ? kids.length : idx.length, children: kids };
+      };
+      var kids;
+      if (!long || all) {
+        kids = phases.map(function (ph, pi) { return phaseNode(ph, pi, true); });
+      } else {
+        // a long run: a stretch of consecutive quiet phases folds into
+        // one capsule; a quiet phase longer than a page keeps its own
+        // (folded) row, since it pages when opened rather than bursting
+        kids = [];
+        var run = null;
+        var flush = function () {
+          if (!run) return;
+          var ckey = side + ":c:" + run.from + ":" + run.to;
+          if (state.opened[ckey]) {
+            run.phases.forEach(function (p) { kids.push(phaseNode(p.ph, p.pi, false)); });
+          } else {
+            var idx = [], intents = {};
+            run.phases.forEach(function (p) { idx = idx.concat(p.idx); intents[p.ph.intent || "phase"] = (intents[p.ph.intent || "phase"] || 0) + 1; });
+            var s = summarise(idx);
+            kids.push({ kind: "capsule", key: ckey, side: side, count: idx.length, phases: run.phases.length, intents: intents,
+                        tools: s.tools, top: s.top, topCount: s.topCount, thoughts: s.thoughts, wasted: s.wasted, fault: s.fault,
+                        from: idx[0], to: idx[idx.length - 1] });
+          }
+          run = null;
+        };
+        phases.forEach(function (ph, pi) {
+          var idx = indexOf(ph);
+          var isNotable = idx.some(function (i) { return notable[i]; });
+          if (isNotable || idx.length > TREE_PAGE) { flush(); kids.push(phaseNode(ph, pi, isNotable)); return; }
+          if (!run) run = { from: pi, to: pi, phases: [] };
+          run.to = pi;
+          run.phases.push({ ph: ph, pi: pi, idx: idx });
+        });
+        flush();
+      }
       return {
         kind: "run", key: side + ":run", side: side, name: agentName(report, side),
-        success: outcome.success === true, steps: steps.length,
-        children: phases.map(function (ph, pi) {
-          var idx = (ph.steps || []).filter(function (i) { return isNum(i) && i < steps.length; });
-          var key = side + ":p:" + pi;
-          var kids;
-          if (idx.length > TREE_PAGE) {
-            // a long phase shows one page at a time: the page around the
-            // decisive step when it holds one, else the first; "more"
-            // nodes at either end page it
-            var page = pages[key];
-            if (!page) {
-              var at = dec && dec.side === side ? idx.indexOf(dec.step) : -1;
-              var from = at >= 0 ? Math.max(0, at - Math.floor(TREE_PAGE / 2)) : 0;
-              page = pages[key] = { from: from, to: Math.min(idx.length, from + TREE_PAGE) };
-            }
-            kids = idx.slice(page.from, page.to).map(stepNode).filter(Boolean);
-            if (page.from > 0) kids.unshift({ kind: "more", key: key + ":before", side: side, phase: key, dir: -1, count: page.from });
-            if (page.to < idx.length) kids.push({ kind: "more", key: key + ":after", side: side, phase: key, dir: 1, count: idx.length - page.to });
-          } else {
-            kids = idx.map(stepNode).filter(Boolean);
-          }
-          return { kind: "phase", key: key, side: side, intent: ph.intent || "phase",
-                   summary: ph.summary || "", count: idx.length, children: kids };
-        }),
+        success: outcome.success === true, steps: steps.length, children: kids,
       };
     });
     return { kind: "task", key: "task", name: task.id || "task", prompt: task.prompt || "", children: runs };
@@ -1638,9 +1745,35 @@
     var dec = decisiveOf(report);
     var fault = faultPath(report);
     var taskKey = report.task && report.task.id ? report.task.id : "task";
-    var tstate = TreeState[taskKey] = TreeState[taskKey] || { collapsed: {}, pages: {} };
+    var tstate = treeState(taskKey);
     var collapsed = tstate.collapsed, pages = tstate.pages;
-    var data = treeData(report, pages, dec);
+    var total = stepsOf(report, "a").length + stepsOf(report, "b").length;
+    var long = stepsOf(report, "a").length > TREE_LONG || stepsOf(report, "b").length > TREE_LONG;
+    var all = long && tstate.all;
+    var data = treeData(report, dec, { state: tstate, long: long, fault: fault });
+    var treeKey = "tree:" + taskKey;
+    var shownEl = null;
+    if (long) {
+      // the chips: open every step, or fold the quiet stretches back
+      var bar = document.createElement("div");
+      bar.className = "d3c-toolbar d3c-tree-chips";
+      [["open-all", "open all", all], ["fold-quiet", "fold quiet", !all]].forEach(function (spec) {
+        var b = document.createElement("button");
+        b.type = "button"; b.className = "d3c-tb"; b.textContent = spec[1];
+        b.setAttribute("data-act", spec[0]); b.setAttribute("aria-pressed", spec[2] ? "true" : "false");
+        b.addEventListener("click", function () {
+          tstate.all = spec[0] === "open-all";
+          tstate.collapsed = {}; tstate.pages = {}; tstate.opened = {}; tstate.full = {};
+          hideTip();
+          repaint(treeKey);
+        });
+        bar.appendChild(b);
+      });
+      shownEl = document.createElement("span");
+      shownEl.className = "d3c-tshown";
+      bar.appendChild(shownEl);
+      host.appendChild(bar);
+    }
 
     var avail = width(host, ctx);
     // five columns need room; below ~640px the tree keeps its width and
@@ -1658,7 +1791,10 @@
       var big = d.data.kind === "phase" && d.data.count > 8;
       var holdsDecisive = dec && d.data.kind === "phase" && d.data.side === dec.side &&
         (d._children || []).some(function (c) { return c.data.index === dec.step; });
-      if (collapsed[d.id] === undefined) collapsed[d.id] = big && !holdsDecisive;
+      // a big phase starts folded unless it holds the decisive step; on a
+      // long run a phase that carries something notable always starts
+      // open (on its notable steps) and only a quiet one starts folded
+      if (collapsed[d.id] === undefined) collapsed[d.id] = all ? false : long ? (big && d.data.quiet === true) : (big && !holdsDecisive);
       if (collapsed[d.id] && d._children) d.children = null;
     });
     root.x0 = 0; root.y0 = 0;
@@ -1680,7 +1816,21 @@
       if (k.kind === "phase") return truncate(k.intent, Math.floor((colW - 60) / 6.4));
       if (k.kind === "step") return truncate(k.index + " · " + k.name, Math.floor((colW - 30) / 6.4));
       if (k.kind === "more") return (k.dir < 0 ? "▲ " : "▼ ") + k.count + " more";
+      if (k.kind === "capsule") return truncate(capsuleLabel(k), Math.floor((colW - 24) / 6.4));
       return truncate(k.value, Math.max(6, Math.floor((W - d.y - left - 44) / 6.6)));
+    }
+    // the capsule vocabulary the body chart uses: ×N, then what is inside
+    function capsuleLabel(k) {
+      return "×" + k.count + " step" + (k.count === 1 ? "" : "s") + " · " + (k.top || (k.thoughts === 1 ? "thought" : k.thoughts ? "thoughts" : "quiet"));
+    }
+    function capsuleInside(k) {
+      var parts = Object.keys(k.tools).sort(function (a, b) { return k.tools[b] - k.tools[a]; }).slice(0, 4)
+        .map(function (t) { return t + " ×" + k.tools[t]; });
+      if (k.thoughts) parts.push(k.thoughts + " thought" + (k.thoughts === 1 ? "" : "s"));
+      return parts.join(", ");
+    }
+    function capsuleWaste(k) {
+      return k.wasted ? k.wasted + " wasted (returned nothing, dead ends, errors)" : "nothing wasted";
     }
     function pageMore(k) {
       var page = pages[k.phase];
@@ -1696,14 +1846,30 @@
       if (t.kind === "step" && fault[t.side] && fault[t.side][t.index]) return P.bad;
       if (t.kind === "value") return P[STATUS_COLOR[t.status] || "muted"];
       if (t.kind === "run") return sideColor(t.side);
+      if (t.kind === "capsule" && t.fault) return P.bad;   // the fault runs through what is folded here
       return P.rule2;
+    }
+    function onFault(t) {
+      return (t.kind === "step" && fault[t.side] && fault[t.side][t.index]) || (t.kind === "capsule" && t.fault > 0);
     }
 
     function toggle(d) {
       if (!d._children) return;
+      if (collapsed[d.id] && d.data.partial) {
+        // a phase folded from its notable-only view opens in full
+        collapsed[d.id] = false;
+        tstate.full[d.id] = true;
+        repaint(treeKey);
+        return;
+      }
       collapsed[d.id] = !collapsed[d.id];
+      if (!collapsed[d.id] && long) tstate.full[d.id] = true;
       d.children = collapsed[d.id] ? null : d._children;
       update(d);
+    }
+    function openCapsule(k) {
+      tstate.opened[k.key] = true;
+      repaint(treeKey);
     }
 
     function update(source) {
@@ -1716,10 +1882,11 @@
 
       var node = nodeG.selectAll("g.d3c-tnode").data(nodes, function (d) { return d.id; });
       var enter = node.enter().append("g")
-        .attr("class", function (d) { return "d3c-tnode kind-" + d.data.kind + (d._children ? " branch" : ""); })
+        .attr("class", function (d) { return "d3c-tnode kind-" + d.data.kind + (d._children ? " branch" : "") + (d.data.kind === "capsule" ? " d3c-tree-capsule" : ""); })
         .attr("data-kind", function (d) { return d.data.kind; })
         .attr("data-side", function (d) { return d.data.side || ""; })
         .attr("data-step", function (d) { return d.data.kind === "step" ? d.data.index : null; })
+        .attr("data-steps", function (d) { return d.data.kind === "capsule" ? d.data.count : null; })
         .attr("data-key", function (d) { return d.id; })
         .attr("tabindex", 0).attr("role", "button")
         .attr("aria-label", function (d) {
@@ -1727,7 +1894,8 @@
           if (k.kind === "task") return "task " + k.name;
           if (k.kind === "more") return "show " + k.count + " more step" + (k.count === 1 ? "" : "s") + (k.dir < 0 ? " before" : " after");
           if (k.kind === "run") return k.name + (k.success ? " solved" : " failed") + ", " + k.steps + " steps";
-          if (k.kind === "phase") return "phase " + k.intent + ", " + k.count + " steps";
+          if (k.kind === "phase") return "phase " + k.intent + ", " + k.count + " steps" + (k.partial ? ", " + k.shown + " shown" : "");
+          if (k.kind === "capsule") return k.count + " quiet step" + (k.count === 1 ? "" : "s") + " folded across " + k.phases + " phase" + (k.phases === 1 ? "" : "s") + (k.top ? ", mostly " + k.top : "") + "; click to open";
           if (k.kind === "step") return "step " + k.index + " " + k.name + " · " + ((ROLE[k.role] || {}).label || k.role);
           return "value " + k.value + " · " + humanKind(k.status);
         })
@@ -1748,6 +1916,11 @@
             .attr("fill", tint).attr("opacity", 0.85);
         } else if (k.kind === "more") {
           gg.append("circle").attr("r", 5).attr("fill", P.surface).attr("stroke", P.ink2).attr("stroke-width", 1.4).attr("stroke-dasharray", "2 2");
+        } else if (k.kind === "capsule") {
+          // a pill: quiet steps folded, red-edged when the fault runs through them
+          gg.append("rect").attr("x", -9).attr("y", -5).attr("width", 18).attr("height", 10).attr("rx", 5)
+            .attr("fill", P.rule2).attr("opacity", 0.9)
+            .attr("stroke", k.fault ? P.bad : "none").attr("stroke-width", k.fault ? 1.6 : 0);
         } else if (k.kind === "step") {
           drawMark(gg, k.error ? "error" : k.role, sideColor(k.side), 5);
           if (dec && dec.side === k.side && dec.step === k.index) {
@@ -1757,12 +1930,12 @@
           gg.append("rect").attr("x", -4).attr("y", -4).attr("width", 8).attr("height", 8).attr("rx", 1.5)
             .attr("fill", P[STATUS_COLOR[k.status] || "muted"]);
         }
-        var tx = k.kind === "run" ? 22 : k.kind === "step" && dec && dec.side === k.side && dec.step === k.index ? 15 : 12;
+        var tx = k.kind === "run" ? 22 : k.kind === "capsule" ? 14 : k.kind === "step" && dec && dec.side === k.side && dec.step === k.index ? 15 : 12;
         var label = gg.append("text").attr("class", "d3c-tlabel" + (k.kind === "value" ? " mono" : ""))
           .attr("x", tx).attr("y", 4).attr("font-size", k.kind === "value" ? 10.5 : 11.5)
           .attr("fill", k.kind === "value" ? (k.wrong ? P.bad : P[STATUS_COLOR[k.status] || "muted"]) :
-                        k.kind === "phase" || k.kind === "more" ? P.ink2 : P.ink)
-          .attr("font-weight", k.kind === "run" || k.kind === "task" ? 650 : k.kind === "phase" ? 600 : 400)
+                        k.kind === "phase" || k.kind === "more" || k.kind === "capsule" ? P.ink2 : P.ink)
+          .attr("font-weight", k.kind === "run" || k.kind === "task" ? 650 : k.kind === "phase" ? 600 : k.kind === "capsule" ? 500 : 400)
           .text(labelFor(d) + (k.kind === "value" && k.wrong ? " ✗" : k.kind === "value" && k.right ? " ✓" : ""));
         // a branch's label sits over its outgoing links: back it so the
         // links never run through the words
@@ -1777,8 +1950,8 @@
             .attr("x", tx + (label.node().getComputedTextLength ? label.node().getComputedTextLength() : 40) + 6)
             .attr("fill", k.quality === "bad" ? P.bad : P.warn).text(k.quality);
         }
-        gg.selectAll("text.d3c-tcount").each(function () { backed(gg, d3.select(this), P.surface, 2); });
-        var title = k.kind === "phase" ? k.intent + " — " + k.summary
+        var title = k.kind === "phase" ? k.intent + " — " + k.summary + (k.partial ? "\n" + k.shown + " of " + k.count + " steps shown; the rest are quiet" : "")
+          : k.kind === "capsule" ? capsuleLabel(k) + " — " + capsuleInside(k) + "\n" + capsuleWaste(k) + (k.fault ? "\n" + k.fault + " on the fault's path" : "") + "\nclick to open"
           : k.kind === "step" ? "step " + k.index + " · " + k.name + " · " + ((ROLE[k.role] || {}).label || k.role) + "\n" + k.excerpt
           : k.kind === "value" ? k.value + " — " + humanKind(k.status) + (k.source ? " via " + k.source : "") + (k.wrong ? " · does not match the expected answer" : "")
           : k.kind === "run" ? k.name + " — " + (k.success ? "solved" : "failed") + " in " + k.steps + " steps"
@@ -1789,8 +1962,21 @@
       var merged = enter.merge(node);
       merged.classed("collapsed", function (d) { return !!(d._children && !d.children); });
       merged.select("text.d3c-tcount").text(function (d) {
+        if (d.children && d.data.partial) return d.data.shown + " of " + d.data.count + " steps";
         return (d._children && !d.children ? "▸ " : "") + d.data.count + " step" + (d.data.count === 1 ? "" : "s");
+      }).each(function () {
+        // the count sits over the phase's outgoing links: back it afresh
+        // whenever its words change, so a link never runs through them
+        var t = d3.select(this), gg = d3.select(this.parentNode);
+        gg.selectAll("rect.d3c-backing.for-count").remove();
+        backed(gg, t, P.surface, 2);
+        var r = this.previousSibling;
+        if (r && r.getAttribute && r.getAttribute("class") === "d3c-backing") r.setAttribute("class", "d3c-backing for-count");
       });
+      if (shownEl) {
+        var shown = nodes.filter(function (d) { return d.data.kind === "step"; }).length;
+        shownEl.textContent = shown + " of " + total + " steps shown";
+      }
       merged.transition().duration(duration)
         .attr("transform", function (d) { return "translate(" + d.y + "," + d.x + ")"; }).attr("opacity", 1);
       node.exit().transition().duration(duration)
@@ -1801,9 +1987,9 @@
         .attr("fill", "none")
         .attr("d", function () { var o = { x: source.x0, y: source.y0 }; return linkPath({ source: o, target: o }); });
       linkEnter.merge(link)
-        .attr("class", function (l) { return "d3c-tlink" + (l.target.data.kind === "step" && fault[l.target.data.side] && fault[l.target.data.side][l.target.data.index] ? " fault" : ""); })
+        .attr("class", function (l) { return "d3c-tlink" + (onFault(l.target.data) ? " fault" : ""); })
         .attr("stroke", linkStroke)
-        .attr("stroke-width", function (l) { return l.target.data.kind === "step" && fault[l.target.data.side] && fault[l.target.data.side][l.target.data.index] ? 2 : 1.2; })
+        .attr("stroke-width", function (l) { return onFault(l.target.data) ? 2 : 1.2; })
         .attr("stroke-dasharray", function (l) { return l.target.data.kind === "step" && (l.target.data.role === "dead_end" || l.target.data.role === "no_information" || l.target.data.role === "repeat") ? "3 3" : null; })
         .attr("opacity", 0.85)
         .transition().duration(duration).attr("d", linkPath);
@@ -1817,6 +2003,7 @@
         if (d.data.kind === "step") selectStep(report, d.data.side, d.data.index);
         else if (d.data.kind === "value") selectStep(report, d.data.side, d.data.step);
         else if (d.data.kind === "more") pageMore(d.data);
+        else if (d.data.kind === "capsule") openCapsule(d.data);
         else toggle(d);
       }
       merged.on("click", function (event, d) { hideTip(); act(d); })
@@ -1827,7 +2014,8 @@
         }).on("mousemove", function (event, d) {
         var k = d.data;
         if (k.kind === "step") showTip(event, [{ b: true, text: "step " + k.index + " · " + k.name }, { text: k.type + " · " + ((ROLE[k.role] || {}).label || k.role) }, k.excerpt ? { mono: true, text: k.excerpt } : null]);
-        else if (k.kind === "phase") showTip(event, [{ b: true, text: k.intent }, { text: k.summary }, { text: d.children ? "click to collapse" : "click to expand" }]);
+        else if (k.kind === "phase") showTip(event, [{ b: true, text: k.intent }, { text: k.summary }, d.children && k.partial ? { text: k.shown + " of " + k.count + " steps shown; the rest are quiet" } : null, { text: d.children ? "click to collapse" : "click to expand" + (k.partial ? " in full" : "") }]);
+        else if (k.kind === "capsule") showTip(event, [{ b: true, text: capsuleLabel(k) + " · " + k.phases + " phase" + (k.phases === 1 ? "" : "s") }, { text: capsuleInside(k) }, { text: capsuleWaste(k) }, k.fault ? { text: k.fault + " on the fault's path" } : null, { text: "click to open" }]);
         else if (k.kind === "value") showTip(event, [{ b: true, text: k.value }, { text: humanKind(k.status) + (k.source ? " via " + k.source : "") + " · first at step " + k.step }, k.wrong ? { text: "does not match the expected answer" } : null]);
         else if (k.kind === "run") showTip(event, [{ b: true, text: k.name }, { text: (k.success ? "solved" : "failed") + " in " + k.steps + " steps" }]);
         else if (k.kind === "more") showTip(event, [{ b: true, text: k.count + " more step" + (k.count === 1 ? "" : "s") }, { text: "click to show the next " + Math.min(TREE_PAGE, k.count) }]);
@@ -1845,6 +2033,7 @@
     legend.appendChild(legendItem(P, { line: true, dashed: true }, P.rule2, "dead end / repeat"));
     legend.appendChild(legendItem(P, { hatch: true }, P.good, "value in the answer, by basis status"));
     if (dec) legend.appendChild(legendItem(P, { ring: true, dashed: dec.verification !== "replay-verified" }, P.bad, "decisive step"));
+    if (long) legend.appendChild(legendItem(P, { hatch: true }, P.rule2, "capsule = quiet steps folded (×N, the dominant tool); click it to open"));
     host.appendChild(legend);
     return svg.node();
   }
