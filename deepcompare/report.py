@@ -35,6 +35,7 @@ from .uncertainty import analyze as analyze_uncertainty
 from .verdict import verdict_card
 from .internals import internals_analysis
 from .feedback import feedback_signal
+from .milestones import compare as compare_milestones, evaluate as evaluate_milestones
 
 #: the template line containing this marker is replaced wholesale.
 DATA_MARKER = "window.DEEPCOMPARE_DATA"
@@ -174,6 +175,24 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
     # the loop back: what this pair hands to an environment or the next
     # prompt — labels, a preference pair, suggestions; read-only over the report
     report["feedback"] = feedback_signal(report)
+    return report
+
+
+def attach_milestones(report: dict, golden: Optional[dict]) -> dict:
+    """Read both runs against the golden task's milestones (see
+    :mod:`deepcompare.milestones`) and attach ``report["milestones"]``:
+    ``{"a", "b", "diff", "narrative"}``.  Without a golden task or without
+    milestones on it, the section says so and measures nothing."""
+    task_id = str(((report.get("task") or {}).get("id")) or "")
+    golden_task = ((golden or {}).get("tasks") or {}).get(task_id) if golden else None
+    ms = (golden_task or {}).get("milestones") if isinstance(golden_task, dict) else None
+    a = evaluate_milestones(report.get("a") or {}, ms)
+    b = evaluate_milestones(report.get("b") or {}, ms)
+    names = (((report.get("a") or {}).get("agent") or {}).get("name", "a"), ((report.get("b") or {}).get("agent") or {}).get("name", "b"))
+    diff = compare_milestones(a, b, names)
+    report["milestones"] = {"a": a, "b": b, "diff": diff,
+                            "narrative": diff["narrative"] if diff.get("measurable") else a["narrative"],
+                            "source": (golden or {}).get("path") if ms else None}
     return report
 
 

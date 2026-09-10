@@ -53,14 +53,14 @@ from .metrics import aggregate as build_aggregate
 from .recommend import recommend
 from .triage import render_triage_text, triage
 from .reliability import reliability
-from .report import compare, render_html
+from .report import compare, render_html, attach_milestones
 from .trace import Trajectory
 from .variance import METRICS as VARIANCE_METRICS, variance_report
 
 #: default viewer template, relative to the repo root (parent of the package).
 from .commands.paths import DEFAULT_TEMPLATE, LEGACY_TEMPLATE  # noqa: E402
 from .commands.live import (  # noqa: E402
-    _cmd_context, _cmd_judge, _cmd_loop, _cmd_replay, _cmd_rerun, _cmd_run, _cmd_watch, _cmd_why, _load_report, _provider_options,
+    _cmd_checkpoint, _cmd_context, _cmd_judge, _cmd_loop, _cmd_replay, _cmd_rerun, _cmd_run, _cmd_watch, _cmd_why, _load_report, _provider_options,
     _save_report, _split_spec,
 )
 #: template for the lightweight agent-selection view.
@@ -252,6 +252,11 @@ def _cmd_batch(args: argparse.Namespace) -> int:
     out_dir = Path(args.output)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    try:
+        golden_set = load_golden(args.golden) if getattr(args, "golden", None) else None
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     reports: list[dict] = []
     for task_id in sorted(by_task):
         pair = by_task[task_id]
@@ -260,6 +265,9 @@ def _cmd_batch(args: argparse.Namespace) -> int:
                   file=sys.stderr)
             continue
         report = compare(pair[name_a], pair[name_b])
+        if golden_set:
+            # progress before the answer: the golden task's milestones, both runs
+            attach_milestones(report, golden_set)
         reports.append(report)
         report_path = out_dir / f"report_{_safe_name(task_id)}.json"
         report_path.write_text(
@@ -275,7 +283,7 @@ def _cmd_batch(args: argparse.Namespace) -> int:
     agg["routing"] = routing_table(trajectories)
     try:
         agg["scorecard"] = build_scorecard(
-            trajectories, load_golden(args.golden) if getattr(args, "golden", None) else None,
+            trajectories, golden_set,
             load_policy(args.policy) if getattr(args, "policy", None) else None)
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -1901,6 +1909,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_rerun.add_argument("--policy", choices=["strict", "empty", "live"], default="strict",
                          help="what a call the recording never made gets: an error naming the miss (strict, default), "
                               "an empty result, or the declared tool run for real (live)")
+    p_rerun.add_argument("--from", dest="from_step", type=int, default=None,
+                         help="resume from this step: the prefix replays from the recording, the replay proper starts here")
+    p_rerun.add_argument("--until", type=int, default=None, help="stop after this step; the diff covers the scoped range only")
+    p_rerun.add_argument("--span", default=None, metavar="AGENT|ID",
+                         help="scope to a sub-agent's steps (by span id or agent name; nested spans included)")
+    p_rerun.add_argument("--golden", default=None, help="golden tasks JSON; milestones lost or gained by the replay are reported")
+    p_rerun.add_argument("--cassette", default=None, help="serve tool results from this cassette.json (a checkpoint bundle's) instead of the trace's own")
     p_rerun.add_argument("--traces", action="store_true", help="write every replayed trace under <output>/traces")
     p_rerun.add_argument("--junit", nargs="?", const="junit.xml", default=None, help="write JUnit XML (default name: junit.xml)")
     p_rerun.add_argument("--job-summary", nargs="?", const="rerun-summary.md", default=None,
@@ -1911,6 +1926,15 @@ def build_parser() -> argparse.ArgumentParser:
                          help="exit 0 even when a trace drifted (report only)")
     _provider_option_args(p_rerun)
     p_rerun.set_defaults(func=_cmd_rerun)
+
+    p_ckpt = sub.add_parser(
+        "checkpoint", help="write a checkpoint bundle for a long run at a step: the prefix trace, the cassette, "
+                           "the context the model had, and a summary — resume with `rerun --from`")
+    p_ckpt.add_argument("trace", help="a trace file")
+    p_ckpt.add_argument("--step", type=int, required=True, help="the step the checkpoint stands before")
+    p_ckpt.add_argument("-o", "--output", default="out/checkpoint", help="bundle directory (default: out/checkpoint)")
+    p_ckpt.add_argument("--golden", default=None, help="golden tasks JSON, to list the milestones reached so far")
+    p_ckpt.set_defaults(func=_cmd_checkpoint)
 
     p_context = sub.add_parser(
         "context", help="print what the model saw before a step, rebuilt from the trace — or, for a "

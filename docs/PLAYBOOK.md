@@ -128,6 +128,12 @@ and a page is a single file, so it can be sent afterwards.
 
 ## Taking it forward
 
+- **A long run, by segment**: `rerun --span <sub-agent>` or `--from N
+  --until M` replays one part of a multi-hour run in the recorded world;
+  `checkpoint` bundles the state at a step to hand over; milestones
+  (`batch --golden`) measure progress before the answer, so a run that
+  stalls in package 6 is read as "six of nine, stalled after step 431",
+  not as a bare failure.
 - **Replay before you believe**: `agentdiff rerun` proves a recording
   reproduces from itself; `rerun --provider` puts the next model into
   the recorded world and names the first call it makes that the old one

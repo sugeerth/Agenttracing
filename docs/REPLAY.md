@@ -97,13 +97,65 @@ and a unified diff, so the difference in what each model saw stands
 next to the difference in what each did. It is reconstruction and says
 so: the provider's own framing of these messages is not recorded.
 
+## Long-horizon runs: by segment, by sub-agent, by milestone
+
+A run of hundreds or thousands of steps across nested sub-agents is
+where replay earns its keep, and where a flat "did it reproduce" is not
+enough. Four things change for a long run.
+
+**Scope.** `rerun --from N` replays the recording up to step N verbatim
+and starts the replay proper there — a resume from a checkpoint;
+`--until M` stops after step M, so the diff covers the segment only and
+the replayed run ends `user_stop`; `--span researcher` sets both from a
+sub-agent's steps (by span id or agent name, nested spans included).
+With `--provider`, a new model takes over exactly at the checkpoint and
+runs in the recorded world for the scoped budget: the debug question
+"what would the next model have done in package 6" costs one segment,
+not four hours.
+
+**The drift map.** Every result carries the recording's horizon tree —
+run, sub-agents, parts — with the replay's verdict on each node: steps
+in scope, steps that differed, cassette misses, the first difference,
+reproduced or not. The reading names the first sub-agent that did not
+reproduce; the Markdown summary lists them. A long run is read by its
+map, not its step list.
+
+**Milestones.** A golden task may name the states a correct solution
+passes through, each recognised by evidence in a step's text::
+
+    {"id": "commit", "label": "breaking commit found", "evidence": ["9f3c2e1"], "in": "output", "by_step": 8}
+
+`deepcompare.milestones` reads a run against them — reached or not, at
+which step and second, inside which sub-agent, on time or late, in
+order or not, and how many steps ran after the last one with no further
+progress. `batch --golden` attaches both runs' readings and their
+comparison to the report, and the page draws the **Milestones** ladder:
+one stepped line per run over time or steps, a mark at each rung, the
+rungs a run never reached named at the edge. `rerun --golden` reports
+the milestones a replay lost or gained, read like with like (a scoped
+replay against the recording cut at the same step).
+
+**Checkpoints.** `agentdiff checkpoint trace.json --step N -o dir`
+writes a bundle: the prefix as a SCHEMA trace, the cassette, the context
+the model had at N, and a summary (seconds and tokens so far, the span,
+the milestones reached, the resume command). `rerun --from N --cassette
+dir/cassette.json` resumes from it, with or without a new model.
+
+The shipped long-horizon pair (`demo/horizon/long`, SYNTHETIC, ~550
+steps each across a planner, eight migrators with their own lint and
+test runners, a reviewer and a verifier; `demo/horizon/golden.json`
+names nine milestones) exercises all of this: both traces reproduce
+whole in well under a second, by sub-agent, and from a checkpoint; a
+test replays 3,000 synthetic steps in seconds.
+
 ## In the pipeline
 
 `.github/workflows/agentdiff.yml` is the project's own pipeline and the
 shape of one for any agent repository. Every job is hermetic:
 
 1. **engine tests** — the analysis suite.
-2. **predictable replay** — `rerun` over the shipped traces (JUnit,
+2. **predictable replay** — `rerun` over the shipped traces, the
+   long-horizon pair with its golden milestones included (JUnit,
    summary, annotations); the report is a pure function of the traces
    (two `batch` runs, one byte sequence, `diff -r`); the candidate agent
    gated against the baseline (`gate`, with SARIF to code scanning).

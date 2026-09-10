@@ -230,7 +230,7 @@ Every pairwise report carries, beyond the sections above:
   from, to, count, seconds, wasted_s, tokens, tool_calls, errors, fault, decisive, values, children}, graph {nodes, edges},
   blame {agent, step, delegated_by, depth, part, chain, sentence}?, summary}, diff {nodes[{agent, in, a, b, delta}],
   edges[{from, to, in, count_a, count_b}], only_a, only_b, uneven, same_agents, same_shape}, narrative}`.
-- `timing` — `{a, b: {measurable, total_s, steps[], by_category, by_tool, wasted_s, slowest, rationale}, delta, narrative}`.
+- `timing` — `{a, b: {measurable, total_s, steps[], by_category, by_tool, wasted_s, slowest, rationale}, delta, narrative}`; `milestones` (with `--golden`) — `{a, b: {measurable, total, reached, progress, milestones[{id, label, reached, step, seconds, agent, on_time, evidence_hit}], in_order, steps_after_last, narrative}, diff {rows[], further, narrative}, narrative, source}`.
 - `aggregate.scorecard` (batch, runs, loop) / `eval.json` (`eval`) —
   `{version, mode: offline|online, golden?, policy?, agents {agent: {runs,
   tasks, rates {success, tool_correct, grounded, policy_compliant,

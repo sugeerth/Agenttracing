@@ -2287,6 +2287,39 @@ Tests: `tests/test_blocks_ui.py::MapRedesignTest` (geometry as hero and
 in a column, no truncated names at 1440/390, keyboard select with focus
 survival, word diff, ×4 collapse on a synthetic loop).
 
+## Long-horizon replay: scope, the drift map, milestones, checkpoints
+
+`docs/REPLAY.md` §Long-horizon is the guide.
+
+- **Milestones** (`deepcompare/milestones.py`): a golden task's
+  `milestones` (`id`, `label`, `evidence`, `in`, `by_step`, `by_seconds`)
+  read against a run — reached, step, second, sub-agent, on time, in
+  order, steps after the last with no progress — with a pairwise
+  comparison per rung and a narrative. `batch --golden` and `runs
+  --golden` attach `report.milestones` (`a`, `b`, `diff`, `narrative`,
+  `source`) via `report.attach_milestones`.
+- **Milestones block** (`web/blocks/22_milestones.js`, id `milestones`):
+  the ladder — one stepped line per run over time or steps, a mark per
+  rung (hollow when later than its deadline), never-reached rungs named;
+  a mark opens the step; the table under the fold. In the agents, eval
+  and all presets.
+- **`rerun --from N --until M --span AGENT`**: scoped replay of a long
+  run — the prefix from the recording, the segment replayed (self or a
+  provider), the diff over the scope, `user_stop` at the edge;
+  `span_range` resolves a sub-agent (nested spans included).
+- **Drift map** (`rerun` results, `drift_map`): the horizon tree with
+  the replay's verdict per node (in scope, differed, misses, first
+  difference, reproduced); the reading names the first sub-agent that
+  did not reproduce; the Markdown summary lists them.
+- **`rerun --golden`**: milestones lost or gained by a replay, read like
+  with like; `--cassette` serves a bundle's cassette.
+- **`agentdiff checkpoint`**: a bundle at a step — `prefix.json`,
+  `cassette.json`, `context.txt`, `checkpoint.json` (seconds and tokens
+  so far, the span, milestones reached, the resume command).
+- **Long demo** (`demo/horizon/generate_long.py` → `demo/horizon/long`,
+  `demo/horizon/golden.json`, SYNTHETIC): two ~550-step runs across
+  nested sub-agents; nine milestones; `comet-lh` stalls in package 6.
+
 ## Predictable replay: cassettes, `rerun`, `context`, and the pipeline
 
 Harness and CLI; the report contract is unchanged. `docs/REPLAY.md` is

@@ -18,7 +18,7 @@ from typing import Optional
 from ..report import render_html
 from .paths import DEFAULT_TEMPLATE
 
-__all__ = ["_cmd_run", "_cmd_loop", "_cmd_replay", "_cmd_rerun", "_cmd_context", "_cmd_why",
+__all__ = ["_cmd_run", "_cmd_loop", "_cmd_replay", "_cmd_rerun", "_cmd_context", "_cmd_checkpoint", "_cmd_why",
            "_provider_options", "_split_spec", "_load_report", "_save_report"]
 
 
@@ -449,8 +449,20 @@ def _cmd_rerun(args: argparse.Namespace) -> int:
             raise ValueError(f"no trace files under {args.target}")
         out = Path(args.output)
         out.mkdir(parents=True, exist_ok=True)
+        golden = None
+        if getattr(args, "golden", None):
+            from ..scorecard import load_golden
+            golden = load_golden(args.golden)
+        cassette = None
+        if getattr(args, "cassette", None):
+            from ..harness.cassette import Cassette
+            cassette = Cassette.from_dict(json.loads(Path(args.cassette).read_text(encoding="utf-8")))
+            if len(paths) > 1:
+                raise ValueError("--cassette serves one trace; give one trace file")
         summary = rerun_paths(paths, provider=provider, tools=tools, policy=args.policy,
-                              out_dir=(out / "traces") if args.traces else None, keep_traces=False)
+                              out_dir=(out / "traces") if args.traces else None, keep_traces=False,
+                              from_step=getattr(args, "from_step", None), until=getattr(args, "until", None),
+                              span=getattr(args, "span", None), golden=golden, cassette=cassette)
     except (ValueError, OSError, ImportError, AttributeError, KeyError, TypeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -471,6 +483,9 @@ def _cmd_rerun(args: argparse.Namespace) -> int:
           f"{summary['faithful']} reproduced, {summary['drifted']} drifted")
     for r in summary["results"]:
         print(("  ✓ " if r.get("faithful") else "  ✗ ") + str(r.get("reading") or ""))
+        for n in r.get("drift_map") or []:
+            if n.get("kind") == "span" and n.get("reproduced") is False:
+                print(f"      ✗ sub-agent {n.get('agent')} (steps {n.get('from')}–{n.get('to')}): {n.get('differed')} differed, {n.get('misses')} miss(es), first at {n.get('first_difference')}")
     print("  written: " + ", ".join(str(p) for p in written))
     if summary["drifted"] and args.fail_on_drift:
         return 1
@@ -533,4 +548,62 @@ def _cmd_context(args: argparse.Namespace) -> int:
     except (ValueError, KeyError, OSError, json.JSONDecodeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    return 0
+
+
+def _cmd_checkpoint(args: argparse.Namespace) -> int:
+    """Write a checkpoint bundle for a long run at a step: the prefix as
+    a SCHEMA trace, the cassette, the context the model had, and a
+    summary — everything a person or a rerun needs to resume from there
+    without the hours before it."""
+    from ..harness import context as ctx
+    from ..harness.cassette import Cassette
+    from ..milestones import evaluate as evaluate_milestones
+    path = Path(args.trace)
+    if not path.is_file():
+        print(f"error: {path} is not a file", file=sys.stderr)
+        return 2
+    try:
+        trace = json.loads(path.read_text(encoding="utf-8"))
+        steps = list(trace.get("steps") or [])
+        step = int(args.step)
+        if not (0 <= step < len(steps)):
+            raise ValueError(f"step {step} is outside the trace's {len(steps)} steps")
+        out = Path(args.output)
+        out.mkdir(parents=True, exist_ok=True)
+        prefix = dict(trace)
+        prefix["steps"] = [s for s in steps[:step] if s.get("type") != "answer"]
+        prefix["trace_id"] = f"{trace.get('trace_id', 'run')}__checkpoint{step}"
+        prefix["outcome"] = {"success": False, "answer": "", "score": None, "termination": "user_stop",
+                             "note": f"checkpoint: the recording's first {step} step(s); the run continues from step {step}"}
+        clock = sum(float(s.get("latency_s") or 0) for s in prefix["steps"])
+        tokens = sum(int(s.get("tokens") or 0) for s in prefix["steps"] if isinstance(s.get("tokens"), int))
+        prefix["totals"] = {"input_tokens": 0, "output_tokens": tokens, "cost_usd": 0.0, "latency_s": round(clock, 4)}
+        (out / "prefix.json").write_text(json.dumps(prefix, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        cassette = Cassette.from_trace(trace)
+        (out / "cassette.json").write_text(json.dumps(cassette.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        (out / "context.txt").write_text(ctx.render(ctx.context_at(trace, step)), encoding="utf-8")
+        milestones = None
+        if args.golden:
+            from ..scorecard import load_golden
+            task = (load_golden(args.golden)["tasks"] or {}).get(str((trace.get("task") or {}).get("id")))
+            milestones = (task or {}).get("milestones")
+        reached = evaluate_milestones({"agent": trace.get("agent"), "steps": steps[:step]}, milestones) if milestones else None
+        at = steps[step]
+        summary = {"trace_id": trace.get("trace_id"), "step": step, "of": len(steps), "seconds_so_far": round(clock, 4), "tokens_so_far": tokens,
+                   "span": at.get("span"), "next_step": {"type": at.get("type"), "name": at.get("name"), "input": str(at.get("input") or "")[:200]},
+                   "context": ctx.summary(trace, step), "cassette": {"recorded_calls": cassette.recorded_calls, "tools": cassette.names},
+                   "milestones_reached": [m["id"] for m in reached["milestones"] if m["reached"]] if reached else None,
+                   "resume": f"agentdiff rerun {path} --from {step} --cassette {out / 'cassette.json'} [--provider NAME=KIND:MODEL]"}
+        (out / "checkpoint.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    except (ValueError, OSError, KeyError, json.JSONDecodeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"Checkpoint at step {step} of {len(steps)} ({summary['seconds_so_far']}s so far"
+          + (f", inside {at['span'].get('agent')}" if isinstance(at.get("span"), dict) else "") + ")")
+    print(f"  next: {at.get('type')} {at.get('name')} — {summary['next_step']['input'][:80]}")
+    if reached:
+        print(f"  milestones reached so far: {len(summary['milestones_reached'])} — " + ", ".join(summary["milestones_reached"]))
+    print(f"  written: {out / 'prefix.json'}, {out / 'cassette.json'}, {out / 'context.txt'}, {out / 'checkpoint.json'}")
+    print(f"  resume: {summary['resume']}")
     return 0

@@ -59,9 +59,9 @@
   var PANEL_PRESETS = {
     time: ["treemap", "time", "heatmap", "latency-strip"],
     tools: ["tool-matrix", "heatmap", "latency-strip", "debug-session"],
-    agents: ["treemap", "horizon", "trace-body", "tool-matrix"],
-    eval: ["scorecard", "equality", "routing", "loop"],
-    all: ["treemap", "trace-body", "time", "heatmap", "latency-strip", "tool-matrix", "horizon", "debug-session", "scorecard"],
+    agents: ["milestones", "treemap", "horizon", "trace-body", "tool-matrix"],
+    eval: ["milestones", "scorecard", "equality", "routing", "loop"],
+    all: ["milestones", "treemap", "trace-body", "time", "heatmap", "latency-strip", "tool-matrix", "horizon", "debug-session", "scorecard"],
   };
   // overview first (area, then the runs over time), then the detail
   var DEFAULT_PANELS = { ids: ["treemap", "trace-body", "heatmap", "latency-strip", "tool-matrix"], wide: { treemap: true, "trace-body": true }, cols: 2 };

@@ -294,3 +294,151 @@ class RerunCliTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LongHorizonRerunTest(unittest.TestCase):
+    """A long run replays by segment: from a checkpoint, until a step, or
+    a sub-agent's span; the drift map says which sub-agents and parts
+    reproduced; milestones are read like with like; a checkpoint bundle
+    resumes; and hundreds of steps replay in well under a second."""
+
+    @classmethod
+    def setUpClass(cls):
+        from deepcompare.scorecard import load_golden
+        cls.golden = load_golden(ROOT / "demo" / "horizon" / "golden.json")
+        cls.ms = cls.golden["tasks"]["h02_migrate_service"]["milestones"]
+        cls.bad = json.loads((ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__comet-lh.json").read_text(encoding="utf-8"))
+        cls.good = json.loads((ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__atlas-lh.json").read_text(encoding="utf-8"))
+
+    def test_the_long_demo_replays_whole_and_fast(self):
+        import time
+        t0 = time.time()
+        result = rerun(self.bad, milestones=self.ms)
+        self.assertLess(time.time() - t0, 3.0)
+        self.assertTrue(result["faithful"], result["reading"])
+        self.assertEqual(result["scope"]["steps"], len(self.bad["steps"]))
+        self.assertGreater(result["cassette"]["hits"], 300)
+        spans = [n for n in result["drift_map"] if n["kind"] == "span"]
+        self.assertGreater(len(spans), 15)
+        self.assertTrue(all(n["reproduced"] for n in spans))
+        self.assertTrue(result["milestones"]["same"])
+        self.assertEqual(result["milestones"]["recorded"]["reached"], 7)
+
+    def test_a_sub_agent_replays_on_its_own_and_the_scope_is_named(self):
+        from deepcompare.harness.rerun import span_range
+        lo, hi = span_range(self.bad, "migrator-ledger")
+        self.assertLess(lo, hi)
+        self.assertTrue(all((s.get("span") or {}).get("agent", "").startswith("migrator-ledger") for s in self.bad["steps"][lo:hi + 1]))
+        result = rerun(self.bad, span="migrator-ledger", milestones=self.ms)
+        self.assertTrue(result["faithful"], result["reading"])
+        self.assertEqual((result["scope"]["from"], result["scope"]["until"], result["scope"]["span"]), (lo, hi, "migrator-ledger"))
+        self.assertIn(f"steps {lo}–{hi} (sub-agent migrator-ledger)", result["reading"])
+        self.assertEqual(result["trace"]["outcome"]["termination"], "user_stop")
+        # like with like: milestones after the scope are not "lost"
+        self.assertTrue(result["milestones"]["same"], result["milestones"])
+        with self.assertRaises(ValueError):
+            span_range(self.bad, "nobody")
+        with self.assertRaises(ValueError):
+            rerun(self.bad, from_step=10_000)
+
+    def test_a_different_model_from_a_checkpoint_is_placed_by_sub_agent(self):
+        from deepcompare.harness.rerun import span_range
+        lo, hi = span_range(self.bad, "migrator-ledger")
+
+        def impatient(messages, tools):
+            return {"tool_calls": [{"name": "run_tests", "arguments": "pytest -q tests/everything"}]}
+        result = rerun(self.bad, provider=ScriptedProvider(impatient, model="impatient"), from_step=lo, until=lo + 4, milestones=self.ms)
+        self.assertFalse(result["faithful"])
+        self.assertEqual(result["scope"]["from"], lo)
+        # the prefix is the recording, verbatim
+        # the scoped budget bounds the replay: at most five turns after the prefix, plus the recorder's closing answer
+        self.assertTrue(lo < len(result["trace"]["steps"]) <= lo + 6, len(result["trace"]["steps"]))
+        for i in range(lo):
+            self.assertEqual(result["trace"]["steps"][i]["input"], self.bad["steps"][i]["input"])
+        self.assertTrue(result["cassette"]["misses"])
+        self.assertGreaterEqual(result["first_divergence"], lo)
+        drifted = [n for n in result["drift_map"] if n["reproduced"] is False]
+        self.assertIn("migrator-ledger", [n["agent"] for n in drifted if n["kind"] == "span"])
+        self.assertIn("first inside sub-agent migrator-ledger", result["reading"])
+        # every node outside the scope is not judged
+        self.assertTrue(all(n["reproduced"] is None for n in result["drift_map"] if n["to"] < lo))
+
+    def test_the_drift_map_covers_the_tree_and_the_markdown_lists_drifted_sub_agents(self):
+        from deepcompare.harness.rerun import diff_runs, drift_map, to_markdown
+        result = rerun(self.good)
+        rows = result["drift_map"]
+        self.assertEqual(rows[0]["kind"], "run")
+        self.assertEqual((rows[0]["from"], rows[0]["to"]), (0, len(self.good["steps"]) - 1))
+        self.assertEqual({n["depth"] for n in rows if n["kind"] == "span"} & {1}, {1})
+        # a forged difference inside one sub-agent marks that sub-agent and the run, nothing else
+        forged = dict(result, differences=[{"step": rows[1]["from"], "field": "output", "recorded": "a", "replayed": "b"}], faithful=False)
+        rows2 = drift_map(self.good, forged)
+        bad = [n for n in rows2 if n["reproduced"] is False]
+        self.assertIn("run", [n["kind"] for n in bad])
+        self.assertEqual({n["agent"] for n in bad if n["kind"] == "span"}, {rows[1]["agent"]})
+        md = to_markdown({"traces": 1, "faithful": 0, "drifted": 1, "mode": "self", "results": [dict(forged, drift_map=rows2, trace_id="x", reading="r", steps={"recorded": 1, "replayed": 1}, cassette={"hits": 0, "misses": []})]})
+        self.assertIn("Sub-agents that did not reproduce", md)
+        self.assertIn(rows[1]["agent"], md)
+
+    def test_checkpoint_bundle_then_resume_from_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "ckpt"
+            proc = subprocess.run([sys.executable, "-m", "deepcompare", "checkpoint", str(ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__comet-lh.json"),
+                                   "--step", "340", "--golden", str(ROOT / "demo" / "horizon" / "golden.json"), "-o", str(out)], cwd=str(ROOT), capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("Checkpoint at step 340 of", proc.stdout)
+            self.assertIn("milestones reached so far: 5", proc.stdout)
+            for name in ("prefix.json", "cassette.json", "context.txt", "checkpoint.json"):
+                self.assertTrue((out / name).is_file(), name)
+            prefix = json.loads((out / "prefix.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(prefix["steps"]), 340)
+            self.assertEqual(prefix["outcome"]["termination"], "user_stop")
+            summary = json.loads((out / "checkpoint.json").read_text(encoding="utf-8"))
+            self.assertEqual((summary["step"], summary["span"]["agent"]), (340, "migrator-ledger"))
+            self.assertIn("[0] system", (out / "context.txt").read_text(encoding="utf-8"))
+            # resume: the prefix from the recording, the segment served from the bundle's cassette
+            proc = subprocess.run([sys.executable, "-m", "deepcompare", "rerun", str(ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__comet-lh.json"),
+                                   "--from", "340", "--until", "380", "--cassette", str(out / "cassette.json"), "--golden", str(ROOT / "demo" / "horizon" / "golden.json"),
+                                   "-o", str(Path(tmp) / "rr")], cwd=str(ROOT), capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertIn("steps 340–380 of", proc.stdout)
+            self.assertIn("1 reproduced, 0 drifted", proc.stdout)
+            bad = subprocess.run([sys.executable, "-m", "deepcompare", "checkpoint", str(ROOT / "demo" / "traces" / "t01_acme_revenue__atlas-v2.json"),
+                                  "--step", "99", "-o", str(Path(tmp) / "x")], cwd=str(ROOT), capture_output=True, text=True)
+            self.assertEqual(bad.returncode, 2)
+
+    def test_span_from_the_cli_names_the_scope(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = subprocess.run([sys.executable, "-m", "deepcompare", "rerun", str(ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__atlas-lh.json"),
+                                   "--span", "reviewer", "-o", tmp, "--job-summary"], cwd=str(ROOT), capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("(sub-agent reviewer)", proc.stdout)
+            summary = json.loads((Path(tmp) / "rerun.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["results"][0]["scope"]["span"], "reviewer")
+            missing = subprocess.run([sys.executable, "-m", "deepcompare", "rerun", str(ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__atlas-lh.json"),
+                                      "--span", "nobody", "-o", tmp], cwd=str(ROOT), capture_output=True, text=True)
+            self.assertEqual(missing.returncode, 1)
+            self.assertIn("no span 'nobody'", (Path(tmp) / "rerun.json").read_text(encoding="utf-8"))
+
+    def test_thousands_of_steps_replay_in_seconds(self):
+        import time
+        steps = []
+        for i in range(3000):
+            k = i % 3
+            if k == 0:
+                steps.append({"index": i, "type": "reason", "name": "reason", "input": f"think {i}", "output": "", "latency_s": 0.1, "span": {"id": f"s{i // 300}", "agent": f"worker-{i // 300}"}})
+            elif k == 1:
+                steps.append({"index": i, "type": "tool_call", "name": "probe", "input": f"probe(n={i})", "output": f"value {i}", "latency_s": 0.2, "span": {"id": f"s{i // 300}", "agent": f"worker-{i // 300}"}})
+            else:
+                steps.append({"index": i, "type": "read", "name": "read_file", "input": f"file{i}.txt", "output": f"contents {i}", "latency_s": 0.05, "span": {"id": f"s{i // 300}", "agent": f"worker-{i // 300}"}})
+        steps.append({"index": 3000, "type": "answer", "name": "final", "input": "done", "output": "done: 3000 steps", "latency_s": 0.1})
+        trace = {"schema_version": 1, "trace_id": "big__w", "agent": {"name": "w", "model": "m"}, "task": {"id": "big", "prompt": "do it", "expected": "3000 steps"},
+                 "outcome": {"success": True, "answer": "done: 3000 steps", "termination": "agent_stop"},
+                 "totals": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "latency_s": 350.0}, "steps": steps}
+        t0 = time.time()
+        result = rerun(trace)
+        elapsed = time.time() - t0
+        self.assertTrue(result["faithful"], result["reading"])
+        self.assertEqual(result["cassette"]["hits"], 2000)
+        self.assertLess(elapsed, 8.0, f"{elapsed:.1f}s")
+        self.assertEqual(len([n for n in result["drift_map"] if n["kind"] == "span"]), 10)

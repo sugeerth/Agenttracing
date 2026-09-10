@@ -154,6 +154,12 @@ drawn for this view and stand as evidence too, ordered overview first:
   tiles think, solid ones call a tool, hatched means wasted, a red edge
   marks the fault's path. The eye finds the big tile before reading a
   number; a click on a box zooms into it, on a tile opens the step.
+- **Milestones** — for a long task with a golden set, the ladder:
+  the milestones a correct solution passes through, one stepped line
+  per run over time or steps, a mark where each run reached each rung
+  and the rungs it never reached named at the edge. Where a line stops
+  is where that run stalled; the gap between the lines at a rung is
+  how much later one run got there.
 - **Calls × time** — a heat map: one row per tool (by total seconds),
   then thinking and the answer; time in bins along the run; each cell
   split, A over B, darker for more seconds, hatched where those seconds

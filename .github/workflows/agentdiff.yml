@@ -41,6 +41,8 @@ jobs:
         run: |
           python -m deepcompare rerun demo/traces -o out/rerun --junit --job-summary --github-annotations
           python -m deepcompare rerun demo/horizon/traces -o out/rerun-horizon --junit --job-summary --github-annotations
+          python -m deepcompare rerun demo/horizon/long -o out/rerun-long --golden demo/horizon/golden.json --junit --job-summary --github-annotations
+          python -m deepcompare rerun demo/horizon/long/h02_migrate_service__comet-lh.json --span migrator-ledger -o out/rerun-span --job-summary
       # 2. the analysis is a pure function of the traces: two runs, one byte sequence
       - name: the report is deterministic
         run: |
@@ -62,6 +64,8 @@ jobs:
           path: |
             out/rerun
             out/rerun-horizon
+            out/rerun-long
+            out/rerun-span
             out/gate
       - name: upload SARIF
         if: always()

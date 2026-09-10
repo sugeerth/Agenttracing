@@ -16,7 +16,7 @@ from .consolidate import consolidate_diagnoses
 from .equality import equality_analysis
 from .metrics import aggregate as build_aggregate, task_signal
 from .reliability import reliability
-from .report import compare
+from .report import compare, attach_milestones
 from .router import routing_table
 from .scorecard import scorecard
 from .stability import medoid_pairs, stability_analysis
@@ -60,6 +60,9 @@ def analyse_runs(trajectories: list, *, warn=None, family_pattern: Optional[str]
     stability = stability_analysis(runs_by_task)
     reliability_analysis = reliability(runs_by_task)
     reports = [compare(a, b) for a, b in medoid_pairs(runs_by_task)]
+    if golden:
+        for rep in reports:
+            attach_milestones(rep, golden)
     agg = build_aggregate(reports)
     agg["equality"] = equality_analysis(runs_by_task)
     agg["routing"] = routing_table(trajectories, equality=agg["equality"], family_pattern=family_pattern)

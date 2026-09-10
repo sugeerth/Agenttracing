@@ -4330,3 +4330,75 @@ class PanelsAndHeatTest(unittest.TestCase):
         self.assertEqual(page.locator("#panels-lane [data-suggest]").count(), 0)
         self.assertEqual(errors, [])
         context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class MilestonesBlockTest(unittest.TestCase):
+    """The Milestones ladder on the page, from the long-horizon demo
+    batched with its golden set: one mark per milestone reached, per run,
+    at the recorded step and second; the never-reached rungs named; the
+    axis switch; a mark opening its step; the table under the fold."""
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        if not (ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__atlas-lh.json").is_file():
+            subprocess.run([sys.executable, str(ROOT / "demo" / "horizon" / "generate_long.py")], cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "horizon" / "long"), "-o", str(out),
+                        "--golden", str(ROOT / "demo" / "horizon" / "golden.json"), "--template", str(ROOT / "web" / "blocks.html")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        cls.page_path = out / "report.html"
+        cls.report = json.loads((out / "report_h02_migrate_service.json").read_text(encoding="utf-8"))
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def test_the_ladder_matches_the_report_and_opens_a_step(self):
+        context = self.browser.new_context(viewport={"width": 1280, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view=panels")
+        page.wait_for_timeout(1000)
+        page.click('#panels-lane [data-preset="agents"]')
+        page.wait_for_timeout(800)
+        block = page.locator('#panels-lane .panels-grid > [data-block="milestones"]')
+        self.assertEqual(block.count(), 1)
+        ms = self.report["milestones"]
+        self.assertIn(ms["narrative"][:60], block.locator(".ms-narr").text_content())
+        for side in ("a", "b"):
+            reached = [m for m in ms[side]["milestones"] if m["reached"]]
+            self.assertEqual(block.locator(f'circle.mark[data-side="{side}"]').count(), len(reached), side)
+            self.assertEqual(block.locator(f'text.never[data-side="{side}"]').count(), ms[side]["total"] - len(reached), side)
+        self.assertEqual(block.locator("svg").get_attribute("role"), "img")
+        self.assertEqual(block.locator(".ms-table tr[data-id]").count(), ms["a"]["total"])
+        # the axis switch redraws along steps
+        block.locator('[data-axis="steps"]').click()
+        page.wait_for_timeout(500)
+        block = page.locator('#panels-lane .panels-grid > [data-block="milestones"]')
+        self.assertEqual(block.locator('[data-axis="steps"]').get_attribute("aria-pressed"), "true")
+        self.assertIn("steps", block.locator("svg").get_attribute("aria-label"))
+        # a mark opens its step in the shared inspector (the body chart is in the same preset)
+        mark = block.locator('circle.mark[data-side="a"]').first
+        mid = mark.get_attribute("data-id")
+        step = next(m for m in ms["a"]["milestones"] if m["id"] == mid)["step"]
+        mark.dispatch_event("click")
+        page.wait_for_timeout(400)
+        self.assertIn(f"STEP {step}", page.locator('#panels-lane [data-block="trace-body"] .tj-inspector').inner_text().upper())
+        self.assertEqual(errors, [])
+        context.close()
