@@ -57,14 +57,14 @@
   };
   //: the panels view's presets: which blocks, in which order
   var PANEL_PRESETS = {
-    time: ["treemap", "time", "heatmap", "latency-strip"],
+    time: ["treemap", "impact", "time", "heatmap", "latency-strip"],
     tools: ["tool-matrix", "heatmap", "latency-strip", "debug-session"],
-    agents: ["milestones", "treemap", "horizon", "trace-body", "tool-matrix"],
+    agents: ["milestones", "impact", "treemap", "horizon", "trace-body", "tool-matrix"],
     eval: ["milestones", "scorecard", "equality", "routing", "loop"],
-    all: ["milestones", "treemap", "trace-body", "time", "heatmap", "latency-strip", "tool-matrix", "horizon", "debug-session", "scorecard"],
+    all: ["milestones", "impact", "treemap", "trace-body", "time", "heatmap", "latency-strip", "tool-matrix", "horizon", "debug-session", "scorecard"],
   };
   // overview first (area, then the runs over time), then the detail
-  var DEFAULT_PANELS = { ids: ["treemap", "trace-body", "heatmap", "latency-strip", "tool-matrix"], wide: { treemap: true, "trace-body": true }, cols: 2 };
+  var DEFAULT_PANELS = { ids: ["treemap", "impact", "trace-body", "heatmap", "latency-strip", "tool-matrix"], wide: { treemap: true, impact: true, "trace-body": true }, cols: 2 };
   function stacksForView(view) {
     var groups = VIEW_GROUPS[view];
     if (!groups) return [];

@@ -807,14 +807,14 @@ THIS SOFTWARE.
   };
   //: the panels view's presets: which blocks, in which order
   var PANEL_PRESETS = {
-    time: ["treemap", "time", "heatmap", "latency-strip"],
+    time: ["treemap", "impact", "time", "heatmap", "latency-strip"],
     tools: ["tool-matrix", "heatmap", "latency-strip", "debug-session"],
-    agents: ["milestones", "treemap", "horizon", "trace-body", "tool-matrix"],
+    agents: ["milestones", "impact", "treemap", "horizon", "trace-body", "tool-matrix"],
     eval: ["milestones", "scorecard", "equality", "routing", "loop"],
-    all: ["milestones", "treemap", "trace-body", "time", "heatmap", "latency-strip", "tool-matrix", "horizon", "debug-session", "scorecard"],
+    all: ["milestones", "impact", "treemap", "trace-body", "time", "heatmap", "latency-strip", "tool-matrix", "horizon", "debug-session", "scorecard"],
   };
   // overview first (area, then the runs over time), then the detail
-  var DEFAULT_PANELS = { ids: ["treemap", "trace-body", "heatmap", "latency-strip", "tool-matrix"], wide: { treemap: true, "trace-body": true }, cols: 2 };
+  var DEFAULT_PANELS = { ids: ["treemap", "impact", "trace-body", "heatmap", "latency-strip", "tool-matrix"], wide: { treemap: true, impact: true, "trace-body": true }, cols: 2 };
   function stacksForView(view) {
     var groups = VIEW_GROUPS[view];
     if (!groups) return [];
@@ -3521,6 +3521,7 @@ THIS SOFTWARE.
       ".d3c .d3c-tnode.branch.collapsed .d3c-tlabel{fill:var(--ink-3)}",
       ".d3c .d3c-tlabel{font-family:var(--sans)}",
       ".d3c .d3c-tlabel.mono{font-family:var(--mono)}",
+      ".d3c-tree-chips .d3c-tshown{font-family:var(--mono);color:var(--ink-2)}",
       "body[data-view=\"story\"] .d3c-list li.on{background:transparent;box-shadow:inset 3px 0 0 var(--accent)}",
       "@media (max-width:480px){.d3c-list li{grid-template-columns:20px 1fr}",
       ".d3c-list .what{display:none}.d3c-list li[data-n]:hover .what,.d3c-list li[data-n]:focus-within .what{display:block}",
@@ -4930,11 +4931,55 @@ THIS SOFTWARE.
    * the shared cursor; a value selects the step that produced it.
    * Nothing is derived: the hierarchy is the reading's phases, the roles
    * are the reading's roles, the values are `rests_on` as written. */
-  var TreeState = {};   // per task: which node keys are collapsed
+  /* Fold state, per task, so the page's re-render keeps it: which phases
+   * are folded, which page each long phase shows, which capsules a
+   * reader opened, which phases they opened in full, and "open all". */
+  var TreeState = {};
+  var TREE_LONG = 80;   // a run past this many steps folds its quiet stretches into capsules
+  var TOOL_TYPES = { tool_call: true, search: true, retrieve: true, read: true };   // the body chart's "branch" steps
+  function treeState(taskKey) {
+    var s = TreeState[taskKey] = TreeState[taskKey] || {};
+    s.collapsed = s.collapsed || {}; s.pages = s.pages || {}; s.opened = s.opened || {}; s.full = s.full || {};
+    s.all = s.all === true;
+    return s;
+  }
+  charts.treeState = treeState;
 
-  function treeData(report, pages, dec) {
+  /* What a step carries that must stay in view when a long run folds:
+   * a place on the fault's path (the attribution chain and its root
+   * cause), the decisive step, an error, the answer, or the first
+   * appearance of an answer value — the anchors the body chart's
+   * capsules never swallow either. The causal account's "carried the
+   * fault forward" steps are not anchors: on a long run they number in
+   * the hundreds, and their red links still read through the capsules
+   * that hold them. */
+  function notableSteps(report, side, dec) {
+    var out = {};
+    var attr = report && report.attribution;
+    if (attr && attr.failed_agent === side) {
+      (Array.isArray(attr.chain) ? attr.chain : []).forEach(function (i) { if (isNum(i)) out[i] = "fault"; });
+      if (isNum(attr.root_cause_step)) out[attr.root_cause_step] = "fault";
+    }
+    if (dec && dec.side === side) out[dec.step] = out[dec.step] || "decisive";
+    var reading = readingOf(report, side);
+    ((reading && reading.what_happened) || []).forEach(function (w) {
+      if (w && isNum(w.step) && w.role === "answer") out[w.step] = out[w.step] || "answer";
+    });
+    (reading && Array.isArray(reading.rests_on) ? reading.rests_on : []).forEach(function (r) {
+      if (r && isNum(r.first_step)) out[r.first_step] = out[r.first_step] || "value";
+    });
+    stepsOf(report, side).forEach(function (st, i) {
+      if (!st) return;
+      if (st.error === true) out[i] = out[i] || "error";
+      else if (st.type === "answer") out[i] = out[i] || "answer";
+    });
+    return out;
+  }
+
+  function treeData(report, dec, opts) {
     var task = report && report.task ? report.task : {};
-    pages = pages || {};
+    var state = opts.state, long = opts.long, all = state.all, fault = opts.fault || {};
+    var pages = state.pages;
     var runs = ["a", "b"].map(function (side) {
       var reading = readingOf(report, side);
       var steps = stepsOf(report, side);
@@ -4945,6 +4990,7 @@ THIS SOFTWARE.
       var phases = reading && Array.isArray(reading.phases) && reading.phases.length
         ? reading.phases
         : [{ intent: "steps", steps: steps.map(function (s, i) { return i; }), summary: steps.length + " steps" }];
+      var notable = long ? notableSteps(report, side, dec) : {};
       var stepNode = function (i) {
         var st = steps[i];
         if (!st) return null;
@@ -4959,32 +5005,93 @@ THIS SOFTWARE.
                  error: st.error === true, quality: st.quality || null, invented: !!w.invented_argument,
                  excerpt: truncate(st.output || st.input || "", 140), children: values.length ? values : null };
       };
+      var wastedStep = function (i) {
+        var role = what[i] && what[i].role;
+        return role === "dead_end" || role === "no_information" || role === "repeat" || role === "error" || (steps[i] && steps[i].error === true);
+      };
+      // what a capsule holds, in the body chart's words: how many steps,
+      // the dominant tool, how many thoughts, how many were wasted, and
+      // whether the fault runs through it
+      var summarise = function (idx) {
+        var tools = {}, thoughts = 0, wasted = 0, red = 0;
+        idx.forEach(function (i) {
+          var st = steps[i];
+          if (!st) return;
+          if (TOOL_TYPES[st.type]) tools[st.name || st.type] = (tools[st.name || st.type] || 0) + 1; else thoughts++;
+          if (wastedStep(i)) wasted++;
+          if (fault[side] && fault[side][i]) red++;
+        });
+        var top = Object.keys(tools).sort(function (a, b) { return tools[b] - tools[a]; })[0] || null;
+        return { tools: tools, top: top, topCount: top ? tools[top] : 0, thoughts: thoughts, wasted: wasted, fault: red };
+      };
+      var indexOf = function (ph) { return (ph.steps || []).filter(function (i) { return isNum(i) && i < steps.length; }); };
+      var phaseNode = function (ph, pi, isNotable) {
+        var idx = indexOf(ph);
+        var key = side + ":p:" + pi;
+        var kids;
+        // on a long run a phase that carries something notable starts
+        // open on just that: its notable steps, the quiet ones folded
+        // behind the count until the phase is opened in full
+        var partial = long && !all && isNotable && !state.full[key] && idx.some(function (i) { return !notable[i]; });
+        if (partial) {
+          kids = idx.filter(function (i) { return notable[i]; }).map(stepNode).filter(Boolean);
+        } else if (idx.length > TREE_PAGE && !all) {
+          // a long phase shows one page at a time: the page around the
+          // decisive step when it holds one, else the first; "more"
+          // nodes at either end page it
+          var page = pages[key];
+          if (!page) {
+            var at = dec && dec.side === side ? idx.indexOf(dec.step) : -1;
+            var from = at >= 0 ? Math.max(0, at - Math.floor(TREE_PAGE / 2)) : 0;
+            page = pages[key] = { from: from, to: Math.min(idx.length, from + TREE_PAGE) };
+          }
+          kids = idx.slice(page.from, page.to).map(stepNode).filter(Boolean);
+          if (page.from > 0) kids.unshift({ kind: "more", key: key + ":before", side: side, phase: key, dir: -1, count: page.from });
+          if (page.to < idx.length) kids.push({ kind: "more", key: key + ":after", side: side, phase: key, dir: 1, count: idx.length - page.to });
+        } else {
+          kids = idx.map(stepNode).filter(Boolean);
+        }
+        return { kind: "phase", key: key, side: side, intent: ph.intent || "phase",
+                 summary: ph.summary || "", count: idx.length, quiet: long && !isNotable,
+                 partial: partial, shown: partial ? kids.length : idx.length, children: kids };
+      };
+      var kids;
+      if (!long || all) {
+        kids = phases.map(function (ph, pi) { return phaseNode(ph, pi, true); });
+      } else {
+        // a long run: a stretch of consecutive quiet phases folds into
+        // one capsule; a quiet phase longer than a page keeps its own
+        // (folded) row, since it pages when opened rather than bursting
+        kids = [];
+        var run = null;
+        var flush = function () {
+          if (!run) return;
+          var ckey = side + ":c:" + run.from + ":" + run.to;
+          if (state.opened[ckey]) {
+            run.phases.forEach(function (p) { kids.push(phaseNode(p.ph, p.pi, false)); });
+          } else {
+            var idx = [], intents = {};
+            run.phases.forEach(function (p) { idx = idx.concat(p.idx); intents[p.ph.intent || "phase"] = (intents[p.ph.intent || "phase"] || 0) + 1; });
+            var s = summarise(idx);
+            kids.push({ kind: "capsule", key: ckey, side: side, count: idx.length, phases: run.phases.length, intents: intents,
+                        tools: s.tools, top: s.top, topCount: s.topCount, thoughts: s.thoughts, wasted: s.wasted, fault: s.fault,
+                        from: idx[0], to: idx[idx.length - 1] });
+          }
+          run = null;
+        };
+        phases.forEach(function (ph, pi) {
+          var idx = indexOf(ph);
+          var isNotable = idx.some(function (i) { return notable[i]; });
+          if (isNotable || idx.length > TREE_PAGE) { flush(); kids.push(phaseNode(ph, pi, isNotable)); return; }
+          if (!run) run = { from: pi, to: pi, phases: [] };
+          run.to = pi;
+          run.phases.push({ ph: ph, pi: pi, idx: idx });
+        });
+        flush();
+      }
       return {
         kind: "run", key: side + ":run", side: side, name: agentName(report, side),
-        success: outcome.success === true, steps: steps.length,
-        children: phases.map(function (ph, pi) {
-          var idx = (ph.steps || []).filter(function (i) { return isNum(i) && i < steps.length; });
-          var key = side + ":p:" + pi;
-          var kids;
-          if (idx.length > TREE_PAGE) {
-            // a long phase shows one page at a time: the page around the
-            // decisive step when it holds one, else the first; "more"
-            // nodes at either end page it
-            var page = pages[key];
-            if (!page) {
-              var at = dec && dec.side === side ? idx.indexOf(dec.step) : -1;
-              var from = at >= 0 ? Math.max(0, at - Math.floor(TREE_PAGE / 2)) : 0;
-              page = pages[key] = { from: from, to: Math.min(idx.length, from + TREE_PAGE) };
-            }
-            kids = idx.slice(page.from, page.to).map(stepNode).filter(Boolean);
-            if (page.from > 0) kids.unshift({ kind: "more", key: key + ":before", side: side, phase: key, dir: -1, count: page.from });
-            if (page.to < idx.length) kids.push({ kind: "more", key: key + ":after", side: side, phase: key, dir: 1, count: idx.length - page.to });
-          } else {
-            kids = idx.map(stepNode).filter(Boolean);
-          }
-          return { kind: "phase", key: key, side: side, intent: ph.intent || "phase",
-                   summary: ph.summary || "", count: idx.length, children: kids };
-        }),
+        success: outcome.success === true, steps: steps.length, children: kids,
       };
     });
     return { kind: "task", key: "task", name: task.id || "task", prompt: task.prompt || "", children: runs };
@@ -5019,9 +5126,35 @@ THIS SOFTWARE.
     var dec = decisiveOf(report);
     var fault = faultPath(report);
     var taskKey = report.task && report.task.id ? report.task.id : "task";
-    var tstate = TreeState[taskKey] = TreeState[taskKey] || { collapsed: {}, pages: {} };
+    var tstate = treeState(taskKey);
     var collapsed = tstate.collapsed, pages = tstate.pages;
-    var data = treeData(report, pages, dec);
+    var total = stepsOf(report, "a").length + stepsOf(report, "b").length;
+    var long = stepsOf(report, "a").length > TREE_LONG || stepsOf(report, "b").length > TREE_LONG;
+    var all = long && tstate.all;
+    var data = treeData(report, dec, { state: tstate, long: long, fault: fault });
+    var treeKey = "tree:" + taskKey;
+    var shownEl = null;
+    if (long) {
+      // the chips: open every step, or fold the quiet stretches back
+      var bar = document.createElement("div");
+      bar.className = "d3c-toolbar d3c-tree-chips";
+      [["open-all", "open all", all], ["fold-quiet", "fold quiet", !all]].forEach(function (spec) {
+        var b = document.createElement("button");
+        b.type = "button"; b.className = "d3c-tb"; b.textContent = spec[1];
+        b.setAttribute("data-act", spec[0]); b.setAttribute("aria-pressed", spec[2] ? "true" : "false");
+        b.addEventListener("click", function () {
+          tstate.all = spec[0] === "open-all";
+          tstate.collapsed = {}; tstate.pages = {}; tstate.opened = {}; tstate.full = {};
+          hideTip();
+          repaint(treeKey);
+        });
+        bar.appendChild(b);
+      });
+      shownEl = document.createElement("span");
+      shownEl.className = "d3c-tshown";
+      bar.appendChild(shownEl);
+      host.appendChild(bar);
+    }
 
     var avail = width(host, ctx);
     // five columns need room; below ~640px the tree keeps its width and
@@ -5039,7 +5172,10 @@ THIS SOFTWARE.
       var big = d.data.kind === "phase" && d.data.count > 8;
       var holdsDecisive = dec && d.data.kind === "phase" && d.data.side === dec.side &&
         (d._children || []).some(function (c) { return c.data.index === dec.step; });
-      if (collapsed[d.id] === undefined) collapsed[d.id] = big && !holdsDecisive;
+      // a big phase starts folded unless it holds the decisive step; on a
+      // long run a phase that carries something notable always starts
+      // open (on its notable steps) and only a quiet one starts folded
+      if (collapsed[d.id] === undefined) collapsed[d.id] = all ? false : long ? (big && d.data.quiet === true) : (big && !holdsDecisive);
       if (collapsed[d.id] && d._children) d.children = null;
     });
     root.x0 = 0; root.y0 = 0;
@@ -5061,7 +5197,21 @@ THIS SOFTWARE.
       if (k.kind === "phase") return truncate(k.intent, Math.floor((colW - 60) / 6.4));
       if (k.kind === "step") return truncate(k.index + " · " + k.name, Math.floor((colW - 30) / 6.4));
       if (k.kind === "more") return (k.dir < 0 ? "▲ " : "▼ ") + k.count + " more";
+      if (k.kind === "capsule") return truncate(capsuleLabel(k), Math.floor((colW - 24) / 6.4));
       return truncate(k.value, Math.max(6, Math.floor((W - d.y - left - 44) / 6.6)));
+    }
+    // the capsule vocabulary the body chart uses: ×N, then what is inside
+    function capsuleLabel(k) {
+      return "×" + k.count + " step" + (k.count === 1 ? "" : "s") + " · " + (k.top || (k.thoughts === 1 ? "thought" : k.thoughts ? "thoughts" : "quiet"));
+    }
+    function capsuleInside(k) {
+      var parts = Object.keys(k.tools).sort(function (a, b) { return k.tools[b] - k.tools[a]; }).slice(0, 4)
+        .map(function (t) { return t + " ×" + k.tools[t]; });
+      if (k.thoughts) parts.push(k.thoughts + " thought" + (k.thoughts === 1 ? "" : "s"));
+      return parts.join(", ");
+    }
+    function capsuleWaste(k) {
+      return k.wasted ? k.wasted + " wasted (returned nothing, dead ends, errors)" : "nothing wasted";
     }
     function pageMore(k) {
       var page = pages[k.phase];
@@ -5077,14 +5227,30 @@ THIS SOFTWARE.
       if (t.kind === "step" && fault[t.side] && fault[t.side][t.index]) return P.bad;
       if (t.kind === "value") return P[STATUS_COLOR[t.status] || "muted"];
       if (t.kind === "run") return sideColor(t.side);
+      if (t.kind === "capsule" && t.fault) return P.bad;   // the fault runs through what is folded here
       return P.rule2;
+    }
+    function onFault(t) {
+      return (t.kind === "step" && fault[t.side] && fault[t.side][t.index]) || (t.kind === "capsule" && t.fault > 0);
     }
 
     function toggle(d) {
       if (!d._children) return;
+      if (collapsed[d.id] && d.data.partial) {
+        // a phase folded from its notable-only view opens in full
+        collapsed[d.id] = false;
+        tstate.full[d.id] = true;
+        repaint(treeKey);
+        return;
+      }
       collapsed[d.id] = !collapsed[d.id];
+      if (!collapsed[d.id] && long) tstate.full[d.id] = true;
       d.children = collapsed[d.id] ? null : d._children;
       update(d);
+    }
+    function openCapsule(k) {
+      tstate.opened[k.key] = true;
+      repaint(treeKey);
     }
 
     function update(source) {
@@ -5097,10 +5263,11 @@ THIS SOFTWARE.
 
       var node = nodeG.selectAll("g.d3c-tnode").data(nodes, function (d) { return d.id; });
       var enter = node.enter().append("g")
-        .attr("class", function (d) { return "d3c-tnode kind-" + d.data.kind + (d._children ? " branch" : ""); })
+        .attr("class", function (d) { return "d3c-tnode kind-" + d.data.kind + (d._children ? " branch" : "") + (d.data.kind === "capsule" ? " d3c-tree-capsule" : ""); })
         .attr("data-kind", function (d) { return d.data.kind; })
         .attr("data-side", function (d) { return d.data.side || ""; })
         .attr("data-step", function (d) { return d.data.kind === "step" ? d.data.index : null; })
+        .attr("data-steps", function (d) { return d.data.kind === "capsule" ? d.data.count : null; })
         .attr("data-key", function (d) { return d.id; })
         .attr("tabindex", 0).attr("role", "button")
         .attr("aria-label", function (d) {
@@ -5108,7 +5275,8 @@ THIS SOFTWARE.
           if (k.kind === "task") return "task " + k.name;
           if (k.kind === "more") return "show " + k.count + " more step" + (k.count === 1 ? "" : "s") + (k.dir < 0 ? " before" : " after");
           if (k.kind === "run") return k.name + (k.success ? " solved" : " failed") + ", " + k.steps + " steps";
-          if (k.kind === "phase") return "phase " + k.intent + ", " + k.count + " steps";
+          if (k.kind === "phase") return "phase " + k.intent + ", " + k.count + " steps" + (k.partial ? ", " + k.shown + " shown" : "");
+          if (k.kind === "capsule") return k.count + " quiet step" + (k.count === 1 ? "" : "s") + " folded across " + k.phases + " phase" + (k.phases === 1 ? "" : "s") + (k.top ? ", mostly " + k.top : "") + "; click to open";
           if (k.kind === "step") return "step " + k.index + " " + k.name + " · " + ((ROLE[k.role] || {}).label || k.role);
           return "value " + k.value + " · " + humanKind(k.status);
         })
@@ -5129,6 +5297,11 @@ THIS SOFTWARE.
             .attr("fill", tint).attr("opacity", 0.85);
         } else if (k.kind === "more") {
           gg.append("circle").attr("r", 5).attr("fill", P.surface).attr("stroke", P.ink2).attr("stroke-width", 1.4).attr("stroke-dasharray", "2 2");
+        } else if (k.kind === "capsule") {
+          // a pill: quiet steps folded, red-edged when the fault runs through them
+          gg.append("rect").attr("x", -9).attr("y", -5).attr("width", 18).attr("height", 10).attr("rx", 5)
+            .attr("fill", P.rule2).attr("opacity", 0.9)
+            .attr("stroke", k.fault ? P.bad : "none").attr("stroke-width", k.fault ? 1.6 : 0);
         } else if (k.kind === "step") {
           drawMark(gg, k.error ? "error" : k.role, sideColor(k.side), 5);
           if (dec && dec.side === k.side && dec.step === k.index) {
@@ -5138,12 +5311,12 @@ THIS SOFTWARE.
           gg.append("rect").attr("x", -4).attr("y", -4).attr("width", 8).attr("height", 8).attr("rx", 1.5)
             .attr("fill", P[STATUS_COLOR[k.status] || "muted"]);
         }
-        var tx = k.kind === "run" ? 22 : k.kind === "step" && dec && dec.side === k.side && dec.step === k.index ? 15 : 12;
+        var tx = k.kind === "run" ? 22 : k.kind === "capsule" ? 14 : k.kind === "step" && dec && dec.side === k.side && dec.step === k.index ? 15 : 12;
         var label = gg.append("text").attr("class", "d3c-tlabel" + (k.kind === "value" ? " mono" : ""))
           .attr("x", tx).attr("y", 4).attr("font-size", k.kind === "value" ? 10.5 : 11.5)
           .attr("fill", k.kind === "value" ? (k.wrong ? P.bad : P[STATUS_COLOR[k.status] || "muted"]) :
-                        k.kind === "phase" || k.kind === "more" ? P.ink2 : P.ink)
-          .attr("font-weight", k.kind === "run" || k.kind === "task" ? 650 : k.kind === "phase" ? 600 : 400)
+                        k.kind === "phase" || k.kind === "more" || k.kind === "capsule" ? P.ink2 : P.ink)
+          .attr("font-weight", k.kind === "run" || k.kind === "task" ? 650 : k.kind === "phase" ? 600 : k.kind === "capsule" ? 500 : 400)
           .text(labelFor(d) + (k.kind === "value" && k.wrong ? " ✗" : k.kind === "value" && k.right ? " ✓" : ""));
         // a branch's label sits over its outgoing links: back it so the
         // links never run through the words
@@ -5158,8 +5331,8 @@ THIS SOFTWARE.
             .attr("x", tx + (label.node().getComputedTextLength ? label.node().getComputedTextLength() : 40) + 6)
             .attr("fill", k.quality === "bad" ? P.bad : P.warn).text(k.quality);
         }
-        gg.selectAll("text.d3c-tcount").each(function () { backed(gg, d3.select(this), P.surface, 2); });
-        var title = k.kind === "phase" ? k.intent + " — " + k.summary
+        var title = k.kind === "phase" ? k.intent + " — " + k.summary + (k.partial ? "\n" + k.shown + " of " + k.count + " steps shown; the rest are quiet" : "")
+          : k.kind === "capsule" ? capsuleLabel(k) + " — " + capsuleInside(k) + "\n" + capsuleWaste(k) + (k.fault ? "\n" + k.fault + " on the fault's path" : "") + "\nclick to open"
           : k.kind === "step" ? "step " + k.index + " · " + k.name + " · " + ((ROLE[k.role] || {}).label || k.role) + "\n" + k.excerpt
           : k.kind === "value" ? k.value + " — " + humanKind(k.status) + (k.source ? " via " + k.source : "") + (k.wrong ? " · does not match the expected answer" : "")
           : k.kind === "run" ? k.name + " — " + (k.success ? "solved" : "failed") + " in " + k.steps + " steps"
@@ -5170,8 +5343,21 @@ THIS SOFTWARE.
       var merged = enter.merge(node);
       merged.classed("collapsed", function (d) { return !!(d._children && !d.children); });
       merged.select("text.d3c-tcount").text(function (d) {
+        if (d.children && d.data.partial) return d.data.shown + " of " + d.data.count + " steps";
         return (d._children && !d.children ? "▸ " : "") + d.data.count + " step" + (d.data.count === 1 ? "" : "s");
+      }).each(function () {
+        // the count sits over the phase's outgoing links: back it afresh
+        // whenever its words change, so a link never runs through them
+        var t = d3.select(this), gg = d3.select(this.parentNode);
+        gg.selectAll("rect.d3c-backing.for-count").remove();
+        backed(gg, t, P.surface, 2);
+        var r = this.previousSibling;
+        if (r && r.getAttribute && r.getAttribute("class") === "d3c-backing") r.setAttribute("class", "d3c-backing for-count");
       });
+      if (shownEl) {
+        var shown = nodes.filter(function (d) { return d.data.kind === "step"; }).length;
+        shownEl.textContent = shown + " of " + total + " steps shown";
+      }
       merged.transition().duration(duration)
         .attr("transform", function (d) { return "translate(" + d.y + "," + d.x + ")"; }).attr("opacity", 1);
       node.exit().transition().duration(duration)
@@ -5182,9 +5368,9 @@ THIS SOFTWARE.
         .attr("fill", "none")
         .attr("d", function () { var o = { x: source.x0, y: source.y0 }; return linkPath({ source: o, target: o }); });
       linkEnter.merge(link)
-        .attr("class", function (l) { return "d3c-tlink" + (l.target.data.kind === "step" && fault[l.target.data.side] && fault[l.target.data.side][l.target.data.index] ? " fault" : ""); })
+        .attr("class", function (l) { return "d3c-tlink" + (onFault(l.target.data) ? " fault" : ""); })
         .attr("stroke", linkStroke)
-        .attr("stroke-width", function (l) { return l.target.data.kind === "step" && fault[l.target.data.side] && fault[l.target.data.side][l.target.data.index] ? 2 : 1.2; })
+        .attr("stroke-width", function (l) { return onFault(l.target.data) ? 2 : 1.2; })
         .attr("stroke-dasharray", function (l) { return l.target.data.kind === "step" && (l.target.data.role === "dead_end" || l.target.data.role === "no_information" || l.target.data.role === "repeat") ? "3 3" : null; })
         .attr("opacity", 0.85)
         .transition().duration(duration).attr("d", linkPath);
@@ -5198,6 +5384,7 @@ THIS SOFTWARE.
         if (d.data.kind === "step") selectStep(report, d.data.side, d.data.index);
         else if (d.data.kind === "value") selectStep(report, d.data.side, d.data.step);
         else if (d.data.kind === "more") pageMore(d.data);
+        else if (d.data.kind === "capsule") openCapsule(d.data);
         else toggle(d);
       }
       merged.on("click", function (event, d) { hideTip(); act(d); })
@@ -5208,7 +5395,8 @@ THIS SOFTWARE.
         }).on("mousemove", function (event, d) {
         var k = d.data;
         if (k.kind === "step") showTip(event, [{ b: true, text: "step " + k.index + " · " + k.name }, { text: k.type + " · " + ((ROLE[k.role] || {}).label || k.role) }, k.excerpt ? { mono: true, text: k.excerpt } : null]);
-        else if (k.kind === "phase") showTip(event, [{ b: true, text: k.intent }, { text: k.summary }, { text: d.children ? "click to collapse" : "click to expand" }]);
+        else if (k.kind === "phase") showTip(event, [{ b: true, text: k.intent }, { text: k.summary }, d.children && k.partial ? { text: k.shown + " of " + k.count + " steps shown; the rest are quiet" } : null, { text: d.children ? "click to collapse" : "click to expand" + (k.partial ? " in full" : "") }]);
+        else if (k.kind === "capsule") showTip(event, [{ b: true, text: capsuleLabel(k) + " · " + k.phases + " phase" + (k.phases === 1 ? "" : "s") }, { text: capsuleInside(k) }, { text: capsuleWaste(k) }, k.fault ? { text: k.fault + " on the fault's path" } : null, { text: "click to open" }]);
         else if (k.kind === "value") showTip(event, [{ b: true, text: k.value }, { text: humanKind(k.status) + (k.source ? " via " + k.source : "") + " · first at step " + k.step }, k.wrong ? { text: "does not match the expected answer" } : null]);
         else if (k.kind === "run") showTip(event, [{ b: true, text: k.name }, { text: (k.success ? "solved" : "failed") + " in " + k.steps + " steps" }]);
         else if (k.kind === "more") showTip(event, [{ b: true, text: k.count + " more step" + (k.count === 1 ? "" : "s") }, { text: "click to show the next " + Math.min(TREE_PAGE, k.count) }]);
@@ -5226,6 +5414,7 @@ THIS SOFTWARE.
     legend.appendChild(legendItem(P, { line: true, dashed: true }, P.rule2, "dead end / repeat"));
     legend.appendChild(legendItem(P, { hatch: true }, P.good, "value in the answer, by basis status"));
     if (dec) legend.appendChild(legendItem(P, { ring: true, dashed: dec.verification !== "replay-verified" }, P.bad, "decisive step"));
+    if (long) legend.appendChild(legendItem(P, { hatch: true }, P.rule2, "capsule = quiet steps folded (×N, the dominant tool); click it to open"));
     host.appendChild(legend);
     return svg.node();
   }
@@ -8577,11 +8766,14 @@ THIS SOFTWARE.
       if (!report) return ctx.empty(el, "No report loaded.");
       var n = stepsOf(report, "a").length + stepsOf(report, "b").length;
       if (!n) return ctx.empty(el, "Neither run recorded a step, so there is nothing to branch.");
+      var long = stepsOf(report, "a").length > 80 || stepsOf(report, "b").length > 80;
       el.appendChild(ctx.h("p", {
         class: "tt-lede",
         text: "One tree for the pair: the task at the root, each run a branch, the reading's phases, their steps, " +
               "and the answer values a step first produced. Red links follow the fault; dashed links are dead ends. " +
-              "Click a phase to fold it, a step to open it.",
+              "Click a phase to fold it, a step to open it." +
+              (long ? " A long run: stretches that carry nothing notable start folded into capsules (×N steps, the dominant tool); " +
+                      "what carries the fault, the decisive step, an error or an answer stays open. Click a capsule to open it." : ""),
       }));
       var host = ctx.h("div", { class: "tt-chart" });
       var narrow = false;
@@ -15584,6 +15776,425 @@ THIS SOFTWARE.
       });
       details.appendChild(t);
       details.appendChild(H("p", { class: "ms-note", text: "gap = " + name(report, "a") + " minus " + name(report, "b") + " at the milestone; a positive gap means " + name(report, "a") + " got there later. Source: " + (ms.source || "golden tasks") + "." }));
+      root.appendChild(details);
+    },
+  });
+})(typeof window !== "undefined" ? window : this);
+
+</script>
+<!-- 23_impact.js -->
+<script>
+/* AgentDiff block — Where it mattered.
+ *
+ * A focus-and-context timeline for multi-agent runs. Each run is a band,
+ * one row per lane (the root agent, then its depth-1 sub-agents); each
+ * contiguous stretch of steps the engine clustered is a box in its lane's
+ * row. The x-axis is not time: in "focus" mode a box's width grows with
+ * the cluster's impact, so the stretches that carried the outcome dilate
+ * and the quiet ones constrict — runs of quiet clusters fold into one thin
+ * hatched strip. "even" is plain wall-clock, so the reader can see what
+ * the dilation did. A box opens on click to show its marks (the decisive
+ * step, faults, errors, retries, milestones, divergences, the answer) as
+ * ticks that open the step in the shared inspector.
+ *
+ * Reads `report.impact` ({a, b, narrative}); every width is a function of
+ * the cluster's `impact` (0..1) or its `seconds`, every mark a step index.
+ */
+(function (global) {
+  "use strict";
+  var AgentDiff = global.AgentDiff;
+  if (!AgentDiff) return;
+  var d3 = global.d3;
+
+  var styled = false;
+  function ensureStyle() {
+    if (styled) return;
+    styled = true;
+    var node = document.createElement("style");
+    node.textContent = [
+      ".im{--im-a:var(--a);--im-b:var(--b);position:relative}",
+      "@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .im{--im-a:#3987e5;--im-b:#d95926}}",
+      ":root[data-theme=dark] .im{--im-a:#3987e5;--im-b:#d95926}",
+      ".im-narr{font-size:var(--fs-m);color:var(--ink);margin:0 0 8px;max-width:90ch}",
+      ".im-bar{display:flex;gap:6px 14px;flex-wrap:wrap;align-items:center;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 8px}",
+      ".im-bar .seg{display:inline-flex;gap:2px}",
+      ".im-bar button{font:inherit;font-size:var(--fs-xs);border:0;background:var(--surface-2);color:var(--ink-2);border-radius:999px;padding:1px 8px;cursor:pointer}",
+      ".im-bar button[aria-pressed=true]{background:var(--ink);color:var(--bg)}",
+      ".im-legend{font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 6px;max-width:100ch}",
+      ".im-chart svg{display:block;width:100%;height:auto;font-family:var(--sans)}",
+      ".im-chart text{font-size:var(--fs-xs)}",
+      ".im-chart .im-head{font-weight:700;letter-spacing:.04em}",
+      ".im-chart .im-lab{fill:var(--ink-2)}",
+      ".im-chart .im-clab{pointer-events:none;font-family:var(--mono)}",
+      ".im-chart .im-why{fill:var(--ink-3)}",
+      ".im-chart .im-cluster{cursor:pointer}.im-chart .im-cluster:hover{stroke:var(--ink);stroke-width:1.5}",
+      ".im-chart .im-cluster.open{stroke-width:1.5}",
+      ".im-chart .im-fold{cursor:pointer}.im-chart .im-fold text{fill:var(--ink-3);pointer-events:none;font-family:var(--mono)}",
+      ".im-chart .im-fold:hover rect.im-fold-rect{stroke:var(--ink);stroke-width:1}",
+      ".im-chart .im-mark{cursor:pointer}.im-chart .im-mark text.g{font-weight:700}.im-chart .im-mark text.im-mlab{fill:var(--ink-2);font-family:var(--mono)}",
+      ".im-chart .im-mark:hover text.g{fill:var(--ink)}",
+      ".im-band + .im-band{margin-top:10px}",
+      ".im-none{font-size:var(--fs-xs);color:var(--ink-3);margin:4px 0 8px}",
+      ".im-details{margin-top:8px;font-size:var(--fs-xs)}.im-details summary{cursor:pointer;color:var(--ink-2)}",
+      ".im-table{border-collapse:collapse;width:100%;font-size:var(--fs-xs);font-variant-numeric:tabular-nums;margin-top:6px}",
+      ".im-table th{font-family:var(--mono);font-weight:500;color:var(--ink-3);text-align:left;padding:2px 10px 5px 0;border-bottom:1px solid var(--rule);white-space:nowrap}",
+      ".im-table td{padding:3px 10px 3px 0;color:var(--ink-2);vertical-align:top}.im-table td.n{white-space:nowrap}",
+      ".im-table td.hot{color:var(--ink);font-weight:600}.im-table td.quiet{color:var(--ink-3)}",
+      ".im-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);max-width:340px}",
+      ".im-tip b{color:var(--ink)}",
+    ].join("\n");
+    document.head.appendChild(node);
+  }
+
+  // ------------------------------------------------------------ helpers
+  function isNum(v) { return typeof v === "number" && isFinite(v); }
+  function secs(v) { return !isNum(v) ? "—" : v >= 100 ? Math.round(v) + "s" : v >= 10 ? v.toFixed(0) + "s" : v >= 1 ? v.toFixed(1) + "s" : v.toFixed(2) + "s"; }
+  function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
+  function color(side) { return "var(--im-" + side + ")"; }
+  //: ~6.2px per character at the page's small size; good enough to truncate by
+  var CH = 6.2;
+  function fit(text, px) {
+    text = String(text === null || text === undefined ? "" : text).replace(/\s+/g, " ").trim();
+    var n = Math.floor(px / CH);
+    if (n < 2) return "";
+    return text.length > n ? text.slice(0, Math.max(1, n - 1)) + "…" : text;
+  }
+  function clamp01(v) { return isNum(v) ? Math.max(0, Math.min(1, v)) : 0; }
+  //: the mark vocabulary — the same glyphs the map and the run lens use
+  var GLYPH = { decisive: "◎", fault: "▏", error: "✕", retry: "↻", milestone: "◆", divergence: "⇄", answer: "■" };
+  var MARK_WORD = { decisive: "decisive step", fault: "on the fault's path", error: "error", retry: "retry", milestone: "milestone", divergence: "divergence", answer: "the answer" };
+
+  //: per task: which clusters are open, which folds are unfolded, the mode
+  var STATE = {};
+  function stateFor(task) {
+    var k = String(task || "");
+    return STATE[k] || (STATE[k] = { mode: "focus", open: {}, unfolded: {} });
+  }
+
+  function tooltip(root) {
+    var tip = document.createElement("div"); tip.className = "im-tip"; tip.hidden = true; root.appendChild(tip);
+    return {
+      show: function (evt, lines) {
+        tip.innerHTML = "";
+        lines.forEach(function (l) { if (!l) return; var d = document.createElement("div"); if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text; tip.appendChild(d); });
+        tip.hidden = false;
+        var r = root.getBoundingClientRect();
+        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
+        if (x + 340 > r.width) x = Math.max(0, evt.clientX - r.left - 350);
+        tip.style.left = x + "px"; tip.style.top = y + "px";
+      },
+      hide: function () { tip.hidden = true; },
+    };
+  }
+
+  // ------------------------------------------------------------ the units
+  //
+  // A band is a sequence of units: a cluster, or a fold — two or more
+  // consecutive quiet clusters folded into one strip (focus mode only,
+  // and only while the reader has not opened it).
+  function clustersOf(run) {
+    return (run && Array.isArray(run.clusters) ? run.clusters : []).filter(function (c) { return c && isNum(c.from); })
+      .slice().sort(function (p, q) { return p.from - q.from; });
+  }
+  //: state keys are side-qualified: both runs number their clusters c0, c1, …
+  function skey(side, id) { return side + ":" + id; }
+  function unitsOf(run, st, side) {
+    var cs = clustersOf(run), out = [];
+    var i = 0;
+    while (i < cs.length) {
+      var c = cs[i];
+      if (st.mode === "focus" && c.kind === "quiet") {
+        var j = i;
+        while (j < cs.length && cs[j].kind === "quiet") j++;
+        var group = cs.slice(i, j);
+        var fid = group.map(function (g) { return g.id; }).join(",");
+        if (group.length >= 2) {
+          if (st.unfolded[skey(side, fid)]) {
+            // opened: every cluster of the run shows, so none of it refolds
+            group.forEach(function (g) { out.push({ type: "cluster", id: g.id, c: g }); });
+          } else {
+            out.push({ type: "fold", id: fid, clusters: group,
+              steps: group.reduce(function (s, g) { return s + (isNum(g.steps) ? g.steps : (g.to - g.from + 1)); }, 0),
+              seconds: group.reduce(function (s, g) { return s + (g.seconds || 0); }, 0),
+              from: group[0].from, to: group[group.length - 1].to });
+          }
+          i = j;
+          continue;
+        }
+      }
+      out.push({ type: "cluster", id: c.id, c: c });
+      i++;
+    }
+    return out;
+  }
+  //: the root agent's row first, then the sub-agents in the order the run met them
+  function lanesOf(run) {
+    var listed = (run && Array.isArray(run.lanes) ? run.lanes : []).filter(function (l) { return l && l.agent; });
+    var lanes = listed.filter(function (l) { return !l.depth; }).concat(listed.filter(function (l) { return l.depth; })).map(function (l) { return l.agent; });
+    lanes = lanes.filter(function (l, i) { return lanes.indexOf(l) === i; });
+    clustersOf(run).forEach(function (c) { if (c.lane && lanes.indexOf(c.lane) < 0) lanes.push(c.lane); });
+    if (!lanes.length) lanes.push("run");
+    return lanes;
+  }
+  function weight(c) { return Math.pow(clamp01(c.impact), 0.7); }
+  function stepsIn(c) { return isNum(c.steps) ? c.steps : Math.max(1, (c.to || 0) - (c.from || 0) + 1); }
+
+  /* One width scale for both bands: equal impacts get equal widths across
+   * A and B, and neither band runs past the available width. In focus
+   * mode a cluster is wMin + k·impact^0.7, a fold a fixed thin strip, an
+   * open cluster a box wide enough for its marks; k is the largest value
+   * that fits the wider band. In even mode every cluster is its seconds. */
+  function scale(im, sides, states, avail, narrow, mode) {
+    var wMin = narrow ? 4 : 9, gap = 2;
+    //: a fold is a thin strip — the constriction is the point; its label runs vertically
+    var wFold = narrow ? 12 : 22;
+    var per = {};
+    var k = Infinity;
+    if (mode === "even") {
+      var maxS = 1e-9;
+      sides.forEach(function (s) { maxS = Math.max(maxS, im[s].total_s || clustersOf(im[s]).reduce(function (t, c) { return t + (c.seconds || 0); }, 0)); });
+      sides.forEach(function (s) {
+        var units = unitsOf(im[s], states, s);
+        var n = units.length;
+        var free = avail - gap * Math.max(0, n - 1);
+        var kk = free / maxS;
+        var ws = units.map(function (u) { return Math.max(2, (u.c.seconds || 0) * kk); });
+        var sum = ws.reduce(function (t, w) { return t + w; }, 0);
+        if (sum > free) ws = ws.map(function (w) { return w * free / sum; });
+        per[s] = { units: units, widths: ws, gap: gap, wFold: wFold };
+      });
+      return per;
+    }
+    sides.forEach(function (s) {
+      var units = unitsOf(im[s], states, s);
+      var n = units.length;
+      var fixed = gap * Math.max(0, n - 1), sumW = 0, nClosed = 0;
+      units.forEach(function (u) {
+        if (u.type === "fold") fixed += wFold;
+        else if (states.open[skey(s, u.id)]) fixed += openWidth(u.c, avail, narrow);
+        else { sumW += weight(u.c); nClosed++; }
+      });
+      if (sumW > 0) k = Math.min(k, (avail - fixed - nClosed * wMin) / sumW);
+      per[s] = { units: units, gap: gap, wFold: wFold };
+    });
+    if (!isFinite(k)) k = 0;
+    k = Math.max(0, Math.min(k, avail * 0.5 - wMin));
+    sides.forEach(function (s) {
+      var p = per[s];
+      var n = p.units.length;
+      var free = avail - gap * Math.max(0, n - 1);
+      p.widths = p.units.map(function (u) {
+        if (u.type === "fold") return wFold;
+        var base = wMin + k * weight(u.c);
+        return states.open[skey(s, u.id)] ? Math.max(base, openWidth(u.c, avail, narrow)) : base;
+      });
+      var sum = p.widths.reduce(function (t, w) { return t + w; }, 0);
+      if (sum > free && sum > 0) p.widths = p.widths.map(function (w) { return w * free / sum; });
+    });
+    return per;
+  }
+  function openWidth(c, avail, narrow) {
+    var marks = Array.isArray(c.marks) ? c.marks.length : 0;
+    return Math.min(avail * 0.35, Math.max(narrow ? 60 : 110, (narrow ? 40 : 70) + marks * (narrow ? 16 : 48)));
+  }
+
+  // ------------------------------------------------------------ drawing
+  var seq = 0;
+  function draw(host, report, im, st, tip, ctx) {
+    if (!d3) return;
+    var task = report.task && report.task.id;
+    var W = Math.max(300, host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 640);
+    var narrow = W < 560;
+    var sides = ["a", "b"].filter(function (s) { return im[s] && im[s].measurable !== false && clustersOf(im[s]).length; });
+    var labW = narrow ? 68 : 100, padR = 6;
+    var avail = W - labW - padR;
+    var per = scale(im, sides, st, avail, narrow, st.mode);
+    var rowH = 16, rowGap = 3, whyH = 13, head = 18, foot = 4;
+    ["a", "b"].forEach(function (side) {
+      var run = im[side];
+      if (sides.indexOf(side) < 0) {
+        host.appendChild(ctx.h("p", { class: "im-none", "data-side": side, text: name(report, side) + ": " + (run && run.narrative ? run.narrative : "no clusters were measured for this run.") }));
+        return;
+      }
+      var p = per[side];
+      var lanes = lanesOf(run);
+      // rows: y per lane; a lane with open clusters gets a why line per open cluster under it
+      var rows = {}, y = head, openIn = {};
+      p.units.forEach(function (u) { if (u.type === "cluster" && st.open[skey(side, u.id)]) { openIn[u.c.lane] = (openIn[u.c.lane] || 0) + 1; } });
+      lanes.forEach(function (lane) {
+        rows[lane] = { y: y, why: 0 };
+        y += rowH + (openIn[lane] || 0) * whyH + rowGap;
+      });
+      var rowsTop = head, rowsBottom = y - rowGap;
+      var H = y - rowGap + foot;
+      var hot = clustersOf(run).filter(function (c) { return c.kind === "hot"; }).length;
+      var svg = d3.select(host).append("svg").attr("class", "im-band").attr("data-side", side).attr("data-mode", st.mode)
+        .attr("viewBox", "0 0 " + W + " " + H).attr("role", "img")
+        .attr("aria-label", name(report, side) + ": " + clustersOf(run).length + " stretches over " + lanes.length + " lane" + (lanes.length === 1 ? "" : "s") + ", " + hot + " hot, width " + (st.mode === "focus" ? "by impact" : "by seconds"));
+      var hid = "im-hatch-" + side + "-" + (seq++);
+      var pat = svg.append("defs").append("pattern").attr("id", hid).attr("width", 5).attr("height", 5).attr("patternUnits", "userSpaceOnUse").attr("patternTransform", "rotate(45)");
+      pat.append("line").attr("x1", 0).attr("y1", 0).attr("x2", 0).attr("y2", 5).attr("stroke", "var(--ink-3)").attr("stroke-width", 1).attr("stroke-opacity", 0.45);
+      // the run's line: name, steps, seconds
+      svg.append("text").attr("class", "im-head").attr("x", 0).attr("y", 11).attr("fill", color(side))
+        .text(fit(name(report, side) + " · " + (isNum(run.total_steps) ? run.total_steps + " steps · " : "") + secs(run.total_s), W))
+        .append("title").text(run.narrative || "");
+      // the rows
+      lanes.forEach(function (lane, li) {
+        var g = svg.append("g").attr("class", "im-row").attr("data-lane", lane).attr("data-side", side);
+        g.append("line").attr("x1", labW).attr("x2", W - padR).attr("y1", rows[lane].y + rowH / 2).attr("y2", rows[lane].y + rowH / 2).attr("stroke", "var(--rule)").attr("stroke-dasharray", li === 0 ? null : "2 3");
+        g.append("text").attr("class", "im-lab").attr("x", labW - 6).attr("y", rows[lane].y + rowH / 2 + 4).attr("text-anchor", "end")
+          .text(fit((li === 0 || narrow ? "" : "↳ ") + lane, labW - 8)).append("title").text(lane);
+      });
+      // the units, left to right
+      var x = labW, whys = [];
+      p.units.forEach(function (u, ui) {
+        var w = p.widths[ui];
+        if (u.type === "fold") {
+          var fg = svg.append("g").attr("class", "im-fold").attr("data-ids", u.id).attr("data-side", side);
+          fg.append("rect").attr("class", "im-fold-rect").attr("x", x).attr("y", rowsTop).attr("width", w).attr("height", rowsBottom - rowsTop).attr("rx", 3)
+            .attr("fill", "var(--ink-3)").attr("fill-opacity", 0.08);
+          fg.append("rect").attr("x", x).attr("y", rowsTop).attr("width", w).attr("height", rowsBottom - rowsTop).attr("rx", 3).attr("fill", "url(#" + hid + ")").attr("pointer-events", "none");
+          var full = "⋯ " + u.steps + " steps · " + secs(u.seconds), mid = "⋯ " + u.steps + " steps", rowsH = rowsBottom - rowsTop;
+          var lab = rowsH >= full.length * CH + 8 ? full : rowsH >= mid.length * CH + 8 ? mid : "⋯";
+          if (lab === "⋯") fg.append("text").attr("x", x + w / 2).attr("y", (rowsTop + rowsBottom) / 2 + 4).attr("text-anchor", "middle").text(lab);
+          else fg.append("text").attr("transform", "translate(" + (x + w / 2 + 4) + "," + ((rowsTop + rowsBottom) / 2) + ") rotate(-90)").attr("text-anchor", "middle").text(lab);
+          fg.append("title").text(u.clusters.length + " quiet stretches folded: steps " + u.from + "–" + u.to + ", " + u.steps + " steps, " + secs(u.seconds) + " — click to open");
+          fg.on("pointermove", function (evt) {
+            tip.show(evt, [{ b: true, text: name(report, side) + " · " + u.clusters.length + " quiet stretches" }, { text: "steps " + u.from + "–" + u.to + " · " + u.steps + " steps · " + secs(u.seconds) }, { text: "click to open them" }]);
+          }).on("pointerleave", tip.hide).on("click", function () { st.unfolded[skey(side, u.id)] = true; repaint(); });
+          x += w + p.gap;
+          return;
+        }
+        var c = u.c, lane = c.lane && rows[c.lane] ? c.lane : lanes[0], ry = rows[lane].y, open = !!st.open[skey(side, u.id)];
+        var quiet = c.kind === "quiet", hotK = c.kind === "hot";
+        var op = quiet ? 0.18 : 0.15 + 0.75 * clamp01(c.impact);
+        var rect = svg.append("rect").attr("class", "im-cluster" + (open ? " open" : "")).attr("data-id", c.id).attr("data-kind", c.kind || "work").attr("data-side", side).attr("data-lane", lane)
+          .attr("x", x).attr("y", ry).attr("width", w).attr("height", rowH).attr("rx", 3)
+          .attr("fill", quiet ? "var(--ink-3)" : color(side)).attr("fill-opacity", op)
+          .attr("stroke", hotK ? color(side) : open ? "var(--ink-2)" : "none").attr("stroke-width", hotK ? 1.5 : open ? 1 : 0);
+        rect.append("title").text(name(report, side) + " · " + lane + " · steps " + c.from + "–" + c.to + " · " + secs(c.seconds) + " · impact " + clamp01(c.impact).toFixed(2) + (c.why ? " — " + c.why : ""));
+        if (quiet) svg.append("rect").attr("x", x).attr("y", ry).attr("width", w).attr("height", rowH).attr("rx", 3).attr("fill", "url(#" + hid + ")").attr("pointer-events", "none");
+        rect.on("pointermove", function (evt) {
+          tip.show(evt, [{ b: true, text: name(report, side) + " · " + lane + " · " + (c.label || c.kind) },
+            { text: "steps " + c.from + "–" + c.to + " (" + stepsIn(c) + ") · " + secs(c.seconds) + " · impact " + clamp01(c.impact).toFixed(2) + " · " + (c.kind || "work") },
+            c.why ? { text: c.why } : null,
+            { text: open ? "click to collapse" : "click to open its steps" }]);
+        }).on("pointerleave", tip.hide).on("click", function () { var k = skey(side, u.id); if (st.open[k]) delete st.open[k]; else st.open[k] = true; repaint(); });
+        var marks = open && Array.isArray(c.marks) ? c.marks.filter(function (m) { return m && isNum(m.step); }).slice().sort(function (p, q) { return p.step - q.step; }) : [];
+        if (!open && w >= 30) {
+          svg.append("text").attr("class", "im-clab").attr("x", x + 4).attr("y", ry + rowH / 2 + 4).attr("fill", op >= 0.55 ? "var(--bg)" : "var(--ink)")
+            .text(fit(c.label || (c.kind === "quiet" ? "quiet" : c.kind || ""), w - 8));
+        }
+        if (open) {
+          // ticks for the marks, at their step's place in the box; short labels when they fit
+          var span = Math.max(1, (c.to || 0) - (c.from || 0));
+          var inner = Math.max(1, w - 12);
+          var xs = marks.map(function (m) { return x + 6 + inner * Math.max(0, Math.min(1, (m.step - c.from) / span)); });
+          // two marks on one step sit side by side rather than on top of each other
+          for (var mi2 = 1; mi2 < xs.length; mi2++) { if (xs[mi2] < xs[mi2 - 1] + 9) xs[mi2] = xs[mi2 - 1] + 9; }
+          marks.forEach(function (m, mi) {
+            var mx = xs[mi], my = ry + rowH / 2;
+            var mg = svg.append("g").attr("class", "im-mark").attr("data-step", m.step).attr("data-kind", m.kind || "mark").attr("data-side", side);
+            var red = m.kind === "decisive" || m.kind === "fault" || m.kind === "error";
+            if (m.kind === "decisive") {
+              mg.append("circle").attr("cx", mx).attr("cy", my).attr("r", 5.5).attr("fill", "none").attr("stroke", "var(--bad)").attr("stroke-width", 2);
+            } else if (m.kind === "fault") {
+              mg.append("line").attr("x1", mx).attr("x2", mx).attr("y1", ry + 1).attr("y2", ry + rowH - 1).attr("stroke", "var(--bad)").attr("stroke-width", 2.5);
+            } else {
+              mg.append("text").attr("class", "g").attr("x", mx).attr("y", my + 4).attr("text-anchor", "middle").attr("fill", red ? "var(--bad)" : "var(--ink)").text(GLYPH[m.kind] || "•");
+            }
+            mg.append("rect").attr("x", mx - 6).attr("y", ry).attr("width", 12).attr("height", rowH).attr("fill", "transparent");
+            var room = (mi + 1 < marks.length ? xs[mi + 1] : x + w) - mx - 10;
+            if (!narrow && room >= 3 * CH && m.label) {
+              mg.append("text").attr("class", "im-mlab").attr("x", mx + 8).attr("y", my + 4).text(fit(m.label, room));
+            }
+            mg.append("title").text("step " + m.step + " · " + (MARK_WORD[m.kind] || m.kind) + (m.label ? " · " + m.label : "") + " — click to open the step");
+            mg.on("pointermove", function (evt) {
+              evt.stopPropagation();
+              tip.show(evt, [{ b: true, text: name(report, side) + " · step " + m.step + " · " + (MARK_WORD[m.kind] || m.kind) }, m.label ? { text: m.label } : null, { text: "click to open the step" }]);
+            }).on("pointerleave", tip.hide).on("click", function (evt) {
+              evt.stopPropagation();
+              if (AgentDiff.charts && AgentDiff.charts.selectStep) AgentDiff.charts.selectStep(report, side, m.step);
+            });
+          });
+          // the why line, under the row — drawn last, over a backing, so no fold strikes through it
+          var wy = ry + rowH + 10 + rows[lane].why * whyH;
+          rows[lane].why++;
+          whys.push({ id: c.id, y: wy, text: fit((c.label ? c.label + " · " : "") + "steps " + c.from + "–" + c.to + " · " + secs(c.seconds) + (c.why ? " — " + c.why : ""), avail) });
+        }
+        x += w + p.gap;
+      });
+      whys.forEach(function (wl) {
+        svg.append("rect").attr("x", labW - 2).attr("y", wl.y - 10).attr("width", Math.min(avail + 4, wl.text.length * CH + 6)).attr("height", 13).attr("rx", 2).attr("fill", "var(--bg)").attr("fill-opacity", 0.92);
+        svg.append("text").attr("class", "im-why").attr("data-id", wl.id).attr("x", labW).attr("y", wl.y).text(wl.text);
+      });
+    });
+    function repaint() { host.innerHTML = ""; draw(host, report, im, st, tip, ctx); }
+  }
+
+  AgentDiff.block({
+    id: "impact",
+    title: "Where it mattered",
+    question: "Which stretches of each run carried the impact — and which were quiet — with the timeline dilated where it mattered and constricted where it did not?",
+    group: "trajectory",
+    size: "wide",
+    relevance: function (ctx) { var im = ctx.report && ctx.report.impact; return im && im.a && im.a.measurable ? 0.85 : 0; },
+    render: function (el, ctx) {
+      ensureStyle();
+      var H = ctx.h, report = ctx.report, im = report && report.impact;
+      if (!im || !im.a || !im.a.measurable) return ctx.empty(el, "No impact clusters were measured for this run, so the timeline cannot be weighted.");
+      var root = H("div", { class: "im" });
+      el.appendChild(root);
+      var tip = tooltip(root);
+      var task = report.task && report.task.id;
+      var st = stateFor(task);
+      if (im.narrative) root.appendChild(H("p", { class: "im-narr", text: im.narrative }));
+      var host = H("div", { class: "im-chart" });
+      function redraw() { host.innerHTML = ""; draw(host, report, im, st, tip, ctx); sync(); }
+      var bar = H("div", { class: "im-bar" });
+      bar.appendChild(H("span", null, [H("i", { style: { display: "inline-block", width: "10px", height: "10px", borderRadius: "2px", verticalAlign: "-1px", marginRight: "4px", background: color("a") } }), H("span", { text: name(report, "a") })]));
+      bar.appendChild(H("span", null, [H("i", { style: { display: "inline-block", width: "10px", height: "10px", borderRadius: "2px", verticalAlign: "-1px", marginRight: "4px", background: color("b") } }), H("span", { text: name(report, "b") })]));
+      var seg = H("span", { class: "seg", role: "group", "aria-label": "width" });
+      var modeBtns = {};
+      [["focus", "width by impact"], ["even", "width by seconds (wall-clock)"]].forEach(function (pair) {
+        modeBtns[pair[0]] = H("button", { text: pair[0], "data-mode": pair[0], title: pair[1], "aria-pressed": st.mode === pair[0] ? "true" : "false",
+          onclick: function () { if (st.mode === pair[0]) return; st.mode = pair[0]; redraw(); } });
+        seg.appendChild(modeBtns[pair[0]]);
+      });
+      bar.appendChild(seg);
+      bar.appendChild(H("button", { text: "expand hot", "data-act": "expand-hot", title: "open every hot stretch", onclick: function () {
+        ["a", "b"].forEach(function (s) {
+          var run = im[s]; if (!run) return;
+          var hotIds = Array.isArray(run.hot) ? run.hot.slice() : [];
+          clustersOf(run).forEach(function (c) { if (c.kind === "hot" && hotIds.indexOf(c.id) < 0) hotIds.push(c.id); });
+          hotIds.forEach(function (id) { st.open[skey(s, id)] = true; });
+        });
+        redraw();
+      } }));
+      bar.appendChild(H("button", { text: "collapse all", "data-act": "collapse-all", title: "close every open stretch and refold the quiet ones", onclick: function () { st.open = {}; st.unfolded = {}; redraw(); } }));
+      root.appendChild(bar);
+      root.appendChild(H("p", { class: "im-legend", text: "width ∝ impact (focus) · grey folds = quiet stretches, click to open · click a cluster for its steps · a tick opens the step · ◎ decisive · ▏fault · ✕ error · ↻ retry · ◆ milestone · ⇄ divergence · ■ answer" }));
+      function sync() { Object.keys(modeBtns).forEach(function (k) { modeBtns[k].setAttribute("aria-pressed", st.mode === k ? "true" : "false"); }); }
+      root.appendChild(AgentDiff.charts && AgentDiff.charts.responsive ? AgentDiff.charts.responsive(host, function () { draw(host, report, im, st, tip, ctx); }, "impact:" + task) : host);
+      if (!(AgentDiff.charts && AgentDiff.charts.responsive)) draw(host, report, im, st, tip, ctx);
+      // the table: every cluster, both runs, no hovering
+      var details = H("details", { class: "im-details" }, [H("summary", { text: "every stretch, both runs" })]);
+      var t = H("table", { class: "im-table" });
+      t.appendChild(H("tr", null, ["run", "lane", "steps", "s", "impact", "kind", "why"].map(function (h) { return H("th", { text: h }); })));
+      ["a", "b"].forEach(function (side) {
+        clustersOf(im[side]).forEach(function (c) {
+          t.appendChild(H("tr", { "data-side": side, "data-id": c.id }, [
+            H("td", { class: "n", text: name(report, side) }),
+            H("td", { class: "n", text: c.lane || "" }),
+            H("td", { class: "n", text: c.from + "–" + c.to }),
+            H("td", { class: "n", text: secs(c.seconds) }),
+            H("td", { class: "n", text: clamp01(c.impact).toFixed(2) }),
+            H("td", { class: "n " + (c.kind || ""), text: c.kind || "work" }),
+            H("td", { text: (c.label ? c.label + " — " : "") + (c.why || "") }),
+          ]));
+        });
+      });
+      details.appendChild(H("div", { class: "scroll-x" }, [t]));
       root.appendChild(details);
     },
   });

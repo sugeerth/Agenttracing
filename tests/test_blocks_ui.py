@@ -4189,7 +4189,7 @@ class PanelsAndHeatTest(unittest.TestCase):
         self.assertTrue(page.locator("#story-lane").is_hidden())
         self.assertTrue(page.locator("#stacks").is_hidden())
         self.assertTrue(page.locator("#hero-lane").is_hidden() if page.locator("#hero-lane").count() else True)
-        self.assertEqual(self._ids(page), ["treemap*", "trace-body*", "heatmap", "latency-strip", "tool-matrix"])
+        self.assertEqual(self._ids(page), ["treemap*"] + (["impact*"] if "impact" in self.report else []) + ["trace-body*", "heatmap", "latency-strip", "tool-matrix"])
         presets = page.locator("#panels-lane [data-preset]")
         self.assertEqual([presets.nth(i).get_attribute("data-preset") for i in range(presets.count())], ["time", "tools", "agents", "eval", "all", "used"])
         self.assertEqual(page.locator('#panels-lane [data-cols="2"]').get_attribute("aria-pressed"), "true")
@@ -4206,23 +4206,24 @@ class PanelsAndHeatTest(unittest.TestCase):
         for bid in ("trace-body", "treemap"):
             page.click(f'#panels-lane .panels-grid > [data-block="{bid}"] .panel-ctl button[title="remove this panel"]')
             page.wait_for_timeout(300)
-        self.assertEqual(self._ids(page), ["heatmap", "latency-strip", "tool-matrix"])
+        imp = ["impact*"] if "impact" in self.report else []
+        self.assertEqual(self._ids(page), imp + ["heatmap", "latency-strip", "tool-matrix"])
         page.click('#panels-lane [data-cols="3"]')
         page.wait_for_timeout(300)
         page.click("#panels-lane [data-picker] summary")
         page.wait_for_timeout(200)
         page.click('#panels-lane [data-add="time"]')
         page.wait_for_timeout(300)
-        self.assertEqual(self._ids(page), ["heatmap", "latency-strip", "tool-matrix", "time"])
+        self.assertEqual(self._ids(page), imp + ["heatmap", "latency-strip", "tool-matrix", "time"])
         page.click('#panels-lane .panels-grid > [data-block="time"] .panel-ctl button[title="move left"]')
         page.wait_for_timeout(300)
         page.click('#panels-lane .panels-grid > [data-block="time"] .panel-ctl button[title="full width"]')
         page.wait_for_timeout(300)
-        self.assertEqual(self._ids(page), ["heatmap", "latency-strip", "time*", "tool-matrix"])
+        self.assertEqual(self._ids(page), imp + ["heatmap", "latency-strip", "time*", "tool-matrix"])
         self.assertEqual(page.evaluate("() => getComputedStyle(document.querySelector('#panels-lane .panels-grid')).gridTemplateColumns.split(' ').length"), 3)
         page.reload()
         page.wait_for_timeout(900)
-        self.assertEqual(self._ids(page), ["heatmap", "latency-strip", "time*", "tool-matrix"])
+        self.assertEqual(self._ids(page), imp + ["heatmap", "latency-strip", "time*", "tool-matrix"])
         self.assertEqual(page.locator('#panels-lane [data-cols="3"]').get_attribute("aria-pressed"), "true")
         page.click('#panels-lane [data-preset="tools"]')
         page.wait_for_timeout(300)
@@ -4400,5 +4401,377 @@ class MilestonesBlockTest(unittest.TestCase):
         mark.dispatch_event("click")
         page.wait_for_timeout(400)
         self.assertIn(f"STEP {step}", page.locator('#panels-lane [data-block="trace-body"] .tj-inspector').inner_text().upper())
+        self.assertEqual(errors, [])
+        context.close()
+
+
+def _impact_fixture(report):
+    """A small, valid `report.impact` for a page whose engine has not
+    written one: two lanes per run, six contiguous clusters per run — two
+    quiet in a row (they fold), one hot with three marks — every mark a
+    step the alignment knows, so a tick can open it in the inspector."""
+    def run(side):
+        agent = report[side]["agent"]["name"]
+        n = len(report[side]["steps"])
+        total_s = float(report["timing"][side]["total_s"])
+        bounds = [(0, 59), (60, 149), (150, 239), (240, 299), (300, 399), (400, n - 1)]
+        kinds = ["work", "quiet", "quiet", "hot", "work", "work"]
+        impacts = [0.35, 0.04, 0.03, 0.97, 0.3, 0.55]
+        lanes = [agent, agent, "migrator-auth", agent, "migrator-auth", agent]
+        marks_at = [r[f"{side}_index"] for r in report["alignment"]
+                    if r.get(f"{side}_index") is not None and 240 <= r[f"{side}_index"] <= 299][:3]
+        assert len(marks_at) == 3
+        clusters = []
+        for i, ((lo, hi), kind, imp, lane) in enumerate(zip(bounds, kinds, impacts, lanes)):
+            steps = hi - lo + 1
+            start_s = total_s * lo / n
+            end_s = total_s * (hi + 1) / n
+            marks = []
+            if kind == "hot":
+                marks = [{"step": marks_at[0], "kind": "fault", "label": "wrong schema read"},
+                         {"step": marks_at[1], "kind": "decisive", "label": "dropped the column"},
+                         {"step": marks_at[2], "kind": "error", "label": "migration failed"}]
+            clusters.append({
+                "id": f"{side}{i + 1}", "from": lo, "to": hi, "steps": steps,
+                "start_s": round(start_s, 3), "end_s": round(end_s, 3), "seconds": round(end_s - start_s, 3),
+                "lane": lane, "agents": [lane], "impact": imp, "score": imp * 10, "kind": kind,
+                "reasons": {"fault_steps": 1 if kind == "hot" else 0, "decisive": kind == "hot", "errors": 1 if kind == "hot" else 0,
+                            "retries": 0, "wasted_s": 0.0, "milestones": [], "divergence_rows": 0, "first_divergence": None,
+                            "answer": i == 5, "tokens": 1000 * steps},
+                "why": f"{kind} stretch of {steps} steps in {lane}", "label": f"{kind} {i + 1}", "marks": marks,
+            })
+        return {
+            "measurable": True, "total_s": total_s, "total_steps": n, "clusters": clusters, "hot": [f"{side}4"],
+            "lanes": [{"agent": agent, "depth": 0, "parent": None, "clusters": [c["id"] for c in clusters if c["lane"] == agent]},
+                      {"agent": "migrator-auth", "depth": 1, "parent": agent, "clusters": [c["id"] for c in clusters if c["lane"] != agent]}],
+            "narrative": f"{agent}: one hot stretch at steps 240–299.",
+        }
+    return {"version": 1, "a": run("a"), "b": run("b"),
+            "narrative": "Both runs spent their impact in one stretch around step 240–299; the rest was quiet work."}
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class ImpactBlockTest(unittest.TestCase):
+    """The impact-weighted timeline: two bands, one row per lane, a box per
+    cluster whose width is its impact; consecutive quiet clusters folded
+    into one strip that opens on click; a cluster opening to its marks; a
+    mark opening its step in the shared inspector; the even mode; the
+    table under the fold; nothing overflowing on a phone."""
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        if not (ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__atlas-lh.json").is_file():
+            subprocess.run([sys.executable, str(ROOT / "demo" / "horizon" / "generate_long.py")], cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "horizon" / "long"), "-o", str(out),
+                        "--golden", str(ROOT / "demo" / "horizon" / "golden.json"), "--template", str(ROOT / "web" / "blocks.html")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        cls.page_path = out / "report.html"
+        report_path = out / "report_h02_migrate_service.json"
+        cls.report = json.loads(report_path.read_text(encoding="utf-8"))
+        if "impact" not in cls.report:
+            from deepcompare.report import render_html
+            cls.report["impact"] = _impact_fixture(cls.report)
+            report_path.write_text(json.dumps(cls.report), encoding="utf-8")
+            aggregate_path = out / "aggregate.json"
+            aggregate = json.loads(aggregate_path.read_text(encoding="utf-8")) if aggregate_path.is_file() else {}
+            render_html([cls.report], aggregate, ROOT / "web" / "blocks.html", cls.page_path)
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _open(self, width=1280, preset="time"):
+        context = self.browser.new_context(viewport={"width": width, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view=panels")
+        page.wait_for_timeout(900)
+        if preset:
+            page.click(f'#panels-lane [data-preset="{preset}"]')
+            page.wait_for_timeout(700)
+        return context, page, errors
+
+    @staticmethod
+    def _visible(im, side):
+        """Clusters drawn as boxes with every fold closed: all but those
+        inside a run of two or more quiet clusters."""
+        cs = sorted(im[side]["clusters"], key=lambda c: c["from"])
+        shown, folds, i = [], [], 0
+        while i < len(cs):
+            if cs[i]["kind"] == "quiet":
+                j = i
+                while j < len(cs) and cs[j]["kind"] == "quiet":
+                    j += 1
+                if j - i >= 2:
+                    folds.append(",".join(c["id"] for c in cs[i:j]))
+                    i = j
+                    continue
+            shown.append(cs[i]["id"])
+            i += 1
+        return shown, folds
+
+    def test_bands_rows_clusters_and_folds_match_the_report(self):
+        context, page, errors = self._open()
+        im = self.report["impact"]
+        block = page.locator('#panels-lane .panels-grid > [data-block="impact"]')
+        self.assertEqual(block.count(), 1)
+        self.assertIn(im["narrative"][:50], block.locator(".im-narr").text_content())
+        bands = block.locator("svg.im-band")
+        self.assertEqual(bands.count(), 2)
+        for side in ("a", "b"):
+            band = block.locator(f'svg.im-band[data-side="{side}"]')
+            self.assertEqual(band.get_attribute("role"), "img")
+            self.assertTrue(band.get_attribute("aria-label"))
+            self.assertEqual(band.locator("g.im-row").count(), len(im[side]["lanes"]))
+            lanes = [band.locator("g.im-row").nth(i).get_attribute("data-lane") for i in range(band.locator("g.im-row").count())]
+            # the root agent leads its band; the sub-agents follow in the order the run met them
+            self.assertEqual(lanes, [l["agent"] for l in im[side]["lanes"] if not l["depth"]] + [l["agent"] for l in im[side]["lanes"] if l["depth"]])
+            shown, folds = self._visible(im, side)
+            self.assertEqual(band.locator("rect.im-cluster").count(), len(shown), side)
+            self.assertEqual([band.locator("g.im-fold").nth(i).get_attribute("data-ids") for i in range(band.locator("g.im-fold").count())], folds, side)
+            for cid in shown:
+                self.assertEqual(band.locator(f'rect.im-cluster[data-id="{cid}"][data-side="{side}"]').count(), 1)
+        self.assertEqual(block.locator(".im-table tr[data-side][data-id]").count(), len(im["a"]["clusters"]) + len(im["b"]["clusters"]))
+        self.assertEqual(block.locator('button[data-mode="focus"]').get_attribute("aria-pressed"), "true")
+        self.assertEqual(block.locator('button[data-mode="even"]').get_attribute("aria-pressed"), "false")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_fold_opens_a_cluster_opens_and_a_mark_opens_the_step(self):
+        # the agents preset holds the body chart, so the inspector is on the page
+        context, page, errors = self._open(preset="agents")
+        im = self.report["impact"]
+        block = page.locator('#panels-lane .panels-grid > [data-block="impact"]')
+        self.assertEqual(block.count(), 1)
+        band = block.locator('svg.im-band[data-side="a"]')
+        shown, folds = self._visible(im, "a")
+        self.assertGreaterEqual(len(folds), 1)
+        self.assertEqual(band.locator("g.im-fold").count(), len(folds))
+        b_folds = block.locator('svg.im-band[data-side="b"] g.im-fold').count()
+        first = band.locator("g.im-fold").first
+        inside = first.get_attribute("data-ids").split(",")
+        first.dispatch_event("click")
+        page.wait_for_timeout(300)
+        band = block.locator('svg.im-band[data-side="a"]')
+        self.assertEqual(band.locator("g.im-fold").count(), len(folds) - 1)
+        self.assertEqual(band.locator("rect.im-cluster").count(), len(shown) + len(inside))
+        for cid in inside:
+            self.assertEqual(band.locator(f'rect.im-cluster[data-id="{cid}"][data-kind="quiet"]').count(), 1)
+        # the other band keeps its folds: a fold is opened by id, not per page
+        self.assertEqual(block.locator('svg.im-band[data-side="b"] g.im-fold').count(), b_folds)
+        hot = next(c for c in sorted(im["a"]["clusters"], key=lambda c: c["from"]) if c["kind"] == "hot" and c["marks"])
+        box = band.locator(f'rect.im-cluster[data-id="{hot["id"]}"]')
+        self.assertEqual(box.get_attribute("data-kind"), "hot")
+        self.assertNotIn("open", (box.get_attribute("class") or "").split())
+        self.assertEqual(band.locator("g.im-mark").count(), 0)
+        w_closed = float(box.get_attribute("width"))
+        box.dispatch_event("click")
+        page.wait_for_timeout(300)
+        band = block.locator('svg.im-band[data-side="a"]')
+        box = band.locator(f'rect.im-cluster[data-id="{hot["id"]}"]')
+        self.assertIn("open", box.get_attribute("class").split())
+        self.assertGreaterEqual(float(box.get_attribute("width")), w_closed)
+        marks = band.locator("g.im-mark")
+        self.assertEqual(marks.count(), len(hot["marks"]))
+        self.assertEqual(sorted(int(marks.nth(i).get_attribute("data-step")) for i in range(marks.count())), sorted(m["step"] for m in hot["marks"]))
+        self.assertEqual(sorted(marks.nth(i).get_attribute("data-kind") for i in range(marks.count())), sorted(m["kind"] for m in hot["marks"]))
+        self.assertEqual(band.locator(f'text.im-why[data-id="{hot["id"]}"]').count(), 1)
+        # a mark opens its step in the shared inspector
+        mark = marks.first
+        step = int(mark.get_attribute("data-step"))
+        mark.dispatch_event("click")
+        page.wait_for_timeout(400)
+        self.assertIn(f"STEP {step}", page.locator('#panels-lane [data-block="trace-body"] .tj-inspector').inner_text().upper())
+        # clicking the box again collapses it; expand hot opens every hot cluster; collapse all refolds
+        box.dispatch_event("click")
+        page.wait_for_timeout(300)
+        band = block.locator('svg.im-band[data-side="a"]')
+        self.assertNotIn("open", (band.locator(f'rect.im-cluster[data-id="{hot["id"]}"]').get_attribute("class") or "").split())
+        block.locator('button[data-act="expand-hot"]').click()
+        page.wait_for_timeout(300)
+        n_hot = sum(1 for s in "ab" for c in im[s]["clusters"] if c["kind"] == "hot")
+        self.assertEqual(block.locator("rect.im-cluster.open").count(), n_hot)
+        self.assertEqual(block.locator("text.im-why").count(), n_hot)
+        block.locator('button[data-act="collapse-all"]').click()
+        page.wait_for_timeout(300)
+        self.assertEqual(block.locator("rect.im-cluster.open").count(), 0)
+        self.assertEqual(block.locator('svg.im-band[data-side="a"] g.im-fold').count(), len(folds))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_even_mode_changes_the_widths(self):
+        context, page, errors = self._open()
+        block = page.locator('#panels-lane .panels-grid > [data-block="impact"]')
+        def hot_width():
+            return page.evaluate("""() => [...document.querySelectorAll('#panels-lane [data-block="impact"] rect.im-cluster[data-kind="hot"]')]
+                .reduce((s, r) => s + Number(r.getAttribute('width')), 0)""")
+        focus = hot_width()
+        self.assertGreater(focus, 0)
+        block.locator('button[data-mode="even"]').click()
+        page.wait_for_timeout(300)
+        self.assertEqual(block.locator('button[data-mode="even"]').get_attribute("aria-pressed"), "true")
+        self.assertEqual(block.locator('button[data-mode="focus"]').get_attribute("aria-pressed"), "false")
+        self.assertEqual(block.locator('svg.im-band[data-side="a"]').get_attribute("data-mode"), "even")
+        even = hot_width()
+        self.assertNotAlmostEqual(focus, even, places=1)
+        # even mode is wall-clock: no folds, every cluster drawn
+        im = self.report["impact"]
+        self.assertEqual(block.locator("g.im-fold").count(), 0)
+        self.assertEqual(block.locator("rect.im-cluster").count(), len(im["a"]["clusters"]) + len(im["b"]["clusters"]))
+        # the mode survives a re-render: the state is per task, not per draw
+        block.locator('.panel-ctl button[title="normal width"]').click()
+        page.wait_for_timeout(500)
+        block = page.locator('#panels-lane .panels-grid > [data-block="impact"]')
+        self.assertEqual(block.locator('button[data-mode="even"]').get_attribute("aria-pressed"), "true")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_nothing_overflows_on_a_phone(self):
+        context, page, errors = self._open(width=390)
+        block = page.locator('#panels-lane .panels-grid > [data-block="impact"]')
+        self.assertEqual(block.count(), 1)
+        self.assertEqual(block.locator("svg.im-band").count(), 2)
+        self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), 392)
+        for side in ("a", "b"):
+            band = block.locator(f'svg.im-band[data-side="{side}"]')
+            self.assertLessEqual(band.evaluate("e => e.getBoundingClientRect().right"), 392)
+        self.assertEqual(errors, [])
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class LongTreeFoldTest(unittest.TestCase):
+    """The trace as a tree folds by importance on a long run (the long
+    horizon demo, 545 and 566 steps): stretches of phases that carry
+    nothing notable start folded into capsules (×N steps · the dominant
+    tool), phases that carry the fault's path, the decisive step, an error
+    or the answer start open on those steps, the block stays under 2,500px
+    at 1440, and the chips open everything or fold the quiet back."""
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        if not (ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__atlas-lh.json").is_file():
+            subprocess.run([sys.executable, str(ROOT / "demo" / "horizon" / "generate_long.py")], cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "horizon" / "long"), "-o", str(out),
+                        "--golden", str(ROOT / "demo" / "horizon" / "golden.json"), "--template", str(ROOT / "web" / "blocks.html")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        cls.page_path = out / "report.html"
+        cls.report = json.loads((out / "report_h02_migrate_service.json").read_text(encoding="utf-8"))
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def open(self, width=1440):
+        context = self.browser.new_context(viewport={"width": width, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view=story")
+        page.wait_for_selector("svg.d3c-tree g.d3c-tnode", timeout=15000)
+        page.wait_for_timeout(900)
+        return context, page, errors
+
+    @staticmethod
+    def shown(page):
+        text = page.locator('[data-block="trace-tree"] .d3c-tshown').text_content()
+        return int(text.split(" of ")[0])
+
+    def test_a_long_run_folds_its_quiet_stretches_and_opens_on_demand(self):
+        context, page, errors = self.open()
+        rep = self.report
+        total = len(rep["a"]["steps"]) + len(rep["b"]["steps"])
+        self.assertGreater(max(len(rep["a"]["steps"]), len(rep["b"]["steps"])), 80)
+        block = page.locator('[data-block="trace-tree"]')
+        self.assertEqual(block.count(), 1)
+        self.assertLess(block.bounding_box()["height"], 2500, "the folded tree stays under 2,500px at 1440")
+        # capsules carry their step count and the ×N vocabulary
+        capsules = page.locator("svg.d3c-tree g.d3c-tree-capsule[data-steps]")
+        self.assertGreater(capsules.count(), 0)
+        first = capsules.first
+        self.assertEqual(first.get_attribute("data-kind"), "capsule")
+        self.assertIn("×" + first.get_attribute("data-steps") + " step", first.locator("text.d3c-tlabel").text_content())
+        # the fault's path stays in view: every step on the attribution chain,
+        # the root cause and the decisive step are drawn, and the red links run
+        attr, diag = rep["attribution"], rep["diagnosis"]
+        failed = attr["failed_agent"]
+        for step in set(attr["chain"]) | {attr["root_cause_step"]}:
+            self.assertEqual(page.locator(f"svg.d3c-tree g.d3c-tnode[data-kind='step'][data-side='{failed}'][data-step='{step}']").count(), 1, f"chain step {step}")
+        dec = diag["decisive_step"]["step"]
+        ringed = page.locator("svg.d3c-tree g.d3c-tnode[data-kind='step']").filter(has=page.locator(".d3c-ring"))
+        self.assertEqual(ringed.count(), 1)
+        self.assertEqual(ringed.first.get_attribute("data-step"), str(dec))
+        self.assertGreater(page.locator("svg.d3c-tree path.d3c-tlink.fault").count(), 0)
+        # every error step is in view too; the steps shown match the count chip
+        for side in ("a", "b"):
+            for i, st in enumerate(rep[side]["steps"]):
+                if st.get("error") is True:
+                    self.assertEqual(page.locator(f"svg.d3c-tree g.d3c-tnode[data-kind='step'][data-side='{side}'][data-step='{i}']").count(), 1, f"{side} error step {i}")
+        steps_shown = page.locator("svg.d3c-tree g.d3c-tnode[data-kind='step']").count()
+        self.assertEqual(self.shown(page), steps_shown)
+        self.assertIn(f"of {total} steps shown", block.locator(".d3c-tshown").text_content())
+        self.assertLess(steps_shown, total)
+        # a capsule opens into its steps and the count grows
+        n_caps = capsules.count()
+        key = first.get_attribute("data-key")
+        first.dispatch_event("click")
+        page.wait_for_timeout(900)
+        self.assertEqual(page.locator(f"svg.d3c-tree g.d3c-tnode[data-key='{key}']").count(), 0, "the capsule is replaced")
+        self.assertEqual(page.locator("svg.d3c-tree g.d3c-tree-capsule").count(), n_caps - 1)
+        self.assertGreater(page.locator("svg.d3c-tree g.d3c-tnode[data-kind='step']").count(), steps_shown)
+        self.assertGreater(self.shown(page), steps_shown)
+        # "open all" shows every step; "fold quiet" folds the quiet back
+        block.locator(".d3c-tree-chips [data-act='open-all']").click()
+        page.wait_for_timeout(3000)
+        self.assertEqual(page.locator("svg.d3c-tree g.d3c-tnode[data-kind='step']").count(), total)
+        self.assertEqual(self.shown(page), total)
+        self.assertEqual(page.locator("svg.d3c-tree g.d3c-tree-capsule").count(), 0)
+        block.locator(".d3c-tree-chips [data-act='fold-quiet']").click()
+        page.wait_for_timeout(1500)
+        self.assertEqual(self.shown(page), steps_shown)
+        self.assertEqual(page.locator("svg.d3c-tree g.d3c-tree-capsule").count(), n_caps)
+        self.assertLess(block.bounding_box()["height"], 2500)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_every_story_block_on_the_long_demo_stays_under_1500px_except_the_tree_budget(self):
+        context, page, errors = self.open()
+        heights = page.evaluate("() => [...document.querySelectorAll('#story-lane .block[data-block]')]"
+                                ".map(b => [b.getAttribute('data-block'), b.getBoundingClientRect().height])")
+        self.assertGreater(len(heights), 3)
+        for name, h in heights:
+            budget = 2500 if name == "trace-tree" else 1500
+            self.assertLess(h, budget, f"{name} is {h:.0f}px tall")
         self.assertEqual(errors, [])
         context.close()
