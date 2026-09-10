@@ -109,7 +109,7 @@ with four views. The **Story** is a numbered sequence:
 2. **Where the time went** — one strip per run along wall-clock, every
    step a segment, thinking light, tools darker, the answer solid, wasted
    steps hatched, the slowest few named; the rationale beneath.
-3. **The trace as a tree** — task → runs → phases → steps → values.
+3. **The trace as a tree** — task → runs → phases → steps → values; on a run of more than 80 steps, subdivisions that carry nothing notable start folded into a capsule and anything notable starts open.
 4. **Parts and sub-agents** — three drawings of the horizon tree.
    *Icicle*: time along x, rows outward from the shared axis (run,
    sub-agents, parts, steps), widths in seconds, tokens or steps; wasted
@@ -154,6 +154,16 @@ drawn for this view and stand as evidence too, ordered overview first:
   tiles think, solid ones call a tool, hatched means wasted, a red edge
   marks the fault's path. The eye finds the big tile before reading a
   number; a click on a box zooms into it, on a tile opens the step.
+- **Where it mattered** — the focus-and-context timeline for a long,
+  multi-agent run. Steps are clustered at sub-agent and phase
+  boundaries and every cluster is scored by what it carried (the
+  decisive step, the fault's path, divergences, errors, retries, wasted
+  seconds, milestones, the answer). In focus mode a cluster's width is
+  its impact, so the stretch that mattered dilates and the quiet ones
+  constrict into folds; in even mode width is seconds, so the reader
+  sees what the dilation did. A fold opens on a click, a cluster opens
+  to its marks, a mark opens the step: details exactly on demand. One
+  row per sub-agent, both runs as bands on one width scale.
 - **Milestones** — for a long task with a golden set, the ladder:
   the milestones a correct solution passes through, one stepped line
   per run over time or steps, a mark where each run reached each rung

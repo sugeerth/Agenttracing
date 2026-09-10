@@ -2287,6 +2287,31 @@ Tests: `tests/test_blocks_ui.py::MapRedesignTest` (geometry as hero and
 in a column, no truncated names at 1440/390, keyboard select with focus
 survival, word diff, ×4 collapse on a synthetic loop).
 
+## Where it mattered: impact-weighted time, folded by importance
+
+- **Impact** (`deepcompare/impact.py`, `report.impact`): every step scored
+  by what it carried — the decisive step, the fault's path, the first
+  divergence and ranked divergence rows, errors, retries, wasted seconds,
+  milestones reached, the answer, tokens — with the weights published as
+  `WEIGHTS`; steps clustered at sub-agent and phase boundaries, quiet
+  stretches merged, long clusters split; each cluster with `impact`
+  (0..1, the run's hottest = 1), `kind` hot / work / quiet, `reasons`,
+  a `why` line, a `label` and its notable `marks`; lanes per depth-1
+  sub-agent; narratives per run and for the pair. Recomputed when
+  milestones are attached, so milestone marks appear.
+- **Where it mattered** (`web/blocks/23_impact.js`, id `impact`): the
+  focus-and-context timeline — two bands, one row per sub-agent, each
+  cluster a box whose width is its impact (focus) or its seconds (even);
+  consecutive quiet clusters constricted into one fold that opens on a
+  click; a cluster opens to its marks; a mark opens the step. Second in
+  the default panels and the time, agents and all presets.
+- **The trace as a tree, folded**: on a run of more than 80 steps,
+  subdivisions that carry nothing notable start folded into a capsule
+  ("×N steps · tool"); anything on the fault's path, decisive, errored,
+  wasted or carrying an answer value starts open; open all / fold quiet;
+  "N of M steps shown". The long demo's tree drops from ~23,600px to
+  under 2,500px with nothing notable hidden.
+
 ## Long-horizon replay: scope, the drift map, milestones, checkpoints
 
 `docs/REPLAY.md` §Long-horizon is the guide.

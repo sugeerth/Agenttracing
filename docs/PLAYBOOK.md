@@ -128,6 +128,11 @@ and a page is a single file, so it can be sent afterwards.
 
 ## Taking it forward
 
+- **Read a long run where it mattered**: the Where it mattered panel
+  dilates the stretches that carried the decisive step, the errors and
+  the wasted time and constricts the quiet ones into folds; open a fold
+  or a cluster only when the room asks. Switch to even time to show
+  how much of the wall-clock was quiet.
 - **A long run, by segment**: `rerun --span <sub-agent>` or `--from N
   --until M` replays one part of a multi-hour run in the recorded world;
   `checkpoint` bundles the state at a step to hand over; milestones
