@@ -24,9 +24,13 @@ score, plus ``0.2 × ln(1 + seconds)`` so a long stretch is never invisible):
     answer            1    the answer step
     tokens            0.5  × tokens / the run's largest step tokens
 
-``impact`` is the cluster's score divided by the run's largest cluster
-score (the run's maximum is 1.0; every impact is 0 when every score is 0).
-``kind`` is ``hot`` at impact ≥ 0.5, ``work`` at ≥ 0.15, else ``quiet``.
+``impact`` is the cluster's score divided by the largest cluster score
+over **both** runs of the pair (``scale: "pair"``), so equal impacts mean
+equal scores and a uniform clean run reads quiet beside the failing one;
+the pair's maximum is 1.0. Only when the other side has no steps is a run
+scaled to its own maximum (``scale: "run"``). Every impact is 0 when every
+score is 0. ``kind`` is ``hot`` at impact ≥ 0.5, ``work`` at ≥ 0.15, else
+``quiet``; ``hot`` names up to five hot cluster ids by impact.
 
 Clustering: a boundary opens at every lane change (the depth-1 sub-agent
 acting, from ``step.span`` — nested spans belong to their depth-1
@@ -416,7 +420,7 @@ def _side_name(report: dict, side: str) -> str:
 
 
 def _empty(name: str) -> dict:
-    return {"measurable": False, "total_s": 0.0, "total_steps": 0, "clusters": [], "hot": [], "lanes": [],
+    return {"measurable": False, "total_s": 0.0, "total_steps": 0, "clusters": [], "hot": [], "lanes": [], "scale": "run",
             "narrative": f"{name}: no steps, so nothing to weigh."}
 
 
@@ -444,19 +448,26 @@ def impact_run(report: dict, side: str) -> dict:
     groups = _split_long(groups, facts)
     groups = _coalesce(groups, facts, lane_of)
     clusters = [_cluster(f"c{k}", facts[lo:hi], lane_of[lo], span_agent) for k, (lo, hi) in enumerate(groups)]
-    top = max((c["score"] for c in clusters), default=0.0)
-    for c in clusters:
-        c["impact"] = round(c["score"] / top, 4) if top > 0 else 0.0
-        c["kind"] = "hot" if c["impact"] >= HOT else "work" if c["impact"] >= WORK else "quiet"
     by_lane = {ln["agent"]: ln for ln in lanes}
     for c in clusters:
         by_lane[c["lane"]]["clusters"].append(c["id"])
-    hot = [c["id"] for c in sorted((c for c in clusters if c["impact"] >= HOT), key=lambda c: (-c["impact"], c["from"]))[:MAX_HOT]]
     total_s = sum(c["seconds"] for c in clusters)
     out = {"measurable": True, "total_s": round(total_s, 4), "total_steps": len(steps), "clusters": clusters,
-           "hot": hot, "lanes": lanes}
-    out["narrative"] = _run_narrative(name, out, _quiet_share(out))
+           "hot": [], "lanes": lanes, "scale": "run", "narrative": ""}
+    _finish(out, name, max((c["score"] for c in clusters), default=0.0), "run")
     return out
+
+
+def _finish(run: dict, name: str, top: float, scale: str) -> None:
+    """Set every cluster's impact and kind against ``top`` (the largest
+    score on the chosen scale), the run's hot list, its scale and its
+    narrative. Scores stay raw; only the normalisation changes."""
+    for c in run["clusters"]:
+        c["impact"] = round(c["score"] / top, 4) if top > 0 else 0.0
+        c["kind"] = "hot" if c["impact"] >= HOT else "work" if c["impact"] >= WORK else "quiet"
+    run["hot"] = [c["id"] for c in sorted((c for c in run["clusters"] if c["impact"] >= HOT), key=lambda c: (-c["impact"], c["from"]))[:MAX_HOT]]
+    run["scale"] = scale
+    run["narrative"] = _run_narrative(name, run, _quiet_share(run))
 
 
 def _quiet_share(r: dict) -> Optional[float]:
@@ -485,22 +496,27 @@ def _run_narrative(name: str, r: dict, quiet_share: Optional[float]) -> str:
 
 
 def impact_pair(report: dict) -> dict:
-    """``report["impact"]``: both sides weighed and a pair narrative."""
+    """``report["impact"]``: both sides weighed on one scale — impact is
+    score over the largest cluster score of either run — and a pair
+    narrative. A side is scaled to its own maximum only when the other
+    has no steps."""
     a = impact_run(report, "a")
     b = impact_run(report, "b")
     na, nb = _side_name(report, "a"), _side_name(report, "b")
     parts: list = []
     if a["measurable"] and b["measurable"]:
+        top = max(c["score"] for r in (a, b) for c in r["clusters"])
+        _finish(a, na, top, "pair")
+        _finish(b, nb, top, "pair")
         ha, hb = len(a["hot"]), len(b["hot"])
         if ha == hb:
-            parts.append(f"both runs have {ha} hot cluster{'s' if ha != 1 else ''}")
+            parts.append(f"on the shared scale both runs have {ha} hot cluster{'s' if ha != 1 else ''}")
         else:
             more, fewer = (na, nb) if ha > hb else (nb, na)
-            parts.append(f"{more} has more hot clusters ({max(ha, hb)} against {min(ha, hb)} for {fewer})")
+            parts.append(f"on the shared scale {more} has {max(ha, hb)} hot cluster{'s' if max(ha, hb) != 1 else ''} against {min(ha, hb)} for {fewer}")
         for name, r in ((na, a), (nb, b)):
-            if r["hot"]:
-                c = next(c for c in r["clusters"] if c["id"] == r["hot"][0])
-                parts.append(f"{name}'s hottest is {c['id']} in {c['lane']} (steps {c['from']}–{c['to']}: {c['why']})")
+            c = max(r["clusters"], key=lambda c: (c["impact"], -c["from"]))
+            parts.append(f"{name}'s hottest is {c['id']} in {c['lane']} (steps {c['from']}–{c['to']}, impact {c['impact']:.2f}: {c['why']})")
         shares = [f"{name} {_quiet_share(r):.0%}" for name, r in ((na, a), (nb, b)) if _quiet_share(r) is not None]
         if shares:
             parts.append("quiet clusters hold " + " and ".join(shares) + " of the wall-clock")

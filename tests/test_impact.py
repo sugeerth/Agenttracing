@@ -136,6 +136,15 @@ class HandBuiltTest(unittest.TestCase):
         self.assertEqual(hot["impact"], 1.0)
         self.assertEqual(hot["kind"], "hot")
         self.assertEqual(max(c["impact"] for c in self.a["clusters"]), 1.0)
+        # the pair shares one scale: the other side's single cluster is measured against orch's hottest
+        self.assertEqual((self.a["scale"], self.out["b"]["scale"]), ("pair", "pair"))
+        other = self.out["b"]["clusters"][0]
+        self.assertAlmostEqual(other["impact"], round(other["score"] / hot["score"], 4), places=4)
+        self.assertLess(other["impact"], 0.5)
+        self.assertEqual(self.out["b"]["hot"], [])
+        # alone, that same run is its own maximum
+        alone = impact_run(self.report, "b")
+        self.assertEqual((alone["scale"], alone["hot"], alone["clusters"][0]["impact"]), ("run", ["c0"], 1.0))
         for c in self.a["clusters"]:
             self.assertEqual(c["kind"], "hot" if c["impact"] >= 0.5 else "work" if c["impact"] >= 0.15 else "quiet")
             self.assertAlmostEqual(c["impact"], round(c["score"] / hot["score"], 4), places=4)
@@ -186,10 +195,9 @@ class HandBuiltTest(unittest.TestCase):
         self.assertIn(f"{hot['id']} (researcher, steps 2–4: {hot['why']})", self.a["narrative"])
         self.assertIn("of the wall-clock sits in quiet clusters", self.a["narrative"])
         pair = self.out["narrative"]
-        # a run of one cluster is its own maximum: hot by construction
-        self.assertEqual(self.out["b"]["hot"], ["c0"])
-        self.assertIn("both runs have 1 hot cluster;", pair)
-        self.assertIn("other's hottest is c0 in other (steps 0–1", pair)
+        self.assertIn("on the shared scale orch has 1 hot cluster against 0 for other", pair)
+        self.assertIn("other's hottest is c0 in other (steps 0–1, impact 0.", pair)
+        self.assertIn(f"orch's hottest is {hot['id']} in researcher (steps 2–4, impact 1.00", pair)
         self.assertIn(f"orch's hottest is {hot['id']} in researcher (steps 2–4", pair)
         self.assertIn("quiet clusters hold orch", pair)
 
@@ -200,6 +208,8 @@ class HandBuiltTest(unittest.TestCase):
         self.assertTrue(_covers(out["a"]["clusters"], 2))
         self.assertFalse(out["b"]["measurable"])
         self.assertEqual(out["b"]["clusters"], [])
+        self.assertEqual((out["a"]["scale"], out["b"]["scale"]), ("run", "run"))
+        self.assertEqual(max(c["impact"] for c in out["a"]["clusters"]), 1.0)
         self.assertIn("no steps", out["narrative"])
         self.assertFalse(impact_run({}, "a")["measurable"])
         # a score of zero everywhere: impact 0, not a division by zero
@@ -264,14 +274,20 @@ class DemoTest(unittest.TestCase):
         self.assertEqual(imp["version"], 1)
         names = {s: self.report[s]["agent"]["name"] for s in "ab"}
         comet = "a" if names["a"] == "comet-lh" else "b"
+        atlas = "b" if comet == "a" else "a"
+        self.assertEqual(max(c["impact"] for s in "ab" for c in imp[s]["clusters"]), 1.0)
+        self.assertLess(len(imp[atlas]["hot"]), len(imp[comet]["hot"]))
         for side in "ab":
             run = imp[side]
             self.assertTrue(run["measurable"])
+            self.assertEqual(run["scale"], "pair")
             self.assertTrue(8 <= len(run["clusters"]) <= 48, len(run["clusters"]))
             self.assertTrue(_covers(run["clusters"], len(self.report[side]["steps"])))
-            self.assertEqual(max(c["impact"] for c in run["clusters"]), 1.0)
+            top = max(c["score"] for s in "ab" for c in imp[s]["clusters"])
+            for c in run["clusters"]:
+                self.assertAlmostEqual(c["impact"], round(c["score"] / top, 4), places=4)
+                self.assertEqual(c["kind"], "hot" if c["impact"] >= 0.5 else "work" if c["impact"] >= 0.15 else "quiet")
             self.assertTrue(all(c["steps"] <= SPLIT_OVER for c in run["clusters"]))
-            self.assertTrue(run["hot"])
             root = next(ln for ln in run["lanes"] if ln["agent"] == names[side])
             self.assertEqual((root["depth"], root["parent"]), (0, None))
             self.assertTrue(all(ln["parent"] == names[side] for ln in run["lanes"] if ln is not root))
