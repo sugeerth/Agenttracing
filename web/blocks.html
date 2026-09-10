@@ -15827,6 +15827,7 @@ THIS SOFTWARE.
       ".im-chart .im-lab{fill:var(--ink-2)}",
       ".im-chart .im-clab{pointer-events:none;font-family:var(--mono)}",
       ".im-chart .im-why{fill:var(--ink-3)}",
+      ".im-chart .im-hwhy{fill:var(--ink-2);pointer-events:none}",
       ".im-chart .im-cluster{cursor:pointer}.im-chart .im-cluster:hover{stroke:var(--ink);stroke-width:1.5}",
       ".im-chart .im-cluster.open{stroke-width:1.5}",
       ".im-chart .im-fold{cursor:pointer}.im-chart .im-fold text{fill:var(--ink-3);pointer-events:none;font-family:var(--mono)}",
@@ -15936,16 +15937,37 @@ THIS SOFTWARE.
     if (!lanes.length) lanes.push("run");
     return lanes;
   }
-  function weight(c) { return Math.pow(clamp01(c.impact), 0.7); }
+  function weight(c) { return clamp01(c.impact); }
+  //: a 1.00 cluster is at least this many times the width of a floor-width one
+  var RATIO = 4;
   function stepsIn(c) { return isNum(c.steps) ? c.steps : Math.max(1, (c.to || 0) - (c.from || 0) + 1); }
+  //: a hot cluster's why, short ("6 errors · 26s wasted") and compact ("6✕ 6↻ 26s", the legend's glyphs)
+  function shortWhy(c) {
+    var r = c.reasons || {}, parts = [];
+    if (r.decisive) parts.push("decisive");
+    if (r.errors) parts.push(r.errors + (r.errors === 1 ? " error" : " errors"));
+    if (r.retries) parts.push(r.retries + (r.retries === 1 ? " retry" : " retries"));
+    if (isNum(r.wasted_s) && r.wasted_s >= 1) parts.push(secs(r.wasted_s) + " wasted");
+    return parts.length ? parts.join(" · ") : String(c.why || "").split(";")[0].trim();
+  }
+  function compactWhy(c) {
+    var r = c.reasons || {}, parts = [];
+    if (r.decisive) parts.push("◎");
+    if (r.errors) parts.push(r.errors + "✕");
+    if (r.retries) parts.push(r.retries + "↻");
+    if (isNum(r.wasted_s) && r.wasted_s >= 1) parts.push(secs(r.wasted_s));
+    return parts.join(" ");
+  }
 
   /* One width scale for both bands: equal impacts get equal widths across
    * A and B, and neither band runs past the available width. In focus
-   * mode a cluster is wMin + k·impact^0.7, a fold a fixed thin strip, an
+   * mode a cluster is max(floor, k·impact), a fold a fixed thin strip, an
    * open cluster a box wide enough for its marks; k is the largest value
-   * that fits the wider band. In even mode every cluster is its seconds. */
+   * that fits the wider band — and when that would leave a 1.00 cluster
+   * under RATIO× a floor one, the floor shrinks so k can take the rest.
+   * In even mode every cluster is its seconds. */
   function scale(im, sides, states, avail, narrow, mode) {
-    var wMin = narrow ? 4 : 9, gap = 2;
+    var wMin = narrow ? 8 : 14, gap = 2;
     //: a fold is a thin strip — the constriction is the point; its label runs vertically
     var wFold = narrow ? 12 : 22;
     var per = {};
@@ -15965,27 +15987,47 @@ THIS SOFTWARE.
       });
       return per;
     }
+    var budgets = {}, fs = {};
     sides.forEach(function (s) {
       var units = unitsOf(im[s], states, s);
-      var n = units.length;
-      var fixed = gap * Math.max(0, n - 1), sumW = 0, nClosed = 0;
+      var fixed = gap * Math.max(0, units.length - 1), f = [];
       units.forEach(function (u) {
         if (u.type === "fold") fixed += wFold;
         else if (states.open[skey(s, u.id)]) fixed += openWidth(u.c, avail, narrow);
-        else { sumW += weight(u.c); nClosed++; }
+        else f.push(weight(u.c));
       });
-      if (sumW > 0) k = Math.min(k, (avail - fixed - nClosed * wMin) / sumW);
+      budgets[s] = avail - fixed; fs[s] = f;
       per[s] = { units: units, gap: gap, wFold: wFold };
     });
+    function total(f, floor, kk) { return f.reduce(function (t, v) { return t + Math.max(floor, kk * v); }, 0); }
+    // the floor as given, k the largest that fits the wider band
+    sides.forEach(function (s) {
+      if (!fs[s].length) return;
+      var lo = 0, hi = avail;
+      for (var it = 0; it < 40; it++) { var mid = (lo + hi) / 2; if (total(fs[s], wMin, mid) <= budgets[s]) lo = mid; else hi = mid; }
+      k = Math.min(k, lo);
+    });
     if (!isFinite(k)) k = 0;
-    k = Math.max(0, Math.min(k, avail * 0.5 - wMin));
+    var floor = wMin;
+    // too crowded for the dilation to show: shrink the floor until a 1.00 cluster is RATIO× a floor one
+    if (k < RATIO * wMin) {
+      var w = wMin;
+      sides.forEach(function (s) {
+        if (!fs[s].length) return;
+        w = Math.min(w, budgets[s] / fs[s].reduce(function (t, v) { return t + Math.max(1, RATIO * v); }, 0));
+      });
+      floor = Math.max(narrow ? 3 : 5, Math.min(wMin, w));
+      k = RATIO * floor;
+    }
+    k = Math.max(0, Math.min(k, avail * 0.5));
     sides.forEach(function (s) {
       var p = per[s];
       var n = p.units.length;
       var free = avail - gap * Math.max(0, n - 1);
+      p.floor = floor; p.k = k;
       p.widths = p.units.map(function (u) {
         if (u.type === "fold") return wFold;
-        var base = wMin + k * weight(u.c);
+        var base = Math.max(floor, k * weight(u.c));
         return states.open[skey(s, u.id)] ? Math.max(base, openWidth(u.c, avail, narrow)) : base;
       });
       var sum = p.widths.reduce(function (t, w) { return t + w; }, 0);
@@ -16006,7 +16048,9 @@ THIS SOFTWARE.
     var W = Math.max(300, host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 640);
     var narrow = W < 560;
     var sides = ["a", "b"].filter(function (s) { return im[s] && im[s].measurable !== false && clustersOf(im[s]).length; });
-    var labW = narrow ? 68 : 100, padR = 6;
+    var longest = 0;
+    sides.forEach(function (s) { lanesOf(im[s]).forEach(function (l) { longest = Math.max(longest, String(l).length + 2); }); });
+    var labW = narrow ? 68 : Math.min(200, Math.max(100, Math.ceil(8 + longest * CH))), padR = 6;
     var avail = W - labW - padR;
     var per = scale(im, sides, st, avail, narrow, st.mode);
     var rowH = 16, rowGap = 3, whyH = 13, head = 18, foot = 4;
@@ -16046,7 +16090,17 @@ THIS SOFTWARE.
           .text(fit((li === 0 || narrow ? "" : "↳ ") + lane, labW - 8)).append("title").text(lane);
       });
       // the units, left to right
-      var x = labW, whys = [];
+      var x = labW, whys = [], xs0 = [];
+      p.units.forEach(function (u, ui) { xs0.push(x); x += p.widths[ui] + p.gap; });
+      //: the x where the next thing in this row (or the next fold) starts
+      function nextBound(ui, lane) {
+        for (var j = ui + 1; j < p.units.length; j++) {
+          var v = p.units[j];
+          if (v.type === "fold" || (v.c.lane || lanes[0]) === lane) return xs0[j];
+        }
+        return W - padR;
+      }
+      x = labW;
       p.units.forEach(function (u, ui) {
         var w = p.widths[ui];
         if (u.type === "fold") {
@@ -16068,12 +16122,14 @@ THIS SOFTWARE.
         var c = u.c, lane = c.lane && rows[c.lane] ? c.lane : lanes[0], ry = rows[lane].y, open = !!st.open[skey(side, u.id)];
         var quiet = c.kind === "quiet", hotK = c.kind === "hot";
         var op = quiet ? 0.18 : 0.15 + 0.75 * clamp01(c.impact);
+        var bh = open || hotK ? rowH - 2 : quiet ? 4 : Math.max(4, Math.min(rowH - 2, Math.round(4 + 10 * clamp01(c.impact))));
+        var by = ry + Math.round((rowH - bh) / 2);
         var rect = svg.append("rect").attr("class", "im-cluster" + (open ? " open" : "")).attr("data-id", c.id).attr("data-kind", c.kind || "work").attr("data-side", side).attr("data-lane", lane)
-          .attr("x", x).attr("y", ry).attr("width", w).attr("height", rowH).attr("rx", 3)
+          .attr("x", x).attr("y", by).attr("width", w).attr("height", bh).attr("rx", Math.min(3, bh / 2))
           .attr("fill", quiet ? "var(--ink-3)" : color(side)).attr("fill-opacity", op)
           .attr("stroke", hotK ? color(side) : open ? "var(--ink-2)" : "none").attr("stroke-width", hotK ? 1.5 : open ? 1 : 0);
         rect.append("title").text(name(report, side) + " · " + lane + " · steps " + c.from + "–" + c.to + " · " + secs(c.seconds) + " · impact " + clamp01(c.impact).toFixed(2) + (c.why ? " — " + c.why : ""));
-        if (quiet) svg.append("rect").attr("x", x).attr("y", ry).attr("width", w).attr("height", rowH).attr("rx", 3).attr("fill", "url(#" + hid + ")").attr("pointer-events", "none");
+        if (quiet) svg.append("rect").attr("x", x).attr("y", by).attr("width", w).attr("height", bh).attr("rx", Math.min(3, bh / 2)).attr("fill", "url(#" + hid + ")").attr("pointer-events", "none");
         rect.on("pointermove", function (evt) {
           tip.show(evt, [{ b: true, text: name(report, side) + " · " + lane + " · " + (c.label || c.kind) },
             { text: "steps " + c.from + "–" + c.to + " (" + stepsIn(c) + ") · " + secs(c.seconds) + " · impact " + clamp01(c.impact).toFixed(2) + " · " + (c.kind || "work") },
@@ -16081,9 +16137,20 @@ THIS SOFTWARE.
             { text: open ? "click to collapse" : "click to open its steps" }]);
         }).on("pointerleave", tip.hide).on("click", function () { var k = skey(side, u.id); if (st.open[k]) delete st.open[k]; else st.open[k] = true; repaint(); });
         var marks = open && Array.isArray(c.marks) ? c.marks.filter(function (m) { return m && isNum(m.step); }).slice().sort(function (p, q) { return p.step - q.step; }) : [];
-        if (!open && w >= 30) {
-          svg.append("text").attr("class", "im-clab").attr("x", x + 4).attr("y", ry + rowH / 2 + 4).attr("fill", op >= 0.55 ? "var(--bg)" : "var(--ink)")
-            .text(fit(c.label || (c.kind === "quiet" ? "quiet" : c.kind || ""), w - 8));
+        if (!open && bh >= 12) {
+          var lab = c.label || c.kind || "", why = hotK ? shortWhy(c) : "", tight = hotK ? compactWhy(c) : "";
+          // what the box can hold, most to least said: label · why, the why, label · compact, compact, the label cut
+          var tiers = why ? [lab + " · " + why, why, tight ? lab + " · " + tight : null, tight] : [];
+          var inside = null;
+          for (var ti = 0; ti < tiers.length && inside === null; ti++) { if (tiers[ti] && tiers[ti].length * CH <= w - 8) inside = tiers[ti]; }
+          if (inside === null && w >= 30) inside = fit(lab, w - 8);
+          if (inside) svg.append("text").attr("class", "im-clab").attr("data-id", c.id).attr("x", x + 4).attr("y", ry + rowH / 2 + 4).attr("fill", op >= 0.55 ? "var(--bg)" : "var(--ink)").text(inside);
+          if (why && (inside === null || inside.indexOf(why) < 0) && !narrow) {
+            var room = nextBound(ui, lane) - (x + w) - 8;
+            if (room >= Math.min(why.length, 10) * CH) {
+              svg.append("text").attr("class", "im-hwhy").attr("data-id", c.id).attr("x", x + w + 4).attr("y", ry + rowH / 2 + 4).text(fit(why, room));
+            }
+          }
         }
         if (open) {
           // ticks for the marks, at their step's place in the box; short labels when they fit
