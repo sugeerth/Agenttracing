@@ -28,6 +28,7 @@ from .efficiency import compare_efficiency
 from .reasoning import read_trace
 from .timing import compare_timing
 from .horizon import horizon_pair
+from .impact import impact_pair
 from .process import compare_process
 from .tradeoff import pair_tradeoff
 from .shapley import shapley_attribution
@@ -169,6 +170,9 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
     # the long horizon: each run folded into spans (sub-agents),
     # subdivisions and steps, with time and the fault on every node
     report["horizon"] = horizon_pair(report, a, b)
+    # where it mattered: the steps clustered and weighed by what the
+    # sections above established, for a timeline that dilates the hot ones
+    report["impact"] = impact_pair(report)
     # the five-line card the reader sees first; every line quotes a
     # section above, so it is computed last
     report["verdict_card"] = verdict_card(report)
@@ -193,6 +197,8 @@ def attach_milestones(report: dict, golden: Optional[dict]) -> dict:
     report["milestones"] = {"a": a, "b": b, "diff": diff,
                             "narrative": diff["narrative"] if diff.get("measurable") else a["narrative"],
                             "source": (golden or {}).get("path") if ms else None}
+    # the milestones reached now mark the impact clusters they sit in
+    report["impact"] = impact_pair(report)
     return report
 
 
