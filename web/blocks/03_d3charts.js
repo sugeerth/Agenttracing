@@ -2013,6 +2013,9 @@
         else if (d.data.kind === "capsule") openCapsule(d.data);
         else toggle(d);
       }
+      merged.on("dblclick", function (event, d) {
+        if (d.data.kind === "step" && d.data.type && TOOLISH_TYPES.indexOf(d.data.type) >= 0) { hideTip(); selectTool(report, d.data.name); }
+      });
       merged.on("click", function (event, d) { hideTip(); act(d); })
         .on("keydown", function (event, d) {
           if (event.key !== "Enter" && event.key !== " ") return;
@@ -2118,9 +2121,6 @@
       { key: "failing", side: plan.failing, name: agentName(report, plan.failing), steps: stepsF, reading: readF,
         outcome: report[plan.failing].outcome, y: hasSplice ? 124 + top : 74 + top },
     ].filter(function (l) { return l.y !== null; });
-      nodeG.selectAll("g.d3c-tnode").on("dblclick", function (event, d) {
-        if (d.data.kind === "step" && d.data.type && TOOLISH_TYPES.indexOf(d.data.type) >= 0) selectTool(report, d.data.name);
-      });
     var H = (hasSplice ? 150 : 100) + 6 + top;
 
     var wrap = d3.select(host).append("div").attr("class", "d3c-wrap");

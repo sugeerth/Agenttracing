@@ -4227,7 +4227,7 @@ class PanelsAndHeatTest(unittest.TestCase):
         self.assertEqual(page.locator('#panels-lane [data-cols="3"]').get_attribute("aria-pressed"), "true")
         page.click('#panels-lane [data-preset="tools"]')
         page.wait_for_timeout(300)
-        self.assertEqual(self._ids(page), ["tool-matrix", "heatmap", "latency-strip", "debug-session"])
+        self.assertEqual(self._ids(page), ["tool-behaviour", "tool-matrix", "heatmap", "latency-strip", "debug-session"])
         self.assertEqual(page.locator('#panels-lane [data-preset="tools"]').get_attribute("aria-pressed"), "true")
         # the same blocks stay ordinary evidence in the Evidence view
         page.click('.tab[data-view="evidence"]')
@@ -4453,11 +4453,13 @@ def _impact_fixture(report):
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
                      "playwright + chromium required for browser tests")
 class ImpactBlockTest(unittest.TestCase):
-    """The impact-weighted timeline: two bands, one row per lane, a box per
-    cluster whose width is its impact; consecutive quiet clusters folded
-    into one strip that opens on click; a cluster opening to its marks; a
-    mark opening its step in the shared inspector; the even mode; the
-    table under the fold; nothing overflowing on a phone."""
+    """The impact-weighted timeline: two bands, each run one trunk with a
+    branch per sub-agent stretch, a segment per cluster whose length is its
+    impact; consecutive quiet clusters folded into one short segment whose
+    length grows with the steps folded and that opens on click (and folds
+    back from any of its clusters); a cluster opening to its marks; a mark
+    opening its step in the shared inspector; the even mode; the table
+    under the fold; the block short at 1440; nothing overflowing on a phone."""
 
     tmp = None
 
@@ -4509,7 +4511,7 @@ class ImpactBlockTest(unittest.TestCase):
 
     @staticmethod
     def _visible(im, side):
-        """Clusters drawn as boxes with every fold closed: all but those
+        """Clusters drawn as segments with every fold closed: all but those
         inside a run of two or more quiet clusters."""
         cs = sorted(im[side]["clusters"], key=lambda c: c["from"])
         shown, folds, i = [], [], 0
@@ -4526,8 +4528,35 @@ class ImpactBlockTest(unittest.TestCase):
             i += 1
         return shown, folds
 
-    def test_bands_rows_clusters_and_folds_match_the_report(self):
-        context, page, errors = self._open()
+    @staticmethod
+    def _branches(im, side, shown=None):
+        """The branches a band draws with every fold closed: one per run of
+        consecutive visible clusters in one sub-agent's lane; a fold or a
+        cluster on the trunk (the root agent's lane) ends a branch."""
+        root = next(l["agent"] for l in im[side]["lanes"] if not l["depth"])
+        cs = sorted(im[side]["clusters"], key=lambda c: c["from"])
+        if shown is None:
+            shown = ImpactBlockTest._visible(im, side)[0]
+        out, cur = [], None
+        for c in cs:
+            lane = c["lane"] if c["id"] in shown and c["lane"] != root else None
+            if lane != cur and lane is not None:
+                out.append(lane)
+            cur = lane
+        return out
+
+    @staticmethod
+    def _length(page, selector):
+        return page.evaluate("s => [...document.querySelectorAll(s)].reduce((t, p) => t + p.getTotalLength(), 0)", selector)
+
+    @staticmethod
+    def _fold_widths(page, side):
+        return page.evaluate("""side => [...document.querySelectorAll(`#panels-lane [data-block="impact"] svg.im-band[data-side="${side}"] g.im-fold`)]
+            .map(g => { const l = g.querySelector('line'); return [Number(g.dataset.steps), Number(l.getAttribute('x2')) - Number(l.getAttribute('x1')), !!g.querySelector('text')]; })""", side)
+
+    def test_bands_branches_clusters_and_folds_match_the_report(self):
+        import math
+        context, page, errors = self._open(width=1440)
         im = self.report["impact"]
         block = page.locator('#panels-lane .panels-grid > [data-block="impact"]')
         self.assertEqual(block.count(), 1)
@@ -4538,24 +4567,49 @@ class ImpactBlockTest(unittest.TestCase):
             band = block.locator(f'svg.im-band[data-side="{side}"]')
             self.assertEqual(band.get_attribute("role"), "img")
             self.assertTrue(band.get_attribute("aria-label"))
-            self.assertEqual(band.locator("g.im-row").count(), len(im[side]["lanes"]))
-            lanes = [band.locator("g.im-row").nth(i).get_attribute("data-lane") for i in range(band.locator("g.im-row").count())]
-            # the root agent leads its band; the sub-agents follow in the order the run met them
-            self.assertEqual(lanes, [l["agent"] for l in im[side]["lanes"] if not l["depth"]] + [l["agent"] for l in im[side]["lanes"] if l["depth"]])
             shown, folds = self._visible(im, side)
-            self.assertEqual(band.locator("rect.im-cluster").count(), len(shown), side)
+            self.assertEqual(band.locator("path.im-cluster").count(), len(shown), side)
             self.assertEqual([band.locator("g.im-fold").nth(i).get_attribute("data-ids") for i in range(band.locator("g.im-fold").count())], folds, side)
             for cid in shown:
-                self.assertEqual(band.locator(f'rect.im-cluster[data-id="{cid}"][data-side="{side}"]').count(), 1)
+                self.assertEqual(band.locator(f'path.im-cluster[data-id="{cid}"][data-side="{side}"]').count(), 1)
+            # one branch per run of a sub-agent's visible clusters, in the order the run met them; the root agent stays on the trunk
+            branches = [band.locator("g.im-branch").nth(i).get_attribute("data-lane") for i in range(band.locator("g.im-branch").count())]
+            self.assertEqual(branches, self._branches(im, side), side)
+            root = next(l["agent"] for l in im[side]["lanes"] if not l["depth"])
+            self.assertNotIn(root, branches)
+            # a branch is named once, in the block's small type, and no two names overlap
+            labels = band.locator("g.im-branch text.im-lab")
+            self.assertGreaterEqual(labels.count(), 2)
+            boxes = sorted((labels.nth(i).bounding_box() for i in range(labels.count())), key=lambda b: (b["y"], b["x"]))
+            for prev, nxt in zip(boxes, boxes[1:]):
+                if abs(prev["y"] - nxt["y"]) < 4:
+                    self.assertGreaterEqual(nxt["x"], prev["x"] + prev["width"] - 0.5)
+            self.assertLessEqual(labels.first.evaluate("e => parseFloat(getComputedStyle(e).fontSize)"), 12.5)
+            # a fold's length grows with the steps it folds: 6 + 6·log2(1 + steps), labelled ×N once it is 18px wide
+            widths = self._fold_widths(page, side)
+            self.assertGreaterEqual(len({w[0] for w in widths}), 2, side)
+            small = min(widths, key=lambda w: w[0])
+            big = max(widths, key=lambda w: w[0])
+            self.assertGreater(big[0], small[0])
+            self.assertGreater(big[1], small[1])
+            for steps, width, labelled in widths:
+                self.assertAlmostEqual(width, 6 + 6 * math.log2(1 + steps), delta=0.75, msg=(side, steps))
+                self.assertEqual(labelled, width >= 18, (side, steps))
         self.assertEqual(block.locator(".im-table tr[data-side][data-id]").count(), len(im["a"]["clusters"]) + len(im["b"]["clusters"]))
         self.assertEqual(block.locator('button[data-mode="focus"]').get_attribute("aria-pressed"), "true")
         self.assertEqual(block.locator('button[data-mode="even"]').get_attribute("aria-pressed"), "false")
+        # quiet: one chip row, one legend line, nothing hatched, and the whole block short
+        self.assertEqual(block.locator(".im-bar").count(), 1)
+        self.assertLessEqual(block.locator(".im-bar").bounding_box()["height"], 30)
+        self.assertLessEqual(block.locator(".im-legend").bounding_box()["height"], 22)
+        self.assertEqual(block.locator("pattern, rect.im-fold-rect, g.im-row").count(), 0)
+        self.assertLess(block.bounding_box()["height"], 420)
         self.assertEqual(errors, [])
         context.close()
 
     def test_a_fold_opens_a_cluster_opens_and_a_mark_opens_the_step(self):
         # the agents preset holds the body chart, so the inspector is on the page
-        context, page, errors = self._open(preset="agents")
+        context, page, errors = self._open(width=1440, preset="agents")
         im = self.report["impact"]
         block = page.locator('#panels-lane .panels-grid > [data-block="impact"]')
         self.assertEqual(block.count(), 1)
@@ -4565,28 +4619,40 @@ class ImpactBlockTest(unittest.TestCase):
         self.assertEqual(band.locator("g.im-fold").count(), len(folds))
         b_folds = block.locator('svg.im-band[data-side="b"] g.im-fold').count()
         first = band.locator("g.im-fold").first
-        inside = first.get_attribute("data-ids").split(",")
+        fid = first.get_attribute("data-ids")
+        inside = fid.split(",")
         first.dispatch_event("click")
         page.wait_for_timeout(300)
         band = block.locator('svg.im-band[data-side="a"]')
         self.assertEqual(band.locator("g.im-fold").count(), len(folds) - 1)
-        self.assertEqual(band.locator("rect.im-cluster").count(), len(shown) + len(inside))
+        self.assertEqual(band.locator("path.im-cluster").count(), len(shown) + len(inside))
         for cid in inside:
-            self.assertEqual(band.locator(f'rect.im-cluster[data-id="{cid}"][data-kind="quiet"]').count(), 1)
+            self.assertEqual(band.locator(f'path.im-cluster[data-id="{cid}"][data-kind="quiet"][data-fold="{fid}"]').count(), 1)
+        # the dilated clusters draw as ordinary clusters and branches
+        self.assertEqual([band.locator("g.im-branch").nth(i).get_attribute("data-lane") for i in range(band.locator("g.im-branch").count())],
+                         self._branches(im, "a", shown + inside))
         # the other band keeps its folds: a fold is opened by id, not per page
         self.assertEqual(block.locator('svg.im-band[data-side="b"] g.im-fold').count(), b_folds)
+        # any of the dilated clusters folds it back
+        band.locator(f'path.im-cluster[data-fold="{fid}"]').last.dispatch_event("click")
+        page.wait_for_timeout(300)
+        band = block.locator('svg.im-band[data-side="a"]')
+        self.assertEqual(band.locator("g.im-fold").count(), len(folds))
+        self.assertEqual(band.locator("g.im-fold").first.get_attribute("data-ids"), fid)
         hot = next(c for c in sorted(im["a"]["clusters"], key=lambda c: c["from"]) if c["kind"] == "hot" and c["marks"])
-        box = band.locator(f'rect.im-cluster[data-id="{hot["id"]}"]')
+        sel = f'path.im-cluster[data-id="{hot["id"]}"]'
+        box = band.locator(sel)
         self.assertEqual(box.get_attribute("data-kind"), "hot")
         self.assertNotIn("open", (box.get_attribute("class") or "").split())
         self.assertEqual(band.locator("g.im-mark").count(), 0)
-        w_closed = float(box.get_attribute("width"))
+        w_closed = self._length(page, f'#panels-lane [data-block="impact"] svg.im-band[data-side="a"] {sel}')
+        self.assertGreater(w_closed, 0)
         box.dispatch_event("click")
         page.wait_for_timeout(300)
         band = block.locator('svg.im-band[data-side="a"]')
-        box = band.locator(f'rect.im-cluster[data-id="{hot["id"]}"]')
+        box = band.locator(sel)
         self.assertIn("open", box.get_attribute("class").split())
-        self.assertGreaterEqual(float(box.get_attribute("width")), w_closed)
+        self.assertGreaterEqual(self._length(page, f'#panels-lane [data-block="impact"] svg.im-band[data-side="a"] {sel}'), w_closed)
         marks = band.locator("g.im-mark")
         self.assertEqual(marks.count(), len(hot["marks"]))
         self.assertEqual(sorted(int(marks.nth(i).get_attribute("data-step")) for i in range(marks.count())), sorted(m["step"] for m in hot["marks"]))
@@ -4598,19 +4664,19 @@ class ImpactBlockTest(unittest.TestCase):
         mark.dispatch_event("click")
         page.wait_for_timeout(400)
         self.assertIn(f"STEP {step}", page.locator('#panels-lane [data-block="trace-body"] .tj-inspector').inner_text().upper())
-        # clicking the box again collapses it; expand hot opens every hot cluster; collapse all refolds
+        # clicking the segment again collapses it; expand hot opens every hot cluster; collapse all refolds
         box.dispatch_event("click")
         page.wait_for_timeout(300)
         band = block.locator('svg.im-band[data-side="a"]')
-        self.assertNotIn("open", (band.locator(f'rect.im-cluster[data-id="{hot["id"]}"]').get_attribute("class") or "").split())
+        self.assertNotIn("open", (band.locator(sel).get_attribute("class") or "").split())
         block.locator('button[data-act="expand-hot"]').click()
         page.wait_for_timeout(300)
         n_hot = sum(1 for s in "ab" for c in im[s]["clusters"] if c["kind"] == "hot")
-        self.assertEqual(block.locator("rect.im-cluster.open").count(), n_hot)
+        self.assertEqual(block.locator("path.im-cluster.open").count(), n_hot)
         self.assertEqual(block.locator("text.im-why").count(), n_hot)
         block.locator('button[data-act="collapse-all"]').click()
         page.wait_for_timeout(300)
-        self.assertEqual(block.locator("rect.im-cluster.open").count(), 0)
+        self.assertEqual(block.locator("path.im-cluster.open").count(), 0)
         self.assertEqual(block.locator('svg.im-band[data-side="a"] g.im-fold').count(), len(folds))
         self.assertEqual(errors, [])
         context.close()
@@ -4618,22 +4684,20 @@ class ImpactBlockTest(unittest.TestCase):
     def test_even_mode_changes_the_widths(self):
         context, page, errors = self._open()
         block = page.locator('#panels-lane .panels-grid > [data-block="impact"]')
-        def hot_width():
-            return page.evaluate("""() => [...document.querySelectorAll('#panels-lane [data-block="impact"] rect.im-cluster[data-kind="hot"]')]
-                .reduce((s, r) => s + Number(r.getAttribute('width')), 0)""")
-        focus = hot_width()
+        hot_sel = '#panels-lane [data-block="impact"] path.im-cluster[data-kind="hot"]'
+        focus = self._length(page, hot_sel)
         self.assertGreater(focus, 0)
         block.locator('button[data-mode="even"]').click()
         page.wait_for_timeout(300)
         self.assertEqual(block.locator('button[data-mode="even"]').get_attribute("aria-pressed"), "true")
         self.assertEqual(block.locator('button[data-mode="focus"]').get_attribute("aria-pressed"), "false")
         self.assertEqual(block.locator('svg.im-band[data-side="a"]').get_attribute("data-mode"), "even")
-        even = hot_width()
+        even = self._length(page, hot_sel)
         self.assertNotAlmostEqual(focus, even, places=1)
         # even mode is wall-clock: no folds, every cluster drawn
         im = self.report["impact"]
         self.assertEqual(block.locator("g.im-fold").count(), 0)
-        self.assertEqual(block.locator("rect.im-cluster").count(), len(im["a"]["clusters"]) + len(im["b"]["clusters"]))
+        self.assertEqual(block.locator("path.im-cluster").count(), len(im["a"]["clusters"]) + len(im["b"]["clusters"]))
         # the mode survives a re-render: the state is per task, not per draw
         block.locator('.panel-ctl button[title="normal width"]').click()
         page.wait_for_timeout(500)
@@ -4651,6 +4715,8 @@ class ImpactBlockTest(unittest.TestCase):
         for side in ("a", "b"):
             band = block.locator(f'svg.im-band[data-side="{side}"]')
             self.assertLessEqual(band.evaluate("e => e.getBoundingClientRect().right"), 392)
+        for sel in (".im-bar", ".im-legend"):
+            self.assertLessEqual(block.locator(sel).evaluate("e => e.getBoundingClientRect().right"), 392)
         self.assertEqual(errors, [])
         context.close()
 
@@ -4773,5 +4839,226 @@ class LongTreeFoldTest(unittest.TestCase):
         for name, h in heights:
             budget = 2500 if name == "trace-tree" else 1500
             self.assertLess(h, budget, f"{name} is {h:.0f}px tall")
+        self.assertEqual(errors, [])
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class ToolBehaviourTest(unittest.TestCase):
+    """Tool behaviour on the page: the per-tool ledger against the JSON,
+    the suggestions for the next prompt with their evidence, and the
+    dossier on demand — opened from the ledger, from a heat-map row and
+    from a double-click on a tool step in the body chart; a call in the
+    dossier's strip opens the step; Escape closes it."""
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        from deepcompare.report import render_html
+        from deepcompare.toolprofile import tool_pair
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "horizon" / "long"), "-o", str(out),
+                        "--golden", str(ROOT / "demo" / "horizon" / "golden.json"), "--template", str(ROOT / "web" / "blocks.html")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        report = json.loads((out / "report_h02_migrate_service.json").read_text(encoding="utf-8"))
+        if "tools_profile" not in report:
+            report["tools_profile"] = tool_pair(report)
+            agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
+            render_html([report], agg, ROOT / "web" / "blocks.html", out / "report.html")
+        cls.report = report
+        cls.page_path = out / "report.html"
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _open(self):
+        context = self.browser.new_context(viewport={"width": 1280, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view=panels")
+        page.wait_for_timeout(1000)
+        if page.locator('#panels-lane .panels-grid > [data-block="tool-behaviour"]').count() == 0:
+            page.click("#panels-lane [data-picker] summary")
+            page.wait_for_timeout(200)
+            page.click('#panels-lane [data-add="tool-behaviour"]')
+            page.wait_for_timeout(600)
+        return context, page, errors
+
+    def test_the_ledger_and_the_suggestions_match_the_json(self):
+        context, page, errors = self._open()
+        tp = self.report["tools_profile"]
+        block = page.locator('#panels-lane .panels-grid > [data-block="tool-behaviour"]')
+        self.assertEqual(block.count(), 1)
+        self.assertEqual(block.locator("tr[data-tool]").count(), len(tp["tools"]))
+        first = tp["tools"][0]
+        cells = block.locator(f'tr[data-tool="{first["name"]}"] .pair span')
+        self.assertEqual(cells.nth(0).text_content(), str(first["a"]["calls"]))
+        self.assertEqual(cells.nth(1).text_content(), str(first["b"]["calls"]))
+        self.assertEqual(block.locator(".tb-sugg li").count(), len(tp["suggestions"]))
+        if tp["suggestions"]:
+            li = block.locator(".tb-sugg li").first
+            self.assertEqual(li.get_attribute("data-kind"), tp["suggestions"][0]["kind"])
+            self.assertIn(tp["suggestions"][0]["text"][:40], li.text_content())
+            self.assertIn("hypothesis", li.locator(".ev").text_content())
+        self.assertIn(tp["narrative"][:50], block.locator(".tb-narr").text_content())
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_dossier_opens_from_the_ledger_the_heat_map_and_the_body_chart(self):
+        context, page, errors = self._open()
+        tp = self.report["tools_profile"]
+        tool = tp["tools"][0]["name"]
+        page.locator(f'#panels-lane [data-block="tool-behaviour"] button[data-open="{tool}"]').click()
+        page.wait_for_timeout(400)
+        dossier = page.locator(".tool-dossier")
+        self.assertFalse(dossier.is_hidden())
+        self.assertEqual(dossier.get_attribute("data-tool"), tool)
+        row = tp["tools"][0]
+        self.assertEqual(dossier.locator("line.call").count(), row["a"]["calls"] + row["b"]["calls"])
+        self.assertEqual(dossier.locator("svg").get_attribute("role"), "img")
+        for agent in list(row["a"]["agents"])[:2]:
+            self.assertIn(agent, dossier.locator(".who").text_content())
+        # a call opens its step in the shared inspector
+        call = dossier.locator('line.call[data-side="b"]').first
+        step = int(call.get_attribute("data-step"))
+        call.dispatch_event("click")
+        page.wait_for_timeout(400)
+        self.assertIn(f"STEP {step}", page.locator('#panels-lane [data-block="trace-body"] .tj-inspector').inner_text().upper())
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(200)
+        self.assertTrue(dossier.is_hidden())
+        # a heat-map row label
+        lab = page.locator('#panels-lane [data-block="heatmap"] text.lab').first
+        lab.dispatch_event("click")
+        page.wait_for_timeout(300)
+        self.assertFalse(dossier.is_hidden())
+        self.assertTrue(dossier.get_attribute("data-tool"))
+        page.keyboard.press("Escape")
+        # a double-click on a tool step in the body chart
+        page.evaluate("() => AgentDiff.tools.close()")
+        opened = page.evaluate("""() => {
+            const nodes = [...document.querySelectorAll('#panels-lane [data-block="trace-body"] svg g[data-side]')];
+            for (const n of nodes) {
+                n.dispatchEvent(new MouseEvent('dblclick', {bubbles: true}));
+                const d = document.querySelector('.tool-dossier');
+                if (d && !d.hidden) return d.dataset.tool;
+            }
+            return null;
+        }""")
+        self.assertTrue(opened, "no body-chart node opened a dossier")
+        self.assertEqual(errors, [])
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class TrustBlockTest(unittest.TestCase):
+    """The Trust & behaviour ledger on the page, from the long-horizon demo
+    batched with its golden set: the pair narrative, a two-column ledger
+    whose cells are the report's own counts (tool calls, errors, forbidden
+    calls), a grade chip per side with the rubric's label, the reasons
+    under a fold, the SYNTHETIC flag the harness note carries; no page
+    error, nothing overflowing on a phone."""
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        if not (ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__atlas-lh.json").is_file():
+            subprocess.run([sys.executable, str(ROOT / "demo" / "horizon" / "generate_long.py")], cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "horizon" / "long"), "-o", str(out),
+                        "--golden", str(ROOT / "demo" / "horizon" / "golden.json"), "--template", str(ROOT / "web" / "blocks.html")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        cls.page_path = out / "report.html"
+        cls.report = json.loads((out / "report_h02_migrate_service.json").read_text(encoding="utf-8"))
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _open(self, width=1280):
+        context = self.browser.new_context(viewport={"width": width, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view=panels")
+        page.wait_for_timeout(1000)
+        page.click('#panels-lane [data-preset="eval"]')
+        page.wait_for_timeout(800)
+        return context, page, errors
+
+    @staticmethod
+    def _forbidden(p):
+        return len({f["step"] for f in (p["forbidden_calls"] or []) + (p["forbidden_patterns"] or [])})
+
+    def test_the_ledger_is_the_report_and_the_grades_wear_their_labels(self):
+        context, page, errors = self._open()
+        block = page.locator('#panels-lane .panels-grid > [data-block="trust"]')
+        self.assertEqual(block.count(), 1)
+        t = self.report["trust"]
+        self.assertIn(t["narrative"][:80], block.locator(".tr-narr").text_content())
+        for side in ("a", "b"):
+            r = t[side]
+            self.assertEqual(block.locator(f'td[data-key="tool_calls"][data-side="{side}"]').text_content().strip(), str(r["behaviour"]["tool_calls"]), side)
+            self.assertEqual(block.locator(f'[data-key="errors"][data-side="{side}"]').text_content().strip(), str(r["behaviour"]["errors"]), side)
+            self.assertEqual(block.locator(f'[data-key="loops"][data-side="{side}"]').text_content().strip(), str(r["behaviour"]["loops"]), side)
+            forbidden = block.locator(f'td[data-key="forbidden"][data-side="{side}"]')
+            self.assertTrue(forbidden.text_content().strip().startswith(str(self._forbidden(r["permissions"]))), side)
+            self.assertEqual(forbidden.evaluate("e => e.classList.contains('bad')"), self._forbidden(r["permissions"]) > 0, side)
+            self.assertEqual(block.locator(f'[data-key="writes"][data-side="{side}"]').text_content().strip(), str(r["permissions"]["effects"]["write"]), side)
+            chip = block.locator(f'td[data-key="grade"][data-side="{side}"] .tr-chip')
+            self.assertEqual(chip.text_content().strip(), f"{r['grade']['label']} {r['grade']['score']:.2f}", side)
+            self.assertTrue(chip.evaluate("e => e.classList.contains('good') || e.classList.contains('warn') || e.classList.contains('bad')"), side)
+            self.assertEqual(block.locator(f'td[data-key="data"][data-side="{side}"] [data-synthetic]').count(), 1 if r["data"]["synthetic"] else 0, side)
+            stop = block.locator(f'td[data-key="stop"][data-side="{side}"]').text_content()
+            self.assertIn("answered" if r["behaviour"]["answered"] else "no answer", stop)
+            self.assertEqual("by harness" in stop, r["behaviour"]["stopped_by"] == "harness", side)
+            fold = block.locator(f'details.tr-details[data-side="{side}"]')
+            self.assertEqual(fold.count(), 1, side)
+            self.assertFalse(fold.evaluate("e => e.open"), side)
+            self.assertEqual(fold.locator("li").count(), len(r["grade"]["reasons"]), side)
+            for reason in r["grade"]["reasons"]:
+                self.assertIn(reason[:40], fold.locator("ul").text_content(), side)
+        # the tool-call bar is scaled to the larger of the two
+        widths = [float(block.locator(f'td[data-key="tool_calls"][data-side="{s}"] .bar').evaluate("e => parseFloat(e.style.width)")) for s in ("a", "b")]
+        bigger = "a" if t["a"]["behaviour"]["tool_calls"] >= t["b"]["behaviour"]["tool_calls"] else "b"
+        self.assertEqual(widths[0 if bigger == "a" else 1], 100.0)
+        self.assertEqual(block.locator("svg").count(), 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_nothing_overflows_on_a_phone(self):
+        context, page, errors = self._open(width=390)
+        self.assertEqual(page.locator('#panels-lane .panels-grid > [data-block="trust"]').count(), 1)
+        self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), 392)
+        box = page.locator('#panels-lane [data-block="trust"] .tr-ledger').bounding_box()
+        self.assertLessEqual(box["x"] + box["width"], 391)
         self.assertEqual(errors, [])
         context.close()

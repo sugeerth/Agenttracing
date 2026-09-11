@@ -808,10 +808,10 @@ THIS SOFTWARE.
   //: the panels view's presets: which blocks, in which order
   var PANEL_PRESETS = {
     time: ["treemap", "impact", "time", "heatmap", "latency-strip"],
-    tools: ["tool-matrix", "heatmap", "latency-strip", "debug-session"],
+    tools: ["tool-behaviour", "tool-matrix", "heatmap", "latency-strip", "debug-session"],
     agents: ["milestones", "impact", "treemap", "horizon", "trace-body", "tool-matrix"],
-    eval: ["milestones", "scorecard", "equality", "routing", "loop"],
-    all: ["milestones", "impact", "treemap", "trace-body", "time", "heatmap", "latency-strip", "tool-matrix", "horizon", "debug-session", "scorecard"],
+    eval: ["trust", "milestones", "scorecard", "equality", "routing", "loop"],
+    all: ["milestones", "impact", "treemap", "trace-body", "time", "heatmap", "latency-strip", "tool-matrix", "tool-behaviour", "horizon", "debug-session", "scorecard", "trust"],
   };
   // overview first (area, then the runs over time), then the detail
   var DEFAULT_PANELS = { ids: ["treemap", "impact", "trace-body", "heatmap", "latency-strip", "tool-matrix"], wide: { treemap: true, impact: true, "trace-body": true }, cols: 2 };
@@ -3578,6 +3578,12 @@ THIS SOFTWARE.
     return { side: side, step: dec.step, window: dec.window || null,
              verification: dec.verification || "hypothesized", criterion: dec.criterion || "" };
   }
+  /* Any tool anywhere opens its dossier: the page listens for this. */
+  function selectTool(report, name) {
+    try {
+      document.dispatchEvent(new CustomEvent("agentdiff:select-tool", { detail: { name: String(name || ""), report: report } }));
+    } catch (err) { /* nothing to notify */ }
+  }
   function selectStep(report, side, step) {
     var row = rowFor(report, side, step);
     if (row < 0) return;
@@ -3642,6 +3648,7 @@ THIS SOFTWARE.
   } catch (err) { /* no window */ }
   charts.responsive = responsive;
   charts.selectStep = selectStep;
+  charts.selectTool = selectTool;
   /* A solid backing behind an SVG label, sized from its box, so a line
    * running underneath never shows through the spaces between words. */
   function backed(parent, textSel, fill, pad) {
@@ -5387,6 +5394,9 @@ THIS SOFTWARE.
         else if (d.data.kind === "capsule") openCapsule(d.data);
         else toggle(d);
       }
+      merged.on("dblclick", function (event, d) {
+        if (d.data.kind === "step" && d.data.type && TOOLISH_TYPES.indexOf(d.data.type) >= 0) { hideTip(); selectTool(report, d.data.name); }
+      });
       merged.on("click", function (event, d) { hideTip(); act(d); })
         .on("keydown", function (event, d) {
           if (event.key !== "Enter" && event.key !== " ") return;
@@ -6527,6 +6537,7 @@ THIS SOFTWARE.
           { mono: true, text: truncate(d.step.input || "", 110) }, { mono: true, text: "→ " + truncate(d.step.output || "", 140) }]);
       }).on("mouseleave", hideTip)
         .on("click", function (event, d) { hideTip(); selectStep(report, d.side, d.i); })
+        .on("dblclick", function (event, d) { hideTip(); if (TOOLISH_TYPES.indexOf(d.step.type) >= 0) selectTool(report, d.step.name || d.step.type); })
         .on("keydown", function (event, d) { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectStep(report, d.side, d.i); } });
       if (first && duration && !zoomState.k) { /* no entrance animation beyond the arrival of nodes */ }
     }
@@ -15305,7 +15316,8 @@ THIS SOFTWARE.
     });
     rows.forEach(function (k, i) {
       var y = m.t + i * rowH;
-      svg.append("text").attr("class", "lab").attr("x", m.l - 8).attr("y", y + rowH / 2 + 4).attr("text-anchor", "end").text(k.length > 16 ? k.slice(0, 15) + "…" : k);
+      svg.append("text").attr("class", "lab").attr("x", m.l - 8).attr("y", y + rowH / 2 + 4).attr("text-anchor", "end").text(k.length > 16 ? k.slice(0, 15) + "…" : k)
+        .style("cursor", "pointer").on("click", function () { if (AgentDiff.charts && AgentDiff.charts.selectTool) AgentDiff.charts.selectTool(report, k); });
       for (var b = 0; b < bins; b++) {
         ["a", "b"].forEach(function (side, si) {
           var c = cells[k + "|" + b + "|" + side];
@@ -15396,7 +15408,7 @@ THIS SOFTWARE.
       rows.forEach(function (k) {
         var a = A[k] || { calls: 0, seconds: 0, wasted: 0, errors: 0, mean: 0 }, b = B[k] || { calls: 0, seconds: 0, wasted: 0, errors: 0, mean: 0 };
         var tr = H("tr", { "data-tool": k });
-        tr.appendChild(H("td", { class: "tool", text: k }));
+        tr.appendChild(H("td", { class: "tool", text: k, title: "open the dossier for " + k, style: { cursor: "pointer" }, onclick: function () { if (AgentDiff.charts && AgentDiff.charts.selectTool) AgentDiff.charts.selectTool(report, k); } }));
         cols.forEach(function (c) {
           var va = c[1](a), vb = c[1](b), mx = Math.max(va, vb, 1e-9);
           var cell = H("td", { "data-col": c[0] });
@@ -15430,7 +15442,8 @@ THIS SOFTWARE.
     rows.forEach(function (k, i) {
       var y = m.t + i * rowH + rowH / 2;
       svg.append("line").attr("x1", m.l).attr("x2", W - m.r).attr("y1", y).attr("y2", y).attr("stroke", "var(--rule)");
-      svg.append("text").attr("class", "lab").attr("x", m.l - 8).attr("y", y + 4).attr("text-anchor", "end").text(k.length > 16 ? k.slice(0, 15) + "…" : k);
+      svg.append("text").attr("class", "lab").attr("x", m.l - 8).attr("y", y + 4).attr("text-anchor", "end").text(k.length > 16 ? k.slice(0, 15) + "…" : k)
+        .style("cursor", "pointer").on("click", function () { if (AgentDiff.charts && AgentDiff.charts.selectTool) AgentDiff.charts.selectTool(report, k); });
       ["a", "b"].forEach(function (side, si) {
         var calls = ((tm[side] && tm[side].steps) || []).filter(function (r) { return rowKey(r) === k; });
         if (!calls.length) return;
@@ -15786,19 +15799,28 @@ THIS SOFTWARE.
 <script>
 /* AgentDiff block — Where it mattered.
  *
- * A focus-and-context timeline for multi-agent runs. Each run is a band,
- * one row per lane (the root agent, then its depth-1 sub-agents); each
- * contiguous stretch of steps the engine clustered is a box in its lane's
- * row. The x-axis is not time: in "focus" mode a box's width grows with
- * the cluster's impact, so the stretches that carried the outcome dilate
- * and the quiet ones constrict — runs of quiet clusters fold into one thin
- * hatched strip. "even" is plain wall-clock, so the reader can see what
- * the dilation did. A box opens on click to show its marks (the decisive
- * step, faults, errors, retries, milestones, divergences, the answer) as
- * ticks that open the step in the shared inspector.
+ * A focus-and-context timeline for multi-agent runs, drawn the way the
+ * body chart draws a run: each run is one trunk, left to right (A above
+ * B, A's branches growing up and B's down, so the two trunks face each
+ * other). The orchestrator's own stretches lie on the trunk; a sub-agent's
+ * stretch hangs off it as a branch — a short stem to a horizontal segment
+ * named once with the sub-agent, nested sub-agents as sub-branches (depth
+ * ≤ 2 drawn, deeper folded into the parent). The x-axis is not time: in
+ * "focus" mode a stretch's length grows with its impact and a hot one is
+ * also thicker, so what carried the outcome dilates; consecutive quiet
+ * stretches constrict into one short dotted segment whose length scales
+ * with the steps it folds (×N). "even" is plain wall-clock, so the reader
+ * can see what the dilation did. A stretch opens on click to show its
+ * marks (the decisive step, faults, errors, retries, milestones,
+ * divergences, the answer) as leaves that open the step in the shared
+ * inspector; a fold opens on click into its stretches, and any of them
+ * folds it back.
  *
- * Reads `report.impact` ({a, b, narrative}); every width is a function of
- * the cluster's `impact` (0..1) or its `seconds`, every mark a step index.
+ * Reads `report.impact` ({a, b, narrative}); a run is {clusters, lanes,
+ * total_s, total_steps, hot, narrative}: a cluster {id, from, to, steps,
+ * seconds, lane, impact, kind, reasons, why, label, marks}, a lane {agent,
+ * depth, parent}. Every length is a function of the cluster's `impact`
+ * (0..1) or its `seconds`, every mark a step index.
  */
 (function (global) {
   "use strict";
@@ -15816,25 +15838,24 @@ THIS SOFTWARE.
       "@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .im{--im-a:#3987e5;--im-b:#d95926}}",
       ":root[data-theme=dark] .im{--im-a:#3987e5;--im-b:#d95926}",
       ".im-narr{font-size:var(--fs-m);color:var(--ink);margin:0 0 8px;max-width:90ch}",
-      ".im-bar{display:flex;gap:6px 14px;flex-wrap:wrap;align-items:center;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 8px}",
-      ".im-bar .seg{display:inline-flex;gap:2px}",
-      ".im-bar button{font:inherit;font-size:var(--fs-xs);border:0;background:var(--surface-2);color:var(--ink-2);border-radius:999px;padding:1px 8px;cursor:pointer}",
+      ".im-bar{display:flex;gap:4px 10px;flex-wrap:nowrap;white-space:nowrap;overflow:hidden;align-items:center;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 6px}",
+      ".im-bar .seg{display:inline-flex;gap:2px;flex:0 0 auto}",
+      ".im-bar button{font:inherit;font-size:var(--fs-xs);border:0;background:var(--surface-2);color:var(--ink-2);border-radius:999px;padding:1px 8px;cursor:pointer;flex:0 0 auto}",
       ".im-bar button[aria-pressed=true]{background:var(--ink);color:var(--bg)}",
-      ".im-legend{font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 6px;max-width:100ch}",
+      ".im-legend{font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
       ".im-chart svg{display:block;width:100%;height:auto;font-family:var(--sans)}",
       ".im-chart text{font-size:var(--fs-xs)}",
       ".im-chart .im-head{font-weight:700;letter-spacing:.04em}",
-      ".im-chart .im-lab{fill:var(--ink-2)}",
-      ".im-chart .im-clab{pointer-events:none;font-family:var(--mono)}",
+      ".im-chart .im-lab{fill:var(--ink-3);pointer-events:none}",
+      ".im-chart .im-hwhy{fill:var(--ink-2);pointer-events:none;font-family:var(--mono)}",
       ".im-chart .im-why{fill:var(--ink-3)}",
-      ".im-chart .im-hwhy{fill:var(--ink-2);pointer-events:none}",
-      ".im-chart .im-cluster{cursor:pointer}.im-chart .im-cluster:hover{stroke:var(--ink);stroke-width:1.5}",
-      ".im-chart .im-cluster.open{stroke-width:1.5}",
+      ".im-chart .im-cluster{cursor:pointer}.im-chart .im-cluster:hover{stroke-opacity:1}",
+      ".im-chart .im-cluster.open{stroke-opacity:1}",
       ".im-chart .im-fold{cursor:pointer}.im-chart .im-fold text{fill:var(--ink-3);pointer-events:none;font-family:var(--mono)}",
-      ".im-chart .im-fold:hover rect.im-fold-rect{stroke:var(--ink);stroke-width:1}",
-      ".im-chart .im-mark{cursor:pointer}.im-chart .im-mark text.g{font-weight:700}.im-chart .im-mark text.im-mlab{fill:var(--ink-2);font-family:var(--mono)}",
+      ".im-chart .im-fold:hover line{stroke:var(--ink)}",
+      ".im-chart .im-mark{cursor:pointer}.im-chart .im-mark text.g{font-weight:700;paint-order:stroke;stroke:var(--bg);stroke-width:3px;stroke-linejoin:round}",
       ".im-chart .im-mark:hover text.g{fill:var(--ink)}",
-      ".im-band + .im-band{margin-top:10px}",
+      ".im-band + .im-band{margin-top:6px}",
       ".im-none{font-size:var(--fs-xs);color:var(--ink-3);margin:4px 0 8px}",
       ".im-details{margin-top:8px;font-size:var(--fs-xs)}.im-details summary{cursor:pointer;color:var(--ink-2)}",
       ".im-table{border-collapse:collapse;width:100%;font-size:var(--fs-xs);font-variant-numeric:tabular-nums;margin-top:6px}",
@@ -15891,14 +15912,15 @@ THIS SOFTWARE.
   // ------------------------------------------------------------ the units
   //
   // A band is a sequence of units: a cluster, or a fold — two or more
-  // consecutive quiet clusters folded into one strip (focus mode only,
-  // and only while the reader has not opened it).
+  // consecutive quiet clusters constricted into one short segment (focus
+  // mode only, and only while the reader has not opened it).
   function clustersOf(run) {
     return (run && Array.isArray(run.clusters) ? run.clusters : []).filter(function (c) { return c && isNum(c.from); })
       .slice().sort(function (p, q) { return p.from - q.from; });
   }
   //: state keys are side-qualified: both runs number their clusters c0, c1, …
   function skey(side, id) { return side + ":" + id; }
+  function stepsIn(c) { return isNum(c.steps) ? c.steps : Math.max(1, (c.to || 0) - (c.from || 0) + 1); }
   function unitsOf(run, st, side) {
     var cs = clustersOf(run), out = [];
     var i = 0;
@@ -15911,11 +15933,13 @@ THIS SOFTWARE.
         var fid = group.map(function (g) { return g.id; }).join(",");
         if (group.length >= 2) {
           if (st.unfolded[skey(side, fid)]) {
-            // opened: every cluster of the run shows, so none of it refolds
-            group.forEach(function (g) { out.push({ type: "cluster", id: g.id, c: g }); });
+            // opened: every cluster of the fold shows, and any of them folds it back
+            group.forEach(function (g) { out.push({ type: "cluster", id: g.id, c: g, fold: fid }); });
           } else {
-            out.push({ type: "fold", id: fid, clusters: group,
-              steps: group.reduce(function (s, g) { return s + (isNum(g.steps) ? g.steps : (g.to - g.from + 1)); }, 0),
+            var lanes = [];
+            group.forEach(function (g) { if (g.lane && lanes.indexOf(g.lane) < 0) lanes.push(g.lane); });
+            out.push({ type: "fold", id: fid, clusters: group, lanes: lanes,
+              steps: group.reduce(function (s, g) { return s + stepsIn(g); }, 0),
               seconds: group.reduce(function (s, g) { return s + (g.seconds || 0); }, 0),
               from: group[0].from, to: group[group.length - 1].to });
           }
@@ -15928,28 +15952,28 @@ THIS SOFTWARE.
     }
     return out;
   }
-  //: the root agent's row first, then the sub-agents in the order the run met them
-  function lanesOf(run) {
-    var listed = (run && Array.isArray(run.lanes) ? run.lanes : []).filter(function (l) { return l && l.agent; });
-    var lanes = listed.filter(function (l) { return !l.depth; }).concat(listed.filter(function (l) { return l.depth; })).map(function (l) { return l.agent; });
-    lanes = lanes.filter(function (l, i) { return lanes.indexOf(l) === i; });
-    clustersOf(run).forEach(function (c) { if (c.lane && lanes.indexOf(c.lane) < 0) lanes.push(c.lane); });
-    if (!lanes.length) lanes.push("run");
-    return lanes;
+  //: a fold's length scales with the steps it constricts: 4–5 steps ≈ 20px, 11 ≈ 27px, 100 ≈ 46px
+  function foldW(steps) { return 6 + 6 * Math.log(1 + Math.max(0, steps)) / Math.LN2; }
+  //: the lanes: who is the root, each lane's depth and parent
+  function laneInfo(run) {
+    var info = {}, root = null;
+    (run && Array.isArray(run.lanes) ? run.lanes : []).forEach(function (l) {
+      if (!l || !l.agent) return;
+      info[l.agent] = { depth: isNum(l.depth) ? l.depth : 1, parent: l.parent || null };
+      if (!l.depth && root === null) root = l.agent;
+    });
+    if (root === null) {
+      // no lanes listed: the lane with the first cluster is the run
+      var cs = clustersOf(run);
+      root = cs.length && cs[0].lane ? cs[0].lane : "run";
+      info[root] = info[root] || { depth: 0, parent: null };
+    }
+    return { root: root, of: info };
   }
   function weight(c) { return clamp01(c.impact); }
-  //: a 1.00 cluster is at least this many times the width of a floor-width one
+  //: a 1.00 cluster is at least this many times the length of a floor-length one
   var RATIO = 4;
-  function stepsIn(c) { return isNum(c.steps) ? c.steps : Math.max(1, (c.to || 0) - (c.from || 0) + 1); }
-  //: a hot cluster's why, short ("6 errors · 26s wasted") and compact ("6✕ 6↻ 26s", the legend's glyphs)
-  function shortWhy(c) {
-    var r = c.reasons || {}, parts = [];
-    if (r.decisive) parts.push("decisive");
-    if (r.errors) parts.push(r.errors + (r.errors === 1 ? " error" : " errors"));
-    if (r.retries) parts.push(r.retries + (r.retries === 1 ? " retry" : " retries"));
-    if (isNum(r.wasted_s) && r.wasted_s >= 1) parts.push(secs(r.wasted_s) + " wasted");
-    return parts.length ? parts.join(" · ") : String(c.why || "").split(";")[0].trim();
-  }
+  //: a hot cluster's why, compact ("6✕ 6↻ 26s", the legend's glyphs)
   function compactWhy(c) {
     var r = c.reasons || {}, parts = [];
     if (r.decisive) parts.push("◎");
@@ -15958,18 +15982,21 @@ THIS SOFTWARE.
     if (isNum(r.wasted_s) && r.wasted_s >= 1) parts.push(secs(r.wasted_s));
     return parts.join(" ");
   }
+  function onFault(c) {
+    var r = c.reasons || {};
+    if (isNum(r.fault_steps) && r.fault_steps > 0) return true;
+    return Array.isArray(c.marks) && c.marks.some(function (m) { return m && m.kind === "fault"; });
+  }
 
-  /* One width scale for both bands: equal impacts get equal widths across
-   * A and B, and neither band runs past the available width. In focus
-   * mode a cluster is max(floor, k·impact), a fold a fixed thin strip, an
-   * open cluster a box wide enough for its marks; k is the largest value
-   * that fits the wider band — and when that would leave a 1.00 cluster
-   * under RATIO× a floor one, the floor shrinks so k can take the rest.
-   * In even mode every cluster is its seconds. */
+  /* One length scale for both bands: equal impacts get equal lengths
+   * across A and B, and neither band runs past the available width. In
+   * focus mode a cluster is max(floor, k·impact), a fold its step-scaled
+   * length, an open cluster long enough for its marks; k is the largest
+   * value that fits the longer band — and when that would leave a 1.00
+   * cluster under RATIO× a floor one, the floor shrinks so k can take
+   * the rest. In even mode every cluster is its seconds. */
   function scale(im, sides, states, avail, narrow, mode) {
-    var wMin = narrow ? 8 : 14, gap = 2;
-    //: a fold is a thin strip — the constriction is the point; its label runs vertically
-    var wFold = narrow ? 12 : 22;
+    var wMin = narrow ? 6 : 10, gap = 2;
     var per = {};
     var k = Infinity;
     if (mode === "even") {
@@ -15983,7 +16010,7 @@ THIS SOFTWARE.
         var ws = units.map(function (u) { return Math.max(2, (u.c.seconds || 0) * kk); });
         var sum = ws.reduce(function (t, w) { return t + w; }, 0);
         if (sum > free) ws = ws.map(function (w) { return w * free / sum; });
-        per[s] = { units: units, widths: ws, gap: gap, wFold: wFold };
+        per[s] = { units: units, widths: ws, gap: gap };
       });
       return per;
     }
@@ -15992,15 +16019,15 @@ THIS SOFTWARE.
       var units = unitsOf(im[s], states, s);
       var fixed = gap * Math.max(0, units.length - 1), f = [];
       units.forEach(function (u) {
-        if (u.type === "fold") fixed += wFold;
+        if (u.type === "fold") fixed += foldW(u.steps);
         else if (states.open[skey(s, u.id)]) fixed += openWidth(u.c, avail, narrow);
         else f.push(weight(u.c));
       });
       budgets[s] = avail - fixed; fs[s] = f;
-      per[s] = { units: units, gap: gap, wFold: wFold };
+      per[s] = { units: units, gap: gap };
     });
     function total(f, floor, kk) { return f.reduce(function (t, v) { return t + Math.max(floor, kk * v); }, 0); }
-    // the floor as given, k the largest that fits the wider band
+    // the floor as given, k the largest that fits the longer band
     sides.forEach(function (s) {
       if (!fs[s].length) return;
       var lo = 0, hi = avail;
@@ -16016,7 +16043,7 @@ THIS SOFTWARE.
         if (!fs[s].length) return;
         w = Math.min(w, budgets[s] / fs[s].reduce(function (t, v) { return t + Math.max(1, RATIO * v); }, 0));
       });
-      floor = Math.max(narrow ? 3 : 5, Math.min(wMin, w));
+      floor = Math.max(narrow ? 3 : 4, Math.min(wMin, w));
       k = RATIO * floor;
     }
     k = Math.max(0, Math.min(k, avail * 0.5));
@@ -16026,7 +16053,7 @@ THIS SOFTWARE.
       var free = avail - gap * Math.max(0, n - 1);
       p.floor = floor; p.k = k;
       p.widths = p.units.map(function (u) {
-        if (u.type === "fold") return wFold;
+        if (u.type === "fold") return foldW(u.steps);
         var base = Math.max(floor, k * weight(u.c));
         return states.open[skey(s, u.id)] ? Math.max(base, openWidth(u.c, avail, narrow)) : base;
       });
@@ -16037,23 +16064,19 @@ THIS SOFTWARE.
   }
   function openWidth(c, avail, narrow) {
     var marks = Array.isArray(c.marks) ? c.marks.length : 0;
-    return Math.min(avail * 0.35, Math.max(narrow ? 60 : 110, (narrow ? 40 : 70) + marks * (narrow ? 16 : 48)));
+    return Math.min(avail * 0.35, Math.max(narrow ? 50 : 90, 40 + marks * (narrow ? 10 : 12)));
   }
 
   // ------------------------------------------------------------ drawing
-  var seq = 0;
   function draw(host, report, im, st, tip, ctx) {
     if (!d3) return;
-    var task = report.task && report.task.id;
     var W = Math.max(300, host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 640);
     var narrow = W < 560;
     var sides = ["a", "b"].filter(function (s) { return im[s] && im[s].measurable !== false && clustersOf(im[s]).length; });
-    var longest = 0;
-    sides.forEach(function (s) { lanesOf(im[s]).forEach(function (l) { longest = Math.max(longest, String(l).length + 2); }); });
-    var labW = narrow ? 68 : Math.min(200, Math.max(100, Math.ceil(8 + longest * CH))), padR = 6;
-    var avail = W - labW - padR;
+    var padL = 4, padR = 6;
+    var avail = W - padL - padR;
     var per = scale(im, sides, st, avail, narrow, st.mode);
-    var rowH = 16, rowGap = 3, whyH = 13, head = 18, foot = 4;
+    var levelH = narrow ? 16 : 20, head = 16, labH = 12, whyH = 13, foot = 4;
     ["a", "b"].forEach(function (side) {
       var run = im[side];
       if (sides.indexOf(side) < 0) {
@@ -16061,120 +16084,156 @@ THIS SOFTWARE.
         return;
       }
       var p = per[side];
-      var lanes = lanesOf(run);
-      // rows: y per lane; a lane with open clusters gets a why line per open cluster under it
-      var rows = {}, y = head, openIn = {};
-      p.units.forEach(function (u) { if (u.type === "cluster" && st.open[skey(side, u.id)]) { openIn[u.c.lane] = (openIn[u.c.lane] || 0) + 1; } });
-      lanes.forEach(function (lane) {
-        rows[lane] = { y: y, why: 0 };
-        y += rowH + (openIn[lane] || 0) * whyH + rowGap;
-      });
-      var rowsTop = head, rowsBottom = y - rowGap;
-      var H = y - rowGap + foot;
+      var lanes = laneInfo(run);
+      function depthOf(lane) { if (lane === lanes.root) return 0; var l = lanes.of[lane]; return l ? Math.max(0, l.depth) : 1; }
+      //: the lane a cluster is drawn in: its own down to depth 2, deeper ones fold into their depth-2 ancestor
+      function drawLane(lane) {
+        lane = lane || lanes.root;
+        var guard = 0;
+        while (depthOf(lane) > 2 && guard++ < 20) { var l = lanes.of[lane]; if (!l || !l.parent || !lanes.of[l.parent]) break; lane = l.parent; }
+        return depthOf(lane) > 2 ? lanes.root : lane;
+      }
+      var L = 0;
+      clustersOf(run).forEach(function (c) { L = Math.max(L, depthOf(drawLane(c.lane))); });
+      // A's branches grow up from its trunk, B's down: the two trunks face each other
+      var up = side === "a";
+      var trunkY = up ? head + labH + L * levelH : head + 12;
+      function yOf(d) { return up ? trunkY - d * levelH : trunkY + d * levelH; }
+      var nOpen = p.units.filter(function (u) { return u.type === "cluster" && st.open[skey(side, u.id)]; }).length;
+      var whyTop = up ? trunkY + 26 : yOf(L) + 24;
+      var H = (nOpen ? whyTop + (nOpen - 1) * whyH : up ? trunkY + 14 : yOf(L) + labH) + foot;
       var hot = clustersOf(run).filter(function (c) { return c.kind === "hot"; }).length;
+      var subs = Object.keys(lanes.of).filter(function (l) { return depthOf(l) > 0; }).length;
       var svg = d3.select(host).append("svg").attr("class", "im-band").attr("data-side", side).attr("data-mode", st.mode)
         .attr("viewBox", "0 0 " + W + " " + H).attr("role", "img")
-        .attr("aria-label", name(report, side) + ": " + clustersOf(run).length + " stretches over " + lanes.length + " lane" + (lanes.length === 1 ? "" : "s") + ", " + hot + " hot, width " + (st.mode === "focus" ? "by impact" : "by seconds"));
-      var hid = "im-hatch-" + side + "-" + (seq++);
-      var pat = svg.append("defs").append("pattern").attr("id", hid).attr("width", 5).attr("height", 5).attr("patternUnits", "userSpaceOnUse").attr("patternTransform", "rotate(45)");
-      pat.append("line").attr("x1", 0).attr("y1", 0).attr("x2", 0).attr("y2", 5).attr("stroke", "var(--ink-3)").attr("stroke-width", 1).attr("stroke-opacity", 0.45);
+        .attr("aria-label", name(report, side) + ": " + clustersOf(run).length + " stretches over " + subs + " sub-agent" + (subs === 1 ? "" : "s") + ", " + hot + " hot, length " + (st.mode === "focus" ? "by impact" : "by seconds"));
       // the run's line: name, steps, seconds
-      svg.append("text").attr("class", "im-head").attr("x", 0).attr("y", 11).attr("fill", color(side))
-        .text(fit(name(report, side) + " · " + (isNum(run.total_steps) ? run.total_steps + " steps · " : "") + secs(run.total_s), W))
+      svg.append("text").attr("class", "im-head").attr("x", padL).attr("y", 11).attr("fill", color(side))
+        .text(fit(name(report, side) + " · " + (isNum(run.total_steps) ? run.total_steps + " steps · " : "") + secs(run.total_s), W - padL))
         .append("title").text(run.narrative || "");
-      // the rows
-      lanes.forEach(function (lane, li) {
-        var g = svg.append("g").attr("class", "im-row").attr("data-lane", lane).attr("data-side", side);
-        g.append("line").attr("x1", labW).attr("x2", W - padR).attr("y1", rows[lane].y + rowH / 2).attr("y2", rows[lane].y + rowH / 2).attr("stroke", "var(--rule)").attr("stroke-dasharray", li === 0 ? null : "2 3");
-        g.append("text").attr("class", "im-lab").attr("x", labW - 6).attr("y", rows[lane].y + rowH / 2 + 4).attr("text-anchor", "end")
-          .text(fit((li === 0 || narrow ? "" : "↳ ") + lane, labW - 8)).append("title").text(lane);
-      });
-      // the units, left to right
-      var x = labW, whys = [], xs0 = [];
+      // where every unit starts
+      var xs0 = [], x = padL;
       p.units.forEach(function (u, ui) { xs0.push(x); x += p.widths[ui] + p.gap; });
-      //: the x where the next thing in this row (or the next fold) starts
-      function nextBound(ui, lane) {
-        for (var j = ui + 1; j < p.units.length; j++) {
-          var v = p.units[j];
-          if (v.type === "fold" || (v.c.lane || lanes[0]) === lane) return xs0[j];
-        }
-        return W - padR;
-      }
-      x = labW;
+      var xEnd = Math.max(padL + 1, x - p.gap);
+      // the trunk
+      svg.append("line").attr("class", "im-trunk").attr("x1", padL).attr("x2", xEnd).attr("y1", trunkY).attr("y2", trunkY)
+        .attr("stroke", color(side)).attr("stroke-width", 1).attr("stroke-opacity", 0.35);
+      // pass 1: which row each unit sits in, and the branches — consecutive
+      // units of one sub-agent hang off the trunk (or off the parent's branch) as one branch
+      var branches = [], active = { 1: null, 2: null }, cur = { 1: null, 2: null };
       p.units.forEach(function (u, ui) {
-        var w = p.widths[ui];
+        if (u.type === "fold") { active[1] = active[2] = null; u.y = trunkY; u.depth = 0; return; }
+        var dl = drawLane(u.c.lane), d = depthOf(dl);
+        u.depth = d; u.dlane = dl;
+        if (d === 0) { active[1] = active[2] = null; u.y = trunkY; return; }
+        var anchorY = trunkY, anchorLane = null;
+        if (d === 2) {
+          var parent = lanes.of[dl] && lanes.of[dl].parent;
+          if (parent && active[1] === parent) { anchorY = yOf(1); anchorLane = parent; }
+        } else active[2] = null;
+        if (active[d] !== dl) {
+          cur[d] = { lane: dl, depth: d, x0: xs0[ui], x1: xs0[ui] + p.widths[ui], y: yOf(d), anchorY: anchorY, anchor: anchorLane, units: [] };
+          branches.push(cur[d]);
+          active[d] = dl;
+          if (d === 1) active[2] = null;
+        }
+        cur[d].units.push(ui);
+        cur[d].x1 = xs0[ui] + p.widths[ui];
+        if (d === 2 && anchorLane && cur[1]) cur[1].x1 = Math.max(cur[1].x1, cur[d].x1);
+        u.y = yOf(d);
+      });
+      // the branches: a stem, a thin baseline, the sub-agent's name once on the far
+      // side — the longest branches label first, and a label that would overlap one
+      // already placed in its row is left to the tooltip
+      var placed = {};
+      branches.slice().sort(function (p1, p2) { return (p2.x1 - p2.x0) - (p1.x1 - p1.x0); }).forEach(function (b) {
+        var lw = String(b.lane).length * CH, row = placed[b.depth] || (placed[b.depth] = []);
+        if (b.x0 + lw > W - padR) return;
+        if (row.some(function (r) { return b.x0 < r[1] + 6 && b.x0 + lw + 6 > r[0]; })) return;
+        row.push([b.x0, b.x0 + lw]); b.labelled = true;
+      });
+      branches.forEach(function (b) {
+        var g = svg.append("g").attr("class", "im-branch").attr("data-lane", b.lane).attr("data-side", side).attr("data-depth", b.depth);
+        g.append("line").attr("x1", b.x0).attr("x2", b.x0).attr("y1", b.anchorY).attr("y2", b.y).attr("stroke", color(side)).attr("stroke-width", 1).attr("stroke-opacity", 0.45);
+        g.append("line").attr("x1", b.x0).attr("x2", b.x1).attr("y1", b.y).attr("y2", b.y).attr("stroke", color(side)).attr("stroke-width", 1).attr("stroke-opacity", 0.3);
+        if (b.labelled) g.append("text").attr("class", "im-lab").attr("x", b.x0).attr("y", b.y + (up ? -4 : 11)).text(String(b.lane)).append("title").text(b.lane);
+        g.append("title").text(b.lane + " · " + b.units.length + " stretch" + (b.units.length === 1 ? "" : "es"));
+      });
+      //: the x where the next thing in this row starts — or the next branch's stem, whichever is first
+      function nextInRow(ui, y) {
+        for (var j = ui + 1; j < p.units.length; j++) { if (p.units[j].y === y || p.units[j].depth > 0) return xs0[j]; }
+        return xEnd;
+      }
+      // pass 2: the units, left to right
+      var whys = [], whyEnd = {};
+      p.units.forEach(function (u, ui) {
+        var w = p.widths[ui], x0 = xs0[ui];
         if (u.type === "fold") {
-          var fg = svg.append("g").attr("class", "im-fold").attr("data-ids", u.id).attr("data-side", side);
-          fg.append("rect").attr("class", "im-fold-rect").attr("x", x).attr("y", rowsTop).attr("width", w).attr("height", rowsBottom - rowsTop).attr("rx", 3)
-            .attr("fill", "var(--ink-3)").attr("fill-opacity", 0.08);
-          fg.append("rect").attr("x", x).attr("y", rowsTop).attr("width", w).attr("height", rowsBottom - rowsTop).attr("rx", 3).attr("fill", "url(#" + hid + ")").attr("pointer-events", "none");
-          var full = "⋯ " + u.steps + " steps · " + secs(u.seconds), mid = "⋯ " + u.steps + " steps", rowsH = rowsBottom - rowsTop;
-          var lab = rowsH >= full.length * CH + 8 ? full : rowsH >= mid.length * CH + 8 ? mid : "⋯";
-          if (lab === "⋯") fg.append("text").attr("x", x + w / 2).attr("y", (rowsTop + rowsBottom) / 2 + 4).attr("text-anchor", "middle").text(lab);
-          else fg.append("text").attr("transform", "translate(" + (x + w / 2 + 4) + "," + ((rowsTop + rowsBottom) / 2) + ") rotate(-90)").attr("text-anchor", "middle").text(lab);
-          fg.append("title").text(u.clusters.length + " quiet stretches folded: steps " + u.from + "–" + u.to + ", " + u.steps + " steps, " + secs(u.seconds) + " — click to open");
+          var fg = svg.append("g").attr("class", "im-fold").attr("data-ids", u.id).attr("data-side", side).attr("data-steps", u.steps);
+          fg.append("line").attr("x1", x0).attr("x2", x0 + w).attr("y1", trunkY).attr("y2", trunkY)
+            .attr("stroke", "var(--ink-3)").attr("stroke-width", 1.5).attr("stroke-dasharray", "1.5 2.5").attr("stroke-linecap", "round");
+          if (w >= 18) fg.append("text").attr("x", x0 + w / 2).attr("y", up ? trunkY + 12 : trunkY - 5).attr("text-anchor", "middle").text("×" + u.steps);
+          fg.append("rect").attr("x", x0).attr("y", trunkY - 8).attr("width", w).attr("height", 16).attr("fill", "transparent");
+          fg.append("title").text(u.steps + " steps · " + secs(u.seconds) + " · " + u.lanes.join(", ") + " — " + u.clusters.length + " quiet stretches folded; click to open");
           fg.on("pointermove", function (evt) {
-            tip.show(evt, [{ b: true, text: name(report, side) + " · " + u.clusters.length + " quiet stretches" }, { text: "steps " + u.from + "–" + u.to + " · " + u.steps + " steps · " + secs(u.seconds) }, { text: "click to open them" }]);
+            tip.show(evt, [{ b: true, text: name(report, side) + " · ×" + u.steps + " steps folded" }, { text: u.steps + " steps · " + secs(u.seconds) + " · " + u.lanes.join(", ") }, { text: "steps " + u.from + "–" + u.to + " · " + u.clusters.length + " quiet stretches · click to open" }]);
           }).on("pointerleave", tip.hide).on("click", function () { st.unfolded[skey(side, u.id)] = true; repaint(); });
-          x += w + p.gap;
           return;
         }
-        var c = u.c, lane = c.lane && rows[c.lane] ? c.lane : lanes[0], ry = rows[lane].y, open = !!st.open[skey(side, u.id)];
-        var quiet = c.kind === "quiet", hotK = c.kind === "hot";
-        var op = quiet ? 0.18 : 0.15 + 0.75 * clamp01(c.impact);
-        var bh = open || hotK ? rowH - 2 : quiet ? 4 : Math.max(4, Math.min(rowH - 2, Math.round(4 + 10 * clamp01(c.impact))));
-        var by = ry + Math.round((rowH - bh) / 2);
-        var rect = svg.append("rect").attr("class", "im-cluster" + (open ? " open" : "")).attr("data-id", c.id).attr("data-kind", c.kind || "work").attr("data-side", side).attr("data-lane", lane)
-          .attr("x", x).attr("y", by).attr("width", w).attr("height", bh).attr("rx", Math.min(3, bh / 2))
-          .attr("fill", quiet ? "var(--ink-3)" : color(side)).attr("fill-opacity", op)
-          .attr("stroke", hotK ? color(side) : open ? "var(--ink-2)" : "none").attr("stroke-width", hotK ? 1.5 : open ? 1 : 0);
-        rect.append("title").text(name(report, side) + " · " + lane + " · steps " + c.from + "–" + c.to + " · " + secs(c.seconds) + " · impact " + clamp01(c.impact).toFixed(2) + (c.why ? " — " + c.why : ""));
-        if (quiet) svg.append("rect").attr("x", x).attr("y", by).attr("width", w).attr("height", bh).attr("rx", Math.min(3, bh / 2)).attr("fill", "url(#" + hid + ")").attr("pointer-events", "none");
-        rect.on("pointermove", function (evt) {
-          tip.show(evt, [{ b: true, text: name(report, side) + " · " + lane + " · " + (c.label || c.kind) },
-            { text: "steps " + c.from + "–" + c.to + " (" + stepsIn(c) + ") · " + secs(c.seconds) + " · impact " + clamp01(c.impact).toFixed(2) + " · " + (c.kind || "work") },
+        var c = u.c, y = u.y, open = !!st.open[skey(side, u.id)];
+        var quiet = c.kind === "quiet", hotK = c.kind === "hot", fault = onFault(c);
+        var imp = clamp01(c.impact);
+        var sw = quiet ? 1.5 : 1.5 + 3.5 * imp;
+        var op = quiet ? 0.5 : 0.45 + 0.55 * imp;
+        var seg = svg.append("path").attr("class", "im-cluster" + (open ? " open" : "")).attr("data-id", c.id).attr("data-kind", c.kind || "work").attr("data-side", side).attr("data-lane", c.lane || lanes.root)
+          .attr("d", "M" + x0.toFixed(2) + "," + y + "H" + (x0 + w).toFixed(2))
+          .attr("stroke", fault ? "var(--bad)" : quiet ? "var(--ink-3)" : color(side)).attr("stroke-width", sw).attr("stroke-opacity", op).attr("fill", "none");
+        if (u.fold) seg.attr("data-fold", u.fold);
+        seg.append("title").text(name(report, side) + " · " + (c.lane || lanes.root) + " · steps " + c.from + "–" + c.to + " · " + secs(c.seconds) + " · impact " + imp.toFixed(2) + (c.why ? " — " + c.why : ""));
+        // a thin segment is hard to hit: a transparent band over it
+        svg.append("rect").attr("x", x0).attr("y", y - 6).attr("width", w).attr("height", 12).attr("fill", "transparent").style("cursor", "pointer")
+          .on("pointermove", onMove).on("pointerleave", tip.hide).on("click", onClick);
+        function onMove(evt) {
+          tip.show(evt, [{ b: true, text: name(report, side) + " · " + (c.lane || lanes.root) + " · " + (c.label || c.kind) },
+            { text: "steps " + c.from + "–" + c.to + " (" + stepsIn(c) + ") · " + secs(c.seconds) + " · impact " + imp.toFixed(2) + " · " + (c.kind || "work") },
             c.why ? { text: c.why } : null,
-            { text: open ? "click to collapse" : "click to open its steps" }]);
-        }).on("pointerleave", tip.hide).on("click", function () { var k = skey(side, u.id); if (st.open[k]) delete st.open[k]; else st.open[k] = true; repaint(); });
-        var marks = open && Array.isArray(c.marks) ? c.marks.filter(function (m) { return m && isNum(m.step); }).slice().sort(function (p, q) { return p.step - q.step; }) : [];
-        if (!open && bh >= 12) {
-          var lab = c.label || c.kind || "", why = hotK ? shortWhy(c) : "", tight = hotK ? compactWhy(c) : "";
-          // what the box can hold, most to least said: label · why, the why, label · compact, compact, the label cut
-          var tiers = why ? [lab + " · " + why, why, tight ? lab + " · " + tight : null, tight] : [];
-          var inside = null;
-          for (var ti = 0; ti < tiers.length && inside === null; ti++) { if (tiers[ti] && tiers[ti].length * CH <= w - 8) inside = tiers[ti]; }
-          if (inside === null && w >= 30) inside = fit(lab, w - 8);
-          if (inside) svg.append("text").attr("class", "im-clab").attr("data-id", c.id).attr("x", x + 4).attr("y", ry + rowH / 2 + 4).attr("fill", op >= 0.55 ? "var(--bg)" : "var(--ink)").text(inside);
-          if (why && (inside === null || inside.indexOf(why) < 0) && !narrow) {
-            var room = nextBound(ui, lane) - (x + w) - 8;
-            if (room >= Math.min(why.length, 10) * CH) {
-              svg.append("text").attr("class", "im-hwhy").attr("data-id", c.id).attr("x", x + w + 4).attr("y", ry + rowH / 2 + 4).text(fit(why, room));
-            }
+            { text: u.fold ? "click to fold back" : open ? "click to collapse" : "click to open its steps" }]);
+        }
+        function onClick() {
+          if (u.fold) { delete st.unfolded[skey(side, u.fold)]; repaint(); return; }
+          var k = skey(side, u.id); if (st.open[k]) delete st.open[k]; else st.open[k] = true; repaint();
+        }
+        seg.on("pointermove", onMove).on("pointerleave", tip.hide).on("click", onClick);
+        // a hot stretch says why, compactly, on the near side (toward the trunk; the trunk's own beyond it)
+        var nearY = up ? y + 12 : y - 5;
+        if (!open && hotK) {
+          var why = compactWhy(c);
+          var room = nextInRow(ui, y) - x0 - 2;
+          if (why && why.length * CH <= room && x0 >= (whyEnd[nearY] || -Infinity)) {
+            svg.append("text").attr("class", "im-hwhy").attr("data-id", c.id).attr("x", x0).attr("y", nearY).text(why);
+            whyEnd[nearY] = x0 + why.length * CH + 6;
           }
         }
         if (open) {
-          // ticks for the marks, at their step's place in the box; short labels when they fit
+          // the marks as leaves at their step's place along the segment
+          var marks = Array.isArray(c.marks) ? c.marks.filter(function (m) { return m && isNum(m.step); }).slice().sort(function (p, q) { return p.step - q.step; }) : [];
           var span = Math.max(1, (c.to || 0) - (c.from || 0));
           var inner = Math.max(1, w - 12);
-          var xs = marks.map(function (m) { return x + 6 + inner * Math.max(0, Math.min(1, (m.step - c.from) / span)); });
+          var xs = marks.map(function (m) { return x0 + 6 + inner * Math.max(0, Math.min(1, (m.step - c.from) / span)); });
           // two marks on one step sit side by side rather than on top of each other
           for (var mi2 = 1; mi2 < xs.length; mi2++) { if (xs[mi2] < xs[mi2 - 1] + 9) xs[mi2] = xs[mi2 - 1] + 9; }
           marks.forEach(function (m, mi) {
-            var mx = xs[mi], my = ry + rowH / 2;
+            var mx = xs[mi];
             var mg = svg.append("g").attr("class", "im-mark").attr("data-step", m.step).attr("data-kind", m.kind || "mark").attr("data-side", side);
             var red = m.kind === "decisive" || m.kind === "fault" || m.kind === "error";
             if (m.kind === "decisive") {
-              mg.append("circle").attr("cx", mx).attr("cy", my).attr("r", 5.5).attr("fill", "none").attr("stroke", "var(--bad)").attr("stroke-width", 2);
+              mg.append("circle").attr("cx", mx).attr("cy", y).attr("r", 5).attr("fill", "none").attr("stroke", "var(--bad)").attr("stroke-width", 2);
             } else if (m.kind === "fault") {
-              mg.append("line").attr("x1", mx).attr("x2", mx).attr("y1", ry + 1).attr("y2", ry + rowH - 1).attr("stroke", "var(--bad)").attr("stroke-width", 2.5);
+              mg.append("line").attr("x1", mx).attr("x2", mx).attr("y1", y - 6).attr("y2", y + 6).attr("stroke", "var(--bad)").attr("stroke-width", 2.5);
             } else {
-              mg.append("text").attr("class", "g").attr("x", mx).attr("y", my + 4).attr("text-anchor", "middle").attr("fill", red ? "var(--bad)" : "var(--ink)").text(GLYPH[m.kind] || "•");
+              mg.append("text").attr("class", "g").attr("x", mx).attr("y", y + 4).attr("text-anchor", "middle").attr("fill", red ? "var(--bad)" : "var(--ink)").text(GLYPH[m.kind] || "•");
             }
-            mg.append("rect").attr("x", mx - 6).attr("y", ry).attr("width", 12).attr("height", rowH).attr("fill", "transparent");
-            var room = (mi + 1 < marks.length ? xs[mi + 1] : x + w) - mx - 10;
-            if (!narrow && room >= 3 * CH && m.label) {
-              mg.append("text").attr("class", "im-mlab").attr("x", mx + 8).attr("y", my + 4).text(fit(m.label, room));
-            }
+            mg.append("rect").attr("x", mx - 5).attr("y", y - 7).attr("width", 10).attr("height", 14).attr("fill", "transparent");
             mg.append("title").text("step " + m.step + " · " + (MARK_WORD[m.kind] || m.kind) + (m.label ? " · " + m.label : "") + " — click to open the step");
             mg.on("pointermove", function (evt) {
               evt.stopPropagation();
@@ -16184,16 +16243,12 @@ THIS SOFTWARE.
               if (AgentDiff.charts && AgentDiff.charts.selectStep) AgentDiff.charts.selectStep(report, side, m.step);
             });
           });
-          // the why line, under the row — drawn last, over a backing, so no fold strikes through it
-          var wy = ry + rowH + 10 + rows[lane].why * whyH;
-          rows[lane].why++;
-          whys.push({ id: c.id, y: wy, text: fit((c.label ? c.label + " · " : "") + "steps " + c.from + "–" + c.to + " · " + secs(c.seconds) + (c.why ? " — " + c.why : ""), avail) });
+          // its line, under the band: label · steps · seconds — why
+          whys.push({ id: c.id, text: fit((c.lane && c.lane !== lanes.root ? c.lane + " · " : "") + (c.label ? c.label + " · " : "") + "steps " + c.from + "–" + c.to + " · " + secs(c.seconds) + (c.why ? " — " + c.why : ""), avail) });
         }
-        x += w + p.gap;
       });
-      whys.forEach(function (wl) {
-        svg.append("rect").attr("x", labW - 2).attr("y", wl.y - 10).attr("width", Math.min(avail + 4, wl.text.length * CH + 6)).attr("height", 13).attr("rx", 2).attr("fill", "var(--bg)").attr("fill-opacity", 0.92);
-        svg.append("text").attr("class", "im-why").attr("data-id", wl.id).attr("x", labW).attr("y", wl.y).text(wl.text);
+      whys.forEach(function (wl, i) {
+        svg.append("text").attr("class", "im-why").attr("data-id", wl.id).attr("x", padL).attr("y", whyTop + i * whyH).text(wl.text);
       });
     });
     function repaint() { host.innerHTML = ""; draw(host, report, im, st, tip, ctx); }
@@ -16219,11 +16274,9 @@ THIS SOFTWARE.
       var host = H("div", { class: "im-chart" });
       function redraw() { host.innerHTML = ""; draw(host, report, im, st, tip, ctx); sync(); }
       var bar = H("div", { class: "im-bar" });
-      bar.appendChild(H("span", null, [H("i", { style: { display: "inline-block", width: "10px", height: "10px", borderRadius: "2px", verticalAlign: "-1px", marginRight: "4px", background: color("a") } }), H("span", { text: name(report, "a") })]));
-      bar.appendChild(H("span", null, [H("i", { style: { display: "inline-block", width: "10px", height: "10px", borderRadius: "2px", verticalAlign: "-1px", marginRight: "4px", background: color("b") } }), H("span", { text: name(report, "b") })]));
-      var seg = H("span", { class: "seg", role: "group", "aria-label": "width" });
+      var seg = H("span", { class: "seg", role: "group", "aria-label": "length" });
       var modeBtns = {};
-      [["focus", "width by impact"], ["even", "width by seconds (wall-clock)"]].forEach(function (pair) {
+      [["focus", "length by impact"], ["even", "length by seconds (wall-clock)"]].forEach(function (pair) {
         modeBtns[pair[0]] = H("button", { text: pair[0], "data-mode": pair[0], title: pair[1], "aria-pressed": st.mode === pair[0] ? "true" : "false",
           onclick: function () { if (st.mode === pair[0]) return; st.mode = pair[0]; redraw(); } });
         seg.appendChild(modeBtns[pair[0]]);
@@ -16240,7 +16293,7 @@ THIS SOFTWARE.
       } }));
       bar.appendChild(H("button", { text: "collapse all", "data-act": "collapse-all", title: "close every open stretch and refold the quiet ones", onclick: function () { st.open = {}; st.unfolded = {}; redraw(); } }));
       root.appendChild(bar);
-      root.appendChild(H("p", { class: "im-legend", text: "width ∝ impact (focus) · grey folds = quiet stretches, click to open · click a cluster for its steps · a tick opens the step · ◎ decisive · ▏fault · ✕ error · ↻ retry · ◆ milestone · ⇄ divergence · ■ answer" }));
+      root.appendChild(H("p", { class: "im-legend", text: "trunk = run · branch = sub-agent · length ∝ impact · thick = hot · red = fault's path · ⋯×N = quiet steps folded, click to open · click a stretch for its steps · ◎ decisive ▏fault ✕ error ↻ retry ◆ milestone ⇄ divergence ■ answer" }));
       function sync() { Object.keys(modeBtns).forEach(function (k) { modeBtns[k].setAttribute("aria-pressed", st.mode === k ? "true" : "false"); }); }
       root.appendChild(AgentDiff.charts && AgentDiff.charts.responsive ? AgentDiff.charts.responsive(host, function () { draw(host, report, im, st, tip, ctx); }, "impact:" + task) : host);
       if (!(AgentDiff.charts && AgentDiff.charts.responsive)) draw(host, report, im, st, tip, ctx);
@@ -16263,6 +16316,448 @@ THIS SOFTWARE.
       });
       details.appendChild(H("div", { class: "scroll-x" }, [t]));
       root.appendChild(details);
+    },
+  });
+})(typeof window !== "undefined" ? window : this);
+
+</script>
+<!-- 24_trust.js -->
+<script>
+/* AgentDiff block — Trust & behaviour.
+ *
+ * How each agent behaved — tool calls, stops, permissions, determinism —
+ * and how far the data underneath can be trusted. One ledger, two
+ * columns (A | B), every cell a count from `report.trust` and every
+ * grade a rubric whose deductions are sentences under a fold. No chart:
+ * the numbers are the picture; a tiny inline bar scales the tool calls
+ * and the measured shares so the eye can compare without reading.
+ *
+ * Reads `report.trust` ({version, a, b, narrative}); each side carries
+ * behaviour, permissions, determinism, data and grade {score, label,
+ * reasons[]} — see deepcompare/trust.py for the rubric.
+ */
+(function (global) {
+  "use strict";
+  var AgentDiff = global.AgentDiff;
+  if (!AgentDiff) return;
+
+  var styled = false;
+  function ensureStyle() {
+    if (styled) return;
+    styled = true;
+    var node = document.createElement("style");
+    node.textContent = [
+      ".tr{--tr-a:var(--a);--tr-b:var(--b)}",
+      ".tr-narr{font-size:var(--fs-m);color:var(--ink);margin:0 0 10px;max-width:90ch}",
+      ".tr-ledger{border-collapse:collapse;width:100%;table-layout:fixed;font-size:var(--fs-xs);font-variant-numeric:tabular-nums}",
+      ".tr-ledger th{font-family:var(--mono);font-weight:500;color:var(--ink-3);text-align:left;padding:2px 10px 6px 0;vertical-align:bottom;overflow-wrap:anywhere}",
+      ".tr-ledger th.side{color:var(--ink);font-weight:600}",
+      ".tr-ledger th.side i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}",
+      ".tr-ledger th.side i.a{background:var(--tr-a)}.tr-ledger th.side i.b{background:var(--tr-b)}",
+      ".tr-ledger td{padding:4px 10px 4px 0;color:var(--ink-2);vertical-align:top;overflow-wrap:anywhere}",
+      ".tr-ledger td.lab{color:var(--ink-3);font-family:var(--mono);white-space:normal}",
+      ".tr-ledger td.bad{color:var(--bad);font-weight:600}.tr-ledger td.warn{color:var(--warn)}.tr-ledger td.dim{color:var(--ink-3)}",
+      ".tr-ledger .bar{display:block;height:4px;border-radius:0 2px 2px 0;margin-top:3px;min-width:1px;max-width:100%}",
+      ".tr-ledger .bar.a{background:var(--tr-a)}.tr-ledger .bar.b{background:var(--tr-b)}.tr-ledger .bar.dim{background:var(--rule-2,var(--rule))}",
+      ".tr-chip{display:inline-block;font-family:var(--mono);border-radius:9px;padding:1px 8px;color:var(--bg);font-weight:600}",
+      ".tr-chip.good{background:var(--good)}.tr-chip.warn{background:var(--warn)}.tr-chip.bad{background:var(--bad)}",
+      ".tr-flag{display:inline-block;font-family:var(--mono);border-radius:9px;padding:0 6px;background:var(--surface-2);color:var(--ink-2);margin-right:4px}",
+      ".tr-flag.syn{color:var(--warn)}",
+      ".tr-share{display:inline-block;min-width:88px;margin:2px 10px 0 0;color:var(--ink-3)}",
+      ".tr-details{margin-top:8px;font-size:var(--fs-xs)}.tr-details summary{cursor:pointer;color:var(--ink-2)}",
+      ".tr-details ul{margin:4px 0 6px;padding-left:18px;color:var(--ink-2)}.tr-details li{margin:1px 0}",
+      ".tr-details p{margin:4px 0 0;color:var(--ink-3);max-width:90ch}",
+      ".tr-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:8px;max-width:100ch}",
+    ].join("\n");
+    document.head.appendChild(node);
+  }
+
+  function isNum(v) { return typeof v === "number" && isFinite(v); }
+  function pct(v) { return isNum(v) ? Math.round(v * 100) + "%" : "—"; }
+  function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
+  function chipClass(label) { return label === "high" ? "good" : label === "medium" ? "warn" : "bad"; }
+  function forbiddenCount(p) {
+    var steps = {};
+    (p.forbidden_calls || []).concat(p.forbidden_patterns || []).forEach(function (f) { steps[f.step] = true; });
+    return Object.keys(steps).length;
+  }
+
+  /* each row: key, label, and a cell builder (H, run, side, both) → td attrs + kids */
+  function rows(H, t) {
+    var maxCalls = Math.max(1, (t.a.behaviour.tool_calls || 0), (t.b.behaviour.tool_calls || 0));
+    function bar(side, v, max, dim) {
+      return H("i", { class: "bar " + side + (dim ? " dim" : ""), style: { width: Math.max(1, Math.round(100 * (v || 0) / Math.max(1e-9, max))) + "%" } });
+    }
+    function share(side, label, v) {
+      return H("span", { class: "tr-share", "data-share": label }, [label + " " + pct(v), bar(side, isNum(v) ? v : 0, 1, !isNum(v) || v < 0.5)]);
+    }
+    return [
+      { key: "grade", label: "trust grade", cell: function (r, side) {
+        var g = r.grade; return { kids: [H("span", { class: "tr-chip " + chipClass(g.label), text: g.label + " " + g.score.toFixed(2) })] }; } },
+      { key: "tool_calls", label: "tool calls", cell: function (r, side) {
+        var b = r.behaviour; return { kids: [String(b.tool_calls), bar(side, b.tool_calls, maxCalls)] }; } },
+      { key: "distinct_tools", label: "distinct tools", cell: function (r) {
+        var b = r.behaviour, names = Object.keys(b.tools || {}).sort(function (p, q) { return b.tools[q] - b.tools[p] || (p < q ? -1 : 1); });
+        return { kids: [String(b.distinct_tools) + (names.length ? " · " + names.slice(0, 4).map(function (k) { return k + " ×" + b.tools[k]; }).join(", ") + (names.length > 4 ? ", …" : "") : "")] }; } },
+      { key: "thinking_steps", label: "thinking steps", cell: function (r) { return { kids: [String(r.behaviour.thinking_steps) + " of " + r.behaviour.steps] }; } },
+      { key: "stop", label: "stop", cell: function (r) {
+        var b = r.behaviour, harness = b.stopped_by === "harness";
+        var text = b.answered ? "answered" : "no answer";
+        if (b.termination) text += " · " + b.termination.replace(/_/g, " ");
+        if (harness) text += " · by harness";
+        else if (b.stopped_by === "unknown") text += " · undeclared";
+        return { cls: harness ? "warn" : "", kids: [text] }; } },
+      { key: "faults", label: "loops · retries · errors", cell: function (r, side) {
+        var b = r.behaviour;
+        return { cls: b.errors > 3 ? "warn" : "", kids: [
+          H("span", { "data-key": "loops", "data-side": side, text: String(b.loops) }), " · ",
+          H("span", { "data-key": "retries", "data-side": side, text: String(b.retries) }), " · ",
+          H("span", { "data-key": "errors", "data-side": side, text: String(b.errors) })] }; } },
+      { key: "effects", label: "effects read · write · undeclared", cell: function (r, side) {
+        var e = r.permissions.effects;
+        return { kids: [
+          H("span", { "data-key": "reads", "data-side": side, text: String(e.read) }), " · ",
+          H("span", { "data-key": "writes", "data-side": side, text: String(e.write) }), " · ",
+          H("span", { "data-key": "undeclared", "data-side": side, text: String(e.undeclared) }),
+          (r.permissions.verify_after_write === false ? " · last write unverified" : r.permissions.verify_after_write === true ? " · verified after write" : "")] }; } },
+      { key: "forbidden", label: "forbidden calls", cell: function (r) {
+        var p = r.permissions, n = forbiddenCount(p);
+        var names = {}; (p.forbidden_calls || []).concat(p.forbidden_patterns || []).forEach(function (f) { names[f.name] = true; });
+        return { cls: n > 0 ? "bad" : "", kids: [String(n) + (n ? " · " + Object.keys(names).sort().join(", ") : "")] }; } },
+      { key: "writes_without_read", label: "writes without read", cell: function (r) {
+        var n = r.permissions.writes_without_read; return { cls: n > 0 ? "bad" : "", kids: [String(n)] }; } },
+      { key: "external", label: "external calls", cell: function (r) {
+        var p = r.permissions, extra = [];
+        if (p.mcp_servers && p.mcp_servers.length) extra.push("mcp: " + p.mcp_servers.join(", "));
+        if (isNum(p.handoffs) && p.handoffs) extra.push(p.handoffs + " handoff(s)");
+        return { kids: [String(p.external) + (extra.length ? " · " + extra.join(" · ") : "")] }; } },
+      { key: "sub_agents", label: "sub-agents · depth", cell: function (r) {
+        var b = r.behaviour; return { kids: [b.sub_agents + " · " + b.max_depth + (b.delegations ? " (" + b.delegations + " delegation" + (b.delegations === 1 ? "" : "s") + ")" : "")] }; } },
+      { key: "replay", label: "replay verification", cell: function (r) {
+        var d = r.determinism, text = d.replay_verification || "not the diagnosed side";
+        if (d.replay_reproduced === true) text += " · rerun reproduced";
+        else if (d.replay_reproduced === false) text += " · rerun diverged" + (isNum(d.replay_first_divergence) ? " at step " + d.replay_first_divergence : "");
+        return { cls: d.replay_verification ? (d.replay_verification === "replay-verified" ? "" : "warn") : "dim", kids: [text] }; } },
+      { key: "consistency", label: "run consistency", cell: function (r) {
+        var c = r.determinism.run_consistency, t = r.determinism.temperature;
+        var text = c ? ((c.verdict ? c.verdict : "") + (isNum(c.successes) && isNum(c.runs) ? " " + c.successes + "/" + c.runs : "") +
+          (isNum(c.equality_rate) ? " · equality " + pct(c.equality_rate) : "") + (isNum(c.distinct_answers) ? " · " + c.distinct_answers + " distinct answer(s)" : "")).trim() : "single run";
+        if (t !== null && t !== undefined) text += " · T " + (isNum(t) ? t : t.min + "–" + t.max);
+        return { cls: c ? "" : "dim", kids: [text] }; } },
+      { key: "data", label: "data", cell: function (r, side) {
+        var d = r.data, kids = [];
+        kids.push(H("span", { class: "tr-flag", text: d.adapter || "adapter unknown" }));
+        kids.push(H("span", { class: "tr-flag", text: "graded by " + (d.graded_by || "—") }));
+        if (d.synthetic) kids.push(H("span", { class: "tr-flag syn", "data-synthetic": "1", text: "SYNTHETIC" }));
+        if (d.spans_recorded) kids.push(H("span", { class: "tr-flag", text: "spans" }));
+        kids.push(H("br"));
+        kids.push(share(side, "latency", d.latency_measured_share));
+        kids.push(share(side, "tokens", d.tokens_measured_share));
+        kids.push(share(side, "effects", d.effects_declared_share));
+        return { cls: d.synthetic ? "warn" : "", kids: kids }; } },
+    ];
+  }
+
+  AgentDiff.block({
+    id: "trust",
+    title: "Trust & behaviour",
+    question: "How did each agent behave — tool calls, stops, permissions, determinism — and how far can the data be trusted?",
+    group: "outcome",
+    size: "wide",
+    relevance: function (ctx) { var t = ctx.report && ctx.report.trust; return t && t.a ? 0.8 : 0; },
+    render: function (el, ctx) {
+      ensureStyle();
+      var H = ctx.h, report = ctx.report, t = report && report.trust;
+      if (!t || !t.a || !t.b) return ctx.empty(el, t && t.narrative ? t.narrative : "This report carries no trust section.");
+      var root = H("div", { class: "tr" });
+      el.appendChild(root);
+      root.appendChild(H("p", { class: "tr-narr", text: t.narrative || "" }));
+      var table = H("table", { class: "tr-ledger", "aria-label": "behaviour and trust, both runs" });
+      var head = H("tr", null, [H("th", { text: "" })]);
+      ["a", "b"].forEach(function (side) {
+        head.appendChild(H("th", { class: "side", "data-side": side }, [H("i", { class: side }), name(report, side)]));
+      });
+      table.appendChild(head);
+      rows(H, t).forEach(function (row) {
+        var tr = H("tr", { "data-row": row.key }, [H("td", { class: "lab", text: row.label })]);
+        ["a", "b"].forEach(function (side) {
+          var spec = row.cell(t[side], side) || {};
+          tr.appendChild(H("td", { "data-key": row.key, "data-side": side, class: spec.cls || null }, spec.kids || []));
+        });
+        table.appendChild(tr);
+      });
+      root.appendChild(table);
+      ["a", "b"].forEach(function (side) {
+        var r = t[side], g = r.grade;
+        var details = H("details", { class: "tr-details", "data-side": side }, [
+          H("summary", { text: "why " + name(report, side) + " grades " + g.label + " (" + g.score.toFixed(2) + ")" + (g.reasons.length ? " — " + g.reasons.length + " deduction" + (g.reasons.length === 1 ? "" : "s") : " — no deduction") })]);
+        if (g.reasons.length) details.appendChild(H("ul", null, g.reasons.map(function (s) { return H("li", { text: s }); })));
+        details.appendChild(H("p", { text: r.narrative || "" }));
+        root.appendChild(details);
+      });
+      if (t.note) root.appendChild(H("p", { class: "tr-note", text: t.note }));
+    },
+  });
+})(typeof window !== "undefined" ? window : this);
+
+</script>
+<!-- 25_tools.js -->
+<script>
+/* AgentDiff block — Tool behaviour, and the tool dossier on demand.
+ *
+ * The statistics settle who won; this shows how each agent used each
+ * tool: calls, distinct inputs, repeats, the longest run of identical
+ * calls, errors, wasted calls, latency, and which sub-agents touched it.
+ * Under it, the suggestions for the next prompt derived from the
+ * contrast — each a sentence with its evidence and a copy button.
+ *
+ * Any tool anywhere on the page opens its dossier: the same numbers for
+ * one tool, both runs, the agents that touched it, a strip of its calls
+ * (click one to open the step), sample inputs, and the suggestions that
+ * concern it. Open it with AgentDiff.tools.open(name) or by dispatching
+ * `agentdiff:select-tool` with {name} on the document; the charts do
+ * that on a double-click of a tool step, the tables on a click of the
+ * tool's name.
+ *
+ * Reads `report.tools_profile` (see deepcompare/toolprofile.py).
+ */
+(function (global) {
+  "use strict";
+  var AgentDiff = global.AgentDiff;
+  if (!AgentDiff) return;
+  var d3 = global.d3;
+
+  var styled = false;
+  function ensureStyle() {
+    if (styled) return;
+    styled = true;
+    var node = document.createElement("style");
+    node.textContent = [
+      ".tb{--tb-a:var(--a);--tb-b:var(--b)}",
+      ".tb-narr{font-size:var(--fs-m);color:var(--ink);margin:0 0 8px;max-width:90ch}",
+      ".tb-table{border-collapse:collapse;width:100%;font-size:var(--fs-xs);font-variant-numeric:tabular-nums}",
+      ".tb-table th{font-family:var(--mono);font-weight:500;color:var(--ink-3);text-align:left;padding:2px 10px 5px 0;border-bottom:1px solid var(--rule);white-space:nowrap}",
+      ".tb-table td{padding:3px 10px 3px 0;white-space:nowrap;color:var(--ink-2);vertical-align:top}",
+      ".tb-table td.tool button{font:inherit;font-family:var(--mono);color:var(--ink);background:none;border:0;padding:0;cursor:pointer;text-decoration:underline dotted var(--rule-2);text-underline-offset:3px}",
+      ".tb-table td.tool button:hover{color:var(--accent)}",
+      ".tb-table .pair{display:inline-grid;grid-template-columns:auto 1fr;gap:1px 6px;align-items:center;min-width:110px}",
+      ".tb-table .pair i{display:block;height:5px;border-radius:0 3px 3px 0;min-width:1px}.tb-table .pair i.a{background:var(--tb-a)}.tb-table .pair i.b{background:var(--tb-b)}",
+      ".tb-table .bad{color:var(--bad)}.tb-table .warn{color:var(--warn)}.tb-table .dim{color:var(--ink-3)}",
+      ".tb-agents span{display:inline-block;margin:0 4px 0 0;color:var(--ink-3)}",
+      ".tb-sugg{margin:12px 0 0;padding:0;list-style:none}",
+      ".tb-sugg li{margin:0 0 8px;font-size:var(--fs-s);color:var(--ink);max-width:100ch;display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:start}",
+      ".tb-sugg li .ev{font-size:var(--fs-xs);color:var(--ink-3);grid-column:1/-1}",
+      ".tb-sugg li .k{font-family:var(--mono);font-size:var(--fs-xs);color:var(--ink-3);margin-right:6px}",
+      ".tb-sugg button, .tb-copyall{font:inherit;font-size:var(--fs-xs);border:0;background:var(--surface-2);color:var(--ink-2);border-radius:999px;padding:1px 8px;cursor:pointer}",
+      ".tb-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:14px 0 4px;font-size:var(--fs-xs);color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em}",
+      ".tb-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:6px;max-width:100ch}",
+      /* the dossier */
+      ".tool-dossier{position:fixed;right:14px;top:60px;width:380px;max-width:calc(100vw - 28px);max-height:calc(100vh - 80px);overflow:auto;background:var(--surface);box-shadow:var(--shadow);border-radius:10px;padding:12px 14px 14px;z-index:40;font-size:var(--fs-s);color:var(--ink)}",
+      ".tool-dossier[hidden]{display:none}",
+      ".tool-dossier h4{margin:0 0 6px;font-family:var(--mono);font-size:var(--fs-m);font-weight:600;display:flex;gap:8px;align-items:center}",
+      ".tool-dossier h4 .x{margin-left:auto;font:inherit;border:0;background:none;color:var(--ink-3);cursor:pointer}",
+      ".tool-dossier .chips span{display:inline-block;font-size:var(--fs-xs);color:var(--ink-3);background:var(--surface-2);border-radius:999px;padding:0 7px;margin:0 4px 6px 0}",
+      ".tool-dossier table{border-collapse:collapse;width:100%;font-size:var(--fs-xs);font-variant-numeric:tabular-nums;margin:4px 0 8px}",
+      ".tool-dossier th{font-family:var(--mono);font-weight:500;color:var(--ink-3);text-align:left;padding:1px 8px 3px 0;border-bottom:1px solid var(--rule)}",
+      ".tool-dossier td{padding:2px 8px 2px 0;color:var(--ink-2)}.tool-dossier td.k{color:var(--ink-3)}.tool-dossier td.bad{color:var(--bad)}",
+      ".tool-dossier .who{font-size:var(--fs-xs);color:var(--ink-2);margin:0 0 6px}.tool-dossier .who b{font-weight:600}",
+      ".tool-dossier .strip svg{display:block;width:100%;height:auto}",
+      ".tool-dossier .strip .tick{font-size:var(--fs-xs);fill:var(--ink-3)}",
+      ".tool-dossier details{font-size:var(--fs-xs);color:var(--ink-2);margin-top:6px}.tool-dossier details summary{cursor:pointer;color:var(--ink-3)}",
+      ".tool-dossier pre{white-space:pre-wrap;word-break:break-word;font-size:var(--fs-xs);background:var(--surface-2);border-radius:6px;padding:4px 6px;margin:3px 0}",
+      ".tool-dossier .sug{font-size:var(--fs-xs);color:var(--ink);margin:6px 0 0}",
+    ].join("\n");
+    document.head.appendChild(node);
+  }
+
+  function isNum(v) { return typeof v === "number" && isFinite(v); }
+  function secs(v) { return !isNum(v) ? "—" : v >= 100 ? Math.round(v) + "s" : v >= 10 ? v.toFixed(0) + "s" : v >= 1 ? v.toFixed(1) + "s" : v.toFixed(2) + "s"; }
+  function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
+  function color(side) { return "var(--tb-" + side + ")"; }
+  var Current = { report: null };
+
+  function copy(text, btn) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text);
+    } catch (err) { /* no clipboard */ }
+    if (btn) { var was = btn.textContent; btn.textContent = "copied"; setTimeout(function () { btn.textContent = was; }, 900); }
+  }
+
+  // ------------------------------------------------------------ dossier
+  function dossierRow(H, label, a, b, cls) {
+    return H("tr", null, [H("td", { class: "k", text: label }), H("td", { class: cls && cls.a ? cls.a : "", text: a }), H("td", { class: cls && cls.b ? cls.b : "", text: b })]);
+  }
+  function strip(H, host, report, toolName, row) {
+    if (!d3) return;
+    var W = 340, Hh = 46, m = { l: 6, r: 6, t: 14 };
+    var maxStep = 1;
+    ["a", "b"].forEach(function (s) { var st = report[s] && report[s].steps; if (st && st.length) maxStep = Math.max(maxStep, st.length - 1); });
+    var x = d3.scaleLinear().domain([0, maxStep]).range([m.l, W - m.r]);
+    var svg = d3.select(host).append("svg").attr("viewBox", "0 0 " + W + " " + Hh).attr("role", "img").attr("aria-label", "every call of " + toolName + " by step, both runs");
+    svg.append("text").attr("class", "tick").attr("x", m.l).attr("y", 9).text("step 0");
+    svg.append("text").attr("class", "tick").attr("x", W - m.r).attr("y", 9).attr("text-anchor", "end").text("step " + maxStep);
+    ["a", "b"].forEach(function (s, si) {
+      var t = row[s];
+      var y = m.t + 8 + si * 16;
+      svg.append("line").attr("x1", m.l).attr("x2", W - m.r).attr("y1", y).attr("y2", y).attr("stroke", "var(--rule)");
+      (t && t.steps || []).forEach(function (c) {
+        svg.append("line").attr("class", "call").attr("data-side", s).attr("data-step", c.step)
+          .attr("x1", x(c.step)).attr("x2", x(c.step)).attr("y1", y - 6).attr("y2", y + 6)
+          .attr("stroke", c.error ? "var(--bad)" : color(s)).attr("stroke-width", c.error ? 2.2 : 1.6).attr("stroke-opacity", c.wasted ? 0.45 : 1).style("cursor", "pointer")
+          .append("title").text(name(report, s) + " · step " + c.step + " · " + secs(c.seconds) + (c.error ? " · error" : "") + (c.wasted ? " · wasted" : "") + " · " + c.agent);
+        svg.selectAll("line.call[data-step='" + c.step + "'][data-side='" + s + "']").on("click", function () {
+          if (AgentDiff.charts && AgentDiff.charts.selectStep) AgentDiff.charts.selectStep(report, s, c.step);
+        });
+      });
+    });
+  }
+  function openDossier(toolName, report) {
+    ensureStyle();
+    report = report || Current.report;
+    var H = AgentDiff._internals && AgentDiff._internals.h ? AgentDiff._internals.h : null;
+    if (!report || !report.tools_profile) return;
+    var h = H || function (tag, attrs, kids) {
+      var el = document.createElement(tag);
+      Object.keys(attrs || {}).forEach(function (k) { if (k === "text") el.textContent = attrs[k]; else if (k === "onclick") el.onclick = attrs[k]; else if (k === "class") el.className = attrs[k]; else el.setAttribute(k, attrs[k]); });
+      (kids || []).forEach(function (c) { if (c) el.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
+      return el;
+    };
+    var pair = report.tools_profile;
+    var row = null;
+    (pair.tools || []).forEach(function (r) { if (r.name === toolName) row = r; });
+    var panel = document.querySelector(".tool-dossier");
+    if (!panel) {
+      panel = h("aside", { class: "tool-dossier", role: "dialog", "aria-label": "tool dossier" });
+      document.body.appendChild(panel);
+      document.addEventListener("keydown", function (ev) { if (ev.key === "Escape") closeDossier(); });
+    }
+    panel.innerHTML = "";
+    panel.hidden = false;
+    panel.setAttribute("data-tool", toolName);
+    var head = h("h4", null, [h("span", { text: toolName }), h("button", { class: "x", text: "✕", title: "close", "aria-label": "close", onclick: closeDossier })]);
+    panel.appendChild(head);
+    if (!row) { panel.appendChild(h("p", { class: "who", text: "Neither run called " + toolName + "." })); return; }
+    var chips = h("div", { class: "chips" });
+    var any = row.a || row.b;
+    if (any && any.external) chips.appendChild(h("span", { text: "reaches outside" }));
+    var effects = {};
+    ["a", "b"].forEach(function (s) { var t = row[s]; if (t) Object.keys(t.effects || {}).forEach(function (e) { effects[e] = (effects[e] || 0) + t.effects[e]; }); });
+    Object.keys(effects).forEach(function (e) { chips.appendChild(h("span", { text: e + " ×" + effects[e] })); });
+    if ((row.a && row.a.decisive) || (row.b && row.b.decisive)) chips.appendChild(h("span", { text: "decisive step", style: "color:var(--bad)" }));
+    panel.appendChild(chips);
+    var who = h("p", { class: "who" });
+    ["a", "b"].forEach(function (s) {
+      var t = row[s];
+      if (!t) { who.appendChild(h("span", { text: name(report, s) + ": never called · " })); return; }
+      var agents = Object.keys(t.agents).map(function (a) { return a + " ×" + t.agents[a]; }).join(", ");
+      who.appendChild(h("span", null, [h("b", { text: name(report, s) + ": " }), h("span", { text: t.calls + " call(s) by " + Object.keys(t.agents).length + " agent(s) — " + agents + " · " })]));
+    });
+    panel.appendChild(who);
+    var t = h("table", null, [h("tr", null, [h("th", { text: "" }), h("th", { text: name(report, "a") }), h("th", { text: name(report, "b") })])]);
+    var g = function (s, k, f) { var x = row[s]; return x ? (f ? f(x[k]) : String(x[k])) : "—"; };
+    t.appendChild(dossierRow(h, "calls", g("a", "calls"), g("b", "calls")));
+    t.appendChild(dossierRow(h, "distinct inputs", g("a", "distinct_inputs"), g("b", "distinct_inputs")));
+    t.appendChild(dossierRow(h, "repeats", g("a", "repeats"), g("b", "repeats"), { a: row.a && row.a.repeats ? "bad" : "", b: row.b && row.b.repeats ? "bad" : "" }));
+    t.appendChild(dossierRow(h, "longest identical run", g("a", "max_identical_run"), g("b", "max_identical_run")));
+    t.appendChild(dossierRow(h, "errors", g("a", "errors"), g("b", "errors"), { a: row.a && row.a.errors ? "bad" : "", b: row.b && row.b.errors ? "bad" : "" }));
+    t.appendChild(dossierRow(h, "wasted", g("a", "wasted_calls"), g("b", "wasted_calls")));
+    t.appendChild(dossierRow(h, "seconds · mean", g("a", "seconds", function (v) { return secs(v) + " · " + secs(row.a.mean_s); }), g("b", "seconds", function (v) { return secs(v) + " · " + secs(row.b.mean_s); })));
+    t.appendChild(dossierRow(h, "first · last step", g("a", "first_step", function (v) { return v + " · " + row.a.last_step; }), g("b", "first_step", function (v) { return v + " · " + row.b.last_step; })));
+    t.appendChild(dossierRow(h, "fed the answer", g("a", "fed_answer"), g("b", "fed_answer")));
+    t.appendChild(dossierRow(h, "on the fault's path", g("a", "fault_calls"), g("b", "fault_calls"), { a: row.a && row.a.fault_calls ? "bad" : "", b: row.b && row.b.fault_calls ? "bad" : "" }));
+    panel.appendChild(t);
+    var stripHost = h("div", { class: "strip" });
+    panel.appendChild(stripHost);
+    strip(h, stripHost, report, toolName, row);
+    ["a", "b"].forEach(function (s) {
+      var x = row[s];
+      if (!x) return;
+      var d = h("details", null, [h("summary", { text: name(report, s) + " · sample inputs and outputs" })]);
+      (x.samples.inputs || []).forEach(function (i) { d.appendChild(h("pre", { text: "→ " + i })); });
+      (x.samples.outputs || []).forEach(function (o) { d.appendChild(h("pre", { text: "← " + o })); });
+      panel.appendChild(d);
+    });
+    (pair.suggestions || []).filter(function (s) { return s.tool === toolName; }).forEach(function (s) {
+      panel.appendChild(h("p", { class: "sug", text: "for the next prompt: " + s.text }));
+    });
+  }
+  function closeDossier() { var p = document.querySelector(".tool-dossier"); if (p) p.hidden = true; }
+  AgentDiff.tools = { open: function (toolName, report) { openDossier(toolName, report); }, close: closeDossier };
+  try {
+    document.addEventListener("agentdiff:select-tool", function (ev) {
+      var d = ev && ev.detail;
+      if (d && d.name) openDossier(String(d.name), d.report || null);
+    });
+  } catch (err) { /* no document */ }
+
+  // ------------------------------------------------------------ the block
+  AgentDiff.block({
+    id: "tool-behaviour",
+    title: "Tool behaviour",
+    question: "How did each agent use each tool — calls, repeats, errors, wasted, who touched it — and what should the next prompt say about it?",
+    group: "trajectory",
+    size: "wide",
+    relevance: function (ctx) { var tp = ctx.report && ctx.report.tools_profile; return tp && (tp.a.measurable || tp.b.measurable) ? 0.8 : 0; },
+    render: function (el, ctx) {
+      ensureStyle();
+      var H = ctx.h, report = ctx.report, tp = report && report.tools_profile;
+      Current.report = report;
+      if (!tp || !(tp.a.measurable || tp.b.measurable)) return ctx.empty(el, "Neither run called a tool.");
+      var root = H("div", { class: "tb" });
+      el.appendChild(root);
+      root.appendChild(H("p", { class: "tb-narr", text: tp.narrative || "" }));
+      var table = H("table", { class: "tb-table" });
+      table.appendChild(H("tr", null, ["tool", "calls", "repeats · longest run", "errors", "wasted", "mean", "touched by"].map(function (t) { return H("th", { text: t }); })));
+      var maxCalls = Math.max.apply(null, tp.tools.map(function (r) { return Math.max(r.a ? r.a.calls : 0, r.b ? r.b.calls : 0); }).concat([1]));
+      tp.tools.forEach(function (r) {
+        var tr = H("tr", { "data-tool": r.name });
+        tr.appendChild(H("td", { class: "tool" }, [H("button", { text: r.name, title: "open the dossier for " + r.name, "data-open": r.name, onclick: function () { openDossier(r.name, report); } })]));
+        var pair = H("span", { class: "pair" });
+        ["a", "b"].forEach(function (s) {
+          var t = r[s];
+          pair.appendChild(H("span", { class: t ? "" : "dim", text: t ? String(t.calls) : "—" }));
+          pair.appendChild(H("i", { class: s, style: { width: Math.round(100 * (t ? t.calls : 0) / maxCalls) + "%" } }));
+        });
+        tr.appendChild(H("td", null, [pair]));
+        var cell = function (f, cls) {
+          var td = H("td");
+          ["a", "b"].forEach(function (s, i) {
+            var t = r[s];
+            var sp = H("span", { class: t ? (cls ? cls(t) : "") : "dim", text: t ? f(t) : "—" });
+            td.appendChild(sp);
+            if (!i) td.appendChild(H("br"));
+          });
+          return td;
+        };
+        tr.appendChild(cell(function (t) { return t.repeats + " · " + t.max_identical_run + "×"; }, function (t) { return t.max_identical_run >= 3 ? "bad" : t.repeats ? "warn" : ""; }));
+        tr.appendChild(cell(function (t) { return String(t.errors); }, function (t) { return t.errors ? "bad" : ""; }));
+        tr.appendChild(cell(function (t) { return t.wasted_calls + " (" + secs(t.wasted_s) + ")"; }, function (t) { return t.wasted_share >= 0.6 ? "warn" : ""; }));
+        tr.appendChild(cell(function (t) { return secs(t.mean_s); }));
+        var agents = H("td", { class: "tb-agents" });
+        r.agents.forEach(function (a) { agents.appendChild(H("span", { text: a })); });
+        tr.appendChild(agents);
+        table.appendChild(tr);
+      });
+      root.appendChild(H("div", { class: "scroll-x" }, [table]));
+      root.appendChild(H("p", { class: "tb-note", text: "each cell: " + name(report, "a") + " over " + name(report, "b") + " · click a tool's name for its dossier · double-click a tool step in any chart for the same" }));
+      // the suggestions for the next prompt
+      var sug = tp.suggestions || [];
+      var head = H("div", { class: "tb-head" }, [H("span", { text: "for the next prompt" + (sug.length ? " · " + sug.length : "") })]);
+      if (sug.length) head.appendChild(H("button", { class: "tb-copyall", text: "copy all", onclick: function (ev) { copy(sug.map(function (s) { return "- " + s.text; }).join("\n"), ev.currentTarget); } }));
+      root.appendChild(head);
+      if (!sug.length) {
+        root.appendChild(H("p", { class: "tb-note", text: "No suggestion from tool behaviour: the runs used their tools alike, or neither failed." }));
+      } else {
+        var ul = H("ul", { class: "tb-sugg" });
+        sug.forEach(function (s) {
+          var li = H("li", { "data-kind": s.kind, "data-tool": s.tool });
+          li.appendChild(H("span", null, [H("span", { class: "k", text: s.kind.replace(/_/g, " ") }), H("span", { text: s.text })]));
+          li.appendChild(H("button", { text: "copy", onclick: function (ev) { copy(s.text, ev.currentTarget); } }));
+          li.appendChild(H("span", { class: "ev", text: "for " + s.for + " · " + s.status + " · evidence: " + Object.keys(s.evidence).map(function (k) { return k.replace(/_/g, " ") + " " + JSON.stringify(s.evidence[k]); }).join(", ") }));
+          ul.appendChild(li);
+        });
+        root.appendChild(ul);
+      }
     },
   });
 })(typeof window !== "undefined" ? window : this);
