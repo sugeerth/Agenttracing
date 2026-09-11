@@ -4453,13 +4453,16 @@ def _impact_fixture(report):
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
                      "playwright + chromium required for browser tests")
 class ImpactBlockTest(unittest.TestCase):
-    """The impact-weighted timeline: two bands, each run one trunk with a
-    branch per sub-agent stretch, a segment per cluster whose length is its
-    impact; consecutive quiet clusters folded into one short segment whose
-    length grows with the steps folded and that opens on click (and folds
-    back from any of its clusters); a cluster opening to its marks; a mark
-    opening its step in the shared inspector; the even mode; the table
-    under the fold; the block short at 1440; nothing overflowing on a phone."""
+    """The impact-weighted view: two trees (the trace tree's architecture),
+    one per run — the run at the root, a lane node per sub-agent, a bar per
+    cluster whose length is its impact on the shared A/B scale, a lane's
+    consecutive quiet clusters folded into one capsule whose pill grows with
+    the steps folded; a lane starts open only when it holds a hot cluster.
+    A capsule dilates on click (and folds back from any of its clusters), a
+    cluster opens to its marks as child leaves, a mark opens its step in the
+    shared inspector; "trunk" and "even" draw the same units as one trunk
+    with branches; the table under the fold; the block under 750px at
+    1440; nothing overflowing on a phone."""
 
     tmp = None
 
@@ -4510,40 +4513,50 @@ class ImpactBlockTest(unittest.TestCase):
         return context, page, errors
 
     @staticmethod
-    def _visible(im, side):
-        """Clusters drawn as segments with every fold closed: all but those
-        inside a run of two or more quiet clusters."""
-        cs = sorted(im[side]["clusters"], key=lambda c: c["from"])
-        shown, folds, i = [], [], 0
+    def _root(im, side):
+        return next(l["agent"] for l in im[side]["lanes"] if not l["depth"])
+
+    @staticmethod
+    def _lane_items(im, side, lane):
+        """A lane's children with every fold closed: its clusters in step
+        order, consecutive quiet ones folded into one capsule ("fold", ids,
+        steps); the root lane's list hangs directly under the run."""
+        cs = [c for c in sorted(im[side]["clusters"], key=lambda c: c["from"]) if c["lane"] == lane]
+        out, i = [], 0
         while i < len(cs):
             if cs[i]["kind"] == "quiet":
                 j = i
                 while j < len(cs) and cs[j]["kind"] == "quiet":
                     j += 1
                 if j - i >= 2:
-                    folds.append(",".join(c["id"] for c in cs[i:j]))
+                    out.append(("fold", ",".join(c["id"] for c in cs[i:j]), sum(c["steps"] for c in cs[i:j])))
                     i = j
                     continue
-            shown.append(cs[i]["id"])
+            out.append(("cluster", cs[i]["id"], cs[i]["impact"]))
             i += 1
-        return shown, folds
-
-    @staticmethod
-    def _branches(im, side, shown=None):
-        """The branches a band draws with every fold closed: one per run of
-        consecutive visible clusters in one sub-agent's lane; a fold or a
-        cluster on the trunk (the root agent's lane) ends a branch."""
-        root = next(l["agent"] for l in im[side]["lanes"] if not l["depth"])
-        cs = sorted(im[side]["clusters"], key=lambda c: c["from"])
-        if shown is None:
-            shown = ImpactBlockTest._visible(im, side)[0]
-        out, cur = [], None
-        for c in cs:
-            lane = c["lane"] if c["id"] in shown and c["lane"] != root else None
-            if lane != cur and lane is not None:
-                out.append(lane)
-            cur = lane
         return out
+
+    @classmethod
+    def _lanes(cls, im, side):
+        """The sub-agent lanes that own a cluster, in the order the run met them."""
+        root, seen = cls._root(im, side), []
+        for c in sorted(im[side]["clusters"], key=lambda c: c["from"]):
+            if c["lane"] != root and c["lane"] not in seen:
+                seen.append(c["lane"])
+        return seen
+
+    @classmethod
+    def _open_lanes(cls, im, side):
+        return [l for l in cls._lanes(im, side) if any(c["kind"] == "hot" for c in im[side]["clusters"] if c["lane"] == l)]
+
+    @classmethod
+    def _shown(cls, im, side):
+        """Cluster ids drawn as bars with the defaults: the root lane's and the
+        hot lanes' clusters, minus those inside a closed capsule."""
+        ids = []
+        for lane in [cls._root(im, side)] + cls._open_lanes(im, side):
+            ids += [i for kind, i, _ in cls._lane_items(im, side, lane) if kind == "cluster"]
+        return ids
 
     @staticmethod
     def _length(page, selector):
@@ -4552,58 +4565,65 @@ class ImpactBlockTest(unittest.TestCase):
     @staticmethod
     def _fold_widths(page, side):
         return page.evaluate("""side => [...document.querySelectorAll(`#panels-lane [data-block="impact"] svg.im-band[data-side="${side}"] g.im-fold`)]
-            .map(g => { const l = g.querySelector('line'); return [Number(g.dataset.steps), Number(l.getAttribute('x2')) - Number(l.getAttribute('x1')), !!g.querySelector('text')]; })""", side)
+            .map(g => [g.dataset.ids, Number(g.dataset.steps), Number(g.querySelector('rect[rx]').getAttribute('width'))])""", side)
 
-    def test_bands_branches_clusters_and_folds_match_the_report(self):
+    def test_bands_lanes_bars_and_folds_match_the_report(self):
         import math
         context, page, errors = self._open(width=1440)
         im = self.report["impact"]
         block = page.locator('#panels-lane .panels-grid > [data-block="impact"]')
         self.assertEqual(block.count(), 1)
         self.assertIn(im["narrative"][:50], block.locator(".im-narr").text_content())
-        bands = block.locator("svg.im-band")
-        self.assertEqual(bands.count(), 2)
+        self.assertEqual(block.locator("svg.im-band").count(), 2)
         for side in ("a", "b"):
             band = block.locator(f'svg.im-band[data-side="{side}"]')
             self.assertEqual(band.get_attribute("role"), "img")
             self.assertTrue(band.get_attribute("aria-label"))
-            shown, folds = self._visible(im, side)
+            self.assertEqual(band.get_attribute("data-mode"), "tree")
+            # the root: one run node; the lanes: one node per sub-agent lane that owns a cluster, the root agent never one
+            self.assertEqual(band.locator('g.im-node[data-kind="run"]').count(), 1)
+            lanes = band.locator('g.im-node[data-kind="lane"]')
+            self.assertEqual(lanes.count(), len(self._lanes(im, side)), side)
+            self.assertEqual(sorted(lanes.nth(i).get_attribute("data-id") for i in range(lanes.count())), sorted(self._lanes(im, side)))
+            self.assertEqual(band.locator(f'g.im-node[data-kind="lane"][data-id="{self._root(im, side)}"]').count(), 0)
+            # a lane holding a hot cluster starts open, the others folded to one row
+            for lane in self._lanes(im, side):
+                node = band.locator(f'g.im-node[data-kind="lane"][data-id="{lane}"]')
+                self.assertEqual("collapsed" in node.get_attribute("class").split(), lane not in self._open_lanes(im, side), (side, lane))
+            shown = self._shown(im, side)
             self.assertEqual(band.locator("path.im-cluster").count(), len(shown), side)
-            self.assertEqual([band.locator("g.im-fold").nth(i).get_attribute("data-ids") for i in range(band.locator("g.im-fold").count())], folds, side)
             for cid in shown:
-                self.assertEqual(band.locator(f'path.im-cluster[data-id="{cid}"][data-side="{side}"]').count(), 1)
-            # one branch per run of a sub-agent's visible clusters, in the order the run met them; the root agent stays on the trunk
-            branches = [band.locator("g.im-branch").nth(i).get_attribute("data-lane") for i in range(band.locator("g.im-branch").count())]
-            self.assertEqual(branches, self._branches(im, side), side)
-            root = next(l["agent"] for l in im[side]["lanes"] if not l["depth"])
-            self.assertNotIn(root, branches)
-            # a branch is named once, in the block's small type, and no two names overlap
-            labels = band.locator("g.im-branch text.im-lab")
-            self.assertGreaterEqual(labels.count(), 2)
-            boxes = sorted((labels.nth(i).bounding_box() for i in range(labels.count())), key=lambda b: (b["y"], b["x"]))
-            for prev, nxt in zip(boxes, boxes[1:]):
-                if abs(prev["y"] - nxt["y"]) < 4:
-                    self.assertGreaterEqual(nxt["x"], prev["x"] + prev["width"] - 0.5)
-            self.assertLessEqual(labels.first.evaluate("e => parseFloat(getComputedStyle(e).fontSize)"), 12.5)
-            # a fold's length grows with the steps it folds: 6 + 6·log2(1 + steps), labelled ×N once it is 18px wide
-            widths = self._fold_widths(page, side)
-            self.assertGreaterEqual(len({w[0] for w in widths}), 2, side)
-            small = min(widths, key=lambda w: w[0])
-            big = max(widths, key=lambda w: w[0])
-            self.assertGreater(big[0], small[0])
-            self.assertGreater(big[1], small[1])
-            for steps, width, labelled in widths:
-                self.assertAlmostEqual(width, 6 + 6 * math.log2(1 + steps), delta=0.75, msg=(side, steps))
-                self.assertEqual(labelled, width >= 18, (side, steps))
+                self.assertEqual(band.locator(f'g.im-node[data-kind="cluster"][data-id="{cid}"] path.im-cluster[data-id="{cid}"][data-side="{side}"][data-kind][data-lane]').count(), 1)
+            # a bar's length grows with the cluster's impact
+            by_impact = sorted(((c["impact"], c["id"]) for c in im[side]["clusters"] if c["id"] in shown), key=lambda p: p[0])
+            self.assertGreater(by_impact[-1][0], by_impact[0][0])
+            lo = self._length(page, f'#panels-lane [data-block="impact"] svg.im-band[data-side="{side}"] path.im-cluster[data-id="{by_impact[0][1]}"]')
+            hi = self._length(page, f'#panels-lane [data-block="impact"] svg.im-band[data-side="{side}"] path.im-cluster[data-id="{by_impact[-1][1]}"]')
+            self.assertGreater(hi, lo, side)
+            # the root lane's folds hang under the run: a capsule per run of quiet clusters
+            root_folds = [(i, st) for kind, i, st in self._lane_items(im, side, self._root(im, side)) if kind == "fold"]
+            self.assertEqual([(w[0], w[1]) for w in self._fold_widths(page, side)], root_folds, side)
+            self.assertGreater(band.locator("path.im-link").count(), lanes.count())
+        # a capsule's pill grows with the steps it folds: open a folded lane whose capsule holds a different count
+        root_steps = self._fold_widths(page, "a")[0][1]
+        lane, steps = next((l, st) for l in self._lanes(im, "a") if l not in self._open_lanes(im, "a")
+                           for kind, _, st in self._lane_items(im, "a", l) if kind == "fold" and st != root_steps)
+        block.locator(f'svg.im-band[data-side="a"] g.im-node[data-kind="lane"][data-id="{lane}"]').dispatch_event("click")
+        page.wait_for_timeout(300)
+        widths = {w[1]: w[2] for w in self._fold_widths(page, "a")}
+        self.assertIn(steps, widths)
+        small, big = sorted([root_steps, steps])
+        self.assertGreater(widths[big], widths[small])
+        for st, width in widths.items():
+            self.assertAlmostEqual(width, 6 + 6 * math.log2(1 + st), delta=0.75, msg=st)
         self.assertEqual(block.locator(".im-table tr[data-side][data-id]").count(), len(im["a"]["clusters"]) + len(im["b"]["clusters"]))
-        self.assertEqual(block.locator('button[data-mode="focus"]').get_attribute("aria-pressed"), "true")
+        self.assertEqual(block.locator('button[data-mode="tree"]').get_attribute("aria-pressed"), "true")
+        self.assertEqual(block.locator('button[data-mode="trunk"]').get_attribute("aria-pressed"), "false")
         self.assertEqual(block.locator('button[data-mode="even"]').get_attribute("aria-pressed"), "false")
-        # quiet: one chip row, one legend line, nothing hatched, and the whole block short
-        self.assertEqual(block.locator(".im-bar").count(), 1)
+        # quiet: one chip row, one legend line, and the whole block short
         self.assertLessEqual(block.locator(".im-bar").bounding_box()["height"], 30)
         self.assertLessEqual(block.locator(".im-legend").bounding_box()["height"], 22)
-        self.assertEqual(block.locator("pattern, rect.im-fold-rect, g.im-row").count(), 0)
-        self.assertLess(block.bounding_box()["height"], 420)
+        self.assertLess(block.bounding_box()["height"], 750)
         self.assertEqual(errors, [])
         context.close()
 
@@ -4614,9 +4634,9 @@ class ImpactBlockTest(unittest.TestCase):
         block = page.locator('#panels-lane .panels-grid > [data-block="impact"]')
         self.assertEqual(block.count(), 1)
         band = block.locator('svg.im-band[data-side="a"]')
-        shown, folds = self._visible(im, "a")
-        self.assertGreaterEqual(len(folds), 1)
-        self.assertEqual(band.locator("g.im-fold").count(), len(folds))
+        shown = self._shown(im, "a")
+        n_folds = band.locator("g.im-fold").count()
+        self.assertGreaterEqual(n_folds, 1)
         b_folds = block.locator('svg.im-band[data-side="b"] g.im-fold').count()
         first = band.locator("g.im-fold").first
         fid = first.get_attribute("data-ids")
@@ -4624,20 +4644,17 @@ class ImpactBlockTest(unittest.TestCase):
         first.dispatch_event("click")
         page.wait_for_timeout(300)
         band = block.locator('svg.im-band[data-side="a"]')
-        self.assertEqual(band.locator("g.im-fold").count(), len(folds) - 1)
+        self.assertEqual(band.locator("g.im-fold").count(), n_folds - 1)
         self.assertEqual(band.locator("path.im-cluster").count(), len(shown) + len(inside))
         for cid in inside:
-            self.assertEqual(band.locator(f'path.im-cluster[data-id="{cid}"][data-kind="quiet"][data-fold="{fid}"]').count(), 1)
-        # the dilated clusters draw as ordinary clusters and branches
-        self.assertEqual([band.locator("g.im-branch").nth(i).get_attribute("data-lane") for i in range(band.locator("g.im-branch").count())],
-                         self._branches(im, "a", shown + inside))
+            self.assertEqual(band.locator(f'g.im-node[data-kind="cluster"][data-id="{cid}"] path.im-cluster[data-id="{cid}"][data-kind="quiet"][data-fold="{fid}"]').count(), 1)
         # the other band keeps its folds: a fold is opened by id, not per page
         self.assertEqual(block.locator('svg.im-band[data-side="b"] g.im-fold').count(), b_folds)
         # any of the dilated clusters folds it back
         band.locator(f'path.im-cluster[data-fold="{fid}"]').last.dispatch_event("click")
         page.wait_for_timeout(300)
         band = block.locator('svg.im-band[data-side="a"]')
-        self.assertEqual(band.locator("g.im-fold").count(), len(folds))
+        self.assertEqual(band.locator("g.im-fold").count(), n_folds)
         self.assertEqual(band.locator("g.im-fold").first.get_attribute("data-ids"), fid)
         hot = next(c for c in sorted(im["a"]["clusters"], key=lambda c: c["from"]) if c["kind"] == "hot" and c["marks"])
         sel = f'path.im-cluster[data-id="{hot["id"]}"]'
@@ -4652,50 +4669,62 @@ class ImpactBlockTest(unittest.TestCase):
         band = block.locator('svg.im-band[data-side="a"]')
         box = band.locator(sel)
         self.assertIn("open", box.get_attribute("class").split())
-        self.assertGreaterEqual(self._length(page, f'#panels-lane [data-block="impact"] svg.im-band[data-side="a"] {sel}'), w_closed)
+        self.assertAlmostEqual(self._length(page, f'#panels-lane [data-block="impact"] svg.im-band[data-side="a"] {sel}'), w_closed, delta=0.5)
+        # its marks hang under it as leaves, each a node of its own
         marks = band.locator("g.im-mark")
         self.assertEqual(marks.count(), len(hot["marks"]))
+        self.assertEqual(band.locator('g.im-node[data-kind="mark"] g.im-mark[data-step][data-kind]').count(), len(hot["marks"]))
         self.assertEqual(sorted(int(marks.nth(i).get_attribute("data-step")) for i in range(marks.count())), sorted(m["step"] for m in hot["marks"]))
         self.assertEqual(sorted(marks.nth(i).get_attribute("data-kind") for i in range(marks.count())), sorted(m["kind"] for m in hot["marks"]))
-        self.assertEqual(band.locator(f'text.im-why[data-id="{hot["id"]}"]').count(), 1)
+        self.assertGreater(band.evaluate("e => e.getBoundingClientRect().height"), 0)
         # a mark opens its step in the shared inspector
         mark = marks.first
         step = int(mark.get_attribute("data-step"))
         mark.dispatch_event("click")
         page.wait_for_timeout(400)
         self.assertIn(f"STEP {step}", page.locator('#panels-lane [data-block="trace-body"] .tj-inspector').inner_text().upper())
-        # clicking the segment again collapses it; expand hot opens every hot cluster; collapse all refolds
+        # clicking the bar again closes it; expand hot opens every hot cluster; collapse all refolds
         box.dispatch_event("click")
         page.wait_for_timeout(300)
         band = block.locator('svg.im-band[data-side="a"]')
         self.assertNotIn("open", (band.locator(sel).get_attribute("class") or "").split())
+        self.assertEqual(band.locator("g.im-mark").count(), 0)
         block.locator('button[data-act="expand-hot"]').click()
         page.wait_for_timeout(300)
         n_hot = sum(1 for s in "ab" for c in im[s]["clusters"] if c["kind"] == "hot")
         self.assertEqual(block.locator("path.im-cluster.open").count(), n_hot)
-        self.assertEqual(block.locator("text.im-why").count(), n_hot)
         block.locator('button[data-act="collapse-all"]').click()
         page.wait_for_timeout(300)
         self.assertEqual(block.locator("path.im-cluster.open").count(), 0)
-        self.assertEqual(block.locator('svg.im-band[data-side="a"] g.im-fold').count(), len(folds))
+        self.assertEqual(block.locator('svg.im-band[data-side="a"] g.im-fold').count(), n_folds)
         self.assertEqual(errors, [])
         context.close()
 
-    def test_even_mode_changes_the_widths(self):
+    def test_trunk_and_even_modes_draw_the_same_units_as_a_trunk(self):
         context, page, errors = self._open()
         block = page.locator('#panels-lane .panels-grid > [data-block="impact"]')
+        im = self.report["impact"]
+        self.assertGreater(block.locator("g.im-node").count(), 0)
+        self.assertEqual(block.locator("g.im-branch").count(), 0)
+        # trunk: one trunk per run, a branch per sub-agent stretch, every fold a short segment
+        block.locator('button[data-mode="trunk"]').click()
+        page.wait_for_timeout(300)
+        self.assertEqual(block.locator('button[data-mode="trunk"]').get_attribute("aria-pressed"), "true")
+        self.assertEqual(block.locator('svg.im-band[data-side="a"]').get_attribute("data-mode"), "trunk")
+        self.assertEqual(block.locator("g.im-node").count(), 0)
+        self.assertGreater(block.locator('svg.im-band[data-side="a"] g.im-branch[data-lane]').count(), 0)
+        self.assertGreater(block.locator('svg.im-band[data-side="b"] g.im-branch[data-lane]').count(), 0)
+        self.assertGreater(block.locator("g.im-fold[data-ids][data-steps]").count(), 0)
         hot_sel = '#panels-lane [data-block="impact"] path.im-cluster[data-kind="hot"]'
-        focus = self._length(page, hot_sel)
-        self.assertGreater(focus, 0)
+        trunk = self._length(page, hot_sel)
+        self.assertGreater(trunk, 0)
+        # even: the trunk on wall-clock — no folds, every cluster drawn, other lengths
         block.locator('button[data-mode="even"]').click()
         page.wait_for_timeout(300)
         self.assertEqual(block.locator('button[data-mode="even"]').get_attribute("aria-pressed"), "true")
-        self.assertEqual(block.locator('button[data-mode="focus"]').get_attribute("aria-pressed"), "false")
+        self.assertEqual(block.locator('button[data-mode="trunk"]').get_attribute("aria-pressed"), "false")
         self.assertEqual(block.locator('svg.im-band[data-side="a"]').get_attribute("data-mode"), "even")
-        even = self._length(page, hot_sel)
-        self.assertNotAlmostEqual(focus, even, places=1)
-        # even mode is wall-clock: no folds, every cluster drawn
-        im = self.report["impact"]
+        self.assertNotAlmostEqual(trunk, self._length(page, hot_sel), places=1)
         self.assertEqual(block.locator("g.im-fold").count(), 0)
         self.assertEqual(block.locator("path.im-cluster").count(), len(im["a"]["clusters"]) + len(im["b"]["clusters"]))
         # the mode survives a re-render: the state is per task, not per draw
@@ -4703,6 +4732,12 @@ class ImpactBlockTest(unittest.TestCase):
         page.wait_for_timeout(500)
         block = page.locator('#panels-lane .panels-grid > [data-block="impact"]')
         self.assertEqual(block.locator('button[data-mode="even"]').get_attribute("aria-pressed"), "true")
+        # and back to the tree
+        block.locator('button[data-mode="tree"]').click()
+        page.wait_for_timeout(300)
+        self.assertEqual(block.locator('svg.im-band[data-side="a"]').get_attribute("data-mode"), "tree")
+        self.assertGreater(block.locator('g.im-node[data-kind="lane"]').count(), 0)
+        self.assertEqual(block.locator("g.im-branch").count(), 0)
         self.assertEqual(errors, [])
         context.close()
 
@@ -4717,6 +4752,9 @@ class ImpactBlockTest(unittest.TestCase):
             self.assertLessEqual(band.evaluate("e => e.getBoundingClientRect().right"), 392)
         for sel in (".im-bar", ".im-legend"):
             self.assertLessEqual(block.locator(sel).evaluate("e => e.getBoundingClientRect().right"), 392)
+        block.locator('button[data-mode="trunk"]').click()
+        page.wait_for_timeout(300)
+        self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), 392)
         self.assertEqual(errors, [])
         context.close()
 
