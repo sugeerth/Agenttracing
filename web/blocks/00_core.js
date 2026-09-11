@@ -58,10 +58,10 @@
   //: the panels view's presets: which blocks, in which order
   var PANEL_PRESETS = {
     time: ["treemap", "impact", "time", "heatmap", "latency-strip"],
-    tools: ["tool-matrix", "heatmap", "latency-strip", "debug-session"],
+    tools: ["tool-behaviour", "tool-matrix", "heatmap", "latency-strip", "debug-session"],
     agents: ["milestones", "impact", "treemap", "horizon", "trace-body", "tool-matrix"],
-    eval: ["milestones", "scorecard", "equality", "routing", "loop"],
-    all: ["milestones", "impact", "treemap", "trace-body", "time", "heatmap", "latency-strip", "tool-matrix", "horizon", "debug-session", "scorecard"],
+    eval: ["trust", "milestones", "scorecard", "equality", "routing", "loop"],
+    all: ["milestones", "impact", "treemap", "trace-body", "time", "heatmap", "latency-strip", "tool-matrix", "tool-behaviour", "horizon", "debug-session", "scorecard", "trust"],
   };
   // overview first (area, then the runs over time), then the detail
   var DEFAULT_PANELS = { ids: ["treemap", "impact", "trace-body", "heatmap", "latency-strip", "tool-matrix"], wide: { treemap: true, impact: true, "trace-body": true }, cols: 2 };
