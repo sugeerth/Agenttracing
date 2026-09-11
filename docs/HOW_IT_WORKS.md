@@ -164,6 +164,13 @@ drawn for this view and stand as evidence too, ordered overview first:
   sees what the dilation did. A fold opens on a click, a cluster opens
   to its marks, a mark opens the step: details exactly on demand. One
   row per sub-agent, both runs as bands on one width scale.
+- **Trust & behaviour** — the statistics settle who won; this ledger
+  says how each agent behaved and how far the data can be trusted:
+  tool calls, stops and who stopped it, loops and retries, effects and
+  permissions (writes without a read, forbidden calls, calls that reach
+  outside), determinism (replay verification, run consistency), and the
+  data itself (adapter, grader, SYNTHETIC, measured shares). The grade
+  is a rubric with every deduction spelled out, never a black box.
 - **Milestones** — for a long task with a golden set, the ladder:
   the milestones a correct solution passes through, one stepped line
   per run over time or steps, a mark where each run reached each rung

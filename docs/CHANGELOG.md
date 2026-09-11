@@ -2287,6 +2287,36 @@ Tests: `tests/test_blocks_ui.py::MapRedesignTest` (geometry as hero and
 in a column, no truncated names at 1440/390, keyboard select with focus
 survival, word diff, ×4 collapse on a synthetic loop).
 
+## Trust & behaviour, frameworks and domains, the timeline as branches
+
+- **Trust & behaviour** (`deepcompare/trust.py`, `report.trust`,
+  `web/blocks/24_trust.js`): per run, how the agent behaved — tool
+  calls, distinct tools, thinking steps, whether it answered or was
+  stopped and by whom, loops, retries, errors, sub-agents and depth —
+  which permissions it used — effects read / write / undeclared, writes
+  without a read, forbidden calls and patterns from the policy, calls
+  that reach outside, MCP servers and handoffs when a framework is
+  detected — how deterministic it is — the decisive step's replay
+  verification, run-to-run consistency, a rerun's verdict when handed
+  in — and how far the data can be trusted — adapter, grader, SYNTHETIC
+  flag, the share of steps with measured latency and tokens, declared
+  effects, spans. A transparent grade (start at 1.0, every deduction a
+  sentence with its number) and a pair narrative. The block is a
+  two-column ledger; first in the eval preset.
+- **Frameworks and domains** (`deepcompare/frameworks.py`,
+  `deepcompare/domains.py`, `agentdiff frameworks`): conservative
+  detection of the framework and protocols a trace came from (MCP tool
+  names → servers, OpenAI Agents SDK handoffs, Claude Code, OTel GenAI)
+  and of permission decisions; built-in domain specs (coding, research,
+  support, data, computer use) that complete a golden task carrying
+  `"domain"` with expected tool families, permission rules and stop
+  rules. `docs/FRAMEWORKS.md` records what practitioners and papers
+  talk about, what is covered, and the plan for production agents.
+- **Where it mattered, as branches**: each run is one trunk; a
+  sub-agent's cluster hangs off it as a branch; quiet stretches
+  constrict into a short dotted segment whose length scales with the
+  steps folded (log2); no backgrounds, no grid.
+
 ## Where it mattered: impact-weighted time, folded by importance
 
 - **Impact** (`deepcompare/impact.py`, `report.impact`): every step scored

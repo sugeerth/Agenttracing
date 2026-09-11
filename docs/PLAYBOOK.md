@@ -128,6 +128,10 @@ and a page is a single file, so it can be sent afterwards.
 
 ## Taking it forward
 
+- **Trust before numbers**: open Trust & behaviour first with a new
+  agent or a new trace source — if the grade is low because latency is
+  estimated or the run is SYNTHETIC, every later chart inherits that
+  caveat; the reasons are spelled out.
 - **Read a long run where it mattered**: the Where it mattered panel
   dilates the stretches that carried the decisive step, the errors and
   the wasted time and constricts the quiet ones into folds; open a fold
