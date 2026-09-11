@@ -15806,10 +15806,16 @@ THIS SOFTWARE.
  * sub-agents under their parent), the orchestrator's own stretches
  * directly under the run, and every stretch a horizontal bar whose length
  * is its impact on a scale shared by A and B — thicker and with its
- * compact why when hot, red on the fault's path. Consecutive quiet
+ * compact why when hot, red on the fault's path. One thread runs from the
+ * run node to the right edge — the run's units in step order on the
+ * trunk's impact-weighted scale: the orchestrator's own stretches and the
+ * folds sit on it, each lane attaches with a tick where its sub-agent
+ * first acted, the decisive step is ringed on it and the fault's path
+ * reddens it — and the lanes hang below it. Consecutive quiet
  * stretches in a lane fold into one capsule (×N steps · Ss) whose pill is
  * as long as log2 of the steps it holds; a lane starts open only when it
- * holds a hot stretch. Details on demand: a capsule dilates into its
+ * holds a hot stretch or the fault's path (a closed lane is its tick and
+ * name under the thread). Details on demand: a capsule dilates into its
  * stretches (any of them folds it back), a stretch opens to its marks
  * (the decisive step, faults, errors, retries, milestones, divergences,
  * the answer) as leaves that open the step in the shared inspector, a
@@ -16304,10 +16310,10 @@ THIS SOFTWARE.
     function laneNode(l, guard) {
       if (laneNodes[l]) return laneNodes[l];
       var info = lanes.of[l], parent = info && info.parent;
-      var hot = (byLane[l] || []).some(function (c) { return c.kind === "hot"; });
+      var hot = (byLane[l] || []).some(function (c) { return c.kind === "hot"; }), fault = (byLane[l] || []).some(onFault);
       var explicit = st.open[laneKey(side, l)];
       var node = { kind: "lane", id: l, name: l, side: side, clusters: byLane[l] || [], from: byLane[l] ? byLane[l][0].from : Infinity,
-        hot: hot, open: explicit === undefined ? hot : !!explicit, children: [] };
+        hot: hot, fault: fault, open: explicit === undefined ? hot || fault : !!explicit, children: [] };
       laneNodes[l] = node;
       var up = parent && parent !== lanes.root && (guard || 0) < 20 && (byLane[parent] || lanes.of[parent]) ? laneNode(parent, (guard || 0) + 1) : runNode;
       up.children.push(node);
@@ -16334,23 +16340,29 @@ THIS SOFTWARE.
     return runNode;
   }
   function drawTrees(host, report, im, st, tip, ctx, W, narrow, sides, repaint) {
-    var padR = 6, floor = 6;
-    // the columns: the run, the lanes (indented per nesting), the bars, the marks
-    var runLabW = 0, laneLabW = 0;
+    var padR = 6, pad = 12, yT = 22;
+    //: the run's label ends where its thread begins; both threads start at one x so they align
+    function runLabel(s) { return narrow ? name(report, s) : name(report, s) + " · " + (isNum(im[s].total_steps) ? im[s].total_steps + " steps · " : "") + secs(im[s].total_s); }
+    var x0 = 0;
+    sides.forEach(function (s) { x0 = Math.max(x0, 16 + fit(runLabel(s), narrow ? 90 : 260).length * CH * 1.12 + 12 + 12); });
+    // the thread: the run's units in step order on the trunk's impact-weighted scale, folds and all
+    var stT = { mode: "trunk", open: {}, unfolded: st.unfolded };
+    var availT = Math.max(60, W - padR - x0);
+    var per = scale(im, sides, stT, availT, narrow, "trunk");
+    var kBar = 60, barFloor = 6;
+    sides.forEach(function (s) { kBar = Math.max(narrow ? 24 : 60, per[s].k || 0); barFloor = per[s].floor || 6; });
+    // the subtree columns: a lane's name, then its bars, then the marks of an open bar
+    var laneLabW = 0;
+    function laneW(l) { return Math.min(narrow ? 14 : 22, String(l).length) * CH * 1.12 + (narrow ? 16 : 62); }
     sides.forEach(function (s) {
-      runLabW = Math.max(runLabW, ((narrow ? name(report, s) : name(report, s) + " · " + (im[s].total_steps || 0) + " steps · " + secs(im[s].total_s)).length + 2) * CH);
       var lanes = laneInfo(im[s]);
-      //: bold names run ~12% wider than CH; after the name, " N · 48s"
-      function laneW(l) { return Math.min(narrow ? 14 : 22, String(l).length) * CH * 1.12 + (narrow ? 16 : 62); }
       Object.keys(lanes.of).forEach(function (l) { if (l !== lanes.root) laneLabW = Math.max(laneLabW, laneW(l)); });
       clustersOf(im[s]).forEach(function (c) { if (c.lane && c.lane !== lanes.root) laneLabW = Math.max(laneLabW, laneW(c.lane)); });
     });
-    var colLane = Math.min(narrow ? 70 : 220, runLabW + 24), colCluster = colLane + Math.max(60, laneLabW) + 14;
-    var labelRoom = narrow ? 64 : 180, indent = narrow ? 14 : 24;
-    var k = Math.max(40, Math.min(300, W - padR - colCluster - labelRoom - floor));
-    var colMark = Math.min(W - 70, colCluster + floor + k + labelRoom);
-    function barLen(c) { return floor + k * clamp01(c.impact); }
-    var layout = d3.tree().nodeSize([ROW, 1]);
+    var colW = Math.max(60, laneLabW) + 14, labelRoom = narrow ? 64 : 180, indent = narrow ? 14 : 24;
+    var need = colW + barFloor + kBar + labelRoom;
+    var cap = Math.max(x0, W - padR - need);
+    function barLen(c) { return barFloor + kBar * clamp01(c.impact); }
     var link = d3.linkHorizontal().x(function (d) { return d.y; }).y(function (d) { return d.x; });
     ["a", "b"].forEach(function (side) {
       var run = im[side];
@@ -16358,124 +16370,228 @@ THIS SOFTWARE.
         host.appendChild(ctx.h("p", { class: "im-none", "data-side": side, text: name(report, side) + ": " + (run && run.narrative ? run.narrative : "no clusters were measured for this run.") }));
         return;
       }
-      var lanes = laneInfo(run);
-      var root = d3.hierarchy(treeOf(report, run, side, st));
-      layout(root);
-      root.each(function (d) {
-        var depth = 0, a = d; while (a) { if (a.data.kind === "lane") depth++; a = a.parent; }
-        var k2 = d.data.kind;
-        d.y = k2 === "run" ? 0 : k2 === "lane" ? colLane + (depth - 1) * indent
-          : k2 === "mark" ? colMark + (depth - 1) * indent
-          : d.parent.data.kind === "run" ? colLane : colCluster + (depth - 1) * indent;
+      var lanes = laneInfo(run), p = per[side];
+      // where every unit sits on the thread, and which unit holds each cluster
+      var xs0 = [], x = x0, unitOf = {};
+      p.units.forEach(function (u, ui) {
+        xs0.push(x); x += p.widths[ui] + p.gap;
+        if (u.type === "fold") u.clusters.forEach(function (c) { unitOf[c.id] = ui; }); else unitOf[u.id] = ui;
       });
-      var nodes = root.descendants(), links = root.links();
-      var minX = d3.min(nodes, function (d) { return d.x; }), maxX = d3.max(nodes, function (d) { return d.x; });
-      var pad = 12, H = maxX - minX + pad * 2 + 4;
+      var xEnd = W - padR;
+      //: the x of a step on the thread: inside its unit, proportionally
+      function stepX(c, step) {
+        var ui = unitOf[c.id]; if (ui === undefined) return null;
+        var u = p.units[ui], from = u.type === "fold" ? u.from : c.from, to = u.type === "fold" ? u.to : c.to;
+        return xs0[ui] + p.widths[ui] * Math.max(0, Math.min(1, (step - from) / Math.max(1, to - from)));
+      }
+      // the lanes: every sub-agent, attached where it first acted; open ones hang below as a subtree
+      var tree = treeOf(report, run, side, st);
+      var laneNodes = tree.children.filter(function (n) { return n.kind === "lane"; });
+      laneNodes.forEach(function (n) {
+        var first = n.clusters.length ? n.clusters[0] : null;
+        var ui = first ? unitOf[first.id] : undefined;
+        n.at = first ? first.from : null;
+        n.ax = ui === undefined ? x0 : xs0[ui];
+      });
+      // rows: the open lanes' subtrees, one after another, a row per leaf
+      var rows = 0;
+      function place(n, laneX) {
+        n.lx = laneX;
+        var kids = (n.children || []).filter(function (c) { return c.kind !== "lane" || n.open; });
+        if (n.kind === "lane" && !n.open) kids = [];
+        if (!kids.length) { n.row = rows++; return; }
+        kids.forEach(function (c) { place(c, c.kind === "lane" ? laneX + indent : laneX); });
+        n.row = (kids[0].row + kids[kids.length - 1].row) / 2;
+        n.kids = kids;
+      }
+      var openLanes = laneNodes.filter(function (n) { return n.open; }), closedLanes = laneNodes.filter(function (n) { return !n.open; });
+      openLanes.forEach(function (n) { place(n, Math.min(n.ax, cap)); });
+      var rowsTop = yT + (closedLanes.length ? 42 : 18);
+      var H = rowsTop + rows * ROW + (rows ? 6 : 0);
       var hot = clustersOf(run).filter(function (c) { return c.kind === "hot"; }).length;
-      var laneN = nodes.filter(function (d) { return d.data.kind === "lane"; }).length;
       var svg = d3.select(host).append("svg").attr("class", "im-band").attr("data-side", side).attr("data-mode", st.mode)
         .attr("viewBox", "0 0 " + W + " " + H).attr("role", "img")
-        .attr("aria-label", name(report, side) + " as a tree: " + laneN + " sub-agent lane" + (laneN === 1 ? "" : "s") + ", " + clustersOf(run).length + " stretches, " + hot + " hot; a bar's length is its impact");
-      var g = svg.append("g").attr("transform", "translate(0," + (pad - minX) + ")");
-      // the links: from a lane or the run to its children, from a bar's end to its marks
-      g.selectAll("path.im-link").data(links).enter().append("path").attr("class", "im-link").attr("fill", "none")
-        .attr("d", function (l) {
-          var sx = l.source.y + (l.source.data.kind === "cluster" ? barLen(l.source.data.c) : l.source.data.kind === "run" ? 6 : 5);
-          return link({ source: { x: l.source.x, y: sx }, target: { x: l.target.x, y: l.target.y } });
-        })
-        .attr("stroke", function (l) { var t = l.target.data; return (t.kind === "cluster" && onFault(t.c)) || (t.kind === "fold" && t.fault) || (t.kind === "mark" && t.mkind === "fault") ? "var(--bad)" : color(side); })
-        .attr("stroke-width", function (l) { var t = l.target.data; return (t.kind === "cluster" && onFault(t.c)) || (t.kind === "mark" && t.mkind === "fault") ? 1.8 : 1.1; })
-        .attr("stroke-opacity", function (l) { var t = l.target.data; return (t.kind === "cluster" && onFault(t.c)) ? 0.8 : 0.35; });
-      // the nodes
-      var node = g.selectAll("g.im-node").data(nodes).enter().append("g")
-        .attr("class", function (d) { return "im-node" + (d.data.kind === "lane" && !d.data.open ? " collapsed" : "") + (d.data.kind === "fold" ? " im-fold" : ""); })
-        .attr("data-kind", function (d) { return d.data.kind; })
-        .attr("data-id", function (d) { return d.data.id; })
-        .attr("data-side", side)
-        .attr("data-step", function (d) { return d.data.kind === "mark" ? d.data.step : null; })
-        .attr("data-ids", function (d) { return d.data.kind === "fold" ? d.data.id : null; })
-        .attr("data-steps", function (d) { return d.data.kind === "fold" ? d.data.steps : null; })
-        .attr("transform", function (d) { return "translate(" + d.y + "," + d.x + ")"; });
-      node.each(function (d) {
-        var gg = d3.select(this), t = d.data, lab, sub = "", tx = 12, tipLines = [], labW = 0;
-        //: what a label really measures (bold runs wider than the CH estimate); the estimate before the svg is attached
-        function measure(sel) { var n = sel.node(); var w = n && n.getComputedTextLength ? n.getComputedTextLength() : 0; return w > 0 ? w : String(sel.text() || "").length * CH; }
+        .attr("aria-label", name(report, side) + " as a thread: " + laneNodes.length + " sub-agent lane" + (laneNodes.length === 1 ? "" : "s") + " attached where each first acted, " + clustersOf(run).length + " stretches, " + hot + " hot; length is impact");
+      function measure(sel) { var n = sel.node(); var w = n && n.getComputedTextLength ? n.getComputedTextLength() : 0; return w > 0 ? w : String(sel.text() || "").length * CH; }
+      function rowY(r) { return rowsTop + r * ROW; }
+      // ---- the run node and its thread
+      var rg = svg.append("g").attr("class", "im-node").attr("data-kind", "run").attr("data-id", side).attr("data-side", side).attr("transform", "translate(6," + yT + ")").style("cursor", "default");
+      rg.append("circle").attr("r", 5.5).attr("fill", color(side));
+      var oc = report[side] && report[side].outcome, ok = oc && typeof oc.success === "boolean" ? oc.success : null;
+      var rl = rg.append("text").attr("class", "im-tlabel").attr("x", 10).attr("y", 4).attr("font-weight", 650).attr("fill", color(side)).text(fit(runLabel(side), narrow ? 90 : 260));
+      if (ok !== null) rl.append("tspan").attr("fill", ok ? "var(--good)" : "var(--bad)").text(ok ? " ✓" : " ✗");
+      rg.append("title").text(run.narrative || "");
+      rg.on("pointermove", function (evt) { tip.show(evt, [{ b: true, text: name(report, side) }, { text: run.narrative || "" }]); }).on("pointerleave", tip.hide);
+      svg.append("path").attr("class", "im-thread").attr("data-side", side).attr("d", "M" + x0 + "," + yT + "H" + xEnd)
+        .attr("fill", "none").attr("stroke", color(side)).attr("stroke-width", 1.5).attr("stroke-opacity", 0.6);
+      // the fault's path along the thread
+      p.units.forEach(function (u, ui) {
+        var f = u.type === "fold" ? u.clusters.some(onFault) : onFault(u.c);
+        if (f) svg.append("line").attr("class", "im-thread-fault").attr("x1", xs0[ui]).attr("x2", xs0[ui] + p.widths[ui]).attr("y1", yT).attr("y2", yT).attr("stroke", "var(--bad)").attr("stroke-width", 2.5).attr("stroke-opacity", 0.8);
+      });
+      // ---- on the thread: the folds, the root agent's own stretches, and what a dilated fold holds
+      p.units.forEach(function (u, ui) {
+        var ux = xs0[ui], w = p.widths[ui];
+        if (u.type === "fold") {
+          var fg = svg.append("g").attr("class", "im-node im-fold").attr("data-kind", "fold").attr("data-id", u.id).attr("data-ids", u.id).attr("data-side", side).attr("data-steps", u.steps).attr("transform", "translate(" + ux + "," + yT + ")");
+          fg.append("line").attr("x1", 0).attr("x2", w).attr("y1", 0).attr("y2", 0).attr("stroke", "var(--bg)").attr("stroke-width", 3);
+          fg.append("line").attr("class", "im-fold-line").attr("x1", 0).attr("x2", w).attr("y1", 0).attr("y2", 0)
+            .attr("stroke", "var(--ink-3)").attr("stroke-width", 1.5).attr("stroke-dasharray", "1.5 2.5").attr("stroke-linecap", "round");
+          if (w >= 18) fg.append("text").attr("x", w / 2).attr("y", -4).attr("text-anchor", "middle").text("×" + u.steps);
+          fg.append("rect").attr("x", 0).attr("y", -8).attr("width", w).attr("height", 16).attr("fill", "transparent");
+          fg.append("title").text(u.steps + " steps · " + secs(u.seconds) + " · " + u.lanes.join(", ") + " — " + u.clusters.length + " quiet stretches folded; click to open");
+          fg.on("pointermove", function (evt) {
+            tip.show(evt, [{ b: true, text: name(report, side) + " · ×" + u.steps + " steps folded" }, { text: u.steps + " steps · " + secs(u.seconds) + " · " + u.lanes.join(", ") }, { text: "steps " + u.from + "–" + u.to + " · " + u.clusters.length + " quiet stretches · click to open" }]);
+          }).on("pointerleave", tip.hide).on("click", function () { st.unfolded[skey(side, u.id)] = true; repaint(); });
+          return;
+        }
+        var c = u.c;
+        if (!u.fold && (c.lane || lanes.root) !== lanes.root) return;   // a sub-agent's stretch draws in its lane's subtree
+        var imp = clamp01(c.impact), quiet = c.kind === "quiet", hotK = c.kind === "hot", fault = onFault(c);
+        var cg = svg.append("g").attr("class", "im-node").attr("data-kind", "cluster").attr("data-id", c.id).attr("data-side", side).attr("transform", "translate(" + ux + "," + yT + ")");
+        var bar = cg.append("path").attr("class", "im-cluster").attr("data-id", c.id).attr("data-kind", c.kind || "work").attr("data-side", side).attr("data-lane", c.lane || lanes.root)
+          .attr("d", "M0,0H" + w.toFixed(2)).attr("fill", "none")
+          .attr("stroke", fault ? "var(--bad)" : quiet ? "var(--ink-3)" : color(side)).attr("stroke-width", quiet ? 2 : 1.5 + 3.5 * imp).attr("stroke-opacity", quiet ? 0.7 : 0.45 + 0.55 * imp);
+        if (u.fold) bar.attr("data-fold", u.fold);
+        cg.append("rect").attr("x", 0).attr("y", -8).attr("width", Math.max(w, 6)).attr("height", 16).attr("fill", "transparent");
+        cg.append("title").text(name(report, side) + " · " + (c.lane || lanes.root) + " · steps " + c.from + "–" + c.to + " · " + secs(c.seconds) + " · impact " + imp.toFixed(2) + (c.why ? " — " + c.why : ""));
+        cg.on("pointermove", function (evt) {
+          tip.show(evt, [{ b: true, text: name(report, side) + " · " + (c.lane || lanes.root) + " · " + (c.label || c.kind) },
+            { text: "steps " + c.from + "–" + c.to + " (" + stepsIn(c) + ") · " + secs(c.seconds) + " · impact " + imp.toFixed(2) + " · " + (c.kind || "work") },
+            c.why ? { text: c.why } : null, { text: u.fold ? "click to fold back" : hotK ? compactWhy(c) : "" }]);
+        }).on("pointerleave", tip.hide).on("click", function () { if (u.fold) { delete st.unfolded[skey(side, u.fold)]; repaint(); } });
+      });
+      // the decisive step: its red ring on the thread
+      clustersOf(run).forEach(function (c) {
+        (Array.isArray(c.marks) ? c.marks : []).forEach(function (m) {
+          if (!m || m.kind !== "decisive" || !isNum(m.step)) return;
+          var dx = stepX(c, m.step); if (dx === null) return;
+          svg.append("circle").attr("class", "im-decisive").attr("cx", dx).attr("cy", yT).attr("r", 5).attr("fill", "none").attr("stroke", "var(--bad)").attr("stroke-width", 2)
+            .append("title").text("decisive step " + m.step + (m.label ? " · " + m.label : ""));
+        });
+      });
+      // ---- the lanes: a tick where each first acted; a closed lane names itself under the thread, an open one hangs below
+      var labelEnds = [-Infinity, -Infinity];
+      laneNodes.slice().sort(function (a, b) { return a.ax - b.ax; }).forEach(function (n) {
+        var secsL = n.clusters.reduce(function (t, c) { return t + (c.seconds || 0); }, 0);
+        var fault = n.clusters.some(onFault);
+        var tipLines = [{ b: true, text: name(report, side) + " · " + n.name }, { text: n.clusters.length + " stretches · " + secs(secsL) + " · first at step " + n.at + (n.hot ? " · holds a hot stretch" : "") + (fault ? " · on the fault's path" : "") }, { text: "click to " + (n.open ? "fold the lane" : "open the lane") }];
+        svg.append("line").attr("class", "im-tick").attr("x1", n.ax).attr("x2", n.ax).attr("y1", yT - 4).attr("y2", yT + 4).attr("stroke", color(side)).attr("stroke-width", 1.2);
+        if (!n.open) {
+          // the name just under the thread: two rows, and a name that would overlap one already placed is left to the tooltip
+          var lab = fit(n.name, Math.min(narrow ? 12 : 22, n.name.length) * CH + 2), lw = lab.length * CH * 1.05;
+          var lx = Math.min(n.ax, xEnd - lw), row = lx >= labelEnds[0] + 6 ? 0 : lx >= labelEnds[1] + 6 ? 1 : -1;
+          var ly = yT + 15 + (row < 0 ? 0 : row) * 12;
+          var g0 = svg.append("g").attr("class", "im-node collapsed").attr("data-kind", "lane").attr("data-id", n.id).attr("data-side", side).attr("data-at", n.at).attr("data-x", n.ax.toFixed(2)).attr("transform", "translate(" + n.ax + "," + yT + ")");
+          g0.append("line").attr("x1", 0).attr("x2", 0).attr("y1", 4).attr("y2", row < 0 ? 8 : ly - yT - 9).attr("stroke", color(side)).attr("stroke-width", 1).attr("stroke-opacity", 0.5);
+          if (row >= 0) {
+            g0.append("text").attr("class", "im-tlabel").attr("x", lx - n.ax).attr("y", ly - yT).attr("font-weight", 600).attr("fill", fault ? "var(--bad)" : null).text(lab);
+            labelEnds[row] = lx + lw;
+          }
+          g0.append("rect").attr("x", Math.min(0, lx - n.ax) - 3).attr("y", 4).attr("width", (row >= 0 ? lw : 0) + 8).attr("height", Math.max(12, ly - yT + 4)).attr("fill", "transparent");
+          g0.append("title").text(n.name + " · " + n.clusters.length + " stretches · " + secs(secsL) + " · first at step " + n.at + " — click to open");
+          g0.on("pointermove", function (evt) { tip.show(evt, tipLines); }).on("pointerleave", tip.hide)
+            .on("click", function () { st.open[laneKey(side, n.id)] = true; repaint(); });
+          return;
+        }
+        // the attachment: from the tick down to the lane node
+        var ly2 = rowY(n.row), mid = (yT + ly2) / 2;
+        svg.append("path").attr("class", "im-link im-attach").attr("fill", "none")
+          .attr("d", "M" + n.ax + "," + (yT + 4) + "C" + n.ax + "," + mid + " " + n.lx + "," + mid + " " + n.lx + "," + (ly2 - 6))
+          .attr("stroke", fault ? "var(--bad)" : color(side)).attr("stroke-width", fault ? 1.6 : 1.1).attr("stroke-opacity", fault ? 0.7 : 0.4);
+      });
+      // ---- the subtrees: lane → stretches → marks, in rows
+      function drawNode(n, parent) {
+        var nx, ny = rowY(n.row);
+        if (n.kind === "lane") nx = n.lx;
+        else if (n.kind === "cluster" || n.kind === "fold") nx = parent.lx + colW;
+        else nx = parent.markX || parent.lx + colW + barFloor + kBar + labelRoom;
+        n.nx = nx; n.ny = ny;
+        if (parent) {
+          var sx = parent.nx + (parent.kind === "cluster" ? barLen(parent.c) : 5);
+          svg.append("path").attr("class", "im-link").attr("fill", "none").attr("d", link({ source: { x: parent.ny, y: sx }, target: { x: ny, y: nx } }))
+            .attr("stroke", (n.kind === "cluster" && onFault(n.c)) || (n.kind === "fold" && n.fault) || (n.kind === "mark" && n.mkind === "fault") ? "var(--bad)" : color(side))
+            .attr("stroke-width", (n.kind === "cluster" && onFault(n.c)) || (n.kind === "mark" && n.mkind === "fault") ? 1.8 : 1.1)
+            .attr("stroke-opacity", n.kind === "cluster" && onFault(n.c) ? 0.8 : 0.35);
+        }
+        var gg = svg.append("g").attr("class", "im-node" + (n.kind === "lane" && !n.open ? " collapsed" : "") + (n.kind === "fold" ? " im-fold" : ""))
+          .attr("data-kind", n.kind).attr("data-id", n.id).attr("data-side", side).attr("transform", "translate(" + nx + "," + ny + ")");
+        if (n.kind === "lane") gg.attr("data-at", n.at).attr("data-x", (isNum(n.ax) ? n.ax : nx).toFixed(2));   // where it attaches to the thread
+        if (n.kind === "fold") gg.attr("data-ids", n.id).attr("data-steps", n.steps);
+        var lab = "", sub = "", tx = 12, tipLines = [], labW = 0;
         function backed(x, w) { gg.insert("rect", "text").attr("x", x - 2).attr("y", -7).attr("width", w + 4).attr("height", 14).attr("fill", "var(--bg)").attr("fill-opacity", 0.9); }
-        if (t.kind === "run") {
-          gg.append("circle").attr("r", 5.5).attr("fill", color(side));
-          lab = fit(narrow ? t.name : t.name + " · " + (isNum(run.total_steps) ? run.total_steps + " steps · " : "") + secs(run.total_s), colLane - 24);
-          var oc = report[side] && report[side].outcome, ok = oc && typeof oc.success === "boolean" ? oc.success : null;
-          var txt = gg.append("text").attr("class", "im-tlabel").attr("x", tx).attr("y", 4).attr("font-weight", 650).attr("fill", color(side)).text(lab);
-          if (ok !== null) txt.append("tspan").attr("fill", ok ? "var(--good)" : "var(--bad)").text(ok ? " ✓" : " ✗");
-          labW = measure(txt);
-          backed(tx, labW);
-          gg.style("cursor", "default");
-          tipLines = [{ b: true, text: t.name }, { text: run.narrative || "" }];
-        } else if (t.kind === "lane") {
-          gg.append("rect").attr("x", -5).attr("y", -5).attr("width", 10).attr("height", 10).attr("rx", 2.5).attr("fill", color(side)).attr("opacity", t.open ? 0.85 : 0.35);
-          lab = fit(t.name, Math.min(narrow ? 14 : 22, t.name.length) * CH + 2);
-          var secsL = t.clusters.reduce(function (s2, c) { return s2 + (c.seconds || 0); }, 0);
-          sub = t.clusters.length + " · " + secs(secsL) + (t.hot && !t.open ? " · hot" : "");
+        if (n.kind === "lane") {
+          gg.append("rect").attr("x", -5).attr("y", -5).attr("width", 10).attr("height", 10).attr("rx", 2.5).attr("fill", color(side)).attr("opacity", n.open ? 0.85 : 0.35);
+          lab = fit(n.name, Math.min(narrow ? 14 : 22, n.name.length) * CH + 2);
+          var secsL = n.clusters.reduce(function (t, c) { return t + (c.seconds || 0); }, 0);
+          sub = n.clusters.length + " · " + secs(secsL);
           labW = measure(gg.append("text").attr("class", "im-tlabel").attr("x", tx).attr("y", 4).attr("font-weight", 600).text(lab));
           if (!narrow) { labW += 5; labW += measure(gg.append("text").attr("class", "im-tsub").attr("x", tx + labW).attr("y", 4).text(sub)); }
           backed(tx, labW);
-          gg.append("title").text(t.name + " · " + t.clusters.length + " stretches · " + secs(secsL) + (t.hot ? " · holds a hot stretch" : "") + " — click to " + (t.open ? "fold" : "open"));
-          tipLines = [{ b: true, text: name(report, side) + " · " + t.name }, { text: t.clusters.length + " stretches · " + secs(secsL) + (t.hot ? " · holds a hot stretch" : "") }, { text: "click to " + (t.open ? "fold the lane" : "open the lane") }];
-          gg.on("click", function () { st.open[laneKey(side, t.id)] = !t.open; repaint(); });
-        } else if (t.kind === "fold") {
-          var fw = foldW(t.steps);
+          gg.append("title").text(n.name + " · " + n.clusters.length + " stretches · " + secs(secsL) + " · first at step " + n.at + " — click to " + (n.open ? "fold" : "open"));
+          tipLines = [{ b: true, text: name(report, side) + " · " + n.name }, { text: n.clusters.length + " stretches · " + secs(secsL) + " · first at step " + n.at + (n.hot ? " · holds a hot stretch" : "") }, { text: "click to " + (n.open ? "fold the lane" : "open the lane") }];
+          gg.on("click", function () { st.open[laneKey(side, n.id)] = !n.open; repaint(); });
+        } else if (n.kind === "fold") {
+          var fw = foldW(n.steps);
           gg.append("rect").attr("x", 0).attr("y", -4).attr("width", fw).attr("height", 8).attr("rx", 4).attr("fill", "var(--ink-3)").attr("opacity", 0.45)
-            .attr("stroke", t.fault ? "var(--bad)" : "none").attr("stroke-width", t.fault ? 1.4 : 0);
+            .attr("stroke", n.fault ? "var(--bad)" : "none").attr("stroke-width", n.fault ? 1.4 : 0);
           tx = fw + 6;
-          lab = "×" + t.steps + " step" + (t.steps === 1 ? "" : "s") + " · " + secs(t.seconds);
-          gg.append("text").attr("class", "im-tlabel").attr("x", tx).attr("y", 4).attr("font-weight", 500).attr("fill", "var(--ink-2)").text(lab);
-          gg.append("title").text(t.clusters.length + " quiet stretches folded: " + t.steps + " steps · " + secs(t.seconds) + " · steps " + t.from + "–" + t.to + " — click to open");
-          tipLines = [{ b: true, text: name(report, side) + " · ×" + t.steps + " steps folded" }, { text: t.clusters.length + " quiet stretches · " + secs(t.seconds) + " · steps " + t.from + "–" + t.to }, { text: "click to open them" }];
-          gg.on("click", function () { st.unfolded[skey(side, t.id)] = true; repaint(); });
-        } else if (t.kind === "cluster") {
-          var c = t.c, imp = clamp01(c.impact), len = barLen(c), quiet = c.kind === "quiet", hotK = c.kind === "hot", fault = onFault(c);
-          gg.append("path").attr("class", "im-cluster" + (t.open ? " open" : "")).attr("data-id", c.id).attr("data-kind", c.kind || "work").attr("data-side", side).attr("data-lane", c.lane || lanes.root)
+          lab = "×" + n.steps + " step" + (n.steps === 1 ? "" : "s") + " · " + secs(n.seconds);
+          labW = measure(gg.append("text").attr("class", "im-tlabel").attr("x", tx).attr("y", 4).attr("font-weight", 500).attr("fill", "var(--ink-2)").text(lab));
+          backed(tx, labW);
+          gg.append("title").text(n.clusters.length + " quiet stretches folded: " + n.steps + " steps · " + secs(n.seconds) + " · steps " + n.from + "–" + n.to + " — click to open");
+          tipLines = [{ b: true, text: name(report, side) + " · ×" + n.steps + " steps folded" }, { text: n.clusters.length + " quiet stretches · " + secs(n.seconds) + " · steps " + n.from + "–" + n.to }, { text: "click to open them" }];
+          gg.on("click", function () { st.unfolded[skey(side, n.id)] = true; repaint(); });
+        } else if (n.kind === "cluster") {
+          var c = n.c, imp = clamp01(c.impact), len = barLen(c), quiet = c.kind === "quiet", hotK = c.kind === "hot", fault = onFault(c);
+          var bar = gg.append("path").attr("class", "im-cluster" + (n.open ? " open" : "")).attr("data-id", c.id).attr("data-kind", c.kind || "work").attr("data-side", side).attr("data-lane", c.lane || lanes.root)
             .attr("d", "M0,0H" + len.toFixed(2)).attr("fill", "none")
             .attr("stroke", fault ? "var(--bad)" : quiet ? "var(--ink-3)" : color(side)).attr("stroke-width", quiet ? 1.5 : 1.5 + 3.5 * imp).attr("stroke-opacity", quiet ? 0.5 : 0.45 + 0.55 * imp);
-          if (t.fold) gg.select("path.im-cluster").attr("data-fold", t.fold);
+          if (n.fold) bar.attr("data-fold", n.fold);
           tx = len + 6;
           lab = c.label || c.kind || "";
           var why = hotK ? compactWhy(c) : "";
-          var room = (t.open ? colMark - 8 : W - padR) - (d.y + tx);
+          // an open bar's marks hang right after its label, but keep room for their own words near the right edge
+          var full = (lab + (why ? " · " + why : "")).length * CH * 1.1;
+          var markX = n.open ? Math.max(nx + tx + (narrow ? 40 : 76), Math.min(nx + tx + full + 16, W - padR - (narrow ? 120 : 240))) : null;
+          var room = (n.open ? markX - 8 : W - padR) - (nx + tx);
           var text = gg.append("text").attr("class", "im-tlabel").attr("x", tx).attr("y", 4).attr("fill", hotK ? "var(--ink)" : quiet ? "var(--ink-3)" : "var(--ink-2)").attr("font-weight", hotK ? 600 : 400);
-          lab = fit(lab, why ? room - (why.length + 3) * CH : room);
+          // the label, then its why when both fit; the label alone when only it does
+          var both = fit(lab, why ? room - (why.length + 3) * CH : room);
+          lab = both || fit(lab, room);
           text.text(lab);
-          if (why && (lab.length + why.length + 3) * CH <= room) text.append("tspan").attr("class", "im-twhy").attr("font-weight", 400).text(" · " + why);
+          if (why && both && (lab.length + why.length + 3) * CH <= room) text.append("tspan").attr("class", "im-twhy").attr("font-weight", 400).text(" · " + why);
           labW = measure(text);
-          // an open stretch's label sits where its mark links fan out: back it so they never run through the words
-          if (t.open) backed(tx, labW);
+          // every label is backed so an attachment link dropping through the rows never runs through the words
+          backed(tx, labW);
+          n.markX = markX;
           gg.append("title").text(name(report, side) + " · " + (c.lane || lanes.root) + " · steps " + c.from + "–" + c.to + " · " + secs(c.seconds) + " · impact " + imp.toFixed(2) + (c.why ? " — " + c.why : ""));
           tipLines = [{ b: true, text: name(report, side) + " · " + (c.lane || lanes.root) + " · " + (c.label || c.kind) },
             { text: "steps " + c.from + "–" + c.to + " (" + stepsIn(c) + ") · " + secs(c.seconds) + " · impact " + imp.toFixed(2) + " · " + (c.kind || "work") },
             c.why ? { text: c.why } : null,
-            { text: t.fold ? "click to fold back" : t.open ? "click to close" : "click to open its steps" }];
+            { text: n.fold ? "click to fold back" : n.open ? "click to close" : "click to open its steps" }];
           gg.on("click", function () {
-            if (t.fold) { delete st.unfolded[skey(side, t.fold)]; repaint(); return; }
+            if (n.fold) { delete st.unfolded[skey(side, n.fold)]; repaint(); return; }
             var key = skey(side, c.id); if (st.open[key]) delete st.open[key]; else st.open[key] = true; repaint();
           });
         } else {
-          // a mark: the glyph, then "step N · what"
-          var red = t.mkind === "decisive" || t.mkind === "fault" || t.mkind === "error";
-          var mg = gg.append("g").attr("class", "im-mark").attr("data-step", t.step).attr("data-kind", t.mkind).attr("data-side", side);
-          if (t.mkind === "decisive") mg.append("circle").attr("r", 4.5).attr("fill", "none").attr("stroke", "var(--bad)").attr("stroke-width", 2);
-          else if (t.mkind === "fault") mg.append("line").attr("x1", 0).attr("x2", 0).attr("y1", -6).attr("y2", 6).attr("stroke", "var(--bad)").attr("stroke-width", 2.5);
-          else mg.append("text").attr("class", "g").attr("x", 0).attr("y", 4).attr("text-anchor", "middle").attr("fill", red ? "var(--bad)" : "var(--ink)").text(GLYPH[t.mkind] || "•");
-          lab = fit("step " + t.step + " · " + (t.label || MARK_WORD[t.mkind] || t.mkind), W - padR - d.y - tx);
-          mg.append("text").attr("class", "im-tlabel").attr("x", tx).attr("y", 4).attr("fill", red ? "var(--bad)" : "var(--ink-2)").text(lab);
-          gg.append("title").text("step " + t.step + " · " + (MARK_WORD[t.mkind] || t.mkind) + (t.label ? " · " + t.label : "") + " — click to open the step");
-          tipLines = [{ b: true, text: name(report, side) + " · step " + t.step + " · " + (MARK_WORD[t.mkind] || t.mkind) }, t.label ? { text: t.label } : null, { text: "click to open the step" }];
-          gg.on("click", function (evt) { evt.stopPropagation(); if (AgentDiff.charts && AgentDiff.charts.selectStep) AgentDiff.charts.selectStep(report, side, t.step); });
+          var red = n.mkind === "decisive" || n.mkind === "fault" || n.mkind === "error";
+          var mg = gg.append("g").attr("class", "im-mark").attr("data-step", n.step).attr("data-kind", n.mkind).attr("data-side", side);
+          if (n.mkind === "decisive") mg.append("circle").attr("r", 4.5).attr("fill", "none").attr("stroke", "var(--bad)").attr("stroke-width", 2);
+          else if (n.mkind === "fault") mg.append("line").attr("x1", 0).attr("x2", 0).attr("y1", -6).attr("y2", 6).attr("stroke", "var(--bad)").attr("stroke-width", 2.5);
+          else mg.append("text").attr("class", "g").attr("x", 0).attr("y", 4).attr("text-anchor", "middle").attr("fill", red ? "var(--bad)" : "var(--ink)").text(GLYPH[n.mkind] || "•");
+          lab = fit("step " + n.step + " · " + (n.label || MARK_WORD[n.mkind] || n.mkind), W - padR - nx - tx);
+          labW = measure(mg.append("text").attr("class", "im-tlabel").attr("x", tx).attr("y", 4).attr("fill", red ? "var(--bad)" : "var(--ink-2)").text(lab));
+          mg.insert("rect", "text").attr("x", tx - 2).attr("y", -7).attr("width", labW + 4).attr("height", 14).attr("fill", "var(--bg)").attr("fill-opacity", 0.9);
+          gg.append("title").text("step " + n.step + " · " + (MARK_WORD[n.mkind] || n.mkind) + (n.label ? " · " + n.label : "") + " — click to open the step");
+          tipLines = [{ b: true, text: name(report, side) + " · step " + n.step + " · " + (MARK_WORD[n.mkind] || n.mkind) }, n.label ? { text: n.label } : null, { text: "click to open the step" }];
+          gg.on("click", function (evt) { evt.stopPropagation(); if (AgentDiff.charts && AgentDiff.charts.selectStep) AgentDiff.charts.selectStep(report, side, n.step); });
         }
-        // a hit area over the whole row of the node
-        var hitW = Math.max(24, tx + (labW || (lab ? lab.length * CH : 0)) + 8);
-        gg.insert("rect", ":first-child").attr("x", -8).attr("y", -ROW / 2).attr("width", hitW + 8).attr("height", ROW).attr("fill", "transparent");
+        gg.insert("rect", ":first-child").attr("x", -8).attr("y", -ROW / 2).attr("width", Math.max(24, tx + (labW || lab.length * CH) + 8) + 8).attr("height", ROW).attr("fill", "transparent");
         gg.on("pointermove", function (evt) { tip.show(evt, tipLines); }).on("pointerleave", tip.hide);
-      });
+        (n.kids || []).forEach(function (k) { drawNode(k, n); });
+      }
+      openLanes.forEach(function (n) { drawNode(n, null); });
     });
   }
 

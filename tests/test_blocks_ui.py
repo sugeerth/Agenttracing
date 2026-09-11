@@ -4457,7 +4457,10 @@ class ImpactBlockTest(unittest.TestCase):
     one per run — the run at the root, a lane node per sub-agent, a bar per
     cluster whose length is its impact on the shared A/B scale, a lane's
     consecutive quiet clusters folded into one capsule whose pill grows with
-    the steps folded; a lane starts open only when it holds a hot cluster.
+    the steps folded; one thread per run carries the run's units in step
+    order (the root agent's stretches, the folds, a tick where each lane
+    attaches); a lane starts open only when it holds a hot cluster or the
+    fault's path.
     A capsule dilates on click (and folds back from any of its clusters), a
     cluster opens to its marks as child leaves, a mark opens its step in the
     shared inspector; "trunk" and "even" draw the same units as one trunk
@@ -4545,16 +4548,40 @@ class ImpactBlockTest(unittest.TestCase):
                 seen.append(c["lane"])
         return seen
 
+    @staticmethod
+    def _fault(c):
+        return bool(c["reasons"].get("fault_steps")) or any(m["kind"] == "fault" for m in c["marks"])
+
     @classmethod
     def _open_lanes(cls, im, side):
-        return [l for l in cls._lanes(im, side) if any(c["kind"] == "hot" for c in im[side]["clusters"] if c["lane"] == l)]
+        return [l for l in cls._lanes(im, side) if any(c["kind"] == "hot" or cls._fault(c) for c in im[side]["clusters"] if c["lane"] == l)]
+
+    @staticmethod
+    def _thread_folds(im, side):
+        """The folds on the run's thread: every run of two or more consecutive
+        quiet clusters in step order, whatever their lanes — (ids, steps)."""
+        cs = sorted(im[side]["clusters"], key=lambda c: c["from"])
+        folds, i = [], 0
+        while i < len(cs):
+            if cs[i]["kind"] == "quiet":
+                j = i
+                while j < len(cs) and cs[j]["kind"] == "quiet":
+                    j += 1
+                if j - i >= 2:
+                    folds.append((",".join(c["id"] for c in cs[i:j]), sum(c["steps"] for c in cs[i:j])))
+                    i = j
+                    continue
+            i += 1
+        return folds
 
     @classmethod
     def _shown(cls, im, side):
-        """Cluster ids drawn as bars with the defaults: the root lane's and the
-        hot lanes' clusters, minus those inside a closed capsule."""
-        ids = []
-        for lane in [cls._root(im, side)] + cls._open_lanes(im, side):
+        """Cluster ids drawn as bars with the defaults: the root lane's on the
+        thread (minus those inside a closed fold) and the open lanes' clusters
+        minus those inside a closed capsule."""
+        folded = {i for ids, _ in cls._thread_folds(im, side) for i in ids.split(",")}
+        ids = [c["id"] for c in im[side]["clusters"] if c["lane"] == cls._root(im, side) and c["id"] not in folded]
+        for lane in cls._open_lanes(im, side):
             ids += [i for kind, i, _ in cls._lane_items(im, side, lane) if kind == "cluster"]
         return ids
 
@@ -4565,7 +4592,8 @@ class ImpactBlockTest(unittest.TestCase):
     @staticmethod
     def _fold_widths(page, side):
         return page.evaluate("""side => [...document.querySelectorAll(`#panels-lane [data-block="impact"] svg.im-band[data-side="${side}"] g.im-fold`)]
-            .map(g => [g.dataset.ids, Number(g.dataset.steps), Number(g.querySelector('rect[rx]').getAttribute('width'))])""", side)
+            .map(g => { const r = g.querySelector('rect[rx]'), l = g.querySelector('line.im-fold-line');
+                        return [g.dataset.ids, Number(g.dataset.steps), r ? Number(r.getAttribute('width')) : Number(l.getAttribute('x2')) - Number(l.getAttribute('x1'))]; })""", side)
 
     def test_bands_lanes_bars_and_folds_match_the_report(self):
         import math
@@ -4600,11 +4628,17 @@ class ImpactBlockTest(unittest.TestCase):
             lo = self._length(page, f'#panels-lane [data-block="impact"] svg.im-band[data-side="{side}"] path.im-cluster[data-id="{by_impact[0][1]}"]')
             hi = self._length(page, f'#panels-lane [data-block="impact"] svg.im-band[data-side="{side}"] path.im-cluster[data-id="{by_impact[-1][1]}"]')
             self.assertGreater(hi, lo, side)
-            # the root lane's folds hang under the run: a capsule per run of quiet clusters
-            root_folds = [(i, st) for kind, i, st in self._lane_items(im, side, self._root(im, side)) if kind == "fold"]
-            self.assertEqual([(w[0], w[1]) for w in self._fold_widths(page, side)], root_folds, side)
-            self.assertGreater(band.locator("path.im-link").count(), lanes.count())
-        # a capsule's pill grows with the steps it folds: open a folded lane whose capsule holds a different count
+            # one thread per run; the folds sit on it in step order; every lane attaches where its sub-agent first acted
+            self.assertEqual(band.locator(f'path.im-thread[data-side="{side}"]').count(), 1)
+            self.assertEqual([(w[0], w[1]) for w in self._fold_widths(page, side)], self._thread_folds(im, side), side)
+            at = page.evaluate("""side => [...document.querySelectorAll(`#panels-lane [data-block="impact"] svg.im-band[data-side="${side}"] g.im-node[data-kind="lane"]`)]
+                .map(g => [Number(g.dataset.at), Number(g.dataset.x)])""", side)
+            self.assertEqual(sorted(a[0] for a in at), sorted(min(c["from"] for c in im[side]["clusters"] if c["lane"] == l) for l in self._lanes(im, side)))
+            xs = [x for _, x in sorted(at)]
+            self.assertEqual(xs, sorted(xs), side)
+            self.assertGreater(xs[-1], xs[0])
+            self.assertGreater(band.locator("path.im-link").count(), 0)
+        # a fold's length grows with the steps it holds — on the thread, and as a capsule in a lane opened for it
         root_steps = self._fold_widths(page, "a")[0][1]
         lane, steps = next((l, st) for l in self._lanes(im, "a") if l not in self._open_lanes(im, "a")
                            for kind, _, st in self._lane_items(im, "a", l) if kind == "fold" and st != root_steps)
