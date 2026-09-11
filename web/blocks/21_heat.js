@@ -135,7 +135,8 @@
     });
     rows.forEach(function (k, i) {
       var y = m.t + i * rowH;
-      svg.append("text").attr("class", "lab").attr("x", m.l - 8).attr("y", y + rowH / 2 + 4).attr("text-anchor", "end").text(k.length > 16 ? k.slice(0, 15) + "…" : k);
+      svg.append("text").attr("class", "lab").attr("x", m.l - 8).attr("y", y + rowH / 2 + 4).attr("text-anchor", "end").text(k.length > 16 ? k.slice(0, 15) + "…" : k)
+        .style("cursor", "pointer").on("click", function () { if (AgentDiff.charts && AgentDiff.charts.selectTool) AgentDiff.charts.selectTool(report, k); });
       for (var b = 0; b < bins; b++) {
         ["a", "b"].forEach(function (side, si) {
           var c = cells[k + "|" + b + "|" + side];
@@ -226,7 +227,7 @@
       rows.forEach(function (k) {
         var a = A[k] || { calls: 0, seconds: 0, wasted: 0, errors: 0, mean: 0 }, b = B[k] || { calls: 0, seconds: 0, wasted: 0, errors: 0, mean: 0 };
         var tr = H("tr", { "data-tool": k });
-        tr.appendChild(H("td", { class: "tool", text: k }));
+        tr.appendChild(H("td", { class: "tool", text: k, title: "open the dossier for " + k, style: { cursor: "pointer" }, onclick: function () { if (AgentDiff.charts && AgentDiff.charts.selectTool) AgentDiff.charts.selectTool(report, k); } }));
         cols.forEach(function (c) {
           var va = c[1](a), vb = c[1](b), mx = Math.max(va, vb, 1e-9);
           var cell = H("td", { "data-col": c[0] });
@@ -260,7 +261,8 @@
     rows.forEach(function (k, i) {
       var y = m.t + i * rowH + rowH / 2;
       svg.append("line").attr("x1", m.l).attr("x2", W - m.r).attr("y1", y).attr("y2", y).attr("stroke", "var(--rule)");
-      svg.append("text").attr("class", "lab").attr("x", m.l - 8).attr("y", y + 4).attr("text-anchor", "end").text(k.length > 16 ? k.slice(0, 15) + "…" : k);
+      svg.append("text").attr("class", "lab").attr("x", m.l - 8).attr("y", y + 4).attr("text-anchor", "end").text(k.length > 16 ? k.slice(0, 15) + "…" : k)
+        .style("cursor", "pointer").on("click", function () { if (AgentDiff.charts && AgentDiff.charts.selectTool) AgentDiff.charts.selectTool(report, k); });
       ["a", "b"].forEach(function (side, si) {
         var calls = ((tm[side] && tm[side].steps) || []).filter(function (r) { return rowKey(r) === k; });
         if (!calls.length) return;

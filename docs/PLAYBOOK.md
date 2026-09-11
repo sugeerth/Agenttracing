@@ -128,6 +128,11 @@ and a page is a single file, so it can be sent afterwards.
 
 ## Taking it forward
 
+- **What to put in the next prompt**: the Tool behaviour panel ends
+  with the sentences derived from how the two agents used their tools;
+  copy them into the failing agent's prompt, then `agentdiff replay`
+  the decisive step to see whether the outcome flips — a suggestion is
+  a hypothesis until it does.
 - **Trust before numbers**: open Trust & behaviour first with a new
   agent or a new trace source — if the grade is low because latency is
   estimated or the run is SYNTHETIC, every later chart inherits that

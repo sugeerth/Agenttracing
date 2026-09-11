@@ -2303,6 +2303,20 @@ survival, word diff, ×4 collapse on a synthetic loop).
   effects, spans. A transparent grade (start at 1.0, every deduction a
   sentence with its number) and a pair narrative. The block is a
   two-column ledger; first in the eval preset.
+- **Tool behaviour and the dossier** (`deepcompare/toolprofile.py`,
+  `report.tools_profile`, `web/blocks/25_tools.js`): per tool and per
+  run, calls, distinct inputs, repeats, the longest run of identical
+  calls (the same tool with the same input, whatever sat between),
+  errors, wasted, latency, the agents that touched it, first and last
+  step, fault-path and decisive marks, whether results fed the answer,
+  whether it reaches outside; the per-tool contrast; **prompt
+  suggestions** from six rules over the contrast (identical retries, a
+  tool only the passing run used, an unproductive tool, tool errors,
+  verify after the last write, outside calls), each with evidence and
+  labelled a hypothesis; a narrative. The block is a ledger plus the
+  suggestions with copy buttons; the dossier opens for any tool from
+  any chart or table (`AgentDiff.tools.open`, the `agentdiff:select-tool`
+  event, `charts.selectTool`).
 - **Frameworks and domains** (`deepcompare/frameworks.py`,
   `deepcompare/domains.py`, `agentdiff frameworks`): conservative
   detection of the framework and protocols a trace came from (MCP tool

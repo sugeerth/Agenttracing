@@ -164,6 +164,18 @@ drawn for this view and stand as evidence too, ordered overview first:
   sees what the dilation did. A fold opens on a click, a cluster opens
   to its marks, a mark opens the step: details exactly on demand. One
   row per sub-agent, both runs as bands on one width scale.
+- **Tool behaviour, and the dossier on demand** — per tool and per
+  run: calls, distinct inputs, repeats and the longest run of identical
+  calls, errors, wasted calls, latency, and every sub-agent that touched
+  the tool. Under it, the suggestions for the next prompt derived from
+  the contrast between the runs, each a sentence with its evidence and a
+  copy button — "do not call run_tests again with the same input: comet-lh
+  repeated `pytest -q tests/ledger` 12× in a row at steps 397–430". Any
+  tool anywhere opens its dossier: click a name in a table or a row
+  label in the heat map, double-click a tool step in the body chart or
+  the tree. The dossier is the same numbers for one tool, both runs, the
+  agents that touched it, a strip of its calls (click one to open the
+  step), sample inputs and outputs, and the suggestions that concern it.
 - **Trust & behaviour** — the statistics settle who won; this ledger
   says how each agent behaved and how far the data can be trusted:
   tool calls, stops and who stopped it, loops and retries, effects and

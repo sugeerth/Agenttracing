@@ -197,6 +197,12 @@
     return { side: side, step: dec.step, window: dec.window || null,
              verification: dec.verification || "hypothesized", criterion: dec.criterion || "" };
   }
+  /* Any tool anywhere opens its dossier: the page listens for this. */
+  function selectTool(report, name) {
+    try {
+      document.dispatchEvent(new CustomEvent("agentdiff:select-tool", { detail: { name: String(name || ""), report: report } }));
+    } catch (err) { /* nothing to notify */ }
+  }
   function selectStep(report, side, step) {
     var row = rowFor(report, side, step);
     if (row < 0) return;
@@ -261,6 +267,7 @@
   } catch (err) { /* no window */ }
   charts.responsive = responsive;
   charts.selectStep = selectStep;
+  charts.selectTool = selectTool;
   /* A solid backing behind an SVG label, sized from its box, so a line
    * running underneath never shows through the spaces between words. */
   function backed(parent, textSel, fill, pad) {
@@ -2111,6 +2118,9 @@
       { key: "failing", side: plan.failing, name: agentName(report, plan.failing), steps: stepsF, reading: readF,
         outcome: report[plan.failing].outcome, y: hasSplice ? 124 + top : 74 + top },
     ].filter(function (l) { return l.y !== null; });
+      nodeG.selectAll("g.d3c-tnode").on("dblclick", function (event, d) {
+        if (d.data.kind === "step" && d.data.type && TOOLISH_TYPES.indexOf(d.data.type) >= 0) selectTool(report, d.data.name);
+      });
     var H = (hasSplice ? 150 : 100) + 6 + top;
 
     var wrap = d3.select(host).append("div").attr("class", "d3c-wrap");
@@ -3146,6 +3156,7 @@
           { mono: true, text: truncate(d.step.input || "", 110) }, { mono: true, text: "→ " + truncate(d.step.output || "", 140) }]);
       }).on("mouseleave", hideTip)
         .on("click", function (event, d) { hideTip(); selectStep(report, d.side, d.i); })
+        .on("dblclick", function (event, d) { hideTip(); if (TOOLISH_TYPES.indexOf(d.step.type) >= 0) selectTool(report, d.step.name || d.step.type); })
         .on("keydown", function (event, d) { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectStep(report, d.side, d.i); } });
       if (first && duration && !zoomState.k) { /* no entrance animation beyond the arrival of nodes */ }
     }
