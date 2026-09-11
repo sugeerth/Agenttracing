@@ -2326,10 +2326,13 @@ survival, word diff, ×4 collapse on a synthetic loop).
   `"domain"` with expected tool families, permission rules and stop
   rules. `docs/FRAMEWORKS.md` records what practitioners and papers
   talk about, what is covered, and the plan for production agents.
-- **Where it mattered, as branches**: each run is one trunk; a
-  sub-agent's cluster hangs off it as a branch; quiet stretches
-  constrict into a short dotted segment whose length scales with the
-  steps folded (log2); no backgrounds, no grid.
+- **Where it mattered, as a tree**: the same architecture as the
+  trace tree — run → sub-agents → clusters — with a cluster's bar as
+  its impact, quiet stretches folded into a capsule node sized by the
+  steps inside (log2), and details on demand: a capsule dilates, a
+  cluster opens to its marks as leaves, a mark opens the step. The
+  trunk drawing (one trunk per run, sub-agents as branches) and the
+  even wall-clock variant remain as modes.
 
 ## Where it mattered: impact-weighted time, folded by importance
 

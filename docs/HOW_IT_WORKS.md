@@ -154,16 +154,16 @@ drawn for this view and stand as evidence too, ordered overview first:
   tiles think, solid ones call a tool, hatched means wasted, a red edge
   marks the fault's path. The eye finds the big tile before reading a
   number; a click on a box zooms into it, on a tile opens the step.
-- **Where it mattered** — the focus-and-context timeline for a long,
-  multi-agent run. Steps are clustered at sub-agent and phase
-  boundaries and every cluster is scored by what it carried (the
-  decisive step, the fault's path, divergences, errors, retries, wasted
-  seconds, milestones, the answer). In focus mode a cluster's width is
-  its impact, so the stretch that mattered dilates and the quiet ones
-  constrict into folds; in even mode width is seconds, so the reader
-  sees what the dilation did. A fold opens on a click, a cluster opens
-  to its marks, a mark opens the step: details exactly on demand. One
-  row per sub-agent, both runs as bands on one width scale.
+- **Where it mattered** — the long, multi-agent run as a tree: run →
+  sub-agents → clusters of steps, in the same architecture as the trace
+  tree. Steps are clustered at sub-agent and phase boundaries and every
+  cluster is scored by what it carried (the decisive step, the fault's
+  path, divergences, errors, retries, wasted seconds, milestones, the
+  answer); a cluster's bar is its impact on one scale for both runs, so
+  the stretch that mattered stands out and the quiet ones fold into a
+  capsule node whose size is the steps inside. A capsule dilates on a
+  click, a cluster opens to its marks as leaves, a mark opens the step:
+  details exactly on demand. Trunk and even-time modes remain.
 - **Tool behaviour, and the dossier on demand** — per tool and per
   run: calls, distinct inputs, repeats and the longest run of identical
   calls, errors, wasted calls, latency, and every sub-agent that touched
