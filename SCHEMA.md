@@ -96,7 +96,7 @@ Every field is read as written; nothing here is estimated by the engine.
 ```json
 {
   "task": { "id": "...", "prompt": "..." },
-  "a": { "agent": {...}, "outcome": {...}, "totals": {...}, "steps": [...] },
+  "a": { "agent": {...}, "outcome": {...}, "totals": {...}, "steps": [...], "trace_id", "run_id", "schema_version", "tools", "budget", "token_accounting", "harness"? },
   "b": { "agent": {...}, "outcome": {...}, "totals": {...}, "steps": [...] },
   "alignment": [
     { "a_index": 0, "b_index": 0, "op": "match | drift | a_only | b_only", "similarity": 0.93 }
@@ -229,7 +229,7 @@ Every pairwise report carries, beyond the sections above:
 - `horizon` — `{a, b: {subdivisions, spans, agents[], depth, tree {kind: run|span|episode|step, key, label, agent,
   from, to, count, seconds, wasted_s, tokens, tool_calls, errors, fault, decisive, values, children}, graph {nodes, edges},
   blame {agent, step, delegated_by, depth, part, chain, sentence}?, summary}, diff {nodes[{agent, in, a, b, delta}],
-  edges[{from, to, in, count_a, count_b}], only_a, only_b, uneven, same_agents, same_shape}, narrative}`.
+  edges[{from, to, in, count_a, count_b}], only_a, only_b, uneven, same_agents, same_shape}, narrative}`; `trust` — `{version, a, b: {behaviour {steps, tool_calls, distinct_tools, tools, thinking_steps, answered, termination, stopped_by: agent|harness|unknown, loops, retries, errors, sub_agents, delegations, max_depth}, permissions {effects {read, write, undeclared}, writes_without_read, verify_after_write, forbidden_calls[{step, name}], forbidden_patterns[], external, mcp_servers, handoffs}, determinism {replay_verification, replay_reproduced, run_consistency, temperature}, data {schema_version, adapter, synthetic, graded_by, latency_measured_share, tokens_measured_share, effects_declared_share, spans_recorded}, grade {score, label: high|medium|low, reasons[]}, narrative}, narrative, note}` — counts over the steps, the policy's forbidden tools (`--policy`, or the golden set's), the rubric in `deepcompare.trust.RUBRIC` with every deduction a sentence.
 - `timing` — `{a, b: {measurable, total_s, steps[], by_category, by_tool, wasted_s, slowest, rationale}, delta, narrative}`; `milestones` (with `--golden`) — `{a, b: {measurable, total, reached, progress, milestones[{id, label, reached, step, seconds, agent, on_time, evidence_hit}], in_order, steps_after_last, narrative}, diff {rows[], further, narrative}, narrative, source}`; `impact` — `{version, a, b: {measurable, total_s, total_steps, clusters[{id, from, to, steps, start_s, end_s, seconds, lane, agents[], impact (0–1, score / the pair's max score), score, kind: hot|work|quiet, reasons {fault_steps, decisive, errors, retries, wasted_s, milestones[], divergence_rows, first_divergence, answer, tokens}, why, label, marks[{step, kind, label}]}], hot[ids], lanes[{agent, depth, parent, clusters[]}], scale: pair|run, narrative}, narrative}` — the steps clustered (lane, phase, framing boundaries) and weighed by `deepcompare.impact.WEIGHTS`.
 - `aggregate.scorecard` (batch, runs, loop) / `eval.json` (`eval`) —
   `{version, mode: offline|online, golden?, policy?, agents {agent: {runs,

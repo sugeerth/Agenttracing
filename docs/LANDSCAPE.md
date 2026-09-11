@@ -281,3 +281,14 @@ replay flips the outcome; on Who&When-style logs without a passing twin the pair
 cannot run at all (section 4 above). The graph diff aligns by agent *name*; two frameworks that
 name the same role differently need a mapping. Parallel sub-agents are read from OTel timestamps as
 sequential steps; a critical-path analysis over overlapping spans is the next thing to build.
+
+---
+
+## 8. Addendum, September 2026 — frameworks, protocols and domain specs
+
+The agent *stack* — OTel GenAI spans, MCP and A2A, OpenAI Agents SDK handoffs and guardrails, Claude Code
+permission hooks, LangGraph checkpoints inside Temporal, the τ²/SWE-bench Pro/Terminal-Bench/HAL evaluation
+frame, MAST and TRAIL taxonomies — is surveyed in `docs/FRAMEWORKS.md`, with what this project reads from a
+trace today (`deepcompare.frameworks.detect`, `deepcompare.domains`, `python -m deepcompare frameworks`) and
+the plan for production trace sources. It also covers tool-level transparency and next-prompt guidance
+(Laminar, Langfuse, LangSmith, Braintrust) and what to take from them as principles rather than copies.

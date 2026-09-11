@@ -65,19 +65,30 @@ def load_golden(path: Union[str, Path]) -> dict:
     "policy": {...}}``); every task may carry ``expected_tools``
     (all must be called), ``any_of_tools`` (at least one), ``forbidden_tools``,
     ``only_expected_tools`` (no other tool), ``expected_evidence`` (strings a
-    good retrieval brings back), ``family``. Returns
-    ``{"tasks": {id: task}, "policy": {...} or None, "path": str}``."""
+    good retrieval brings back), ``family``, and ``domain`` (a built-in
+    :mod:`deepcompare.domains` spec name — the task is completed from the
+    spec, never overridden by it). Returns ``{"tasks": {id: task}, "policy":
+    {...} or None, "path": str, "domains": {id: domain}}``."""
+    from . import domains as _domains
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     tasks = data["tasks"] if isinstance(data, dict) else data
     if not isinstance(tasks, list):
         raise ValueError(f"{path}: expected a list of tasks or {{'tasks': [...]}}")
     by_id = {}
+    task_domains: dict = {}
     for t in tasks:
         if not isinstance(t, dict) or not t.get("id"):
             raise ValueError(f"{path}: every golden task needs an id: {t!r}")
+        if t.get("domain"):
+            try:
+                spec = _domains.spec(str(t["domain"]))
+            except ValueError as exc:
+                raise ValueError(f"{path}: task {t['id']}: {exc}") from exc
+            t = _domains.apply(t, spec)
+            task_domains[str(t["id"])] = spec["name"]
         by_id[str(t["id"])] = t
     policy = data.get("policy") if isinstance(data, dict) else None
-    return {"tasks": by_id, "policy": policy, "path": str(path)}
+    return {"tasks": by_id, "policy": policy, "path": str(path), "domains": task_domains}
 
 
 def load_policy(path: Union[str, Path]) -> dict:

@@ -37,6 +37,8 @@ from .verdict import verdict_card
 from .internals import internals_analysis
 from .feedback import feedback_signal
 from .milestones import compare as compare_milestones, evaluate as evaluate_milestones
+from .toolprofile import tool_pair
+from .trust import trust_pair
 
 #: the template line containing this marker is replaced wholesale.
 DATA_MARKER = "window.DEEPCOMPARE_DATA"
@@ -69,6 +71,25 @@ def _cite_internals(report: dict) -> None:
             h["evidence_classes"] = classes
             h["internal_signature"] = decisive["signature"]
             break
+
+
+def _side(t: Trajectory) -> dict:
+    """One run as the report carries it: the four SCHEMA blocks, plus what
+    the trace said about itself (ids, the tools offered, the budget, the
+    token accounting, the harness block when a loader kept it) so the
+    trust section can read provenance without the file."""
+    side = {
+        "agent": t.agent.to_dict(),
+        "outcome": t.outcome.to_dict(),
+        "totals": t.totals.to_dict(),
+        "steps": [s.to_dict() for s in t.steps],
+        "trace_id": t.trace_id, "run_id": t.run_id, "schema_version": t.schema_version,
+        "tools": list(t.tools or []), "budget": dict(t.budget or {}), "token_accounting": dict(t.token_accounting or {}),
+    }
+    harness = getattr(t, "harness", None)
+    if isinstance(harness, dict):
+        side["harness"] = harness
+    return side
 
 
 def compare(a: Trajectory, b: Trajectory) -> dict:
@@ -128,18 +149,8 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
     report = {
         # the expected answer rides along so a replay can grade its rollouts
         "task": {"id": a.task.id, "prompt": a.task.prompt, "expected": a.task.expected},
-        "a": {
-            "agent": a.agent.to_dict(),
-            "outcome": a.outcome.to_dict(),
-            "totals": a.totals.to_dict(),
-            "steps": [s.to_dict() for s in a.steps],
-        },
-        "b": {
-            "agent": b.agent.to_dict(),
-            "outcome": b.outcome.to_dict(),
-            "totals": b.totals.to_dict(),
-            "steps": [s.to_dict() for s in b.steps],
-        },
+        "a": _side(a),
+        "b": _side(b),
         "alignment": alignment,
         "divergences": divergences,
         "attribution": attribution,
@@ -173,8 +184,14 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
     # where it mattered: the steps clustered and weighed by what the
     # sections above established, for a timeline that dilates the hot ones
     report["impact"] = impact_pair(report)
+    # how each run behaved and how far its data can be trusted: counts over
+    # the steps, the policy when one is known (attach_milestones), a grade
+    # whose every deduction is a sentence
+    report["trust"] = trust_pair(report)
     # the five-line card the reader sees first; every line quotes a
     # section above, so it is computed last
+    # how each agent used each tool, and what to tell the next prompt
+    report["tools_profile"] = tool_pair(report)
     report["verdict_card"] = verdict_card(report)
     # the loop back: what this pair hands to an environment or the next
     # prompt — labels, a preference pair, suggestions; read-only over the report
@@ -182,11 +199,13 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
     return report
 
 
-def attach_milestones(report: dict, golden: Optional[dict]) -> dict:
+def attach_milestones(report: dict, golden: Optional[dict], policy: Optional[dict] = None) -> dict:
     """Read both runs against the golden task's milestones (see
     :mod:`deepcompare.milestones`) and attach ``report["milestones"]``:
     ``{"a", "b", "diff", "narrative"}``.  Without a golden task or without
-    milestones on it, the section says so and measures nothing."""
+    milestones on it, the section says so and measures nothing.  The trust
+    section is recomputed with the golden task's forbidden tools and the
+    ``policy`` (see :func:`deepcompare.scorecard.load_policy`) now known."""
     task_id = str(((report.get("task") or {}).get("id")) or "")
     golden_task = ((golden or {}).get("tasks") or {}).get(task_id) if golden else None
     ms = (golden_task or {}).get("milestones") if isinstance(golden_task, dict) else None
@@ -199,6 +218,7 @@ def attach_milestones(report: dict, golden: Optional[dict]) -> dict:
                             "source": (golden or {}).get("path") if ms else None}
     # the milestones reached now mark the impact clusters they sit in
     report["impact"] = impact_pair(report)
+    report["trust"] = trust_pair(report, policy=policy, golden=golden)
     return report
 
 

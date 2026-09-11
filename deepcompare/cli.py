@@ -254,6 +254,7 @@ def _cmd_batch(args: argparse.Namespace) -> int:
 
     try:
         golden_set = load_golden(args.golden) if getattr(args, "golden", None) else None
+        policy = load_policy(args.policy) if getattr(args, "policy", None) else None
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -265,9 +266,10 @@ def _cmd_batch(args: argparse.Namespace) -> int:
                   file=sys.stderr)
             continue
         report = compare(pair[name_a], pair[name_b])
-        if golden_set:
-            # progress before the answer: the golden task's milestones, both runs
-            attach_milestones(report, golden_set)
+        if golden_set or policy:
+            # progress before the answer: the golden task's milestones, both
+            # runs; and the trust section re-read under the policy
+            attach_milestones(report, golden_set, policy=policy)
         reports.append(report)
         report_path = out_dir / f"report_{_safe_name(task_id)}.json"
         report_path.write_text(
@@ -282,9 +284,7 @@ def _cmd_batch(args: argparse.Namespace) -> int:
     agg = build_aggregate(reports)
     agg["routing"] = routing_table(trajectories)
     try:
-        agg["scorecard"] = build_scorecard(
-            trajectories, golden_set,
-            load_policy(args.policy) if getattr(args, "policy", None) else None)
+        agg["scorecard"] = build_scorecard(trajectories, golden_set, policy)
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -378,10 +378,23 @@ def _load_traces_dir(traces_dir: Path) -> list[Trajectory]:
     trajectories: list[Trajectory] = []
     for path in sorted(traces_dir.glob("*.json")):
         try:
-            trajectories.append(Trajectory.from_json(path))
+            trajectories.append(_with_harness(Trajectory.from_json(path), path))
         except ValueError as exc:
             print(f"warning: skipping invalid trace: {exc}", file=sys.stderr)
     return trajectories
+
+
+def _with_harness(t: Trajectory, path: Path) -> Trajectory:
+    """Keep the trace's ``harness`` block (adapter, graded_by, a SYNTHETIC
+    note) beside the typed trajectory, so the report's trust section can
+    say where the data came from; the typed schema does not carry it."""
+    try:
+        harness = json.loads(path.read_text(encoding="utf-8")).get("harness")
+    except (OSError, ValueError, AttributeError):
+        harness = None
+    if isinstance(harness, dict):
+        t.harness = harness  # type: ignore[attr-defined]
+    return t
 
 
 def _parse_weights(spec: Optional[str]) -> Optional[dict[str, float]]:
@@ -858,7 +871,7 @@ def _cmd_runs(args: argparse.Namespace) -> int:
     trace_paths: list[Path] = []
     for path in sorted(runs_dir.glob("*.json")):
         try:
-            t = Trajectory.from_json(path)
+            t = _with_harness(Trajectory.from_json(path), path)
         except ValueError as exc:
             print(f"warning: skipping invalid trace: {exc}", file=sys.stderr)
             continue
@@ -1467,6 +1480,42 @@ def _cmd_cohort(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_frameworks(args: argparse.Namespace) -> int:
+    """Per trace: the framework and protocols the trace came through, its
+    MCP servers, handoffs and permission decisions, and the domain its
+    tools point at. Engine only; nothing is written."""
+    from .domains import infer as infer_domain
+    from .frameworks import detect as detect_framework, render_line
+    target = Path(args.target)
+    if target.is_dir():
+        paths = sorted(p for p in target.glob("*.json") if not p.name.endswith(".live.json"))
+    elif target.is_file():
+        paths = [target]
+    else:
+        print(f"error: {target} is neither a file nor a directory", file=sys.stderr)
+        return 2
+    rows = []
+    for path in paths:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"{path}: unreadable ({exc})", file=sys.stderr)
+            continue
+        if not isinstance(data, dict) or "steps" not in data:
+            continue
+        det = detect_framework(data)
+        dom = infer_domain(data)
+        rows.append({"path": str(path), "trace_id": data.get("trace_id"), "framework": det, "domain": dom})
+        if not args.json:
+            print(render_line(str(path), det, dom))
+            if args.signals:
+                for sig in det["signals"] + dom["signals"]:
+                    print(f"    - {sig}")
+    if args.json:
+        print(json.dumps(rows, indent=2, ensure_ascii=False))
+    return 0
+
+
 def _cmd_convert(args: argparse.Namespace) -> int:
     if args.list_formats:
         print("Known trace formats:")
@@ -1806,6 +1855,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_convert.add_argument("--list-formats", action="store_true",
                            help="list the known trace formats and exit")
     p_convert.set_defaults(func=_cmd_convert)
+
+    p_frameworks = sub.add_parser(
+        "frameworks", help="per trace: the agent framework and protocols it came through (MCP servers, "
+                           "handoffs, permission decisions) and the domain its tools point at")
+    p_frameworks.add_argument("target", help="a trace file or a directory of traces")
+    p_frameworks.add_argument("--signals", action="store_true", help="print the signals behind each verdict")
+    p_frameworks.add_argument("--json", action="store_true", help="print the full detection as JSON")
+    p_frameworks.set_defaults(func=_cmd_frameworks)
 
     p_run = sub.add_parser(
         "run", help="run a task set against one or more model providers and "

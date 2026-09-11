@@ -60,9 +60,9 @@ def analyse_runs(trajectories: list, *, warn=None, family_pattern: Optional[str]
     stability = stability_analysis(runs_by_task)
     reliability_analysis = reliability(runs_by_task)
     reports = [compare(a, b) for a, b in medoid_pairs(runs_by_task)]
-    if golden:
+    if golden or policy:
         for rep in reports:
-            attach_milestones(rep, golden)
+            attach_milestones(rep, golden, policy=policy)
     agg = build_aggregate(reports)
     agg["equality"] = equality_analysis(runs_by_task)
     agg["routing"] = routing_table(trajectories, equality=agg["equality"], family_pattern=family_pattern)
