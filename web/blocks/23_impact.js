@@ -12,7 +12,10 @@
  * trunk's impact-weighted scale: the orchestrator's own stretches and the
  * folds sit on it, each lane attaches with a tick where its sub-agent
  * first acted, the decisive step is ringed on it and the fault's path
- * reddens it — and the lanes hang below it. Consecutive quiet
+ * reddens it — and the lanes hang below it; "time" puts that thread on
+ * wall-clock instead, every stretch its seconds under a light axis and
+ * folded quiet time a short segment scaled by the seconds it holds
+ * (the bars keep their impact length). Consecutive quiet
  * stretches in a lane fold into one capsule (×N steps · Ss) whose pill is
  * as long as log2 of the steps it holds; a lane starts open only when it
  * holds a hot stretch or the fault's path (a closed lane is its tick and
@@ -70,6 +73,7 @@
       ".im-chart .im-node .im-twhy{fill:var(--ink-2);font-family:var(--mono)}",
       ".im-chart .im-node:hover .im-tlabel{fill:var(--ink)}.im-chart .im-node:hover .im-cluster{stroke-opacity:1}",
       ".im-chart .im-node[data-kind=mark] text.g{font-weight:700}",
+      ".im-chart text.im-tick{fill:var(--ink-3);font-family:var(--mono);pointer-events:none}",
       ".im-band + .im-band{margin-top:6px}",
       ".im-none{font-size:var(--fs-xs);color:var(--ink-3);margin:4px 0 8px}",
       ".im-details{margin-top:8px;font-size:var(--fs-xs)}.im-details summary{cursor:pointer;color:var(--ink-2)}",
@@ -169,6 +173,54 @@
   }
   //: a fold's length scales with the steps it constricts: 4–5 steps ≈ 20px, 11 ≈ 27px, 100 ≈ 46px
   function foldW(steps) { return 6 + 6 * Math.log(1 + Math.max(0, steps)) / Math.LN2; }
+  //: folded time: a fold's length scales with the seconds it holds, as a fold's with its steps
+  function foldWT(seconds) { return 6 + 6 * Math.log(1 + Math.max(0, seconds)) / Math.LN2; }
+  /* The wall-clock scale of the "time" mode: every cluster is its seconds
+   * (a hot or work cluster never under 10px, a quiet one never under 2),
+   * a fold its seconds-scaled length; one k for both bands, the largest
+   * that fits the longer one; when the floors push a band over, its
+   * clusters shrink together and its folds keep their length. */
+  function timeScale(im, sides, states, avail) {
+    var gap = 2, per = {}, kT = Infinity;
+    sides.forEach(function (s) {
+      var units = unitsOf(im[s], states, s), fixed = gap * Math.max(0, units.length - 1), sum = 0;
+      units.forEach(function (u) { if (u.type === "fold") fixed += foldWT(u.seconds); else sum += Math.max(0, u.c.seconds || 0); });
+      per[s] = { units: units, gap: gap, floor: 6, k: 0 };
+      if (sum > 0) kT = Math.min(kT, Math.max(0, avail - fixed) / sum);
+    });
+    if (!isFinite(kT)) kT = 0;
+    // the folds' share is capped at half the thread, so the clock keeps at least the other half
+    sides.forEach(function (s) {
+      var units = per[s].units, gap2 = gap * Math.max(0, units.length - 1), folds = 0, sum = 0;
+      units.forEach(function (u) { if (u.type === "fold") folds += foldWT(u.seconds); else sum += Math.max(0, u.c.seconds || 0); });
+      var free = avail - gap2;
+      if (folds > free * 0.5 && sum > 0) kT = Math.max(kT, Math.min(kT === 0 ? Infinity : Infinity, (free * 0.5) / sum));
+    });
+    sides.forEach(function (s) {
+      var p = per[s], free = avail - gap * Math.max(0, p.units.length - 1), folds = 0;
+      p.kT = kT;
+      p.units.forEach(function (u) { if (u.type === "fold") folds += foldWT(u.seconds); });
+      // on a narrow thread the folds would eat the clock: they give way until the clusters keep half of it
+      var fs = folds > free * 0.5 ? free * 0.5 / folds : 1;
+      folds *= fs;
+      p.widths = p.units.map(function (u) {
+        if (u.type === "fold") return foldWT(u.seconds) * fs;
+        return Math.max(u.c.kind === "quiet" ? 2 : 10, (u.c.seconds || 0) * kT);
+      });
+      var sum = p.widths.reduce(function (t, w) { return t + w; }, 0);
+      if (sum > free && sum - folds > 0) {
+        var f = Math.max(0, free - folds) / (sum - folds);
+        p.widths = p.widths.map(function (w, i) { return p.units[i].type === "fold" ? w : w * f; });
+      }
+    });
+    return per;
+  }
+  //: a "nice" tick interval in seconds: about a dozen ticks over the run
+  function niceStep(total) {
+    var steps = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600];
+    for (var i = 0; i < steps.length; i++) { if (total / steps[i] <= 12) return steps[i]; }
+    return steps[steps.length - 1];
+  }
   //: the lanes: who is the root, each lane's depth and parent
   function laneInfo(run) {
     var info = {}, root = null;
@@ -289,7 +341,7 @@
     var narrow = W < 560;
     var sides = ["a", "b"].filter(function (s) { return im[s] && im[s].measurable !== false && clustersOf(im[s]).length; });
     function repaint() { host.innerHTML = ""; draw(host, report, im, st, tip, ctx); }
-    if (st.mode === "tree") { drawTrees(host, report, im, st, tip, ctx, W, narrow, sides, repaint); return; }
+    if (st.mode === "tree" || st.mode === "time") { drawTrees(host, report, im, st, tip, ctx, W, narrow, sides, repaint); return; }
     var padL = 4, padR = 6;
     var avail = W - padL - padR;
     var per = scale(im, sides, st, avail, narrow, st.mode);
@@ -541,7 +593,8 @@
     return runNode;
   }
   function drawTrees(host, report, im, st, tip, ctx, W, narrow, sides, repaint) {
-    var padR = 6, pad = 12, yT = 22;
+    var timeMode = st.mode === "time";
+    var padR = 6, pad = 12, yT = timeMode ? 42 : 22;   // the clock takes a row of its own over the fold labels
     //: the run's label ends where its thread begins; both threads start at one x so they align
     function runLabel(s) { return narrow ? name(report, s) : name(report, s) + " · " + (isNum(im[s].total_steps) ? im[s].total_steps + " steps · " : "") + secs(im[s].total_s); }
     var x0 = 0;
@@ -549,9 +602,11 @@
     // the thread: the run's units in step order on the trunk's impact-weighted scale, folds and all
     var stT = { mode: "trunk", open: {}, unfolded: st.unfolded };
     var availT = Math.max(60, W - padR - x0);
-    var per = scale(im, sides, stT, availT, narrow, "trunk");
+    // the bars keep their impact length in every mode; the thread is impact (tree) or wall-clock (time)
+    var perImpact = scale(im, sides, stT, availT, narrow, "trunk");
+    var per = timeMode ? timeScale(im, sides, stT, availT) : perImpact;
     var kBar = 60, barFloor = 6;
-    sides.forEach(function (s) { kBar = Math.max(narrow ? 24 : 60, per[s].k || 0); barFloor = per[s].floor || 6; });
+    sides.forEach(function (s) { kBar = Math.max(narrow ? 24 : 60, perImpact[s].k || 0); barFloor = perImpact[s].floor || 6; });
     // the subtree columns: a lane's name, then its bars, then the marks of an open bar
     var laneLabW = 0;
     function laneW(l) { return Math.min(narrow ? 14 : 22, String(l).length) * CH * 1.12 + (narrow ? 16 : 62); }
@@ -612,7 +667,7 @@
       var hot = clustersOf(run).filter(function (c) { return c.kind === "hot"; }).length;
       var svg = d3.select(host).append("svg").attr("class", "im-band").attr("data-side", side).attr("data-mode", st.mode)
         .attr("viewBox", "0 0 " + W + " " + H).attr("role", "img")
-        .attr("aria-label", name(report, side) + " as a thread: " + laneNodes.length + " sub-agent lane" + (laneNodes.length === 1 ? "" : "s") + " attached where each first acted, " + clustersOf(run).length + " stretches, " + hot + " hot; length is impact");
+        .attr("aria-label", name(report, side) + " as a thread: " + laneNodes.length + " sub-agent lane" + (laneNodes.length === 1 ? "" : "s") + " attached where each first acted, " + clustersOf(run).length + " stretches, " + hot + " hot; the thread is " + (timeMode ? "wall-clock with quiet time folded" : "impact") + ", a bar's length its impact");
       function measure(sel) { var n = sel.node(); var w = n && n.getComputedTextLength ? n.getComputedTextLength() : 0; return w > 0 ? w : String(sel.text() || "").length * CH; }
       function rowY(r) { return rowsTop + r * ROW; }
       // ---- the run node and its thread
@@ -631,14 +686,18 @@
         if (f) svg.append("line").attr("class", "im-thread-fault").attr("x1", xs0[ui]).attr("x2", xs0[ui] + p.widths[ui]).attr("y1", yT).attr("y2", yT).attr("stroke", "var(--bad)").attr("stroke-width", 2.5).attr("stroke-opacity", 0.8);
       });
       // ---- on the thread: the folds, the root agent's own stretches, and what a dilated fold holds
+      var foldLabEnd = -Infinity;
       p.units.forEach(function (u, ui) {
         var ux = xs0[ui], w = p.widths[ui];
         if (u.type === "fold") {
-          var fg = svg.append("g").attr("class", "im-node im-fold").attr("data-kind", "fold").attr("data-id", u.id).attr("data-ids", u.id).attr("data-side", side).attr("data-steps", u.steps).attr("transform", "translate(" + ux + "," + yT + ")");
+          var fg = svg.append("g").attr("class", "im-node im-fold").attr("data-kind", "fold").attr("data-id", u.id).attr("data-ids", u.id).attr("data-side", side).attr("data-steps", u.steps).attr("data-seconds", u.seconds.toFixed(2)).attr("transform", "translate(" + ux + "," + yT + ")");
           fg.append("line").attr("x1", 0).attr("x2", w).attr("y1", 0).attr("y2", 0).attr("stroke", "var(--bg)").attr("stroke-width", 3);
           fg.append("line").attr("class", "im-fold-line").attr("x1", 0).attr("x2", w).attr("y1", 0).attr("y2", 0)
             .attr("stroke", "var(--ink-3)").attr("stroke-width", 1.5).attr("stroke-dasharray", "1.5 2.5").attr("stroke-linecap", "round");
-          if (w >= 18) fg.append("text").attr("x", w / 2).attr("y", -4).attr("text-anchor", "middle").text("×" + u.steps);
+          // "×N" over the segment; on the clock also its seconds, when that does not run into the previous fold's words
+          var flab = timeMode ? "×" + u.steps + " · " + secs(u.seconds) : "×" + u.steps, flw = flab.length * CH;
+          if (timeMode && ux + w / 2 - flw / 2 < foldLabEnd + 4) { flab = "×" + u.steps; flw = flab.length * CH; }
+          if (w >= 18 && ux + w / 2 - flw / 2 >= foldLabEnd + 4) { fg.append("text").attr("x", w / 2).attr("y", timeMode ? -7 : -4).attr("text-anchor", "middle").text(flab); foldLabEnd = ux + w / 2 + flw / 2; }
           fg.append("rect").attr("x", 0).attr("y", -8).attr("width", w).attr("height", 16).attr("fill", "transparent");
           fg.append("title").text(u.steps + " steps · " + secs(u.seconds) + " · " + u.lanes.join(", ") + " — " + u.clusters.length + " quiet stretches folded; click to open");
           fg.on("pointermove", function (evt) {
@@ -671,6 +730,27 @@
             .append("title").text("decisive step " + m.step + (m.label ? " · " + m.label : ""));
         });
       });
+      // ---- the clock: a light axis over the thread, ticks every nice interval, a "⋯" gap where time is folded
+      if (timeMode) {
+        var step = niceStep(run.total_s || 0), labEnd = -Infinity;
+        function placeTick(tx, text, cls) {
+          var w = text.length * CH;
+          if (tx - w / 2 < labEnd + 6) return;
+          svg.append("text").attr("class", "im-tick" + (cls ? " " + cls : "")).attr("x", tx).attr("y", yT - 20).attr("text-anchor", "middle").attr("fill", "var(--ink-3)").text(text);
+          labEnd = tx + w / 2;
+        }
+        p.units.forEach(function (u, ui) {
+          var ux = xs0[ui], w = p.widths[ui];
+          if (u.type === "fold") { placeTick(ux + w / 2, "⋯", "im-gap"); return; }
+          var c = u.c, t0 = isNum(c.start_s) ? c.start_s : null, t1 = isNum(c.end_s) ? c.end_s : null;
+          if (t0 === null || t1 === null) return;
+          for (var t = Math.ceil(t0 / step) * step; t <= t1 && step > 0; t += step) {
+            var tx = t1 > t0 ? ux + w * (t - t0) / (t1 - t0) : ux;
+            svg.append("line").attr("class", "im-tickline").attr("x1", tx).attr("x2", tx).attr("y1", yT - 4).attr("y2", yT - 1).attr("stroke", "var(--ink-3)").attr("stroke-width", 1);
+            placeTick(tx, secs(t), null);
+          }
+        });
+      }
       // ---- the lanes: a tick where each first acted; a closed lane names itself under the thread, an open one hangs below
       var labelEnds = [-Infinity, -Infinity];
       laneNodes.slice().sort(function (a, b) { return a.ax - b.ax; }).forEach(function (n) {
@@ -718,7 +798,7 @@
         var gg = svg.append("g").attr("class", "im-node" + (n.kind === "lane" && !n.open ? " collapsed" : "") + (n.kind === "fold" ? " im-fold" : ""))
           .attr("data-kind", n.kind).attr("data-id", n.id).attr("data-side", side).attr("transform", "translate(" + nx + "," + ny + ")");
         if (n.kind === "lane") gg.attr("data-at", n.at).attr("data-x", (isNum(n.ax) ? n.ax : nx).toFixed(2));   // where it attaches to the thread
-        if (n.kind === "fold") gg.attr("data-ids", n.id).attr("data-steps", n.steps);
+        if (n.kind === "fold") gg.attr("data-ids", n.id).attr("data-steps", n.steps).attr("data-seconds", n.seconds.toFixed(2));
         var lab = "", sub = "", tx = 12, tipLines = [], labW = 0;
         function backed(x, w) { gg.insert("rect", "text").attr("x", x - 2).attr("y", -7).attr("width", w + 4).attr("height", 14).attr("fill", "var(--bg)").attr("fill-opacity", 0.9); }
         if (n.kind === "lane") {
@@ -818,7 +898,7 @@
       var bar = H("div", { class: "im-bar" });
       var seg = H("span", { class: "seg", role: "group", "aria-label": "length" });
       var modeBtns = {};
-      [["tree", "the run as a tree: lanes, stretches, marks; bar length by impact"], ["trunk", "the run as a trunk with branches; length by impact"], ["even", "the trunk on wall-clock: length by seconds"]].forEach(function (pair) {
+      [["tree", "the run as a tree: lanes, stretches, marks; the thread and the bars by impact"], ["time", "the same tree, the thread on wall-clock with quiet time folded"], ["trunk", "the run as a trunk with branches; length by impact"], ["even", "the trunk on wall-clock: length by seconds"]].forEach(function (pair) {
         modeBtns[pair[0]] = H("button", { text: pair[0], "data-mode": pair[0], title: pair[1], "aria-pressed": st.mode === pair[0] ? "true" : "false",
           onclick: function () { if (st.mode === pair[0]) return; st.mode = pair[0]; redraw(); } });
         seg.appendChild(modeBtns[pair[0]]);
