@@ -128,6 +128,12 @@ and a page is a single file, so it can be sent afterwards.
 
 ## Taking it forward
 
+- **Reward and credit for a training loop**: the Reward & credit
+  panel shows where a run earned and lost reward and who gets the
+  credit; `agentdiff rl` prints the returns per episode with an
+  interval, and `feedback.to_jsonl` hands the labels, the preference
+  pair and the shaped rewards to a trainer. Recorded rewards win over
+  shaped ones, and the page says which it is showing.
 - **What to put in the next prompt**: the Tool behaviour panel ends
   with the sentences derived from how the two agents used their tools;
   copy them into the failing agent's prompt, then `agentdiff replay`

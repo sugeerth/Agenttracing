@@ -163,7 +163,19 @@ drawn for this view and stand as evidence too, ordered overview first:
   the stretch that mattered stands out and the quiet ones fold into a
   capsule node whose size is the steps inside. A capsule dilates on a
   click, a cluster opens to its marks as leaves, a mark opens the step:
-  details exactly on demand. Trunk and even-time modes remain.
+  details exactly on demand. A time mode puts wall-clock on the thread
+  with quiet stretches constricted by the seconds they hold; trunk and
+  even-time modes remain.
+- **Reward & credit** — the same technology applied to reinforcement
+  learning signals. Rewards are read from the trace when a step records
+  them, or shaped from the reading when it does not and labelled so;
+  credit comes from the Shapley split over the aligned regions. The
+  cumulative return of both runs is one small curve with the step where
+  they parted ringed; then one reward thread per run, folded where
+  nothing was earned or lost, with ticks up and down where the reward
+  was large, credit as a faint bar under the thread, and the preferred
+  trajectory named with its basis. A cluster opens to its per-step
+  rewards, a leaf opens the step.
 - **Tool behaviour, and the dossier on demand** — per tool and per
   run: calls, distinct inputs, repeats and the longest run of identical
   calls, errors, wasted calls, latency, and every sub-agent that touched
