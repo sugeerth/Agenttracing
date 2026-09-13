@@ -21,13 +21,11 @@
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, secs = L.fmt.secs;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("tools", [
       ".tb{--tb-a:var(--a);--tb-b:var(--b)}",
       ".tb-narr{font-size:var(--fs-m);color:var(--ink);margin:0 0 8px;max-width:90ch}",
       ".tb-table{border-collapse:collapse;width:100%;font-size:var(--fs-xs);font-variant-numeric:tabular-nums}",
@@ -61,14 +59,11 @@
       ".tool-dossier details{font-size:var(--fs-xs);color:var(--ink-2);margin-top:6px}.tool-dossier details summary{cursor:pointer;color:var(--ink-3)}",
       ".tool-dossier pre{white-space:pre-wrap;word-break:break-word;font-size:var(--fs-xs);background:var(--surface-2);border-radius:6px;padding:4px 6px;margin:3px 0}",
       ".tool-dossier .sug{font-size:var(--fs-xs);color:var(--ink);margin:6px 0 0}",
-    ].join("\n");
-    document.head.appendChild(node);
+    ].join("\n"));
   }
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function secs(v) { return !isNum(v) ? "—" : v >= 100 ? Math.round(v) + "s" : v >= 10 ? v.toFixed(0) + "s" : v >= 1 ? v.toFixed(1) + "s" : v.toFixed(2) + "s"; }
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
-  function color(side) { return "var(--tb-" + side + ")"; }
+  function color(side) { return L.color.side(side, "tb"); }
   var Current = { report: null };
 
   function copy(text, btn) {

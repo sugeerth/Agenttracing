@@ -37,6 +37,7 @@ from . import process as _process
 from .align import jaccard
 from .semantic import _step_intent, extract_from_text
 from .trace import Trajectory
+from . import sections as _sections
 
 READING_VERSION = 2
 
@@ -952,3 +953,11 @@ def check_reading(reading: dict, traj: Trajectory) -> list:
         if ref not in known:
             problems.append(f"phase check: dangling evidence {ref}")
     return problems
+
+
+@_sections.register("pair", "reading", requires=("internals",))
+def _section(report: dict, ctx: "_sections.PairContext"):
+    # each run understood on its own, before and independent of the
+    # comparison — what happened, what the answer rests on, why it ended
+    # that way, what it means, what to take forward
+    return {"a": read_trace(ctx.a), "b": read_trace(ctx.b)}

@@ -12,18 +12,14 @@ from __future__ import annotations
 
 from typing import Optional
 
-from .consolidate import consolidate_diagnoses
-from .equality import equality_analysis
-from .metrics import aggregate as build_aggregate, task_signal
-from .reliability import reliability
+from . import sections
+# each aggregate section module registers itself with the registry when
+# imported; the import list is the one place a section is wired
+from . import consolidate, equality, reliability, rl, router, scorecard, statistics, triage  # noqa: F401
+from .metrics import aggregate as build_aggregate
 from .report import compare, attach_milestones
-from .rl import rl_aggregate
-from .router import routing_table
-from .scorecard import scorecard
 from .stability import medoid_pairs, stability_analysis
-from .statistics import paired_inference
 from .trace import Trajectory
-from .triage import triage
 
 
 class SuiteError(ValueError):
@@ -59,34 +55,19 @@ def analyse_runs(trajectories: list, *, warn=None, family_pattern: Optional[str]
     trace dict) lets the scorecard report a judge's verdicts."""
     name_a, name_b, runs_by_task = group_runs(trajectories, warn)
     stability = stability_analysis(runs_by_task)
-    reliability_analysis = reliability(runs_by_task)
+    reliability_analysis = reliability.reliability(runs_by_task)
     reports = [compare(a, b) for a, b in medoid_pairs(runs_by_task)]
     if golden or policy:
         for rep in reports:
             attach_milestones(rep, golden, policy=policy)
     agg = build_aggregate(reports)
-    agg["equality"] = equality_analysis(runs_by_task)
-    agg["routing"] = routing_table(trajectories, equality=agg["equality"], family_pattern=family_pattern)
-    agg["stability"] = stability
-    agg["reliability"] = reliability_analysis
-    agg["task_signal"] = task_signal(reports, stability)
-    agg["diagnosis_consolidated"] = consolidate_diagnoses(runs_by_task)
-    # the paired design the runs layout IS: both agents on the same tasks,
-    # so the comparison is a paired difference with a sign test, never two
-    # rates eyeballed against each other
-    agg["paired_inference"] = paired_inference(
-        [(sum(1.0 for t in runs_by_task[tid]["a"] if t.outcome.success) / len(runs_by_task[tid]["a"]),
-          sum(1.0 for t in runs_by_task[tid]["b"] if t.outcome.success) / len(runs_by_task[tid]["b"]))
-         for tid in sorted(runs_by_task)],
-        labels=(name_a, name_b))
-    # Re-triage now that reliability is attached: it is the only block that
-    # can tell triage to stop ranking cross-agent claims confidently, and it
-    # arrives after aggregate() has already run.
-    agg["triage"] = triage(reports, agg)
-    agg["scorecard"] = scorecard(trajectories, golden, policy, raws)
-    # every trace as an episode (reward recorded, else shaped): per-agent
-    # mean return with its interval, per-task deltas, the preference pairs
-    agg["rl"] = rl_aggregate(reports, trajectories, names=(name_a, name_b))
+    # every registered aggregate section, in dependency order (see
+    # deepcompare.sections); the stability and reliability readings were
+    # computed above, before the pairs were chosen from them
+    sections.attach("aggregate", agg, sections.AggregateContext(
+        trajectories=trajectories, runs_by_task=runs_by_task, reports=reports, names=(name_a, name_b),
+        stability=stability, reliability=reliability_analysis, golden=golden, policy=policy, raws=raws,
+        family_pattern=family_pattern))
     return {"names": (name_a, name_b), "runs_by_task": runs_by_task, "reports": reports,
             "aggregate": agg, "stability": stability, "reliability": reliability_analysis}
 

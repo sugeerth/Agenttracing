@@ -23,6 +23,7 @@ import re
 from typing import Optional
 
 from .trace import Trajectory
+from . import sections as _sections
 
 NORMALISATION = ("lower-case; whitespace and punctuation collapsed; thousands separators dropped; "
                  "hours/minutes/seconds spelled out to h/m/s; a trailing full stop dropped")
@@ -139,3 +140,8 @@ def equality_features(analysis: dict, agent: str, family_of=None) -> dict:
     return {fam: {"equality_rate": round(a["agreeing"] / a["runs"], 4) if a["runs"] else None,
                   "mean_distinct_answers": round(a["distinct"] / a["tasks"], 3) if a["tasks"] else None,
                   "consistently_wrong_tasks": a["wrong_majorities"]} for fam, a in out.items()}
+
+
+@_sections.register("aggregate", "equality")
+def _section(agg: dict, ctx: "_sections.AggregateContext"):
+    return equality_analysis(ctx.runs_by_task)

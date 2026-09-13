@@ -92,7 +92,7 @@ testable offline, and the tests do exactly that.
 | a long run, and its sub-agents | the Subdivisions and sub-agents section | the run folded into spans (sub-agents, nested via `step.span`), subdivisions and steps as a time-weighted tree; zoom into any node; a ledger per sub-agent |
 | what to fix first, and did the fix work | triage, `progress` | ranked actions with verification contracts, before/after matching |
 | whether the number can be trusted | `bench --strict` | the diagnoser's own benchmark with a leakage probe: the margin over a surface-cue detector is the headline |
-| N agents, selection, CI | `fleet`, `select`, `gate`, `experiments`, `variance` | rankings, interchangeability, a regression gate, variance attribution |
+| N agents, selection, CI, dashboards | `fleet`, `select`, `gate`, `experiments`, `variance`, `grafana` | rankings, interchangeability, a regression gate, variance attribution; every number as Prometheus samples with intervals as separate series, and five provisioned Grafana dashboards under `grafana/` ([docs/GRAFANA.md](docs/GRAFANA.md)) |
 | does the recording reproduce; what does the next model do in it; what did the model see; how far did a long run get | `rerun` (`--span`, `--from/--until`, `--provider`, `--golden`), `checkpoint`, `context`, the Milestones ladder | hermetic replay with the world served from a cassette, by segment or sub-agent, the first miss named, a drift map over the sub-agents, milestones reached before the answer; the context before any step ([docs/REPLAY.md](docs/REPLAY.md)) |
 
 Every finding cites the step and field it rests on; abstention is an

@@ -55,6 +55,7 @@ from .rlaudit import audit_aggregate, audit_pair
 from .rlspace import rl_space
 from .rlstats import BOOTSTRAP_SAMPLES as _rlstats_samples, rl_stats
 from .trace import Trajectory
+from . import sections as _sections
 
 VERSION = 1
 GAMMA = 0.99
@@ -616,3 +617,17 @@ def _aggregate_narrative(agents: dict, tasks: dict, preferences: list, source: s
 
 __all__ = ["rl_pair", "rl_run_from_trace", "rl_aggregate", "rl_stats", "audit_aggregate", "audit_pair", "mean_ci", "GAMMA", "SHAPED_WEIGHTS", "ANSWER_REWARD",
            "DECISIVE_REWARD", "MILESTONE_REWARD", "FAULT_LABELS", "RLSTATS_SAMPLES", "VERSION"]
+
+
+@_sections.register("pair", "rl", requires=("feedback",))
+def _pair_section(report: dict):
+    # the run as an episode: reward (recorded, else shaped from the labels
+    # above), return, credit from the Shapley split, clusters on one scale
+    return rl_pair(report)
+
+
+@_sections.register("aggregate", "rl", requires=("scorecard",))
+def _aggregate_section(agg: dict, ctx: "_sections.AggregateContext"):
+    # every trace as an episode (reward recorded, else shaped): per-agent
+    # mean return with its interval, per-task deltas, the preference pairs
+    return rl_aggregate(ctx.reports, ctx.trajectories, names=ctx.names)

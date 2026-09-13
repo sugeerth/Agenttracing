@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import re
 from typing import Any, Optional
+from . import sections as _sections
 
 TOOLISH = ("tool_call", "search", "retrieve", "read")
 EXTERNAL = re.compile(r"(web|http|fetch|curl|browser|open_page|search|send_|email|slack|api|scrape|download)", re.I)
@@ -270,3 +271,8 @@ def dossier(report: dict, name: str) -> dict:
         return {"name": name, "found": False}
     return {"name": name, "found": True, "a": row["a"], "b": row["b"], "agents": row["agents"],
             "suggestions": [s for s in pair["suggestions"] if s["tool"] == name]}
+
+
+@_sections.register("pair", "tools_profile", requires=("trust",))
+def _section(report: dict):
+    return tool_pair(report)

@@ -14,6 +14,7 @@ from typing import Optional
 
 from .report import compare
 from .trace import Trajectory
+from . import sections as _sections
 
 SYSTEMATIC_THRESHOLD = 0.8
 VARIABLE_THRESHOLD = 0.3
@@ -210,3 +211,10 @@ def medoid_pairs(
         runs_b = sorted(runs_by_task[tid]["b"], key=lambda t: t.run_id)
         pairs.append((_medoid(runs_a), _medoid(runs_b)))
     return pairs
+
+
+@_sections.register("aggregate", "stability", requires=("routing",))
+def _section(agg: dict, ctx: "_sections.AggregateContext"):
+    # computed before the pair reports, since the medoid pairs are chosen
+    # from it; the section places that reading
+    return ctx.stability

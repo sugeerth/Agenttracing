@@ -160,20 +160,20 @@
   /* An interval is drawn as an interval: the point as a dot on a line from
    * lo to hi with a tick at each end, on the x scale, at opts.y. A missing
    * bound collapses to the point, so a degenerate interval is still a dot.
-   * opts: {y, color, width (2), opacity (0.42), tick (4), r (3.6), dot (true)}.
-   * Returns {a, b} — the pixel ends — so the block can place its label and
-   * hit target. */
+   * opts: {y, color, width (2), opacity (0.42), tick (4), r (3.6), dot (true),
+   * lineClass, dotClass}. Returns {a, b} — the pixel ends — so the block can
+   * place its label and hit target. */
   function interval(g, x, point, lo, hi, opts) {
     opts = opts || {};
     var y = isNum(opts.y) ? opts.y : 0, stroke = opts.color || "currentColor";
     var width = isNum(opts.width) ? opts.width : 2, opacity = isNum(opts.opacity) ? opts.opacity : 0.42;
     var tick = isNum(opts.tick) ? opts.tick : 4, r = isNum(opts.r) ? opts.r : 3.6;
     var a = isNum(lo) ? x(lo) : x(point), b = isNum(hi) ? x(hi) : x(point);
-    g.appendChild(el("line", { x1: a, x2: b, y1: y, y2: y, stroke: stroke, "stroke-width": width, "stroke-opacity": opacity, "stroke-linecap": "round" }));
+    g.appendChild(el("line", { class: opts.lineClass || null, x1: a, x2: b, y1: y, y2: y, stroke: stroke, "stroke-width": width, "stroke-opacity": opacity, "stroke-linecap": "round" }));
     if (tick > 0) [a, b].forEach(function (px) {
       g.appendChild(el("line", { x1: px, x2: px, y1: y - tick, y2: y + tick, stroke: stroke, "stroke-width": isNum(opts.tickWidth) ? opts.tickWidth : 1.5, "stroke-opacity": opacity }));
     });
-    if (opts.dot !== false && isNum(point)) g.appendChild(el("circle", { cx: x(point), cy: y, r: r, fill: stroke }));
+    if (opts.dot !== false && isNum(point)) g.appendChild(el("circle", { class: opts.dotClass || null, cx: x(point), cy: y, r: r, fill: stroke }));
     return { a: a, b: b };
   }
   //: a fold's length scales with what it constricts: 4–5 steps ≈ 20px, 11 ≈ 27px, 100 ≈ 46px

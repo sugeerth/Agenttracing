@@ -28,6 +28,7 @@ is consulted and nothing is estimated.
 from __future__ import annotations
 
 from typing import Any, Optional
+from . import sections as _sections
 
 
 def _text(step: dict, where: str) -> str:
@@ -197,3 +198,22 @@ def lost_and_gained(before: dict, after: dict) -> dict:
     b = {m["id"] for m in before["milestones"] if m["reached"]}
     a = {m["id"] for m in after["milestones"] if m["reached"]}
     return {"lost": sorted(b - a), "gained": sorted(a - b), "same": a == b}
+
+
+@_sections.register("pair", "milestones", on_demand=True)
+def _section(report: dict, ctx: "_sections.PairContext"):
+    """``report["milestones"]``: both runs read against the golden task's
+    milestones — ``{"a", "b", "diff", "narrative", "source"}``. Attached
+    on demand, once the golden tasks are known; without milestones on the
+    task the section says so and measures nothing."""
+    golden = ctx.golden if ctx is not None else None
+    task_id = str(((report.get("task") or {}).get("id")) or "")
+    golden_task = ((golden or {}).get("tasks") or {}).get(task_id) if golden else None
+    ms = (golden_task or {}).get("milestones") if isinstance(golden_task, dict) else None
+    a = evaluate(report.get("a") or {}, ms)
+    b = evaluate(report.get("b") or {}, ms)
+    names = (((report.get("a") or {}).get("agent") or {}).get("name", "a"), ((report.get("b") or {}).get("agent") or {}).get("name", "b"))
+    diff = compare(a, b, names)
+    return {"a": a, "b": b, "diff": diff,
+            "narrative": diff["narrative"] if diff.get("measurable") else a["narrative"],
+            "source": (golden or {}).get("path") if ms else None}

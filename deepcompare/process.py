@@ -39,6 +39,7 @@ from typing import Optional
 
 from .tooldiff import TOOLISH_TYPES, parse_args
 from .trace import EFFECTS, Step, Trajectory
+from . import sections as _sections
 
 #: tool-name stems that change something outside the agent.  Only consulted
 #: when the log does not declare an effect; a guess that is labelled a guess.
@@ -682,3 +683,8 @@ def _pair_narrative(a, b, left, right, differing, both) -> str:
         lead += " — and at least one of those runs passed anyway, so the outcome " \
                 "hides it"
     return lead[0].upper() + lead[1:] + "."
+
+
+@_sections.register("pair", "process", requires=("shapley",))
+def _section(report: dict, ctx: "_sections.PairContext"):
+    return compare_process(ctx.a, ctx.b)

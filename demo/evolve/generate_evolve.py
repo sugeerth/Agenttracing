@@ -46,7 +46,6 @@ fact found, ±5 at the answer), every value is invented and labelled so.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import random
 import sys
@@ -56,15 +55,13 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from deepcompare.record import Recorder  # noqa: E402
-from demo.rl.generate_rl import TASKS, TOOL_COST, ERROR_REWARD, EVIDENCE_REWARD, ANSWER_REWARD, _value  # noqa: E402
+from demo._env import TASKS, label_synthetic, run_episode, tools_for  # noqa: E402
 
 NOTE = "SYNTHETIC: a generated generation of a self-evolving agent; rewards paid by a scripted environment; every value invented"
 FAMILY = "ledger-agent"
 RUNS = ("r1", "r2", "r3", "r4", "r5")
 #: an unverified answer is wrong this often even when every fact was found
 UNVERIFIED_WRONG = 0.30
-#: a search that already failed once succeeds less often on each retry
-RETRY_DECAY = 0.4
 
 BASE_PROMPT = (
     "You are a careful analyst. You have grep, read_file, search and run_check. "
@@ -287,81 +284,28 @@ def artifacts_of(gen: dict) -> dict:
 
 
 def make(task: dict, gen: dict, run: str, out: Path, family: str = FAMILY) -> Path:
+    """One episode of generation ``gen`` on ``task``: the generation's
+    hidden behaviour (its ``sim`` and ``config``) played by the
+    environment and labelled SYNTHETIC."""
     agent = f"{family}@{gen['id']}"
     sim, cfg = gen["sim"], gen["config"]
     # the first family keeps the seed it shipped with, so its lineage is
     # byte-identical to the one the tests pinned; a later family salts it
     seed = f"evolve|{task['id']}|{gen['id']}|{run}" if family == FAMILY else f"evolve|{family}|{task['id']}|{gen['id']}|{run}"
     rng = random.Random(seed)
-    hit = min(0.999, max(0.05, sim["hit"] + sim["adj"].get(task["id"], 0.0)))
-    checks, retries = cfg["checks"], cfg["max_search_retries"]
-    expected_final = ANSWER_REWARD * (2 * hit ** len(task["items"]) - 1)
-    tools = [{"name": "grep", "effect": "read"}, {"name": "read_file", "effect": "read"}, {"name": "search", "effect": "read"}]
-    if checks:
-        tools.append({"name": "run_check", "effect": "read"})
+    checks = cfg["checks"]
+    behaviour = {"hit": min(0.999, max(0.05, sim["hit"] + sim["adj"].get(task["id"], 0.0))),
+                 "error": sim["error"], "checks": checks, "retries": cfg["max_search_retries"],
+                 "unverified_wrong": UNVERIFIED_WRONG}
     r = Recorder(task=task["id"], prompt=task["prompt"], agent=agent, model=f"sim-{agent}", version=gen["id"],
-                 expected=task["expected"], run_id=run, out_dir=out, tools=tools)
-    with r:
-        r.plan(f"Plan: inventory the inputs, locate each of the {len(task['items'])} facts the answer needs, "
-               + ("verify, " if checks else "") + "answer.", latency_s=1.4, tokens=90 + 2 * len(gen["memory"]),
-               reward=0.0, value=_value(rng, expected_final, 40))
-        for name in task.get("probes", ("invoices", "payments", "totals", "mismatch")):
-            r.tool("grep", {"pattern": name, "path": task["files"][0].split("/")[0]},
-                   output=f"{rng.randint(3, 40)} lines match '{name}'", latency_s=rng.uniform(0.1, 0.4),
-                   tokens=rng.randint(20, 50), reward=TOOL_COST)
-        files = task["files"]
-        if "schema" in "".join(gen["rules"]).lower():
-            # the schema-first rule: README and schema read before the rest
-            files = sorted(files, key=lambda f: 0 if ("schema" in f or "readme" in f.lower()) else 1)
-        for f in files:
-            r.read(f, output=f"contents of {f} ({rng.randint(40, 300)} lines)", name="read_file",
-                   latency_s=rng.uniform(0.2, 0.6), tokens=rng.randint(60, 160), reward=TOOL_COST)
-        found = 0
-        for k, (query, evidence) in enumerate(task["items"]):
-            got = False
-            for attempt in range(retries):
-                r.search(f"search: {query}" + (f" (attempt {attempt + 1})" if attempt else ""),
-                         output=f"{rng.randint(1, 6)} candidate rows for {query}",
-                         latency_s=rng.uniform(0.5, 1.5), tokens=rng.randint(30, 80), reward=TOOL_COST)
-                got = rng.random() < hit * (RETRY_DECAY ** attempt)
-                r.read(f"row for {query}", name="read_file",
-                       output=evidence if got else f"no row matching {query}",
-                       latency_s=rng.uniform(0.2, 0.7), tokens=rng.randint(40, 120),
-                       reward=TOOL_COST + (EVIDENCE_REWARD if got else 0.0))
-                if got:
-                    break
-            found += got
-            remaining = 2 * (len(task["items"]) - k - 1) + checks + 2
-            r.reason(f"{'Recorded' if got else 'Could not confirm'} item {k + 1} of {len(task['items'])}: {query}",
-                     latency_s=rng.uniform(0.4, 0.9), tokens=rng.randint(40, 90),
-                     reward=0.0, value=_value(rng, expected_final, remaining))
-        if checks:
-            with r.span("verifier"):
-                for j in range(checks):
-                    err = rng.random() < sim["error"]
-                    r.tool("run_check", {"check": f"consistency-{j + 1}"},
-                           output="error: check input malformed" if err else "ok",
-                           error=True if err else None, latency_s=rng.uniform(1.0, 3.0), tokens=rng.randint(20, 40),
-                           reward=ERROR_REWARD if err else TOOL_COST)
-                    if err:
-                        r.reason(f"verifier: check {j + 1} rejected the input; retry with the corrected arguments",
-                                 latency_s=rng.uniform(0.3, 0.8), tokens=rng.randint(30, 60),
-                                 reward=0.0, value=_value(rng, expected_final, checks - j + 1))
-                        r.tool("run_check", {"check": f"consistency-{j + 1}", "retry": True}, output="ok",
-                               latency_s=rng.uniform(1.0, 2.0), tokens=rng.randint(20, 40), reward=TOOL_COST)
-        all_found = found == len(task["items"])
-        # without a verifier, a complete set of facts still becomes a wrong
-        # answer a third of the time: that is what verification was buying
-        success = all_found and (checks > 0 or rng.random() >= UNVERIFIED_WRONG)
-        r.reason("Compose the answer from the " + (f"{found} confirmed items" if all_found else f"{found} of {len(task['items'])} items confirmed"),
-                 latency_s=rng.uniform(0.6, 1.2), tokens=rng.randint(50, 100), reward=0.0, value=_value(rng, expected_final, 1))
-        r.answer(task["answer"] if success else task["wrong"], success=success, tokens=60, latency_s=1.1,
-                 reward=ANSWER_REWARD if success else -ANSWER_REWARD)
-    path = r.path
-    data = json.loads(path.read_text(encoding="utf-8"))
-    data["harness"] = {"adapter": "synthetic", "graded_by": "exact-match", "note": NOTE}
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    return path
+                 expected=task["expected"], run_id=run, out_dir=out, tools=tools_for(checks))
+    files = task["files"]
+    if "schema" in "".join(gen["rules"]).lower():
+        # the schema-first rule: README and schema read before the rest
+        files = sorted(files, key=lambda f: 0 if ("schema" in f or "readme" in f.lower()) else 1)
+    run_episode(task, behaviour, rng, r, files=files, plan_tokens=90 + 2 * len(gen["memory"]))
+    label_synthetic(r.path, NOTE)
+    return r.path
 
 
 def write_generation(gen: dict, out: Path, parent_failures: dict, family: str = FAMILY) -> dict:

@@ -15,13 +15,11 @@
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, pct = L.fmt.pct;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("trust", [
       ".tr{--tr-a:var(--a);--tr-b:var(--b)}",
       ".tr-narr{font-size:var(--fs-m);color:var(--ink);margin:0 0 10px;max-width:90ch}",
       ".tr-ledger{border-collapse:collapse;width:100%;table-layout:fixed;font-size:var(--fs-xs);font-variant-numeric:tabular-nums}",
@@ -43,12 +41,9 @@
       ".tr-details ul{margin:4px 0 6px;padding-left:18px;color:var(--ink-2)}.tr-details li{margin:1px 0}",
       ".tr-details p{margin:4px 0 0;color:var(--ink-3);max-width:90ch}",
       ".tr-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:8px;max-width:100ch}",
-    ].join("\n");
-    document.head.appendChild(node);
+    ].join("\n"));
   }
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function pct(v) { return isNum(v) ? Math.round(v * 100) + "%" : "—"; }
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
   function chipClass(label) { return label === "high" ? "good" : label === "medium" ? "warn" : "bad"; }
   function forbiddenCount(p) {

@@ -53,6 +53,7 @@ import math
 from typing import Optional
 
 from .horizon import BOUNDARY_INTENTS
+from . import sections as _sections
 
 TOOLISH = ("tool_call", "search", "retrieve", "read")
 
@@ -551,3 +552,10 @@ def impact_pair(report: dict) -> dict:
 
 
 __all__ = ["impact_run", "impact_pair", "step_facts", "cluster_steps", "WEIGHTS", "WASTED_CAP", "TIME_WEIGHT", "HOT", "WORK"]
+
+
+@_sections.register("pair", "impact", requires=("horizon",), after=("milestones",))
+def _section(report: dict):
+    # after the milestones when they are attached in the same pass: the
+    # milestones reached mark the clusters they sit in
+    return impact_pair(report)

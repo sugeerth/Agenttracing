@@ -68,12 +68,12 @@
     ".evc-lede{font-size:var(--fs-m);color:var(--ink);margin:0 0 6px;max-width:96ch}.evc-lede b{font-weight:600}",
     ".evc-bar{display:flex;gap:6px 14px;flex-wrap:wrap;align-items:center;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 8px}",
     ".evc-bar i{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:-1px;margin-right:5px}",
-    ".evc-chip{font-family:var(--mono);color:var(--ink-2);font-variant-numeric:tabular-nums;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}",
+    ".evc-chip{font-family:var(--mono);color:var(--ink-2);font-variant-numeric:tabular-nums;max-width:100%;overflow-wrap:anywhere}",
     ".evc-chip b{color:var(--ink);font-weight:600}",
     ".evc-bar button{font:inherit;font-size:var(--fs-xs);border:0;background:var(--surface-2);color:var(--ink-2);border-radius:999px;padding:1px 9px;cursor:pointer}",
     ".evc-bar button:hover{color:var(--ink)}.evc-bar button[aria-pressed=true]{background:var(--ink);color:var(--bg)}",
     ".evc-bar button:disabled{opacity:.4;cursor:default}",
-    ".evc-seg{display:inline-flex;gap:2px;flex:0 0 auto}",
+    ".evc-seg{display:inline-flex;gap:2px;flex-wrap:wrap;max-width:100%}",
     ".evc-note{font-size:var(--fs-xs);color:var(--ink-3);margin:8px 0 0;max-width:96ch;line-height:1.5}",
     ".evc-read{font-size:var(--fs-xs);color:var(--ink-2);margin:6px 0 0;line-height:1.5;max-width:96ch}.evc-read b{color:var(--ink);font-weight:600}",
     ".evc-axes{list-style:none;margin:8px 0 0;padding:0;font-size:var(--fs-xs);color:var(--ink-2);line-height:1.5;max-width:96ch}",
@@ -825,10 +825,10 @@
       rows.forEach(function (l) { head.push(H("th", { text: l.family })); });
       table.appendChild(H("tr", null, head));
       function row(key, label, get, badWhen, cls) {
-        var tr = H("tr", { "data-measure": key }, [H("td", { class: cls || "", text: label })]);
+        var tr = H("tr", { "data-measure": key }, [H("td", { text: label })]);
         rows.forEach(function (l) {
           var v = get(l.process, l), isBad = badWhen ? badWhen(v, l.process) : false;
-          tr.appendChild(H("td", { class: "num" + (isBad ? " bad" : ""), text: v === null || v === undefined ? "—" : String(v) }));
+          tr.appendChild(H("td", { class: (cls === "name" ? "name" : "num") + (isBad ? " bad" : ""), text: v === null || v === undefined ? "—" : String(v) }));
         });
         table.appendChild(tr);
       }
@@ -836,11 +836,15 @@
       group("steps");
       row("steps", "steps", function (p) { return count(p.steps); });
       VERDICT_ORDER.forEach(function (k) { row(k, k, function (p) { return count(p[k]); }, function (v) { return v > 0 && (k === "gamed" || k === "forgot" || k === "regressed"); }); });
-      row("accepted_on_noise", "accepted on noise", function (p) { return count(p.accepted_on_noise) + (Array.isArray(p.accepted_on_noise_steps) && p.accepted_on_noise_steps.length ? " (" + p.accepted_on_noise_steps.join(", ") + ")" : ""); });
+      // the counts, then the names behind them on their own wrapping rows, so the table stays narrow
+      row("accepted_on_noise", "accepted on noise", function (p) { return count(p.accepted_on_noise); });
+      row("accepted_on_noise_steps", "kept on noise", function (p) { return Array.isArray(p.accepted_on_noise_steps) && p.accepted_on_noise_steps.length ? p.accepted_on_noise_steps.join(", ") : "none"; }, null, "name");
       row("monotone", "monotone", function (p) { return p.monotone === true ? "yes" : p.monotone === false ? "no" : null; });
       group("integrity");
-      row("protected_touched", "protected paths touched", function (p) { return count(p.protected_touched) + (Array.isArray(p.protected_touched_paths) && p.protected_touched_paths.length ? " (" + p.protected_touched_paths.map(function (t) { return (t.path || "?") + " at " + (t.to || t.step || "?"); }).join(", ") + ")" : ""); }, function (v, p) { return count(p.protected_touched) > 0; });
-      row("over_budget", "over budget", function (p) { return count(p.over_budget) + (Array.isArray(p.over_budget_rows) && p.over_budget_rows.length ? " (" + p.over_budget_rows.map(function (o) { return o.gen + " " + o.what + " " + num(o.value, 0) + " > " + num(o.budget, 0); }).join(", ") + ")" : ""); }, function (v, p) { return count(p.over_budget) > 0; });
+      row("protected_touched", "protected paths touched", function (p) { return count(p.protected_touched); }, function (v) { return v > 0; });
+      row("protected_touched_paths", "which paths", function (p) { return Array.isArray(p.protected_touched_paths) && p.protected_touched_paths.length ? p.protected_touched_paths.map(function (t) { return (t.path || "?") + " at " + (t.to || t.step || "?"); }).join(", ") : "none"; }, null, "name");
+      row("over_budget", "over budget", function (p) { return count(p.over_budget); }, function (v) { return v > 0; });
+      row("over_budget_rows", "which budgets", function (p) { return Array.isArray(p.over_budget_rows) && p.over_budget_rows.length ? p.over_budget_rows.map(function (o) { return o.gen + " " + o.what + " " + num(o.value, 0) + " > " + num(o.budget, 0); }).join(", ") : "none"; }, null, "name");
       row("collapsed", "collapsed", function (p) { return count(p.collapsed); }, function (v) { return v > 0; });
       group("retention");
       row("ever_solved", "tasks ever solved", function (p) { var r = p.retention || {}; return isNum(r.ever_solved_n) ? r.ever_solved_n : Array.isArray(r.ever_solved) ? r.ever_solved.length : null; });
@@ -1014,7 +1018,7 @@
     var every = Math.max(1, Math.ceil(26 / Math.max(1, cw)));
     heads.append("text").attr("class", "lab mono").attr("text-anchor", "middle").attr("x", function (k) { return x(k) + cw / 2; }).attr("y", 12)
       .text(function (k) { return k % every === 0 || k === n - 1 ? trunc(idAt(m, k), Math.max(2, Math.floor(cw / 6.2))) : ""; });
-    svg.append("text").attr("class", "tick").attr("x", W - padR - edgeW + 6).attr("y", 12).text("first solver");
+    svg.append("text").attr("class", "tick").attr("x", W - padR - edgeW + 6).attr("y", 12).text(fit(narrow ? "first" : "first solver", edgeW - 8));
     tasks.forEach(function (t, ti) {
       var yy = headH + ti * (cellH + gap), mid = yy + cellH / 2;
       svg.append("text").attr("class", "lab mono").attr("x", labW - 8).attr("y", mid + 4).attr("text-anchor", "end").text(trunc(short(t), Math.floor((labW - 10) / 6.6))).append("title").text(t);
@@ -1144,7 +1148,11 @@
   function drawMechanisms(host, ctx, m, rows, tip) {
     if (!d3) return;
     var W = width(host), narrow = W < 520;
-    var labW = narrow ? 74 : 104, valW = narrow ? 44 : 92, padR = 6, rowH = 32, padT = 16, padB = 22;
+    var labW = narrow ? 74 : 104, padR = 6, rowH = 32, padT = 16, padB = 22;
+    //: the count column is as wide as its longest entry, so it never runs past the edge
+    function valText(c) { return narrow ? c.steps + " · +" + c.improved + "/−" + c.regressed : c.steps + " step" + (c.steps === 1 ? "" : "s") + " · +" + c.improved + " / −" + c.regressed; }
+    var valHead = narrow ? "n · +/−" : "steps · improved/regressed";
+    var valW = 10 + CH * rows.reduce(function (a, r) { return Object.keys(r.per).reduce(function (b, f) { return Math.max(b, valText(r.per[f]).length); }, a); }, valHead.length);
     var lo = 0, hi = 0;
     rows.forEach(function (r) { Object.keys(r.per).forEach(function (f) { var c = r.per[f]; [c.mean, c.min, c.max].forEach(function (v) { if (isNum(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }); }); });
     if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
@@ -1155,7 +1163,7 @@
     svg.append("line").attr("class", "zero").attr("x1", x(0)).attr("x2", x(0)).attr("y1", padT - 6).attr("y2", H - padB + 2);
     x.ticks(narrow ? 3 : 5).forEach(function (t) { svg.append("text").attr("class", "tick").attr("x", x(t)).attr("y", H - 6).attr("text-anchor", "middle").text(signed(t, 1)); });
     svg.append("text").attr("class", "lab dim").attr("x", x(0) + 4).attr("y", 10).text(fit("mean ΔIQM per step →", W - padR - valW - x(0) - 4));
-    svg.append("text").attr("class", "tick").attr("x", W - padR - valW + 4).attr("y", 10).text(narrow ? "n · +/−" : "steps · improved/regressed");
+    svg.append("text").attr("class", "tick").attr("x", W - padR - valW + 4).attr("y", 10).text(valHead);
     var rScale = d3.scaleSqrt().domain([0, Math.max(1, rows.reduce(function (a, r) { return Math.max(a, Object.keys(r.per).reduce(function (b, f) { return Math.max(b, r.per[f].steps); }, 0)); }, 0))]).range([2.5, 7]);
     rows.forEach(function (r, i) {
       var top = padT + i * rowH;
@@ -1167,7 +1175,7 @@
         var mg = g.append("g").attr("class", "evc-mdot").attr("data-family", l.family).attr("data-steps", c.steps).attr("data-mean", isNum(c.mean) ? c.mean : "");
         if (isNum(c.min) && isNum(c.max) && c.max > c.min) mg.append("line").attr("x1", x(c.min)).attr("x2", x(c.max)).attr("y1", y).attr("y2", y).attr("stroke", l.color).attr("stroke-width", 2).attr("stroke-opacity", 0.4).attr("stroke-linecap", "round");
         if (isNum(c.mean)) mg.append("circle").attr("cx", x(c.mean)).attr("cy", y).attr("r", rScale(c.steps)).attr("fill", l.color).attr("fill-opacity", 0.9);
-        mg.append("text").attr("class", "tick").attr("x", W - padR - valW + 4).attr("y", y + 4).attr("fill", l.color).text(narrow ? c.steps + " · +" + c.improved + "/−" + c.regressed : c.steps + " step" + (c.steps === 1 ? "" : "s") + " · +" + c.improved + " / −" + c.regressed);
+        mg.append("text").attr("class", "tick").attr("x", W - padR - valW + 4).attr("y", y + 4).attr("fill", l.color).text(valText(c));
         mg.append("rect").attr("x", labW).attr("y", y - 6).attr("width", W - labW - padR).attr("height", 13).attr("fill", "transparent");
         mg.on("pointermove", function (evt) {
           var vs = Object.keys(c.verdicts).sort().map(function (k) { return c.verdicts[k] + " " + k; }).join(", ");

@@ -23,6 +23,7 @@ from .issues import build_issues
 from .attributes import attribute_analysis
 from .joint import joint_attribute_model
 from .triage import triage
+from . import sections as _sections
 
 #: metric key -> human label used in regression messages.
 _REGRESSION_METRICS = {
@@ -284,3 +285,8 @@ def _corpus_from_reports(reports: list[dict]) -> list:
             except ValueError:
                 continue
     return corpus
+
+
+@_sections.register("aggregate", "task_signal", requires=("reliability",))
+def _task_signal_section(agg: dict, ctx: "_sections.AggregateContext"):
+    return task_signal(ctx.reports, ctx.stability)

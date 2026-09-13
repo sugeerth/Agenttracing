@@ -35,6 +35,7 @@ from math import factorial
 from typing import Optional
 
 from .trace import Trajectory
+from . import sections as _sections
 
 #: above this many divergence regions, exact enumeration is skipped.
 EXACT_LIMIT = 12
@@ -232,3 +233,8 @@ def shapley_attribution(
         ),
         "narrative": narrative,
     }
+
+
+@_sections.register("pair", "shapley", requires=("counterfactual",))
+def _section(report: dict, ctx: "_sections.PairContext"):
+    return shapley_attribution(report, ctx.a, ctx.b)

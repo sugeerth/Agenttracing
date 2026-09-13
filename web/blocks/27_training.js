@@ -25,16 +25,14 @@
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, signed = L.fmt.signed, short = L.fmt.short, colorOf = L.color.agent;
 
   //: a quiet stretch of this many zero-reward steps folds into ×N
   var FOLD_MIN = 5;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("training", [
       ".rl{position:relative}",
       ".rl svg{display:block;width:100%;height:auto;font-family:var(--sans)}",
       ".rl .lab{font-size:var(--fs-xs);fill:var(--ink-2)}.rl .lab.dim{fill:var(--ink-3)}.rl .lab.mono{font-family:var(--mono)}",
@@ -73,33 +71,21 @@
       ".rl-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);max-width:320px}",
       ".rl-tip b{color:var(--ink)}",
       "@media (max-width:640px){.rld-row{grid-template-columns:minmax(60px,1fr) minmax(80px,2fr) 48px}}",
-    ].join("\n");
-    document.head.appendChild(node);
+    ].join("\n"));
   }
 
   // ------------------------------------------------------------ helpers
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function signed(v, p) {
-    if (!isNum(v)) return "—";
-    var s = Math.abs(v).toFixed(p === undefined ? 2 : p);
-    return v > 0 ? "+" + s : v < 0 ? "−" + s : s;
-  }
   function plain(v, p) { return isNum(v) ? v.toFixed(p === undefined ? 2 : p) : "—"; }
-  function short(id) { return String(id || "").replace(/^t\d+_/, "").replace(/_/g, " "); }
   function trunc(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
   function sum(arr) { var t = 0; for (var i = 0; i < arr.length; i++) if (isNum(arr[i])) t += arr[i]; return t; }
   function mean(arr) { var xs = arr.filter(isNum); return xs.length ? sum(xs) / xs.length : null; }
   function ret(ep) { return ep.ret; }
   function key(ep) { return ep.task_id + "|" + ep.policy + "|" + (ep.run_id || ""); }
-  function colorOf(side, i) { return side === "a" ? "var(--a)" : side === "b" ? "var(--b)" : i === 2 ? "var(--warn)" : "var(--ink-3)"; }
-  //: a fold's length scales with the steps it constricts — the same rule as Where it mattered
-  function foldW(steps) { return 6 + 6 * Math.log(1 + Math.max(0, steps)) / Math.LN2; }
-  function width(host) { var w = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0; return Math.max(300, Math.min(1400, w || 320)); }
-  function responsive(host, draw, k) {
-    if (AgentDiff.charts && AgentDiff.charts.responsive) return AgentDiff.charts.responsive(host, draw, k);
-    draw(); return host;
-  }
+  //: a fold's length scales with the steps it constricts — the same law as Where it mattered
+  var foldW = L.glyph.foldWidth;
+  function width(host) { return L.layout.measure(host, 300, 1400); }
+  var responsive = L.layout.responsive;
   function selectStep(report, side, step) {
     if (AgentDiff.charts && AgentDiff.charts.selectStep && report) AgentDiff.charts.selectStep(report, side, step);
   }
@@ -109,26 +95,7 @@
     if (fn && id) fn(id);
   }
 
-  function tooltip(root) {
-    var tip = document.createElement("div"); tip.className = "rl-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) {
-          if (!l) return;
-          var d = document.createElement("div");
-          if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text;
-          tip.appendChild(d);
-        });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 320 > r.width) x = Math.max(0, evt.clientX - r.left - 330);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "rl-tip", width: 320 }); }
 
   //: a per-step number list from either numbers or {step, reward} entries
   function perStep(list, n) {
@@ -478,7 +445,8 @@
   });
 
   /* rl-reward-map: episodes × steps, every reward a cell. */
-  var UNFOLDED = {};
+  //: the folds the reader opened, page-wide: an episode key is task-qualified already
+  var FOLDS = L.family("rl-curves", { open: {} }, { scope: "page" });
   function units(ep) {
     var out = [], i = 0, n = ep.rewards.length;
     while (i < n) {
@@ -486,7 +454,7 @@
       var j = i;
       while (j < n && ep.rewards[j] === 0) j++;
       var len = j - i;
-      if (len >= FOLD_MIN && !UNFOLDED[key(ep) + "|" + i]) out.push({ type: "fold", from: i, to: j - 1, steps: len });
+      if (len >= FOLD_MIN && !FOLDS.get().open[key(ep) + "|" + i]) out.push({ type: "fold", from: i, to: j - 1, steps: len });
       else for (var k = i; k < j; k++) out.push({ type: "blank", step: k });
       i = j;
     }
@@ -549,7 +517,7 @@
           fg.append("title").text(u.steps + " steps without reward (" + u.from + "–" + u.to + ") folded; click to open");
           fg.on("pointermove", function (evt) {
             tip.show(evt, [{ b: true, text: e.policy + " · " + short(e.task_id) + (e.run_id ? " · " + e.run_id : "") }, { text: "steps " + u.from + "–" + u.to + " · " + u.steps + " steps · reward 0" }, { text: "click to open" }]);
-          }).on("pointerleave", tip.hide).on("click", function () { tip.hide(); UNFOLDED[key(e) + "|" + u.from] = true; repaint(); });
+          }).on("pointerleave", tip.hide).on("click", function () { tip.hide(); FOLDS.get().open[key(e) + "|" + u.from] = true; repaint(); });
           x += w;
           return;
         }
@@ -596,8 +564,8 @@
         H("span", { class: "rl-chip", "data-key": "zero", text: zero + " silent" }),
         H("span", { text: "a fold ×N holds N silent steps · bold rows are the pair on the page; a click there opens the step" }),
       ]);
-      var folded = Object.keys(UNFOLDED).length;
-      if (folded) bar.appendChild(H("button", { text: "fold the quiet back", onclick: function () { UNFOLDED = {}; if (AgentDiff._rerender) AgentDiff._rerender(); } }));
+      var folded = Object.keys(FOLDS.get().open).length;
+      if (folded) bar.appendChild(H("button", { text: "fold the quiet back", onclick: function () { FOLDS.set({ open: {} }, { rerender: true }); } }));
       root.appendChild(bar);
       var host = H("div", { class: "rl-chart" });
       function repaint() { host.innerHTML = ""; drawMap(host, ctx, m, tip, repaint); }

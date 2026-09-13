@@ -26,6 +26,7 @@ apart:
 from __future__ import annotations
 
 from typing import Optional
+from . import sections as _sections
 
 
 def _spend(side: dict) -> dict:
@@ -164,3 +165,8 @@ def pair_tradeoff(report: dict) -> dict:
             "spend is the whole decision — on this task."),
     })
     return base
+
+
+@_sections.register("pair", "tradeoff", requires=("process",))
+def _section(report: dict):
+    return pair_tradeoff(report)

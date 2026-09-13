@@ -22,13 +22,11 @@
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, secs = L.fmt.secs;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("heat", [
       ".hm{--hm-a:var(--a);--hm-b:var(--b);position:relative}",
       "@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .hm{--hm-a:#3987e5;--hm-b:#d95926}}",
       ":root[data-theme=dark] .hm{--hm-a:#3987e5;--hm-b:#d95926}",
@@ -49,14 +47,11 @@
       ".tm-matrix .pair i{display:block;height:5px;border-radius:0 3px 3px 0;min-width:1px}",
       ".tm-matrix .pair i.a{background:var(--hm-a)}.tm-matrix .pair i.b{background:var(--hm-b)}",
       ".hm-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:6px;max-width:90ch}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function secs(v) { return !isNum(v) ? "—" : v >= 100 ? Math.round(v) + "s" : v >= 10 ? v.toFixed(0) + "s" : v >= 1 ? v.toFixed(1) + "s" : v.toFixed(2) + "s"; }
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
-  function color(side) { return "var(--hm-" + side + ")"; }
+  function color(side) { return L.color.side(side, "hm"); }
   function rowKey(r) { return r.category === "tool" ? (r.name || "?") : r.category === "answer" ? "the answer" : "thinking"; }
 
   /* the rows both runs share: tools by total seconds, then thinking, then the answer */
@@ -71,21 +66,7 @@
     return tools;
   }
 
-  function tooltip(root) {
-    var tip = document.createElement("div"); tip.className = "hm-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) { if (!l) return; var d = document.createElement("div"); if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text; tip.appendChild(d); });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 320 > r.width) x = Math.max(0, evt.clientX - r.left - 330);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "hm-tip", width: 320 }); }
 
   // ------------------------------------------------------------ heat map
   function drawHeat(host, report, tm, tip) {

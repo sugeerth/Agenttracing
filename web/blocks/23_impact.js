@@ -39,13 +39,11 @@
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, secs = L.fmt.secs;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("impact", [
       ".im{--im-a:var(--a);--im-b:var(--b);position:relative}",
       "@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .im{--im-a:#3987e5;--im-b:#d95926}}",
       ":root[data-theme=dark] .im{--im-a:#3987e5;--im-b:#d95926}",
@@ -83,15 +81,12 @@
       ".im-table td.hot{color:var(--ink);font-weight:600}.im-table td.quiet{color:var(--ink-3)}",
       ".im-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);max-width:340px}",
       ".im-tip b{color:var(--ink)}",
-    ].join("\n");
-    document.head.appendChild(node);
+    ].join("\n"));
   }
 
   // ------------------------------------------------------------ helpers
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function secs(v) { return !isNum(v) ? "—" : v >= 100 ? Math.round(v) + "s" : v >= 10 ? v.toFixed(0) + "s" : v >= 1 ? v.toFixed(1) + "s" : v.toFixed(2) + "s"; }
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
-  function color(side) { return "var(--im-" + side + ")"; }
+  function color(side) { return L.color.side(side, "im"); }
   //: ~6.2px per character at the page's small size; good enough to truncate by
   var CH = 6.2;
   function fit(text, px) {
@@ -106,27 +101,10 @@
   var MARK_WORD = { decisive: "decisive step", fault: "on the fault's path", error: "error", retry: "retry", milestone: "milestone", divergence: "divergence", answer: "the answer" };
 
   //: per task: which clusters are open, which folds are unfolded, the mode
-  var STATE = {};
-  function stateFor(task) {
-    var k = String(task || "");
-    return STATE[k] || (STATE[k] = { mode: "tree", open: {}, unfolded: {} });
-  }
+  var STATE = L.family("impact", { mode: "tree", open: {}, unfolded: {} });
+  function stateFor(task) { return STATE.get(String(task || "")); }
 
-  function tooltip(root) {
-    var tip = document.createElement("div"); tip.className = "im-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) { if (!l) return; var d = document.createElement("div"); if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text; tip.appendChild(d); });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 340 > r.width) x = Math.max(0, evt.clientX - r.left - 350);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "im-tip", width: 340 }); }
 
   // ------------------------------------------------------------ the units
   //
@@ -171,10 +149,8 @@
     }
     return out;
   }
-  //: a fold's length scales with the steps it constricts: 4–5 steps ≈ 20px, 11 ≈ 27px, 100 ≈ 46px
-  function foldW(steps) { return 6 + 6 * Math.log(1 + Math.max(0, steps)) / Math.LN2; }
-  //: folded time: a fold's length scales with the seconds it holds, as a fold's with its steps
-  function foldWT(seconds) { return 6 + 6 * Math.log(1 + Math.max(0, seconds)) / Math.LN2; }
+  //: the fold laws — a fold's length scales with the steps, or the seconds, it constricts
+  var foldW = L.glyph.foldWidth, foldWT = L.glyph.foldSeconds;
   /* The wall-clock scale of the "time" mode: every cluster is its seconds
    * (a hot or work cluster never under 10px, a quiet one never under 2),
    * a fold its seconds-scaled length; one k for both bands, the largest

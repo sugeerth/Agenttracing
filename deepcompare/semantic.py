@@ -26,6 +26,7 @@ from typing import Optional
 
 from .align import _WORD_RE
 from .trace import Step, Trajectory
+from . import sections as _sections
 
 CLAIM_KINDS = ("money", "percent", "duration", "version", "cve", "url", "date", "number")
 
@@ -700,3 +701,8 @@ def semantic_profile(reports: list[dict]) -> dict:
     )
     profile["narrative"] = narrative
     return profile
+
+
+@_sections.register("pair", "semantic", requires=("uncertainty",))
+def _section(report: dict, ctx: "_sections.PairContext"):
+    return semantic_analysis(report, ctx.a, ctx.b)

@@ -24,13 +24,11 @@
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, num = L.fmt.num, pct = L.fmt.pct, short = L.fmt.short;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("rlstats", [
       ".rls{position:relative}",
       ".rls svg{display:block;width:100%;height:auto;font-family:var(--sans)}",
       ".rls .lab{font-size:var(--fs-xs);fill:var(--ink-2)}",
@@ -67,32 +65,15 @@
       ".rls-tip b{color:var(--ink)}",
       ".rls-tip .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}",
       "@media (max-width:640px){.rls-row{grid-template-columns:minmax(58px,1fr) minmax(80px,2fr) 44px}}",
-    ].join("\n");
-    document.head.appendChild(node);
+    ].join("\n"));
   }
 
   // ------------------------------------------------------------- helpers
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function num(v, p) {
-    if (!isNum(v)) return "—";
-    var s = v.toFixed(p === undefined ? 2 : p);
-    if (s.indexOf(".") >= 0) s = s.replace(/0+$/, "").replace(/\.$/, "");
-    return s.replace("-", "−");
-  }
-  function pct(v) { return isNum(v) ? Math.round(v * 100) + "%" : "—"; }
-  function short(id) { return String(id || "").replace(/^(rl|t)\d+_/, "").replace(/_/g, " "); }
   function trunc(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
-  function hostWidth(host) {
-    var w = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0;
-    return Math.max(280, Math.min(1400, w || 320));
-  }
-  function responsive(host, draw, key) {
-    if (AgentDiff.charts && AgentDiff.charts.responsive) return AgentDiff.charts.responsive(host, draw, key);
-    draw();
-    return host;
-  }
+  function hostWidth(host) { return L.layout.measure(host, 280, 1400); }
+  var responsive = L.layout.responsive;
   function selectTask(ctx, id) {
     var fn = ctx && typeof ctx.selectTask === "function" ? ctx.selectTask
       : AgentDiff._internals && typeof AgentDiff._internals.selectTask === "function" ? AgentDiff._internals.selectTask : null;
@@ -116,31 +97,7 @@
     return out.length ? out : [lo, hi];
   }
 
-  function tooltip(root) {
-    var tip = document.createElement("div");
-    tip.className = "rls-tip";
-    tip.hidden = true;
-    root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) {
-          if (!l) return;
-          var d = document.createElement("div");
-          if (l.mono) d.className = "mono";
-          if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text;
-          tip.appendChild(d);
-        });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 300 > r.width) x = Math.max(0, evt.clientX - r.left - 310);
-        tip.style.left = x + "px";
-        tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "rls-tip", width: 300 }); }
 
   // --------------------------------------------------------------- model
 
@@ -290,15 +247,10 @@
         var cell = p.agg[row.key];
         if (!cell || !isNum(cell.point)) return;
         var y = top + (rowH - (m.policies.length - 1) * lineGap) / 2 + pi * lineGap;
-        var a = isNum(cell.lo) ? x(cell.lo) : x(cell.point);
-        var b = isNum(cell.hi) ? x(cell.hi) : x(cell.point);
         var line = S("g", { class: "rls-int hit", "data-metric": row.key, "data-policy": p.name, "data-point": cell.point });
         g.appendChild(line);
-        line.appendChild(S("line", { x1: a, x2: b, y1: y, y2: y, stroke: p.color, "stroke-width": 2, "stroke-opacity": 0.42, "stroke-linecap": "round" }));
-        [a, b].forEach(function (px) {
-          line.appendChild(S("line", { x1: px, x2: px, y1: y - 4, y2: y + 4, stroke: p.color, "stroke-width": 1.5, "stroke-opacity": 0.42 }));
-        });
-        line.appendChild(S("circle", { cx: x(cell.point), cy: y, r: 3.6, fill: p.color }));
+        var ends = L.glyph.interval(line, x, cell.point, cell.lo, cell.hi, { y: y, color: p.color });
+        var a = ends.a, b = ends.b;
         line.appendChild(S("text", {
           class: "val", x: clamp(x(cell.point), padL + 14, W - padR - 14), y: y - 6,
           "text-anchor": "middle", fill: p.color, text: num(cell.point),
@@ -509,10 +461,7 @@
     node.appendChild(S("text", { class: "tick", x: x(0.5), y: height - 5, "text-anchor": "middle", text: "50% · a coin flip" }));
     node.appendChild(S("text", { class: "tick", x: padL, y: height - 5, "text-anchor": "start", text: "0%" }));
     node.appendChild(S("text", { class: "tick", x: W - padR, y: height - 5, "text-anchor": "end", text: "100%" }));
-    if (isNum(imp.lo) && isNum(imp.hi)) {
-      node.appendChild(S("line", { class: "rls-int", x1: x(imp.lo), x2: x(imp.hi), y1: y, y2: y, stroke: color, "stroke-width": 6, "stroke-opacity": 0.3, "stroke-linecap": "round" }));
-    }
-    if (isNum(imp.point)) node.appendChild(S("circle", { class: "rls-point", cx: x(imp.point), cy: y, r: 4.5, fill: color }));
+    L.glyph.interval(node, x, imp.point, imp.lo, imp.hi, { y: y, color: color, width: 6, opacity: 0.3, tick: 0, r: 4.5, lineClass: "rls-int", dotClass: "rls-point" });
     host.appendChild(node);
   }
 

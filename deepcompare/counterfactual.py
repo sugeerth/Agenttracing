@@ -15,6 +15,7 @@ from typing import Optional
 from .divergence import _describe
 from .steps_eval import _cost_per_token
 from .trace import Trajectory
+from . import sections as _sections
 
 
 def _root_row_pos(alignment: list[dict], failed_key: str, root: int) -> Optional[int]:
@@ -145,3 +146,8 @@ def counterfactual(report: dict, a: Trajectory, b: Trajectory) -> Optional[dict]
         "confidence": _confidence(prefix_rows),
         "narrative": narrative,
     }
+
+
+@_sections.register("pair", "counterfactual", requires=("semantic",))
+def _section(report: dict, ctx: "_sections.PairContext"):
+    return counterfactual(report, ctx.a, ctx.b)

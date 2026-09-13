@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 from typing import Optional
+from . import sections as _sections
 
 VERSION = 1
 
@@ -362,3 +363,8 @@ def to_jsonl(signals: list) -> str:
             "confidence": pair.get("confidence"),
         }, ensure_ascii=False))
     return "\n".join(lines) + ("\n" if lines else "")
+
+
+@_sections.register("pair", "feedback", requires=("verdict_card",))
+def _section(report: dict):
+    return feedback_signal(report)

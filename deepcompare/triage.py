@@ -48,6 +48,7 @@ from typing import Optional
 
 from .diagnosis import LEAD_MARGIN
 from .statistics import binomial_tail, wilson_interval
+from . import sections as _sections
 
 #: Base weight per severity class.  The gaps encode three judgements:
 #:
@@ -1740,3 +1741,11 @@ def render_triage_text(result: dict, limit: int = 5) -> list[str]:
                          f"each with its reason, in aggregate.json)")
     lines.append(f"  {result['narrative']}")
     return lines
+
+
+@_sections.register("aggregate", "triage", requires=("paired_inference",))
+def _section(agg: dict, ctx: "_sections.AggregateContext"):
+    # re-triaged now that reliability is attached: it is the only block
+    # that can tell triage to stop ranking cross-agent claims confidently,
+    # and it arrives after metrics.aggregate() has already run
+    return triage(ctx.reports, agg)

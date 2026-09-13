@@ -20,6 +20,7 @@ from typing import Optional
 
 from .timing import time_attribution
 from .trace import Trajectory
+from . import sections as _sections
 
 TOOLISH = ("tool_call", "search", "retrieve", "read")
 BOUNDARY_INTENTS = ("frame", "decide", "plan")
@@ -349,3 +350,8 @@ def horizon_pair(report: dict, a: Trajectory, b: Trajectory) -> dict:
 
 
 __all__ = ["segment", "horizon_pair", "delegation_graph", "blame", "graph_diff"]
+
+
+@_sections.register("pair", "horizon", requires=("timing",))
+def _section(report: dict, ctx: "_sections.PairContext"):
+    return horizon_pair(report, ctx.a, ctx.b)

@@ -83,6 +83,7 @@ from typing import Optional, Sequence
 from .stability import _cv, _levenshtein
 from .statistics import pass_at_k
 from .trace import HARNESS_TERMINATIONS, Trajectory
+from . import sections as _sections
 
 #: Below this many runs per task, no claim about a *difference* between two
 #: agents survives contact with resampling.
@@ -835,3 +836,9 @@ def _suite_narrative(result: dict) -> str:
             f"other."
         )
     return " ".join(parts)
+
+
+@_sections.register("aggregate", "reliability", requires=("stability",))
+def _section(agg: dict, ctx: "_sections.AggregateContext"):
+    # computed beside the stability reading, before the pairs; placed here
+    return ctx.reliability

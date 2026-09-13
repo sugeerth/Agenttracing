@@ -15,6 +15,7 @@ and quoted verbatim by the CLI, the HTML page and the narrator's brief.
 from __future__ import annotations
 
 from typing import Optional
+from . import sections as _sections
 
 
 def _side_name(report: dict, side: str) -> str:
@@ -174,3 +175,10 @@ def format_verdict_card(card: dict, width: int = 8) -> str:
     """The card as text: one labelled line per entry."""
     return "\n".join(f"{_LABELS.get(line['key'], line['key'].upper()):<{width}} "
                      f"{line['text']}" for line in card.get("lines", []))
+
+
+@_sections.register("pair", "verdict_card", requires=("tools_profile",))
+def _section(report: dict):
+    # the five-line card the reader sees first; every line quotes a
+    # section above, so it is computed after them
+    return verdict_card(report)

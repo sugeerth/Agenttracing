@@ -28,6 +28,7 @@ from typing import Optional
 
 from .statistics import wilson_interval
 from .trace import Trajectory
+from . import sections as _sections
 
 OBJECTIVES = ("success", "cost", "latency", "steps")
 MIN_RUNS = 3
@@ -254,3 +255,8 @@ def router_hints(table: dict) -> list:
         else:
             out.append({"family": fam, "route_to": None, "basis": "gather more runs — " + row["why"]})
     return out
+
+
+@_sections.register("aggregate", "routing", requires=("equality",))
+def _section(agg: dict, ctx: "_sections.AggregateContext"):
+    return routing_table(ctx.trajectories, equality=agg["equality"], family_pattern=ctx.family_pattern)

@@ -36,6 +36,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .trace import Step, Trajectory
+from . import sections as _sections
 
 #: confidence drop (absolute, versus the run's own baseline) that counts as
 #: the model flagging a step.
@@ -293,3 +294,8 @@ def calibration_profile(reports: list[dict]) -> dict:
             f"uncertainty thresholds."
         )
     return {"available": True, "agents": profile, "narrative": " ".join(parts)}
+
+
+@_sections.register("pair", "uncertainty", requires=("success_analysis",))
+def _section(report: dict, ctx: "_sections.PairContext"):
+    return analyze(report, ctx.a, ctx.b)

@@ -13,65 +13,23 @@ import json
 from pathlib import Path
 from typing import Optional, Union
 
+from . import sections
+# each section module registers itself with the registry when imported;
+# the import list is the one place a section is wired
+from . import (  # noqa: F401
+    counterfactual, diagnosis, efficiency, feedback, horizon, impact, internals, milestones, process, reasoning, rl,
+    semantic, shapley, success, timing, toolprofile, tradeoff, trust, uncertainty, verdict,
+)
 from .align import align
 from .attribution import attribute
-from .counterfactual import counterfactual
-from .diagnosis import diagnose
 from .divergence import find_divergences
 from .metrics import metrics_delta
-from .semantic import semantic_analysis
 from .steps_eval import answer_eval, step_eval
-from .success import success_analysis
 from .tooldiff import TOOLISH_TYPES, tool_diff
 from .trace import Trajectory
-from .efficiency import compare_efficiency
-from .reasoning import read_trace
-from .timing import compare_timing
-from .horizon import horizon_pair
-from .impact import impact_pair
-from .process import compare_process
-from .tradeoff import pair_tradeoff
-from .shapley import shapley_attribution
-from .uncertainty import analyze as analyze_uncertainty
-from .verdict import verdict_card
-from .internals import internals_analysis
-from .feedback import feedback_signal
-from .milestones import compare as compare_milestones, evaluate as evaluate_milestones
-from .toolprofile import tool_pair
-from .trust import trust_pair
-from .rl import rl_pair
 
 #: the template line containing this marker is replaced wholesale.
 DATA_MARKER = "window.DEEPCOMPARE_DATA"
-
-
-def _cite_internals(report: dict) -> None:
-    """Attach the decisive step's internal signature to the leading
-    hypothesis as observable evidence (recorded state), score untouched."""
-    internals = report.get("internals") or {}
-    decisive = internals.get("decisive")
-    diagnosis = report.get("diagnosis") or {}
-    if not decisive or not decisive.get("exclusive_features") or not diagnosis.get("leading"):
-        return
-    items = diagnosis.setdefault("evidence", [])
-    eid = f"E{len(items) + 1}"
-    labels = ", ".join(decisive["signature"])
-    items.append({
-        "id": eid, "type": "metric", "path": "internals.decisive.exclusive_features",
-        "value": len(decisive["exclusive_features"]),
-        "signal": f"features active at the decisive step and not at its counterpart: {labels}",
-        "basis": ("recorded model internals" + (" (SYNTHETIC demo labels)"
-                  if internals.get("synthetic") else "")),
-        "evidence_class": "observable",
-    })
-    for h in diagnosis.get("hypotheses", []):
-        if h.get("id") == diagnosis["leading"]:
-            h.setdefault("supports", []).append(eid)
-            classes = h.get("evidence_classes") or {}
-            classes["observable"] = classes.get("observable", 0) + 1
-            h["evidence_classes"] = classes
-            h["internal_signature"] = decisive["signature"]
-            break
 
 
 def _side(t: Trajectory) -> dict:
@@ -158,48 +116,10 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
         "answer_eval": answer_eval(a, b),
         "metrics_delta": metrics_delta(a, b),
     }
-    report["success_analysis"] = success_analysis(report, a, b)
-    report["uncertainty"] = analyze_uncertainty(report, a, b)
-    report["semantic"] = semantic_analysis(report, a, b)
-    report["counterfactual"] = counterfactual(report, a, b)
-    report["shapley"] = shapley_attribution(report, a, b)
-    report["process"] = compare_process(a, b)
-    report["tradeoff"] = pair_tradeoff(report)
-    report["efficiency"] = compare_efficiency(a, b)
-    report["diagnosis"] = diagnose(report, a, b)
-    # recorded model internals (feature activations), read after the
-    # diagnosis so the decisive step's internal signature can be named;
-    # the section never changes a score — it adds evidence, labelled
-    report["internals"] = internals_analysis(report, a, b)
-    _cite_internals(report)
-    # the reasoning layer: each run understood on its own, before and
-    # independent of the comparison — what happened, what the answer rests
-    # on, why it ended that way, what it means, what to take forward
-    report["reading"] = {"a": read_trace(a), "b": read_trace(b)}
-    # where the time went: each run's latencies attributed to thinking,
-    # tools and the answer, with the reading's wasted steps named
-    report["timing"] = compare_timing(a, b, report["reading"])
-    # the long horizon: each run folded into spans (sub-agents),
-    # subdivisions and steps, with time and the fault on every node
-    report["horizon"] = horizon_pair(report, a, b)
-    # where it mattered: the steps clustered and weighed by what the
-    # sections above established, for a timeline that dilates the hot ones
-    report["impact"] = impact_pair(report)
-    # how each run behaved and how far its data can be trusted: counts over
-    # the steps, the policy when one is known (attach_milestones), a grade
-    # whose every deduction is a sentence
-    report["trust"] = trust_pair(report)
-    # the five-line card the reader sees first; every line quotes a
-    # section above, so it is computed last
-    # how each agent used each tool, and what to tell the next prompt
-    report["tools_profile"] = tool_pair(report)
-    report["verdict_card"] = verdict_card(report)
-    # the loop back: what this pair hands to an environment or the next
-    # prompt — labels, a preference pair, suggestions; read-only over the report
-    report["feedback"] = feedback_signal(report)
-    # the run as an episode: reward (recorded, else shaped from the labels
-    # above), return, credit from the Shapley split, clusters on one scale
-    report["rl"] = rl_pair(report)
+    # every registered pair section, in dependency order (see
+    # deepcompare.sections): each reads the report as it stands and adds
+    # its key; one that fails is recorded as unmeasurable, not raised
+    sections.attach("pair", report, sections.PairContext(a=a, b=b))
     return report
 
 
@@ -210,21 +130,11 @@ def attach_milestones(report: dict, golden: Optional[dict], policy: Optional[dic
     milestones on it, the section says so and measures nothing.  The trust
     section is recomputed with the golden task's forbidden tools and the
     ``policy`` (see :func:`deepcompare.scorecard.load_policy`) now known."""
-    task_id = str(((report.get("task") or {}).get("id")) or "")
-    golden_task = ((golden or {}).get("tasks") or {}).get(task_id) if golden else None
-    ms = (golden_task or {}).get("milestones") if isinstance(golden_task, dict) else None
-    a = evaluate_milestones(report.get("a") or {}, ms)
-    b = evaluate_milestones(report.get("b") or {}, ms)
-    names = (((report.get("a") or {}).get("agent") or {}).get("name", "a"), ((report.get("b") or {}).get("agent") or {}).get("name", "b"))
-    diff = compare_milestones(a, b, names)
-    report["milestones"] = {"a": a, "b": b, "diff": diff,
-                            "narrative": diff["narrative"] if diff.get("measurable") else a["narrative"],
-                            "source": (golden or {}).get("path") if ms else None}
-    # the milestones reached now mark the impact clusters they sit in
-    report["impact"] = impact_pair(report)
-    report["trust"] = trust_pair(report, policy=policy, golden=golden)
-    # a shaped reward pays +2 at each milestone reached, so the episode is re-read
-    report["rl"] = rl_pair(report)
+    # the milestones section, then the sections that read it: the impact
+    # clusters the milestones mark, the trust grade with the policy now
+    # known, and the shaped reward that pays +2 at each milestone reached
+    sections.attach("pair", report, sections.PairContext(golden=golden, policy=policy),
+                    only=("milestones", "impact", "trust", "rl"))
     return report
 
 

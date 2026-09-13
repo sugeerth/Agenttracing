@@ -3426,20 +3426,20 @@ THIS SOFTWARE.
   /* An interval is drawn as an interval: the point as a dot on a line from
    * lo to hi with a tick at each end, on the x scale, at opts.y. A missing
    * bound collapses to the point, so a degenerate interval is still a dot.
-   * opts: {y, color, width (2), opacity (0.42), tick (4), r (3.6), dot (true)}.
-   * Returns {a, b} — the pixel ends — so the block can place its label and
-   * hit target. */
+   * opts: {y, color, width (2), opacity (0.42), tick (4), r (3.6), dot (true),
+   * lineClass, dotClass}. Returns {a, b} — the pixel ends — so the block can
+   * place its label and hit target. */
   function interval(g, x, point, lo, hi, opts) {
     opts = opts || {};
     var y = isNum(opts.y) ? opts.y : 0, stroke = opts.color || "currentColor";
     var width = isNum(opts.width) ? opts.width : 2, opacity = isNum(opts.opacity) ? opts.opacity : 0.42;
     var tick = isNum(opts.tick) ? opts.tick : 4, r = isNum(opts.r) ? opts.r : 3.6;
     var a = isNum(lo) ? x(lo) : x(point), b = isNum(hi) ? x(hi) : x(point);
-    g.appendChild(el("line", { x1: a, x2: b, y1: y, y2: y, stroke: stroke, "stroke-width": width, "stroke-opacity": opacity, "stroke-linecap": "round" }));
+    g.appendChild(el("line", { class: opts.lineClass || null, x1: a, x2: b, y1: y, y2: y, stroke: stroke, "stroke-width": width, "stroke-opacity": opacity, "stroke-linecap": "round" }));
     if (tick > 0) [a, b].forEach(function (px) {
       g.appendChild(el("line", { x1: px, x2: px, y1: y - tick, y2: y + tick, stroke: stroke, "stroke-width": isNum(opts.tickWidth) ? opts.tickWidth : 1.5, "stroke-opacity": opacity }));
     });
-    if (opts.dot !== false && isNum(point)) g.appendChild(el("circle", { cx: x(point), cy: y, r: r, fill: stroke }));
+    if (opts.dot !== false && isNum(point)) g.appendChild(el("circle", { class: opts.dotClass || null, cx: x(point), cy: y, r: r, fill: stroke }));
     return { a: a, b: b };
   }
   //: a fold's length scales with what it constricts: 4–5 steps ≈ 20px, 11 ≈ 27px, 100 ≈ 46px
@@ -15647,13 +15647,11 @@ THIS SOFTWARE.
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, secs = L.fmt.secs;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("heat", [
       ".hm{--hm-a:var(--a);--hm-b:var(--b);position:relative}",
       "@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .hm{--hm-a:#3987e5;--hm-b:#d95926}}",
       ":root[data-theme=dark] .hm{--hm-a:#3987e5;--hm-b:#d95926}",
@@ -15674,14 +15672,11 @@ THIS SOFTWARE.
       ".tm-matrix .pair i{display:block;height:5px;border-radius:0 3px 3px 0;min-width:1px}",
       ".tm-matrix .pair i.a{background:var(--hm-a)}.tm-matrix .pair i.b{background:var(--hm-b)}",
       ".hm-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:6px;max-width:90ch}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function secs(v) { return !isNum(v) ? "—" : v >= 100 ? Math.round(v) + "s" : v >= 10 ? v.toFixed(0) + "s" : v >= 1 ? v.toFixed(1) + "s" : v.toFixed(2) + "s"; }
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
-  function color(side) { return "var(--hm-" + side + ")"; }
+  function color(side) { return L.color.side(side, "hm"); }
   function rowKey(r) { return r.category === "tool" ? (r.name || "?") : r.category === "answer" ? "the answer" : "thinking"; }
 
   /* the rows both runs share: tools by total seconds, then thinking, then the answer */
@@ -15696,21 +15691,7 @@ THIS SOFTWARE.
     return tools;
   }
 
-  function tooltip(root) {
-    var tip = document.createElement("div"); tip.className = "hm-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) { if (!l) return; var d = document.createElement("div"); if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text; tip.appendChild(d); });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 320 > r.width) x = Math.max(0, evt.clientX - r.left - 330);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "hm-tip", width: 320 }); }
 
   // ------------------------------------------------------------ heat map
   function drawHeat(host, report, tm, tip) {
@@ -16083,13 +16064,11 @@ THIS SOFTWARE.
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, secs = L.fmt.secs;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("milestones", [
       ".ms{--ms-a:var(--a);--ms-b:var(--b);position:relative}",
       ".ms-narr{font-size:var(--fs-m);color:var(--ink);margin:0 0 8px;max-width:90ch}",
       ".ms-bar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 6px}",
@@ -16106,15 +16085,13 @@ THIS SOFTWARE.
       ".ms-table td{padding:3px 10px 3px 0;white-space:nowrap;color:var(--ink-2)}.ms-table td.never{color:var(--bad)}.ms-table td.late{color:var(--warn)}",
       ".ms-details{margin-top:6px;font-size:var(--fs-xs)}.ms-details summary{cursor:pointer;color:var(--ink-2)}",
       ".ms-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);max-width:320px}",
-    ].join("\n");
-    document.head.appendChild(node);
+    ].join("\n"));
   }
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function secs(v) { return !isNum(v) ? "—" : v >= 100 ? Math.round(v) + "s" : v >= 10 ? v.toFixed(0) + "s" : v.toFixed(1) + "s"; }
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
-  function color(side) { return "var(--ms-" + side + ")"; }
-  var Axis = {};   // per task: "time" | "steps"
+  function color(side) { return L.color.side(side, "ms"); }
+  //: per task: the x measure, "time" | "steps"
+  var Axis = L.family("milestones", { axis: "time" });
 
   function draw(host, report, ms, axis, tip) {
     if (!d3) return;
@@ -16169,21 +16146,7 @@ THIS SOFTWARE.
     });
   }
 
-  function tooltip(root) {
-    var tip = document.createElement("div"); tip.className = "ms-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) { if (!l) return; var d = document.createElement("div"); if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text; tip.appendChild(d); });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 320 > r.width) x = Math.max(0, evt.clientX - r.left - 330);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "ms-tip", width: 320 }); }
 
   AgentDiff.block({
     id: "milestones",
@@ -16201,13 +16164,13 @@ THIS SOFTWARE.
       var tip = tooltip(root);
       root.appendChild(H("p", { class: "ms-narr", text: ms.narrative || "" }));
       var task = report.task && report.task.id;
-      var axis = Axis[task] || "time";
+      var axis = Axis.get(task).axis;
       var bar = H("div", { class: "ms-bar" });
       bar.appendChild(H("span", null, [H("i", { style: { background: color("a") } }), H("span", { text: name(report, "a") + " · " + ms.a.reached + "/" + ms.a.total })]));
       bar.appendChild(H("span", null, [H("i", { style: { background: color("b") } }), H("span", { text: name(report, "b") + " · " + ms.b.reached + "/" + ms.b.total })]));
       var seg = H("span", { class: "seg", role: "group", "aria-label": "axis" });
       ["time", "steps"].forEach(function (k) {
-        seg.appendChild(H("button", { text: k, "data-axis": k, "aria-pressed": axis === k ? "true" : "false", onclick: function () { Axis[task] = k; if (AgentDiff._rerender) AgentDiff._rerender(); } }));
+        seg.appendChild(H("button", { text: k, "data-axis": k, "aria-pressed": axis === k ? "true" : "false", onclick: function () { Axis.set({ axis: k }, { task: task, rerender: true }); } }));
       });
       bar.appendChild(seg);
       bar.appendChild(H("span", { text: "a dot = the first step with the milestone's evidence · hollow = later than its deadline · click a dot to open the step" }));
@@ -16282,13 +16245,11 @@ THIS SOFTWARE.
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, secs = L.fmt.secs;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("impact", [
       ".im{--im-a:var(--a);--im-b:var(--b);position:relative}",
       "@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .im{--im-a:#3987e5;--im-b:#d95926}}",
       ":root[data-theme=dark] .im{--im-a:#3987e5;--im-b:#d95926}",
@@ -16326,15 +16287,12 @@ THIS SOFTWARE.
       ".im-table td.hot{color:var(--ink);font-weight:600}.im-table td.quiet{color:var(--ink-3)}",
       ".im-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);max-width:340px}",
       ".im-tip b{color:var(--ink)}",
-    ].join("\n");
-    document.head.appendChild(node);
+    ].join("\n"));
   }
 
   // ------------------------------------------------------------ helpers
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function secs(v) { return !isNum(v) ? "—" : v >= 100 ? Math.round(v) + "s" : v >= 10 ? v.toFixed(0) + "s" : v >= 1 ? v.toFixed(1) + "s" : v.toFixed(2) + "s"; }
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
-  function color(side) { return "var(--im-" + side + ")"; }
+  function color(side) { return L.color.side(side, "im"); }
   //: ~6.2px per character at the page's small size; good enough to truncate by
   var CH = 6.2;
   function fit(text, px) {
@@ -16349,27 +16307,10 @@ THIS SOFTWARE.
   var MARK_WORD = { decisive: "decisive step", fault: "on the fault's path", error: "error", retry: "retry", milestone: "milestone", divergence: "divergence", answer: "the answer" };
 
   //: per task: which clusters are open, which folds are unfolded, the mode
-  var STATE = {};
-  function stateFor(task) {
-    var k = String(task || "");
-    return STATE[k] || (STATE[k] = { mode: "tree", open: {}, unfolded: {} });
-  }
+  var STATE = L.family("impact", { mode: "tree", open: {}, unfolded: {} });
+  function stateFor(task) { return STATE.get(String(task || "")); }
 
-  function tooltip(root) {
-    var tip = document.createElement("div"); tip.className = "im-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) { if (!l) return; var d = document.createElement("div"); if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text; tip.appendChild(d); });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 340 > r.width) x = Math.max(0, evt.clientX - r.left - 350);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "im-tip", width: 340 }); }
 
   // ------------------------------------------------------------ the units
   //
@@ -16414,10 +16355,8 @@ THIS SOFTWARE.
     }
     return out;
   }
-  //: a fold's length scales with the steps it constricts: 4–5 steps ≈ 20px, 11 ≈ 27px, 100 ≈ 46px
-  function foldW(steps) { return 6 + 6 * Math.log(1 + Math.max(0, steps)) / Math.LN2; }
-  //: folded time: a fold's length scales with the seconds it holds, as a fold's with its steps
-  function foldWT(seconds) { return 6 + 6 * Math.log(1 + Math.max(0, seconds)) / Math.LN2; }
+  //: the fold laws — a fold's length scales with the steps, or the seconds, it constricts
+  var foldW = L.glyph.foldWidth, foldWT = L.glyph.foldSeconds;
   /* The wall-clock scale of the "time" mode: every cluster is its seconds
    * (a hot or work cluster never under 10px, a quiet one never under 2),
    * a fold its seconds-scaled length; one k for both bands, the largest
@@ -17205,13 +17144,11 @@ THIS SOFTWARE.
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, pct = L.fmt.pct;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("trust", [
       ".tr{--tr-a:var(--a);--tr-b:var(--b)}",
       ".tr-narr{font-size:var(--fs-m);color:var(--ink);margin:0 0 10px;max-width:90ch}",
       ".tr-ledger{border-collapse:collapse;width:100%;table-layout:fixed;font-size:var(--fs-xs);font-variant-numeric:tabular-nums}",
@@ -17233,12 +17170,9 @@ THIS SOFTWARE.
       ".tr-details ul{margin:4px 0 6px;padding-left:18px;color:var(--ink-2)}.tr-details li{margin:1px 0}",
       ".tr-details p{margin:4px 0 0;color:var(--ink-3);max-width:90ch}",
       ".tr-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:8px;max-width:100ch}",
-    ].join("\n");
-    document.head.appendChild(node);
+    ].join("\n"));
   }
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function pct(v) { return isNum(v) ? Math.round(v * 100) + "%" : "—"; }
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
   function chipClass(label) { return label === "high" ? "good" : label === "medium" ? "warn" : "bad"; }
   function forbiddenCount(p) {
@@ -17391,13 +17325,11 @@ THIS SOFTWARE.
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, secs = L.fmt.secs;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("tools", [
       ".tb{--tb-a:var(--a);--tb-b:var(--b)}",
       ".tb-narr{font-size:var(--fs-m);color:var(--ink);margin:0 0 8px;max-width:90ch}",
       ".tb-table{border-collapse:collapse;width:100%;font-size:var(--fs-xs);font-variant-numeric:tabular-nums}",
@@ -17431,14 +17363,11 @@ THIS SOFTWARE.
       ".tool-dossier details{font-size:var(--fs-xs);color:var(--ink-2);margin-top:6px}.tool-dossier details summary{cursor:pointer;color:var(--ink-3)}",
       ".tool-dossier pre{white-space:pre-wrap;word-break:break-word;font-size:var(--fs-xs);background:var(--surface-2);border-radius:6px;padding:4px 6px;margin:3px 0}",
       ".tool-dossier .sug{font-size:var(--fs-xs);color:var(--ink);margin:6px 0 0}",
-    ].join("\n");
-    document.head.appendChild(node);
+    ].join("\n"));
   }
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function secs(v) { return !isNum(v) ? "—" : v >= 100 ? Math.round(v) + "s" : v >= 10 ? v.toFixed(0) + "s" : v >= 1 ? v.toFixed(1) + "s" : v.toFixed(2) + "s"; }
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
-  function color(side) { return "var(--tb-" + side + ")"; }
+  function color(side) { return L.color.side(side, "tb"); }
   var Current = { report: null };
 
   function copy(text, btn) {
@@ -17665,13 +17594,11 @@ THIS SOFTWARE.
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, secs = L.fmt.secs;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("rl", [
       ".rl{--rl-a:var(--a);--rl-b:var(--b);position:relative}",
       "@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .rl{--rl-a:#3987e5;--rl-b:#d95926}}",
       ":root[data-theme=dark] .rl{--rl-a:#3987e5;--rl-b:#d95926}",
@@ -17706,17 +17633,14 @@ THIS SOFTWARE.
       ".rl-table td.pos{color:var(--good)}.rl-table td.neg{color:var(--bad)}.rl-table td.hot{color:var(--ink);font-weight:600}.rl-table td.quiet{color:var(--ink-3)}",
       ".rl-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);max-width:340px}",
       ".rl-tip b{color:var(--ink)}",
-    ].join("\n");
-    document.head.appendChild(node);
+    ].join("\n"));
   }
 
   // ------------------------------------------------------------ helpers
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function secs(v) { return !isNum(v) ? "—" : v >= 100 ? Math.round(v) + "s" : v >= 10 ? v.toFixed(0) + "s" : v >= 1 ? v.toFixed(1) + "s" : v.toFixed(2) + "s"; }
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
-  function color(side) { return "var(--rl-" + side + ")"; }
-  //: a reward with its sign: +12.4, −1.0, +0.05, 0
-  function signed(v) {
+  function color(side) { return L.color.side(side, "rl"); }
+  //: a reward with its sign: +12.4, −1.0, +0.05, 0 — adaptive precision, unlike L.fmt.signed
+  function reward(v) {
     if (!isNum(v)) return "—";
     if (v === 0) return "0";
     var a = Math.abs(v);
@@ -17740,27 +17664,10 @@ THIS SOFTWARE.
   }
 
   //: per task: which stretches are open, which folds are unfolded
-  var STATE = {};
-  function stateFor(task) {
-    var k = String(task || "");
-    return STATE[k] || (STATE[k] = { open: {}, unfolded: {} });
-  }
+  var STATE = L.family("rl", { open: {}, unfolded: {} });
+  function stateFor(task) { return STATE.get(String(task || "")); }
 
-  function tooltip(root) {
-    var tip = document.createElement("div"); tip.className = "rl-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) { if (!l) return; var d = document.createElement("div"); if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text; tip.appendChild(d); });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 340 > r.width) x = Math.max(0, evt.clientX - r.left - 350);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "rl-tip", width: 340 }); }
 
   // ------------------------------------------------------------ the data
   function measurable(run) { return !!(run && run.measurable !== false && clustersOf(run).length); }
@@ -17829,10 +17736,10 @@ THIS SOFTWARE.
     return null;
   }
   function labelsOf(r) { return Array.isArray(r.labels) ? r.labels.filter(Boolean).join(", ") : ""; }
-  function leafText(r) { return "step " + r.step + (r.name ? " · " + r.name : "") + " · " + signed(r.reward) + (labelsOf(r) ? " · " + labelsOf(r) : ""); }
+  function leafText(r) { return "step " + r.step + (r.name ? " · " + r.name : "") + " · " + reward(r.reward) + (labelsOf(r) ? " · " + labelsOf(r) : ""); }
   function leafTip(report, side, r) {
     return [{ b: true, text: name(report, side) + " · step " + r.step + (r.name ? " · " + r.name : "") + (r.agent ? " · " + r.agent : "") },
-      { text: "reward " + signed(r.reward) + " · return so far " + signed(r.cum) + (isNum(r.to_go) ? " · to go " + signed(r.to_go) : "") + (isNum(r.credit) ? " · credit " + signed(r.credit) : "") },
+      { text: "reward " + reward(r.reward) + " · return so far " + reward(r.cum) + (isNum(r.to_go) ? " · to go " + reward(r.to_go) : "") + (isNum(r.credit) ? " · credit " + reward(r.credit) : "") },
       labelsOf(r) ? { text: labelsOf(r) } : null, { text: "click to open the step" }];
   }
   function select(report, side, step) { if (AgentDiff.charts && AgentDiff.charts.selectStep) AgentDiff.charts.selectStep(report, side, step); }
@@ -17940,14 +17847,14 @@ THIS SOFTWARE.
     var y = d3.scaleLinear().domain([lo, hi]).nice().range([H - m.b, m.t]);
     var parted = sides.length === 2 ? partedAt(rs.a, rs.b) : null;
     var svg = d3.select(host).append("svg").attr("class", "rl-curve").attr("viewBox", "0 0 " + W + " " + H).attr("role", "img")
-      .attr("aria-label", "cumulative return over steps, " + sides.map(function (s) { return name(report, s) + " " + signed(rl[s]["return"]); }).join(" and ") +
+      .attr("aria-label", "cumulative return over steps, " + sides.map(function (s) { return name(report, s) + " " + reward(rl[s]["return"]); }).join(" and ") +
         (parted !== null ? "; the two returns part at step " + parted : "; the two returns never part by a whole point"));
     // the frame: the zero line, the ends of the y range, the ends of the x range
     svg.append("line").attr("class", "rl-zero").attr("x1", m.l).attr("x2", W - m.r).attr("y1", y(0)).attr("y2", y(0)).attr("stroke", "var(--ink-3)").attr("stroke-width", 1).attr("stroke-opacity", 0.6);
     svg.append("text").attr("class", "rl-ax").attr("x", m.l - 6).attr("y", y(0) + 4).attr("text-anchor", "end").text("0");
     var yd = y.domain();
-    if (yd[1] > 0) svg.append("text").attr("class", "rl-ax").attr("x", m.l - 6).attr("y", y(yd[1]) + 4).attr("text-anchor", "end").text(signed(yd[1]));
-    if (yd[0] < 0) svg.append("text").attr("class", "rl-ax").attr("x", m.l - 6).attr("y", y(yd[0]) + 4).attr("text-anchor", "end").text(signed(yd[0]));
+    if (yd[1] > 0) svg.append("text").attr("class", "rl-ax").attr("x", m.l - 6).attr("y", y(yd[1]) + 4).attr("text-anchor", "end").text(reward(yd[1]));
+    if (yd[0] < 0) svg.append("text").attr("class", "rl-ax").attr("x", m.l - 6).attr("y", y(yd[0]) + 4).attr("text-anchor", "end").text(reward(yd[0]));
     svg.append("text").attr("class", "rl-ax").attr("x", m.l).attr("y", H - 3).text("step 0");
     svg.append("text").attr("class", "rl-ax").attr("x", W - m.r).attr("y", H - 3).attr("text-anchor", "end").text("step " + maxStep);
     var line = d3.line().x(function (d) { return x(d[0]); }).y(function (d) { return y(d[1]); }).curve(d3.curveStepAfter);
@@ -17959,12 +17866,12 @@ THIS SOFTWARE.
       if (last[0] < maxStep) pts.push([maxStep, last[1]]);
       svg.append("path").attr("class", "rl-cum").attr("data-side", s).attr("d", line(pts)).attr("fill", "none")
         .attr("stroke", color(s)).attr("stroke-width", 1.6).attr("stroke-opacity", 0.9)
-        .append("title").text(name(report, s) + " · return " + signed(rl[s]["return"]) + " · discounted " + signed(rl[s].discounted_return));
+        .append("title").text(name(report, s) + " · return " + reward(rl[s]["return"]) + " · discounted " + reward(rl[s].discounted_return));
       // the answer step, a square on the curve
       var ans = answerStep(rl[s]);
       if (isNum(ans)) {
         svg.append("rect").attr("class", "rl-answer").attr("data-side", s).attr("x", x(ans) - 3).attr("y", y(cumAt(rs[s], ans)) - 3).attr("width", 6).attr("height", 6).attr("fill", color(s))
-          .append("title").text(name(report, s) + " · the answer at step " + ans + " · return " + signed(cumAt(rs[s], ans)));
+          .append("title").text(name(report, s) + " · the answer at step " + ans + " · return " + reward(cumAt(rs[s], ans)));
       }
       ends.push({ s: s, y: y(last[1]), v: last[1] });
       // the rewarded steps: an invisible hit target each, so the curve explains itself
@@ -17979,7 +17886,7 @@ THIS SOFTWARE.
       ends.sort(function (p, q) { return p.y - q.y; });
       for (var i = 1; i < ends.length; i++) { if (ends[i].y < ends[i - 1].y + 12) ends[i].y = ends[i - 1].y + 12; }
       ends.forEach(function (e) {
-        svg.append("text").attr("class", "rl-end").attr("data-side", e.s).attr("x", W - m.r + 6).attr("y", e.y + 4).attr("fill", color(e.s)).attr("font-weight", 600).text(signed(e.v));
+        svg.append("text").attr("class", "rl-end").attr("data-side", e.s).attr("x", W - m.r + 6).attr("y", e.y + 4).attr("fill", color(e.s)).attr("font-weight", 600).text(reward(e.v));
       });
     }
     // where the two returns part
@@ -17987,7 +17894,7 @@ THIS SOFTWARE.
       var ya = y(cumAt(rs.a, parted)), yb = y(cumAt(rs.b, parted)), px = x(parted);
       svg.append("line").attr("class", "rl-parted-gap").attr("x1", px).attr("x2", px).attr("y1", Math.min(ya, yb)).attr("y2", Math.max(ya, yb)).attr("stroke", "var(--ink-3)").attr("stroke-width", 1).attr("stroke-dasharray", "2 2");
       svg.append("circle").attr("class", "rl-parted").attr("data-step", parted).attr("cx", px).attr("cy", (ya + yb) / 2).attr("r", 5).attr("fill", "none").attr("stroke", "var(--ink)").attr("stroke-width", 1.4)
-        .append("title").text("the returns part at step " + parted + ": " + name(report, "a") + " " + signed(cumAt(rs.a, parted)) + ", " + name(report, "b") + " " + signed(cumAt(rs.b, parted)));
+        .append("title").text("the returns part at step " + parted + ": " + name(report, "a") + " " + reward(cumAt(rs.a, parted)) + ", " + name(report, "b") + " " + reward(cumAt(rs.b, parted)));
       // the words sit beside the ring, on the side the lines leave empty: above them when they fall from here, below when they rise
       var lab = "parted at step " + parted, lw = lab.length * CH;
       var right = px + 10 + lw <= W - m.r;
@@ -18003,7 +17910,7 @@ THIS SOFTWARE.
   function drawBands(host, report, rl, st, tip, ctx, W, sides, repaint) {
     if (!d3) return;
     var narrow = W < 560, padR = 6, yT = 24;
-    function runLabel(s) { return narrow ? name(report, s) + " · " + signed(rl[s]["return"]) : name(report, s) + " · " + (isNum(rl[s].steps) ? rl[s].steps + " steps · " : "") + "return " + signed(rl[s]["return"]); }
+    function runLabel(s) { return narrow ? name(report, s) + " · " + reward(rl[s]["return"]) : name(report, s) + " · " + (isNum(rl[s].steps) ? rl[s].steps + " steps · " : "") + "return " + reward(rl[s]["return"]); }
     var x0 = 0;
     sides.forEach(function (s) { x0 = Math.max(x0, 16 + fit(runLabel(s), narrow ? 110 : 260).length * CH * 1.12 + 12 + 12); });
     var availT = Math.max(60, W - padR - x0);
@@ -18051,7 +17958,7 @@ THIS SOFTWARE.
       var hot = cs.filter(function (c) { return c.kind === "hot"; }).length, ticks = ticksOf(run), big = maxAbs(run);
       var svg = d3.select(host).append("svg").attr("class", "rl-band").attr("data-side", side)
         .attr("viewBox", "0 0 " + W + " " + H).attr("role", "img")
-        .attr("aria-label", name(report, side) + " as a reward thread: " + cs.length + " stretches, " + hot + " hot; " + rs.length + " rewarded steps, return " + signed(run["return"]) + ", " + ticks.length + " at or above the 90th percentile; length is reward impact");
+        .attr("aria-label", name(report, side) + " as a reward thread: " + cs.length + " stretches, " + hot + " hot; " + rs.length + " rewarded steps, return " + reward(run["return"]) + ", " + ticks.length + " at or above the 90th percentile; length is reward impact");
       function measure(sel) { var n = sel.node(); var w = n && n.getComputedTextLength ? n.getComputedTextLength() : 0; return w > 0 ? w : String(sel.text() || "").length * CH; }
       function rowY(r) { return rowsTop + r * ROW; }
       // ---- the run node and its thread
@@ -18061,7 +17968,7 @@ THIS SOFTWARE.
       var rlab = rg.append("text").attr("class", "rl-tlabel").attr("x", 10).attr("y", 4).attr("font-weight", 650).attr("fill", color(side)).text(fit(runLabel(side), narrow ? 110 : 260));
       if (ok !== null) rlab.append("tspan").attr("fill", ok ? "var(--good)" : "var(--bad)").text(ok ? " ✓" : " ✗");
       rg.append("title").text(run.narrative || "");
-      rg.on("pointermove", function (evt) { tip.show(evt, [{ b: true, text: name(report, side) + " · return " + signed(run["return"]) + " · discounted " + signed(run.discounted_return) }, { text: (run.positive || 0) + " gains · " + (run.negative || 0) + " losses · " + (run.zero || 0) + " zero" }, run.narrative ? { text: run.narrative } : null]); }).on("pointerleave", tip.hide);
+      rg.on("pointermove", function (evt) { tip.show(evt, [{ b: true, text: name(report, side) + " · return " + reward(run["return"]) + " · discounted " + reward(run.discounted_return) }, { text: (run.positive || 0) + " gains · " + (run.negative || 0) + " losses · " + (run.zero || 0) + " zero" }, run.narrative ? { text: run.narrative } : null]); }).on("pointerleave", tip.hide);
       svg.append("path").attr("class", "rl-thread").attr("data-side", side).attr("d", "M" + x0 + "," + yT + "H" + xEnd)
         .attr("fill", "none").attr("stroke", color(side)).attr("stroke-width", 1.5).attr("stroke-opacity", 0.6);
       // ---- on the thread: the folds and the stretches
@@ -18073,7 +17980,7 @@ THIS SOFTWARE.
           fg.append("line").attr("class", "rl-fold-line").attr("x1", 0).attr("x2", w).attr("y1", 0).attr("y2", 0)
             .attr("stroke", "var(--ink-3)").attr("stroke-width", 1.5).attr("stroke-dasharray", "1.5 2.5").attr("stroke-linecap", "round");
           var sumR = u.clusters.reduce(function (t, c) { return t + rewardSum(run, c); }, 0);
-          var flab = "×" + u.steps + " · " + signed(sumR);
+          var flab = "×" + u.steps + " · " + reward(sumR);
           if (w >= 18) fg.append("text").attr("x", w / 2).attr("y", -4).attr("text-anchor", "middle").text(flab.length * CH <= w + 8 ? flab : "×" + u.steps);
           fg.append("rect").attr("x", 0).attr("y", -8).attr("width", w).attr("height", 16).attr("fill", "transparent");
           var fcredit = null;
@@ -18081,11 +17988,11 @@ THIS SOFTWARE.
           if (isNum(fcredit) && creditMax > 0) {
             svg.append("rect").attr("class", "rl-credit").attr("data-id", u.id).attr("data-fold", "1").attr("data-side", side).attr("data-credit", fcredit.toFixed(4))
               .attr("x", ux).attr("y", yT + 17).attr("width", Math.max(w, 1)).attr("height", Math.max(1.5, 10 * Math.abs(fcredit) / creditMax)).attr("fill", fcredit < 0 ? "var(--bad)" : "var(--good)").attr("fill-opacity", 0.35)
-              .append("title").text(name(report, side) + " · " + u.clusters.length + " quiet stretches folded · credit " + signed(fcredit));
+              .append("title").text(name(report, side) + " · " + u.clusters.length + " quiet stretches folded · credit " + reward(fcredit));
           }
-          fg.append("title").text(u.steps + " steps · " + secs(u.seconds) + " · reward " + signed(sumR) + " — " + u.clusters.length + " quiet stretches folded; click to open");
+          fg.append("title").text(u.steps + " steps · " + secs(u.seconds) + " · reward " + reward(sumR) + " — " + u.clusters.length + " quiet stretches folded; click to open");
           fg.on("pointermove", function (evt) {
-            tip.show(evt, [{ b: true, text: name(report, side) + " · ×" + u.steps + " steps folded" }, { text: u.steps + " steps · " + secs(u.seconds) + " · reward " + signed(sumR) + (u.lanes.length ? " · " + u.lanes.join(", ") : "") }, { text: "steps " + u.from + "–" + u.to + " · " + u.clusters.length + " quiet stretches · click to open" }]);
+            tip.show(evt, [{ b: true, text: name(report, side) + " · ×" + u.steps + " steps folded" }, { text: u.steps + " steps · " + secs(u.seconds) + " · reward " + reward(sumR) + (u.lanes.length ? " · " + u.lanes.join(", ") : "") }, { text: "steps " + u.from + "–" + u.to + " · " + u.clusters.length + " quiet stretches · click to open" }]);
           }).on("pointerleave", tip.hide).on("click", function () { st.unfolded[skey(side, u.id)] = true; repaint(); });
           return;
         }
@@ -18096,11 +18003,11 @@ THIS SOFTWARE.
           .attr("stroke", quiet ? "var(--ink-3)" : color(side)).attr("stroke-width", quiet ? 2 : 1.5 + 3.5 * imp).attr("stroke-opacity", quiet ? 0.7 : 0.45 + 0.55 * imp);
         if (u.fold) bar.attr("data-fold", u.fold);
         cg.append("rect").attr("x", 0).attr("y", -8).attr("width", Math.max(w, 6)).attr("height", 16).attr("fill", "transparent");
-        cg.append("title").text(name(report, side) + " · " + (c.label || c.kind) + " · steps " + c.from + "–" + c.to + " · " + secs(c.seconds) + " · reward " + signed(sum) + (isNum(credit) ? " · credit " + signed(credit) : "") + " · impact " + imp.toFixed(2) + (c.why ? " — " + c.why : ""));
+        cg.append("title").text(name(report, side) + " · " + (c.label || c.kind) + " · steps " + c.from + "–" + c.to + " · " + secs(c.seconds) + " · reward " + reward(sum) + (isNum(credit) ? " · credit " + reward(credit) : "") + " · impact " + imp.toFixed(2) + (c.why ? " — " + c.why : ""));
         cg.on("pointermove", function (evt) {
           tip.show(evt, [{ b: true, text: name(report, side) + (c.lane ? " · " + c.lane : "") + " · " + (c.label || c.kind) },
             { text: "steps " + c.from + "–" + c.to + " (" + stepsIn(c) + ") · " + secs(c.seconds) + " · " + (c.kind || "work") + " · impact " + imp.toFixed(2) },
-            { text: "reward " + signed(sum) + " over " + n + " rewarded step" + (n === 1 ? "" : "s") + (isNum(credit) ? " · credit " + signed(credit) : "") },
+            { text: "reward " + reward(sum) + " over " + n + " rewarded step" + (n === 1 ? "" : "s") + (isNum(credit) ? " · credit " + reward(credit) : "") },
             c.why ? { text: c.why } : null, { text: open ? "click to close" : n ? "click to open its rewards" : "no rewarded steps" }]);
         }).on("pointerleave", tip.hide).on("click", function () { var k = skey(side, u.id); if (st.open[k]) delete st.open[k]; else st.open[k] = true; repaint(); });
         // the credit its steps carry: a faint bar under the thread, tall by |credit|, coloured by sign
@@ -18108,7 +18015,7 @@ THIS SOFTWARE.
           var ch = Math.max(1.5, 10 * Math.abs(credit) / creditMax);
           svg.append("rect").attr("class", "rl-credit").attr("data-id", c.id).attr("data-side", side).attr("data-credit", credit.toFixed(4))
             .attr("x", ux).attr("y", yT + 17).attr("width", Math.max(w, 1)).attr("height", ch).attr("fill", credit < 0 ? "var(--bad)" : "var(--good)").attr("fill-opacity", 0.35)
-            .append("title").text(name(report, side) + " · " + (c.label || c.kind) + " · credit " + signed(credit) + " (" + ((run.credit && run.credit.source) || "credit") + ")");
+            .append("title").text(name(report, side) + " · " + (c.label || c.kind) + " · credit " + reward(credit) + " (" + ((run.credit && run.credit.source) || "credit") + ")");
         }
       });
       // ---- the ticks: every step whose |reward| reaches the run's 90th percentile, tall by |reward| — where the
@@ -18132,7 +18039,7 @@ THIS SOFTWARE.
       var ans = answerStep(run);
       if (isNum(ans)) {
         svg.append("rect").attr("class", "rl-answer").attr("data-step", ans).attr("x", stepX(ans) - 3.5).attr("y", yT - 3.5).attr("width", 7).attr("height", 7).attr("fill", color(side))
-          .append("title").text("the answer at step " + ans + " · return " + signed(cumAt(rs, ans)));
+          .append("title").text("the answer at step " + ans + " · return " + reward(cumAt(rs, ans)));
       }
       // ---- the open stretches: a row saying what the stretch was, then its rewarded steps as leaves
       openUnits.forEach(function (u) {
@@ -18146,7 +18053,7 @@ THIS SOFTWARE.
         if (u.leaves.length) svg.append("line").attr("class", "rl-stem").attr("x1", lx).attr("x2", lx).attr("y1", y0 + 6).attr("y2", y1).attr("stroke", color(side)).attr("stroke-width", 1.1).attr("stroke-opacity", 0.4);
         var sum = rewardSum(run, c), credit = creditOf(run, c);
         var why = svg.append("text").attr("class", "rl-why").attr("data-id", c.id).attr("x", lx - 4).attr("y", y0 + 4)
-          .text(fit((c.label ? c.label + " · " : "") + "steps " + c.from + "–" + c.to + " · " + secs(c.seconds) + " · reward " + signed(sum) + (isNum(credit) ? " · credit " + signed(credit) : "") + (c.why ? " — " + c.why : ""), W - padR - lx + 4));
+          .text(fit((c.label ? c.label + " · " : "") + "steps " + c.from + "–" + c.to + " · " + secs(c.seconds) + " · reward " + reward(sum) + (isNum(credit) ? " · credit " + reward(credit) : "") + (c.why ? " — " + c.why : ""), W - padR - lx + 4));
         u.leaves.forEach(function (r, li) {
           var ly = rowY(u.row0 + 1 + li), pos = r.reward > 0, neg = r.reward < 0;
           var lg = svg.append("g").attr("class", "rl-leaf").attr("data-step", r.step).attr("data-side", side).attr("data-id", c.id).attr("transform", "translate(" + lx + "," + ly + ")");
@@ -18195,7 +18102,7 @@ THIS SOFTWARE.
       kids.push(document.createTextNode(" (rejected)"));
     }
     var basis = pref.chosen.basis || pref.basis || "";
-    var tail = (basis ? " — basis: " + basis : "") + (isNum(pref.margin) ? " · margin " + signed(pref.margin) : "");
+    var tail = (basis ? " — basis: " + basis : "") + (isNum(pref.margin) ? " · margin " + reward(pref.margin) : "");
     if (tail) kids.push(H("span", { class: "basis", text: tail }));
     return H("p", { class: "rl-pref", "data-chosen": cs || "" }, kids);
   }
@@ -18230,7 +18137,7 @@ THIS SOFTWARE.
         if (!run) return;
         var chip = H("span", { class: "rl-chip rl-run", "data-side": s, title: run.narrative || "" }, [
           H("b", { style: { color: color(s) }, text: name(report, s) }),
-          document.createTextNode(" · return " + signed(run["return"]) + " · discounted " + signed(run.discounted_return) + " · "),
+          document.createTextNode(" · return " + reward(run["return"]) + " · discounted " + reward(run.discounted_return) + " · "),
           H("span", { class: "up", text: (run.positive || 0) + "↑" }), document.createTextNode(" "),
           H("span", { class: "dn", text: (run.negative || 0) + "↓" }),
         ]);
@@ -18263,9 +18170,9 @@ THIS SOFTWARE.
             H("td", { class: "n", text: name(report, side) }),
             H("td", { class: "n", text: String(l.step) }),
             H("td", { class: "n", text: r.name || l.name || "" }),
-            H("td", { class: "n " + (v > 0 ? "pos" : v < 0 ? "neg" : ""), text: signed(v) }),
+            H("td", { class: "n " + (v > 0 ? "pos" : v < 0 ? "neg" : ""), text: reward(v) }),
             H("td", { text: l.why || labelsOf(r) || "" }),
-            H("td", { class: "n", text: isNum(r.credit) ? signed(r.credit) : "—" }),
+            H("td", { class: "n", text: isNum(r.credit) ? reward(r.credit) : "—" }),
           ]));
         });
       });
@@ -18283,8 +18190,8 @@ THIS SOFTWARE.
             H("td", { class: "n", text: secs(c.seconds) }),
             H("td", { class: "n " + (c.kind || ""), text: c.kind || "work" }),
             H("td", { class: "n", text: clamp01(c.impact).toFixed(2) }),
-            H("td", { class: "n " + (sum > 0 ? "pos" : sum < 0 ? "neg" : ""), text: signed(sum) }),
-            H("td", { class: "n", text: isNum(credit) ? signed(credit) : "—" }),
+            H("td", { class: "n " + (sum > 0 ? "pos" : sum < 0 ? "neg" : ""), text: reward(sum) }),
+            H("td", { class: "n", text: isNum(credit) ? reward(credit) : "—" }),
             H("td", { text: (c.label ? c.label + " — " : "") + (c.why || "") }),
           ]));
         });
@@ -18326,16 +18233,14 @@ THIS SOFTWARE.
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, signed = L.fmt.signed, short = L.fmt.short, colorOf = L.color.agent;
 
   //: a quiet stretch of this many zero-reward steps folds into ×N
   var FOLD_MIN = 5;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("training", [
       ".rl{position:relative}",
       ".rl svg{display:block;width:100%;height:auto;font-family:var(--sans)}",
       ".rl .lab{font-size:var(--fs-xs);fill:var(--ink-2)}.rl .lab.dim{fill:var(--ink-3)}.rl .lab.mono{font-family:var(--mono)}",
@@ -18374,33 +18279,21 @@ THIS SOFTWARE.
       ".rl-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);max-width:320px}",
       ".rl-tip b{color:var(--ink)}",
       "@media (max-width:640px){.rld-row{grid-template-columns:minmax(60px,1fr) minmax(80px,2fr) 48px}}",
-    ].join("\n");
-    document.head.appendChild(node);
+    ].join("\n"));
   }
 
   // ------------------------------------------------------------ helpers
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function signed(v, p) {
-    if (!isNum(v)) return "—";
-    var s = Math.abs(v).toFixed(p === undefined ? 2 : p);
-    return v > 0 ? "+" + s : v < 0 ? "−" + s : s;
-  }
   function plain(v, p) { return isNum(v) ? v.toFixed(p === undefined ? 2 : p) : "—"; }
-  function short(id) { return String(id || "").replace(/^t\d+_/, "").replace(/_/g, " "); }
   function trunc(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
   function sum(arr) { var t = 0; for (var i = 0; i < arr.length; i++) if (isNum(arr[i])) t += arr[i]; return t; }
   function mean(arr) { var xs = arr.filter(isNum); return xs.length ? sum(xs) / xs.length : null; }
   function ret(ep) { return ep.ret; }
   function key(ep) { return ep.task_id + "|" + ep.policy + "|" + (ep.run_id || ""); }
-  function colorOf(side, i) { return side === "a" ? "var(--a)" : side === "b" ? "var(--b)" : i === 2 ? "var(--warn)" : "var(--ink-3)"; }
-  //: a fold's length scales with the steps it constricts — the same rule as Where it mattered
-  function foldW(steps) { return 6 + 6 * Math.log(1 + Math.max(0, steps)) / Math.LN2; }
-  function width(host) { var w = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0; return Math.max(300, Math.min(1400, w || 320)); }
-  function responsive(host, draw, k) {
-    if (AgentDiff.charts && AgentDiff.charts.responsive) return AgentDiff.charts.responsive(host, draw, k);
-    draw(); return host;
-  }
+  //: a fold's length scales with the steps it constricts — the same law as Where it mattered
+  var foldW = L.glyph.foldWidth;
+  function width(host) { return L.layout.measure(host, 300, 1400); }
+  var responsive = L.layout.responsive;
   function selectStep(report, side, step) {
     if (AgentDiff.charts && AgentDiff.charts.selectStep && report) AgentDiff.charts.selectStep(report, side, step);
   }
@@ -18410,26 +18303,7 @@ THIS SOFTWARE.
     if (fn && id) fn(id);
   }
 
-  function tooltip(root) {
-    var tip = document.createElement("div"); tip.className = "rl-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) {
-          if (!l) return;
-          var d = document.createElement("div");
-          if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text;
-          tip.appendChild(d);
-        });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 320 > r.width) x = Math.max(0, evt.clientX - r.left - 330);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "rl-tip", width: 320 }); }
 
   //: a per-step number list from either numbers or {step, reward} entries
   function perStep(list, n) {
@@ -18779,7 +18653,8 @@ THIS SOFTWARE.
   });
 
   /* rl-reward-map: episodes × steps, every reward a cell. */
-  var UNFOLDED = {};
+  //: the folds the reader opened, page-wide: an episode key is task-qualified already
+  var FOLDS = L.family("rl-curves", { open: {} }, { scope: "page" });
   function units(ep) {
     var out = [], i = 0, n = ep.rewards.length;
     while (i < n) {
@@ -18787,7 +18662,7 @@ THIS SOFTWARE.
       var j = i;
       while (j < n && ep.rewards[j] === 0) j++;
       var len = j - i;
-      if (len >= FOLD_MIN && !UNFOLDED[key(ep) + "|" + i]) out.push({ type: "fold", from: i, to: j - 1, steps: len });
+      if (len >= FOLD_MIN && !FOLDS.get().open[key(ep) + "|" + i]) out.push({ type: "fold", from: i, to: j - 1, steps: len });
       else for (var k = i; k < j; k++) out.push({ type: "blank", step: k });
       i = j;
     }
@@ -18850,7 +18725,7 @@ THIS SOFTWARE.
           fg.append("title").text(u.steps + " steps without reward (" + u.from + "–" + u.to + ") folded; click to open");
           fg.on("pointermove", function (evt) {
             tip.show(evt, [{ b: true, text: e.policy + " · " + short(e.task_id) + (e.run_id ? " · " + e.run_id : "") }, { text: "steps " + u.from + "–" + u.to + " · " + u.steps + " steps · reward 0" }, { text: "click to open" }]);
-          }).on("pointerleave", tip.hide).on("click", function () { tip.hide(); UNFOLDED[key(e) + "|" + u.from] = true; repaint(); });
+          }).on("pointerleave", tip.hide).on("click", function () { tip.hide(); FOLDS.get().open[key(e) + "|" + u.from] = true; repaint(); });
           x += w;
           return;
         }
@@ -18897,8 +18772,8 @@ THIS SOFTWARE.
         H("span", { class: "rl-chip", "data-key": "zero", text: zero + " silent" }),
         H("span", { text: "a fold ×N holds N silent steps · bold rows are the pair on the page; a click there opens the step" }),
       ]);
-      var folded = Object.keys(UNFOLDED).length;
-      if (folded) bar.appendChild(H("button", { text: "fold the quiet back", onclick: function () { UNFOLDED = {}; if (AgentDiff._rerender) AgentDiff._rerender(); } }));
+      var folded = Object.keys(FOLDS.get().open).length;
+      if (folded) bar.appendChild(H("button", { text: "fold the quiet back", onclick: function () { FOLDS.set({ open: {} }, { rerender: true }); } }));
       root.appendChild(bar);
       var host = H("div", { class: "rl-chart" });
       function repaint() { host.innerHTML = ""; drawMap(host, ctx, m, tip, repaint); }
@@ -19265,13 +19140,11 @@ THIS SOFTWARE.
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, num = L.fmt.num, pct = L.fmt.pct, short = L.fmt.short;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("rlstats", [
       ".rls{position:relative}",
       ".rls svg{display:block;width:100%;height:auto;font-family:var(--sans)}",
       ".rls .lab{font-size:var(--fs-xs);fill:var(--ink-2)}",
@@ -19308,32 +19181,15 @@ THIS SOFTWARE.
       ".rls-tip b{color:var(--ink)}",
       ".rls-tip .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}",
       "@media (max-width:640px){.rls-row{grid-template-columns:minmax(58px,1fr) minmax(80px,2fr) 44px}}",
-    ].join("\n");
-    document.head.appendChild(node);
+    ].join("\n"));
   }
 
   // ------------------------------------------------------------- helpers
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function num(v, p) {
-    if (!isNum(v)) return "—";
-    var s = v.toFixed(p === undefined ? 2 : p);
-    if (s.indexOf(".") >= 0) s = s.replace(/0+$/, "").replace(/\.$/, "");
-    return s.replace("-", "−");
-  }
-  function pct(v) { return isNum(v) ? Math.round(v * 100) + "%" : "—"; }
-  function short(id) { return String(id || "").replace(/^(rl|t)\d+_/, "").replace(/_/g, " "); }
   function trunc(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
-  function hostWidth(host) {
-    var w = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0;
-    return Math.max(280, Math.min(1400, w || 320));
-  }
-  function responsive(host, draw, key) {
-    if (AgentDiff.charts && AgentDiff.charts.responsive) return AgentDiff.charts.responsive(host, draw, key);
-    draw();
-    return host;
-  }
+  function hostWidth(host) { return L.layout.measure(host, 280, 1400); }
+  var responsive = L.layout.responsive;
   function selectTask(ctx, id) {
     var fn = ctx && typeof ctx.selectTask === "function" ? ctx.selectTask
       : AgentDiff._internals && typeof AgentDiff._internals.selectTask === "function" ? AgentDiff._internals.selectTask : null;
@@ -19357,31 +19213,7 @@ THIS SOFTWARE.
     return out.length ? out : [lo, hi];
   }
 
-  function tooltip(root) {
-    var tip = document.createElement("div");
-    tip.className = "rls-tip";
-    tip.hidden = true;
-    root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) {
-          if (!l) return;
-          var d = document.createElement("div");
-          if (l.mono) d.className = "mono";
-          if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text;
-          tip.appendChild(d);
-        });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 300 > r.width) x = Math.max(0, evt.clientX - r.left - 310);
-        tip.style.left = x + "px";
-        tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "rls-tip", width: 300 }); }
 
   // --------------------------------------------------------------- model
 
@@ -19531,15 +19363,10 @@ THIS SOFTWARE.
         var cell = p.agg[row.key];
         if (!cell || !isNum(cell.point)) return;
         var y = top + (rowH - (m.policies.length - 1) * lineGap) / 2 + pi * lineGap;
-        var a = isNum(cell.lo) ? x(cell.lo) : x(cell.point);
-        var b = isNum(cell.hi) ? x(cell.hi) : x(cell.point);
         var line = S("g", { class: "rls-int hit", "data-metric": row.key, "data-policy": p.name, "data-point": cell.point });
         g.appendChild(line);
-        line.appendChild(S("line", { x1: a, x2: b, y1: y, y2: y, stroke: p.color, "stroke-width": 2, "stroke-opacity": 0.42, "stroke-linecap": "round" }));
-        [a, b].forEach(function (px) {
-          line.appendChild(S("line", { x1: px, x2: px, y1: y - 4, y2: y + 4, stroke: p.color, "stroke-width": 1.5, "stroke-opacity": 0.42 }));
-        });
-        line.appendChild(S("circle", { cx: x(cell.point), cy: y, r: 3.6, fill: p.color }));
+        var ends = L.glyph.interval(line, x, cell.point, cell.lo, cell.hi, { y: y, color: p.color });
+        var a = ends.a, b = ends.b;
         line.appendChild(S("text", {
           class: "val", x: clamp(x(cell.point), padL + 14, W - padR - 14), y: y - 6,
           "text-anchor": "middle", fill: p.color, text: num(cell.point),
@@ -19750,10 +19577,7 @@ THIS SOFTWARE.
     node.appendChild(S("text", { class: "tick", x: x(0.5), y: height - 5, "text-anchor": "middle", text: "50% · a coin flip" }));
     node.appendChild(S("text", { class: "tick", x: padL, y: height - 5, "text-anchor": "start", text: "0%" }));
     node.appendChild(S("text", { class: "tick", x: W - padR, y: height - 5, "text-anchor": "end", text: "100%" }));
-    if (isNum(imp.lo) && isNum(imp.hi)) {
-      node.appendChild(S("line", { class: "rls-int", x1: x(imp.lo), x2: x(imp.hi), y1: y, y2: y, stroke: color, "stroke-width": 6, "stroke-opacity": 0.3, "stroke-linecap": "round" }));
-    }
-    if (isNum(imp.point)) node.appendChild(S("circle", { class: "rls-point", cx: x(imp.point), cy: y, r: 4.5, fill: color }));
+    L.glyph.interval(node, x, imp.point, imp.lo, imp.hi, { y: y, color: color, width: 6, opacity: 0.3, tick: 0, r: 4.5, lineClass: "rls-int", dotClass: "rls-point" });
     host.appendChild(node);
   }
 
@@ -19854,13 +19678,11 @@ THIS SOFTWARE.
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, signed = L.fmt.signed, pct = L.fmt.pct, short = L.fmt.short;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("rlaudit", [
       ".rlq{position:relative}",
       ".rlq svg{display:block;width:100%;height:auto;font-family:var(--sans)}",
       ".rlq .lab{font-size:var(--fs-xs);fill:var(--ink-2)}.rlq .lab.dim{fill:var(--ink-3)}",
@@ -19899,55 +19721,21 @@ THIS SOFTWARE.
          and the panel beside it is the evidence for the same sentence */
       'body[data-view="training"] .stack>[data-block="rl-audit-reward"],',
       'body[data-view="training"] .stack>[data-block="rl-audit-critic"]{grid-column:1/-1}',
-    ].join("\n");
-    document.head.appendChild(node);
+    ].join("\n"));
   }
 
   // ------------------------------------------------------------ helpers
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
   function plain(v, p) { return isNum(v) ? v.toFixed(p === undefined ? 2 : p).replace("-", "−") : "—"; }
-  function signed(v, p) {
-    if (!isNum(v)) return "—";
-    var s = Math.abs(v).toFixed(p === undefined ? 2 : p);
-    return v > 0 ? "+" + s : v < 0 ? "−" + s : s;
-  }
-  function pct(v, p) { return isNum(v) ? (100 * v).toFixed(p === undefined ? 0 : p) + "%" : "—"; }
-  function short(id) { return String(id || "").replace(/^(rl|t)\d+_/, "").replace(/_/g, " "); }
   function trunc(s, n) { s = String(s === null || s === undefined ? "" : s); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
-  function width(host) {
-    var w = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0;
-    return Math.max(280, Math.min(1120, w || 320));
-  }
-  function responsive(host, draw, k) {
-    if (AgentDiff.charts && AgentDiff.charts.responsive) return AgentDiff.charts.responsive(host, draw, k);
-    draw(); return host;
-  }
+  function width(host) { return L.layout.measure(host, 280, 1120); }
+  var responsive = L.layout.responsive;
   function selectStep(report, side, step) {
     if (AgentDiff.charts && AgentDiff.charts.selectStep && report && side && isNum(step)) {
       AgentDiff.charts.selectStep(report, side, step);
     }
   }
-  function tooltip(root) {
-    var tip = document.createElement("div"); tip.className = "rlq-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) {
-          if (!l) return;
-          var d = document.createElement("div");
-          if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text;
-          tip.appendChild(d);
-        });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 300 > r.width) x = Math.max(0, evt.clientX - r.left - 310);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "rlq-tip", width: 300 }); }
 
   // -------------------------------------------------------------- model
 
@@ -20321,7 +20109,7 @@ THIS SOFTWARE.
       if ((tools.findings || []).length) {
         var byTool = {};
         tools.findings.forEach(function (f) {
-          (byTool[f.tool] || (byTool[f.tool] = [])).push(f.agent + " " + pct(f.share));
+          (byTool[f.tool] || (byTool[f.tool] = [])).push(f.agent + " " + pct(f.share, 0));
         });
         notes.push("The positive reward is tool-concentrated: "
           + Object.keys(byTool).sort().map(function (t) {
@@ -25728,12 +25516,12 @@ THIS SOFTWARE.
     ".evc-lede{font-size:var(--fs-m);color:var(--ink);margin:0 0 6px;max-width:96ch}.evc-lede b{font-weight:600}",
     ".evc-bar{display:flex;gap:6px 14px;flex-wrap:wrap;align-items:center;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 8px}",
     ".evc-bar i{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:-1px;margin-right:5px}",
-    ".evc-chip{font-family:var(--mono);color:var(--ink-2);font-variant-numeric:tabular-nums;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}",
+    ".evc-chip{font-family:var(--mono);color:var(--ink-2);font-variant-numeric:tabular-nums;max-width:100%;overflow-wrap:anywhere}",
     ".evc-chip b{color:var(--ink);font-weight:600}",
     ".evc-bar button{font:inherit;font-size:var(--fs-xs);border:0;background:var(--surface-2);color:var(--ink-2);border-radius:999px;padding:1px 9px;cursor:pointer}",
     ".evc-bar button:hover{color:var(--ink)}.evc-bar button[aria-pressed=true]{background:var(--ink);color:var(--bg)}",
     ".evc-bar button:disabled{opacity:.4;cursor:default}",
-    ".evc-seg{display:inline-flex;gap:2px;flex:0 0 auto}",
+    ".evc-seg{display:inline-flex;gap:2px;flex-wrap:wrap;max-width:100%}",
     ".evc-note{font-size:var(--fs-xs);color:var(--ink-3);margin:8px 0 0;max-width:96ch;line-height:1.5}",
     ".evc-read{font-size:var(--fs-xs);color:var(--ink-2);margin:6px 0 0;line-height:1.5;max-width:96ch}.evc-read b{color:var(--ink);font-weight:600}",
     ".evc-axes{list-style:none;margin:8px 0 0;padding:0;font-size:var(--fs-xs);color:var(--ink-2);line-height:1.5;max-width:96ch}",
@@ -26485,10 +26273,10 @@ THIS SOFTWARE.
       rows.forEach(function (l) { head.push(H("th", { text: l.family })); });
       table.appendChild(H("tr", null, head));
       function row(key, label, get, badWhen, cls) {
-        var tr = H("tr", { "data-measure": key }, [H("td", { class: cls || "", text: label })]);
+        var tr = H("tr", { "data-measure": key }, [H("td", { text: label })]);
         rows.forEach(function (l) {
           var v = get(l.process, l), isBad = badWhen ? badWhen(v, l.process) : false;
-          tr.appendChild(H("td", { class: "num" + (isBad ? " bad" : ""), text: v === null || v === undefined ? "—" : String(v) }));
+          tr.appendChild(H("td", { class: (cls === "name" ? "name" : "num") + (isBad ? " bad" : ""), text: v === null || v === undefined ? "—" : String(v) }));
         });
         table.appendChild(tr);
       }
@@ -26496,11 +26284,15 @@ THIS SOFTWARE.
       group("steps");
       row("steps", "steps", function (p) { return count(p.steps); });
       VERDICT_ORDER.forEach(function (k) { row(k, k, function (p) { return count(p[k]); }, function (v) { return v > 0 && (k === "gamed" || k === "forgot" || k === "regressed"); }); });
-      row("accepted_on_noise", "accepted on noise", function (p) { return count(p.accepted_on_noise) + (Array.isArray(p.accepted_on_noise_steps) && p.accepted_on_noise_steps.length ? " (" + p.accepted_on_noise_steps.join(", ") + ")" : ""); });
+      // the counts, then the names behind them on their own wrapping rows, so the table stays narrow
+      row("accepted_on_noise", "accepted on noise", function (p) { return count(p.accepted_on_noise); });
+      row("accepted_on_noise_steps", "kept on noise", function (p) { return Array.isArray(p.accepted_on_noise_steps) && p.accepted_on_noise_steps.length ? p.accepted_on_noise_steps.join(", ") : "none"; }, null, "name");
       row("monotone", "monotone", function (p) { return p.monotone === true ? "yes" : p.monotone === false ? "no" : null; });
       group("integrity");
-      row("protected_touched", "protected paths touched", function (p) { return count(p.protected_touched) + (Array.isArray(p.protected_touched_paths) && p.protected_touched_paths.length ? " (" + p.protected_touched_paths.map(function (t) { return (t.path || "?") + " at " + (t.to || t.step || "?"); }).join(", ") + ")" : ""); }, function (v, p) { return count(p.protected_touched) > 0; });
-      row("over_budget", "over budget", function (p) { return count(p.over_budget) + (Array.isArray(p.over_budget_rows) && p.over_budget_rows.length ? " (" + p.over_budget_rows.map(function (o) { return o.gen + " " + o.what + " " + num(o.value, 0) + " > " + num(o.budget, 0); }).join(", ") + ")" : ""); }, function (v, p) { return count(p.over_budget) > 0; });
+      row("protected_touched", "protected paths touched", function (p) { return count(p.protected_touched); }, function (v) { return v > 0; });
+      row("protected_touched_paths", "which paths", function (p) { return Array.isArray(p.protected_touched_paths) && p.protected_touched_paths.length ? p.protected_touched_paths.map(function (t) { return (t.path || "?") + " at " + (t.to || t.step || "?"); }).join(", ") : "none"; }, null, "name");
+      row("over_budget", "over budget", function (p) { return count(p.over_budget); }, function (v) { return v > 0; });
+      row("over_budget_rows", "which budgets", function (p) { return Array.isArray(p.over_budget_rows) && p.over_budget_rows.length ? p.over_budget_rows.map(function (o) { return o.gen + " " + o.what + " " + num(o.value, 0) + " > " + num(o.budget, 0); }).join(", ") : "none"; }, null, "name");
       row("collapsed", "collapsed", function (p) { return count(p.collapsed); }, function (v) { return v > 0; });
       group("retention");
       row("ever_solved", "tasks ever solved", function (p) { var r = p.retention || {}; return isNum(r.ever_solved_n) ? r.ever_solved_n : Array.isArray(r.ever_solved) ? r.ever_solved.length : null; });
@@ -26674,7 +26466,7 @@ THIS SOFTWARE.
     var every = Math.max(1, Math.ceil(26 / Math.max(1, cw)));
     heads.append("text").attr("class", "lab mono").attr("text-anchor", "middle").attr("x", function (k) { return x(k) + cw / 2; }).attr("y", 12)
       .text(function (k) { return k % every === 0 || k === n - 1 ? trunc(idAt(m, k), Math.max(2, Math.floor(cw / 6.2))) : ""; });
-    svg.append("text").attr("class", "tick").attr("x", W - padR - edgeW + 6).attr("y", 12).text("first solver");
+    svg.append("text").attr("class", "tick").attr("x", W - padR - edgeW + 6).attr("y", 12).text(fit(narrow ? "first" : "first solver", edgeW - 8));
     tasks.forEach(function (t, ti) {
       var yy = headH + ti * (cellH + gap), mid = yy + cellH / 2;
       svg.append("text").attr("class", "lab mono").attr("x", labW - 8).attr("y", mid + 4).attr("text-anchor", "end").text(trunc(short(t), Math.floor((labW - 10) / 6.6))).append("title").text(t);
@@ -26804,7 +26596,11 @@ THIS SOFTWARE.
   function drawMechanisms(host, ctx, m, rows, tip) {
     if (!d3) return;
     var W = width(host), narrow = W < 520;
-    var labW = narrow ? 74 : 104, valW = narrow ? 44 : 92, padR = 6, rowH = 32, padT = 16, padB = 22;
+    var labW = narrow ? 74 : 104, padR = 6, rowH = 32, padT = 16, padB = 22;
+    //: the count column is as wide as its longest entry, so it never runs past the edge
+    function valText(c) { return narrow ? c.steps + " · +" + c.improved + "/−" + c.regressed : c.steps + " step" + (c.steps === 1 ? "" : "s") + " · +" + c.improved + " / −" + c.regressed; }
+    var valHead = narrow ? "n · +/−" : "steps · improved/regressed";
+    var valW = 10 + CH * rows.reduce(function (a, r) { return Object.keys(r.per).reduce(function (b, f) { return Math.max(b, valText(r.per[f]).length); }, a); }, valHead.length);
     var lo = 0, hi = 0;
     rows.forEach(function (r) { Object.keys(r.per).forEach(function (f) { var c = r.per[f]; [c.mean, c.min, c.max].forEach(function (v) { if (isNum(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }); }); });
     if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
@@ -26815,7 +26611,7 @@ THIS SOFTWARE.
     svg.append("line").attr("class", "zero").attr("x1", x(0)).attr("x2", x(0)).attr("y1", padT - 6).attr("y2", H - padB + 2);
     x.ticks(narrow ? 3 : 5).forEach(function (t) { svg.append("text").attr("class", "tick").attr("x", x(t)).attr("y", H - 6).attr("text-anchor", "middle").text(signed(t, 1)); });
     svg.append("text").attr("class", "lab dim").attr("x", x(0) + 4).attr("y", 10).text(fit("mean ΔIQM per step →", W - padR - valW - x(0) - 4));
-    svg.append("text").attr("class", "tick").attr("x", W - padR - valW + 4).attr("y", 10).text(narrow ? "n · +/−" : "steps · improved/regressed");
+    svg.append("text").attr("class", "tick").attr("x", W - padR - valW + 4).attr("y", 10).text(valHead);
     var rScale = d3.scaleSqrt().domain([0, Math.max(1, rows.reduce(function (a, r) { return Math.max(a, Object.keys(r.per).reduce(function (b, f) { return Math.max(b, r.per[f].steps); }, 0)); }, 0))]).range([2.5, 7]);
     rows.forEach(function (r, i) {
       var top = padT + i * rowH;
@@ -26827,7 +26623,7 @@ THIS SOFTWARE.
         var mg = g.append("g").attr("class", "evc-mdot").attr("data-family", l.family).attr("data-steps", c.steps).attr("data-mean", isNum(c.mean) ? c.mean : "");
         if (isNum(c.min) && isNum(c.max) && c.max > c.min) mg.append("line").attr("x1", x(c.min)).attr("x2", x(c.max)).attr("y1", y).attr("y2", y).attr("stroke", l.color).attr("stroke-width", 2).attr("stroke-opacity", 0.4).attr("stroke-linecap", "round");
         if (isNum(c.mean)) mg.append("circle").attr("cx", x(c.mean)).attr("cy", y).attr("r", rScale(c.steps)).attr("fill", l.color).attr("fill-opacity", 0.9);
-        mg.append("text").attr("class", "tick").attr("x", W - padR - valW + 4).attr("y", y + 4).attr("fill", l.color).text(narrow ? c.steps + " · +" + c.improved + "/−" + c.regressed : c.steps + " step" + (c.steps === 1 ? "" : "s") + " · +" + c.improved + " / −" + c.regressed);
+        mg.append("text").attr("class", "tick").attr("x", W - padR - valW + 4).attr("y", y + 4).attr("fill", l.color).text(valText(c));
         mg.append("rect").attr("x", labW).attr("y", y - 6).attr("width", W - labW - padR).attr("height", 13).attr("fill", "transparent");
         mg.on("pointermove", function (evt) {
           var vs = Object.keys(c.verdicts).sort().map(function (k) { return c.verdicts[k] + " " + k; }).join(", ");

@@ -46,6 +46,7 @@ from typing import Optional
 from .process import _digest, _norm, _signature, _tool_table, effect_of, is_error
 from .tooldiff import TOOLISH_TYPES, parse_args
 from .trace import Trajectory
+from . import sections as _sections
 
 #: how many of the slowest steps the latency block names.
 TOP_LATENCY_STEPS = 3
@@ -886,3 +887,8 @@ def aggregate_efficiency(reports: list[dict]) -> dict:
         "reports_missing_efficiency": missing,
         "narrative": ". ".join(lines) + ".",
     }
+
+
+@_sections.register("pair", "efficiency", requires=("tradeoff",))
+def _section(report: dict, ctx: "_sections.PairContext"):
+    return compare_efficiency(ctx.a, ctx.b)

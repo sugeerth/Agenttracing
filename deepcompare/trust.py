@@ -43,6 +43,7 @@ from typing import Any, Optional
 from .process import analyse as process_analyse, effect_of, is_error
 from .tooldiff import TOOLISH_TYPES
 from .trace import AgentInfo, HARNESS_TERMINATIONS, Outcome, Step, TaskInfo, Totals, Trajectory
+from . import sections as _sections
 
 try:  # another module, written separately: framework signals per run
     from .frameworks import detect  # type: ignore
@@ -491,3 +492,8 @@ def trust_pair(report: dict, policy: Optional[dict] = None, golden: Optional[dic
 
 
 __all__ = ["VERSION", "RUBRIC", "LABELS", "EXTERNAL_STEMS", "trust_run", "trust_pair"]
+
+
+@_sections.register("pair", "trust", requires=("impact",))
+def _section(report: dict, ctx: "_sections.PairContext"):
+    return trust_pair(report, policy=ctx.policy, golden=ctx.golden)

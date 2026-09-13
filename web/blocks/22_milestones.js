@@ -15,13 +15,11 @@
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, secs = L.fmt.secs;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("milestones", [
       ".ms{--ms-a:var(--a);--ms-b:var(--b);position:relative}",
       ".ms-narr{font-size:var(--fs-m);color:var(--ink);margin:0 0 8px;max-width:90ch}",
       ".ms-bar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 6px}",
@@ -38,15 +36,13 @@
       ".ms-table td{padding:3px 10px 3px 0;white-space:nowrap;color:var(--ink-2)}.ms-table td.never{color:var(--bad)}.ms-table td.late{color:var(--warn)}",
       ".ms-details{margin-top:6px;font-size:var(--fs-xs)}.ms-details summary{cursor:pointer;color:var(--ink-2)}",
       ".ms-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);max-width:320px}",
-    ].join("\n");
-    document.head.appendChild(node);
+    ].join("\n"));
   }
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function secs(v) { return !isNum(v) ? "—" : v >= 100 ? Math.round(v) + "s" : v >= 10 ? v.toFixed(0) + "s" : v.toFixed(1) + "s"; }
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
-  function color(side) { return "var(--ms-" + side + ")"; }
-  var Axis = {};   // per task: "time" | "steps"
+  function color(side) { return L.color.side(side, "ms"); }
+  //: per task: the x measure, "time" | "steps"
+  var Axis = L.family("milestones", { axis: "time" });
 
   function draw(host, report, ms, axis, tip) {
     if (!d3) return;
@@ -101,21 +97,7 @@
     });
   }
 
-  function tooltip(root) {
-    var tip = document.createElement("div"); tip.className = "ms-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) { if (!l) return; var d = document.createElement("div"); if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text; tip.appendChild(d); });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 320 > r.width) x = Math.max(0, evt.clientX - r.left - 330);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "ms-tip", width: 320 }); }
 
   AgentDiff.block({
     id: "milestones",
@@ -133,13 +115,13 @@
       var tip = tooltip(root);
       root.appendChild(H("p", { class: "ms-narr", text: ms.narrative || "" }));
       var task = report.task && report.task.id;
-      var axis = Axis[task] || "time";
+      var axis = Axis.get(task).axis;
       var bar = H("div", { class: "ms-bar" });
       bar.appendChild(H("span", null, [H("i", { style: { background: color("a") } }), H("span", { text: name(report, "a") + " · " + ms.a.reached + "/" + ms.a.total })]));
       bar.appendChild(H("span", null, [H("i", { style: { background: color("b") } }), H("span", { text: name(report, "b") + " · " + ms.b.reached + "/" + ms.b.total })]));
       var seg = H("span", { class: "seg", role: "group", "aria-label": "axis" });
       ["time", "steps"].forEach(function (k) {
-        seg.appendChild(H("button", { text: k, "data-axis": k, "aria-pressed": axis === k ? "true" : "false", onclick: function () { Axis[task] = k; if (AgentDiff._rerender) AgentDiff._rerender(); } }));
+        seg.appendChild(H("button", { text: k, "data-axis": k, "aria-pressed": axis === k ? "true" : "false", onclick: function () { Axis.set({ axis: k }, { task: task, rerender: true }); } }));
       });
       bar.appendChild(seg);
       bar.appendChild(H("span", { text: "a dot = the first step with the milestone's evidence · hollow = later than its deadline · click a dot to open the step" }));

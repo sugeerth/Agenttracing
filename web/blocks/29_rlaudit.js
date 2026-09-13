@@ -24,13 +24,11 @@
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, signed = L.fmt.signed, pct = L.fmt.pct, short = L.fmt.short;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("rlaudit", [
       ".rlq{position:relative}",
       ".rlq svg{display:block;width:100%;height:auto;font-family:var(--sans)}",
       ".rlq .lab{font-size:var(--fs-xs);fill:var(--ink-2)}.rlq .lab.dim{fill:var(--ink-3)}",
@@ -69,55 +67,21 @@
          and the panel beside it is the evidence for the same sentence */
       'body[data-view="training"] .stack>[data-block="rl-audit-reward"],',
       'body[data-view="training"] .stack>[data-block="rl-audit-critic"]{grid-column:1/-1}',
-    ].join("\n");
-    document.head.appendChild(node);
+    ].join("\n"));
   }
 
   // ------------------------------------------------------------ helpers
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
   function plain(v, p) { return isNum(v) ? v.toFixed(p === undefined ? 2 : p).replace("-", "−") : "—"; }
-  function signed(v, p) {
-    if (!isNum(v)) return "—";
-    var s = Math.abs(v).toFixed(p === undefined ? 2 : p);
-    return v > 0 ? "+" + s : v < 0 ? "−" + s : s;
-  }
-  function pct(v, p) { return isNum(v) ? (100 * v).toFixed(p === undefined ? 0 : p) + "%" : "—"; }
-  function short(id) { return String(id || "").replace(/^(rl|t)\d+_/, "").replace(/_/g, " "); }
   function trunc(s, n) { s = String(s === null || s === undefined ? "" : s); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
-  function width(host) {
-    var w = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0;
-    return Math.max(280, Math.min(1120, w || 320));
-  }
-  function responsive(host, draw, k) {
-    if (AgentDiff.charts && AgentDiff.charts.responsive) return AgentDiff.charts.responsive(host, draw, k);
-    draw(); return host;
-  }
+  function width(host) { return L.layout.measure(host, 280, 1120); }
+  var responsive = L.layout.responsive;
   function selectStep(report, side, step) {
     if (AgentDiff.charts && AgentDiff.charts.selectStep && report && side && isNum(step)) {
       AgentDiff.charts.selectStep(report, side, step);
     }
   }
-  function tooltip(root) {
-    var tip = document.createElement("div"); tip.className = "rlq-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) {
-          if (!l) return;
-          var d = document.createElement("div");
-          if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text;
-          tip.appendChild(d);
-        });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 300 > r.width) x = Math.max(0, evt.clientX - r.left - 310);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "rlq-tip", width: 300 }); }
 
   // -------------------------------------------------------------- model
 
@@ -491,7 +455,7 @@
       if ((tools.findings || []).length) {
         var byTool = {};
         tools.findings.forEach(function (f) {
-          (byTool[f.tool] || (byTool[f.tool] = [])).push(f.agent + " " + pct(f.share));
+          (byTool[f.tool] || (byTool[f.tool] = [])).push(f.agent + " " + pct(f.share, 0));
         });
         notes.push("The positive reward is tool-concentrated: "
           + Object.keys(byTool).sort().map(function (t) {

@@ -21,6 +21,7 @@ from __future__ import annotations
 import math
 import random
 from typing import Optional, Sequence
+from . import sections as _sections
 
 #: fixed seed — gate decisions must not move between runs on identical data.
 BOOTSTRAP_SEED = 20260812
@@ -320,3 +321,16 @@ def clustered_se(values: list, clusters: list) -> dict:
                  "clusters share a source; the clustered interval is the "
                  "honest one"),
     }
+
+
+@_sections.register("aggregate", "paired_inference", requires=("diagnosis_consolidated",))
+def _section(agg: dict, ctx: "_sections.AggregateContext"):
+    # the paired design the runs layout IS: both agents on the same tasks,
+    # so the comparison is a paired difference with a sign test, never two
+    # rates eyeballed against each other
+    runs_by_task = ctx.runs_by_task
+    return paired_inference(
+        [(sum(1.0 for t in runs_by_task[tid]["a"] if t.outcome.success) / len(runs_by_task[tid]["a"]),
+          sum(1.0 for t in runs_by_task[tid]["b"] if t.outcome.success) / len(runs_by_task[tid]["b"]))
+         for tid in sorted(runs_by_task)],
+        labels=tuple(ctx.names))

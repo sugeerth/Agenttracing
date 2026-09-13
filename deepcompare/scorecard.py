@@ -35,6 +35,7 @@ from .semantic import normalize_for_containment
 from .statistics import wilson_interval
 from .timing import time_attribution
 from .trace import Trajectory
+from . import sections as _sections
 
 VERSION = 1
 
@@ -448,3 +449,8 @@ def render_scorecard_markdown(card: dict) -> str:
 
 __all__ = ["VERSION", "RATE_DIMENSIONS", "SPEND_DIMENSIONS", "RISK_KINDS", "load_golden", "load_policy",
            "score_run", "scorecard", "render_scorecard_markdown"]
+
+
+@_sections.register("aggregate", "scorecard", requires=("triage",))
+def _section(agg: dict, ctx: "_sections.AggregateContext"):
+    return scorecard(ctx.trajectories, ctx.golden, ctx.policy, ctx.raws)

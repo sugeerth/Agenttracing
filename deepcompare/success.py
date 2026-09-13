@@ -14,6 +14,7 @@ from typing import Optional
 
 from .divergence import _describe, _snippet
 from .trace import Step, Trajectory
+from . import sections as _sections
 
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _DECISION_LIMIT = 90
@@ -277,3 +278,8 @@ def playbook(reports: list[dict]) -> list[dict]:
     for habit in habits:
         del habit["_sort"]
     return habits
+
+
+@_sections.register("pair", "success_analysis")
+def _section(report: dict, ctx: "_sections.PairContext"):
+    return success_analysis(report, ctx.a, ctx.b)

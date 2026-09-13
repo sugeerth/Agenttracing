@@ -40,6 +40,7 @@ from .diagnosis import diagnose
 from .report import compare
 from .stability import medoid_pairs
 from .trace import HARNESS_TERMINATIONS, Trajectory
+from . import sections as _sections
 
 #: answers at least this similar (token Jaccard) count as "the same answer"
 #: for the grader-consistency check.  High on purpose: a false "inconsistent
@@ -539,3 +540,8 @@ def consolidate_diagnoses(
         },
         "narrative": narrative,
     }
+
+
+@_sections.register("aggregate", "diagnosis_consolidated", requires=("task_signal",))
+def _section(agg: dict, ctx: "_sections.AggregateContext"):
+    return consolidate_diagnoses(ctx.runs_by_task)

@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .trace import Trajectory
+from . import sections as _sections
 
 TOOLISH = ("tool_call", "search", "retrieve", "read")
 WASTE_LABEL = {
@@ -151,3 +152,8 @@ def compare_timing(a: Trajectory, b: Trajectory, reading: Optional[dict] = None)
 
 
 __all__ = ["time_attribution", "compare_timing", "WASTE_LABEL"]
+
+
+@_sections.register("pair", "timing", requires=("reading",))
+def _section(report: dict, ctx: "_sections.PairContext"):
+    return compare_timing(ctx.a, ctx.b, report["reading"])

@@ -41,6 +41,7 @@ import re
 from typing import Optional
 
 from .trace import HARNESS_TERMINATIONS, Trajectory
+from . import sections as _sections
 
 #: hypothesis kinds, in the order generators run (ranking is by score, not
 #: this order; order only breaks exact ties deterministically).
@@ -1735,3 +1736,8 @@ def systemic_diagnosis(reports: list[dict]) -> dict:
         "by_leading_kind": systemic,
         "note": note,
     }
+
+
+@_sections.register("pair", "diagnosis", requires=("efficiency",))
+def _section(report: dict, ctx: "_sections.PairContext"):
+    return diagnose(report, ctx.a, ctx.b)

@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .trace import Trajectory
+from . import sections as _sections
 
 CAUSAL_NOTE = ("an activation difference is an observation of internal state; only "
                "an intervention — steering or ablating the feature and replaying — "
@@ -111,3 +112,42 @@ def internals_analysis(report: dict, a: Trajectory, b: Trajectory) -> dict:
                   "recorded from a model. ") if synthetic else "")
                 + CAUSAL_NOTE,
     }
+
+
+def cite_decisive(report: dict, internals: dict) -> None:
+    """Attach the decisive step's internal signature to the leading
+    hypothesis as observable evidence (recorded state), score untouched."""
+    internals = internals or {}
+    decisive = internals.get("decisive")
+    diagnosis = report.get("diagnosis") or {}
+    if not decisive or not decisive.get("exclusive_features") or not diagnosis.get("leading"):
+        return
+    items = diagnosis.setdefault("evidence", [])
+    eid = f"E{len(items) + 1}"
+    labels = ", ".join(decisive["signature"])
+    items.append({
+        "id": eid, "type": "metric", "path": "internals.decisive.exclusive_features",
+        "value": len(decisive["exclusive_features"]),
+        "signal": f"features active at the decisive step and not at its counterpart: {labels}",
+        "basis": ("recorded model internals" + (" (SYNTHETIC demo labels)"
+                  if internals.get("synthetic") else "")),
+        "evidence_class": "observable",
+    })
+    for h in diagnosis.get("hypotheses", []):
+        if h.get("id") == diagnosis["leading"]:
+            h.setdefault("supports", []).append(eid)
+            classes = h.get("evidence_classes") or {}
+            classes["observable"] = classes.get("observable", 0) + 1
+            h["evidence_classes"] = classes
+            h["internal_signature"] = decisive["signature"]
+            break
+
+
+@_sections.register("pair", "internals", requires=("diagnosis",))
+def _section(report: dict, ctx: "_sections.PairContext"):
+    # read after the diagnosis so the decisive step's internal signature
+    # can be named; the section never changes a score — it adds evidence,
+    # labelled, to the leading hypothesis
+    out = internals_analysis(report, ctx.a, ctx.b)
+    cite_decisive(report, out)
+    return out
