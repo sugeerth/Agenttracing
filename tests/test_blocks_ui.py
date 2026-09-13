@@ -8372,3 +8372,455 @@ class SharedLibraryTest(unittest.TestCase):
                 if pattern.search(source):
                     offenders.append(f"{path.name}: {name}")
         self.assertEqual(offenders, [])
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class CoevolutionBlocksTest(unittest.TestCase):
+    """The Evals view (36_coevolve.js) against the demo lineage's
+    co-evolving eval: the loop as a flow at three levels, the hindsight
+    re-reading, the metrics × generations matrix, one metric in full, the
+    probes and the eval's integrity.
+
+    What is checked is that the page draws `aggregate.coevolution` and
+    nothing else — one column per agent step with the engine's verdict, one
+    row per probe that fired with a mark where it did, the validators'
+    funnel counted from the ledger's first failures, the eval generations
+    under the steps that made them, the hindsight edges with their lags —
+    and that one page-scoped family drives the levels and the sibling
+    blocks by mouse and by keyboard; that the lane fits a phone; that every
+    chart is labelled; and that the view is empty, without an error, on a
+    batch that has no lineage.
+    """
+
+    tmp = None
+    IDS = ("cov-flow", "cov-hindsight", "cov-matrix", "cov-metric", "cov-probes", "cov-integrity")
+
+    @classmethod
+    def setUpClass(cls):
+        lineage = ROOT / "demo" / "evolve" / "lineage"
+        if not (lineage / "g0" / "agent.json").is_file():
+            raise unittest.SkipTest("no demo lineage to analyse")
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "cov"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        template = ROOT / "web" / "blocks.html"
+        done = subprocess.run([sys.executable, "-m", "deepcompare", "coevolve", str(lineage), "-o", str(out), "--template", str(template)],
+                              cwd=str(ROOT), capture_output=True)
+        if done.returncode != 0 or not (out / "aggregate.json").is_file():
+            raise unittest.SkipTest("the coevolve command did not write a page: " + done.stderr.decode("utf-8", "replace")[-300:])
+        agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
+        cls.cov = agg.get("coevolution") or {}
+        if not cls.cov.get("measurable"):
+            raise unittest.SkipTest("the demo lineage carries no measurable coevolution section")
+        cls.page_path = out / "report.html"
+        batch = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "traces"), "-o", str(batch), "--template", str(template)],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        cls.batch_path = batch / "report.html"
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _open(self, width=1280, path=None, reduced_motion=False):
+        context = self.browser.new_context(viewport={"width": width, "height": 1000},
+                                           reduced_motion="reduce" if reduced_motion else "no-preference")
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        # unfiltered: a warning from any block on the page is a failure here
+        page.on("console", lambda m: errors.append(m.type + ": " + m.text) if m.type in ("error", "warning") else None)
+        page.goto(f"file://{path or self.page_path}#view=coevolution")
+        page.wait_for_timeout(1000)
+        return context, page, errors
+
+    def _state(self, page):
+        return page.evaluate("() => AgentDiff.coevolution.state()")
+
+    def _steps(self):
+        return [s for s in self.cov["steps"] if s.get("from") and s.get("to")]
+
+    def _key(self, s):
+        return f"{s['from']}→{s['to']}"
+
+    def _ledger(self, key):
+        return [r for r in self.cov["ledger"] if r["step"] == key]
+
+    # ------------------------------------------------------------ rendering
+
+    def test_the_six_blocks_render_in_the_declared_order_without_an_empty_state(self):
+        context, page, errors = self._open()
+        ids = page.evaluate("() => Array.from(document.querySelectorAll('#stacks .block')).map(b => b.getAttribute('data-block'))")
+        self.assertEqual(tuple(ids), self.IDS)
+        for bid in self.IDS:
+            block = page.locator(f'#stacks [data-block="{bid}"]')
+            body = block.locator(".block-body").inner_text()
+            self.assertNotIn("failed to render", body, bid)
+            self.assertNotIn("Nothing to show", body, bid)
+            self.assertGreater(len(body.strip()), 80, bid)
+        self.assertEqual(page.locator("#stacks .block .empty:visible").count(), 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_every_chart_is_labelled_with_its_numbers_and_the_flow_is_an_application(self):
+        context, page, _ = self._open()
+        labels = page.evaluate("""() => Array.from(document.querySelectorAll('#stacks [data-block^="cov-"] svg'))
+            .filter(s => !s.parentNode.closest('svg')).map(s => [s.getAttribute('role'), s.getAttribute('aria-label') || ''])""")
+        self.assertGreaterEqual(len(labels), 6)
+        for role, label in labels:
+            self.assertEqual(role, "img")
+            self.assertTrue(label.strip())
+            self.assertRegex(label, r"\d")
+        loop = page.locator(".cov-flow svg[data-level='loop']")
+        label = loop.get_attribute("aria-label")
+        self.assertIn(f"{len(self.cov['eval_generations'])} eval generation", label)
+        self.assertIn(f"{len(self.cov['ledger'])} candidate", label)
+        stage = page.locator(".cov-flow .cov-stage")
+        self.assertEqual(stage.get_attribute("role"), "application")
+        self.assertEqual(stage.get_attribute("data-level"), "loop")
+        self.assertIn("loop level", stage.get_attribute("aria-label"))
+        status = page.locator(".cov-flow .cov-status")
+        self.assertEqual(status.get_attribute("aria-live"), "polite")
+        self.assertIn(self.cov["flow"]["summary"]["sentence"][:60], status.inner_text())
+        self.assertIn("SYNTHETIC" if self.cov.get("synthetic") else "", page.locator(".cov-flow .cov-bar").inner_text())
+        context.close()
+
+    # ---------------------------------------------------------------- loop
+
+    def test_the_loop_draws_every_step_probe_validator_and_eval_generation_from_the_json(self):
+        context, page, _ = self._open(width=1440)
+        steps = self._steps()
+        cols = page.locator(".cov-flow .cov-step")
+        self.assertEqual(cols.count(), len(steps))
+        for col, s in zip(cols.all(), steps):
+            self.assertEqual(col.get_attribute("data-step"), self._key(s))
+            self.assertEqual(col.get_attribute("data-verdict"), s["base"].get("verdict") or "")
+        fired = [p for p in self.cov["probes"] if p.get("fired")]
+        marks = page.locator(".cov-flow .cov-pmark")
+        self.assertEqual(marks.count(), sum(len(p["fired"]) for p in fired))
+        for p in fired:
+            for key in p["fired"]:
+                mark = page.locator(f'.cov-flow .cov-col[data-step="{key}"] .cov-pmark[data-probe="{p["name"]}"]')
+                self.assertEqual(mark.count(), 1, (p["name"], key))
+                self.assertEqual(int(mark.get_attribute("data-n")), len([r for r in self._ledger(key) if r["probe"] == p["name"]]))
+        order = ["computable", "informative", "distinct", "linked", "not_already"]
+        for s in steps:
+            key = self._key(s)
+            rows = self._ledger(key)
+            alive = len(rows)
+            for v in order:
+                stopped = len([r for r in rows if r.get("failed") and min(r["failed"], key=order.index) == v])
+                band = page.locator(f'.cov-flow .cov-col[data-step="{key}"] .cov-band[data-validator="{v}"]')
+                self.assertEqual(int(band.get_attribute("data-reached")), alive, (key, v))
+                self.assertEqual(int(band.get_attribute("data-stopped")), stopped, (key, v))
+                alive -= stopped
+            self.assertEqual(alive, len([r for r in rows if r["decision"] == "adopted"]), key)
+            self.assertEqual(page.locator(f'.cov-flow .cov-col[data-step="{key}"] .cov-adopt').count(), 1 if alive else 0)
+        evals = page.locator(".cov-flow .cov-eval")
+        self.assertEqual([e.get_attribute("data-eval") for e in evals.all()], [e["id"] for e in self.cov["eval_generations"]])
+        for e in self.cov["eval_generations"]:
+            for mid in e.get("adopted") or []:
+                self.assertEqual(page.locator(f'.cov-flow .cov-eval[data-eval="{e["id"]}"] .cov-chip-m[data-metric="{mid}"][data-kind="adopted"]').count(), 1)
+            for mid in e.get("retired") or []:
+                self.assertEqual(page.locator(f'.cov-flow .cov-eval[data-eval="{e["id"]}"] .cov-chip-m[data-metric="{mid}"][data-kind="retired"]').count(), 1)
+        context.close()
+
+    def test_the_hindsight_edges_carry_the_lag_and_the_recoveries_say_not_attributed(self):
+        context, page, _ = self._open(width=1440)
+        edges = [e for e in self.cov["flow"]["edges"] if e["kind"] in ("flags", "recovers")]
+        drawn = page.locator(".cov-flow .cov-edge")
+        self.assertEqual(drawn.count(), len(edges))
+        for e in edges:
+            mid = e["from"].split(":", 1)[1]
+            key = e["to"].split(":", 1)[1]
+            el = page.locator(f'.cov-flow .cov-edge[data-kind="{e["kind"]}"][data-metric="{mid}"][data-step="{key}"]')
+            self.assertEqual(el.count(), 1, e)
+            self.assertEqual(el.get_attribute("data-learned"), "1" if e.get("learned") else "0")
+            if e["kind"] == "flags" and e.get("lag") is not None:
+                self.assertEqual(el.get_attribute("data-lag"), str(e["lag"]))
+        marks = page.locator(".cov-flow .cov-hmark")
+        self.assertEqual(marks.count(), sum(len(s["evolved"].get("flags") or []) + len(s["evolved"].get("base_flags") or []) for s in self._steps()))
+        learned = [e for e in edges if e["kind"] == "flags" and e.get("learned")]
+        for e in learned:
+            key = e["to"].split(":", 1)[1]
+            self.assertIn("lag", page.locator(f'.cov-flow .cov-step[data-step="{key}"] .cov-hmarks').text_content())
+        if any(e["kind"] == "recovers" for e in edges):
+            self.assertIn("recovered, not attributed", page.locator(".cov-flow .cov-bar").inner_text())
+            self.assertRegex(page.locator(".cov-flow svg[data-level='loop']").text_content(), "↺")
+        context.close()
+
+    # -------------------------------------------------------------- levels
+
+    def test_a_click_descends_to_the_step_and_the_candidate_and_the_breadcrumb_and_escape_ascend(self):
+        context, page, errors = self._open(width=1440)
+        target = [s for s in self._steps() if self._ledger(self._key(s))][0]
+        key = self._key(target)
+        page.locator(f'.cov-flow .cov-step[data-step="{key}"]').click()
+        page.wait_for_timeout(500)
+        st = self._state(page)
+        self.assertEqual((st["level"], st["step"], st["candidate"]), ("step", key, None))
+        self.assertEqual(page.locator(".cov-flow .cov-stage").get_attribute("data-level"), "step")
+        rows = page.locator(".cov-flow .cov-row[data-candidate]")
+        ledger = self._ledger(key)
+        self.assertEqual(rows.count(), len(ledger))
+        for row, r in zip(rows.all(), ledger):
+            self.assertEqual(int(row.get_attribute("data-candidate")), r["index"])
+            self.assertEqual(row.get_attribute("data-decision"), r["decision"])
+            marks = row.locator(".cov-mark")
+            self.assertEqual(marks.count(), 5)
+            for v in r.get("failed") or []:
+                self.assertEqual(row.locator(f'.cov-mark[data-validator="{v}"]').get_attribute("data-mark"), "fail")
+            self.assertIn(r["reason"][:40], row.locator(".why").inner_text())
+        self.assertIn(key, page.locator(".cov-flow .cov-lede").inner_text())
+        self.assertEqual(page.locator(".cov-flow svg[data-step]").count(), 1)
+        fired = [p["name"] for p in self.cov["probes"] if key in (p.get("fired") or [])]
+        self.assertEqual(page.locator('.cov-flow [data-role="probes"] li').count(), len(fired))
+        # the candidate level
+        first = ledger[0]
+        page.locator(f'.cov-flow .cov-row[data-candidate="{first["index"]}"]').click()
+        page.wait_for_timeout(500)
+        st = self._state(page)
+        self.assertEqual((st["level"], st["candidate"]), ("candidate", first["index"]))
+        lede = page.locator(".cov-flow .cov-lede")
+        self.assertEqual(lede.get_attribute("data-candidate"), str(first["index"]))
+        self.assertIn(first["spec_id"], lede.inner_text())
+        self.assertEqual(page.locator(".cov-flow .cov-val").count(), 5)
+        self.assertIn(first["reason"][:40], page.locator('.cov-flow [data-role="decision"]').inner_text())
+        inf = first["validators"]["informative"]
+        if inf.get("delta") and inf["delta"].get("point") is not None:
+            self.assertAlmostEqual(float(page.locator(".cov-flow .cov-big").get_attribute("data-delta")), inf["delta"]["point"], places=4)
+            self.assertEqual(page.locator('.cov-flow .cov-val[data-validator="informative"] svg').count(), 1)
+        self.assertEqual(page.locator('.cov-flow [data-role="against"] tbody tr').count(), len(first["validators"]["distinct"].get("against") or []))
+        crumbs = page.locator(".cov-flow .cov-crumbs button")
+        self.assertEqual([c.inner_text() for c in crumbs.all()], ["loop", key, first["spec_id"]])
+        # the breadcrumb is the way up
+        crumbs.nth(1).click()
+        page.wait_for_timeout(400)
+        self.assertEqual(self._state(page)["level"], "step")
+        # Escape ascends
+        page.locator(".cov-flow .cov-stage").focus()
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(400)
+        self.assertEqual(self._state(page)["level"], "loop")
+        self.assertEqual(page.locator(".cov-flow .cov-stage").get_attribute("data-level"), "loop")
+        self.assertEqual(page.locator(".cov-flow svg[data-level='loop']").count(), 1)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_every_level_is_reached_by_the_keyboard_alone(self):
+        context, page, errors = self._open(width=1440)
+        stage = page.locator(".cov-flow .cov-stage")
+        stage.focus()
+        page.keyboard.press("ArrowRight")
+        page.wait_for_timeout(300)
+        self.assertEqual(page.locator('.cov-flow .cov-step[aria-current="true"]').count(), 1)
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(500)
+        st = self._state(page)
+        self.assertEqual(st["level"], "step")
+        self.assertEqual(st["step"], self._key(self._steps()[0]))
+        # arrows move between steps at the step level
+        page.keyboard.press("ArrowRight")
+        page.wait_for_timeout(400)
+        self.assertEqual(self._state(page)["step"], self._key(self._steps()[1]))
+        with_rows = [s for s in self._steps() if self._ledger(self._key(s))][0]
+        page.evaluate(f"() => AgentDiff.coevolution.select({{step: '{self._key(with_rows)}', evalGen: null, candidate: null}})")
+        page.wait_for_timeout(400)
+        stage.focus()
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(500)
+        ledger = self._ledger(self._key(with_rows))
+        st = self._state(page)
+        self.assertEqual((st["level"], st["candidate"]), ("candidate", ledger[0]["index"]))
+        if len(ledger) > 1:
+            page.keyboard.press("ArrowRight")
+            page.wait_for_timeout(400)
+            self.assertEqual(self._state(page)["candidate"], ledger[1]["index"])
+            page.keyboard.press("ArrowLeft")
+            page.wait_for_timeout(400)
+            self.assertEqual(self._state(page)["candidate"], ledger[0]["index"])
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(400)
+        self.assertEqual(self._state(page)["level"], "step")
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(400)
+        self.assertEqual(self._state(page)["level"], "loop")
+        # a focused node opens on Enter, and a focused eval generation too
+        page.locator('.cov-flow .cov-eval').last.focus()
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(400)
+        last = self.cov["eval_generations"][-1]
+        st = self._state(page)
+        self.assertEqual(st["evalGen"], last["id"])
+        self.assertEqual(st["step"], last.get("after_step"))
+        self.assertEqual(st["level"], "step")
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ------------------------------------------------------------- family
+
+    def test_the_selection_is_shared_with_the_hindsight_the_matrix_and_the_metric_blocks_and_survives_a_reload(self):
+        context, page, errors = self._open(width=1440)
+        steps = self._steps()
+        target = steps[len(steps) // 2]
+        key = self._key(target)
+        page.locator(f'#stacks [data-block="cov-hindsight"] .cov-row[data-step="{key}"]').click()
+        page.wait_for_timeout(500)
+        self.assertEqual(self._state(page)["step"], key)
+        self.assertEqual(page.locator('#stacks [data-block="cov-hindsight"] .cov-row[aria-current="true"]').get_attribute("data-step"), key)
+        self.assertEqual(page.locator(".cov-flow .cov-stage").get_attribute("data-level"), "step")
+        self.assertEqual(page.locator(".cov-flow .cov-lede").get_attribute("data-step"), key)
+        # a matrix row selects the metric, and the metric block follows
+        adopted = [k for k, v in self.cov["metrics"].items() if v.get("status") == "adopted"]
+        base = self.cov["base"]
+        for mid in (base[-1], adopted[0] if adopted else base[0]):
+            page.locator(f'#stacks [data-block="cov-matrix"] .cov-mrow[data-metric="{mid}"]').click()
+            page.wait_for_timeout(500)
+            self.assertEqual(self._state(page)["metric"], mid)
+            self.assertEqual(page.locator('#stacks [data-block="cov-matrix"] .cov-mrow[aria-current="true"]').get_attribute("data-metric"), mid)
+            metric = page.locator('#stacks [data-block="cov-metric"]')
+            self.assertEqual(metric.locator(".cov-lede").get_attribute("data-metric"), mid)
+            self.assertEqual(metric.locator(f'button[data-metric="{mid}"]').get_attribute("aria-pressed"), "true")
+            self.assertEqual(metric.locator("svg").first.get_attribute("aria-label")[: len(mid)], mid)
+        # a chip in the loop selects the metric too
+        page.reload()
+        page.wait_for_timeout(1000)
+        st = self._state(page)
+        self.assertEqual((st["step"], st["metric"]), (key, adopted[0] if adopted else base[0]))
+        self.assertEqual(page.locator(".cov-flow .cov-stage").get_attribute("data-level"), "step")
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ------------------------------------------------------------ hindsight
+
+    def test_the_hindsight_headline_and_rows_and_lags_are_the_engines(self):
+        context, page, _ = self._open(width=1440)
+        block = page.locator('#stacks [data-block="cov-hindsight"]')
+        hs = self.cov.get("hindsight") or {}
+        lede = block.locator(".cov-lede")
+        self.assertEqual(int(lede.get_attribute("data-changed")), hs.get("changed", 0))
+        self.assertIn(f"{len(self._steps())} steps re-read, {hs.get('changed', 0)} changed", lede.inner_text())
+        rows = block.locator('.cov-row[role="listitem"]')
+        self.assertEqual(rows.count(), len(self._steps()))
+        for row, s in zip(rows.all(), self._steps()):
+            self.assertEqual(row.get_attribute("data-step"), self._key(s))
+            self.assertEqual(row.locator(".cov-v").get_attribute("data-verdict"), s["base"].get("verdict") or "")
+            self.assertEqual(row.locator(".cov-flag.learned").count(), len(s["evolved"].get("flags") or []))
+            self.assertEqual(row.locator(".cov-flag.base").count(), len(s["evolved"].get("base_flags") or []))
+            self.assertIn(s["evolved"]["reading"][:40], row.locator(".why").inner_text())
+        caught = {k: v for k, v in (hs.get("caught_at") or {}).items()}
+        for mid, ca in caught.items():
+            lag = block.locator(f'.cov-lag[data-metric="{mid}"]')
+            self.assertEqual(lag.count(), 1, mid)
+            self.assertEqual(lag.get_attribute("data-lag"), "" if ca.get("lag") is None else str(ca["lag"]))
+        context.close()
+
+    # --------------------------------------------------------------- matrix
+
+    def test_the_matrix_hatches_the_cells_before_adoption_and_marks_the_adoption_column(self):
+        context, page, _ = self._open(width=1440)
+        block = page.locator('#stacks [data-block="cov-matrix"]')
+        gens = [n["gen"] for n in self.cov["flow"]["nodes"] if n["kind"] == "agent_gen"]
+        metrics = self.cov["metrics"]
+        self.assertEqual(block.locator(".cov-cell").count(), len(gens) * len(metrics))
+        for mid, mt in metrics.items():
+            adopted = mt.get("adopted_at")
+            if not adopted:
+                self.assertEqual(block.locator(f'.cov-cell[data-metric="{mid}"][data-hindsight="1"]').count(), 0, mid)
+                continue
+            to = adopted["step"].split("→")[1]
+            self.assertEqual(block.locator(f'.cov-cell[data-metric="{mid}"][data-adoption="1"]').get_attribute("data-gen"), to)
+            self.assertEqual(block.locator(f'.cov-cell[data-metric="{mid}"][data-hindsight="1"]').count(), gens.index(to))
+        self.assertIn("z = (value − row mean) / row sd", block.locator(".cov-lede").inner_text())
+        self.assertEqual(block.locator("tbody tr").count(), len(metrics))
+        context.close()
+
+    # ---------------------------------------------------- probes, integrity
+
+    def test_the_probes_and_the_integrity_read_the_section_verbatim(self):
+        context, page, _ = self._open(width=1440)
+        probes = page.locator('#stacks [data-block="cov-probes"]')
+        for p in self.cov["probes"]:
+            bar = probes.locator(f'.cov-probe[data-probe="{p["name"]}"]')
+            self.assertEqual((int(bar.get_attribute("data-fired")), int(bar.get_attribute("data-proposed")), int(bar.get_attribute("data-adopted"))),
+                             (len(p.get("fired") or []), p.get("proposed", 0), p.get("adopted", 0)))
+            self.assertIn(p["question"], probes.locator(f'[data-role="questions"] li[data-probe="{p["name"]}"]').inner_text())
+        ext = self.cov["integrity"].get("external") or {}
+        self.assertEqual(int(probes.locator('[data-role="external"]').get_attribute("data-received")), ext.get("received", 0))
+        self.assertIn("validated, never trusted", probes.locator('[data-role="external"]').inner_text())
+        ig = page.locator('#stacks [data-block="cov-integrity"]')
+        integ = self.cov["integrity"]
+        self.assertEqual(int(ig.locator(".cov-lede").get_attribute("data-tested")), integ["multiplicity"]["tested"])
+        self.assertIn(integ["gap"], ig.locator('[data-role="gap"]').inner_text())
+        for kind in ("demoted", "retired", "unconfirmed"):
+            self.assertEqual(ig.locator(f'[data-role="{kind}"] li').count(), len(integ.get(kind) or []))
+        rec = self.cov.get("recommended") or {}
+        if rec:
+            self.assertEqual(ig.locator('[data-role="recommended"]').get_attribute("data-agree"), "1" if rec.get("agree") else "0")
+        context.close()
+
+    # ------------------------------------------------------ phone, motion
+
+    def test_the_lane_fits_a_phone_at_every_level_with_no_text_under_11px(self):
+        for width in (390, 360):
+            with self.subTest(width=width):
+                context, page, errors = self._open(width=width)
+                self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth"), 1)
+                key = self._key([s for s in self._steps() if self._ledger(self._key(s))][0])
+                for level in ("loop", "step", "candidate"):
+                    if level == "step":
+                        page.evaluate(f"() => AgentDiff.coevolution.select({{step: '{key}', evalGen: null, candidate: null}})")
+                    elif level == "candidate":
+                        page.evaluate(f"() => AgentDiff.coevolution.select({{candidate: {self._ledger(key)[0]['index']}}})")
+                    page.wait_for_timeout(400)
+                    self.assertEqual(page.locator(".cov-flow .cov-stage").get_attribute("data-level"), level)
+                    self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth"), 1, level)
+                    clipped = page.evaluate("""() => { const bad = []; document.querySelectorAll('[data-block^="cov-"]').forEach(card => {
+                        const body = card.querySelector('.block-body'); if (!body) return; const st = getComputedStyle(body);
+                        if (body.scrollWidth > body.clientWidth + 2 && st.overflowX !== 'auto' && st.overflowX !== 'scroll') bad.push(card.getAttribute('data-block')); }); return bad; }""")
+                    self.assertEqual(clipped, [], level)
+                small = page.evaluate("""() => { const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); let n = 0, node;
+                    while ((node = w.nextNode())) { if (!node.textContent.trim()) continue; const el = node.parentElement; if (!el) continue;
+                    if (parseFloat(getComputedStyle(el).fontSize) < 11) n++; } return n; }""")
+                self.assertEqual(small, 0)
+                self.assertEqual(errors, [])
+                context.close()
+
+    def test_the_loop_draws_in_tens_of_milliseconds_and_no_dom_per_candidate(self):
+        context, page, _ = self._open(width=1440)
+        ms = float(page.locator(".cov-flow .cov-chart").get_attribute("data-draw-ms"))
+        self.assertLess(ms, 200)
+        # the loop level binds no node per candidate: the candidates are counts on the bands
+        self.assertEqual(page.locator(".cov-flow svg [data-candidate]").count(), 0)
+        self.assertEqual(page.locator(".cov-flow .cov-band").count(), 5 * len(self._steps()))
+        context.close()
+
+    def test_reduced_motion_changes_level_without_a_transition(self):
+        context, page, errors = self._open(width=1440, reduced_motion=True)
+        key = self._key(self._steps()[0])
+        page.locator(f'.cov-flow .cov-step[data-step="{key}"]').click()
+        page.wait_for_timeout(50)
+        self.assertEqual(page.evaluate("() => getComputedStyle(document.querySelector('.cov-flow .cov-level')).opacity"), "1")
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ---------------------------------------------------------------- empty
+
+    def test_the_view_is_empty_without_an_error_on_a_batch_with_no_lineage(self):
+        context, page, errors = self._open(width=1280, path=self.batch_path)
+        self.assertEqual(page.evaluate("() => Array.from(document.querySelectorAll('#stacks .block')).map(b => b.getAttribute('data-block'))"), [])
+        self.assertEqual(page.locator("#stacks .block .empty:visible").count(), 0)
+        for view in ("story", "evidence", "batch", "panels", "training", "evolution", "coevolution"):
+            page.evaluate(f"() => {{ location.hash = '#view={view}'; }}")
+            page.wait_for_timeout(250)
+        self.assertEqual(errors, [])
+        context.close()
