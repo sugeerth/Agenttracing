@@ -63,10 +63,8 @@ from .evolve import FLAGS as EVOLVE_FLAGS, LAYOUTS as EVOLVE_LAYOUTS, VERDICTS a
 #: default viewer template, relative to the repo root (parent of the package).
 from .commands.paths import DEFAULT_TEMPLATE, LEGACY_TEMPLATE  # noqa: E402
 from .commands.grafana import register as _register_grafana  # noqa: E402
-from .commands.live import (  # noqa: E402
-    _cmd_checkpoint, _cmd_context, _cmd_judge, _cmd_loop, _cmd_replay, _cmd_rerun, _cmd_run, _cmd_watch, _cmd_why, _load_report, _provider_options,
-    _save_report, _split_spec,
-)
+from .commands._common import provider_option_args as _provider_option_args, provider_options as _provider_options, split_spec as _split_spec  # noqa: E402
+from .commands import checkpoint, context, explain, judge, loop, replay, rerun, run, watch, why  # noqa: E402
 #: template for the lightweight agent-selection view.
 SELECT_TEMPLATE = Path(__file__).resolve().parent.parent / "web" / "select.html"
 
@@ -1928,17 +1926,6 @@ def _program_name() -> str:
     return invoked
 
 
-def _provider_option_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--base-url", default=None,
-                        help="endpoint base URL (default: the provider's env var or "
-                             "public API)")
-    parser.add_argument("--temperature", type=float, default=None,
-                        help="sampling temperature (default: the provider's, 0.0)")
-    parser.add_argument("--api-key-env", default=None,
-                        help="name of the environment variable holding the key "
-                             "(never the key itself)")
-
-
 def build_parser() -> argparse.ArgumentParser:
     """Build the deepcompare argument parser."""
     parser = argparse.ArgumentParser(
@@ -2218,167 +2205,21 @@ def build_parser() -> argparse.ArgumentParser:
                        help="the learning race's threshold on the task-balanced IQM (default: stated midpoint)")
     p_evc.set_defaults(func=_cmd_evolve_compare)
 
-    p_run = sub.add_parser(
-        "run", help="run a task set against one or more model providers and "
-                    "record SCHEMA traces (the only command that talks to a "
-                    "network)")
-    p_run.add_argument("--provider", action="append", default=[],
-                       metavar="NAME=KIND:MODEL",
-                       help="an agent to run, e.g. atlas=openai:gpt-4o, "
-                            "local=ollama:llama3.1, ref=anthropic:claude-…, "
-                            "or fixture=scripted:turns.json; repeatable — "
-                            "the NAME= prefix is optional and defaults to "
-                            "kind-model")
-    p_run.add_argument("--tasks", required=True,
-                       help="tasks JSON: a list of {id, prompt, expected}")
-    p_run.add_argument("--tools", default=None, metavar="MODULE:ATTR",
-                       help="Python module attribute yielding a list of "
-                            "harness.Tool (default: no tools)")
-    p_run.add_argument("-o", "--output", default="traces",
-                       help="trace directory (default: traces)")
-    p_run.add_argument("--runs", type=int, default=1,
-                       help="repetitions per (task, agent) — writes "
-                            "task__agent__rN.json for the runs command")
-    p_run.add_argument("--max-steps", type=int, default=12,
-                       help="provider turns per task before max_steps "
-                            "termination (default 12)")
-    p_run.add_argument("--agent", action="append", default=[],
-                       metavar="NAME=python:MODULE:CALLABLE | NAME=cmd:TEMPLATE",
-                       help="bring your own agent: a Python callable (task, tools) "
-                            "-> SCHEMA trace or OpenAI-style messages, or a shell "
-                            "command with {prompt_file} and {out_file}; the harness "
-                            "grades, declares termination, names the file")
-    _provider_option_args(p_run)
-    p_run.set_defaults(func=_cmd_run)
+    run.register(sub)
 
-    p_loop = sub.add_parser(
-        "loop", help="the agentic loop: run two agents, compare, read the failures, test a "
-                     "prompt hypothesis as a paired experiment, keep or revert it, spend runs "
-                     "where the routing pick is unclear, stop for a stated reason (talks to a "
-                     "network unless the providers are scripted)")
-    p_loop.add_argument("--provider", action="append", default=[], metavar="NAME=KIND:MODEL",
-                        help="an agent to run (as for `run`); the loop needs exactly two agents in all")
-    p_loop.add_argument("--agent", action="append", default=[],
-                        metavar="NAME=python:MODULE:CALLABLE | NAME=cmd:TEMPLATE",
-                        help="bring your own agent (as for `run`); a cmd agent receives prompt changes "
-                             "in DEEPCOMPARE_SYSTEM_PROMPT")
-    p_loop.add_argument("--tasks", required=True, help="tasks JSON: a list of {id, prompt, expected}")
-    p_loop.add_argument("--tools", default=None, metavar="MODULE:ATTR")
-    p_loop.add_argument("-o", "--output", default="loop", help="output directory (default: loop)")
-    p_loop.add_argument("--runs", type=int, default=3, help="runs per (task, agent) per batch (default 3)")
-    p_loop.add_argument("--iterations", type=int, default=4, help="iteration budget (default 4)")
-    p_loop.add_argument("--max-runs", type=int, default=None, help="run budget over the whole loop")
-    p_loop.add_argument("--max-steps", type=int, default=12)
-    p_loop.add_argument("--suggest", action="append", default=[], metavar="AGENT=TEXT",
-                        help="a prompt hypothesis of your own to test first, as a paired experiment")
-    p_loop.add_argument("--family", default=None, help="regex whose first group is a task's family")
-    p_loop.add_argument("--db", default=None, help="ingest every trace into this trace database")
-    p_loop.add_argument("--template", default=None, help="page template (default: the blocks page)")
-    p_loop.add_argument("--resume", action="store_true", help="continue from the ledger in the output directory")
-    p_loop.add_argument("--golden", default=None, help="golden dataset: scores tool correctness and policy every iteration")
-    p_loop.add_argument("--policy", default=None, help="safety policy JSON")
-    p_loop.add_argument("--judge", default=None, metavar="NAME=KIND:MODEL",
-                        help="a judging model grades every answer (tasks without an expected answer become gradable; "
-                             "traces say graded_by: model)")
-    p_loop.add_argument("--judge-with-steps", action="store_true")
-    _provider_option_args(p_loop)
-    p_loop.set_defaults(func=_cmd_loop)
+    loop.register(sub)
 
-    p_replay = sub.add_parser(
-        "replay", help="verify the decisive step by re-executing the failing run "
-                       "from a corrected step, several times (talks to a network "
-                       "unless the provider is scripted)")
-    p_replay.add_argument("report", help="a report_*.json produced by compare/batch")
-    p_replay.add_argument("--provider", required=True, metavar="NAME=KIND:MODEL",
-                          help="the model that continues the replayed run")
-    p_replay.add_argument("--from-step", type=int, default=None,
-                          help="replay from this step (default: the diagnosis's decisive step)")
-    p_replay.add_argument("--replays", type=int, default=3,
-                          help="rollouts (default 3; one proves nothing)")
-    p_replay.add_argument("--correction", default=None,
-                          help="text to substitute at the step (default: the passing "
-                               "run's aligned step, verbatim)")
-    p_replay.add_argument("--side", choices=["a", "b"], default=None,
-                          help="which run to replay (default: the diagnosed failing side)")
-    p_replay.add_argument("--tools", default=None, metavar="MODULE:ATTR",
-                          help="tools the replayed run may call")
-    p_replay.add_argument("--traces", default=None,
-                          help="write every replayed trace here")
-    _provider_option_args(p_replay)
-    p_replay.set_defaults(func=_cmd_replay)
+    replay.register(sub)
 
-    p_rerun = sub.add_parser(
-        "rerun", help="replay recorded runs hermetically — the model's own turns and the recording's "
-                      "tool results, or a named model in the recorded world — and diff each against "
-                      "its recording; exit 1 on drift (no network unless --provider names a live one)")
-    p_rerun.add_argument("target", help="a trace file or a directory of traces")
-    p_rerun.add_argument("-o", "--output", default="out/rerun", help="output directory (default: out/rerun)")
-    p_rerun.add_argument("--provider", default=None, metavar="NAME=KIND:MODEL",
-                         help="drive this model through the recorded world instead of the recording's own turns")
-    p_rerun.add_argument("--tools", default=None, metavar="MODULE:ATTR",
-                         help="declared tools: schemas for the model, and the live fallback under --policy live")
-    p_rerun.add_argument("--policy", choices=["strict", "empty", "live"], default="strict",
-                         help="what a call the recording never made gets: an error naming the miss (strict, default), "
-                              "an empty result, or the declared tool run for real (live)")
-    p_rerun.add_argument("--from", dest="from_step", type=int, default=None,
-                         help="resume from this step: the prefix replays from the recording, the replay proper starts here")
-    p_rerun.add_argument("--until", type=int, default=None, help="stop after this step; the diff covers the scoped range only")
-    p_rerun.add_argument("--span", default=None, metavar="AGENT|ID",
-                         help="scope to a sub-agent's steps (by span id or agent name; nested spans included)")
-    p_rerun.add_argument("--golden", default=None, help="golden tasks JSON; milestones lost or gained by the replay are reported")
-    p_rerun.add_argument("--cassette", default=None, help="serve tool results from this cassette.json (a checkpoint bundle's) instead of the trace's own")
-    p_rerun.add_argument("--traces", action="store_true", help="write every replayed trace under <output>/traces")
-    p_rerun.add_argument("--junit", nargs="?", const="junit.xml", default=None, help="write JUnit XML (default name: junit.xml)")
-    p_rerun.add_argument("--job-summary", nargs="?", const="rerun-summary.md", default=None,
-                         help="write the Markdown summary (default name: rerun-summary.md)")
-    p_rerun.add_argument("--github-annotations", action="store_true",
-                         help="print ::error workflow commands for drifted traces; append the summary to GITHUB_STEP_SUMMARY")
-    p_rerun.add_argument("--no-fail-on-drift", dest="fail_on_drift", action="store_false",
-                         help="exit 0 even when a trace drifted (report only)")
-    _provider_option_args(p_rerun)
-    p_rerun.set_defaults(func=_cmd_rerun)
+    rerun.register(sub)
 
-    p_ckpt = sub.add_parser(
-        "checkpoint", help="write a checkpoint bundle for a long run at a step: the prefix trace, the cassette, "
-                           "the context the model had, and a summary — resume with `rerun --from`")
-    p_ckpt.add_argument("trace", help="a trace file")
-    p_ckpt.add_argument("--step", type=int, required=True, help="the step the checkpoint stands before")
-    p_ckpt.add_argument("-o", "--output", default="out/checkpoint", help="bundle directory (default: out/checkpoint)")
-    p_ckpt.add_argument("--golden", default=None, help="golden tasks JSON, to list the milestones reached so far")
-    p_ckpt.set_defaults(func=_cmd_checkpoint)
+    checkpoint.register(sub)
 
-    p_context = sub.add_parser(
-        "context", help="print what the model saw before a step, rebuilt from the trace — or, for a "
-                        "report with --row, both runs' contexts at an aligned row and their diff")
-    p_context.add_argument("target", help="a trace file or a report_*.json")
-    p_context.add_argument("--step", type=int, default=None, help="the step (default: the report's decisive step)")
-    p_context.add_argument("--side", choices=["a", "b"], default=None, help="for a report: which run (default: the diagnosed side)")
-    p_context.add_argument("--row", type=int, default=None, help="for a report: an alignment row — both runs' contexts and their diff")
-    p_context.add_argument("--against", default=None, help="a second trace file to diff the context against")
-    p_context.add_argument("--against-step", type=int, default=None, help="the step in the second trace (default: the same step)")
-    p_context.add_argument("--diff-only", action="store_true", help="with --row: print only the diff")
-    p_context.set_defaults(func=_cmd_context)
+    context.register(sub)
 
-    p_judge = sub.add_parser(
-        "judge", help="a second model judges each trace's final answer (talks to a network unless "
-                      "the provider is scripted); recorded as outcome.judge, applied to "
-                      "outcome.success only with --apply")
-    p_judge.add_argument("target", help="a trace file, a directory of traces, or a report_*.json")
-    p_judge.add_argument("--provider", required=True, metavar="NAME=KIND:MODEL")
-    p_judge.add_argument("--rubric", default=None, help="the judging instruction (default: strict correctness, JSON verdict)")
-    p_judge.add_argument("--with-steps", action="store_true", help="show the judge the steps, not only the answer")
-    p_judge.add_argument("--apply", action="store_true", help="replace outcome.success/score with the judge's verdict (marked graded_by: model)")
-    p_judge.add_argument("--db", default=None, help="also update the judged traces in this trace database")
-    _provider_option_args(p_judge)
-    p_judge.set_defaults(func=_cmd_judge)
+    judge.register(sub)
 
-    p_why = sub.add_parser(
-        "why", help="narrate a report through a model provider — commentary "
-                    "checked number by number, read by no analysis")
-    p_why.add_argument("report", help="a report_*.json produced by compare/batch")
-    p_why.add_argument("--provider", required=True, metavar="NAME=KIND:MODEL")
-    _provider_option_args(p_why)
-    p_why.set_defaults(func=_cmd_why)
+    why.register(sub)
 
     p_db = sub.add_parser("db", help="the trace database (SQLite): import directories of traces, "
                                      "summarise, query, full-text search, export")
@@ -2470,122 +2311,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     _register_grafana(sub)
 
-    p_watch = sub.add_parser(
-        "watch", help="serve the report page live over a trace directory: "
-                      "running agents (recorder stream=True) stream in step by "
-                      "step, finished pairs become the full story (localhost)")
-    p_watch.add_argument("tracesdir", nargs="?", default=None,
-                         help="directory the recorder writes to (with --demo: a scratch "
-                              "directory, default a temporary one)")
-    p_watch.add_argument("--demo", default=None, metavar="TRACES",
-                         help="replay these traces as if their agents were running now")
-    p_watch.add_argument("--pace", type=float, default=0.4, help="demo: seconds between steps (default 0.4)")
-    p_watch.add_argument("--loop", action="store_true", help="demo: start over when done")
-    p_watch.add_argument("--host", default="127.0.0.1")
-    p_watch.add_argument("--port", type=int, default=8765)
-    p_watch.add_argument("--poll", type=float, default=0.5, help="directory poll interval in seconds")
-    p_watch.add_argument("--template", default=None, help=f"viewer template (default: {DEFAULT_TEMPLATE})")
-    p_watch.add_argument("--verbose", action="store_true", help="log every request")
-    p_watch.add_argument("--db", default=None, help="also ingest every finished trace into this trace database")
-    p_watch.set_defaults(func=_cmd_watch)
+    watch.register(sub)
 
-    p_explain = sub.add_parser(
-        "explain", help="read ONE trace: what happened, what the answer "
-                        "rests on, why it ended that way, what it means, "
-                        "what to take forward — every finding cited")
-    p_explain.add_argument("trace", help="a SCHEMA trajectory JSON file")
-    p_explain.add_argument("-o", "--output", default=None,
-                           help="also write the reading as JSON to this path")
-    p_explain.add_argument("--expected", default=None,
-                           help="override the task's expected answer")
-    p_explain.add_argument("--html", default=None,
-                           help="also write the reading as a self-contained HTML page")
-    p_explain.set_defaults(func=_cmd_explain)
+    explain.register(sub)
     return parser
-
-
-def _cmd_explain(args: argparse.Namespace) -> int:
-    from .reasoning import check_reading, read_trace
-    from .trace import Trajectory
-    try:
-        traj = Trajectory.from_json(args.trace)
-    except (OSError, ValueError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
-    reading = read_trace(traj, expected=args.expected)
-    problems = check_reading(reading, traj)
-    if getattr(args, "html", None):
-        from .htmlout import reading_html
-        html_out = Path(args.html)
-        html_out.parent.mkdir(parents=True, exist_ok=True)
-        html_out.write_text(reading_html(reading), encoding="utf-8")
-        print(f"Wrote {html_out}")
-    print(f"Reading of {reading['agent']} on {reading['task']}")
-    print(f"  {reading['summary']}")
-    print("  What happened:")
-    for phase in reading["phases"]:
-        print(f"    steps {phase['steps'][0]}–{phase['steps'][-1]}: {phase['summary']}")
-    validity = reading.get("validity") or {}
-    if validity.get("status") and validity["status"] != "clean":
-        print(f"  VALIDITY {validity['status'].upper()}: {validity.get('reason')}")
-    basis = reading.get("answer_basis") or {}
-    if reading["rests_on"]:
-        print(f"  The answer rests on ({basis.get('status')}"
-              + (f"; basis complete at step {basis['basis_complete_at']}, "
-                 f"{basis['steps_after_basis_complete']} step(s) spent after it"
-                 if basis.get("basis_complete_at") is not None else "") + "):")
-        for r in reading["rests_on"]:
-            where = (f"first at step {r['first_step']} ({r['source']})"
-                     if r["first_step"] is not None else "NO earlier step")
-            match = ("matches expected" if r["matches_expected"] is True else
-                     ("contradicts expected" if r["status"] == "contradicted"
-                      else "not in expected") if r["matches_expected"] is False else
-                     "no expected value to compare")
-            print(f"    {r['value']} [{r['status'].replace('_', ' ')}] — {where}; {match}")
-    checks = reading.get("phase_checks") or {}
-    if checks.get("writes"):
-        print("  Order of work: "
-              + ("wrote before any read; " if checks["first_write_before_any_read"] else "")
-              + ("last write never checked; " if checks["verification_after_last_write"] is False
-                 else f"checked after the last write at step {checks['verification_step']}; "
-                 if checks["verification_after_last_write"] else "")
-              + f"{checks['regression_cycles']} act→look→act cycle(s)")
-    critical = reading.get("critical_error") or {}
-    if reading.get("errors"):
-        print(f"  Errors ({len(reading['errors'])}):")
-        for e in reading["errors"]:
-            print(f"    step {e['step']} {e['name']}: {e['state'].replace('_', ' ')}"
-                  + (f", resolved at step {e['resolved_at']}" if e.get("resolved_at") is not None else "")
-                  + (f" — {e['footprint_reason']}" if e.get("footprint_reason") else ""))
-        if critical.get("step") is not None:
-            print(f"  Critical error: step {critical['step']} ({critical['name']}) — "
-                  f"{critical['why']}; {critical['verification']} until replayed")
-    why = reading["why_it_ended"]
-    term = (f"termination {why['termination']}" if why["declared"]
-            else "termination not declared")
-    print(f"  Why it ended: {'succeeded' if why['success'] else 'failed'}, "
-          f"{term} — {why['verdict_basis']}")
-    if reading["what_it_means"]:
-        print("  What it means:")
-        for f in reading["what_it_means"]:
-            steps = f"steps {f['steps']}" if f["steps"] else "run-level"
-            print(f"    [{f['evidence_class']}] {f['statement']} ({steps})")
-    if reading["take_forward"]:
-        print("  Take forward:")
-        for t in reading["take_forward"]:
-            where = f"at step {t['at_step']}: " if t.get("at_step") is not None else ""
-            print(f"    - {where}{t.get('instead') or t.get('action')}"
-                  + (" (conditional on fixing the measurement)"
-                     if t.get("conditional_on_validity") else ""))
-    print(f"  Confidence: {reading['confidence']['level']} — "
-          f"{reading['confidence']['basis']}")
-    print(f"  Grounding check: {'every quote verified' if not problems else problems}")
-    if args.output:
-        Path(args.output).write_text(json.dumps(reading, indent=2,
-                                                ensure_ascii=False) + "\n",
-                                     encoding="utf-8")
-        print(f"Wrote {args.output}")
-    return 0 if not problems else 1
 
 
 def main(argv: Optional[list[str]] = None) -> int:

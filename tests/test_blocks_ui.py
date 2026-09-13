@@ -7970,7 +7970,11 @@ class EvolutionCompareBlocksTest(unittest.TestCase):
         context, page, errors = self._open()
         n = max(len(self.ec["curves"]["by_index"][f]) for f in self.families)
         k = min(2, n - 1)
-        page.locator(f'[data-block="evc-curves"] g.pt[data-index="{k}"]').first.click()
+        # both lineages' points can sit on one spot: the last-drawn (B's) is on top and selects the same index;
+        # the chart is centred first so the page's fixed top bar does not cover the point
+        page.evaluate("document.querySelector('[data-block=\"evc-curves\"] svg').scrollIntoView({block: 'center'})")
+        page.wait_for_timeout(200)
+        page.locator(f'[data-block="evc-curves"] g.pt[data-index="{k}"]').last.click()
         page.wait_for_timeout(500)
         self.assertEqual(page.evaluate("AgentDiff.evolutionCompare.state().gen"), k)
         band = page.evaluate(f"document.querySelector('[data-block=\"evc-race\"] rect.evc-col[data-index=\"{k}\"]').getAttribute('fill-opacity')")
@@ -8003,9 +8007,9 @@ class EvolutionCompareBlocksTest(unittest.TestCase):
         self.assertIn(self.ec["peak"]["reading"][:60], block.locator('li[data-axis="peak"]').inner_text())
         self.assertIn(self.ec["final"]["reading"][:60], block.locator('li[data-axis="final"]').inner_text())
         winners = [f for f in self.families if any(v.get(ax) == f for ax in ("peak", "final", "learning", "process"))]
-        lede = block.locator(".evc-lede").inner_text()
+        lede = block.locator(".evc-lede").inner_text().lower()   # the sentence capitalises its first word
         for f in winners:
-            self.assertIn(f + " takes", lede)
+            self.assertIn(f.lower() + " takes", lede)
         self.assertEqual(self._errors(errors), [])
         context.close()
 

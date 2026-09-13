@@ -3479,10 +3479,15 @@ THIS SOFTWARE.
   //                 `defaults` the first time a task is seen, so a choice
   //                 never leaks between tasks; "page": one state for the
   //                 page, the reader's preference.
-  //   opts.persist  false (default) | true | [fields]: what survives a
+  //   opts.persist  true (default): every field of `defaults` survives a
   //                 reload, through the page's own Store under
-  //                 "agentdiff:<key>" (page scope only — a task's state is
-  //                 the session's).
+  //                 "agentdiff:<key>" — a family persists unless told not
+  //                 to. [fields] persists only those; false keeps the state
+  //                 in memory (exploration state: an open fold, an open
+  //                 cluster). A page family saves under "agentdiff:<key>";
+  //                 a task family saves each task's state under
+  //                 "agentdiff:<key>:<task>", so a choice on one task is
+  //                 never read on another.
   //   opts.rerender whether `set` re-renders the page (default false; a
   //                 block that repaints in place keeps its scroll and
   //                 scrub). `set(patch, {rerender})` overrides per call.
@@ -3492,7 +3497,7 @@ THIS SOFTWARE.
   //                       notify subscribers, re-render when asked
   //   subscribe(fn, el?)  fn(state) after every set; pruned when `el`
   //                       leaves the document; returns the unsubscribe
-  //   reset(task?)        back to defaults
+  //   reset(task?)        back to defaults, in memory and in the store
   //   persist()           write the persisted fields now
   //   state               getter: get()
 
@@ -3519,7 +3524,7 @@ THIS SOFTWARE.
     opts = opts || {};
     defaults = defaults || {};
     var scope = opts.scope === "page" ? "page" : "task";
-    var persist = opts.persist === undefined ? false : opts.persist;
+    var persist = opts.persist === undefined ? true : opts.persist;
     var storeKey = "agentdiff:" + key;
     var subs = [];
     var byTask = {}, pageState = null;
@@ -3535,18 +3540,20 @@ THIS SOFTWARE.
       if (typeof d === "object") return v !== null && typeof v === "object" && !Array.isArray(v);
       return typeof v === typeof d;
     }
-    function load() {
+    function taskKey(task) { return task === undefined || task === null ? currentTask() : String(task); }
+    //: where a state is saved: the family's key, task-qualified for a task family
+    function slot(t) { return scope === "page" ? storeKey : storeKey + ":" + t; }
+    function load(t) {
       var st = fresh();
       if (!persist) return st;
-      var s = store(), saved = s ? s.get(storeKey) : null;
-      if (saved && typeof saved === "object") fields().forEach(function (f) { if (accept(f, saved)) st[f] = clone(saved[f]); });
+      var s = store(), src = s ? s.get(slot(t)) : null;
+      if (src && typeof src === "object") fields().forEach(function (f) { if (accept(f, src)) st[f] = clone(src[f]); });
       return st;
     }
-    function taskKey(task) { return task === undefined || task === null ? currentTask() : String(task); }
     function get(task) {
-      if (scope === "page") return pageState || (pageState = load());
+      if (scope === "page") return pageState || (pageState = load(""));
       var t = taskKey(task);
-      return byTask[t] || (byTask[t] = fresh());
+      return byTask[t] || (byTask[t] = load(t));
     }
     function save(task) {
       if (!persist) return;
@@ -3554,7 +3561,7 @@ THIS SOFTWARE.
       if (!s) return;
       var st = get(task), out = {};
       fields().forEach(function (f) { if (st[f] !== undefined) out[f] = st[f]; });
-      try { s.set(storeKey, out); } catch (err) { /* quota; the session still holds it */ }
+      try { s.set(slot(taskKey(task)), out); } catch (err) { /* quota; the session still holds it */ }
     }
     function notify(st) {
       subs = subs.filter(function (s) { return !s.el || s.el.isConnected; });
@@ -3574,8 +3581,10 @@ THIS SOFTWARE.
       return st;
     }
     function reset(task) {
-      if (scope === "page") pageState = fresh(); else delete byTask[taskKey(task)];
-      save(task);
+      var t = taskKey(task);
+      if (scope === "page") pageState = fresh(); else byTask[t] = fresh();
+      var s = store();
+      if (persist && s && typeof s.remove === "function") { try { s.remove(slot(t)); } catch (err) { /* nothing saved */ } }
       notify(get(task));
     }
     function subscribe(fn, el) {
@@ -15972,7 +15981,7 @@ THIS SOFTWARE.
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
   function color(side) { return L.color.side(side, "ms"); }
   //: per task: the x measure, "time" | "steps"
-  var Axis = L.family("milestones", { axis: "time" });
+  var Axis = L.family("milestones", { axis: "time" }, { persist: false });
 
   function draw(host, report, ms, axis, tip) {
     if (!d3) return;
@@ -16188,7 +16197,7 @@ THIS SOFTWARE.
   var MARK_WORD = { decisive: "decisive step", fault: "on the fault's path", error: "error", retry: "retry", milestone: "milestone", divergence: "divergence", answer: "the answer" };
 
   //: per task: which clusters are open, which folds are unfolded, the mode
-  var STATE = L.family("impact", { mode: "tree", open: {}, unfolded: {} });
+  var STATE = L.family("impact", { mode: "tree", open: {}, unfolded: {} }, { persist: false });
   function stateFor(task) { return STATE.get(String(task || "")); }
 
   function tooltip(root) { return L.svg.tip(root, { class: "im-tip", width: 340 }); }
@@ -17545,7 +17554,7 @@ THIS SOFTWARE.
   }
 
   //: per task: which stretches are open, which folds are unfolded
-  var STATE = L.family("rl", { open: {}, unfolded: {} });
+  var STATE = L.family("rl", { open: {}, unfolded: {} }, { persist: false });
   function stateFor(task) { return STATE.get(String(task || "")); }
 
   function tooltip(root) { return L.svg.tip(root, { class: "rl-tip", width: 340 }); }
@@ -18535,7 +18544,7 @@ THIS SOFTWARE.
 
   /* rl-reward-map: episodes × steps, every reward a cell. */
   //: the folds the reader opened, page-wide: an episode key is task-qualified already
-  var FOLDS = L.family("rl-curves", { open: {} }, { scope: "page" });
+  var FOLDS = L.family("rl-curves", { open: {} }, { scope: "page", persist: false });
   function units(ep) {
     var out = [], i = 0, n = ep.rewards.length;
     while (i < n) {
@@ -21821,7 +21830,7 @@ THIS SOFTWARE.
    * persisted through the page's own store (which degrades to memory when a
    * file:// origin refuses localStorage, so a choice never fails loudly).
    * The theatre repaints in place, so a change never re-renders the page. */
-  var PREF = L.family("rl-theatre", { task: null, runs: {} }, { scope: "page", persist: true });
+  var PREF = L.family("rl-theatre", { task: null, runs: {} }, { scope: "page" });
   function loadPref() { return PREF.get(); }
   function savePref() { PREF.persist(); }
 

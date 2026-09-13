@@ -446,7 +446,7 @@
 
   /* rl-reward-map: episodes × steps, every reward a cell. */
   //: the folds the reader opened, page-wide: an episode key is task-qualified already
-  var FOLDS = L.family("rl-curves", { open: {} }, { scope: "page" });
+  var FOLDS = L.family("rl-curves", { open: {} }, { scope: "page", persist: false });
   function units(ep) {
     var out = [], i = 0, n = ep.rewards.length;
     while (i < n) {

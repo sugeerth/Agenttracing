@@ -102,7 +102,7 @@
    * persisted through the page's own store (which degrades to memory when a
    * file:// origin refuses localStorage, so a choice never fails loudly).
    * The theatre repaints in place, so a change never re-renders the page. */
-  var PREF = L.family("rl-theatre", { task: null, runs: {} }, { scope: "page", persist: true });
+  var PREF = L.family("rl-theatre", { task: null, runs: {} }, { scope: "page" });
   function loadPref() { return PREF.get(); }
   function savePref() { PREF.persist(); }
 

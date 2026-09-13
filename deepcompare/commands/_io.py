@@ -32,7 +32,7 @@ from .paths import DEFAULT_TEMPLATE
 __all__ = [
     "Warn", "warn_stderr", "safe_name", "run_id_from_name", "with_harness", "trace_files",
     "iter_traces", "load_traces", "template_from", "write_reports", "write_aggregate",
-    "write_fleet", "write_page", "write_outputs",
+    "write_fleet", "write_page", "write_outputs", "load_report", "save_report",
 ]
 
 #: how a loader reports a file it skipped: the message, without the ``warning:`` prefix
@@ -169,3 +169,31 @@ def write_outputs(out_dir: Union[str, Path], reports: list[dict], aggregate: dic
     if html:
         written["html"] = write_page(out_dir, reports, aggregate, template, fleet=fleet)
     return written
+
+
+# ---------------------------------------------- one report, read and rewritten
+
+def load_report(path_text: str) -> tuple:
+    """``(path, report)`` for a ``report_*.json``; ``(None, None)`` after
+    printing the error when the file is missing or not JSON."""
+    report_path = Path(path_text)
+    if not report_path.is_file():
+        print(f"error: {report_path} is not a file", file=sys.stderr)
+        return None, None
+    try:
+        return report_path, json.loads(report_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"error: {report_path}: {exc}", file=sys.stderr)
+        return None, None
+
+
+def save_report(report_path: Path, report: dict) -> None:
+    """Write an updated report back; a page beside it is re-rendered from
+    the updated report so the two never disagree."""
+    report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+                           encoding="utf-8")
+    page = report_path.with_suffix(".html")
+    if page.is_file():
+        # a page beside the report is re-rendered from the updated report
+        render_html([report], {}, DEFAULT_TEMPLATE, page)
+        print(f"Re-rendered {page}")

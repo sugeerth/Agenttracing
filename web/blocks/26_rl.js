@@ -103,7 +103,7 @@
   }
 
   //: per task: which stretches are open, which folds are unfolded
-  var STATE = L.family("rl", { open: {}, unfolded: {} });
+  var STATE = L.family("rl", { open: {}, unfolded: {} }, { persist: false });
   function stateFor(task) { return STATE.get(String(task || "")); }
 
   function tooltip(root) { return L.svg.tip(root, { class: "rl-tip", width: 340 }); }

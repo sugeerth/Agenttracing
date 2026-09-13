@@ -213,10 +213,15 @@
   //                 `defaults` the first time a task is seen, so a choice
   //                 never leaks between tasks; "page": one state for the
   //                 page, the reader's preference.
-  //   opts.persist  false (default) | true | [fields]: what survives a
+  //   opts.persist  true (default): every field of `defaults` survives a
   //                 reload, through the page's own Store under
-  //                 "agentdiff:<key>" (page scope only — a task's state is
-  //                 the session's).
+  //                 "agentdiff:<key>" — a family persists unless told not
+  //                 to. [fields] persists only those; false keeps the state
+  //                 in memory (exploration state: an open fold, an open
+  //                 cluster). A page family saves under "agentdiff:<key>";
+  //                 a task family saves each task's state under
+  //                 "agentdiff:<key>:<task>", so a choice on one task is
+  //                 never read on another.
   //   opts.rerender whether `set` re-renders the page (default false; a
   //                 block that repaints in place keeps its scroll and
   //                 scrub). `set(patch, {rerender})` overrides per call.
@@ -226,7 +231,7 @@
   //                       notify subscribers, re-render when asked
   //   subscribe(fn, el?)  fn(state) after every set; pruned when `el`
   //                       leaves the document; returns the unsubscribe
-  //   reset(task?)        back to defaults
+  //   reset(task?)        back to defaults, in memory and in the store
   //   persist()           write the persisted fields now
   //   state               getter: get()
 
@@ -253,7 +258,7 @@
     opts = opts || {};
     defaults = defaults || {};
     var scope = opts.scope === "page" ? "page" : "task";
-    var persist = opts.persist === undefined ? false : opts.persist;
+    var persist = opts.persist === undefined ? true : opts.persist;
     var storeKey = "agentdiff:" + key;
     var subs = [];
     var byTask = {}, pageState = null;
@@ -269,18 +274,20 @@
       if (typeof d === "object") return v !== null && typeof v === "object" && !Array.isArray(v);
       return typeof v === typeof d;
     }
-    function load() {
+    function taskKey(task) { return task === undefined || task === null ? currentTask() : String(task); }
+    //: where a state is saved: the family's key, task-qualified for a task family
+    function slot(t) { return scope === "page" ? storeKey : storeKey + ":" + t; }
+    function load(t) {
       var st = fresh();
       if (!persist) return st;
-      var s = store(), saved = s ? s.get(storeKey) : null;
-      if (saved && typeof saved === "object") fields().forEach(function (f) { if (accept(f, saved)) st[f] = clone(saved[f]); });
+      var s = store(), src = s ? s.get(slot(t)) : null;
+      if (src && typeof src === "object") fields().forEach(function (f) { if (accept(f, src)) st[f] = clone(src[f]); });
       return st;
     }
-    function taskKey(task) { return task === undefined || task === null ? currentTask() : String(task); }
     function get(task) {
-      if (scope === "page") return pageState || (pageState = load());
+      if (scope === "page") return pageState || (pageState = load(""));
       var t = taskKey(task);
-      return byTask[t] || (byTask[t] = fresh());
+      return byTask[t] || (byTask[t] = load(t));
     }
     function save(task) {
       if (!persist) return;
@@ -288,7 +295,7 @@
       if (!s) return;
       var st = get(task), out = {};
       fields().forEach(function (f) { if (st[f] !== undefined) out[f] = st[f]; });
-      try { s.set(storeKey, out); } catch (err) { /* quota; the session still holds it */ }
+      try { s.set(slot(taskKey(task)), out); } catch (err) { /* quota; the session still holds it */ }
     }
     function notify(st) {
       subs = subs.filter(function (s) { return !s.el || s.el.isConnected; });
@@ -308,8 +315,10 @@
       return st;
     }
     function reset(task) {
-      if (scope === "page") pageState = fresh(); else delete byTask[taskKey(task)];
-      save(task);
+      var t = taskKey(task);
+      if (scope === "page") pageState = fresh(); else byTask[t] = fresh();
+      var s = store();
+      if (persist && s && typeof s.remove === "function") { try { s.remove(slot(t)); } catch (err) { /* nothing saved */ } }
       notify(get(task));
     }
     function subscribe(fn, el) {

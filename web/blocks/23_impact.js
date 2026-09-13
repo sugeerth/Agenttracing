@@ -101,7 +101,7 @@
   var MARK_WORD = { decisive: "decisive step", fault: "on the fault's path", error: "error", retry: "retry", milestone: "milestone", divergence: "divergence", answer: "the answer" };
 
   //: per task: which clusters are open, which folds are unfolded, the mode
-  var STATE = L.family("impact", { mode: "tree", open: {}, unfolded: {} });
+  var STATE = L.family("impact", { mode: "tree", open: {}, unfolded: {} }, { persist: false });
   function stateFor(task) { return STATE.get(String(task || "")); }
 
   function tooltip(root) { return L.svg.tip(root, { class: "im-tip", width: 340 }); }

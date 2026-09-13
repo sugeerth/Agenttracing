@@ -42,7 +42,7 @@
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
   function color(side) { return L.color.side(side, "ms"); }
   //: per task: the x measure, "time" | "steps"
-  var Axis = L.family("milestones", { axis: "time" });
+  var Axis = L.family("milestones", { axis: "time" }, { persist: false });
 
   function draw(host, report, ms, axis, tip) {
     if (!d3) return;
