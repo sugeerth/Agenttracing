@@ -5,6 +5,16 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Comparing self-evolving agents: `evolve --against` (aggregate `evolution_compare`, v1)
+
+Two self-evolving agents that ran over the same tasks for some generations. "Which is better" has no single answer and the layer refuses to pretend it does; it has four, each named by its axis, and a lineage can win one and lose another:
+
+- **Peak** — whose recommended generation is better, through the training-ground pair machinery over the two generations' traces (P(improve) with its interval, per task, the behaviour distance between them). **Final** — the same for the last generations, because a loop that keeps its latest self ships that one.
+- **Learning** — who got there faster: the task-stratified IQM per generation on one axis with bands, aligned by generation index and by cumulative episodes (the honest x when runs differ), the generation and episode count at which each first reached a threshold whose source is stated (the midpoint between the lowest g0 and the highest recommended point, or `--threshold`), and the area under each curve.
+- **Process** — who evolved soundly: gamed, forgot and traded steps; steps accepted on noise; protected paths touched; budgets breached; collapses; **retention** of once-solved tasks with the ones lost named; drift from the origin; and **which kind of self-modification paid**, per mechanism with count and mean Δ. Decided lexicographically on gamed + protected, then forgot, then retention, then noise, with the raw vector exposed so a reader can disagree with the order.
+
+The task race names the first solver of each task and the tasks a lineage never solved. On the demo (`ledger-agent` against `memo-agent`, the same baseline, six tasks, seven generations each): **peak does not separate** — g4 against g5, P 0.40 [0.27, 0.52]; **final** goes to ledger-agent — g6 against g6, P 0.32 [0.20, 0.45]; **learning** ties — both reach the threshold at g2 after 90 episodes; **process** goes to memo-agent by three findings to none — one gamed step and two protected paths against a clean record, retention 5/6 against 6/6. One lineage reached higher through a gamed step and a forgotten task; the other arrived later with nothing to apologise for. `agentdiff evolve A --against B -o out` (alias `evolve-compare A B`), `--threshold`; more than two lineages compare pairwise.
+
 ## A self-evolving agent as a lineage: `evolve` (aggregate `evolution`, v1)
 
 AgentDiff compared agent A with agent B. A self-evolving agent is neither: it is a lineage, g0 → g1 → g2, each generation derived from its parent by a step the agent took on its own — a rule added, a config changed, a memory written, a skill learned — from evidence in its own episodes. `deepcompare.evolve` reads a lineage directory (`gN/agent.json` with the generation's artifacts and provenance, `gN/traces/` in the runs layout, an optional `lineage.json` naming protected paths and size budgets) and answers, per step:
