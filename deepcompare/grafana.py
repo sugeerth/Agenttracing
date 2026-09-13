@@ -4,7 +4,8 @@ invented on the way out.
 The engine already computed every number a dashboard could show — the
 pass rate per agent per task and its Wilson interval, the mean return and
 its bootstrap interval, the IQM, the probability that one policy beats
-the other, the tool profile, the lineage of a self-evolving agent.  This
+the other, the tool profile, the lineage of a self-evolving agent, the eval that
+evolves beside it.  This
 module writes those as flat samples so that a Grafana that reads
 Prometheus (or a JSON, or a CSV) can plot them; it computes nothing new
 except the per-task means of the per-run rows the scorecard already
@@ -188,6 +189,25 @@ FAMILIES: dict[str, tuple[str, str]] = {
     "evolution_net_iqm_delta": ("gauge", "last generation's IQM minus the root's; a difference of point estimates, and not the sum of what each step earned"),
     "evolution_best": ("gauge", "the IQM the engine ranks by (task-balanced when the section carries one) of the generation with the highest; the generation label names it"),
     "evolution_recommended": ("gauge", "the same IQM of the generation the engine recommends keeping: the best, unless a later one's interval clears it, never a gamed one; the is_last label says whether it is the latest"),
+    # the eval that evolves with the lineage (aggregate.coevolution)
+    "coevolution_eval_generations": ("gauge", "generations of the eval's own lineage, e0 the base metrics and one more per agent step that taught it something; a count"),
+    "coevolution_eval_generation_size": ("gauge", "active metrics in the eval generation (base plus adopted, less retired and demoted); the after_step label names the agent step that triggered it and trigger_probe the probe"),
+    "coevolution_metric": ("gauge", "one of the eval's metrics on one generation of the agent, computed with hindsight on every generation whether or not the metric existed then; the status label says base, adopted, demoted or retired, learned whether the eval learned it"),
+    "coevolution_metric_lo": ("gauge", f"lower bound of the metric on the generation; {_BOOT}"),
+    "coevolution_metric_hi": ("gauge", f"upper bound of the metric on the generation; {_BOOT}"),
+    "coevolution_metric_status": ("gauge", "1 per metric of the eval: its status, the probe that proposed it, the agent step it was adopted at and its confirmation (confirmed, unconfirmed, pending) as labels"),
+    "coevolution_candidates": ("gauge", "candidate metrics the eval tested, by decision (adopted, rejected); a count of ledger rows"),
+    "coevolution_candidates_by_probe": ("gauge", "candidates proposed by one probe, by decision; a count"),
+    "coevolution_candidate": ("gauge", "1 per candidate in the ledger: the probe, the agent step, the metric id, the decision and the validators it failed (comma-joined, empty when adopted) as labels; every rejection is kept, never hidden"),
+    "coevolution_step_flag_delta": ("gauge", "the change of an eval metric across an agent step where its interval excludes zero in the metric's bad direction: what the evolved eval flags with hindsight; learned says whether the metric was learned or base"),
+    "coevolution_step_flag_delta_lo": ("gauge", f"lower bound of the flagged change; {_BOOT}"),
+    "coevolution_step_flag_delta_hi": ("gauge", f"upper bound of the flagged change; {_BOOT}"),
+    "coevolution_hindsight_lag": ("gauge", "agent steps between the first step a learned metric would have flagged and the step it was adopted at; 0 means adopted at the first step it flags; absent when it never flags"),
+    "coevolution_hindsight": ("gauge", "the hindsight counts: steps re-read, steps whose reading changed by a learned metric, learned flags, base flags; the what label names which"),
+    "coevolution_drift": ("gauge", "Jaccard distance of the final active metric set from the base set; 0 means the eval learned nothing, 1 would mean it shares no metric with the base, which cannot happen because base metrics are never retired"),
+    "coevolution_min_adjusted_alpha": ("gauge", "the smallest Bonferroni-adjusted level at which a candidate was tested (alpha over the candidates tested at that step); the more the eval tests at once, the stricter it is"),
+    "coevolution_closures": ("gauge", "loop closures: a step a metric flagged followed by a later step on which the lineage recovered on the same metric, recovered and not attributed; kind is all or learned"),
+    "coevolution_recommended_agree": ("gauge", "1 when the base eval and the evolved eval recommend the same generation to keep, 0 otherwise; the base and evolved labels name the two"),
     # one run, step by step
     "step_reward": ("gauge", "reward recorded at the step by the environment; absent when the trace recorded none"),
     "step_return_cum": ("gauge", "return so far: the sum of recorded rewards up to and including the step"),
@@ -644,6 +664,86 @@ def _collect_evolution(c: _Collector, aggregate: dict) -> None:
                                             synthetic=_bool_label(syn_by_gen.get(gid))), _r(rec.get("iqm")))
 
 
+def _collect_coevolution(c: _Collector, aggregate: dict) -> None:
+    co = aggregate.get("coevolution")
+    if not isinstance(co, dict):
+        return
+    if not co.get("measurable"):
+        c.note(f"coevolution not measurable: {co.get('reason')}")
+        return
+    base = {"family": str(co.get("family") or ""), "synthetic": _bool_label(co.get("synthetic"))}
+    metrics = co.get("metrics") or {}
+    learned_of = {mid: _bool_label((m or {}).get("status") != "base") for mid, m in metrics.items()}
+    status_of = {mid: str((m or {}).get("status") or "") for mid, m in metrics.items()}
+    evals = [e for e in (co.get("eval_generations") or []) if isinstance(e, dict)]
+    c.add("coevolution_eval_generations", base, len(evals))
+    for e in evals:
+        c.add("coevolution_eval_generation_size",
+              dict(base, eval_gen=str(e.get("id")), index=str(e.get("index")), after_step=str(e.get("after_step") or "none"),
+                   trigger_probe=str(e.get("trigger_probe") or "none")), e.get("size"))
+    for mid in sorted(metrics):
+        m = metrics[mid] or {}
+        origin, conf = m.get("origin") or {}, m.get("confirmation") or {}
+        c.add("coevolution_metric_status",
+              dict(base, metric=mid, status=status_of[mid], learned=learned_of[mid], probe=str(origin.get("probe") or "base"),
+                   adopted_step=str(m.get("adopted_at") or origin.get("step") or "none"),
+                   confirmation=str(conf.get("status") or "none")), 1)
+    matrix = co.get("matrix") or {}
+    for mid in sorted(matrix):
+        for gid in sorted(matrix[mid] or {}):
+            cell = (matrix[mid] or {}).get(gid) or {}
+            if not cell.get("measurable", True):
+                continue
+            labels = dict(base, metric=mid, generation=gid, status=status_of.get(mid, ""), learned=learned_of.get(mid, "false"))
+            c.add("coevolution_metric", labels, _r(cell.get("point")))
+            c.add("coevolution_metric_lo", labels, _r(cell.get("lo")))
+            c.add("coevolution_metric_hi", labels, _r(cell.get("hi")))
+    ledger = [row for row in (co.get("ledger") or []) if isinstance(row, dict)]
+    by_decision: dict = {}
+    by_probe: dict = {}
+    for row in ledger:
+        decision, probe = str(row.get("decision") or ""), str(row.get("probe") or "")
+        by_decision[decision] = by_decision.get(decision, 0) + 1
+        by_probe[(probe, decision)] = by_probe.get((probe, decision), 0) + 1
+        c.add("coevolution_candidate",
+              dict(base, index=str(row.get("index")), step=str(row.get("step")), probe=probe, metric=str(row.get("spec_id")),
+                   decision=decision, failed=",".join(str(f) for f in (row.get("failed") or []))), 1)
+    for decision in sorted(by_decision):
+        c.add("coevolution_candidates", dict(base, decision=decision), by_decision[decision])
+    for probe, decision in sorted(by_probe):
+        c.add("coevolution_candidates_by_probe", dict(base, probe=probe, decision=decision), by_probe[(probe, decision)])
+    for step in co.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        evolved = step.get("evolved") or {}
+        labels = dict(base, **{"from": str(step.get("from")), "to": str(step.get("to")), "step": str(step.get("index"))})
+        for flag in list(evolved.get("flags") or []) + list(evolved.get("base_flags") or []):
+            if not isinstance(flag, dict):
+                continue
+            delta = flag.get("delta") or {}
+            fl = dict(labels, metric=str(flag.get("metric")), learned=_bool_label(flag.get("learned")),
+                      direction=str(flag.get("direction") or ""))
+            c.add("coevolution_step_flag_delta", fl, _r(delta.get("point")))
+            c.add("coevolution_step_flag_delta_lo", fl, _r(delta.get("lo")))
+            c.add("coevolution_step_flag_delta_hi", fl, _r(delta.get("hi")))
+    hindsight = co.get("hindsight") or {}
+    for what in ("steps", "changed", "learned_flags", "base_flags"):
+        c.add("coevolution_hindsight", dict(base, what=what), hindsight.get(what))
+    for mid in sorted(hindsight.get("caught_at") or {}):
+        lag = (hindsight["caught_at"] or {}).get(mid) or {}
+        c.add("coevolution_hindsight_lag", dict(base, metric=mid), lag.get("lag"))
+    integrity = co.get("integrity") or {}
+    c.add("coevolution_drift", base, _r((integrity.get("drift") or {}).get("jaccard_distance_from_base")))
+    c.add("coevolution_min_adjusted_alpha", base, _r((integrity.get("multiplicity") or {}).get("min_adjusted_alpha")))
+    summary = (co.get("flow") or {}).get("summary") or {}
+    c.add("coevolution_closures", dict(base, kind="all"), summary.get("closures"))
+    c.add("coevolution_closures", dict(base, kind="learned"), summary.get("closures_learned"))
+    rec = co.get("recommended") or {}
+    if rec.get("base") is not None or rec.get("evolved") is not None:
+        c.add("coevolution_recommended_agree", dict(base, **{"base": str(rec.get("base")), "evolved": str(rec.get("evolved"))}),
+              bool(rec.get("agree")))
+
+
 def collect_batch(loaded: dict) -> _Collector:
     c = _Collector()
     aggregate, reports = loaded.get("aggregate") or {}, loaded.get("reports") or []
@@ -660,6 +760,7 @@ def collect_batch(loaded: dict) -> _Collector:
     _collect_paired(c, aggregate, synthetic)
     _collect_tools(c, reports, synthetic)
     _collect_evolution(c, aggregate)
+    _collect_coevolution(c, aggregate)
     return c
 
 

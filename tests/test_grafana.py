@@ -34,7 +34,7 @@ LINEAGE = ROOT / "demo" / "evolve" / "lineage"
 TRACE = TRAIN / "rl01_ledger_reconcile__policy-v1__r1.json"
 GRAFANA = ROOT / "grafana"
 DASHBOARDS = sorted((GRAFANA / "dashboards").glob("*.json"))
-UIDS = {"agentdiff-agents", "agentdiff-tools", "agentdiff-training", "agentdiff-evolution", "agentdiff-run"}
+UIDS = {"agentdiff-agents", "agentdiff-tools", "agentdiff-training", "agentdiff-evolution", "agentdiff-run", "agentdiff-evals"}
 METRIC_IN_EXPR = re.compile(r"\bagentdiff_[a-z0-9_]+")
 
 _CACHE: dict = {}
@@ -74,6 +74,13 @@ def _one(samples: dict, metric: str, **labels):
     found = _find(samples, metric, **labels)
     assert len(found) == 1, (metric, labels, found)
     return found[0]
+
+
+def _with(samples: dict, family: str, labels: dict) -> list:
+    """Like :func:`_find`, for families whose labels include one named
+    ``metric`` (the eval's), which the keyword form cannot pass."""
+    want = set(labels.items())
+    return [v for (m, l), v in samples.items() if m == PREFIX + family and want <= set(l)]
 
 
 # ---------------------------------------------------------------- the families
@@ -292,6 +299,36 @@ class EvolutionExportTest(unittest.TestCase):
             if metric.startswith(PREFIX + "evolution_"):
                 self.assertEqual(dict(labels).get("synthetic"), "true", metric)
 
+    def test_the_eval_that_evolved_beside_the_lineage_is_exported(self):
+        s = self.samples
+        families = {m for m, _l, _v in self.collected["samples"]}
+        for name in ("coevolution_eval_generations", "coevolution_metric", "coevolution_metric_lo", "coevolution_metric_hi",
+                     "coevolution_metric_status", "coevolution_candidates", "coevolution_candidate",
+                     "coevolution_step_flag_delta", "coevolution_step_flag_delta_lo", "coevolution_hindsight",
+                     "coevolution_hindsight_lag", "coevolution_drift", "coevolution_min_adjusted_alpha",
+                     "coevolution_closures", "coevolution_recommended_agree"):
+            self.assertIn(PREFIX + name, families, name)
+        # the demo's eval grew from e0 to e3, learning verification rate at the verifier step
+        self.assertEqual(_one(s, "coevolution_eval_generations", family="ledger-agent"), 4)
+        self.assertEqual(_with(s, "coevolution_metric_status", {"metric": "verified_rate", "status": "adopted", "probe": "axes"})[0], 1)
+        self.assertEqual(_with(s, "coevolution_metric", {"metric": "verified_rate", "generation": "g2"})[0], 1.0)
+        self.assertEqual(_with(s, "coevolution_metric", {"metric": "verified_rate", "generation": "g3"})[0], 0.0)
+        adopted = _one(s, "coevolution_candidates", decision="adopted")
+        rejected = _one(s, "coevolution_candidates", decision="rejected")
+        self.assertEqual((adopted, rejected), (3, 17))
+        self.assertEqual(len(_find(s, "coevolution_candidate")), adopted + rejected)
+        self.assertEqual(_with(s, "coevolution_candidate", {"metric": "worst_task_pass", "decision": "rejected"}), [1, 1])
+        self.assertEqual(_with(s, "coevolution_hindsight_lag", {"metric": "verified_rate"})[0], 0)
+        self.assertEqual(_with(s, "coevolution_hindsight_lag", {"metric": "frugal_pass_rate"})[0], 3)
+        self.assertEqual(_with(s, "coevolution_step_flag_delta", {"from": "g2", "to": "g3", "metric": "verified_rate"})[0], -1.0)
+        self.assertEqual(_one(s, "coevolution_recommended_agree", base="g4", evolved="g4"), 1)
+        for (metric, labels), _v in s.items():
+            if metric.startswith(PREFIX + "coevolution_"):
+                self.assertEqual(dict(labels).get("synthetic"), "true", metric)
+        for metric in ("coevolution_metric", "coevolution_step_flag_delta"):
+            self.assertEqual(len(_find(s, metric)), len(_find(s, metric + "_lo")))
+            self.assertEqual(len(_find(s, metric)), len(_find(s, metric + "_hi")))
+
 
 # ---------------------------------------------------------------- one trace
 
@@ -371,8 +408,8 @@ class DashboardTest(unittest.TestCase):
         cls.dashboards = {p.name: json.loads(p.read_text(encoding="utf-8")) for p in DASHBOARDS}
         cls.families = {PREFIX + n for n in FAMILIES}
 
-    def test_five_dashboards_with_uid_title_and_schema_version(self):
-        self.assertEqual(len(self.dashboards), 5)
+    def test_six_dashboards_with_uid_title_and_schema_version(self):
+        self.assertEqual(len(self.dashboards), 6)
         self.assertEqual({d["uid"] for d in self.dashboards.values()}, UIDS)
         for name, d in self.dashboards.items():
             self.assertTrue(d["title"].startswith("AgentDiff"), name)
