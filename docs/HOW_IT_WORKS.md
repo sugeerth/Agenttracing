@@ -103,7 +103,7 @@ scorecard (§6).
 ## 4. What the page draws, and how to read it
 
 The page is one file (`web/blocks.html`, built from `web/blocks/*.js`)
-with six views. The **Story** is a numbered sequence:
+with seven views. The **Story** is a numbered sequence:
 
 1. **What happened** — the reading as charts.
 2. **Where the time went** — one strip per run along wall-clock, every
@@ -324,6 +324,43 @@ rising while generalisation fell. `docs/EVOLVE.md` names who observed
 each and what an episode-only reading can and cannot catch: when the
 grader itself is what got fooled, every number here is compromised
 with it, and only a held-out grader can say so.
+
+The **Evals** view is the seventh, for the eval that watches that
+lineage and evolves with it (`deepcompare/coevolve.py`,
+`docs/COEVOLVE.md`). A fixed eval is what a self-evolving agent
+eventually optimises, so the eval is a lineage too — e0, e1, e2 — each
+step of it triggered by an agent step: probes ask one question each of
+what is known up to that step and propose candidate metrics, five
+validators test every candidate at a Bonferroni-adjusted level, and one
+representative per redundancy class is adopted with the reason written.
+The lane reads in this order. **The flow** leads, the whole loop in one
+picture at three zoom levels: the loop — the agent's generations and
+steps along the top, one row per probe with a mark at every step it
+fired, the candidates flowing down through the five validators and
+leaving the flow at the one that stopped them, the eval's generations
+beneath the agent steps that triggered them, and back up the picture
+the hindsight edges (a metric to the steps it would have flagged, the
+lag written on them) and the recovery edges, each labelled *recovered,
+not attributed*; a step — that step's probes, candidates, validator
+marks, decisions and ledger rows alone; a candidate — its spec as a
+sentence, the interval, ρ against each adopted metric, the link to the
+outcome, K and the adjusted level, the decision and its reason. Then
+**hindsight**: per agent step the base verdict beside the evolved
+flags, the steps re-read and the steps changed, the reading of each
+changed step and how many steps late each metric arrived. **The
+matrix**: metrics by generations, cells before a metric's adoption
+hatched because they were computed with hindsight, rows grouped base,
+adopted, demoted, retired. **The metric**: the selected metric's spec
+as a sentence, its curve across generations with intervals, per task,
+its validation row and its confirmation. **The probes**: each with its
+question, the steps it fired on, what it proposed and what was adopted,
+and the external proposer's status — none, or its source and the counts
+received, parsed and adopted, validated and never trusted. **The
+integrity** of the eval itself: drift from the base, the candidates
+tested against the adjusted level, what was demoted, retired and never
+confirmed, and the gap sentence — a fooled grader fools every metric in
+this vocabulary. On the demo lineage the eval learned a verification
+rate at the gamed step, and both readings recommend the same generation.
 
 ## 5. The agentic loop
 

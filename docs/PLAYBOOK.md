@@ -172,6 +172,29 @@ and a page is a single file, so it can be sent afterwards.
   will usually name the tasks it was learned on, so the outlined cells
   say whether it overfit them. `--fail-on gamed,forgot,protected` turns
   the same reading into a CI gate on every generation the loop proposes.
+- **The eval learned a metric; what to do with it**: `agentdiff coevolve
+  <lineage> -o out` and open the Evals view (`docs/COEVOLVE.md`). Read
+  the hindsight first, not the new metric's name: the lines that matter
+  are the steps the base eval called improved or flat that a learned
+  metric flags — on the shipped lineage there are none, because the
+  verification rate it learned at g2→g3 flags the step the base had
+  already called gamed, and that is the reading you want, an eval that
+  agrees with the verdicts and adds an interval to them. Then check the
+  metric's confirmation: a metric that moved again on a later step
+  (`confirmed`) has been seen to measure something twice; one that has
+  not moved in two later steps (`unconfirmed`) stays adopted and is
+  listed under integrity for exactly this decision, and a metric retired
+  as one reading with a base metric was never new. Then decide whether
+  the agent's next step should be allowed to see it. A learned metric in
+  the agent's own evidence — its optimiser's objective, its prompt — is a
+  new target, and the goodhart probe exists because a target stops
+  measuring: it will demote the metric once the agent moves it twice
+  while the pass rate stands still, but only after the fact. The safer
+  order is to keep the learned metric on the eval's side of the line,
+  read the lineage against it, and let the recommendation under both
+  evals — with `agree` and the exclusions listed — say whether the
+  generation to keep changed. `--fail-on hindsight` gates on a changed
+  step; `--fail-on unconfirmed` on a metric that never moved again.
 - **What to put in the next prompt**: the Tool behaviour panel ends
   with the sentences derived from how the two agents used their tools;
   copy them into the failing agent's prompt, then `agentdiff replay`

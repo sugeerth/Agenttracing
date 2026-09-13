@@ -30,8 +30,8 @@ every generated file stays byte-identical to the one its test pins.
 
 A section is one analysis with one question, one module, one output
 dict. Every section — `impact`, `trust`, `tools_profile`, `rl`,
-`rl.stats`, `rl.audit`, `rl.space`, `evolution`, `evolution_compare` —
-obeys the same envelope, produced by `deepcompare/section.py`:
+`rl.stats`, `rl.audit`, `rl.space`, `evolution`, `evolution_compare`,
+`coevolution` — obeys the same envelope, produced by `deepcompare/section.py`:
 
     {"version": int, "measurable": bool, "reason": str | None, ..., "narrative": str}
 
@@ -84,13 +84,25 @@ some, and a plain `evolve` output never carries the key. The comparison
 embeds each lineage's section without the episode timelines
 (`generations[].timelines: "omitted; see aggregate.evolution"`); the
 primary lineage's full section under `aggregate.evolution` keeps them.
+`coevolution` (`coevolve.py`) registers with `requires=("evolution",)`
+and is not on demand: the agent's lineage is always monitored, so every
+`evolve` output carries the key. Its one input that is not the lineage —
+external candidate metrics — reaches it through the context:
+`attach_sections(…, candidates=None)` and `lineage_batch(…,
+candidates=None)` place the list under `LineageContext.extra["candidates"]`,
+and the output is byte-identical when the keyword is absent. The section
+reads `ctx.lineage`, `agg["evolution"]` and that key, imports its shared
+constants from `evolve` (`CHECK_TOOL_RE`, `CLAIM_PHRASES`, `TOOLISH`)
+rather than copying them, and imports nothing from `harness/`; the
+proposer seam (`harness/proposer.py`) is imported by the `coevolve`
+command alone, inside `run`.
 
 ## 3. Aggregates and commands
 
 `suite.analyse_runs` (runs layout), `consolidate` (batch), `fleet`,
-`evolve` and `evolve --against` each produce an aggregate dict and the
-per-task pair reports; `report.render_html` writes the page with the
-data inlined. Every command follows one shape, implemented once in
+`evolve`, `evolve --against` and `coevolve` each produce an aggregate
+dict and the per-task pair reports; `report.render_html` writes the page
+with the data inlined. Every command follows one shape, implemented once in
 `deepcompare/commands/_io.py`:
 
     traces = load_traces(dir_or_files, warn)          # SCHEMA validation, run ids from names
@@ -101,7 +113,7 @@ data inlined. Every command follows one shape, implemented once in
 is a module in `deepcompare/commands/` exposing `register(subparsers)`
 and `run(args) -> int`. **Adding a command is adding one module.**
 (Status: `live` and `paths` are there; the remaining commands move as
-the in-flight work lands — see the changelog. Commands: landed — all 37
+the in-flight work lands — see the changelog. Commands: landed — all 38
 are modules under `deepcompare/commands/`, listed in `cli.COMMANDS` in
 `--help` order; `_io.py` holds the load-run-write shape and `_common.py`
 the shared argument groups (CI artifacts, provider options, the trace
@@ -128,6 +140,15 @@ A block imports nothing; it reads `AgentDiff.lib` and `d3`. **Adding a
 block is adding one file that registers**, with its group naming the
 lane, its id placed in that lane's `order` if it has a fixed place, and
 one self-contained test class appended to `tests/test_blocks_ui.py`.
+The views are Story, Evidence, Batch, Panels, Training, Evolution and,
+seventh, Evals: the `coevolution` lane, declared in `VIEWS` and
+`STACK_PLAN` with its `order`, whose blocks (`web/blocks/36_coevolve.js`)
+share one family store `{evalGen, metric, step, candidate}` scoped to
+the page and read `ctx.aggregate.coevolution` — the flow first, at three
+zoom levels (loop, step, candidate), then hindsight, the matrix, the
+metric, the probes and the integrity. A view is a lane plus a tab: adding
+one is the lane in `STACK_PLAN`, the name in `VIEWS`, the hash regex and
+the arrow-key cycle, and the tab must still fit at 360 px.
 The invariants the tests enforce and the rules of efficient drawing are
 in `web/blocks/README.md`; the agent that knows them is
 `.claude/agents/viz.md`.
@@ -140,10 +161,13 @@ in `web/blocks/README.md`; the agent that knows them is
 | an analysis of a pair | `deepcompare/<name>.py` | `@sections.register("pair", key)` | `tests/test_<name>.py`, pinned on `demo/traces` |
 | an analysis of a batch | same | `@sections.register("aggregate", key)` | pinned on `demo/rl/train` |
 | a check on a lineage | a function in `evolve.py`'s checks table | the table | pinned on `demo/evolve/lineage` |
+| a probe of the eval | `Probe(name, question, trigger(view), propose(view) -> [spec])` in `coevolve.PROBES`; pure, no lookahead, specs in the metric language | the tuple, in the order the probes run | `tests/test_coevolve.py`: its trigger on a synthetic step view, its candidates on the demo, the pinned ledger |
+| a validator of a candidate | `(name, fn(candidate, view) -> {pass, note, …})` in `coevolve.VALIDATORS`; every one is computed, the order decides | the tuple, in deciding order | constructed cases both ways; the multiplicity rule if it tests at a level |
+| a feature of an episode | `Feature(kind, basis, direction)` in `coevolve.FEATURES` and its line in `features()`; None when unreadable, never 0 | the dict, in output order | hand-built trajectories and the demo; `parse_spec` accepts it by id |
 | a command | `deepcompare/commands/<name>.py` | `register(subparsers)` | `tests/test_cli.py` |
 | a chart | `web/blocks/NN_<name>.js` | `AgentDiff.block({...})` | a class at the end of `tests/test_blocks_ui.py` |
 | a demo | a behaviour table + caller over `demo/_env.py` | — | a determinism test |
-| a dashboard | `grafana/dashboards/<name>.json` | the provisioning yaml | `tests/test_grafana.py` (every metric exists) |
+| a dashboard | a panel in `grafana/generate_dashboards.py`, then regenerate `grafana/dashboards/<name>.json` | the provisioning yaml | `tests/test_grafana.py` (every metric exists) |
 
 ## What must stay true
 

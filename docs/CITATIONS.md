@@ -306,3 +306,40 @@ Documented failure modes:
 - **In-context reward hacking** (2402.06627, Pan, Jones, Jagadeesan,
   Steinhardt, ICML 2024) — feedback loops at test time drive ICRH;
   static evaluation misses it. Read via github.com/aypan17/llm-feedback.
+
+## The eval that evolves with the agent: measures that become targets, multiple comparisons, rank correlation (September 2026)
+
+Read for the co-evolving eval (`docs/COEVOLVE.md`). These are classical
+references, cited by their standard bibliographic record; none was
+fetched for this note, and nothing is quoted from them beyond the one
+sentence each is known for.
+
+- **Goodhart** (1975), "Problems of monetary management: the U.K.
+  experience", *Papers in Monetary Economics*, Reserve Bank of
+  Australia — any observed statistical regularity will tend to collapse
+  once pressure is placed upon it for control purposes. The reason a
+  fixed eval of a self-evolving agent stops measuring.
+- **Strathern** (1997), "'Improving ratings': audit in the British
+  University system", *European Review* 5(3), 305–321 — the form the
+  law is usually quoted in: when a measure becomes a target, it ceases
+  to be a good measure. The `goodhart` probe demotes a metric the agent
+  moved twice while the outcome stood still.
+- **Bonferroni** (1936), "Teoria statistica delle classi e calcolo delle
+  probabilità", *Pubblicazioni del R. Istituto Superiore di Scienze
+  Economiche e Commerciali di Firenze* 8, 3–62 — the inequality behind
+  testing K candidates at a step at level `ALPHA / K`; the ledger
+  states K and the adjusted level on every row.
+- **Spearman** (1904), "The proof and measurement of association
+  between two things", *American Journal of Psychology* 15(1), 72–101 —
+  the rank correlation the `distinct`, `linked` and `redundancy`
+  readings use, hand-rolled in `deepcompare/rlaudit.py`.
+- **Agarwal, Schwarzer, Castro, Courville, Bellemare** (2021), "Deep
+  reinforcement learning at the edge of the statistical precipice",
+  NeurIPS 2021, 2108.13264 — the interquartile mean and the
+  task-stratified bootstrap every metric value carries (already cited
+  for `docs/RL.md`).
+- **Efron** (1979), "Bootstrap methods: another look at the jackknife",
+  *Annals of Statistics* 7(1), 1–26 — the bootstrap itself.
+- **The Red Queen Gödel Machine** (2606.26294, 2026, listed above) —
+  co-evolving evaluators because fixed ones are exploited or saturated;
+  the same argument, made for a different mechanism. [snippet]

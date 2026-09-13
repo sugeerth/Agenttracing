@@ -338,6 +338,19 @@ compromised grader compromises every episode it graded. A held-out
 grader, or perturbed variants of the tasks, are the only answer, and
 both are outside this layer.
 
+The quieter form of the same gap is inside this layer's reach: an agent
+that evolves against these fixed metrics eventually optimises them, and
+a fixed eval cannot notice with the thing being optimised.
+`deepcompare.coevolve` answers that part — every `evolve` output also
+carries `aggregate["coevolution"]`, an eval that is itself a lineage
+e0 → e1 → …, where each agent step can trigger a probe to propose a
+metric, five validators test it on the evidence so far, and the final
+eval re-reads every step of this lineage with hindsight beside the
+verdicts above; `agentdiff coevolve` prints it. On the demo it learned
+a verification rate at g2→g3, the gamed step, and the same sentence
+about a fooled grader is written into its own output. `docs/COEVOLVE.md`
+is the guide.
+
 **Forgetting** (verdict `forgot`). Some task lost at least `FORGET_DROP
 = 0.6` of its pass rate — three of five runs — while the return
 improvement did not fall below the coin flip by more than its own
