@@ -30,7 +30,7 @@
   var d3 = global.d3;
 
   //: rows the divergence tree draws before it folds the rest away
-  var MAX_ROWS = 12;
+  var MAX_ROWS = 14;
   var ROW = 17;
 
   var styled = false;
@@ -75,7 +75,7 @@
       ".rsp-bp{cursor:pointer}.rsp-bp text{font-family:var(--mono);fill:var(--ink);paint-order:stroke;stroke:var(--bg);stroke-width:3px;stroke-linejoin:round}",
       ".rsp-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);max-width:330px}",
       ".rsp-tip b{color:var(--ink)}",
-      "@media (max-width:640px){.rsp-row{grid-template-columns:minmax(70px,1fr) 58px 62px}}",
+      "@media (max-width:640px){.rsp-row{grid-template-columns:minmax(62px,1fr) 54px 62px}}",
     ].join("\n");
     document.head.appendChild(node);
   }
@@ -104,6 +104,19 @@
   }
   //: a fold's length grows with what it holds — the rule "Where it mattered" uses
   function foldW(n) { return 6 + 6 * Math.log(1 + Math.max(0, n)) / Math.LN2; }
+  //: text that never runs past the room it has — measured, not guessed, because
+  //: a character's width is a guess and a label over the edge is clipped
+  function fitText(sel, text, room) {
+    sel.text(text);
+    var node = sel.node();
+    if (!node || !node.getComputedTextLength || room <= 0) return sel;
+    var body = String(text), guard = 0;
+    while (node.getComputedTextLength() > room && body.length > 1 && guard++ < 120) {
+      body = body.slice(0, -1);
+      sel.text(body + "…");
+    }
+    return sel;
+  }
 
   function tooltip(root) {
     var tip = document.createElement("div"); tip.className = "rsp-tip"; tip.hidden = true; root.appendChild(tip);
@@ -201,6 +214,14 @@
     if (m.distance && isNum(m.distance.between)) {
       bar.appendChild(H("span", { class: "rsp-chip", text: "between " + plain(m.distance.between) }));
     }
+    var strays = m.points.filter(function (p) { return p.nearest && p.nearest.other_policy; }).length;
+    if (strays) {
+      bar.appendChild(H("span", {
+        class: "rsp-chip", "data-strays": strays,
+        title: "their nearest neighbour by behaviour belongs to the other policy — ringed in the atlas",
+        text: strays + " nearer the other policy",
+      }));
+    }
     return bar;
   }
 
@@ -288,6 +309,7 @@
     return { keys: keys, episodes: Object.keys(keys).length, hits: n };
   }
 
+  var HABIT_VIEWS = [["separating", "what separates them"], ["top", "the solved side"], ["bottom", "the failed side"]];
   function habits(H, m, state, repaint) {
     var win = m.ngrams && m.ngrams.winning ? m.ngrams.winning : null;
     var wrap = H("div", { class: "rsp-habits" });
@@ -295,20 +317,22 @@
       wrap.appendChild(H("p", { class: "rsp-note", text: "Habits: " + ((win && win.reason) || "no n-gram ratio to show.") }));
       return wrap;
     }
-    var side = state.side || "top";
+    var view = state.side || "separating";
     var bar = H("div", { class: "rsp-bar" });
-    [["top", "over-represented in the " + win.winners + " solved"], ["bottom", "in the " + win.losers + " failed"]].forEach(function (opt) {
+    bar.appendChild(H("span", { class: "rsp-chip", text: win.winners + " solved · " + win.losers + " failed" }));
+    HABIT_VIEWS.forEach(function (opt) {
       bar.appendChild(H("button", {
-        type: "button", "aria-pressed": side === opt[0] ? "true" : "false", text: opt[1],
+        type: "button", "aria-pressed": view === opt[0] ? "true" : "false", text: opt[1], "data-view": opt[0],
         onclick: function () { state.side = opt[0]; state.gram = null; repaint(); },
       }));
     });
     wrap.appendChild(bar);
-    var rows = (side === "top" ? win.top : win.bottom) || [];
+    var rows = (win[view] || win.separating || win.top || []);
     rows.forEach(function (r) {
       var on = state.gram && state.gram.text === r.text;
+      var toward = r.ratio === null || r.ratio === undefined ? "solved" : r.ratio > 1 ? "solved" : r.ratio < 1 ? "failed" : "level";
       var row = H("div", {
-        class: "rsp-row", role: "button", tabindex: "0", "data-gram": r.text, "data-n": r.n,
+        class: "rsp-row", role: "button", tabindex: "0", "data-gram": r.text, "data-n": r.n, "data-toward": toward,
         "aria-current": on ? "true" : "false",
         "data-ratio": r.ratio === null || r.ratio === undefined ? "" : r.ratio,
         onclick: function () {
@@ -321,18 +345,23 @@
         onkeydown: function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); this.click(); } },
       }, [
         H("span", { class: "rsp-g", title: r.text, text: r.text }),
-        H("span", { class: "rsp-n k", text: r.ratio === null || r.ratio === undefined ? "only here" : plain(r.ratio) + "×" }),
-        H("span", { class: "rsp-n", text: r.win_count + " / " + r.lose_count }),
+        H("span", {
+          class: "rsp-n k", title: toward === "solved" ? "more of it among the solved episodes" : "more of it among the failed episodes",
+          style: { color: toward === "solved" ? "var(--good)" : toward === "failed" ? "var(--bad)" : "var(--ink)" },
+          text: r.ratio === null || r.ratio === undefined ? "only solved" : plain(r.ratio) + "×",
+        }),
+        H("span", { class: "rsp-n", title: r.win_count + " among the solved, " + r.lose_count + " among the failed",
+          text: r.win_count + "/" + r.lose_count }),
       ]);
       wrap.appendChild(row);
     });
     wrap.appendChild(H("p", {
       class: "rsp-note",
-      text: "ratio = the gram's share of every " + (win.top[0] ? "" : "") + "gram of its length among the solved episodes over its share among the failed; "
-        + "the pair after it is those two counts (solved / failed), so a big ratio on small counts stays visible. "
+      text: "The ratio is the gram's share of every gram of its length among the solved episodes over its share among the failed; "
+        + "green is toward solved, red toward failed, and the pair after it is the two raw counts (solved / failed), so a big ratio on small counts stays visible. "
         + (isNum(win.win_steps_mean) && isNum(win.lose_steps_mean)
-          ? "A solved episode runs " + plain(win.win_steps_mean, 1) + " steps against " + plain(win.lose_steps_mean, 1) + ", which lifts every rate a short episode has. " : "")
-        + "Click a row to light up the episodes that contain it.",
+          ? "A solved episode runs " + plain(win.win_steps_mean, 1) + " steps against " + plain(win.lose_steps_mean, 1) + " for a failed one, which lifts the share of everything a short episode does — so read the ratio next to the counts. " : "")
+        + "Click a row to light up the episodes that play it.",
     }));
     return wrap;
   }
@@ -350,7 +379,7 @@
       var root = Hh("div", { class: "rsp rsp-atlas" });
       el.appendChild(root);
       var tip = tooltip(root);
-      var state = { gram: null, side: "top" };
+      var state = { gram: null, side: "separating" };
       var narr = Hh("p", { class: "rsp-narr" });
       root.appendChild(narr);
       root.appendChild(policyChips(Hh, m));
@@ -436,50 +465,57 @@
     var marked = {};
     ranked.forEach(function (p, i) { marked[p.id] = i + 1; });
     var mix = mixer(host, m);
-    var SEG = narrow ? 15 : 21, padL = 6, padR = narrow ? 46 : 96;
+    var SEG = narrow ? 14 : 20, padL = 6, padR = narrow ? 76 : 150;
     var avail = Math.max(80, W - padL - padR);
-    var rows = [], laid = [], hidden = 0, hiddenEps = 0;
     var cap = state.rows || MAX_ROWS;
+    var laid = [], queue = [], hidden = 0, hiddenEps = 0, rowsUsed = 0;
+    state.drawn = {};
 
     function widthOf(u) { return u.type === "fold" ? foldW(u.nodes.length) : SEG; }
-    // lay a chain out at a row, then its branches on the rows below
-    function lay(node, x0, row, depth) {
+    /* One row is one thread: a node's heaviest path. Every other child of a
+     * node on it is a branch, queued with the episodes it carries; the rows
+     * go to the heaviest branches first (breadth first, not depth first, so
+     * a deep sub-branch cannot take the row a big one needed). */
+    function lay(node, x0, row, from) {
       var chain = chainOf(node), units = unitsOf(chain, state, marked);
       var xs = [], x = x0;
       units.forEach(function (u) { xs.push(x); x += widthOf(u); });
-      var item = { units: units, xs: xs, row: row, x0: x0, x1: x, chain: chain, depth: depth };
+      var item = { units: units, xs: xs, row: row, x0: x0, x1: x, chain: chain, from: from,
+                   head: chain.nodes[0].token };
       laid.push(item);
-      rows[row] = item;
-      if (depth > 3) return item;
-      var pending = chain.branches.slice().sort(function (p, q) { return (q.node.episodes - p.node.episodes) || (p.at - q.at); });
-      pending.forEach(function (b) {
-        // where the branch leaves the thread: the right edge of the unit holding its parent
+      units.forEach(function (u) {
+        if (u.type === "node") state.drawn[u.node.id] = true;
+        else u.nodes.forEach(function (n) { state.drawn[n.id] = true; });
+      });
+      chain.branches.forEach(function (b) {
         var ui = 0;
         for (var i = 0; i < units.length; i++) {
           var u = units[i];
           if ((u.type === "node" && u.index === b.at) || (u.type === "fold" && b.at >= u.index && b.at <= u.last)) { ui = i; break; }
         }
-        var bx = xs[ui] + widthOf(units[ui]);
-        if (rows.length >= cap) { hidden++; hiddenEps += b.node.episodes; return; }
-        var r = rows.length;
-        rows.push(null);
-        var kid = lay(b.node, bx, r, depth + 1);
-        kid.from = { row: row, x: bx };
+        queue.push({ node: b.node, x: xs[ui] + widthOf(units[ui]), row: row,
+                     weight: b.node.episodes + (marked[b.node.id] ? total : 0) });
       });
       return item;
     }
-    rows.push(null);
-    lay(root, padL, 0, 0);
-    // scale so the longest row fits
+    lay(root, padL, rowsUsed++, null);
+    while (queue.length) {
+      queue.sort(function (p, q) { return (q.weight - p.weight) || (p.x - q.x); });
+      var next = queue.shift();
+      if (rowsUsed >= cap) { hidden++; hiddenEps += next.node.episodes; continue; }
+      lay(next.node, next.x, rowsUsed++, { row: next.row, x: next.x });
+    }
+    laid.sort(function (p, q) { return p.row - q.row; });
+    // scale so the longest thread fits the width it has
     var maxX = 0;
     laid.forEach(function (it) { maxX = Math.max(maxX, it.x1); });
     var kx = maxX > padL + avail ? avail / Math.max(1, maxX - padL) : 1;
     function X(v) { return padL + (v - padL) * kx; }
 
-    var top = 16, Hh = top + rows.length * ROW + (hidden ? ROW : 0) + 14;
+    var top = 18, Hh = top + rowsUsed * ROW + (hidden ? ROW : 0) + 12;
     var svg = d3.select(host).append("svg").attr("viewBox", "0 0 " + W + " " + Hh).attr("role", "img")
       .attr("aria-label", "the policy trie as a thread: " + total + " episodes from one root, a branch's thickness the episodes through it, its colour the mix of the two policies, "
-        + ranked.length + " ranked branch points ringed");
+        + ranked.length + " ranked branch points ringed, the quiet runs folded");
     function rowY(r) { return top + r * ROW; }
     function strokeW(n) { return 1 + 4.5 * Math.sqrt(Math.max(0, n) / total); }
 
@@ -496,11 +532,11 @@
     }
 
     laid.forEach(function (it) {
-      // the elbow from the parent thread down to this row
       if (it.from) {
         svg.append("path").attr("class", "rsp-elbow")
           .attr("d", "M" + X(it.from.x).toFixed(2) + "," + rowY(it.from.row) + "V" + rowY(it.row))
-          .attr("fill", "none").attr("stroke", mix(it.chain.nodes[0].by_policy)).attr("stroke-width", Math.max(1, strokeW(it.chain.nodes[0].episodes) * 0.8)).attr("stroke-opacity", 0.5);
+          .attr("fill", "none").attr("stroke", mix(it.chain.nodes[0].by_policy))
+          .attr("stroke-width", Math.max(1, strokeW(it.chain.nodes[0].episodes) * 0.8)).attr("stroke-opacity", 0.45);
       }
       it.units.forEach(function (u, ui) {
         var x = X(it.xs[ui]), w = Math.max(2, widthOf(u) * kx), y = rowY(it.row);
@@ -511,9 +547,9 @@
           fg.append("line").attr("x1", 0).attr("x2", w).attr("y1", 0).attr("y2", 0)
             .attr("stroke", mix(u.nodes[0].by_policy)).attr("stroke-width", Math.max(1.2, strokeW(eps) * 0.7))
             .attr("stroke-dasharray", "1.5 2.5").attr("stroke-linecap", "round").attr("stroke-opacity", 0.75);
-          if (w >= 18) fg.append("text").attr("x", w / 2).attr("y", -5).attr("text-anchor", "middle").text("×" + u.nodes.length);
+          if (w >= 16) fg.append("text").attr("x", w / 2).attr("y", -5).attr("text-anchor", "middle").text("×" + u.nodes.length);
           fg.append("rect").attr("x", 0).attr("y", -8).attr("width", w).attr("height", 16).attr("fill", "transparent");
-          fg.append("title").text(u.nodes.length + " steps every one of these " + eps + " episodes takes the same way; click to open");
+          fg.append("title").text(u.nodes.length + " steps that all " + eps + " episodes here take the same way; click to open");
           fg.on("pointermove", function (evt) {
             tip.show(evt, [{ b: true, text: "×" + u.nodes.length + " steps folded" },
               { text: u.nodes.map(function (n) { return n.token; }).join(" → ") },
@@ -530,34 +566,40 @@
         g.append("title").text((n.token || "root") + " · " + n.episodes + " episodes · return " + signed(n.mean_return));
         var lines = nodeLines(n);
         g.on("pointermove", function (evt) { tip.show(evt, lines); }).on("pointerleave", tip.hide)
-          .on("click", function () { tip.hide(); if (state.open[n.id]) delete state.open[n.id]; repaint(); });
+          .on("click", function () { tip.hide(); if (state.open[n.id]) { delete state.open[n.id]; repaint(); } });
         if (marked[n.id]) {
-          var bg = svg.append("g").attr("class", "rsp-bp").attr("data-node", n.id).attr("data-rank", marked[n.id])
+          var rank = marked[n.id];
+          var bg = svg.append("g").attr("class", "rsp-bp").attr("data-node", n.id).attr("data-rank", rank)
             .attr("transform", "translate(" + x + "," + y + ")");
-          bg.append("circle").attr("r", 5).attr("fill", "var(--bg)").attr("stroke", "var(--ink)").attr("stroke-width", 1.4)
-            .attr("stroke-opacity", state.point === n.id ? 1 : 0.75);
-          bg.append("text").attr("x", 0).attr("y", 3).attr("text-anchor", "middle").text(marked[n.id]);
-          bg.append("title").text("branch point #" + marked[n.id] + " — " + (ranked[marked[n.id] - 1] || {}).label);
-          bg.on("pointermove", function (evt) { tip.show(evt, [{ b: true, text: "branch point #" + marked[n.id] }, { text: (ranked[marked[n.id] - 1] || {}).label }].concat(nodeLines(n).slice(1))); })
-            .on("pointerleave", tip.hide).on("click", function () { tip.hide(); state.point = state.point === n.id ? null : n.id; repaint(); });
+          bg.append("circle").attr("r", 5.5).attr("fill", "var(--bg)").attr("stroke", "var(--ink)")
+            .attr("stroke-width", state.point === n.id ? 2 : 1.3).attr("stroke-opacity", state.point === n.id ? 1 : 0.7);
+          bg.append("text").attr("x", 0).attr("y", 3).attr("text-anchor", "middle").text(rank);
+          bg.append("title").text("branch point #" + rank + " — " + ((ranked[rank - 1] || {}).label || ""));
+          bg.on("pointermove", function (evt) {
+            tip.show(evt, [{ b: true, text: "branch point #" + rank }, { text: (ranked[rank - 1] || {}).label }].concat(nodeLines(n).slice(1)));
+          }).on("pointerleave", tip.hide).on("click", function () { tip.hide(); state.point = state.point === n.id ? null : n.id; repaint(); });
         }
       });
-      // the end of a thread: what it holds
+      // what this thread is and what it holds, once, at its right-hand end
       var last = it.chain.nodes[it.chain.nodes.length - 1];
-      var endX = X(it.x1) + 5, room = W - endX - 2;
-      var label = last.episodes + (last.episodes === 1 ? " ep" : " eps") + " · " + signed(last.mean_return);
-      if (room > 6) {
-        svg.append("text").attr("class", "lab mono dim").attr("x", endX).attr("y", rowY(it.row) + 3.5)
-          .attr("fill", it.row === 0 ? "var(--ink-2)" : "var(--ink-3)").text(trunc(label, Math.floor(room / CH)))
-          .append("title").text(label + (isNum(last.tail) ? " · " + last.tail + " more steps folded" : ""));
+      var endX = X(it.x1) + 7, room = W - endX - 2;
+      var full = (it.from ? it.head + " · " : "") + last.episodes + (last.episodes === 1 ? " ep · " : " eps · ") + signed(last.mean_return);
+      var label = narrow ? (it.from ? it.head + " " : "") + signed(last.mean_return) : full;
+      if (room > 14) {
+        var t = svg.append("text").attr("class", "lab mono" + (it.from ? " dim" : "")).attr("x", endX).attr("y", rowY(it.row) + 3.5)
+          .attr("fill", it.from ? "var(--ink-3)" : "var(--ink-2)");
+        fitText(t, label, room);
+        t.append("title").text(full + (isNum(last.tail) ? " · " + last.tail + " more steps folded under one episode" : "")
+          + (isNum(last.truncated) ? " · " + last.truncated + " more steps beyond the depth cap" : ""));
       }
     });
     if (hidden) {
-      var y = rowY(rows.length);
+      var y = rowY(rowsUsed);
       var more = svg.append("g").attr("class", "rsp-unit rsp-more").attr("data-hidden", hidden)
-        .on("click", function () { state.rows = cap + MAX_ROWS; repaint(); }).style("cursor", "pointer");
-      more.append("text").attr("class", "lab dim").attr("x", padL + 10).attr("y", y + 4)
-        .text("+" + hidden + " more branch" + (hidden === 1 ? "" : "es") + " · " + hiddenEps + " episodes — click to draw them");
+        .style("cursor", "pointer").on("click", function () { state.rows = cap + MAX_ROWS; repaint(); });
+      var moreText = "+" + hidden + " thinner branch" + (hidden === 1 ? "" : "es") + " (" + hiddenEps + " episodes) still counted in the threads above — click to draw them";
+      fitText(more.append("text").attr("class", "lab dim").attr("x", padL + 4).attr("y", y + 4), moreText, W - padL - 10)
+        .append("title").text(moreText);
     }
   }
 
@@ -570,7 +612,7 @@
     var table = H("table", { class: "rsp-table" });
     table.appendChild(H("thead", {}, [H("tr", {}, [
       H("th", { text: "#" }), H("th", { text: "step" }),
-      H("th", { text: a }), H("th", { text: b }), H("th", { text: "reach" }), H("th", { text: "imbalance" }),
+      H("th", { text: a + " goes" }), H("th", { text: b + " goes" }), H("th", { text: "reach" }), H("th", { text: "split" }),
     ])]));
     var body = H("tbody");
     br.points.forEach(function (p, i) {
@@ -584,12 +626,18 @@
           document.createTextNode(" " + signed(s.mean_return) + " (" + s.episodes + ")"),
         ]);
       }
+      var drawn = !state.drawn || state.drawn[p.id];
       var row = H("tr", {
-        "data-node": p.id, "data-rank": i + 1, "data-score": p.score,
+        "data-node": p.id, "data-rank": i + 1, "data-score": p.score, "data-drawn": drawn ? "1" : "0",
         "aria-current": state.point === p.id ? "true" : "false",
-        onclick: function () { state.point = state.point === p.id ? null : p.id; repaint(); },
+        onclick: function () {
+          state.point = state.point === p.id ? null : p.id;
+          // a point on a branch too thin to have got a row: open more rows
+          if (state.point && !drawn) state.rows = (state.rows || MAX_ROWS) + MAX_ROWS;
+          repaint();
+        },
       }, [
-        H("td", { class: "n", text: String(i + 1) }),
+        H("td", { class: "n", text: (i + 1) + (drawn ? "" : " ·") , title: drawn ? "" : "on a branch not drawn above; click to draw it" }),
         H("td", { class: "n", text: String(p.depth) }),
         cell(a), cell(b),
         H("td", { class: "n", text: p.episodes + " eps" }),

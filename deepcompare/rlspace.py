@@ -33,8 +33,8 @@ that set, all counts over recorded steps:
   and the mean return below it — the return on each side.
 
 * **N-grams.** The commonest length-2 and length-3 token sequences per
-  policy, and the ones over-represented in the episodes that succeeded
-  against the ones that failed: the ratio of the two *rates* (a gram's
+  policy, and the ones whose rate differs most between the episodes that
+  succeeded and the ones that failed: the ratio of the two *rates* (a gram's
   share of all grams of that length in the group), with all four counts
   carried so a reader can see that a ratio of 3.0 may be 3 against 1. A
   gram absent from the losing episodes has no ratio (``None``) and is
@@ -449,7 +449,7 @@ def ngrams(episodes: list, policies: list, sizes: tuple = NGRAM_SIZES, top: int 
             else "there are no episodes"
         winning = {"measurable": False, "reason": f"the winning/losing ratio needs both: {why}",
                    "winners": len(winners), "losers": len(losers), "min_count": min_count,
-                   "top": [], "bottom": [], "note": note}
+                   "top": [], "bottom": [], "separating": [], "note": note}
         return {"sizes": list(sizes), "top_n": top, "by_policy": by_policy, "winning": winning}
     rows: list = []
     grams_win, grams_lose = {}, {}
@@ -479,13 +479,20 @@ def ngrams(episodes: list, policies: list, sizes: tuple = NGRAM_SIZES, top: int 
     under.sort(key=lambda r: (0 if r["ratio"] is None else 1,
                               (r["ratio"] if r["ratio"] is not None else 0.0), -r["lose_count"],
                               r["n"], r["text"]))
+    # the reading that actually separates: how far from parity, either way.
+    # on a batch where the winners are simply shorter every universal gram
+    # sits a little over 1.0 and the real habits are all on the losing side,
+    # so a list ranked only by the winning end would be a list of nothing.
+    apart = sorted(rows, key=lambda r: (0 if r["ratio"] is None else 1,
+                                        -abs(math.log(r["ratio"])) if r["ratio"] else -99.0,
+                                        -max(r["win_count"], r["lose_count"]), r["n"], r["text"]))
     winning = {"measurable": bool(over), "reason": None if over else
                f"no gram reaches {min_count} occurrences among the winning episodes",
                "winners": len(winners), "losers": len(losers), "min_count": min_count,
                "win_grams": grams_win, "lose_grams": grams_lose,
                "win_steps_mean": _mean([len(e["tokens"]) for e in winners]),
                "lose_steps_mean": _mean([len(e["tokens"]) for e in losers]),
-               "top": over[:top], "bottom": under[:top], "note": note}
+               "top": over[:top], "bottom": under[:top], "separating": apart[:top], "note": note}
     return {"sizes": list(sizes), "top_n": top, "by_policy": by_policy, "winning": winning}
 
 

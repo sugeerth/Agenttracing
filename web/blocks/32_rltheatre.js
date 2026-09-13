@@ -449,11 +449,17 @@
       var solved = row.eps.filter(function (e) { return e.success; }).length;
       var tm = row.task.per[row.policy.name] ? row.task.per[row.policy.name].mean_return : null;
 
+      // the label is cut to the drawing's own width, so a phone clips nothing
+      var budget = Math.max(12, Math.floor((W - padR - gutter) / 6.4));
+      var who = trunc(row.policy.name, Math.max(8, budget - 14));
+      var rest = narrow
+        ? " · " + trunc(short(row.task.id), 13) + " · " + signed(tm) + " · " + solved + "/" + row.eps.length
+        : " · " + short(row.task.id) + " · n=" + row.eps.length + " · mean " + signed(tm) + " · " + solved + "/" + row.eps.length + " solved";
       var head = svg.append("text").attr("class", "lab").attr("x", gutter).attr("y", top + 10);
-      head.append("tspan").attr("fill", col).attr("font-weight", "600").text(trunc(row.policy.name, 22));
-      head.append("tspan").attr("class", "dim").attr("fill", "var(--ink-3)")
-        .text(" · " + trunc(short(row.task.id), narrow ? 14 : 30) + " · n=" + row.eps.length +
-          " · mean " + signed(tm) + " · " + solved + "/" + row.eps.length + " solved");
+      head.append("tspan").attr("fill", col).attr("font-weight", "600").text(who);
+      head.append("tspan").attr("class", "dim").attr("fill", "var(--ink-3)").text(trunc(rest, Math.max(6, budget - who.length)));
+      head.append("title").text(row.policy.name + " · " + short(row.task.id) + " · " + row.eps.length +
+        " episodes · mean return " + signed(tm) + " · " + solved + " of " + row.eps.length + " solved");
 
       // the shared zero line, drawn in every row so the eye can land on it
       svg.append("line").attr("class", "zero").attr("x1", gutter).attr("x2", W - padR).attr("y1", y(0)).attr("y2", y(0));
@@ -657,9 +663,13 @@
     var tracks = eps.map(function (ep, ei) {
       var top = trackTop + ei * (LABH + RIB + GAP);
       var g = svg.append("g").attr("class", "rlt-track").attr("data-policy", ep.policy).attr("data-run", ep.run_id).attr("data-steps", ep.steps);
+      var budget = Math.max(12, Math.floor((W - padR - padL) / 6.4));
+      var who = trunc(ep.policy, Math.max(8, budget - 16));
+      var rest = " · " + (ep.run_id || "run 1") + " · " + ep.steps + " steps · return " + signed(ep.ret) + " · " + (ep.success ? "solved" : "failed");
       var t = g.append("text").attr("class", "lab").attr("x", padL).attr("y", top + 9);
-      t.append("tspan").attr("fill", ep.color).attr("font-weight", "600").text(trunc(ep.policy, 20));
-      t.append("tspan").attr("fill", "var(--ink-3)").text(" · " + (ep.run_id || "run 1") + " · " + ep.steps + " steps · return " + signed(ep.ret) + " · " + (ep.success ? "solved" : "failed"));
+      t.append("tspan").style("fill", ep.color).attr("font-weight", "600").text(who);
+      t.append("tspan").style("fill", "var(--ink-3)").text(trunc(rest, Math.max(6, budget - who.length)));
+      t.append("title").text(ep.policy + " · " + (ep.run_id || "run 1") + " · " + ep.steps + " steps · return " + signed(ep.ret) + " · " + (ep.success ? "solved" : "failed"));
       var ribY = top + LABH;
       // the run's own extent: it stops where the run stopped
       g.append("rect").attr("x", padL).attr("y", ribY).attr("width", Math.max(1, cw * ep.steps)).attr("height", RIB)
