@@ -5838,9 +5838,23 @@ class TrainingViewTest(unittest.TestCase):
         self.assertEqual(len(labels), 1)
         self.assertIn("training", labels[0].lower())
         ids = page.evaluate("() => [...document.querySelectorAll('#stacks .block')].map(e => e.dataset.block)")
-        has_rl = page.evaluate("() => !!(AgentDiff.blockEntry('rl'))")
-        want = (["rl-here"] if has_rl else []) + ["rl-curves", "rl-reward-map", "rl-advantage", "rl-events", "rl-preferences", "rl-policy-delta"]
-        self.assertEqual(ids, want)
+        # "and nothing else" is a rule about the lane, not a roster: every
+        # block the training tab shows must be registered in the training
+        # group, and no block from another view may leak into it. Pinning
+        # the exact list instead would break on every block added to the
+        # lane, which says nothing about whether the tab is behaving.
+        groups = page.evaluate(
+            "() => Object.fromEntries(AgentDiff._internals.REGISTRY.map(b => [b.id, b.group]))")
+        strays = sorted(i for i in ids if groups.get(i) != "training")
+        self.assertEqual(strays, [], "these blocks are in the training lane but not in the training group")
+        # the spine the lane is built around, in the order it must read:
+        # the pair's own panel leads, then whether one policy is better,
+        # then the episodes, then where the reward went
+        spine = ["rl-here", "rl-curves", "rl-reward-map", "rl-advantage", "rl-events", "rl-preferences", "rl-policy-delta"]
+        if not page.evaluate("() => !!(AgentDiff.blockEntry('rl'))"):
+            spine.remove("rl-here")
+        self.assertEqual([i for i in ids if i in spine], spine)
+        self.assertEqual(len(ids), len(set(ids)), "a block is drawn twice")
         self.assertEqual(page.locator("#stacks .block.collapsed").count(), 0)
         self.assertEqual(page.locator("#stacks .block:not(.collapsed) .empty").count(), 0)
         # every chart is an image with a name
@@ -6558,6 +6572,234 @@ class RLStatsBlocksTest(unittest.TestCase):
             if (size && size < 11) bad.push(el.className + ':' + size);
           });
           return bad; }""")
+        self.assertEqual(small, [])
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class BehaviourSpaceBlocksTest(unittest.TestCase):
+    """The behaviour space blocks (31_rlspace.js) against the RL training
+    demo: the atlas of episodes laid out by how differently they behaved,
+    and the divergence tree of the policy trie.
+
+    What is checked is that the page draws the JSON and nothing else — one
+    mark per episode in `aggregate.rl.space.layout`, the ranked branch
+    points ringed in the tree and listed in the table, an n-gram row lighting
+    exactly the episodes whose token stream contains it — and the two
+    promises the atlas makes: that the meaningless axes are not drawn, and
+    that the one length that does mean something (the distance) is.
+    """
+
+    tmp = None
+    IDS = ("rl-atlas", "rl-divergence")
+
+    @classmethod
+    def setUpClass(cls):
+        train = ROOT / "demo" / "rl" / "train"
+        traces = train if train.is_dir() else ROOT / "demo" / "rl" / "traces"
+        if not traces.is_dir():
+            raise unittest.SkipTest("no RL demo traces to analyse")
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "deepcompare", "runs", str(traces), "-o", str(out),
+                        "--template", str(ROOT / "web" / "blocks.html")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
+        cls.space = ((agg.get("rl") or {}).get("space")) or {}
+        if not cls.space.get("measurable"):
+            raise unittest.SkipTest("the RL demo carries no behaviour space")
+        cls.page_path = out / "report.html"
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _open(self, width=1280):
+        context = self.browser.new_context(viewport={"width": width, "height": 1000})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view=training")
+        page.wait_for_timeout(800)
+        return context, page, errors
+
+    def _errors(self, errors):
+        # a sibling block failing is not this block's failure to report
+        return [e for e in errors if "rlspace" in e or "rl-atlas" in e or "rl-divergence" in e]
+
+    # ------------------------------------------------------------ the atlas
+
+    def test_both_blocks_render(self):
+        context, page, errors = self._open()
+        for bid in self.IDS:
+            block = page.locator(f'#stacks [data-block="{bid}"]')
+            self.assertEqual(block.count(), 1, bid)
+            self.assertNotIn("failed to render", block.inner_text(), bid)
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    def test_the_atlas_draws_every_episode_once_with_its_policy_and_outcome(self):
+        context, page, errors = self._open()
+        marks = page.locator('[data-block="rl-atlas"] .rsp-mark')
+        points = self.space["layout"]["points"]
+        self.assertEqual(marks.count(), len(points))
+        seen = {}
+        for m in marks.all():
+            seen[m.get_attribute("data-key")] = (m.get_attribute("data-policy"),
+                                                 m.get_attribute("data-success"))
+        for p in points:
+            self.assertIn(p["key"], seen)
+            self.assertEqual(seen[p["key"]], (p["policy"], "1" if p["success"] else "0"))
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    def test_the_atlas_draws_a_scale_bar_and_no_numbered_axes(self):
+        # the axes of an MDS layout carry no meaning; drawing them would lie
+        context, page, _ = self._open()
+        svg = page.locator('[data-block="rl-atlas"] svg').first
+        self.assertEqual(page.locator('[data-block="rl-atlas"] .rsp-scale').count(), 1)
+        self.assertIn("distance", page.locator('[data-block="rl-atlas"] .rsp-scale text').text_content())
+        self.assertEqual(page.locator('[data-block="rl-atlas"] .tick, [data-block="rl-atlas"] .grid').count(), 0)
+        label = svg.get_attribute("aria-label")
+        self.assertIn("axes carry no meaning", label)
+        self.assertIn("no units and no direction", page.locator('[data-block="rl-atlas"] .rsp-note').last.inner_text())
+        context.close()
+
+    def test_a_habit_row_lights_exactly_the_episodes_that_play_it(self):
+        context, page, errors = self._open()
+        rows = page.locator('[data-block="rl-atlas"] .rsp-row')
+        self.assertGreater(rows.count(), 0)
+        row = rows.first
+        gram = row.get_attribute("data-gram").split(" → ")
+        row.click()
+        page.wait_for_timeout(300)
+        lit, muted = set(), set()
+        for m in page.locator('[data-block="rl-atlas"] .rsp-mark').all():
+            key = m.get_attribute("data-key")
+            (muted if "mute" in (m.get_attribute("class") or "") else lit).add(key)
+
+        def plays(tokens):
+            return any(tokens[i:i + len(gram)] == gram for i in range(len(tokens) - len(gram) + 1))
+
+        expected = {p["key"] for p in self.space["layout"]["points"] if plays(p["tokens"])}
+        self.assertEqual(lit, expected)
+        self.assertEqual(muted, {p["key"] for p in self.space["layout"]["points"]} - expected)
+        # clicking it again puts every episode back
+        row.click()
+        page.wait_for_timeout(300)
+        self.assertEqual(page.locator('[data-block="rl-atlas"] .rsp-mark.mute').count(), 0)
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    def test_every_habit_row_carries_the_counts_behind_its_ratio(self):
+        context, page, _ = self._open()
+        win = self.space["ngrams"]["winning"]
+        listed = {r["text"]: r for r in win["separating"]}
+        rows = page.locator('[data-block="rl-atlas"] .rsp-row')
+        self.assertEqual(rows.count(), len(listed))
+        for row in rows.all():
+            rec = listed[row.get_attribute("data-gram")]
+            text = row.inner_text()
+            self.assertIn(f"{rec['win_count']}/{rec['lose_count']}", text.replace("\n", " "))
+            if rec["ratio"] is not None:
+                self.assertIn(f"{rec['ratio']:.2f}×", text)
+        context.close()
+
+    # ------------------------------------------------------- the divergence
+
+    def test_the_tree_rings_the_ranked_branch_points_and_lists_them(self):
+        context, page, errors = self._open()
+        points = self.space["branches"]["points"]
+        table = page.locator('[data-block="rl-divergence"] tr[data-node]')
+        self.assertEqual(table.count(), len(points))
+        for i, row in enumerate(table.all()):
+            self.assertEqual(row.get_attribute("data-node"), points[i]["id"])
+            text = row.inner_text().replace("\n", " ")
+            for side in points[i]["sides"]:
+                self.assertIn(side["token"], text)
+        rings = page.locator('[data-block="rl-divergence"] .rsp-bp')
+        self.assertGreater(rings.count(), 0)
+        drawn = {r.get_attribute("data-node") for r in rings.all()}
+        self.assertTrue(drawn <= {p["id"] for p in points})
+        # the first branch point is always drawn: it is the headline
+        self.assertIn(points[0]["id"], drawn)
+        self.assertIn(points[0]["sides"][0]["token"],
+                      page.locator('[data-block="rl-divergence"] .rsp-narr').inner_text())
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    def test_a_branch_is_as_thick_as_the_episodes_through_it(self):
+        context, page, _ = self._open()
+        units = page.locator('[data-block="rl-divergence"] .rsp-unit[data-episodes]')
+        self.assertGreater(units.count(), 1)
+        widths = []
+        for u in units.all():
+            n = int(u.get_attribute("data-episodes"))
+            w = float(u.locator("line.seg").get_attribute("stroke-width"))
+            widths.append((n, w))
+        heaviest = max(widths)
+        lightest = min(widths)
+        self.assertGreater(heaviest[1], lightest[1])
+        context.close()
+
+    def test_a_quiet_run_folds_and_dilates_on_click(self):
+        context, page, errors = self._open()
+        folds = page.locator('[data-block="rl-divergence"] .rsp-fold')
+        self.assertGreater(folds.count(), 0)
+        fold = folds.first
+        steps = int(fold.get_attribute("data-steps"))
+        self.assertGreaterEqual(steps, 2)
+        self.assertIn("×", fold.text_content())
+        before = page.locator('[data-block="rl-divergence"] .rsp-unit').count()
+        fold.click()
+        page.wait_for_timeout(300)
+        self.assertGreater(page.locator('[data-block="rl-divergence"] .rsp-unit').count(), before)
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    def test_the_tree_says_what_it_pruned(self):
+        context, page, _ = self._open()
+        note = page.locator('[data-block="rl-divergence"] .rsp-note').inner_text()
+        pruned = self.space["trie"]["pruned"]
+        if pruned["tails"]:
+            self.assertIn(f"{pruned['tails']} single-episode tail", note)
+        if pruned["truncated"]:
+            self.assertIn(f"depth cap of {self.space['trie']['max_depth']}", note)
+        context.close()
+
+    # ------------------------------------------------------------- the page
+
+    def test_nothing_overflows_on_a_phone_and_no_text_is_too_small(self):
+        context, page, errors = self._open(width=390)
+        self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), 392)
+        for bid in self.IDS:
+            box = page.locator(f'#stacks [data-block="{bid}"]').bounding_box()
+            self.assertLessEqual(box["x"] + box["width"], 391, bid)
+        small = page.evaluate("""() => {
+          const out = [];
+          document.querySelectorAll('[data-block="rl-atlas"], [data-block="rl-divergence"]').forEach(function (card) {
+            const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
+            let node;
+            while ((node = walker.nextNode())) {
+              if (!node.textContent.trim()) continue;
+              const el = node.parentElement; if (!el) continue;
+              if (parseFloat(getComputedStyle(el).fontSize) < 11) out.push(node.textContent.trim().slice(0, 30));
+            }
+          });
+          return out; }""")
         self.assertEqual(small, [])
         self.assertEqual(self._errors(errors), [])
         context.close()
