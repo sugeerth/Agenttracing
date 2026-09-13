@@ -26,10 +26,23 @@ class SuiteError(ValueError):
     """The traces cannot be analysed as a runs suite; the message says why."""
 
 
-def group_runs(trajectories: list, warn=None) -> tuple:
+def group_runs(trajectories: list, warn=None, names: Optional[tuple] = None) -> tuple:
     """``(name_a, name_b, runs_by_task)`` for a two-agent suite; tasks
-    lacking runs on either side are dropped (and named to ``warn``)."""
-    agent_names = sorted({t.agent.name for t in trajectories})
+    lacking runs on either side are dropped (and named to ``warn``).
+
+    ``names`` fixes which agent is A and which is B. Without it the two
+    names sort alphabetically, which is right for two unrelated agents
+    and wrong for two generations of one lineage: ``family@g10`` sorts
+    before ``family@g9``, so a caller that means "parent, then child"
+    must say so."""
+    found = {t.agent.name for t in trajectories}
+    if names is not None:
+        wanted = tuple(names)
+        if len(wanted) != 2 or set(wanted) != found:
+            raise SuiteError(f"names {list(wanted)} do not match the agents in the traces: {', '.join(sorted(found))}")
+        agent_names = list(wanted)
+    else:
+        agent_names = sorted(found)
     if len(agent_names) != 2:
         raise SuiteError(f"runs mode needs traces from exactly 2 agents, "
                          f"found {len(agent_names)}: {', '.join(agent_names)}")
@@ -49,11 +62,12 @@ def group_runs(trajectories: list, warn=None) -> tuple:
 
 
 def analyse_runs(trajectories: list, *, warn=None, family_pattern: Optional[str] = None,
-                 golden: Optional[dict] = None, policy: Optional[dict] = None, raws: Optional[dict] = None) -> dict:
+                 golden: Optional[dict] = None, policy: Optional[dict] = None, raws: Optional[dict] = None,
+                 names: Optional[tuple] = None) -> dict:
     """``golden``/``policy`` (see :mod:`deepcompare.scorecard`) make tool
     correctness and policy compliance measurable; ``raws`` (trace_id →
     trace dict) lets the scorecard report a judge's verdicts."""
-    name_a, name_b, runs_by_task = group_runs(trajectories, warn)
+    name_a, name_b, runs_by_task = group_runs(trajectories, warn, names=names)
     stability = stability_analysis(runs_by_task)
     reliability_analysis = reliability.reliability(runs_by_task)
     reports = [compare(a, b) for a, b in medoid_pairs(runs_by_task)]
