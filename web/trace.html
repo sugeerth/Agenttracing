@@ -1,0 +1,870 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentDiff — the trace score</title>
+<style>
+/* ------------------------------------------------------------------ tokens */
+:root {
+  --paper:   #fdfdfc;
+  --ink:     #16161a;
+  --ink-2:   #4c4c48;
+  --muted:   #7e7d76;
+  --faint-t: #a3a29b;
+  --rule:    #d6d5ce;
+  --faint:   #e9e8e2;
+  --hollow:  #bbbab2;
+  --accent:  #9a4a20;
+  --tone-1:  #e6e5df;
+  --tone-2:  #c3c2ba;
+  --tone-3:  #8e8d85;
+  --hatch:   #9b9a92;
+  --hi:      rgba(154, 74, 32, 0.10);
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:   #141413;
+    --ink:     #eceae3;
+    --ink-2:   #b6b4ab;
+    --muted:   #8a8981;
+    --faint-t: #6b6a63;
+    --rule:    #35342f;
+    --faint:   #242320;
+    --hollow:  #56554e;
+    --accent:  #d08a5c;
+    --tone-1:  #2e2d29;
+    --tone-2:  #4e4d46;
+    --tone-3:  #85847b;
+    --hatch:   #7a7970;
+    --hi:      rgba(208, 138, 92, 0.13);
+  }
+}
+:root[data-theme="dark"] {
+  --paper:   #141413;
+  --ink:     #eceae3;
+  --ink-2:   #b6b4ab;
+  --muted:   #8a8981;
+  --faint-t: #6b6a63;
+  --rule:    #35342f;
+  --faint:   #242320;
+  --hollow:  #56554e;
+  --accent:  #d08a5c;
+  --tone-1:  #2e2d29;
+  --tone-2:  #4e4d46;
+  --tone-3:  #85847b;
+  --hatch:   #7a7970;
+  --hi:      rgba(208, 138, 92, 0.13);
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font-family: var(--sans); font-size: 14px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+main { max-width: 96rem; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+@media (max-width: 640px) { main { padding: 1.25rem 0.875rem 3rem; } }
+
+h1 { font-size: 0.9375rem; font-weight: 500; margin: 0; letter-spacing: -0.01em; }
+p  { margin: 0; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.mut { color: var(--muted); }
+.xs  { font-size: 0.75rem; }
+.xxs { font-size: 0.6875rem; }
+.cap {
+  font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.11em;
+  color: var(--faint-t); font-weight: 600;
+}
+.rule { height: 1px; background: var(--rule); }
+.rule-f { height: 1px; background: var(--faint); }
+
+/* ------------------------------------------------------------------ header */
+header .top { display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap; }
+header .top .sp { margin-left: auto; }
+button.pl {
+  background: none; border: 0; padding: 0; margin: 0; font: inherit;
+  color: var(--muted); cursor: pointer; font-size: 0.75rem;
+}
+button.pl:hover { color: var(--ink); }
+button.pl[disabled] { opacity: 0.35; cursor: default; }
+.prompt { color: var(--ink-2); margin-top: 0.4rem; max-width: 58rem; font-size: 0.8125rem; }
+
+.agents { display: flex; gap: 0.2rem 2.25rem; flex-wrap: wrap; margin-top: 0.7rem; }
+.agents .ag { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+.agents .nm { font-weight: 500; white-space: nowrap; }
+.mark { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.04em; white-space: nowrap; }
+.mark.ok   { color: var(--ink-2); }
+.mark.fail { color: var(--accent); }
+
+.tasks { display: flex; flex-wrap: wrap; gap: 0 1rem; margin-top: 0.7rem; }
+.tk {
+  background: none; border: 0; padding: 0.15rem 0; margin: 0; cursor: pointer;
+  font-family: var(--mono); font-size: 0.6875rem; color: var(--muted);
+  letter-spacing: 0.02em; white-space: nowrap;
+}
+.tk:hover { color: var(--ink); }
+.tk.on { color: var(--ink); box-shadow: inset 0 -1px 0 var(--ink); }
+.tk .d { color: var(--faint-t); }
+.tk .d.bad { color: var(--accent); }
+
+/* ------------------------------------------------------------------- score */
+section { margin-top: 1.9rem; }
+.sechead { display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+.sechead .note { color: var(--muted); font-size: 0.75rem; }
+.scroll {
+  overflow-x: auto; overflow-y: hidden; margin-top: 0.5rem;
+  padding-bottom: 0.25rem; max-width: 100%;
+}
+.scroll svg { display: block; }
+svg text { fill: var(--muted); font-family: var(--mono); font-variant-numeric: tabular-nums; }
+svg text.lbl { fill: var(--ink); font-family: var(--sans); }
+svg text.acc { fill: var(--accent); }
+
+.base   { stroke: var(--hollow); stroke-width: 1; }
+.grid   { stroke: var(--faint); stroke-width: 1; }
+.bar    { stroke: var(--hollow); stroke-width: 0.75; }
+.conf   { stroke: var(--ink); stroke-width: 1.25; }
+.qual   { fill: var(--ink); }
+.qual.w { fill: var(--hollow); }
+.chain  { fill: var(--accent); }
+.conn   { stroke: var(--hollow); stroke-width: 1; }
+.conn.drift { stroke-dasharray: 2 3; }
+.dvr    { stroke: var(--accent); stroke-width: 1; }
+.line-a { stroke: var(--ink); stroke-width: 1.25; fill: none; }
+.line-b { stroke: var(--hollow); stroke-width: 1.25; fill: none; stroke-dasharray: 3 2; }
+.hit    { fill: transparent; cursor: pointer; }
+.blk .halo { fill: none; stroke: none; }
+.blk.hl .halo, .blk.sel .halo { fill: var(--hi); }
+.blk.sel .halo { stroke: var(--accent); stroke-width: 0.75; stroke-dasharray: 2 3; }
+.blk.hl .bar, .blk.sel .bar { stroke: var(--accent); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 0.25rem 1.1rem; margin-top: 0.55rem; align-items: center; }
+.lg { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--muted); font-size: 0.6875rem; }
+.lg svg { display: block; }
+
+/* ------------------------------------------------------------------ detail */
+.detail { margin-top: 0.9rem; border-top: 1px solid var(--rule); padding-top: 0.7rem; }
+.detail .hd { display: flex; gap: 0.85rem; flex-wrap: wrap; align-items: baseline; }
+.detail .kv { display: flex; flex-wrap: wrap; gap: 0 1.4rem; margin-top: 0.45rem; }
+.detail .kv span { font-size: 0.75rem; color: var(--muted); }
+.detail .kv b { font-weight: 500; color: var(--ink); }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1.75rem; margin-top: 0.7rem; }
+@media (max-width: 760px) { .cols { grid-template-columns: 1fr; gap: 0.9rem; } }
+.txt {
+  font-family: var(--mono); font-size: 0.71rem; line-height: 1.55; color: var(--ink-2);
+  white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 0.3rem;
+  border-left: 1px solid var(--faint); padding-left: 0.6rem; max-height: 12rem; overflow-y: auto;
+}
+.tdiff { margin-top: 0.8rem; }
+.tdiff .row { font-size: 0.72rem; font-family: var(--mono); color: var(--ink-2); margin-top: 0.2rem; overflow-wrap: anywhere; }
+del { text-decoration: line-through; color: var(--muted); }
+ins { text-decoration: none; color: var(--accent); }
+
+/* ----------------------------------------------------------------- reading */
+.reading { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.6rem 2.5rem; margin-top: 0.75rem; }
+@media (max-width: 860px) { .reading { grid-template-columns: 1fr; gap: 1.3rem; } }
+.reading p { color: var(--ink-2); font-size: 0.8125rem; margin-top: 0.35rem; max-width: 40rem; }
+.verdict {
+  display: inline-block; font-family: var(--mono); font-size: 1.05rem; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--ink); margin-top: 0.2rem;
+  border-bottom: 2px solid var(--hollow); padding-bottom: 1px;
+}
+.verdict.flagged { color: var(--accent); border-bottom-color: var(--accent); }
+.impact { display: flex; flex-wrap: wrap; gap: 0 1.5rem; margin-top: 0.5rem; }
+.impact span { font-size: 0.75rem; color: var(--muted); }
+.impact b { font-weight: 500; color: var(--ink); }
+
+footer { margin-top: 2.5rem; border-top: 1px solid var(--faint); padding-top: 0.6rem; }
+
+#tip {
+  position: fixed; z-index: 20; pointer-events: none; display: none;
+  background: var(--paper); border: 1px solid var(--rule); padding: 0.4rem 0.55rem;
+  font-size: 0.6875rem; line-height: 1.5; max-width: 17rem;
+}
+#tip .t { font-family: var(--mono); color: var(--muted); }
+#tip .t b { color: var(--ink); font-weight: 500; }
+#tip .n { color: var(--ink); margin-bottom: 0.15rem; }
+.empty { margin-top: 3rem; color: var(--muted); font-size: 0.8125rem; max-width: 34rem; }
+.empty code { font-family: var(--mono); font-size: 0.75rem; color: var(--ink-2); }
+</style>
+</head>
+<body>
+<main>
+  <header id="hdr"></header>
+  <div id="body"></div>
+</main>
+<div id="tip"></div>
+
+<script>
+window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
+</script>
+
+<script>
+(function () {
+  "use strict";
+  var RAW = window["DEEPCOMPARE_DATA"] || {};
+  var REPORTS = (RAW.reports || []).filter(function (r) { return r && r.a && r.b; });
+
+  /* ------------------------------------------------------------- helpers */
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+  function n0(v) { return (v == null || isNaN(v)) ? "—" : Math.round(v).toLocaleString("en-US"); }
+  function n1(v) { return (v == null || isNaN(v)) ? "—" : (Math.round(v * 10) / 10).toFixed(1); }
+  function n2(v) { return (v == null || isNaN(v)) ? "—" : (Math.round(v * 100) / 100).toFixed(2); }
+  function pct(v) { return (v == null || isNaN(v)) ? "—" : Math.round(v * 100) + "%"; }
+  function sgn(v, f) { if (v == null || isNaN(v)) return "—"; return (v > 0 ? "+" : v < 0 ? "−" : "") + f(Math.abs(v)); }
+  function el(id) { return document.getElementById(id); }
+
+  var TYPES = ["plan", "search", "retrieve", "read", "tool_call", "reason", "answer"];
+  var FILL = {
+    plan: "var(--tone-1)", reason: "var(--tone-2)", answer: "var(--tone-3)",
+    search: "url(#p-search)", retrieve: "url(#p-retrieve)",
+    read: "url(#p-read)", tool_call: "url(#p-tool)"
+  };
+  function fillOf(t) { return FILL[t] || "var(--tone-1)"; }
+
+  var DEFS = '<defs>' +
+    '<pattern id="p-search" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">' +
+      '<line x1="0" y1="0" x2="0" y2="4" stroke="var(--hatch)" stroke-width="1"/></pattern>' +
+    '<pattern id="p-retrieve" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(-45)">' +
+      '<line x1="0" y1="0" x2="0" y2="4" stroke="var(--hatch)" stroke-width="1"/></pattern>' +
+    '<pattern id="p-read" width="4" height="3" patternUnits="userSpaceOnUse">' +
+      '<line x1="0" y1="0.5" x2="4" y2="0.5" stroke="var(--hatch)" stroke-width="1"/></pattern>' +
+    '<pattern id="p-tool" width="5" height="5" patternUnits="userSpaceOnUse">' +
+      '<line x1="0" y1="0" x2="0" y2="5" stroke="var(--hatch)" stroke-width="0.9"/>' +
+      '<line x1="0" y1="0" x2="5" y2="0" stroke="var(--hatch)" stroke-width="0.9"/></pattern>' +
+  '</defs>';
+
+  /* --------------------------------------------------------------- state */
+  var S = { i: 0, sel: null, w: 0 };
+
+  /* --------------------------------------------- per-report derived model */
+  function model(rep) {
+    var A = rep.a, B = rep.b;
+    var rows = (rep.alignment || []).slice();
+    if (!rows.length) {
+      var n = Math.max(A.steps.length, B.steps.length);
+      for (var k = 0; k < n; k++) {
+        rows.push({ a_index: k < A.steps.length ? k : null,
+                    b_index: k < B.steps.length ? k : null, op: "match" });
+      }
+    }
+    var colA = {}, colB = {};
+    rows.forEach(function (r, i) {
+      if (r.a_index != null) colA[r.a_index] = i;
+      if (r.b_index != null) colB[r.b_index] = i;
+    });
+    var tokMax = 1, latMax = 0.001;
+    [A, B].forEach(function (X) {
+      (X.steps || []).forEach(function (s) {
+        tokMax = Math.max(tokMax, s.tokens || 0);
+        latMax = Math.max(latMax, s.latency_s || 0);
+      });
+    });
+    var dv = (rep.divergences || [])[0] || null;
+    var dCol = null;
+    if (dv) {
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        if ((dv.a_index != null && r.a_index === dv.a_index) ||
+            (dv.b_index != null && r.b_index === dv.b_index)) { dCol = i; break; }
+      }
+    }
+    var attr = rep.attribution || {};
+    var chainSide = attr.failed_agent === "a" ? "a" : attr.failed_agent === "b" ? "b" : null;
+    var chainCols = {};
+    if (chainSide) {
+      (attr.chain || []).forEach(function (si) {
+        var c = (chainSide === "a" ? colA : colB)[si];
+        if (c != null) chainCols[c] = 1;
+      });
+    }
+    return { rows: rows, colA: colA, colB: colB, tokMax: tokMax, latMax: latMax,
+             dv: dv, dCol: dCol, chainSide: chainSide, chainCols: chainCols };
+  }
+
+  /* ------------------------------------------------------------- geometry */
+  var LEFT = 64, RPAD = 92, H = 104, GAP = 40;
+  var Y = { flag: 13, labA: 13, topA: 36 };
+  Y.baseA = Y.topA + H;              // 140
+  Y.topB = Y.baseA + GAP;            // 180
+  Y.baseB = Y.topB + H;              // 284
+  Y.ruler = Y.baseB + 17;            // 301
+  Y.labB = Y.baseB + 33;             // 317
+  var SCORE_H = Y.labB + 16;         // 333
+
+  function pitchFor(n, avail) {
+    var raw = (avail - LEFT - RPAD) / Math.max(n, 1);
+    return Math.max(46, Math.min(94, Math.floor(raw)));
+  }
+
+  /* ---------------------------------------------------------- score build */
+  function score(rep, M, pitch) {
+    var W = LEFT + M.rows.length * pitch + RPAD;
+    var o = [];
+    o.push('<svg width="' + W + '" height="' + SCORE_H + '" viewBox="0 0 ' + W + ' ' + SCORE_H +
+           '" role="img" aria-label="trace score">' + DEFS);
+    var cx = function (i) { return LEFT + i * pitch + pitch / 2; };
+    var xEnd = LEFT + M.rows.length * pitch;
+
+    /* token gridlines + ticks (labelled once, on staff A) */
+    var ticks = [0, Math.round(M.tokMax / 2), M.tokMax];
+    [[Y.baseA, true], [Y.baseB, false]].forEach(function (st) {
+      ticks.forEach(function (t) {
+        var y = st[0] - (t / M.tokMax) * H;
+        if (t > 0) o.push('<line class="grid" x1="' + LEFT + '" y1="' + y + '" x2="' + (xEnd + 26) + '" y2="' + y + '"/>');
+        if (st[1]) o.push('<text x="' + (LEFT - 8) + '" y="' + (y + 3) + '" text-anchor="end" font-size="9">' +
+                          n0(t) + (t === M.tokMax ? " tok" : "") + '</text>');
+      });
+    });
+
+    /* baselines */
+    o.push('<line class="base" x1="' + LEFT + '" y1="' + Y.baseA + '" x2="' + (xEnd + 26) + '" y2="' + Y.baseA + '"/>');
+    o.push('<line class="base" x1="' + LEFT + '" y1="' + Y.baseB + '" x2="' + (xEnd + 26) + '" y2="' + Y.baseB + '"/>');
+
+    /* staff labels */
+    var lab = function (X, y, side) {
+      var ok = X.outcome && X.outcome.success;
+      return '<text class="lbl" x="0" y="' + y + '" font-size="11.5">' + esc(X.agent.name) + '</text>' +
+             '<text x="' + (esc(X.agent.name).length * 6.6 + 8) + '" y="' + y + '" font-size="9" ' +
+             (ok ? '' : 'class="acc" ') + '>' + (ok ? "✓ success" : "✗ failure") + '</text>';
+    };
+    o.push(lab(rep.a, Y.labA, "a"));
+    o.push(lab(rep.b, Y.labB, "b"));
+
+    /* connectors in the corridor */
+    var cTop = Y.baseA + 9, cBot = Y.topB - 3;
+    M.rows.forEach(function (r, i) {
+      var x = cx(i);
+      if (r.op === "match" || r.op === "drift") {
+        o.push('<line class="conn' + (r.op === "drift" ? " drift" : "") + '" x1="' + x + '" y1="' + cTop +
+               '" x2="' + x + '" y2="' + cBot + '"/>');
+      } else if (r.op === "a_only") {
+        o.push('<line class="conn" x1="' + x + '" y1="' + cTop + '" x2="' + x + '" y2="' + (cTop + 11) + '"/>');
+      } else if (r.op === "b_only") {
+        o.push('<line class="conn" x1="' + x + '" y1="' + (cBot - 11) + '" x2="' + x + '" y2="' + cBot + '"/>');
+      }
+    });
+
+    /* attribution chain — thickened baseline segments on the failing side */
+    if (M.chainSide) {
+      var by = M.chainSide === "a" ? Y.baseA : Y.baseB;
+      Object.keys(M.chainCols).forEach(function (c) {
+        var x = cx(+c);
+        o.push('<rect class="chain" x="' + (x - pitch * 0.36) + '" y="' + (by - 1.25) + '" width="' +
+               (pitch * 0.72) + '" height="2.5"/>');
+      });
+    }
+
+    /* first-divergence rule */
+    if (M.dCol != null) {
+      var dx = cx(M.dCol) - pitch / 2;
+      o.push('<line class="dvr" x1="' + dx + '" y1="' + (Y.flag + 3) + '" x2="' + dx + '" y2="' + (Y.baseB + 10) + '"/>');
+      o.push('<text class="acc" x="' + (dx + 4) + '" y="' + Y.flag + '" font-size="9" letter-spacing="0.06em">' +
+             'FIRST DIVERGENCE · ' + esc((M.dv.kind || "").toUpperCase()) + '</text>');
+    }
+
+    /* blocks */
+    function block(side, X, r, i) {
+      var si = side === "a" ? r.a_index : r.b_index;
+      if (si == null) return "";
+      var s = (X.steps || [])[si];
+      if (!s) return "";
+      var base = side === "a" ? Y.baseA : Y.baseB;
+      var h = Math.max(1.5, ((s.tokens || 0) / M.tokMax) * H);
+      var w = Math.max(5, ((s.latency_s || 0) / M.latMax) * (pitch * 0.68));
+      var x = cx(i) - w / 2, y = base - h;
+      var g = ['<g class="blk" data-s="' + side + '" data-c="' + i + '">'];
+      g.push('<rect class="halo" x="' + (cx(i) - pitch * 0.42) + '" y="' + (base - H - 3) + '" width="' +
+             (pitch * 0.84) + '" height="' + (H + 12) + '"/>');
+      g.push('<rect class="bar" x="' + x + '" y="' + y + '" width="' + w + '" height="' + h +
+             '" fill="' + fillOf(s.type) + '"/>');
+      var m = s.model || null;
+      if (m && typeof m.confidence === "number") {
+        var cy = base - Math.max(0, Math.min(1, m.confidence)) * h;
+        g.push('<line class="conf" x1="' + (x + 0.75) + '" y1="' + cy + '" x2="' + (x + w - 0.75) + '" y2="' + cy + '"/>');
+      }
+      if (s.quality === "bad" || s.quality === "weak") {
+        var qh = s.quality === "bad" ? 3 : 2;
+        g.push('<rect class="qual' + (s.quality === "weak" ? " w" : "") + '" x="' + (cx(i) - w / 2 - 1) +
+               '" y="' + (base + 3) + '" width="' + (w + 2) + '" height="' + qh + '"/>');
+      }
+      g.push('<rect class="hit" x="' + (cx(i) - pitch / 2) + '" y="' + (base - H - 4) + '" width="' + pitch +
+             '" height="' + (H + 14) + '"/>');
+      g.push('</g>');
+      return g.join("");
+    }
+    M.rows.forEach(function (r, i) {
+      o.push(block("a", rep.a, r, i));
+      o.push(block("b", rep.b, r, i));
+    });
+
+    /* column index ruler, below staff B */
+    M.rows.forEach(function (r, i) {
+      if (M.rows.length > 16 && i % 2) return;
+      o.push('<text x="' + cx(i) + '" y="' + Y.ruler + '" text-anchor="middle" font-size="8.5" opacity="0.8">' + i + '</text>');
+    });
+    o.push('<text x="' + (LEFT - 8) + '" y="' + Y.ruler + '" text-anchor="end" font-size="8" letter-spacing="0.07em">COLUMN</text>');
+
+    o.push('</svg>');
+    return { svg: o.join(""), W: W, cx: cx };
+  }
+
+  /* --------------------------------------------------------- ledger rows */
+  function ledger(rep, M, pitch) {
+    var W = LEFT + M.rows.length * pitch + RPAD;
+    var LH = 68, top = 18, bot = 58, plot = bot - top;
+    var cx = function (i) { return LEFT + i * pitch + pitch / 2; };
+    var out = [];
+
+    function frame(cap, right) {
+      return '<svg width="' + W + '" height="' + LH + '" viewBox="0 0 ' + W + ' ' + LH + '">' +
+        '<text x="0" y="9" font-size="8.5" letter-spacing="0.08em">' + cap + '</text>' +
+        '<line class="grid" x1="' + LEFT + '" y1="' + bot + '" x2="' + (right) + '" y2="' + bot + '"/>';
+    }
+    var xEnd = LEFT + M.rows.length * pitch;
+
+    /* right-end direct labels, nudged apart when they collide */
+    function rightLabels(items, x) {
+      items.sort(function (p, q) { return p.y - q.y; });
+      for (var i = 1; i < items.length; i++) {
+        if (items[i].y - items[i - 1].y < 11) items[i].y = items[i - 1].y + 11;
+      }
+      var over = items.length ? items[items.length - 1].y - (LH - 4) : 0;
+      if (over > 0) items.forEach(function (p) { p.y -= over; });
+      return items.map(function (p) {
+        return '<text class="lbl" x="' + x + '" y="' + (Math.max(8, p.y) + 3) + '" font-size="8.5">' + esc(p.t) + '</text>';
+      }).join("");
+    }
+
+    /* (a) cumulative tokens */
+    var cum = { a: [], b: [] }, ca = 0, cb = 0;
+    M.rows.forEach(function (r) {
+      if (r.a_index != null) { var sa = rep.a.steps[r.a_index]; ca += (sa && sa.tokens) || 0; }
+      if (r.b_index != null) { var sb = rep.b.steps[r.b_index]; cb += (sb && sb.tokens) || 0; }
+      cum.a.push(ca); cum.b.push(cb);
+    });
+    var cmax = Math.max(1, ca, cb);
+    var s1 = [frame("CUMULATIVE TOKENS", xEnd + 26)];
+    var l1 = [];
+    ["a", "b"].forEach(function (sd) {
+      var pts = cum[sd].map(function (v, i) { return cx(i) + "," + (bot - (v / cmax) * plot); });
+      s1.push('<polyline class="line-' + sd + '" points="' + pts.join(" ") + '"/>');
+      var last = cum[sd][cum[sd].length - 1];
+      l1.push({ y: bot - (last / cmax) * plot, t: rep[sd].agent.name + " " + n0(last) });
+    });
+    s1.push(rightLabels(l1, xEnd + 6));
+    s1.push('<text x="' + (LEFT - 8) + '" y="' + (top + 4) + '" text-anchor="end" font-size="8.5">' + n0(cmax) + '</text>');
+    s1.push('</svg>');
+    out.push(s1.join(""));
+
+    /* (b) confidence 0-1 */
+    var conf = { a: [], b: [] };
+    M.rows.forEach(function (r) {
+      ["a", "b"].forEach(function (sd) {
+        var idx = sd === "a" ? r.a_index : r.b_index;
+        var st = idx == null ? null : rep[sd].steps[idx];
+        var m = st && st.model;
+        conf[sd].push(m && typeof m.confidence === "number" ? m.confidence : null);
+      });
+    });
+    var any = conf.a.concat(conf.b).some(function (v) { return v != null; });
+    var s2 = [frame("MODEL CONFIDENCE · 0–1", xEnd + 26)];
+    if (any) {
+      var l2 = [];
+      ["a", "b"].forEach(function (sd) {
+        var seg = [], last = null;
+        conf[sd].forEach(function (v, i) {
+          if (v == null) { if (seg.length) { last = seg; s2.push(poly(seg, sd)); seg = []; } return; }
+          seg.push(cx(i) + "," + (bot - v * plot));
+        });
+        if (seg.length) s2.push(poly(seg, sd));
+        var lastV = null, lastI = 0;
+        conf[sd].forEach(function (v, i) { if (v != null) { lastV = v; lastI = i; } });
+        if (lastV != null) l2.push({ y: bot - lastV * plot, t: rep[sd].agent.name + " " + pct(lastV) });
+      });
+      s2.push(rightLabels(l2, xEnd + 6));
+      s2.push('<text x="' + (LEFT - 8) + '" y="' + (top + 4) + '" text-anchor="end" font-size="8.5">1.0</text>');
+      s2.push('<text x="' + (LEFT - 8) + '" y="' + (bot + 3) + '" text-anchor="end" font-size="8.5">0</text>');
+    } else {
+      s2.push('<text x="' + LEFT + '" y="' + (top + 16) + '" font-size="9">no model telemetry in this pair</text>');
+    }
+    s2.push('</svg>');
+    out.push(s2.join(""));
+    function poly(pts, sd) {
+      if (pts.length === 1) {
+        var p = pts[0].split(",");
+        return '<line class="line-' + sd + '" x1="' + (+p[0] - 4) + '" y1="' + p[1] + '" x2="' + (+p[0] + 4) + '" y2="' + p[1] + '"/>';
+      }
+      return '<polyline class="line-' + sd + '" points="' + pts.join(" ") + '"/>';
+    }
+
+    /* (c) |eval.delta.tokens| */
+    var d = M.rows.map(function (r) {
+      var e = r.eval && r.eval.delta;
+      return e && typeof e.tokens === "number" ? Math.abs(e.tokens) : 0;
+    });
+    var dmax = Math.max(1, Math.max.apply(null, d));
+    var s3 = [frame("|Δ TOKENS| PER COLUMN", xEnd + 26)];
+    d.forEach(function (v, i) {
+      if (!v) return;
+      var h = (v / dmax) * plot, w = Math.max(3, pitch * 0.3);
+      s3.push('<rect x="' + (cx(i) - w / 2) + '" y="' + (bot - h) + '" width="' + w + '" height="' + h +
+              '" fill="var(--tone-2)"/>');
+    });
+    var imax = d.indexOf(Math.max.apply(null, d));
+    if (dmax > 1) {
+      s3.push('<text x="' + (LEFT - 8) + '" y="' + (top + 4) + '" text-anchor="end" font-size="8.5">' + n0(dmax) + '</text>');
+      s3.push('<text class="lbl" x="' + (xEnd + 6) + '" y="' + (top + 4) + '" font-size="8.5">max ' + n0(dmax) + ' @ col ' + imax + '</text>');
+    } else {
+      s3.push('<text x="' + LEFT + '" y="' + (top + 16) + '" font-size="9">no paired-step token deltas</text>');
+    }
+    s3.push('</svg>');
+    out.push(s3.join(""));
+    return out.join("");
+  }
+
+  /* -------------------------------------------------------------- legend */
+  function legend(rep, M) {
+    var used = {};
+    [rep.a, rep.b].forEach(function (X) { (X.steps || []).forEach(function (s) { used[s.type] = 1; }); });
+    var o = ['<div class="legend">'];
+    TYPES.forEach(function (t) {
+      if (!used[t]) return;
+      o.push('<span class="lg"><svg width="16" height="11">' + DEFS +
+             '<rect class="bar" x="0.5" y="0.5" width="15" height="10" fill="' + fillOf(t) + '"/></svg>' + t + '</span>');
+    });
+    o.push('<span class="lg"><svg width="16" height="11"><rect class="bar" x="0.5" y="0.5" width="15" height="10" fill="var(--tone-1)"/>' +
+           '<line class="conf" x1="1" y1="4" x2="15" y2="4"/></svg>confidence tick</span>');
+    o.push('<span class="lg"><svg width="16" height="11"><rect class="qual" x="0" y="7" width="16" height="3"/></svg>weak / bad step</span>');
+    o.push('<span class="lg"><svg width="16" height="11"><line class="conn drift" x1="8" y1="0" x2="8" y2="11"/></svg>drift column</span>');
+    o.push('<span class="lg"><svg width="16" height="11"><rect class="chain" x="0" y="5" width="16" height="2.5"/></svg>propagation chain</span>');
+    o.push('</div>');
+    return o.join("");
+  }
+
+  /* -------------------------------------------------------------- detail */
+  function stepAt(rep, M, side, col) {
+    var r = M.rows[col]; if (!r) return null;
+    var si = side === "a" ? r.a_index : r.b_index;
+    if (si == null) return null;
+    var s = rep[side].steps[si];
+    return s ? { s: s, si: si, row: r } : null;
+  }
+
+  function detail(rep, M) {
+    if (!S.sel) {
+      return '<div class="detail"><p class="xs mut">Click any block for its full input, output, ' +
+             'step deltas and tool-argument diff. Hover to highlight its aligned partner.</p></div>';
+    }
+    var d = stepAt(rep, M, S.sel.side, S.sel.col);
+    if (!d) return '<div class="detail"></div>';
+    var s = d.s, m = s.model || {}, e = d.row.eval || {};
+    var o = ['<div class="detail">'];
+    o.push('<div class="hd"><span class="lbl" style="font-weight:500">' + esc(rep[S.sel.side].agent.name) + '</span>' +
+           '<span class="num xs mut">step ' + d.si + ' · column ' + S.sel.col + '</span>' +
+           '<span class="cap">' + esc(s.type) + '</span>' +
+           '<span class="xs mut">' + esc(s.name || "") + '</span>' +
+           '<button class="pl" data-act="close" style="margin-left:auto">close</button></div>');
+    var kv = [
+      ["tokens", n0(s.tokens)], ["latency", n1(s.latency_s) + "s"],
+      ["quality", s.quality || "—"],
+      ["confidence", typeof m.confidence === "number" ? pct(m.confidence) : "—"],
+      ["min token conf", typeof m.min_token_confidence === "number" ? pct(m.min_token_confidence) : "—"],
+      ["entropy", typeof m.entropy === "number" ? n2(m.entropy) : "—"],
+      ["temp", typeof m.temperature === "number" ? n1(m.temperature) : "—"],
+      ["align", d.row.op + (d.row.similarity != null ? " " + n2(d.row.similarity) : "")]
+    ];
+    if (e.delta) {
+      kv.push(["Δ tokens b−a", sgn(e.delta.tokens, n0)]);
+      kv.push(["Δ latency b−a", sgn(e.delta.latency_s, n1) + "s"]);
+      kv.push(["Δ cost b−a", sgn(e.delta.cost_usd, function (v) { return "$" + v.toFixed(4); })]);
+    }
+    if (e.quality && e.quality.verdict) kv.push(["verdict", e.quality.verdict]);
+    if (e.propagation) kv.push(["propagation", n2(e.propagation[S.sel.side])]);
+    o.push('<div class="kv">' + kv.map(function (p) {
+      return '<span>' + esc(p[0]) + ' <b class="num">' + esc(p[1]) + '</b></span>';
+    }).join("") + '</div>');
+    o.push('<div class="cols"><div><div class="cap">input</div><div class="txt">' + esc(s.input || "—") +
+           '</div></div><div><div class="cap">output</div><div class="txt">' + esc(s.output || "—") + '</div></div></div>');
+    if (s.note) o.push('<div style="margin-top:.6rem"><span class="cap">note</span> <span class="xs">' + esc(s.note) + '</span></div>');
+
+    var td = d.row.tool_diff;
+    if (td) {
+      o.push('<div class="tdiff"><div class="cap">tool diff</div>');
+      var na = td.name_a || (d.row.a_index != null && rep.a.steps[d.row.a_index] ? rep.a.steps[d.row.a_index].name : "?");
+      var nb = td.name_b || (d.row.b_index != null && rep.b.steps[d.row.b_index] ? rep.b.steps[d.row.b_index].name : "?");
+      o.push('<div class="row">' + esc(na) + ' → ' + esc(nb) +
+             ' · ' + (td.same_tool === false ? "different tool" : "same tool") +
+             (td.identical ? " · identical call" : "") + '</div>');
+      (td.changed || []).forEach(function (c) {
+        o.push('<div class="row">' + esc(c.key) + ': <del>' + esc(c.a) + '</del> <ins>' + esc(c.b) + '</ins></div>');
+      });
+      if ((td.only_a || []).length) o.push('<div class="row">only A: ' + esc(td.only_a.join(", ")) + '</div>');
+      if ((td.only_b || []).length) o.push('<div class="row">only B: ' + esc(td.only_b.join(", ")) + '</div>');
+      if ((td.raw_diff || []).length) {
+        o.push('<div class="row">' + td.raw_diff.map(function (p) {
+          var t = esc(p[1]);
+          return p[0] === "del" ? "<del>" + t + "</del>" : p[0] === "ins" ? "<ins>" + t + "</ins>" : t;
+        }).join("") + '</div>');
+      }
+      o.push('</div>');
+    }
+    o.push('</div>');
+    return o.join("");
+  }
+
+  /* ------------------------------------------------------------- reading */
+  function reading(rep, M) {
+    var o = ['<section><div class="cap">the reading</div><div class="reading">'];
+    var attr = rep.attribution || {};
+    o.push('<div><div class="cap">attribution</div>' +
+      (attr.explanation
+        ? '<p>' + esc(attr.explanation) + '</p><div class="impact"><span>failing agent <b>' +
+          esc(attr.failed_agent === "a" ? rep.a.agent.name : attr.failed_agent === "b" ? rep.b.agent.name : "none") +
+          '</b></span><span>root cause <b class="num">step ' + esc(attr.root_cause_step) + '</b></span>' +
+          '<span>category <b>' + esc(attr.category || "—") + '</b></span>' +
+          '<span>chain <b class="num">' + esc((attr.chain || []).join(" → ")) + '</b></span></div>'
+        : '<p>No failure was attributed on this task — both trajectories reached their outcome.</p>') + '</div>');
+
+    var u = rep.uncertainty || {};
+    var sig = u.signal || null;
+    o.push('<div><div class="cap">model uncertainty</div>');
+    if (sig && sig.verdict) {
+      o.push('<div class="verdict ' + (sig.verdict === "flagged" ? "flagged" : "silent") + '">' + esc(sig.verdict) + '</div>');
+      o.push('<p>' + esc(sig.verdict === "flagged"
+        ? "Confidence fell below the run's own baseline at the failing step — a runtime confidence gate would have caught this run."
+        : "The model was as confident there as anywhere — no threshold on its own uncertainty catches this class; only external verification does.") + '</p>');
+      o.push('<div class="impact"><span>at root <b class="num">' + pct(sig.confidence_at_root) + '</b></span>' +
+             '<span>baseline <b class="num">' + pct(sig.baseline_confidence) + '</b></span>' +
+             '<span>vs baseline <b class="num">' + (sig.drop == null ? "—" : sgn(-sig.drop, function (v) { return pct(v); })) + '</b></span>' +
+             '<span>lead <b class="num">' + n0(sig.lead_steps) + ' steps</b></span></div>');
+      if (sig.mitigation) o.push('<p>' + esc(sig.mitigation) + '</p>');
+    } else if (u.narrative) {
+      o.push('<p>' + esc(u.narrative) + '</p>');
+    } else {
+      o.push('<p>No model telemetry accompanied these trajectories.</p>');
+    }
+    if (sig && u.narrative) o.push('<p class="mut">' + esc(u.narrative) + '</p>');
+    o.push('</div>');
+
+    var cf = rep.counterfactual;
+    o.push('<div><div class="cap">counterfactual</div>');
+    if (cf && cf.narrative) {
+      o.push('<p>' + esc(cf.narrative) + '</p>');
+      var est = cf.estimate || {};
+      o.push('<div class="impact"><span>outcome <b>' + esc(est.outcome || "—") + '</b></span>' +
+             '<span>steps <b class="num">' + sgn(est.steps_delta, n0) + '</b></span>' +
+             '<span>tokens <b class="num">' + sgn(est.tokens_delta, n0) + '</b></span>' +
+             '<span>latency <b class="num">' + sgn(est.latency_delta_s, n1) + 's</b></span>' +
+             '<span>confidence <b>' + esc(cf.confidence || "—") + '</b></span></div>');
+    } else {
+      o.push('<p>No counterfactual — nothing to splice without an attributed failure.</p>');
+    }
+    o.push('</div>');
+
+    o.push('<div><div class="cap">first divergence</div>');
+    if (M.dv) {
+      var d = M.dv, ds = d.downstream || {};
+      o.push('<p>' + esc(d.summary) + '</p>');
+      var loser = ds.failed_agent === "a" ? rep.a.agent.name : ds.failed_agent === "b" ? rep.b.agent.name :
+                  (ds.extra_steps_b != null ? rep.b.agent.name : rep.a.agent.name);
+      var xs = ds.extra_steps_b != null ? ds.extra_steps_b : ds.extra_steps_a;
+      var xt = ds.extra_tokens_b != null ? ds.extra_tokens_b : ds.extra_tokens_a;
+      var xl = ds.extra_latency_s_b != null ? ds.extra_latency_s_b : ds.extra_latency_s_a;
+      o.push('<div class="impact"><span>kind <b>' + esc(d.kind) + '</b></span>' +
+             '<span>column <b class="num">' + (M.dCol == null ? "—" : M.dCol) + '</b></span>' +
+             '<span>downstream on <b>' + esc(loser) + '</b></span>' +
+             '<span>steps <b class="num">' + sgn(xs, n0) + '</b></span>' +
+             '<span>tokens <b class="num">' + sgn(xt, n0) + '</b></span>' +
+             '<span>latency <b class="num">' + sgn(xl, n1) + 's</b></span>' +
+             '<span>fatal <b>' + (ds.caused_failure ? "yes" : "no") + '</b></span></div>');
+    } else {
+      o.push('<p>The trajectories never parted: every aligned column matched.</p>');
+    }
+    o.push('</div>');
+    o.push('</div></section>');
+    return o.join("");
+  }
+
+  /* -------------------------------------------------------------- header */
+  function header(rep) {
+    var o = ['<div class="top">'];
+    o.push('<h1 class="num">' + esc(rep.task.id) + '</h1>');
+    o.push('<span class="xs mut num">' + (S.i + 1) + ' / ' + REPORTS.length + '</span>');
+    o.push('<span class="sp"></span>');
+    o.push('<button class="pl" data-act="prev"' + (REPORTS.length < 2 ? " disabled" : "") + '>← prev</button>');
+    o.push('<button class="pl" data-act="next"' + (REPORTS.length < 2 ? " disabled" : "") + '>next →</button>');
+    o.push('<button class="pl" data-act="theme">theme</button>');
+    o.push('</div><div class="rule" style="margin-top:.5rem"></div>');
+    o.push('<p class="prompt">' + esc(rep.task.prompt || "") + '</p>');
+    o.push('<div class="agents">');
+    [["a", rep.a], ["b", rep.b]].forEach(function (p) {
+      var X = p[1], ok = X.outcome && X.outcome.success;
+      o.push('<div class="ag"><span class="nm">' + esc(X.agent.name) + '</span>' +
+        '<span class="mark ' + (ok ? "ok" : "fail") + '">' + (ok ? "✓ success" : "✗ failure") + '</span>' +
+        '<span class="xs mut num">' + esc(X.agent.model || "") + ' · ' + n0((X.steps || []).length) + ' steps · ' +
+        n0(((X.totals || {}).input_tokens || 0) + ((X.totals || {}).output_tokens || 0)) + ' tok · ' +
+        n1((X.totals || {}).latency_s) + 's</span></div>');
+    });
+    o.push('</div>');
+    o.push('<div class="tasks">');
+    REPORTS.forEach(function (r, i) {
+      var af = !(r.a.outcome && r.a.outcome.success), bf = !(r.b.outcome && r.b.outcome.success);
+      o.push('<button class="tk' + (i === S.i ? " on" : "") + '" data-act="go" data-i="' + i + '">' +
+        esc(r.task.id) + ' <span class="d' + (af ? " bad" : "") + '">' + (af ? "✗" : "✓") + '</span>' +
+        '<span class="d' + (bf ? " bad" : "") + '">' + (bf ? "✗" : "✓") + '</span></button>');
+    });
+    o.push('</div>');
+    return o.join("");
+  }
+
+  /* -------------------------------------------------------------- render */
+  function render() {
+    if (!REPORTS.length) {
+      el("hdr").innerHTML = '<div class="top"><h1>AgentDiff — the trace score</h1>' +
+        '<span class="sp"></span><button class="pl" data-act="theme">theme</button></div>' +
+        '<div class="rule" style="margin-top:.5rem"></div>';
+      el("body").innerHTML = '<div class="empty"><p>No data. This page is a template — the engine injects ' +
+        'reports by rewriting the <code>window.' + 'DEEPCOMPARE_DATA</code> line.</p>' +
+        '<p style="margin-top:.7rem">Generate a populated copy with:<br>' +
+        '<code>python -m deepcompare batch TRACES_DIR -o out/ --template web/trace.html</code></p></div>';
+      return;
+    }
+    var rep = REPORTS[S.i];
+    var M = model(rep);
+    var avail = Math.max(320, (el("body").clientWidth || 900));
+    var pitch = pitchFor(M.rows.length, avail);
+    S.w = avail;
+
+    el("hdr").innerHTML = header(rep);
+
+    var sc = score(rep, M, pitch);
+    var o = [];
+    o.push('<section><div class="sechead"><div class="cap">the score</div>' +
+      '<span class="note">bar height ∝ tokens · block width ∝ latency · tone/hatch = step type · ' +
+      'inner tick = model confidence on the bar’s own 0–1 scale · under-rule = weak or bad step · ' +
+      'columns are aligned steps</span></div>');
+    o.push('<div class="scroll" id="scroll">' + sc.svg + ledger(rep, M, pitch) + '</div>');
+    o.push(legend(rep, M));
+    o.push(detail(rep, M));
+    o.push('</section>');
+    o.push(reading(rep, M));
+
+    var synth = false;
+    [rep.a, rep.b].forEach(function (X) {
+      (X.steps || []).forEach(function (s) { if (s.model && s.model.source === "synthetic-demo") synth = true; });
+    });
+    o.push('<footer><p class="xxs mut">' +
+      (synth ? "Model confidence in this demo is synthetic (steps[].model.source = synthetic-demo); " +
+               "in production the same fields come from provider logprobs. " : "") +
+      "Columns index alignment rows, not step numbers — a gap on one staff means that side has no counterpart step." +
+      '</p></footer>');
+
+    el("body").innerHTML = o.join("");
+    wire(rep, M);
+  }
+
+  /* ---------------------------------------------------------- interaction */
+  function wire(rep, M) {
+    var tip = el("tip");
+    var scroll = el("scroll");
+    if (!scroll) return;
+    var blocks = scroll.querySelectorAll(".blk");
+
+    function clearHl() {
+      for (var i = 0; i < blocks.length; i++) blocks[i].classList.remove("hl");
+      tip.style.display = "none";
+    }
+    function partner(side, col) {
+      return scroll.querySelector('.blk[data-s="' + (side === "a" ? "b" : "a") + '"][data-c="' + col + '"]');
+    }
+    for (var i = 0; i < blocks.length; i++) {
+      (function (g) {
+        var side = g.getAttribute("data-s"), col = +g.getAttribute("data-c");
+        g.addEventListener("mouseenter", function (ev) {
+          clearHl();
+          g.classList.add("hl");
+          var p = partner(side, col); if (p) p.classList.add("hl");
+          var d = stepAt(rep, M, side, col); if (!d) return;
+          var s = d.s, m = s.model || {};
+          tip.innerHTML = '<div class="n">' + esc(rep[side].agent.name) + ' · step ' + d.si + '</div>' +
+            '<div class="t">' + esc(s.type) + ' · ' + esc(s.name || "") + '</div>' +
+            '<div class="t"><b>' + n0(s.tokens) + '</b> tok · <b>' + n1(s.latency_s) + 's</b>' +
+            (typeof m.confidence === "number" ? ' · conf <b>' + pct(m.confidence) + '</b>' : "") +
+            (s.quality ? ' · ' + esc(s.quality) : "") + '</div>';
+          tip.style.display = "block";
+          place(ev);
+        });
+        g.addEventListener("mousemove", place);
+        g.addEventListener("mouseleave", clearHl);
+        g.addEventListener("click", function () {
+          S.sel = (S.sel && S.sel.side === side && S.sel.col === col) ? null : { side: side, col: col };
+          render();
+        });
+      })(blocks[i]);
+    }
+    function place(ev) {
+      var w = tip.offsetWidth || 200, h = tip.offsetHeight || 60;
+      var x = Math.min(ev.clientX + 14, window.innerWidth - w - 8);
+      var y = ev.clientY - h - 12; if (y < 6) y = ev.clientY + 18;
+      tip.style.left = Math.max(6, x) + "px"; tip.style.top = y + "px";
+    }
+    if (S.sel) {
+      var g2 = scroll.querySelector('.blk[data-s="' + S.sel.side + '"][data-c="' + S.sel.col + '"]');
+      if (g2) g2.classList.add("sel");
+      var p2 = partner(S.sel.side, S.sel.col); if (p2) p2.classList.add("hl");
+    }
+  }
+
+  function go(i) {
+    if (!REPORTS.length) return;
+    S.i = (i + REPORTS.length) % REPORTS.length;
+    S.sel = null;
+    render();
+    el("tip").style.display = "none";
+  }
+
+  document.addEventListener("click", function (ev) {
+    var t = ev.target.closest ? ev.target.closest("[data-act]") : null;
+    if (!t) return;
+    var a = t.getAttribute("data-act");
+    if (a === "prev") go(S.i - 1);
+    else if (a === "next") go(S.i + 1);
+    else if (a === "go") go(+t.getAttribute("data-i"));
+    else if (a === "close") { S.sel = null; render(); }
+    else if (a === "theme") {
+      var cur = document.documentElement.getAttribute("data-theme");
+      var dark = cur ? cur === "dark"
+        : window.matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
+    }
+  });
+  document.addEventListener("keydown", function (ev) {
+    if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+    if (ev.key === "ArrowLeft") { go(S.i - 1); ev.preventDefault(); }
+    else if (ev.key === "ArrowRight") { go(S.i + 1); ev.preventDefault(); }
+    else if (ev.key === "Escape" && S.sel) { S.sel = null; render(); }
+  });
+  var rt;
+  window.addEventListener("resize", function () {
+    clearTimeout(rt);
+    rt = setTimeout(function () {
+      var w = el("body").clientWidth || 900;
+      if (Math.abs(w - S.w) > 12) render();
+    }, 120);
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

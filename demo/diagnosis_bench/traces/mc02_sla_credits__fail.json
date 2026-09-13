@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "trace_id": "mc02_sla_credits-scout-v2",
+  "agent": {
+    "name": "scout-v2",
+    "model": "gpt-5",
+    "version": "v2"
+  },
+  "task": {
+    "id": "mc02_sla_credits",
+    "prompt": "How much SLA credit is owed for the March outage?",
+    "expected": "The March outage owes $2,300.00 in SLA credits."
+  },
+  "outcome": {
+    "success": false,
+    "answer": "I could not determine the SLA credit: the credits API is unavailable.",
+    "score": 0.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 600,
+    "output_tokens": 200,
+    "cost_usd": 0.0024,
+    "latency_s": 5.5
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "Query the credits API for the March outage.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "get_credits",
+      "input": "get_credits(period='march')",
+      "output": "Error: credits API returned 503 Service Unavailable.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": "the environment fault (primary)",
+      "effect": "read",
+      "error": true
+    },
+    {
+      "index": 2,
+      "type": "tool_call",
+      "name": "get_credits",
+      "input": "get_credits(period='march')",
+      "output": "Error: credits API returned 503 Service Unavailable.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": "the same failing call repeated unchanged (secondary)",
+      "effect": "read",
+      "error": true
+    },
+    {
+      "index": 3,
+      "type": "reason",
+      "name": "reason",
+      "input": "The credits API is down; the owed amount cannot be read.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final",
+      "input": "I could not determine the SLA credit: the credits API is unavailable.",
+      "output": "I could not determine the SLA credit: the credits API is unavailable.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_credits",
+      "effect": "read"
+    }
+  ],
+  "budget": {
+    "max_steps": 12
+  }
+}

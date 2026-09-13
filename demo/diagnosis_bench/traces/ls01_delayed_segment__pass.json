@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "trace_id": "ls01_delayed_segment-steady-v1",
+  "agent": {
+    "name": "steady-v1",
+    "model": "claude-sonnet-5",
+    "version": "v1"
+  },
+  "task": {
+    "id": "ls01_delayed_segment",
+    "prompt": "Rebook the passenger on the delayed segment of booking HJ221 and confirm the new flight.",
+    "expected": "Rebooked the delayed segment SEG-9 onto flight NW441."
+  },
+  "outcome": {
+    "success": true,
+    "answer": "Rebooked the delayed segment SEG-9 onto flight NW441.",
+    "score": 1.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 480,
+    "output_tokens": 160,
+    "cost_usd": 0.00192,
+    "latency_s": 4.4
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "Find the delayed segment, then rebook it.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "list_segments",
+      "input": "list_segments(reference='HJ221')",
+      "output": "Live segments for HJ221: SEG-8 (on time), SEG-9 (delayed 3h).",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 2,
+      "type": "tool_call",
+      "name": "rebook_segment",
+      "input": "rebook_segment(reference='HJ221', segment='SEG-9')",
+      "output": "Rebooked SEG-9 onto flight NW441.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "write",
+      "error": false
+    },
+    {
+      "index": 3,
+      "type": "answer",
+      "name": "final",
+      "input": "Rebooked the delayed segment SEG-9 onto flight NW441.",
+      "output": "Rebooked the delayed segment SEG-9 onto flight NW441.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_booking",
+      "effect": "read"
+    },
+    {
+      "name": "list_segments",
+      "effect": "read"
+    },
+    {
+      "name": "rebook_segment",
+      "effect": "write"
+    }
+  ],
+  "budget": {
+    "max_steps": 12
+  }
+}

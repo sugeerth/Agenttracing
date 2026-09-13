@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "trace_id": "wf02_battery_life-steady-v1",
+  "agent": {
+    "name": "steady-v1",
+    "model": "claude-sonnet-5",
+    "version": "v1"
+  },
+  "task": {
+    "id": "wf02_battery_life",
+    "prompt": "How long does the Solara X2 battery last on a full charge?",
+    "expected": "The Solara X2 battery lasts 9 hours 30 minutes on a full charge."
+  },
+  "outcome": {
+    "success": true,
+    "answer": "The Solara X2 battery lasts 9 hours 30 minutes on a full charge.",
+    "score": 1.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 600,
+    "output_tokens": 200,
+    "cost_usd": 0.0024,
+    "latency_s": 5.5
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "search",
+      "name": "web_search",
+      "input": "Solara X2 battery life full charge",
+      "output": "Results: solara.com/specs (official spec sheet); techradar.com (review).",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "retrieve",
+      "name": "solara.com/specs",
+      "input": "open result solara.com/specs",
+      "output": "Solara X2 specification page.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 2,
+      "type": "read",
+      "name": "solara.com/specs",
+      "input": "",
+      "output": "Spec sheet (current): battery life 9 hours 30 minutes on a full charge.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 3,
+      "type": "reason",
+      "name": "reason",
+      "input": "The current spec sheet lists 9 hours 30 minutes.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final",
+      "input": "The Solara X2 battery lasts 9 hours 30 minutes on a full charge.",
+      "output": "The Solara X2 battery lasts 9 hours 30 minutes on a full charge.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [],
+  "budget": {
+    "max_steps": 12
+  }
+}

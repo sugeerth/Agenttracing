@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentDiff — agent selection</title>
+<style>
+/* ------------------------------------------------------------------ tokens */
+:root {
+  --paper:  #fdfdfc;
+  --ink:    #17171a;
+  --ink-2:  #55554f;
+  --muted:  #7d7c74;
+  --rule:   #d8d7d0;
+  --faint:  #e8e7e1;
+  --hollow: #c2c1b9;
+  --accent: #2a5f9e;
+  --good:   #2f6f3f;
+  --hi:     rgba(42, 95, 158, 0.10);
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:  #161615;
+    --ink:    #ecebe4;
+    --ink-2:  #b3b2a9;
+    --muted:  #8b8a81;
+    --rule:   #34342f;
+    --faint:  #262623;
+    --hollow: #4a4a44;
+    --accent: #5a94d4;
+    --good:   #4f9e5c;
+    --hi:     rgba(90, 148, 212, 0.14);
+  }
+}
+:root[data-theme="dark"] {
+  --paper:  #161615;
+  --ink:    #ecebe4;
+  --ink-2:  #b3b2a9;
+  --muted:  #8b8a81;
+  --rule:   #34342f;
+  --faint:  #262623;
+  --hollow: #4a4a44;
+  --accent: #5a94d4;
+  --good:   #4f9e5c;
+  --hi:     rgba(90, 148, 212, 0.14);
+}
+
+/* ------------------------------------------------------------------- reset */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+}
+main { max-width: 62rem; margin: 0 auto; padding: 3.5rem 1.5rem 5rem; }
+@media (max-width: 640px) { main { padding: 2rem 1rem 3rem; } }
+
+/* --------------------------------------------------------------- typography */
+h1, h2, h3 { font-weight: 500; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: 1.0625rem; }
+h2 {
+  font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.09em;
+  color: var(--muted); font-weight: 600;
+}
+p { margin: 0; }
+a { color: inherit; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.small { font-size: 0.8125rem; }
+.xsmall { font-size: 0.75rem; }
+section { margin-top: 3.5rem; }
+.lede { max-width: 44rem; margin-top: 0.5rem; color: var(--muted); font-size: 0.8125rem; }
+
+/* ------------------------------------------------------------------- header */
+header { display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+header .sub { color: var(--muted); font-size: 0.8125rem; }
+header .scale { margin-left: auto; color: var(--muted); font-size: 0.75rem; }
+#theme {
+  background: none; border: 0; padding: 0 0 0 1rem; margin: 0;
+  color: var(--muted); font: inherit; font-size: 0.75rem; cursor: pointer;
+}
+#theme:hover { color: var(--ink); }
+.hrule { height: 1px; background: var(--rule); margin: 0.75rem 0 0; }
+
+/* ------------------------------------------------------------------ verdict */
+.verdict { margin-top: 2.25rem; }
+.verdict .claim {
+  font-size: clamp(1.5rem, 4.2vw, 2.125rem);
+  line-height: 1.28; font-weight: 400; letter-spacing: -0.02em;
+  max-width: 34ch; margin: 0;
+}
+.verdict .claim .n { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.verdict .claim em { font-style: normal; border-bottom: 2px solid var(--accent); }
+.figures {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 1.75rem 2.5rem; margin-top: 2.25rem;
+}
+.fig .v {
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-size: 1.5rem; line-height: 1.15; letter-spacing: -0.02em; display: block;
+}
+.fig .v.pos { color: var(--good); }
+.fig .k { display: block; color: var(--muted); font-size: 0.75rem; margin-top: 0.3rem; max-width: 15rem; }
+.fig .k b { font-weight: 500; color: var(--ink-2); }
+.narr { margin-top: 2rem; max-width: 46rem; color: var(--ink-2); font-size: 0.8125rem; line-height: 1.65; }
+
+/* ------------------------------------------------------------------- tables */
+table { border-collapse: collapse; width: 100%; min-width: 42rem; font-size: 0.8125rem; }
+thead th {
+  font-weight: 500; color: var(--muted); font-size: 0.6875rem;
+  text-transform: uppercase; letter-spacing: 0.07em;
+  text-align: right; padding: 0 0 0.4rem 0.75rem; white-space: nowrap;
+  border-bottom: 1px solid var(--rule);
+}
+thead th:first-child { text-align: left; padding-left: 0; }
+tbody td { padding: 0.42rem 0 0.42rem 0.75rem; vertical-align: baseline; text-align: right; white-space: nowrap; }
+tbody td:first-child { padding-left: 0; text-align: left; }
+tbody tr:first-child td { padding-top: 0.7rem; }
+td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.agentname { font-weight: 500; }
+.model { color: var(--muted); font-size: 0.6875rem; margin-left: 0.45rem; font-weight: 400; }
+
+/* selection ------------------------------------------------------------- */
+tr[data-agents] { cursor: pointer; }
+tr[data-agents]:hover td { background: var(--faint); }
+[data-agents].on, tr[data-agents].on td { background: var(--hi); }
+.row[data-agents] { cursor: pointer; }
+.row[data-agents]:hover { background: var(--faint); }
+.dim { opacity: 0.42; }
+
+/* generic ink rows ------------------------------------------------------ */
+.rows { margin-top: 0.9rem; }
+.row { display: grid; align-items: baseline; gap: 0 0.9rem; padding: 0.34rem 0.35rem 0.34rem 0; margin-left: -0.35rem; padding-left: 0.35rem; }
+.pairname { font-size: 0.8125rem; }
+.pairname .sep { color: var(--muted); padding: 0 0.25rem; }
+
+/* similarity ------------------------------------------------------------ */
+.simblock { min-width: 38rem; }
+.simhead, .simrow { grid-template-columns: minmax(7rem, 1fr) repeat(4, 5.25rem) 5rem; }
+.simrow .facet { display: flex; justify-content: flex-end; }
+.flabel { display: inline-block; width: 2.2em; text-align: right; }
+.simhead {
+  color: var(--muted); font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.07em;
+  border-bottom: 1px solid var(--rule); padding-bottom: 0.4rem; margin-bottom: 0.2rem;
+}
+.simhead span:not(:first-child), .simrow .facet, .simrow .comp { text-align: right; }
+.simrow .comp { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* redundancy ------------------------------------------------------------ */
+.redrow { grid-template-columns: minmax(12rem, 15rem) 4rem 5rem 1fr; }
+.redrow .why { color: var(--muted); font-size: 0.75rem; line-height: 1.45; white-space: normal; }
+.arrow { color: var(--muted); padding: 0 0.3rem; }
+
+/* complementarity ------------------------------------------------------- */
+.comprow { grid-template-columns: minmax(10rem, 14rem) auto 1fr; align-items: center; }
+.comprow .strips { display: flex; flex-direction: column; gap: 2px; }
+.comprow .why { color: var(--muted); font-size: 0.75rem; line-height: 1.45; white-space: normal; }
+.comprow .u { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.8125rem; }
+
+/* narrow: let the wide blocks fold instead of pushing the page sideways --- */
+@media (max-width: 760px) {
+  .redrow { grid-template-columns: 1fr auto auto; }
+  .redrow .why { grid-column: 1 / -1; margin-top: 0.1rem; }
+  .comprow { grid-template-columns: 1fr auto; }
+  .comprow .why { grid-column: 1 / -1; margin-top: 0.15rem; }
+  .pairname { white-space: normal; }
+}
+
+/* matrix ---------------------------------------------------------------- */
+.scroller { overflow-x: auto; margin-top: 1.1rem; max-width: 100%; }
+.scroller svg { display: block; }
+svg text { font-family: var(--sans); fill: var(--ink); }
+svg text.mono { font-family: var(--mono); }
+.mx-row { cursor: pointer; }
+.mx-row:hover rect.hit { fill: var(--faint); }
+.mx-row.on rect.hit { fill: var(--hi); }
+
+/* footer ---------------------------------------------------------------- */
+footer { margin-top: 4rem; padding-top: 0.9rem; border-top: 1px solid var(--rule); color: var(--muted); font-size: 0.75rem; line-height: 1.7; max-width: 46rem; }
+
+/* empty state ----------------------------------------------------------- */
+.empty { margin-top: 2.5rem; max-width: 40rem; }
+.empty code { font-family: var(--mono); font-size: 0.8125rem; color: var(--ink); }
+</style>
+</head>
+<body>
+<main id="app">
+  <header>
+    <h1>AgentDiff <span class="muted" style="font-weight:400">— agent selection</span></h1>
+    <p class="sub">Which agents to keep, which to retire, and what routing could win.</p>
+    <span class="scale" id="scale"></span>
+    <button id="theme" type="button" title="Toggle light / dark">theme</button>
+  </header>
+  <div class="hrule"></div>
+  <div id="body"></div>
+  <footer id="foot"></footer>
+</main>
+
+<script>
+window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
+(function () {
+  "use strict";
+
+  var RAW = window["DEEPCOMPARE_DATA"] || {};
+  var S = RAW.similarity || null;
+  var R = RAW.routing || null;
+  var body = document.getElementById("app").querySelector("#body");
+  var foot = document.getElementById("foot");
+
+  /* ---------------------------------------------------------- formatting */
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+  function usd(v) {
+    v = Number(v) || 0;
+    if (v >= 1) return "$" + v.toFixed(2);
+    if (v >= 0.01) return "$" + v.toFixed(3);
+    return "$" + v.toFixed(4);
+  }
+  function pct(v) {
+    v = (Number(v) || 0) * 100;
+    return (v >= 99.95 || v === Math.round(v) ? v.toFixed(0) : v.toFixed(1)) + "%";
+  }
+  // one decimal always, so percentage columns line up on the point
+  function pct1(v) { return ((Number(v) || 0) * 100).toFixed(1) + "%"; }
+  function num(v, d) { return (Number(v) || 0).toFixed(d == null ? 1 : d); }
+  // Tufte: drop the leading zero on a bounded 0–1 score
+  function dec(v) { return num(v, 2).replace(/^0\./, "."); }
+  // drop a summary's opening clause when the numbers it restates are already
+  // in the adjacent columns; keep the sentence whole if the pattern misses.
+  function trim(s, re) {
+    s = String(s || "");
+    var cut = s.replace(re, "");
+    return cut && cut.length < s.length ? cut : s;
+  }
+
+  /* ------------------------------------------------------------ no data */
+  if (!S || !R || !S.agents || !S.agents.length) {
+    body.innerHTML =
+      '<div class="empty"><p>No data injected into this template.</p>' +
+      '<p class="lede">Generate a populated copy of this page with' +
+      ' <code>python -m deepcompare select &lt;traces&gt; -o out</code>' +
+      ' &mdash; the engine writes <code>out/select.html</code> alongside' +
+      ' <code>out/select.json</code>.</p></div>';
+    foot.textContent = "Deterministic analysis — same traces in, same numbers out.";
+    wireTheme();
+    return;
+  }
+
+  /* ------------------------------------------------------- derived model */
+  var tasks = (R.tasks || []).slice();
+  var perTask = R.per_task || [];
+  var solvedBy = {};           // agent -> {task: true}
+  var cheapestFor = {};        // task -> agent
+  perTask.forEach(function (t) {
+    cheapestFor[t.task] = t.cheapest_solver;
+    (t.solvers || []).forEach(function (a) {
+      (solvedBy[a] || (solvedBy[a] = {}))[t.task] = true;
+    });
+  });
+  function solved(agent, task) { return !!(solvedBy[agent] && solvedBy[agent][task]); }
+
+  var agents = S.agents.slice().sort(function (a, b) {
+    return (b.success_rate - a.success_rate) || (a.mean_cost_usd - b.mean_cost_usd) ||
+           (a.name < b.name ? -1 : 1);
+  });
+  var rank = {};
+  agents.forEach(function (a, i) { rank[a.name] = i; });
+
+  var maxCost = 0, maxTok = 0;
+  agents.forEach(function (a) {
+    maxCost = Math.max(maxCost, a.mean_cost_usd || 0);
+    maxTok = Math.max(maxTok, a.mean_tokens || 0);
+  });
+
+  // stable gray order for tool identity across every micro-bar
+  var toolTotals = {};
+  agents.forEach(function (a) {
+    var u = a.tool_usage || {};
+    for (var k in u) toolTotals[k] = (toolTotals[k] || 0) + u[k];
+  });
+  var toolOrder = Object.keys(toolTotals).sort(function (x, y) {
+    return toolTotals[y] - toolTotals[x] || (x < y ? -1 : 1);
+  });
+  var toolIndex = {};
+  toolOrder.forEach(function (t, i) { toolIndex[t] = i; });
+
+  /* -------------------------------------------------------- svg fragments */
+  // 1-cell-per-task outcome strip, sized to sit on a text line.
+  function strip(agent, cell, gap, h) {
+    cell = cell || 5; gap = gap || 2; h = h || 9;
+    var w = tasks.length * (cell + gap) - gap;
+    var s = '<svg class="strip" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h +
+            '" role="img" aria-label="task outcomes for ' + esc(agent) + '">';
+    tasks.forEach(function (t, i) {
+      var x = i * (cell + gap), ok = solved(agent, t);
+      s += ok
+        ? '<rect x="' + x + '" y="0" width="' + cell + '" height="' + h + '" fill="currentColor"><title>' +
+          esc(t) + " — solved</title></rect>"
+        : '<rect x="' + (x + 0.5) + '" y="0.5" width="' + (cell - 1) + '" height="' + (h - 1) +
+          '" fill="none" stroke="var(--hollow)" stroke-width="1"><title>' + esc(t) + " — failed</title></rect>";
+    });
+    return s + "</svg>";
+  }
+
+  // zero-based bar on a scale shared by every row, value direct-labelled.
+  function bar(v, max, w, label) {
+    w = w || 74;
+    var len = max > 0 ? Math.max(v > 0 ? 1 : 0, Math.round((v / max) * w)) : 0;
+    return '<span style="display:inline-flex;align-items:center;gap:.45rem">' +
+      '<svg width="' + w + '" height="9" viewBox="0 0 ' + w + ' 9" aria-hidden="true">' +
+      '<line x1="0" y1="8.5" x2="' + w + '" y2="8.5" stroke="var(--faint)" stroke-width="1"/>' +
+      '<rect x="0" y="3" width="' + len + '" height="5" fill="currentColor"/></svg>' +
+      '<span class="num">' + label + "</span></span>";
+  }
+
+  // tool mix: one stacked hairline bar, shade fixed per tool across all rows.
+  function toolbar(usage) {
+    var w = 54, h = 9, keys = Object.keys(usage || {});
+    if (!keys.length) return '<span class="muted xsmall">—</span>';
+    keys.sort(function (x, y) { return (toolIndex[x] || 0) - (toolIndex[y] || 0); });
+    var total = 0;
+    keys.forEach(function (k) { total += usage[k]; });
+    var s = '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h +
+            '" role="img" aria-label="tool mix">', x = 0;
+    keys.forEach(function (k) {
+      var seg = (usage[k] / total) * w;
+      var shade = 0.85 - Math.min(0.62, ((toolIndex[k] || 0) % 6) * 0.13);
+      s += '<rect x="' + x.toFixed(2) + '" y="0" width="' + Math.max(0, seg - 1).toFixed(2) +
+        '" height="' + h + '" fill="currentColor" opacity="' + shade.toFixed(2) + '"><title>' +
+        esc(k) + ": " + usage[k] + " call(s), " + pct(usage[k] / total) + "</title></rect>";
+      x += seg;
+    });
+    return s + "</svg>";
+  }
+
+  // 0..1 facet bar with a light-gray full-scale context rule underneath.
+  function facet(v, name) {
+    var w = 42, len = Math.round((Number(v) || 0) * w);
+    return '<span class="facet" style="display:inline-flex;align-items:center;gap:.4rem">' +
+      '<svg width="' + w + '" height="9" viewBox="0 0 ' + w + ' 9" role="img" aria-label="' +
+      esc(name) + " " + num(v, 2) + '">' +
+      '<line x1="0" y1="8.5" x2="' + w + '" y2="8.5" stroke="var(--faint)" stroke-width="1"/>' +
+      '<rect x="0" y="3" width="' + len + '" height="5" fill="currentColor"><title>' +
+      esc(name) + " " + num(v, 2) + "</title></rect></svg>" +
+      '<span class="num xsmall muted flabel">' + dec(v) + "</span></span>";
+  }
+
+  /* ------------------------------------------------------------- verdict */
+  var best = R.best_single || {};
+  var oracle = R.oracle || {};
+  var ports = (R.portfolios || []).slice().sort(function (a, b) { return a.k - b.k; });
+  var maxCov = ports.reduce(function (m, p) { return Math.max(m, p.coverage || 0); },
+                            best.coverage || 0);
+  var minPort = null;
+  ports.forEach(function (p) {
+    if (!minPort && (p.coverage || 0) >= maxCov - 1e-9) minPort = p;
+  });
+  var savingTotal = (S.redundancies || []).reduce(function (t, r) {
+    return t + (r.saving_per_task_usd || 0);
+  }, 0);
+  var routeSavePct = best.cost_usd ? (oracle.cost_saving_usd || 0) / best.cost_usd : 0;
+  var headroom = oracle.coverage_headroom || 0;
+
+  var out = [];
+  out.push('<div class="verdict">');
+  out.push('<p class="claim">Keep <em data-agents="' + esc(best.agent) + '">' + esc(best.agent) +
+    "</em>. Alone it solves <span class=\"n\">" + pct(best.coverage) + "</span> of " +
+    tasks.length + " tasks" +
+    (headroom > 0
+      ? ' — but <span class="n">' + pct(headroom) + "</span> more is reachable by routing."
+      : " — no other agent solves anything it misses.") + "</p>");
+
+  out.push('<div class="figures">');
+  out.push(figure(usd(best.cost_usd), "<b>total cost</b> of running " + esc(best.agent) +
+    " across all " + tasks.length + " tasks — one agent, no routing"));
+  out.push(figure(pct(headroom), headroom > 0
+    ? "coverage <b>headroom</b> a perfect router could add"
+    : "coverage <b>headroom</b> — routing can only save cost here"));
+  out.push(figure(usd(oracle.cost_saving_usd), "cheapest-solver <b>routing saving</b> per pass (" +
+    pct(routeSavePct) + " off the single-agent bill)", true));
+  out.push(figure(usd(savingTotal), "per task run from <b>retiring " +
+    (S.redundancies || []).length + " redundant agent(s)</b>", true));
+  out.push(figure(minPort ? String(minPort.k) : "—", minPort
+    ? "<b>agent" + (minPort.k > 1 ? "s" : "") + "</b> is the smallest set reaching " +
+      pct(minPort.coverage) + " — " + minPort.members.map(esc).join(", ")
+    : "portfolio"));
+  out.push("</div>");
+  out.push('<p class="narr">' + esc(R.narrative || "") + "</p>");
+  out.push("</div>");
+
+  function figure(v, k, pos) {
+    return '<div class="fig"><span class="v' + (pos ? " pos" : "") + '">' + v +
+      '</span><span class="k">' + k + "</span></div>";
+  }
+
+  /* --------------------------------------------------------- agent table */
+  out.push('<section><h2>Agents</h2><p class="lede">Sorted by success, then cost. ' +
+    "Filled cells are solved tasks; hollow are failures, in task order. " +
+    "Cost bars share one zero-based scale. Click a row to trace that agent through the page.</p>");
+  out.push('<div class="scroller"><table><thead><tr>' +
+    "<th>agent</th><th>outcomes</th><th>success</th><th>cost / task</th>" +
+    "<th>tokens</th><th>latency</th><th>steps</th><th>tool mix</th>" +
+    "</tr></thead><tbody>");
+  agents.forEach(function (a) {
+    out.push('<tr data-agents="' + esc(a.name) + '">' +
+      '<td><span class="agentname">' + esc(a.name) + '</span><span class="model">' +
+        esc(a.model || "") + "</span></td>" +
+      '<td style="text-align:left">' + strip(a.name) + "</td>" +
+      '<td class="n">' + pct1(a.success_rate) + "</td>" +
+      '<td style="text-align:left">' + bar(a.mean_cost_usd, maxCost, 66, usd(a.mean_cost_usd)) + "</td>" +
+      '<td class="n muted">' + Math.round(a.mean_tokens) + "</td>" +
+      '<td class="n muted">' + num(a.mean_latency_s, 1) + "s</td>" +
+      '<td class="n muted">' + num(a.mean_steps, 1) + "</td>" +
+      '<td style="text-align:left">' + toolbar(a.tool_usage) + "</td></tr>");
+  });
+  out.push("</tbody></table></div></section>");
+
+  /* ---------------------------------------------------------- similarity */
+  var pairs = (S.pairs || []).slice().sort(function (a, b) { return b.composite - a.composite; })
+                             .slice(0, 12);
+  if (pairs.length) {
+    // the annotation that makes the shape argument concrete: the pair whose
+    // outcomes agree most while their trajectories agree least.
+    var gap = null;
+    (S.pairs || []).forEach(function (p) {
+      var f = p.facets || {}, d = (f.outcome || 0) - (f.process || 0);
+      if ((f.outcome || 0) >= 0.9 && (!gap || d > gap.d)) { gap = { p: p, d: d }; }
+    });
+    out.push('<section><h2>Similarity — four facets, one scale</h2>' +
+      '<p class="lede">The ' + pairs.length + " most alike pairs of " +
+      (S.pairs || []).length + ". Each bar runs 0 to 1 against the light rule. " +
+      "Read the shape, not the composite: high <b>outcome</b> with low " +
+      "<b>process</b> means the same answers by different means; high on all four with a " +
+      "cost gap means one of the two is redundant." +
+      (gap && gap.d > 0.05
+        ? " The widest such split in this fleet is <b>" + esc(gap.p.a) + " + " +
+          esc(gap.p.b) + "</b> — outcome " + dec(gap.p.facets.outcome) + ", process " +
+          dec(gap.p.facets.process) + "."
+        : "") + "</p>");
+    out.push('<div class="scroller"><div class="rows simblock"><div class="row simhead"><span>pair</span>' +
+      "<span>outcome</span><span>process</span><span>tools</span><span>resources</span>" +
+      "<span>composite</span></div>");
+    pairs.forEach(function (p) {
+      var f = p.facets || {};
+      out.push('<div class="row simrow" data-agents="' + esc(p.a) + "," + esc(p.b) + '">' +
+        '<span class="pairname">' + esc(p.a) + '<span class="sep">+</span>' + esc(p.b) + "</span>" +
+        '<span class="facet">' + facet(f.outcome, "outcome") + "</span>" +
+        '<span class="facet">' + facet(f.process, "process") + "</span>" +
+        '<span class="facet">' + facet(f.tools, "tools") + "</span>" +
+        '<span class="facet">' + facet(f.resources, "resources") + "</span>" +
+        '<span class="comp">' + num(p.composite, 2) + "</span></div>");
+    });
+    out.push("</div></div></section>");
+  }
+
+  /* ---------------------------------------------------------- redundancy */
+  var reds = S.redundancies || [];
+  if (reds.length) {
+    out.push('<section><h2>Retire these</h2><p class="lede">Each agent below is matched ' +
+      "on every shared outcome by a cheaper lookalike. Retiring all " + reds.length +
+      " changes no result.</p>");
+    out.push('<p style="margin-top:1.5rem"><span class="num pos" style="font-size:1.5rem;' +
+      'color:var(--good);letter-spacing:-.02em">' + usd(savingTotal) +
+      '</span> <span class="muted small">saved per task run</span></p>');
+    out.push('<div class="rows"><div class="row redrow simhead"><span>drop → keep</span>' +
+      '<span style="text-align:right">similar</span><span style="text-align:right">saving</span>' +
+      "<span></span></div>");
+    reds.forEach(function (r) {
+      out.push('<div class="row redrow" data-agents="' + esc(r.drop) + "," + esc(r.keep) + '">' +
+        '<span class="pairname"><b style="font-weight:500">' + esc(r.drop) +
+          '</b><span class="arrow">→</span>' + esc(r.keep) + "</span>" +
+        '<span class="num small" style="text-align:right">' + pct1(r.similarity) + "</span>" +
+        '<span class="num small" style="text-align:right;color:var(--good)">' +
+          usd(r.saving_per_task_usd) + "</span>" +
+        '<span class="why">' + esc(trim(r.summary, /^.*?, but /)) +
+        (r.also_dominated_by && r.also_dominated_by.length
+          ? " Also dominated by " + r.also_dominated_by.length + " other agent(s)." : "") +
+        "</span></div>");
+    });
+    out.push("</div></section>");
+  }
+
+  /* ----------------------------------------------------- complementarity */
+  var comps = (S.complementarities || []).slice().sort(function (x, y) {
+    return (y.gain_tasks - x.gain_tasks) || (y.union_coverage - x.union_coverage);
+  }).slice(0, 6);
+  if (comps.length) {
+    out.push('<section><h2>Complementary pairs</h2><p class="lede">These fail in different ' +
+      "places. The strips are stacked in the order named — first agent on top — so the " +
+      "gaps interlock: where the top row is hollow, look for a filled cell beneath it.</p>");
+    out.push('<div class="rows">');
+    comps.forEach(function (c) {
+      out.push('<div class="row comprow" data-agents="' + esc(c.a) + "," + esc(c.b) + '">' +
+        '<span class="pairname">' + esc(c.a) + '<span class="sep">+</span>' + esc(c.b) +
+        '<br><span class="u muted">' + pct(c.union_coverage) + " together, " +
+        pct(c.best_alone_coverage) + " alone <span style=\"color:var(--good)\">+" +
+        c.gain_tasks + "</span></span></span>" +
+        '<span class="strips">' + strip(c.a, 6, 2, 8) + strip(c.b, 6, 2, 8) + "</span>" +
+        '<span class="why">' +
+        esc(trim(c.summary, /^[^.]*fail in different places[^.]*\.\s*/)) + "</span></div>");
+    });
+    out.push("</div></section>");
+  }
+
+  /* -------------------------------------------------------------- matrix */
+  out.push('<section><h2>Coverage — every agent, every task</h2>' +
+    '<p class="lede">Rows in rank order, columns in task order. Filled = solved, hollow = ' +
+    "failed. The ring marks the cheapest agent that solves that column.</p>" +
+    '<div class="scroller">' + matrix() + "</div></section>");
+
+  function matrix() {
+    var pitch = 14, mark = 8, gutter = 118, bottom = 16;
+    var longest = tasks.reduce(function (m, t) { return Math.max(m, t.length); }, 0);
+    // rotated -60° labels need vertical room proportional to their length
+    var top = Math.round(10 + Math.min(longest, 22) * 5.0 * 0.87);
+    var w = gutter + tasks.length * pitch + Math.round(Math.min(longest, 22) * 5.0 * 0.5) + 12;
+    var h = top + agents.length * pitch + bottom;
+    var s = '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + " " + h +
+            '" role="img" aria-label="task by agent coverage matrix">';
+    // rotated column labels — the full task id, not a stub
+    tasks.forEach(function (t, j) {
+      var x = gutter + j * pitch + pitch / 2 + 3;
+      s += '<text class="mono" x="' + x + '" y="' + (top - 6) + '" font-size="9" ' +
+        'text-anchor="start" fill="var(--muted)" transform="rotate(-60 ' + x + " " + (top - 6) +
+        ')">' + esc(t) + "<title>" + esc(t) + "</title></text>";
+    });
+    s += '<line x1="' + (gutter - 6) + '" y1="' + (top - 1.5) + '" x2="' +
+      (gutter + tasks.length * pitch - 4) + '" y2="' + (top - 1.5) +
+      '" stroke="var(--rule)" stroke-width="1"/>';
+    agents.forEach(function (a, i) {
+      var y = top + i * pitch;
+      s += '<g class="mx-row" data-agents="' + esc(a.name) + '">' +
+        '<rect class="hit" x="0" y="' + y + '" width="' + w + '" height="' + pitch +
+        '" fill="none"/>' +
+        '<text x="' + (gutter - 10) + '" y="' + (y + pitch / 2 + 3.2) + '" font-size="10" ' +
+        'text-anchor="end" fill="var(--ink-2)">' + esc(a.name) + "</text>";
+      tasks.forEach(function (t, j) {
+        var cx = gutter + j * pitch + pitch / 2, cy = y + pitch / 2;
+        var ok = solved(a.name, t), cheap = cheapestFor[t] === a.name;
+        s += ok
+          ? '<rect x="' + (cx - mark / 2) + '" y="' + (cy - mark / 2) + '" width="' + mark +
+            '" height="' + mark + '" fill="currentColor"/>'
+          : '<rect x="' + (cx - mark / 2 + 0.5) + '" y="' + (cy - mark / 2 + 0.5) + '" width="' +
+            (mark - 1) + '" height="' + (mark - 1) +
+            '" fill="none" stroke="var(--hollow)" stroke-width="1"/>';
+        if (cheap) {
+          s += '<circle cx="' + cx + '" cy="' + cy + '" r="' + (mark / 2 + 2.5) +
+            '" fill="none" stroke="var(--accent)" stroke-width="1.2"/>';
+        }
+        s += '<rect x="' + (cx - pitch / 2) + '" y="' + y + '" width="' + pitch + '" height="' +
+          pitch + '" fill="transparent"><title>' + esc(a.name) + " · " + esc(t) + " — " +
+          (ok ? "solved" : "failed") + (cheap ? " · cheapest solver" : "") + "</title></rect>";
+      });
+      s += "</g>";
+    });
+    return s + "</svg>";
+  }
+
+  body.innerHTML = out.join("");
+
+  /* --------------------------------------------------------------- chrome */
+  document.getElementById("scale").textContent =
+    agents.length + " agents · " + tasks.length + " tasks · " +
+    (S.clusters || []).length + " behavioral groups";
+
+  foot.innerHTML = "Oracle figures are a ceiling, not a policy — " +
+    esc(oracle.note || "they assume per-task knowledge of which agent succeeds") +
+    ". A real router has to predict the winner before it runs, so treat the headroom as " +
+    "the prize, never as the plan.<br>The analysis is deterministic: the same traces " +
+    "produce the same numbers, with no sampling and no model in the loop.";
+
+  /* ------------------------------------------------------------ selection */
+  var picked = null;
+  document.addEventListener("click", function (e) {
+    var el = e.target.closest ? e.target.closest("[data-agents]") : null;
+    if (!el) { if (!e.target.closest("#theme")) select(null); return; }
+    var names = el.getAttribute("data-agents").split(",");
+    select(picked && names.indexOf(picked) >= 0 && names.length === 1 ? null : names[0]);
+  });
+  function select(name) {
+    picked = name;
+    var all = document.querySelectorAll("[data-agents]");
+    for (var i = 0; i < all.length; i++) {
+      var list = all[i].getAttribute("data-agents").split(",");
+      var on = name != null && list.indexOf(name) >= 0;
+      all[i].classList.toggle("on", on);
+      all[i].classList.toggle("dim", name != null && !on);
+    }
+  }
+
+  wireTheme();
+  function wireTheme() {
+    var btn = document.getElementById("theme");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      var cur = document.documentElement.getAttribute("data-theme");
+      if (!cur) {
+        cur = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+      document.documentElement.setAttribute("data-theme", cur === "dark" ? "light" : "dark");
+    });
+  }
+})();
+</script>
+</body>
+</html>

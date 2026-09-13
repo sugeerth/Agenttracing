@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "trace_id": "t05_flight_duration__ember-v1",
+  "agent": {
+    "name": "ember-v1",
+    "model": "mistral-large-3",
+    "version": "v1"
+  },
+  "task": {
+    "id": "t05_flight_duration",
+    "prompt": "A traveler flies SQ306 from Singapore (SIN) to London Heathrow (LHR), connects, then flies BA117 from LHR to New York (JFK), all on 10 June 2025. Scheduled times: SQ306 departs SIN 09:00 SGT, arrives LHR 15:40 BST; BA117 departs LHR 17:55 BST, arrives JFK 20:45 EDT. What is the total elapsed journey time from SIN departure to JFK arrival?",
+    "expected": "23 hours 45 minutes"
+  },
+  "outcome": {
+    "success": false,
+    "answer": "The total elapsed journey time is 24 hours 45 minutes from SIN departure to JFK arrival.",
+    "score": 0.0
+  },
+  "totals": {
+    "input_tokens": 452,
+    "output_tokens": 180,
+    "cost_usd": 0.004056,
+    "latency_s": 7.41
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "reason",
+      "name": "reason",
+      "input": "Getting oriented.",
+      "output": "Not planning this — it's just adding up some flight times. I'll start with the numbers in the prompt and see how far arithmetic gets me.",
+      "tokens": 136,
+      "latency_s": 1.63,
+      "quality": "weak",
+      "note": "No explicit plan; ad-hoc start."
+    },
+    {
+      "index": 1,
+      "type": "reason",
+      "name": "reason",
+      "input": "Where to begin?",
+      "output": "Diving in without a plan; three timestamps, two legs, one layover — how hard can it be?",
+      "tokens": 124,
+      "latency_s": 1.31,
+      "quality": "weak",
+      "note": "Still no plan; wandering."
+    },
+    {
+      "index": 2,
+      "type": "tool_call",
+      "name": "datetime_diff",
+      "input": "diff(2025-06-10T01:00Z, 2025-06-11T01:45Z)  # JFK 20:45 EDT taken as UTC-5",
+      "output": "24h45m",
+      "tokens": 118,
+      "latency_s": 1.61,
+      "quality": "bad",
+      "note": "Sloppy args: EDT entered as UTC-5 instead of UTC-4, shifting arrival an hour late."
+    },
+    {
+      "index": 3,
+      "type": "reason",
+      "name": "reason",
+      "input": "Sanity-check the total.",
+      "output": "24h45m end-to-end is right in the plausible band for SIN-NYC with one stop, so the figure stands.",
+      "tokens": 128,
+      "latency_s": 1.5,
+      "quality": "weak",
+      "note": "Plausible-looking total masked the one-hour offset error."
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final_answer",
+      "input": "Report the computed total.",
+      "output": "The total elapsed journey time is 24 hours 45 minutes from SIN departure to JFK arrival.",
+      "tokens": 126,
+      "latency_s": 1.36,
+      "quality": "bad",
+      "note": null
+    }
+  ]
+}

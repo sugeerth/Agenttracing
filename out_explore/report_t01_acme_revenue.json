@@ -1,0 +1,1245 @@
+{
+  "task": {
+    "id": "t01_acme_revenue",
+    "prompt": "Find ACME Corp's total revenue for fiscal year 2025. Report a single dollar figure and say where it came from."
+  },
+  "a": {
+    "agent": {
+      "name": "atlas-v2",
+      "model": "claude-sonnet-5",
+      "version": "v2"
+    },
+    "outcome": {
+      "success": true,
+      "answer": "ACME Corp's total revenue for fiscal year 2025 was $4.82 billion, up 11% year over year, per the company's FY2025 results press release on its investor-relations site (ir.acmecorp.com).",
+      "score": 1.0
+    },
+    "totals": {
+      "input_tokens": 625,
+      "output_tokens": 215,
+      "cost_usd": 0.0051,
+      "latency_s": 9.95
+    },
+    "steps": [
+      {
+        "index": 0,
+        "type": "plan",
+        "name": "plan",
+        "input": "1) Search for ACME Corp's FY2025 annual results. 2) Open the investor-relations press release or 10-K. 3) Extract total revenue from the full-year highlights. 4) Report the figure with its source.",
+        "output": "Plan set. Starting with a targeted search of investor sources.",
+        "tokens": 162,
+        "latency_s": 2.27,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.932,
+          "min_token_confidence": 0.7234,
+          "entropy": 0.2641,
+          "tokens_scored": 89,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 1,
+        "type": "search",
+        "name": "web_search",
+        "input": "ACME Corp FY2025 annual results total revenue investor relations",
+        "output": "[1] ir.acmecorp.com — \"ACME Corp Reports Fourth Quarter and Full Year Fiscal 2025 Results\" | [2] marketpulse.io — \"ACME beats estimates as cloud unit accelerates\" | [3] financeblog.net — \"What ACME's monster 2025 really means for shareholders\" | [4] wikipedia.org — ACME Corp",
+        "tokens": 183,
+        "latency_s": 2.47,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8929,
+          "min_token_confidence": 0.671,
+          "entropy": 0.2386,
+          "tokens_scored": 100,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 2,
+        "type": "retrieve",
+        "name": "select_result",
+        "input": "Open result [1]: ir.acmecorp.com — the official FY2025 results press release from investor relations.",
+        "output": "Selected https://ir.acmecorp.com/news/fy2025-results (primary source: company investor-relations newsroom, dated 2025-05-22).",
+        "tokens": 154,
+        "latency_s": 1.23,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9317,
+          "min_token_confidence": 0.7969,
+          "entropy": 0.2338,
+          "tokens_scored": 84,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 3,
+        "type": "read",
+        "name": "open_page",
+        "input": "https://ir.acmecorp.com/news/fy2025-results",
+        "output": "ACME Corp Reports Fourth Quarter and Full Year Fiscal 2025 Results. Full year fiscal 2025 highlights: Total revenue of $4.82 billion, up 11% year over year. GAAP operating margin of 18.4%. Fourth quarter revenue of $1.31 billion, up 9% year over year. Cash and equivalents of $2.1 billion at year end.",
+        "tokens": 184,
+        "latency_s": 1.85,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9089,
+          "min_token_confidence": 0.7304,
+          "entropy": 0.2316,
+          "tokens_scored": 101,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 4,
+        "type": "answer",
+        "name": "final_answer",
+        "input": "Compose the final answer from the verified findings.",
+        "output": "ACME Corp's total revenue for fiscal year 2025 was $4.82 billion, up 11% year over year, per the company's FY2025 results press release on its investor-relations site (ir.acmecorp.com).",
+        "tokens": 157,
+        "latency_s": 2.13,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8854,
+          "min_token_confidence": 0.6997,
+          "entropy": 0.3057,
+          "tokens_scored": 86,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      }
+    ]
+  },
+  "b": {
+    "agent": {
+      "name": "bolt-v3",
+      "model": "gpt-5",
+      "version": "v3"
+    },
+    "outcome": {
+      "success": false,
+      "answer": "ACME Corp's total revenue for fiscal year 2025 was approximately $4.5 billion, as reported by financeblog.net and corroborated by moneymirror.com.",
+      "score": 0.0
+    },
+    "totals": {
+      "input_tokens": 1156,
+      "output_tokens": 366,
+      "cost_usd": 0.008958,
+      "latency_s": 18.4
+    },
+    "steps": [
+      {
+        "index": 0,
+        "type": "plan",
+        "name": "plan",
+        "input": "1) Search for ACME Corp's FY2025 annual results. 2) Open the investor-relations press release or 10-K. 3) Extract total revenue from the full-year highlights. 4) Report the figure with its source.",
+        "output": "Plan set. Starting with a targeted search of investor sources.",
+        "tokens": 162,
+        "latency_s": 2.09,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8542,
+          "min_token_confidence": 0.6299,
+          "entropy": 0.4553,
+          "tokens_scored": 89,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 1,
+        "type": "search",
+        "name": "web_search",
+        "input": "ACME Corp FY2025 annual results total revenue investor relations",
+        "output": "[1] ir.acmecorp.com — \"ACME Corp Reports Fourth Quarter and Full Year Fiscal 2025 Results\" | [2] marketpulse.io — \"ACME beats estimates as cloud unit accelerates\" | [3] financeblog.net — \"What ACME's monster 2025 really means for shareholders\" | [4] wikipedia.org — ACME Corp",
+        "tokens": 183,
+        "latency_s": 2.63,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.855,
+          "min_token_confidence": 0.7002,
+          "entropy": 0.3725,
+          "tokens_scored": 100,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 2,
+        "type": "retrieve",
+        "name": "select_result",
+        "input": "Open result [3]: financeblog.net — the write-up looks like a handy summary of the 2025 numbers.",
+        "output": "Selected https://financeblog.net/acme-monster-2025 (third-party commentary blog, no primary citation visible).",
+        "tokens": 150,
+        "latency_s": 1.21,
+        "quality": "bad",
+        "note": "Divergence: picked a commentary blog over the official investor-relations release that was result [1].",
+        "model": {
+          "confidence": 0.8774,
+          "min_token_confidence": 0.6924,
+          "entropy": 0.3741,
+          "tokens_scored": 82,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 3,
+        "type": "read",
+        "name": "open_page",
+        "input": "https://financeblog.net/acme-monster-2025",
+        "output": "financeblog.net: \"ACME had a monster year. By my back-of-envelope math they pulled in about $4.5B in 2025, give or take, mostly on the cloud unit. Margins? Who knows — the filing is a maze.\"",
+        "tokens": 156,
+        "latency_s": 1.87,
+        "quality": "weak",
+        "note": null,
+        "model": {
+          "confidence": 0.8261,
+          "min_token_confidence": 0.667,
+          "entropy": 0.415,
+          "tokens_scored": 85,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 4,
+        "type": "reason",
+        "name": "reason",
+        "input": "Is the blog's revenue figure reliable enough to report?",
+        "output": "The blog says 'about $4.5B, give or take' — approximate. I should corroborate the number with another source before answering.",
+        "tokens": 143,
+        "latency_s": 1.59,
+        "quality": "weak",
+        "note": null,
+        "model": {
+          "confidence": 0.8254,
+          "min_token_confidence": 0.6585,
+          "entropy": 0.5227,
+          "tokens_scored": 78,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 5,
+        "type": "search",
+        "name": "web_search",
+        "input": "ACME Corp 2025 revenue \"$4.5 billion\"",
+        "output": "[1] moneymirror.com — \"ACME's 2025 revenue came in around $4.5 billion, analysts say\" | [2] stocknewsdaily.net — \"ACME posts ~$4.5B year\" | [3] financeblog.net — original post",
+        "tokens": 151,
+        "latency_s": 2.41,
+        "quality": "weak",
+        "note": null,
+        "model": {
+          "confidence": 0.8281,
+          "min_token_confidence": 0.5747,
+          "entropy": 0.4834,
+          "tokens_scored": 83,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 6,
+        "type": "retrieve",
+        "name": "select_result",
+        "input": "Open result [1]: moneymirror.com — an independent outlet repeating the figure would confirm it.",
+        "output": "Selected https://moneymirror.com/acme-2025-revenue (aggregator; article body links back to financeblog.net as its source).",
+        "tokens": 152,
+        "latency_s": 1.06,
+        "quality": "bad",
+        "note": "Circular corroboration: the aggregator cites the same blog, so this does not independently confirm $4.5B.",
+        "model": {
+          "confidence": 0.8522,
+          "min_token_confidence": 0.6831,
+          "entropy": 0.3557,
+          "tokens_scored": 83,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 7,
+        "type": "read",
+        "name": "open_page",
+        "input": "https://moneymirror.com/acme-2025-revenue",
+        "output": "moneymirror.com: \"ACME's 2025 revenue came in around $4.5 billion, analysts say, capping a strong year for the cloud division. (h/t financeblog.net)\"",
+        "tokens": 145,
+        "latency_s": 1.93,
+        "quality": "bad",
+        "note": null,
+        "model": {
+          "confidence": 0.857,
+          "min_token_confidence": 0.6601,
+          "entropy": 0.3609,
+          "tokens_scored": 79,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 8,
+        "type": "reason",
+        "name": "reason",
+        "input": "Do two sources agreeing settle the figure?",
+        "output": "Two sources now report roughly $4.5 billion for 2025. That is consistent, so I will report it.",
+        "tokens": 132,
+        "latency_s": 1.56,
+        "quality": "bad",
+        "note": "Both sources trace to the same blog; the official release (never opened) states $4.82 billion.",
+        "model": {
+          "confidence": 0.8668,
+          "min_token_confidence": 0.654,
+          "entropy": 0.3893,
+          "tokens_scored": 72,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 9,
+        "type": "answer",
+        "name": "final_answer",
+        "input": "Compose the final answer from the verified findings.",
+        "output": "ACME Corp's total revenue for fiscal year 2025 was approximately $4.5 billion, as reported by financeblog.net and corroborated by moneymirror.com.",
+        "tokens": 148,
+        "latency_s": 2.05,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.866,
+          "min_token_confidence": 0.6289,
+          "entropy": 0.3456,
+          "tokens_scored": 81,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      }
+    ]
+  },
+  "alignment": [
+    {
+      "a_index": 0,
+      "b_index": 0,
+      "op": "match",
+      "similarity": 1.0,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 0,
+          "latency_s": -0.18,
+          "cost_usd": -3e-05
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        },
+        "propagation": {
+          "a": 0.0,
+          "b": 0.0213
+        }
+      }
+    },
+    {
+      "a_index": 1,
+      "b_index": 1,
+      "op": "match",
+      "similarity": 1.0,
+      "tool_diff": {
+        "same_tool": true,
+        "identical": true
+      },
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 0,
+          "latency_s": 0.16,
+          "cost_usd": -3.4e-05
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        },
+        "propagation": {
+          "a": 0.0,
+          "b": 0.0435
+        }
+      }
+    },
+    {
+      "a_index": null,
+      "b_index": 2,
+      "op": "b_only",
+      "similarity": 0.0
+    },
+    {
+      "a_index": null,
+      "b_index": 3,
+      "op": "b_only",
+      "similarity": 0.0
+    },
+    {
+      "a_index": null,
+      "b_index": 4,
+      "op": "b_only",
+      "similarity": 0.0
+    },
+    {
+      "a_index": null,
+      "b_index": 5,
+      "op": "b_only",
+      "similarity": 0.0
+    },
+    {
+      "a_index": 2,
+      "b_index": 6,
+      "op": "drift",
+      "similarity": 0.62,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 0.2083
+        },
+        "delta": {
+          "tokens": -2,
+          "latency_s": -0.17,
+          "cost_usd": -4e-05
+        },
+        "quality": {
+          "a": "good",
+          "b": "bad",
+          "verdict": "b_degraded"
+        },
+        "propagation": {
+          "a": 0.0,
+          "b": 0.0
+        }
+      }
+    },
+    {
+      "a_index": 3,
+      "b_index": 7,
+      "op": "drift",
+      "similarity": 0.6538,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 0.1818
+        },
+        "delta": {
+          "tokens": -39,
+          "latency_s": 0.08,
+          "cost_usd": -0.000264
+        },
+        "quality": {
+          "a": "good",
+          "b": "bad",
+          "verdict": "b_degraded"
+        },
+        "propagation": {
+          "a": 0.0,
+          "b": 0.1667
+        }
+      }
+    },
+    {
+      "a_index": null,
+      "b_index": 8,
+      "op": "b_only",
+      "similarity": 0.0
+    },
+    {
+      "a_index": 4,
+      "b_index": 9,
+      "op": "match",
+      "similarity": 1.0,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": -9,
+          "latency_s": -0.08,
+          "cost_usd": -8.2e-05
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        },
+        "propagation": {
+          "a": 0.0,
+          "b": 0.0
+        }
+      }
+    }
+  ],
+  "divergences": [
+    {
+      "rank": 1,
+      "a_index": 2,
+      "b_index": 2,
+      "kind": "retrieval",
+      "summary": "Agent B took 5 extra step(s) not mirrored by Agent A, starting where it selected the source \"select_result\" (annotated bad).",
+      "downstream": {
+        "extra_steps_b": 5,
+        "extra_tokens_b": 682,
+        "extra_latency_s_b": 8.47,
+        "caused_failure": true,
+        "failed_agent": "b"
+      }
+    }
+  ],
+  "attribution": {
+    "failed_agent": "b",
+    "root_cause_step": 2,
+    "chain": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "category": "retrieval",
+    "explanation": "Agent B diverged at step 2 because it selected the wrong retrieval result (bad-quality: \"select_result\"). That propagated into the step where it read \"open_page\" (annotated weak) at step 3 (and steps 4, 5, 6, 7, 8) and caused the final failure. The answer emitted at step 9 was wrong, so the failure is attributed to retrieval at step 2."
+  },
+  "answer_eval": {
+    "expected": "$4.82 billion",
+    "diff_ab": [
+      [
+        "eq",
+        "ACME Corp's total revenue for fiscal year 2025 was "
+      ],
+      [
+        "ins",
+        "approximately "
+      ],
+      [
+        "eq",
+        "$4."
+      ],
+      [
+        "del",
+        "82"
+      ],
+      [
+        "ins",
+        "5"
+      ],
+      [
+        "eq",
+        " billion, "
+      ],
+      [
+        "del",
+        "up 11% year over year, per the company's FY2025 results"
+      ],
+      [
+        "ins",
+        "as"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "press"
+      ],
+      [
+        "ins",
+        "reported"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "release"
+      ],
+      [
+        "ins",
+        "by"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "on"
+      ],
+      [
+        "ins",
+        "financeblog.net"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "its"
+      ],
+      [
+        "ins",
+        "and"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "investor-relations"
+      ],
+      [
+        "ins",
+        "corroborated"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "site"
+      ],
+      [
+        "ins",
+        "by"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "(ir.acmecorp"
+      ],
+      [
+        "ins",
+        "moneymirror"
+      ],
+      [
+        "eq",
+        ".com"
+      ],
+      [
+        "del",
+        ")"
+      ],
+      [
+        "eq",
+        "."
+      ]
+    ],
+    "a_vs_expected": {
+      "coverage": 1.0,
+      "verdict": "match"
+    },
+    "b_vs_expected": {
+      "coverage": 0.5,
+      "verdict": "partial"
+    }
+  },
+  "metrics_delta": {
+    "steps": {
+      "a": 5,
+      "b": 10
+    },
+    "tokens": {
+      "a": 840,
+      "b": 1522
+    },
+    "cost_usd": {
+      "a": 0.0051,
+      "b": 0.008958
+    },
+    "latency_s": {
+      "a": 9.95,
+      "b": 18.4
+    },
+    "tool_calls": {
+      "a": 0,
+      "b": 0
+    },
+    "searches": {
+      "a": 1,
+      "b": 2
+    }
+  },
+  "success_analysis": {
+    "winner": "a",
+    "basis": "outcome",
+    "winning_decisions": [
+      {
+        "step_index": 2,
+        "agent": "atlas-v2",
+        "kind": "retrieval",
+        "decision": "Selected https://ir.acmecorp.com/news/fy2025-results (primary source: company investor-re…",
+        "counterpart": "selected \"financeblog.net\" (bolt-v3)",
+        "why": "avoided a bad-quality step; counterpart note: \"Divergence: picked a commentary blog over the official investor-relat…\"; the primary source held the correct figure",
+        "impact": {
+          "avoided_extra_steps": 5,
+          "avoided_tokens": 682,
+          "avoided_latency_s": 8.47,
+          "avoided_failure": true
+        }
+      }
+    ],
+    "narrative": "atlas-v2 won on outcome over bolt-v3. Key decision at step 2 (retrieval): \"Selected https://ir.acmecorp.com/news/fy2025-results (primary source: company investor-re…\" versus selected \"financeblog.net\" (bolt-v3). Altogether its choices avoided 5 extra step(s), 682 tokens and 8.47s of latency, and the failure that followed."
+  },
+  "uncertainty": {
+    "available": true,
+    "a": {
+      "series": [
+        0.932,
+        0.8929,
+        0.9317,
+        0.9089,
+        0.8854
+      ],
+      "mean_confidence": 0.9102,
+      "min_confidence": 0.8854,
+      "mean_entropy": 0.2548,
+      "min_token_confidence": 0.671,
+      "steps_scored": 5
+    },
+    "b": {
+      "series": [
+        0.8542,
+        0.855,
+        0.8774,
+        0.8261,
+        0.8254,
+        0.8281,
+        0.8522,
+        0.857,
+        0.8668,
+        0.866
+      ],
+      "mean_confidence": 0.8508,
+      "min_confidence": 0.8254,
+      "mean_entropy": 0.4075,
+      "min_token_confidence": 0.5747,
+      "steps_scored": 10
+    },
+    "signal": {
+      "failed_agent": "b",
+      "root_cause_step": 2,
+      "confidence_at_root": 0.8774,
+      "baseline_confidence": 0.8479,
+      "drop": -0.0295,
+      "verdict": "silent",
+      "lead_steps": 0,
+      "mitigation": "no confidence threshold would have caught this; the model was as sure here as anywhere — mitigate with an external verification step instead"
+    },
+    "calibration": {
+      "confident_when_wrong": true,
+      "confidence_at_wrong_step": 0.8774
+    },
+    "narrative": "atlas-v2 ran at 91% mean token confidence (low of 89%). bolt-v3 ran at 85% mean token confidence (low of 83%). The model gave no warning: bolt-v3 was 88% confident at the step that caused the failure — no lower than its own baseline of 85%. This failure class needs external verification, not a confidence threshold."
+  },
+  "semantic": {
+    "methods": [
+      "tfidf_cosine",
+      "claim_provenance"
+    ],
+    "rows": [
+      {
+        "row": 0,
+        "a_index": 0,
+        "b_index": 0,
+        "lexical": 1.0,
+        "semantic": 1.0
+      },
+      {
+        "row": 1,
+        "a_index": 1,
+        "b_index": 1,
+        "lexical": 1.0,
+        "semantic": 1.0
+      },
+      {
+        "row": 6,
+        "a_index": 2,
+        "b_index": 6,
+        "lexical": 0.62,
+        "semantic": 0.2669
+      },
+      {
+        "row": 7,
+        "a_index": 3,
+        "b_index": 7,
+        "lexical": 0.6538,
+        "semantic": 0.1903
+      },
+      {
+        "row": 9,
+        "a_index": 4,
+        "b_index": 9,
+        "lexical": 1.0,
+        "semantic": 0.5901
+      }
+    ],
+    "first_semantic_break": 6,
+    "claims": [
+      {
+        "id": "c1",
+        "kind": "url",
+        "value": "ir.acmecorp.com",
+        "normalized": "ir.acmecorp.com",
+        "matches_expected": null,
+        "a_steps": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "b_steps": [
+          1
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 1,
+          "source": "ir.acmecorp.com"
+        }
+      },
+      {
+        "id": "c2",
+        "kind": "url",
+        "value": "marketpulse.io",
+        "normalized": "marketpulse.io",
+        "matches_expected": null,
+        "a_steps": [
+          1
+        ],
+        "b_steps": [
+          1
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 1,
+          "source": "ir.acmecorp.com"
+        }
+      },
+      {
+        "id": "c3",
+        "kind": "url",
+        "value": "financeblog.net",
+        "normalized": "financeblog.net",
+        "matches_expected": null,
+        "a_steps": [
+          1
+        ],
+        "b_steps": [
+          1,
+          2,
+          3,
+          5,
+          6,
+          7,
+          9
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 1,
+          "source": "ir.acmecorp.com"
+        }
+      },
+      {
+        "id": "c4",
+        "kind": "url",
+        "value": "wikipedia.org",
+        "normalized": "wikipedia.org",
+        "matches_expected": null,
+        "a_steps": [
+          1
+        ],
+        "b_steps": [
+          1
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 1,
+          "source": "ir.acmecorp.com"
+        }
+      },
+      {
+        "id": "c5",
+        "kind": "date",
+        "value": "2025-05-22",
+        "normalized": "2025-05-22",
+        "matches_expected": null,
+        "a_steps": [
+          2
+        ],
+        "b_steps": [],
+        "origin": {
+          "agent": "a",
+          "step": 2,
+          "source": "ir.acmecorp.com"
+        }
+      },
+      {
+        "id": "c6",
+        "kind": "money",
+        "value": "$4.82 billion",
+        "normalized": "4.82e9",
+        "matches_expected": true,
+        "a_steps": [
+          3,
+          4
+        ],
+        "b_steps": [],
+        "origin": {
+          "agent": "a",
+          "step": 3,
+          "source": "ir.acmecorp.com"
+        }
+      },
+      {
+        "id": "c7",
+        "kind": "money",
+        "value": "$1.31 billion",
+        "normalized": "1.31e9",
+        "matches_expected": false,
+        "a_steps": [
+          3
+        ],
+        "b_steps": [],
+        "origin": {
+          "agent": "a",
+          "step": 3,
+          "source": "ir.acmecorp.com"
+        }
+      },
+      {
+        "id": "c8",
+        "kind": "money",
+        "value": "$2.1 billion",
+        "normalized": "2.1e9",
+        "matches_expected": false,
+        "a_steps": [
+          3
+        ],
+        "b_steps": [],
+        "origin": {
+          "agent": "a",
+          "step": 3,
+          "source": "ir.acmecorp.com"
+        }
+      },
+      {
+        "id": "c9",
+        "kind": "percent",
+        "value": "11%",
+        "normalized": "11",
+        "matches_expected": null,
+        "a_steps": [
+          3,
+          4
+        ],
+        "b_steps": [],
+        "origin": {
+          "agent": "a",
+          "step": 3,
+          "source": "ir.acmecorp.com"
+        }
+      },
+      {
+        "id": "c10",
+        "kind": "percent",
+        "value": "18.4%",
+        "normalized": "18.4",
+        "matches_expected": null,
+        "a_steps": [
+          3
+        ],
+        "b_steps": [],
+        "origin": {
+          "agent": "a",
+          "step": 3,
+          "source": "ir.acmecorp.com"
+        }
+      },
+      {
+        "id": "c11",
+        "kind": "percent",
+        "value": "9%",
+        "normalized": "9",
+        "matches_expected": null,
+        "a_steps": [
+          3
+        ],
+        "b_steps": [],
+        "origin": {
+          "agent": "a",
+          "step": 3,
+          "source": "ir.acmecorp.com"
+        }
+      },
+      {
+        "id": "c12",
+        "kind": "money",
+        "value": "$4.5B",
+        "normalized": "4.5e9",
+        "matches_expected": false,
+        "a_steps": [],
+        "b_steps": [
+          3,
+          4,
+          5,
+          7,
+          8,
+          9
+        ],
+        "origin": {
+          "agent": "b",
+          "step": 3,
+          "source": "financeblog.net"
+        }
+      },
+      {
+        "id": "c13",
+        "kind": "url",
+        "value": "moneymirror.com",
+        "normalized": "moneymirror.com",
+        "matches_expected": null,
+        "a_steps": [],
+        "b_steps": [
+          5,
+          6,
+          7,
+          9
+        ],
+        "origin": {
+          "agent": "b",
+          "step": 5,
+          "source": "moneymirror.com"
+        }
+      },
+      {
+        "id": "c14",
+        "kind": "url",
+        "value": "stocknewsdaily.net",
+        "normalized": "stocknewsdaily.net",
+        "matches_expected": null,
+        "a_steps": [],
+        "b_steps": [
+          5
+        ],
+        "origin": {
+          "agent": "b",
+          "step": 5,
+          "source": "moneymirror.com"
+        }
+      }
+    ],
+    "conflicts": [
+      {
+        "kind": "money",
+        "a_claim": "c6",
+        "b_claim": "c12",
+        "summary": "A carried $4.82 billion (from ir.acmecorp.com); B carried $4.5B (from financeblog.net); expected: $4.82 billion."
+      },
+      {
+        "kind": "url",
+        "a_claim": "c1",
+        "b_claim": "c3",
+        "summary": "A cited ir.acmecorp.com; B cited financeblog.net."
+      }
+    ],
+    "intents": {
+      "a": [
+        {
+          "step": 0,
+          "intent": "frame"
+        },
+        {
+          "step": 1,
+          "intent": "acquire"
+        },
+        {
+          "step": 2,
+          "intent": "decide"
+        },
+        {
+          "step": 3,
+          "intent": "acquire"
+        },
+        {
+          "step": 4,
+          "intent": "commit"
+        }
+      ],
+      "b": [
+        {
+          "step": 0,
+          "intent": "frame"
+        },
+        {
+          "step": 1,
+          "intent": "acquire"
+        },
+        {
+          "step": 2,
+          "intent": "decide"
+        },
+        {
+          "step": 3,
+          "intent": "acquire"
+        },
+        {
+          "step": 4,
+          "intent": "verify"
+        },
+        {
+          "step": 5,
+          "intent": "acquire"
+        },
+        {
+          "step": 6,
+          "intent": "verify"
+        },
+        {
+          "step": 7,
+          "intent": "acquire"
+        },
+        {
+          "step": 8,
+          "intent": "verify"
+        },
+        {
+          "step": 9,
+          "intent": "commit"
+        }
+      ],
+      "missing": {
+        "a": [
+          "verify"
+        ],
+        "b": []
+      }
+    },
+    "grounding": {
+      "a": {
+        "claims_total": 3,
+        "claims_grounded": 3,
+        "score": 1.0,
+        "ungrounded": []
+      },
+      "b": {
+        "claims_total": 3,
+        "claims_grounded": 3,
+        "score": 1.0,
+        "ungrounded": []
+      }
+    },
+    "independence": [
+      {
+        "claim": "c12",
+        "agent": "b",
+        "sources": [
+          "financeblog.net",
+          "moneymirror.com"
+        ],
+        "circular": true,
+        "evidence": "the corroborating source's text cites financeblog.net itself: \"… \"ACME posts ~$4.5B year\" | [3] financeblog.net — original post\""
+      }
+    ],
+    "contradictions": [],
+    "narrative": "Meaning breaks from wording at alignment row 6 (lexical 0.62 vs semantic 0.27). Decisive claim conflict (money): A carried $4.82 billion (from ir.acmecorp.com); B carried $4.5B (from financeblog.net); expected: $4.82 billion. atlas-v2 never verified its evidence; bolt-v3's corroboration was circular (financeblog.net echoed by moneymirror.com)."
+  },
+  "counterfactual": {
+    "premise": "had bolt-v3 made atlas-v2's decision at step 2",
+    "splice": {
+      "prefix_steps": [
+        0,
+        1
+      ],
+      "adopted_from": "a",
+      "adopted_steps": [
+        2,
+        3,
+        4
+      ]
+    },
+    "estimate": {
+      "outcome": "success",
+      "steps": 5,
+      "steps_delta": -5,
+      "tokens": 840,
+      "tokens_delta": -682,
+      "latency_s": 9.93,
+      "latency_delta_s": -8.47,
+      "cost_usd": 0.005036,
+      "cost_delta_usd": -0.003922
+    },
+    "confidence": "high",
+    "narrative": "Had bolt-v3 selected the source \"select_result\" at step 2 (as atlas-v2 did), the estimated run is 5 steps, 840 tokens, 9.93s — saving 5 steps, 682 tokens, 8.47s — and ends in success."
+  },
+  "shapley": {
+    "available": true,
+    "metric": "tokens",
+    "loser": "bolt-v3",
+    "winner": "atlas-v2",
+    "regions": 1,
+    "method": "exact",
+    "total_saving": 691.0,
+    "allocations": [
+      {
+        "region": 0,
+        "rank": 1,
+        "kind": "retrieval",
+        "summary": "Agent B took 5 extra step(s) not mirrored by Agent A, starting where it selected the source \"select_result\" (annotated bad).",
+        "alignment_rows": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "shapley": 691.0,
+        "share": 1.0,
+        "caused_failure": true
+      }
+    ],
+    "efficiency_check": 0.0,
+    "outcome_attributable": true,
+    "outcome_note": "exactly one divergence was causal, so the outcome is attributable to it",
+    "narrative": "Fixing every divergence would have saved 691 tokens. The largest single share is 100% (691), from the retrieval divergence at region 0."
+  }
+}

@@ -1,0 +1,1267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentDiff — batch review</title>
+<style>
+/* ==================================================================== tokens
+   One family, one scale, hairlines instead of boxes. Light palette lives on
+   bare :root so a viewer with no preference still gets a complete theme. */
+:root {
+  --paper:   #fdfdfc;
+  --ink:     #17171a;
+  --ink-2:   #4f4f4a;
+  --muted:   #6e6d66;
+  --rule:    #d8d7d0;
+  --faint:   #e8e7e1;
+  --hollow:  #c2c1b9;
+  --accent:  #2a5f9e;   /* structure + interaction */
+  --accent-2:#9a4a20;   /* severity / cost of an issue */
+  --good:    #2f6f3f;
+  --bad:     #93331f;
+  --hi:      rgba(42, 95, 158, 0.10);
+  --flash:   rgba(154, 74, 32, 0.13);
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  /* modular scale, 1.185 on a 15px base */
+  --t0: 0.6875rem;  --t1: 0.75rem;   --t2: 0.8125rem;  --t3: 0.9375rem;
+  --t4: 1.0625rem;  --t5: 1.3125rem; --t6: 1.625rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:   #151514;
+    --ink:     #ecebe4;
+    --ink-2:   #b4b3aa;
+    --muted:   #96958c;
+    --rule:    #33332e;
+    --faint:   #232320;
+    --hollow:  #4d4c46;
+    --accent:  #5a94d4;
+    --accent-2:#d08a5c;
+    --good:    #4f9e5c;
+    --bad:     #d07a63;
+    --hi:      rgba(90, 148, 212, 0.14);
+    --flash:   rgba(208, 138, 92, 0.16);
+  }
+}
+:root[data-theme="dark"] {
+  --paper:   #151514;
+  --ink:     #ecebe4;
+  --ink-2:   #b4b3aa;
+  --muted:   #96958c;
+  --rule:    #33332e;
+  --faint:   #232320;
+  --hollow:  #4d4c46;
+  --accent:  #5a94d4;
+  --accent-2:#d08a5c;
+  --good:    #4f9e5c;
+  --bad:     #d07a63;
+  --hi:      rgba(90, 148, 212, 0.14);
+  --flash:   rgba(208, 138, 92, 0.16);
+}
+
+/* ===================================================================== reset */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, h4 { font-weight: 500; margin: 0; letter-spacing: -0.01em; }
+p, ol, ul { margin: 0; }
+ol, ul { list-style: none; padding: 0; }
+a { color: inherit; }
+button { font: inherit; color: inherit; background: none; border: 0; margin: 0; padding: 0; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 1px; }
+::selection { background: var(--hi); }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  * { transition: none !important; animation: none !important; }
+}
+
+.n     { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.mut   { color: var(--muted); }
+.xs    { font-size: var(--t1); }
+.xxs   { font-size: var(--t0); }
+.sm    { font-size: var(--t2); }
+.cap   { font-size: var(--t0); text-transform: uppercase; letter-spacing: 0.1em;
+         color: var(--muted); font-weight: 600; }
+.skip  { position: absolute; left: -9999px; top: 0; background: var(--paper);
+         padding: 0.5rem 0.75rem; z-index: 40; }
+.skip:focus { left: 0.5rem; top: 0.5rem; }
+
+/* ================================================================== masthead */
+.masthead {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
+}
+.mh {
+  max-width: 84rem; margin: 0 auto; padding: 0.7rem 2rem;
+  display: flex; align-items: baseline; gap: 0 1rem; flex-wrap: wrap;
+}
+.brand { font-size: var(--t4); font-weight: 500; letter-spacing: -0.02em; }
+.brand .pm { color: var(--muted); font-weight: 400; padding-right: 0.15rem; }
+.tagline { color: var(--muted); font-size: var(--t2); }
+.ident { margin-left: auto; display: flex; align-items: baseline; gap: 0.55rem;
+         font-size: var(--t2); white-space: nowrap; }
+.ident .who { display: inline-flex; align-items: baseline; gap: 0.3rem; }
+.ident .side { font-family: var(--mono); font-size: var(--t0); color: var(--muted); }
+.ident .nm { font-weight: 500; }
+.ident .md { color: var(--muted); font-family: var(--mono); font-size: var(--t0); }
+.ident .vs { color: var(--muted); font-size: var(--t0); letter-spacing: 0.08em; }
+.ident .shape { color: var(--muted); font-size: var(--t1); border-left: 1px solid var(--rule);
+                padding-left: 0.7rem; }
+#theme { color: var(--muted); font-size: var(--t1); cursor: pointer; padding: 0.15rem 0.1rem; }
+#theme:hover { color: var(--ink); }
+@media (max-width: 1080px) {
+  .mh { padding: 0.6rem 1.25rem; }
+  .tagline { display: none; }
+}
+@media (max-width: 700px) {
+  .ident { margin-left: 0; flex-basis: 100%; white-space: normal; flex-wrap: wrap;
+           gap: 0.35rem 0.5rem; order: 3; }
+  #theme { margin-left: auto; order: 2; }
+  .ident .shape { border-left: 0; padding-left: 0; }
+  .ident .shape::before { content: "· "; color: var(--muted); }
+}
+
+/* ===================================================================== shell */
+.shell {
+  max-width: 84rem; margin: 0 auto; padding: 0 2rem 6rem;
+  display: grid; grid-template-columns: 11.5rem minmax(0, 1fr); gap: 0 3.5rem;
+}
+.shell.solo { grid-template-columns: minmax(0, 1fr); max-width: 56rem; }
+main { min-width: 0; padding-top: 2.75rem; }
+/* sticky chrome is measured at runtime (--mh, --railh) so anchors never land
+   underneath it, whatever the masthead wraps to */
+section { scroll-margin-top: calc(var(--mh, 3rem) + var(--railh, 0px) + 1.4rem); }
+section + section { margin-top: 4.25rem; }
+.shead { display: flex; align-items: baseline; gap: 0.9rem; flex-wrap: wrap;
+         border-bottom: 1px solid var(--rule); padding-bottom: 0.4rem; }
+.shead h2 { font-size: var(--t3); }
+.shead .note { color: var(--muted); font-size: var(--t1); margin-left: auto; }
+.lede { color: var(--muted); font-size: var(--t2); margin-top: 0.65rem; max-width: 46rem;
+        line-height: 1.6; }
+.lede b { font-weight: 500; color: var(--ink-2); }
+
+/* ====================================================================== rail */
+.rail { position: sticky; top: var(--mh, 3.05rem); align-self: start; padding-top: 3rem; }
+.rail ol { display: flex; flex-direction: column; gap: 0.05rem; }
+.rail a {
+  display: block; text-decoration: none; color: var(--muted);
+  font-size: var(--t1); padding: 0.28rem 0 0.28rem 0.7rem;
+  border-left: 1px solid var(--rule); line-height: 1.35;
+}
+.rail a:hover { color: var(--ink); }
+.rail a[aria-current="true"] { color: var(--ink); border-left-color: var(--accent);
+  box-shadow: -1px 0 0 var(--accent); }
+.rail .idx { font-family: var(--mono); font-size: var(--t0); color: var(--hollow);
+             padding-right: 0.4rem; }
+.rail a[aria-current="true"] .idx { color: var(--accent); }
+@media (max-width: 900px) {
+  .shell { grid-template-columns: minmax(0, 1fr); padding: 0 1.25rem 4rem; gap: 0; }
+  .rail { position: sticky; top: var(--mh, 2.85rem); z-index: 15; background: var(--paper);
+          padding: 0; margin: 0 -1.25rem; border-bottom: 1px solid var(--rule); }
+  .rail ol { flex-direction: row; overflow-x: auto; padding: 0 1.25rem;
+             scrollbar-width: none; }
+  .rail ol::-webkit-scrollbar { display: none; }
+  .rail a { border-left: 0; border-bottom: 2px solid transparent; padding: 0.55rem 0.85rem 0.4rem;
+            white-space: nowrap; }
+  .rail a:first-child { padding-left: 0; }
+  .rail a[aria-current="true"] { border-bottom-color: var(--accent); box-shadow: none; }
+  .rail .idx { display: none; }
+  main { padding-top: 2rem; }
+}
+
+/* =================================================================== verdict */
+.claim {
+  font-size: clamp(1.1875rem, 2.5vw, 1.625rem);
+  line-height: 1.36; letter-spacing: -0.019em; font-weight: 400;
+  max-width: 40ch; color: var(--ink);
+}
+.claim + .claim { margin-top: 0.85rem; }
+.claim .n { font-size: 0.94em; }
+.claim em { font-style: normal; box-shadow: inset 0 -2px 0 var(--accent); }
+.claim .em2 { box-shadow: inset 0 -2px 0 var(--accent-2); }
+.claim.q { color: var(--ink-2); font-size: clamp(1.0625rem, 2vw, 1.3125rem); max-width: 46ch; }
+.figures {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 1.75rem 2.25rem; margin-top: 2.5rem; padding-top: 1.6rem;
+  border-top: 1px solid var(--rule);
+}
+.fig .v { font-family: var(--mono); font-variant-numeric: tabular-nums;
+          font-size: var(--t5); line-height: 1.1; letter-spacing: -0.025em; display: block; }
+.fig .v.up   { color: var(--accent-2); }
+.fig .v.good { color: var(--good); }
+.fig .k { display: block; color: var(--muted); font-size: var(--t1); margin-top: 0.35rem;
+          line-height: 1.45; max-width: 15rem; }
+.fig .k b { font-weight: 500; color: var(--ink-2); }
+
+/* ==================================================================== issues */
+.legend { display: flex; flex-wrap: wrap; gap: 0.35rem 1.15rem; margin-top: 1rem;
+          color: var(--muted); font-size: var(--t0); align-items: center; }
+.legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+.issue { padding: 1.5rem 0 1.35rem; border-bottom: 1px solid var(--faint); }
+.issue:first-of-type { padding-top: 1.1rem; }
+.ihead { display: flex; align-items: baseline; gap: 0.7rem; flex-wrap: wrap; }
+.ihead h3 { font-size: var(--t3); flex: 1 1 18rem; min-width: 0; }
+.ihead .meta { color: var(--muted); font-size: var(--t1); font-family: var(--mono); }
+.sev { display: inline-flex; align-items: center; gap: 0.35rem; font-size: var(--t0);
+       text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); }
+.sev.critical { color: var(--accent-2); font-weight: 600; }
+.sev.major, .sev.moderate { color: var(--ink-2); font-weight: 600; }
+.ibody { display: grid; grid-template-columns: minmax(0, 1fr) 15.5rem; gap: 1.1rem 2.5rem;
+         margin-top: 0.75rem; align-items: start; }
+.fp { font-family: var(--mono); font-size: var(--t0); color: var(--ink-2);
+      border-left: 2px solid var(--rule); padding: 0.1rem 0 0.1rem 0.6rem;
+      overflow-wrap: anywhere; }
+.isum { color: var(--ink-2); font-size: var(--t2); margin-top: 0.6rem; line-height: 1.6; }
+.chips { display: flex; flex-wrap: wrap; gap: 0.3rem 0.35rem; margin-top: 0.75rem;
+         align-items: center; }
+.chips .lbl { color: var(--muted); font-size: var(--t0); padding-right: 0.15rem; }
+.chip {
+  font-family: var(--mono); font-size: var(--t0); color: var(--ink-2);
+  padding: 0.12rem 0.4rem; cursor: pointer;
+  border-bottom: 1px solid var(--hollow); background: var(--faint);
+}
+.chip:hover { color: var(--ink); background: var(--hi); border-bottom-color: var(--accent); }
+.chip .x { color: var(--accent-2); padding-left: 0.3rem; }
+.glyphs { display: grid; grid-template-columns: 4.6rem 1fr auto; gap: 0.32rem 0.6rem;
+          align-items: center; }
+.glyphs .gl { color: var(--muted); font-size: var(--t0); text-align: right; }
+.glyphs .gv { font-family: var(--mono); font-variant-numeric: tabular-nums;
+              font-size: var(--t0); color: var(--ink-2); text-align: right; white-space: nowrap; }
+.glyphs .gm { min-width: 0; line-height: 0; }
+.glyphs .zero { color: var(--hollow); }
+@media (max-width: 780px) {
+  .ibody { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  .glyphs { max-width: 22rem; }
+}
+details.supp { margin-top: 1.75rem; }
+details.supp > summary { cursor: pointer; color: var(--muted); font-size: var(--t1);
+  list-style: none; padding: 0.35rem 0; }
+details.supp > summary::-webkit-details-marker { display: none; }
+details.supp > summary::before { content: "▸ "; color: var(--hollow); }
+details.supp[open] > summary::before { content: "▾ "; }
+details.supp > summary:hover { color: var(--ink); }
+.supp .issue { opacity: 0.66; }
+
+/* ==================================================== origins + calibration */
+.duo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+       gap: 2rem 3.5rem; margin-top: 1.4rem; }
+@media (max-width: 860px) { .duo { grid-template-columns: minmax(0, 1fr); gap: 2.25rem; } }
+.orow { display: grid; grid-template-columns: 7.5rem 1fr 3.2rem; gap: 0.6rem;
+        align-items: center; padding: 0.3rem 0; }
+.orow .ol { font-size: var(--t2); color: var(--ink-2); }
+.orow .ov { font-family: var(--mono); font-variant-numeric: tabular-nums;
+            font-size: var(--t2); text-align: right; }
+.orow svg, .calbar svg, .glyphs .gm svg { max-width: 100%; height: auto; }
+@media (max-width: 430px) { .orow { grid-template-columns: 5.6rem 1fr 2.6rem; gap: 0.45rem; } }
+.cal { padding: 0.85rem 0; border-top: 1px solid var(--faint); }
+.cal:first-of-type { border-top: 0; }
+.calhead { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
+.calhead .nm { font-size: var(--t2); font-weight: 500; }
+.verdictw { font-size: var(--t0); text-transform: uppercase; letter-spacing: 0.1em;
+            display: inline-flex; align-items: center; gap: 0.35rem; }
+.verdictw.ok { color: var(--good); }
+.verdictw.no { color: var(--accent-2); font-weight: 600; }
+.calbar { margin-top: 0.5rem; }
+.calnote { color: var(--muted); font-size: var(--t1); margin-top: 0.4rem; line-height: 1.55;
+           max-width: 34rem; }
+.calnote b { color: var(--ink-2); font-weight: 500; }
+.narr { color: var(--ink-2); font-size: var(--t2); line-height: 1.65; margin-top: 1.1rem;
+        max-width: 46rem; }
+
+/* ==================================================================== ledger */
+.lhead, .lrow { display: grid;
+  grid-template-columns: 10.5rem minmax(0, 1fr) 5.2rem 6.4rem 6rem 4.6rem;
+  gap: 0 0.9rem; align-items: center; }
+.lhead { color: var(--muted); font-size: var(--t0); text-transform: uppercase;
+  letter-spacing: 0.07em; padding: 0 0.4rem 0.45rem; border-bottom: 1px solid var(--rule);
+  margin-top: 1.3rem; }
+.lhead .r, .lrow .r { text-align: right; }
+.lrow {
+  width: 100%; scroll-margin-top: calc(var(--mh, 3rem) + var(--railh, 0px) + 1rem); text-align: left; cursor: pointer;
+  padding: 0.4rem 0.4rem; border-bottom: 1px solid var(--faint);
+  transition: background 90ms linear;
+}
+.lrow:hover { background: var(--faint); }
+.lrow[aria-expanded="true"] { background: var(--hi); }
+.lrow.flash { background: var(--flash); }
+.lrow .tid { font-family: var(--mono); font-size: var(--t1); color: var(--ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lrow[aria-expanded="true"] .tid { color: var(--ink); }
+.lrow .prompt { font-size: var(--t2); color: var(--ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lrow .kind { font-size: var(--t1); color: var(--ink-2); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.lrow .kind.none { color: var(--hollow); }
+.lrow .marks { display: flex; gap: 0.55rem; align-items: center; }
+.mk { display: inline-flex; align-items: center; gap: 0.2rem; font-family: var(--mono);
+      font-size: var(--t0); color: var(--muted); }
+.lrow .dt { font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-size: var(--t1); text-align: right; }
+.dt.up { color: var(--accent-2); }
+.dt.dn { color: var(--muted); }
+.spark { line-height: 0; }
+.det { border-bottom: 1px solid var(--faint); background: var(--paper); }
+.detin { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 1.4rem 3rem; padding: 1.15rem 0 1.5rem 1.1rem; margin-left: 0.4rem;
+  border-left: 1px solid var(--rule); }
+.dblk h4 { font-size: var(--t0); text-transform: uppercase; letter-spacing: 0.09em;
+  color: var(--muted); font-weight: 600; }
+.dblk p { font-size: var(--t2); color: var(--ink-2); line-height: 1.62; margin-top: 0.4rem;
+  max-width: 44rem; }
+.dblk + .dblk { margin-top: 1.15rem; }
+.facts { display: flex; flex-wrap: wrap; gap: 0.3rem 1.15rem; margin-top: 0.5rem;
+  font-family: var(--mono); font-size: var(--t0); color: var(--muted); }
+.facts b { color: var(--ink-2); font-weight: 500; }
+.facts .fatal { color: var(--accent-2); font-weight: 600; }
+.uv { display: inline-flex; align-items: center; gap: 0.4rem; font-size: var(--t0);
+  text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; }
+.uv.flagged { color: var(--good); }
+.uv.silent { color: var(--accent-2); }
+.dlinks { margin-top: 1.15rem; display: flex; flex-wrap: wrap; gap: 0.4rem 1.5rem;
+  font-size: var(--t1); }
+.dlinks a { color: var(--accent); text-decoration: none;
+  border-bottom: 1px solid transparent; }
+.dlinks a:hover { border-bottom-color: var(--accent); }
+@media (max-width: 1060px) {
+  .lhead, .lrow { grid-template-columns: 9rem minmax(0, 1fr) 5rem 5.6rem 4.4rem; }
+  .lhead .h-spark, .lrow .spark { display: none; }
+}
+@media (max-width: 720px) {
+  .lhead { display: none; }
+  .lrow { grid-template-columns: minmax(0, 1fr) auto auto; gap: 0.15rem 0.7rem;
+          padding: 0.6rem 0.4rem; }
+  .lrow .tid { grid-column: 1; }
+  .lrow .marks { grid-column: 2; }
+  .lrow .dt { grid-column: 3; }
+  .lrow .prompt { grid-column: 1 / -1; white-space: normal; font-size: var(--t1);
+                  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .lrow .kind { grid-column: 1 / -1; font-size: var(--t0); color: var(--muted); }
+  .detin { grid-template-columns: minmax(0, 1fr); gap: 1.25rem; }
+}
+
+/* ======================================================= recommendations */
+.rec { padding: 1.35rem 0; border-bottom: 1px solid var(--faint); }
+.rec:first-of-type { padding-top: 0.9rem; }
+.rechead { display: flex; align-items: baseline; gap: 0.65rem; flex-wrap: wrap; }
+.rechead .who { font-size: var(--t2); font-weight: 500; }
+.rechead .cat { font-family: var(--mono); font-size: var(--t0); color: var(--muted); }
+.rechead .gain { margin-left: auto; font-family: var(--mono); font-size: var(--t0);
+  color: var(--good); text-align: right; max-width: 100%; overflow-wrap: anywhere; }
+@media (max-width: 700px) { .rechead .gain { margin-left: 0; flex-basis: 100%;
+  text-align: left; } }
+.rec p.find { font-size: var(--t2); color: var(--ink-2); line-height: 1.6; margin-top: 0.45rem;
+  max-width: 44rem; }
+.pw { margin-top: 0.7rem; display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.6rem; align-items: start; border-left: 2px solid var(--rule); padding-left: 0.7rem; }
+.pw pre { margin: 0; font-family: var(--mono); font-size: var(--t0); line-height: 1.62;
+  color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; max-width: 42rem; }
+.copy { font-size: var(--t0); color: var(--muted); cursor: pointer; white-space: nowrap;
+  border-bottom: 1px solid var(--rule); padding: 0 0.05rem; }
+.copy:hover { color: var(--ink); border-bottom-color: var(--accent); }
+.copy.done { color: var(--good); border-bottom-color: var(--good); }
+.pbk { padding: 0.85rem 0; border-top: 1px solid var(--faint); }
+.pbk:first-of-type { border-top: 0; padding-top: 0.3rem; }
+.pbk .habit { font-size: var(--t2); color: var(--ink); }
+.pbk .kind { font-family: var(--mono); font-size: var(--t0); color: var(--muted);
+  padding-right: 0.45rem; }
+.pbk .ev { color: var(--muted); font-size: var(--t0); margin-top: 0.3rem; line-height: 1.55; }
+.pbk .ev b { color: var(--good); font-weight: 500; }
+.duo.rp { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+/* the playbook is short and reads as a companion to the fixes: keep it in view */
+@media (min-width: 861px) {
+  .duo.rp > div:last-child { position: sticky; top: calc(var(--mh, 3rem) + 1.75rem);
+    align-self: start; }
+}
+@media (max-width: 860px) { .duo.rp { grid-template-columns: minmax(0, 1fr); } }
+
+/* ==================================================================== footer */
+footer { margin-top: 4.5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
+  color: var(--muted); font-size: var(--t1); line-height: 1.7; max-width: 52rem; }
+footer code { font-family: var(--mono); font-size: var(--t0); color: var(--ink-2); }
+footer .views { margin-top: 0.9rem; display: grid; gap: 0.15rem; }
+footer .views a { color: var(--ink-2); text-decoration: none; font-family: var(--mono);
+  font-size: var(--t0); border-bottom: 1px solid var(--rule); }
+footer .views a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+footer .views i { font-style: normal; }
+
+/* ===================================================================== empty */
+.empty { max-width: 42rem; padding-top: 1rem; }
+.empty h2 { font-size: var(--t5); font-weight: 400; letter-spacing: -0.02em; }
+.empty p { margin-top: 0.9rem; color: var(--muted); font-size: var(--t2); line-height: 1.7; }
+.empty code { font-family: var(--mono); font-size: var(--t1); color: var(--ink); }
+.empty pre { margin-top: 1.1rem; font-family: var(--mono); font-size: var(--t1);
+  color: var(--ink-2); border-left: 2px solid var(--faint); padding-left: 0.8rem;
+  overflow-x: auto; line-height: 1.7; }
+
+svg { display: block; }
+svg text { font-family: var(--mono); fill: var(--muted); }
+</style>
+</head>
+<body>
+<a class="skip" href="#s-verdict">Skip to the verdict</a>
+
+<header class="masthead">
+  <div class="mh">
+    <h1 class="brand"><span class="pm">±</span>AgentDiff</h1>
+    <p class="tagline">Git diff for AI agents — where two runs parted, why, and what it cost.</p>
+    <div class="ident" id="ident"></div>
+    <button id="theme" type="button" title="Toggle light / dark">theme</button>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" id="rail" aria-label="Sections"><ol id="railitems"></ol></nav>
+  <main id="main"></main>
+</div>
+
+<script>
+window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
+(function () {
+  "use strict";
+
+  var RAW  = window["DEEPCOMPARE" + "_DATA"] || {};
+  var REPS = Array.isArray(RAW.reports) ? RAW.reports : [];
+  var AGG  = RAW.aggregate && typeof RAW.aggregate === "object" ? RAW.aggregate : {};
+  var main = document.getElementById("main");
+  var rail = document.getElementById("rail");
+  var railItems = document.getElementById("railitems");
+
+  /* ------------------------------------------------------------ formatting */
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+  function get(o, path, dflt) {
+    var cur = o;
+    for (var i = 0; i < path.length; i++) {
+      if (cur == null || typeof cur !== "object") return dflt;
+      cur = cur[path[i]];
+    }
+    return cur === undefined || cur === null ? dflt : cur;
+  }
+  function grp(v) {
+    return String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  }
+  function int(v) { return grp(Math.round(Number(v) || 0)); }
+  function signed(v) {
+    v = Math.round(Number(v) || 0);
+    return (v > 0 ? "+" : v < 0 ? "−" : "±") + grp(Math.abs(v));
+  }
+  function usd(v) {
+    v = Number(v) || 0;
+    return "$" + (v >= 1 ? v.toFixed(2) : v >= 0.01 ? v.toFixed(3) : v.toFixed(4));
+  }
+  function pct(v, d) {
+    v = (Number(v) || 0) * 100;
+    return v.toFixed(d == null ? (v === Math.round(v) ? 0 : 1) : d) + "%";
+  }
+  function secs(v) { return (Number(v) || 0).toFixed(1) + "s"; }
+  function plural(n, one, many) { return n === 1 ? one : (many || one + "s"); }
+  function trunc(s, n) {
+    s = String(s == null ? "" : s);
+    return s.length > n ? s.slice(0, n - 1).replace(/[\s,;:.]+$/, "") + "…" : s;
+  }
+  function ratio(a, b) { return b ? (a - b) / b : 0; }
+
+  /* -------------------------------------------------------------- identity */
+  var nameA = get(AGG, ["agents", "a"], get(REPS, [0, "a", "agent", "name"], "agent A"));
+  var nameB = get(AGG, ["agents", "b"], get(REPS, [0, "b", "agent", "name"], "agent B"));
+  var modelA = get(REPS, [0, "a", "agent", "model"], "");
+  var modelB = get(REPS, [0, "b", "agent", "model"], "");
+  var nTasks = Number(AGG.tasks) || REPS.length;
+
+  var HAS = REPS.length > 0 || Object.keys(AGG).length > 0;
+
+  /* ----------------------------------------------------------- svg helpers */
+  // success / failure never rests on hue: filled square = pass, slashed hollow
+  // square = fail. The letter names the side.
+  function outcomeMark(side, ok, label) {
+    var t = esc(label + " — " + (ok ? "success" : "failure"));
+    var g = ok
+      ? '<rect x="1" y="1" width="8" height="8" fill="currentColor"/>'
+      : '<rect x="1.5" y="1.5" width="7" height="7" fill="none" stroke="var(--hollow)"' +
+        ' stroke-width="1"/><line x1="1.8" y1="8.2" x2="8.2" y2="1.8" stroke="var(--hollow)"' +
+        ' stroke-width="1"/>';
+    return '<span class="mk" style="color:' + (ok ? "var(--good)" : "var(--bad)") + '"' +
+      ' title="' + t + '">' + esc(side) +
+      '<svg width="10" height="10" viewBox="0 0 10 10" role="img" aria-label="' + t + '">' +
+      g + "</svg></span>";
+  }
+  // severity reads as a filled / half / hollow square before it reads as colour
+  function sevMark(sev) {
+    sev = String(sev || "");
+    var body = sev === "critical"
+      ? '<rect x="0.5" y="0.5" width="8" height="8" fill="currentColor"/>'
+      : (sev === "major" || sev === "moderate")
+      ? '<rect x="0.5" y="0.5" width="8" height="8" fill="none" stroke="currentColor"/>' +
+        '<rect x="0.5" y="0.5" width="4" height="8" fill="currentColor"/>'
+      : '<rect x="0.5" y="0.5" width="8" height="8" fill="none" stroke="currentColor"/>';
+    return '<svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true">' + body + "</svg>";
+  }
+  function tinyMark(filled) {
+    return '<svg width="8" height="8" viewBox="0 0 9 9" aria-hidden="true"' +
+      ' style="display:inline-block;vertical-align:baseline">' + (filled
+        ? '<rect x="0.5" y="0.5" width="8" height="8" fill="currentColor"/>'
+        : '<rect x="0.5" y="0.5" width="8" height="8" fill="none" stroke="currentColor"' +
+          ' stroke-dasharray="2 2"/>') + "</svg>";
+  }
+  // repeated glyph = a count you can actually count; three shapes, three meanings
+  function countGlyph(n, shape, cap) {
+    n = Math.max(0, Math.round(Number(n) || 0));
+    if (!n) return '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">' +
+      '<line x1="1" y1="5.5" x2="8" y2="5.5" stroke="var(--hollow)" stroke-width="1"/></svg>';
+    cap = cap || 24;
+    var shown = Math.min(n, cap), pitch = shape === "tick" ? 3.5 : 8, h = 10, s = "";
+    var w = shown * pitch + (n > cap ? 10 : 0);
+    for (var i = 0; i < shown; i++) {
+      var x = i * pitch;
+      if (shape === "square") {
+        s += '<rect x="' + x + '" y="2" width="6" height="6" fill="currentColor"/>';
+      } else if (shape === "cross") {
+        s += '<g stroke="var(--accent-2)" stroke-width="1.3">' +
+          '<line x1="' + (x + 1) + '" y1="2.5" x2="' + (x + 6) + '" y2="7.5"/>' +
+          '<line x1="' + (x + 6) + '" y1="2.5" x2="' + (x + 1) + '" y2="7.5"/></g>';
+      } else {
+        s += '<line x1="' + (x + 1) + '" y1="1.5" x2="' + (x + 1) + '" y2="8.5"' +
+          ' stroke="currentColor" stroke-width="1.2"/>';
+      }
+    }
+    if (n > cap) {
+      s += '<text x="' + (shown * pitch + 1) + '" y="8.5" font-size="8">+</text>';
+    }
+    return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h +
+      '" aria-hidden="true">' + s + "</svg>";
+  }
+  // magnitude on a scale shared by every issue: solid bar vs dashed rule, so the
+  // two magnitude rows stay distinguishable at a glance.
+  function magGlyph(v, max, dashed) {
+    var w = 96, len = max > 0 ? Math.max(v > 0 ? 2 : 0, Math.round((v / max) * w)) : 0;
+    var body = dashed
+      ? '<line x1="0" y1="5.5" x2="' + len + '" y2="5.5" stroke="currentColor"' +
+        ' stroke-width="2.5" stroke-dasharray="2 2"/>'
+      : '<rect x="0" y="3" width="' + len + '" height="5" fill="currentColor"/>';
+    return '<svg width="' + w + '" height="10" viewBox="0 0 ' + w + ' 10" aria-hidden="true">' +
+      '<line x1="0" y1="9.5" x2="' + w + '" y2="9.5" stroke="var(--faint)" stroke-width="1"/>' +
+      body + "</svg>";
+  }
+  function shareBar(v, w) {
+    w = w || 150;
+    var len = Math.max(v > 0 ? 1 : 0, Math.round((Number(v) || 0) * w));
+    return '<svg width="' + w + '" height="9" viewBox="0 0 ' + w + ' 9" aria-hidden="true">' +
+      '<line x1="0" y1="8.5" x2="' + w + '" y2="8.5" stroke="var(--faint)" stroke-width="1"/>' +
+      '<rect x="0" y="2" width="' + len + '" height="6" fill="currentColor"/></svg>';
+  }
+  // cumulative tokens, A solid and B dashed — the two runs told apart by stroke,
+  // not by colour.
+  function spark(rep) {
+    var w = 74, h = 20, pad = 2;
+    var sa = cum(get(rep, ["a", "steps"], [])), sb = cum(get(rep, ["b", "steps"], []));
+    if (sa.length < 2 && sb.length < 2) return "";
+    var maxY = Math.max(sa[sa.length - 1] || 0, sb[sb.length - 1] || 0, 1);
+    var maxX = Math.max(sa.length - 1, sb.length - 1, 1);
+    function path(arr) {
+      var d = "";
+      for (var i = 0; i < arr.length; i++) {
+        d += (i ? "L" : "M") + (pad + (i / maxX) * (w - pad * 2)).toFixed(1) + " " +
+             (h - pad - (arr[i] / maxY) * (h - pad * 2)).toFixed(1) + " ";
+      }
+      return d.trim();
+    }
+    var tip = esc(nameA + " " + int(sa[sa.length - 1] || 0) + " tok (solid) vs " +
+      nameB + " " + int(sb[sb.length - 1] || 0) + " tok (dashed), cumulative");
+    return '<span class="spark"><svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w +
+      " " + h + '" role="img" aria-label="' + tip + '"><title>' + tip + "</title>" +
+      '<path d="' + path(sa) + '" fill="none" stroke="currentColor" stroke-width="1.1"/>' +
+      '<path d="' + path(sb) + '" fill="none" stroke="currentColor" stroke-width="1.1"' +
+      ' stroke-dasharray="2.5 1.8" opacity="0.75"/></svg></span>';
+  }
+  function cum(steps) {
+    var out = [0], t = 0;
+    (steps || []).forEach(function (s) { t += Number(s && s.tokens) || 0; out.push(t); });
+    return out.length > 1 ? out : [0, 0];
+  }
+
+  /* ------------------------------------------------------------ empty state */
+  if (!HAS) {
+    rail.remove();
+    document.querySelector(".shell").classList.add("solo");
+    document.getElementById("ident").innerHTML =
+      '<span class="shape" style="border:0;padding-left:0">no batch loaded</span>';
+    main.innerHTML =
+      '<div class="empty"><h2>This is the empty template.</h2>' +
+      "<p>No batch has been injected into this page yet. Point AgentDiff at a directory " +
+      "of trajectories and it writes a populated copy of this file, with the verdict, the " +
+      "systematic issues, the task ledger and the recommendations already filled in.</p>" +
+      "<pre>python -m deepcompare batch traces/ \\\n" +
+      "    -o out/ --template web/app.html\n\nopen out/report.html</pre>" +
+      "<p>Trajectories are plain JSON named <code>&lt;task_id&gt;__&lt;agent&gt;.json</code>; " +
+      "the contract is in <code>SCHEMA.md</code>. The analysis is deterministic — the same " +
+      "traces in, the same numbers out.</p></div>";
+    wireTheme();
+    return;
+  }
+
+  document.getElementById("ident").innerHTML =
+    '<span class="who"><span class="side">A</span><span class="nm">' + esc(nameA) +
+      '</span><span class="md">' + esc(modelA) + "</span></span>" +
+    '<span class="vs">VS</span>' +
+    '<span class="who"><span class="side">B</span><span class="nm">' + esc(nameB) +
+      '</span><span class="md">' + esc(modelB) + "</span></span>" +
+    '<span class="shape n">' + nTasks + " " + plural(nTasks, "task") + "</span>";
+
+  /* --------------------------------------------------------- derived model */
+  var srA = Number(get(AGG, ["success_rate", "a"], NaN));
+  var srB = Number(get(AGG, ["success_rate", "b"], NaN));
+  if (isNaN(srA) || isNaN(srB)) {
+    var okA = 0, okB = 0;
+    REPS.forEach(function (r) {
+      if (get(r, ["a", "outcome", "success"], false)) okA++;
+      if (get(r, ["b", "outcome", "success"], false)) okB++;
+    });
+    if (isNaN(srA)) srA = REPS.length ? okA / REPS.length : 0;
+    if (isNaN(srB)) srB = REPS.length ? okB / REPS.length : 0;
+  }
+  var mA = get(AGG, ["means", "a"], {}), mB = get(AGG, ["means", "b"], {});
+  var winner = srA === srB ? null : (srA > srB ? "a" : "b");
+  var wName = winner === "b" ? nameB : nameA;
+  var lName = winner === "b" ? nameA : nameB;
+  var wSr = winner === "b" ? srB : srA, lSr = winner === "b" ? srA : srB;
+  var taskGap = Math.round(Math.abs(srA - srB) * (nTasks || 0));
+
+  var ISS = get(AGG, ["issues"], {}) || {};
+  var allIssues = Array.isArray(ISS.issues) ? ISS.issues : [];
+  var active = allIssues.filter(function (i) { return !i.suppressed; });
+  var suppressed = allIssues.filter(function (i) { return !!i.suppressed; });
+  var topIssue = active[0] || allIssues[0] || null;
+  var wastedTokens = active.reduce(function (t, i) { return t + (Number(i.extra_tokens) || 0); }, 0);
+  var REGS = Array.isArray(AGG.regressions) ? AGG.regressions : [];
+
+  var sectionsOut = [];
+  var railOut = [];
+  function section(id, title, note, bodyHtml, railLabel) {
+    railOut.push({ id: id, label: railLabel || title });
+    sectionsOut.push('<section id="' + id + '" tabindex="-1"><div class="shead"><h2>' +
+      title + "</h2>" + (note ? '<span class="note">' + note + "</span>" : "") + "</div>" +
+      bodyHtml + "</section>");
+  }
+
+  /* ================================================================ verdict */
+  (function () {
+    var o = [];
+    if (winner) {
+      o.push('<p class="claim">' + '<em>' + esc(wName) + "</em> wins the batch — " +
+        '<span class="n">' + pct(wSr) + "</span> of " + nTasks + " " + plural(nTasks, "task") +
+        " against <span class=\"n\">" + pct(lSr) + "</span> for " + esc(lName) +
+        (taskGap ? ", a gap of <span class=\"n\">" + taskGap + "</span> " +
+          plural(taskGap, "task") : "") + ".</p>");
+    } else {
+      o.push('<p class="claim">Both agents land on <em><span class="n">' + pct(srA) +
+        "</span></em> across " + nTasks + " " + plural(nTasks, "task") +
+        " — the same score, and almost certainly not the same agent.</p>");
+    }
+    var costGap = ratio(Number(mB.cost_usd) || 0, Number(mA.cost_usd) || 0);
+    if (mA.cost_usd != null && mB.cost_usd != null && Math.abs(costGap) > 0.01) {
+      var dearer = costGap > 0 ? nameB : nameA;
+      o.push('<p class="claim q">And the tie-break is spend: ' + esc(dearer) + " costs " +
+        '<span class="n">' + pct(Math.abs(costGap), 0) + "</span> more per task, " +
+        '<span class="n">' + int((Number(mB.tokens) || 0) - (Number(mA.tokens) || 0)) +
+        "</span> tokens and <span class=\"n\">" +
+        secs(Math.abs((Number(mB.latency_s) || 0) - (Number(mA.latency_s) || 0))) +
+        "</span> of latency separate them on the mean run.</p>");
+    }
+    if (topIssue) {
+      o.push('<p class="claim q">The single biggest systematic issue is <span class="em2"' +
+        ' style="box-shadow:inset 0 -2px 0 var(--accent-2)">' + esc(topIssue.title) +
+        "</span> — on <span class=\"n\">" + (topIssue.tasks || []).length +
+        "</span> of " + nTasks + " tasks, causing <span class=\"n\">" +
+        (Number(topIssue.failures_caused) || 0) + "</span> " +
+        plural(Number(topIssue.failures_caused) || 0, "failure") + " and burning " +
+        '<span class="n">' + int(topIssue.extra_tokens) + "</span> extra tokens.</p>");
+    }
+    o.push('<p class="claim q">' + (REGS.length
+      ? '<span class="em2" style="box-shadow:inset 0 -2px 0 var(--accent-2)">' + REGS.length +
+        " " + plural(REGS.length, "regression") + " flagged</span>: " +
+        esc(trunc(REGS.join("; "), 220))
+      : "No regression was flagged: nothing improved at the cost of something else.") + "</p>");
+
+    // headline figures — unboxed numbers, small labels, nothing else
+    var f = [];
+    function fig(v, k, cls) {
+      f.push('<div class="fig"><span class="v' + (cls ? " " + cls : "") + '">' + v +
+        '</span><span class="k">' + k + "</span></div>");
+    }
+    fig(pct(srA, 1), "<b>" + esc(nameA) + "</b> success · " +
+      Math.round(srA * nTasks) + " of " + nTasks, winner === "a" ? "good" : "");
+    fig(pct(srB, 1), "<b>" + esc(nameB) + "</b> success · " +
+      Math.round(srB * nTasks) + " of " + nTasks, winner === "b" ? "good" : "");
+    if (mA.cost_usd != null || mB.cost_usd != null) {
+      fig(signedPct(ratio(Number(mB.cost_usd) || 0, Number(mA.cost_usd) || 0)),
+        "<b>mean cost / task</b> · <span style=\"white-space:nowrap\">" +
+          usd(mA.cost_usd) + " → " + usd(mB.cost_usd) + "</span>",
+        (Number(mB.cost_usd) || 0) > (Number(mA.cost_usd) || 0) ? "up" : "");
+    }
+    if (mA.latency_s != null || mB.latency_s != null) {
+      fig(signedPct(ratio(Number(mB.latency_s) || 0, Number(mA.latency_s) || 0)),
+        "<b>mean latency / task</b> · <span style=\"white-space:nowrap\">" +
+          secs(mA.latency_s) + " → " + secs(mB.latency_s) + "</span>",
+        (Number(mB.latency_s) || 0) > (Number(mA.latency_s) || 0) ? "up" : "");
+    }
+    fig(int(wastedTokens), "<b>tokens wasted</b> on " + active.length + " recurring " +
+      plural(active.length, "issue") + " — spent, not answered", wastedTokens > 0 ? "up" : "");
+
+    o.push('<div class="figures">' + f.join("") + "</div>");
+    section("s-verdict", "The verdict", nTasks + " " + plural(nTasks, "task") +
+      " · " + esc(nameA) + " vs " + esc(nameB), o.join(""), "The verdict");
+  })();
+  function signedPct(r) {
+    var v = (Number(r) || 0) * 100;
+    return (v > 0 ? "+" : v < 0 ? "−" : "±") + Math.abs(v).toFixed(0) + "%";
+  }
+
+  /* ======================================================= systematic issues */
+  (function () {
+    if (!allIssues.length) {
+      section("s-issues", "Systematic issues", "",
+        '<p class="lede">No recurring issues were extracted from this batch — either the ' +
+        "runs never diverged, or every divergence was a one-off.</p>", "Systematic issues");
+      return;
+    }
+    var maxTok = 0, maxLat = 0;
+    allIssues.forEach(function (i) {
+      maxTok = Math.max(maxTok, Number(i.extra_tokens) || 0);
+      maxLat = Math.max(maxLat, Number(i.extra_latency_s) || 0);
+    });
+
+    function issueBlock(iss) {
+      var sev = String(iss.severity || "minor");
+      var tasks = iss.tasks || [];
+      var fatalOn = {};
+      (iss.occurrences || []).forEach(function (oc) {
+        if (oc && oc.caused_failure) fatalOn[oc.task] = true;
+      });
+      var chips = tasks.map(function (t) {
+        return '<button type="button" class="chip" data-task="' + esc(t) + '" title="' +
+          esc("Jump to " + t + " in the task ledger") + '">' + esc(t) +
+          (fatalOn[t] ? '<span class="x" aria-label="caused the failure">✗</span>' : "") +
+          "</button>";
+      }).join("");
+
+      var g = [];
+      function grow(label, mark, value, zero) {
+        g.push('<span class="gl">' + label + '</span><span class="gm">' + mark +
+          '</span><span class="gv' + (zero ? " zero" : "") + '">' + value + "</span>");
+      }
+      var occ = Number(iss.occurrence_count) || (iss.occurrences || []).length;
+      var fails = Number(iss.failures_caused) || 0;
+      var xsteps = Number(iss.extra_steps) || 0;
+      grow("occurred", countGlyph(occ, "square"), occ + "×");
+      grow("failures", countGlyph(fails, "cross"), fails ? String(fails) : "none", !fails);
+      grow("extra steps", countGlyph(xsteps, "tick", 30), xsteps ? "+" + xsteps : "0", !xsteps);
+      grow("extra tokens", magGlyph(Number(iss.extra_tokens) || 0, maxTok, false),
+        "+" + int(iss.extra_tokens), !(Number(iss.extra_tokens) || 0));
+      grow("extra latency", magGlyph(Number(iss.extra_latency_s) || 0, maxLat, true),
+        "+" + secs(iss.extra_latency_s), !(Number(iss.extra_latency_s) || 0));
+
+      var who = (iss.agents || []).join(", ");
+      // the counts are already in the glyph column, so show the concrete instance
+      // instead of restating them
+      var ex = iss.example || (iss.occurrences || [])[0] || null;
+      var body = ex && ex.summary
+        ? '<span class="mut">e.g. on <span class="n">' + esc(ex.task || "") +
+          "</span> — </span>" + esc(ex.summary)
+        : esc(String(iss.summary || "").replace(/\s*—\s*seen on .*$/, ""));
+      return '<article class="issue">' +
+        '<div class="ihead"><span class="sev ' + esc(sev) + '">' + sevMark(sev) + esc(sev) +
+          "</span><h3>" + esc(iss.title || iss.id || "issue") + "</h3>" +
+          '<span class="meta">' + esc(iss.kind || "") + (who ? " · " + esc(who) : "") +
+          (iss.recurring ? " · recurring" : "") + "</span></div>" +
+        '<div class="ibody"><div><div class="fp">' + esc(iss.id || "") + "</div>" +
+          (body ? '<p class="isum">' + body + "</p>" : "") +
+          '<div class="chips"><span class="lbl">on</span>' + chips + "</div></div>" +
+          '<div class="glyphs">' + g.join("") + "</div></div></article>";
+    }
+
+    var counts = ISS.counts || {};
+    var note = [];
+    ["critical", "major", "minor"].forEach(function (k) {
+      if (counts[k]) note.push(counts[k] + " " + k);
+    });
+    var lede = '<p class="lede">' +
+      // the costliest issue is restated in the verdict and sits directly below
+      esc(String(ISS.narrative || (allIssues.length + " distinct issues extracted from the " +
+        "batch.")).replace(/\s*The costliest is:.*$/, "")) +
+      " Each block is one recurring behaviour, identified by a stable fingerprint, with the " +
+      "tasks it appeared on — a <b>✗</b> marks one where it caused the failure. " +
+      "<b>Click a task to jump to it in the ledger.</b></p>" +
+      '<div class="legend">' +
+      "<span>" + countGlyph(2, "square") + "occurrences</span>" +
+      "<span>" + countGlyph(2, "cross") + "failures caused</span>" +
+      "<span>" + countGlyph(4, "tick", 30) + "extra steps</span>" +
+      "<span>" + magGlyph(0.62, 1, false) + "extra tokens</span>" +
+      "<span>" + magGlyph(0.62, 1, true) + "extra latency</span>" +
+      "<span>bars share one scale across issues</span></div>";
+
+    var body = lede + active.map(issueBlock).join("");
+    if (suppressed.length) {
+      body += '<details class="supp"><summary>' + suppressed.length + " suppressed " +
+        plural(suppressed.length, "issue") +
+        " — fingerprints listed in .agentdiffignore, still reported, excluded from the " +
+        "headline counts</summary><div>" + suppressed.map(issueBlock).join("") +
+        "</div></details>";
+    }
+    section("s-issues", "Systematic issues",
+      (note.length ? note.join(" · ") + " · " : "") +
+      (ISS.total_divergences != null
+        ? ISS.total_divergences + " divergences → " + allIssues.length + " issues"
+        : allIssues.length + " issues"),
+      body, "Systematic issues");
+  })();
+
+  /* ================================================ origins + calibration */
+  (function () {
+    var origins = AGG.failure_origins || {};
+    var keys = Object.keys(origins).sort(function (x, y) { return origins[y] - origins[x]; });
+    // who actually failed, counted off the per-task attributions
+    var blame = {}, blamed = 0;
+    REPS.forEach(function (r) {
+      var f = get(r, ["attribution", "failed_agent"], null);
+      if (f !== "a" && f !== "b") return;
+      var who = f === "a" ? nameA : nameB;
+      blame[who] = (blame[who] || 0) + 1;
+      blamed++;
+    });
+    var left = "";
+    if (keys.length) {
+      left = '<p class="lede">Share of attributed failures by the kind of decision that ' +
+        "caused them. This is where to aim a fix.</p><div style=\"margin-top:1rem\">";
+      keys.forEach(function (k) {
+        left += '<div class="orow"><span class="ol">' + esc(k.replace(/_/g, " ")) +
+          '</span><span>' + shareBar(origins[k]) + '</span><span class="ov">' +
+          pct(origins[k], 0) + "</span></div>";
+      });
+      left += "</div>";
+      if (blamed) {
+        var who = Object.keys(blame).map(function (n) {
+          return esc(n) + ' <b class="n">' + blame[n] + "</b>";
+        }).join(" · ");
+        left += '<p class="calnote" style="margin-top:1.1rem"><b class="n">' + blamed +
+          "</b> attributed " + plural(blamed, "failure") + " across " + nTasks + " " +
+          plural(nTasks, "task") + " — " + who + "</p>";
+      }
+    } else {
+      left = '<p class="lede">No failures were attributed in this batch — either both agents ' +
+        "succeeded everywhere, or they failed together.</p>";
+    }
+
+    var cal = AGG.calibration || {};
+    var right = "";
+    if (cal.available && cal.agents && Object.keys(cal.agents).length) {
+      right = '<p class="lede">When a run failed, did the model’s own confidence drop? ' +
+        "<b>Supervisable</b> failures a confidence gate can catch; <b>silent</b> ones it " +
+        "cannot — those need an external check.</p>";
+      Object.keys(cal.agents).forEach(function (an) {
+        var c = cal.agents[an] || {};
+        var fl = Number(c.flagged) || 0, si = Number(c.silent) || 0, tot = fl + si;
+        var ok = String(c.verdict || "") === "supervisable";
+        var w = 150, fw = tot ? Math.round((fl / tot) * w) : 0;
+        var bar = '<svg width="' + w + '" height="10" viewBox="0 0 ' + w + ' 10" role="img"' +
+          ' aria-label="' + esc(fl + " flagged, " + si + " silent") + '">' +
+          '<rect x="0" y="0" width="' + fw + '" height="10" fill="currentColor"/>' +
+          '<rect x="' + (fw + (fw && fw < w ? 1 : 0)) + '" y="0.5" width="' +
+          Math.max(0, w - fw - (fw && fw < w ? 1 : 0) - 0.5) + '" height="9" fill="none"' +
+          ' stroke="var(--hollow)" stroke-width="1" stroke-dasharray="2 2"/></svg>';
+        var mark = tinyMark(ok);
+        right += '<div class="cal"><div class="calhead"><span class="nm">' + esc(an) +
+          '</span><span class="verdictw ' + (ok ? "ok" : "no") + '">' + mark +
+          esc(c.verdict || "") + "</span></div>" +
+          '<div class="calbar">' + bar + "</div>" +
+          '<p class="calnote">' + tinyMark(true) + ' <b class="n">' + fl +
+          "</b> flagged · " + tinyMark(false) + ' <b class="n">' + si +
+          "</b> silent of " + (Number(c.failures_with_telemetry) || tot) + " " +
+          plural(Number(c.failures_with_telemetry) || tot, "failure") +
+          (c.mean_confidence_when_wrong != null
+            ? " · mean confidence when wrong <b class=\"n\">" +
+              Number(c.mean_confidence_when_wrong).toFixed(2) + "</b>"
+            : "") + "<br>" +
+          (ok ? "A confidence threshold would have caught most of these."
+              : "Confidence stayed high while the answer went wrong — add a verification " +
+                "step, not a threshold.") + "</p></div>";
+      });
+      if (cal.narrative) right += '<p class="narr">' + esc(cal.narrative) + "</p>";
+    } else {
+      right = '<p class="lede">No model telemetry in this batch, so failures cannot be split ' +
+        "into flagged and silent. Attach a <code>model</code> block (confidence, entropy) to " +
+        "steps and this section fills in — it is the difference between a failure a gate " +
+        "can catch and one only external verification will.</p>";
+    }
+
+    section("s-origins", "Where failures start", "attribution · calibration",
+      '<div class="duo"><div><h3 class="cap">Failure origins</h3>' + left + "</div>" +
+      '<div><h3 class="cap">Can these failures be supervised?</h3>' + right + "</div></div>",
+      "Failure origins");
+  })();
+
+  /* ================================================================= ledger */
+  var TASKMAP = {};
+  (function () {
+    if (!REPS.length) {
+      section("s-tasks", "Task ledger", "", '<p class="lede">No per-task reports were ' +
+        "injected into this page.</p>", "Task ledger");
+      return;
+    }
+    var signal = {};
+    (AGG.task_signal || []).forEach(function (t) { if (t && t.task) signal[t.task] = t; });
+
+    var rows = [];
+    rows.push('<div class="lhead"><span>task</span><span>prompt</span>' +
+      '<span>outcome</span><span>first divergence</span>' +
+      '<span class="h-spark">cumulative tokens</span><span class="r">Δ tok</span></div>');
+
+    REPS.forEach(function (rep, i) {
+      var tid = String(get(rep, ["task", "id"], "task " + (i + 1)));
+      TASKMAP[tid] = i;
+      var okA = !!get(rep, ["a", "outcome", "success"], false);
+      var okB = !!get(rep, ["b", "outcome", "success"], false);
+      var d0 = get(rep, ["divergences", 0], null);
+      var kind = d0 ? String(d0.kind || "").replace(/_/g, " ") : "none";
+      var ta = Number(get(rep, ["metrics_delta", "tokens", "a"], 0));
+      var tb = Number(get(rep, ["metrics_delta", "tokens", "b"], 0));
+      var dt = tb - ta;
+      rows.push('<button type="button" class="lrow" id="row-' + i + '" data-row="' + i +
+        '" aria-expanded="false" aria-controls="det-' + i + '">' +
+        '<span class="tid">' + esc(tid) + "</span>" +
+        '<span class="prompt">' + esc(trunc(get(rep, ["task", "prompt"], ""), 96)) + "</span>" +
+        '<span class="marks">' + outcomeMark("A", okA, nameA) + outcomeMark("B", okB, nameB) +
+        "</span>" +
+        '<span class="kind' + (d0 ? "" : " none") + '">' + esc(kind) + "</span>" +
+        spark(rep) +
+        '<span class="dt ' + (dt > 0 ? "up" : "dn") + '">' + signed(dt) + "</span></button>" +
+        '<div class="det" id="det-' + i + '" hidden></div>');
+    });
+
+    section("s-tasks", "Task ledger", REPS.length + " " + plural(REPS.length, "task") +
+      " · click a row to open it",
+      '<p class="lede">One row per task. Filled square = success, slashed hollow square = ' +
+      "failure. The sparkline is cumulative tokens for both runs — <b>" + esc(nameA) +
+      " solid, " + esc(nameB) + " dashed</b> — so a fan-out is one agent doing extra work. " +
+      "Δ tok is " + esc(nameB) + " minus " + esc(nameA) + ".</p>" +
+      '<div class="ledger">' + rows.join("") + "</div>", "Task ledger");
+
+    // detail panel, built lazily on first open
+    window.__detailHtml = function (i) {
+      var rep = REPS[i] || {};
+      var tid = String(get(rep, ["task", "id"], ""));
+      var att = rep.attribution || {};
+      var d0 = get(rep, ["divergences", 0], null);
+      var cf = rep.counterfactual || null;
+      var unc = get(rep, ["uncertainty", "signal"], null);
+      var sig = signal[tid];
+      var o = [];
+
+      o.push('<div class="dblk"><h4>Attribution</h4><p>' +
+        esc(att.explanation ||
+          (att.failed_agent ? "Failure attributed to " + esc(att.category || "an earlier step") + "."
+            : "No failure was attributed — both runs reached the same verdict.")) + "</p>");
+      if (att.chain && att.chain.length) {
+        o.push('<div class="facts"><span>failing side <b>' +
+          esc(att.failed_agent === "b" ? nameB : att.failed_agent === "a" ? nameA : "—") +
+          "</b></span><span>root cause <b>step " + esc(String(att.root_cause_step)) +
+          "</b></span><span>chain <b>" + att.chain.join(" → ") + "</b></span></div>");
+      }
+      o.push("</div>");
+
+      if (d0) {
+        var dn = d0.downstream || {};
+        var xs = dn.extra_steps_b != null ? dn.extra_steps_b : dn.extra_steps_a;
+        var xt = dn.extra_tokens_b != null ? dn.extra_tokens_b : dn.extra_tokens_a;
+        var xl = dn.extra_latency_s_b != null ? dn.extra_latency_s_b : dn.extra_latency_s_a;
+        var heavier = dn.extra_tokens_b != null ? nameB : nameA;
+        o.push('<div class="dblk"><h4>First divergence · ' +
+          esc(String(d0.kind || "").replace(/_/g, " ")) + "</h4><p>" + esc(d0.summary || "") +
+          "</p><div class=\"facts\"><span>downstream, " + esc(heavier) + " spends</span>" +
+          (xs != null ? "<span><b>+" + xs + "</b> steps</span>" : "") +
+          (xt != null ? "<span><b>+" + int(xt) + "</b> tokens</span>" : "") +
+          (xl != null ? "<span><b>+" + secs(xl) + "</b></span>" : "") +
+          (dn.caused_failure ? '<span class="fatal">caused the failure</span>' : "") +
+          "</div></div>");
+      }
+      if (sig) {
+        o.push('<div class="dblk"><h4>Task signal</h4><p>' + esc(sig.note || "") +
+          '</p><div class="facts"><span>difficulty <b>' +
+          Number(sig.difficulty || 0).toFixed(2) + "</b></span><span>discrimination <b>" +
+          Number(sig.discrimination || 0).toFixed(2) + "</b></span></div></div>");
+      }
+
+      var right = [];
+      if (cf && cf.narrative) {
+        var est = cf.estimate || {};
+        right.push('<div class="dblk"><h4>Counterfactual</h4><p>' + esc(cf.narrative) +
+          '</p><div class="facts">' +
+          (cf.confidence ? "<span>confidence <b>" + esc(cf.confidence) + "</b></span>" : "") +
+          (est.outcome ? "<span>estimated outcome <b>" + esc(est.outcome) + "</b></span>" : "") +
+          (est.tokens_delta != null ? "<span>tokens <b>" + signed(est.tokens_delta) +
+            "</b></span>" : "") +
+          (est.cost_delta_usd != null ? "<span>cost <b>" +
+            (est.cost_delta_usd > 0 ? "+" : "−") + usd(Math.abs(est.cost_delta_usd)) +
+            "</b></span>" : "") + "</div></div>");
+      }
+      if (unc && unc.verdict) {
+        var fl = unc.verdict === "flagged";
+        right.push('<div class="dblk"><h4>Model uncertainty</h4>' +
+          '<p><span class="uv ' + (fl ? "flagged" : "silent") + '">' +
+          tinyMark(fl) + esc(unc.verdict) + "</span> — " +
+          esc(unc.mitigation || "") + '</p><div class="facts">' +
+          (unc.confidence_at_root != null ? "<span>at root <b>" +
+            pct(unc.confidence_at_root, 0) + "</b></span>" : "") +
+          (unc.baseline_confidence != null ? "<span>baseline <b>" +
+            pct(unc.baseline_confidence, 0) + "</b></span>" : "") +
+          (unc.drop != null ? "<span>drop vs baseline <b>" +
+            (Number(unc.drop) * 100).toFixed(1) + "pt</b></span>" : "") +
+          (unc.lead_steps != null ? "<span>lead <b>" + unc.lead_steps + " steps</b></span>" : "") +
+          "</div></div>");
+      }
+      if (!right.length) {
+        right.push('<div class="dblk"><h4>What-if</h4><p class="mut">No counterfactual and no ' +
+          "model telemetry for this task.</p></div>");
+      }
+      var viewer = (/report\.html$/i.test(location.pathname) ? "viewer.html" : "report.html") +
+        "#task=" + encodeURIComponent(tid);
+      right.push('<div class="dlinks"><a href="' + esc(viewer) + '">Open the aligned compare ' +
+        "view ↗</a><a href=\"trace.html\">Open the trace score ↗</a></div>");
+
+      return '<div class="detin"><div>' + o.join("") + "</div><div>" + right.join("") +
+        "</div></div>";
+    };
+  })();
+
+  /* ================================================ recommendations + playbook */
+  var PROMPTS = [];
+  (function () {
+    var recs = Array.isArray(AGG.recommendations) ? AGG.recommendations : [];
+    var pbk = Array.isArray(AGG.playbook) ? AGG.playbook : [];
+    if (!recs.length && !pbk.length) return;
+
+    var left = "";
+    if (recs.length) {
+      left = '<h3 class="cap">Fixes, most valuable first</h3><p class="lede">Each is derived ' +
+        "from the divergences it cites — the prompt is a starting draft, not a patch.</p>";
+      recs.forEach(function (r) {
+        var idx = PROMPTS.push(String(r.suggested_prompt || "")) - 1;
+        var sev = String(r.severity || "");
+        left += '<div class="rec"><div class="rechead">' +
+          '<span class="sev ' + esc(sev) + '">' + sevMark(sev) + esc(sev) + "</span>" +
+          '<span class="who">' + esc(r.agent || "") + '</span>' +
+          '<span class="cat">' + esc(String(r.category || "").replace(/_/g, " ")) + "</span>" +
+          (r.expected_gain ? '<span class="gain">' + esc(r.expected_gain) + "</span>" : "") +
+          "</div>" +
+          (r.finding ? '<p class="find">' + esc(r.finding) + "</p>" : "") +
+          (r.suggested_prompt
+            ? '<div class="pw"><pre>' + esc(r.suggested_prompt) + "</pre>" +
+              '<button type="button" class="copy" data-copy="' + idx +
+              '" title="Copy the suggested prompt">copy</button></div>'
+            : "") + "</div>";
+      });
+    }
+
+    var right = "";
+    if (pbk.length) {
+      right = '<h3 class="cap">Playbook — what good looked like</h3>' +
+        '<p class="lede">Habits generalized from the winning side of each divergence.</p>';
+      pbk.forEach(function (p) {
+        right += '<div class="pbk"><p class="habit"><span class="kind">' +
+          esc(String(p.kind || "").replace(/_/g, " ")) + "</span>" + esc(p.habit || "") +
+          '</p><p class="ev">' + esc((p.agents || []).join(", ")) +
+          (p.evidence ? " · " + esc(p.evidence) : "") +
+          (p.impact ? " · <b>" + esc(p.impact) + "</b>" : "") + "</p></div>";
+      });
+    }
+
+    section("s-recs", "What to change", recs.length + " " + plural(recs.length, "recommendation"),
+      '<div class="duo rp"><div>' + left + "</div><div>" + right + "</div></div>",
+      "What to change");
+  })();
+
+  /* ================================================================== render */
+  main.innerHTML = sectionsOut.join("") + footerHtml();
+  railItems.innerHTML = railOut.map(function (s, i) {
+    return '<li><a href="#' + s.id + '" data-rail="' + s.id + '"><span class="idx">' +
+      ("0" + (i + 1)).slice(-2) + "</span>" + esc(s.label) + "</a></li>";
+  }).join("");
+
+  function footerHtml() {
+    var cmd = "python -m deepcompare batch traces/ -o out/ --template web/app.html";
+    return "<footer>This page was generated by <code>" + esc(cmd) + "</code> over " +
+      nTasks + " " + plural(nTasks, "task") + " (" + esc(nameA) + " vs " + esc(nameB) +
+      "); the same run also writes <code>aggregate.json</code> and one " +
+      "<code>report_&lt;task&gt;.json</code> per task, which carry every number shown here." +
+      "<br>The analysis is deterministic and offline: no sampling, no model in the loop — " +
+      "the same traces produce the same numbers, which is what makes it safe to gate a CI " +
+      "pipeline on." +
+      '<div class="views">' +
+      '<span><a href="viewer.html">viewer.html</a> <i>— the full compare view: aligned ' +
+      "timelines, step-by-step diffs, the causal chain for one task at a time</i></span>" +
+      '<span><a href="trace.html">trace.html</a> <i>— the trace score: every step of ' +
+      "both runs drawn as one figure, tokens by latency by type, with model confidence</i></span>" +
+      '<span><a href="select.html">select.html</a> <i>— fleet selection: which agents ' +
+      "are interchangeable, which are redundant, and what routing could win</i></span>" +
+      "</div></footer>";
+  }
+
+  /* ============================================================ interactions */
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* measure the sticky chrome so anchors and the scrollspy agree with the eye */
+  var chrome = 0;
+  function measure() {
+    var mh = document.querySelector(".masthead");
+    var mhH = mh ? Math.round(mh.getBoundingClientRect().height) : 0;
+    var railH = 0;
+    if (rail && rail.offsetParent !== null &&
+        window.getComputedStyle(rail).position === "sticky" &&
+        window.innerWidth <= 900) {
+      railH = Math.round(rail.getBoundingClientRect().height);
+    }
+    document.documentElement.style.setProperty("--mh", mhH + "px");
+    document.documentElement.style.setProperty("--railh", railH + "px");
+    chrome = mhH + railH;
+  }
+  measure();
+  window.addEventListener("resize", measure);
+
+  main.addEventListener("click", function (e) {
+    var t = e.target;
+    var chip = t.closest && t.closest(".chip[data-task]");
+    if (chip) { jumpToTask(chip.getAttribute("data-task")); return; }
+    var copy = t.closest && t.closest(".copy[data-copy]");
+    if (copy) { doCopy(copy); return; }
+    var row = t.closest && t.closest(".lrow[data-row]");
+    if (row) { toggleRow(row, true); return; }
+  });
+
+  function toggleRow(row, focus) {
+    var i = row.getAttribute("data-row");
+    var det = document.getElementById("det-" + i);
+    if (!det) return false;
+    var open = row.getAttribute("aria-expanded") === "true";
+    if (open) {
+      det.hidden = true;
+      row.setAttribute("aria-expanded", "false");
+      return false;
+    }
+    if (!det.innerHTML) det.innerHTML = window.__detailHtml(Number(i));
+    det.hidden = false;
+    row.setAttribute("aria-expanded", "true");
+    if (focus) { /* keep focus on the row so keyboard users stay oriented */ }
+    return true;
+  }
+
+  function jumpToTask(tid) {
+    var i = TASKMAP[tid];
+    if (i == null) return;
+    var row = document.getElementById("row-" + i);
+    if (!row) return;
+    if (row.getAttribute("aria-expanded") !== "true") toggleRow(row);
+    row.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" });
+    row.classList.remove("flash");
+    void row.offsetWidth;
+    row.classList.add("flash");
+    window.setTimeout(function () { row.classList.remove("flash"); }, 1400);
+    try { row.focus({ preventScroll: true }); } catch (err) { row.focus(); }
+  }
+
+  function doCopy(btn) {
+    var text = PROMPTS[Number(btn.getAttribute("data-copy"))] || "";
+    function done(ok) {
+      btn.textContent = ok ? "copied ✓" : "select & copy";
+      btn.classList.toggle("done", ok);
+      window.setTimeout(function () {
+        btn.textContent = "copy";
+        btn.classList.remove("done");
+      }, 1800);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); },
+        function () { done(legacyCopy(text)); });
+      return;
+    }
+    done(legacyCopy(text));
+  }
+  function legacyCopy(text) {
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.cssText = "position:fixed;top:0;left:-9999px;opacity:0";
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return ok;
+    } catch (e) { return false; }
+  }
+
+  /* scrollspy — highlight the section the reader is actually in */
+  (function () {
+    var links = {}, ids = railOut.map(function (s) { return s.id; });
+    ids.forEach(function (id) {
+      links[id] = railItems.querySelector('[data-rail="' + id + '"]');
+    });
+    function mark(id) {
+      ids.forEach(function (k) {
+        if (links[k]) links[k].setAttribute("aria-current", k === id ? "true" : "false");
+      });
+    }
+    var ticking = false, last = ids[0];
+    mark(last);
+    function spy() {
+      ticking = false;
+      var best = null;
+      ids.forEach(function (id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        var r = el.getBoundingClientRect();
+        var line = chrome + 40;
+        if (r.top <= line && (!best || r.top > best.top)) best = { id: id, top: r.top };
+      });
+      // past the last section (footer in view) the final entry stays current
+      if (!best) best = { id: ids[0] };
+      if (best.id !== last) { last = best.id; mark(last); }
+    }
+    function onScroll() {
+      if (ticking) return;
+      ticking = true;
+      window.requestAnimationFrame(spy);
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    spy();
+  })();
+
+  wireTheme();
+  function wireTheme() {
+    var btn = document.getElementById("theme");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      var cur = document.documentElement.getAttribute("data-theme");
+      if (!cur) {
+        cur = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+      document.documentElement.setAttribute("data-theme", cur === "dark" ? "light" : "dark");
+    });
+  }
+})();
+</script>
+</body>
+</html>

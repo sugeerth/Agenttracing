@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "trace_id": "gm02_kestrel_release-steady-v1",
+  "agent": {
+    "name": "steady-v1",
+    "model": "claude-sonnet-5",
+    "version": "v1"
+  },
+  "task": {
+    "id": "gm02_kestrel_release",
+    "prompt": "When was Kestrel 3.2.0 released?",
+    "expected": "Kestrel 3.2.0 was released on 12 March 2026."
+  },
+  "outcome": {
+    "success": true,
+    "answer": "Kestrel 3.2.0 was released on 12 March 2026, per the official release notes.",
+    "score": 1.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 600,
+    "output_tokens": 200,
+    "cost_usd": 0.0024,
+    "latency_s": 5.5
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "search",
+      "name": "web_search",
+      "input": "Kestrel 3.2.0 release date",
+      "output": "Results: kestrel.dev/releases (official release notes); blog.kestrel.dev (announcement post).",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "retrieve",
+      "name": "kestrel.dev/releases",
+      "input": "open result kestrel.dev/releases",
+      "output": "Release notes index for Kestrel, newest first.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 2,
+      "type": "read",
+      "name": "kestrel.dev/releases",
+      "input": "",
+      "output": "Kestrel 3.2.0 \u2014 released 12 March 2026. Adds incremental indexing and a new planner.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 3,
+      "type": "reason",
+      "name": "reason",
+      "input": "Official notes give 12 March 2026 for the 3.2.0 release.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final",
+      "input": "Kestrel 3.2.0 was released on 12 March 2026, per the official release notes.",
+      "output": "Kestrel 3.2.0 was released on 12 March 2026, per the official release notes.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [],
+  "budget": {
+    "max_steps": 12
+  }
+}

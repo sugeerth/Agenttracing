@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "trace_id": "bw02_dns_cutover-scout-v2",
+  "agent": {
+    "name": "scout-v2",
+    "model": "gpt-5",
+    "version": "v2"
+  },
+  "task": {
+    "id": "bw02_dns_cutover",
+    "prompt": "Point staging.acme.dev at the new load balancer lb-eu-2 and verify it resolves.",
+    "expected": "staging.acme.dev points at lb-eu-2 and resolves correctly."
+  },
+  "outcome": {
+    "success": false,
+    "answer": "staging.acme.dev now points at lb-eu-1 and resolves.",
+    "score": 0.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 480,
+    "output_tokens": 160,
+    "cost_usd": 0.00192,
+    "latency_s": 4.4
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "tool_call",
+      "name": "set_dns_record",
+      "input": "set_dns_record(host='staging.acme.dev', target='lb-eu-1')",
+      "output": "Record saved: staging.acme.dev -> lb-eu-1.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": "bad",
+      "note": "wrote the DNS record before reading which balancer is new",
+      "effect": "write",
+      "error": false
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "resolve_host",
+      "input": "resolve_host(host='staging.acme.dev')",
+      "output": "staging.acme.dev currently resolves to lb-eu-1.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": "weak",
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 2,
+      "type": "reason",
+      "name": "reason",
+      "input": "The record points at lb-eu-1, which should be the new balancer.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": "weak",
+      "note": null
+    },
+    {
+      "index": 3,
+      "type": "answer",
+      "name": "final",
+      "input": "staging.acme.dev now points at lb-eu-1 and resolves.",
+      "output": "staging.acme.dev now points at lb-eu-1 and resolves.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_lb",
+      "effect": "read"
+    },
+    {
+      "name": "set_dns_record",
+      "effect": "write"
+    },
+    {
+      "name": "resolve_host",
+      "effect": "read"
+    }
+  ],
+  "budget": {
+    "max_steps": 12
+  }
+}

@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "trace_id": "p03_change_seats-hasty-v2",
+  "agent": {
+    "name": "hasty-v2",
+    "model": "gpt-5",
+    "version": "v2"
+  },
+  "task": {
+    "id": "p03_change_seats",
+    "prompt": "Change booking QX7T2 to 3 seats on flight BA117.",
+    "expected": "BA117 rebooked with 3 seats."
+  },
+  "outcome": {
+    "success": false,
+    "answer": "I was unable to change the seat count.",
+    "score": 0.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 480,
+    "output_tokens": 160,
+    "cost_usd": 0.00192,
+    "latency_s": 4.8
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "tool_call",
+      "name": "get_booking",
+      "input": "get_booking(reference='QX7T2')",
+      "output": "QX7T2 \u2014 BA117, 2 seats.",
+      "tokens": 40,
+      "latency_s": 1.2,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "book_flight",
+      "input": "book_flight(flight='BA117', seats='three', cabin='economy')",
+      "output": "Error: 'seats' must be an integer; unknown parameter 'cabin'.",
+      "tokens": 40,
+      "latency_s": 1.2,
+      "quality": "bad",
+      "note": "string where an integer is declared, plus an argument the schema does not have",
+      "effect": "write",
+      "error": true
+    },
+    {
+      "index": 2,
+      "type": "tool_call",
+      "name": "modify_seats",
+      "input": "modify_seats(reference='QX7T2', seats=3)",
+      "output": "Error: unknown tool 'modify_seats'.",
+      "tokens": 40,
+      "latency_s": 1.2,
+      "quality": "bad",
+      "note": "tool was never offered",
+      "error": true
+    },
+    {
+      "index": 3,
+      "type": "answer",
+      "name": "final",
+      "input": "I was unable to change the seat count.",
+      "output": "I was unable to change the seat count.",
+      "tokens": 40,
+      "latency_s": 1.2,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "search_flights",
+      "effect": "read",
+      "parameters": {
+        "properties": {
+          "origin": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "origin",
+          "destination",
+          "date"
+        ]
+      }
+    },
+    {
+      "name": "get_booking",
+      "effect": "read",
+      "parameters": {
+        "properties": {
+          "reference": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference"
+        ]
+      }
+    },
+    {
+      "name": "get_policy",
+      "effect": "read",
+      "parameters": {
+        "properties": {
+          "topic": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic"
+        ]
+      }
+    },
+    {
+      "name": "cancel_booking",
+      "effect": "write",
+      "parameters": {
+        "properties": {
+          "reference": {
+            "type": "string"
+          },
+          "refund": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "reference"
+        ]
+      }
+    },
+    {
+      "name": "book_flight",
+      "effect": "write",
+      "parameters": {
+        "properties": {
+          "flight": {
+            "type": "string"
+          },
+          "seats": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "flight",
+          "seats"
+        ]
+      }
+    }
+  ],
+  "budget": {
+    "max_steps": 10
+  }
+}

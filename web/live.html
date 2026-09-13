@@ -1,0 +1,444 @@
+<title>AgentDiff Live</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#f4f3ee; --surface:#ffffff; --surface-2:#eceae2; --ink:#1a1b1e; --ink-2:#4b4d52; --ink-3:#74777d; --rule:#dedcd3; --rule-2:#c9c7bd;
+  --a:#2f6f9f; --b:#b5651d; --good:#2f7d4f; --bad:#b23a3a; --warn:#a97a12; --accent:#0f7f7a; --accent-ink:#ffffff;
+  --shadow:0 1px 2px rgba(20,20,10,.06),0 6px 18px rgba(20,20,10,.05);
+  --display:"IBM Plex Sans Condensed",ui-sans-serif,system-ui,sans-serif; --sans:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#141619; --surface:#1b1e23; --surface-2:#22262c; --ink:#ecebe6; --ink-2:#b9b8b1; --ink-3:#858780; --rule:#2c3037; --rule-2:#3b4048;
+  --a:#6fb0e0; --b:#e2a45f; --good:#6fbf83; --bad:#e07070; --warn:#d8b45a; --accent:#3fc1b6; --accent-ink:#0f1a19;
+  --shadow:0 1px 2px rgba(0,0,0,.35),0 6px 18px rgba(0,0,0,.3); } }
+:root[data-theme="dark"]{
+  --bg:#141619; --surface:#1b1e23; --surface-2:#22262c; --ink:#ecebe6; --ink-2:#b9b8b1; --ink-3:#858780; --rule:#2c3037; --rule-2:#3b4048;
+  --a:#6fb0e0; --b:#e2a45f; --good:#6fbf83; --bad:#e07070; --warn:#d8b45a; --accent:#3fc1b6; --accent-ink:#0f1a19;
+  --shadow:0 1px 2px rgba(0,0,0,.35),0 6px 18px rgba(0,0,0,.3); }
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5}
+.wrap{max-width:1040px;margin:0 auto;padding:22px 20px 80px}
+header{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:end;border-bottom:1px solid var(--rule);padding-bottom:14px}
+h1{font-family:var(--display);font-weight:700;font-size:30px;letter-spacing:-.01em;margin:0;line-height:1.05}
+h1 small{display:block;font-family:var(--sans);font-weight:400;font-size:13px;color:var(--ink-3);letter-spacing:0;margin-top:4px}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-left:auto}
+select,button{font:inherit;font-size:13px;color:var(--ink);background:var(--surface);border:1px solid var(--rule-2);border-radius:6px;padding:6px 10px}
+button{cursor:pointer}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600;padding:7px 14px}
+button.primary:disabled{opacity:.45;cursor:default}
+button.ghost{background:transparent}
+:is(button,select,a,summary):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11.5px;padding:3px 9px;border-radius:999px;border:1px solid var(--rule-2);color:var(--ink-2);background:var(--surface)}
+.chip i{width:7px;height:7px;border-radius:50%;background:var(--ink-3);display:inline-block}
+.chip.live i{background:var(--accent);animation:pulse 1.1s ease-in-out infinite alternate}
+.chip.ok i{background:var(--good)} .chip.fail i{background:var(--bad)} .chip.warn i{background:var(--warn)}
+@keyframes pulse{from{opacity:.35}to{opacity:1}}
+.task{margin:18px 0 8px;font-size:15px;color:var(--ink-2);max-width:68ch}
+.task b{color:var(--ink);font-weight:600}
+.task .exp{font-family:var(--mono);font-size:12px;color:var(--ink-3);display:block;margin-top:3px}
+section{margin-top:26px}
+h2{font-family:var(--display);font-weight:600;font-size:13px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);margin:0 0 10px;display:flex;gap:10px;align-items:baseline}
+h2 span{font-family:var(--sans);font-weight:400;letter-spacing:0;text-transform:none;font-size:12.5px}
+.lanes{display:grid;gap:14px}
+.lane{background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:12px 14px 10px;box-shadow:var(--shadow)}
+.lane-head{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline}
+.lane-head .name{font-family:var(--display);font-weight:700;font-size:19px}
+.lane-head .persona{color:var(--ink-3);font-size:12.5px}
+.lane-head .stat{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);margin-left:auto;font-variant-numeric:tabular-nums}
+.lane[data-side="a"] .name{color:var(--a)} .lane[data-side="b"] .name{color:var(--b)}
+.line{display:block;width:100%;height:62px;overflow:visible;margin-top:4px}
+.line text{font-family:var(--mono);font-size:10px;fill:var(--ink-3)}
+.line .now circle,.line .now rect,.line .now path{stroke:var(--accent);stroke-width:2.6px;animation:pulse .8s ease-in-out infinite alternate}
+.line .new circle,.line .new rect{transform-box:fill-box;transform-origin:center;animation:pop .45s ease-out}
+@keyframes pop{from{transform:scale(2.4);opacity:.1}to{transform:scale(1);opacity:1}}
+.feed{list-style:none;margin:6px 0 0;padding:0;font-size:13px}
+.feed li{display:grid;grid-template-columns:3ch 8.5em 1fr;gap:10px;padding:5px 0;border-top:1px solid var(--rule);align-items:start}
+.feed li:first-child{border-top:0}
+.feed .n{font-family:var(--mono);color:var(--ink-3);font-size:11.5px;padding-top:2px}
+.feed .k{font-family:var(--mono);font-size:11.5px;color:var(--ink-2);padding-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.feed .k.tool{color:var(--accent)} .feed .k.answer{color:var(--ink);font-weight:500}
+.feed .t{color:var(--ink-2);white-space:pre-wrap;word-break:break-word;max-height:4.6em;overflow:hidden;position:relative}
+.feed li.open .t{max-height:none}
+.feed .t.thinking{color:var(--ink-3);font-style:italic}
+.feed li{cursor:pointer}
+.more{font-size:12px;color:var(--ink-3);margin-top:6px}
+.diff{background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:12px 14px;box-shadow:var(--shadow)}
+.outcomes{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px}
+.outcome{border-left:3px solid var(--rule-2);padding:2px 0 2px 12px}
+.outcome[data-side="a"]{border-color:var(--a)} .outcome[data-side="b"]{border-color:var(--b)}
+.outcome .who{font-family:var(--display);font-weight:600;font-size:15px}
+.outcome .ans{font-size:13px;color:var(--ink-2);margin-top:2px;max-width:60ch}
+.outcome .m{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);margin-top:4px;font-variant-numeric:tabular-nums}
+table.align{border-collapse:collapse;width:100%;font-size:12.5px}
+table.align th{text-align:left;font-family:var(--mono);font-weight:500;font-size:11px;color:var(--ink-3);padding:4px 8px 6px 0;border-bottom:1px solid var(--rule)}
+table.align td{padding:5px 8px 5px 0;border-top:1px solid var(--rule);vertical-align:top;font-family:var(--mono);font-size:11.5px;color:var(--ink-2)}
+table.align td.op{white-space:nowrap}
+table.align tr.div td{background:color-mix(in srgb,var(--bad) 9%,transparent)}
+table.align td.a{color:var(--a)} table.align td.b{color:var(--b)}
+.note{font-size:12.5px;color:var(--ink-3);margin-top:10px;max-width:72ch}
+.note b{color:var(--ink-2);font-weight:500}
+.verdict{display:grid;grid-template-columns:8.5em 1fr;gap:6px 14px;font-size:13.5px}
+.verdict .k{font-family:var(--mono);font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;padding-top:3px}
+.verdict .v.first{font-family:var(--display);font-size:18px;font-weight:600;line-height:1.25}
+.prompts{margin:8px 0 0;padding-left:18px;font-size:13px;color:var(--ink-2)}
+.prompts li{margin:4px 0}
+.runs{display:flex;flex-wrap:wrap;gap:8px}
+.run{font:inherit;font-size:12.5px;text-align:left;background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:6px 10px;cursor:pointer;color:var(--ink-2)}
+.run b{display:block;font-family:var(--mono);font-size:11px;color:var(--ink-3);font-weight:400}
+.run .r{font-family:var(--mono)}
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+.empty{color:var(--ink-3);font-size:13px}
+.err{color:var(--bad);font-size:13px}
+@media (max-width:640px){ .outcomes{grid-template-columns:1fr} .feed li{grid-template-columns:3ch 1fr} .feed .k{grid-column:2} .feed .t{grid-column:2} h1{font-size:24px} }
+@media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important} }
+</style>
+
+<div class="wrap">
+<header>
+  <h1>AgentDiff Live<small>Two agents, one task, every step as it happens. Then the diff.</small></h1>
+  <div class="controls">
+    <select id="task" aria-label="task"></select>
+    <select id="tier" aria-label="model tier"><option value="quick">quick</option><option value="default" selected>default</option><option value="complex">complex</option></select>
+    <button id="run" class="primary" hidden>Run two live agents</button>
+    <button id="stop" class="ghost" hidden>Stop</button>
+    <span id="status" class="chip"><i></i><span>loading</span></span>
+  </div>
+</header>
+
+<p class="task" id="taskText"></p>
+
+<section>
+  <h2>Running <span id="runLabel"></span></h2>
+  <div class="lanes" id="lanes"></div>
+</section>
+
+<section id="diffSec" hidden>
+  <h2>The diff <span>browser-side: alignment by tool and arguments, outcome against the expected answer</span></h2>
+  <div class="diff" id="diff"></div>
+</section>
+
+<section id="engineSec">
+  <h2>What the engine found <span>precomputed for this task's recorded pair, cached in the page</span></h2>
+  <div class="diff" id="engine"></div>
+</section>
+
+<section>
+  <h2>Cached runs <span>finished live runs, kept for everyone who opens this page</span></h2>
+  <div class="runs" id="runs"><span class="empty">none yet</span></div>
+</section>
+
+<p class="note" id="foot">A run in progress is shown, never judged. The browser diff is the light version; the full story — decisive step, causal account, reconcile, prompt suggestions — comes from the Python engine: save the traces and run <span style="font-family:var(--mono)">deepcompare batch</span>.</p>
+</div>
+
+<script>
+var PRE = {"t05_flight_duration": {"task": {"id": "t05_flight_duration", "prompt": "A traveler flies SQ306 from Singapore (SIN) to London Heathrow (LHR), connects, then flies BA117 from LHR to New York (JFK), all on 10 June 2025. Scheduled times: SQ306 departs SIN 09:00 SGT, arrives LHR 15:40 BST; BA117 departs LHR 17:55 BST, arrives JFK 20:45 EDT. What is the total elapsed journey time from SIN departure to JFK arrival?", "expected": "23 hours 45 minutes"}, "agents": {"a": {"name": "atlas-v2", "success": true, "answer": "The total elapsed journey time is 23 hours 45 minutes: 13h40m for SQ306 SIN-LHR, a 2h15m connection at Heathrow, and 7h50m for BA117 LHR-JFK (all computed in UTC).", "steps": [{"index": 0, "type": "plan", "name": "plan", "input": "1) Work out the duration of each flight leg and the layover from the scheduled times. 2) Sum them. 3) Sanity-check the total against the end-to-end departure/arrival difference. 4) Answer.", "output": "Plan set. Working through the legs in order.", "latency_s": 2.03, "tokens": 156, "quality": "good"}, {"index": 1, "type": "reason", "name": "reason", "input": "Normalize every timestamp before any arithmetic.", "output": "These times are in three zones, so convert to UTC first: SGT is UTC+8, BST is UTC+1, EDT is UTC-4. SIN dep 09:00 SGT = 01:00 UTC. LHR arr 15:40 BST = 14:40 UTC; LHR dep 17:55 BST = 16:55 UTC. JFK arr 20:45 EDT = 00:45 UTC on 11 June.", "latency_s": 2.04, "tokens": 168, "quality": "good"}, {"index": 2, "type": "tool_call", "name": "datetime_diff", "input": "diff(2025-06-10T01:00Z, 2025-06-10T14:40Z); diff(2025-06-10T14:40Z, 2025-06-10T16:55Z); diff(2025-06-10T16:55Z, 2025-06-11T00:45Z)", "output": "13h40m; 2h15m; 7h50m", "latency_s": 1.82, "tokens": 135, "quality": "good"}, {"index": 3, "type": "tool_call", "name": "datetime_diff", "input": "sum(13h40m, 2h15m, 7h50m); diff(2025-06-10T01:00Z, 2025-06-11T00:45Z)", "output": "23h45m; 23h45m", "latency_s": 1.62, "tokens": 119, "quality": "good"}, {"index": 4, "type": "reason", "name": "reason", "input": "Cross-check the leg sum against the end-to-end difference.", "output": "Leg sum (13h40m flight + 2h15m layover + 7h50m flight) is 23h45m, and the end-to-end UTC difference is also 23h45m. Consistent, and plausible for SIN-LHR-JFK.", "latency_s": 1.76, "tokens": 152, "quality": "good"}, {"index": 5, "type": "answer", "name": "final_answer", "input": "Compose the final answer from the verified findings.", "output": "The total elapsed journey time is 23 hours 45 minutes: 13h40m for SQ306 SIN-LHR, a 2h15m connection at Heathrow, and 7h50m for BA117 LHR-JFK (all computed in UTC).", "latency_s": 1.86, "tokens": 152, "quality": "good"}]}, "b": {"name": "bolt-v3", "success": false, "answer": "The total elapsed journey time is about 11 hours 45 minutes (6h40m SIN-LHR, 2h15m connection, 2h50m LHR-JFK).", "steps": [{"index": 0, "type": "plan", "name": "plan", "input": "1) Work out the duration of each flight leg and the layover from the scheduled times. 2) Sum them. 3) Sanity-check the total against the end-to-end departure/arrival difference. 4) Answer.", "output": "Plan set. Working through the legs in order.", "latency_s": 2.08, "tokens": 156, "quality": "good"}, {"index": 1, "type": "tool_call", "name": "calculator", "input": "(15:40 - 09:00) + (17:55 - 15:40) + (20:45 - 17:55)", "output": "6:40 + 2:15 + 2:50 = 11:45", "latency_s": 1.32, "tokens": 117, "quality": "bad"}, {"index": 2, "type": "tool_call", "name": "calculator", "input": "20:45 - 09:00", "output": "11:45", "latency_s": 1.22, "tokens": 102, "quality": "bad"}, {"index": 3, "type": "reason", "name": "reason", "input": "Sanity-check the total.", "output": "Leg-by-leg gives 11h45m and door-to-door (20:45 minus 09:00) also gives 11h45m — the two methods agree, so the total holds.", "latency_s": 1.39, "tokens": 134, "quality": "weak"}, {"index": 4, "type": "answer", "name": "final_answer", "input": "Compose the final answer from the verified findings.", "output": "The total elapsed journey time is about 11 hours 45 minutes (6h40m SIN-LHR, 2h15m connection, 2h50m LHR-JFK).", "latency_s": 1.75, "tokens": 138, "quality": "good"}]}}, "verdict": ["atlas-v2 solved t05_flight_duration; bolt-v3 failed.", "step 1 of bolt-v3 (tool_selection, hypothesized): Divergence: used a plain calculator on local clock times. SGT/BST/EDT offsets are ignored, so every leg duration is wrong.", "bolt-v3 spent 235 tokens, 3.4s and 1 step less than atlas-v2 — faster to nothing", "bolt-v3 — at step 1: check what the observation was asked before trusting what it returned — the answer relayed it faithfully and was still wrong", "medium — single pair (n=1); the ranking is consistent but one comparison cannot rule out task-specific luck; the decisive step is hypothesized, not replay-verified"], "decisive": {"side": "b", "step": 1, "verification": "hypothesized", "criterion": "earliest step whose correction is expected to flip the outcome"}, "take_forward": [{"at_step": 1, "instead": "check what the observation was asked before trusting what it returned — the answer relayed it faithfully and was still wrong"}, {"at_step": 2, "instead": "stop when the basis is complete; the extra steps bought nothing"}, {"at_step": 2, "instead": "plan the information each step must yield; drop steps that yield none"}], "prompts": ["Before relying on a tool result, restate what the tool was asked and check that it answers the question as posed; a faithful relay of a wrong observation is still wrong.", "Commit to the answer as soon as every value it needs is in hand; do not spend further steps once the basis is complete.", "Before each step, state what it must yield; skip any step that yields nothing the answer needs.", "For this kind of task, use datetime_diff rather than calculator."], "causal": [1, 2, 3, 4]}, "t01_acme_revenue": {"task": {"id": "t01_acme_revenue", "prompt": "Find ACME Corp's total revenue for fiscal year 2025. Report a single dollar figure and say where it came from.", "expected": "$4.82 billion"}, "agents": {"a": {"name": "atlas-v2", "success": true, "answer": "ACME Corp's total revenue for fiscal year 2025 was $4.82 billion, up 11% year over year, per the company's FY2025 results press release on its investor-relations site (ir.acmecorp.com).", "steps": [{"index": 0, "type": "plan", "name": "plan", "input": "1) Search for ACME Corp's FY2025 annual results. 2) Open the investor-relations press release or 10-K. 3) Extract total revenue from the full-year highlights. 4) Report the figure with its source.", "output": "Plan set. Starting with a targeted search of investor sources.", "latency_s": 2.27, "tokens": 162, "quality": "good"}, {"index": 1, "type": "search", "name": "web_search", "input": "ACME Corp FY2025 annual results total revenue investor relations", "output": "[1] ir.acmecorp.com — \"ACME Corp Reports Fourth Quarter and Full Year Fiscal 2025 Results\" | [2] marketpulse.io — \"ACME beats estimates as cloud unit accelerates\" | [3] financeblog.net — \"What ACME's monster 2025 really means for shareholders\" | [4] wikipedia.org — ACME Corp", "latency_s": 2.47, "tokens": 183, "quality": "good"}, {"index": 2, "type": "retrieve", "name": "select_result", "input": "Open result [1]: ir.acmecorp.com — the official FY2025 results press release from investor relations.", "output": "Selected https://ir.acmecorp.com/news/fy2025-results (primary source: company investor-relations newsroom, dated 2025-05-22).", "latency_s": 1.23, "tokens": 154, "quality": "good"}, {"index": 3, "type": "read", "name": "open_page", "input": "https://ir.acmecorp.com/news/fy2025-results", "output": "ACME Corp Reports Fourth Quarter and Full Year Fiscal 2025 Results. Full year fiscal 2025 highlights: Total revenue of $4.82 billion, up 11% year over year. GAAP operating margin of 18.4%. Fourth quarter revenue of $1.31 billion, up 9% year over year. Cash and equivalents of $2.1 billion at year end.", "latency_s": 1.85, "tokens": 184, "quality": "good"}, {"index": 4, "type": "answer", "name": "final_answer", "input": "Compose the final answer from the verified findings.", "output": "ACME Corp's total revenue for fiscal year 2025 was $4.82 billion, up 11% year over year, per the company's FY2025 results press release on its investor-relations site (ir.acmecorp.com).", "latency_s": 2.13, "tokens": 157, "quality": "good"}]}, "b": {"name": "bolt-v3", "success": false, "answer": "ACME Corp's total revenue for fiscal year 2025 was approximately $4.5 billion, as reported by financeblog.net and corroborated by moneymirror.com.", "steps": [{"index": 0, "type": "plan", "name": "plan", "input": "1) Search for ACME Corp's FY2025 annual results. 2) Open the investor-relations press release or 10-K. 3) Extract total revenue from the full-year highlights. 4) Report the figure with its source.", "output": "Plan set. Starting with a targeted search of investor sources.", "latency_s": 2.09, "tokens": 162, "quality": "good"}, {"index": 1, "type": "search", "name": "web_search", "input": "ACME Corp FY2025 annual results total revenue investor relations", "output": "[1] ir.acmecorp.com — \"ACME Corp Reports Fourth Quarter and Full Year Fiscal 2025 Results\" | [2] marketpulse.io — \"ACME beats estimates as cloud unit accelerates\" | [3] financeblog.net — \"What ACME's monster 2025 really means for shareholders\" | [4] wikipedia.org — ACME Corp", "latency_s": 2.63, "tokens": 183, "quality": "good"}, {"index": 2, "type": "retrieve", "name": "select_result", "input": "Open result [3]: financeblog.net — the write-up looks like a handy summary of the 2025 numbers.", "output": "Selected https://financeblog.net/acme-monster-2025 (third-party commentary blog, no primary citation visible).", "latency_s": 1.21, "tokens": 150, "quality": "bad"}, {"index": 3, "type": "read", "name": "open_page", "input": "https://financeblog.net/acme-monster-2025", "output": "financeblog.net: \"ACME had a monster year. By my back-of-envelope math they pulled in about $4.5B in 2025, give or take, mostly on the cloud unit. Margins? Who knows — the filing is a maze.\"", "latency_s": 1.87, "tokens": 156, "quality": "weak"}, {"index": 4, "type": "reason", "name": "reason", "input": "Is the blog's revenue figure reliable enough to report?", "output": "The blog says 'about $4.5B, give or take' — approximate. I should corroborate the number with another source before answering.", "latency_s": 1.59, "tokens": 143, "quality": "weak"}, {"index": 5, "type": "search", "name": "web_search", "input": "ACME Corp 2025 revenue \"$4.5 billion\"", "output": "[1] moneymirror.com — \"ACME's 2025 revenue came in around $4.5 billion, analysts say\" | [2] stocknewsdaily.net — \"ACME posts ~$4.5B year\" | [3] financeblog.net — original post", "latency_s": 2.41, "tokens": 151, "quality": "weak"}, {"index": 6, "type": "retrieve", "name": "select_result", "input": "Open result [1]: moneymirror.com — an independent outlet repeating the figure would confirm it.", "output": "Selected https://moneymirror.com/acme-2025-revenue (aggregator; article body links back to financeblog.net as its source).", "latency_s": 1.06, "tokens": 152, "quality": "bad"}, {"index": 7, "type": "read", "name": "open_page", "input": "https://moneymirror.com/acme-2025-revenue", "output": "moneymirror.com: \"ACME's 2025 revenue came in around $4.5 billion, analysts say, capping a strong year for the cloud division. (h/t financeblog.net)\"", "latency_s": 1.93, "tokens": 145, "quality": "bad"}, {"index": 8, "type": "reason", "name": "reason", "input": "Do two sources agreeing settle the figure?", "output": "Two sources now report roughly $4.5 billion for 2025. That is consistent, so I will report it.", "latency_s": 1.56, "tokens": 132, "quality": "bad"}, {"index": 9, "type": "answer", "name": "final_answer", "input": "Compose the final answer from the verified findings.", "output": "ACME Corp's total revenue for fiscal year 2025 was approximately $4.5 billion, as reported by financeblog.net and corroborated by moneymirror.com.", "latency_s": 2.05, "tokens": 148, "quality": "good"}]}}, "verdict": ["atlas-v2 solved t01_acme_revenue; bolt-v3 failed.", "step 2 of bolt-v3 (retrieval, hypothesized): Divergence: picked a commentary blog over the official investor-relations release that was result [1].", "atlas-v2 spent 682 tokens, 8.4s and 5 steps less than bolt-v3", "bolt-v3 — at step 2: review the annotated steps by hand — the marks are someone's judgement, not a measurement", "medium — single pair (n=1); the ranking is consistent but one comparison cannot rule out task-specific luck; the decisive step is hypothesized, not replay-verified"], "decisive": {"side": "b", "step": 2, "verification": "hypothesized", "criterion": "earliest step whose correction is expected to flip the outcome"}, "take_forward": [{"at_step": 1, "instead": "check what the observation was asked before trusting what it returned — the answer relayed it faithfully and was still wrong"}, {"at_step": 6, "instead": "stop when the basis is complete; the extra steps bought nothing"}, {"at_step": 2, "instead": "review the annotated steps by hand — the marks are someone's judgement, not a measurement"}], "prompts": ["Before relying on a tool result, restate what the tool was asked and check that it answers the question as posed; a faithful relay of a wrong observation is still wrong.", "Commit to the answer as soon as every value it needs is in hand; do not spend further steps once the basis is complete.", "Prefer a primary or official source; do not commit on a secondary one."], "causal": [2, 3, 4, 5, 6, 7, 8, 9]}};
+
+// ------------------------------------------------------------ tasks & tools
+function hhmm(min){ var s=min<0?"-":""; min=Math.abs(Math.round(min)); return s+Math.floor(min/60)+"h"+String(min%60).padStart(2,"0")+"m"; }
+var ZONES={SGT:8,BST:1,EDT:-4,UTC:0,GMT:0,CEST:2,CET:1,EST:-5,PDT:-7,PST:-8,IST:5.5,JST:9,AEST:10};
+function toUtc(input){
+  var t=String(input.time||"").trim(), z=String(input.zone||"").toUpperCase().trim(), d=String(input.date||"2025-06-10").trim();
+  var m=/^(\d{1,2}):(\d{2})$/.exec(t); if(!m) throw new Error("time must be HH:MM, got "+t);
+  var off=ZONES[z]; if(off===undefined){ var mm=/^UTC([+-]\d+(?:\.\d+)?)$/.exec(z); if(mm) off=parseFloat(mm[1]); }
+  if(off===undefined) throw new Error("unknown zone "+z+"; known: "+Object.keys(ZONES).join(", ")+" or UTC+n");
+  var base=Date.UTC(+d.slice(0,4),+d.slice(5,7)-1,+d.slice(8,10),+m[1],+m[2]);
+  var utc=new Date(base-off*3600000);
+  return utc.toISOString().replace(".000Z","Z");
+}
+function dtDiff(input){
+  var a=new Date(String(input.start)), b=new Date(String(input.end));
+  if(isNaN(a)||isNaN(b)) throw new Error("start and end must be ISO 8601 instants, e.g. 2025-06-10T01:00Z");
+  var min=(b-a)/60000; return {minutes:min, duration:hhmm(min)};
+}
+function calc(input){
+  var e=String(input.expression||input.expr||"").replace(/\s+/g,"");
+  if(!/^[\d+\-*/().:]+$/.test(e)) throw new Error("only digits, + - * / ( ) and HH:MM clock times are accepted");
+  // HH:MM tokens become minutes; result reported in minutes and h:mm
+  var clock=/\d{1,2}:\d{2}/.test(e);
+  var expr=e.replace(/(\d{1,2}):(\d{2})/g,function(_,h,m){return "("+(+h*60+ +m)+")";});
+  var v=Function('"use strict";return ('+expr+')')();
+  if(!isFinite(v)) throw new Error("not a number");
+  return clock?{minutes:v, as_clock:hhmm(v), note:"clock times were treated as minutes on one clock; time zones were not applied"}:{value:v};
+}
+var ACME={
+  results:[ '[1] ir.acmecorp.com — "ACME Corp Reports Fourth Quarter and Full Year Fiscal 2025 Results"',
+            '[2] marketpulse.io — "ACME beats estimates as cloud unit accelerates"',
+            '[3] financeblog.net — "What ACME\'s monster 2025 really means for shareholders"',
+            '[4] wikipedia.org — ACME Corp' ],
+  corr:[ '[1] moneymirror.com — "ACME\'s 2025 revenue came in around $4.5 billion, analysts say"',
+         '[2] stocknewsdaily.net — "ACME posts ~$4.5B year"', '[3] financeblog.net — original post' ],
+  pages:{
+    "ir.acmecorp.com":"ACME Corp Reports Fourth Quarter and Full Year Fiscal 2025 Results (press release, 2025-05-22). Full year fiscal 2025 highlights: Total revenue of $4.82 billion, up 11% year over year. GAAP operating margin of 18.4%. Fourth quarter revenue of $1.31 billion, up 9% year over year. Cash and equivalents of $2.1 billion at year end.",
+    "marketpulse.io":"marketpulse.io (paywalled preview): ACME beats estimates as cloud unit accelerates. Full-year revenue came in at $4.82B versus consensus of $4.7B … [subscribe to continue]",
+    "financeblog.net":"financeblog.net: \"ACME had a monster year. By my back-of-envelope math they pulled in about $4.5B in 2025, give or take, mostly on the cloud unit. Margins? Who knows — the filing is a maze.\"",
+    "wikipedia.org":"ACME Corp — Wikipedia. Revenue: US$4.34 billion (FY2024). Employees: 12,400. (The FY2025 figure has not been added yet.)",
+    "moneymirror.com":"moneymirror.com: \"ACME's 2025 revenue came in around $4.5 billion, analysts say, capping a strong year for the cloud division. (h/t financeblog.net)\"",
+    "stocknewsdaily.net":"stocknewsdaily.net: ACME posts ~$4.5B year — per financeblog.net's estimate."
+  }
+};
+function search(input){ var q=String(input.query||"").toLowerCase(); return (q.indexOf("4.5")>=0||q.indexOf("corrobor")>=0||q.indexOf("confirm")>=0)?ACME.corr:ACME.results; }
+function open(input){ var u=String(input.url||"").toLowerCase(); for(var k in ACME.pages){ if(u.indexOf(k)>=0) return ACME.pages[k]; } throw new Error("page not found: "+u+" — use a host from the search results"); }
+
+var TASKS={
+  t05_flight_duration:{ label:"Flight duration across three time zones", prompt:PRE.t05_flight_duration.task.prompt, expected:"23 hours 45 minutes",
+    grade:function(t){ t=t.toLowerCase(); return /23\s*(h\b|hours?|hrs?)[^0-9]{0,12}45/.test(t)||/23h45/.test(t)||/1425\s*min/.test(t); },
+    tools:[
+      {name:"convert_to_utc",description:"Convert a local clock time in a named zone (SGT, BST, EDT, UTC+n …) on a date to a UTC instant. Returns an ISO 8601 string like 2025-06-10T01:00Z.",inputSchema:{type:"object",properties:{time:{type:"string",description:"HH:MM"},zone:{type:"string"},date:{type:"string",description:"YYYY-MM-DD, default 2025-06-10"}},required:["time","zone"]},execute:toUtc},
+      {name:"datetime_diff",description:"Elapsed time between two ISO 8601 instants. Returns minutes and a duration like 13h40m. Use UTC instants.",inputSchema:{type:"object",properties:{start:{type:"string"},end:{type:"string"}},required:["start","end"]},execute:dtDiff},
+      {name:"calculator",description:"Evaluate an arithmetic expression. Accepts numbers and HH:MM clock times (treated as minutes on one clock; time zones are NOT applied). Returns a number, or minutes plus h:mm.",inputSchema:{type:"object",properties:{expression:{type:"string"}},required:["expression"]},execute:calc}
+    ]},
+  t01_acme_revenue:{ label:"ACME Corp FY2025 revenue", prompt:PRE.t01_acme_revenue.task.prompt, expected:"$4.82 billion",
+    grade:function(t){ return /4\.82\s*(b\b|billion|bn)/i.test(t); },
+    tools:[
+      {name:"search",description:"Web search. Returns up to four numbered results as 'host — title' lines. Open one with the open tool.",inputSchema:{type:"object",properties:{query:{type:"string"}},required:["query"]},execute:search},
+      {name:"open",description:"Open a page from the search results by URL or host and return its text.",inputSchema:{type:"object",properties:{url:{type:"string"}},required:["url"]},execute:open},
+      {name:"calculator",description:"Evaluate an arithmetic expression on numbers.",inputSchema:{type:"object",properties:{expression:{type:"string"}},required:["expression"]},execute:calc}
+    ]}
+};
+var AGENTS={
+  a:{name:"atlas",persona:"careful: normalises before arithmetic, verifies twice, prefers primary sources",
+     rules:"You are atlas, a careful analyst. Work step by step with the tools. Before any arithmetic on times, convert every time to UTC with convert_to_utc. Verify your total with a second, independent method. Prefer primary or official sources over commentary and say where a figure came from. Keep each thought to one or two sentences before a tool call."},
+  b:{name:"bolt",persona:"fast: fewest tool calls, no second checks",
+     rules:"You are bolt, a fast assistant. Answer with as few tool calls as possible and do not over-verify; one calculation or one source is enough. Keep each thought to one sentence before a tool call."}
+};
+function prompt(agent, task){ return AGENTS[agent].rules+"\n\nTask: "+task.prompt+"\n\nWhen you are done, write one last line exactly in the form 'FINAL ANSWER: <answer>'."; }
+
+// ------------------------------------------------------------ state & render
+var $=function(id){return document.getElementById(id);};
+var state={task:"t05_flight_duration", lanes:{a:null,b:null}, running:false, ctl:null, source:"replay", sample:null, db:null, downloads:null, cached:[], t0:0};
+var reduced=false; try{ reduced=matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){}
+function est(text){ return Math.max(1, Math.round(String(text||"").length/4)); }
+function newLane(side){ return {side:side, name:AGENTS[side].name, steps:[], status:"idle", text:"", answer:null, success:null, started:0, ended:0, drawn:0}; }
+
+function renderLanes(){
+  var host=$("lanes"); host.innerHTML="";
+  ["a","b"].forEach(function(side){
+    var L=state.lanes[side]; if(!L) return;
+    var box=document.createElement("div"); box.className="lane"; box.dataset.side=side;
+    var head=document.createElement("div"); head.className="lane-head";
+    head.innerHTML='<span class="name"></span><span class="persona"></span><span class="chip"><i></i><span></span></span><span class="stat"></span>';
+    head.querySelector(".name").textContent=L.name; head.querySelector(".persona").textContent=AGENTS[side].persona;
+    var chip=head.querySelector(".chip"); chip.className="chip "+(L.status==="running"?"live":L.status==="done"?(L.success?"ok":"fail"):L.status==="error"?"warn":"");
+    chip.querySelector("span").textContent=L.status==="running"?(state.source==="replay"?"replaying":(L.phase||"thinking")):L.status==="done"?(L.success?"solved":"failed"):L.status==="error"?"stopped":"idle";
+    var tokens=L.steps.reduce(function(a,s){return a+(s.tokens||0);},0), lat=L.steps.reduce(function(a,s){return a+(s.latency_s||0);},0);
+    head.querySelector(".stat").textContent=L.steps.length+" steps · ~"+tokens+" tokens (est.) · "+lat.toFixed(1)+"s";
+    box.appendChild(head);
+    box.appendChild(line(L, side));
+    var feed=document.createElement("ul"); feed.className="feed";
+    var show=L.steps.slice(-4);
+    show.forEach(function(s){ feed.appendChild(feedItem(s)); });
+    if(L.status==="running"){ var th=document.createElement("li"); th.innerHTML='<span class="n">…</span><span class="k">'+(L.phase||"thinking")+'</span><span class="t thinking"></span>'; th.querySelector(".t").textContent=state.source==="replay"?"replaying the recorded steps…":(L.text.slice(-240)||"waiting for the model…"); feed.appendChild(th); }
+    box.appendChild(feed);
+    if(L.steps.length>4){ var d=document.createElement("details"); d.className="more"; d.innerHTML="<summary>all "+L.steps.length+" steps</summary>"; var all=document.createElement("ul"); all.className="feed"; L.steps.forEach(function(s){all.appendChild(feedItem(s,true));}); d.appendChild(all); box.appendChild(d); }
+    host.appendChild(box);
+    L.drawn=L.steps.length;
+  });
+}
+function feedItem(s, open){
+  var li=document.createElement("li"); if(open) li.className="open";
+  var k=s.type==="tool_call"?"tool":s.type==="answer"?"answer":"";
+  li.innerHTML='<span class="n"></span><span class="k '+k+'"></span><span class="t"></span>';
+  li.querySelector(".n").textContent=String(s.index);
+  li.querySelector(".k").textContent=s.type==="tool_call"?s.name+"()":s.type;
+  li.querySelector(".t").textContent=s.type==="tool_call"?(s.input+"\n→ "+s.output):s.output;
+  li.addEventListener("click",function(){ li.classList.toggle("open"); });
+  return li;
+}
+function line(L, side){
+  var W=Math.max(320, ($("lanes").clientWidth||800)-30);
+  var ns="http://www.w3.org/2000/svg", svg=document.createElementNS(ns,"svg");
+  svg.setAttribute("class","line"); svg.setAttribute("viewBox","0 0 "+W+" 62"); svg.setAttribute("width",W); svg.setAttribute("height",62); svg.setAttribute("role","img");
+  svg.setAttribute("aria-label",L.name+": "+L.steps.length+" steps");
+  var n=L.steps.length, cap=Math.max(8,Math.floor((W-30)/26)), start=Math.max(0,n-cap), slot=(W-30)/Math.min(Math.max(n,1),cap);
+  var tint=getComputedStyle(document.documentElement).getPropertyValue(side==="a"?"--a":"--b").trim();
+  var surf=getComputedStyle(document.documentElement).getPropertyValue("--surface").trim();
+  function el(t,at){ var e=document.createElementNS(ns,t); for(var k in at) e.setAttribute(k,at[k]); return e; }
+  svg.appendChild(el("line",{x1:15,x2:W-15,y1:26,y2:26,stroke:"var(--rule-2)","stroke-width":1.4}));
+  if(start>0) svg.appendChild(Object.assign(el("text",{x:15,y:10}),{textContent:"← "+start+" earlier"}));
+  L.steps.forEach(function(s,i){
+    if(i<start) return;
+    var x=15+(i-start+.5)*slot;
+    var g=el("g",{transform:"translate("+x+",26)",class:(i>=L.drawn?"new ":"")+(i===n-1&&L.status==="running"?"now":"")});
+    if(s.type==="answer"){ g.appendChild(el("circle",{r:9,fill:"none",stroke:s.success?"var(--good)":"var(--bad)","stroke-width":1.6})); g.appendChild(el("circle",{r:5,fill:tint})); }
+    else if(s.type==="tool_call") g.appendChild(el("circle",{r:5.5,fill:tint}));
+    else g.appendChild(el("rect",{x:-5,y:-5,width:10,height:10,fill:surf,stroke:tint,"stroke-width":1.6}));
+    if(slot>=24){ var t=el("text",{x:0,y:22,"text-anchor":"middle"}); t.textContent=String(i); g.appendChild(t); }
+    if(slot>=64){ var nm=el("text",{x:0,y:33,"text-anchor":"middle"}); nm.textContent=(s.type==="tool_call"?s.name:s.type).slice(0,Math.floor(slot/6.5)); g.appendChild(nm); }
+    var ti=el("title",{}); ti.textContent="step "+i+" · "+(s.name||s.type)+"\n"+String(s.output||s.input||"").slice(0,200); g.appendChild(ti);
+    svg.appendChild(g);
+  });
+  return svg;
+}
+var renderQueued=false;
+function refresh(){ if(renderQueued) return; renderQueued=true; requestAnimationFrame(function(){ renderQueued=false; renderLanes(); }); }
+function setStatus(cls, text){ var s=$("status"); s.className="chip "+cls; s.querySelector("span").textContent=text; }
+
+// ------------------------------------------------------------ live agents
+function pushStep(L, step){ step.index=L.steps.length; L.steps.push(step); refresh(); }
+async function runAgent(side, task, tier, signal){
+  var L=state.lanes[side]; L.status="running"; L.phase="thinking"; L.started=performance.now(); var lastText="", lastMark=performance.now();
+  var tools=task.tools.map(function(t){ return {name:t.name, description:t.description, inputSchema:t.inputSchema, execute:function(input, ctx){
+    var now=performance.now();
+    var thought=L.text.slice(lastText.length).trim().replace(/FINAL ANSWER:[\s\S]*$/,"").trim();
+    if(thought){ pushStep(L,{type:"reason",name:"reason",input:"",output:thought.slice(0,600),tokens:est(thought),latency_s:+((now-lastMark)/1000).toFixed(2)}); lastText=L.text; lastMark=now; }
+    L.phase="calling "+t.name; refresh();
+    var t1=performance.now(), out, err=null;
+    try{ out=t.execute(input); }catch(e){ err=e; }
+    var text=err?("Error: "+err.message):(typeof out==="string"?out:JSON.stringify(out));
+    pushStep(L,{type:"tool_call",name:t.name,input:JSON.stringify(input),output:text,tokens:est(JSON.stringify(input))+est(text),latency_s:+((performance.now()-t1)/1000).toFixed(3),error:!!err});
+    lastMark=performance.now(); L.phase="thinking"; refresh();
+    if(err) throw err; return out;
+  }};});
+  try{
+    var res=await state.sample(prompt(side, task),{tools:tools, modelTier:tier, signal:signal, onText:function(ev){ L.text=ev.text||""; refresh(); }});
+    var full=res.text||L.text, m=/FINAL ANSWER:\s*([\s\S]+)$/i.exec(full), ans=(m?m[1]:full).trim();
+    var thought=full.slice(lastText.length).replace(/FINAL ANSWER:[\s\S]*$/i,"").trim();
+    if(thought) pushStep(L,{type:"reason",name:"reason",input:"",output:thought.slice(0,600),tokens:est(thought),latency_s:+((performance.now()-lastMark)/1000).toFixed(2)});
+    L.success=task.grade(ans); L.answer=ans;
+    pushStep(L,{type:"answer",name:"final_answer",input:"",output:ans,tokens:est(ans),latency_s:0,success:L.success});
+    L.status="done"; L.ended=performance.now();
+  }catch(e){
+    L.status="error"; L.error=e&&e.code?e.code:"failed"; L.answer=e&&e.text?e.text:null;
+    if(L.answer){ pushStep(L,{type:"answer",name:"final_answer",input:"",output:L.answer,tokens:est(L.answer),latency_s:0,success:false}); }
+    if(e&&e.code==="not_granted"){ setStatus("warn","live agents not allowed in this view"); $("run").hidden=true; }
+  }
+  refresh();
+}
+async function runLive(){
+  if(state.running||!state.sample) return;
+  var task=TASKS[state.task], tier=$("tier").value;
+  state.running=true; state.source="live"; state.ctl=new AbortController();
+  state.lanes={a:newLane("a"), b:newLane("b")};
+  $("run").disabled=true; $("stop").hidden=false; $("diffSec").hidden=true; $("runLabel").textContent="live · two real agents on your Claude account";
+  setStatus("live","running"); renderLanes();
+  await Promise.allSettled([runAgent("a",task,tier,state.ctl.signal), runAgent("b",task,tier,state.ctl.signal)]);
+  state.running=false; $("run").disabled=false; $("stop").hidden=true;
+  var both=state.lanes.a.status==="done"&&state.lanes.b.status==="done";
+  setStatus(both?"ok":"warn", both?"finished":"stopped");
+  renderDiff(); if(both) await cacheRun(task, tier);
+}
+
+// ------------------------------------------------------------ the browser diff
+function tokens(s){ return String(s||"").toLowerCase().split(/[^a-z0-9.]+/).filter(Boolean); }
+function jaccard(a,b){ var A=new Set(tokens(a)), B=new Set(tokens(b)); if(!A.size&&!B.size) return 1; var i=0; A.forEach(function(x){ if(B.has(x)) i++; }); return i/(A.size+B.size-i); }
+function alignSteps(sa, sb){
+  var rows=[], i=0, j=0;
+  while(i<sa.length||j<sb.length){
+    var a=sa[i], b=sb[j];
+    if(a&&b&&(a.type===b.type)&&(a.type!=="tool_call"||a.name===b.name)){ var sim=jaccard(a.input+" "+a.output, b.input+" "+b.output); rows.push({a:i,b:j,op:sim>=.6?"match":"drift",sim:sim}); i++; j++; }
+    else if(a&&b){ var la=sb.slice(j+1,j+3).some(function(x){return x.type===a.type&&x.name===a.name;}), lb=sa.slice(i+1,i+3).some(function(x){return x.type===b.type&&x.name===b.name;});
+      if(la&&!lb){ rows.push({a:null,b:j,op:"b_only"}); j++; } else if(lb&&!la){ rows.push({a:i,b:null,op:"a_only"}); i++; } else { rows.push({a:i,b:j,op:"diverge",sim:jaccard(a.input+" "+a.output,b.input+" "+b.output)}); i++; j++; } }
+    else if(a){ rows.push({a:i,b:null,op:"a_only"}); i++; } else { rows.push({a:null,b:j,op:"b_only"}); j++; }
+  }
+  return rows;
+}
+function renderDiff(){
+  var A=state.lanes.a, B=state.lanes.b; if(!A||!B||!A.steps.length||!B.steps.length) return;
+  var host=$("diff"); host.innerHTML=""; $("diffSec").hidden=false;
+  var oc=document.createElement("div"); oc.className="outcomes";
+  [A,B].forEach(function(L){ var d=document.createElement("div"); d.className="outcome"; d.dataset.side=L.side;
+    var tk=L.steps.reduce(function(a,s){return a+(s.tokens||0);},0), lat=L.steps.reduce(function(a,s){return a+(s.latency_s||0);},0);
+    d.innerHTML='<div class="who"></div><div class="ans"></div><div class="m"></div>';
+    d.querySelector(".who").textContent=L.name+" — "+(L.status==="done"?(L.success?"✓ solved":"✗ failed"):"stopped");
+    d.querySelector(".ans").textContent=L.answer||"(no answer)";
+    d.querySelector(".m").textContent=L.steps.length+" steps · "+L.steps.filter(function(s){return s.type==="tool_call";}).length+" tool calls · ~"+tk+" tokens (est.) · "+lat.toFixed(1)+"s";
+    oc.appendChild(d); });
+  host.appendChild(oc);
+  var rows=alignSteps(A.steps,B.steps), firstDiv=-1;
+  rows.forEach(function(r,i){ if(firstDiv<0&&(r.op==="diverge"||r.op==="a_only"||r.op==="b_only"||(r.op==="drift"&&r.sim<.35))) firstDiv=i; });
+  var t=document.createElement("table"); t.className="align"; t.innerHTML="<tr><th>row</th><th>"+A.name+"</th><th>op</th><th>"+B.name+"</th></tr>";
+  rows.forEach(function(r,i){ var tr=document.createElement("tr"); if(i===firstDiv) tr.className="div";
+    var sa=r.a!==null?A.steps[r.a]:null, sb=r.b!==null?B.steps[r.b]:null;
+    function cell(s,cls){ var td=document.createElement("td"); td.className=cls; td.textContent=s?(s.index+" · "+(s.type==="tool_call"?s.name+"("+s.input.slice(0,60)+")":s.type+": "+s.output.slice(0,70))):"—"; return td; }
+    var op=document.createElement("td"); op.className="op"; op.textContent=r.op+(r.sim!==undefined?" "+r.sim.toFixed(2):"");
+    var n=document.createElement("td"); n.textContent=String(i);
+    tr.appendChild(n); tr.appendChild(cell(sa,"a")); tr.appendChild(op); tr.appendChild(cell(sb,"b")); t.appendChild(tr); });
+  var wrapT=document.createElement("div"); wrapT.style.overflowX="auto"; wrapT.appendChild(t); host.appendChild(wrapT);
+  var note=document.createElement("p"); note.className="note";
+  note.innerHTML=(firstDiv>=0?"<b>First divergence at row "+firstDiv+".</b> ":"<b>No divergence found by this light alignment.</b> ")+
+    (A.success!==B.success?"One run solved the task and the other did not; the engine's diagnosis would name the decisive step and how the fault travelled. ":"")+
+    "Alignment here is by step type, tool name and argument overlap; token counts are estimates from text length. Save the traces below and run <span style=\"font-family:var(--mono)\">deepcompare batch</span> for the full story.";
+  host.appendChild(note);
+  var acts=document.createElement("div"); acts.className="actions";
+  if(state.downloads){ var b=document.createElement("button"); b.textContent="Save both traces (SCHEMA JSON)"; b.addEventListener("click",saveTraces); acts.appendChild(b); }
+  var rp=document.createElement("button"); rp.className="ghost"; rp.textContent="Replay this run"; rp.addEventListener("click",function(){ replay({a:A.steps.slice(),b:B.steps.slice(),answers:{a:A.answer,b:B.answer},success:{a:A.success,b:B.success}},"replay of the last run"); }); acts.appendChild(rp);
+  host.appendChild(acts);
+}
+function toSchema(L, task, when){
+  var steps=L.steps.map(function(s,i){ return {index:i,type:s.type==="reason"?"reason":s.type,name:s.name||s.type,input:s.input||"",output:s.output||"",tokens:s.tokens||0,latency_s:s.latency_s||0,error:s.error?true:undefined}; });
+  if(!steps.length||steps[steps.length-1].type!=="answer") steps.push({index:steps.length,type:"answer",name:"final_answer",input:"",output:L.answer||"(no answer)",tokens:1,latency_s:0});
+  var out=steps.reduce(function(a,s){return a+s.tokens;},0), lat=steps.reduce(function(a,s){return a+s.latency_s;},0);
+  return {schema_version:1,trace_id:task.id+"__"+L.name+"-live",run_id:"live-"+when,agent:{name:L.name+"-live",model:"claude (viewer account, tier "+$("tier").value+")",version:"agentdiff-live"},
+    task:{id:task.id,prompt:task.prompt,expected:task.expected},outcome:{success:!!L.success,answer:L.answer||"",score:null,termination:L.status==="done"?"agent_stop":"user_stop"},
+    totals:{input_tokens:est(prompt(L.side,task)),output_tokens:out,cost_usd:0,latency_s:+lat.toFixed(3)},steps:steps,token_accounting:{basis:"estimated",note:"token counts estimated as characters/4 in the browser"}};
+}
+async function saveTraces(){
+  if(!state.downloads) return; var task=TASKS[state.task]; task.id=state.task; var when=Date.now();
+  for(var side of ["a","b"]){ var L=state.lanes[side]; try{ await state.downloads.save({filename:state.task+"__"+L.name+"-live.json", data:JSON.stringify(toSchema(L,task,when),null,1)}); }catch(e){ if(e&&e.code==="declined") return; } }
+}
+
+// ------------------------------------------------------------ replay & cache
+var replayTimer=null;
+function replay(run, label){
+  if(replayTimer){ clearTimeout(replayTimer); replayTimer=null; }
+  state.source="replay"; $("runLabel").textContent=label; $("diffSec").hidden=true;
+  state.lanes={a:newLane("a"),b:newLane("b")};
+  var queue=[]; var maxN=Math.max(run.a.length,run.b.length);
+  for(var k=0;k<maxN;k++){ if(run.a[k]) queue.push(["a",run.a[k]]); if(run.b[k]) queue.push(["b",run.b[k]]); }
+  state.lanes.a.status="running"; state.lanes.b.status="running"; setStatus("live","replaying"); renderLanes();
+  var pace=reduced?0:Math.max(120,Math.min(650,9000/Math.max(1,queue.length)));
+  function done(){ ["a","b"].forEach(function(s){ var L=state.lanes[s]; L.status="done"; L.answer=run.answers[s]; L.success=run.success[s]; }); setStatus("ok","replayed"); renderLanes(); renderDiff(); }
+  function tick(){ if(!queue.length){ done(); return; } var it=queue.shift(); var L=state.lanes[it[0]]; var s=Object.assign({},it[1]); if(s.type==="answer"){ s.success=run.success[it[0]]; } pushStep(L,s); if(it[1].type==="answer"){ L.status="done"; L.answer=run.answers[it[0]]; L.success=run.success[it[0]]; } if(pace) replayTimer=setTimeout(tick,pace); else tick(); }
+  if(pace) replayTimer=setTimeout(tick,200); else tick();
+}
+function demoRun(taskId){ var p=PRE[taskId]; if(!p) return null; function conv(st){ return st.map(function(s){ return {type:s.type==="plan"||s.type==="reason"||s.type==="retrieve"||s.type==="read"||s.type==="search"?(s.type==="search"||s.type==="read"||s.type==="retrieve"?"tool_call":s.type):s.type, name:s.name||s.type, input:s.input, output:s.output, tokens:s.tokens, latency_s:s.latency_s}; }); }
+  return {a:conv(p.agents.a.steps), b:conv(p.agents.b.steps), answers:{a:p.agents.a.answer,b:p.agents.b.answer}, success:{a:p.agents.a.success,b:p.agents.b.success}}; }
+function renderEngine(){
+  var p=PRE[state.task], host=$("engine"); host.innerHTML=""; if(!p){ $("engineSec").hidden=true; return; } $("engineSec").hidden=false;
+  var v=document.createElement("div"); v.className="verdict";
+  var keys=["verdict","cause","cost","fix","confidence"];
+  p.verdict.forEach(function(line,i){ var k=document.createElement("div"); k.className="k"; k.textContent=keys[i]||""; var d=document.createElement("div"); d.className="v"+(i===0?" first":""); d.textContent=line; v.appendChild(k); v.appendChild(d); });
+  host.appendChild(v);
+  var n=document.createElement("p"); n.className="note"; n.innerHTML="<b>Decisive step "+p.decisive.step+" of "+p.agents[p.decisive.side].name+"</b> ("+p.decisive.verification+"): "+p.decisive.criterion+". The fault travelled through steps "+p.causal.join(", ")+".";
+  host.appendChild(n);
+  if(p.prompts&&p.prompts.length){ var h=document.createElement("p"); h.className="note"; h.innerHTML="<b>Prompt suggestions the engine derived</b> (hypotheses until a replay confirms them):"; host.appendChild(h); var ul=document.createElement("ul"); ul.className="prompts"; p.prompts.forEach(function(t){ var li=document.createElement("li"); li.textContent=t; ul.appendChild(li); }); host.appendChild(ul); }
+  var acts=document.createElement("div"); acts.className="actions"; var b=document.createElement("button"); b.className="ghost"; b.textContent="Replay the recorded pair"; b.addEventListener("click",function(){ replay(demoRun(state.task),"replay · the recorded pair ("+p.agents.a.name+" vs "+p.agents.b.name+")"); }); acts.appendChild(b); host.appendChild(acts);
+}
+async function cacheRun(task, tier){
+  if(!state.db) return; var when=Date.now();
+  var doc={task:state.task, when:when, tier:tier, a:{name:state.lanes.a.name,steps:state.lanes.a.steps,answer:state.lanes.a.answer,success:!!state.lanes.a.success}, b:{name:state.lanes.b.name,steps:state.lanes.b.steps,answer:state.lanes.b.answer,success:!!state.lanes.b.success}};
+  try{ await state.db.collection("runs").doc("r"+when).set(doc); }catch(e){ /* cache is best effort */ }
+}
+function renderRuns(list){
+  var host=$("runs"); host.innerHTML=""; state.cached=list;
+  var mine=list.filter(function(r){return r.task===state.task;});
+  if(!mine.length){ host.innerHTML='<span class="empty">no cached live run for this task yet</span>'; return; }
+  mine.forEach(function(r){ var b=document.createElement("button"); b.className="run";
+    var d=new Date(r.when); b.innerHTML='<b></b><span class="r"></span>';
+    b.querySelector("b").textContent=d.toLocaleString()+" · "+(r.tier||"default");
+    b.querySelector(".r").textContent=(r.a.name||"atlas")+" "+(r.a.success?"✓":"✗")+" "+r.a.steps.length+" · "+(r.b.name||"bolt")+" "+(r.b.success?"✓":"✗")+" "+r.b.steps.length;
+    b.addEventListener("click",function(){ replay({a:r.a.steps,b:r.b.steps,answers:{a:r.a.answer,b:r.b.answer},success:{a:r.a.success,b:r.b.success}},"replay · cached live run from "+d.toLocaleString()); });
+    host.appendChild(b); });
+}
+async function loadRuns(){
+  if(!state.db) return;
+  try{ var snap=await state.db.collection("runs").orderBy("when","desc").limit(40).get(); var list=[]; (snap.docs||[]).forEach(function(d){ var v=typeof d.data==="function"?d.data():d.data; if(v&&v.task) list.push(v); }); renderRuns(list); }catch(e){ /* cache unavailable */ }
+}
+
+// ------------------------------------------------------------ boot
+function setTask(id){ state.task=id; var t=TASKS[id]; $("taskText").innerHTML="<b></b> <span class=\"exp\"></span>"; $("taskText").querySelector("b").textContent=t.prompt; $("taskText").querySelector(".exp").textContent="expected: "+t.expected+" · tools: "+t.tools.map(function(x){return x.name;}).join(", ");
+  renderEngine(); renderRuns(state.cached); var d=demoRun(id); if(d) replay(d,"replay · the recorded pair (no model call)"); }
+(function(){
+  var sel=$("task"); Object.keys(TASKS).forEach(function(id){ var o=document.createElement("option"); o.value=id; o.textContent=TASKS[id].label; sel.appendChild(o); });
+  sel.addEventListener("change",function(){ if(state.running) return; setTask(sel.value); });
+  $("run").addEventListener("click",runLive);
+  $("stop").addEventListener("click",function(){ if(state.ctl) state.ctl.abort(); });
+  window.addEventListener("resize",function(){ refresh(); });
+  setStatus("","replay only");
+  setTask(state.task);
+  if(!window.claude||typeof window.claude.use!=="function"){ $("foot").textContent+=" Open this page in claude.ai to run two live agents on your own account."; return; }
+  claude.use("sample").then(function(s){ if(!s) return; state.sample=s; $("run").hidden=false; setStatus("","ready · live agents run on your account"); });
+  claude.use("db").then(function(d){ if(!d) return; state.db=d; loadRuns(); });
+  claude.use("downloads").then(function(d){ if(d) state.downloads=d; });
+})();
+</script>

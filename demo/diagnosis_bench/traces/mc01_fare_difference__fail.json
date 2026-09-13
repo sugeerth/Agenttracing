@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "trace_id": "mc01_fare_difference-scout-v2",
+  "agent": {
+    "name": "scout-v2",
+    "model": "gpt-5",
+    "version": "v2"
+  },
+  "task": {
+    "id": "mc01_fare_difference",
+    "prompt": "Move booking QF119 to the evening flight and report the fare difference.",
+    "expected": "Booking QF119 moved to the evening flight; fare difference $86.00."
+  },
+  "outcome": {
+    "success": false,
+    "answer": "Booking QF119 moved to the evening flight; fare difference $120.00.",
+    "score": 0.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 600,
+    "output_tokens": 200,
+    "cost_usd": 0.0024,
+    "latency_s": 5.5
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "Rebook first, then work out the fare difference.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": "weak",
+      "note": "commits to writing before reading any fare"
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "rebook_flight",
+      "input": "rebook_flight(reference='QF119', flight='evening')",
+      "output": "Rebooked QF119 onto the evening flight.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": "bad",
+      "note": "write-effect call before any read \u2014 the secondary fault",
+      "effect": "write",
+      "error": false
+    },
+    {
+      "index": 2,
+      "type": "tool_call",
+      "name": "get_fare_sheet",
+      "input": "get_fare_sheet(route='QF119')",
+      "output": "Fare sheet (last season's revision): evening upgrade difference $120.00.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": "stale revision \u2014 the wrong amount enters here (primary)",
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 3,
+      "type": "reason",
+      "name": "reason",
+      "input": "The sheet lists $120.00 for the evening upgrade.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final",
+      "input": "Booking QF119 moved to the evening flight; fare difference $120.00.",
+      "output": "Booking QF119 moved to the evening flight; fare difference $120.00.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_fare_sheet",
+      "effect": "read"
+    },
+    {
+      "name": "rebook_flight",
+      "effect": "write"
+    }
+  ],
+  "budget": {
+    "max_steps": 12
+  }
+}

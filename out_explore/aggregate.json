@@ -1,0 +1,839 @@
+{
+  "tasks": 8,
+  "agents": {
+    "a": "atlas-v2",
+    "b": "bolt-v3"
+  },
+  "success_rate": {
+    "a": 0.875,
+    "b": 0.625
+  },
+  "means": {
+    "a": {
+      "tokens": 908.0,
+      "cost_usd": 0.005707,
+      "latency_s": 10.75375,
+      "steps": 5.625,
+      "tool_calls": 0.625,
+      "searches": 0.75
+    },
+    "b": {
+      "tokens": 1208.625,
+      "cost_usd": 0.007304,
+      "latency_s": 14.555,
+      "steps": 7.75,
+      "tool_calls": 0.625,
+      "searches": 1.375
+    }
+  },
+  "failure_origins": {
+    "retrieval": 0.5,
+    "tool_execution": 0.25,
+    "tool_selection": 0.25
+  },
+  "regressions": [],
+  "recommendations": [
+    {
+      "agent": "bolt-v3",
+      "category": "retrieval",
+      "severity": "critical",
+      "finding": "bolt-v3 failed 2 of 8 task(s) (t01_acme_revenue, t06_bls_unemployment) after retrieval divergences rooted in retrieve step(s); downstream of the root cause it spent +10 steps, +1,391 tokens and +17.08s latency versus atlas-v2, and each of these runs ended in failure.",
+      "evidence_tasks": [
+        "t01_acme_revenue",
+        "t06_bls_unemployment"
+      ],
+      "suggested_prompt": "Prefer primary and official sources (annual reports, official documentation, government statistics) over blogs, forums, and aggregator posts. In this batch, results like \"financeblog.net\" led you astray where \"ir.acmecorp.com\" contained the correct answer; verify any secondary source against an authoritative one before relying on it.",
+      "expected_gain": "up to +25pt success (2/8 tasks), −1,391 wasted tokens"
+    },
+    {
+      "agent": "atlas-v2",
+      "category": "tool_execution",
+      "severity": "critical",
+      "finding": "atlas-v2 failed 1 of 8 task(s) (t07_build_failure) after tool-execution divergences rooted in tool_call step(s); downstream of the root cause it spent +0 steps, +0 tokens and +0s latency versus bolt-v3, and each of these runs ended in failure.",
+      "evidence_tasks": [
+        "t07_build_failure"
+      ],
+      "suggested_prompt": "Before executing \"regex_extract\", validate the arguments against the expected input shape: test regexes and parsers on a small known sample, and check units, date formats and field names. If the result is empty or implausible, fix the arguments and retry instead of building on it.",
+      "expected_gain": "up to +12pt success (1/8 tasks)"
+    },
+    {
+      "agent": "bolt-v3",
+      "category": "tool_selection",
+      "severity": "critical",
+      "finding": "bolt-v3 failed 1 of 8 task(s) (t05_flight_duration) after tool-selection divergences rooted in tool_call step(s); downstream of the root cause it spent +0 steps, +0 tokens and +0s latency versus atlas-v2, and each of these runs ended in failure.",
+      "evidence_tasks": [
+        "t05_flight_duration"
+      ],
+      "suggested_prompt": "Before calling a tool, state why it is the right tool for the input you actually have (data type, precision needed, side effects). In this batch, \"calculator\" was the wrong choice for the failing task; check that the tool matches the task before invoking it.",
+      "expected_gain": "up to +12pt success (1/8 tasks)"
+    },
+    {
+      "agent": "bolt-v3",
+      "category": "retrieval",
+      "severity": "moderate",
+      "finding": "bolt-v3 took non-fatal retrieval detours on 2 task(s) (t02_cve_libfoo, t03_saas_pricing): +9 extra steps, +1,354 tokens and +17.69s latency versus atlas-v2, without changing any outcome.",
+      "evidence_tasks": [
+        "t02_cve_libfoo",
+        "t03_saas_pricing"
+      ],
+      "suggested_prompt": "Prefer primary and official sources (annual reports, official documentation, government statistics) over blogs, forums, and aggregator posts. In this batch, results like \"forum.libfoo.org\" led you astray where \"nvd.nist.gov\" contained the correct answer; verify any secondary source against an authoritative one before relying on it.",
+      "expected_gain": "−1,354 tokens and −17.69s latency across 2 task(s) if avoided"
+    },
+    {
+      "agent": "bolt-v3",
+      "category": "efficiency",
+      "severity": "minor",
+      "finding": "bolt-v3 took non-fatal efficiency detours on 1 task(s) (t02_cve_libfoo): +1 extra steps, +153 tokens and +2.04s latency versus atlas-v2, without changing any outcome.",
+      "evidence_tasks": [
+        "t02_cve_libfoo"
+      ],
+      "suggested_prompt": "Stop as soon as your evidence is sufficient: once two independent sources corroborate the answer, answer immediately instead of continuing to gather more. In this batch you spent 1 extra step(s) after the answer was already established.",
+      "expected_gain": "−153 tokens and −2.04s latency across 1 task(s) if avoided"
+    }
+  ],
+  "playbook": [
+    {
+      "habit": "Prefer primary/official sources over commentary/aggregators",
+      "kind": "retrieval",
+      "agents": [
+        "atlas-v2"
+      ],
+      "evidence": "decided 4 task(s) (t01_acme_revenue, t02_cve_libfoo, t03_saas_pricing, t06_bls_unemployment)",
+      "impact": "avoided 2 failure(s), saved 2,745 tokens and 34.77s"
+    },
+    {
+      "habit": "Validate tool arguments against a known sample before trusting output",
+      "kind": "tool_execution",
+      "agents": [
+        "bolt-v3"
+      ],
+      "evidence": "decided 1 task(s) (t07_build_failure)",
+      "impact": "avoided 1 failure(s), saved 0 tokens and 0s"
+    },
+    {
+      "habit": "Match the tool to the data actually in hand",
+      "kind": "tool_selection",
+      "agents": [
+        "atlas-v2"
+      ],
+      "evidence": "decided 1 task(s) (t05_flight_duration)",
+      "impact": "avoided 1 failure(s), saved 0 tokens and 0s"
+    },
+    {
+      "habit": "Stop once evidence suffices — corroborate at most twice",
+      "kind": "stopping",
+      "agents": [
+        "atlas-v2"
+      ],
+      "evidence": "decided 1 task(s) (t02_cve_libfoo)",
+      "impact": "saved 153 tokens and 2.04s"
+    }
+  ],
+  "calibration": {
+    "available": true,
+    "agents": {
+      "atlas-v2": {
+        "failures_with_telemetry": 1,
+        "flagged": 1,
+        "silent": 0,
+        "mean_confidence_when_wrong": 0.4955,
+        "flagged_rate": 1.0,
+        "verdict": "supervisable"
+      },
+      "bolt-v3": {
+        "failures_with_telemetry": 3,
+        "flagged": 0,
+        "silent": 3,
+        "mean_confidence_when_wrong": 0.8798,
+        "flagged_rate": 0.0,
+        "verdict": "silent-failing"
+      }
+    },
+    "narrative": "atlas-v2 signal their own mistakes — a confidence gate would catch most of their failures. bolt-v3 fail silently: confidence stays high while the answer goes wrong, so these need verification steps rather than uncertainty thresholds."
+  },
+  "issues": {
+    "issues": [
+      {
+        "id": "retrieval/a:retrieve.select_result/b:retrieve.select_result/q:b",
+        "kind": "retrieval",
+        "title": "Selects a lower-quality source at \"select_result\"",
+        "occurrences": [
+          {
+            "task": "t01_acme_revenue",
+            "rank": 1,
+            "a_index": 2,
+            "b_index": 2,
+            "caused_failure": true,
+            "extra_steps": 5,
+            "extra_tokens": 682,
+            "extra_latency_s": 8.47,
+            "summary": "Agent B took 5 extra step(s) not mirrored by Agent A, starting where it selected the source \"select_result\" (annotated bad)."
+          },
+          {
+            "task": "t02_cve_libfoo",
+            "rank": 1,
+            "a_index": 2,
+            "b_index": 2,
+            "caused_failure": false,
+            "extra_steps": 5,
+            "extra_tokens": 745,
+            "extra_latency_s": 8.75,
+            "summary": "Agent B took 4 extra step(s) not mirrored by Agent A, starting where it selected the source \"select_result\" (annotated weak)."
+          },
+          {
+            "task": "t06_bls_unemployment",
+            "rank": 1,
+            "a_index": 2,
+            "b_index": 2,
+            "caused_failure": true,
+            "extra_steps": 5,
+            "extra_tokens": 709,
+            "extra_latency_s": 8.61,
+            "summary": "Agent B took 5 extra step(s) not mirrored by Agent A, starting where it selected the source \"select_result\" (annotated bad)."
+          }
+        ],
+        "tasks": [
+          "t01_acme_revenue",
+          "t02_cve_libfoo",
+          "t06_bls_unemployment"
+        ],
+        "agents": [
+          "bolt-v3"
+        ],
+        "failures_caused": 2,
+        "extra_steps": 15,
+        "extra_tokens": 2136,
+        "extra_latency_s": 25.83,
+        "example": {
+          "task": "t06_bls_unemployment",
+          "rank": 1,
+          "a_index": 2,
+          "b_index": 2,
+          "caused_failure": true,
+          "extra_steps": 5,
+          "extra_tokens": 709,
+          "extra_latency_s": 8.61,
+          "summary": "Agent B took 5 extra step(s) not mirrored by Agent A, starting where it selected the source \"select_result\" (annotated bad)."
+        },
+        "occurrence_count": 3,
+        "severity": "critical",
+        "suppressed": false,
+        "recurring": true,
+        "summary": "Selects a lower-quality source at \"select_result\" — seen on 3 task(s), causing 2 failure(s), costing 2,136 extra tokens."
+      },
+      {
+        "id": "tool_selection/a:reason.reason/b:tool_call.calculator/q:b",
+        "kind": "tool_selection",
+        "title": "Reaches for the wrong tool at \"calculator\"",
+        "occurrences": [
+          {
+            "task": "t05_flight_duration",
+            "rank": 1,
+            "a_index": 1,
+            "b_index": 1,
+            "caused_failure": true,
+            "extra_steps": 1,
+            "extra_tokens": 235,
+            "extra_latency_s": 3.42,
+            "summary": "Agent B skipped 1 step(s) that Agent A performed, where Agent A reasoned \"Normalize every timestamp before any arithmetic.\"."
+          }
+        ],
+        "tasks": [
+          "t05_flight_duration"
+        ],
+        "agents": [
+          "bolt-v3"
+        ],
+        "failures_caused": 1,
+        "extra_steps": 1,
+        "extra_tokens": 235,
+        "extra_latency_s": 3.42,
+        "example": {
+          "task": "t05_flight_duration",
+          "rank": 1,
+          "a_index": 1,
+          "b_index": 1,
+          "caused_failure": true,
+          "extra_steps": 1,
+          "extra_tokens": 235,
+          "extra_latency_s": 3.42,
+          "summary": "Agent B skipped 1 step(s) that Agent A performed, where Agent A reasoned \"Normalize every timestamp before any arithmetic.\"."
+        },
+        "occurrence_count": 1,
+        "severity": "critical",
+        "suppressed": false,
+        "recurring": false,
+        "summary": "Reaches for the wrong tool at \"calculator\" — seen on 1 task(s), causing 1 failure(s), costing 235 extra tokens."
+      },
+      {
+        "id": "tool_execution/a:tool_call.regex_extract/b:tool_call.regex_extract/q:a",
+        "kind": "tool_execution",
+        "title": "Calls \"regex_extract\" with arguments that do not hold up",
+        "occurrences": [
+          {
+            "task": "t07_build_failure",
+            "rank": 1,
+            "a_index": 3,
+            "b_index": 3,
+            "caused_failure": true,
+            "extra_steps": 0,
+            "extra_tokens": 62,
+            "extra_latency_s": 0.86,
+            "summary": "Agent A called tool \"regex_extract\" with \"regex_extract(pattern='(?m)^.*(Warning|Error).*$', source=l…\" (annotated bad) while Agent B called tool \"regex_extract\" with \"regex_extract(pattern='(?m)^E\\s+\\w+Error.*$', source=log:ru…\"."
+          }
+        ],
+        "tasks": [
+          "t07_build_failure"
+        ],
+        "agents": [
+          "atlas-v2"
+        ],
+        "failures_caused": 1,
+        "extra_steps": 0,
+        "extra_tokens": 62,
+        "extra_latency_s": 0.86,
+        "example": {
+          "task": "t07_build_failure",
+          "rank": 1,
+          "a_index": 3,
+          "b_index": 3,
+          "caused_failure": true,
+          "extra_steps": 0,
+          "extra_tokens": 62,
+          "extra_latency_s": 0.86,
+          "summary": "Agent A called tool \"regex_extract\" with \"regex_extract(pattern='(?m)^.*(Warning|Error).*$', source=l…\" (annotated bad) while Agent B called tool \"regex_extract\" with \"regex_extract(pattern='(?m)^E\\s+\\w+Error.*$', source=log:ru…\"."
+        },
+        "occurrence_count": 1,
+        "severity": "critical",
+        "suppressed": false,
+        "recurring": false,
+        "summary": "Calls \"regex_extract\" with arguments that do not hold up — seen on 1 task(s), causing 1 failure(s), costing 62 extra tokens."
+      },
+      {
+        "id": "retrieval/a:none/b:search.web_search/q:b",
+        "kind": "retrieval",
+        "title": "Selects a lower-quality source at \"web_search\"",
+        "occurrences": [
+          {
+            "task": "t03_saas_pricing",
+            "rank": 1,
+            "a_index": null,
+            "b_index": 2,
+            "caused_failure": false,
+            "extra_steps": 3,
+            "extra_tokens": 453,
+            "extra_latency_s": 6.84,
+            "summary": "Agent B took 2 extra step(s) not mirrored by Agent A, starting where it searched \"DataHub Cloud Team plan price per user 2025\" (annotated weak)."
+          }
+        ],
+        "tasks": [
+          "t03_saas_pricing"
+        ],
+        "agents": [],
+        "failures_caused": 0,
+        "extra_steps": 3,
+        "extra_tokens": 453,
+        "extra_latency_s": 6.84,
+        "example": {
+          "task": "t03_saas_pricing",
+          "rank": 1,
+          "a_index": null,
+          "b_index": 2,
+          "caused_failure": false,
+          "extra_steps": 3,
+          "extra_tokens": 453,
+          "extra_latency_s": 6.84,
+          "summary": "Agent B took 2 extra step(s) not mirrored by Agent A, starting where it searched \"DataHub Cloud Team plan price per user 2025\" (annotated weak)."
+        },
+        "occurrence_count": 1,
+        "severity": "minor",
+        "suppressed": false,
+        "recurring": false,
+        "summary": "Selects a lower-quality source at \"web_search\" — seen on 1 task(s), costing 453 extra tokens."
+      },
+      {
+        "id": "retrieval/a:none/b:read.open_page/q:b",
+        "kind": "retrieval",
+        "title": "Selects a lower-quality source at \"open_page\"",
+        "occurrences": [
+          {
+            "task": "t03_saas_pricing",
+            "rank": 2,
+            "a_index": null,
+            "b_index": 6,
+            "caused_failure": false,
+            "extra_steps": 1,
+            "extra_tokens": 156,
+            "extra_latency_s": 2.1,
+            "summary": "Agent B took 1 extra step(s) not mirrored by Agent A, starting where it read \"open_page\" (annotated weak)."
+          }
+        ],
+        "tasks": [
+          "t03_saas_pricing"
+        ],
+        "agents": [],
+        "failures_caused": 0,
+        "extra_steps": 1,
+        "extra_tokens": 156,
+        "extra_latency_s": 2.1,
+        "example": {
+          "task": "t03_saas_pricing",
+          "rank": 2,
+          "a_index": null,
+          "b_index": 6,
+          "caused_failure": false,
+          "extra_steps": 1,
+          "extra_tokens": 156,
+          "extra_latency_s": 2.1,
+          "summary": "Agent B took 1 extra step(s) not mirrored by Agent A, starting where it read \"open_page\" (annotated weak)."
+        },
+        "occurrence_count": 1,
+        "severity": "minor",
+        "suppressed": false,
+        "recurring": false,
+        "summary": "Selects a lower-quality source at \"open_page\" — seen on 1 task(s), costing 156 extra tokens."
+      },
+      {
+        "id": "stopping/a:none/b:reason.reason",
+        "kind": "stopping",
+        "title": "Keeps working after the evidence is already sufficient",
+        "occurrences": [
+          {
+            "task": "t02_cve_libfoo",
+            "rank": 2,
+            "a_index": null,
+            "b_index": 9,
+            "caused_failure": false,
+            "extra_steps": 1,
+            "extra_tokens": 153,
+            "extra_latency_s": 2.04,
+            "summary": "Agent B continued for 1 extra step(s) before answering, after Agent A had already finished the same work."
+          }
+        ],
+        "tasks": [
+          "t02_cve_libfoo"
+        ],
+        "agents": [],
+        "failures_caused": 0,
+        "extra_steps": 1,
+        "extra_tokens": 153,
+        "extra_latency_s": 2.04,
+        "example": {
+          "task": "t02_cve_libfoo",
+          "rank": 2,
+          "a_index": null,
+          "b_index": 9,
+          "caused_failure": false,
+          "extra_steps": 1,
+          "extra_tokens": 153,
+          "extra_latency_s": 2.04,
+          "summary": "Agent B continued for 1 extra step(s) before answering, after Agent A had already finished the same work."
+        },
+        "occurrence_count": 1,
+        "severity": "minor",
+        "suppressed": false,
+        "recurring": false,
+        "summary": "Keeps working after the evidence is already sufficient — seen on 1 task(s), costing 153 extra tokens."
+      }
+    ],
+    "active": 6,
+    "suppressed": 0,
+    "total_divergences": 8,
+    "counts": {
+      "critical": 3,
+      "major": 0,
+      "minor": 3
+    },
+    "narrative": "8 divergence(s) across 8 task(s) collapse into 6 distinct issue(s) (1 recurring on more than one task). The costliest is: Selects a lower-quality source at \"select_result\" — seen on 3 task(s), causing 2 failure(s), costing 2,136 extra tokens."
+  },
+  "attributes": {
+    "runs": 16,
+    "failures": 4,
+    "attributes": [
+      {
+        "attribute": "poor_quality_step",
+        "phrasing": "the run contains a step annotated weak or bad",
+        "with": {
+          "runs": 6,
+          "failures": 4,
+          "failure_rate": 0.6667,
+          "ci": [
+            0.3,
+            0.9032
+          ]
+        },
+        "without": {
+          "runs": 10,
+          "failures": 0,
+          "failure_rate": 0.0,
+          "ci": [
+            0.0,
+            0.2775
+          ]
+        },
+        "lift": 0.6667,
+        "interval": {
+          "observed": 0.6667,
+          "low": 0.3333,
+          "high": 1.0,
+          "significant": true,
+          "samples": 2000
+        },
+        "notable": true,
+        "measurable": true,
+        "stratified": {
+          "lift": 0.6667,
+          "strata": 6,
+          "method": "Mantel-Haenszel pooled within-task risk difference"
+        },
+        "reverses_under_stratification": false
+      },
+      {
+        "attribute": "long_trajectory",
+        "phrasing": "the run took more than six steps",
+        "with": {
+          "runs": 4,
+          "failures": 2,
+          "failure_rate": 0.5,
+          "ci": [
+            0.15,
+            0.85
+          ]
+        },
+        "without": {
+          "runs": 12,
+          "failures": 2,
+          "failure_rate": 0.1667,
+          "ci": [
+            0.047,
+            0.448
+          ]
+        },
+        "lift": 0.3333,
+        "interval": {
+          "observed": 0.3333,
+          "low": -0.1667,
+          "high": 0.8333,
+          "significant": false,
+          "samples": 2000
+        },
+        "notable": true,
+        "measurable": true,
+        "stratified": {
+          "lift": 0.5,
+          "strata": 4,
+          "method": "Mantel-Haenszel pooled within-task risk difference"
+        },
+        "reverses_under_stratification": false
+      },
+      {
+        "attribute": "repeated_search",
+        "phrasing": "the run searched more than once",
+        "with": {
+          "runs": 4,
+          "failures": 2,
+          "failure_rate": 0.5,
+          "ci": [
+            0.15,
+            0.85
+          ]
+        },
+        "without": {
+          "runs": 12,
+          "failures": 2,
+          "failure_rate": 0.1667,
+          "ci": [
+            0.047,
+            0.448
+          ]
+        },
+        "lift": 0.3333,
+        "interval": {
+          "observed": 0.3333,
+          "low": -0.1667,
+          "high": 0.8333,
+          "significant": false,
+          "samples": 2000
+        },
+        "notable": true,
+        "measurable": true,
+        "stratified": {
+          "lift": 0.5,
+          "strata": 4,
+          "method": "Mantel-Haenszel pooled within-task risk difference"
+        },
+        "reverses_under_stratification": false
+      },
+      {
+        "attribute": "many_tool_calls",
+        "phrasing": "the run made more than two tool calls",
+        "with": {
+          "runs": 14,
+          "failures": 3,
+          "failure_rate": 0.2143,
+          "ci": [
+            0.0757,
+            0.4759
+          ]
+        },
+        "without": {
+          "runs": 2,
+          "failures": 1,
+          "failure_rate": 0.5,
+          "ci": [
+            0.0945,
+            0.9055
+          ]
+        },
+        "lift": -0.2857,
+        "interval": {
+          "observed": -0.2857,
+          "low": -0.9286,
+          "high": 0.3571,
+          "significant": false,
+          "samples": 2000
+        },
+        "notable": true,
+        "measurable": true,
+        "stratified": null,
+        "reverses_under_stratification": false
+      },
+      {
+        "attribute": "low_confidence_step",
+        "phrasing": "some step fell below 70% model confidence",
+        "with": {
+          "runs": 1,
+          "failures": 1,
+          "failure_rate": 1.0,
+          "ci": [
+            0.2065,
+            1.0
+          ]
+        },
+        "without": {
+          "runs": 15,
+          "failures": 3,
+          "failure_rate": 0.2,
+          "ci": [
+            0.0705,
+            0.4519
+          ]
+        },
+        "lift": 0.8,
+        "interval": null,
+        "notable": false,
+        "measurable": false,
+        "stratified": {
+          "lift": 1.0,
+          "strata": 1,
+          "method": "Mantel-Haenszel pooled within-task risk difference"
+        },
+        "reverses_under_stratification": false
+      },
+      {
+        "attribute": "no_verification_step",
+        "phrasing": "the run never verified its evidence",
+        "with": {
+          "runs": 9,
+          "failures": 2,
+          "failure_rate": 0.2222,
+          "ci": [
+            0.0632,
+            0.5474
+          ]
+        },
+        "without": {
+          "runs": 7,
+          "failures": 2,
+          "failure_rate": 0.2857,
+          "ci": [
+            0.0822,
+            0.6411
+          ]
+        },
+        "lift": -0.0635,
+        "interval": {
+          "observed": -0.0635,
+          "low": -0.4603,
+          "high": 0.3333,
+          "significant": false,
+          "samples": 2000
+        },
+        "notable": false,
+        "measurable": true,
+        "stratified": {
+          "lift": -1.0,
+          "strata": 1,
+          "method": "Mantel-Haenszel pooled within-task risk difference"
+        },
+        "reverses_under_stratification": false
+      },
+      {
+        "attribute": "no_plan_step",
+        "phrasing": "the run acted without stating a plan",
+        "with": {
+          "runs": 0,
+          "failures": 0,
+          "failure_rate": 0.0,
+          "ci": [
+            0.0,
+            1.0
+          ]
+        },
+        "without": {
+          "runs": 16,
+          "failures": 4,
+          "failure_rate": 0.25,
+          "ci": [
+            0.1018,
+            0.495
+          ]
+        },
+        "lift": -0.25,
+        "interval": null,
+        "notable": false,
+        "measurable": false,
+        "stratified": null,
+        "reverses_under_stratification": false
+      }
+    ],
+    "notable": 4,
+    "caveat": "Attributes are associations measured on logged traces. An attribute may travel with failure because it causes it, because a common factor causes both, or because harder tasks provoke it.",
+    "narrative": "Of 16 run(s) with 4 failure(s), the strongest association is that the run contains a step annotated weak or bad: within the same task, such runs fail 67% more often (raw 67% of 6 versus 0% of 10). This is an association, not a cause. 3 other attribute(s) also separate."
+  },
+  "attributes_joint": {
+    "available": true,
+    "runs": 16,
+    "failures": 4,
+    "parameters": 7,
+    "coefficients": [
+      {
+        "attribute": "poor_quality_step",
+        "phrasing": "the run contains a step annotated weak or bad",
+        "coefficient": 1.3013,
+        "odds_ratio": 3.6741,
+        "separates": false,
+        "direction": "raises"
+      },
+      {
+        "attribute": "low_confidence_step",
+        "phrasing": "some step fell below 70% model confidence",
+        "coefficient": 0.5344,
+        "odds_ratio": 1.7065,
+        "separates": false,
+        "direction": "raises"
+      },
+      {
+        "attribute": "many_tool_calls",
+        "phrasing": "the run made more than two tool calls",
+        "coefficient": -0.3764,
+        "odds_ratio": 0.6863,
+        "separates": false,
+        "direction": "lowers"
+      },
+      {
+        "attribute": "long_trajectory",
+        "phrasing": "the run took more than six steps",
+        "coefficient": 0.2115,
+        "odds_ratio": 1.2356,
+        "separates": false,
+        "direction": "raises"
+      },
+      {
+        "attribute": "repeated_search",
+        "phrasing": "the run searched more than once",
+        "coefficient": 0.2115,
+        "odds_ratio": 1.2356,
+        "separates": false,
+        "direction": "raises"
+      },
+      {
+        "attribute": "no_verification_step",
+        "phrasing": "the run never verified its evidence",
+        "coefficient": -0.0736,
+        "odds_ratio": 0.929,
+        "separates": false,
+        "direction": "lowers"
+      }
+    ],
+    "intercept": -1.5236,
+    "dropped": [
+      {
+        "attribute": "no_plan_step",
+        "reason": "constant across the corpus"
+      }
+    ],
+    "ridge": 1.0,
+    "iterations": 6,
+    "converged": true,
+    "reliable": false,
+    "method": "ridge-penalised logistic regression (IRLS, fixed iteration cap, deterministic)",
+    "caveat": "Coefficients control for the other measured attributes only, and not for task difficulty. They remain associations.",
+    "narrative": "Holding the other 5 attribute(s) fixed, the run contains a step annotated weak or bad raises the odds of failure most (odds ratio 3.6741). With 16 run(s) and 7 parameter(s) this fit is indicative only — it wants about 35 runs to be read confidently."
+  },
+  "semantic_profile": {
+    "a": {
+      "verification_rate": 0.25,
+      "grounding": 0.7583,
+      "circular_incidents": 1,
+      "contradictions": 0
+    },
+    "b": {
+      "verification_rate": 0.25,
+      "grounding": 0.8313,
+      "circular_incidents": 2,
+      "contradictions": 0
+    },
+    "narrative": "atlas-v2 verifies on 25% of tasks with grounding 0.76, versus bolt-v3 at 25% and 0.83. bolt-v3 logged 2 circular-corroboration incident(s) and 0 internal contradiction(s), versus 1 and 0 for atlas-v2."
+  },
+  "task_signal": [
+    {
+      "task": "t01_acme_revenue",
+      "difficulty": 0.5,
+      "discrimination": 1.0,
+      "note": "separates the agents: one side always fails it"
+    },
+    {
+      "task": "t05_flight_duration",
+      "difficulty": 0.5,
+      "discrimination": 1.0,
+      "note": "separates the agents: one side always fails it"
+    },
+    {
+      "task": "t06_bls_unemployment",
+      "difficulty": 0.5,
+      "discrimination": 1.0,
+      "note": "separates the agents: one side always fails it"
+    },
+    {
+      "task": "t07_build_failure",
+      "difficulty": 0.5,
+      "discrimination": 1.0,
+      "note": "separates the agents: one side always fails it"
+    },
+    {
+      "task": "t02_cve_libfoo",
+      "difficulty": 0.0,
+      "discrimination": 0.4275,
+      "note": "same outcomes; separates on cost/latency"
+    },
+    {
+      "task": "t03_saas_pricing",
+      "difficulty": 0.0,
+      "discrimination": 0.3314,
+      "note": "same outcomes; separates on cost/latency"
+    },
+    {
+      "task": "t04_rope_paper",
+      "difficulty": 0.0,
+      "discrimination": 0.0126,
+      "note": "same outcomes; separates on cost/latency"
+    },
+    {
+      "task": "t08_changelog_diff",
+      "difficulty": 0.0,
+      "discrimination": 0.0038,
+      "note": "same outcomes; separates on cost/latency"
+    }
+  ]
+}

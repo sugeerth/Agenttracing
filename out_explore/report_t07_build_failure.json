@@ -1,0 +1,1344 @@
+{
+  "task": {
+    "id": "t07_build_failure",
+    "prompt": "The widget-service CI build started failing right after PR #482 (\"chore: bump dependencies\") merged. Find the root cause and state the fix."
+  },
+  "a": {
+    "agent": {
+      "name": "atlas-v2",
+      "model": "claude-sonnet-5",
+      "version": "v2"
+    },
+    "outcome": {
+      "success": false,
+      "answer": "The build fails because pkg_resources is deprecated and its API is no longer available after the dependency bump in PR #482. Fix: pin setuptools<81 (or vendor pkg_resources) in widget-service's build environment.",
+      "score": 0.0
+    },
+    "totals": {
+      "input_tokens": 724,
+      "output_tokens": 275,
+      "cost_usd": 0.006297,
+      "latency_s": 11.15
+    },
+    "steps": [
+      {
+        "index": 0,
+        "type": "plan",
+        "name": "plan",
+        "input": "1) Pull the failing CI log for widget-service. 2) Isolate the first fatal error. 3) Map it to a dependency changed in PR #482. 4) Propose the fix.",
+        "output": "Plan set. Fetching the most recent failed run.",
+        "tokens": 146,
+        "latency_s": 1.63,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9399,
+          "min_token_confidence": 0.8023,
+          "entropy": 0.2536,
+          "tokens_scored": 80,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 1,
+        "type": "tool_call",
+        "name": "ci_get_log",
+        "input": "ci.get_log(repo='widget-service', run='last-failed')  # run 8123, job: test",
+        "output": "[08:12:01] Installing dependencies from lockfile (pydantic 3.0.0, fastapi 0.115.2, sqlalchemy 2.0.36, ...)\n[08:12:44] DeprecationWarning: pkg_resources is deprecated as an API\n[08:12:45] tests/test_models.py:3: in <module>\n[08:12:45]     from pydantic import BaseModel, validator\n[08:12:45] E   ImportError: cannot import name 'validator' from 'pydantic' (/usr/lib/python3.12/site-packages/pydantic/__init__.py)\n[08:12:46] ERROR: 14 errors during collection\n[08:12:46] Job failed with exit code 2",
+        "tokens": 241,
+        "latency_s": 1.45,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8984,
+          "min_token_confidence": 0.7024,
+          "entropy": 0.252,
+          "tokens_scored": 132,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 2,
+        "type": "read",
+        "name": "open_page",
+        "input": "https://github.com/acme/widget-service/pull/482/files",
+        "output": "PR #482 \"chore: bump dependencies\" — requirements.txt diff: -pydantic==2.7.1 +pydantic==3.0.0 | -fastapi==0.110.0 +fastapi==0.115.2 | -sqlalchemy==2.0.30 +sqlalchemy==2.0.36",
+        "tokens": 154,
+        "latency_s": 2.08,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9391,
+          "min_token_confidence": 0.8132,
+          "entropy": 0.1856,
+          "tokens_scored": 84,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 3,
+        "type": "tool_call",
+        "name": "regex_extract",
+        "input": "regex_extract(pattern='(?m)^.*(Warning|Error).*$', source=log:run-8123, first_match=true)",
+        "output": "[08:12:44] DeprecationWarning: pkg_resources is deprecated as an API",
+        "tokens": 137,
+        "latency_s": 1.77,
+        "quality": "bad",
+        "note": "Tool misuse: the pattern matches the FIRST 'Warning|Error' line, which is a harmless DeprecationWarning; the fatal ImportError two lines below is never extracted.",
+        "model": {
+          "confidence": 0.4955,
+          "min_token_confidence": 0.2216,
+          "entropy": 1.2437,
+          "tokens_scored": 75,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 4,
+        "type": "reason",
+        "name": "reason",
+        "input": "Map the extracted line to the dependency bump.",
+        "output": "The first error-class line is the pkg_resources deprecation, so the setuptools/pkg_resources change must be what broke the build after the bump. The fix is to restore the pkg_resources API.",
+        "tokens": 157,
+        "latency_s": 2.06,
+        "quality": "bad",
+        "note": "Wrong root cause propagated from the bad extraction; the ImportError in the same log was ignored.",
+        "model": {
+          "confidence": 0.4586,
+          "min_token_confidence": 0.1768,
+          "entropy": 1.2994,
+          "tokens_scored": 86,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 5,
+        "type": "answer",
+        "name": "final_answer",
+        "input": "Compose the final answer from the verified findings.",
+        "output": "The build fails because pkg_resources is deprecated and its API is no longer available after the dependency bump in PR #482. Fix: pin setuptools<81 (or vendor pkg_resources) in widget-service's build environment.",
+        "tokens": 164,
+        "latency_s": 2.16,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9026,
+          "min_token_confidence": 0.691,
+          "entropy": 0.2526,
+          "tokens_scored": 90,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      }
+    ]
+  },
+  "b": {
+    "agent": {
+      "name": "bolt-v3",
+      "model": "gpt-5",
+      "version": "v3"
+    },
+    "outcome": {
+      "success": true,
+      "answer": "Root cause: PR #482 bumped pydantic from 2.7.1 to 3.0.0, which removed the v1-style `validator` import that tests/test_models.py (and the app models) still use, so test collection dies with ImportError. Fix: migrate `@validator` to `@field_validator` (pydantic v2/v3 style) — or pin pydantic==2.7.1 until the migration lands.",
+      "score": 1.0
+    },
+    "totals": {
+      "input_tokens": 737,
+      "output_tokens": 324,
+      "cost_usd": 0.007071,
+      "latency_s": 12.18
+    },
+    "steps": [
+      {
+        "index": 0,
+        "type": "plan",
+        "name": "plan",
+        "input": "1) Pull the failing CI log for widget-service. 2) Isolate the first fatal error. 3) Map it to a dependency changed in PR #482. 4) Propose the fix.",
+        "output": "Plan set. Fetching the most recent failed run.",
+        "tokens": 146,
+        "latency_s": 1.75,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.909,
+          "min_token_confidence": 0.7041,
+          "entropy": 0.2476,
+          "tokens_scored": 80,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 1,
+        "type": "tool_call",
+        "name": "ci_get_log",
+        "input": "ci.get_log(repo='widget-service', run='last-failed')  # run 8123, job: test",
+        "output": "[08:12:01] Installing dependencies from lockfile (pydantic 3.0.0, fastapi 0.115.2, sqlalchemy 2.0.36, ...)\n[08:12:44] DeprecationWarning: pkg_resources is deprecated as an API\n[08:12:45] tests/test_models.py:3: in <module>\n[08:12:45]     from pydantic import BaseModel, validator\n[08:12:45] E   ImportError: cannot import name 'validator' from 'pydantic' (/usr/lib/python3.12/site-packages/pydantic/__init__.py)\n[08:12:46] ERROR: 14 errors during collection\n[08:12:46] Job failed with exit code 2",
+        "tokens": 241,
+        "latency_s": 1.7,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8664,
+          "min_token_confidence": 0.6523,
+          "entropy": 0.4117,
+          "tokens_scored": 132,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 2,
+        "type": "read",
+        "name": "open_page",
+        "input": "https://github.com/acme/widget-service/pull/482/files",
+        "output": "PR #482 \"chore: bump dependencies\" — requirements.txt diff: -pydantic==2.7.1 +pydantic==3.0.0 | -fastapi==0.110.0 +fastapi==0.115.2 | -sqlalchemy==2.0.30 +sqlalchemy==2.0.36",
+        "tokens": 154,
+        "latency_s": 1.88,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8716,
+          "min_token_confidence": 0.6394,
+          "entropy": 0.2881,
+          "tokens_scored": 84,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 3,
+        "type": "tool_call",
+        "name": "regex_extract",
+        "input": "regex_extract(pattern='(?m)^E\\s+\\w+Error.*$', source=log:run-8123)",
+        "output": "E   ImportError: cannot import name 'validator' from 'pydantic' (/usr/lib/python3.12/site-packages/pydantic/__init__.py)",
+        "tokens": 144,
+        "latency_s": 1.58,
+        "quality": "good",
+        "note": "Anchored on pytest's 'E ' failure prefix, so the fatal line is extracted rather than the earlier deprecation noise.",
+        "model": {
+          "confidence": 0.901,
+          "min_token_confidence": 0.7564,
+          "entropy": 0.3659,
+          "tokens_scored": 79,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 4,
+        "type": "reason",
+        "name": "reason",
+        "input": "Map the extracted line to the dependency bump.",
+        "output": "The fatal line is an ImportError: `validator` no longer exists in pydantic. PR #482 bumped pydantic 2.7.1 -> 3.0.0, and pydantic 3 removed the v1-style `validator` export. The DeprecationWarning about pkg_resources is unrelated noise. Fix: migrate decorators to `field_validator` or pin pydantic<3.",
+        "tokens": 184,
+        "latency_s": 2.39,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.86,
+          "min_token_confidence": 0.7009,
+          "entropy": 0.3651,
+          "tokens_scored": 101,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 5,
+        "type": "answer",
+        "name": "final_answer",
+        "input": "Compose the final answer from the verified findings.",
+        "output": "Root cause: PR #482 bumped pydantic from 2.7.1 to 3.0.0, which removed the v1-style `validator` import that tests/test_models.py (and the app models) still use, so test collection dies with ImportError. Fix: migrate `@validator` to `@field_validator` (pydantic v2/v3 style) — or pin pydantic==2.7.1 until the migration lands.",
+        "tokens": 192,
+        "latency_s": 2.88,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8655,
+          "min_token_confidence": 0.6985,
+          "entropy": 0.316,
+          "tokens_scored": 105,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      }
+    ]
+  },
+  "alignment": [
+    {
+      "a_index": 0,
+      "b_index": 0,
+      "op": "match",
+      "similarity": 1.0,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 0,
+          "latency_s": 0.12,
+          "cost_usd": 5.3e-05
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        },
+        "propagation": {
+          "a": 0.0,
+          "b": 0.0
+        }
+      }
+    },
+    {
+      "a_index": 1,
+      "b_index": 1,
+      "op": "match",
+      "similarity": 1.0,
+      "tool_diff": {
+        "same_tool": true,
+        "identical": true
+      },
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 0,
+          "latency_s": 0.25,
+          "cost_usd": 8.7e-05
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        },
+        "propagation": {
+          "a": 0.0,
+          "b": 0.0
+        }
+      }
+    },
+    {
+      "a_index": 2,
+      "b_index": 2,
+      "op": "match",
+      "similarity": 1.0,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 0,
+          "latency_s": -0.2,
+          "cost_usd": 5.6e-05
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        },
+        "propagation": {
+          "a": 0.0,
+          "b": 0.0
+        }
+      }
+    },
+    {
+      "a_index": 3,
+      "b_index": 3,
+      "op": "drift",
+      "similarity": 0.7812,
+      "tool_diff": {
+        "name_a": "regex_extract",
+        "name_b": "regex_extract",
+        "same_tool": true,
+        "args_a": {
+          "pattern": "(?m)^.*(Warning|Error).*$",
+          "source": "log:run-8123",
+          "first_match": "true"
+        },
+        "args_b": {
+          "pattern": "(?m)^E\\s+\\w+Error.*$",
+          "source": "log:run-8123"
+        },
+        "changed": [
+          {
+            "key": "pattern",
+            "a": "(?m)^.*(Warning|Error).*$",
+            "b": "(?m)^E\\s+\\w+Error.*$"
+          }
+        ],
+        "only_a": [
+          "first_match"
+        ],
+        "only_b": [],
+        "raw_diff": [
+          [
+            "eq",
+            "regex_extract(pattern='(?m)^"
+          ],
+          [
+            "del",
+            ".*(Warning|"
+          ],
+          [
+            "ins",
+            "E\\s+\\w+"
+          ],
+          [
+            "eq",
+            "Error"
+          ],
+          [
+            "del",
+            ")"
+          ],
+          [
+            "eq",
+            ".*$', source=log:run-8123"
+          ],
+          [
+            "del",
+            ", first_match=true"
+          ],
+          [
+            "eq",
+            ")"
+          ]
+        ]
+      },
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 0.5625
+        },
+        "delta": {
+          "tokens": 7,
+          "latency_s": -0.19,
+          "cost_usd": 9.6e-05
+        },
+        "quality": {
+          "a": "bad",
+          "b": "good",
+          "verdict": "a_degraded"
+        },
+        "propagation": {
+          "a": 0.0,
+          "b": 0.037
+        }
+      }
+    },
+    {
+      "a_index": 4,
+      "b_index": 4,
+      "op": "drift",
+      "similarity": 1.0,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 27,
+          "latency_s": 0.33,
+          "cost_usd": 0.000237
+        },
+        "quality": {
+          "a": "bad",
+          "b": "good",
+          "verdict": "a_degraded"
+        },
+        "propagation": {
+          "a": 0.0,
+          "b": 0.0
+        }
+      }
+    },
+    {
+      "a_index": 5,
+      "b_index": 5,
+      "op": "match",
+      "similarity": 1.0,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 28,
+          "latency_s": 0.72,
+          "cost_usd": 0.000246
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        },
+        "propagation": {
+          "a": 0.0,
+          "b": 0.0455
+        }
+      }
+    }
+  ],
+  "divergences": [
+    {
+      "rank": 1,
+      "a_index": 3,
+      "b_index": 3,
+      "kind": "tool_execution",
+      "summary": "Agent A called tool \"regex_extract\" with \"regex_extract(pattern='(?m)^.*(Warning|Error).*$', source=l…\" (annotated bad) while Agent B called tool \"regex_extract\" with \"regex_extract(pattern='(?m)^E\\s+\\w+Error.*$', source=log:ru…\".",
+      "downstream": {
+        "extra_steps_b": 0,
+        "extra_tokens_b": 62,
+        "extra_latency_s_b": 0.86,
+        "caused_failure": true,
+        "failed_agent": "a"
+      }
+    }
+  ],
+  "attribution": {
+    "failed_agent": "a",
+    "root_cause_step": 3,
+    "chain": [
+      3,
+      4,
+      5
+    ],
+    "category": "tool_execution",
+    "explanation": "Agent A diverged at step 3 because it took a divergent step (bad-quality: \"regex_extract\"). That propagated into the step where it reasoned \"Map the extracted line to the dependency bump.\" (annotated bad) at step 4 and caused the final failure. The answer emitted at step 5 was wrong, so the failure is attributed to tool_execution at step 3."
+  },
+  "answer_eval": {
+    "expected": "PR #482 bumped pydantic 2.7.1 -> 3.0.0, which removed the v1-style `validator` import; migrate to `field_validator` (or pin pydantic<3).",
+    "diff_ab": [
+      [
+        "del",
+        "The"
+      ],
+      [
+        "ins",
+        "Root"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "build"
+      ],
+      [
+        "ins",
+        "cause:"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "fails"
+      ],
+      [
+        "ins",
+        "PR"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "because"
+      ],
+      [
+        "ins",
+        "#482"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "pkg_resources"
+      ],
+      [
+        "ins",
+        "bumped"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "is"
+      ],
+      [
+        "ins",
+        "pydantic"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "deprecated"
+      ],
+      [
+        "ins",
+        "from"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "and"
+      ],
+      [
+        "ins",
+        "2.7.1"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "its"
+      ],
+      [
+        "ins",
+        "to"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "API"
+      ],
+      [
+        "ins",
+        "3.0.0,"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "is"
+      ],
+      [
+        "ins",
+        "which"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "no"
+      ],
+      [
+        "ins",
+        "removed"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "longer"
+      ],
+      [
+        "ins",
+        "the"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "available"
+      ],
+      [
+        "ins",
+        "v1-style"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "after"
+      ],
+      [
+        "ins",
+        "`validator`"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "ins",
+        "import that tests/test_models.py (and "
+      ],
+      [
+        "eq",
+        "the "
+      ],
+      [
+        "del",
+        "dependency"
+      ],
+      [
+        "ins",
+        "app"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "bump"
+      ],
+      [
+        "ins",
+        "models)"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "in"
+      ],
+      [
+        "ins",
+        "still"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "PR"
+      ],
+      [
+        "ins",
+        "use,"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "#482"
+      ],
+      [
+        "ins",
+        "so test collection dies with ImportError"
+      ],
+      [
+        "eq",
+        ". Fix: "
+      ],
+      [
+        "del",
+        "pin"
+      ],
+      [
+        "ins",
+        "migrate"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "setuptools<81"
+      ],
+      [
+        "ins",
+        "`@validator`"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "ins",
+        "to `@field_validator` "
+      ],
+      [
+        "eq",
+        "("
+      ],
+      [
+        "del",
+        "or"
+      ],
+      [
+        "ins",
+        "pydantic"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "vendor"
+      ],
+      [
+        "ins",
+        "v2/v3"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "pkg_resources"
+      ],
+      [
+        "ins",
+        "style"
+      ],
+      [
+        "eq",
+        ") "
+      ],
+      [
+        "del",
+        "in"
+      ],
+      [
+        "ins",
+        "—"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "widget-service's"
+      ],
+      [
+        "ins",
+        "or"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "build"
+      ],
+      [
+        "ins",
+        "pin"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "environment"
+      ],
+      [
+        "ins",
+        "pydantic==2"
+      ],
+      [
+        "eq",
+        "."
+      ],
+      [
+        "ins",
+        "7.1 until the migration lands."
+      ]
+    ],
+    "a_vs_expected": {
+      "coverage": 0.2632,
+      "verdict": "mismatch"
+    },
+    "b_vs_expected": {
+      "coverage": 0.8421,
+      "verdict": "partial"
+    }
+  },
+  "metrics_delta": {
+    "steps": {
+      "a": 6,
+      "b": 6
+    },
+    "tokens": {
+      "a": 999,
+      "b": 1061
+    },
+    "cost_usd": {
+      "a": 0.006297,
+      "b": 0.007071
+    },
+    "latency_s": {
+      "a": 11.15,
+      "b": 12.18
+    },
+    "tool_calls": {
+      "a": 2,
+      "b": 2
+    },
+    "searches": {
+      "a": 0,
+      "b": 0
+    }
+  },
+  "success_analysis": {
+    "winner": "b",
+    "basis": "outcome",
+    "winning_decisions": [
+      {
+        "step_index": 3,
+        "agent": "bolt-v3",
+        "kind": "tool_execution",
+        "decision": "E ImportError: cannot import name 'validator' from 'pydantic' (/usr/lib/python3.12/site-p…",
+        "counterpart": "called tool \"regex_extract\" with \"regex_extract(pattern='(?m)^.*(Warning|Error).*$', source=l…\" (annotated bad) (atlas-v2)",
+        "why": "avoided a bad-quality step; counterpart note: \"Tool misuse: the pattern matches the FIRST 'Warning|Error' line, whic…\"; correct tool arguments produced a trustworthy result",
+        "impact": {
+          "avoided_extra_steps": 0,
+          "avoided_tokens": 0,
+          "avoided_latency_s": 0.0,
+          "avoided_failure": true
+        }
+      }
+    ],
+    "narrative": "bolt-v3 won on outcome over atlas-v2. Key decision at step 3 (tool_execution): \"E ImportError: cannot import name 'validator' from 'pydantic' (/usr/lib/python3.12/site-p…\" versus called tool \"regex_extract\" with \"regex_extract(pattern='(?m)^.*(Warning|Error).*$', source=l…\" (annotated bad) (atlas-v2). Altogether its choices avoided 0 extra step(s), 0 tokens and 0s of latency, and the failure that followed."
+  },
+  "uncertainty": {
+    "available": true,
+    "a": {
+      "series": [
+        0.9399,
+        0.8984,
+        0.9391,
+        0.4955,
+        0.4586,
+        0.9026
+      ],
+      "mean_confidence": 0.7723,
+      "min_confidence": 0.4586,
+      "mean_entropy": 0.5812,
+      "min_token_confidence": 0.1768,
+      "steps_scored": 6
+    },
+    "b": {
+      "series": [
+        0.909,
+        0.8664,
+        0.8716,
+        0.901,
+        0.86,
+        0.8655
+      ],
+      "mean_confidence": 0.8789,
+      "min_confidence": 0.86,
+      "mean_entropy": 0.3324,
+      "min_token_confidence": 0.6394,
+      "steps_scored": 6
+    },
+    "signal": {
+      "failed_agent": "a",
+      "root_cause_step": 3,
+      "confidence_at_root": 0.4955,
+      "baseline_confidence": 0.8277,
+      "drop": 0.3322,
+      "verdict": "flagged",
+      "lead_steps": 0,
+      "mitigation": "a runtime confidence gate would have caught this step"
+    },
+    "calibration": {
+      "confident_when_wrong": false,
+      "confidence_at_wrong_step": 0.4955
+    },
+    "narrative": "atlas-v2 ran at 77% mean token confidence (low of 46%). bolt-v3 ran at 88% mean token confidence (low of 86%). The model knew: atlas-v2's confidence fell to 50% at the root-cause step (step 3), 33% below its own baseline, as it acted. A confidence gate would have caught this run."
+  },
+  "semantic": {
+    "methods": [
+      "tfidf_cosine",
+      "claim_provenance"
+    ],
+    "rows": [
+      {
+        "row": 0,
+        "a_index": 0,
+        "b_index": 0,
+        "lexical": 1.0,
+        "semantic": 1.0
+      },
+      {
+        "row": 1,
+        "a_index": 1,
+        "b_index": 1,
+        "lexical": 1.0,
+        "semantic": 1.0
+      },
+      {
+        "row": 2,
+        "a_index": 2,
+        "b_index": 2,
+        "lexical": 1.0,
+        "semantic": 1.0
+      },
+      {
+        "row": 3,
+        "a_index": 3,
+        "b_index": 3,
+        "lexical": 0.7812,
+        "semantic": 0.5048
+      },
+      {
+        "row": 4,
+        "a_index": 4,
+        "b_index": 4,
+        "lexical": 1.0,
+        "semantic": 0.5129
+      },
+      {
+        "row": 5,
+        "a_index": 5,
+        "b_index": 5,
+        "lexical": 1.0,
+        "semantic": 0.3746
+      }
+    ],
+    "first_semantic_break": 5,
+    "claims": [
+      {
+        "id": "c1",
+        "kind": "version",
+        "value": "3.0.0",
+        "normalized": "3.0.0",
+        "matches_expected": true,
+        "a_steps": [
+          1,
+          2
+        ],
+        "b_steps": [
+          1,
+          2,
+          4,
+          5
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 1,
+          "source": null
+        }
+      },
+      {
+        "id": "c2",
+        "kind": "version",
+        "value": "0.115.2",
+        "normalized": "0.115.2",
+        "matches_expected": false,
+        "a_steps": [
+          1,
+          2
+        ],
+        "b_steps": [
+          1,
+          2
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 1,
+          "source": null
+        }
+      },
+      {
+        "id": "c3",
+        "kind": "version",
+        "value": "2.0.36",
+        "normalized": "2.0.36",
+        "matches_expected": false,
+        "a_steps": [
+          1,
+          2
+        ],
+        "b_steps": [
+          1,
+          2
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 1,
+          "source": null
+        }
+      },
+      {
+        "id": "c4",
+        "kind": "number",
+        "value": "14 errors",
+        "normalized": "14",
+        "matches_expected": null,
+        "a_steps": [
+          1
+        ],
+        "b_steps": [
+          1
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 1,
+          "source": null
+        }
+      },
+      {
+        "id": "c5",
+        "kind": "url",
+        "value": "github.com",
+        "normalized": "github.com",
+        "matches_expected": null,
+        "a_steps": [
+          2
+        ],
+        "b_steps": [
+          2
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 2,
+          "source": "github.com"
+        }
+      },
+      {
+        "id": "c6",
+        "kind": "version",
+        "value": "2.7.1",
+        "normalized": "2.7.1",
+        "matches_expected": true,
+        "a_steps": [
+          2
+        ],
+        "b_steps": [
+          2,
+          4,
+          5
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 2,
+          "source": "github.com"
+        }
+      },
+      {
+        "id": "c7",
+        "kind": "version",
+        "value": "0.110.0",
+        "normalized": "0.110.0",
+        "matches_expected": false,
+        "a_steps": [
+          2
+        ],
+        "b_steps": [
+          2
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 2,
+          "source": "github.com"
+        }
+      },
+      {
+        "id": "c8",
+        "kind": "version",
+        "value": "2.0.30",
+        "normalized": "2.0.30",
+        "matches_expected": false,
+        "a_steps": [
+          2
+        ],
+        "b_steps": [
+          2
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 2,
+          "source": "github.com"
+        }
+      }
+    ],
+    "conflicts": [],
+    "intents": {
+      "a": [
+        {
+          "step": 0,
+          "intent": "frame"
+        },
+        {
+          "step": 1,
+          "intent": "transform"
+        },
+        {
+          "step": 2,
+          "intent": "acquire"
+        },
+        {
+          "step": 3,
+          "intent": "transform"
+        },
+        {
+          "step": 4,
+          "intent": "decide"
+        },
+        {
+          "step": 5,
+          "intent": "commit"
+        }
+      ],
+      "b": [
+        {
+          "step": 0,
+          "intent": "frame"
+        },
+        {
+          "step": 1,
+          "intent": "transform"
+        },
+        {
+          "step": 2,
+          "intent": "acquire"
+        },
+        {
+          "step": 3,
+          "intent": "transform"
+        },
+        {
+          "step": 4,
+          "intent": "decide"
+        },
+        {
+          "step": 5,
+          "intent": "commit"
+        }
+      ],
+      "missing": {
+        "a": [],
+        "b": []
+      }
+    },
+    "grounding": {
+      "a": {
+        "claims_total": 0,
+        "claims_grounded": 0,
+        "score": 1.0,
+        "ungrounded": []
+      },
+      "b": {
+        "claims_total": 2,
+        "claims_grounded": 2,
+        "score": 1.0,
+        "ungrounded": []
+      }
+    },
+    "independence": [],
+    "contradictions": [],
+    "narrative": "Meaning breaks from wording at alignment row 5 (lexical 1.00 vs semantic 0.37)."
+  },
+  "counterfactual": {
+    "premise": "had atlas-v2 made bolt-v3's decision at step 3",
+    "splice": {
+      "prefix_steps": [
+        0,
+        1,
+        2
+      ],
+      "adopted_from": "b",
+      "adopted_steps": [
+        3,
+        4,
+        5
+      ]
+    },
+    "estimate": {
+      "outcome": "success",
+      "steps": 6,
+      "steps_delta": 0,
+      "tokens": 1061,
+      "tokens_delta": 62,
+      "latency_s": 12.01,
+      "latency_delta_s": 0.86,
+      "cost_usd": 0.006876,
+      "cost_delta_usd": 0.000579
+    },
+    "confidence": "high",
+    "narrative": "Had atlas-v2 called tool \"regex_extract\" with \"regex_extract(pattern='(?m)^E\\s+\\w+Error.*$', source=log:ru…\" at step 3 (as bolt-v3 did), the estimated run is 6 steps, 1,061 tokens, 12.01s — at no extra cost — and ends in success."
+  },
+  "shapley": {
+    "available": true,
+    "metric": "tokens",
+    "loser": "atlas-v2",
+    "winner": "bolt-v3",
+    "regions": 1,
+    "method": "exact",
+    "total_saving": -34.0,
+    "allocations": [
+      {
+        "region": 0,
+        "rank": 1,
+        "kind": "tool_execution",
+        "summary": "Agent A called tool \"regex_extract\" with \"regex_extract(pattern='(?m)^.*(Warning|Error).*$', source=l…\" (annotated bad) while Agent B called tool \"regex_extract\" with \"regex_extract(pattern='(?m)^E\\s+\\w+Error.*$', source=log:ru…\".",
+        "alignment_rows": [
+          3,
+          4
+        ],
+        "shapley": -34.0,
+        "share": 1.0,
+        "caused_failure": true
+      }
+    ],
+    "efficiency_check": 0.0,
+    "outcome_attributable": true,
+    "outcome_note": "exactly one divergence was causal, so the outcome is attributable to it",
+    "narrative": "Fixing every divergence would have saved -34 tokens. The largest single share is 100% (-34), from the tool_execution divergence at region 0."
+  }
+}

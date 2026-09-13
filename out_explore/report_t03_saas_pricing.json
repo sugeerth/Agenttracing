@@ -1,0 +1,1259 @@
+{
+  "task": {
+    "id": "t03_saas_pricing",
+    "prompt": "Compare DataHub Cloud's Pro and Team plans for a 25-seat team billed annually. Which plan is cheaper per year, and by how much?"
+  },
+  "a": {
+    "agent": {
+      "name": "atlas-v2",
+      "model": "claude-sonnet-5",
+      "version": "v2"
+    },
+    "outcome": {
+      "success": true,
+      "answer": "For a 25-seat team billed annually: Team costs $11,700/year (25 x $39 x 12) and Pro costs $14,700/year (25 x $49 x 12). Team is cheaper by $3,000 per year; Pro's premium buys SSO, audit logs, and 90-day history.",
+      "score": 1.0
+    },
+    "totals": {
+      "input_tokens": 666,
+      "output_tokens": 232,
+      "cost_usd": 0.005478,
+      "latency_s": 11.09
+    },
+    "steps": [
+      {
+        "index": 0,
+        "type": "plan",
+        "name": "plan",
+        "input": "1) Get per-seat prices for DataHub Cloud's Pro and Team plans from the official pricing page. 2) Compute the 25-seat annual cost of each plan. 3) Compare and report the difference.",
+        "output": "Plan set. Locating the official pricing page.",
+        "tokens": 154,
+        "latency_s": 1.85,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9355,
+          "min_token_confidence": 0.7784,
+          "entropy": 0.1931,
+          "tokens_scored": 84,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 1,
+        "type": "search",
+        "name": "web_search",
+        "input": "DataHub Cloud pricing Pro Team plan per seat annual billing",
+        "output": "[1] datahubcloud.com/pricing — Plans & Pricing | [2] saasradar.com — \"DataHub Cloud plans compared (2025)\" | [3] reddit.com — r/dataeng: \"Is DataHub Cloud Pro worth it?\"",
+        "tokens": 155,
+        "latency_s": 2.53,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8802,
+          "min_token_confidence": 0.6509,
+          "entropy": 0.4027,
+          "tokens_scored": 85,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 2,
+        "type": "retrieve",
+        "name": "select_result",
+        "input": "Open result [1]: datahubcloud.com/pricing — the vendor's own pricing page has the canonical numbers.",
+        "output": "Selected https://datahubcloud.com/pricing (official pricing page).",
+        "tokens": 139,
+        "latency_s": 1.1,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.939,
+          "min_token_confidence": 0.7926,
+          "entropy": 0.1398,
+          "tokens_scored": 76,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 3,
+        "type": "read",
+        "name": "open_page",
+        "input": "https://datahubcloud.com/pricing",
+        "output": "DataHub Cloud — Plans & Pricing. Team: $39 per user/month billed annually ($47 billed monthly). Pro: $49 per user/month billed annually ($59 billed monthly); adds SSO/SAML, audit logs, 90-day version history, priority support. Enterprise: contact sales.",
+        "tokens": 169,
+        "latency_s": 1.99,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9199,
+          "min_token_confidence": 0.7659,
+          "entropy": 0.1941,
+          "tokens_scored": 92,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 4,
+        "type": "tool_call",
+        "name": "calculator",
+        "input": "25 * 39 * 12 ; 25 * 49 * 12 ; 25 * 49 * 12 - 25 * 39 * 12",
+        "output": "11700 ; 14700 ; 3000",
+        "tokens": 117,
+        "latency_s": 1.42,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8841,
+          "min_token_confidence": 0.6714,
+          "entropy": 0.314,
+          "tokens_scored": 64,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 5,
+        "type": "answer",
+        "name": "final_answer",
+        "input": "Compose the final answer from the verified findings.",
+        "output": "For a 25-seat team billed annually: Team costs $11,700/year (25 x $39 x 12) and Pro costs $14,700/year (25 x $49 x 12). Team is cheaper by $3,000 per year; Pro's premium buys SSO, audit logs, and 90-day history.",
+        "tokens": 164,
+        "latency_s": 2.2,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9104,
+          "min_token_confidence": 0.7324,
+          "entropy": 0.3421,
+          "tokens_scored": 90,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      }
+    ]
+  },
+  "b": {
+    "agent": {
+      "name": "bolt-v3",
+      "model": "gpt-5",
+      "version": "v3"
+    },
+    "outcome": {
+      "success": true,
+      "answer": "Billed annually for 25 seats, the Team plan costs $11,700/year (25 x $39 x 12) versus $14,700/year for Pro (25 x $49 x 12), so Team is cheaper by $3,000 per year. Pro's extra cost covers SSO, audit logs, and 90-day version history.",
+      "score": 1.0
+    },
+    "totals": {
+      "input_tokens": 1053,
+      "output_tokens": 298,
+      "cost_usd": 0.007629,
+      "latency_s": 17.91
+    },
+    "steps": [
+      {
+        "index": 0,
+        "type": "plan",
+        "name": "plan",
+        "input": "1) Get per-seat prices for DataHub Cloud's Pro and Team plans from the official pricing page. 2) Compute the 25-seat annual cost of each plan. 3) Compare and report the difference.",
+        "output": "Plan set. Locating the official pricing page.",
+        "tokens": 154,
+        "latency_s": 1.86,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8896,
+          "min_token_confidence": 0.6663,
+          "entropy": 0.2951,
+          "tokens_scored": 84,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 1,
+        "type": "search",
+        "name": "web_search",
+        "input": "DataHub Cloud pricing Pro Team plan per seat annual billing",
+        "output": "[1] datahubcloud.com/pricing — Plans & Pricing | [2] saasradar.com — \"DataHub Cloud plans compared (2025)\" | [3] reddit.com — r/dataeng: \"Is DataHub Cloud Pro worth it?\"",
+        "tokens": 155,
+        "latency_s": 2.5,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9022,
+          "min_token_confidence": 0.7213,
+          "entropy": 0.2378,
+          "tokens_scored": 85,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 2,
+        "type": "search",
+        "name": "web_search",
+        "input": "DataHub Cloud Team plan price per user 2025",
+        "output": "[1] datahubcloud.com/pricing — Plans & Pricing | [2] saasradar.com — \"DataHub Cloud plans compared (2025)\" | [3] getapp-style listing — DataHub Cloud pricing overview",
+        "tokens": 151,
+        "latency_s": 2.47,
+        "quality": "weak",
+        "note": "Divergence: redundant follow-up query — the official pricing page was already result [1] of the first search.",
+        "model": {
+          "confidence": 0.8844,
+          "min_token_confidence": 0.6672,
+          "entropy": 0.3854,
+          "tokens_scored": 83,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 3,
+        "type": "search",
+        "name": "web_search",
+        "input": "DataHub Cloud Pro plan annual billing discount",
+        "output": "[1] datahubcloud.com/pricing — Plans & Pricing | [2] datahubcloud.com/blog — \"Annual billing now saves 17%\" | [3] saasradar.com — plans compared",
+        "tokens": 146,
+        "latency_s": 2.46,
+        "quality": "weak",
+        "note": "Second redundant query; still landing on the same page.",
+        "model": {
+          "confidence": 0.8533,
+          "min_token_confidence": 0.619,
+          "entropy": 0.4298,
+          "tokens_scored": 80,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 4,
+        "type": "retrieve",
+        "name": "select_result",
+        "input": "Open result [1]: datahubcloud.com/pricing — the vendor's own pricing page has the canonical numbers.",
+        "output": "Selected https://datahubcloud.com/pricing (official pricing page).",
+        "tokens": 139,
+        "latency_s": 1.14,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.888,
+          "min_token_confidence": 0.7496,
+          "entropy": 0.335,
+          "tokens_scored": 76,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 5,
+        "type": "read",
+        "name": "open_page",
+        "input": "https://datahubcloud.com/pricing",
+        "output": "DataHub Cloud — Plans & Pricing. Team: $39 per user/month billed annually ($47 billed monthly). Pro: $49 per user/month billed annually ($59 billed monthly); adds SSO/SAML, audit logs, 90-day version history, priority support. Enterprise: contact sales.",
+        "tokens": 169,
+        "latency_s": 1.76,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.857,
+          "min_token_confidence": 0.6828,
+          "entropy": 0.3867,
+          "tokens_scored": 92,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 6,
+        "type": "read",
+        "name": "open_page",
+        "input": "https://saasradar.com/datahub-cloud-plans-compared-2025",
+        "output": "saasradar.com: \"DataHub Cloud's Team tier runs $39/user/mo on annual terms versus $49 for Pro. For most sub-50-seat teams the delta is SSO and audit logs.\"",
+        "tokens": 151,
+        "latency_s": 2.06,
+        "quality": "weak",
+        "note": "Confirmation read adds latency but no new information.",
+        "model": {
+          "confidence": 0.8422,
+          "min_token_confidence": 0.6774,
+          "entropy": 0.4388,
+          "tokens_scored": 83,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 7,
+        "type": "tool_call",
+        "name": "calculator",
+        "input": "25 * 39 * 12 ; 25 * 49 * 12 ; 25 * 49 * 12 - 25 * 39 * 12",
+        "output": "11700 ; 14700 ; 3000",
+        "tokens": 117,
+        "latency_s": 1.32,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9002,
+          "min_token_confidence": 0.7481,
+          "entropy": 0.3061,
+          "tokens_scored": 64,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 8,
+        "type": "answer",
+        "name": "final_answer",
+        "input": "Compose the final answer from the verified findings.",
+        "output": "Billed annually for 25 seats, the Team plan costs $11,700/year (25 x $39 x 12) versus $14,700/year for Pro (25 x $49 x 12), so Team is cheaper by $3,000 per year. Pro's extra cost covers SSO, audit logs, and 90-day version history.",
+        "tokens": 169,
+        "latency_s": 2.34,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8958,
+          "min_token_confidence": 0.7529,
+          "entropy": 0.3132,
+          "tokens_scored": 92,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      }
+    ]
+  },
+  "alignment": [
+    {
+      "a_index": 0,
+      "b_index": 0,
+      "op": "match",
+      "similarity": 1.0,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 0,
+          "latency_s": 0.01,
+          "cost_usd": -7e-05
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        }
+      }
+    },
+    {
+      "a_index": 1,
+      "b_index": 1,
+      "op": "match",
+      "similarity": 1.0,
+      "tool_diff": {
+        "same_tool": true,
+        "identical": true
+      },
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 0,
+          "latency_s": -0.03,
+          "cost_usd": -7e-05
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        }
+      }
+    },
+    {
+      "a_index": null,
+      "b_index": 2,
+      "op": "b_only",
+      "similarity": 0.0
+    },
+    {
+      "a_index": null,
+      "b_index": 3,
+      "op": "b_only",
+      "similarity": 0.0
+    },
+    {
+      "a_index": 2,
+      "b_index": 4,
+      "op": "match",
+      "similarity": 1.0,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 0,
+          "latency_s": 0.04,
+          "cost_usd": -6.3e-05
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        }
+      }
+    },
+    {
+      "a_index": 3,
+      "b_index": 5,
+      "op": "match",
+      "similarity": 1.0,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 0,
+          "latency_s": -0.23,
+          "cost_usd": -7.7e-05
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        }
+      }
+    },
+    {
+      "a_index": null,
+      "b_index": 6,
+      "op": "b_only",
+      "similarity": 0.0
+    },
+    {
+      "a_index": 4,
+      "b_index": 7,
+      "op": "match",
+      "similarity": 1.0,
+      "tool_diff": {
+        "same_tool": true,
+        "identical": true
+      },
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 0,
+          "latency_s": -0.1,
+          "cost_usd": -5.3e-05
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        }
+      }
+    },
+    {
+      "a_index": 5,
+      "b_index": 8,
+      "op": "match",
+      "similarity": 1.0,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 5,
+          "latency_s": 0.14,
+          "cost_usd": -4.6e-05
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        }
+      }
+    }
+  ],
+  "divergences": [
+    {
+      "rank": 1,
+      "a_index": null,
+      "b_index": 2,
+      "kind": "retrieval",
+      "summary": "Agent B took 2 extra step(s) not mirrored by Agent A, starting where it searched \"DataHub Cloud Team plan price per user 2025\" (annotated weak).",
+      "downstream": {
+        "extra_steps_b": 3,
+        "extra_tokens_b": 453,
+        "extra_latency_s_b": 6.84,
+        "caused_failure": false,
+        "failed_agent": null
+      }
+    },
+    {
+      "rank": 2,
+      "a_index": null,
+      "b_index": 6,
+      "kind": "retrieval",
+      "summary": "Agent B took 1 extra step(s) not mirrored by Agent A, starting where it read \"open_page\" (annotated weak).",
+      "downstream": {
+        "extra_steps_b": 1,
+        "extra_tokens_b": 156,
+        "extra_latency_s_b": 2.1,
+        "caused_failure": false,
+        "failed_agent": null
+      }
+    }
+  ],
+  "attribution": {
+    "failed_agent": null,
+    "root_cause_step": null,
+    "chain": [],
+    "category": null,
+    "explanation": "Both agents succeeded on this task, so no failure is attributed. Agent A (atlas-v2) used 6 steps, 898 tokens and 11.09s; Agent B (bolt-v3) used 9 steps, 1351 tokens and 17.91s. Agent A was the more efficient of the two."
+  },
+  "answer_eval": {
+    "expected": "Team ($11,700/yr for 25 seats) is cheaper than Pro ($14,700/yr) by $3,000 per year.",
+    "diff_ab": [
+      [
+        "del",
+        "For"
+      ],
+      [
+        "ins",
+        "Billed"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "a"
+      ],
+      [
+        "ins",
+        "annually"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "25-seat"
+      ],
+      [
+        "ins",
+        "for"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "team"
+      ],
+      [
+        "ins",
+        "25"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "billed"
+      ],
+      [
+        "ins",
+        "seats,"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "annually:"
+      ],
+      [
+        "ins",
+        "the"
+      ],
+      [
+        "eq",
+        " Team "
+      ],
+      [
+        "ins",
+        "plan "
+      ],
+      [
+        "eq",
+        "costs $11,700/year (25 x $39 x 12) "
+      ],
+      [
+        "del",
+        "and Pro costs"
+      ],
+      [
+        "ins",
+        "versus"
+      ],
+      [
+        "eq",
+        " $14,700/year "
+      ],
+      [
+        "ins",
+        "for Pro "
+      ],
+      [
+        "eq",
+        "(25 x $49 x 12)"
+      ],
+      [
+        "del",
+        "."
+      ],
+      [
+        "ins",
+        ","
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "ins",
+        "so "
+      ],
+      [
+        "eq",
+        "Team is cheaper by $3,000 per year"
+      ],
+      [
+        "del",
+        ";"
+      ],
+      [
+        "ins",
+        "."
+      ],
+      [
+        "eq",
+        " Pro's "
+      ],
+      [
+        "del",
+        "premium"
+      ],
+      [
+        "ins",
+        "extra"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "del",
+        "buys"
+      ],
+      [
+        "ins",
+        "cost"
+      ],
+      [
+        "eq",
+        " "
+      ],
+      [
+        "ins",
+        "covers "
+      ],
+      [
+        "eq",
+        "SSO, audit logs, and 90-day "
+      ],
+      [
+        "ins",
+        "version "
+      ],
+      [
+        "eq",
+        "history."
+      ]
+    ],
+    "a_vs_expected": {
+      "coverage": 0.7143,
+      "verdict": "partial"
+    },
+    "b_vs_expected": {
+      "coverage": 0.7857,
+      "verdict": "partial"
+    }
+  },
+  "metrics_delta": {
+    "steps": {
+      "a": 6,
+      "b": 9
+    },
+    "tokens": {
+      "a": 898,
+      "b": 1351
+    },
+    "cost_usd": {
+      "a": 0.005478,
+      "b": 0.007629
+    },
+    "latency_s": {
+      "a": 11.09,
+      "b": 17.91
+    },
+    "tool_calls": {
+      "a": 1,
+      "b": 1
+    },
+    "searches": {
+      "a": 1,
+      "b": 3
+    }
+  },
+  "success_analysis": {
+    "winner": "a",
+    "basis": "efficiency",
+    "winning_decisions": [
+      {
+        "step_index": 2,
+        "agent": "atlas-v2",
+        "kind": "retrieval",
+        "decision": "proceeded directly to its next step: selected the source \"select_result\"",
+        "counterpart": "searched \"DataHub Cloud Team plan price per user 2025\" (annotated weak) (bolt-v3)",
+        "why": "avoided a weak-quality step; counterpart note: \"Divergence: redundant follow-up query — the official pricing page was…\"; the primary source held the correct figure",
+        "impact": {
+          "avoided_extra_steps": 3,
+          "avoided_tokens": 453,
+          "avoided_latency_s": 6.84,
+          "avoided_failure": false
+        }
+      },
+      {
+        "step_index": 4,
+        "agent": "atlas-v2",
+        "kind": "retrieval",
+        "decision": "proceeded directly to its next step: called tool \"calculator\" with \"25 * 39 * 12 ; 25 * 49 * 12 ; 25 * 49 * 12 - 25 * 39 * 12\"",
+        "counterpart": "selected \"saasradar.com\" (bolt-v3)",
+        "why": "avoided a weak-quality step; counterpart note: \"Confirmation read adds latency but no new information.\"; the primary source held the correct figure",
+        "impact": {
+          "avoided_extra_steps": 1,
+          "avoided_tokens": 156,
+          "avoided_latency_s": 2.1,
+          "avoided_failure": false
+        }
+      }
+    ],
+    "narrative": "atlas-v2 won on efficiency over bolt-v3. Key decision at step 2 (retrieval): \"proceeded directly to its next step: selected the source \"select_result\"\" versus searched \"DataHub Cloud Team plan price per user 2025\" (annotated weak) (bolt-v3). Altogether its choices avoided 4 extra step(s), 609 tokens and 8.94s of latency."
+  },
+  "uncertainty": {
+    "available": true,
+    "a": {
+      "series": [
+        0.9355,
+        0.8802,
+        0.939,
+        0.9199,
+        0.8841,
+        0.9104
+      ],
+      "mean_confidence": 0.9115,
+      "min_confidence": 0.8802,
+      "mean_entropy": 0.2643,
+      "min_token_confidence": 0.6509,
+      "steps_scored": 6
+    },
+    "b": {
+      "series": [
+        0.8896,
+        0.9022,
+        0.8844,
+        0.8533,
+        0.888,
+        0.857,
+        0.8422,
+        0.9002,
+        0.8958
+      ],
+      "mean_confidence": 0.8792,
+      "min_confidence": 0.8422,
+      "mean_entropy": 0.3475,
+      "min_token_confidence": 0.619,
+      "steps_scored": 9
+    },
+    "signal": null,
+    "calibration": null,
+    "narrative": "atlas-v2 ran at 91% mean token confidence (low of 88%). bolt-v3 ran at 88% mean token confidence (low of 84%)."
+  },
+  "semantic": {
+    "methods": [
+      "tfidf_cosine",
+      "claim_provenance"
+    ],
+    "rows": [
+      {
+        "row": 0,
+        "a_index": 0,
+        "b_index": 0,
+        "lexical": 1.0,
+        "semantic": 1.0
+      },
+      {
+        "row": 1,
+        "a_index": 1,
+        "b_index": 1,
+        "lexical": 1.0,
+        "semantic": 1.0
+      },
+      {
+        "row": 4,
+        "a_index": 2,
+        "b_index": 4,
+        "lexical": 1.0,
+        "semantic": 1.0
+      },
+      {
+        "row": 5,
+        "a_index": 3,
+        "b_index": 5,
+        "lexical": 1.0,
+        "semantic": 1.0
+      },
+      {
+        "row": 7,
+        "a_index": 4,
+        "b_index": 7,
+        "lexical": 1.0,
+        "semantic": 1.0
+      },
+      {
+        "row": 8,
+        "a_index": 5,
+        "b_index": 8,
+        "lexical": 1.0,
+        "semantic": 0.8991
+      }
+    ],
+    "first_semantic_break": null,
+    "claims": [
+      {
+        "id": "c1",
+        "kind": "url",
+        "value": "datahubcloud.com",
+        "normalized": "datahubcloud.com",
+        "matches_expected": null,
+        "a_steps": [
+          1,
+          2,
+          3
+        ],
+        "b_steps": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 1,
+          "source": "datahubcloud.com"
+        }
+      },
+      {
+        "id": "c2",
+        "kind": "url",
+        "value": "saasradar.com",
+        "normalized": "saasradar.com",
+        "matches_expected": null,
+        "a_steps": [
+          1
+        ],
+        "b_steps": [
+          1,
+          2,
+          3,
+          6
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 1,
+          "source": "datahubcloud.com"
+        }
+      },
+      {
+        "id": "c3",
+        "kind": "url",
+        "value": "reddit.com",
+        "normalized": "reddit.com",
+        "matches_expected": null,
+        "a_steps": [
+          1
+        ],
+        "b_steps": [
+          1
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 1,
+          "source": "datahubcloud.com"
+        }
+      },
+      {
+        "id": "c4",
+        "kind": "money",
+        "value": "$39",
+        "normalized": "39",
+        "matches_expected": false,
+        "a_steps": [
+          3,
+          5
+        ],
+        "b_steps": [
+          5,
+          6,
+          8
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 3,
+          "source": "datahubcloud.com"
+        }
+      },
+      {
+        "id": "c5",
+        "kind": "money",
+        "value": "$47",
+        "normalized": "47",
+        "matches_expected": false,
+        "a_steps": [
+          3
+        ],
+        "b_steps": [
+          5
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 3,
+          "source": "datahubcloud.com"
+        }
+      },
+      {
+        "id": "c6",
+        "kind": "money",
+        "value": "$49",
+        "normalized": "49",
+        "matches_expected": false,
+        "a_steps": [
+          3,
+          5
+        ],
+        "b_steps": [
+          5,
+          6,
+          8
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 3,
+          "source": "datahubcloud.com"
+        }
+      },
+      {
+        "id": "c7",
+        "kind": "money",
+        "value": "$59",
+        "normalized": "59",
+        "matches_expected": false,
+        "a_steps": [
+          3
+        ],
+        "b_steps": [
+          5
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 3,
+          "source": "datahubcloud.com"
+        }
+      },
+      {
+        "id": "c8",
+        "kind": "money",
+        "value": "$11,700/year",
+        "normalized": "11700",
+        "matches_expected": true,
+        "a_steps": [
+          5
+        ],
+        "b_steps": [
+          8
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 5,
+          "source": null
+        }
+      },
+      {
+        "id": "c9",
+        "kind": "money",
+        "value": "$14,700/year",
+        "normalized": "14700",
+        "matches_expected": true,
+        "a_steps": [
+          5
+        ],
+        "b_steps": [
+          8
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 5,
+          "source": null
+        }
+      },
+      {
+        "id": "c10",
+        "kind": "money",
+        "value": "$3,000",
+        "normalized": "3000",
+        "matches_expected": true,
+        "a_steps": [
+          5
+        ],
+        "b_steps": [
+          8
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 5,
+          "source": null
+        }
+      },
+      {
+        "id": "c11",
+        "kind": "percent",
+        "value": "17%",
+        "normalized": "17",
+        "matches_expected": null,
+        "a_steps": [],
+        "b_steps": [
+          3
+        ],
+        "origin": {
+          "agent": "b",
+          "step": 3,
+          "source": "datahubcloud.com"
+        }
+      }
+    ],
+    "conflicts": [],
+    "intents": {
+      "a": [
+        {
+          "step": 0,
+          "intent": "frame"
+        },
+        {
+          "step": 1,
+          "intent": "acquire"
+        },
+        {
+          "step": 2,
+          "intent": "decide"
+        },
+        {
+          "step": 3,
+          "intent": "acquire"
+        },
+        {
+          "step": 4,
+          "intent": "transform"
+        },
+        {
+          "step": 5,
+          "intent": "commit"
+        }
+      ],
+      "b": [
+        {
+          "step": 0,
+          "intent": "frame"
+        },
+        {
+          "step": 1,
+          "intent": "acquire"
+        },
+        {
+          "step": 2,
+          "intent": "acquire"
+        },
+        {
+          "step": 3,
+          "intent": "acquire"
+        },
+        {
+          "step": 4,
+          "intent": "decide"
+        },
+        {
+          "step": 5,
+          "intent": "acquire"
+        },
+        {
+          "step": 6,
+          "intent": "acquire"
+        },
+        {
+          "step": 7,
+          "intent": "transform"
+        },
+        {
+          "step": 8,
+          "intent": "commit"
+        }
+      ],
+      "missing": {
+        "a": [],
+        "b": []
+      }
+    },
+    "grounding": {
+      "a": {
+        "claims_total": 5,
+        "claims_grounded": 2,
+        "score": 0.4,
+        "ungrounded": [
+          {
+            "claim": "c8",
+            "value": "$11,700/year"
+          },
+          {
+            "claim": "c9",
+            "value": "$14,700/year"
+          },
+          {
+            "claim": "c10",
+            "value": "$3,000"
+          }
+        ]
+      },
+      "b": {
+        "claims_total": 5,
+        "claims_grounded": 2,
+        "score": 0.4,
+        "ungrounded": [
+          {
+            "claim": "c8",
+            "value": "$11,700/year"
+          },
+          {
+            "claim": "c9",
+            "value": "$14,700/year"
+          },
+          {
+            "claim": "c10",
+            "value": "$3,000"
+          }
+        ]
+      }
+    },
+    "independence": [
+      {
+        "claim": "c4",
+        "agent": "b",
+        "sources": [
+          "datahubcloud.com",
+          "saasradar.com"
+        ],
+        "circular": false,
+        "evidence": "no cross-citation between sources detected"
+      },
+      {
+        "claim": "c6",
+        "agent": "b",
+        "sources": [
+          "datahubcloud.com",
+          "saasradar.com"
+        ],
+        "circular": false,
+        "evidence": "no cross-citation between sources detected"
+      }
+    ],
+    "contradictions": [],
+    "narrative": "Lexical and semantic similarity track closely across all aligned rows."
+  },
+  "counterfactual": null,
+  "shapley": {
+    "available": true,
+    "metric": "tokens",
+    "loser": "bolt-v3",
+    "winner": "atlas-v2",
+    "regions": 2,
+    "method": "exact",
+    "total_saving": 448.0,
+    "allocations": [
+      {
+        "region": 0,
+        "rank": 1,
+        "kind": "retrieval",
+        "summary": "Agent B took 2 extra step(s) not mirrored by Agent A, starting where it searched \"DataHub Cloud Team plan price per user 2025\" (annotated weak).",
+        "alignment_rows": [
+          2,
+          3
+        ],
+        "shapley": 297.0,
+        "share": 0.6629,
+        "caused_failure": false
+      },
+      {
+        "region": 1,
+        "rank": 2,
+        "kind": "retrieval",
+        "summary": "Agent B took 1 extra step(s) not mirrored by Agent A, starting where it read \"open_page\" (annotated weak).",
+        "alignment_rows": [
+          6
+        ],
+        "shapley": 151.0,
+        "share": 0.3371,
+        "caused_failure": false
+      }
+    ],
+    "efficiency_check": 0.0,
+    "outcome_attributable": false,
+    "outcome_note": "outcome credit is not allocated: attributing a binary outcome across several decisions would need counterfactual re-runs this engine cannot perform on logged traces",
+    "narrative": "Fixing every divergence would have saved 448 tokens. The largest single share is 66% (297), from the retrieval divergence at region 0. The remaining 1 decision(s) split the rest, so fixing only the largest recovers part of the gap, not all of it."
+  }
+}

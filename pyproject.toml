@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentdiff"
+version = "0.9.0"
+description = "Git diff for AI agents — behavioral comparison and failure attribution"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+agentdiff = "deepcompare.cli:main"
+
+[tool.setuptools]
+packages = ["deepcompare"]
