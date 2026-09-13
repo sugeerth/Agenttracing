@@ -103,7 +103,7 @@ scorecard (§6).
 ## 4. What the page draws, and how to read it
 
 The page is one file (`web/blocks.html`, built from `web/blocks/*.js`)
-with five views. The **Story** is a numbered sequence:
+with six views. The **Story** is a numbered sequence:
 
 1. **What happened** — the reading as charts.
 2. **Where the time went** — one strip per run along wall-clock, every
@@ -269,6 +269,61 @@ Nothing here is simulated. A reward is the one the environment recorded
 when the trace carries one, and otherwise it is shaped from the reading
 and labelled as shaped; a bootstrap interval is a statement about the
 runs recorded, not about a population, and says that too.
+
+The **Evolution** view is the sixth, for an agent that rewrites itself.
+A self-evolving agent is not two agents but a lineage — g0, g1, g2 —
+where each generation was derived from its parent by a step the agent
+took on its own, from evidence in its own episodes: a rule added, a
+config changed, a memory written, a skill learned. The view reads the
+lineage top-down, overview then detail:
+
+- **The lineage as a thread.** One node per generation, laid out as a
+  tree so a branching lineage draws correctly; at each node the
+  interquartile mean of its episodes with its bootstrap interval, on
+  one shared axis with the zero line. The best generation is ringed and
+  the recommended one filled, and they are not always the last. Each
+  edge is a step and carries its verdict — improved, regressed, flat,
+  gamed, forgot, overfit, traded — as colour and as a word.
+- **The ledger of steps.** One row per step: what changed in one line,
+  the probability the child beats the parent with its interval, the
+  change in the interquartile mean and in the pass rate, the tasks
+  gained and the tasks lost, the verdict and the sentence that reads it.
+- **Every episode along constricted time.** The timescape: one lane per
+  generation, every episode laid along wall-clock with the quiet
+  stretches folded exactly as the impact panel folds them, readable at
+  two hundred episodes and drawn on a canvas so it still is at two
+  thousand. Zoom is semantic: the lineage, then one generation as
+  ribbons, then one task's runs with their step marks, then one episode
+  as the impact thread with its folds. A minimap holds the viewport as a
+  brush; a second brush selects a window and states what each
+  generation did inside it.
+- **Tasks across generations.** A matrix of pass rate per task per
+  generation, a mark where a cell fell from its left neighbour — that is
+  forgetting made visible — and the tasks that triggered each step
+  outlined in its column, so overfitting shows as the outlined cells
+  improving more than the rest.
+- **One step in full.** The artifact diff as a real diff: the prompt's
+  hunks with added and removed lines, rules and memory as lists,
+  config as key: from → to, a protected path marked. Beside it the
+  effect with its interval, the per-task deltas with the trigger tasks
+  distinguished, and the overfit, gaming and drift readings each as one
+  sentence with its numbers.
+- **Is the evolution sound, and how far has it moved.** The protected
+  paths touched — from the agent's own diff and, separately, from its
+  episodes, because an agent that edits what judges it may not say so —
+  the growth of the prompt, the rules and the memory against their
+  budgets, with a collapse flagged as readily as an overrun; and the
+  behavioural distance from the origin and between consecutive
+  generations.
+
+The checks exist because the field has watched self-evolving agents
+fail in these exact ways — an agent that faked its test logs and then
+removed the markers its own detector read, a prompt rewritten from
+eighteen thousand tokens to a hundred and twenty in one step, pass rate
+rising while generalisation fell. `docs/EVOLVE.md` names who observed
+each and what an episode-only reading can and cannot catch: when the
+grader itself is what got fooled, every number here is compromised
+with it, and only a held-out grader can say so.
 
 ## 5. The agentic loop
 

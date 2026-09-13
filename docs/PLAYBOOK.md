@@ -155,6 +155,23 @@ and a page is a single file, so it can be sent afterwards.
   than after a training run. The critic panel is the same question about
   the value head: when it explains less variance than guessing the mean,
   the page says that in those words.
+- **Deciding whether a self-evolving agent should keep its latest
+  self**: lay each generation out as `<lineage>/gN/agent.json` with its
+  artifacts and the episodes that triggered it, and its traces under
+  `gN/traces/`; name the paths the agent must never edit — its verifier,
+  its grader's config — under `protected` in `lineage.json`, and its
+  size budgets; then `agentdiff evolve <lineage> -o out` and open the
+  Evolution view. Read the lineage thread first: the recommended
+  generation is filled and it is often not the last. Then read the
+  ledger for any step marked gamed — return up while passes fell — and
+  check the integrity block for the path it touched; a gamed step that
+  touched a protected path is the agent editing what judges it, and
+  nothing after it should be trusted until the path is restored. Then
+  the matrix for the cells that fell: a memory or a rule that helped
+  the average and lost a task is forgetting, and the step's own evidence
+  will usually name the tasks it was learned on, so the outlined cells
+  say whether it overfit them. `--fail-on gamed,forgot,protected` turns
+  the same reading into a CI gate on every generation the loop proposes.
 - **What to put in the next prompt**: the Tool behaviour panel ends
   with the sentences derived from how the two agents used their tools;
   copy them into the failing agent's prompt, then `agentdiff replay`
