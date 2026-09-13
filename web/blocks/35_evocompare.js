@@ -33,24 +33,25 @@
  *                   or diverging
  *
  * Selection (the generation index, the x measure, the pair mode) is one
- * module-level store persisted through the page's own Store; a change
- * re-paints every mounted block in place, the way the lineage blocks do,
- * with a transition where a shape moves (none under reduced motion).
+ * module-level store persisted through the library's family store; a
+ * change re-paints every mounted block in place, the way the lineage
+ * blocks do, with a transition where a shape moves (none under reduced
+ * motion).
  *
- * The shared library (`AgentDiff.lib`, 01_lib.js) is used for formatting,
- * intervals, layout and the family store when it is on the page; until it
- * lands every helper below falls back to a local one, so this file works
- * both before and after.
+ * The shared library (`AgentDiff.lib`, 01_lib.js) supplies the formatting,
+ * the interval glyph, the layout, the tooltip, the stylesheet and the
+ * family store. The verdict table stays here: the library's `color.verdict`
+ * speaks sign and better/worse, not gamed/forgot.
  */
 (function (global) {
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
-  //: the shared library, when it has landed; every helper falls back to a local one until then
-  var L = AgentDiff.lib && typeof AgentDiff.lib === "object" ? AgentDiff.lib : null;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, num = L.fmt.num, signed = L.fmt.signed, pct = L.fmt.pct, short = L.fmt.short;
+  var responsive = L.layout.responsive;
 
-  var PREF_KEY = "agentdiff:evolution-compare";
   //: the transition when a selection or the x measure moves; none under reduced motion
   var DUR = 260;
   //: ~6.2px per character at the page's small size, 7.3 in the monospace face; good enough to truncate by
@@ -93,48 +94,17 @@
     ".evc-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);max-width:340px}",
     ".evc-tip b{color:var(--ink)}.evc-tip .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}",
   ].join("\n");
-  var styled = false;
-  function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    if (L && L.style && typeof L.style.once === "function") { try { L.style.once("evc", CSS); return; } catch (err) { /* fall through */ } }
-    var node = document.createElement("style");
-    node.textContent = CSS;
-    document.head.appendChild(node);
-  }
+  function ensureStyle() { L.style.once("evc", CSS); }
 
   // ------------------------------------------------------------- helpers
 
-  var F = L && L.fmt ? L.fmt : {};
-  var isNum = typeof F.isNum === "function" ? F.isNum : function (v) { return typeof v === "number" && isFinite(v); };
-  var num = typeof F.num === "function" ? F.num : function (v, p) {
-    if (!isNum(v)) return "—";
-    var s = v.toFixed(p === undefined ? 2 : p);
-    if (s.indexOf(".") >= 0) s = s.replace(/0+$/, "").replace(/\.$/, "");
-    return s.replace("-", "−");
-  };
-  var signed = typeof F.signed === "function" ? F.signed : function (v, p) {
-    if (!isNum(v)) return "—";
-    var s = num(Math.abs(v), p);
-    return v > 0 ? "+" + s : v < 0 ? "−" + s : s;
-  };
-  var pct = typeof F.pct === "function" ? F.pct : function (v) { return isNum(v) ? Math.round(v * 100) + "%" : "—"; };
-  var short = typeof F.short === "function" ? F.short : function (id) { return String(id || "").replace(/^(rl|t)\d+_/, "").replace(/_/g, " "); };
+  //: no library counterpart: cut a label to n characters with an ellipsis
   function trunc(s, n) { s = String(s === null || s === undefined ? "" : s); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
   function fit(text, px) { var n = Math.floor(px / CH); return n < 2 ? "" : trunc(text, n); }
   function cap(s) { s = String(s || ""); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
   function dot(s) { s = String(s || ""); return !s || /[.!?]$/.test(s) ? s : s + "."; }
   function count(v) { return isNum(v) ? v : Array.isArray(v) ? v.length : 0; }
-  function width(host) {
-    if (L && L.layout && typeof L.layout.measure === "function") { try { var w = L.layout.measure(host); if (isNum(w) && w > 0) return Math.max(300, Math.min(1400, w)); } catch (err) { /* local */ } }
-    var w2 = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0;
-    return Math.max(300, Math.min(1400, w2 || 320));
-  }
-  function responsive(host, draw, k) {
-    if (L && L.layout && typeof L.layout.responsive === "function") { try { return L.layout.responsive(host, draw, k); } catch (err) { /* local */ } }
-    if (AgentDiff.charts && AgentDiff.charts.responsive) return AgentDiff.charts.responsive(host, draw, k);
-    draw(); return host;
-  }
+  function width(host) { return L.layout.measure(host, 300, 1400); }
   function prefersReduced() {
     try { return !!(global.matchMedia && global.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (err) { return false; }
   }
@@ -150,45 +120,14 @@
     return true;
   }
   //: the side colours: the first lineage is A, the second B, as everywhere on the page
-  function sideColor(side) {
-    if (L && L.color && typeof L.color.side === "function") { try { var c = L.color.side(side); if (c) return c; } catch (err) { /* local */ } }
-    return side === "a" ? "var(--a)" : "var(--b)";
-  }
-  function tooltip(root) {
-    if (L && L.svg && typeof L.svg.tip === "function") { try { var t = L.svg.tip(root, { class: "evc-tip", width: 340 }); if (t && typeof t.show === "function" && typeof t.hide === "function") return t; } catch (err) { /* local */ } }
-    var tip = document.createElement("div"); tip.className = "evc-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) {
-          if (!l) return;
-          var d = document.createElement("div");
-          if (l.mono) d.className = "mono";
-          if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text;
-          tip.appendChild(d);
-        });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 340 > r.width) x = Math.max(0, evt.clientX - r.left - 350);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function sideColor(side) { return L.color.side(side); }
+  function tooltip(root) { return L.svg.tip(root, { class: "evc-tip", width: 340 }); }
   /* The one interval drawing: a line from lo to hi with end ticks and the
    * point on it, horizontal, in the colour given — the idiom of the
-   * statistics blocks. The library's glyph draws it when present. */
+   * statistics blocks, drawn by the library's glyph on a d3 selection's node. */
   function interval(g, x, point, lo, hi, color, y, r) {
     y = y || 0; r = r || 4.5;
-    if (L && L.glyph && typeof L.glyph.interval === "function") {
-      try { L.glyph.interval(g.node ? g.node() : g, x, point, lo, hi, { y: y, color: color, width: 6, opacity: 0.3, tick: 5, r: r, lineClass: "int", dotClass: "pt" }); return; } catch (err) { /* local */ }
-    }
-    if (isNum(lo) && isNum(hi)) {
-      g.append("line").attr("class", "int").attr("x1", x(lo)).attr("x2", x(hi)).attr("y1", y).attr("y2", y).attr("stroke", color).attr("stroke-width", 6).attr("stroke-opacity", 0.3).attr("stroke-linecap", "round");
-      [lo, hi].forEach(function (v) { g.append("line").attr("x1", x(v)).attr("x2", x(v)).attr("y1", y - 5).attr("y2", y + 5).attr("stroke", color).attr("stroke-width", 1.5).attr("stroke-opacity", 0.5); });
-    }
-    if (isNum(point)) g.append("circle").attr("class", "pt").attr("cx", x(point)).attr("cy", y).attr("r", r).attr("fill", color);
+    L.glyph.interval(g.node ? g.node() : g, x, point, lo, hi, { y: y, color: color, width: 6, opacity: 0.3, tick: 5, r: r, lineClass: "int", dotClass: "pt" });
   }
 
   /* The verdict vocabulary of the lineage blocks, colour and glyph alike, so a
@@ -356,32 +295,18 @@
   // --------------------------------------------------------------- store
 
   /* One store for every block: the generation index in view, the x measure
-   * of the curves, the pair mode. Persisted per browser through the shared
-   * family store when it exists, else the page's own Store; a change
+   * of the curves, the pair mode. Persisted per browser through the
+   * library's family store under "agentdiff:evolution-compare"; a change
    * re-paints every mounted block in place. */
   var DEFAULTS = { gen: null, x: "index", pair: "peak" };
   var S = { gen: null, x: "index", pair: "peak", loaded: false };
   var LISTENERS = [];
-  var FAMILY;
-  function store() {
-    try { return AgentDiff._internals && AgentDiff._internals.Store ? AgentDiff._internals.Store : null; } catch (err) { return null; }
-  }
-  /* The library's family store when it is on the page: page scope, so one
-   * selection serves every task, persisted under the same key the fallback
-   * uses. Its `set` persists and notifies its own subscribers; the blocks
-   * here are repainted from this file's listener list, so a change is drawn
-   * once either way. */
-  function family() {
-    if (FAMILY !== undefined) return FAMILY;
-    FAMILY = null;
-    if (L && typeof L.family === "function") {
-      try {
-        var f = L.family("evolution-compare", DEFAULTS, { scope: "page", persist: true });
-        if (f && typeof f.get === "function" && typeof f.set === "function") FAMILY = f;
-      } catch (err) { FAMILY = null; }
-    }
-    return FAMILY;
-  }
+  var FAMILY = null;
+  /* The library's family store: page scope, so one selection serves every
+   * task. Its `set` persists and notifies its own subscribers; the blocks
+   * here are repainted from this file's listener list, so a change is
+   * drawn once. */
+  function family() { return FAMILY || (FAMILY = L.family("evolution-compare", DEFAULTS, { scope: "page", persist: true })); }
   function takeInto(v) {
     if (!v || typeof v !== "object") return;
     if (isNum(v.gen)) S.gen = v.gen; else if (v.gen === null) S.gen = null;
@@ -391,22 +316,14 @@
   function loadState(m) {
     if (!S.loaded) {
       S.loaded = true;
-      var f = family();
-      if (f) { try { takeInto(f.get()); } catch (err) { /* the library's to fix */ } }
-      else { var s = store(); takeInto(s ? s.get(PREF_KEY) : null); }
+      takeInto(family().get());
     }
     // a stored choice this comparison cannot honour falls back to nothing selected
     if (S.gen !== null && (!isNum(S.gen) || S.gen < 0 || S.gen >= m.maxN)) S.gen = null;
     if (!m.hasEpisodes) S.x = "index";
     return S;
   }
-  function saveState() {
-    var snap = { gen: S.gen, x: S.x, pair: S.pair };
-    var f = family();
-    if (f) { try { f.set(snap); return; } catch (err) { /* fall through to the page's own store */ } }
-    var s = store();
-    if (s) { try { s.set(PREF_KEY, snap); } catch (err) { /* quota; the session still holds it */ } }
-  }
+  function saveState() { family().set({ gen: S.gen, x: S.x, pair: S.pair }); }
   function listen(host, fn) { LISTENERS.push({ host: host, fn: fn }); }
   function broadcast(what) {
     LISTENERS = LISTENERS.filter(function (l) { return l.host.isConnected; });

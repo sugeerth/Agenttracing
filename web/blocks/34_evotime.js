@@ -48,6 +48,8 @@
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, secs = L.fmt.secs, signed = L.fmt.signed, short = L.fmt.short;
 
   var KEY = "agentdiff:evo-timescape";
   //: the contract's EPISODE_TIMELINE_CAP: an episode past it has no timeline to draw
@@ -64,73 +66,55 @@
     gamed: { g: "⚠", c: "var(--bad)" }, overfit: { g: "◇", c: "var(--warn)" }, forgot: { g: "✕", c: "var(--bad)" }, traded: { g: "⇄", c: "var(--warn)" },
   };
 
-  var styled = false;
-  function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
-      ".evt{position:relative}",
-      ".evt-bar{display:flex;gap:6px 14px;flex-wrap:wrap;align-items:center;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 6px;min-width:0}",
-      ".evt-crumbs{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0}",
-      ".evt-crumbs button{font:inherit;font-size:var(--fs-xs);font-family:var(--mono);border:0;background:transparent;color:var(--ink-2);padding:1px 4px;border-radius:4px;cursor:pointer;max-width:26ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-      ".evt-crumbs button[aria-current=true]{color:var(--ink);font-weight:600;cursor:default}",
-      ".evt-crumbs button:hover:not([aria-current=true]){background:var(--surface-2);color:var(--ink)}",
-      ".evt-crumbs .sep{color:var(--ink-3)}",
-      ".evt-seg{display:inline-flex;gap:2px;flex:0 0 auto}",
-      ".evt-bar .evt-btn{font:inherit;font-size:var(--fs-xs);border:0;background:var(--surface-2);color:var(--ink-2);border-radius:999px;padding:1px 9px;cursor:pointer;flex:0 0 auto;min-height:20px}",
-      ".evt-bar .evt-btn[aria-pressed=true]{background:var(--ink);color:var(--bg)}",
-      ".evt-bar .evt-btn:focus-visible,.evt-crumbs button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}",
-      ".evt-status{font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 4px;min-height:1.4em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
-      ".evt-mini{position:relative;margin:0 0 6px;touch-action:none}",
-      ".evt-mini canvas,.evt-stage canvas{position:absolute;left:0;top:0;display:block}",
-      ".evt-mini svg,.evt-stage svg{position:absolute;left:0;top:0;display:block;font-family:var(--sans);overflow:visible}",
-      ".evt-stage{position:relative;touch-action:none;outline:none;border-radius:4px}",
-      ".evt-stage:focus-visible{outline:2px solid var(--accent);outline-offset:2px}",
-      ".evt text{font-size:var(--fs-xs)}",
-      ".evt .lab{fill:var(--ink-2)}.evt .lab.dim{fill:var(--ink-3)}.evt .lab.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}",
-      ".evt .tick{fill:var(--ink-3);font-family:var(--mono);font-variant-numeric:tabular-nums;pointer-events:none}",
-      ".evt .evt-fold{cursor:pointer}.evt .evt-fold text{fill:var(--ink-2);font-family:var(--mono);pointer-events:none}.evt .evt-fold:hover line{stroke:var(--ink)}",
-      ".evt .evt-lane-hit{cursor:pointer}",
-      ".evt .evt-step{cursor:pointer}.evt .evt-step text.g{font-weight:700;paint-order:stroke;stroke:var(--bg);stroke-width:3px;stroke-linejoin:round}",
-      ".evt .evt-verdict{cursor:default}.evt .evt-verdict text{font-weight:700}",
-      ".evt .brush .selection{fill:var(--accent);fill-opacity:.18;stroke:var(--accent);stroke-opacity:.6}",
-      ".evt .brush .handle{fill:var(--accent);fill-opacity:.5}",
-      ".evt .evt-sel{fill:none;stroke:var(--accent);stroke-width:1.5;pointer-events:none}",
-      ".evt-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);max-width:320px}",
-      ".evt-tip b{color:var(--ink)}",
-      ".evt-table{border-collapse:collapse;width:100%;font-size:var(--fs-xs);font-variant-numeric:tabular-nums;margin-top:8px}",
-      ".evt-table th{font-family:var(--mono);font-weight:500;color:var(--ink-3);text-align:left;padding:2px 10px 5px 0;border-bottom:1px solid var(--rule);white-space:nowrap}",
-      ".evt-table td{padding:3px 10px 3px 0;color:var(--ink-2);white-space:nowrap}.evt-table td.g{color:var(--ink);font-family:var(--mono)}",
-      ".evt-table td.pos{color:var(--good)}.evt-table td.neg{color:var(--bad)}",
-      ".evt-detail{margin-top:8px;border-left:2px solid var(--rule-2);padding:2px 0 2px 10px;font-size:var(--fs-xs);color:var(--ink-3);line-height:1.5}",
-      ".evt-detail b{color:var(--ink);font-weight:600}.evt-detail .in{font-family:var(--mono);color:var(--ink-2);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
-      ".evt-detail button{font:inherit;font-size:var(--fs-xs);border:1px solid var(--rule-2);background:var(--surface);color:var(--ink-2);border-radius:999px;padding:1px 9px;cursor:pointer;margin-left:6px}",
-      ".evt-legend{font-size:var(--fs-xs);color:var(--ink-3);margin:6px 0 0;max-width:100ch;line-height:1.45}",
-      ".evt-note{font-size:var(--fs-xs);color:var(--ink-3);margin:6px 0 0}",
-    ].join("\n");
-    document.head.appendChild(node);
-  }
+  var CSS = [
+    ".evt{position:relative}",
+    ".evt-bar{display:flex;gap:6px 14px;flex-wrap:wrap;align-items:center;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 6px;min-width:0}",
+    ".evt-crumbs{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0}",
+    ".evt-crumbs button{font:inherit;font-size:var(--fs-xs);font-family:var(--mono);border:0;background:transparent;color:var(--ink-2);padding:1px 4px;border-radius:4px;cursor:pointer;max-width:26ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+    ".evt-crumbs button[aria-current=true]{color:var(--ink);font-weight:600;cursor:default}",
+    ".evt-crumbs button:hover:not([aria-current=true]){background:var(--surface-2);color:var(--ink)}",
+    ".evt-crumbs .sep{color:var(--ink-3)}",
+    ".evt-seg{display:inline-flex;gap:2px;flex:0 0 auto}",
+    ".evt-bar .evt-btn{font:inherit;font-size:var(--fs-xs);border:0;background:var(--surface-2);color:var(--ink-2);border-radius:999px;padding:1px 9px;cursor:pointer;flex:0 0 auto;min-height:20px}",
+    ".evt-bar .evt-btn[aria-pressed=true]{background:var(--ink);color:var(--bg)}",
+    ".evt-bar .evt-btn:focus-visible,.evt-crumbs button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}",
+    ".evt-status{font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 4px;min-height:1.4em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+    ".evt-mini{position:relative;margin:0 0 6px;touch-action:none}",
+    ".evt-mini canvas,.evt-stage canvas{position:absolute;left:0;top:0;display:block}",
+    ".evt-mini svg,.evt-stage svg{position:absolute;left:0;top:0;display:block;font-family:var(--sans);overflow:visible}",
+    ".evt-stage{position:relative;touch-action:none;outline:none;border-radius:4px}",
+    ".evt-stage:focus-visible{outline:2px solid var(--accent);outline-offset:2px}",
+    ".evt text{font-size:var(--fs-xs)}",
+    ".evt .lab{fill:var(--ink-2)}.evt .lab.dim{fill:var(--ink-3)}.evt .lab.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}",
+    ".evt .tick{fill:var(--ink-3);font-family:var(--mono);font-variant-numeric:tabular-nums;pointer-events:none}",
+    ".evt .evt-fold{cursor:pointer}.evt .evt-fold text{fill:var(--ink-2);font-family:var(--mono);pointer-events:none}.evt .evt-fold:hover line{stroke:var(--ink)}",
+    ".evt .evt-lane-hit{cursor:pointer}",
+    ".evt .evt-step{cursor:pointer}.evt .evt-step text.g{font-weight:700;paint-order:stroke;stroke:var(--bg);stroke-width:3px;stroke-linejoin:round}",
+    ".evt .evt-verdict{cursor:default}.evt .evt-verdict text{font-weight:700}",
+    ".evt .brush .selection{fill:var(--accent);fill-opacity:.18;stroke:var(--accent);stroke-opacity:.6}",
+    ".evt .brush .handle{fill:var(--accent);fill-opacity:.5}",
+    ".evt .evt-sel{fill:none;stroke:var(--accent);stroke-width:1.5;pointer-events:none}",
+    ".evt-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);max-width:320px}",
+    ".evt-tip b{color:var(--ink)}",
+    ".evt-table{border-collapse:collapse;width:100%;font-size:var(--fs-xs);font-variant-numeric:tabular-nums;margin-top:8px}",
+    ".evt-table th{font-family:var(--mono);font-weight:500;color:var(--ink-3);text-align:left;padding:2px 10px 5px 0;border-bottom:1px solid var(--rule);white-space:nowrap}",
+    ".evt-table td{padding:3px 10px 3px 0;color:var(--ink-2);white-space:nowrap}.evt-table td.g{color:var(--ink);font-family:var(--mono)}",
+    ".evt-table td.pos{color:var(--good)}.evt-table td.neg{color:var(--bad)}",
+    ".evt-detail{margin-top:8px;border-left:2px solid var(--rule-2);padding:2px 0 2px 10px;font-size:var(--fs-xs);color:var(--ink-3);line-height:1.5}",
+    ".evt-detail b{color:var(--ink);font-weight:600}.evt-detail .in{font-family:var(--mono);color:var(--ink-2);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+    ".evt-detail button{font:inherit;font-size:var(--fs-xs);border:1px solid var(--rule-2);background:var(--surface);color:var(--ink-2);border-radius:999px;padding:1px 9px;cursor:pointer;margin-left:6px}",
+    ".evt-legend{font-size:var(--fs-xs);color:var(--ink-3);margin:6px 0 0;max-width:100ch;line-height:1.45}",
+    ".evt-note{font-size:var(--fs-xs);color:var(--ink-3);margin:6px 0 0}",
+  ].join("\n");
+  function ensureStyle() { L.style.once("evotime", CSS); }
 
   // ------------------------------------------------------------ helpers
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function secs(v) { return !isNum(v) ? "—" : v >= 100 ? Math.round(v) + "s" : v >= 10 ? v.toFixed(0) + "s" : v >= 1 ? v.toFixed(1) + "s" : v.toFixed(2) + "s"; }
-  function signed(v, p) { if (!isNum(v)) return "—"; var s = Math.abs(v).toFixed(p === undefined ? 2 : p); return v > 0 ? "+" + s : v < 0 ? "−" + s : s; }
-  function short(id) { return String(id || "").replace(/^(t|rl)\d+_/, "").replace(/_/g, " "); }
+  //: no library counterpart: cut a label to n characters with an ellipsis, whitespace collapsed
   function trunc(s, n) { s = String(s === null || s === undefined ? "" : s).replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
   //: ~6.2px per character at the page's small size; good enough to truncate by
   var CH = 6.2;
   function fit(text, px) { var n = Math.floor(px / CH); return n < 2 ? "" : trunc(text, n); }
-  /* The fold law — the impact block's: 4–5 units ≈ 20px, 11 ≈ 27px, 100 ≈
-   * 46px. Taken from the shared library when it is on the page, so the
-   * timescape and the impact panel cannot drift apart on it. */
-  function foldW(units, measure) {
-    var lib = AgentDiff.lib || null, g = lib && lib.glyph;
-    if (g && measure === "steps" && typeof g.foldWidth === "function") return g.foldWidth(units);
-    if (g && measure !== "steps" && typeof g.foldSeconds === "function") return g.foldSeconds(units);
-    return 6 + 6 * Math.log(1 + Math.max(0, units)) / Math.LN2;
-  }
   //: a "nice" tick interval: about a dozen ticks over the span
   function niceStep(total, steps) {
     var s = steps ? [1, 2, 5, 10, 20, 50, 100, 200, 500] : [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600];
@@ -144,6 +128,11 @@
   }
   function dur() { return prefersReduced() ? 0 : 320; }
   function cssVar(name) { try { return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888"; } catch (err) { return "#888"; } }
+  /* Not the library's family: this state carries two windows (`view`,
+   * `compare`) that are null or a pair, a nested zoom path and a clamped
+   * level, and the family's type gate on a null default would drop a saved
+   * pair on reload. One block, one key, the page's own Store, as the
+   * README allows; the shape is validated field by field below. */
   function store() { try { return AgentDiff._internals && AgentDiff._internals.Store ? AgentDiff._internals.Store : null; } catch (err) { return null; } }
   function loadState() {
     var s = store(), v = s ? s.get(KEY) : null;
@@ -161,21 +150,7 @@
     var s = store(); if (!s) return;
     try { s.set(KEY, { level: st.level, path: st.path, measure: st.measure, constrict: st.constrict, view: st.view, compare: st.compare }); } catch (err) { /* quota; the session keeps it */ }
   }
-  function tooltip(root) {
-    var tip = document.createElement("div"); tip.className = "evt-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) { if (!l) return; var d = document.createElement("div"); if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text; tip.appendChild(d); });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 320 > r.width) x = Math.max(0, evt.clientX - r.left - 330);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "evt-tip", width: 320 }); }
 
   // -------------------------------------------------------------- model
   var cache = null;
@@ -329,12 +304,14 @@
     if (wB > cur + min) segs.push({ a: cur, b: wB, fold: false });
     if (!segs.length) segs.push({ a: wA, b: wA + 1, fold: false });
     var avail = Math.max(10, x1 - x0), kept = 0, foldPx = 0;
-    segs.forEach(function (s) { if (s.fold) foldPx += foldW(s.b - s.a, measure); else kept += s.b - s.a; });
+    //: the fold law is the library's (the impact block's: 4–5 units ≈ 20px, 11 ≈ 27px, 100 ≈ 46px), over steps or over seconds by the measure
+    var foldLaw = measure === "steps" ? L.glyph.foldWidth : L.glyph.foldSeconds;
+    segs.forEach(function (s) { if (s.fold) foldPx += foldLaw(s.b - s.a); else kept += s.b - s.a; });
     var fs = kept > 0 ? (foldPx > avail * 0.5 ? avail * 0.5 / foldPx : 1) : (foldPx > 0 ? avail / foldPx : 1);
     var k = kept > 0 ? Math.max(0, avail - foldPx * fs) / kept : 0;
     var dom = [], rng = [], x = x0, folds = [];
     segs.forEach(function (s) {
-      var w = s.fold ? foldW(s.b - s.a, measure) * fs : (s.b - s.a) * k;
+      var w = s.fold ? foldLaw(s.b - s.a) * fs : (s.b - s.a) * k;
       dom.push(s.a); rng.push(x);
       if (s.fold) folds.push({ a: s.a, b: s.b, x0: x, x1: x + w, q: s.q });
       x += w;
@@ -490,7 +467,7 @@
       var geo = null;      // the mounted stage: W, canvas, svg, zoom, scales
       var mini = null;     // the mounted minimap
 
-      function width() { var w = root.clientWidth || (root.parentNode && root.parentNode.clientWidth) || 0; return Math.max(300, Math.min(1400, w || 640)); }
+      function width() { return L.layout.measure(root, 300, 1400); }
 
       // ---------------------------------------------------------- windows
       //: the level's full span in the current measure
@@ -1146,11 +1123,9 @@
 
       // ----------------------------------------------------------- mount
       function mountAll() { mountMini(); mountStage(); }
-      if (AgentDiff.charts && AgentDiff.charts.responsive) {
-        var probe = H("div", {});
-        root.appendChild(probe);
-        AgentDiff.charts.responsive(probe, function () { mountAll(); }, "evo-timescape");
-      } else mountAll();
+      var probe = H("div", {});
+      root.appendChild(probe);
+      L.layout.responsive(probe, function () { mountAll(); }, "evo-timescape");
       note.textContent = "Every column is a count over the recorded timelines" + (m.skipped ? "; " + m.skipped + " episodes past the timeline cap of " + DRAW_CAP + " are counted in their lane's total and not drawn" : "") + ". Levels 0 and 1 draw on a canvas from per-pixel bins and hit-test by bisection; a generation past " + RIBBON_CAP + " episodes draws per-task density bands instead of ribbons. The x measure, constriction, zoom path and window are remembered in this browser.";
     },
   });
