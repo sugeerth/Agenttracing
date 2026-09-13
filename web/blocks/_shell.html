@@ -656,6 +656,8 @@ body[data-view="training"] .stack-label .pip { display: none; }
 body[data-view="evolution"] .stack-label .pip { display: none; }
 /* ---------- the evals lane: one column, the same way ---------- */
 body[data-view="coevolution"] .stack-label .pip { display: none; }
+/* ---------- the chat lane: one column, the transcript the full width ---------- */
+body[data-view="chat"] .stack-label { display: none; }
 </style>
 </head>
 <body>
@@ -664,6 +666,7 @@ body[data-view="coevolution"] .stack-label .pip { display: none; }
   <select class="picker" id="task-picker" aria-label="Task"></select>
   <div class="spacer"></div>
   <div class="seg" id="view-tabs" role="tablist" aria-label="View">
+    <button class="tab" role="tab" data-view="chat" aria-selected="false" title="Ask the page in plain words: every block by asking, and the self-evolving eval answering for itself">Chat</button>
     <button class="tab" role="tab" data-view="story" aria-selected="true" title="The story: verdict, map, reading, what to do">Story</button>
     <button class="tab" role="tab" data-view="evidence" aria-selected="false" title="Every block behind the verdict: hypotheses, alignment, process checks">Evidence</button>
     <button class="tab" role="tab" data-view="batch" aria-selected="false" title="Across all tasks: cost, issues, recommendations, variance">Batch</button>
@@ -725,7 +728,7 @@ body[data-view="coevolution"] .stack-label .pip { display: none; }
   <div class="panel-body">
     <dl class="keys">
       <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>previous / next task</dd>
-      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>on the view tabs: Story · Evidence · Batch · Panels · Training · Evolution · Evals</dd>
+      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>on the view tabs: Chat · Story · Evidence · Batch · Panels · Training · Evolution · Evals</dd>
       <dt><kbd>Tab</kbd></dt><dd>reach a step on the map</dd>
       <dt><kbd>Enter</kbd> <kbd>Space</kbd></dt><dd>open the step under focus in the inspector</dd>
       <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>walk along one run</dd>

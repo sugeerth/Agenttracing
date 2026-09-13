@@ -57,8 +57,11 @@
   //: Evals: the self-evolving eval that watches that lineage — its own
   //: lineage of metrics, what each agent step taught it, what it would
   //: have caught with hindsight, and its own integrity.
-  var VIEWS = ["story", "evidence", "batch", "panels", "training", "evolution", "coevolution"];
+  //: Chat: the page asked in plain words — every block reachable by asking,
+  //: and, for a lineage, the self-evolving eval answering for itself.
+  var VIEWS = ["chat", "story", "evidence", "batch", "panels", "training", "evolution", "coevolution"];
   var VIEW_GROUPS = {
+    chat: ["chat"],
     evidence: ["outcome", "trajectory", "integrity"],
     batch: ["cost", "signal", "other"],
     panels: [],
@@ -401,6 +404,13 @@
    * nouns a first-time reader has to guess at, and guessing is the thing
    * this page is supposed to remove. */
   var STACK_PLAN = [
+    {
+      label: "Chat",
+      groups: ["chat"],
+      blurb: "Ask the page in plain words: every block by asking, and the self-evolving eval answering for itself about the lineage it watched.",
+      open: Infinity,
+      order: ["chat"],
+    },
     {
       label: "Outcome",
       groups: ["outcome"],
@@ -1241,7 +1251,7 @@
     els.hero.innerHTML = "";
     // the panels view is the reader's own grid, the training view has its
     // own lead (the pair's reward panel): no hero above either
-    if (!hero || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") {
+    if (!hero || State.prefs.view === "chat" || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") {
       els.hero.hidden = true;
       return;
     }
@@ -1253,7 +1263,7 @@
     var host = els.reading;
     host.innerHTML = "";
     // the story lane IS the reading order; the strip guides the columns
-    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") { host.hidden = true; return; }
+    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels" || State.prefs.view === "chat" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") { host.hidden = true; return; }
     host.hidden = false;
     host.appendChild(h("span", { class: "lead", text: "Read in this order" }));
     if (hero) {
@@ -2252,7 +2262,7 @@
     // a view named in the URL (report.html#view=evidence) wins for this
     // load — a link can open the page on its evidence or its batch
     try {
-      var m = /(?:^|[#&])view=(story|evidence|batch|panels|training|evolution|coevolution)\b/.exec(global.location.hash || "");
+      var m = /(?:^|[#&])view=(chat|story|evidence|batch|panels|training|evolution|coevolution)\b/.exec(global.location.hash || "");
       if (m) State.prefs.view = m[1];
     } catch (err) { /* no location: keep the preference */ }
     State.signals = Store.get(key("signals")) || {};
@@ -2499,6 +2509,72 @@
     },
     // a block may host another block's renderer (the map hosts the timeline)
     blockEntry: function (id) { return BY_ID[id] || null; },
+    /* The chat's three doors into the page. catalogue(): every block that
+     * has something to say on the current data, with the view whose lane
+     * holds it. renderInto(id, host): draw a block's body into a host the
+     * caller owns, the way a composite draws its parts. goTo(id, selection):
+     * open the block's view, hand a selection to its family when it has
+     * one, and scroll to it. */
+    catalogue: function () {
+      var ctx = makeCtx();
+      var out = [];
+      REGISTRY.forEach(function (entry) {
+        if (safeRelevance(entry, ctx, true) <= 0) return;
+        var view = STORY_BLOCKS.indexOf(entry.id) >= 0 ? "story" : null;
+        if (!view) {
+          for (var i = 0; i < STACK_PLAN.length && !view; i++) {
+            if (STACK_PLAN[i].groups.indexOf(entry.group) < 0) continue;
+            Object.keys(VIEW_GROUPS).forEach(function (v) {
+              if (!view && VIEW_GROUPS[v].indexOf(entry.group) >= 0) view = v;
+            });
+          }
+        }
+        out.push({ id: entry.id, title: entry.title, question: entry.question || "", group: entry.group, view: view || "evidence" });
+      });
+      return out;
+    },
+    renderInto: function (id, host) {
+      var entry = BY_ID[id];
+      if (!entry || !host) return false;
+      var ctx = makeCtx();
+      if (safeRelevance(entry, ctx, true) <= 0) return false;
+      var blockCtx = Object.create(ctx);
+      blockCtx.signal = function (kind) { recordSignal(id, kind || "inspect"); };
+      blockCtx.lane = "chat";
+      host.innerHTML = "";
+      try {
+        entry.render(host, blockCtx);
+        accessibleCharts(host, entry);
+      } catch (err) {
+        console.error("AgentDiff: block", id, "failed to render in the chat", err);
+        host.innerHTML = "";
+        host.appendChild(h("div", { class: "empty", text: "This block failed to render: " + err.message }));
+        return false;
+      }
+      var kids = Array.prototype.slice.call(host.children);
+      return kids.length > 0 && !kids.every(function (k) { return k.classList && k.classList.contains("empty"); });
+    },
+    goTo: function (id, selection) {
+      var entry = BY_ID[id];
+      if (!entry) return false;
+      var target = null;
+      var found = global.AgentDiff.catalogue().filter(function (b) { return b.id === id; })[0];
+      if (found) target = found.view;
+      if (target && target !== State.prefs.view) setView(target);
+      if (selection && typeof selection === "object") {
+        // selection: {family: "coevolution" | "evolution" | "evolution-compare", value: <what that family's select takes>}
+        var families = { coevolution: global.AgentDiff.coevolution, evolution: global.AgentDiff.evolution,
+                         "evolution-compare": global.AgentDiff.evolutionCompare };
+        var fam = families[selection.family];
+        if (fam && typeof fam.select === "function") {
+          try { fam.select(selection.value); } catch (err) { /* a family that refuses keeps its state */ }
+        }
+      }
+      var node = document.querySelector('[data-block="' + id + '"]');
+      if (node && node.classList.contains("collapsed")) node.classList.remove("collapsed");
+      scrollTo_(node);
+      return !!node;
+    },
     _internals: {
       blockEntry: function (id) { return BY_ID[id] || null; },
       rank: rank, reconcile: reconcile, defaultLayout: defaultLayout,
