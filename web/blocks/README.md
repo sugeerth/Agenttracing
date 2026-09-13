@@ -196,6 +196,36 @@ clears it before each call.
    If you show the number, show its qualifier.
 7. **Deterministic.** No `Math.random()`, no animation that changes layout.
 
+### Efficient drawing
+
+The page must draw a pair of runs, a batch of two hundred episodes and a
+lineage of two thousand with the same code and the same legibility, so
+scale is a design input, not an afterthought.
+
+- **DOM only where a click means one thing.** An overview of hundreds of
+  episodes or thousands of steps is drawn on a `<canvas>` under an `<svg>`
+  that holds the axis, the folds, the brush and the hit targets; a node
+  per element is for the level where a reader points at one. Hit-test
+  with `d3.quadtree` or `d3.bisector`, never by DOM lookup.
+- **Bin before drawing.** A density strip is a histogram over time bins;
+  a family of curves past a stated count becomes a band (min, max,
+  median), and the block says it did that.
+- **Constrict quiet time.** Stretches where nothing happens fold into a
+  dotted segment of length `6 + 6·log2(1 + seconds folded)` with a `⋯` on
+  the clock axis (`23_impact.js`); folds dilate on click; the fold count
+  is stated; time or steps as the x measure is a toggle.
+- **Semantic zoom.** Each level is a different drawing of the same data
+  (lineage → generation → task → episode → step): a breadcrumb that is
+  also the way up, Escape to ascend, Enter to descend, arrows to move, a
+  minimap whose viewport is a `d3.brush`.
+- **Transitions on state change only**, never on first paint, and
+  instant under `prefers-reduced-motion`.
+- **Measure and state the cap.** Time the overview draw at the shipped
+  scale and at ten times it; choose a cap and say what happens past it.
+
+A reusable agent for this work is defined in `.claude/agents/viz.md`; it
+carries these rules, the invariants above, and the verification protocol.
+
 ### Shared state within a family
 
 The trajectory modules (`20_trajectory.js`: Tracks, Alignment ribbon,
