@@ -32,18 +32,12 @@
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
 
   // ------------------------------------------------------------------ style
 
-  var styleInjected = false;
   function ensureStyle() {
-    if (styleInjected) return;
-    styleInjected = true;
-    try {
-      if (document.getElementById("agentdiff-science-style")) return;
-      var node = document.createElement("style");
-      node.id = "agentdiff-science-style";
-      node.textContent = [
+    L.style.once("agentdiff-science-style", [
         ".sc-note{border:1px solid var(--rule);border-left-width:3px;border-radius:7px;",
         "padding:7px 9px;font-size:var(--fs-s);line-height:1.45;margin:0 0 9px;",
         "background:var(--surface-2);color:var(--ink-2)}",
@@ -102,9 +96,7 @@
         ".sc-flag{color:var(--bad);font-weight:600}",
         ".sc-mono-b{font-family:var(--mono);font-size:var(--fs-xs);color:var(--ink-2)}",
         "table.grid td.sc-num{font-variant-numeric:tabular-nums;white-space:nowrap}",
-      ].join("");
-      document.head.appendChild(node);
-    } catch (err) { /* styling is a nicety; the blocks still read without it */ }
+      ].join(""));
   }
 
   // ------------------------------------------------------------------ utils

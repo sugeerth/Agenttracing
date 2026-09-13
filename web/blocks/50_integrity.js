@@ -23,6 +23,7 @@
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
 
   // Bound at the top of each render; the core hands out the same helpers
   // every time, so this is a convenience rather than shared state.
@@ -145,15 +146,7 @@
     ".ig-hr{height:1px;background:var(--rule);margin:9px 0}",
   ].join("");
 
-  function ensureStyle() {
-    try {
-      if (document.getElementById(STYLE_ID)) return;
-      var node = document.createElement("style");
-      node.id = STYLE_ID;
-      node.appendChild(document.createTextNode(CSS));
-      (document.head || document.documentElement).appendChild(node);
-    } catch (err) { /* styling is a nicety; the markup still reads without it */ }
-  }
+  function ensureStyle() { L.style.once(STYLE_ID, CSS); }
 
   // ------------------------------------------------------------- data access
 

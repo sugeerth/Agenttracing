@@ -14,13 +14,11 @@
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("time", [
       ".tm{--tm-a:var(--a);--tm-b:var(--b);position:relative}",
       "@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .tm{--tm-a:#3987e5;--tm-b:#d95926}}",
       ":root[data-theme=dark] .tm{--tm-a:#3987e5;--tm-b:#d95926}",
@@ -47,30 +45,14 @@
       ".tm-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:8px;max-width:90ch}",
       ".tm-details{margin-top:8px;font-size:var(--fs-xs)}.tm-details summary{cursor:pointer;color:var(--ink-2)}",
       ".tm-details table{border-collapse:collapse;margin-top:4px;font-variant-numeric:tabular-nums}.tm-details td,.tm-details th{text-align:left;padding:2px 10px 2px 0;border-top:1px solid var(--rule);color:var(--ink-2)}.tm-details th{border-top:0;color:var(--ink-3);font-weight:500}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
   var CAT = { think: { label: "thinking", alpha: 0.35 }, tool: { label: "waiting on tools", alpha: 0.7 }, answer: { label: "the answer", alpha: 1 } };
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
   function secs(v) { return !isNum(v) ? "—" : v >= 100 ? Math.round(v) + "s" : v >= 10 ? v.toFixed(0) + "s" : v.toFixed(1) + "s"; }
-  function color(side) { return "var(--tm-" + side + ")"; }
+  function color(side) { return L.color.side(side, "tm"); }
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
 
-  function tooltip(root) {
-    var tip = document.createElement("div"); tip.className = "tm-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) { if (!l) return; var d = document.createElement("div"); if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text; tip.appendChild(d); });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 300 > r.width) x = Math.max(0, evt.clientX - r.left - 310);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "tm-tip", width: 300 }); }
 
   /* One strip per run: every step a segment along wall-clock, left to
    * right; thinking light, tools darker, the answer solid; wasted steps

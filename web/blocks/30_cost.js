@@ -17,6 +17,8 @@
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
 
   // ------------------------------------------------------------------- css
   //
@@ -55,22 +57,11 @@
     ".cost-strong{font-weight:600}",
   ].join("");
 
-  function ensureStyle() {
-    try {
-      if (document.getElementById(STYLE_ID)) return;
-      var style = document.createElement("style");
-      style.id = STYLE_ID;
-      style.textContent = CSS;
-      (document.head || document.documentElement).appendChild(style);
-    } catch (err) { /* styling is a nicety; never take the block with it */ }
-  }
+  function ensureStyle() { L.style.once(STYLE_ID, CSS); }
   ensureStyle();
 
   // -------------------------------------------------------------- utilities
 
-  function isNum(value) {
-    return typeof value === "number" && isFinite(value);
-  }
 
   function arr(value) { return Array.isArray(value) ? value : []; }
 

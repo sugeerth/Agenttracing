@@ -16,13 +16,11 @@
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, pct = L.fmt.pct;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("loop", [
       ".lp{--lp-a:var(--a);--lp-b:var(--b);--lp-good:var(--good);--lp-warn:var(--warn);position:relative}",
       "@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .lp{--lp-a:#3987e5;--lp-b:#d95926}}",
       ":root[data-theme=dark] .lp{--lp-a:#3987e5;--lp-b:#d95926}",
@@ -81,12 +79,9 @@
       ".lp-steps .txt{font-size:var(--fs-xs);color:var(--ink-3);margin-top:2px;font-style:italic}",
       ".lp-stop{margin-top:10px;font-size:var(--fs-s)}.lp-stop b{font-family:var(--mono);font-weight:500}",
       ".lp-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:8px;max-width:78ch}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function pct(v) { return isNum(v) ? Math.round(v * 100) + "%" : "—"; }
   function ci(c) { return c && isNum(c[0]) && isNum(c[1]) ? c[0].toFixed(2) + "–" + c[1].toFixed(2) : "—"; }
   function signed(v) { return isNum(v) ? (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2) : "—"; }
   function pfmt(p) { return isNum(p) ? (p < 0.001 ? "<0.001" : p.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")) : "—"; }

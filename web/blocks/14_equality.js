@@ -11,13 +11,10 @@
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
+  var L = AgentDiff.lib;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("equality", [
       ".eq-lede{font-size:var(--fs-s);color:var(--ink-3);margin:0 0 8px}",
       ".eq-table{border-collapse:collapse;width:100%;font-size:var(--fs-s)}",
       ".eq-table th{text-align:left;font-family:var(--mono);font-weight:500;font-size:var(--fs-xs);color:var(--ink-3);padding:4px 10px 6px 0;border-bottom:1px solid var(--rule)}",
@@ -34,8 +31,7 @@
       ".eq-cross.same{color:var(--good)}.eq-cross.diff{color:var(--warn)}",
       ".eq-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:4px;max-width:72ch}",
       ".eq-more{margin-top:6px;font-size:var(--fs-xs)}.eq-more summary{cursor:pointer;color:var(--ink-3)}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
   var PALETTE = ["#2f6f9f", "#b5651d", "#3f7d3f", "#7c3aed", "#b03030", "#0f7f7a", "#a97a12", "#6b6a63"];
 

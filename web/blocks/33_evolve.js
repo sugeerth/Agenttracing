@@ -369,7 +369,10 @@
     var lib = AgentDiff.lib || null;
     if (!lib || typeof lib.family !== "function") return FAMILY;
     try {
-      var f = lib.family("evolution", { gen: null, metric: "pass", range: null });
+      // a lineage selection belongs to the page, not to a task, and it must
+      // survive a reload: the library's family store persists only what it
+      // is told to, and only its page scope loads what it persisted
+      var f = lib.family("evolution", { gen: null, metric: "pass", range: null }, { scope: "page", persist: true });
       if (!f || typeof f.get !== "function" || typeof f.set !== "function" || typeof f.subscribe !== "function") return FAMILY;
       FAMILY = f;
       f.subscribe(function () {

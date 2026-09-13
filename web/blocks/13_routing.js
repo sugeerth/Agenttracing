@@ -11,13 +11,11 @@
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("routing", [
       ".rt-lede{font-size:var(--fs-s);color:var(--ink-3);margin:0 0 8px}",
       ".rt-table{border-collapse:collapse;width:100%;font-size:var(--fs-s)}",
       ".rt-table th{text-align:left;font-family:var(--mono);font-weight:500;font-size:var(--fs-xs);color:var(--ink-3);padding:4px 8px 6px 0;border-bottom:1px solid var(--rule);white-space:nowrap}",
@@ -37,10 +35,8 @@
       ".rt-rationale{font-size:var(--fs-m);color:var(--ink);margin:10px 0 4px;max-width:78ch}",
       ".rt-fold>summary{cursor:pointer;font-size:var(--fs-xs);color:var(--ink-3)}",
       ".rt-fam{margin:6px 0;max-width:78ch;font-size:var(--fs-s);color:var(--ink-2)}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
 
   AgentDiff.block({
     id: "routing",

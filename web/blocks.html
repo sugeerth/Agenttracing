@@ -10607,13 +10607,11 @@ THIS SOFTWARE.
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("routing", [
       ".rt-lede{font-size:var(--fs-s);color:var(--ink-3);margin:0 0 8px}",
       ".rt-table{border-collapse:collapse;width:100%;font-size:var(--fs-s)}",
       ".rt-table th{text-align:left;font-family:var(--mono);font-weight:500;font-size:var(--fs-xs);color:var(--ink-3);padding:4px 8px 6px 0;border-bottom:1px solid var(--rule);white-space:nowrap}",
@@ -10633,10 +10631,8 @@ THIS SOFTWARE.
       ".rt-rationale{font-size:var(--fs-m);color:var(--ink);margin:10px 0 4px;max-width:78ch}",
       ".rt-fold>summary{cursor:pointer;font-size:var(--fs-xs);color:var(--ink-3)}",
       ".rt-fam{margin:6px 0;max-width:78ch;font-size:var(--fs-s);color:var(--ink-2)}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
 
   AgentDiff.block({
     id: "routing",
@@ -10719,13 +10715,10 @@ THIS SOFTWARE.
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
+  var L = AgentDiff.lib;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("equality", [
       ".eq-lede{font-size:var(--fs-s);color:var(--ink-3);margin:0 0 8px}",
       ".eq-table{border-collapse:collapse;width:100%;font-size:var(--fs-s)}",
       ".eq-table th{text-align:left;font-family:var(--mono);font-weight:500;font-size:var(--fs-xs);color:var(--ink-3);padding:4px 10px 6px 0;border-bottom:1px solid var(--rule)}",
@@ -10742,8 +10735,7 @@ THIS SOFTWARE.
       ".eq-cross.same{color:var(--good)}.eq-cross.diff{color:var(--warn)}",
       ".eq-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:4px;max-width:72ch}",
       ".eq-more{margin-top:6px;font-size:var(--fs-xs)}.eq-more summary{cursor:pointer;color:var(--ink-3)}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
   var PALETTE = ["#2f6f9f", "#b5651d", "#3f7d3f", "#7c3aed", "#b03030", "#0f7f7a", "#a97a12", "#6b6a63"];
 
@@ -10828,13 +10820,11 @@ THIS SOFTWARE.
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, pct = L.fmt.pct;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("loop", [
       ".lp{--lp-a:var(--a);--lp-b:var(--b);--lp-good:var(--good);--lp-warn:var(--warn);position:relative}",
       "@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .lp{--lp-a:#3987e5;--lp-b:#d95926}}",
       ":root[data-theme=dark] .lp{--lp-a:#3987e5;--lp-b:#d95926}",
@@ -10893,12 +10883,9 @@ THIS SOFTWARE.
       ".lp-steps .txt{font-size:var(--fs-xs);color:var(--ink-3);margin-top:2px;font-style:italic}",
       ".lp-stop{margin-top:10px;font-size:var(--fs-s)}.lp-stop b{font-family:var(--mono);font-weight:500}",
       ".lp-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:8px;max-width:78ch}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function pct(v) { return isNum(v) ? Math.round(v * 100) + "%" : "—"; }
   function ci(c) { return c && isNum(c[0]) && isNum(c[1]) ? c[0].toFixed(2) + "–" + c[1].toFixed(2) : "—"; }
   function signed(v) { return isNum(v) ? (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2) : "—"; }
   function pfmt(p) { return isNum(p) ? (p < 0.001 ? "<0.001" : p.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")) : "—"; }
@@ -11339,13 +11326,11 @@ THIS SOFTWARE.
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, pct = L.fmt.pct;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("scorecard", [
       ".sc{--sc-a:var(--a);--sc-b:var(--b);position:relative}",
       "@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .sc{--sc-a:#3987e5;--sc-b:#d95926}}",
       ":root[data-theme=dark] .sc{--sc-a:#3987e5;--sc-b:#d95926}",
@@ -11393,12 +11378,9 @@ THIS SOFTWARE.
       ".sc-tip b{color:var(--ink);font-variant-numeric:tabular-nums}.sc-tip .row{display:flex;gap:8px;align-items:center;margin-top:2px}.sc-tip .row i{display:inline-block;width:9px;height:9px;border-radius:50%}",
       ".sc-details{margin-top:10px;font-size:var(--fs-xs)}.sc-details summary{cursor:pointer;color:var(--ink-2)}",
       ".sc-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:8px;max-width:90ch}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function pct(v) { return isNum(v) ? Math.round(v * 100) + "%" : "—"; }
   function ci(c) { return c && isNum(c[0]) && isNum(c[1]) ? c[0].toFixed(2) + "–" + c[1].toFixed(2) : "—"; }
   function fmt(v, key) {
     if (!isNum(v)) return "—";
@@ -11714,13 +11696,11 @@ THIS SOFTWARE.
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("debug", [
       ".dbg{--dbg-a:var(--a);--dbg-b:var(--b);position:relative;font-size:var(--fs-s)}",
       "@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .dbg{--dbg-a:#3987e5;--dbg-b:#d95926}}",
       ":root[data-theme=dark] .dbg{--dbg-a:#3987e5;--dbg-b:#d95926}",
@@ -11766,11 +11746,9 @@ THIS SOFTWARE.
       ".dbg-stats{display:flex;gap:10px;flex-wrap:wrap;font-family:var(--mono);font-size:var(--fs-xs);color:var(--ink-3);margin-top:6px;font-variant-numeric:tabular-nums}",
       ".dbg-stats b{color:var(--ink);font-weight:500}",
       ".dbg-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:8px;max-width:90ch}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
   function trunc(s, n) { s = String(s === null || s === undefined ? "" : s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
   function stepsOf(report, side) { var box = report && report[side]; return box && Array.isArray(box.steps) ? box.steps : []; }
   function stepAt(report, side, index) {
@@ -11988,13 +11966,11 @@ THIS SOFTWARE.
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("time", [
       ".tm{--tm-a:var(--a);--tm-b:var(--b);position:relative}",
       "@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .tm{--tm-a:#3987e5;--tm-b:#d95926}}",
       ":root[data-theme=dark] .tm{--tm-a:#3987e5;--tm-b:#d95926}",
@@ -12021,30 +11997,14 @@ THIS SOFTWARE.
       ".tm-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:8px;max-width:90ch}",
       ".tm-details{margin-top:8px;font-size:var(--fs-xs)}.tm-details summary{cursor:pointer;color:var(--ink-2)}",
       ".tm-details table{border-collapse:collapse;margin-top:4px;font-variant-numeric:tabular-nums}.tm-details td,.tm-details th{text-align:left;padding:2px 10px 2px 0;border-top:1px solid var(--rule);color:var(--ink-2)}.tm-details th{border-top:0;color:var(--ink-3);font-weight:500}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
   var CAT = { think: { label: "thinking", alpha: 0.35 }, tool: { label: "waiting on tools", alpha: 0.7 }, answer: { label: "the answer", alpha: 1 } };
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
   function secs(v) { return !isNum(v) ? "—" : v >= 100 ? Math.round(v) + "s" : v >= 10 ? v.toFixed(0) + "s" : v.toFixed(1) + "s"; }
-  function color(side) { return "var(--tm-" + side + ")"; }
+  function color(side) { return L.color.side(side, "tm"); }
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
 
-  function tooltip(root) {
-    var tip = document.createElement("div"); tip.className = "tm-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) { if (!l) return; var d = document.createElement("div"); if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text; tip.appendChild(d); });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 300 > r.width) x = Math.max(0, evt.clientX - r.left - 310);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "tm-tip", width: 300 }); }
 
   /* One strip per run: every step a segment along wall-clock, left to
    * right; thinking light, tools darker, the answer solid; wasted steps
@@ -20236,6 +20196,8 @@ THIS SOFTWARE.
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
 
   // ------------------------------------------------------------------- css
   //
@@ -20274,22 +20236,11 @@ THIS SOFTWARE.
     ".cost-strong{font-weight:600}",
   ].join("");
 
-  function ensureStyle() {
-    try {
-      if (document.getElementById(STYLE_ID)) return;
-      var style = document.createElement("style");
-      style.id = STYLE_ID;
-      style.textContent = CSS;
-      (document.head || document.documentElement).appendChild(style);
-    } catch (err) { /* styling is a nicety; never take the block with it */ }
-  }
+  function ensureStyle() { L.style.once(STYLE_ID, CSS); }
   ensureStyle();
 
   // -------------------------------------------------------------- utilities
 
-  function isNum(value) {
-    return typeof value === "number" && isFinite(value);
-  }
 
   function arr(value) { return Array.isArray(value) ? value : []; }
 
@@ -23151,7 +23102,10 @@ THIS SOFTWARE.
     var lib = AgentDiff.lib || null;
     if (!lib || typeof lib.family !== "function") return FAMILY;
     try {
-      var f = lib.family("evolution", { gen: null, metric: "pass", range: null });
+      // a lineage selection belongs to the page, not to a task, and it must
+      // survive a reload: the library's family store persists only what it
+      // is told to, and only its page scope loads what it persisted
+      var f = lib.family("evolution", { gen: null, metric: "pass", range: null }, { scope: "page", persist: true });
       if (!f || typeof f.get !== "function" || typeof f.set !== "function" || typeof f.subscribe !== "function") return FAMILY;
       FAMILY = f;
       f.subscribe(function () {
@@ -28056,6 +28010,7 @@ THIS SOFTWARE.
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
 
   // Bound at the top of each render; the core hands out the same helpers
   // every time, so this is a convenience rather than shared state.
@@ -28178,15 +28133,7 @@ THIS SOFTWARE.
     ".ig-hr{height:1px;background:var(--rule);margin:9px 0}",
   ].join("");
 
-  function ensureStyle() {
-    try {
-      if (document.getElementById(STYLE_ID)) return;
-      var node = document.createElement("style");
-      node.id = STYLE_ID;
-      node.appendChild(document.createTextNode(CSS));
-      (document.head || document.documentElement).appendChild(node);
-    } catch (err) { /* styling is a nicety; the markup still reads without it */ }
-  }
+  function ensureStyle() { L.style.once(STYLE_ID, CSS); }
 
   // ------------------------------------------------------------- data access
 
@@ -29544,18 +29491,12 @@ THIS SOFTWARE.
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
 
   // ------------------------------------------------------------------ style
 
-  var styleInjected = false;
   function ensureStyle() {
-    if (styleInjected) return;
-    styleInjected = true;
-    try {
-      if (document.getElementById("agentdiff-science-style")) return;
-      var node = document.createElement("style");
-      node.id = "agentdiff-science-style";
-      node.textContent = [
+    L.style.once("agentdiff-science-style", [
         ".sc-note{border:1px solid var(--rule);border-left-width:3px;border-radius:7px;",
         "padding:7px 9px;font-size:var(--fs-s);line-height:1.45;margin:0 0 9px;",
         "background:var(--surface-2);color:var(--ink-2)}",
@@ -29614,9 +29555,7 @@ THIS SOFTWARE.
         ".sc-flag{color:var(--bad);font-weight:600}",
         ".sc-mono-b{font-family:var(--mono);font-size:var(--fs-xs);color:var(--ink-2)}",
         "table.grid td.sc-num{font-variant-numeric:tabular-nums;white-space:nowrap}",
-      ].join("");
-      document.head.appendChild(node);
-    } catch (err) { /* styling is a nicety; the blocks still read without it */ }
+      ].join(""));
   }
 
   // ------------------------------------------------------------------ utils
@@ -31035,20 +30974,14 @@ THIS SOFTWARE.
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
 
   // ------------------------------------------------------------------ style
 
   var STYLE_ID = "agentdiff-variance-css";
-  var styled = false;
-
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    try {
-      if (document.getElementById(STYLE_ID)) return;
-      var node = document.createElement("style");
-      node.id = STYLE_ID;
-      node.textContent = [
+    L.style.once(STYLE_ID, [
         ".vz-reason{font-size:var(--fs-s);color:var(--ink-3);padding:6px 0 2px}",
         ".vz-note{border:1px solid var(--rule);border-left-width:3px;border-radius:7px;",
         "padding:7px 9px;font-size:var(--fs-s);line-height:1.45;margin:0 0 10px;",
@@ -31095,14 +31028,11 @@ THIS SOFTWARE.
         "letter-spacing:.06em;margin-bottom:3px;color:var(--ink-3)}",
         ".vz-names{font-size:var(--fs-xs);line-height:1.5;color:var(--ink-2);word-break:break-word}",
         ".vz-svg-wrap{max-width:100%}",
-      ].join("");
-      (document.head || document.documentElement).appendChild(node);
-    } catch (err) { /* a card without its stylesheet still reads */ }
+      ].join(""));
   }
 
   // ------------------------------------------------------------------ utils
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
   function obj(v) { return v && typeof v === "object" && !Array.isArray(v) ? v : null; }
   function arr(v) { return Array.isArray(v) ? v : []; }
   function str(v) { return typeof v === "string" && v ? v : ""; }

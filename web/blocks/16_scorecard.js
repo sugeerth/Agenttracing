@@ -16,13 +16,11 @@
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, pct = L.fmt.pct;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("scorecard", [
       ".sc{--sc-a:var(--a);--sc-b:var(--b);position:relative}",
       "@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .sc{--sc-a:#3987e5;--sc-b:#d95926}}",
       ":root[data-theme=dark] .sc{--sc-a:#3987e5;--sc-b:#d95926}",
@@ -70,12 +68,9 @@
       ".sc-tip b{color:var(--ink);font-variant-numeric:tabular-nums}.sc-tip .row{display:flex;gap:8px;align-items:center;margin-top:2px}.sc-tip .row i{display:inline-block;width:9px;height:9px;border-radius:50%}",
       ".sc-details{margin-top:10px;font-size:var(--fs-xs)}.sc-details summary{cursor:pointer;color:var(--ink-2)}",
       ".sc-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:8px;max-width:90ch}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function pct(v) { return isNum(v) ? Math.round(v * 100) + "%" : "—"; }
   function ci(c) { return c && isNum(c[0]) && isNum(c[1]) ? c[0].toFixed(2) + "–" + c[1].toFixed(2) : "—"; }
   function fmt(v, key) {
     if (!isNum(v)) return "—";

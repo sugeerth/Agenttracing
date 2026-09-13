@@ -17,13 +17,11 @@
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("debug", [
       ".dbg{--dbg-a:var(--a);--dbg-b:var(--b);position:relative;font-size:var(--fs-s)}",
       "@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .dbg{--dbg-a:#3987e5;--dbg-b:#d95926}}",
       ":root[data-theme=dark] .dbg{--dbg-a:#3987e5;--dbg-b:#d95926}",
@@ -69,11 +67,9 @@
       ".dbg-stats{display:flex;gap:10px;flex-wrap:wrap;font-family:var(--mono);font-size:var(--fs-xs);color:var(--ink-3);margin-top:6px;font-variant-numeric:tabular-nums}",
       ".dbg-stats b{color:var(--ink);font-weight:500}",
       ".dbg-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:8px;max-width:90ch}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
   function trunc(s, n) { s = String(s === null || s === undefined ? "" : s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
   function stepsOf(report, side) { var box = report && report[side]; return box && Array.isArray(box.steps) ? box.steps : []; }
   function stepAt(report, side, index) {

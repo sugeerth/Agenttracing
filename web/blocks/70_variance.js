@@ -44,20 +44,14 @@
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
 
   // ------------------------------------------------------------------ style
 
   var STYLE_ID = "agentdiff-variance-css";
-  var styled = false;
-
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    try {
-      if (document.getElementById(STYLE_ID)) return;
-      var node = document.createElement("style");
-      node.id = STYLE_ID;
-      node.textContent = [
+    L.style.once(STYLE_ID, [
         ".vz-reason{font-size:var(--fs-s);color:var(--ink-3);padding:6px 0 2px}",
         ".vz-note{border:1px solid var(--rule);border-left-width:3px;border-radius:7px;",
         "padding:7px 9px;font-size:var(--fs-s);line-height:1.45;margin:0 0 10px;",
@@ -104,14 +98,11 @@
         "letter-spacing:.06em;margin-bottom:3px;color:var(--ink-3)}",
         ".vz-names{font-size:var(--fs-xs);line-height:1.5;color:var(--ink-2);word-break:break-word}",
         ".vz-svg-wrap{max-width:100%}",
-      ].join("");
-      (document.head || document.documentElement).appendChild(node);
-    } catch (err) { /* a card without its stylesheet still reads */ }
+      ].join(""));
   }
 
   // ------------------------------------------------------------------ utils
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
   function obj(v) { return v && typeof v === "object" && !Array.isArray(v) ? v : null; }
   function arr(v) { return Array.isArray(v) ? v : []; }
   function str(v) { return typeof v === "string" && v ? v : ""; }
