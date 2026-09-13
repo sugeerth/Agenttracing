@@ -89,7 +89,7 @@
       ".evt text{font-size:var(--fs-xs)}",
       ".evt .lab{fill:var(--ink-2)}.evt .lab.dim{fill:var(--ink-3)}.evt .lab.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}",
       ".evt .tick{fill:var(--ink-3);font-family:var(--mono);font-variant-numeric:tabular-nums;pointer-events:none}",
-      ".evt .evt-fold{cursor:pointer}.evt .evt-fold text{fill:var(--ink-3);font-family:var(--mono);pointer-events:none}.evt .evt-fold:hover line{stroke:var(--ink)}",
+      ".evt .evt-fold{cursor:pointer}.evt .evt-fold text{fill:var(--ink-2);font-family:var(--mono);pointer-events:none}.evt .evt-fold:hover line{stroke:var(--ink)}",
       ".evt .evt-lane-hit{cursor:pointer}",
       ".evt .evt-step{cursor:pointer}.evt .evt-step text.g{font-weight:700;paint-order:stroke;stroke:var(--bg);stroke-width:3px;stroke-linejoin:round}",
       ".evt .evt-verdict{cursor:default}.evt .evt-verdict text{font-weight:700}",
@@ -737,6 +737,8 @@
         var axisY = 14, brushY = 20, brushH = 12, top = brushY + brushH + 8;
         geo.top = top;
         var level = scope.level, Hh;
+        // the folds' faint bands sit behind everything, so the eye sees where time was folded and nothing is hidden by them
+        var bands = content.append("g").attr("class", "evt-bands").attr("pointer-events", "none");
         var body = content.append("g").attr("class", "evt-body");
         // ---- levels
         var bodyH;
@@ -757,7 +759,7 @@
             var fg = axis.append("g").attr("class", "evt-fold").attr("data-fold", s.q.id).attr("data-units", (s.b - s.a).toFixed(2));
             fg.append("line").attr("x1", sx0).attr("x2", sx1).attr("y1", axisY).attr("y2", axisY).attr("stroke", "var(--ink-3)").attr("stroke-width", 1.5).attr("stroke-dasharray", "1.5 2.5").attr("stroke-linecap", "round");
             // a faint band down the drawing, so the eye sees where time was folded
-            fg.append("rect").attr("x", sx0).attr("y", axisY).attr("width", Math.max(1, sx1 - sx0)).attr("height", Hh - axisY).attr("fill", "var(--surface-2)").attr("fill-opacity", 0.55).attr("pointer-events", "none");
+            bands.append("rect").attr("class", "evt-band").attr("data-fold", s.q.id).attr("x", sx0).attr("y", axisY).attr("width", Math.max(1, sx1 - sx0)).attr("height", Hh - axisY).attr("fill", "var(--surface-2)").attr("fill-opacity", 0.7);
             fg.append("rect").attr("x", sx0 - 2).attr("y", axisY - 8).attr("width", Math.max(5, sx1 - sx0 + 4)).attr("height", 16).attr("fill", "transparent");
             var nSteps = level === 3 ? stepsIn(scope.eps, st.measure, s.a, s.b) : null;
             fg.append("title").text("quiet " + unit(s.b - s.a, st.measure) + (nSteps !== null ? " · ×" + nSteps + " steps" : "") + " folded — click to open");
@@ -788,7 +790,7 @@
         }
         // ---- words
         var nFolds = sc.folds.length, folded = sc.folds.reduce(function (t, f) { return t + (f.b - f.a); }, 0);
-        constrictBtn.textContent = st.constrict ? "constricted · " + nFolds + (nFolds === 1 ? " fold hides " : " folds hide ") + unit(folded, st.measure) : "not constricted · " + geo.quiet.list.length + " quiet " + (geo.quiet.list.length === 1 ? "stretch" : "stretches") + " on the clock";
+        constrictBtn.textContent = st.constrict ? "constricted · " + (nFolds ? nFolds + (nFolds === 1 ? " fold hides " : " folds hide ") + unit(folded, st.measure) : "no fold in view") : "not constricted · " + geo.quiet.list.length + " quiet " + (geo.quiet.list.length === 1 ? "stretch" : "stretches") + " on the clock";
         geo.nFolds = nFolds; geo.folded = folded;
         drawCrumbs();
         drawStatus();
@@ -829,10 +831,10 @@
         else if (scope.level === 1) words = "generation " + scope.gen.id + ": " + nEp + " episodes over " + scope.gen.tasks.length + " tasks";
         else if (scope.level === 2) words = scope.gen.id + " on " + short(scope.grp.task) + ": " + nEp + " runs";
         else words = scope.gen.id + " · " + short(scope.ep.task) + " · " + scope.ep.run + ": " + scope.ep.n + " steps, return " + signed(scope.ep.ret) + ", " + (scope.ep.success ? "solved" : "failed");
-        var text = "Level " + scope.level + " of 3 · " + words + " on " + (st.constrict ? "constricted " : "") + (st.measure === "steps" ? "step index" : "wall-clock") + (st.constrict ? "; " + geo.nFolds + (geo.nFolds === 1 ? " fold hides " : " folds hide ") + unit(geo.folded, st.measure) : "") + (st.view ? "; window " + tickText(st.view[0], st.measure) + "–" + tickText(st.view[1], st.measure) : "") + (m.skipped ? "; " + m.skipped + " episodes past the cap of " + DRAW_CAP + " carry no timeline and are not drawn" : "") + ". Selected: " + (selectionWords() || "nothing") + ".";
+        var text = "Level " + scope.level + " of 3 · " + words + " on " + (st.constrict ? "constricted " : "") + (st.measure === "steps" ? "step index" : "wall-clock") + (st.constrict ? "; " + (geo.nFolds ? geo.nFolds + (geo.nFolds === 1 ? " fold hides " : " folds hide ") + unit(geo.folded, st.measure) : "no fold in view") : "") + (st.view ? "; window " + tickText(st.view[0], st.measure) + "–" + tickText(st.view[1], st.measure) : "") + (m.skipped ? "; " + m.skipped + " episodes past the cap of " + DRAW_CAP + " carry no timeline and are not drawn" : "") + ". Selected: " + (selectionWords() || "nothing") + ".";
         status.textContent = text;
         stage.setAttribute("aria-label", "timescape, " + text + " Arrow keys move the selection, Enter descends, Escape ascends.");
-        geo.svg.attr("aria-label", "the " + LEVEL_NAME[scope.level] + " on " + (st.constrict ? "constricted " : "") + (st.measure === "steps" ? "step index" : "wall-clock") + ": " + words + (st.constrict ? ", " + geo.nFolds + (geo.nFolds === 1 ? " quiet stretch folded" : " quiet stretches folded") : ""));
+        geo.svg.attr("aria-label", "the " + LEVEL_NAME[scope.level] + " on " + (st.constrict ? "constricted " : "") + (st.measure === "steps" ? "step index" : "wall-clock") + ": " + words + (st.constrict ? ", " + (geo.nFolds ? geo.nFolds + (geo.nFolds === 1 ? " quiet stretch folded" : " quiet stretches folded") : "no fold in view") : ""));
       }
       function drawSelection() {
         if (!geo) return;
@@ -1014,11 +1016,13 @@
         g.append("path").attr("class", "evt-thread").attr("d", "M" + e0 + "," + threadY + "H" + e1).attr("fill", "none").attr("stroke", "var(--ink)").attr("stroke-width", 1.5).attr("stroke-opacity", 0.55);
         // the fold labels on the thread: ×N · S over each dotted segment
         sc.folds.forEach(function (f) {
-          var n = stepsIn([ep], st.measure, f.a, f.b), lab = "×" + n + (narrow ? "" : " · " + unit(f.b - f.a, st.measure));
+          // ×N · S when it fits over the segment, ×N alone when only that does
+          var n = stepsIn([ep], st.measure, f.a, f.b), fw = f.x1 - f.x0, lab = "×" + n + " · " + unit(f.b - f.a, st.measure);
+          if (narrow || lab.length * CH > fw + 24) lab = "×" + n;
           var fg = g.append("g").attr("class", "evt-fold evt-fold3").attr("data-fold", f.q.id).attr("data-steps", n);
           fg.append("line").attr("x1", f.x0).attr("x2", f.x1).attr("y1", threadY).attr("y2", threadY).attr("stroke", "var(--bg)").attr("stroke-width", 4);
           fg.append("line").attr("x1", f.x0).attr("x2", f.x1).attr("y1", threadY).attr("y2", threadY).attr("stroke", "var(--ink-3)").attr("stroke-width", 1.5).attr("stroke-dasharray", "1.5 2.5").attr("stroke-linecap", "round");
-          if (f.x1 - f.x0 >= 18 || lab.length * CH < f.x1 - f.x0 + 20) fg.append("text").attr("x", (f.x0 + f.x1) / 2).attr("y", threadY - 8).attr("text-anchor", "middle").text(lab);
+          if (fw >= 10) fg.append("text").attr("x", (f.x0 + f.x1) / 2).attr("y", threadY - 8).attr("text-anchor", "middle").text(lab);
           fg.append("rect").attr("x", f.x0).attr("y", threadY - 10).attr("width", Math.max(6, f.x1 - f.x0)).attr("height", 20).attr("fill", "transparent");
           fg.append("title").text(n + " quiet steps · " + unit(f.b - f.a, st.measure) + " folded — click to open");
           fg.on("pointermove", function (evt) { evt.stopPropagation(); tip.show(evt, [{ b: true, text: "×" + n + " quiet steps folded" }, { text: unit(f.b - f.a, st.measure) + " · " + tickText(f.a, st.measure) + "–" + tickText(f.b, st.measure) }, { text: "click to dilate" }]); })
@@ -1056,8 +1060,8 @@
               .on("click", function (evt) { evt.stopPropagation(); sel.step = idx; drawSelection(); openStep(ep, idx); });
           })(i, folded);
         }
-        g.append("text").attr("class", "tick").attr("x", x0).attr("y", barY - barH - 2).text("+" + maxAbs.toFixed(1));
-        g.append("text").attr("class", "tick").attr("x", x0).attr("y", barY + barH + 4).text("−" + maxAbs.toFixed(1));
+        body.append("text").attr("class", "tick").attr("x", x0 - 4).attr("y", barY - barH + 4).attr("text-anchor", "end").text("+" + maxAbs.toFixed(1));
+        body.append("text").attr("class", "tick").attr("x", x0 - 4).attr("y", barY + barH).attr("text-anchor", "end").text("−" + maxAbs.toFixed(1));
         if (e1 < x1) g.append("line").attr("x1", e1).attr("x2", e1).attr("y1", threadY - 7).attr("y2", threadY + 7).attr("stroke", "var(--ink)").attr("stroke-width", 1.2);
         return Hh;
       }

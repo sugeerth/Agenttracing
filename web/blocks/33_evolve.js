@@ -952,9 +952,10 @@
     root.appendChild(H("p", { class: "evo-lede", "data-step": s.key, "data-verdict": s.verdict || "" }, [
       H("b", { text: s.key }), H("span", { text: " · " + (s.mechanism || "step") + (s.summary ? " · " + s.summary : "") + " — " }), verdictSpan(H, s), H("span", { text: "." })]));
     if (s.reading) root.appendChild(H("p", { class: "evo-read evo-reading", text: s.reading }));
-    var ev = s.raw.evidence;
+    var ev = s.raw.evidence, ec = s.raw.evidence_check;
     if (ev && (ev.summary || (Array.isArray(ev.episodes) && ev.episodes.length))) {
-      root.appendChild(H("p", { class: "evo-note", "data-role": "evidence", text: "Evidence (" + (ev.source || "unknown source") + "): " + (ev.summary || "") + (Array.isArray(ev.episodes) && ev.episodes.length ? " — " + ev.episodes.length + " episode" + (ev.episodes.length === 1 ? "" : "s") + " of " + s.from + (s.trigger.length ? " on " + s.trigger.map(short).join(", ") : "") : "") + "." }));
+      root.appendChild(H("p", { class: "evo-note", "data-role": "evidence", text: "Evidence (" + (ev.source || "unknown source") + "): " + (ev.summary || "") + (Array.isArray(ev.episodes) && ev.episodes.length ? " — " + ev.episodes.length + " episode" + (ev.episodes.length === 1 ? "" : "s") + " of " + s.from + (s.trigger.length ? " on " + s.trigger.map(short).join(", ") : "") : "") + "."
+        + (ec && ec.reading ? " " + cap(String(ec.reading)) + "." : ec && ec.measurable === false && ec.reason ? " Not checked: " + ec.reason + "." : "") }));
     }
     var cols = H("div", { class: "evo-cols" });
     root.appendChild(cols);
@@ -962,7 +963,17 @@
     var left = H("div", { class: "evo-what" });
     cols.appendChild(left);
     var d = s.diff, prot = Array.isArray(d.protected_touched) ? d.protected_touched : [];
-    if (prot.length) left.appendChild(H("p", { class: "evo-note bad", "data-role": "protected", style: { margin: "0 0 6px" }, text: "▏Touched " + prot.length + " protected path" + (prot.length === 1 ? "" : "s") + ": " + prot.join(", ") + " — the agent edited what judges it." }));
+    if (prot.length) {
+      var changes = Array.isArray(d.protected_changes) ? d.protected_changes : [];
+      var epi = Array.isArray(s.raw.protected_episodes) ? s.raw.protected_episodes : [];
+      function chg(c) { return c.path + " " + String(c.from) + " → " + String(c.to) + (c.unit ? " " + c.unit : "") + (c.direction ? " (" + c.direction + ")" : ""); }
+      left.appendChild(H("p", { class: "evo-note bad", "data-role": "protected", style: { margin: "0 0 6px" },
+        text: "▏Touched " + prot.length + " protected path" + (prot.length === 1 ? "" : "s") + ": " + (changes.length ? changes.map(chg).join("; ") : prot.join(", ")) + " — the agent edited what judges it."
+          + (epi.length ? " In the episodes: " + epi.map(chg).join("; ") + "." : "") }));
+    }
+    var rest = Array.isArray(d.protected_restored) ? d.protected_restored : [];
+    if (rest.length) left.appendChild(H("p", { class: "evo-note", "data-role": "restored", style: { margin: "0 0 6px", color: "var(--good)" }, text: "Restored " + rest.length + " protected path" + (rest.length === 1 ? "" : "s") + ": " + rest.map(function (r) { return typeof r === "string" ? r : chgText(r); }).join("; ") + "." }));
+    function chgText(c) { return c.path + " " + String(c.from) + " → " + String(c.to); }
     var sp = d.system_prompt && typeof d.system_prompt === "object" ? d.system_prompt : null;
     var quiet = [];
     if (sp && (sp.added || sp.removed || (Array.isArray(sp.hunks) && sp.hunks.length))) {
@@ -1015,13 +1026,15 @@
       right.appendChild(H("div", { class: "evo-h", text: "effect" }));
       right.appendChild(H("div", { class: "evo-figure" }, [
         H("span", { class: "evo-big", "data-p": isNum(s.p) ? s.p : "", text: "P(" + s.to + " > " + s.from + ") = " + pct(s.p) }),
-        H("span", { class: "evo-ci", text: "[" + pct(s.plo) + ", " + pct(s.phi) + "]" })]));
+        H("span", { class: "evo-ci", text: "[" + pct(s.plo) + ", " + pct(s.phi) + "]" + (s.noisy ? " · spans the coin flip" : "") })]));
       var ih = H("div", { class: "evo-chart" });
       right.appendChild(responsive(ih, function () { drawImprove(ih, s); }, "evo-step-p"));
       var iq = eff.iqm || {}, pr = eff.pass_rate || {};
+      var iqText = num(iq.from) + (isNum(iq.from_lo) ? " [" + num(iq.from_lo) + ", " + num(iq.from_hi) + "]" : "") + " → " + num(iq.to) + (isNum(iq.to_lo) ? " [" + num(iq.to_lo) + ", " + num(iq.to_hi) + "]" : "");
+      var prText = pct(pr.from) + (isNum(pr.passes_from) && isNum(pr.episodes_from) ? " (" + pr.passes_from + "/" + pr.episodes_from + ")" : "") + " → " + pct(pr.to) + (isNum(pr.passes_to) && isNum(pr.episodes_to) ? " (" + pr.passes_to + "/" + pr.episodes_to + ")" : "");
       right.appendChild(H("div", { class: "evo-bar", style: { margin: "6px 0 2px" } }, [
-        H("span", { class: "evo-chip" }, [H("span", { text: "IQM " }), H("b", { text: num(iq.from) + " → " + num(iq.to) }), H("span", { text: " (" + signed(iq.delta) + ")" })]),
-        H("span", { class: "evo-chip" }, [H("span", { text: "pass " }), H("b", { text: pct(pr.from) + " → " + pct(pr.to) }), H("span", { text: " (" + pts(pr.delta) + ")" })]),
+        H("span", { class: "evo-chip", title: iq.basis || "" }, [H("span", { text: "IQM " }), H("b", { text: iqText }), H("span", { text: " (" + signed(iq.delta) + ")" })]),
+        H("span", { class: "evo-chip" }, [H("span", { text: "pass " }), H("b", { text: prText }), H("span", { text: " (" + pts(pr.delta) + ")" })]),
         H("span", { class: "evo-chip", text: "+" + s.gained.length + " gained · −" + s.regressed.length + " regressed" })]));
       var th = H("div", { class: "evo-chart" });
       right.appendChild(responsive(th, function () { drawPerTask(th, ctx, m, s, tip); }, "evo-step-tasks"));
@@ -1182,7 +1195,10 @@
     var W = width(host), narrow = W < 560, H = narrow ? 170 : 200, padL = 40, padR = 12, padT = 16, padB = 26;
     var ids = m.gens.map(function (g) { return g.id; });
     var x = d3.scalePoint().domain(ids).range([padL + 6, W - padR - 6]);
-    var origin = (Array.isArray(dr.from_origin) ? dr.from_origin : []).filter(function (p) { return p && m.byId[p.id] && isNum(p.distance); });
+    // the origin is at distance 0 from itself by definition; the engine writes null with the reason "the origin"
+    var origin = (Array.isArray(dr.from_origin) ? dr.from_origin : []).map(function (p) {
+      return p && p.id === m.gens[0].id && !isNum(p.distance) ? { id: p.id, distance: 0, origin: true } : p;
+    }).filter(function (p) { return p && m.byId[p.id] && isNum(p.distance); });
     var consec = (Array.isArray(dr.consecutive) ? dr.consecutive : []).filter(function (p) { return p && m.byId[p.to] && isNum(p.distance); });
     if (!consec.length) consec = m.steps.filter(function (s) { return s.drift && isNum(s.drift.between); }).map(function (s) { return { from: s.from, to: s.to, distance: s.drift.between }; });
     var top = 0;
