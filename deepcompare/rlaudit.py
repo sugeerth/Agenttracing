@@ -736,10 +736,13 @@ def _episode_table(episodes: list, flagged: list) -> list:
     return rows
 
 
-def reward_integrity(episodes: list, *, gamma: float = DEFAULT_GAMMA) -> dict:
-    """The six reward readings over normalised audit episodes. Every count
-    is over recorded steps; every finding names the task, the run and the
-    step, and is a signal to investigate, not a proven defect."""
+def reward_integrity(episodes: list) -> dict:
+    """The six reward readings over normalised audit episodes (from one of
+    the adapters above). Every count is over recorded steps; every finding
+    names the policy, the task, the run and the step, and is a signal to
+    investigate, not a proven defect. Undiscounted throughout: the return a
+    policy is scored on is the sum, and the discount belongs to the critic's
+    target, not to the reward's agreement with the outcome."""
     if not episodes:
         return {"measurable": False, "reason": "no episodes to read", "episodes_n": 0,
                 "episodes": [], "disagreement": {}, "rank_agreement": {}, "concentration": {},
@@ -982,7 +985,7 @@ def rl_audit(episodes: list, *, gamma: float = DEFAULT_GAMMA, scope: str = "batc
                 "scope": scope, "episodes_n": 0, "policies": [], "reward": {}, "critic": {},
                 "narrative": "No episode carries a reward, so neither the reward nor the critic can be audited.",
                 "caveat": CAVEAT}
-    reward = reward_integrity(episodes, gamma=gamma)
+    reward = reward_integrity(episodes)
     critic = critic_calibration(episodes, gamma=gamma)
     narrative = reward.get("narrative", "")
     if critic.get("measurable"):

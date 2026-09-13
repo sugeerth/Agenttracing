@@ -4191,7 +4191,7 @@ class PanelsAndHeatTest(unittest.TestCase):
         self.assertTrue(page.locator("#hero-lane").is_hidden() if page.locator("#hero-lane").count() else True)
         self.assertEqual(self._ids(page), ["treemap*"] + (["impact*"] if "impact" in self.report else []) + ["trace-body*", "heatmap", "latency-strip", "tool-matrix"])
         presets = page.locator("#panels-lane [data-preset]")
-        self.assertEqual([presets.nth(i).get_attribute("data-preset") for i in range(presets.count())], ["time", "tools", "agents", "eval", "all", "used"])
+        self.assertEqual([presets.nth(i).get_attribute("data-preset") for i in range(presets.count())], ["time", "tools", "agents", "eval", "training", "all", "used"])
         self.assertEqual(page.locator('#panels-lane [data-cols="2"]').get_attribute("aria-pressed"), "true")
         # every svg in the grid that is a chart carries a role and a label
         for i in range(page.locator('#panels-lane [data-block="heatmap"] svg, #panels-lane [data-block="latency-strip"] svg').count()):
@@ -5847,13 +5847,18 @@ class TrainingViewTest(unittest.TestCase):
             "() => Object.fromEntries(AgentDiff._internals.REGISTRY.map(b => [b.id, b.group]))")
         strays = sorted(i for i in ids if groups.get(i) != "training")
         self.assertEqual(strays, [], "these blocks are in the training lane but not in the training group")
-        # the spine the lane is built around, in the order it must read:
-        # the pair's own panel leads, then whether one policy is better,
-        # then the episodes, then where the reward went
-        spine = ["rl-here", "rl-curves", "rl-reward-map", "rl-advantage", "rl-events", "rl-preferences", "rl-policy-delta"]
-        if not page.evaluate("() => !!(AgentDiff.blockEntry('rl'))"):
-            spine.remove("rl-here")
-        self.assertEqual([i for i in ids if i in spine], spine)
+        # The lane's reading order is declared in one place — the training
+        # entry of STACK_PLAN — because it is an argument rather than a
+        # dashboard. Assert the page against that declaration rather than
+        # against a second copy of it here, so the two cannot drift: every
+        # named block that is on the page appears in the declared order.
+        declared = page.evaluate(
+            "() => (AgentDiff._internals.STACK_PLAN.filter(s => s.groups.indexOf('training') >= 0)[0] || {}).order || []")
+        self.assertTrue(declared, "the training lane should declare its reading order")
+        self.assertEqual([i for i in ids if i in declared], [i for i in declared if i in ids])
+        # and the blocks it does not name sort after every block it does
+        named = [n for n, i in enumerate(ids) if i in declared]
+        self.assertEqual(named, list(range(len(named))), "an unnamed block sorted above a named one")
         self.assertEqual(len(ids), len(set(ids)), "a block is drawn twice")
         self.assertEqual(page.locator("#stacks .block.collapsed").count(), 0)
         self.assertEqual(page.locator("#stacks .block:not(.collapsed) .empty").count(), 0)
@@ -6791,6 +6796,247 @@ class BehaviourSpaceBlocksTest(unittest.TestCase):
         small = page.evaluate("""() => {
           const out = [];
           document.querySelectorAll('[data-block="rl-atlas"], [data-block="rl-divergence"]').forEach(function (card) {
+            const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
+            let node;
+            while ((node = walker.nextNode())) {
+              if (!node.textContent.trim()) continue;
+              const el = node.parentElement; if (!el) continue;
+              if (parseFloat(getComputedStyle(el).fontSize) < 11) out.push(node.textContent.trim().slice(0, 30));
+            }
+          });
+          return out; }""")
+        self.assertEqual(small, [])
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class RLAuditBlocksTest(unittest.TestCase):
+    """The two audit blocks at the foot of the Training view: is the reward
+    measuring the right thing, and does the critic know what is coming?
+    Every count on the page has to be the one `aggregate.rl.audit` carries —
+    the blocks recompute nothing — and the rings must follow the measure the
+    reader picks."""
+
+    tmp = None
+    IDS = ("rl-audit-reward", "rl-audit-critic")
+
+    @classmethod
+    def setUpClass(cls):
+        train = ROOT / "demo" / "rl" / "train"
+        traces = train if train.is_dir() else ROOT / "demo" / "rl" / "traces"
+        if not traces.is_dir():
+            raise unittest.SkipTest("no RL demo traces to analyse")
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "deepcompare", "runs", str(traces), "-o", str(out),
+                        "--template", str(ROOT / "web" / "blocks.html")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
+        cls.audit = ((agg.get("rl") or {}).get("audit")) or {}
+        if not cls.audit.get("measurable"):
+            raise unittest.SkipTest("the RL demo carries no audit")
+        cls.page_path = out / "report.html"
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _open(self, width=1280):
+        context = self.browser.new_context(viewport={"width": width, "height": 1000})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view=training")
+        page.wait_for_timeout(900)
+        return context, page, errors
+
+    def _errors(self, errors):
+        # a sibling block failing is not this block's failure to report
+        return [e for e in errors if "rlaudit" in e or "rl-audit" in e]
+
+    # ----------------------------------------------------------- the reward
+
+    def test_both_blocks_render_and_neither_shows_an_empty_state(self):
+        context, page, errors = self._open()
+        for bid in self.IDS:
+            block = page.locator(f'#stacks [data-block="{bid}"]')
+            self.assertEqual(block.count(), 1, bid)
+            self.assertEqual(block.locator(".empty:visible").count(), 0, bid)
+            self.assertNotIn("failed to render", block.inner_text(), bid)
+            svgs = block.locator("svg")
+            self.assertGreater(svgs.count(), 0, bid)
+            for i in range(svgs.count()):
+                svg = svgs.nth(i)
+                self.assertEqual(svg.get_attribute("role"), "img", bid)
+                self.assertTrue(svg.get_attribute("aria-label"), bid)
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    def test_the_lede_answers_the_question_the_block_asks(self):
+        context, page, errors = self._open()
+        lede = page.locator('#stacks [data-block="rl-audit-reward"] .rlq-lede').inner_text()
+        d = self.audit["reward"]["disagreement"]
+        task, shaping = d["scopes"]["by_task"], d["scopes"]["shaping"]
+        if task["inversions"]:
+            self.assertIn("disagree", lede)
+        elif shaping["inversions"]:
+            self.assertIn("Only through its last step", lede)
+            self.assertIn(f"{shaping['inversions']} of {shaping['pairs_n']}", lede)
+        else:
+            self.assertIn("yes", lede.lower())
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    def test_one_mark_per_episode_split_into_a_passed_row_and_a_failed_row(self):
+        context, page, errors = self._open()
+        block = page.locator('#stacks [data-block="rl-audit-reward"]')
+        rows = self.audit["reward"]["episodes"]
+        self.assertEqual(block.locator("circle.pt").count(), len(rows))
+        for policy in self.audit["policies"]:
+            mine = [r for r in rows if r["agent"] == policy]
+            self.assertEqual(block.locator(f'circle.pt[data-policy="{policy}"]').count(), len(mine), policy)
+        labels = page.evaluate("""() => [...document.querySelectorAll(
+          '[data-block="rl-audit-reward"] svg text.lab')].map(e => e.textContent)""")
+        d = self.audit["reward"]["disagreement"]
+        self.assertIn(f"passed {d['passed']}", labels)
+        self.assertIn(f"failed {d['failed']}", labels)
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    def test_the_measure_switch_rings_exactly_the_episodes_the_engine_flagged(self):
+        context, page, errors = self._open()
+        block = page.locator('#stacks [data-block="rl-audit-reward"]')
+        d = self.audit["reward"]["disagreement"]
+        basis = d["findings_basis"]
+        if not basis:
+            self.assertEqual(block.locator("circle.ring").count(), 0)
+            context.close()
+            return
+        button = block.locator(f'button[data-measure="{"shaping" if basis == "shaping" else "return"}"]')
+        self.assertEqual(button.count(), 1)
+        button.click()
+        page.wait_for_timeout(700)
+        block = page.locator('#stacks [data-block="rl-audit-reward"]')
+        self.assertEqual(block.locator("circle.ring").count(), len(d["flagged"]))
+        flagged = block.locator('circle.pt[data-flagged="true"]')
+        self.assertEqual(flagged.count(), len(d["flagged"]))
+        seen = set()
+        for i in range(flagged.count()):
+            mark = flagged.nth(i)
+            seen.add("|".join([mark.get_attribute("data-policy"), mark.get_attribute("data-task"),
+                               mark.get_attribute("data-run")]))
+        self.assertEqual(seen, set(d["flagged"]))
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    def test_the_concentration_reading_states_the_numbers_beside_the_shape(self):
+        context, page, errors = self._open()
+        panel = page.locator('#stacks [data-block="rl-audit-reward"] .rlq-conc')
+        text = panel.inner_text()
+        con = self.audit["reward"]["concentration"]
+        self.assertIn(f"{100 * con['mean_last_share']:.1f}%", text)
+        self.assertIn(f"{100 * con['mean_largest_share']:.1f}%", text)
+        self.assertIn(con["note"][:40], text)
+        self.assertEqual(panel.locator(".rlq-strip span").count(), 2)
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    def test_the_unearned_rows_name_their_step_and_open_it_when_it_is_on_the_page(self):
+        context, page, errors = self._open()
+        u = self.audit["reward"]["unearned"]
+        rows = page.locator('#stacks [data-block="rl-audit-reward"] .rlq-list li')
+        self.assertGreater(rows.count(), 0)
+        self.assertLessEqual(rows.count(), len(u["rows"]))
+        for i in range(rows.count()):
+            step = rows.nth(i).get_attribute("data-step")
+            self.assertIsNotNone(step)
+            self.assertIn(f"step {step}", rows.nth(i).inner_text())
+        hits = page.locator('#stacks [data-block="rl-audit-reward"] .rlq-list li.hit')
+        if hits.count():
+            hits.first.click()
+            page.wait_for_timeout(500)
+            self.assertEqual(self._errors(errors), [])
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    # ----------------------------------------------------------- the critic
+
+    def test_the_calibration_plot_draws_every_scored_step_with_the_diagonal(self):
+        context, page, errors = self._open()
+        block = page.locator('#stacks [data-block="rl-audit-critic"]')
+        critic = self.audit["critic"]
+        self.assertEqual(block.locator("circle.pt").count(), critic["n"])
+        self.assertEqual(block.locator("line.diag").count(), 1)
+        self.assertEqual(block.locator("rect.rlq-cal-pt").count(), len(critic["deciles"]))
+        for policy in self.audit["policies"]:
+            mine = sum(1 for p in critic["points"] if p["agent"] == policy)
+            self.assertEqual(block.locator(f'circle.pt[data-policy="{policy}"]').count(), mine, policy)
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    def test_the_residual_marginal_holds_every_point_once(self):
+        context, page, errors = self._open()
+        block = page.locator('#stacks [data-block="rl-audit-critic"]')
+        bars = block.locator("rect.rlq-res")
+        total = 0
+        for i in range(bars.count()):
+            total += int(bars.nth(i).get_attribute("data-count"))
+        self.assertEqual(total, self.audit["critic"]["n"])
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    def test_a_critic_worse_than_the_mean_is_said_in_those_words(self):
+        context, page, errors = self._open()
+        block = page.locator('#stacks [data-block="rl-audit-critic"]')
+        text = block.inner_text()
+        per = self.audit["critic"]["per_agent"]
+        worse = sorted(n for n in per if per[n]["worse_than_the_mean"])
+        for name in worse:
+            self.assertIn("worse than the mean", text)
+            self.assertIn(name, text)
+        if worse:
+            self.assertIn("a constant equal to the average return-to-go", text)
+        ev = self.audit["critic"]["overall"]["explained_variance"]
+        if isinstance(ev, (int, float)):
+            self.assertIn("Only partly." if 0 <= ev < 0.5 else "No — it is worse than predicting the mean."
+                          if ev < 0 else "Mostly, yes.", text)
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    def test_the_advantage_check_says_what_it_could_and_could_not_do(self):
+        context, page, errors = self._open()
+        text = page.locator('#stacks [data-block="rl-audit-critic"]').inner_text()
+        adv = self.audit["critic"]["advantages"]
+        self.assertIn("Advantages:" if not adv["measurable"] else adv["definition"], text)
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    # ------------------------------------------------------------- the page
+
+    def test_nothing_overflows_on_a_phone_and_no_text_is_too_small(self):
+        context, page, errors = self._open(width=390)
+        self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), 392)
+        for bid in self.IDS:
+            block = page.locator(f'#stacks [data-block="{bid}"]')
+            box = block.bounding_box()
+            self.assertLessEqual(box["x"] + box["width"], 391, bid)
+            self.assertEqual(block.locator(".empty:visible").count(), 0, bid)
+        small = page.evaluate("""() => {
+          const out = [];
+          document.querySelectorAll('[data-block="rl-audit-reward"], [data-block="rl-audit-critic"]').forEach(function (card) {
             const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
             let node;
             while ((node = walker.nextNode())) {

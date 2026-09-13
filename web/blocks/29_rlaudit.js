@@ -574,7 +574,7 @@
     if (!d3) return;
     var c = m.audit.critic, bins = c.residual_bins || [];
     if (!bins.length) return;
-    var W = width(host), Hh = 92, pad = { l: 44, r: 12, t: 14, b: 22 };
+    var W = width(host), Hh = 96, pad = { l: 44, r: 12, t: 18, b: 22 };
     var lo = bins[0].from, hi = bins[bins.length - 1].to;
     if (lo === hi) { lo -= 1; hi += 1; }
     var x = d3.scaleLinear().domain([lo, hi]).range([pad.l, W - pad.r]);
@@ -583,15 +583,15 @@
     var y = d3.scaleLinear().domain([0, maxC]).range([Hh - pad.b, pad.t]);
     var svg = d3.select(host).append("svg").attr("viewBox", "0 0 " + W + " " + Hh).attr("role", "img")
       .attr("aria-label", "the residuals, value estimate minus what arrived, as a histogram stacked by policy");
-    svg.append("text").attr("class", "lab dim").attr("x", pad.l - 30).attr("y", pad.t - 3).text("↑ steps");
-    svg.append("text").attr("class", "tick").attr("x", pad.l - 6).attr("y", y(maxC) + 4).attr("text-anchor", "end").text(String(maxC));
+    svg.append("text").attr("class", "lab dim").attr("x", pad.l - 30).attr("y", pad.t - 3)
+      .text("↑ steps, tallest bin " + maxC);
+    svg.append("text").attr("class", "lab dim").attr("x", W - pad.r).attr("y", pad.t - 3).attr("text-anchor", "end")
+      .text("residual: value − what arrived →");
     [lo, 0, hi].forEach(function (v) {
       if (v < lo || v > hi) return;
       svg.append("text").attr("class", "tick").attr("x", x(v)).attr("y", Hh - pad.b + 14)
         .attr("text-anchor", v === lo ? "start" : v === hi ? "end" : "middle").text(signed(v, 1));
     });
-    svg.append("text").attr("class", "lab dim").attr("x", W - pad.r).attr("y", Hh - 4).attr("text-anchor", "end")
-      .text("residual →");
     if (lo < 0 && hi > 0) {
       svg.append("line").attr("class", "zero").attr("x1", x(0)).attr("x2", x(0)).attr("y1", pad.t - 4).attr("y2", Hh - pad.b);
     }

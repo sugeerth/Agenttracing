@@ -833,6 +833,10 @@ THIS SOFTWARE.
     tools: ["tool-behaviour", "tool-matrix", "heatmap", "latency-strip", "debug-session"],
     agents: ["milestones", "impact", "treemap", "horizon", "trace-body", "tool-matrix"],
     eval: ["trust", "rl", "milestones", "scorecard", "equality", "routing", "loop"],
+    // the training argument in six panels, for a reader who wants it beside
+    // something else rather than in its own lane; the chip only appears when
+    // the report carries the episodes these blocks read
+    training: ["rl-stats-aggregate", "rl-stats-improvement", "rl-policy-delta", "rl-ridgeline", "rl-audit-reward", "rl-atlas"],
     all: ["milestones", "impact", "treemap", "trace-body", "time", "heatmap", "latency-strip", "tool-matrix", "tool-behaviour", "horizon", "debug-session", "scorecard", "trust", "rl"],
   };
   // overview first (area, then the runs over time), then the detail
@@ -1184,6 +1188,23 @@ THIS SOFTWARE.
       blurb: "The RL training ground: every episode's return, where the reward landed, what it paid for.",
       // the lane reads top-down as one sequence: nothing starts collapsed
       open: Infinity,
+      /* The training lane is an argument, not a dashboard, so its order is
+       * written here rather than left to fall out of sixteen relevance
+       * constants in five files. It is the question a reader arrives with,
+       * decomposed: is one policy better, where does the aggregate hide
+       * something, what do the episodes look like, is the reward measuring
+       * the right thing, and how does each policy behave. A block not named
+       * here sorts after the ones that are, by relevance, so a new block
+       * appears without this list having to know about it. */
+      order: [
+        "rl-here",
+        "rl-stats-aggregate", "rl-stats-improvement", "rl-stats-profile",
+        "rl-policy-delta",
+        "rl-curves", "rl-ridgeline", "rl-theatre", "rl-reward-map",
+        "rl-audit-reward", "rl-audit-critic", "rl-advantage", "rl-events",
+        "rl-atlas", "rl-divergence",
+        "rl-preferences",
+      ],
     },
   ];
 
@@ -1213,10 +1234,18 @@ THIS SOFTWARE.
      * ("click a step to open it in Step detail") sit directly under it. */
     stacks.forEach(function (stack, index) {
       var order = STACK_PLAN[index].groups;
+      var reading = STACK_PLAN[index].order || null;
       stack.sort(function (x, y) {
         var gx = groupRank(order, BY_ID[x.id].group);
         var gy = groupRank(order, BY_ID[y.id].group);
         if (gx !== gy) return gx - gy;
+        // a column that names its own reading order gets it; a block the
+        // list does not name falls through to relevance, after the named
+        if (reading) {
+          var rx = blockRank(reading, x.id);
+          var ry = blockRank(reading, y.id);
+          if (rx !== ry) return rx - ry;
+        }
         return safeRelevance(BY_ID[y.id], ctx) - safeRelevance(BY_ID[x.id], ctx);
       });
       // Everything stays in the layout, but a column that opens as a metre
@@ -1234,6 +1263,13 @@ THIS SOFTWARE.
   function groupRank(groups, group) {
     var index = groups.indexOf(group);
     return index < 0 ? groups.length : index;
+  }
+
+  //: a block the column's reading order does not name sorts after the ones
+  //: it does, so adding a block never needs the list edited to appear.
+  function blockRank(order, id) {
+    var index = order.indexOf(id);
+    return index < 0 ? order.length : index;
   }
 
   //: part id → composite id: a block folded into a composite card leaves
@@ -19991,7 +20027,7 @@ THIS SOFTWARE.
     if (!d3) return;
     var c = m.audit.critic, bins = c.residual_bins || [];
     if (!bins.length) return;
-    var W = width(host), Hh = 92, pad = { l: 44, r: 12, t: 14, b: 22 };
+    var W = width(host), Hh = 96, pad = { l: 44, r: 12, t: 18, b: 22 };
     var lo = bins[0].from, hi = bins[bins.length - 1].to;
     if (lo === hi) { lo -= 1; hi += 1; }
     var x = d3.scaleLinear().domain([lo, hi]).range([pad.l, W - pad.r]);
@@ -20000,15 +20036,15 @@ THIS SOFTWARE.
     var y = d3.scaleLinear().domain([0, maxC]).range([Hh - pad.b, pad.t]);
     var svg = d3.select(host).append("svg").attr("viewBox", "0 0 " + W + " " + Hh).attr("role", "img")
       .attr("aria-label", "the residuals, value estimate minus what arrived, as a histogram stacked by policy");
-    svg.append("text").attr("class", "lab dim").attr("x", pad.l - 30).attr("y", pad.t - 3).text("↑ steps");
-    svg.append("text").attr("class", "tick").attr("x", pad.l - 6).attr("y", y(maxC) + 4).attr("text-anchor", "end").text(String(maxC));
+    svg.append("text").attr("class", "lab dim").attr("x", pad.l - 30).attr("y", pad.t - 3)
+      .text("↑ steps, tallest bin " + maxC);
+    svg.append("text").attr("class", "lab dim").attr("x", W - pad.r).attr("y", pad.t - 3).attr("text-anchor", "end")
+      .text("residual: value − what arrived →");
     [lo, 0, hi].forEach(function (v) {
       if (v < lo || v > hi) return;
       svg.append("text").attr("class", "tick").attr("x", x(v)).attr("y", Hh - pad.b + 14)
         .attr("text-anchor", v === lo ? "start" : v === hi ? "end" : "middle").text(signed(v, 1));
     });
-    svg.append("text").attr("class", "lab dim").attr("x", W - pad.r).attr("y", Hh - 4).attr("text-anchor", "end")
-      .text("residual →");
     if (lo < 0 && hi > 0) {
       svg.append("line").attr("class", "zero").attr("x1", x(0)).attr("x2", x(0)).attr("y1", pad.t - 4).attr("y2", Hh - pad.b);
     }
@@ -21069,8 +21105,6 @@ THIS SOFTWARE.
   }
   function plain(v, p) { return isNum(v) ? v.toFixed(p === undefined ? 2 : p) : "—"; }
   function short(id) { return String(id || "").replace(/^(rl|t)\d+_/, "").replace(/_/g, " "); }
-  function trunc(s, n) { s = String(s === null || s === undefined ? "" : s); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
-  var CH = 6.2;
   function width(host) { var w = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0; return Math.max(300, Math.min(1400, w || 320)); }
   function responsive(host, draw, k) {
     if (AgentDiff.charts && AgentDiff.charts.responsive) return AgentDiff.charts.responsive(host, draw, k);

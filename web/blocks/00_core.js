@@ -65,6 +65,10 @@
     tools: ["tool-behaviour", "tool-matrix", "heatmap", "latency-strip", "debug-session"],
     agents: ["milestones", "impact", "treemap", "horizon", "trace-body", "tool-matrix"],
     eval: ["trust", "rl", "milestones", "scorecard", "equality", "routing", "loop"],
+    // the training argument in six panels, for a reader who wants it beside
+    // something else rather than in its own lane; the chip only appears when
+    // the report carries the episodes these blocks read
+    training: ["rl-stats-aggregate", "rl-stats-improvement", "rl-policy-delta", "rl-ridgeline", "rl-audit-reward", "rl-atlas"],
     all: ["milestones", "impact", "treemap", "trace-body", "time", "heatmap", "latency-strip", "tool-matrix", "tool-behaviour", "horizon", "debug-session", "scorecard", "trust", "rl"],
   };
   // overview first (area, then the runs over time), then the detail
@@ -416,6 +420,23 @@
       blurb: "The RL training ground: every episode's return, where the reward landed, what it paid for.",
       // the lane reads top-down as one sequence: nothing starts collapsed
       open: Infinity,
+      /* The training lane is an argument, not a dashboard, so its order is
+       * written here rather than left to fall out of sixteen relevance
+       * constants in five files. It is the question a reader arrives with,
+       * decomposed: is one policy better, where does the aggregate hide
+       * something, what do the episodes look like, is the reward measuring
+       * the right thing, and how does each policy behave. A block not named
+       * here sorts after the ones that are, by relevance, so a new block
+       * appears without this list having to know about it. */
+      order: [
+        "rl-here",
+        "rl-stats-aggregate", "rl-stats-improvement", "rl-stats-profile",
+        "rl-policy-delta",
+        "rl-curves", "rl-ridgeline", "rl-theatre", "rl-reward-map",
+        "rl-audit-reward", "rl-audit-critic", "rl-advantage", "rl-events",
+        "rl-atlas", "rl-divergence",
+        "rl-preferences",
+      ],
     },
   ];
 
@@ -445,10 +466,18 @@
      * ("click a step to open it in Step detail") sit directly under it. */
     stacks.forEach(function (stack, index) {
       var order = STACK_PLAN[index].groups;
+      var reading = STACK_PLAN[index].order || null;
       stack.sort(function (x, y) {
         var gx = groupRank(order, BY_ID[x.id].group);
         var gy = groupRank(order, BY_ID[y.id].group);
         if (gx !== gy) return gx - gy;
+        // a column that names its own reading order gets it; a block the
+        // list does not name falls through to relevance, after the named
+        if (reading) {
+          var rx = blockRank(reading, x.id);
+          var ry = blockRank(reading, y.id);
+          if (rx !== ry) return rx - ry;
+        }
         return safeRelevance(BY_ID[y.id], ctx) - safeRelevance(BY_ID[x.id], ctx);
       });
       // Everything stays in the layout, but a column that opens as a metre
@@ -466,6 +495,13 @@
   function groupRank(groups, group) {
     var index = groups.indexOf(group);
     return index < 0 ? groups.length : index;
+  }
+
+  //: a block the column's reading order does not name sorts after the ones
+  //: it does, so adding a block never needs the list edited to appear.
+  function blockRank(order, id) {
+    var index = order.indexOf(id);
+    return index < 0 ? order.length : index;
   }
 
   //: part id → composite id: a block folded into a composite card leaves

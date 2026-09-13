@@ -311,3 +311,241 @@ and End go to the ends, and space plays at eight steps a second. It never
 plays on its own, under `prefers-reduced-motion` or otherwise. The task and
 run choice are remembered per browser through the page's own store, which
 falls back to memory when a `file://` origin refuses `localStorage`.
+
+## The behaviour space: what a policy *does*
+
+Return says which policy won. It does not say what either one did, and two
+policies can earn the same return by behaving nothing alike.
+`deepcompare/rlspace.py` reads the same episodes as *behaviour*, and ships
+the reading at `aggregate.rl.space`. Every step becomes one token — the
+tool's name for a tool-ish step (`grep`, `read_file`, `search`,
+`run_check`), the step's own family otherwise (`plan`, `reason`,
+`answer`) — so an episode is a short string of tokens in the order the
+policy acted, and a policy is a set of those strings. A token is a name
+as the traces wrote it: a tool literally called `reason` would share a
+token with the reason family, and the vocabulary lists what is there
+rather than namespacing it.
+
+**The vocabulary** counts every token per policy, its share of that
+policy's steps, and the *signature* — the tokens one policy uses and the
+other never does. On the training demo the signature is empty for both:
+the two policies use all seven tokens, and differ in *how much* and *in
+what order*, not in what they can do. That is itself the finding.
+
+**The trie** is a prefix tree over the token streams. Every node carries
+its prefix, how many episodes of each policy pass through it, and the
+mean return and success rate of the episodes below it — so one tree is
+both policies' trees at once (`rlspace.policy_trie` restricts it to one).
+Two prunings keep it readable, and `trie["pruned"]` names both: a subtree
+reached by a single episode becomes one leaf carrying `tail` (the tokens
+folded under it) rather than being expanded, and nothing is built below
+`max_depth` (24), where a node carries `truncated`. On the 96-episode
+training demo that is 29 single-episode tails (520 tokens hidden) and 22
+nodes cut at the depth cap (1,079 tokens).
+
+The **branch points** are where the policies part. At a node each
+policy's episodes divide over the children as a distribution; the
+*imbalance* is the total-variation distance between those two
+distributions (0 = they split alike, 1 = they take disjoint children),
+and the score weights it by the episodes that reach the node, so a
+lopsided split three episodes deep does not outrank the place the whole
+batch divides. Each branch point names the child each policy leans to and
+the mean return below it. On the training demo the top one is step 12,
+where 48 of 96 episodes have arrived: `policy-v1` goes on to `search`
+(mean return −3.49 over 22 episodes), `policy-v2` to `reason` (+3.38 over
+26), imbalance 0.58. Five more follow, all the same shape — the weaker
+policy searches again where the stronger one stops to think.
+
+**The habits** are n-grams. Per policy, the commonest length-2 and
+length-3 sequences; across the outcome, each gram's rate among the solved
+episodes over its rate among the failed, with all four counts carried,
+because a ratio of 3.0 may be 3 against 1. The rate's denominator is the
+group's own gram count, so a solved episode that is simply shorter (36.1
+steps against 43.8 on the demo) lifts the share of everything it does —
+`per_episode` sits beside it for that reason. Three lists come back:
+`top` (the solved end), `bottom` (the failed end) and `separating`, both
+ends ranked by how far from parity they sit, which is the one to read
+first. On the demo the strongest winning gram is `grep → grep → grep` at
+1.22× (90 against 102) — a composition effect, and its per-episode counts
+are equal, which the counts make visible. What actually separates the two
+is at the other end: `reason → run_check → reason` at 0.36× (9 against
+35) and `run_check → reason → run_check` at 0.48× (23 against 67) — the
+verifier's retry loop, the weaker policy running a fourth check and
+erring on it.
+
+**The distance** between two episodes is the normalised edit distance
+over their token streams: Levenshtein over the longer stream, 0 identical
+and 1 nothing in common. Edit distance and not a bag of n-grams because
+order and length are the point — a policy that does the same work in ten
+steps instead of twenty, or searches before it reads rather than after,
+differs in a way a bag cannot see, and insertion/deletion is the shape of
+"one extra search". From the matrix comes each policy's **behavioural
+spread**, the mean distance between two of its own episodes: on the
+training demo `policy-v1` sits at 0.23 and `policy-v2` at 0.22, with 0.30
+between them. A policy that always does the same thing has a small
+spread, and no return number carries that.
+
+The matrix is quadratic in episodes, so it is capped: at most 120
+episodes (chosen round-robin over the policies, so both are represented)
+over at most 200 tokens each, and `distance["capped"]`, `counted` and
+`of` say what was left out. Past the cap the extra episodes are simply
+not in the matrix, the spread or the layout — they are never estimated
+from the ones that are. The 96-episode demo fits whole, in about a third
+of a second; the distance itself uses Myers' bit-parallel algorithm,
+checked against the textbook row DP in the tests.
+
+**The layout** is classical multidimensional scaling of that matrix in
+pure Python: double-centre the squared distances, then the top two
+eigenvectors by power iteration from a fixed seed for a fixed number of
+iterations, each eigenvector's sign fixed by its largest entry so the
+same input gives the same bytes. **The axes mean nothing** — no unit, no
+direction. Only relative position says anything, and only as well as a
+plane can hold the distances, which `stress` reports (0.21 on the demo).
+
+Two blocks draw it. *Behaviour atlas* is that layout: a mark per episode,
+filled if it solved the task and a hollow diamond if it failed, coloured
+by policy, sized by |return|, with a dashed ring where an episode's
+nearest neighbour belongs to the *other* policy — a v2 failure sitting
+inside v1's cloud is the case worth finding. There are no axes drawn,
+because drawing them would lie; there is a scale bar, because the
+distance is the one length that means something. Underneath it the habits
+rank, and clicking one lights up the episodes that play it. *Where the
+policies part* draws the trie as a thread with branches in the vocabulary
+of "Where it mattered": a branch's thickness is the episodes through it,
+its colour the mix of the two policies, a run of steps every episode
+takes the same way folds into a dashed ×N that dilates on click, and the
+ranked branch points are ringed and tabled with the return on each side.
+
+## Auditing the signal: is the reward trustworthy, is the critic any good?
+
+Everything above reads a policy by what it *earned*. `deepcompare/rlaudit.py`
+asks the question one layer down — the one nobody asks until a policy is
+already gamed — and writes it to `aggregate["rl"]["audit"]` (and, at pair
+scale, to `report["rl"]["audit"]`):
+
+```
+{version, measurable, gamma, scope: batch|pair, episodes_n, policies[],
+ reward {episodes[{agent, task_id, run_id, side, success, steps, seconds,
+                   return, shaping_return, last_reward, flagged}],
+         disagreement {passed, failed, scopes {pooled|by_task|shaping:
+                         {basis, pairs_n, inversions, ties, inversion_rate,
+                          separation, tasks{}}},
+                       findings[], findings_n, findings_basis, flagged[],
+                       by_policy[], note},
+         rank_agreement {spearman, ceiling, spearman_shaping, n, per_agent{}, note},
+         concentration {episodes[], mean_largest_share, mean_last_share,
+                        mean_peakedness, mean_paid_share, kinds{}, kind, note},
+         unearned {steps_labelled, positive_while_bad, negative_while_good,
+                   by_label{}, rows[], note},
+         cost {per_agent{return_per_step, return_per_second, mean_steps, …}},
+         tools {per_agent{tools{}, top_tool, top_share}, findings[]},
+         narrative},
+ critic {n, episodes_covered, overall {mean_error, mean_absolute_error, rmse,
+          variance_actual, variance_residual, explained_variance, direction,
+          worse_than_the_mean}, per_agent{…, deciles[], words},
+         deciles[{bin, n, predicted_lo, predicted_hi, predicted, actual, residual}],
+         residual_bins[], points[{agent, task_id, run_id, step, predicted,
+          actual, residual, success}],
+         advantages {measurable, definition, recorded, checked, inconsistent,
+          episodes[], max_error, tolerance}, narrative},
+ narrative, caveat}
+```
+
+**Reward integrity.** The reward is a proxy; these are the places it and
+the outcome part company.
+
+*Disagreement* counts every (passing, failing) pair of episodes the return
+orders the wrong way round, in three readings. **Pooled** compares every
+episode with every other. **By task** compares only within a task, which is
+the fair reading: a return on one task is not on the same scale as a return
+on another. **Shaping** takes the last step's reward out of each return
+first, within a task — the reading that matters when the answer step itself
+pays. A reward whose terminal term carries the outcome agrees with the
+outcome *by construction*; the question is whether the dense part a policy
+collects along the way agrees too, and that is where a policy would collect
+return without passing. Findings come from the first reading that has any,
+ranked by the size of the disagreement, each naming the policy, the task,
+the run and the value. Beside them, `by_policy` asks the same question one
+level up: per task, does the policy the reward prefers also pass more often?
+
+*Rank agreement* is Spearman's rho between the return and the outcome,
+implemented here (average ranks, pure stdlib). A binary outcome is one long
+pair of ties, so rho cannot reach 1 however good the reward is — the
+attainable **ceiling** (the same returns reordered to be perfectly
+consistent) is reported beside it, so 0.86 is not read as a shortfall. Rho
+on the shaping alone says how much of the agreement the outcome term is
+carrying by itself.
+
+*Concentration* gives the share of an episode's total absolute reward
+carried by its largest step and by its last, the share of steps paid
+anything at all, and how many times its even share the largest step
+carries. The classification is stated *with* those numbers, never instead
+of them: `terminal` when the last step is ≥ 90% of the episode (the whole
+return is one number), `terminal_dominated` when the last step is the
+largest and ≥ ⅓, `peaked` when some other step is, `dense` otherwise.
+
+*Unearned reward* lists the steps paid positively while carrying a label
+the analysis calls bad (`dead_end`, `error`, `fault_enters`,
+`fault_carried`, `invented_argument`, `no_information`, `repeat`,
+`spent_after_basis`, `wrong_answer`) and the steps punished while carrying
+a good one (`fed_answer`). `by_label` is the overview; `rows` are the
+largest, at most two from any one policy and task.
+
+*Cost* is return per step and per second per policy, so "better" can be
+told apart from "longer". *Tools* traces which tool the positive reward
+flowed through and which the negative did; a policy earning all of its
+tool-mediated return through one tool is a fragile policy, and that is
+raised as a finding.
+
+**Critic calibration.** Where a step carries a `value`, that value is a
+prediction of the discounted return-to-go. The realised return-to-go is
+recomputed from the recorded rewards at gamma and the **residual** is
+`value − actual`. From the residuals: the mean signed error (the bias — a
+positive mean is an optimistic critic), the mean absolute error, the RMSE,
+and the **explained variance** `1 − Var(residual)/Var(actual)`, the
+standard critic-health number. It goes *negative* when the critic is worse
+than predicting the mean, and the section then says exactly that in words
+rather than rounding past it. Calibration is broken out by decile of
+predicted value, so a reader sees *where* the critic is wrong and not only
+how much. A recorded `advantage` is checked against the definition this
+document states for it (`discounted return-to-go − value`) and every
+episode that fails is named; advantages the engine itself derived are not
+checked, because checking them would only check the engine against itself.
+
+**What it says on the demos.** On `demo/rl/train` (96 episodes, 2 policies
+× 6 tasks × 8 runs): no failed episode out-earns a passing one on the same
+task, over 367 ordered pairs, and rho is 0.86 against a ceiling of 0.86.
+Take the last step out and the shaping alone gets 23 of those 367 pairs the
+wrong way round — 11 of them on `rl05_incident_postmortem` — and rho falls
+to 0.70, which is how much of the agreement the ±5 answer term was carrying
+on its own. The reward is terminal-dominated (the last step is 42% of an
+episode's absolute reward, 13× an even spread, with 80% of steps paid
+anything); 358 steps of 3,858 were paid while labelled `dead_end`, worth
++322 between the two policies; and all of the tool-mediated positive reward
+of both policies flows through `read_file`. The critic explains 42% of the
+variance overall but −0.09 for `policy-v1`, which is worse than predicting
+the mean, against +0.41 for `policy-v2`. On the smaller `demo/rl/traces`
+(12 episodes) the shaping gets 1 of 17 pairs the wrong way round, rho is
+0.86 at its ceiling of 0.86, and *both* policies' critics score below zero
+(−0.12 and −0.14) while the pooled figure is +0.22 — a reminder that an
+explained variance pooled across policies is not the explained variance of
+either.
+
+Every finding is a **signal to investigate, not a proven defect**: a failed
+episode with a high return may be a hard task rather than a gamed one, and
+a badly calibrated critic early in training is expected. Each one names the
+task, the run and the step so it can be checked. Nothing here is estimated
+— a check with no evidence returns `measurable: False` and a reason.
+
+On the page, the Training view ends with two blocks that read this section:
+**Reward integrity** (*is the reward measuring the right thing?*) leads
+with the sentence that answers it, then plots every episode's return on one
+axis with passes and failures as two rows — no jitter needed — the
+disagreeing episodes ringed and named, the x measure switchable between the
+return and the shaping alone; beside it the concentration reading and the
+unearned-reward list, each row clicking through to the step it names.
+**Critic calibration** (*does the critic know what is coming?*) plots the
+value estimate against the realised discounted return-to-go with y = x as
+the only reference, the decile calibration curve over it, points coloured
+by policy and the residuals as a small marginal underneath, and states the
+explained variance in words.

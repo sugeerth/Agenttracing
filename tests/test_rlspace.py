@@ -15,6 +15,7 @@ training set and the section is checked to arrive in `aggregate["rl"]`.
 from __future__ import annotations
 
 import json
+import math
 import random
 import sys
 import unittest
@@ -27,7 +28,7 @@ from deepcompare.rl import rl_aggregate  # noqa: E402
 from deepcompare.rlspace import (  # noqa: E402
     MATRIX_JSON_EPISODES, MAX_DISTANCE_EPISODES, MAX_DISTANCE_TOKENS, _edit_dp, _edit_myers,
     behaviour_episodes, behaviour_space, branch_points, build_trie, distances, edit_distance,
-    episode_tokens, mds, ngrams, normalised_distance, rl_space, step_token, vocabulary,
+    episode_tokens, mds, ngrams, normalised_distance, policy_trie, rl_space, step_token, vocabulary,
 )
 from deepcompare.trace import Trajectory  # noqa: E402
 
@@ -259,6 +260,17 @@ class NgramTest(unittest.TestCase):
         self.assertAlmostEqual(ab["win_per_episode"], 2.0)
         self.assertAlmostEqual(ab["lose_per_episode"], 1.0)
 
+    def test_the_separating_list_ranks_both_ends_by_distance_from_parity(self):
+        rows = self.grams["winning"]["separating"]
+        self.assertTrue(rows)
+        # a gram the losers never play has no ratio at all: it leads
+        self.assertIsNone(rows[0]["ratio"])
+        rest = [r for r in rows if r["ratio"] is not None]
+        lifts = [abs(math.log(r["ratio"])) if r["ratio"] else float("inf") for r in rest]
+        self.assertEqual(lifts, sorted(lifts, reverse=True))
+        # both ends are in it: the losers' habit is here too
+        self.assertIn("plan → search", [r["text"] for r in rows])
+
     def test_a_gram_under_the_minimum_count_is_not_ranked(self):
         eps = [ep("new", "r1", ["a", "b", "c"], 1.0, True), ep("old", "r1", ["a", "b", "d"], -1.0, False)]
         win = behaviour_space(eps, names=("new", "old"))["ngrams"]["winning"]
@@ -430,6 +442,21 @@ class PruningTest(unittest.TestCase):
         self.assertEqual(trie["pruned"]["truncated_tokens"], 14)
         self.assertIn("depth cap of 3", trie["pruned"]["note"])
 
+    def test_one_policys_own_trie_is_the_merged_one_restricted(self):
+        space = behaviour_space(HAND, names=NAMES)
+        old = policy_trie(space["trie"]["root"], "old")
+        self.assertEqual(old["episodes"], 2)
+        self.assertEqual(old["by_policy"], {"old": 2})
+        tokens = []
+        node = old
+        while node["children"]:
+            self.assertEqual(len(node["children"]), 1)
+            node = node["children"][0]
+            tokens.append(node["token"])
+        self.assertEqual(tokens, ["plan", "search", "search", "answer"])
+        self.assertIsNone(policy_trie(space["trie"]["root"], "nobody"))
+        self.assertIn("by_policy", space["trie"]["per_policy"])
+
     def test_a_pruned_tail_still_carries_its_counts(self):
         eps = [ep("old", "r1", ["a", "b"], 4.0, True), ep("old", "r2", ["a", "c"], 1.0, True),
                ep("new", "r1", ["a", "c"], 3.0, False)]
@@ -547,6 +574,8 @@ class DemoTest(unittest.TestCase):
         # the verifier's retry loop is the losing habit
         bottom = win["bottom"][0]
         self.assertEqual(bottom["text"], "reason → run_check → reason")
+        # and it is what leads the list ranked by distance from parity
+        self.assertEqual(win["separating"][0]["text"], "reason → run_check → reason")
         self.assertEqual((bottom["win_count"], bottom["lose_count"]), (9, 35))
         self.assertAlmostEqual(bottom["ratio"], 0.3566, places=4)
         self.assertIn("run_check", win["bottom"][1]["text"])
