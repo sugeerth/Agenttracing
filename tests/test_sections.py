@@ -270,6 +270,17 @@ class StatsTest(unittest.TestCase):
         self.assertEqual(_stats.rng(20260913, "improvement:return").random(),
                          random.Random("agentdiff.rlstats:20260913:improvement:return").random())
 
+    def test_rounded_and_finite_read_a_number_the_way_the_sections_do(self):
+        # the four-place rounding the evolve, comparison and grafana sections shared as a local `_r`
+        self.assertEqual(_stats.rounded(1 / 3), 0.3333)
+        self.assertEqual(_stats.rounded(2), 2.0)
+        self.assertEqual(_stats.rounded(0.0000001, 6), 0.0)
+        self.assertIsNone(_stats.rounded(None))
+        self.assertTrue(_stats.finite(3) and _stats.finite(-0.5))
+        self.assertFalse(_stats.finite(True))                    # a bool is not a measurement
+        self.assertFalse(_stats.finite(float("nan")) or _stats.finite(float("inf")))
+        self.assertFalse(_stats.finite(None) or _stats.finite("3"))
+
     def test_the_stratified_bootstrap_keeps_every_tasks_run_count(self):
         draws = _stats.stratified_resamples({"t2": [1, 2, 3], "t1": [10, 20]}, 5, _stats.rng(0, "test"))
         self.assertEqual(len(draws), 5)

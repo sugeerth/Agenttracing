@@ -72,6 +72,19 @@ that registers; no wiring file changes.** A section that raises is
 caught, recorded as `unmeasurable("<exception>")` under its key, and the
 rest still attach — a new section can never take the report down.
 
+*Adoption, lineage scope.* `evolve.py` owns the scope's attach site:
+`evolve.lineage_batch(lineage, …)` builds the aggregate (the last step's
+pair as a runs batch, parent as A and child as B by name, not
+alphabetically) and `evolve.attach_sections` runs the pass;
+`analyse_lineage` runs the same pass on an empty aggregate.
+`evolution_compare` registers `on_demand=True` with
+`requires=("evolution",)`: its input, the lineages to compare against,
+is not part of one lineage, so it attaches only when `against` names
+some, and a plain `evolve` output never carries the key. The comparison
+embeds each lineage's section without the episode timelines
+(`generations[].timelines: "omitted; see aggregate.evolution"`); the
+primary lineage's full section under `aggregate.evolution` keeps them.
+
 ## 3. Aggregates and commands
 
 `suite.analyse_runs` (runs layout), `consolidate` (batch), `fleet`,

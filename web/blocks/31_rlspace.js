@@ -88,7 +88,7 @@
     if (fn && id) fn(id);
   }
   //: a fold's length grows with what it holds — the rule "Where it mattered" uses
-  function foldW(n) { return 6 + 6 * Math.log(1 + Math.max(0, n)) / Math.LN2; }
+  var foldW = L.glyph.foldWidth;
   //: text that never runs past the room it has — measured, not guessed, because
   //: a character's width is a guess and a label over the edge is clipped
   function fitText(sel, text, room) {

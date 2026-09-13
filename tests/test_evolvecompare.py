@@ -660,5 +660,85 @@ class DemoCompareTest(unittest.TestCase):
                           "rl05_incident_postmortem": None, "rl06_api_contract": None})
 
 
+# ---------------------------------------------------------------- the embedded copies and the registry
+
+class EmbeddedCopyTest(unittest.TestCase):
+    """``lineages[i].evolution`` carries each lineage's own section without
+    the episode timelines — the page's timescape reads those from
+    ``aggregate.evolution`` — and says so beside ``episodes_capped``."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="evc-embed-"))
+        cls.a = write_lineage(cls.tmp / "alpha", alpha_gens(), _lineage_json("alpha"))
+        cls.b = write_lineage(cls.tmp / "beta", beta_gens(), _lineage_json("beta"))
+        cls.lineage_a, cls.lineage_b = read_lineage(cls.a), read_lineage(cls.b)
+        cls.ev_a = evolve(cls.lineage_a, samples=SAMPLES)
+        cls.ev_b = evolve(cls.lineage_b, samples=SAMPLES)
+        cls.before = json.dumps(cls.ev_a, sort_keys=True)
+        cls.cmp = ec.evolution_compare([cls.lineage_a, cls.lineage_b], [cls.ev_a, cls.ev_b], samples=SAMPLES)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_the_embedded_copy_drops_every_timeline_and_says_so(self):
+        for entry in self.cmp["lineages"]:
+            for g in entry["evolution"]["generations"]:
+                self.assertTrue(g["episodes"], "the episodes themselves stay")
+                self.assertTrue(all("timeline" not in e for e in g["episodes"]))
+                keys = list(g)
+                self.assertEqual(keys[keys.index("episodes_capped") + 1], "timelines")
+                self.assertEqual(g["timelines"], ec.TIMELINES_OMITTED)
+                self.assertEqual(g["timelines"], "omitted; see aggregate.evolution")
+
+    def test_the_copy_keeps_every_other_key_in_order_and_the_original_untouched(self):
+        self.assertEqual(json.dumps(self.ev_a, sort_keys=True), self.before, "the section given is not mutated")
+        self.assertTrue(all("timeline" in e for g in self.ev_a["generations"] for e in g["episodes"]))
+        copy_ = self.cmp["lineages"][0]["evolution"]
+        self.assertEqual(list(copy_), list(self.ev_a))
+        for g_in, g_out in zip(self.ev_a["generations"], copy_["generations"]):
+            self.assertEqual([k for k in g_out if k != "timelines"], list(g_in))
+            for e_in, e_out in zip(g_in["episodes"], g_out["episodes"]):
+                self.assertEqual(e_out, {k: v for k, v in e_in.items() if k != "timeline"})
+        self.assertLess(len(json.dumps(copy_)), len(self.before))   # on the demo the section shrinks to under a third
+
+    def test_embedded_evolution_on_odd_shapes(self):
+        self.assertEqual(ec.embedded_evolution({"generations": []}), {"generations": []})
+        self.assertEqual(ec.embedded_evolution({"measurable": False}), {"measurable": False, "generations": []})
+        out = ec.embedded_evolution({"generations": [{"id": "g0", "episodes": [{"timeline": [], "x": 1}]}]})
+        self.assertEqual(out["generations"], [{"id": "g0", "episodes": [{"x": 1}], "timelines": ec.TIMELINES_OMITTED}])
+        self.assertIsNone(ec.embedded_evolution(None))
+
+    def test_an_unreadable_lineage_is_embedded_the_same_way(self):
+        broken = dict(self.ev_b, measurable=False, reason="broken on purpose")
+        c = ec.evolution_compare([self.lineage_a, self.lineage_b], [self.ev_a, broken], samples=SAMPLES)
+        self.assertFalse(c["measurable"])
+        for entry in c["lineages"]:
+            for g in entry["evolution"]["generations"]:
+                self.assertTrue(all("timeline" not in e for e in g["episodes"]))
+                self.assertEqual(g["timelines"], ec.TIMELINES_OMITTED)
+
+    def test_the_comparison_is_an_on_demand_lineage_section_after_evolution(self):
+        from deepcompare import evolve as evolve_module, sections
+        sec = sections.get("lineage", "evolution_compare")
+        self.assertTrue(sec.on_demand)
+        self.assertEqual(sec.requires, ("evolution",))
+        self.assertEqual(sections.registered("lineage")[:2], ["evolution", "evolution_compare"])
+        agg = evolve_module.attach_sections(self.lineage_a, {}, samples=SAMPLES, against=[str(self.b)])
+        self.assertEqual(list(agg), ["evolution", "evolution_compare"])
+        self.assertEqual(json.dumps(agg["evolution"], sort_keys=True), self.before)
+        self.assertEqual(json.dumps(agg["evolution_compare"], sort_keys=True), json.dumps(self.cmp, sort_keys=True))
+        alone = evolve_module.attach_sections(self.lineage_a, {}, samples=SAMPLES)
+        self.assertEqual(list(alone), ["evolution"], "without lineages to compare against, nothing attaches")
+
+    def test_compare_lineages_reuses_a_lineage_already_read(self):
+        reread = ec.compare_lineages([str(self.a), str(self.b)], samples=SAMPLES, evolutions=[self.ev_a])
+        reused = ec.compare_lineages([str(self.a), str(self.b)], samples=SAMPLES, evolutions=[self.ev_a],
+                                     lineages=[self.lineage_a])
+        self.assertEqual(json.dumps(reread, sort_keys=True), json.dumps(reused, sort_keys=True))
+        self.assertEqual(json.dumps(reused, sort_keys=True), json.dumps(self.cmp, sort_keys=True))
+
+
 if __name__ == "__main__":
     unittest.main()

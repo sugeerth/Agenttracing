@@ -219,7 +219,7 @@
     return out;
   }
   //: a fold's length scales with the steps it constricts: 4–5 steps ≈ 20px, 11 ≈ 27px, 100 ≈ 46px
-  function foldW(steps) { return 6 + 6 * Math.log(1 + Math.max(0, steps)) / Math.LN2; }
+  var foldW = L.glyph.foldWidth;
   function weight(c) { return clamp01(c.impact); }
   //: a 1.00 stretch is at least this many times the length of a floor-length one
   var RATIO = 4;

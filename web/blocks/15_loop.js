@@ -91,20 +91,7 @@
   function agentColor(agents, a) { return a === agents[0] ? "var(--lp-a)" : "var(--lp-b)"; }
 
   /* one tooltip per block, positioned inside it */
-  function tooltip(root) {
-    var tip = root.querySelector(".lp-tip");
-    if (!tip) { tip = document.createElement("div"); tip.className = "lp-tip"; tip.hidden = true; root.appendChild(tip); }
-    return {
-      show: function (evt, build) {
-        tip.innerHTML = ""; build(tip); tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 190 > r.width) x = Math.max(0, evt.clientX - r.left - 200);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "lp-tip", width: 190 }); }
   function tipRow(tip, color, label, value) {
     var row = document.createElement("div"); row.className = "row";
     if (color) { var i = document.createElement("i"); i.style.background = color; row.appendChild(i); }

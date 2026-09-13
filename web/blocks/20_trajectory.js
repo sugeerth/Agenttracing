@@ -2151,11 +2151,8 @@
   // the same fact surfaces in both runs. Click any step on either side and
   // the shared cursor moves, so Step detail and Tracks follow.
 
-  var MAP_STYLE_DONE = false;
   function ensureMapStyle() {
-    if (MAP_STYLE_DONE) return;
-    MAP_STYLE_DONE = true;
-    var css = [
+    L.style.once("trajectory-map", [
       ".tjm-wrap{overflow-y:auto;overflow-x:auto;max-height:520px;",
       "border:1px solid var(--rule);border-radius:8px;background:var(--surface)}",
       ".tjm-foot{display:flex;flex-wrap:wrap;gap:3px 12px;margin-top:7px;",
@@ -2189,10 +2186,7 @@
       "text-decoration:none;color:var(--ink)}",
       ".tj-diff-body del{background:color-mix(in srgb,var(--bad) 20%,transparent);",
       "color:var(--ink);text-decoration:line-through}",
-    ].join("");
-    var tag = document.createElement("style");
-    tag.textContent = css;
-    document.head.appendChild(tag);
+    ].join(""));
   }
 
   function mapRowFor(report, side, index) {
@@ -2982,11 +2976,8 @@
   // moves Step detail and the map, and a selection made elsewhere is
   // highlighted here.
 
-  var LENS_STYLE_DONE = false;
   function ensureLensStyle() {
-    if (LENS_STYLE_DONE) return;
-    LENS_STYLE_DONE = true;
-    var css = [
+    L.style.once("trajectory-lens", [
       ".tjl-list{max-height:520px;overflow-y:auto;border:1px solid var(--rule);",
       "border-radius:8px;background:var(--surface)}",
       ".tjl-step{border-bottom:1px solid var(--rule)}",
@@ -3008,10 +2999,7 @@
       ".tjl-b.acct{border-color:var(--warn);color:var(--warn)}",
       ".tjl-body{padding:2px 9px 9px 36px}",
       ".tjl-meta{font-family:var(--mono);font-size:var(--fs-xs);color:var(--ink-3);margin:2px 0 4px}",
-    ].join("");
-    var tag = document.createElement("style");
-    tag.textContent = css;
-    document.head.appendChild(tag);
+    ].join(""));
   }
 
   // Lens state survives repaints but never leaks across tasks: the open

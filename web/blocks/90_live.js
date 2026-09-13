@@ -16,8 +16,7 @@
   var live = data && data.live;
   if (!live || live.enabled !== true || typeof global.EventSource !== "function") return;
 
-  var style = document.createElement("style");
-  style.textContent = [
+  AgentDiff.lib.style.once("live", [
     "#live-badge{position:fixed;right:14px;bottom:14px;z-index:40;display:flex;gap:8px;align-items:center;",
     "padding:6px 10px;border-radius:999px;background:var(--ink);color:var(--bg);font-size:var(--fs-xs);box-shadow:var(--shadow)}",
     "#live-badge i{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--good)}",
@@ -26,8 +25,7 @@
     "@keyframes live-pulse{from{opacity:.4}to{opacity:1}}",
     "@media (prefers-reduced-motion:reduce){#live-badge i{animation:none}}",
     "@media (max-width:480px){#live-badge{right:8px;bottom:8px}}",
-  ].join("");
-  document.head.appendChild(style);
+  ].join(""));
 
   var badge = document.createElement("div");
   badge.id = "live-badge";

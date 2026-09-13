@@ -26,6 +26,20 @@ TRIM = 0.25
 CONFIDENCE = 0.95
 
 
+def finite(v: object) -> bool:
+    """True when ``v`` is a real number a section can read: an int or a
+    float (never a bool, which is one to Python) that is neither NaN nor
+    infinite."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(float(v))
+
+
+def rounded(v: Optional[float], places: int = 4) -> Optional[float]:
+    """``round(float(v), places)`` — four places, the precision every
+    section writes a statistic at — and None passed through, so a number
+    that was not measured stays unmeasured rather than becoming 0."""
+    return None if v is None else round(float(v), places)
+
+
 def mean(values: Sequence[float]) -> Optional[float]:
     """The arithmetic mean; None on an empty sample."""
     return sum(values) / len(values) if values else None
@@ -151,5 +165,5 @@ def rng(seed: int, label: str, section: str = "rlstats") -> random.Random:
     return random.Random(f"agentdiff.{section}:{seed}:{label}")
 
 
-__all__ = ["TRIM", "CONFIDENCE", "mean", "pvar", "median", "percentile", "mean_ci", "iqm",
+__all__ = ["TRIM", "CONFIDENCE", "finite", "rounded", "mean", "pvar", "median", "percentile", "mean_ci", "iqm",
            "optimality_gap", "percentile_interval", "stratified_resamples", "rng"]

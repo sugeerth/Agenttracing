@@ -31,7 +31,7 @@ from .paths import DEFAULT_TEMPLATE
 
 __all__ = [
     "Warn", "warn_stderr", "safe_name", "run_id_from_name", "with_harness", "trace_files",
-    "iter_traces", "load_traces", "template_from", "write_reports", "write_aggregate",
+    "iter_traces", "load_traces", "template_from", "write_report", "write_reports", "write_aggregate",
     "write_fleet", "write_page", "write_outputs", "load_report", "save_report",
 ]
 
@@ -118,10 +118,14 @@ def _write_json(path: Path, payload) -> Path:
     return path
 
 
+def write_report(out_dir: Path, report: dict) -> Path:
+    """One pair report as ``report_<task>.json``."""
+    return _write_json(out_dir / f"report_{safe_name(report['task']['id'])}.json", report)
+
+
 def write_reports(out_dir: Path, reports: list[dict]) -> list[Path]:
     """``report_<task>.json`` per pair report, in the order given."""
-    return [_write_json(out_dir / f"report_{safe_name(report['task']['id'])}.json", report)
-            for report in reports]
+    return [write_report(out_dir, report) for report in reports]
 
 
 def write_aggregate(out_dir: Path, aggregate: dict) -> Path:

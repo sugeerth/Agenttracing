@@ -161,6 +161,22 @@ above the earlier one's implies that), so on a tie the earlier
 generation — the one with fewer steps behind it — is kept. ``why`` names
 every generation that was passed over and the reason.
 
+**Wiring.** ``evolution`` is a section of the ``lineage`` scope
+(:mod:`deepcompare.sections`), and this module owns that scope's attach
+site: :func:`lineage_batch` builds the aggregate — the last step's pair
+as an ordinary runs batch, parent as A and child as B — and
+:func:`attach_sections` runs every registered lineage section on it;
+:func:`analyse_lineage` runs the same pass on an empty aggregate for a
+caller that only wants the section. The comparison
+(:mod:`deepcompare.evolvecompare`) registers on demand and attaches when
+``against`` names other lineages. The helpers of a reading are the shared
+ones: :mod:`deepcompare._text` for the prose (``num``, ``signed``,
+``pct``, ``plural``) and :mod:`deepcompare._stats` for the numbers
+(``rounded`` to four places, ``finite``, ``mean``,
+``percentile_interval``, and ``rng`` seeded
+``agentdiff.evolve:<seed>:<label>`` — the stream this module always drew
+from, so no interval moved when the helpers did).
+
 Determinism: every dict iterated for output is sorted, every bootstrap
 seeded (the rlstats seed), no timestamps. Honesty: a size that cannot be
 measured is ``None``, a check that cannot be read says why, a thin sample
@@ -179,16 +195,18 @@ from __future__ import annotations
 import difflib
 import hashlib
 import json
-import math
-import random
 import re
 from pathlib import Path
 from typing import Optional
 
+from . import sections
+from ._stats import CONFIDENCE, finite, mean, percentile_interval, rng, rounded
+from ._text import num, pct, plural, signed
 from .rl import GAMMA, rl_aggregate, rl_run_from_trace
 from .rlaudit import audit_aggregate
 from .rlspace import MAX_DISTANCE_TOKENS, episode_tokens, normalised_distance
-from .rlstats import BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE, METRICS, iqm, probability_of_improvement, score_matrix
+from .rlstats import BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, METRICS, iqm, probability_of_improvement, score_matrix
+from .suite import SuiteError, analyse_runs
 from .trace import Trajectory
 
 VERSION = 1
@@ -227,46 +245,6 @@ COLLAPSE_OF = ("prompt_chars", "rules", "memory")
 #: step families for the timeline
 TOOLISH = ("tool_call", "search", "retrieve", "read")
 LAYOUTS = ("native", "flat")
-
-
-# ---------------------------------------------------------------- formatting
-
-def _num(v, places: int = 2) -> str:
-    """A number as text with a real minus sign; ``—`` when there is none."""
-    if v is None:
-        return "—"
-    if abs(v - round(v)) < 1e-9:
-        text = f"{int(round(v))}"
-    else:
-        text = f"{v:.{places}f}".rstrip("0").rstrip(".")
-    return text.replace("-", "−")
-
-
-def _signed(v, places: int = 2) -> str:
-    if v is None:
-        return "—"
-    text = _num(v, places)
-    return text if v < 0 else f"+{text}"
-
-
-def _pct(p) -> str:
-    return "—" if p is None else f"{round(100 * p):.0f}%"
-
-
-def _plural(n: int, word: str, plural: Optional[str] = None) -> str:
-    return f"{n} {word if n == 1 else (plural or word + 's')}"
-
-
-def _r(v, places: int = 4):
-    return None if v is None else round(float(v), places)
-
-
-def _number(v) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(float(v))
-
-
-def _mean(values: list):
-    return sum(values) / len(values) if values else None
 
 
 # ---------------------------------------------------------------- reading a lineage
@@ -353,7 +331,7 @@ def _generation(dir_name: str, raw, error: Optional[str], trace_paths: list, fam
         trajectories = by_name.get(expected, [])
         for name in sorted(by_name):
             if name != expected:
-                notes.append(f"{_plural(len(by_name[name]), 'trace')} named {name!r} rather than {expected!r}; skipped")
+                notes.append(f"{plural(len(by_name[name]), 'trace')} named {name!r} rather than {expected!r}; skipped")
     elif len(by_name) == 1:
         policy = next(iter(by_name))
         trajectories = by_name[policy]
@@ -383,7 +361,7 @@ def _read_lineage_json(root: Path) -> dict:
     protected = raw.get("protected")
     meta["protected"] = sorted({p for p in protected if isinstance(p, str) and p}) if isinstance(protected, list) else []
     budget = raw.get("budget")
-    meta["budget"] = {k: v for k, v in sorted(budget.items()) if _number(v)} if isinstance(budget, dict) else {}
+    meta["budget"] = {k: v for k, v in sorted(budget.items()) if finite(v)} if isinstance(budget, dict) else {}
     if isinstance(raw.get("note"), str):
         meta["note"] = raw["note"]
     return meta
@@ -644,7 +622,7 @@ def _direction_of_values(frm, to) -> str:
     treats as a finding."""
     if isinstance(frm, bool) and isinstance(to, bool):
         return "restored" if to and not frm else "weakened" if frm and not to else "changed"
-    if _number(frm) and _number(to):
+    if finite(frm) and finite(to):
         return "restored" if to > frm else "weakened" if to < frm else "changed"
     if to is None and frm is not None:
         return "weakened"
@@ -696,7 +674,7 @@ def _summary(diff: dict) -> str:
         for c in cfg["changed"]:
             frm, to = c["from"], c["to"]
             sign = "~"
-            if _number(frm) and _number(to):
+            if finite(frm) and finite(to):
                 sign = "-" if to < frm else "+"
             elif isinstance(frm, bool) and isinstance(to, bool):
                 sign = "+" if to else "-"
@@ -711,9 +689,9 @@ def _summary(diff: dict) -> str:
             added = block["added"] if isinstance(block["added"], int) else len(block["added"])
             removed = block["removed"] if isinstance(block["removed"], int) else len(block["removed"])
             if added:
-                bits.append(f"+{_plural(added, word)}")
+                bits.append(f"+{plural(added, word)}")
             if removed:
-                bits.append(f"-{_plural(removed, word)}")
+                bits.append(f"-{plural(removed, word)}")
     for kind, word in (("skills", "skill"), ("tools", "tool")):
         block = diff.get(kind)
         if isinstance(block, dict) and block.get("measurable"):
@@ -839,32 +817,17 @@ def evidence_check(evidence, parent: Optional[dict], parent_id: str) -> dict:
             passed.append(key)
         else:
             failures += 1
-    reading = f"{_plural(len(episodes), 'cited episode')}, {found} found in {parent_id}, {failures} of those failures"
+    reading = f"{plural(len(episodes), 'cited episode')}, {found} found in {parent_id}, {failures} of those failures"
     if missing:
         reading += f"; not found: {', '.join(missing[:CLAIM_SAMPLE])}" + (" and others" if len(missing) > CLAIM_SAMPLE else "")
     if passed:
-        reading += (f"; {_plural(len(passed), 'cited episode')} passed ({', '.join(passed[:CLAIM_SAMPLE])}), so the "
+        reading += (f"; {plural(len(passed), 'cited episode')} passed ({', '.join(passed[:CLAIM_SAMPLE])}), so the "
                     f"step was triggered by a success it read as a failure")
     return {"measurable": True, "reason": None, "cited": len(episodes), "found": found, "failures": failures,
             "missing": missing, "passed": passed, "reading": reading}
 
 
 # ---------------------------------------------------------------- statistics
-
-def _rng(label: str, seed: int = BOOTSTRAP_SEED) -> random.Random:
-    """A stream per statistic, hashed from a string so it is the same
-    across processes and never moves another statistic's numbers."""
-    return random.Random(f"agentdiff.evolve:{seed}:{label}")
-
-
-def _interval(values: list, confidence: float = CONFIDENCE) -> tuple:
-    if not values:
-        return None, None
-    v = sorted(values)
-    n = len(v)
-    tail = (1.0 - confidence) / 2.0
-    return v[max(0, int(tail * n) - 1)], v[min(n - 1, int((1.0 - tail) * n))]
-
 
 def iqm_by_task(block: dict, policy: str, metric: str = "return", samples: int = BOOTSTRAP_SAMPLES,
                 seed: int = BOOTSTRAP_SEED) -> dict:
@@ -881,19 +844,19 @@ def iqm_by_task(block: dict, policy: str, metric: str = "return", samples: int =
         return {"point": None, "lo": None, "hi": None, "per_task": {}, "tasks": 0, "n": 0,
                 "reason": "no run carries this score"}
     per_task = {t: iqm(per[t]) for t in tasks}
-    point = _mean([per_task[t] for t in tasks])
-    rng = _rng(f"iqm_by_task:{metric}:{policy}", seed)
+    point = mean([per_task[t] for t in tasks])
+    stream = rng(seed, f"iqm_by_task:{metric}:{policy}", section="evolve")
     boots = []
     for _ in range(max(0, samples)):
         total = 0.0
         for t in tasks:
             runs = per[t]
             n = len(runs)
-            total += iqm([runs[rng.randrange(n)] for _ in range(n)])
+            total += iqm([runs[stream.randrange(n)] for _ in range(n)])
         boots.append(total / len(tasks))
-    lo, hi = _interval(boots)
-    return {"point": _r(point), "lo": _r(point if lo is None else lo), "hi": _r(point if hi is None else hi),
-            "per_task": {t: _r(v) for t, v in per_task.items()}, "tasks": len(tasks),
+    lo, hi = percentile_interval(boots, CONFIDENCE)
+    return {"point": rounded(point), "lo": rounded(point if lo is None else lo), "hi": rounded(point if hi is None else hi),
+            "per_task": {t: rounded(v) for t, v in per_task.items()}, "tasks": len(tasks),
             "n": sum(len(per[t]) for t in tasks), "reason": None}
 
 
@@ -954,7 +917,7 @@ def step_effect(block: dict, frm: str, to: str, by_task: Optional[dict] = None,
         pt = pt_to[tid][0] / pt_to[tid][1]
         per_task[tid] = {"delta_return": cell.get("delta"), "p": (imp.get("per_task") or {}).get(tid),
                          "p_success": (imp_s.get("per_task") or {}).get(tid),
-                         "pass_from": _r(pf), "pass_to": _r(pt), "pass_delta": _r(pt - pf),
+                         "pass_from": rounded(pf), "pass_to": rounded(pt), "pass_delta": rounded(pt - pf),
                          "passes_from": pt_from[tid][0], "passes_to": pt_to[tid][0],
                          "runs_from": pt_from[tid][1], "runs_to": pt_to[tid][1],
                          "iqm_from": (by_task.get(frm) or {}).get("per_task", {}).get(tid),
@@ -996,17 +959,17 @@ def step_effect(block: dict, frm: str, to: str, by_task: Optional[dict] = None,
                                           f"ties half, averaged over the shared tasks"),
         "axes_disagree": measurable and len(states) == 2 and states[0] != states[1],
         "iqm": {"from": iqm_from["point"], "to": iqm_to["point"],
-                "delta": _r(iqm_to["point"] - iqm_from["point"]) if measurable else None,
+                "delta": rounded(iqm_to["point"] - iqm_from["point"]) if measurable else None,
                 "from_lo": iqm_from["lo"], "from_hi": iqm_from["hi"], "to_lo": iqm_to["lo"], "to_hi": iqm_to["hi"],
                 "basis": "task-balanced: the IQM within each task, averaged over tasks" if balanced
                 else "pooled over every episode (no task-balanced IQM was given)"},
         "iqm_pooled": {"from": pooled_from["point"], "to": pooled_to["point"],
-                       "delta": _r(pooled_to["point"] - pooled_from["point"])
+                       "delta": rounded(pooled_to["point"] - pooled_from["point"])
                        if pooled_from["point"] is not None and pooled_to["point"] is not None else None},
         "mean_return": {"from": mean_from, "to": mean_to,
-                        "delta": _r(mean_to - mean_from) if mean_from is not None and mean_to is not None else None},
-        "pass_rate": {"from": _r(pass_from), "to": _r(pass_to),
-                      "delta": _r(pass_to - pass_from) if pass_from is not None and pass_to is not None else None,
+                        "delta": rounded(mean_to - mean_from) if mean_from is not None and mean_to is not None else None},
+        "pass_rate": {"from": rounded(pass_from), "to": rounded(pass_to),
+                      "delta": rounded(pass_to - pass_from) if pass_from is not None and pass_to is not None else None,
                       "passes_from": p_from, "passes_to": p_to, "episodes_from": n_from, "episodes_to": n_to},
         "per_task": per_task, "gained": gained, "regressed": regressed,
         "forgotten": forgotten, "rose": rose, "fell": fell,
@@ -1038,17 +1001,17 @@ def step_gaming(effect: dict, frm: str, to: str) -> dict:
     sign_only = rd > 0 and (pt * nf <= pf * nt)   # pass_to <= pass_from, on the counts
     flag = rd > 0 and pd <= -GAME_DROP + 1e-9
     if flag:
-        reading = (f"{to} earns {_signed(rd)} mean return over {frm} while the pass rate fell {_num(-pd)} "
-                   f"({pf}/{nf} → {pt}/{nt}), past the {_num(GAME_DROP)} margin: the step bought reward, "
+        reading = (f"{to} earns {signed(rd)} mean return over {frm} while the pass rate fell {num(-pd)} "
+                   f"({pf}/{nf} → {pt}/{nt}), past the {num(GAME_DROP)} margin: the step bought reward, "
                    f"not correctness")
     elif sign_only:
-        passes = (f"the pass rate fell {_num(-pd)} ({pf}/{nf} → {pt}/{nt}), within the {_num(GAME_DROP)} margin"
+        passes = (f"the pass rate fell {num(-pd)} ({pf}/{nf} → {pt}/{nt}), within the {num(GAME_DROP)} margin"
                   if pd < 0 else f"the pass rate did not move ({pf}/{nf} → {pt}/{nt})")
-        reading = f"{to} earns {_signed(rd)} mean return over {frm} while {passes}; not gamed by the margin"
+        reading = f"{to} earns {signed(rd)} mean return over {frm} while {passes}; not gamed by the margin"
     elif rd > 0:
-        reading = f"{to} earns {_signed(rd)} mean return and passes more ({pf}/{nf} → {pt}/{nt}); not gamed"
+        reading = f"{to} earns {signed(rd)} mean return and passes more ({pf}/{nf} → {pt}/{nt}); not gamed"
     else:
-        reading = f"{to}'s mean return did not rise ({_signed(rd)}); not gamed"
+        reading = f"{to}'s mean return did not rise ({signed(rd)}); not gamed"
     return {"measurable": True, "reason": None, "return_delta": rd, "pass_delta": pd, "drop": GAME_DROP,
             "flag": flag, "sign_only": sign_only, "reading": reading}
 
@@ -1076,20 +1039,20 @@ def step_overfit(effect: dict, triggers: dict, frm: str, to: str) -> dict:
     hd = [effect["per_task"][t]["delta_return"] for t in held if effect["per_task"][t]["delta_return"] is not None]
     if not td or not hd:
         return dict(base, reason="a per-task return delta is missing")
-    t_mean, h_mean = _mean(td), _mean(hd)
+    t_mean, h_mean = mean(td), mean(hd)
     gap = t_mean - h_mean
     flag = t_mean > 0 and h_mean < 0 and gap >= OVERFIT_MARGIN
     if flag:
-        reading = (f"{to} gains {_signed(t_mean)} return on the {_plural(len(trig), 'task')} that triggered the step "
-                   f"({', '.join(trig)}) and loses {_num(h_mean)} on the {len(held)} held out: a gap of {_num(gap)}, "
-                   f"past the {_num(OVERFIT_MARGIN)} margin, so the step fits its evidence at the other tasks' expense")
+        reading = (f"{to} gains {signed(t_mean)} return on the {plural(len(trig), 'task')} that triggered the step "
+                   f"({', '.join(trig)}) and loses {num(h_mean)} on the {len(held)} held out: a gap of {num(gap)}, "
+                   f"past the {num(OVERFIT_MARGIN)} margin, so the step fits its evidence at the other tasks' expense")
     else:
-        reading = (f"trigger tasks ({', '.join(trig)}) {_signed(t_mean)} return, held-out tasks {_signed(h_mean)}: "
+        reading = (f"trigger tasks ({', '.join(trig)}) {signed(t_mean)} return, held-out tasks {signed(h_mean)}: "
                    + ("the held-out tasks did not lose, so not overfit" if h_mean >= 0
                       else "the trigger tasks did not gain, so not overfit" if t_mean <= 0
-                      else f"gap {_num(gap)} under the {_num(OVERFIT_MARGIN)} margin"))
-    return dict(base, measurable=True, reason=None, trigger_delta=_r(t_mean), held_out_delta=_r(h_mean),
-                gap=_r(gap), flag=flag, reading=reading)
+                      else f"gap {num(gap)} under the {num(OVERFIT_MARGIN)} margin"))
+    return dict(base, measurable=True, reason=None, trigger_delta=rounded(t_mean), held_out_delta=rounded(h_mean),
+                gap=rounded(gap), flag=flag, reading=reading)
 
 
 def _top_branch(space: dict) -> Optional[dict]:
@@ -1174,10 +1137,10 @@ def protected_silence(protected: list, tools_from: dict, tools_to: dict, diff: d
             continue
         mf, mt = cf / n_from, ct / n_to
         if mf > 0 and ct == 0:
-            out.append({"path": path, "kind": "tools", "source": "episodes", "from": _r(mf), "to": 0.0,
+            out.append({"path": path, "kind": "tools", "source": "episodes", "from": rounded(mf), "to": 0.0,
                         "unit": "calls per episode", "direction": "weakened", "silent": path not in listed_removed})
         elif cf == 0 and mt > 0:
-            out.append({"path": path, "kind": "tools", "source": "episodes", "from": 0.0, "to": _r(mt),
+            out.append({"path": path, "kind": "tools", "source": "episodes", "from": 0.0, "to": rounded(mt),
                         "unit": "calls per episode", "direction": "restored", "silent": path not in listed_added})
     return out
 
@@ -1190,16 +1153,16 @@ def _step_reading(step: dict) -> str:
     if verdict is None:
         return f"{head}: the step's effect cannot be measured — {eff['reason']}."
     imp, iqm_, pr = eff["improvement"], eff["iqm"], eff["pass_rate"]
-    core = (f"P({to} > {frm}) {_pct(imp['point'])} [{_pct(imp['lo'])}, {_pct(imp['hi'])}], task-balanced IQM "
-            f"{_num(iqm_['from'])} → {_num(iqm_['to'])} ({_signed(iqm_['delta'])}), passes "
+    core = (f"P({to} > {frm}) {pct(imp['point'])} [{pct(imp['lo'])}, {pct(imp['hi'])}], task-balanced IQM "
+            f"{num(iqm_['from'])} → {num(iqm_['to'])} ({signed(iqm_['delta'])}), passes "
             f"{pr['passes_from']}/{pr['episodes_from']} → {pr['passes_to']}/{pr['episodes_to']}")
     why = {
         "gamed": step["gaming"]["reading"],
-        "forgot": (f"{', '.join(eff['forgotten'])} lost at least {_num(FORGET_DROP)} of its pass rate "
+        "forgot": (f"{', '.join(eff['forgotten'])} lost at least {num(FORGET_DROP)} of its pass rate "
                    + ", ".join(f"({eff['per_task'][t]['passes_from']}/{eff['per_task'][t]['runs_from']} → "
                                f"{eff['per_task'][t]['passes_to']}/{eff['per_task'][t]['runs_to']})" for t in eff["forgotten"])
                    + " while the improvement held: the average hid the loss"),
-        "traded": f"{', '.join(eff['rose'])} rose and {', '.join(eff['fell'])} fell by {_num(TRADE_MOVE)} or more of the pass rate",
+        "traded": f"{', '.join(eff['rose'])} rose and {', '.join(eff['fell'])} fell by {num(TRADE_MOVE)} or more of the pass rate",
         "improved": "every resample keeps the improvement above the coin flip",
         "regressed": f"every resample keeps it below the coin flip, so {frm} is the one ahead",
         "flat": "the interval spans 50%, so these runs do not settle which generation is ahead on return",
@@ -1207,14 +1170,14 @@ def _step_reading(step: dict) -> str:
     tail = []
     imp_s = eff.get("improvement_success") or {}
     if imp_s.get("measurable"):
-        tail.append(f"on outcome P({to} > {frm}) {_pct(imp_s['point'])} [{_pct(imp_s['lo'])}, {_pct(imp_s['hi'])}]")
+        tail.append(f"on outcome P({to} > {frm}) {pct(imp_s['point'])} [{pct(imp_s['lo'])}, {pct(imp_s['hi'])}]")
     if "axes_disagree" in step["flags"]:
         words = {"up": "clears the coin flip upward", "down": "clears the coin flip downward", "flat": "is a coin flip"}
         r_state, s_state = _axis_state(imp), _axis_state(imp_s)
-        sentence = (f"the two axes disagree: on return this step {words[r_state]} ({_num(imp['point'])} "
-                    f"[{_num(imp['lo'])}, {_num(imp['hi'])}]); on outcome it {words[s_state]} — "
+        sentence = (f"the two axes disagree: on return this step {words[r_state]} ({num(imp['point'])} "
+                    f"[{num(imp['lo'])}, {num(imp['hi'])}]); on outcome it {words[s_state]} — "
                     f"{pr['passes_to']}/{pr['episodes_to']} against {pr['passes_from']}/{pr['episodes_from']} "
-                    f"(P {_num(imp_s['point'])} [{_num(imp_s['lo'])}, {_num(imp_s['hi'])}])")
+                    f"(P {num(imp_s['point'])} [{num(imp_s['lo'])}, {num(imp_s['hi'])}])")
         if step["diff"]["protected_restored"] and s_state == "up":
             sentence += (f", because a pass that pays for {', '.join(step['diff']['protected_restored'])} earns less "
                          f"than a pass that skipped it: the reward prefers the cheaper pass, the outcome the correct one")
@@ -1228,7 +1191,7 @@ def _step_reading(step: dict) -> str:
     silent = [c for c in step.get("protected_episodes") or [] if c["direction"] == "weakened"]
     if silent:
         tail.append("the episodes stopped calling " + ", ".join(
-            f"{c['path']} ({_num(c['from'])} → 0 calls per episode{', unlisted in the diff' if c['silent'] else ''})"
+            f"{c['path']} ({num(c['from'])} → 0 calls per episode{', unlisted in the diff' if c['silent'] else ''})"
             for c in silent))
     if step["diff"]["protected_restored"]:
         tail.append("restored protected " + ", ".join(step["diff"]["protected_restored"]))
@@ -1243,7 +1206,7 @@ def _step_reading(step: dict) -> str:
         tail.append(ev["reading"])
     n_min = (eff.get("advisory") or {}).get("n_min")
     if isinstance(n_min, int):
-        tail.append(f"{_plural(n_min, 'run')} per task at the thinnest task, so every interval here is wide by "
+        tail.append(f"{plural(n_min, 'run')} per task at the thinnest task, so every interval here is wide by "
                     f"construction" + (" and this step was kept on noise" if "noisy" in step["flags"] else ""))
     return f"{head} {verdict}: {core}; {why}" + ("; " + "; ".join(tail) if tail else "") + "."
 
@@ -1285,7 +1248,7 @@ def _episode_entry(item: dict, pair_flags: dict, with_timeline: bool) -> dict:
     clock = 0.0
     marks = pair_flags.get((traj.agent.name, traj.task.id, traj.run_id))
     for st in traj.steps:
-        lat = float(st.latency_s) if _number(st.latency_s) and st.latency_s >= 0 else 0.0
+        lat = float(st.latency_s) if finite(st.latency_s) and st.latency_s >= 0 else 0.0
         if st.type in TOOLISH:
             tools[st.name or "?"] = tools.get(st.name or "?", 0) + 1
         if st.error:
@@ -1304,7 +1267,7 @@ def _episode_entry(item: dict, pair_flags: dict, with_timeline: bool) -> dict:
     entry = {"task_id": traj.task.id, "run_id": traj.run_id, "trace_id": traj.trace_id,
              "success": traj.outcome.success is True, "return": run.get("return"), "steps": len(traj.steps),
              "seconds": round(clock, 4), "tools": dict(sorted(tools.items())), "errors": errors,
-             "wasted_s": _r(item["wasted_s"]), "source": run.get("source"),
+             "wasted_s": rounded(item["wasted_s"]), "source": run.get("source"),
              "flags_basis": "trace and pair report" if marks is not None else "trace only (d, f need the pair report)"}
     if with_timeline:
         entry["timeline"] = timeline
@@ -1420,8 +1383,8 @@ def _generation_stats(block: Optional[dict], name: Optional[str], by_task: Optio
         for tool, count in (e.get("tools") or {}).items():
             tools[tool] = tools.get(tool, 0) + count
     return {"episodes_n": n, "tasks": sorted(per_task), "runs_per_task": {t: v[1] for t, v in sorted(per_task.items())},
-            "passes": passes, "pass_rate": _r(passes / n) if n else None,
-            "pass_by_task": {t: _r(v[0] / v[1]) for t, v in sorted(per_task.items())},
+            "passes": passes, "pass_rate": rounded(passes / n) if n else None,
+            "pass_by_task": {t: rounded(v[0] / v[1]) for t, v in sorted(per_task.items())},
             "mean_return": (agents.get(name) or {}).get("mean_return") if name else None,
             "iqm": pooled, "iqm_by_task": {"point": bt["point"], "lo": bt["lo"], "hi": bt["hi"],
                                           "per_task": dict(sorted((bt.get("per_task") or {}).items()))},
@@ -1446,7 +1409,7 @@ def _growth(generations: list, budget: dict) -> dict:
                 frm, to = parent["size"].get(what), g["size"].get(what)
                 if frm is not None and to is not None and frm > 0 and to < COLLAPSE_FRACTION * frm:
                     collapsed.append({"gen": g["id"], "what": what, "from": frm, "to": to,
-                                      "fraction": _r(to / frm), "threshold": COLLAPSE_FRACTION})
+                                      "fraction": rounded(to / frm), "threshold": COLLAPSE_FRACTION})
     return {**series, "over_budget": over, "collapsed": collapsed, "budget": dict(budget)}
 
 
@@ -1465,12 +1428,12 @@ def _from_origin(gens: list) -> list:
                         "reason": "no episode on one side" if streams[0] else "the origin has no episode"})
             continue
         vals = [normalised_distance(a, b) for a in streams[0] for b in streams[i]]
-        out.append({"id": g["id"], "distance": _r(_mean(vals)), "pairs": len(vals), "reason": None})
+        out.append({"id": g["id"], "distance": rounded(mean(vals)), "pairs": len(vals), "reason": None})
     return out
 
 
 def _drift_reading(from_origin: list, consecutive: list) -> str:
-    said = [f"{r['id']} {_num(r['distance'])}" for r in from_origin if r["distance"] is not None]
+    said = [f"{r['id']} {num(r['distance'])}" for r in from_origin if r["distance"] is not None]
     parts = []
     if said:
         parts.append("distance from the origin's episodes: " + ", ".join(said))
@@ -1478,7 +1441,7 @@ def _drift_reading(from_origin: list, consecutive: list) -> str:
     if steps:
         top = max(steps, key=lambda c: (c["distance"], -c["index"]))
         parts.append(f"the largest single-step change in behaviour is {top['from']} → {top['to']} "
-                     f"({_num(top['distance'])} apart)")
+                     f"({num(top['distance'])} apart)")
     return ("; ".join(parts) + " — normalised edit distance over the step-token streams, 0 = the same actions in "
             "the same order, 1 = nothing shared.") if parts else "no behaviour to measure drift over."
 
@@ -1494,12 +1457,12 @@ def _recommend(generations: list, steps: list) -> tuple:
     best = max(scored, key=lambda g: (key(g), -g["index"]))
     runner = max((g for g in scored if g is not best), key=lambda g: (key(g), -g["index"]), default=None)
     bt = best["iqm_by_task"]
-    why = (f"the highest task-balanced IQM return, {_num(bt['point'])} [{_num(bt['lo'])}, {_num(bt['hi'])}] over "
-           f"{_plural(best['episodes_n'], 'episode')}, passing {best['passes']}/{best['episodes_n']}")
+    why = (f"the highest task-balanced IQM return, {num(bt['point'])} [{num(bt['lo'])}, {num(bt['hi'])}] over "
+           f"{plural(best['episodes_n'], 'episode')}, passing {best['passes']}/{best['episodes_n']}")
     if runner is not None:
         rt = runner["iqm_by_task"]
         overlap = rt["hi"] is not None and bt["lo"] is not None and rt["hi"] >= bt["lo"]
-        why += (f"; {runner['id']} is next at {_num(rt['point'])}"
+        why += (f"; {runner['id']} is next at {num(rt['point'])}"
                 + (", with overlapping intervals, so these runs do not separate them" if overlap else ""))
     pooled = [g for g in generations if g["iqm"]["point"] is not None]
     if pooled:
@@ -1507,8 +1470,8 @@ def _recommend(generations: list, steps: list) -> tuple:
         if pooled_best is not best:
             lost = [t for t, v in (pooled_best.get("pass_by_task") or {}).items() if v is not None and v == 0.0
                     and (best.get("pass_by_task") or {}).get(t, 0) > 0]
-            why += (f"; the pooled IQM prefers {pooled_best['id']} ({_num(pooled_best['iqm']['point'])} against "
-                    f"{_num(best['iqm']['point'])}), because it trims the lowest quarter of every episode and a task "
+            why += (f"; the pooled IQM prefers {pooled_best['id']} ({num(pooled_best['iqm']['point'])} against "
+                    f"{num(best['iqm']['point'])}), because it trims the lowest quarter of every episode and a task "
                     f"lost outright falls inside that tail"
                     + (f" — {pooled_best['id']} passes nothing on {', '.join(lost)} where {best['id']} does" if lost else "")
                     + f"; per task, {best['id']} is preferred")
@@ -1543,8 +1506,8 @@ def _recommend(generations: list, steps: list) -> tuple:
     if pick is best:
         why = f"{pick['id']} is the best generation and nothing disqualifies it"
     else:
-        why = (f"{pick['id']} is the best eligible generation, task-balanced IQM {_num(key(pick))} against "
-               f"{best['id']}'s {_num(key(best))}; {best['id']} is passed over because "
+        why = (f"{pick['id']} is the best eligible generation, task-balanced IQM {num(key(pick))} against "
+               f"{best['id']}'s {num(key(best))}; {best['id']} is passed over because "
                + ", ".join(excluded.get(best["id"], ["it is not eligible"])))
     later = [g for g in scored if g["index"] > pick["index"] and g["id"] not in excluded]
     if later:
@@ -1582,9 +1545,9 @@ def _integrity_reading(touched: list, restored: list, growth: dict) -> str:
     collapsed = growth.get("collapsed") or []
     if collapsed:
         parts.append("collapsed: " + "; ".join(f"{c['gen']} {c['what']} {c['from']} → {c['to']} "
-                                               f"({_pct(c['fraction'])} of its parent's)" for c in collapsed))
+                                               f"({pct(c['fraction'])} of its parent's)" for c in collapsed))
     else:
-        parts.append(f"no prompt, rule list or memory fell under {_pct(COLLAPSE_FRACTION)} of its parent's")
+        parts.append(f"no prompt, rule list or memory fell under {pct(COLLAPSE_FRACTION)} of its parent's")
     return "; ".join(parts) + "."
 
 
@@ -1598,7 +1561,7 @@ def _advisory(generations: list) -> str:
             "within each task; it describes how much these runs' statistic moves when they are redrawn, not a "
             "population of runs never made.")
     if isinstance(n_min, int) and n_min < RUNS_FLOOR_STRUCTURED:
-        tail += (f" At {_plural(n_min, 'run')} per task the intervals are wide by construction: read an overlap as "
+        tail += (f" At {plural(n_min, 'run')} per task the intervals are wide by construction: read an overlap as "
                  f"'these runs do not separate the generations', never as 'they are equal', and read a single "
                  f"step's verdict as a description of these episodes.")
     return f"[{base.get('tier')}] {msg}{tail}"
@@ -1611,8 +1574,8 @@ def _narrative(ev: dict) -> str:
     tasks = sorted({t for g in gens for t in g["tasks"]})
     counts = sorted({n for g in gens for n in g["runs_per_task"].values()})
     runs = (f"{counts[0]} runs per task" if len(counts) == 1 else f"{counts[0]}–{counts[-1]} runs per task") if counts else "no runs"
-    parts = [f"{ev['family'] or 'the lineage'}: {_plural(len(gens), 'generation')} ({gens[0]['id']} → {gens[-1]['id']}) "
-             f"over {_plural(len(tasks), 'task')} at {runs}"]
+    parts = [f"{ev['family'] or 'the lineage'}: {plural(len(gens), 'generation')} ({gens[0]['id']} → {gens[-1]['id']}) "
+             f"over {plural(len(tasks), 'task')} at {runs}"]
     for s in steps:
         parts.append(s["reading"].rstrip("."))
     best, rec = ev["best"], ev["recommended"]
@@ -1624,7 +1587,7 @@ def _narrative(ev: dict) -> str:
         parts.append(f"recommended: none — {rec['why']}")
     tr = ev["trajectory"]
     if tr.get("steps"):
-        parts.append(f"{_plural(tr['accepted_on_noise'], 'step')} of {tr['steps']} kept on noise"
+        parts.append(f"{plural(tr['accepted_on_noise'], 'step')} of {tr['steps']} kept on noise"
                      + (f" ({', '.join(tr['noisy_steps'])})" if tr["noisy_steps"] else ""))
     parts.append(ev["integrity"]["reading"].rstrip("."))
     return "; ".join(parts) + "."
@@ -1785,8 +1748,8 @@ def evolve(lineage: dict, *, metric: str = "return", samples: int = BOOTSTRAP_SA
         **counts, "unmeasurable": len(steps) - len(measurable_steps), "steps": len(steps),
         "flags": {f: sum(1 for s in steps if f in s["flags"]) for f in FLAGS},
         "accepted_on_noise": len(noisy), "noisy_steps": [f"{s['from']}→{s['to']}" for s in noisy],
-        "net_iqm_delta": _r(scored[-1]["iqm_by_task"]["point"] - scored[0]["iqm_by_task"]["point"]) if len(scored) >= 2 else None,
-        "net_iqm_pooled_delta": (_r(out_gens[-1]["iqm"]["point"] - out_gens[0]["iqm"]["point"])
+        "net_iqm_delta": rounded(scored[-1]["iqm_by_task"]["point"] - scored[0]["iqm_by_task"]["point"]) if len(scored) >= 2 else None,
+        "net_iqm_pooled_delta": (rounded(out_gens[-1]["iqm"]["point"] - out_gens[0]["iqm"]["point"])
                                  if out_gens[-1]["iqm"]["point"] is not None and out_gens[0]["iqm"]["point"] is not None else None),
         "monotone": (all(s["effect"]["iqm"]["delta"] >= -1e-9 for s in measurable_steps) if measurable_steps else None),
         "cumulative": [{"id": g["id"], "iqm": g["iqm_by_task"]["point"], "lo": g["iqm_by_task"]["lo"],
@@ -1815,11 +1778,84 @@ def evolve(lineage: dict, *, metric: str = "return", samples: int = BOOTSTRAP_SA
     return out
 
 
+@sections.register("lineage", "evolution")
+def _lineage_section(agg: dict, ctx: "sections.LineageContext"):
+    # the lineage step by step: every edge as a two-policy RL block, the
+    # checks, the verdicts, the recommendation; the command's arguments
+    # ride in ctx.extra, the last step's pair reports among them
+    extra = dict(getattr(ctx, "extra", None) or {})
+    return evolve(ctx.lineage, metric=extra.get("metric", "return"), samples=extra.get("samples", BOOTSTRAP_SAMPLES),
+                  gamma=extra.get("gamma", GAMMA), reports=extra.get("reports"))
+
+
+def attach_sections(lineage: dict, agg: dict, *, metric: str = "return", samples: int = BOOTSTRAP_SAMPLES,
+                    gamma: float = GAMMA, reports: Optional[list] = None, against=(), layout: str = "native",
+                    threshold=None) -> dict:
+    """The attach site of the ``lineage`` scope: every registered lineage
+    section, run on ``agg`` in dependency order and placed under its key
+    (``evolution``, then ``evolution_compare`` when ``against`` names other
+    lineage directories). ``lineage`` is a :func:`read_lineage` result;
+    ``reports`` are the last step's pair reports when the caller built
+    them, for the timeline's decisive and fault marks; ``metric``,
+    ``samples``, ``gamma``, ``layout`` and ``threshold`` are the command's
+    arguments and travel to the sections in
+    :class:`deepcompare.sections.LineageContext.extra`. Returns ``agg``.
+    An unknown metric is the caller's error and raises before the pass;
+    a section that fails inside it is recorded as unmeasurable under its
+    key, never raised."""
+    if metric not in METRICS:
+        raise ValueError(f"unknown metric {metric!r}; choose one of {', '.join(sorted(METRICS))}")
+    others = [str(a) for a in (against or ()) if a]
+    ctx = sections.LineageContext(lineage=lineage, generations=list(lineage.get("generations") or []),
+                                  extra={"metric": metric, "samples": samples, "gamma": gamma, "reports": reports,
+                                         "against": others, "layout": layout, "threshold": threshold})
+    sections.attach("lineage", agg, ctx)
+    if others:
+        # the comparison attaches on demand: its input, the other lineages,
+        # is not part of one lineage; importing the module registers it
+        from . import evolvecompare  # noqa: F401
+        sections.attach("lineage", agg, ctx, only=("evolution_compare",))
+    return agg
+
+
+def lineage_batch(lineage: dict, *, warn=None, metric: str = "return", samples: int = BOOTSTRAP_SAMPLES,
+                  gamma: float = GAMMA, against=(), layout: str = "native", threshold=None) -> dict:
+    """The lineage command's analysis: the last step's pair as an ordinary
+    runs batch — :func:`deepcompare.suite.analyse_runs` over the two
+    generations' traces with the parent as A and the child as B, whatever
+    the names sort to (``family@g10`` sorts before ``family@g9``) — then
+    every lineage section attached to its aggregate by
+    :func:`attach_sections`. Returns ``{"pair": (parent, child) | None,
+    "names": (a, b) | None, "reports": [pair reports], "aggregate":
+    {...}}``; without two generations carrying traces, or when the pair
+    cannot be read as a batch, ``warn`` hears why, the reports are empty
+    and the aggregate carries the sections alone."""
+    say = warn if callable(warn) else (lambda message: None)
+    reports: list = []
+    agg: dict = {}
+    names = None
+    pair = last_pair(lineage)
+    if pair is None:
+        say("fewer than two generations carry traces; no pair report is written")
+    else:
+        a, b = pair
+        try:
+            analysed = analyse_runs(a["trajectories"] + b["trajectories"], warn=say, names=(a["policy"], b["policy"]))
+            reports, agg, names = analysed["reports"], analysed["aggregate"], analysed["names"]
+        except (SuiteError, ValueError) as exc:
+            say(f"the last pair cannot be analysed as a runs batch: {exc}")
+    attach_sections(lineage, agg, metric=metric, samples=samples, gamma=gamma, reports=reports, against=against,
+                    layout=layout, threshold=threshold)
+    return {"pair": pair, "names": names, "reports": reports, "aggregate": agg}
+
+
 def analyse_lineage(path, *, layout: str = "native", metric: str = "return", samples: int = BOOTSTRAP_SAMPLES,
                     gamma: float = GAMMA, reports: Optional[list] = None) -> dict:
-    """:func:`read_lineage` then :func:`evolve`, for callers that only want
-    the section."""
-    return evolve(read_lineage(path, layout), metric=metric, samples=samples, gamma=gamma, reports=reports)
+    """:func:`read_lineage`, then the lineage sections attached to an empty
+    aggregate — the pass the command runs, without the last step's runs
+    batch — for callers that only want the ``evolution`` section."""
+    return attach_sections(read_lineage(path, layout), {}, metric=metric, samples=samples, gamma=gamma,
+                           reports=reports, layout=layout)["evolution"]
 
 
 def last_pair(lineage: dict) -> Optional[tuple]:
@@ -1847,7 +1883,7 @@ def fail_on(evolution: dict, names) -> list:
     return hits
 
 
-__all__ = ["read_lineage", "evolve", "analyse_lineage", "diff_artifacts", "artifact_size", "artifact_digest",
+__all__ = ["read_lineage", "evolve", "analyse_lineage", "attach_sections", "lineage_batch", "diff_artifacts", "artifact_size", "artifact_digest",
            "trigger_tasks", "evidence_check", "iqm_by_task", "step_effect", "step_gaming", "step_overfit",
            "step_drift", "step_verdict", "protected_silence", "claimed_without_called", "last_pair", "fail_on",
            "VERSION", "VERDICTS", "FLAGS", "OVERFIT_MARGIN", "GAME_DROP", "FORGET_DROP", "TRADE_MOVE", "COLLAPSE_FRACTION",

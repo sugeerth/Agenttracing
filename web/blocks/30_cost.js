@@ -87,12 +87,8 @@
     return Math.abs(value) < 100 ? fmt.num(value, 2) : fmt.int(value);
   }
 
-  var STAT_STYLE_DONE = false;
   function ensureStatStyle() {
-    if (STAT_STYLE_DONE) return;
-    STAT_STYLE_DONE = true;
-    var tag = document.createElement("style");
-    tag.textContent = [
+    L.style.once("cost-stats", [
       ".dl-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 18px;margin:0 0 8px}",
       ".dl-cell{min-width:0}.dl-k{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);font-weight:700}",
       ".dl-ab{font:600 var(--fs-l)/1.3 var(--mono);color:var(--ink);white-space:nowrap}",
@@ -100,8 +96,7 @@
       ".dl-d{font:600 var(--fs-s)/1.4 var(--mono)}.dl-d.good{color:var(--good)}.dl-d.bad{color:var(--bad)}.dl-d.muted{color:var(--ink-3)}",
       ".dl-fold>summary{cursor:pointer;font-size:var(--fs-s);color:var(--ink-3);list-style:none}",
       ".dl-fold>summary::before{content:'▸ '}.dl-fold[open]>summary::before{content:'▾ '}",
-    ].join("");
-    document.head.appendChild(tag);
+    ].join(""));
   }
 
   var METRICS = [

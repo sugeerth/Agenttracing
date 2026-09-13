@@ -82,13 +82,15 @@ library.
 from __future__ import annotations
 
 import copy
-import random
 from pathlib import Path
 from typing import Optional
 
+from . import sections
+from ._stats import CONFIDENCE, mean, percentile_interval, rng, rounded
+from ._text import interval, num, pct, plural, signed
 from .evolve import evolve, read_lineage
 from .rl import GAMMA, rl_aggregate
-from .rlstats import BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE, iqm
+from .rlstats import BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, iqm
 from .trace import AgentInfo
 
 VERSION = 1
@@ -111,61 +113,11 @@ AXES = ("peak", "final", "learning", "process")
 
 # ---------------------------------------------------------------- formatting
 
-def _num(v, places: int = 2) -> str:
-    if v is None:
-        return "—"
-    if abs(v - round(v)) < 1e-9:
-        text = f"{int(round(v))}"
-    else:
-        text = f"{v:.{places}f}".rstrip("0").rstrip(".")
-    return text.replace("-", "−")
-
-
-def _signed(v, places: int = 2) -> str:
-    if v is None:
-        return "—"
-    text = _num(v, places)
-    return text if v < 0 else f"+{text}"
-
-
-def _pct(p) -> str:
-    return "—" if p is None else f"{round(100 * p):.0f}%"
-
-
-def _plural(n: int, word: str, plural: Optional[str] = None) -> str:
-    return f"{n} {word if n == 1 else (plural or word + 's')}"
-
-
-def _r(v, places: int = 4):
-    return None if v is None else round(float(v), places)
-
-
-def _mean(values: list):
-    return sum(values) / len(values) if values else None
-
-
 def _band_text(b: dict) -> str:
-    return f"{_num(b.get('point'))} [{_num(b.get('lo'))}, {_num(b.get('hi'))}]"
+    return interval(b.get("point"), b.get("lo"), b.get("hi"))
 
 
 # ---------------------------------------------------------------- the metric
-
-def _interval(values: list, confidence: float = CONFIDENCE) -> tuple:
-    """The percentile rule ``rlstats`` uses, so an interval here reads like
-    one there."""
-    if not values:
-        return None, None
-    v = sorted(values)
-    n = len(v)
-    tail = (1.0 - confidence) / 2.0
-    return v[max(0, int(tail * n) - 1)], v[min(n - 1, int((1.0 - tail) * n))]
-
-
-def _rng(label: str) -> random.Random:
-    """One stream per statistic, seeded by its label, so adding a section
-    never moves another's numbers."""
-    return random.Random(f"agentdiff.evolvecompare:{BOOTSTRAP_SEED}:{label}")
-
 
 def iqm_by_task(episodes: list, tasks, samples: int = BOOTSTRAP_SAMPLES, label: str = "") -> dict:
     """The task-stratified IQM of episode return over ``tasks``.
@@ -190,22 +142,23 @@ def iqm_by_task(episodes: list, tasks, samples: int = BOOTSTRAP_SAMPLES, label: 
                 "point": None, "lo": None, "hi": None, "width": None, "tasks_n": 0, "n": 0, "per_task": {}}
     ordered = sorted(by_task)
     per_task = {t: iqm(by_task[t]) for t in ordered}
-    point = _mean([per_task[t] for t in ordered])
-    rng = _rng(f"{METRIC}:{label}")
+    point = mean([per_task[t] for t in ordered])
+    # one stream per lineage and generation, seeded "agentdiff.evolvecompare:<seed>:<label>"
+    stream = rng(BOOTSTRAP_SEED, f"{METRIC}:{label}", section="evolvecompare")
     boots = []
     for _ in range(max(0, samples)):
         total = 0.0
         for t in ordered:
             runs = by_task[t]
             n = len(runs)
-            total += iqm([runs[rng.randrange(n)] for _ in range(n)])
+            total += iqm([runs[stream.randrange(n)] for _ in range(n)])
         boots.append(total / len(ordered))
-    lo, hi = _interval(boots)
+    lo, hi = percentile_interval(boots, CONFIDENCE)
     if lo is None:
         lo = hi = point
-    return {"measurable": True, "reason": None, "point": _r(point), "lo": _r(lo), "hi": _r(hi),
-            "width": _r(abs(hi - lo)), "tasks_n": len(ordered), "n": sum(len(v) for v in by_task.values()),
-            "per_task": {t: _r(v) for t, v in per_task.items()}}
+    return {"measurable": True, "reason": None, "point": rounded(point), "lo": rounded(lo), "hi": rounded(hi),
+            "width": rounded(abs(hi - lo)), "tasks_n": len(ordered), "n": sum(len(v) for v in by_task.values()),
+            "per_task": {t: rounded(v) for t, v in per_task.items()}}
 
 
 # ---------------------------------------------------------------- per lineage
@@ -278,9 +231,9 @@ def _lineage_view(index: int, label: str, lineage: dict, ev: dict, shared: list,
         rows.append({
             "index": i, "id": g["id"], "point": band["point"], "lo": band["lo"], "hi": band["hi"],
             "measurable": band["measurable"], "reason": band["reason"],
-            "pass_rate": _r(passes / len(eps)) if eps else None, "passes": passes, "episodes": len(eps),
-            "episodes_cum": episodes_cum, "seconds_cum": _r(seconds_cum), "tokens_cum": tokens_cum,
-            "pass_by_task": {t: _r(c[0] / c[1]) for t, c in sorted(by_task.items())},
+            "pass_rate": rounded(passes / len(eps)) if eps else None, "passes": passes, "episodes": len(eps),
+            "episodes_cum": episodes_cum, "seconds_cum": rounded(seconds_cum), "tokens_cum": tokens_cum,
+            "pass_by_task": {t: rounded(c[0] / c[1]) for t, c in sorted(by_task.items())},
             "runs_per_task": {t: c[1] for t, c in sorted(by_task.items())},
             "policy": g.get("policy") or (gens_in[i]["policy"] if i < len(gens_in) else None),
             "trajectories": trajs, "per_task_iqm": band["per_task"], "metric_source": band["source"],
@@ -323,7 +276,7 @@ def _pair(view_a: dict, ia: int, view_b: dict, ib: int, cache: dict, *, gamma: f
                  "orientation": "P(b > a): the chance a random run of b out-returns a random run of a, averaged "
                                 "over the shared tasks, with its stratified-bootstrap interval",
                  "metric": {"name": METRIC, "a": ra["point"], "b": rb["point"],
-                            "delta": _r(rb["point"] - ra["point"]) if ra["point"] is not None and rb["point"] is not None else None},
+                            "delta": rounded(rb["point"] - ra["point"]) if ra["point"] is not None and rb["point"] is not None else None},
                  "iqm_pooled": {"a": None, "b": None},
                  "pass_rate": {"a": ra["pass_rate"], "b": rb["pass_rate"], "passes_a": ra["passes"],
                                "passes_b": rb["passes"], "episodes_a": ra["episodes"], "episodes_b": rb["episodes"]},
@@ -392,8 +345,8 @@ def _pair_reading(p: dict) -> str:
     if not p["measurable"]:
         return f"{head}: cannot be read — {p['reason']}."
     imp, m, pr = p["improvement"], p["metric"], p["pass_rate"]
-    core = (f"P({b['label']} {b['id']} > {a['label']} {a['id']}) {_pct(imp['point'])} [{_pct(imp['lo'])}, "
-            f"{_pct(imp['hi'])}]; {METRIC} {_num(m['a'])} vs {_num(m['b'])} ({_signed(m['delta'])}); passes "
+    core = (f"P({b['label']} {b['id']} > {a['label']} {a['id']}) {pct(imp['point'])} [{pct(imp['lo'])}, "
+            f"{pct(imp['hi'])}]; {METRIC} {num(m['a'])} vs {num(m['b'])} ({signed(m['delta'])}); passes "
             f"{pr['passes_a']}/{pr['episodes_a']} vs {pr['passes_b']}/{pr['episodes_b']}")
     if p["separates"] == b["label"]:
         tail = f"every resample keeps {b['label']} {b['id']} ahead"
@@ -404,9 +357,9 @@ def _pair_reading(p: dict) -> str:
     per = p["per_task"]
     up = sorted(t for t, c in per.items() if c["p"] is not None and c["p"] > 0.5)
     down = sorted(t for t, c in per.items() if c["p"] is not None and c["p"] < 0.5)
-    tasks = (f"; per task, {b['label']} is ahead on {len(up)} of {_plural(len(per), 'task')} and behind on {len(down)}"
+    tasks = (f"; per task, {b['label']} is ahead on {len(up)} of {plural(len(per), 'task')} and behind on {len(down)}"
              + (f" ({', '.join(down)})" if down and len(down) <= 3 else "")) if per else ""
-    dist = f"; behaviour distance {_num(p['behaviour_distance'])}" if p["behaviour_distance"] is not None else ""
+    dist = f"; behaviour distance {num(p['behaviour_distance'])}" if p["behaviour_distance"] is not None else ""
     return f"{head}: {core}; {tail}{tasks}{dist}."
 
 
@@ -429,13 +382,13 @@ def _auc(rows: list, x_key: str) -> dict:
     for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
         area += (x1 - x0) * (y0 + y1) / 2.0
     span = pts[-1][0] - pts[0][0]
-    return {"value": _r(area), "points": len(pts), "span": _r(span),
-            "mean_height": _r(area / span) if span else None, "reason": None}
+    return {"value": rounded(area), "points": len(pts), "span": rounded(span),
+            "mean_height": rounded(area / span) if span else None, "reason": None}
 
 
 def _threshold(views: list, override) -> dict:
     if override is not None:
-        return {"metric": METRIC, "value": _r(override), "source": "--threshold", "measurable": True, "reason": None,
+        return {"metric": METRIC, "value": rounded(override), "source": "--threshold", "measurable": True, "reason": None,
                 "lowest_g0": None, "highest_recommended": None}
     g0 = [(v["rows"][0]["point"], v["label"], v["rows"][0]["id"]) for v in views
           if v["rows"] and v["rows"][0]["point"] is not None]
@@ -453,9 +406,9 @@ def _threshold(views: list, override) -> dict:
     low = min(g0, key=lambda t: (t[0], t[1]))
     high = max(recs, key=lambda t: (t[0], t[1]))
     value = (low[0] + high[0]) / 2.0
-    return {"metric": METRIC, "value": _r(value),
-            "source": (f"the midpoint between the lowest generation-0 point ({_num(low[0])}, {low[1]} {low[2]}) and "
-                       f"the highest {high[3]} point ({_num(high[0])}, {high[1]} {high[2]}) on {METRIC} over the "
+    return {"metric": METRIC, "value": rounded(value),
+            "source": (f"the midpoint between the lowest generation-0 point ({num(low[0])}, {low[1]} {low[2]}) and "
+                       f"the highest {high[3]} point ({num(high[0])}, {high[1]} {high[2]}) on {METRIC} over the "
                        f"shared tasks"),
             "measurable": True, "reason": None,
             "lowest_g0": {"value": low[0], "label": low[1], "id": low[2]},
@@ -490,8 +443,8 @@ def learning_verdict(reached: dict, auc: dict) -> tuple:
     top = max(areas.values())
     winners = sorted(k for k, v in areas.items() if abs(v - top) < 1e-9)
     if len(winners) == 1:
-        return winners[0], f"no lineage reached the threshold; the larger area under the by-episodes curve ({_num(top)})"
-    return None, f"no lineage reached the threshold and the areas tie ({_num(top)})"
+        return winners[0], f"no lineage reached the threshold; the larger area under the by-episodes curve ({num(top)})"
+    return None, f"no lineage reached the threshold and the areas tie ({num(top)})"
 
 
 # ---------------------------------------------------------------- process
@@ -561,8 +514,8 @@ def _process(view: dict, shared: list) -> dict:
     retention = {"rule": f"a task is solved at a generation when its pass rate there is above {SOLVED_RATE}",
                  "ever_solved": ever, "ever_solved_n": len(ever),
                  "solved_at_recommended": sorted(rec_set), "solved_at_last": sorted(last_set),
-                 "at_last": _r(len(last_set & set(ever)) / len(ever)) if ever else None,
-                 "at_recommended": _r(len(rec_set & set(ever)) / len(ever)) if ever else None,
+                 "at_last": rounded(len(last_set & set(ever)) / len(ever)) if ever else None,
+                 "at_recommended": rounded(len(rec_set & set(ever)) / len(ever)) if ever else None,
                  "lost": lost, "never_solved": [t for t in shared if t not in ever]}
     origin = [d for d in ((ev.get("drift") or {}).get("from_origin") or []) if isinstance(d, dict)]
     drift_last = origin[-1].get("distance") if origin else None
@@ -588,7 +541,7 @@ def _process(view: dict, shared: list) -> dict:
     mechanisms = {}
     for m in sorted(mech):
         c = mech[m]
-        mechanisms[m] = {"steps": c["steps"], "to": c["to"], "mean_delta": _r(_mean(c["deltas"])),
+        mechanisms[m] = {"steps": c["steps"], "to": c["to"], "mean_delta": rounded(mean(c["deltas"])),
                          "deltas_n": len(c["deltas"]), "delta_positive": sum(1 for d in c["deltas"] if d > 1e-9),
                          "delta_negative": sum(1 for d in c["deltas"] if d < -1e-9),
                          "improved": c["improved"], "regressed": c["regressed"],
@@ -635,7 +588,7 @@ def _process_reading(view: dict, p: dict) -> str:
         return f"{label}: {p['reason']}."
     last = view["ids"][-1]
     ret = p["retention"]
-    bits = [f"{label}: {_plural(p['steps'], 'step')} — {p['gamed']} gamed, {p['forgot']} forgot, {p['traded']} traded, "
+    bits = [f"{label}: {plural(p['steps'], 'step')} — {p['gamed']} gamed, {p['forgot']} forgot, {p['traded']} traded, "
             f"{p['improved']} improved, {p['regressed']} regressed, {p['flat']} flat; {p['accepted_on_noise']} accepted on noise"]
     if p["protected_touched"]:
         bits.append("protected paths touched: " + ", ".join(f"{t['path']} at {t['from']} → {t['to']}"
@@ -646,18 +599,18 @@ def _process_reading(view: dict, p: dict) -> str:
         bits.append("over budget " + ", ".join(f"{o.get('gen')} {o.get('what')} {o.get('value')} > {o.get('budget')}"
                                               for o in p["over_budget_rows"]))
     if p["collapsed"]:
-        bits.append(f"{_plural(p['collapsed'], 'collapse')} ({', '.join(str(c['to']) for c in p['collapsed_rows'])})")
+        bits.append(f"{plural(p['collapsed'], 'collapse')} ({', '.join(str(c['to']) for c in p['collapsed_rows'])})")
     if ret["ever_solved_n"]:
         bits.append(f"retention {len(ret['solved_at_last'])} of {ret['ever_solved_n']} ever-solved tasks still solved at {last}"
                     + (f" (lost {', '.join(ret['lost'])})" if ret["lost"] else ""))
     else:
         bits.append("no shared task was ever solved (pass rate above 0.5)")
     if p["drift_from_origin_at_last"] is not None:
-        bits.append(f"{last} sits {_num(p['drift_from_origin_at_last'])} from g0's behaviour")
+        bits.append(f"{last} sits {num(p['drift_from_origin_at_last'])} from g0's behaviour")
     bm = p["best_paying_mechanism"]
     if bm is not None:
         c = p["mechanisms"][bm]
-        bits.append(f"best-paying mechanism {bm} (n={c['steps']}, mean Δ{METRIC} {_signed(c['mean_delta'])}"
+        bits.append(f"best-paying mechanism {bm} (n={c['steps']}, mean Δ{METRIC} {signed(c['mean_delta'])}"
                     + (f"; {c['delta_positive']} of {c['deltas_n']} steps up" if c["deltas_n"] > 1 else "") + ")")
     return "; ".join(bits) + "."
 
@@ -679,7 +632,7 @@ def process_verdict(processes: dict) -> tuple:
         if len(alive) == 1:
             k = alive[0]
             shown = {kk: (-processes[kk]["score"][r] if r == 2 else processes[kk]["score"][r]) for kk in labels}
-            return k, f"decided on {name}: " + ", ".join(f"{kk} {_num(shown[kk])}" for kk in labels)
+            return k, f"decided on {name}: " + ", ".join(f"{kk} {num(shown[kk])}" for kk in labels)
     return None, "tied on every rung (" + "; ".join(rung_names) + ")"
 
 
@@ -726,8 +679,8 @@ def _curves_reading(views: list) -> str:
             parts.append(f"{v['label']}: no measurable point")
             continue
         top = max(rows, key=lambda r: (r["point"], -r["index"]))
-        parts.append(f"{v['label']} {rows[0]['id']} {_num(rows[0]['point'])} → {rows[-1]['id']} {_num(rows[-1]['point'])} "
-                     f"over {_plural(len(v['rows']), 'generation')} and {v['rows'][-1]['episodes_cum']} episodes, "
+        parts.append(f"{v['label']} {rows[0]['id']} {num(rows[0]['point'])} → {rows[-1]['id']} {num(rows[-1]['point'])} "
+                     f"over {plural(len(v['rows']), 'generation')} and {v['rows'][-1]['episodes_cum']} episodes, "
                      f"highest at {top['id']} ({_band_text(top)})")
     lengths = sorted({len(v["rows"]) for v in views})
     per_gen = sorted({r["episodes"] for v in views for r in v["rows"]})
@@ -743,17 +696,17 @@ def _race_reading(race: dict, views: list) -> str:
     th = race["threshold"]
     if not race["measurable"]:
         return f"no race: {race['reason']}."
-    bits = [f"threshold {_num(th['value'])} on {METRIC} ({th['source']})"]
+    bits = [f"threshold {num(th['value'])} on {METRIC} ({th['source']})"]
     for v in views:
         r = race["reached"].get(v["label"])
         auc = race["auc"][v["label"]]
         if r is None:
-            bits.append(f"{v['label']} never reached it (highest {_num(max((x['point'] for x in v['rows'] if x['point'] is not None), default=None))})")
+            bits.append(f"{v['label']} never reached it (highest {num(max((x['point'] for x in v['rows'] if x['point'] is not None), default=None))})")
         else:
-            bits.append(f"{v['label']} reached it at {r['id']} (index {r['index']}, {r['episodes_cum']} episodes, {_num(r['point'])})")
+            bits.append(f"{v['label']} reached it at {r['id']} (index {r['index']}, {r['episodes_cum']} episodes, {num(r['point'])})")
         if auc["by_episodes"]["value"] is not None:
-            bits[-1] += (f"; area under the curve {_num(auc['by_index']['value'])} by index, "
-                         f"{_num(auc['by_episodes']['value'])} by episodes")
+            bits[-1] += (f"; area under the curve {num(auc['by_index']['value'])} by index, "
+                         f"{num(auc['by_episodes']['value'])} by episodes")
     spans = {(race["auc"][v["label"]]["by_episodes"] or {}).get("span") for v in views}
     if len(spans - {None}) > 1:
         bits.append("the areas are over each lineage's own length, so the longer series has more room under it")
@@ -765,7 +718,7 @@ def _by_generation_reading(rows: list, a: str, b: str) -> str:
     for r in rows:
         imp = r.get("improvement")
         if imp and imp.get("point") is not None:
-            said.append(f"@{r['index']} {_pct(imp['point'])} [{_pct(imp['lo'])}, {_pct(imp['hi'])}]")
+            said.append(f"@{r['index']} {pct(imp['point'])} [{pct(imp['lo'])}, {pct(imp['hi'])}]")
     if not said:
         return "no aligned generation has a measurable improvement."
     seps = [r for r in rows if r.get("separates")]
@@ -785,7 +738,7 @@ def _verdict_reading(verdict: dict, peak: dict, final: dict, race: dict, process
             continue
         imp = p["improvement"]
         parts.append(f"{axis}: {w or 'no separation'} — {p['a']['label']} {p['a']['id']} vs {p['b']['label']} "
-                     f"{p['b']['id']}, P(b > a) {_pct(imp['point'])} [{_pct(imp['lo'])}, {_pct(imp['hi'])}]"
+                     f"{p['b']['id']}, P(b > a) {pct(imp['point'])} [{pct(imp['lo'])}, {pct(imp['hi'])}]"
                      + (f"; {p['pairs_reading']}" if p.get("pairs_reading") else ""))
     parts.append(f"learning: {verdict['learning'] or 'no separation'} — {verdict['learning_basis']}")
     parts.append(f"process: {verdict['process'] or 'no separation'} — {verdict['process_basis']}")
@@ -804,7 +757,7 @@ def _advisory(views: list, shared: list) -> str:
             "tasks, resampled within each task; it says how much these runs' statistic moves when they are "
             "redrawn, not what a population of runs never made would show.")
     if isinstance(n_min, int) and n_min < RUNS_FLOOR_STRUCTURED:
-        tail += (f" At {_plural(n_min, 'run')} per task the intervals are wide by construction: read 'does not "
+        tail += (f" At {plural(n_min, 'run')} per task the intervals are wide by construction: read 'does not "
                  f"separate' as exactly that, never as 'equal', and read a race decided by one generation as a "
                  f"description of these episodes.")
     return f"[{base.get('tier')}] {msg}{tail}"
@@ -813,9 +766,9 @@ def _advisory(views: list, shared: list) -> str:
 def _narrative(out: dict, views: list) -> str:
     if not out["measurable"]:
         return out["reason"]
-    names = " and ".join(f"{v['label']} ({_plural(v['generations_n'], 'generation')}, {v['episodes_n']} episodes)"
+    names = " and ".join(f"{v['label']} ({plural(v['generations_n'], 'generation')}, {v['episodes_n']} episodes)"
                          for v in views)
-    parts = [f"{names} over {_plural(len(out['tasks']['shared']), 'shared task')}"]
+    parts = [f"{names} over {plural(len(out['tasks']['shared']), 'shared task')}"]
     only = {k: v for k, v in out["tasks"]["only"].items() if v}
     if only:
         parts.append("excluded as unshared: " + "; ".join(f"{k} {', '.join(v)}" for k, v in sorted(only.items())))
@@ -825,7 +778,7 @@ def _narrative(out: dict, views: list) -> str:
         if p.get("best_paying_mechanism"):
             c = p["mechanisms"][p["best_paying_mechanism"]]
             parts.append(f"{v['label']}'s best-paying mechanism is {p['best_paying_mechanism']} "
-                         f"(n={c['steps']}, mean Δ {_signed(c['mean_delta'])})")
+                         f"(n={c['steps']}, mean Δ {signed(c['mean_delta'])})")
     return "; ".join(parts) + "."
 
 
@@ -848,11 +801,50 @@ def _metric_definition() -> str:
             f"pooled iqm in each lineage's own evolution section")
 
 
+#: what the embedded copy of a lineage's section says where its timelines were
+TIMELINES_OMITTED = "omitted; see aggregate.evolution"
+
+
+def embedded_evolution(ev: dict) -> dict:
+    """A lineage's own ``evolution`` section as the comparison carries it:
+    the same keys in the same order, minus every episode's ``timeline``.
+
+    The timelines are the bulk of the section (every step of every
+    episode) and the page's timescape reads them from
+    ``aggregate.evolution``, the primary lineage's full section, so a copy
+    inside the comparison would double the output for nothing. Each
+    generation says so in ``timelines``, beside ``episodes_capped``. The
+    section given is not touched: the copy is rebuilt down to the
+    episodes, and everything below an episode is shared.
+    """
+    if not isinstance(ev, dict):
+        return ev
+    out = dict(ev)
+    gens = []
+    for g in ev.get("generations") or []:
+        if not isinstance(g, dict):
+            gens.append(g)
+            continue
+        copy_: dict = {}
+        for key, value in g.items():
+            if key == "episodes":
+                value = [{k: v for k, v in e.items() if k != "timeline"} if isinstance(e, dict) else e
+                         for e in (value or [])]
+            copy_[key] = value
+            if key == "episodes_capped":
+                copy_["timelines"] = TIMELINES_OMITTED
+        if "episodes" in copy_ and "timelines" not in copy_:
+            copy_["timelines"] = TIMELINES_OMITTED
+        gens.append(copy_)
+    out["generations"] = gens
+    return out
+
+
 def _lineage_entry(v: dict) -> dict:
     return {"label": v["label"], "family": v["family"], "path": v["path"], "generations_n": v["generations_n"],
             "episodes_n": v["episodes_n"], "tasks_n": v["tasks_n"], "recommended": v["recommended"],
             "best": v["best"], "last": v["last"], "metric_source": v.get("metric_source"),
-            "evolution": v["evolution"]}
+            "evolution": embedded_evolution(v["evolution"])}
 
 
 def evolution_compare(lineages: list, evolutions: list, *, threshold=None, samples: int = BOOTSTRAP_SAMPLES,
@@ -881,7 +873,7 @@ def evolution_compare(lineages: list, evolutions: list, *, threshold=None, sampl
         return _empty("a lineage cannot be read — " + "; ".join(bad),
                       [{"label": labels[i], "family": ev.get("family"), "path": lineages[i].get("path"),
                         "generations_n": len(ev.get("generations") or []), "episodes_n": 0, "tasks_n": 0,
-                        "recommended": None, "best": None, "last": None, "evolution": ev}
+                        "recommended": None, "best": None, "last": None, "evolution": embedded_evolution(ev)}
                        for i, ev in enumerate(evolutions)])
     task_sets = [_gen_tasks(ev) for ev in evolutions]
     shared = sorted(set.intersection(*task_sets))
@@ -1040,21 +1032,37 @@ def _axis_basis(block: dict) -> str:
 
 def compare_lineages(paths: list, *, layout: str = "native", metric: str = "return", samples: int = BOOTSTRAP_SAMPLES,
                      gamma: float = GAMMA, threshold=None, reports: Optional[list] = None,
-                     evolutions: Optional[list] = None) -> dict:
+                     evolutions: Optional[list] = None, lineages: Optional[list] = None) -> dict:
     """Read every lineage, evolve each, compare: the section for ``paths``
     (A first). ``evolutions`` may carry an already computed section for
-    any position (None elsewhere) so the CLI reuses lineage A's; ``reports``
-    are passed to lineage A's evolve for the timeline flags. ``metric``
-    and ``samples`` are the single-lineage engine's."""
-    lineages, evs = [], []
+    any position (None elsewhere) so the CLI reuses lineage A's, and
+    ``lineages`` an already read :func:`deepcompare.evolve.read_lineage`
+    result the same way; ``reports`` are passed to lineage A's evolve for
+    the timeline flags. ``metric`` and ``samples`` are the single-lineage
+    engine's."""
+    read, evs = [], []
     for i, p in enumerate(paths):
-        ln = read_lineage(p, layout)
+        ln = lineages[i] if lineages and i < len(lineages) and lineages[i] is not None else read_lineage(p, layout)
         given = evolutions[i] if evolutions and i < len(evolutions) else None
-        lineages.append(ln)
+        read.append(ln)
         evs.append(given if given is not None else
                    evolve(ln, metric=metric, samples=samples, gamma=gamma, reports=reports if i == 0 else None))
-    return evolution_compare(lineages, evs, threshold=threshold, samples=samples, gamma=gamma)
+    return evolution_compare(read, evs, threshold=threshold, samples=samples, gamma=gamma)
 
 
-__all__ = ["compare_lineages", "evolution_compare", "iqm_by_task", "learning_verdict", "process_verdict",
-           "VERSION", "METRIC", "SCORE", "BY_GENERATION_CAP", "SOLVED_RATE", "COLLAPSE_FRACTION", "AXES"]
+@sections.register("lineage", "evolution_compare", requires=("evolution",), on_demand=True)
+def _lineage_section(agg: dict, ctx: "sections.LineageContext"):
+    # on demand: the other lineages arrive as ctx.extra["against"], the
+    # primary is the lineage already read, its section already attached
+    extra = dict(getattr(ctx, "extra", None) or {})
+    against = [str(a) for a in (extra.get("against") or []) if a]
+    primary = ctx.lineage if isinstance(ctx.lineage, dict) else {}
+    return compare_lineages([primary.get("path")] + against, layout=extra.get("layout", "native"),
+                            metric=extra.get("metric", "return"), samples=extra.get("samples", BOOTSTRAP_SAMPLES),
+                            gamma=extra.get("gamma", GAMMA), threshold=extra.get("threshold"),
+                            evolutions=[agg["evolution"]], lineages=[primary])
+
+
+__all__ = ["compare_lineages", "evolution_compare", "embedded_evolution", "iqm_by_task", "learning_verdict",
+           "process_verdict", "VERSION", "METRIC", "SCORE", "BY_GENERATION_CAP", "SOLVED_RATE", "COLLAPSE_FRACTION",
+           "AXES", "TIMELINES_OMITTED"]

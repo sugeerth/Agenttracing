@@ -122,9 +122,10 @@
     return p;
   };
   /* A hover tooltip in `host` (which must be position:relative). `show(evt,
-   * lines)` takes [{text, b?, mono?}] — a bold line, a monospace line — and
-   * keeps the box inside the host; `hide()` hides it. The block's own
-   * class styles it; `width` is the box's max width, for the flip. */
+   * lines)` takes [{text, b?, mono?}] — a bold line, a monospace line — or a
+   * function that fills the box itself, and keeps the box inside the host;
+   * `hide()` hides it. The block's own class styles it; `width` is the
+   * box's max width, for the flip. */
   svg.tip = function (host, opts) {
     opts = opts || {};
     var cls = opts.class || "lib-tip", width = isNum(opts.width) ? opts.width : 320;
@@ -136,7 +137,8 @@
     return {
       show: function (evt, lines) {
         tip.innerHTML = "";
-        lines.forEach(function (l) {
+        if (typeof lines === "function") lines(tip);
+        else lines.forEach(function (l) {
           if (!l) return;
           var d = document.createElement("div");
           if (l.mono) d.className = "mono";

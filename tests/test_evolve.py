@@ -969,5 +969,98 @@ class DemoLineageBTest(unittest.TestCase):
         self.assertIn("within the 0.15 margin", s["gaming"]["reading"])
 
 
+# ---------------------------------------------------------------- the registry and the attach site
+
+class RegistryTest(_Temp):
+    """``evolution`` is a section of the ``lineage`` scope and ``evolve.py``
+    owns that scope's attach site: ``attach_sections`` for the sections,
+    ``lineage_batch`` for the command's whole output."""
+
+    def test_the_section_is_registered_in_the_lineage_scope(self):
+        from deepcompare import sections
+        sec = sections.get("lineage", "evolution")
+        self.assertEqual(sec.fn.__module__, "deepcompare.evolve")
+        self.assertTrue(sec.wants_ctx)
+        self.assertFalse(sec.on_demand)
+        self.assertEqual(sections.registered("lineage")[0], "evolution")
+
+    def test_analyse_lineage_is_the_attach_pass_and_returns_the_section_unchanged(self):
+        root = write_lineage(self.tmp / "lin", standard_gens())
+        lineage = ev.read_lineage(root)
+        direct = ev.evolve(lineage, samples=SAMPLES)
+        attached = ev.attach_sections(lineage, {}, samples=SAMPLES)
+        self.assertEqual(list(attached), ["evolution"])
+        self.assertEqual(json.dumps(attached["evolution"], sort_keys=True), json.dumps(direct, sort_keys=True))
+        self.assertEqual(json.dumps(ev.analyse_lineage(root, samples=SAMPLES), sort_keys=True),
+                         json.dumps(direct, sort_keys=True))
+        self.assertEqual(list(direct), list(attached["evolution"]), "the key order is the section's own")
+
+    def test_a_bad_metric_is_the_callers_error_and_raises_before_the_pass(self):
+        lineage = ev.read_lineage(write_lineage(self.tmp / "lin", standard_gens()))
+        with self.assertRaises(ValueError):
+            ev.attach_sections(lineage, {}, metric="nonsense", samples=SAMPLES)
+        with self.assertRaises(ValueError):
+            ev.lineage_batch(lineage, metric="nonsense", samples=SAMPLES)
+
+    def test_lineage_batch_is_the_last_pair_as_a_runs_batch_with_the_section_attached(self):
+        lineage = ev.read_lineage(write_lineage(self.tmp / "lin", standard_gens()))
+        heard = []
+        out = ev.lineage_batch(lineage, warn=heard.append, samples=SAMPLES)
+        self.assertEqual(set(out), {"pair", "names", "reports", "aggregate"})
+        self.assertEqual(out["names"], ("toy@g1", "toy@g2"))
+        self.assertEqual([g["id"] for g in out["pair"]], ["g1", "g2"])
+        self.assertEqual(sorted(r["task"]["id"] for r in out["reports"]), list(TASKS))
+        agg = out["aggregate"]
+        self.assertEqual(list(agg)[-1], "evolution", "the section attaches after the runs batch's own keys")
+        self.assertIn("rl", agg)
+        self.assertNotIn("evolution_compare", agg, "the comparison is on demand: nothing to compare against")
+        # the pair reports reach the section: the episodes the last step's
+        # pair reports cover (one medoid pair per task) carry their marks
+        g1, g2 = agg["evolution"]["generations"][1:]
+        covered = {(r[side]["agent"]["name"], r["task"]["id"], r[side]["run_id"]) for r in out["reports"] for side in "ab"}
+        for g in (g1, g2):
+            for e in g["episodes"]:
+                expect = "trace and pair report" if (g["policy"], e["task_id"], e["run_id"]) in covered else "trace only (d, f need the pair report)"
+                self.assertEqual(e["flags_basis"], expect)
+        self.assertEqual(len(covered), 2 * len(TASKS))
+        self.assertEqual(agg["evolution"]["recommended"]["id"], "g1")
+
+    def test_lineage_batch_without_a_pair_still_attaches_the_section(self):
+        g0 = _agent("g0", None, G0_ART)
+        lineage = ev.read_lineage(write_lineage(self.tmp / "one", [(g0, _episodes("g0"))]))
+        heard = []
+        out = ev.lineage_batch(lineage, warn=heard.append, samples=SAMPLES)
+        self.assertIsNone(out["pair"])
+        self.assertIsNone(out["names"])
+        self.assertEqual(out["reports"], [])
+        self.assertEqual(list(out["aggregate"]), ["evolution"])
+        self.assertTrue(out["aggregate"]["evolution"]["measurable"])
+        self.assertEqual(heard, ["fewer than two generations carry traces; no pair report is written"])
+
+    def test_the_last_pair_keeps_parent_as_a_and_child_as_b_past_ten_generations(self):
+        # `family@g10` sorts before `family@g9`, so an alphabetical pairing
+        # would flip the sides of the last step; the batch says which is which
+        from deepcompare.suite import analyse_runs
+        gens = []
+        for i in range(11):
+            gid, parent = f"g{i}", (None if i == 0 else f"g{i - 1}")
+            traces = [_trace(gid, task, "r1", True, check=True) for task in TASKS]
+            gens.append((_agent(gid, parent, G0_ART), traces))
+        lineage = ev.read_lineage(write_lineage(self.tmp / "ten", gens))
+        self.assertEqual([g["id"] for g in lineage["generations"]], [f"g{i}" for i in range(11)])
+        a, b = ev.last_pair(lineage)
+        self.assertEqual((a["policy"], b["policy"]), ("toy@g9", "toy@g10"))
+        self.assertEqual(analyse_runs(a["trajectories"] + b["trajectories"])["names"], ("toy@g10", "toy@g9"),
+                         "the alphabetical default would flip the pair")
+        out = ev.lineage_batch(lineage, samples=20)
+        self.assertEqual(out["names"], ("toy@g9", "toy@g10"))
+        self.assertEqual(len(out["reports"]), len(TASKS))
+        for report in out["reports"]:
+            self.assertEqual(report["a"]["agent"]["name"], "toy@g9")
+            self.assertEqual(report["b"]["agent"]["name"], "toy@g10")
+        steps = out["aggregate"]["evolution"]["steps"]
+        self.assertEqual((steps[-1]["from"], steps[-1]["to"]), ("g9", "g10"))
+
+
 if __name__ == "__main__":
     unittest.main()

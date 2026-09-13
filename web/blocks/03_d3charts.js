@@ -35,14 +35,11 @@
 
   charts.available = function () { return !!(d3 && typeof d3.select === "function"); };
   charts._horizonStyle = function () {
-    if (document.getElementById("d3c-horizon-style")) return;
-    var st = document.createElement("style"); st.id = "d3c-horizon-style";
-    st.textContent = ".d3c-crumbs{display:flex;flex-direction:column;gap:2px;font-size:var(--fs-xs);color:var(--ink-3);margin:4px 0 0}" +
+    L.style.once("d3c-horizon", ".d3c-crumbs{display:flex;flex-direction:column;gap:2px;font-size:var(--fs-xs);color:var(--ink-3);margin:4px 0 0}" +
       ".d3c-crumb-side{font-weight:600}.d3c-crumb-btn{font:inherit;font-size:var(--fs-xs);background:none;border:0;padding:0 2px;color:var(--ink-2);cursor:pointer;text-decoration:underline dotted}" +
       ".d3c-crumb-btn.current{color:var(--ink);font-weight:600;text-decoration:none;cursor:default}" +
       ".d3c-hz-node{cursor:pointer}.d3c-hz-node:focus{outline:none}.d3c-hz-node:focus rect.d3c-hz-box{stroke:var(--ink);stroke-width:2}" +
-      ".d3c-anode{cursor:pointer;outline:none}.d3c-anode:focus circle.d3c-abody{stroke:var(--ink);stroke-width:2}.d3c-anode.open circle.d3c-aopen{animation:d3c-pulse .7s ease-in-out infinite alternate}";
-    document.head.appendChild(st);
+      ".d3c-anode{cursor:pointer;outline:none}.d3c-anode:focus circle.d3c-abody{stroke:var(--ink);stroke-width:2}.d3c-anode.open circle.d3c-aopen{animation:d3c-pulse .7s ease-in-out infinite alternate}");
   };
   charts.motion = function () {
     try {

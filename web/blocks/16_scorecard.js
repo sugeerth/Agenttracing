@@ -84,19 +84,7 @@
                 "cost (USD)": "cost", "accuracy score (outcome.score)": "accuracy score" };
   function shortLabel(l) { return SHORT[l] || l; }
 
-  function tooltip(root) {
-    var tip = document.createElement("div"); tip.className = "sc-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, build) {
-        tip.innerHTML = ""; build(tip); tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 200 > r.width) x = Math.max(0, evt.clientX - r.left - 210);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "sc-tip", width: 200 }); }
   function tipRow(tip, col, label, value) {
     var row = document.createElement("div"); row.className = "row";
     if (col) { var i = document.createElement("i"); i.style.background = col; row.appendChild(i); }

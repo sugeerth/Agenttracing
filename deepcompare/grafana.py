@@ -50,6 +50,7 @@ import re
 from pathlib import Path
 from typing import Any, Iterable, Optional, Union
 
+from ._stats import finite, mean, rounded
 from .reliability import RUNS_FLOOR_OPEN_ENDED, RUNS_FLOOR_STRUCTURED, runs_advisory
 from .statistics import wilson_interval
 
@@ -210,15 +211,9 @@ _TYPES = {"counter", "gauge", "histogram", "summary", "untyped"}
 # ---------------------------------------------------------------- helpers
 
 def _r(v: Any, places: int = 4) -> Optional[float]:
-    if not isinstance(v, (int, float)) or isinstance(v, bool):
-        return None
-    if math.isnan(v) or math.isinf(v):
-        return None
-    return round(float(v), places)
-
-
-def _num(v: Any) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and not (math.isnan(v) or math.isinf(v))
+    # the shared rounding behind a finiteness gate: a value that is not a
+    # number, or is NaN or infinite, is no sample and is dropped, never 0
+    return rounded(v, places) if finite(v) else None
 
 
 def _bool_label(v: Any) -> str:
@@ -237,8 +232,7 @@ def _synthetic_of_note(note: Any) -> bool:
 
 
 def _mean(values: list) -> Optional[float]:
-    nums = [v for v in values if _num(v)]
-    return _r(sum(nums) / len(nums)) if nums else None
+    return _r(mean([v for v in values if finite(v)]))
 
 
 class _Collector:
@@ -254,7 +248,7 @@ class _Collector:
             raise KeyError(f"unknown metric family {family!r}")
         if isinstance(value, bool):
             value = int(value)
-        if not _num(value):
+        if not finite(value):
             return
         clean = {str(k): str(v) for k, v in labels.items() if v is not None and str(v) != ""}
         self.samples.append((PREFIX + family, clean, value))
@@ -337,7 +331,7 @@ def _run_rows(aggregate: dict, reports: list) -> list[dict]:
             run = report.get(side) or {}
             totals = run.get("totals") or {}
             tokens = totals.get("tokens")
-            if tokens is None and _num(totals.get("input_tokens")) and _num(totals.get("output_tokens")):
+            if tokens is None and finite(totals.get("input_tokens")) and finite(totals.get("output_tokens")):
                 tokens = totals["input_tokens"] + totals["output_tokens"]
             errors = sum(1 for s in (run.get("steps") or []) if isinstance(s, dict) and s.get("error"))
             rows.append({
@@ -462,7 +456,7 @@ def _collect_rl(c: _Collector, aggregate: dict, synthetic: dict) -> None:
             if isinstance(cell, dict):
                 c.add("task_return_mean", {"agent": name, "task": task, "source": source,
                                            "synthetic": _bool_label(synthetic.get(name))}, _r(cell.get("mean_return")))
-        if _num(block.get("delta")) and len(names) == 2:
+        if finite(block.get("delta")) and len(names) == 2:
             c.add("task_return_delta", {"from": names[0], "to": names[1], "task": task, "source": source,
                                         "synthetic": _bool_label(synthetic.get(names[0]) or synthetic.get(names[1]))},
                   _r(block["delta"]))
@@ -528,9 +522,9 @@ def _collect_tools(c: _Collector, reports: list, synthetic: dict) -> None:
                     continue
                 acc = sums.setdefault((agent, str(tool)), {"max_identical_run": 0})
                 for key, _family in _TOOL_FIELDS:
-                    if _num(stats.get(key)):
+                    if finite(stats.get(key)):
                         acc[key] = acc.get(key, 0) + stats[key]
-                if _num(stats.get("max_identical_run")):
+                if finite(stats.get("max_identical_run")):
                     acc["max_identical_run"] = max(acc["max_identical_run"], stats["max_identical_run"])
     if not sums:
         c.note("no tool profiles in the reports: tool families omitted")
@@ -635,7 +629,7 @@ def _collect_evolution(c: _Collector, aggregate: dict) -> None:
                        **{"from": frm, "to": to, "synthetic": _bool_label(syn_by_gen.get(to))}), 1)
     trajectory = ev.get("trajectory") or {}
     for verdict in sorted(VERDICT_CODES):
-        if _num(trajectory.get(verdict)):
+        if finite(trajectory.get(verdict)):
             c.add("evolution_verdicts", dict(base, verdict=verdict, synthetic=any_syn), trajectory[verdict])
     for flag in sorted(trajectory.get("flags") or {}):
         c.add("evolution_flags", dict(base, flag=flag, synthetic=any_syn), (trajectory["flags"] or {}).get(flag))
@@ -720,14 +714,14 @@ def collect_trace(loaded: dict) -> _Collector:
     run = trace.get("run_id") or (parts[2] if len(parts) >= 3 else None)
     syn = _bool_label(_synthetic_of_harness(trace.get("harness")))
     steps = [s for s in (trace.get("steps") or []) if isinstance(s, dict)]
-    recorded = any(_num(s.get("reward")) for s in steps)
+    recorded = any(finite(s.get("reward")) for s in steps)
     base = {"agent": agent, "task": task, "run": run, "synthetic": syn}
     totals = trace.get("totals") or {}
     c.add("run_success", base, 1 if (trace.get("outcome") or {}).get("success") else 0)
     c.add("run_steps", base, len(steps))
     c.add("run_seconds", base, _r(totals.get("latency_s")))
     tokens = totals.get("tokens")
-    if tokens is None and _num(totals.get("input_tokens")) and _num(totals.get("output_tokens")):
+    if tokens is None and finite(totals.get("input_tokens")) and finite(totals.get("output_tokens")):
         tokens = totals["input_tokens"] + totals["output_tokens"]
     c.add("run_tokens", base, tokens)
     c.add("run_cost_usd", base, _r(totals.get("cost_usd"), 6))
@@ -740,7 +734,7 @@ def collect_trace(loaded: dict) -> _Collector:
         c.add("step_seconds", labels, _r(s.get("latency_s")))
         c.add("step_tokens", labels, s.get("tokens"))
         if recorded:
-            reward = s.get("reward") if _num(s.get("reward")) else 0.0
+            reward = s.get("reward") if finite(s.get("reward")) else 0.0
             cum += reward
             c.add("step_reward", labels, _r(reward))
             c.add("step_return_cum", labels, _r(cum))

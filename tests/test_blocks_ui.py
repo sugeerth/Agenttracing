@@ -8175,8 +8175,10 @@ class SharedLibraryTest(unittest.TestCase):
     LIB_FREE = ("00_core.js", "01_lib.js")
     #: still binding the library while their authors finish them; drop as they adopt
     IN_FLIGHT = ("33_evolve.js", "34_evotime.js", "35_evocompare.js")
-    #: an `isNum` that accepts Infinity (40, 60), a coarser `secs` (18, 19): documented legacy copies
-    LEGACY = {"isNum": ("40_signal.js", "60_science.js"), "secs": ("18_time.js", "19_horizon.js")}
+    #: an `isNum` that accepts Infinity (40, 60), a coarser `secs` (18, 19): documented legacy copies;
+    #: 03 holds the responsive painter the library delegates to
+    LEGACY = {"isNum": ("40_signal.js", "60_science.js"), "secs": ("18_time.js", "19_horizon.js"),
+              "responsive": ("03_d3charts.js",)}
 
     @classmethod
     def setUpClass(cls):
