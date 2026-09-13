@@ -509,6 +509,16 @@ field, an artifacts block that is a string, invalid JSON, no
 `lineage.json`), byte-determinism, and the command end to end with
 `--fail-on`.
 
+One property of the demo to know when reading the timescape: the
+scripted environment records every step contiguously, so an episode has
+no idle time — the seconds add up to the latencies with no gap between
+steps. On this data the constricted-time folds therefore fold
+*uneventful* stretches (steps present, but no error, no fault, no
+answer, no reward beyond the modal tool cost), exactly as the impact
+panel defines quiet. A real recording also has idle gaps — a model
+waiting on a tool, a person, a queue — and those fold too, by the same
+law. The demo simply cannot show that case.
+
 ## Comparing two lineages
 
 Two self-evolving agents ran over the same tasks for some generations.
