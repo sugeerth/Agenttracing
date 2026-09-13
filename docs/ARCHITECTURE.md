@@ -101,7 +101,13 @@ data inlined. Every command follows one shape, implemented once in
 is a module in `deepcompare/commands/` exposing `register(subparsers)`
 and `run(args) -> int`. **Adding a command is adding one module.**
 (Status: `live` and `paths` are there; the remaining commands move as
-the in-flight work lands — see the changelog.)
+the in-flight work lands — see the changelog. Commands: landed — all 37
+are modules under `deepcompare/commands/`, listed in `cli.COMMANDS` in
+`--help` order; `_io.py` holds the load-run-write shape and `_common.py`
+the shared argument groups (CI artifacts, provider options, the trace
+database); `cli.py` imports every command module as `<name>_cmd`, since
+several are named after engine functions; `tests/test_commands.py` pins
+the list and runs batch, runs and compare end to end.)
 
 ## 4. The page
 
