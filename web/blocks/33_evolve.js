@@ -31,110 +31,104 @@
  *
  * Selection (the generation the reader is looking at, the matrix metric, a
  * range of generations) is one module-level store, persisted per browser
- * through the page's own Store; a change re-paints the mounted blocks in
- * place, the way the theatre does, with a transition where a shape moves.
+ * through the library's family store; a change re-paints the mounted
+ * blocks in place, the way the theatre does, with a transition where a
+ * shape moves. Formatting, layout, the tooltip and the stylesheet come
+ * from `AgentDiff.lib`; the verdict colour table stays here — the
+ * library's `color.verdict` speaks sign and better/worse, not gamed/forgot.
  */
 (function (global) {
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, num = L.fmt.num, pct = L.fmt.pct, short = L.fmt.short;
+  var responsive = L.layout.responsive;
 
-  var PREF_KEY = "agentdiff:evolution";
   //: the transition when a selection moves; none under reduced motion
   var DUR = 240;
 
-  var styled = false;
-  function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
-      ".evo{position:relative}",
-      ".evo svg{display:block;width:100%;height:auto;font-family:var(--sans)}",
-      ".evo text{font-size:var(--fs-xs)}",
-      ".evo .lab{fill:var(--ink-2)}.evo .lab.dim{fill:var(--ink-3)}.evo .lab.mono{font-family:var(--mono)}.evo .lab.strong{fill:var(--ink);font-weight:600}",
-      ".evo .tick{fill:var(--ink-3);font-variant-numeric:tabular-nums}",
-      ".evo .zero{stroke:var(--rule-2)}.evo .rule{stroke:var(--rule)}",
-      ".evo .backed{paint-order:stroke;stroke:var(--bg);stroke-width:3px;stroke-linejoin:round}",
-      ".evo-narr{font-size:var(--fs-m);color:var(--ink);margin:0 0 8px;max-width:96ch}",
-      ".evo-lede{font-size:var(--fs-m);color:var(--ink);margin:0 0 6px;max-width:96ch}",
-      ".evo-lede b{font-weight:600}",
-      ".evo-bar{display:flex;gap:6px 14px;flex-wrap:wrap;align-items:center;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 8px}",
-      ".evo-bar i{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:-1px;margin-right:5px}",
-      ".evo-chip{font-family:var(--mono);color:var(--ink-2);font-variant-numeric:tabular-nums;white-space:nowrap}",
-      ".evo-chip b{color:var(--ink);font-weight:600}",
-      ".evo-bar button,.evo-nav button{font:inherit;font-size:var(--fs-xs);border:0;background:var(--surface-2);color:var(--ink-2);border-radius:999px;padding:1px 9px;cursor:pointer}",
-      ".evo-bar button:hover,.evo-nav button:hover{color:var(--ink)}",
-      ".evo-bar button[aria-pressed=true]{background:var(--ink);color:var(--bg)}",
-      ".evo-bar button:disabled,.evo-nav button:disabled{opacity:.4;cursor:default}",
-      ".evo-note{font-size:var(--fs-xs);color:var(--ink-3);margin:8px 0 0;max-width:96ch;line-height:1.5}",
-      ".evo-note.bad{color:var(--bad)}",
-      ".evo-v{font-weight:600}.evo-v .g{font-weight:700;margin-right:3px}",
-      ".evo-edge{cursor:pointer;outline:none}.evo-edge:focus-visible .hit{stroke:var(--ink);stroke-opacity:.25}",
-      ".evo-node{cursor:pointer;outline:none}.evo-node:focus-visible .ring{stroke:var(--ink);stroke-opacity:.6}",
-      ".evo .selection{fill:var(--ink);fill-opacity:.08;stroke:var(--ink-3);stroke-width:1}",
-      ".evo .overlay{cursor:crosshair}",
-      // the ledger
-      ".evo-rows{margin-top:4px}",
-      ".evo-row{display:grid;grid-template-columns:82px 82px minmax(120px,2fr) minmax(96px,1.3fr) 62px 62px 66px 88px;gap:2px 10px;align-items:center;padding:4px 4px;border-radius:5px;cursor:pointer;font-size:var(--fs-xs);color:var(--ink-2);outline:none}",
-      ".evo-row:hover,.evo-row:focus-visible{background:var(--surface-2)}",
-      ".evo-row[aria-current=true]{background:var(--surface-2);box-shadow:inset 3px 0 0 var(--ink)}",
-      ".evo-row[aria-current=true] .evo-id{color:var(--ink);font-weight:600}",
-      ".evo-row .evo-id,.evo-row .evo-num{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}",
-      ".evo-row .evo-num{text-align:right}.evo-row .evo-num.good{color:var(--good)}.evo-row .evo-num.bad{color:var(--bad)}",
-      ".evo-row .evo-mech,.evo-row .evo-sum{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
-      ".evo-row .evo-read{grid-column:1 / -1;color:var(--ink-3);white-space:normal;line-height:1.4}",
-      ".evo-head{cursor:default;color:var(--ink-3);font-family:var(--mono)}.evo-head:hover{background:none}",
-      ".evo-track{position:relative;height:10px}",
-      ".evo-track:before{content:'';position:absolute;left:0;right:0;top:4.5px;height:1px;background:var(--rule)}",
-      ".evo-track:after{content:'';position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--rule-2)}",
-      ".evo-int{position:absolute;top:2px;height:6px;border-radius:3px;background:var(--ink-3);opacity:.35}",
-      ".evo-pt{position:absolute;top:1px;width:8px;height:8px;margin-left:-4px;border-radius:50%;background:var(--ink)}",
-      "@media (max-width:820px){.evo-row{grid-template-columns:72px minmax(80px,1fr) 56px 84px}.evo-row .evo-mech,.evo-row .evo-sum,.evo-row .evo-pass,.evo-row .evo-tasks{display:none}}",
-      // a long chip wraps on a phone rather than pushing the body into a scroll
-      "@media (max-width:640px){.evo-bar .evo-chip{white-space:normal}}",
-      // one step
-      ".evo-nav{display:flex;gap:8px;align-items:center;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 8px;flex-wrap:wrap}",
-      ".evo-cols{display:flex;gap:16px 24px;flex-wrap:wrap;align-items:flex-start}.evo-cols>*{flex:1 1 300px;min-width:0}",
-      ".evo-h{font-size:var(--fs-xs);color:var(--ink-3);font-family:var(--mono);margin:10px 0 3px;letter-spacing:.04em;text-transform:uppercase}",
-      ".evo-h:first-child{margin-top:0}",
-      ".evo-diff{font-family:var(--mono);font-size:var(--fs-xs);line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink-2);margin:0}",
-      ".evo-diff .add{color:var(--good)}.evo-diff .del{color:var(--bad)}.evo-diff .hunk{color:var(--ink-3)}.evo-diff .ctx{color:var(--ink-3)}",
-      ".evo-list{list-style:none;margin:0;padding:0;font-size:var(--fs-xs);font-family:var(--mono);color:var(--ink-2);line-height:1.5;overflow-wrap:anywhere}",
-      ".evo-list .add{color:var(--good)}.evo-list .del{color:var(--bad)}.evo-list .chg{color:var(--ink-2)}",
-      ".evo-list .quiet{color:var(--ink-3);font-family:var(--sans)}",
-      ".evo-prot{display:inline-block;margin-left:6px;color:var(--bad);font-weight:600}",
-      ".evo-figure{display:flex;gap:6px 14px;flex-wrap:wrap;align-items:baseline;margin:0 0 4px}",
-      ".evo-big{font-size:var(--fs-l);color:var(--ink);font-variant-numeric:tabular-nums;font-weight:600}",
-      ".evo-ci{font-family:var(--mono);font-size:var(--fs-xs);color:var(--ink-3);font-variant-numeric:tabular-nums}",
-      ".evo-read{font-size:var(--fs-xs);color:var(--ink-2);margin:6px 0 0;line-height:1.5;max-width:70ch}",
-      ".evo-read b{color:var(--ink);font-weight:600}.evo-read.flag b{color:var(--bad)}",
-      // small multiples
-      ".evo-multi{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px 18px}",
-      ".evo-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);max-width:340px}",
-      ".evo-tip b{color:var(--ink)}.evo-tip .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}",
-    ].join("\n");
-    document.head.appendChild(node);
-  }
+  var CSS = [
+    ".evo{position:relative}",
+    ".evo svg{display:block;width:100%;height:auto;font-family:var(--sans)}",
+    ".evo text{font-size:var(--fs-xs)}",
+    ".evo .lab{fill:var(--ink-2)}.evo .lab.dim{fill:var(--ink-3)}.evo .lab.mono{font-family:var(--mono)}.evo .lab.strong{fill:var(--ink);font-weight:600}",
+    ".evo .tick{fill:var(--ink-3);font-variant-numeric:tabular-nums}",
+    ".evo .zero{stroke:var(--rule-2)}.evo .rule{stroke:var(--rule)}",
+    ".evo .backed{paint-order:stroke;stroke:var(--bg);stroke-width:3px;stroke-linejoin:round}",
+    ".evo-narr{font-size:var(--fs-m);color:var(--ink);margin:0 0 8px;max-width:96ch}",
+    ".evo-lede{font-size:var(--fs-m);color:var(--ink);margin:0 0 6px;max-width:96ch}",
+    ".evo-lede b{font-weight:600}",
+    ".evo-bar{display:flex;gap:6px 14px;flex-wrap:wrap;align-items:center;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 8px}",
+    ".evo-bar i{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:-1px;margin-right:5px}",
+    ".evo-chip{font-family:var(--mono);color:var(--ink-2);font-variant-numeric:tabular-nums;white-space:nowrap}",
+    ".evo-chip b{color:var(--ink);font-weight:600}",
+    ".evo-bar button,.evo-nav button{font:inherit;font-size:var(--fs-xs);border:0;background:var(--surface-2);color:var(--ink-2);border-radius:999px;padding:1px 9px;cursor:pointer}",
+    ".evo-bar button:hover,.evo-nav button:hover{color:var(--ink)}",
+    ".evo-bar button[aria-pressed=true]{background:var(--ink);color:var(--bg)}",
+    ".evo-bar button:disabled,.evo-nav button:disabled{opacity:.4;cursor:default}",
+    ".evo-note{font-size:var(--fs-xs);color:var(--ink-3);margin:8px 0 0;max-width:96ch;line-height:1.5}",
+    ".evo-note.bad{color:var(--bad)}",
+    ".evo-v{font-weight:600}.evo-v .g{font-weight:700;margin-right:3px}",
+    ".evo-edge{cursor:pointer;outline:none}.evo-edge:focus-visible .hit{stroke:var(--ink);stroke-opacity:.25}",
+    ".evo-node{cursor:pointer;outline:none}.evo-node:focus-visible .ring{stroke:var(--ink);stroke-opacity:.6}",
+    ".evo .selection{fill:var(--ink);fill-opacity:.08;stroke:var(--ink-3);stroke-width:1}",
+    ".evo .overlay{cursor:crosshair}",
+    // the ledger
+    ".evo-rows{margin-top:4px}",
+    ".evo-row{display:grid;grid-template-columns:82px 82px minmax(120px,2fr) minmax(96px,1.3fr) 62px 62px 66px 88px;gap:2px 10px;align-items:center;padding:4px 4px;border-radius:5px;cursor:pointer;font-size:var(--fs-xs);color:var(--ink-2);outline:none}",
+    ".evo-row:hover,.evo-row:focus-visible{background:var(--surface-2)}",
+    ".evo-row[aria-current=true]{background:var(--surface-2);box-shadow:inset 3px 0 0 var(--ink)}",
+    ".evo-row[aria-current=true] .evo-id{color:var(--ink);font-weight:600}",
+    ".evo-row .evo-id,.evo-row .evo-num{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}",
+    ".evo-row .evo-num{text-align:right}.evo-row .evo-num.good{color:var(--good)}.evo-row .evo-num.bad{color:var(--bad)}",
+    ".evo-row .evo-mech,.evo-row .evo-sum{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+    ".evo-row .evo-read{grid-column:1 / -1;color:var(--ink-3);white-space:normal;line-height:1.4}",
+    ".evo-head{cursor:default;color:var(--ink-3);font-family:var(--mono)}.evo-head:hover{background:none}",
+    ".evo-track{position:relative;height:10px}",
+    ".evo-track:before{content:'';position:absolute;left:0;right:0;top:4.5px;height:1px;background:var(--rule)}",
+    ".evo-track:after{content:'';position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--rule-2)}",
+    ".evo-int{position:absolute;top:2px;height:6px;border-radius:3px;background:var(--ink-3);opacity:.35}",
+    ".evo-pt{position:absolute;top:1px;width:8px;height:8px;margin-left:-4px;border-radius:50%;background:var(--ink)}",
+    "@media (max-width:820px){.evo-row{grid-template-columns:72px minmax(80px,1fr) 56px 84px}.evo-row .evo-mech,.evo-row .evo-sum,.evo-row .evo-pass,.evo-row .evo-tasks{display:none}}",
+    // a long chip wraps on a phone rather than pushing the body into a scroll
+    "@media (max-width:640px){.evo-bar .evo-chip{white-space:normal}}",
+    // one step
+    ".evo-nav{display:flex;gap:8px;align-items:center;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 8px;flex-wrap:wrap}",
+    ".evo-cols{display:flex;gap:16px 24px;flex-wrap:wrap;align-items:flex-start}.evo-cols>*{flex:1 1 300px;min-width:0}",
+    ".evo-h{font-size:var(--fs-xs);color:var(--ink-3);font-family:var(--mono);margin:10px 0 3px;letter-spacing:.04em;text-transform:uppercase}",
+    ".evo-h:first-child{margin-top:0}",
+    ".evo-diff{font-family:var(--mono);font-size:var(--fs-xs);line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink-2);margin:0}",
+    ".evo-diff .add{color:var(--good)}.evo-diff .del{color:var(--bad)}.evo-diff .hunk{color:var(--ink-3)}.evo-diff .ctx{color:var(--ink-3)}",
+    ".evo-list{list-style:none;margin:0;padding:0;font-size:var(--fs-xs);font-family:var(--mono);color:var(--ink-2);line-height:1.5;overflow-wrap:anywhere}",
+    ".evo-list .add{color:var(--good)}.evo-list .del{color:var(--bad)}.evo-list .chg{color:var(--ink-2)}",
+    ".evo-list .quiet{color:var(--ink-3);font-family:var(--sans)}",
+    ".evo-prot{display:inline-block;margin-left:6px;color:var(--bad);font-weight:600}",
+    ".evo-figure{display:flex;gap:6px 14px;flex-wrap:wrap;align-items:baseline;margin:0 0 4px}",
+    ".evo-big{font-size:var(--fs-l);color:var(--ink);font-variant-numeric:tabular-nums;font-weight:600}",
+    ".evo-ci{font-family:var(--mono);font-size:var(--fs-xs);color:var(--ink-3);font-variant-numeric:tabular-nums}",
+    ".evo-read{font-size:var(--fs-xs);color:var(--ink-2);margin:6px 0 0;line-height:1.5;max-width:70ch}",
+    ".evo-read b{color:var(--ink);font-weight:600}.evo-read.flag b{color:var(--bad)}",
+    // small multiples
+    ".evo-multi{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px 18px}",
+    ".evo-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);max-width:340px}",
+    ".evo-tip b{color:var(--ink)}.evo-tip .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}",
+  ].join("\n");
+  function ensureStyle() { L.style.once("evolve", CSS); }
 
   // ------------------------------------------------------------- helpers
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function num(v, p) {
-    if (!isNum(v)) return "—";
-    var s = v.toFixed(p === undefined ? 2 : p);
-    if (s.indexOf(".") >= 0) s = s.replace(/0+$/, "").replace(/\.$/, "");
-    return s.replace("-", "−");
-  }
+  /* Not the library's `signed`: this one prints through `num`, so a delta
+   * drops its trailing zeros (+0.5, −1, not +0.50, −1.00) — the strings
+   * the ledger and the tooltips have always shown. */
   function signed(v, p) {
     if (!isNum(v)) return "—";
     var s = num(Math.abs(v), p);
     return v > 0 ? "+" + s : v < 0 ? "−" + s : s;
   }
-  function pct(v) { return isNum(v) ? Math.round(v * 100) + "%" : "—"; }
   function pts(v) { return isNum(v) ? signed(v * 100, 0) + " pts" : "—"; }
-  function short(id) { return String(id || "").replace(/^(rl|t)\d+_/, "").replace(/_/g, " "); }
+  //: no library counterpart: cut a label to n characters with an ellipsis
   function trunc(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
   //: the generation ids of the lineage on the page, so a sentence that opens with one ("g3 earns …") is never re-cased
   var GEN_IDS = {};
@@ -145,11 +139,7 @@
     if (first && GEN_IDS[first[1]]) return s;
     return s.charAt(0).toUpperCase() + s.slice(1);
   }
-  function width(host) { var w = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0; return Math.max(300, Math.min(1400, w || 320)); }
-  function responsive(host, draw, k) {
-    if (AgentDiff.charts && AgentDiff.charts.responsive) return AgentDiff.charts.responsive(host, draw, k);
-    draw(); return host;
-  }
+  function width(host) { return L.layout.measure(host, 300, 1400); }
   //: the page's task selection, only for a task the page actually has
   function selectTask(ctx, id) {
     var ids = typeof AgentDiff.taskIds === "function" ? AgentDiff.taskIds() : [];
@@ -169,27 +159,7 @@
     try { var v = getComputedStyle(el).getPropertyValue(name); return v && v.trim() ? v.trim() : fallback; }
     catch (err) { return fallback; }
   }
-  function tooltip(root) {
-    var tip = document.createElement("div"); tip.className = "evo-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) {
-          if (!l) return;
-          var d = document.createElement("div");
-          if (l.mono) d.className = "mono";
-          if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text;
-          tip.appendChild(d);
-        });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 340 > r.width) x = Math.max(0, evt.clientX - r.left - 350);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "evo-tip", width: 340 }); }
 
   /* The verdict vocabulary. Colour is polarity — good, bad, neutral, and
    * caution for the three ways a step can look good and be wrong — and the
@@ -336,14 +306,12 @@
 
   /* One store for every block: the generation in view (the step that made
    * it is the selected step), the matrix metric, and a range of generations
-   * picked with the brush. Persisted per browser through the page's Store;
-   * a change re-paints every mounted block in place. */
+   * picked with the brush. Persisted per browser through the library's
+   * family store under "agentdiff:evolution"; a change re-paints every
+   * mounted block in place. */
   var S = { gen: null, metric: "pass", range: null, loaded: false };
   var LISTENERS = [];
   var KEYS = ["gen", "metric", "range"];
-  function store() {
-    try { return AgentDiff._internals && AgentDiff._internals.Store ? AgentDiff._internals.Store : null; } catch (err) { return null; }
-  }
   function sameValue(k, v) {
     if (k === "range") return (v === null && S.range === null) || (!!v && !!S.range && v[0] === S.range[0] && v[1] === S.range[1]);
     return S[k] === v;
@@ -356,50 +324,35 @@
     if (v.range === null) target.range = null;
     else if (Array.isArray(v.range) && isNum(v.range[0]) && isNum(v.range[1])) target.range = [v.range[0], v.range[1]];
   }
-  /* The page's shared-selection library, when it has landed: the family
-   * "evolution" holds the same three keys, persists them and notifies on a
-   * change; this file's own store and Store key are the fallback so it
-   * works before and after the library. Its notification is read by
-   * diffing the state, so the callback's payload shape does not matter;
-   * and if `set` does not notify, the change is broadcast here. */
-  var FAMILY, PENDING = null;
+  /* The page's shared-selection family "evolution" holds the same three
+   * keys, persists them and notifies on a change. A lineage selection
+   * belongs to the page, not to a task, and it must survive a reload: the
+   * family persists only what it is told to, and only its page scope loads
+   * what it persisted. Its notification is read by diffing the state, so
+   * the callback's payload shape does not matter; and if `set` does not
+   * notify, the change is broadcast here. */
+  var FAMILY = null, PENDING = null;
   function family() {
-    if (FAMILY !== undefined) return FAMILY;
-    FAMILY = null;
-    var lib = AgentDiff.lib || null;
-    if (!lib || typeof lib.family !== "function") return FAMILY;
-    try {
-      // a lineage selection belongs to the page, not to a task, and it must
-      // survive a reload: the library's family store persists only what it
-      // is told to, and only its page scope loads what it persisted
-      var f = lib.family("evolution", { gen: null, metric: "pass", range: null }, { scope: "page", persist: true });
-      if (!f || typeof f.get !== "function" || typeof f.set !== "function" || typeof f.subscribe !== "function") return FAMILY;
-      FAMILY = f;
-      f.subscribe(function () {
-        var next = {}; takeInto(next, f.get());
-        var changed = {};
-        KEYS.forEach(function (k) { if (k in next && !sameValue(k, next[k])) { S[k] = next[k]; changed[k] = true; } });
-        if (PENDING) { KEYS.forEach(function (k) { if (PENDING[k]) changed[k] = true; }); PENDING = null; }
-        if (Object.keys(changed).length) broadcast(changed);
-      });
-    } catch (err) { FAMILY = null; }
-    return FAMILY;
+    if (FAMILY) return FAMILY;
+    var f = FAMILY = L.family("evolution", { gen: null, metric: "pass", range: null }, { scope: "page", persist: true });
+    f.subscribe(function () {
+      var next = {}; takeInto(next, f.get());
+      var changed = {};
+      KEYS.forEach(function (k) { if (k in next && !sameValue(k, next[k])) { S[k] = next[k]; changed[k] = true; } });
+      if (PENDING) { KEYS.forEach(function (k) { if (PENDING[k]) changed[k] = true; }); PENDING = null; }
+      if (Object.keys(changed).length) broadcast(changed);
+    });
+    return f;
   }
   function loadState(m) {
     if (!S.loaded) {
       S.loaded = true;
-      var f = family();
-      if (f) takeInto(S, f.get());
-      else { var s = store(); takeInto(S, s ? s.get(PREF_KEY) : null); }
+      takeInto(S, family().get());
     }
     // a stored choice that this lineage cannot honour falls back to the last step
     if (!S.gen || !m.byId[S.gen]) S.gen = m.steps.length ? m.steps[m.steps.length - 1].to : m.last.id;
     if (S.range && (S.range[0] < 0 || S.range[1] >= m.gens.length || S.range[0] > S.range[1])) S.range = null;
     return S;
-  }
-  function saveState() {
-    var s = store();
-    if (s) { try { s.set(PREF_KEY, { gen: S.gen, metric: S.metric, range: S.range }); } catch (err) { /* quota; the session still holds it */ } }
   }
   function listen(host, fn) { LISTENERS.push({ host: host, fn: fn }); }
   function broadcast(what) {
@@ -413,16 +366,10 @@
       S[k] = patch[k]; changed[k] = true;
     });
     if (!Object.keys(changed).length) return;
-    var f = family();
-    if (f) {
-      // the library persists and notifies; a `set` that stays silent is broadcast here
-      PENDING = changed;
-      try { f.set({ gen: S.gen, metric: S.metric, range: S.range }); } catch (err) { /* the library is not ours to fix */ }
-      if (PENDING) { PENDING = null; broadcast(changed); }
-      return;
-    }
-    saveState();
-    broadcast(changed);
+    // the family persists and notifies; a `set` that stays silent is broadcast here
+    PENDING = changed;
+    family().set({ gen: S.gen, metric: S.metric, range: S.range });
+    if (PENDING) { PENDING = null; broadcast(changed); }
   }
   function selectedStep(m) { return m.stepByTo[S.gen] || null; }
   function inRange(m, g) { return !S.range || (g.i >= S.range[0] && g.i <= S.range[1]); }
