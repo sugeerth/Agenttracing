@@ -25,11 +25,23 @@ reader nothing about reading one:
 
 So ``best`` is g4, ``recommended`` is g4, and the last generation is
 not the one to keep — which is the reading a lineage tool exists to
-give. Every reward is paid by the same scripted environment as
+give.
+
+A second lineage, ``memo-agent`` under ``lineage_b/``, starts from the
+same baseline and evolves differently: by skills and small memories,
+never by touching its verifier's config. It fixes the flaky verifier by
+changing the verifier *skill* (argument validation before each check)
+rather than switching checks off. It learns more slowly, never games,
+never forgets, stays inside its budgets, and ends near where the first
+lineage's best generation is. Comparing the two is the point: one
+reached higher through a gamed step and a forgotten task, the other
+arrived later with nothing to apologise for, and their recommended
+generations do not separate on these runs. Every reward is paid by the same scripted environment as
 ``demo/rl/generate_rl.py`` (−0.1 per tool call, −1 on an error, +1 per
 fact found, ±5 at the answer), every value is invented and labelled so.
 
-    python demo/evolve/generate_evolve.py [out_dir]
+    python demo/evolve/generate_evolve.py                      # both lineages, in place
+    python demo/evolve/generate_evolve.py --family memo-agent [out_dir]
 """
 
 from __future__ import annotations
@@ -105,7 +117,7 @@ NOTES = [f"note {i + 1}: {t}" for i, t in enumerate([
 
 #: each generation: its artifacts (what a self-evolving agent actually
 #: has) and, separately, the hidden behaviour the rules stand for
-GENERATIONS = [
+GENERATIONS_A = [
     {"id": "g0", "parent": None, "mechanism": None, "evidence": None,
      "rules": ["Answer from the evidence you find."],
      "memory": [], "config": {"checks": 5, "max_search_retries": 1, "verify_before_answer": False},
@@ -165,11 +177,86 @@ GENERATIONS = [
      "note": "the forgotten task recovers; another one pays for it"},
 ]
 
-LINEAGE = {
-    "family": FAMILY,
-    "protected": ["config.checks", "tools.run_check"],
-    "budget": {"prompt_chars": 2500, "rules": 8, "memory": 20},
-    "note": NOTE,
+#: the eight generic notes memo-agent keeps: they name no task's facts
+MEMO_NOTES = [f"note {i + 1}: {t}" for i, t in enumerate([
+    "grep the directory before reading any file",
+    "the README often names the schema file",
+    "always look for the prior occurrence in history or alerts",
+    "if a search returns no rows, retry with the id prefix only",
+    "a check that errors is retried with validated arguments, never skipped",
+    "answer with the count and the figure on one line",
+    "read the file the task names before the ones it does not",
+    "confirm every item before composing the answer",
+])]
+
+VERIFIER_SKILL = "run {n} consistency checks before answering"
+VERIFIER_SKILL_FIXED = "validate the arguments, then run {n} consistency checks before answering"
+
+_MEMO_RULES = ["Answer from the evidence you find."]
+GENERATIONS_B = [
+    {"id": "g0", "parent": None, "mechanism": None, "evidence": None,
+     "rules": list(_MEMO_RULES),
+     "memory": [], "skills": {"verifier": VERIFIER_SKILL},
+     "config": {"checks": 5, "max_search_retries": 1, "verify_before_answer": False},
+     "sim": {"hit": 0.81, "error": 0.65, "adj": {}},
+     "note": "the same baseline as ledger-agent"},
+    {"id": "g1", "parent": "g0", "mechanism": "skill_add",
+     "evidence": {"tasks": ["rl01_ledger_reconcile", "rl04_query_regression"],
+                  "summary": "rows read without the schema in hand were misread", "source": "self"},
+     "rules": list(_MEMO_RULES),
+     "memory": [], "skills": {"verifier": VERIFIER_SKILL, "row-reader": "read the schema, then read a row against it"},
+     "config": {"checks": 5, "max_search_retries": 1, "verify_before_answer": False},
+     "sim": {"hit": 0.85, "error": 0.65, "adj": {}},
+     "note": "a skill for reading rows against the schema"},
+    {"id": "g2", "parent": "g1", "mechanism": "memory",
+     "evidence": {"tasks": ["rl02_flaky_test", "rl03_flag_rollout"],
+                  "summary": "the same three habits rediscovered on every run", "source": "self"},
+     "rules": list(_MEMO_RULES),
+     "memory": MEMO_NOTES[:4], "skills": {"verifier": VERIFIER_SKILL, "row-reader": "read the schema, then read a row against it"},
+     "config": {"checks": 5, "max_search_retries": 2, "verify_before_answer": False},
+     "sim": {"hit": 0.86, "error": 0.65, "adj": {}},
+     "note": "four generic notes"},
+    {"id": "g3", "parent": "g2", "mechanism": "skill_change",
+     "evidence": {"tasks": ["rl03_flag_rollout", "rl05_incident_postmortem"],
+                  "summary": "verification checks errored in two calls of three; the arguments were malformed, not the checks", "source": "self"},
+     "rules": list(_MEMO_RULES),
+     "memory": MEMO_NOTES[:4], "skills": {"verifier": VERIFIER_SKILL_FIXED, "row-reader": "read the schema, then read a row against it"},
+     "config": {"checks": 5, "max_search_retries": 2, "verify_before_answer": False},
+     "sim": {"hit": 0.86, "error": 0.20, "adj": {}},
+     "note": "the verifier fixed rather than switched off"},
+    {"id": "g4", "parent": "g3", "mechanism": "rule_add",
+     "evidence": {"tasks": ["rl01_ledger_reconcile", "rl06_api_contract"],
+                  "summary": "answers composed before the last item was confirmed", "source": "self"},
+     "rules": _MEMO_RULES + ["Confirm every item before composing the answer."],
+     "memory": MEMO_NOTES[:4], "skills": {"verifier": VERIFIER_SKILL_FIXED, "row-reader": "read the schema, then read a row against it"},
+     "config": {"checks": 5, "max_search_retries": 2, "verify_before_answer": True},
+     "sim": {"hit": 0.89, "error": 0.20, "adj": {}},
+     "note": "confirm before answering"},
+    {"id": "g5", "parent": "g4", "mechanism": "memory",
+     "evidence": {"tasks": ["rl04_query_regression", "rl05_incident_postmortem"],
+                  "summary": "the prior occurrence was in the history file every time", "source": "self"},
+     "rules": _MEMO_RULES + ["Confirm every item before composing the answer."],
+     "memory": MEMO_NOTES, "skills": {"verifier": VERIFIER_SKILL_FIXED, "row-reader": "read the schema, then read a row against it"},
+     "config": {"checks": 5, "max_search_retries": 2, "verify_before_answer": True},
+     "sim": {"hit": 0.905, "error": 0.20, "adj": {}},
+     "note": "four more generic notes"},
+    {"id": "g6", "parent": "g5", "mechanism": "skill_change",
+     "evidence": {"tasks": ["rl02_flaky_test"],
+                  "summary": "rows read against the wrong schema when a task has two", "source": "self"},
+     "rules": _MEMO_RULES + ["Confirm every item before composing the answer."],
+     "memory": MEMO_NOTES, "skills": {"verifier": VERIFIER_SKILL_FIXED, "row-reader": "read every schema the task names, then read a row against the one it belongs to"},
+     "config": {"checks": 5, "max_search_retries": 2, "verify_before_answer": True},
+     "sim": {"hit": 0.915, "error": 0.20, "adj": {}},
+     "note": "the row-reader skill refined"},
+]
+
+FAMILIES = {
+    "ledger-agent": {"generations": GENERATIONS_A, "dir": "lineage",
+                     "lineage": {"family": "ledger-agent", "protected": ["config.checks", "tools.run_check"],
+                                 "budget": {"prompt_chars": 2500, "rules": 8, "memory": 20}, "note": NOTE}},
+    "memo-agent": {"generations": GENERATIONS_B, "dir": "lineage_b",
+                   "lineage": {"family": "memo-agent", "protected": ["config.checks", "tools.run_check"],
+                               "budget": {"prompt_chars": 2500, "rules": 8, "memory": 20}, "note": NOTE}},
 }
 
 
@@ -182,22 +269,30 @@ def prompt_of(gen: dict) -> str:
 
 def artifacts_of(gen: dict) -> dict:
     tools = ["grep", "read_file", "search"] + (["run_check"] if gen["config"]["checks"] > 0 else [])
+    if "skills" in gen:
+        skills = [{"name": "reconcile", "body": "grep the directory, read every file, search each item, read its row"}]
+        skills += [{"name": name, "body": body.format(n=gen["config"]["checks"])} for name, body in gen["skills"].items()]
+    else:
+        skills = ([{"name": "reconcile", "body": "grep the directory, read every file, search each item, read its row"}]
+                  + ([{"name": "verifier", "body": f"run {gen['config']['checks']} consistency checks before answering"}]
+                     if gen["config"]["checks"] > 0 else []))
     return {
         "system_prompt": prompt_of(gen),
         "rules": list(gen["rules"]),
-        "skills": [{"name": "reconcile", "body": "grep the directory, read every file, search each item, read its row"}]
-                  + ([{"name": "verifier", "body": f"run {gen['config']['checks']} consistency checks before answering"}]
-                     if gen["config"]["checks"] > 0 else []),
+        "skills": skills,
         "tools": tools,
         "memory": list(gen["memory"]),
         "config": dict(gen["config"]),
     }
 
 
-def make(task: dict, gen: dict, run: str, out: Path) -> Path:
-    agent = f"{FAMILY}@{gen['id']}"
+def make(task: dict, gen: dict, run: str, out: Path, family: str = FAMILY) -> Path:
+    agent = f"{family}@{gen['id']}"
     sim, cfg = gen["sim"], gen["config"]
-    rng = random.Random(f"evolve|{task['id']}|{gen['id']}|{run}")
+    # the first family keeps the seed it shipped with, so its lineage is
+    # byte-identical to the one the tests pinned; a later family salts it
+    seed = f"evolve|{task['id']}|{gen['id']}|{run}" if family == FAMILY else f"evolve|{family}|{task['id']}|{gen['id']}|{run}"
+    rng = random.Random(seed)
     hit = min(0.999, max(0.05, sim["hit"] + sim["adj"].get(task["id"], 0.0)))
     checks, retries = cfg["checks"], cfg["max_search_retries"]
     expected_final = ANSWER_REWARD * (2 * hit ** len(task["items"]) - 1)
@@ -269,7 +364,7 @@ def make(task: dict, gen: dict, run: str, out: Path) -> Path:
     return path
 
 
-def write_generation(gen: dict, out: Path, parent_failures: dict) -> dict:
+def write_generation(gen: dict, out: Path, parent_failures: dict, family: str = FAMILY) -> dict:
     gdir = out / gen["id"]
     tdir = gdir / "traces"
     tdir.mkdir(parents=True, exist_ok=True)
@@ -277,7 +372,7 @@ def write_generation(gen: dict, out: Path, parent_failures: dict) -> dict:
     passes = total = 0
     for task in TASKS:
         for run in RUNS:
-            path = make(task, gen, run, tdir)
+            path = make(task, gen, run, tdir, family)
             data = json.loads(path.read_text(encoding="utf-8"))
             ok = bool(data["outcome"]["success"])
             passes += ok
@@ -294,26 +389,37 @@ def write_generation(gen: dict, out: Path, parent_failures: dict) -> dict:
             episodes += parent_failures.get(tid, [])[:3]
         evidence = {"episodes": episodes, "summary": gen["evidence"]["summary"], "source": gen["evidence"]["source"]}
     manifest = {
-        "id": gen["id"], "parent": gen["parent"], "family": FAMILY,
+        "id": gen["id"], "parent": gen["parent"], "family": family,
         "mechanism": gen["mechanism"], "evidence": evidence,
         "artifacts": artifacts_of(gen),
         "note": f"{NOTE} — {gen['note']}",
     }
     (gdir / "agent.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"{gen['id']}: {passes}/{total} pass, {len(manifest['artifacts']['system_prompt'])} prompt chars, "
+    print(f"{family}@{gen['id']}: {passes}/{total} pass, {len(manifest['artifacts']['system_prompt'])} prompt chars, "
           f"{len(gen['rules'])} rules, {len(gen['memory'])} notes, checks={gen['config']['checks']}")
     return failures
 
 
 def main(argv: list) -> int:
-    out = Path(argv[0]) if argv else Path(__file__).resolve().parent / "lineage"
-    out.mkdir(parents=True, exist_ok=True)
-    (out / "lineage.json").write_text(json.dumps(LINEAGE, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    failures: dict = {}
-    for gen in GENERATIONS:
-        failures = write_generation(gen, out, failures)
-    n = sum(1 for _ in out.glob("g*/traces/*.json"))
-    print(f"wrote {n} traces across {len(GENERATIONS)} generations to {out}")
+    """``generate_evolve.py [--family NAME] [out_dir]``: both lineages in
+    place by default; one family into ``out_dir`` when named."""
+    families = list(FAMILIES)
+    if argv and argv[0] == "--family":
+        if len(argv) < 2 or argv[1] not in FAMILIES:
+            print(f"error: --family takes one of {', '.join(FAMILIES)}", file=sys.stderr)
+            return 2
+        families, argv = [argv[1]], argv[2:]
+    here = Path(__file__).resolve().parent
+    for family in families:
+        spec = FAMILIES[family]
+        out = Path(argv[0]) if argv else here / spec["dir"]
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "lineage.json").write_text(json.dumps(spec["lineage"], indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        failures: dict = {}
+        for gen in spec["generations"]:
+            failures = write_generation(gen, out, failures, family)
+        n = sum(1 for _ in out.glob("g*/traces/*.json"))
+        print(f"wrote {n} traces across {len(spec['generations'])} generations of {family} to {out}")
     return 0
 
 

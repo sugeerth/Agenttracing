@@ -446,11 +446,18 @@
       groups: ["evolution"],
       blurb: "A self-evolving agent as a lineage: each generation, what it changed, whether that helped, and where the evolution went wrong.",
       open: Infinity,
-      /* The lineage first, then the ledger of steps, then every episode
-       * along constricted time, then the tasks across generations, then
-       * one step in full, then whether the evolution is sound and how far
-       * it has drifted. Overview, then details on demand. */
+      /* When two lineages are compared, the comparison leads: the learning
+       * curves, the four axes and their four answers, how soundly each
+       * evolved, the two recommended generations head to head, the task
+       * race, which kind of self-modification paid, and whether the two are
+       * becoming the same agent. Then the primary lineage on its own: the
+       * thread, the ledger of steps, every episode along constricted time,
+       * the tasks across generations, one step in full, whether the
+       * evolution is sound and how far it has drifted. Overview, then
+       * details on demand. A block absent from the data is simply absent. */
       order: [
+        "evc-curves", "evc-verdict", "evc-process", "evc-pair",
+        "evc-race", "evc-mechanisms", "evc-divergence",
         "evo-lineage", "evo-steps", "evo-timescape", "evo-matrix",
         "evo-step", "evo-integrity", "evo-drift",
       ],
