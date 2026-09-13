@@ -24272,8 +24272,15 @@ THIS SOFTWARE.
   //: ~6.2px per character at the page's small size; good enough to truncate by
   var CH = 6.2;
   function fit(text, px) { var n = Math.floor(px / CH); return n < 2 ? "" : trunc(text, n); }
-  //: the fold law: 4–5 units ≈ 20px, 11 ≈ 27px, 100 ≈ 46px
-  function foldW(units) { return 6 + 6 * Math.log(1 + Math.max(0, units)) / Math.LN2; }
+  /* The fold law — the impact block's: 4–5 units ≈ 20px, 11 ≈ 27px, 100 ≈
+   * 46px. Taken from the shared library when it is on the page, so the
+   * timescape and the impact panel cannot drift apart on it. */
+  function foldW(units, measure) {
+    var lib = AgentDiff.lib || null, g = lib && lib.glyph;
+    if (g && measure === "steps" && typeof g.foldWidth === "function") return g.foldWidth(units);
+    if (g && measure !== "steps" && typeof g.foldSeconds === "function") return g.foldSeconds(units);
+    return 6 + 6 * Math.log(1 + Math.max(0, units)) / Math.LN2;
+  }
   //: a "nice" tick interval: about a dozen ticks over the span
   function niceStep(total, steps) {
     var s = steps ? [1, 2, 5, 10, 20, 50, 100, 200, 500] : [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600];
@@ -24460,7 +24467,7 @@ THIS SOFTWARE.
    * breakpoints are the folds. A kept stretch is k px per unit, a fold is
    * its log-length; the folds together never take more than half the
    * width, so the clock keeps at least the other half. */
-  function constrict(wA, wB, quiet, unfolded, on, x0, x1) {
+  function constrict(wA, wB, quiet, unfolded, on, x0, x1, measure) {
     var segs = [], cur = wA, min = 1e-9;
     if (on) quiet.forEach(function (q) {
       var a = Math.max(q.a, wA), b = Math.min(q.b, wB);
@@ -24472,12 +24479,12 @@ THIS SOFTWARE.
     if (wB > cur + min) segs.push({ a: cur, b: wB, fold: false });
     if (!segs.length) segs.push({ a: wA, b: wA + 1, fold: false });
     var avail = Math.max(10, x1 - x0), kept = 0, foldPx = 0;
-    segs.forEach(function (s) { if (s.fold) foldPx += foldW(s.b - s.a); else kept += s.b - s.a; });
+    segs.forEach(function (s) { if (s.fold) foldPx += foldW(s.b - s.a, measure); else kept += s.b - s.a; });
     var fs = kept > 0 ? (foldPx > avail * 0.5 ? avail * 0.5 / foldPx : 1) : (foldPx > 0 ? avail / foldPx : 1);
     var k = kept > 0 ? Math.max(0, avail - foldPx * fs) / kept : 0;
     var dom = [], rng = [], x = x0, folds = [];
     segs.forEach(function (s) {
-      var w = s.fold ? foldW(s.b - s.a) * fs : (s.b - s.a) * k;
+      var w = s.fold ? foldW(s.b - s.a, measure) * fs : (s.b - s.a) * k;
       dom.push(s.a); rng.push(x);
       if (s.fold) folds.push({ a: s.a, b: s.b, x0: x, x1: x + w, q: s.q });
       x += w;
@@ -24884,7 +24891,7 @@ THIS SOFTWARE.
         var win = window_(), T = spanT();
         var qkey = scope.key + "|" + st.measure;
         if (!geo.quiet || geo.quiet.key !== qkey) geo.quiet = { key: qkey, list: quietOf(scope.eps, st.measure) };
-        var sc = constrict(win[0], win[1], geo.quiet.list, unfolded, st.constrict, x0, x1);
+        var sc = constrict(win[0], win[1], geo.quiet.list, unfolded, st.constrict, x0, x1, st.measure);
         geo.sc = sc;
         var content = geo.content; content.selectAll("*").remove();
         var svg = geo.svg;
@@ -25135,17 +25142,19 @@ THIS SOFTWARE.
             br.append("title").text("the verifier span: steps " + vi + "–" + (vj - 1));
             vi = vj;
           }
+          var inFold2 = function (i) { var t = ax.t0[i] + ax.dur[i] / 2; return sc.folds.some(function (f) { return t >= f.a && t < f.b; }); };
           for (var i = 0; i < ep.n; i++) {
             var a = sc.x(ax.t0[i]), b = sc.x(ax.t0[i] + ax.dur[i]);
             if (b < x0 || a > x1) continue;
-            var w = Math.max(2, b - a - 0.5), k = ep.kind[i], r = ep.rw[i], isErr = ep.fl[i].indexOf("e") >= 0;
-            var sg = g.append("g").attr("class", "evt-step").attr("data-step", i).attr("data-kind", kindWord(k)).attr("data-flags", ep.fl[i]);
-            if (k === 2) sg.append("rect").attr("x", a + (w - 9) / 2).attr("y", mid - 4.5).attr("width", 9).attr("height", 9).attr("fill", ep.success ? "var(--good)" : "var(--bad)");
+            var folded = inFold2(i), w = folded ? Math.max(0.5, b - a) : Math.max(2, b - a - 0.5), k = ep.kind[i], r = ep.rw[i], isErr = ep.fl[i].indexOf("e") >= 0;
+            var sg = g.append("g").attr("class", "evt-step").attr("data-step", i).attr("data-kind", kindWord(k)).attr("data-flags", ep.fl[i]).attr("data-folded", folded ? "true" : "false");
+            if (folded) sg.append("rect").attr("x", a).attr("y", mid - (k === 2 ? 4.5 : k === 1 ? 5 : 3)).attr("width", w).attr("height", k === 2 ? 9 : k === 1 ? 10 : 6).attr("fill", isErr ? "var(--bad)" : k === 2 ? (ep.success ? "var(--good)" : "var(--bad)") : k === 1 ? "var(--ink-2)" : "var(--ink-3)").attr("fill-opacity", k === 0 ? 0.35 : 0.75);
+            else if (k === 2) sg.append("rect").attr("x", a + (w - 9) / 2).attr("y", mid - 4.5).attr("width", 9).attr("height", 9).attr("fill", ep.success ? "var(--good)" : "var(--bad)");
             else if (k === 1) sg.append("rect").attr("x", a).attr("y", mid - 5).attr("width", w).attr("height", 10).attr("fill", isErr ? "var(--bad)" : "var(--ink-2)").attr("fill-opacity", isErr ? 0.9 : 0.75);
             else sg.append("rect").attr("x", a).attr("y", mid - 3).attr("width", w).attr("height", 6).attr("fill", "var(--ink-3)").attr("fill-opacity", 0.35);
-            if (isErr) sg.append("circle").attr("cx", a + w / 2).attr("cy", mid).attr("r", 6.5).attr("fill", "none").attr("stroke", "var(--bad)").attr("stroke-width", 1.5);
-            if (r > 0 && k !== 2) sg.append("text").attr("class", "g").attr("x", a + w / 2).attr("y", mid - 7).attr("text-anchor", "middle").attr("fill", "var(--good)").text("◆");
-            if (ep.fl[i].indexOf("d") >= 0) sg.append("circle").attr("cx", a + w / 2).attr("cy", mid).attr("r", 5).attr("fill", "none").attr("stroke", "var(--bad)").attr("stroke-width", 2);
+            if (isErr && !folded) sg.append("circle").attr("cx", a + w / 2).attr("cy", mid).attr("r", 6.5).attr("fill", "none").attr("stroke", "var(--bad)").attr("stroke-width", 1.5);
+            if (r > 0 && k !== 2 && !folded) sg.append("text").attr("class", "g").attr("x", a + w / 2).attr("y", mid - 7).attr("text-anchor", "middle").attr("fill", "var(--good)").text("◆");
+            if (ep.fl[i].indexOf("d") >= 0 && !folded) sg.append("circle").attr("cx", a + w / 2).attr("cy", mid).attr("r", 5).attr("fill", "none").attr("stroke", "var(--bad)").attr("stroke-width", 2);
             // the hit target is the step's own interval, so neighbours never cover each other
             sg.append("rect").attr("x", a).attr("y", mid - 10).attr("width", Math.max(1, b - a)).attr("height", 20).attr("fill", "transparent");
             sg.append("title").text("step " + i + " · " + kindWord(k) + " " + ep.nm[i] + " · reward " + signed(r) + " — click to open");
