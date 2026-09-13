@@ -18,20 +18,14 @@
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
 
   // ------------------------------------------------------------------ style
   // The shell cannot be edited from a module, so the few primitives these
   // blocks need beyond .kv/.tag/.grid are appended once, guarded.
 
-  var styleInjected = false;
   function ensureStyle() {
-    if (styleInjected) return;
-    styleInjected = true;
-    try {
-      if (document.getElementById("agentdiff-signal-style")) return;
-      var node = document.createElement("style");
-      node.id = "agentdiff-signal-style";
-      node.textContent = [
+    L.style.once("agentdiff-signal-style", [
         ".sig-note{border:1px solid var(--rule);border-left-width:3px;border-radius:7px;",
         "padding:7px 9px;font-size:var(--fs-s);line-height:1.45;margin:0 0 9px;",
         "background:var(--surface-2);color:var(--ink-2)}",
@@ -59,9 +53,7 @@
         "color:var(--ink-3);margin:11px 0 5px}",
         ".sig-h:first-child{margin-top:0}",
         ".sig-more{margin-top:8px}",
-      ].join("");
-      document.head.appendChild(node);
-    } catch (err) { /* styling is a nicety; the blocks still read without it */ }
+      ].join(""));
   }
 
   // ------------------------------------------------------------------ utils

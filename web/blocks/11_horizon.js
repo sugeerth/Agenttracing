@@ -13,13 +13,11 @@
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("horizon", [
       ".nh-lede{font-size:var(--fs-m);color:var(--ink-2);margin:0 0 8px}",
       ".nh-h{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin:12px 0 4px}",
       ".nh-prompts{list-style:none;margin:0;padding:0}",
@@ -42,11 +40,9 @@
       ".nh-export code{font-family:var(--mono);background:var(--surface-2);padding:2px 6px;border-radius:4px}",
       "body[data-view=\"story\"] .nh-export code{background:transparent;padding:0}",
       ".nh-copy{font:inherit;font-size:var(--fs-xs);padding:1px 8px;border:1px solid var(--rule-2);border-radius:999px;background:var(--surface);color:var(--ink-2);cursor:pointer}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
 
   function copyable(ctx, text) {
     var b = ctx.h("button", { class: "nh-copy", type: "button", text: "copy" });

@@ -7836,3 +7836,322 @@ class EvolutionBlocksTest(unittest.TestCase):
         self.assertEqual(wide, [])
         self.assertEqual(self._errors(errors), [])
         context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class EvolutionCompareBlocksTest(unittest.TestCase):
+    """The comparison blocks of the Evolution view (35_evocompare.js): two
+    self-evolving agents read as evolution processes, from the real
+    `evolve --against` output on the two demo lineages.
+
+    Every figure on the page must be the one `aggregate.evolution_compare`
+    carries — the curves' points and marks, the four winners, the verdict
+    counts, the head-to-head probability, every cell of the race, every
+    mechanism, every generation of the divergence — and the selection made
+    in one block must reach the others and survive a reload. Nothing here
+    pins a number of the demo: the blocks are checked against the JSON
+    they were given, so a regenerated demo does not break the page's
+    promise, only the engine's tests would."""
+
+    tmp = None
+    IDS = ("evc-curves", "evc-verdict", "evc-process", "evc-pair", "evc-race", "evc-mechanisms", "evc-divergence")
+
+    @classmethod
+    def setUpClass(cls):
+        a = ROOT / "demo" / "evolve" / "lineage"
+        b = ROOT / "demo" / "evolve" / "lineage_b"
+        if not (a.is_dir() and b.is_dir()):
+            raise unittest.SkipTest("the two demo lineages are not there")
+        helptext = subprocess.run([sys.executable, "-m", "deepcompare", "evolve", "--help"],
+                                  cwd=str(ROOT), capture_output=True, text=True).stdout
+        if "--against" not in helptext:
+            raise unittest.SkipTest("the evolve command cannot compare lineages yet")
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "evc"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "deepcompare", "evolve", str(a), "--against", str(b), "-o", str(out),
+                        "--template", str(ROOT / "web" / "blocks.html")], cwd=str(ROOT), check=True, capture_output=True)
+        agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
+        cls.ec = agg.get("evolution_compare") or {}
+        if not cls.ec.get("measurable"):
+            raise unittest.SkipTest("the comparison of the demo lineages is not measurable")
+        cls.families = [l["family"] for l in cls.ec["lineages"]]
+        cls.page_path = out / "report.html"
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _open(self, width=1280):
+        context = self.browser.new_context(viewport={"width": width, "height": 1000})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view=evolution")
+        page.wait_for_timeout(900)
+        page.evaluate("AgentDiff.evolutionCompare.select({gen: null, x: 'index', pair: 'peak'})")
+        page.wait_for_timeout(200)
+        return context, page, errors
+
+    def _errors(self, errors):
+        # a sibling block failing is not this block's failure to report
+        return [e for e in errors if "evocompare" in e or "evc-" in e]
+
+    @staticmethod
+    def _pct(v):
+        return f"{int(v * 100 + 0.5)}%"
+
+    @staticmethod
+    def _short(task):
+        import re
+        return re.sub(r"^(rl|t)\d+_", "", task).replace("_", " ")
+
+    # ------------------------------------------------------------ the lane
+
+    def test_the_seven_blocks_lead_the_evolution_lane_in_reading_order(self):
+        context, page, errors = self._open()
+        order = page.evaluate("""() => [...document.querySelectorAll('[data-block]')].map(c => c.getAttribute('data-block')).filter(id => /^ev[co]-/.test(id))""")
+        self.assertEqual(tuple(order[:len(self.IDS)]), self.IDS)
+        for bid in self.IDS:
+            block = page.locator(f'[data-block="{bid}"]')
+            self.assertEqual(block.count(), 1, bid)
+            self.assertEqual(block.locator(".empty:visible").count(), 0, bid)
+            self.assertNotIn("failed to render", block.inner_text(), bid)
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    # ----------------------------------------------------------- the curves
+
+    def test_the_curves_draw_every_generation_with_the_threshold_and_the_marks(self):
+        context, page, errors = self._open()
+        block = page.locator('[data-block="evc-curves"]')
+        by_index = self.ec["curves"]["by_index"]
+        for fam in self.families:
+            expected = sum(1 for r in by_index[fam] if isinstance(r.get("point"), (int, float)))
+            self.assertEqual(block.locator(f'g.evc-lineage[data-family="{fam}"] g.pt').count(), expected, fam)
+        reached = self.ec["race"]["reached"]
+        self.assertEqual(block.locator('g.pt[data-reached="1"]').count(), sum(1 for f in self.families if reached.get(f)))
+        self.assertEqual(block.locator('g.pt[data-recommended="1"]').count(), sum(1 for l in self.ec["lineages"] if l.get("recommended")))
+        thr = self.ec["race"]["threshold"]
+        self.assertEqual(block.locator("line.evc-threshold").count(), 1 if isinstance(thr.get("value"), (int, float)) else 0)
+        if isinstance(thr.get("value"), (int, float)):
+            self.assertIn(thr["source"][:40], block.locator(".evc-note").first.inner_text())
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    def test_the_x_measure_toggles_moves_the_points_and_survives_a_reload(self):
+        context, page, errors = self._open()
+        before = page.evaluate("""() => [...document.querySelectorAll('[data-block="evc-curves"] g.evc-lineage[data-side="b"] g.pt')].map(g => g.getAttribute('transform'))""")
+        page.locator('[data-block="evc-curves"] button[data-x="episodes"]').click()
+        page.wait_for_timeout(600)
+        after = page.evaluate("""() => [...document.querySelectorAll('[data-block="evc-curves"] g.evc-lineage[data-side="b"] g.pt')].map(g => g.getAttribute('transform'))""")
+        self.assertEqual(page.evaluate("document.querySelector('[data-block=\"evc-curves\"] svg').getAttribute('data-x')"), "episodes")
+        self.assertEqual(len(before), len(after))
+        self.assertNotEqual(before, after)
+        self.assertEqual(page.evaluate("AgentDiff._internals.Store.get('agentdiff:evolution-compare')")["x"], "episodes")
+        page.reload()
+        page.wait_for_timeout(900)
+        self.assertEqual(page.evaluate("AgentDiff.evolutionCompare.state().x"), "episodes")
+        self.assertEqual(page.evaluate("document.querySelector('[data-block=\"evc-curves\"] svg').getAttribute('data-x')"), "episodes")
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    def test_selecting_a_generation_carries_across_the_blocks(self):
+        context, page, errors = self._open()
+        n = max(len(self.ec["curves"]["by_index"][f]) for f in self.families)
+        k = min(2, n - 1)
+        page.locator(f'[data-block="evc-curves"] g.pt[data-index="{k}"]').first.click()
+        page.wait_for_timeout(500)
+        self.assertEqual(page.evaluate("AgentDiff.evolutionCompare.state().gen"), k)
+        band = page.evaluate(f"document.querySelector('[data-block=\"evc-race\"] rect.evc-col[data-index=\"{k}\"]').getAttribute('fill-opacity')")
+        self.assertGreater(float(band), 0)
+        trackers = page.evaluate("""() => [...document.querySelectorAll('[data-block="evc-divergence"] line.evc-tracker')].map(l => parseFloat(l.getAttribute('stroke-opacity')))""")
+        self.assertTrue(trackers and all(t > 0 for t in trackers))
+        self.assertEqual(page.evaluate(f"document.querySelectorAll('[data-block=\"evc-curves\"] g.pt[data-index=\"{k}\"][aria-current=\"true\"]').length"), len(self.families))
+        # the primary lineage's own blocks follow
+        gen_a = self.ec["curves"]["by_index"][self.families[0]][k]["id"]
+        self.assertEqual(page.evaluate("AgentDiff.evolution ? AgentDiff.evolution.state().gen : null"), gen_a)
+        page.reload()
+        page.wait_for_timeout(900)
+        self.assertEqual(page.evaluate("AgentDiff.evolutionCompare.state().gen"), k)
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    # ---------------------------------------------------------- the verdict
+
+    def test_the_verdict_rows_say_what_the_engine_said(self):
+        context, page, errors = self._open()
+        block = page.locator('[data-block="evc-verdict"]')
+        v = self.ec["verdict"]
+        for axis in ("peak", "final", "learning", "process"):
+            row = block.locator(f'g.evc-axis[data-axis="{axis}"]')
+            self.assertEqual(row.count(), 1, axis)
+            self.assertEqual(row.get_attribute("data-winner"), v.get(axis) or "", axis)
+            item = block.locator(f'li[data-axis="{axis}"]')
+            self.assertEqual(item.get_attribute("data-winner"), v.get(axis) or "", axis)
+            self.assertIn(v.get(axis) or "does not separate", item.inner_text())
+        self.assertIn(self.ec["peak"]["reading"][:60], block.locator('li[data-axis="peak"]').inner_text())
+        self.assertIn(self.ec["final"]["reading"][:60], block.locator('li[data-axis="final"]').inner_text())
+        winners = [f for f in self.families if any(v.get(ax) == f for ax in ("peak", "final", "learning", "process"))]
+        lede = block.locator(".evc-lede").inner_text()
+        for f in winners:
+            self.assertIn(f + " takes", lede)
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    # ---------------------------------------------------------- the process
+
+    def test_the_process_bars_count_the_verdicts_in_their_colours_and_the_table_names_the_lost_tasks(self):
+        context, page, errors = self._open()
+        block = page.locator('[data-block="evc-process"]')
+        colours = {"improved": "var(--good)", "regressed": "var(--bad)", "flat": "var(--ink-3)", "gamed": "var(--bad)",
+                   "forgot": "var(--warn)", "overfit": "var(--warn)", "traded": "var(--warn)"}
+        for fam in self.families:
+            p = self.ec["process"][fam]
+            row = block.locator(f'g.evc-prow[data-family="{fam}"]')
+            total = 0
+            for i in range(row.locator("g.evc-seg-v").count()):
+                seg = row.locator("g.evc-seg-v").nth(i)
+                verdict = seg.get_attribute("data-verdict")
+                count = int(seg.get_attribute("data-count"))
+                self.assertEqual(count, p[verdict], f"{fam} {verdict}")
+                self.assertEqual(seg.locator("rect").first.get_attribute("fill"), colours[verdict], f"{fam} {verdict}")
+                total += count
+            self.assertEqual(total, sum(p[k] for k in colours if isinstance(p.get(k), int)), fam)
+        block.locator(".evc-details summary").click()
+        page.wait_for_timeout(200)
+        table = block.locator("table.evc-process-table")
+        for i, fam in enumerate(self.families):
+            p = self.ec["process"][fam]
+            self.assertEqual(table.locator('tr[data-measure="gamed"] td').nth(i + 1).inner_text(), str(p["gamed"]))
+            self.assertEqual(table.locator('tr[data-measure="protected_touched"] td').nth(i + 1).inner_text(), str(p["protected_touched"]))
+            lost = p["retention"]["lost"]
+            cell = table.locator('tr[data-measure="lost"] td').nth(i + 1).inner_text()
+            self.assertEqual(cell, ", ".join(self._short(t) for t in lost) if lost else "none", fam)
+        self.assertIn(self.ec["verdict"].get("process") or "does not separate", block.locator(".evc-lede").inner_text())
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    # ------------------------------------------------------------- the pair
+
+    def test_the_pair_shows_the_engine_probability_every_shared_task_and_toggles_to_final(self):
+        context, page, errors = self._open()
+        block = page.locator('[data-block="evc-pair"]')
+        peak = self.ec["peak"]
+        big = block.locator(".evc-big").inner_text()
+        self.assertIn(self._pct(peak["improvement"]["point"]), big)
+        self.assertIn(peak["a"]["id"], big)
+        self.assertIn(peak["b"]["id"], big)
+        self.assertEqual(block.locator("g.evc-tdot").count(), len(peak["per_task"]))
+        for task, cell in peak["per_task"].items():
+            dot = block.locator(f'g.evc-tdot[data-task="{task}"]')
+            self.assertAlmostEqual(float(dot.get_attribute("data-delta")), cell["delta"], places=4, msg=task)
+            self.assertEqual(dot.locator('rect.evc-pass[data-side="a"]').get_attribute("data-pass"), f"{cell['pass_a']:.2f}", task)
+            self.assertEqual(dot.locator('rect.evc-pass[data-side="b"]').get_attribute("data-pass"), f"{cell['pass_b']:.2f}", task)
+        self.assertEqual(block.locator("svg").count(), 2)
+        block.locator('button[data-pair="final"]').click()
+        page.wait_for_timeout(500)
+        final = self.ec["final"]
+        self.assertEqual(block.locator(".evc-pair-body").get_attribute("data-pair"), "final")
+        big2 = block.locator(".evc-big").inner_text()
+        self.assertIn(self._pct(final["improvement"]["point"]), big2)
+        self.assertIn(final["b"]["id"], big2)
+        self.assertEqual(block.locator("g.evc-tdot").count(), len(final["per_task"]))
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    # ------------------------------------------------------------- the race
+
+    def test_the_race_has_both_marks_in_every_cell_and_names_the_first_solver(self):
+        context, page, errors = self._open()
+        block = page.locator('[data-block="evc-race"]')
+        tasks = self.ec["task_race"]["tasks"]
+        n = max(len(self.ec["curves"]["by_index"][f]) for f in self.families)
+        shared = [t for t in self.ec["tasks"]["shared"] if t in tasks]
+        self.assertEqual(block.locator("g.evc-cell").count(), len(shared) * n * len(self.families))
+        for task in shared:
+            edge = block.locator(f'g.evc-edge[data-task="{task}"]')
+            self.assertEqual(edge.get_attribute("data-first"), self.ec["task_race"]["first_solver"].get(task) or "", task)
+            for fam in self.families:
+                curve = tasks[task][fam]["pass_curve"]
+                for k, v in enumerate(curve):
+                    cell = block.locator(f'g.evc-cell[data-task="{task}"][data-family="{fam}"][data-index="{k}"]')
+                    self.assertEqual(cell.get_attribute("data-pass"), f"{v:.3f}", f"{task} {fam} {k}")
+                first = tasks[task][fam].get("first_solved_index")
+                self.assertEqual(block.locator(f'g.evc-cell[data-task="{task}"][data-family="{fam}"][data-first="1"]').count(), 1 if isinstance(first, int) else 0)
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    # ------------------------------------------------------- the mechanisms
+
+    def test_every_mechanism_has_its_dot_and_the_best_paying_one_is_named(self):
+        context, page, errors = self._open()
+        block = page.locator('[data-block="evc-mechanisms"]')
+        expected = sum(len(self.ec["process"][f]["mechanisms"]) for f in self.families)
+        self.assertEqual(block.locator("g.evc-mdot").count(), expected)
+        lede = block.locator(".evc-lede").inner_text()
+        for fam in self.families:
+            best = self.ec["process"][fam].get("best_paying_mechanism")
+            if best:
+                self.assertIn(f"for {fam}, {best} paid best", lede.lower())
+            for mech, cell in self.ec["process"][fam]["mechanisms"].items():
+                dot = block.locator(f'g.evc-mrow[data-mechanism="{mech}"] g.evc-mdot[data-family="{fam}"]')
+                self.assertEqual(int(dot.get_attribute("data-steps")), cell["steps"], f"{fam} {mech}")
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    # ------------------------------------------------------- the divergence
+
+    def test_the_divergence_draws_every_generation_and_says_the_direction(self):
+        context, page, errors = self._open()
+        block = page.locator('[data-block="evc-divergence"]')
+        rows = self.ec["by_generation"]
+        self.assertEqual(block.locator("circle.evc-dpt").count(), sum(1 for r in rows if isinstance(r.get("behaviour_distance"), (int, float))))
+        self.assertEqual(block.locator("circle.evc-ppt").count(), sum(1 for r in rows if r.get("improvement") and isinstance(r["improvement"].get("point"), (int, float))))
+        self.assertIn(block.locator(".evc-div-reading").get_attribute("data-direction"), ("converging", "diverging", "neither"))
+        if self.ec.get("by_generation_reading"):
+            self.assertIn(self.ec["by_generation_reading"][:50], block.locator(".evc-reading").inner_text())
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    # ------------------------------------------------------------- the page
+
+    def test_nothing_overflows_on_a_phone_every_chart_is_labelled_and_no_text_is_too_small(self):
+        context, page, errors = self._open(width=390)
+        self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), 392)
+        for bid in self.IDS:
+            block = page.locator(f'[data-block="{bid}"]')
+            box = block.bounding_box()
+            self.assertLessEqual(box["x"] + box["width"], 391, bid)
+            self.assertEqual(block.locator(".empty:visible").count(), 0, bid)
+        audit = page.evaluate("""() => {
+          const out = {bad: [], small: [], svgs: 0};
+          document.querySelectorAll('[data-block^="evc-"]').forEach(function (card) {
+            card.querySelectorAll('svg').forEach(function (s) {
+              out.svgs++;
+              if (s.getAttribute('role') !== 'img' || !(s.getAttribute('aria-label') || '').trim()) out.bad.push(card.getAttribute('data-block'));
+            });
+            const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
+            let node;
+            while ((node = walker.nextNode())) {
+              if (!node.textContent.trim()) continue;
+              const el = node.parentElement; if (!el) continue;
+              if (parseFloat(getComputedStyle(el).fontSize) < 11) out.small.push(node.textContent.trim().slice(0, 30));
+            }
+          });
+          return out; }""")
+        self.assertGreaterEqual(audit["svgs"], 9)
+        self.assertEqual(audit["bad"], [])
+        self.assertEqual(audit["small"], [])
+        self.assertEqual(self._errors(errors), [])
+        context.close()

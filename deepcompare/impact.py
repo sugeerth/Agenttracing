@@ -53,6 +53,8 @@ import math
 from typing import Optional
 
 from .horizon import BOUNDARY_INTENTS
+from ._stats import percentile
+from ._text import join_names, secs, side_name
 from . import sections as _sections
 
 TOOLISH = ("tool_call", "search", "retrieve", "read")
@@ -80,14 +82,6 @@ SPLIT_OVER = 40         #: clusters with more steps than this are split ...
 CHUNK = 25              #: ... into chunks of at most this many steps
 TARGET_MAX = 48         #: coalesce until at most this many clusters remain
 MARK_ORDER = {"decisive": 0, "fault": 1, "error": 2, "retry": 3, "milestone": 3, "divergence": 3, "answer": 3}
-
-
-def _fmt_s(v: float) -> str:
-    return f"{v:.0f}s" if v >= 10 else f"{v:.1f}s" if v >= 1 else f"{v:.2f}s"
-
-
-def _fmt_score_s(v: float) -> str:
-    return f"{v:.0f}s" if v >= 10 else f"{v:.1f}s"
 
 
 # ---------------------------------------------------------------- lanes
@@ -237,18 +231,9 @@ def _raw(facts: list, lo: int, hi: int) -> float:
     return sum(facts[p]["score"] for p in range(lo, hi))
 
 
-def _percentile(values: list, q: float) -> float:
-    if not values:
-        return 0.0
-    v = sorted(values)
-    k = (len(v) - 1) * q
-    lo, hi = int(math.floor(k)), int(math.ceil(k))
-    return v[lo] + (v[hi] - v[lo]) * (k - lo)
-
-
 def _merge_quiet(groups: list, facts: list, lane_of: list) -> list:
     scores = [_raw(facts, lo, hi) for lo, hi in groups]
-    p25 = _percentile(scores, 0.25)
+    p25 = percentile(scores, 0.25)
     quiet = [s <= p25 for s in scores]
     out: list = []
     for g, q in zip(groups, quiet):
@@ -369,7 +354,7 @@ def _why(reasons: dict) -> str:
     if reasons["retries"]:
         bits.append(f"{reasons['retries']} retr{'ies' if reasons['retries'] != 1 else 'y'}")
     if reasons["wasted_s"] >= 0.05:
-        bits.append(f"{_fmt_score_s(reasons['wasted_s'])} wasted")
+        bits.append(f"{secs(reasons['wasted_s'], tenths_above=None)} wasted")
     if reasons["fault_steps"]:
         n = reasons["fault_steps"]
         bits.append("on the fault's path" if n == 1 else f"{n} steps on the fault's path")
@@ -416,10 +401,6 @@ def _cluster(cid: str, chunk: list, lane: str, span_agent: list) -> dict:
     }
 
 
-def _side_name(report: dict, side: str) -> str:
-    return str((((report.get(side) or {}).get("agent") or {}).get("name")) or side)
-
-
 def _empty(name: str) -> dict:
     return {"measurable": False, "total_s": 0.0, "total_steps": 0, "clusters": [], "hot": [], "lanes": [], "scale": "run",
             "narrative": f"{name}: no steps, so nothing to weigh."}
@@ -429,7 +410,7 @@ def impact_run(report: dict, side: str) -> dict:
     """One side of a report weighed: its clusters, the hot ones, its
     lanes, a narrative. Works on the report dict alone; a missing
     optional section contributes nothing and never raises."""
-    name = _side_name(report, side)
+    name = side_name(report, side)
     steps = [s for s in ((report.get(side) or {}).get("steps") or []) if isinstance(s, dict)]
     if not steps:
         return _empty(name)
@@ -458,7 +439,7 @@ def cluster_steps(report: dict, side: str, steps: list, facts: list, marks=None)
     chunk of facts returning that cluster's marks instead of the impact
     ones. Returns ``{"clusters", "lanes", "total_s"}`` with every cluster
     unnormalised (``impact`` 0, ``kind`` quiet); the caller scales."""
-    name = _side_name(report, side)
+    name = side_name(report, side)
     lane_of, span_agent, lanes = _lanes_of(steps, name)
     reading = ((report.get("reading") or {}).get(side) or {})
     phase_of: dict = {}
@@ -508,11 +489,11 @@ def _cluster_cite(c: dict) -> str:
 def _run_narrative(name: str, r: dict, quiet_share: Optional[float]) -> str:
     by_id = {c["id"]: c for c in r["clusters"]}
     head = f"{name}: {len(r['clusters'])} cluster{'s' if len(r['clusters']) != 1 else ''} over {r['total_steps']} step{'s' if r['total_steps'] != 1 else ''}"
-    head += f" and {_fmt_s(r['total_s'])}" if r["total_s"] > 0 else " (no latency recorded)"
+    head += f" and {secs(r['total_s'])}" if r["total_s"] > 0 else " (no latency recorded)"
     parts = [head]
     if r["hot"]:
         cites = [_cluster_cite(by_id[cid]) for cid in r["hot"]]
-        parts.append(("the hot ones are " if len(cites) > 1 else "the hot one is ") + (", ".join(cites[:-1]) + " and " + cites[-1] if len(cites) > 1 else cites[0]))
+        parts.append(("the hot ones are " if len(cites) > 1 else "the hot one is ") + join_names(cites))
     else:
         parts.append("no cluster is hot")
     if quiet_share is not None:
@@ -527,7 +508,7 @@ def impact_pair(report: dict) -> dict:
     has no steps."""
     a = impact_run(report, "a")
     b = impact_run(report, "b")
-    na, nb = _side_name(report, "a"), _side_name(report, "b")
+    na, nb = side_name(report, "a"), side_name(report, "b")
     parts: list = []
     if a["measurable"] and b["measurable"]:
         top = max(c["score"] for r in (a, b) for c in r["clusters"])

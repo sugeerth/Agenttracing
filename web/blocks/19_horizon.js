@@ -12,13 +12,10 @@
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
+  var L = AgentDiff.lib;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("horizon-hz", [
       ".hz-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 6px}",
       ".hz-axis{display:inline-flex;gap:2px}.hz-grp{display:inline-flex;gap:6px;align-items:center;padding-right:10px;border-right:1px solid var(--rule)}",
       ".hz-axis-btn{font:inherit;font-size:var(--fs-xs);padding:0 7px;border:1px solid var(--rule-2);border-radius:999px;background:var(--surface);color:var(--ink-2);cursor:pointer;line-height:1.5}",
@@ -35,8 +32,7 @@
       ".hz-agents td{padding:3px 12px 3px 0;border-top:1px solid var(--rule);color:var(--ink-2)}",
       ".hz-agents td.n{text-align:right}.hz-agents td i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:-1px}",
       ".hz-full{font-size:var(--fs-xs);color:var(--ink-3);margin:6px 0 0;max-width:100ch}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
   var HzView = {};   // per task: icicle | tree | diff

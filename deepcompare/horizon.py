@@ -16,22 +16,24 @@ cost and returned, and where the fault entered.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Optional
 
+from . import sections as _sections
+from ._text import secs
 from .timing import time_attribution
 from .trace import Trajectory
-from . import sections as _sections
 
 TOOLISH = ("tool_call", "search", "retrieve", "read")
 BOUNDARY_INTENTS = ("frame", "decide", "plan")
 
 
-def _fmt_s(v: float) -> str:
-    return f"{v:.1f}s" if v >= 1 else f"{v:.2f}s"
+#: the timing section's spelling, so a span and its steps read the same
+_secs = partial(secs, whole_above=None)
 
 
 def _node(kind: str, key: str, label: str, steps: list, rows: dict, fault: set, decisive: Optional[int], values: dict, agent: Optional[str]) -> dict:
-    secs = sum(rows[i]["latency_s"] for i in steps if i in rows)
+    seconds = sum(rows[i]["latency_s"] for i in steps if i in rows)
     wasted = sum(rows[i]["latency_s"] for i in steps if i in rows and rows[i]["wasted"])
     tools: dict = {}
     for i in steps:
@@ -42,7 +44,7 @@ def _node(kind: str, key: str, label: str, steps: list, rows: dict, fault: set, 
     return {
         "kind": kind, "key": key, "label": label, "agent": agent,
         "from": steps[0] if steps else None, "to": steps[-1] if steps else None, "count": len(steps),
-        "seconds": round(secs, 4), "wasted_s": round(wasted, 4),
+        "seconds": round(seconds, 4), "wasted_s": round(wasted, 4),
         "wasted_steps": sum(1 for i in steps if i in rows and rows[i]["wasted"]),
         "tokens": sum(int(rows[i]["tokens"] or 0) for i in steps if i in rows and isinstance(rows[i]["tokens"], (int, float))),
         "tool_calls": sum(tools.values()), "tools": tools, "top_tool": top,
@@ -192,11 +194,11 @@ def segment(traj: Trajectory, reading: Optional[dict] = None, *, fault_steps: Op
     dec_ep = next((e for e in eps if e["decisive"]), None)
     parts = [f"{root_agent}: {len(traj.steps)} step(s) in {len(eps)} subdivision(s)" + (f" across {len(agents)} sub-agent(s)" if agents else "")]
     if longest and total:
-        parts.append(f"the longest, '{longest['label']}' (steps {longest['from']}–{longest['to']}), took {_fmt_s(longest['seconds'])} — {longest['seconds'] / total:.0%} of the run"
+        parts.append(f"the longest, '{longest['label']}' (steps {longest['from']}–{longest['to']}), took {_secs(longest['seconds'])} — {longest['seconds'] / total:.0%} of the run"
                      + (f", {longest['wasted_s'] / longest['seconds']:.0%} of it wasted" if longest["seconds"] and longest["wasted_s"] else ""))
     for a in sorted(agents.values(), key=lambda x: -x["seconds"]):
-        parts.append(f"sub-agent {a['agent']}: {a['delegations']} delegation(s), {a['steps']} step(s), {_fmt_s(a['seconds'])}"
-                     + (f" of which {_fmt_s(a['wasted_s'])} wasted" if a["wasted_s"] else "") + (f", {a['errors']} error(s)" if a["errors"] else ""))
+        parts.append(f"sub-agent {a['agent']}: {a['delegations']} delegation(s), {a['steps']} step(s), {_secs(a['seconds'])}"
+                     + (f" of which {_secs(a['wasted_s'])} wasted" if a["wasted_s"] else "") + (f", {a['errors']} error(s)" if a["errors"] else ""))
     if dec_ep:
         parts.append(f"the decisive step is inside '{dec_ep['label']}' (steps {dec_ep['from']}–{dec_ep['to']})" + (f", the work of sub-agent {dec_ep['agent']}" if dec_ep["agent"] != root_agent else ""))
     elif fault_ep:

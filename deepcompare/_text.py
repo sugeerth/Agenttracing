@@ -9,10 +9,9 @@ once.
 
 Two sections did not always spell the same thing the same way. Where they
 differ, both spellings are kept behind a parameter — ``num(..., trim=)``,
-``pct(..., style=)``, ``secs(..., whole_above=, tenths_above=)`` — so that
-no narrative changed by a byte when the helpers moved. The defaults are
-the spelling most sections use; a later, deliberate unification can drop
-the alternatives.
+``secs(..., whole_above=, tenths_above=)`` — so that no narrative changed
+by a byte when the helpers moved. The defaults are the spelling most
+sections use; a later, deliberate unification can drop the alternatives.
 """
 
 from __future__ import annotations
@@ -50,22 +49,17 @@ def signed(v: Optional[float], places: int = 2, *, trim: bool = True, none: str 
     return text if v < 0 else f"+{text}"
 
 
-def pct(p: Optional[float], *, style: str = "round", none: str = NONE) -> str:
-    """A share in [0, 1] as a whole-number percentage.
+def pct(p: Optional[float], *, none: str = NONE) -> str:
+    """A share in [0, 1] as a whole-number percentage: ``0.142`` → ``14%``.
 
-    ``style="round"`` rounds ``100 * p`` with Python's ``round`` (half to
-    even on the exact product), the spelling the stats section uses;
-    ``style="format"`` is ``f"{p:.0%}"``, the trust section's spelling. The
-    two differ on some halves (``0.005`` → ``0%`` against ``1%``), which is
-    why both are kept.
+    ``f"{p:.0%}"`` — the same string as ``f"{round(100 * p):.0f}%"``, the
+    other spelling the sections used: both round the float ``100 * p`` half
+    to even on its exact binary value, so the two never part (checked over
+    every ``k/n`` to ``n = 2000`` and two hundred thousand random draws).
     """
     if p is None:
         return none
-    if style == "format":
-        return f"{p:.0%}"
-    if style != "round":
-        raise ValueError(f"unknown pct style {style!r}")
-    return f"{round(100 * p):.0f}%"
+    return f"{p:.0%}"
 
 
 def secs(v: float, *, whole_above: Optional[float] = 10, tenths_above: Optional[float] = 1) -> str:

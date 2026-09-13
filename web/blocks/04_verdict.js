@@ -14,18 +14,11 @@
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
 
   var STYLE_ID = "agentdiff-verdict-css";
-  var styled = false;
-
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    try {
-      if (document.getElementById(STYLE_ID)) return;
-      var node = document.createElement("style");
-      node.id = STYLE_ID;
-      node.textContent = [
+    L.style.once(STYLE_ID, [
         ".vc{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;",
         "font-size:var(--fs-m);line-height:1.5;color:var(--ink)}",
         ".vc .k{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.09em;",
@@ -39,9 +32,7 @@
         "ui-monospace,monospace;color:var(--accent);cursor:pointer}",
         ".vc-chip:focus-visible{outline:2px solid var(--accent);outline-offset:1px}",
         ".vc-src{display:block;font-size:var(--fs-xs);color:var(--ink-3);margin-top:1px}"
-      ].join("");
-      document.head.appendChild(node);
-    } catch (err) { /* styling is optional */ }
+      ].join(""));
   }
 
   var LABELS = { verdict: "Verdict", cause: "Cause", cost: "Cost",

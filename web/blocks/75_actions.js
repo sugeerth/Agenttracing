@@ -18,20 +18,14 @@
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
 
   // ------------------------------------------------------------------ style
 
   var STYLE_ID = "agentdiff-actions-css";
-  var styled = false;
-
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    try {
-      if (document.getElementById(STYLE_ID)) return;
-      var node = document.createElement("style");
-      node.id = STYLE_ID;
-      node.textContent = [
+    L.style.once(STYLE_ID, [
         ".ax-lede{font-size:var(--fs-s);color:var(--ink-2);margin:0 0 10px;line-height:1.55}",
         ".ax-gate{display:flex;gap:8px;align-items:flex-start;border:1px solid ",
         "color-mix(in srgb, var(--warn) 45%, transparent);border-left:3px solid var(--warn);",
@@ -121,14 +115,11 @@
         "overflow-wrap:anywhere}",
         "@media (max-width:520px){.ax-head{gap:7px;padding:8px}.ax-rank{width:20px;",
         "height:20px;font-size:var(--fs-xs)}}",
-      ].join("");
-      document.head.appendChild(node);
-    } catch (err) { /* styling is a nicety; the list still reads */ }
+      ].join(""));
   }
 
   // ---------------------------------------------------------------- helpers
 
-  function isNum(value) { return typeof value === "number" && isFinite(value); }
 
   function term(ctx, text, key) {
     if (typeof ctx.explain === "function") {

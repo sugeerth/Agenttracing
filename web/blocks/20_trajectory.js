@@ -13,6 +13,7 @@
   "use strict";
 
   if (!global.AgentDiff || typeof global.AgentDiff.block !== "function") return;
+  var L = global.AgentDiff.lib;
 
   // Bound at the top of every draw; the core hands out the same helpers each
   // time, so this is a convenience, not shared state.
@@ -22,11 +23,8 @@
 
   // ------------------------------------------------------------------ style
 
-  var STYLED = false;
   function ensureStyle() {
-    if (STYLED) return;
-    STYLED = true;
-    var css = [
+    L.style.once("trajectory", [
       ".tj-sides{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;font-size:var(--fs-xs);margin-bottom:6px}",
       ".tj-side{display:inline-flex;align-items:center;gap:5px;min-width:0}",
       ".tj-chip{width:9px;height:9px;border-radius:2px;flex:none}",
@@ -95,13 +93,7 @@
       "@keyframes tjFlash{0%,100%{opacity:1}50%{opacity:.15}}",
       ".tj-flash{animation:tjFlash .45s ease-in-out infinite}",
       "@media (prefers-reduced-motion: reduce){.tj-live,.tj-flash{animation:none}}",
-    ].join("");
-    try {
-      var tag = document.createElement("style");
-      tag.setAttribute("data-agentdiff", "trajectory");
-      tag.appendChild(document.createTextNode(css));
-      document.head.appendChild(tag);
-    } catch (err) { /* styling is a nicety; the blocks still read without it */ }
+    ].join(""));
   }
 
   // ------------------------------------------------------------- responsive

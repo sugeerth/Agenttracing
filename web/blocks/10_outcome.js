@@ -18,6 +18,7 @@
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
 
   // ------------------------------------------------------------------ styles
 
@@ -68,15 +69,7 @@
     ".oc-mini{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.45;margin:5px 0 0}",
   ].join("");
 
-  function ensureStyles() {
-    try {
-      if (document.getElementById(STYLE_ID)) return;
-      var node = document.createElement("style");
-      node.id = STYLE_ID;
-      node.textContent = CSS;
-      (document.head || document.documentElement).appendChild(node);
-    } catch (err) { /* styling is a nicety; the markup still reads */ }
-  }
+  function ensureStyles() { L.style.once(STYLE_ID, CSS); }
 
   // ------------------------------------------------------------------ shared
 

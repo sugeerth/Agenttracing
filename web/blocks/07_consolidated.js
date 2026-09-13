@@ -22,20 +22,13 @@
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
 
   // ------------------------------------------------------------------ style
 
   var STYLE_ID = "agentdiff-consolidated-css";
-  var styled = false;
-
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    try {
-      if (document.getElementById(STYLE_ID)) return;
-      var node = document.createElement("style");
-      node.id = STYLE_ID;
-      node.textContent = [
+    L.style.once(STYLE_ID, [
         ".cx-lede{font-size:var(--fs-s);color:var(--ink-2);margin:0 0 10px;line-height:1.55}",
         ".cx-narrative{border:1px solid var(--rule);border-left:3px solid var(--accent);",
         "border-radius:7px;background:var(--surface-2);padding:8px 10px;margin:0 0 10px;",
@@ -87,9 +80,7 @@
         ".cx-perrun .r{font-family:var(--mono);font-size:var(--fs-xs)}",
         ".cx-foot{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.5;",
         "border-top:1px solid var(--rule);margin-top:10px;padding-top:7px}",
-      ].join("");
-      document.head.appendChild(node);
-    } catch (err) { /* styling is a nicety; the list still reads */ }
+      ].join(""));
   }
 
   // ------------------------------------------------------------------ utils

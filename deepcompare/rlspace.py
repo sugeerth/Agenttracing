@@ -93,6 +93,8 @@ import math
 from typing import Optional
 
 from .impact import TOOLISH
+from ._text import num, plural
+from .section import measurable, unmeasurable
 
 VERSION = 1
 #: no trie node is built below this prefix depth
@@ -119,18 +121,6 @@ MDS_SEED = 12345
 
 
 # ---------------------------------------------------------------- formatting
-
-def _num(v: Optional[float]) -> str:
-    """A return as text: integers plain, else up to two decimals, real minus."""
-    if v is None:
-        return "—"
-    text = f"{int(round(v))}" if abs(v - round(v)) < 1e-9 else f"{v:.2f}".rstrip("0").rstrip(".")
-    return text.replace("-", "−")
-
-
-def _plural(n: int, word: str, plural: Optional[str] = None) -> str:
-    return f"{n} {word if n == 1 else (plural or word + 's')}"
-
 
 def _mean(values: list) -> Optional[float]:
     vals = [v for v in values if isinstance(v, (int, float)) and not isinstance(v, bool)]
@@ -298,10 +288,10 @@ def build_trie(episodes: list, policies: list, max_depth: int = MAX_DEPTH,
 
     root = build(list(episodes), 0, [], None)
     deepest = max((len(e["tokens"]) for e in episodes), default=0)
-    note = (f"{_plural(pruned['tails'], 'single-episode tail')} folded into a leaf "
+    note = (f"{plural(pruned['tails'], 'single-episode tail')} folded into a leaf "
             f"({pruned['tokens_folded']} tokens hidden)")
     if pruned["truncated"]:
-        note += (f"; {_plural(pruned['truncated'], 'node')} cut at the depth cap of {max_depth} "
+        note += (f"; {plural(pruned['truncated'], 'node')} cut at the depth cap of {max_depth} "
                  f"({pruned['truncated_tokens']} tokens hidden)")
     if not pruned["tails"] and not pruned["truncated"]:
         note = "nothing pruned: every branch carries at least "f"{min_tail} episodes and fits the depth cap"
@@ -342,7 +332,7 @@ def branch_points(trie: dict, episodes: list, policies: list, top: int = TOP_BRA
     pair = [p for p in policies if any(e["policy"] == p for e in episodes)][:2]
     if len(pair) < 2:
         return {"measurable": False, "reason": "a branch point needs two policies with episodes; "
-                f"this batch has {_plural(len(pair), 'policy', 'policies')}", "points": [], "policies": pair}
+                f"this batch has {plural(len(pair), 'policy', 'policies')}", "points": [], "policies": pair}
     total = len(episodes) or 1
     a, b = pair
     points: list = []
@@ -394,8 +384,8 @@ def _branch_label(node: dict, sides: list, tv: float) -> str:
     a, b = sides
     if a["token"] == b["token"]:
         return f"{head}: both policies take {a['token']} (imbalance {tv:.2f})"
-    return (f"{head}: {a['policy']} takes {a['token']} (return {_num(a['mean_return'])}), "
-            f"{b['policy']} takes {b['token']} (return {_num(b['mean_return'])})")
+    return (f"{head}: {a['policy']} takes {a['token']} (return {num(a['mean_return'])}), "
+            f"{b['policy']} takes {b['token']} (return {num(b['mean_return'])})")
 
 
 # ---------------------------------------------------------------- n-grams
@@ -616,7 +606,7 @@ def distances(episodes: list, policies: list, cap: int = MAX_DISTANCE_EPISODES,
         pairs = [matrix[i][j] for a, i in enumerate(idx) for j in idx[a + 1:]]
         within[p] = {"episodes": len(idx), "spread": round(sum(pairs) / len(pairs), 4) if pairs else None,
                      "pairs": len(pairs),
-                     "reason": None if pairs else f"{_plural(len(idx), 'episode')}: a spread needs two"}
+                     "reason": None if pairs else f"{plural(len(idx), 'episode')}: a spread needs two"}
     between = None
     cross_pairs = 0
     if len(policies) >= 2:
@@ -652,7 +642,7 @@ def distances(episodes: list, policies: list, cap: int = MAX_DISTANCE_EPISODES,
         "nearest": nearest,
         "note": (f"{n} of {len(episodes)} episodes, round-robin over the policies" if n < len(episodes)
                  else f"every one of {n} episodes")
-        + (f"; {_plural(truncated, 'stream')} cut at {token_cap} tokens" if truncated else ""),
+        + (f"; {plural(truncated, 'stream')} cut at {token_cap} tokens" if truncated else ""),
     }
 
 
@@ -721,13 +711,13 @@ def mds(matrix: list, iterations: int = POWER_ITERS, seed: int = MDS_SEED) -> di
     s1 = math.sqrt(l1) if l1 > 0 else 0.0
     s2 = math.sqrt(l2) if l2 > 0 else 0.0
     points = [[round(s1 * v1[i], 6), round(s2 * (v2[i] if v2 else 0.0), 6)] for i in range(n)]
-    num = den = 0.0
+    err = mass = 0.0
     for i in range(n):
         for j in range(i + 1, n):
             d = math.hypot(points[i][0] - points[j][0], points[i][1] - points[j][1])
-            num += (d - matrix[i][j]) ** 2
-            den += matrix[i][j] ** 2
-    stress = round(math.sqrt(num / den), 4) if den > 0 else 0.0
+            err += (d - matrix[i][j]) ** 2
+            mass += matrix[i][j] ** 2
+    stress = round(math.sqrt(err / mass), 4) if mass > 0 else 0.0
     return {"points": points, "eigenvalues": [round(l1, 6), round(l2, 6)], "stress": stress,
             "iterations": iterations, "seed": seed}
 
@@ -743,14 +733,14 @@ def behaviour_space(episodes: list, names: Optional[tuple] = None, max_depth: in
     matrix with each policy's spread, and a deterministic 2-D layout."""
     eps, policies = _clean(episodes, names)
     vocab = vocabulary(eps, policies)
-    empty = {"version": VERSION, "measurable": False, "policies": policies,
-             "episodes_n": len(eps), "vocabulary": vocab, "trie": None, "branches": None,
+    empty = {"policies": policies, "episodes_n": len(eps), "vocabulary": vocab, "trie": None, "branches": None,
              "ngrams": None, "distance": None, "layout": None}
     if not eps:
-        return dict(empty, reason="no episode to read", narrative="No episode to read as behaviour.")
+        return unmeasurable("no episode to read", version=VERSION, **empty,
+                            narrative="No episode to read as behaviour.")
     if not vocab["size"]:
-        return dict(empty, reason="no episode carries a step, so there is no behaviour to compare",
-                    narrative=f"{_plural(len(eps), 'episode')}, none with a step: no behaviour to compare.")
+        return unmeasurable("no episode carries a step, so there is no behaviour to compare", version=VERSION, **empty,
+                            narrative=f"{plural(len(eps), 'episode')}, none with a step: no behaviour to compare.")
     trie = build_trie(eps, policies, max_depth=max_depth, min_tail=min_tail)
     branches = branch_points(trie, eps, policies)
     grams = ngrams(eps, policies)
@@ -771,21 +761,20 @@ def behaviour_space(episodes: list, names: Optional[tuple] = None, max_depth: in
         xy = layout["points"][i] if i < len(layout["points"]) else [0.0, 0.0]
         near = dist["nearest"][i] if i < len(dist["nearest"]) else None
         points.append(dict(e, x=xy[0], y=xy[1], nearest=near, tokens=streams.get(e["key"], [])))
-    space = {
-        "version": VERSION, "measurable": True, "reason": None, "policies": policies,
-        "episodes_n": len(eps), "vocabulary": vocab, "trie": trie, "branches": branches,
+    space = measurable({
+        "policies": policies, "episodes_n": len(eps), "vocabulary": vocab, "trie": trie, "branches": branches,
         "ngrams": grams, "distance": dist,
         "layout": {"points": points, "eigenvalues": layout["eigenvalues"], "stress": layout["stress"],
                    "iterations": layout["iterations"], "seed": layout["seed"],
                    "axes": "none: classical MDS of the distance matrix, so only relative position means anything"},
-    }
+    }, version=VERSION)
     space["narrative"] = _narrative(space)
     return space
 
 
 def _narrative(space: dict) -> str:
     vocab, parts = space["vocabulary"], []
-    parts.append(f"{_plural(space['episodes_n'], 'episode')} over {_plural(vocab['size'], 'token')} "
+    parts.append(f"{plural(space['episodes_n'], 'episode')} over {plural(vocab['size'], 'token')} "
                  f"({', '.join(vocab['tokens'][:6])}{'…' if vocab['size'] > 6 else ''})")
     sigs = [f"{p} alone uses {', '.join(t)}" for p, t in sorted(vocab["signature"].items()) if t]
     parts.append("; ".join(sigs) if sigs else "no token belongs to one policy alone")
@@ -796,11 +785,11 @@ def _narrative(space: dict) -> str:
     elif br:
         parts.append(br.get("reason") or "no branch point")
     spread = space["distance"]["within"]
-    said = [f"{p}'s episodes sit {_num(v['spread'])} apart" for p, v in sorted(spread.items())
+    said = [f"{p}'s episodes sit {num(v['spread'])} apart" for p, v in sorted(spread.items())
             if v.get("spread") is not None]
     if said:
         parts.append("; ".join(said)
-                     + (f", the policies {_num(space['distance']['between'])} apart"
+                     + (f", the policies {num(space['distance']['between'])} apart"
                         if space["distance"]["between"] is not None else ""))
     win = space["ngrams"]["winning"]
     if win.get("measurable") and win["top"]:

@@ -26,6 +26,8 @@
   "use strict";
   var AgentDiff = global.AgentDiff;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
   if (!AgentDiff) return;
 
   var charts = {};
@@ -50,12 +52,8 @@
 
   // ------------------------------------------------------------- style
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("d3charts", [
       ".d3c-wrap{position:relative;margin:4px 0 10px}",
       ".d3c{display:block;max-width:100%;overflow:visible;font-family:var(--sans)}",
       ".d3c text{font-family:var(--sans);fill:var(--ink-2)}",
@@ -145,8 +143,7 @@
       "@media (max-width:480px){.d3c-list li{grid-template-columns:20px 1fr}",
       ".d3c-list .what{display:none}.d3c-list li[data-n]:hover .what,.d3c-list li[data-n]:focus-within .what{display:block}",
       ".d3c-buys{grid-template-columns:auto 1fr;}.d3c-buys .v{grid-column:2;text-align:left}}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
 
   // ------------------------------------------------------------ helpers
@@ -169,7 +166,6 @@
     };
   }
   function sideColor(side) { var P = palette(); return side === "a" ? P.a : P.b; }
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
   function readingOf(report, side) {
     var r = report && report.reading && report.reading[side];
     return r && typeof r === "object" ? r : null;

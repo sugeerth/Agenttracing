@@ -29,7 +29,7 @@ from deepcompare.rlstats import (  # noqa: E402
     performance_profile, probability_of_improvement, rl_stats, sample_advisory,
     score_matrix, stratified_resamples, tau_grid, within_task_probability,
 )
-from deepcompare.rlstats import _rng  # noqa: E402
+from deepcompare._stats import rng as _rng  # noqa: E402
 
 RL_TRACES = ROOT / "demo" / "rl" / "traces"
 RL_TRAIN = ROOT / "demo" / "rl" / "train"

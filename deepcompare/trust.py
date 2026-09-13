@@ -44,6 +44,7 @@ from .process import analyse as process_analyse, effect_of, is_error
 from .tooldiff import TOOLISH_TYPES
 from .trace import AgentInfo, HARNESS_TERMINATIONS, Outcome, Step, TaskInfo, Totals, Trajectory
 from . import sections as _sections
+from ._text import pct, side_name
 
 try:  # another module, written separately: framework signals per run
     from .frameworks import detect  # type: ignore
@@ -108,12 +109,6 @@ def _trajectory(report: dict, side: str) -> Optional[Trajectory]:
         budget=run.get("budget") if isinstance(run.get("budget"), dict) else {},
         token_accounting=run.get("token_accounting") if isinstance(run.get("token_accounting"), dict) else {},
     )
-
-
-def _name(report: dict, side: str) -> str:
-    run = report.get(side) if isinstance(report, dict) else None
-    agent = (run or {}).get("agent") if isinstance(run, dict) else None
-    return str((agent or {}).get("name") or side.upper())
 
 
 # --------------------------------------------------------------- behaviour
@@ -359,10 +354,6 @@ def _grade(report: dict, side: str, behaviour: dict, permissions: dict, determin
 
 # --------------------------------------------------------------- narrative
 
-def _pct(v: Optional[float]) -> str:
-    return "—" if v is None else f"{v:.0%}"
-
-
 def _run_narrative(name: str, b: dict, p: dict, d: dict, g: dict) -> str:
     top = sorted(b["tools"].items(), key=lambda kv: (-kv[1], kv[0]))[:3]
     calls = f"{b['tool_calls']} tool call(s) over {b['steps']} step(s)" + (" (" + ", ".join(f"{k} ×{v}" for k, v in top) + ")" if top else "")
@@ -377,7 +368,7 @@ def _run_narrative(name: str, b: dict, p: dict, d: dict, g: dict) -> str:
     if p["external"]:
         perms += f", {p['external']} reaching outside"
     data = (f"data: {d['adapter'] or 'adapter unknown'}" + (" (SYNTHETIC)" if d["synthetic"] else "") + f", graded by {d['graded_by']}"
-            + f", latency recorded on {_pct(d['latency_measured_share'])} and tokens measured on {_pct(d['tokens_measured_share'])} of steps")
+            + f", latency recorded on {pct(d['latency_measured_share'])} and tokens measured on {pct(d['tokens_measured_share'])} of steps")
     extras = []
     if b["loops"]:
         extras.append(f"{b['loops']} repeated call(s)")
@@ -390,7 +381,7 @@ def _run_narrative(name: str, b: dict, p: dict, d: dict, g: dict) -> str:
 
 
 def _pair_narrative(report: dict, ta: dict, tb: dict) -> str:
-    na, nb = _name(report, "a"), _name(report, "b")
+    na, nb = side_name(report, "a", default="A"), side_name(report, "b", default="B")
     ga, gb = ta["grade"], tb["grade"]
     if ga["score"] > gb["score"]:
         more, less, mn, ln = ta, tb, na, nb
@@ -423,10 +414,10 @@ def _pair_narrative(report: dict, ta: dict, tb: dict) -> str:
     da, db = ta["data"], tb["data"]
     synthetic = ("both runs are SYNTHETIC" if da["synthetic"] and db["synthetic"] else
                  f"{na if da['synthetic'] else nb} is SYNTHETIC" if (da["synthetic"] or db["synthetic"]) else "neither run is marked synthetic")
-    lat = (f"latency recorded on {_pct(da['latency_measured_share'])} of steps in both" if da["latency_measured_share"] == db["latency_measured_share"]
-           else f"latency recorded on {_pct(da['latency_measured_share'])} of {na}'s steps and {_pct(db['latency_measured_share'])} of {nb}'s")
-    tok = (f"tokens measured on {_pct(da['tokens_measured_share'])} in both" if da["tokens_measured_share"] == db["tokens_measured_share"]
-           else f"tokens measured on {_pct(da['tokens_measured_share'])} of {na}'s and {_pct(db['tokens_measured_share'])} of {nb}'s")
+    lat = (f"latency recorded on {pct(da['latency_measured_share'])} of steps in both" if da["latency_measured_share"] == db["latency_measured_share"]
+           else f"latency recorded on {pct(da['latency_measured_share'])} of {na}'s steps and {pct(db['latency_measured_share'])} of {nb}'s")
+    tok = (f"tokens measured on {pct(da['tokens_measured_share'])} in both" if da["tokens_measured_share"] == db["tokens_measured_share"]
+           else f"tokens measured on {pct(da['tokens_measured_share'])} of {na}'s and {pct(db['tokens_measured_share'])} of {nb}'s")
     return f"{lead}. {behaviour}. Data: {synthetic}; {lat}; {tok}."
 
 

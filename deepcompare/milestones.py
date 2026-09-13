@@ -27,8 +27,11 @@ is consulted and nothing is estimated.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any, Optional
+
 from . import sections as _sections
+from ._text import run_name, secs
 
 
 def _text(step: dict, where: str) -> str:
@@ -113,25 +116,18 @@ def evaluate(run: Any, milestones: Optional[list]) -> dict:
     return result
 
 
-def _fmt_s(v: float) -> str:
-    return f"{v:.0f}s" if v >= 10 else f"{v:.1f}s"
-
-
-def _name(run: Any) -> str:
-    if isinstance(run, dict):
-        return str(((run.get("agent") or {}).get("name")) or "the run")
-    agent = getattr(run, "agent", None)
-    return str(getattr(agent, "name", None) or "the run")
+#: whole seconds from 10s up, tenths below, never hundredths: a milestone is not a step
+_secs = partial(secs, tenths_above=None)
 
 
 def _narrative(run: Any, r: dict) -> str:
-    name = _name(run)
+    name = run_name(run)
     if not r["total"]:
         return f"{name}: no milestones to measure."
     parts = [f"{name} reached {r['reached']} of {r['total']} milestone(s)"]
     if r["reached"]:
         last = max((m for m in r["milestones"] if m["reached"]), key=lambda m: m["step"])
-        parts[0] += f", the last ({last['label'] or last['id']}) at step {last['step']}" + (f" after {_fmt_s(last['seconds'])}" if last["seconds"] else "")
+        parts[0] += f", the last ({last['label'] or last['id']}) at step {last['step']}" + (f" after {_secs(last['seconds'])}" if last["seconds"] else "")
         if last.get("agent"):
             parts[0] += f" inside {last['agent']}"
     missing = [m for m in r["milestones"] if not m["reached"]]
@@ -139,11 +135,11 @@ def _narrative(run: Any, r: dict) -> str:
         parts.append("never reached: " + ", ".join(m["label"] or m["id"] for m in missing))
     late = [m for m in r["milestones"] if m["reached"] and m["on_time"] is False]
     if late:
-        parts.append("late: " + ", ".join(f"{m['label'] or m['id']} (step {m['step']}" + (f", {_fmt_s(m['seconds'])}" if m["seconds"] else "") + ")" for m in late))
+        parts.append("late: " + ", ".join(f"{m['label'] or m['id']} (step {m['step']}" + (f", {_secs(m['seconds'])}" if m["seconds"] else "") + ")" for m in late))
     if not r["in_order"]:
         parts.append("reached out of the listed order")
     if r["reached"] and r["steps_after_last"] and r["steps_after_last"] >= 3 and r["reached"] < r["total"]:
-        parts.append(f"{r['steps_after_last']} step(s)" + (f" and {_fmt_s(r['seconds_after_last'])}" if r["seconds_after_last"] else "") + " after the last milestone with no further progress")
+        parts.append(f"{r['steps_after_last']} step(s)" + (f" and {_secs(r['seconds_after_last'])}" if r["seconds_after_last"] else "") + " after the last milestone with no further progress")
     return "; ".join(parts) + "."
 
 
@@ -185,7 +181,7 @@ def compare(ma: dict, mb: dict, names=("a", "b")) -> dict:
     if slow:
         worst = max(slow, key=lambda r: abs(r["gap_seconds"]))
         later = na if worst["gap_seconds"] > 0 else nb
-        parts.append(f"the widest gap is at {worst['label']}: {later} arrived {_fmt_s(abs(worst['gap_seconds']))} later")
+        parts.append(f"the widest gap is at {worst['label']}: {later} arrived {_secs(abs(worst['gap_seconds']))} later")
     return {"measurable": True, "rows": rows, "further": further, "narrative": "; ".join(parts) + "."}
 
 

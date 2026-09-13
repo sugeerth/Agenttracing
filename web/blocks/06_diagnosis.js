@@ -18,20 +18,13 @@
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
 
   // ------------------------------------------------------------------ style
 
   var STYLE_ID = "agentdiff-diagnosis-css";
-  var styled = false;
-
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    try {
-      if (document.getElementById(STYLE_ID)) return;
-      var node = document.createElement("style");
-      node.id = STYLE_ID;
-      node.textContent = [
+    L.style.once(STYLE_ID, [
         ".dx-lede{font-size:var(--fs-s);color:var(--ink-2);margin:0 0 10px;line-height:1.55}",
         ".dx-fold{margin:8px 0 0}.dx-fold>summary{cursor:pointer;font-size:var(--fs-s);color:var(--ink-3);",
         "list-style:none;padding:4px 0}.dx-fold>summary::before{content:'▸ ';}.dx-fold[open]>summary::before{content:'▾ ';}",
@@ -117,9 +110,7 @@
         ".dx-tension li{font-size:var(--fs-xs);line-height:1.55;color:var(--ink-2)}",
         ".dx-conf{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.5;",
         "border-top:1px solid var(--rule);margin-top:10px;padding-top:7px}",
-      ].join("");
-      document.head.appendChild(node);
-    } catch (err) { /* styling is a nicety; the list still reads */ }
+      ].join(""));
   }
 
   // ------------------------------------------------------------------ utils

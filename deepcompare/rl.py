@@ -46,10 +46,11 @@ recorded or labelled steps; nothing is simulated.
 
 from __future__ import annotations
 
-import math
 from typing import Optional
 
 from . import impact as _impact
+from ._stats import mean_ci, percentile
+from ._text import interval, num, plural, side_name, signed
 from .feedback import preference_pair, step_labels
 from .rlaudit import audit_aggregate, audit_pair
 from .rlspace import rl_space
@@ -89,44 +90,12 @@ TOOLISH = _impact.TOOLISH
 
 # ---------------------------------------------------------------- formatting
 
-def _num(v: float) -> str:
-    """A reward or return as text: integers plain, else up to two decimals,
-    with a real minus sign."""
-    if abs(v - round(v)) < 1e-9:
-        text = f"{int(round(v))}"
-    else:
-        text = f"{v:.2f}".rstrip("0").rstrip(".")
-    return text.replace("-", "−")
-
-
-def _signed(v: float) -> str:
-    text = _num(v)
-    return text if v < 0 else f"+{text}"
-
-
 def _credit_text(v: float, metric: Optional[str]) -> str:
     """A credit in the Shapley metric's unit, signed, thousands grouped."""
     unit = (metric or "").replace("_", " ")
     sign = "−" if v < 0 else "+"
     mag = f"{abs(v):,.0f}" if abs(v) >= 100 or abs(v - round(v)) < 1e-9 else f"{abs(v):.2f}".rstrip("0").rstrip(".")
     return f"{sign}{mag} {unit}".strip()
-
-
-def _plural(n: int, word: str, plural: Optional[str] = None) -> str:
-    return f"{n} {word if n == 1 else (plural or word + 's')}"
-
-
-def _percentile(values: list, q: float) -> float:
-    if not values:
-        return 0.0
-    v = sorted(values)
-    k = (len(v) - 1) * q
-    lo, hi = int(math.floor(k)), int(math.ceil(k))
-    return v[lo] + (v[hi] - v[lo]) * (k - lo)
-
-
-def _side_name(report: dict, side: str) -> str:
-    return str((((report.get(side) or {}).get("agent") or {}).get("name")) or side)
 
 
 def _steps(report: dict, side: str) -> list:
@@ -188,7 +157,7 @@ def _credit_by_step(report: dict, side: str) -> tuple:
     allocations = sh.get("allocations") if sh.get("available") else None
     if not allocations:
         return None, {"source": None, "metric": None, "top": [], "total": 0.0}
-    name = _side_name(report, side)
+    name = side_name(report, side)
     if sh.get("winner") == name and sh.get("loser") != name:
         sign = 1.0
     elif sh.get("loser") == name and sh.get("winner") != name:
@@ -222,7 +191,7 @@ def _credit_by_step(report: dict, side: str) -> tuple:
 # ---------------------------------------------------------------- one run
 
 def _run(report: dict, side: str, source: str, labels_by_step: dict, gamma: float = GAMMA) -> dict:
-    name = _side_name(report, side)
+    name = side_name(report, side)
     steps = _steps(report, side)
     if not steps:
         return _empty(name, source)
@@ -297,7 +266,7 @@ def _clusters(report: dict, side: str, steps: list, rewards: list) -> list:
         f["why"] = row.get("why") or ""
         f["score"] = abs(f["reward"]) + abs(f["credit"]) + FAULT_SCORE * f["fault_labels"]
     magnitudes = [abs(f["reward"]) for f in facts if f["reward"] != 0]
-    threshold = max(_percentile(magnitudes, MARK_QUANTILE), 1e-9) if magnitudes else None
+    threshold = max(percentile(magnitudes, MARK_QUANTILE), 1e-9) if magnitudes else None
 
     def marks(chunk: list) -> list:
         out: list = []
@@ -306,7 +275,7 @@ def _clusters(report: dict, side: str, steps: list, rewards: list) -> list:
                 out.append({"step": f["index"], "kind": "decisive", "label": f"decisive step ({f['name'] or f['type']})"})
             if threshold is not None and abs(f["reward"]) >= threshold:
                 out.append({"step": f["index"], "kind": "reward+" if f["reward"] > 0 else "reward−",
-                            "label": f"reward {_signed(f['reward'])}: {f['why']}"})
+                            "label": f"reward {signed(f['reward'])}: {f['why']}"})
             if f["answer"]:
                 out.append({"step": f["index"], "kind": "answer", "label": "the answer"})
         order = {"decisive": 0, "reward+": 1, "reward−": 1, "answer": 2}
@@ -333,7 +302,7 @@ def _clusters(report: dict, side: str, steps: list, rewards: list) -> list:
 def _cluster_why(reasons: dict, metric: Optional[str]) -> str:
     bits: list = []
     if reasons["positive"] or reasons["negative"]:
-        bits.append(f"reward {_signed(reasons['reward'])} over {_plural(reasons['positive'], 'positive step')} "
+        bits.append(f"reward {signed(reasons['reward'])} over {plural(reasons['positive'], 'positive step')} "
                     f"and {reasons['negative']} negative")
     else:
         bits.append("no reward")
@@ -342,7 +311,7 @@ def _cluster_why(reasons: dict, metric: Optional[str]) -> str:
     if reasons.get("decisive"):
         bits.append("decisive step")
     if reasons.get("fault_labels"):
-        bits.append(_plural(reasons["fault_labels"], "fault label"))
+        bits.append(plural(reasons["fault_labels"], "fault label"))
     if reasons.get("answer"):
         bits.append("the answer")
     return "; ".join(bits)
@@ -361,17 +330,17 @@ def _scale(runs: list) -> None:
 
 def _run_narrative(run: dict) -> str:
     name = run["agent"]
-    head = (f"{name}: return {_num(run['return'])} over {_plural(run['steps'], 'step')} ({run['source']}): "
-            f"{_plural(run['negative'], 'negative step')}, {run['positive']} positive")
+    head = (f"{name}: return {num(run['return'])} over {plural(run['steps'], 'step')} ({run['source']}): "
+            f"{plural(run['negative'], 'negative step')}, {run['positive']} positive")
     parts = [head]
     penalties = [r for r in run["rewards"] if r["reward"] < 0]
     if penalties:
         worst = min(penalties, key=lambda r: (r["reward"], r["step"]))
-        parts.append(f"the largest penalty at step {worst['step']} ({_num(worst['reward'])}, {worst['why']})")
+        parts.append(f"the largest penalty at step {worst['step']} ({num(worst['reward'])}, {worst['why']})")
     gains = [r for r in run["rewards"] if r["reward"] > 0]
     if gains:
         best = max(gains, key=lambda r: (r["reward"], -r["step"]))
-        parts.append(f"the largest reward at step {best['step']} ({_signed(best['reward'])}, {best['why']})")
+        parts.append(f"the largest reward at step {best['step']} ({signed(best['reward'])}, {best['why']})")
     credit = run["credit"]
     if credit.get("source"):
         carrying = [r for r in run["rewards"] if r.get("credit")]
@@ -380,7 +349,7 @@ def _run_narrative(run: dict) -> str:
             for r in carrying:
                 by_agent[r["agent"]] = by_agent.get(r["agent"], 0.0) + abs(r["credit"])
             where = max(by_agent, key=lambda k: (by_agent[k], k))
-            parts.append(f"credit {_credit_text(credit['total'], credit['metric'])} on {_plural(len(carrying), 'step')}"
+            parts.append(f"credit {_credit_text(credit['total'], credit['metric'])} on {plural(len(carrying), 'step')}"
                          + (f", most in {where}" if len(by_agent) > 1 else f" in {where}"))
         else:
             parts.append("no step carries credit")
@@ -391,7 +360,7 @@ def _parted_at(a: dict, b: dict) -> Optional[str]:
     ra, rb = a["rewards"], b["rewards"]
     for i in range(min(len(ra), len(rb))):
         if abs(ra[i]["cum"] - rb[i]["cum"]) >= 1.0:
-            return f"the returns part at step {i} ({a['agent']} {_num(ra[i]['cum'])} against {_num(rb[i]['cum'])} so far)"
+            return f"the returns part at step {i} ({a['agent']} {num(ra[i]['cum'])} against {num(rb[i]['cum'])} so far)"
     if abs(a["return"] - b["return"]) >= 1.0:
         shorter = a if len(ra) < len(rb) else b
         return f"the returns part only after {shorter['agent']} answered at step {len(shorter['rewards']) - 1}"
@@ -401,11 +370,11 @@ def _parted_at(a: dict, b: dict) -> Optional[str]:
 def _pair_narrative(a: dict, b: dict, source: str, preference: Optional[dict]) -> str:
     parts: list = []
     if a["return"] > b["return"]:
-        parts.append(f"{a['agent']} earned more: return {_num(a['return'])} against {_num(b['return'])} for {b['agent']} ({source})")
+        parts.append(f"{a['agent']} earned more: return {num(a['return'])} against {num(b['return'])} for {b['agent']} ({source})")
     elif b["return"] > a["return"]:
-        parts.append(f"{b['agent']} earned more: return {_num(b['return'])} against {_num(a['return'])} for {a['agent']} ({source})")
+        parts.append(f"{b['agent']} earned more: return {num(b['return'])} against {num(a['return'])} for {a['agent']} ({source})")
     else:
-        parts.append(f"both runs earned a return of {_num(a['return'])} ({source})")
+        parts.append(f"both runs earned a return of {num(a['return'])} ({source})")
     parted = _parted_at(a, b)
     if parted:
         parts.append(parted)
@@ -497,20 +466,6 @@ def _episode(run: dict, traj: Trajectory) -> dict:
     }
 
 
-def mean_ci(values: list) -> tuple:
-    """(mean, [lo, hi]) — a normal-approximation 95% interval with the
-    sample standard deviation; the interval is None under two values."""
-    n = len(values)
-    if n == 0:
-        return None, None
-    mean = sum(values) / n
-    if n < 2:
-        return round(mean, 4), None
-    var = sum((v - mean) ** 2 for v in values) / (n - 1)
-    half = 1.96 * math.sqrt(var / n)
-    return round(mean, 4), [round(mean - half, 4), round(mean + half, 4)]
-
-
 def rl_aggregate(reports: list, trajectories: list, names: Optional[tuple] = None, gamma: float = GAMMA,
                  stats_metric: str = "return", stats_samples: int = RLSTATS_SAMPLES) -> dict:
     """``aggregate["rl"]`` for the runs layout: one episode per trace,
@@ -598,14 +553,15 @@ def _aggregate_narrative(agents: dict, tasks: dict, preferences: list, source: s
         if not block["episodes_n"]:
             continue
         ci = block["return_ci"]
-        parts.append(f"{name}: mean return {_num(block['mean_return'])}"
-                     + (f" [{_num(ci[0])}, {_num(ci[1])}]" if ci else " (no interval under 2 episodes)")
-                     + f" over {_plural(block['episodes_n'], 'episode')}")
+        parts.append(f"{name}: mean return "
+                     + (interval(block["mean_return"], ci[0], ci[1]) if ci
+                        else f"{num(block['mean_return'])} (no interval under 2 episodes)")
+                     + f" over {plural(block['episodes_n'], 'episode')}")
     first, second = order
     if first and second and tasks:
         up = sum(1 for t in tasks.values() if t.get("sign") == 1)
         down = sum(1 for t in tasks.values() if t.get("sign") == -1)
-        parts.append(f"{second} earns more than {first} on {up} of {_plural(len(tasks), 'task')} and less on {down}")
+        parts.append(f"{second} earns more than {first} on {up} of {plural(len(tasks), 'task')} and less on {down}")
     if preferences:
         chosen: dict = {}
         for p in preferences:

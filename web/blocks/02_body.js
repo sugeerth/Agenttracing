@@ -12,13 +12,11 @@
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("body", [
       ".bd-panel{display:grid;grid-template-columns:1fr;gap:10px 18px;margin-bottom:8px}",
       "@media (min-width:900px){.bd-panel{grid-template-columns:minmax(0,1fr) 240px}}",
       ".bd-lede{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;font-size:var(--fs-m);color:var(--ink-2)}",
@@ -41,11 +39,9 @@
       ".bd-axis-btn[aria-pressed=\"true\"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}",
       ".bd-inspector{margin-top:10px}",
       "body[data-view=\"story\"] .hero-lane .bd-inspector{border:0;border-top:1px solid var(--rule);border-radius:0;background:transparent;padding-top:6px}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
   function stepsOf(report, side) { var b = report && report[side]; return b && Array.isArray(b.steps) ? b.steps : []; }
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
 

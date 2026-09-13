@@ -11,13 +11,11 @@
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("live", [
       ".lv-run{padding:8px 0;border-top:1px solid var(--rule)}",
       ".lv-run:first-child{border-top:0}",
       ".lv-head{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline;font-size:var(--fs-m)}",
@@ -37,8 +35,7 @@
       ".lv-last .t{font-family:var(--mono);font-size:var(--fs-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
       ".lv-done{font-size:var(--fs-s);color:var(--ink-3)}",
       ".lv-fold > summary{cursor:pointer;font-size:var(--fs-xs);color:var(--ink-3)}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
 
   var Seen = {};   // task:agent -> steps drawn last time, so new ones can pop
@@ -59,7 +56,6 @@
     if (!live || !Array.isArray(live.finished)) return [];
     return live.finished.filter(function (r) { return r && r.task === ctx.task; });
   }
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
 
   AgentDiff.block({
     id: "live-run",

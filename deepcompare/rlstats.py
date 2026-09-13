@@ -52,9 +52,11 @@ steps or seconds.
 from __future__ import annotations
 
 import math
-import random
 from bisect import bisect_left, bisect_right
 from typing import Callable, Optional, Sequence
+
+from ._stats import CONFIDENCE, TRIM, iqm, mean, median, optimality_gap, percentile_interval, rng, stratified_resamples
+from ._text import interval, num, pct, plural
 
 VERSION = 1
 #: fixed seed — the whole section must be byte-identical run to run.
@@ -62,10 +64,6 @@ BOOTSTRAP_SEED = 20260913
 #: resamples per statistic; 2000 is enough for a percentile interval and
 #: cheap enough that the runs layout does not notice it.
 BOOTSTRAP_SAMPLES = 2000
-#: two-sided coverage of the reported intervals.
-CONFIDENCE = 0.95
-#: the fraction cut from each end for the interquartile mean.
-TRIM = 0.25
 #: points on the shared τ grid of the performance profile.
 PROFILE_POINTS = 41
 
@@ -89,70 +87,7 @@ def _f(v) -> Optional[float]:
 
 # ---------------------------------------------------------------- formatting
 
-def _num(v: Optional[float], places: int = 2) -> str:
-    """A score as text, with a real minus sign; ``—`` when there is none."""
-    if v is None:
-        return "—"
-    if abs(v - round(v)) < 1e-9:
-        text = f"{int(round(v))}"
-    else:
-        text = f"{v:.{places}f}".rstrip("0").rstrip(".")
-    return text.replace("-", "−")
-
-
-def _plural(n: int, word: str, plural: Optional[str] = None) -> str:
-    return f"{n} {word if n == 1 else (plural or word + 's')}"
-
-
-def _pct(p: Optional[float]) -> str:
-    return "—" if p is None else f"{round(100 * p):.0f}%"
-
-
 # ---------------------------------------------------------------- statistics
-
-def iqm(values: Sequence[float], trim: float = TRIM) -> Optional[float]:
-    """The interquartile mean: the mean of the middle 50% of ``values``.
-
-    ``int(len(values) * trim)`` values are dropped from each end, the same
-    truncation the published implementation uses — so at three runs nothing
-    is cut and the IQM is the mean, which is honest rather than clever.
-    None on an empty sample.
-    """
-    n = len(values)
-    if n == 0:
-        return None
-    cut = int(n * trim)
-    middle = sorted(values)[cut:n - cut] if n - 2 * cut > 0 else sorted(values)
-    return sum(middle) / len(middle)
-
-
-def median(values: Sequence[float]) -> Optional[float]:
-    n = len(values)
-    if n == 0:
-        return None
-    v = sorted(values)
-    return v[n // 2] if n % 2 else (v[n // 2 - 1] + v[n // 2]) / 2.0
-
-
-def mean(values: Sequence[float]) -> Optional[float]:
-    return sum(values) / len(values) if values else None
-
-
-def optimality_gap(values: Sequence[float], target: float,
-                   higher_is_better: bool = True) -> Optional[float]:
-    """How far the runs fall short of ``target``, averaged over runs.
-
-    ``mean(max(0, target − score))`` when higher is better, and the mirror
-    when it is not; a run at or past the target contributes 0, so the gap is
-    never negative and a policy cannot buy its way out of a failure with one
-    exceptional episode.
-    """
-    if not values:
-        return None
-    if higher_is_better:
-        return sum(max(0.0, target - v) for v in values) / len(values)
-    return sum(max(0.0, v - target) for v in values) / len(values)
-
 
 def _profile_fractions(values: Sequence[float], taus: Sequence[float],
                        higher_is_better: bool = True) -> list:
@@ -169,19 +104,8 @@ def _profile_fractions(values: Sequence[float], taus: Sequence[float],
     return [bisect_right(v, t) / n for t in taus]
 
 
-def _interval(values: Sequence[float], confidence: float = CONFIDENCE) -> tuple:
-    """Percentile interval of a bootstrap distribution, the same index rule
-    the gate statistics use."""
-    if not values:
-        return None, None
-    v = sorted(values)
-    n = len(v)
-    tail = (1.0 - confidence) / 2.0
-    return v[max(0, int(tail * n) - 1)], v[min(n - 1, int((1.0 - tail) * n))]
-
-
 def _band(point: Optional[float], boots: Sequence[float], places: int = 4) -> dict:
-    lo, hi = _interval(boots)
+    lo, hi = percentile_interval(boots)
     if point is None:
         return {"point": None, "lo": None, "hi": None, "width": None, "degenerate": True,
                 "reason": "no runs carry this score"}
@@ -196,35 +120,6 @@ def _band(point: Optional[float], boots: Sequence[float], places: int = 4) -> di
 
 
 # ---------------------------------------------------------------- resampling
-
-def stratified_resamples(by_task: dict, samples: int, rng: random.Random) -> list:
-    """``samples`` resamples of the score matrix, runs redrawn with
-    replacement *within* each task.
-
-    Each resample keeps every task's own run count, so a task with three
-    runs contributes three runs to every resample and a task with eight
-    contributes eight. Tasks are visited in sorted order, which is what
-    makes the stream reproducible.
-    """
-    tasks = sorted(t for t, runs in by_task.items() if runs)
-    out = []
-    for _ in range(max(0, samples)):
-        draw: list = []
-        for tid in tasks:
-            runs = by_task[tid]
-            n = len(runs)
-            for _ in range(n):
-                draw.append(runs[rng.randrange(n)])
-        out.append(draw)
-    return out
-
-
-def _rng(seed: int, label: str) -> random.Random:
-    """A stream per section, so adding a section never moves another's
-    numbers. ``random.Random`` hashes a string with SHA-512, which is
-    deterministic across processes."""
-    return random.Random(f"agentdiff.rlstats:{seed}:{label}")
-
 
 # ---------------------------------------------------------------- the matrix
 
@@ -302,7 +197,7 @@ def aggregate_metrics(matrix: dict, policy: str, target: Optional[float] = None,
     if target is None:
         target = default_target(matrix)[0]
     draws = stratified_resamples(per_task, samples if flat else 0,
-                                 _rng(seed, f"aggregate:{matrix['metric']}:{policy}"))
+                                 rng(seed, f"aggregate:{matrix['metric']}:{policy}"))
     fns: dict = {
         "iqm": iqm,
         "median": median,
@@ -353,12 +248,12 @@ def performance_profile(matrix: dict, points: int = PROFILE_POINTS,
         flat = _flat(per_task)
         point = _profile_fractions(flat, taus, higher)
         draws = stratified_resamples(per_task, samples if flat else 0,
-                                     _rng(seed, f"profile:{matrix['metric']}:{policy}"))
+                                     rng(seed, f"profile:{matrix['metric']}:{policy}"))
         boots = [_profile_fractions(d, taus, higher) for d in draws]
         rows = []
         for i, t in enumerate(taus):
             column = [b[i] for b in boots]
-            lo, hi = _interval(column)
+            lo, hi = percentile_interval(column)
             rows.append([round(t, 4), round(point[i], 4),
                          round(point[i] if lo is None else lo, 4),
                          round(point[i] if hi is None else hi, 4)])
@@ -392,7 +287,7 @@ def performance_profile(matrix: dict, points: int = PROFILE_POINTS,
                              f"the bar is set")
     elif crossings:
         result["reading"] = (f"the curves cross at "
-                             + ", ".join(f"τ = {_num(t)}" for t in crossings[:3])
+                             + ", ".join(f"τ = {num(t)}" for t in crossings[:3])
                              + (" and beyond" if len(crossings) > 3 else "")
                              + ", so which policy is ahead depends on the threshold chosen")
     else:
@@ -456,14 +351,14 @@ def probability_of_improvement(matrix: dict, samples: int = BOOTSTRAP_SAMPLES,
     # a regression somewhere, and that is the task a reader has to see.
     regressions = [t for t in shared if per_task[t] < 0.5]
     ties = [t for t in shared if abs(per_task[t] - 0.5) < 1e-12]
-    rng = _rng(seed, f"improvement:{matrix['metric']}")
+    stream = rng(seed, f"improvement:{matrix['metric']}")
     boots = []
     for _ in range(max(0, samples)):
         total = 0.0
         for t in shared:
             ax, bx = a_by[t], b_by[t]
-            draw_a = [ax[rng.randrange(len(ax))] for _ in range(len(ax))]
-            draw_b = [bx[rng.randrange(len(bx))] for _ in range(len(bx))]
+            draw_a = [ax[stream.randrange(len(ax))] for _ in range(len(ax))]
+            draw_b = [bx[stream.randrange(len(bx))] for _ in range(len(bx))]
             total += within_task_probability(draw_a, draw_b, higher)
         boots.append(total / len(shared))
     band = _band(point, boots)
@@ -480,7 +375,7 @@ def _improvement_reading(imp: dict) -> str:
     p, lo, hi = imp["point"], imp["lo"], imp["hi"]
     a, b = imp["a"], imp["b"]
     head = (f"a run of {b} picked at random beats a run of {a} on the same task "
-            f"{_pct(p)} of the time ({_pct(lo)}–{_pct(hi)} across the bootstrap)")
+            f"{pct(p)} of the time ({pct(lo)}–{pct(hi)} across the bootstrap)")
     if lo is not None and lo > 0.5:
         tail = "every resample of these runs keeps it above the coin flip"
     elif hi is not None and hi < 0.5:
@@ -518,7 +413,7 @@ def sample_advisory(matrix: dict) -> dict:
             "IQM is reported first because it is the least moved by a single "
             "exceptional episode.")
     if isinstance(n_min, int) and n_min < 5:
-        note += (f" At {_plural(n_min, 'run')} per task the intervals are wide by "
+        note += (f" At {plural(n_min, 'run')} per task the intervals are wide by "
                  f"construction; read an overlap as 'these runs do not separate the "
                  f"policies', never as 'the policies are equal'.")
     return {
@@ -577,7 +472,7 @@ def rl_stats(rl_block: dict, metric: str = "return", target: Optional[float] = N
         },
         "target": {"value": None if value is None else round(value, 4), "source": source,
                    "explicit": explicit,
-                   "note": f"the optimality gap is the mean shortfall against {_num(value)} "
+                   "note": f"the optimality gap is the mean shortfall against {num(value)} "
                            f"({source}); a run at or past it contributes 0"},
         "aggregates": aggregates,
         "profile": profile,
@@ -599,8 +494,8 @@ def narrative(stats: dict) -> str:
     label = stats["metric_label"]
     for policy in stats["policies"]:
         row = stats["aggregates"][policy]["iqm"]
-        parts.append(f"{policy}: IQM {label} {_num(row['point'])} "
-                     f"[{_num(row['lo'])}, {_num(row['hi'])}] over {_plural(stats['n'][policy], 'run')}")
+        parts.append(f"{policy}: IQM {label} {interval(row['point'], row['lo'], row['hi'])} "
+                     f"over {plural(stats['n'][policy], 'run')}")
     if len(stats["policies"]) == 2:
         a, b = stats["policies"]
         ra, rb = stats["aggregates"][a]["iqm"], stats["aggregates"][b]["iqm"]
@@ -611,9 +506,8 @@ def narrative(stats: dict) -> str:
                          "the IQM intervals do not overlap")
     imp = stats.get("improvement") or {}
     if imp.get("measurable"):
-        parts.append(f"P({imp['b']} > {imp['a']}) = {_pct(imp['point'])} "
-                     f"[{_pct(imp['lo'])}, {_pct(imp['hi'])}] over "
-                     f"{_plural(imp['tasks_used'], 'shared task')}")
+        parts.append(f"P({imp['b']} > {imp['a']}) = {interval(imp['point'], imp['lo'], imp['hi'], fmt=pct)} over "
+                     f"{plural(imp['tasks_used'], 'shared task')}")
         if imp.get("regressions"):
             parts.append(f"below 50% on " + ", ".join(imp["regressions"]))
     profile = stats.get("profile") or {}
@@ -622,7 +516,7 @@ def narrative(stats: dict) -> str:
     tier = (stats.get("advisory") or {}).get("tier")
     n_min = (stats.get("advisory") or {}).get("n_min")
     if n_min is not None:
-        parts.append(f"{_plural(n_min, 'run')} per task at the thinnest task [{tier}], so every "
+        parts.append(f"{plural(n_min, 'run')} per task at the thinnest task [{tier}], so every "
                      f"number here describes the episodes recorded")
     return "; ".join(parts) + "."
 

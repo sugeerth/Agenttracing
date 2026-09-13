@@ -14,10 +14,13 @@ fast.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Optional
 
-from .trace import Trajectory
 from . import sections as _sections
+from ._text import secs
+from .section import unmeasurable
+from .trace import Trajectory
 
 TOOLISH = ("tool_call", "search", "retrieve", "read")
 WASTE_LABEL = {
@@ -29,8 +32,8 @@ WASTE_LABEL = {
 }
 
 
-def _fmt_s(v: float) -> str:
-    return f"{v:.1f}s" if v >= 1 else f"{v:.2f}s"
+#: tenths kept at any size — a gap of 12.3s is read to the tenth — hundredths under a second
+_secs = partial(secs, whole_above=None)
 
 
 def time_attribution(traj: Trajectory, reading: Optional[dict] = None) -> dict:
@@ -38,9 +41,9 @@ def time_attribution(traj: Trajectory, reading: Optional[dict] = None) -> dict:
     lats = [s.latency_s if isinstance(s.latency_s, (int, float)) and s.latency_s >= 0 else None for s in steps]
     measured = [v for v in lats if v]
     if not measured:
-        return {"measurable": False, "reason": "no step recorded a latency — unmeasurable, not fast",
-                "total_s": float(traj.totals.latency_s or 0.0), "steps": [], "by_category": {}, "by_tool": {},
-                "wasted_s": 0.0, "wasted_share": None, "slowest": [], "rationale": f"{traj.agent.name}: no step latency was recorded, so where its time went cannot be attributed."}
+        return unmeasurable("no step recorded a latency — unmeasurable, not fast",
+                            total_s=float(traj.totals.latency_s or 0.0), steps=[], by_category={}, by_tool={},
+                            wasted_s=0.0, wasted_share=None, slowest=[], rationale=f"{traj.agent.name}: no step latency was recorded, so where its time went cannot be attributed.")
     total = sum(measured)
     reading = reading or {}
     roles = {}
@@ -95,11 +98,11 @@ def time_attribution(traj: Trajectory, reading: Optional[dict] = None) -> dict:
     tokens = sum(s.tokens for s in steps if isinstance(s.tokens, (int, float)))
     # ---- the rationale, every number from above
     name = traj.agent.name
-    parts = [f"{name} took {_fmt_s(total)} over {len(steps)} step(s)"]
+    parts = [f"{name} took {_secs(total)} over {len(steps)} step(s)"]
     if by_cat["tool"]:
         tool_bits = sorted(by_tool.items(), key=lambda kv: -kv[1]["seconds"])[:3]
         parts.append(f"{by_cat['tool'] / total:.0%} of it waiting on tools (" + ", ".join(
-            f"{k} ×{v['calls']} = {_fmt_s(v['seconds'])}" + (f", {v['wasted_calls']} of them wasted" if v["wasted_calls"] else "") for k, v in tool_bits) + ")")
+            f"{k} ×{v['calls']} = {_secs(v['seconds'])}" + (f", {v['wasted_calls']} of them wasted" if v["wasted_calls"] else "") for k, v in tool_bits) + ")")
     if by_cat["think"]:
         parts.append(f"{by_cat['think'] / total:.0%} thinking")
     if by_cat["answer"]:
@@ -110,13 +113,13 @@ def time_attribution(traj: Trajectory, reading: Optional[dict] = None) -> dict:
         for r in rows:
             if r["wasted"]:
                 kinds[r["wasted"]] = kinds.get(r["wasted"], 0) + 1
-        sentence += (f" {_fmt_s(wasted)} ({wasted / total:.0%}) went to {sum(kinds.values())} step(s) the reading marks as wasted: "
+        sentence += (f" {_secs(wasted)} ({wasted / total:.0%}) went to {sum(kinds.values())} step(s) the reading marks as wasted: "
                      + ", ".join(f"{n} {WASTE_LABEL[k]}" for k, n in sorted(kinds.items(), key=lambda kv: -kv[1])) + ".")
     else:
         sentence += " No step is marked as wasted."
     top = slowest[0] if slowest else None
     if top and top["share"] >= 0.3:
-        sentence += f" The slowest step was {top['index']} ({top['name'] or top['type']}, {_fmt_s(top['latency_s'])}, {top['share']:.0%} of the run)."
+        sentence += f" The slowest step was {top['index']} ({top['name'] or top['type']}, {_secs(top['latency_s'])}, {top['share']:.0%} of the run)."
     return {
         "measurable": True, "total_s": round(total, 4), "steps": rows,
         "by_category": {k: {"seconds": round(v, 4), "share": round(v / total, 4) if total else 0.0} for k, v in by_cat.items()},
@@ -143,9 +146,9 @@ def compare_timing(a: Trajectory, b: Trajectory, reading: Optional[dict] = None)
             out["narrative"] = "Both runs took the same time."
         else:
             explained = min(gap, max(0.0, ts["wasted_s"] - tf["wasted_s"]))
-            out["narrative"] = (f"{slower.agent.name} took {_fmt_s(gap)} longer than {faster.agent.name}"
+            out["narrative"] = (f"{slower.agent.name} took {_secs(gap)} longer than {faster.agent.name}"
                                 + (f"; {explained / gap:.0%} of that gap is steps the reading marks as wasted" if explained > 0 else "; none of that gap is in steps marked as wasted — it is slower per productive step")
-                                + f" ({_fmt_s(ts['by_category']['tool']['seconds'])} against {_fmt_s(tf['by_category']['tool']['seconds'])} waiting on tools).")
+                                + f" ({_secs(ts['by_category']['tool']['seconds'])} against {_secs(tf['by_category']['tool']['seconds'])} waiting on tools).")
     else:
         out["narrative"] = "Time cannot be compared: at least one run recorded no step latencies."
     return out

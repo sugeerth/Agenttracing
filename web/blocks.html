@@ -3627,13 +3627,11 @@ THIS SOFTWARE.
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("body", [
       ".bd-panel{display:grid;grid-template-columns:1fr;gap:10px 18px;margin-bottom:8px}",
       "@media (min-width:900px){.bd-panel{grid-template-columns:minmax(0,1fr) 240px}}",
       ".bd-lede{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;font-size:var(--fs-m);color:var(--ink-2)}",
@@ -3656,11 +3654,9 @@ THIS SOFTWARE.
       ".bd-axis-btn[aria-pressed=\"true\"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}",
       ".bd-inspector{margin-top:10px}",
       "body[data-view=\"story\"] .hero-lane .bd-inspector{border:0;border-top:1px solid var(--rule);border-radius:0;background:transparent;padding-top:6px}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
   function stepsOf(report, side) { var b = report && report[side]; return b && Array.isArray(b.steps) ? b.steps : []; }
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
 
@@ -3851,6 +3847,8 @@ THIS SOFTWARE.
   "use strict";
   var AgentDiff = global.AgentDiff;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
   if (!AgentDiff) return;
 
   var charts = {};
@@ -3875,12 +3873,8 @@ THIS SOFTWARE.
 
   // ------------------------------------------------------------- style
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("d3charts", [
       ".d3c-wrap{position:relative;margin:4px 0 10px}",
       ".d3c{display:block;max-width:100%;overflow:visible;font-family:var(--sans)}",
       ".d3c text{font-family:var(--sans);fill:var(--ink-2)}",
@@ -3970,8 +3964,7 @@ THIS SOFTWARE.
       "@media (max-width:480px){.d3c-list li{grid-template-columns:20px 1fr}",
       ".d3c-list .what{display:none}.d3c-list li[data-n]:hover .what,.d3c-list li[data-n]:focus-within .what{display:block}",
       ".d3c-buys{grid-template-columns:auto 1fr;}.d3c-buys .v{grid-column:2;text-align:left}}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
 
   // ------------------------------------------------------------ helpers
@@ -3994,7 +3987,6 @@ THIS SOFTWARE.
     };
   }
   function sideColor(side) { var P = palette(); return side === "a" ? P.a : P.b; }
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
   function readingOf(report, side) {
     var r = report && report.reading && report.reading[side];
     return r && typeof r === "object" ? r : null;
@@ -7057,18 +7049,11 @@ THIS SOFTWARE.
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
 
   var STYLE_ID = "agentdiff-verdict-css";
-  var styled = false;
-
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    try {
-      if (document.getElementById(STYLE_ID)) return;
-      var node = document.createElement("style");
-      node.id = STYLE_ID;
-      node.textContent = [
+    L.style.once(STYLE_ID, [
         ".vc{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;",
         "font-size:var(--fs-m);line-height:1.5;color:var(--ink)}",
         ".vc .k{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.09em;",
@@ -7082,9 +7067,7 @@ THIS SOFTWARE.
         "ui-monospace,monospace;color:var(--accent);cursor:pointer}",
         ".vc-chip:focus-visible{outline:2px solid var(--accent);outline-offset:1px}",
         ".vc-src{display:block;font-size:var(--fs-xs);color:var(--ink-3);margin-top:1px}"
-      ].join("");
-      document.head.appendChild(node);
-    } catch (err) { /* styling is optional */ }
+      ].join(""));
   }
 
   var LABELS = { verdict: "Verdict", cause: "Cause", cost: "Cost",
@@ -7181,20 +7164,14 @@ THIS SOFTWARE.
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
 
   // ------------------------------------------------------------------ style
 
   var STYLE_ID = "agentdiff-walkthrough-css";
-  var styled = false;
-
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    try {
-      if (document.getElementById(STYLE_ID)) return;
-      var node = document.createElement("style");
-      node.id = STYLE_ID;
-      node.textContent = [
+    L.style.once(STYLE_ID, [
         ".wt-lede{font-size:var(--fs-s);color:var(--ink-2);margin:0 0 12px;line-height:1.55}",
         ".wt-story{margin:0;padding:0;list-style:none;counter-reset:wt}",
         ".wt-story>li{counter-increment:wt;position:relative;padding:0 0 16px 34px;margin:0;min-width:0}",
@@ -7220,9 +7197,7 @@ THIS SOFTWARE.
         "background:color-mix(in srgb, var(--accent) 8%, var(--surface))}",
         ".wt-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:4px;line-height:1.5}",
         ".wt-flash{outline:2px solid var(--accent);outline-offset:3px;border-radius:11px}",
-      ].join("");
-      document.head.appendChild(node);
-    } catch (err) { /* styling is a nicety; the story still reads */ }
+      ].join(""));
   }
 
   // ------------------------------------------------------------ data access
@@ -7268,7 +7243,6 @@ THIS SOFTWARE.
     return -1;
   }
 
-  function isNum(value) { return typeof value === "number" && isFinite(value); }
 
   function other(side) { return side === "a" ? "b" : "a"; }
 
@@ -7936,20 +7910,13 @@ THIS SOFTWARE.
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
 
   // ------------------------------------------------------------------ style
 
   var STYLE_ID = "agentdiff-diagnosis-css";
-  var styled = false;
-
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    try {
-      if (document.getElementById(STYLE_ID)) return;
-      var node = document.createElement("style");
-      node.id = STYLE_ID;
-      node.textContent = [
+    L.style.once(STYLE_ID, [
         ".dx-lede{font-size:var(--fs-s);color:var(--ink-2);margin:0 0 10px;line-height:1.55}",
         ".dx-fold{margin:8px 0 0}.dx-fold>summary{cursor:pointer;font-size:var(--fs-s);color:var(--ink-3);",
         "list-style:none;padding:4px 0}.dx-fold>summary::before{content:'▸ ';}.dx-fold[open]>summary::before{content:'▾ ';}",
@@ -8035,9 +8002,7 @@ THIS SOFTWARE.
         ".dx-tension li{font-size:var(--fs-xs);line-height:1.55;color:var(--ink-2)}",
         ".dx-conf{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.5;",
         "border-top:1px solid var(--rule);margin-top:10px;padding-top:7px}",
-      ].join("");
-      document.head.appendChild(node);
-    } catch (err) { /* styling is a nicety; the list still reads */ }
+      ].join(""));
   }
 
   // ------------------------------------------------------------------ utils
@@ -8476,20 +8441,13 @@ THIS SOFTWARE.
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
 
   // ------------------------------------------------------------------ style
 
   var STYLE_ID = "agentdiff-consolidated-css";
-  var styled = false;
-
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    try {
-      if (document.getElementById(STYLE_ID)) return;
-      var node = document.createElement("style");
-      node.id = STYLE_ID;
-      node.textContent = [
+    L.style.once(STYLE_ID, [
         ".cx-lede{font-size:var(--fs-s);color:var(--ink-2);margin:0 0 10px;line-height:1.55}",
         ".cx-narrative{border:1px solid var(--rule);border-left:3px solid var(--accent);",
         "border-radius:7px;background:var(--surface-2);padding:8px 10px;margin:0 0 10px;",
@@ -8541,9 +8499,7 @@ THIS SOFTWARE.
         ".cx-perrun .r{font-family:var(--mono);font-size:var(--fs-xs)}",
         ".cx-foot{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.5;",
         "border-top:1px solid var(--rule);margin-top:10px;padding-top:7px}",
-      ].join("");
-      document.head.appendChild(node);
-    } catch (err) { /* styling is a nicety; the list still reads */ }
+      ].join(""));
   }
 
   // ------------------------------------------------------------------ utils
@@ -8833,21 +8789,15 @@ THIS SOFTWARE.
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
 
   var STYLE_ID = "agentdiff-reading-css";
-  var styled = false;
   // the side being read; null = decide from data. Shared with the
   // take-forward block so both read the same run.
   var Lens = AgentDiff.readLens = AgentDiff.readLens || { side: null };
 
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    try {
-      if (document.getElementById(STYLE_ID)) return;
-      var node = document.createElement("style");
-      node.id = STYLE_ID;
-      node.textContent = [
+    L.style.once(STYLE_ID, [
         ".rd-head{display:flex;align-items:center;gap:8px;margin:0 0 8px;flex-wrap:wrap}",
         ".rd-head .grp{display:inline-flex;border:1px solid var(--rule);border-radius:7px;overflow:hidden}",
         ".rd-head .grp button{border:0;background:var(--surface-2);color:var(--ink-2);",
@@ -8883,9 +8833,7 @@ THIS SOFTWARE.
         "list-style:none}.rd-more>summary::before{content:'▸ '}.rd-more[open]>summary::before{content:'▾ '}",
         ".rd-validity{border-left:3px solid var(--warn);padding:6px 10px;margin:0 0 10px;",
         "font-size:var(--fs-s);background:var(--surface-2);border-radius:0 7px 7px 0}"
-      ].join("");
-      document.head.appendChild(node);
-    } catch (err) { /* styling is optional */ }
+      ].join(""));
   }
 
   // ------------------------------------------------------------ data access
@@ -9283,6 +9231,7 @@ THIS SOFTWARE.
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
 
   // ------------------------------------------------------------------ styles
 
@@ -9333,15 +9282,7 @@ THIS SOFTWARE.
     ".oc-mini{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.45;margin:5px 0 0}",
   ].join("");
 
-  function ensureStyles() {
-    try {
-      if (document.getElementById(STYLE_ID)) return;
-      var node = document.createElement("style");
-      node.id = STYLE_ID;
-      node.textContent = CSS;
-      (document.head || document.documentElement).appendChild(node);
-    } catch (err) { /* styling is a nicety; the markup still reads */ }
-  }
+  function ensureStyles() { L.style.once(STYLE_ID, CSS); }
 
   // ------------------------------------------------------------------ shared
 
@@ -10320,13 +10261,11 @@ THIS SOFTWARE.
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("horizon", [
       ".nh-lede{font-size:var(--fs-m);color:var(--ink-2);margin:0 0 8px}",
       ".nh-h{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin:12px 0 4px}",
       ".nh-prompts{list-style:none;margin:0;padding:0}",
@@ -10349,11 +10288,9 @@ THIS SOFTWARE.
       ".nh-export code{font-family:var(--mono);background:var(--surface-2);padding:2px 6px;border-radius:4px}",
       "body[data-view=\"story\"] .nh-export code{background:transparent;padding:0}",
       ".nh-copy{font:inherit;font-size:var(--fs-xs);padding:1px 8px;border:1px solid var(--rule-2);border-radius:999px;background:var(--surface);color:var(--ink-2);cursor:pointer}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
 
   function copyable(ctx, text) {
     var b = ctx.h("button", { class: "nh-copy", type: "button", text: "copy" });
@@ -10485,13 +10422,11 @@ THIS SOFTWARE.
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("live", [
       ".lv-run{padding:8px 0;border-top:1px solid var(--rule)}",
       ".lv-run:first-child{border-top:0}",
       ".lv-head{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline;font-size:var(--fs-m)}",
@@ -10511,8 +10446,7 @@ THIS SOFTWARE.
       ".lv-last .t{font-family:var(--mono);font-size:var(--fs-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
       ".lv-done{font-size:var(--fs-s);color:var(--ink-3)}",
       ".lv-fold > summary{cursor:pointer;font-size:var(--fs-xs);color:var(--ink-3)}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
 
   var Seen = {};   // task:agent -> steps drawn last time, so new ones can pop
@@ -10533,7 +10467,6 @@ THIS SOFTWARE.
     if (!live || !Array.isArray(live.finished)) return [];
     return live.finished.filter(function (r) { return r && r.task === ctx.task; });
   }
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
 
   AgentDiff.block({
     id: "live-run",
@@ -12256,13 +12189,10 @@ THIS SOFTWARE.
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
+  var L = AgentDiff.lib;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("horizon-hz", [
       ".hz-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 6px}",
       ".hz-axis{display:inline-flex;gap:2px}.hz-grp{display:inline-flex;gap:6px;align-items:center;padding-right:10px;border-right:1px solid var(--rule)}",
       ".hz-axis-btn{font:inherit;font-size:var(--fs-xs);padding:0 7px;border:1px solid var(--rule-2);border-radius:999px;background:var(--surface);color:var(--ink-2);cursor:pointer;line-height:1.5}",
@@ -12279,8 +12209,7 @@ THIS SOFTWARE.
       ".hz-agents td{padding:3px 12px 3px 0;border-top:1px solid var(--rule);color:var(--ink-2)}",
       ".hz-agents td.n{text-align:right}.hz-agents td i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:-1px}",
       ".hz-full{font-size:var(--fs-xs);color:var(--ink-3);margin:6px 0 0;max-width:100ch}",
-    ].join("");
-    document.head.appendChild(node);
+    ].join(""));
   }
   function name(report, side) { var b = report && report[side]; return (b && b.agent && b.agent.name) || side.toUpperCase(); }
   var HzView = {};   // per task: icicle | tree | diff
@@ -12419,6 +12348,7 @@ THIS SOFTWARE.
   "use strict";
 
   if (!global.AgentDiff || typeof global.AgentDiff.block !== "function") return;
+  var L = global.AgentDiff.lib;
 
   // Bound at the top of every draw; the core hands out the same helpers each
   // time, so this is a convenience, not shared state.
@@ -12428,11 +12358,8 @@ THIS SOFTWARE.
 
   // ------------------------------------------------------------------ style
 
-  var STYLED = false;
   function ensureStyle() {
-    if (STYLED) return;
-    STYLED = true;
-    var css = [
+    L.style.once("trajectory", [
       ".tj-sides{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;font-size:var(--fs-xs);margin-bottom:6px}",
       ".tj-side{display:inline-flex;align-items:center;gap:5px;min-width:0}",
       ".tj-chip{width:9px;height:9px;border-radius:2px;flex:none}",
@@ -12501,13 +12428,7 @@ THIS SOFTWARE.
       "@keyframes tjFlash{0%,100%{opacity:1}50%{opacity:.15}}",
       ".tj-flash{animation:tjFlash .45s ease-in-out infinite}",
       "@media (prefers-reduced-motion: reduce){.tj-live,.tj-flash{animation:none}}",
-    ].join("");
-    try {
-      var tag = document.createElement("style");
-      tag.setAttribute("data-agentdiff", "trajectory");
-      tag.appendChild(document.createTextNode(css));
-      document.head.appendChild(tag);
-    } catch (err) { /* styling is a nicety; the blocks still read without it */ }
+    ].join(""));
   }
 
   // ------------------------------------------------------------- responsive
@@ -26741,20 +26662,14 @@ THIS SOFTWARE.
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
 
   // ------------------------------------------------------------------ style
   // The shell cannot be edited from a module, so the few primitives these
   // blocks need beyond .kv/.tag/.grid are appended once, guarded.
 
-  var styleInjected = false;
   function ensureStyle() {
-    if (styleInjected) return;
-    styleInjected = true;
-    try {
-      if (document.getElementById("agentdiff-signal-style")) return;
-      var node = document.createElement("style");
-      node.id = "agentdiff-signal-style";
-      node.textContent = [
+    L.style.once("agentdiff-signal-style", [
         ".sig-note{border:1px solid var(--rule);border-left-width:3px;border-radius:7px;",
         "padding:7px 9px;font-size:var(--fs-s);line-height:1.45;margin:0 0 9px;",
         "background:var(--surface-2);color:var(--ink-2)}",
@@ -26782,9 +26697,7 @@ THIS SOFTWARE.
         "color:var(--ink-3);margin:11px 0 5px}",
         ".sig-h:first-child{margin-top:0}",
         ".sig-more{margin-top:8px}",
-      ].join("");
-      document.head.appendChild(node);
-    } catch (err) { /* styling is a nicety; the blocks still read without it */ }
+      ].join(""));
   }
 
   // ------------------------------------------------------------------ utils
@@ -32325,20 +32238,14 @@ THIS SOFTWARE.
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
 
   // ------------------------------------------------------------------ style
 
   var STYLE_ID = "agentdiff-actions-css";
-  var styled = false;
-
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    try {
-      if (document.getElementById(STYLE_ID)) return;
-      var node = document.createElement("style");
-      node.id = STYLE_ID;
-      node.textContent = [
+    L.style.once(STYLE_ID, [
         ".ax-lede{font-size:var(--fs-s);color:var(--ink-2);margin:0 0 10px;line-height:1.55}",
         ".ax-gate{display:flex;gap:8px;align-items:flex-start;border:1px solid ",
         "color-mix(in srgb, var(--warn) 45%, transparent);border-left:3px solid var(--warn);",
@@ -32428,14 +32335,11 @@ THIS SOFTWARE.
         "overflow-wrap:anywhere}",
         "@media (max-width:520px){.ax-head{gap:7px;padding:8px}.ax-rank{width:20px;",
         "height:20px;font-size:var(--fs-xs)}}",
-      ].join("");
-      document.head.appendChild(node);
-    } catch (err) { /* styling is a nicety; the list still reads */ }
+      ].join(""));
   }
 
   // ---------------------------------------------------------------- helpers
 
-  function isNum(value) { return typeof value === "number" && isFinite(value); }
 
   function term(ctx, text, key) {
     if (typeof ctx.explain === "function") {

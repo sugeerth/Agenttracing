@@ -24,6 +24,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 from . import sections as _sections
+from ._text import secs
 
 TOOLISH = ("tool_call", "search", "retrieve", "read")
 EXTERNAL = re.compile(r"(web|http|fetch|curl|browser|open_page|search|send_|email|slack|api|scrape|download)", re.I)
@@ -44,10 +45,6 @@ def _short(text: Any, n: int = 120) -> str:
 def _agent_of(step: dict, root: str) -> str:
     sp = step.get("span")
     return str(sp.get("agent")) if isinstance(sp, dict) and sp.get("agent") else root
-
-
-def _fmt_s(v: float) -> str:
-    return f"{v:.0f}s" if v >= 10 else f"{v:.1f}s"
 
 
 def profile_run(report: dict, side: str) -> dict:
@@ -182,7 +179,7 @@ def suggest(report: dict, pa: dict, pb: dict) -> list:
         if t["calls"] >= 3 and t["wasted_share"] >= 0.6 and (other is None or other["wasted_share"] < 0.3):
             add("unproductive_tool", name,
                 f"Stop leaning on {name} for this task: {t['wasted_calls']} of {t['calls']} calls returned nothing new "
-                f"({_fmt_s(t['wasted_s'])} wasted, first at step {t['first_step']}); "
+                f"({secs(t['wasted_s'], tenths_above=None)} wasted, first at step {t['first_step']}); "
                 + (f"{pname} used it {other['calls']}× with {other['wasted_calls']} wasted." if other else f"{pname} did without it."),
                 2 + t["wasted_share"], {"wasted_calls": t["wasted_calls"], "calls": t["calls"], "wasted_s": t["wasted_s"], "first_step": t["first_step"]})
         # 4. errors

@@ -14,21 +14,15 @@
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
 
   var STYLE_ID = "agentdiff-reading-css";
-  var styled = false;
   // the side being read; null = decide from data. Shared with the
   // take-forward block so both read the same run.
   var Lens = AgentDiff.readLens = AgentDiff.readLens || { side: null };
 
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    try {
-      if (document.getElementById(STYLE_ID)) return;
-      var node = document.createElement("style");
-      node.id = STYLE_ID;
-      node.textContent = [
+    L.style.once(STYLE_ID, [
         ".rd-head{display:flex;align-items:center;gap:8px;margin:0 0 8px;flex-wrap:wrap}",
         ".rd-head .grp{display:inline-flex;border:1px solid var(--rule);border-radius:7px;overflow:hidden}",
         ".rd-head .grp button{border:0;background:var(--surface-2);color:var(--ink-2);",
@@ -64,9 +58,7 @@
         "list-style:none}.rd-more>summary::before{content:'▸ '}.rd-more[open]>summary::before{content:'▾ '}",
         ".rd-validity{border-left:3px solid var(--warn);padding:6px 10px;margin:0 0 10px;",
         "font-size:var(--fs-s);background:var(--surface-2);border-radius:0 7px 7px 0}"
-      ].join("");
-      document.head.appendChild(node);
-    } catch (err) { /* styling is optional */ }
+      ].join(""));
   }
 
   // ------------------------------------------------------------ data access

@@ -25,20 +25,14 @@
 
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum;
 
   // ------------------------------------------------------------------ style
 
   var STYLE_ID = "agentdiff-walkthrough-css";
-  var styled = false;
-
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    try {
-      if (document.getElementById(STYLE_ID)) return;
-      var node = document.createElement("style");
-      node.id = STYLE_ID;
-      node.textContent = [
+    L.style.once(STYLE_ID, [
         ".wt-lede{font-size:var(--fs-s);color:var(--ink-2);margin:0 0 12px;line-height:1.55}",
         ".wt-story{margin:0;padding:0;list-style:none;counter-reset:wt}",
         ".wt-story>li{counter-increment:wt;position:relative;padding:0 0 16px 34px;margin:0;min-width:0}",
@@ -64,9 +58,7 @@
         "background:color-mix(in srgb, var(--accent) 8%, var(--surface))}",
         ".wt-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:4px;line-height:1.5}",
         ".wt-flash{outline:2px solid var(--accent);outline-offset:3px;border-radius:11px}",
-      ].join("");
-      document.head.appendChild(node);
-    } catch (err) { /* styling is a nicety; the story still reads */ }
+      ].join(""));
   }
 
   // ------------------------------------------------------------ data access
@@ -112,7 +104,6 @@
     return -1;
   }
 
-  function isNum(value) { return typeof value === "number" && isFinite(value); }
 
   function other(side) { return side === "a" ? "b" : "a"; }
 
