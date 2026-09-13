@@ -9,3 +9,5 @@ from pathlib import Path
 DEFAULT_TEMPLATE = Path(__file__).resolve().parent.parent.parent / "web" / "blocks.html"
 #: the earlier single-file viewer, kept for ``--template web/viewer.html``
 LEGACY_TEMPLATE = Path(__file__).resolve().parent.parent.parent / "web" / "viewer.html"
+#: the lightweight agent-selection view, written by ``select``
+SELECT_TEMPLATE = Path(__file__).resolve().parent.parent.parent / "web" / "select.html"

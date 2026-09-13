@@ -61,10 +61,11 @@ from .commands.paths import DEFAULT_TEMPLATE, LEGACY_TEMPLATE  # noqa: E402
 from .commands.grafana import register as _register_grafana  # noqa: E402
 from .commands._common import provider_option_args as _provider_option_args, provider_options as _provider_options, split_spec as _split_spec  # noqa: E402
 from .commands import (  # noqa: E402
-    bench, checkpoint, compare, context, convert, db, experiments, explain, feedback, frameworks, hook, judge, loop,
+    bench, checkpoint, context, convert, db, experiments, explain, feedback, frameworks, hook, judge, loop,
     narrate, progress, replay, rerun, rl, rlexport, route, run, watch, why,
 )
 from .commands import eval as eval_  # noqa: E402  (the command is named after the builtin)
+from .commands import compare as compare_cmd  # noqa: E402  (report.compare is the pair function)
 #: template for the lightweight agent-selection view.
 SELECT_TEMPLATE = Path(__file__).resolve().parent.parent / "web" / "select.html"
 
@@ -1150,7 +1151,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    compare.register(sub)
+    compare_cmd.register(sub)
 
     p_demo = sub.add_parser("demo", help="one command to the first insight: compare the "
                                          "shipped demo pairs and write the report page")
