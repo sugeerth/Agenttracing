@@ -39,6 +39,7 @@ from .feedback import feedback_signal
 from .milestones import compare as compare_milestones, evaluate as evaluate_milestones
 from .toolprofile import tool_pair
 from .trust import trust_pair
+from .rl import rl_pair
 
 #: the template line containing this marker is replaced wholesale.
 DATA_MARKER = "window.DEEPCOMPARE_DATA"
@@ -196,6 +197,9 @@ def compare(a: Trajectory, b: Trajectory) -> dict:
     # the loop back: what this pair hands to an environment or the next
     # prompt — labels, a preference pair, suggestions; read-only over the report
     report["feedback"] = feedback_signal(report)
+    # the run as an episode: reward (recorded, else shaped from the labels
+    # above), return, credit from the Shapley split, clusters on one scale
+    report["rl"] = rl_pair(report)
     return report
 
 
@@ -219,6 +223,8 @@ def attach_milestones(report: dict, golden: Optional[dict], policy: Optional[dic
     # the milestones reached now mark the impact clusters they sit in
     report["impact"] = impact_pair(report)
     report["trust"] = trust_pair(report, policy=policy, golden=golden)
+    # a shaped reward pays +2 at each milestone reached, so the episode is re-read
+    report["rl"] = rl_pair(report)
     return report
 
 

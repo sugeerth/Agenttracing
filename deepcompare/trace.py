@@ -192,6 +192,13 @@ class Step:
     #: the (sub-)agent acting at this step and the span it was delegated
     #: from. None means the root agent acted. Spans nest through ``parent``.
     span: Optional[dict] = None
+    #: optional RL signal (SCHEMA.md): the reward the environment paid for
+    #: this step, the policy's value estimate at it, and its advantage.
+    #: None means the log did not say; returns are then *shaped* from the
+    #: report's labels (:mod:`deepcompare.rl`) and labelled as such.
+    reward: Optional[float] = None
+    value: Optional[float] = None
+    advantage: Optional[float] = None
 
     @classmethod
     def from_dict(cls, d: dict, position: int) -> "Step":
@@ -260,6 +267,12 @@ class Step:
                 raise ValueError(f"{where}: span must be an object with id and agent (and an optional parent)")
             span = {"id": str(span["id"]), "agent": str(span["agent"]),
                     "parent": (str(span["parent"]) if span.get("parent") is not None else None)}
+        signal: dict = {}
+        for key in ("reward", "value", "advantage"):
+            val = d.get(key)
+            if val is not None and (not isinstance(val, (int, float)) or isinstance(val, bool)):
+                raise ValueError(f"{where}: {key} must be a number or null")
+            signal[key] = None if val is None else float(val)
         return cls(
             index=index,
             type=stype,
@@ -275,6 +288,9 @@ class Step:
             error=error,
             effect=effect,
             span=span,
+            reward=signal["reward"],
+            value=signal["value"],
+            advantage=signal["advantage"],
         )
 
     def to_dict(self) -> dict:
@@ -293,6 +309,9 @@ class Step:
             "error": self.error,
             "effect": self.effect,
             "span": self.span,
+            "reward": self.reward,
+            "value": self.value,
+            "advantage": self.advantage,
         }
 
 

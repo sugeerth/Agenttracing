@@ -432,7 +432,32 @@ def impact_run(report: dict, side: str) -> dict:
     steps = [s for s in ((report.get(side) or {}).get("steps") or []) if isinstance(s, dict)]
     if not steps:
         return _empty(name)
-    facts = _step_facts(report, side, steps)
+    facts = step_facts(report, side, steps)
+    grouped = cluster_steps(report, side, steps, facts)
+    out = {"measurable": True, "total_s": grouped["total_s"], "total_steps": len(steps), "clusters": grouped["clusters"],
+           "hot": [], "lanes": grouped["lanes"], "scale": "run", "narrative": ""}
+    _finish(out, name, max((c["score"] for c in out["clusters"]), default=0.0), "run")
+    return out
+
+
+def step_facts(report: dict, side: str, steps: list) -> list:
+    """Public: one fact record per step of ``side`` (index, pos, type,
+    name, latency, clock, the flags every section established, tokens)
+    with the impact ``score`` — the input :func:`cluster_steps` groups. A
+    caller weighing the steps by something else (:mod:`deepcompare.rl`
+    by reward and credit) replaces ``score`` before clustering."""
+    return _step_facts(report, side, steps)
+
+
+def cluster_steps(report: dict, side: str, steps: list, facts: list, marks=None) -> dict:
+    """Public: the clustering pipeline over ready-made ``facts`` — the
+    same lane, phase and framing boundaries, quiet merging, long-stretch
+    splitting and coalescing :func:`impact_run` uses, grouped by whatever
+    ``score`` the facts carry. ``marks`` (optional) is a callable over a
+    chunk of facts returning that cluster's marks instead of the impact
+    ones. Returns ``{"clusters", "lanes", "total_s"}`` with every cluster
+    unnormalised (``impact`` 0, ``kind`` quiet); the caller scales."""
+    name = _side_name(report, side)
     lane_of, span_agent, lanes = _lanes_of(steps, name)
     reading = ((report.get("reading") or {}).get(side) or {})
     phase_of: dict = {}
@@ -448,14 +473,13 @@ def impact_run(report: dict, side: str) -> dict:
     groups = _split_long(groups, facts)
     groups = _coalesce(groups, facts, lane_of)
     clusters = [_cluster(f"c{k}", facts[lo:hi], lane_of[lo], span_agent) for k, (lo, hi) in enumerate(groups)]
+    if marks is not None:
+        for c, (lo, hi) in zip(clusters, groups):
+            c["marks"] = marks(facts[lo:hi])
     by_lane = {ln["agent"]: ln for ln in lanes}
     for c in clusters:
         by_lane[c["lane"]]["clusters"].append(c["id"])
-    total_s = sum(c["seconds"] for c in clusters)
-    out = {"measurable": True, "total_s": round(total_s, 4), "total_steps": len(steps), "clusters": clusters,
-           "hot": [], "lanes": lanes, "scale": "run", "narrative": ""}
-    _finish(out, name, max((c["score"] for c in clusters), default=0.0), "run")
-    return out
+    return {"clusters": clusters, "lanes": lanes, "total_s": round(sum(c["seconds"] for c in clusters), 4)}
 
 
 def _finish(run: dict, name: str, top: float, scale: str) -> None:
@@ -526,4 +550,4 @@ def impact_pair(report: dict) -> dict:
     return {"version": 1, "a": a, "b": b, "narrative": narrative}
 
 
-__all__ = ["impact_run", "impact_pair", "WEIGHTS", "WASTED_CAP", "TIME_WEIGHT", "HOT", "WORK"]
+__all__ = ["impact_run", "impact_pair", "step_facts", "cluster_steps", "WEIGHTS", "WASTED_CAP", "TIME_WEIGHT", "HOT", "WORK"]

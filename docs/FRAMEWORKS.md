@@ -146,3 +146,64 @@ servers used (calls, errors, latency per server), the handoff graph as part of t
 decisions as marks on the timeline (asked / denied, with the reason), guardrail triggers as flags beside the risk
 flags, and the inferred domain with the spec's rules that fired. Across a batch: per-tool statistics by agent, and
 the domain spec's milestones as the progress axis for every run in that domain.
+
+## 6. RL training frameworks: the bridge (September 2026)
+
+*What each trainer expects in and hands out, read from the repositories' own files (docs hosts were blocked; GitHub was not) — reported, not run.*
+
+**veRL (verl-project).** The agent loop runs the user's loop of model and tool calls and returns an `AgentLoopOutput`:
+`prompt_ids`, `response_ids`, a `response_mask` (1 for policy tokens, 0 for tool-response tokens), `response_logprobs`,
+`reward_score`, `num_turns` (user + assistant + tool), `metrics`, free `extra_fields`. The tool loop parses OpenAI-style
+function calls, appends `role: tool` messages, stops on `max_assistant_turns` / `max_user_turns` or no call, and keeps
+per-call `tool_rewards` and per-turn `turn_scores` in `extra_fields` ([agent_loop.py](https://github.com/verl-project/verl/blob/main/verl/experimental/agent_loop/agent_loop.py),
+[tool_agent_loop.py](https://github.com/verl-project/verl/blob/main/verl/experimental/agent_loop/tool_agent_loop.py), [#3525](https://github.com/volcengine/verl/issues/3525)).
+Reward: a manager calls `compute_score(data_source, solution_str, ground_truth, extra_info)` — the detokenised response
+against the dataset's `reward_model.ground_truth` — and writes the score on the last response token; a dict return puts
+its extra keys in `reward_extra_info`; `custom_reward_function.path` / `.name` name the file ([reward_function.rst](https://github.com/verl-project/verl/blob/main/docs/preparation/reward_function.rst),
+[naive.py](https://github.com/verl-project/verl/blob/main/verl/workers/reward_manager/naive.py)). Tracing: `rollout.trace.backend` ∈ weave | mlflow | trackio,
+`token2text` adds `prompt_text` / `response_text`, rollouts are tagged `sample_index`, `step`, `rollout_n`, `validate`
+([rollout_trace.rst](https://github.com/verl-project/verl/blob/main/docs/advance/rollout_trace.rst)); `trainer.rollout_data_dir` dumps `{input, output, gts, score, step}` per
+sample as JSONL ([ray_trainer.py](https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/ray_trainer.py)). PPO, GRPO, DAPO ([agentic RL](https://verl.readthedocs.io/en/latest/start/agentic_rl.html)).
+
+**Agent Lightning (Microsoft).** An episode is states and actions where each LLM call is the action; traces become
+transitions `(state, action, reward, next state)` and LightningRL's credit assignment decides how much each call
+contributed, so a single-step algorithm trains on grouped per-call samples ([MSR blog](https://www.microsoft.com/en-us/research/blog/agent-lightning-adding-reinforcement-learning-to-ai-agents-without-code-rewrites/),
+[arXiv 2508.03680](https://arxiv.org/pdf/2508.03680)). Releases 0.2–0.3 store OpenTelemetry spans in a LightningStore (`rollout_id`, `attempt_id`,
+`sequence_id`, `trace_id`, `span_id`, `parent_id`, `name`, `attributes`, `start_time`, `end_time`); rewards are spans named
+`agentlightning.reward` / `.annotation` with `name` / `value`, LLM calls carry `gen_ai.*` (token ids from vLLM), and
+`TracerTraceToTriplet` matches a reward to the LLM call it follows (`FIRST_OCCURRENCE`) or its first sibling to make
+`(prompt, response, reward)` triplets ([traces v0.3.0](https://github.com/microsoft/agent-lightning/blob/v0.3.0/docs/tutorials/traces.md), [semconv.py](https://github.com/microsoft/agent-lightning/blob/v0.3.0/agentlightning/semconv.py),
+[tracer.py](https://github.com/microsoft/agent-lightning/blob/v0.3.0/agentlightning/types/tracer.py), [triplet.py](https://github.com/microsoft/agent-lightning/blob/v0.3.0/agentlightning/adapter/triplet.py)). v1.0 replaces the tracer with an API Gateway
+that proxies model requests and records `model_request` events (`model`, `request`, `response`, `usage`, `latency_ms`)
+and `reward` events (`value`, `message`, `source`, `reason`) per rollout, then builds veRL samples ([README](https://github.com/microsoft/agent-lightning/blob/main/README.md),
+[schemas.py](https://github.com/microsoft/agent-lightning/blob/main/agentlightning/schemas.py), [basics](https://github.com/microsoft/agent-lightning/blob/main/docs/05-basics.md), [releases](https://github.com/microsoft/agent-lightning/releases)).
+
+**Others.** SkyRL hands a `GeneratorOutput` of `prompt_token_ids`, `response_ids`, `rewards` (one float per trajectory or
+per token), `loss_masks`, `stop_reasons`, `rollout_metrics` to skyrl-train, veRL or Tinker ([base.py](https://github.com/NovaSky-AI/SkyRL/blob/main/skyrl/train/generators/base.py), [arXiv 2511.16108](https://arxiv.org/pdf/2511.16108)).
+AReaL: a workflow is any class with `async def run(data, **kwargs)` returning a float (reward on the last completion) or
+`dict[completion_id → reward]`, with `turn_discount` for multi-turn credit ([agent.md](https://github.com/inclusionAI/AReaL/blob/main/docs/en/customization/agent.md)). OpenRLHF: `AgentInstanceBase.reset/step`
+returning `rewards`, `scores`, `environment_feedback`, `done`, `extra_logs`; reward functions `(queries, prompts, labels) →
+{rewards, scores, extra_logs}` ([README](https://github.com/OpenRLHF/OpenRLHF/blob/main/README.md)). TRL `GRPOTrainer`: reward functions take `prompts`, `completions`,
+`completion_ids`, `trainer_state`, `environments` and every dataset column as kwargs, return one float per completion or
+`None`, summed under `reward_weights` ([grpo_trainer.md](https://github.com/huggingface/trl/blob/main/docs/source/grpo_trainer.md)). ART: a `Trajectory` of messages with a `reward` set by the
+rollout or by RULER, an LLM judge ranking a group's trajectories against each other, then GRPO ([README](https://github.com/OpenPipe/ART/blob/main/README.md), [RULER](https://art.openpipe.ai/fundamentals/ruler)).
+ROLL and slime: async rollouts, trajectory-wise (StarPO) and step-wise (GiGPO) optimisation, multi-turn tool loops behind Megatron + SGLang ([ROLL](https://github.com/alibaba/ROLL/blob/main/README.md), [slime](https://github.com/THUDM/slime)).
+
+**What this project offers them.** In: `convert --format verl | agent-lightning` (auto-detected) reads the rollout record
+or span / event export into SCHEMA trajectories — rewards on the steps (`reward`), the ground truth as `task.expected`,
+the tool schemas, `num_turns`, `source.fidelity` counters saying what was paired, dropped or synthesised — so two
+checkpoints on one prompt set compare like any two agents. Out: `rlexport --format verl-rewards` (per trajectory: the
+recorded-or-shaped return, its terms by label, per-step rewards, milestones reached, the outcome), `verl-reward-fn` (a
+`compute_score` serving those records by `extra_info["trajectory_id"]`), `preferences` (DPO pairs), `agent-lightning`
+(per-step transitions). Every record says `recorded` or `shaped`.
+
+**Where AgentDiff sits — my view.** Before the trainer it is a labeller: the reading and the diagnosis put a sourced label
+on every step (the decisive step, what fed the answer, what was spent after the basis) — the dense per-step signal that
+GRPO / DAPO's outcome reward and RULER's group ranking lack — and the milestones give a long task the intermediate reward
+it otherwise gets only from a hand-written verifier. After the trainer it is a reader of rollouts: two checkpoints
+compared pairwise on the same prompts show where the policy drifted (tools dropped, steps spent, answers unsourced),
+which a mean-reward curve hides. It is not a live loop; three things stand between: a store trainers write and read at
+training pace (veRL's reward loop is per sample and async; the rewards JSONL is a batch artefact); a reward computable
+before the pair exists (a shaped reward needs a passing sibling or a golden task); and calling the shaped reward what it
+is, a reward *model* — deterministic, but it reads text, and a policy trained against it will find what it cannot see. The
+small next step: `rlexport` per training step over a checkpoint's rollouts, so `reward_extra_info` carries the terms.

@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from .adapters import from_openai_messages, from_otel_genai
+from .adapters import detect_verl, from_agent_lightning, from_openai_messages, from_otel_genai, from_verl
 from .ci import (
     DEFAULT_FAIL_ON,
     FAIL_ON_CHOICES,
@@ -37,6 +37,8 @@ from .ci import (
 from .registry import convert as registry_convert, dry_run, formats
 from .claude_code import register_format as _register_claude_code
 _register_claude_code()
+from .adapters import register_formats as _register_rl_formats
+_register_rl_formats()  # verl, agent-lightning
 from .router import routing_table, router_hints
 from .tracedb import TraceDB
 from .equality import equality_analysis
@@ -1516,6 +1518,87 @@ def _cmd_frameworks(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_rl(args: argparse.Namespace) -> int:
+    """Per trace: the run as an episode — return, discounted return, the
+    reward counts and the largest rewards, recorded or shaped; for a
+    runs layout, each agent's mean return with its interval. Engine
+    only; nothing is written."""
+    from .rl import mean_ci, rl_run_from_trace
+    target = Path(args.target)
+    if target.is_dir():
+        paths = sorted(p for p in target.glob("*.json") if not p.name.endswith(".live.json"))
+    elif target.is_file():
+        paths = [target]
+    else:
+        print(f"error: {target} is neither a file nor a directory", file=sys.stderr)
+        return 2
+    runs: list[dict] = []
+    for path in paths:
+        try:
+            t = Trajectory.from_json(path)
+        except ValueError as exc:
+            print(f"warning: skipping invalid trace: {exc}", file=sys.stderr)
+            continue
+        run_id = _run_id_from_name(path)
+        if run_id:
+            t.run_id = run_id
+        run = rl_run_from_trace(t)
+        run["path"] = str(path)
+        runs.append(run)
+        if args.json:
+            continue
+        print(f"{path.name}: {run['agent']} return {run['return']:g} (discounted {run['discounted_return']:g}) "
+              f"over {run['steps']} steps [{run['source']}]: {run['positive']} positive, "
+              f"{run['negative']} negative, {run['zero']} zero")
+        for row in run["largest"]:
+            print(f"    step {row['step']:>4}  {row['reward']:>+8.2f}  {row['why']}")
+    if not runs:
+        print("error: no valid traces found", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(runs, indent=2, ensure_ascii=False))
+        return 0
+    if target.is_dir() and len(runs) > 1 and all(_run_id_from_name(Path(r["path"])) for r in runs):
+        by_agent: dict[str, list[float]] = {}
+        for run in runs:
+            by_agent.setdefault(run["agent"], []).append(run["return"])
+        print("Per agent (runs layout):")
+        for agent in sorted(by_agent):
+            mean, ci = mean_ci(by_agent[agent])
+            interval = f" [{ci[0]:g}, {ci[1]:g}]" if ci else " (no interval under 2 episodes)"
+            print(f"  {agent}: mean return {mean:g}{interval} over {len(by_agent[agent])} episodes")
+    return 0
+
+
+def _cmd_rlexport(args: argparse.Namespace) -> int:
+    """The bridge out to a trainer: per-trajectory rewards for a veRL reward
+    manager, the compute_score template, DPO-style preference pairs, or
+    per-step transitions for Agent Lightning, from a report or a directory
+    of reports.  Engine only; every record says recorded or shaped."""
+    from .rlexport import FORMATS, export, load_reports, to_jsonl
+    try:
+        reports = load_reports(args.target)
+        payload, count = export(reports, args.format)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    text = payload if isinstance(payload, str) else to_jsonl(payload)
+    unit = {"verl-rewards": "trajectory reward record(s)", "preferences": "preference pair(s)",
+            "agent-lightning": "transition(s)", "verl-reward-fn": "compute_score template"}.get(args.format, "record(s)")
+    if args.output:
+        out = Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+        print(f"wrote {out} — {count} {unit} from {len(reports)} report(s)")
+    else:
+        sys.stdout.write(text)
+        print(f"{count} {unit} from {len(reports)} report(s)", file=sys.stderr)
+    if args.format == "verl-reward-fn":
+        print("  point veRL's custom_reward_function.path at the file; it reads the rewards JSONL "
+              "named by AGENTDIFF_REWARDS_JSONL (else agentdiff_rewards.jsonl beside it)")
+    return 0
+
+
 def _cmd_convert(args: argparse.Namespace) -> int:
     if args.list_formats:
         print("Known trace formats:")
@@ -1540,6 +1623,43 @@ def _cmd_convert(args: argparse.Namespace) -> int:
         print("Known trace formats:")
         for entry in formats():
             print(f"  {entry['name']:<12} {entry['description']}")
+        return 0
+
+    # RL rollouts arrive one per JSONL line: a list under --format verl (or
+    # detected as veRL) writes one trace per record instead of failing.
+    if isinstance(data, list) and len(data) > 1 and not args.dry_run and (
+            args.format == "verl" or (args.format == "auto" and detect_verl(data)[0] >= 0.9)):
+        out_dir = Path(args.output)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        written = 0
+        for pos, record in enumerate(data):
+            try:
+                trajectory, warnings = from_verl(record, agent=args.agent)
+            except ValueError as exc:
+                print(f"warning: record {pos}: {exc}", file=sys.stderr)
+                continue
+            for warning in warnings:
+                print(f"warning: record {pos}: {warning}", file=sys.stderr)
+            out_path = out_dir / f"{_safe_name(trajectory['task']['id'])}__{_safe_name(trajectory['agent']['name'])}.json"
+            out_path.write_text(json.dumps(trajectory, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            written += 1
+        print(f"Wrote {written} of {len(data)} veRL rollout(s) to {out_dir}")
+        return 0 if written else 2
+    if args.agent and args.format in ("verl", "agent-lightning") and isinstance(data, (dict, list)):
+        try:
+            convert_fn = from_verl if args.format == "verl" else from_agent_lightning
+            trajectory, warnings = convert_fn(data[0] if isinstance(data, list) and len(data) == 1 else data,
+                                              agent=args.agent)
+        except ValueError as exc:
+            print(f"error: conversion failed: {exc}", file=sys.stderr)
+            return 2
+        for warning in warnings:
+            print(f"warning: {warning}", file=sys.stderr)
+        out_dir = Path(args.output)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{_safe_name(trajectory['task']['id'])}__{_safe_name(trajectory['agent']['name'])}.json"
+        out_path.write_text(json.dumps(trajectory, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"Wrote {out_path}")
         return 0
 
     if args.dry_run:
@@ -1854,6 +1974,9 @@ def build_parser() -> argparse.ArgumentParser:
                                 "including fidelity counters, without writing")
     p_convert.add_argument("--list-formats", action="store_true",
                            help="list the known trace formats and exit")
+    p_convert.add_argument("--agent", default=None,
+                           help="agent name for verl / agent-lightning records that carry no "
+                                "model or policy name")
     p_convert.set_defaults(func=_cmd_convert)
 
     p_frameworks = sub.add_parser(
@@ -1863,6 +1986,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_frameworks.add_argument("--signals", action="store_true", help="print the signals behind each verdict")
     p_frameworks.add_argument("--json", action="store_true", help="print the full detection as JSON")
     p_frameworks.set_defaults(func=_cmd_frameworks)
+
+    p_rl = sub.add_parser(
+        "rl", help="per trace: the run as an episode — return, discounted return, reward counts, largest "
+                   "rewards (recorded, else shaped); per agent mean return with its interval for a runs layout")
+    p_rl.add_argument("target", help="a trace file or a directory of traces")
+    p_rl.add_argument("--json", action="store_true", help="print every episode as JSON")
+    p_rl.set_defaults(func=_cmd_rl)
 
     p_run = sub.add_parser(
         "run", help="run a task set against one or more model providers and "
@@ -2100,6 +2230,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_feedback.add_argument("--jsonl", default=None,
                             help="write preference pairs as JSONL here (prompt, chosen, rejected)")
     p_feedback.set_defaults(func=_cmd_feedback)
+
+    p_rlexport = sub.add_parser(
+        "rlexport", help="the bridge out to an RL trainer: per-trajectory rewards for a veRL "
+                         "reward manager, its compute_score template, DPO-style preference pairs, "
+                         "or per-step transitions for Agent Lightning, from a report or a "
+                         "directory of reports; every record says recorded or shaped")
+    p_rlexport.add_argument("target", help="a report_*.json, or a directory of them")
+    p_rlexport.add_argument("--format", default="verl-rewards",
+                            choices=("verl-rewards", "verl-reward-fn", "preferences", "agent-lightning"),
+                            help="what to write (default: verl-rewards)")
+    p_rlexport.add_argument("-o", "--output", default=None,
+                            help="write here (JSONL; a .py file for verl-reward-fn); default: stdout")
+    p_rlexport.set_defaults(func=_cmd_rlexport)
 
     p_watch = sub.add_parser(
         "watch", help="serve the report page live over a trace directory: "

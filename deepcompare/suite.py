@@ -17,6 +17,7 @@ from .equality import equality_analysis
 from .metrics import aggregate as build_aggregate, task_signal
 from .reliability import reliability
 from .report import compare, attach_milestones
+from .rl import rl_aggregate
 from .router import routing_table
 from .scorecard import scorecard
 from .stability import medoid_pairs, stability_analysis
@@ -83,6 +84,9 @@ def analyse_runs(trajectories: list, *, warn=None, family_pattern: Optional[str]
     # arrives after aggregate() has already run.
     agg["triage"] = triage(reports, agg)
     agg["scorecard"] = scorecard(trajectories, golden, policy, raws)
+    # every trace as an episode (reward recorded, else shaped): per-agent
+    # mean return with its interval, per-task deltas, the preference pairs
+    agg["rl"] = rl_aggregate(reports, trajectories, names=(name_a, name_b))
     return {"names": (name_a, name_b), "runs_by_task": runs_by_task, "reports": reports,
             "aggregate": agg, "stability": stability, "reliability": reliability_analysis}
 

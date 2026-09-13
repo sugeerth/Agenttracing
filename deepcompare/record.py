@@ -471,7 +471,9 @@ class Recorder:
              quality: Optional[str] = None, note: Optional[str] = None,
              error: Optional[bool] = None, effect: Optional[str] = None,
              response: Any = None, cost_usd: float = 0.0,
-             model: Optional[dict] = None, span: Optional[dict] = None) -> RecordedStep:
+             model: Optional[dict] = None, span: Optional[dict] = None,
+             reward: Optional[float] = None, value: Optional[float] = None,
+             advantage: Optional[float] = None) -> RecordedStep:
         """Record one step; every other method here is sugar over this one.
 
         Arguments are named for the SCHEMA fields they fill, so the API is
@@ -482,7 +484,11 @@ class Recorder:
 
         ``response`` accepts a provider response object (see
         :func:`usage_from_response`) and fills output text, real token usage
-        and model telemetry from it in one go.
+        and model telemetry from it in one go.  ``reward``, ``value`` and
+        ``advantage`` are the RL signal for this step (the environment's
+        reward, the policy's value estimate, its advantage); written only
+        when given, so a trace without them is read as *shaped* by
+        :mod:`deepcompare.rl` rather than as a run that earned nothing.
         """
         _check(type in STEP_TYPES,
                f"invalid step type {type!r}; must be one of {', '.join(STEP_TYPES)}")
@@ -500,6 +506,10 @@ class Recorder:
         _check(tokens is None or (isinstance(tokens, int) and not isinstance(tokens, bool)),
                "tokens must be an integer measurement or None (then it is estimated)")
         _check(note is None or isinstance(note, str), "note must be a string or None")
+        signal = {"reward": reward, "value": value, "advantage": advantage}
+        for key, val in signal.items():
+            _check(val is None or (isinstance(val, (int, float)) and not isinstance(val, bool)),
+                   f"{key} must be a number or None")
 
         now = time.monotonic()
         elapsed = max(0.0, now - self._mark)
@@ -528,6 +538,9 @@ class Recorder:
         }
         if tokens is not None:
             data["tokens"] = int(tokens)
+        for key, val in signal.items():
+            if val is not None:
+                data[key] = float(val)
         self._steps.append(data)
         self._cost_usd += float(cost_usd or 0.0)
         handle = RecordedStep(self, data)

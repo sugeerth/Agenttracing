@@ -5,6 +5,73 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The bridge to RL trainers: verl / agent-lightning adapters, rlexport (no schema change)
+
+Two adapters in and four exporters out, so a comparison can sit on either side of a trainer:
+
+- `convert --format verl` (auto-detected when `reward_scores` / `reward_score` / `turn_scores` sit beside a
+  message history or a prompt+response) reads a veRL agent-loop rollout record — `messages` (OpenAI shape, tool
+  calls and `tool` results paired by `tool_call_id`, else in order), or `raw_prompt` + `response`, or the
+  rollout-dump columns `input` / `output` / `gts` / `score` — into a SCHEMA trajectory: assistant text → `reason`,
+  the final text → `answer`, tool calls → tool-ish steps with the result as output. Rewards land on the steps as
+  `reward`: per-turn `turn_scores` on the last step of their turn and per-call `tool_rewards` on the tool steps
+  when the record has them, else the episode reward on the answer step; `outcome.score` is the episode reward.
+  Success is the reward when it is exactly 0/1, else `ground_truth` containment in the answer, else the record's
+  `success`, else reward > 0 (warned). Task id `<data_source>-<uid>`, agent from `model` / `policy` / `--agent`,
+  `task.expected` from `reward_model.ground_truth`, tools from the schemas, `budget.max_assistant_turns`, tokens
+  measured from `prompt_ids` / `response_mask` when present. A rollout that ended on a tool call gets an empty
+  answer step that says so. `source.fidelity` counts turns, calls paired and unpaired, user turns dropped, how the
+  reward and the success were decided. A JSONL of rollouts writes one trace per line.
+- `convert --format agent-lightning` reads a LightningStore span export (`sequence_id` order; LLM calls by
+  `openai.chat.completion` / `gen_ai.*`, tool spans paired to the pending call of the same name, rewards from
+  `agentlightning.reward` / `.annotation` spans paid to the most recent step — Agent Lightning's own
+  first-occurrence match) or the v1 `model_request` / `reward` event export; the last reward is the score.
+- `rlexport <reports_dir|report.json> --format verl-rewards | verl-reward-fn | preferences | agent-lightning
+  -o <path>`: per-trajectory reward records (`data_source`, `uid`, `trajectory_id`, `agent`, `reward` = the return
+  `report.rl` computed, `reward_terms` {label: count × sign}, `step_rewards`, `milestones` reached, `outcome`); a
+  self-contained `compute_score(data_source, solution_str, ground_truth, extra_info)` that serves those records by
+  `extra_info["trajectory_id"]` (then `uid`; ground-truth containment when nothing is stored) and returns the terms
+  as `reward_extra_info`; DPO-style pairs (`prompt`, `chosen`, `rejected` as chat messages, `basis`; `shaped` when
+  the chosen side is the counterfactual splice); one transition per step (`state`: index, prior tools; `action`;
+  `reward`; `next_state`: observation; `done`). Every record carries `"source": "recorded" | "shaped"` and is
+  deterministic over the reports given. `docs/FRAMEWORKS.md` §6 reads the trainers; `docs/RL.md` ends with the bridge.
+
+## The run as an episode: reward, return and credit (v45)
+
+The impact-weighted, foldable reading of a run applied to RL, where the
+signal is reward and credit rather than faults.
+
+- **Schema** — optional numeric `reward`, `value`, `advantage` on a
+  Step; `Recorder.step(..., reward=, value=, advantage=)` writes them
+  only when given. Absent means unrecorded, never 0 earned.
+- **`report.rl`** (`deepcompare.rl.rl_pair`, computed last in `compare`
+  and again by `attach_milestones`) — per side: `rewards[]` with
+  `reward`, `cum`, `to_go`, `discounted_to_go` (γ = 0.99), `credit`,
+  the feedback labels, the acting agent; `return`, `discounted_return`,
+  positive / negative / zero counts, `largest` (top 5 by |reward| with
+  why), `credit` (each Shapley allocation spread evenly over the side's
+  steps in the region's rows, winner positive, loser negative, in the
+  Shapley metric's unit), `clusters` in the impact layer's shape
+  (`impact.cluster_steps`, now public with `impact.step_facts`) scored
+  `Σ|reward| + Σ|credit| + 2 per fault_enters / wrong_answer`, on the
+  pair's scale, marks at the 90th-percentile rewards, the decisive step
+  and the answer; `source` is `recorded` when any step of either side
+  carries a reward, else `shaped`: −1 per sign-−1 feedback label,
+  +1 for `fed_answer`, −3 for the decisive step, ±5 at the answer, +2
+  per milestone reached — labelled shaped everywhere it appears. The
+  `preference` is `feedback.preference_pair`. Narratives quote the
+  numbers.
+- **`aggregate.rl`** for the runs layout — one episode per trace
+  (`rl_run_from_trace`: recorded, else shaped from the trace's own
+  reading) with compact arrays (`rewards`, `cum`, `values`,
+  `advantages`), label counts, tool counts, seconds; per-agent mean
+  return with a normal-approximation 95% interval; per-task means and
+  their B − A delta with its sign; the preference pairs across tasks.
+- **`rl <trace|dir>`** prints each episode and, for a runs layout, the
+  per-agent mean with its interval. **Demo** `demo/rl/` (SYNTHETIC):
+  two tasks × policy-v1 / policy-v2 × three runs with rewards on every
+  step, values on thinking steps, a verifier lane. `docs/RL.md`.
+
 ## Tool-call diff (added to pairwise reports)
 
 Each alignment entry pairing two `tool_call` (or `search`) steps may carry:

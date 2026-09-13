@@ -4775,6 +4775,58 @@ class ImpactBlockTest(unittest.TestCase):
         self.assertEqual(errors, [])
         context.close()
 
+    def test_time_mode_puts_wall_clock_on_the_thread_with_quiet_time_folded(self):
+        import math
+        context, page, errors = self._open(width=1440)
+        im = self.report["impact"]
+        block = page.locator('#panels-lane .panels-grid > [data-block="impact"]')
+        band_sel = '#panels-lane [data-block="impact"] svg.im-band[data-side="a"]'
+        n_folds = block.locator('svg.im-band[data-side="a"] g.im-fold').count()
+        self.assertEqual(block.locator("text.im-tick").count(), 0)
+        block.locator('button[data-mode="time"]').click()
+        page.wait_for_timeout(300)
+        self.assertEqual(block.locator('button[data-mode="time"]').get_attribute("aria-pressed"), "true")
+        self.assertEqual(block.locator('button[data-mode="tree"]').get_attribute("aria-pressed"), "false")
+        self.assertEqual(block.locator('svg.im-band[data-side="a"]').get_attribute("data-mode"), "time")
+        # a light clock over the thread: ticks in the small type, a gap where time is folded
+        ticks = block.locator(f'svg.im-band[data-side="a"] text.im-tick:not(.im-gap)')
+        self.assertGreaterEqual(ticks.count(), 3)
+        self.assertLessEqual(ticks.first.evaluate("e => parseFloat(getComputedStyle(e).fontSize)"), 12.5)
+        self.assertGreaterEqual(block.locator('svg.im-band[data-side="a"] text.im-tick.im-gap').count(), 1)
+        # the same folds as the tree's, now as long as log2 of the seconds they hold
+        folds = page.evaluate("""s => [...document.querySelectorAll(s + ' g.im-fold')].map(g => {
+            const l = g.querySelector('line.im-fold-line');
+            return [g.dataset.ids, Number(g.dataset.steps), Number(g.dataset.seconds), Number(l.getAttribute('x2')) - Number(l.getAttribute('x1'))]; })""", band_sel)
+        self.assertEqual([(f[0], f[1]) for f in folds], self._thread_folds(im, "a"))
+        self.assertGreaterEqual(len({round(f[2]) for f in folds}), 2)
+        small, big = min(folds, key=lambda f: f[2]), max(folds, key=lambda f: f[2])
+        self.assertGreater(big[3], small[3])
+        for ids, _, seconds, width in folds:
+            self.assertAlmostEqual(seconds, sum(c["seconds"] for c in im["a"]["clusters"] if c["id"] in ids.split(",")), delta=0.02)
+            self.assertAlmostEqual(width, 6 + 6 * math.log2(1 + seconds), delta=0.75, msg=ids)
+        # a stretch on the thread is as long as its seconds: dilate a fold that holds one of the root agent's, then compare two
+        root = self._root(im, "a")
+        root_ids = {c["id"] for c in im["a"]["clusters"] if c["lane"] == root}
+        fold = next(ids for ids, _ in self._thread_folds(im, "a") if root_ids & set(ids.split(",")))
+        block.locator(f'svg.im-band[data-side="a"] g.im-fold[data-ids="{fold}"]').dispatch_event("click")
+        page.wait_for_timeout(300)
+        on_thread = page.evaluate("""s => [...document.querySelectorAll(s + ' path.im-cluster')].map(p => [p.dataset.id, p.getTotalLength()])""", band_sel)
+        secs_of = {c["id"]: c["seconds"] for c in im["a"]["clusters"]}
+        roots = sorted(((secs_of[i], w) for i, w in on_thread if i in root_ids), key=lambda p: p[0])
+        self.assertGreaterEqual(len(roots), 2)
+        self.assertGreater(roots[-1][0], roots[0][0])
+        self.assertGreater(roots[-1][1], roots[0][1])
+        # back to the tree: the clock goes, the folds are the tree's again, the mode persists per task
+        block.locator('button[data-mode="tree"]').click()
+        page.wait_for_timeout(300)
+        self.assertEqual(block.locator('svg.im-band[data-side="a"]').get_attribute("data-mode"), "tree")
+        self.assertEqual(block.locator("text.im-tick").count(), 0)
+        block.locator('button[data-act="collapse-all"]').click()
+        page.wait_for_timeout(300)
+        self.assertEqual(block.locator('svg.im-band[data-side="a"] g.im-fold').count(), n_folds)
+        self.assertEqual(errors, [])
+        context.close()
+
     def test_nothing_overflows_on_a_phone(self):
         context, page, errors = self._open(width=390)
         block = page.locator('#panels-lane .panels-grid > [data-block="impact"]')
@@ -4786,9 +4838,10 @@ class ImpactBlockTest(unittest.TestCase):
             self.assertLessEqual(band.evaluate("e => e.getBoundingClientRect().right"), 392)
         for sel in (".im-bar", ".im-legend"):
             self.assertLessEqual(block.locator(sel).evaluate("e => e.getBoundingClientRect().right"), 392)
-        block.locator('button[data-mode="trunk"]').click()
-        page.wait_for_timeout(300)
-        self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), 392)
+        for mode in ("time", "trunk"):
+            block.locator(f'button[data-mode="{mode}"]').click()
+            page.wait_for_timeout(300)
+            self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), 392)
         self.assertEqual(errors, [])
         context.close()
 
@@ -5132,5 +5185,888 @@ class TrustBlockTest(unittest.TestCase):
         self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), 392)
         box = page.locator('#panels-lane [data-block="trust"] .tr-ledger').bounding_box()
         self.assertLessEqual(box["x"] + box["width"], 391)
+        self.assertEqual(errors, [])
+        context.close()
+
+
+def _rl_fixture(report):
+    """A small, valid `report.rl` for a page whose engine has not written
+    one: per run four contiguous clusters (work, quiet, quiet — they fold —,
+    hot), nine rewarded steps with their running return, credit on some of
+    them, a decisive step and the answer in the hot stretch, and a
+    preference for A; every step one the alignment knows, so a leaf can
+    open it in the inspector."""
+    def known(side, lo, hi, n):
+        steps = [r[f"{side}_index"] for r in report["alignment"] if r.get(f"{side}_index") is not None and lo <= r[f"{side}_index"] <= hi]
+        assert len(steps) >= n, (side, lo, hi)
+        pick = [steps[int(i * (len(steps) - 1) / (n - 1))] for i in range(n)] if n > 1 else [steps[-1]]
+        assert len(set(pick)) == n
+        return pick
+    def run(side, values, credits, chosen):
+        agent = report[side]["agent"]["name"]
+        n = len(report[side]["steps"])
+        total_s = float(report["timing"][side]["total_s"])
+        bounds = [(0, 119), (120, 239), (240, 399), (400, n - 1)]
+        kinds = ["work", "quiet", "quiet", "hot"]
+        impacts = [0.3, 0.04, 0.05, 0.95]
+        steps = known(side, 5, 110, 2) + known(side, 130, 230, 1) + known(side, 250, 390, 2) + known(side, 405, n - 8, 4) + [n - 1]
+        names = ["plan", "grep", "read_file", "read_file", "edit", "run_tests", "run_tests", "edit", "run_tests", "answer"]
+        labels = [["progress"], [], [], [], ["milestone"], ["fault enters"] if values[5] < 0 else ["tests pass"], ["error"] if values[6] < 0 else ["milestone"], [], ["milestone"], ["answer"]]
+        rewards, cum = [], 0.0
+        for i, (st, v) in enumerate(zip(steps, values)):
+            cum += v
+            rewards.append({"step": st, "reward": v, "cum": round(cum, 4), "to_go": None, "discounted_to_go": None,
+                            "credit": credits[i], "labels": labels[i], "agent": agent, "kind": "answer" if i == 9 else "tool", "name": names[i]})
+        total = cum
+        for r in rewards:
+            r["to_go"] = round(total - r["cum"] + r["reward"], 4)
+            r["discounted_to_go"] = round(r["to_go"] * 0.97, 4)
+        clusters = []
+        for i, ((lo, hi), kind, imp) in enumerate(zip(bounds, kinds, impacts)):
+            marks = [{"step": r["step"], "kind": "reward+" if r["reward"] > 0 else "reward−", "label": r["name"] + " " + ("%+.1f" % r["reward"])} for r in rewards if lo <= r["step"] <= hi and r["reward"]]
+            if kind == "hot":
+                marks.append({"step": steps[5], "kind": "decisive", "label": "the tests turned"})
+                marks.append({"step": n - 1, "kind": "answer", "label": "the answer"})
+            inside = [r["reward"] for r in rewards if lo <= r["step"] <= hi]
+            clusters.append({"id": f"{side}{i + 1}", "from": lo, "to": hi, "steps": hi - lo + 1,
+                             "start_s": round(total_s * lo / n, 3), "end_s": round(total_s * (hi + 1) / n, 3), "seconds": round(total_s * (hi - lo + 1) / n, 3),
+                             "lane": agent, "agents": [agent], "impact": imp, "score": round(imp * 10, 2), "kind": kind,
+                             "reasons": {"reward": round(sum(inside), 4), "rewarded_steps": len(inside), "decisive": kind == "hot", "answer": kind == "hot"},
+                             "why": f"{kind} stretch: {len(inside)} rewarded step{'' if len(inside) == 1 else 's'} worth {sum(inside):+.1f}", "label": f"{kind} {i + 1}", "marks": marks})
+        pos = sum(1 for v in values if v > 0); neg = sum(1 for v in values if v < 0)
+        largest = [{"step": r["step"], "reward": r["reward"], "why": r["name"] + (" — " + ", ".join(r["labels"]) if r["labels"] else "")}
+                   for r in sorted(rewards, key=lambda r: -abs(r["reward"]))[:4]]
+        top = [{"step": r["step"], "credit": r["credit"]} for r in rewards if r["credit"] is not None]
+        return {"agent": agent, "measurable": True, "steps": n, "return": round(total, 4), "discounted_return": round(total * 0.9, 4),
+                "positive": pos, "negative": neg, "zero": len(values) - pos - neg, "seconds": total_s, "rewards": rewards, "largest": largest,
+                "credit": {"source": "shapley", "metric": "success", "top": top, "total": round(sum(t["credit"] for t in top), 4)},
+                "clusters": clusters, "narrative": f"{agent}: return {total:+.1f} over {len(values)} rewarded steps; {'chosen' if chosen else 'rejected'} by the judge."}
+    a = run("a", [1.0, 0.5, 0.0, 0.2, 2.0, 3.0, 1.5, 0.4, 2.0, 5.0], [0.05, None, None, None, 0.1, 0.3, 0.1, None, 0.15, 0.3], True)
+    b = run("b", [1.0, 0.5, 0.0, 0.0, 1.5, -1.0, -2.0, 0.4, 1.0, 3.0], [0.05, None, None, None, 0.1, -0.2, -0.3, None, 0.1, 0.25], False)
+    return {"version": 1, "measurable": True, "source": "shaped", "gamma": 0.99, "a": a, "b": b,
+            "preference": {"prompt": report["task"]["prompt"], "task_id": report["task"]["id"], "expected": report["task"].get("expected"),
+                           "chosen": {"agent": a["agent"], "side": "a", "basis": "higher return and no reward lost after the tests turned"},
+                           "rejected": {"agent": b["agent"], "side": "b"}, "margin": round(a["return"] - b["return"], 4)},
+            "narrative": f"{a['agent']} earned {a['return']:+.1f} to {b['agent']}'s {b['return']:+.1f}; they parted where {b['agent']} lost reward on the tests."}
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class RLBlockTest(unittest.TestCase):
+    """Reward & credit: the pair narrative, a source chip, a chip of returns
+    per run; the return curves (both runs' cumulative return on one axis,
+    the zero line, a ring where the two returns first part by a whole
+    point, the answer a square); the reward thread — the impact view's
+    technology on reward-driven clusters: one thread per run on a shared
+    impact scale, consecutive quiet clusters folded into one dotted ×N
+    segment as long as log2 of its steps, a tick per step at or above the
+    run's 90th percentile of |reward| (up and green for a gain, down and
+    red for a loss), the decisive step ringed, the answer squared, a faint
+    credit bar per cluster; a fold dilates on click, a cluster opens to its
+    rewarded steps as leaves, a leaf opens the step in the shared
+    inspector; the preference line; the tables under the fold; the whole
+    thing short at 1440 and nothing overflowing on a phone."""
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        if not (ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__atlas-lh.json").is_file():
+            subprocess.run([sys.executable, str(ROOT / "demo" / "horizon" / "generate_long.py")], cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "horizon" / "long"), "-o", str(out),
+                        "--golden", str(ROOT / "demo" / "horizon" / "golden.json"), "--template", str(ROOT / "web" / "blocks.html")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        cls.page_path = out / "report.html"
+        report_path = out / "report_h02_migrate_service.json"
+        cls.report = json.loads(report_path.read_text(encoding="utf-8"))
+        if not (cls.report.get("rl") and cls.report["rl"].get("measurable")):
+            from deepcompare.report import render_html
+            cls.report["rl"] = _rl_fixture(cls.report)
+            report_path.write_text(json.dumps(cls.report), encoding="utf-8")
+            aggregate_path = out / "aggregate.json"
+            aggregate = json.loads(aggregate_path.read_text(encoding="utf-8")) if aggregate_path.is_file() else {}
+            render_html([cls.report], aggregate, ROOT / "web" / "blocks.html", cls.page_path)
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _open(self, width=1440, preset="eval"):
+        context = self.browser.new_context(viewport={"width": width, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view=panels")
+        page.wait_for_timeout(900)
+        if preset:
+            page.click(f'#panels-lane [data-preset="{preset}"]')
+            page.wait_for_timeout(900)
+        return context, page, errors
+
+    # ---- the same arithmetic as the block, from the JSON
+    @staticmethod
+    def _rewards(run):
+        return sorted((r for r in run["rewards"] if isinstance(r.get("step"), int) and isinstance(r.get("reward"), (int, float))), key=lambda r: r["step"])
+
+    @classmethod
+    def _ticks(cls, run):
+        import math
+        rs = cls._rewards(run)
+        mags = sorted(abs(r["reward"]) for r in rs)
+        if not mags:
+            return []
+        thr = mags[max(0, min(len(mags) - 1, math.ceil(0.9 * len(mags)) - 1))]
+        return [r for r in rs if r["reward"] != 0 and abs(r["reward"]) >= thr]
+
+    @staticmethod
+    def _clusters(run):
+        return sorted(run["clusters"], key=lambda c: c["from"])
+
+    @classmethod
+    def _folds(cls, run):
+        cs, folds, i = cls._clusters(run), [], 0
+        while i < len(cs):
+            if cs[i]["kind"] == "quiet":
+                j = i
+                while j < len(cs) and cs[j]["kind"] == "quiet":
+                    j += 1
+                if j - i >= 2:
+                    folds.append((",".join(c["id"] for c in cs[i:j]), sum(c["steps"] for c in cs[i:j])))
+                    i = j
+                    continue
+            i += 1
+        return folds
+
+    @classmethod
+    def _inside(cls, run, c):
+        return [r for r in cls._rewards(run) if c["from"] <= r["step"] <= c["to"]]
+
+    @classmethod
+    def _credit(cls, run, c):
+        vals = [r["credit"] for r in cls._inside(run, c) if isinstance(r.get("credit"), (int, float))]
+        return sum(vals) if vals else None
+
+    @classmethod
+    def _folded_ids(cls, run):
+        return {i for ids, _ in cls._folds(run) for i in ids.split(",")}
+
+    @classmethod
+    def _shown(cls, run):
+        """The clusters on the thread with the defaults: every one outside a closed fold."""
+        folded = cls._folded_ids(run)
+        return [c for c in cls._clusters(run) if c["id"] not in folded]
+
+    @classmethod
+    def _in_fold(cls, run, step):
+        by_id = {c["id"]: c for c in run["clusters"]}
+        return any(by_id[ids.split(",")[0]]["from"] <= step <= by_id[ids.split(",")[-1]]["to"] for ids, _ in cls._folds(run))
+
+    @classmethod
+    def _credit_bars(cls, run):
+        """(id, credit) per bar: a shown cluster whose steps carry credit, a closed fold holding any."""
+        bars = [(c["id"], cls._credit(run, c)) for c in cls._shown(run) if cls._credit(run, c) is not None]
+        by_id = {c["id"]: c for c in run["clusters"]}
+        for ids, _ in cls._folds(run):
+            vals = [cls._credit(run, by_id[i]) for i in ids.split(",")]
+            vals = [v for v in vals if v is not None]
+            if vals:
+                bars.append((ids, sum(vals)))
+        return bars
+
+    @classmethod
+    def _leaves(cls, run, c):
+        """A stretch's leaves: its non-zero rewards, the 20 largest when there are more, in step order."""
+        nz = [r for r in cls._inside(run, c) if r["reward"] != 0]
+        if len(nz) <= 20:
+            return nz, 0
+        top = sorted(nz, key=lambda r: (-abs(r["reward"]), r["step"]))[:20]
+        return sorted(top, key=lambda r: r["step"]), len(nz) - 20
+
+    @classmethod
+    def _cum(cls, run, step):
+        v = 0.0
+        for r in cls._rewards(run):
+            if r["step"] > step:
+                break
+            v = r["cum"] if isinstance(r.get("cum"), (int, float)) else v + r["reward"]
+        return v
+
+    @classmethod
+    def _parted(cls, rl):
+        steps = sorted({r["step"] for s in "ab" for r in cls._rewards(rl[s])})
+        return next((st for st in steps if abs(cls._cum(rl["a"], st) - cls._cum(rl["b"], st)) >= 1), None)
+
+    def test_header_curve_and_threads_match_the_report(self):
+        import math
+        context, page, errors = self._open(width=1440)
+        rl = self.report["rl"]
+        block = page.locator('#panels-lane .panels-grid > [data-block="rl"]')
+        self.assertEqual(block.count(), 1)
+        self.assertEqual(block.locator(".empty:visible").count(), 0)
+        if rl.get("narrative"):
+            self.assertIn(rl["narrative"][:40], block.locator(".rl-narr").text_content())
+        # the source chip says where the rewards came from
+        src = block.locator(".rl-src")
+        self.assertEqual(src.count(), 1)
+        self.assertEqual(src.text_content().strip(), "rewards: recorded" if rl["source"] == "recorded" else "rewards: shaped from the reading (labelled)")
+        self.assertEqual(src.get_attribute("data-source"), rl["source"])
+        for side in "ab":
+            chip = block.locator(f'.rl-run[data-side="{side}"]').text_content()
+            self.assertIn(self.report[side]["agent"]["name"], chip)
+            self.assertIn(f"{rl[side]['positive']}↑", chip)
+            self.assertIn(f"{rl[side]['negative']}↓", chip)
+        # the curve: one line per run, a ring where the returns part, every svg named for a screen reader
+        curve = block.locator("svg.rl-curve")
+        self.assertEqual(curve.count(), 1)
+        self.assertEqual(curve.get_attribute("role"), "img")
+        self.assertTrue(curve.get_attribute("aria-label"))
+        self.assertEqual(curve.locator("path.rl-cum").count(), 2)
+        self.assertEqual(sorted(curve.locator("path.rl-cum").nth(i).get_attribute("data-side") for i in range(2)), ["a", "b"])
+        self.assertEqual(curve.locator("line.rl-zero").count(), 1)
+        parted = self._parted(rl)
+        self.assertEqual(curve.locator("circle.rl-parted").count(), 1 if parted is not None else 0)
+        if parted is not None:
+            self.assertEqual(int(curve.locator("circle.rl-parted").get_attribute("data-step")), parted)
+            self.assertIn(f"parted at step {parted}", curve.text_content())
+        self.assertEqual(curve.locator("rect.rl-answer").count(), 2)
+        # the threads: one per run, the folds and ticks as the JSON says
+        self.assertEqual(block.locator("svg.rl-band").count(), 2)
+        self.assertEqual(block.locator("path.rl-thread").count(), 2)
+        for side in "ab":
+            run = rl[side]
+            band = block.locator(f'svg.rl-band[data-side="{side}"]')
+            self.assertEqual(band.get_attribute("role"), "img")
+            self.assertTrue(band.get_attribute("aria-label"))
+            self.assertEqual(band.locator(f'path.rl-thread[data-side="{side}"]').count(), 1)
+            folds = self._folds(run)
+            got = page.evaluate("""side => [...document.querySelectorAll(`#panels-lane [data-block="rl"] svg.rl-band[data-side="${side}"] g.rl-fold`)]
+                .map(g => { const l = g.querySelector('line.rl-fold-line'); return [g.dataset.ids, Number(g.dataset.steps), Number(l.getAttribute('x2')) - Number(l.getAttribute('x1'))]; })""", side)
+            self.assertEqual([(g[0], g[1]) for g in got], folds, side)
+            for _, steps, width in got:
+                self.assertAlmostEqual(width, 6 + 6 * math.log2(1 + steps), delta=0.75, msg=(side, steps))
+            shown = [c["id"] for c in self._shown(run)]
+            clusters = band.locator("g.rl-cluster")
+            self.assertEqual(sorted(clusters.nth(i).get_attribute("data-id") for i in range(clusters.count())), sorted(shown), side)
+            for c in self._clusters(run):
+                if c["id"] in shown:
+                    self.assertEqual(band.locator(f'g.rl-cluster[data-id="{c["id"]}"][data-kind="{c["kind"]}"]').count(), 1, (side, c["id"]))
+            self.assertEqual(band.locator("g.rl-cluster.open").count(), 0)
+            # a tick per step at or above the 90th percentile of |reward| where the thread is dilated (a closed
+            # fold keeps its steps to itself), its sign its direction, its height its size
+            ticks = [t for t in self._ticks(run) if not self._in_fold(run, t["step"])]
+            got_ticks = page.evaluate("""side => [...document.querySelectorAll(`#panels-lane [data-block="rl"] svg.rl-band[data-side="${side}"] g.rl-tick`)]
+                .map(g => { const l = g.querySelector('line'); return [Number(g.dataset.step), g.dataset.sign, Math.abs(Number(l.getAttribute('y2')) - Number(l.getAttribute('y1')))]; })""", side)
+            self.assertEqual(sorted(t[0] for t in got_ticks), sorted(t["step"] for t in ticks), side)
+            by_step = {t["step"]: t for t in ticks}
+            biggest = max((abs(r["reward"]) for r in self._rewards(run)), default=0)
+            for step, sign, height in got_ticks:
+                self.assertEqual(sign, "pos" if by_step[step]["reward"] > 0 else "neg", (side, step))
+                self.assertAlmostEqual(height, max(4, 14 * abs(by_step[step]["reward"]) / biggest), delta=0.05, msg=(side, step))
+            # the decisive ring and the answer square sit on the thread
+            decisive = [m["step"] for c in run["clusters"] for m in c["marks"] if m["kind"] == "decisive"]
+            self.assertEqual(band.locator("circle.rl-decisive").count(), len(decisive), side)
+            self.assertEqual(band.locator("rect.rl-answer").count(), 1, side)
+            # a credit bar per cluster whose steps carry credit — one for a closed fold holding any — coloured by sign
+            expected_bars = self._credit_bars(run)
+            bars = band.locator("rect.rl-credit")
+            self.assertEqual(sorted(bars.nth(i).get_attribute("data-id") for i in range(bars.count())), sorted(i for i, _ in expected_bars), side)
+            for cid, total in expected_bars:
+                bar = band.locator(f'rect.rl-credit[data-id="{cid}"]')
+                self.assertAlmostEqual(float(bar.get_attribute("data-credit")), total, places=3)
+                self.assertEqual(bar.get_attribute("fill"), "var(--bad)" if total < 0 else "var(--good)")
+                self.assertEqual(bar.get_attribute("data-fold"), "1" if "," in cid else None)
+            self.assertEqual(band.locator("g.rl-leaf").count(), 0)
+        # the preference, the two agents named; the tables under the fold
+        pref = block.locator(".rl-pref")
+        if rl.get("preference") and rl["preference"].get("chosen"):
+            self.assertEqual(pref.count(), 1)
+            text = pref.text_content()
+            self.assertIn(rl["preference"]["chosen"]["agent"], text)
+            self.assertIn("(chosen)", text)
+            if rl["preference"].get("rejected"):
+                self.assertIn(rl["preference"]["rejected"]["agent"], text)
+                self.assertIn("(rejected)", text)
+            self.assertTrue(text.startswith("preferred:"))
+        else:
+            self.assertEqual(pref.count(), 0)
+        details = block.locator("details.rl-details")
+        self.assertEqual(details.count(), 1)
+        self.assertFalse(details.evaluate("e => e.open"))
+        n_largest = sum(1 for s in "ab" for l in rl[s]["largest"] if isinstance(l.get("step"), int))
+        self.assertEqual(block.locator(".rl-table tr[data-side][data-step]").count(), n_largest)
+        self.assertEqual(block.locator(".rl-clusters tr[data-side][data-id]").count(), len(rl["a"]["clusters"]) + len(rl["b"]["clusters"]))
+        # quiet, and short: the curve and both threads together under 620px with the defaults
+        self.assertLess(block.locator(".rl-chart").bounding_box()["height"], 620)
+        self.assertLessEqual(block.locator(".rl-legend").bounding_box()["height"], 22)
+        # the block's own content uses two sizes (--fs-xs, --fs-m), nothing under 11px
+        sizes = page.evaluate("""() => [...new Set([...document.querySelectorAll('#panels-lane [data-block="rl"] .rl *')]
+            .filter(e => e.tagName.toLowerCase() !== 'title' && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())).map(e => getComputedStyle(e).fontSize))]""")
+        self.assertTrue(all(float(s.replace("px", "")) >= 11 for s in sizes), sizes)
+        self.assertLessEqual(len(sizes), 2, sizes)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_fold_dilates_a_cluster_opens_and_a_leaf_opens_the_step(self):
+        # the "all" preset holds the body chart, so the shared inspector is on the page
+        context, page, errors = self._open(width=1440, preset="all")
+        rl = self.report["rl"]
+        block = page.locator('#panels-lane .panels-grid > [data-block="rl"]')
+        self.assertEqual(block.count(), 1)
+        side = next((s for s in "ab" if self._folds(rl[s])), None)
+        if side is not None:
+            band = block.locator(f'svg.rl-band[data-side="{side}"]')
+            other = "b" if side == "a" else "a"
+            n_folds, o_folds = band.locator("g.rl-fold").count(), block.locator(f'svg.rl-band[data-side="{other}"] g.rl-fold').count()
+            n_clusters = band.locator("g.rl-cluster").count()
+            first = band.locator("g.rl-fold").first
+            fid = first.get_attribute("data-ids")
+            inside = fid.split(",")
+            first.dispatch_event("click")
+            page.wait_for_timeout(300)
+            band = block.locator(f'svg.rl-band[data-side="{side}"]')
+            self.assertEqual(band.locator("g.rl-fold").count(), n_folds - 1)
+            self.assertEqual(band.locator("g.rl-cluster").count(), n_clusters + len(inside))
+            for cid in inside:
+                self.assertEqual(band.locator(f'g.rl-cluster[data-id="{cid}"][data-kind="quiet"] path[data-fold="{fid}"]').count(), 1)
+            # the other thread keeps its folds: a fold is opened by id, not per page
+            self.assertEqual(block.locator(f'svg.rl-band[data-side="{other}"] g.rl-fold').count(), o_folds)
+            # collapse all refolds it
+            block.locator('button[data-act="collapse-all"]').click()
+            page.wait_for_timeout(300)
+            band = block.locator(f'svg.rl-band[data-side="{side}"]')
+            self.assertEqual(band.locator("g.rl-fold").count(), n_folds)
+            self.assertEqual(band.locator("g.rl-fold").first.get_attribute("data-ids"), fid)
+        # a cluster on the thread opens to its rewarded steps as leaves — a hot one when there is one
+        side, run, target = None, None, None
+        for s in "ab":
+            shown = [c for c in self._shown(rl[s]) if self._leaves(rl[s], c)[0]]
+            if shown:
+                side, run = s, rl[s]
+                target = next((c for c in shown if c["kind"] == "hot"), shown[0])
+                break
+        self.assertIsNotNone(target, "a cluster with rewards on a thread")
+        known = {r[f"{side}_index"] for r in self.report["alignment"] if r.get(f"{side}_index") is not None}
+        band = block.locator(f'svg.rl-band[data-side="{side}"]')
+        node = band.locator(f'g.rl-cluster[data-id="{target["id"]}"]')
+        self.assertEqual(node.count(), 1)
+        node.dispatch_event("click")
+        page.wait_for_timeout(300)
+        band = block.locator(f'svg.rl-band[data-side="{side}"]')
+        node = band.locator(f'g.rl-cluster[data-id="{target["id"]}"]')
+        self.assertIn("open", node.get_attribute("class").split())
+        leaves = band.locator("g.rl-leaf")
+        expected, more = self._leaves(run, target)
+        self.assertEqual(leaves.count(), len(expected))
+        self.assertEqual(band.locator("text.rl-more").count(), 1 if more else 0)
+        if more:
+            self.assertEqual(int(band.locator("text.rl-more").get_attribute("data-more")), more)
+        self.assertEqual([int(leaves.nth(i).get_attribute("data-step")) for i in range(leaves.count())], [r["step"] for r in expected])
+        for r in expected:
+            text = band.locator(f'g.rl-leaf[data-step="{r["step"]}"]').text_content()
+            self.assertIn(f"step {r['step']}", text)
+            if r.get("name"):
+                self.assertIn(r["name"][:12], text)
+        self.assertEqual(band.locator(f'text.rl-why[data-id="{target["id"]}"]').count(), 1)
+        # a leaf opens its step in the shared inspector
+        leaf_step = next((r["step"] for r in expected if r["step"] in known), None)
+        if leaf_step is not None:
+            band.locator(f'g.rl-leaf[data-step="{leaf_step}"]').dispatch_event("click")
+            page.wait_for_timeout(400)
+            self.assertIn(f"STEP {leaf_step}", page.locator('#panels-lane [data-block="trace-body"] .tj-inspector').inner_text().upper())
+        # the thread never moved: opening a cluster changes nothing on the thread
+        # clicking it again closes it; expand hot opens every hot cluster; collapse all closes them
+        node.dispatch_event("click")
+        page.wait_for_timeout(300)
+        band = block.locator(f'svg.rl-band[data-side="{side}"]')
+        self.assertNotIn("open", (band.locator(f'g.rl-cluster[data-id="{target["id"]}"]').get_attribute("class") or "").split())
+        self.assertEqual(band.locator("g.rl-leaf").count(), 0)
+        block.locator('button[data-act="expand-hot"]').click()
+        page.wait_for_timeout(300)
+        n_hot = sum(1 for s in "ab" for c in rl[s]["clusters"] if c["kind"] == "hot")
+        self.assertEqual(block.locator("g.rl-cluster.open").count(), n_hot)
+        block.locator('button[data-act="collapse-all"]').click()
+        page.wait_for_timeout(300)
+        self.assertEqual(block.locator("g.rl-cluster.open").count(), 0)
+        self.assertEqual(block.locator("g.rl-leaf").count(), 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_nothing_overflows_on_a_phone(self):
+        context, page, errors = self._open(width=390)
+        block = page.locator('#panels-lane .panels-grid > [data-block="rl"]')
+        self.assertEqual(block.count(), 1)
+        self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), 392)
+        self.assertEqual(block.locator(".empty:visible").count(), 0)
+        for sel in ("svg.rl-curve", 'svg.rl-band[data-side="a"]', 'svg.rl-band[data-side="b"]', ".rl-bar", ".rl-pref"):
+            box = block.locator(sel).bounding_box()
+            self.assertLessEqual(box["x"] + box["width"], 391, sel)
+        self.assertEqual(block.locator("path.rl-thread").count(), 2)
+        self.assertEqual(errors, [])
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class TrainingViewTest(unittest.TestCase):
+    """The Training view: a fifth tab that reads the RL training ground of
+    a runs-layout batch top-down — the pair's reward panel, learning
+    curves per task, the episodes × steps reward map with its folds, value
+    calibration and advantages, what the reward paid for, the preference
+    pairs, the policy delta — every count checked against `aggregate.rl`
+    and the reports' `rl`. Uses the engine's own RL demo when it exists;
+    otherwise (or with TRAINING_FIXTURE=1) a deterministic fixture over the
+    runs demo: rewards from a seeded walk over each trace's real steps."""
+
+    tmp = None
+    GAMMA = 0.95
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        rl_traces = ROOT / "demo" / "rl" / "traces"
+        forced = os.environ.get("TRAINING_FIXTURE") == "1"
+        traces = rl_traces if rl_traces.is_dir() and not forced else ROOT / "demo" / "runs" / "traces"
+        subprocess.run([sys.executable, "-m", "deepcompare", "runs", str(traces), "-o", str(out),
+                        "--template", str(ROOT / "web" / "blocks.html")], cwd=str(ROOT), check=True, capture_output=True)
+        agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
+        reports = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(out.glob("report_*.json"))]
+        cls.injected = forced or not (isinstance(agg.get("rl"), dict) and agg["rl"].get("agents"))
+        if cls.injected:
+            agg["rl"] = cls._fixture(reports, traces)
+            from deepcompare.report import render_html
+            render_html(reports, agg, ROOT / "web" / "blocks.html", out / "report.html")
+        cls.rl, cls.reports = agg["rl"], reports
+        cls.page_path = out / "report.html"
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    # ------------------------------------------------------------ fixture
+
+    @classmethod
+    def _fixture(cls, reports, traces_dir):
+        import math
+        import random
+        import zlib
+        G = cls.GAMMA
+
+        def rng(*parts):
+            return random.Random(zlib.crc32("|".join(str(p) for p in parts).encode()))
+
+        def episode(trace, task, agent, run):
+            steps = trace["steps"]; n = len(steps)
+            success = bool(trace.get("outcome", {}).get("success"))
+            r = rng(task, agent, run)
+            rewards, labels = [0.0] * n, [[] for _ in range(n)]
+            quiet = n >= 8 and run == "r2"      # a long silent stretch: a fold
+            for k, s in enumerate(steps):
+                if k == n - 1:
+                    rewards[k] = 1.0 if success else -1.0; labels[k] = ["answer" if success else "wrong_answer"]
+                elif s.get("error"):
+                    rewards[k] = -0.5; labels[k] = ["tool_error"]
+                elif not quiet and k > 0 and r.random() < 0.45:
+                    rewards[k] = round(r.uniform(0.05, 0.4), 2); labels[k] = ["progress"]
+                elif not quiet and k > 0 and r.random() < 0.2:
+                    rewards[k] = -0.2; labels[k] = ["retry"]
+            cum, acc = [], 0.0
+            for x in rewards:
+                acc += x; cum.append(round(acc, 4))
+            togo, acc = [0.0] * n, 0.0
+            for k in range(n - 1, -1, -1):
+                acc = rewards[k] + G * acc; togo[k] = acc
+            if agent.endswith("v3"):            # only the second policy carries a critic
+                values = [round(togo[k] + r.uniform(-0.3, 0.3), 3) for k in range(n)]
+                adv = [round(rewards[k] + (G * values[k + 1] if k + 1 < n else 0.0) - values[k], 3) for k in range(n)]
+            else:
+                values, adv = [None] * n, [None] * n
+            events, tools, inputs = {}, {}, set()
+            for k, s in enumerate(steps):
+                for l in labels[k]:
+                    events[l] = events.get(l, 0) + 1
+                if s.get("type") not in ("plan", "reason", "answer") and s.get("name"):
+                    tools[s["name"]] = tools.get(s["name"], 0) + 1
+                if s.get("input") is not None:
+                    inputs.add(str(s["input"]))
+            return {"task_id": task, "run_id": run, "return": round(sum(rewards), 4), "discounted_return": round(togo[0], 4),
+                    "steps": n, "success": success, "seconds": round(sum((s.get("latency_s") or 0.0) for s in steps), 3),
+                    "rewards": rewards, "cum": cum, "values": values, "advantages": adv, "events": events, "tools": tools,
+                    "distinct_inputs": len(inputs), "_labels": labels, "_togo": togo, "_steps": steps}
+
+        agents = {}
+        for path in sorted(Path(traces_dir).glob("*.json")):
+            task, agent, run = path.stem.split("__")
+            agents.setdefault(agent, {"episodes": []})["episodes"].append(episode(json.loads(path.read_text(encoding="utf-8")), task, agent, run))
+        names = list(agents)
+        for ag in agents.values():
+            rs = [e["return"] for e in ag["episodes"]]; m = sum(rs) / len(rs)
+            sd = math.sqrt(sum((x - m) ** 2 for x in rs) / max(1, len(rs) - 1))
+            ag["mean_return"] = round(m, 4); ag["episodes_n"] = len(rs)
+            ag["return_ci"] = [round(m - 1.96 * sd / math.sqrt(len(rs)), 4), round(m + 1.96 * sd / math.sqrt(len(rs)), 4)]
+        tasks, prefs = {}, []
+        for t in [r["task"]["id"] for r in reports]:
+            row = {}
+            for name in names:
+                rs = [e["return"] for e in agents[name]["episodes"] if e["task_id"] == t]
+                row[name] = {"mean_return": round(sum(rs) / len(rs), 4) if rs else None, "returns": rs}
+            a, b = names[0], names[1]
+            delta = round(row[b]["mean_return"] - row[a]["mean_return"], 4)
+            row["delta"] = delta; row["sign"] = 1 if delta > 0 else -1 if delta < 0 else 0
+            tasks[t] = row
+            if delta:
+                chosen, rejected = (b, a) if delta > 0 else (a, b)
+                prefs.append({"task_id": t, "chosen": chosen, "rejected": rejected, "basis": "mean return", "margin": abs(delta)})
+        for r in reports:
+            t = r["task"]["id"]; runs = {}
+            for side in ("a", "b"):
+                name = r[side]["agent"]["name"]; rid = r[side].get("run_id")
+                ep = next((e for e in agents[name]["episodes"] if e["task_id"] == t and e["run_id"] == rid), None)
+                if ep is None:
+                    ep = next(e for e in agents[name]["episodes"] if e["task_id"] == t)
+                entries = [{"step": k, "reward": ep["rewards"][k], "cum": ep["cum"][k], "to_go": round(sum(ep["rewards"][k:]), 4),
+                            "discounted_to_go": round(ep["_togo"][k], 4), "credit": None, "labels": ep["_labels"][k], "agent": name,
+                            "kind": ep["_steps"][k].get("type"), "name": ep["_steps"][k].get("name")} for k in range(ep["steps"])]
+                largest = sorted(entries, key=lambda e: -abs(e["reward"]))[:3]
+                runs[side] = {"agent": name, "measurable": True, "steps": ep["steps"], "return": ep["return"], "discounted_return": ep["discounted_return"],
+                              "positive": sum(1 for x in ep["rewards"] if x > 0), "negative": sum(1 for x in ep["rewards"] if x < 0),
+                              "zero": sum(1 for x in ep["rewards"] if x == 0), "seconds": ep["seconds"], "rewards": entries,
+                              "largest": [{"step": e["step"], "reward": e["reward"], "why": ", ".join(e["labels"])} for e in largest],
+                              "credit": {"source": "none", "metric": "reward", "top": [], "total": 0}, "clusters": [], "narrative": ""}
+            pref = next((p for p in prefs if p["task_id"] == t), None)
+            r["rl"] = {"version": 1, "measurable": True, "source": "recorded", "gamma": G, "a": runs["a"], "b": runs["b"],
+                       "preference": {k: v for k, v in pref.items() if k != "task_id"} if pref else None, "narrative": ""}
+        for ag in agents.values():
+            for e in ag["episodes"]:
+                for k in ("_labels", "_togo", "_steps"):
+                    e.pop(k)
+        return {"gamma": G, "source": "recorded", "agents": agents, "tasks": tasks, "preferences": prefs,
+                "narrative": "%d policies, %d episodes over %d tasks; rewards recorded per step." % (
+                    len(names), sum(len(a["episodes"]) for a in agents.values()), len(reports))}
+
+    # ------------------------------------------------------------ helpers
+
+    def _open(self, width=1280, view="training"):
+        context = self.browser.new_context(viewport={"width": width, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view={view}")
+        page.wait_for_timeout(900)
+        return context, page, errors
+
+    def _episodes(self):
+        return [(name, e) for name, ag in self.rl["agents"].items() for e in ag["episodes"]]
+
+    @staticmethod
+    def _rewards(e):
+        out = [0.0] * int(e.get("steps") or 0)
+        for i, v in enumerate(e["rewards"]):
+            if isinstance(v, dict):
+                out[v["step"]] = v["reward"] if len(out) > v["step"] else 0
+            elif i < len(out):
+                out[i] = v
+        return out
+
+    @classmethod
+    def _folds(cls, e):
+        runs, i, rewards = [], 0, cls._rewards(e)
+        while i < len(rewards):
+            if rewards[i] != 0:
+                i += 1; continue
+            j = i
+            while j < len(rewards) and rewards[j] == 0:
+                j += 1
+            if j - i >= 5:
+                runs.append((i, j - i))
+            i = j
+        return runs
+
+    def _composition(self):
+        """What the block draws when the aggregate carries no shaping
+        weights: each recorded reward in the pair reports, split evenly
+        over its labels (its step kind when it has none)."""
+        per = {}
+        for r in self.reports:
+            for side in ("a", "b"):
+                run = r["rl"][side]
+                policy = run.get("agent") or r[side]["agent"]["name"]
+                for e in run["rewards"]:
+                    if not e["reward"]:
+                        continue
+                    ls = e.get("labels") or [e.get("kind") or "unlabelled"]
+                    for l in ls:
+                        per.setdefault(policy, {}).setdefault(l, 0.0)
+                        per[policy][l] += e["reward"] / len(ls)
+        return per
+
+    # ------------------------------------------------------------ tests
+
+    def test_the_tab_opens_the_training_lane_and_nothing_else(self):
+        context, page, errors = self._open()
+        tab = page.locator('.tab[data-view="training"]')
+        self.assertEqual(tab.count(), 1)
+        self.assertEqual(tab.inner_text().strip(), "Training")
+        self.assertEqual(tab.get_attribute("aria-selected"), "true")
+        self.assertEqual(page.locator('.tab[aria-selected="true"]').count(), 1)
+        for lane in ("#story-lane", "#panels-lane", "#hero-lane", "#reading"):
+            self.assertTrue(page.locator(lane).is_hidden(), lane)
+        self.assertFalse(page.locator("#stacks").is_hidden())
+        labels = page.locator("#stacks .stack-label .name").all_inner_texts()
+        self.assertEqual(len(labels), 1)
+        self.assertIn("training", labels[0].lower())
+        ids = page.evaluate("() => [...document.querySelectorAll('#stacks .block')].map(e => e.dataset.block)")
+        has_rl = page.evaluate("() => !!(AgentDiff.blockEntry('rl'))")
+        want = (["rl-here"] if has_rl else []) + ["rl-curves", "rl-reward-map", "rl-advantage", "rl-events", "rl-preferences", "rl-policy-delta"]
+        self.assertEqual(ids, want)
+        self.assertEqual(page.locator("#stacks .block.collapsed").count(), 0)
+        self.assertEqual(page.locator("#stacks .block:not(.collapsed) .empty").count(), 0)
+        # every chart is an image with a name
+        svgs = page.locator("#stacks svg")
+        self.assertGreater(svgs.count(), 0)
+        for bid in ("rl-curves", "rl-reward-map", "rl-events"):
+            self.assertGreater(page.locator(f'#stacks [data-block="{bid}"] svg').count(), 0, bid)
+        for i in range(svgs.count()):
+            svg = svgs.nth(i)
+            if svg.evaluate("e => !!e.parentNode.closest('svg')"):
+                continue
+            self.assertEqual(svg.get_attribute("role"), "img")
+            self.assertTrue(svg.get_attribute("aria-label"))
+        # two columns for the tables on a desk, everything else full width
+        self.assertEqual(page.evaluate("() => getComputedStyle(document.querySelector('#stacks .stack')).gridTemplateColumns.split(' ').length"), 2)
+        wide = page.evaluate("() => document.querySelector('#stacks [data-block=\"rl-curves\"]').getBoundingClientRect().width")
+        narrow = page.evaluate("() => document.querySelector('#stacks [data-block=\"rl-preferences\"]').getBoundingClientRect().width")
+        self.assertGreater(wide, narrow * 1.6)
+        # the other views are untouched by the fifth tab
+        page.click('.tab[data-view="story"]')
+        page.wait_for_timeout(500)
+        self.assertFalse(page.locator("#story-lane").is_hidden())
+        self.assertTrue(page.locator("#stacks").is_hidden())
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_learning_curves_draw_every_episode_with_the_band_and_the_headline(self):
+        context, page, errors = self._open()
+        block = page.locator('#stacks [data-block="rl-curves"]')
+        tasks = list(self.rl["tasks"]) if self.rl.get("tasks") else sorted({e["task_id"] for _, e in self._episodes()})
+        self.assertEqual(block.locator(".rl-multiple").count(), len(tasks))
+        for name, ag in self.rl["agents"].items():
+            self.assertEqual(block.locator(f'circle.rlc-pt[data-policy="{name}"]').count(), len(ag["episodes"]), name)
+            self.assertEqual(block.locator(f'circle.rlc-pt.ok[data-policy="{name}"]').count(), sum(1 for e in ag["episodes"] if e["success"]), name)
+            if ag.get("return_ci"):
+                self.assertEqual(block.locator(f'rect.rlc-band[data-policy="{name}"]').count(), len(tasks), name)
+            chip = block.locator(f'.rlc-chip[data-policy="{name}"]')
+            self.assertEqual(chip.count(), 1)
+            text = chip.inner_text()
+            self.assertIn(f"n={ag['episodes_n']}", text)
+            if ag.get("return_ci"):
+                self.assertIn(f"[{ag['return_ci'][0]:.2f}, {ag['return_ci'][1]:.2f}]", text)
+        self.assertEqual(block.locator(".rlc-chip").count(), len(self.rl["agents"]))
+        # a point opens its task: the pair views follow
+        current = page.evaluate("() => document.getElementById('task-picker').value")
+        other = block.locator(f'circle.rlc-pt:not([data-task="{current}"])').first
+        target = other.get_attribute("data-task")
+        other.dispatch_event("click")
+        page.wait_for_timeout(500)
+        self.assertEqual(page.evaluate("() => document.getElementById('task-picker').value"), target)
+        self.assertEqual(page.locator(f'#stacks [data-block="rl-curves"] .rl-multiple[aria-current="true"]').get_attribute("data-task"), target)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_reward_map_has_a_row_per_episode_a_cell_per_reward_and_folds_that_open(self):
+        context, page, errors = self._open()
+        block = page.locator('#stacks [data-block="rl-reward-map"]')
+        episodes = self._episodes()
+        self.assertEqual(block.locator("g.rlm-row").count(), len(episodes))
+        self.assertEqual(block.locator("g.rlm-policy").count(), len(self.rl["agents"]))
+        expected_folds = 0
+        for name, e in episodes:
+            row = block.locator(f'g.rlm-row[data-policy="{name}"][data-task="{e["task_id"]}"][data-run="{e["run_id"]}"]')
+            self.assertEqual(row.count(), 1, (name, e["task_id"], e["run_id"]))
+            rewards = self._rewards(e)
+            self.assertEqual(row.locator("rect.rlm-cell").count(), sum(1 for r in rewards if r != 0), (name, e["task_id"], e["run_id"]))
+            folds = self._folds(e)
+            self.assertEqual(row.locator("g.rlm-fold").count(), len(folds), (name, e["task_id"], e["run_id"]))
+            self.assertEqual([int(f.get_attribute("data-steps")) for f in row.locator("g.rlm-fold").all()], [n for _, n in folds])
+            expected_folds += len(folds)
+        if any(self._folds(e) for _, e in episodes):
+            self.assertGreater(expected_folds, 0)
+            fold = block.locator("g.rlm-fold").first
+            row = fold.locator("xpath=ancestor::*[contains(@class,'rlm-row')]")
+            before_end = float(row.get_attribute("data-end"))
+            key = (row.get_attribute("data-policy"), row.get_attribute("data-task"), row.get_attribute("data-run"))
+            fold.dispatch_event("click")
+            page.wait_for_timeout(400)
+            row = block.locator(f'g.rlm-row[data-policy="{key[0]}"][data-task="{key[1]}"][data-run="{key[2]}"]')
+            self.assertEqual(block.locator("g.rlm-fold").count(), expected_folds - 1)
+            self.assertGreater(float(row.get_attribute("data-end")), before_end)
+        # the pair on the page is marked, and a click on its cell opens the step
+        pair = block.locator('g.rlm-row[data-pair]')
+        self.assertEqual(pair.count(), 2)
+        cell = pair.first.locator("rect.rlm-cell").first
+        step = int(cell.get_attribute("data-step"))
+        page.evaluate("() => { window.__sel = null; document.addEventListener('agentdiff:select-step', e => { window.__sel = e.detail; }); }")
+        cell.dispatch_event("click")
+        page.wait_for_timeout(200)
+        sel = page.evaluate("() => window.__sel")
+        self.assertIsNotNone(sel)
+        self.assertEqual(sel["side"], pair.first.get_attribute("data-pair"))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_advantage_and_value_count_the_steps_that_carry_estimates_or_say_none_do(self):
+        context, page, errors = self._open()
+        block = page.locator('#stacks [data-block="rl-advantage"]')
+        episodes = self._episodes()
+        n_values = sum(1 for _, e in episodes for v in e.get("values") or [] if isinstance(v, (int, float)))
+        advs = {}
+        for name, e in episodes:
+            advs[name] = advs.get(name, 0) + sum(1 for v in e.get("advantages") or [] if isinstance(v, (int, float)))
+        if not n_values and not sum(advs.values()):
+            note = block.locator(".rla-note")
+            self.assertEqual(note.count(), 1)
+            self.assertIn("no value estimates", note.inner_text())
+            self.assertEqual(block.locator(".empty").count(), 0)
+        else:
+            self.assertEqual(block.locator("circle.rla-pt").count(), n_values)
+            self.assertEqual(block.locator("line.rla-diag").count(), 1 if n_values else 0)
+            for name, n in advs.items():
+                got = page.evaluate("(n) => [...document.querySelectorAll('#stacks [data-block=\"rl-advantage\"] rect.rla-bar[data-policy=\"' + n + '\"]')].reduce((a, e) => a + Number(e.dataset.count), 0)", name)
+                self.assertEqual(got, n, name)
+            self.assertIn(f"{n_values} steps with a value estimate", block.inner_text())
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_reward_composition_stacks_one_bar_per_policy_with_a_segment_per_label(self):
+        context, page, errors = self._open()
+        block = page.locator('#stacks [data-block="rl-events"]')
+        per = self._composition()
+        self.assertEqual(block.locator("g.rle-bar").count(), len(self.rl["agents"]))
+        for name in self.rl["agents"]:
+            segs = block.locator(f'g.rle-bar[data-policy="{name}"] rect.rle-seg')
+            labels = {l for l, v in per.get(name, {}).items() if v != 0}
+            self.assertEqual({s.get_attribute("data-label") for s in segs.all()}, labels, name)
+            total = sum(float(s.get_attribute("data-reward")) for s in segs.all())
+            self.assertAlmostEqual(total, sum(per.get(name, {}).values()), places=3, msg=name)
+            for s in segs.all():
+                self.assertAlmostEqual(float(s.get_attribute("data-reward")), per[name][s.get_attribute("data-label")], places=3)
+        table = block.locator("details table.rl-table")
+        self.assertEqual(table.locator("tr[data-label]").count(), len({l for p in per.values() for l in p}))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_preference_dataset_is_the_pairs_and_copies_as_jsonl(self):
+        context, page, errors = self._open()
+        block = page.locator('#stacks [data-block="rl-preferences"]')
+        pairs = self.rl["preferences"]
+        self.assertEqual(block.locator("tr.rlp-row").count(), len(pairs))
+        self.assertTrue(block.locator(".rlp-count").inner_text().startswith(f"{len(pairs)} pair"))
+        for i, p in enumerate(pairs):
+            row = block.locator("tr.rlp-row").nth(i)
+            self.assertEqual(row.get_attribute("data-task"), p["task_id"])
+            self.assertIn(p["chosen"] if isinstance(p["chosen"], str) else p["chosen"]["agent"], row.inner_text())
+        copy = block.locator("button.rlp-copy")
+        self.assertEqual(copy.count(), 1)
+        page.evaluate("() => { navigator.clipboard.writeText = t => { window.__copied = t; return Promise.resolve(); }; }")
+        copy.click()
+        page.wait_for_timeout(300)
+        lines = page.evaluate("() => window.__copied").split("\n")
+        self.assertEqual(len(lines), len(pairs))
+        for line, p in zip(lines, pairs):
+            obj = json.loads(line)
+            self.assertEqual(obj["task_id"], p["task_id"])
+            self.assertEqual(obj["chosen"], p["chosen"] if isinstance(p["chosen"], str) else p["chosen"]["agent"])
+        self.assertIn(f"copied {len(pairs)} lines", copy.inner_text())
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_policy_delta_sorts_every_task_by_size_and_counts_the_sign(self):
+        context, page, errors = self._open()
+        block = page.locator('#stacks [data-block="rl-policy-delta"]')
+        tasks = {t: v for t, v in self.rl["tasks"].items() if isinstance(v.get("delta"), (int, float))}
+        rows = block.locator(".rld-row")
+        self.assertEqual(rows.count(), len(tasks))
+        deltas = [float(r.get_attribute("data-delta")) for r in rows.all()]
+        self.assertEqual([abs(d) for d in deltas], sorted((abs(d) for d in deltas), reverse=True))
+        self.assertEqual({r.get_attribute("data-task") for r in rows.all()}, set(tasks))
+        for r in rows.all():
+            self.assertAlmostEqual(float(r.get_attribute("data-delta")), tasks[r.get_attribute("data-task")]["delta"], places=4)
+        up = sum(1 for v in tasks.values() if v["delta"] > 0)
+        down = sum(1 for v in tasks.values() if v["delta"] < 0)
+        lead, n = (up, len(tasks)) if up >= down else (down, len(tasks))
+        summary = block.locator(".rld-sum").inner_text()
+        self.assertIn(f"better on {lead} of {n} task", summary)
+        a_name = self.reports[0]["a"]["agent"]["name"]
+        b_name = self.reports[0]["b"]["agent"]["name"]
+        self.assertTrue(summary.startswith(b_name if up >= down else a_name), summary)
+        # a row opens its task
+        current = page.evaluate("() => document.getElementById('task-picker').value")
+        other = block.locator(f'.rld-row:not([data-task="{current}"])').first
+        target = other.get_attribute("data-task")
+        other.click()
+        page.wait_for_timeout(500)
+        self.assertEqual(page.evaluate("() => document.getElementById('task-picker').value"), target)
+        self.assertEqual(page.locator('#stacks [data-block="rl-policy-delta"] .rld-row[aria-current="true"]').get_attribute("data-task"), target)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_arrow_right_from_panels_reaches_training_and_the_url_opens_it(self):
+        context, page, errors = self._open(view="panels")
+        self.assertEqual(page.locator('.tab[data-view="panels"]').get_attribute("aria-selected"), "true")
+        page.focus('.tab[data-view="panels"]')
+        page.keyboard.press("ArrowRight")
+        page.wait_for_timeout(500)
+        self.assertEqual(page.locator('.tab[data-view="training"]').get_attribute("aria-selected"), "true")
+        self.assertEqual(page.evaluate("() => document.activeElement.dataset.view"), "training")
+        self.assertFalse(page.locator("#stacks").is_hidden())
+        self.assertTrue(page.locator("#panels-lane").is_hidden())
+        page.keyboard.press("ArrowRight")
+        page.wait_for_timeout(400)
+        self.assertEqual(page.locator('.tab[data-view="story"]').get_attribute("aria-selected"), "true")
+        page.reload()
+        page.wait_for_timeout(800)
+        self.assertEqual(page.locator('.tab[data-view="panels"]').get_attribute("aria-selected"), "true")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_nothing_overflows_on_a_phone_and_the_lane_is_one_column(self):
+        context, page, errors = self._open(width=390)
+        self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), 392)
+        self.assertEqual(page.evaluate("() => getComputedStyle(document.querySelector('#stacks .stack')).gridTemplateColumns.split(' ').length"), 1)
+        for bid in ("rl-curves", "rl-reward-map", "rl-advantage", "rl-events", "rl-preferences", "rl-policy-delta"):
+            box = page.locator(f'#stacks [data-block="{bid}"]').bounding_box()
+            self.assertLessEqual(box["x"] + box["width"], 391, bid)
+        small = page.evaluate("""() => {
+          const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+          let n = 0; let node;
+          while ((node = walker.nextNode())) {
+            if (!node.textContent.trim()) continue;
+            const el = node.parentElement; if (!el || el.closest('svg')) continue;
+            if (parseFloat(getComputedStyle(el).fontSize) < 11) n++;
+          }
+          return n; }""")
+        self.assertEqual(small, 0)
         self.assertEqual(errors, [])
         context.close()

@@ -49,19 +49,23 @@
   //: per-task columns (outcome, trajectory, integrity). Batch: the
   //: cross-task columns (cost, signal, other) — they do not change with the
   //: task and do not deserve to scroll past on every task page.
-  var VIEWS = ["story", "evidence", "batch", "panels"];
+  //: Training: the RL training ground — every episode of every policy,
+  //: the reward map, values, what the reward paid for, the preference
+  //: pairs — its own lane, read top-down; the pair's own reward panel leads.
+  var VIEWS = ["story", "evidence", "batch", "panels", "training"];
   var VIEW_GROUPS = {
     evidence: ["outcome", "trajectory", "integrity"],
     batch: ["cost", "signal", "other"],
     panels: [],
+    training: ["training"],
   };
   //: the panels view's presets: which blocks, in which order
   var PANEL_PRESETS = {
     time: ["treemap", "impact", "time", "heatmap", "latency-strip"],
     tools: ["tool-behaviour", "tool-matrix", "heatmap", "latency-strip", "debug-session"],
     agents: ["milestones", "impact", "treemap", "horizon", "trace-body", "tool-matrix"],
-    eval: ["trust", "milestones", "scorecard", "equality", "routing", "loop"],
-    all: ["milestones", "impact", "treemap", "trace-body", "time", "heatmap", "latency-strip", "tool-matrix", "tool-behaviour", "horizon", "debug-session", "scorecard", "trust"],
+    eval: ["trust", "rl", "milestones", "scorecard", "equality", "routing", "loop"],
+    all: ["milestones", "impact", "treemap", "trace-body", "time", "heatmap", "latency-strip", "tool-matrix", "tool-behaviour", "horizon", "debug-session", "scorecard", "trust", "rl"],
   };
   // overview first (area, then the runs over time), then the detail
   var DEFAULT_PANELS = { ids: ["treemap", "impact", "trace-body", "heatmap", "latency-strip", "tool-matrix"], wide: { treemap: true, impact: true, "trace-body": true }, cols: 2 };
@@ -406,6 +410,13 @@
       groups: ["signal", "other"],
       blurb: "How far these numbers can be trusted — confidence, reliability, blind spots.",
     },
+    {
+      label: "Training",
+      groups: ["training"],
+      blurb: "The RL training ground: every episode's return, where the reward landed, what it paid for.",
+      // the lane reads top-down as one sequence: nothing starts collapsed
+      open: Infinity,
+    },
   ];
 
   function defaultLayout(ctx) {
@@ -443,8 +454,9 @@
       // Everything stays in the layout, but a column that opens as a metre
       // of cards is not a dashboard — past the first few, blocks start
       // collapsed and are one click from open.
+      var openN = STACK_PLAN[index].open || OPEN_PER_STACK;
       stack.forEach(function (item, index) {
-        if (index >= OPEN_PER_STACK) item.collapsed = true;
+        if (index >= openN) item.collapsed = true;
       });
     });
     return { cols: STACK_PLAN.length, stacks: stacks, hidden: hidden, hero: hero };
@@ -1145,8 +1157,9 @@
 
   function renderHero(hero, ctx) {
     els.hero.innerHTML = "";
-    // the panels view is the reader's own grid: no hero above it
-    if (!hero || State.prefs.view === "panels") {
+    // the panels view is the reader's own grid, the training view has its
+    // own lead (the pair's reward panel): no hero above either
+    if (!hero || State.prefs.view === "panels" || State.prefs.view === "training") {
       els.hero.hidden = true;
       return;
     }
@@ -1158,7 +1171,7 @@
     var host = els.reading;
     host.innerHTML = "";
     // the story lane IS the reading order; the strip guides the columns
-    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels") { host.hidden = true; return; }
+    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels" || State.prefs.view === "training") { host.hidden = true; return; }
     host.hidden = false;
     host.appendChild(h("span", { class: "lead", text: "Read in this order" }));
     if (hero) {
@@ -2157,7 +2170,7 @@
     // a view named in the URL (report.html#view=evidence) wins for this
     // load — a link can open the page on its evidence or its batch
     try {
-      var m = /(?:^|[#&])view=(story|evidence|batch|panels)\b/.exec(global.location.hash || "");
+      var m = /(?:^|[#&])view=(story|evidence|batch|panels|training)\b/.exec(global.location.hash || "");
       if (m) State.prefs.view = m[1];
     } catch (err) { /* no location: keep the preference */ }
     State.signals = Store.get(key("signals")) || {};
