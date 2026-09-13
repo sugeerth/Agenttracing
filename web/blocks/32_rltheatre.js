@@ -28,6 +28,8 @@
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, signed = L.fmt.signed, short = L.fmt.short, colorOf = L.color.agent;
 
   //: eight steps a second — fast enough to feel like motion, slow enough to read
   var STEP_MS = 125;
@@ -35,14 +37,9 @@
   var PART_AT = 1.0;
   //: past this many episodes in one ridgeline row the curves stop being legible and become a band
   var BAND_AT = 16;
-  var PREF_KEY = "agentdiff:rl-theatre";
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("rltheatre", [
       ".rlt{position:relative}",
       ".rlt svg{display:block;width:100%;height:auto;font-family:var(--sans)}",
       ".rlt .lab{font-size:var(--fs-xs);fill:var(--ink-2)}.rlt .lab.dim{fill:var(--ink-3)}.rlt .lab.mono{font-family:var(--mono)}",
@@ -77,35 +74,23 @@
       ".rlt .hit{cursor:pointer}",
       ".rlt-cell{shape-rendering:crispEdges}",
       "@media (max-width:520px){.rlt-cards{grid-template-columns:1fr}}",
-    ].join("\n");
-    document.head.appendChild(node);
+    ].join("\n"));
   }
 
   // ------------------------------------------------------------ helpers
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function signed(v, p) {
-    if (!isNum(v)) return "—";
-    var s = Math.abs(v).toFixed(p === undefined ? 2 : p);
-    return v > 0 ? "+" + s : v < 0 ? "−" + s : s;
-  }
   function plain(v, p) { return isNum(v) ? v.toFixed(p === undefined ? 2 : p) : "—"; }
-  function short(id) { return String(id || "").replace(/^t\d+_/, "").replace(/_/g, " "); }
   function trunc(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
   function sum(arr) { var t = 0; for (var i = 0; i < arr.length; i++) if (isNum(arr[i])) t += arr[i]; return t; }
   function mean(arr) { var xs = arr.filter(isNum); return xs.length ? sum(xs) / xs.length : null; }
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
-  function width(host) { var w = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0; return Math.max(280, Math.min(1400, w || 320)); }
-  function colorOf(side, i) { return side === "a" ? "var(--a)" : side === "b" ? "var(--b)" : i === 2 ? "var(--warn)" : "var(--ink-3)"; }
+  function width(host) { return L.layout.measure(host, 280, 1400); }
   function epKey(ep) { return ep.task_id + "|" + ep.policy + "|" + (ep.run_id || ""); }
   function prefersReduced() {
     try { return !!(global.matchMedia && global.matchMedia("(prefers-reduced-motion: reduce)").matches); }
     catch (err) { return false; }
   }
-  function responsive(host, draw, k) {
-    if (AgentDiff.charts && AgentDiff.charts.responsive) return AgentDiff.charts.responsive(host, draw, k);
-    draw(); return host;
-  }
+  var responsive = L.layout.responsive;
   //: the shared step inspector, when the page has one — otherwise nothing happens
   function selectStep(report, side, step) {
     var fn = AgentDiff.charts && AgentDiff.charts.selectStep;
@@ -113,44 +98,15 @@
   }
   function canSelectStep() { return !!(AgentDiff.charts && typeof AgentDiff.charts.selectStep === "function"); }
 
-  /* The reader's task and run choice, per browser. The page's own store
-   * degrades to memory when a file:// origin refuses localStorage, so a
-   * choice never fails loudly; it just does not survive the reload. */
-  function store() {
-    try { return AgentDiff._internals && AgentDiff._internals.Store ? AgentDiff._internals.Store : null; }
-    catch (err) { return null; }
-  }
-  function loadPref() {
-    var s = store();
-    var v = s ? s.get(PREF_KEY) : null;
-    if (!v || typeof v !== "object") v = {};
-    return { task: typeof v.task === "string" ? v.task : null, runs: v.runs && typeof v.runs === "object" ? v.runs : {} };
-  }
-  function savePref(pref) {
-    var s = store();
-    if (s) { try { s.set(PREF_KEY, { task: pref.task, runs: pref.runs }); } catch (err) { /* quota; the session still holds it */ } }
-  }
+  /* The reader's task and run choice, per browser: one page-wide state,
+   * persisted through the page's own store (which degrades to memory when a
+   * file:// origin refuses localStorage, so a choice never fails loudly).
+   * The theatre repaints in place, so a change never re-renders the page. */
+  var PREF = L.family("rl-theatre", { task: null, runs: {} }, { scope: "page", persist: true });
+  function loadPref() { return PREF.get(); }
+  function savePref() { PREF.persist(); }
 
-  function tooltip(root) {
-    var tip = document.createElement("div"); tip.className = "rlt-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) {
-          if (!l) return;
-          var d = document.createElement("div");
-          if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text;
-          tip.appendChild(d);
-        });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 300 > r.width) x = Math.max(0, evt.clientX - r.left - 310);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "rlt-tip", width: 300 }); }
 
   // -------------------------------------------------------------- model
 

@@ -21208,17 +21208,15 @@ THIS SOFTWARE.
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, signed = L.fmt.signed, short = L.fmt.short;
 
   //: rows the divergence tree draws before it folds the rest away
   var MAX_ROWS = 14;
   var ROW = 17;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("rlspace", [
       ".rsp{position:relative}",
       ".rsp svg{display:block;width:100%;height:auto;font-family:var(--sans)}",
       ".rsp text{font-size:var(--fs-xs)}",
@@ -21256,25 +21254,14 @@ THIS SOFTWARE.
       ".rsp-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);max-width:330px}",
       ".rsp-tip b{color:var(--ink)}",
       "@media (max-width:640px){.rsp-row{grid-template-columns:minmax(62px,1fr) 54px 62px}}",
-    ].join("\n");
-    document.head.appendChild(node);
+    ].join("\n"));
   }
 
   // ------------------------------------------------------------ helpers
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function signed(v, p) {
-    if (!isNum(v)) return "—";
-    var s = Math.abs(v).toFixed(p === undefined ? 1 : p);
-    return v > 0 ? "+" + s : v < 0 ? "−" + s : s;
-  }
   function plain(v, p) { return isNum(v) ? v.toFixed(p === undefined ? 2 : p) : "—"; }
-  function short(id) { return String(id || "").replace(/^(rl|t)\d+_/, "").replace(/_/g, " "); }
-  function width(host) { var w = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0; return Math.max(300, Math.min(1400, w || 320)); }
-  function responsive(host, draw, k) {
-    if (AgentDiff.charts && AgentDiff.charts.responsive) return AgentDiff.charts.responsive(host, draw, k);
-    draw(); return host;
-  }
+  function width(host) { return L.layout.measure(host, 300, 1400); }
+  var responsive = L.layout.responsive;
   function selectTask(ctx, id) {
     var fn = ctx && typeof ctx.selectTask === "function" ? ctx.selectTask
       : AgentDiff._internals && typeof AgentDiff._internals.selectTask === "function" ? AgentDiff._internals.selectTask : null;
@@ -21296,26 +21283,7 @@ THIS SOFTWARE.
     return sel;
   }
 
-  function tooltip(root) {
-    var tip = document.createElement("div"); tip.className = "rsp-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) {
-          if (!l) return;
-          var d = document.createElement("div");
-          if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text;
-          tip.appendChild(d);
-        });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 330 > r.width) x = Math.max(0, evt.clientX - r.left - 340);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "rsp-tip", width: 330 }); }
 
   // -------------------------------------------------------------- model
 
@@ -21463,11 +21431,11 @@ THIS SOFTWARE.
       g.append("circle").attr("r", Math.max(9, r + 4)).attr("fill", "transparent");
       var lines = [
         { b: true, text: p.policy + " · " + short(p.task_id) + (p.run_id ? " · " + p.run_id : "") },
-        { text: "return " + signed(p["return"]) + " · " + p.steps + " steps · " + (p.success ? "solved" : "failed") },
+        { text: "return " + signed(p["return"], 1) + " · " + p.steps + " steps · " + (p.success ? "solved" : "failed") },
         p.nearest ? { text: "nearest: " + p.nearest.key.split("|").slice(0, 1).concat(short(p.nearest.key.split("|")[1] || "")).join(" · ") + " at " + plain(p.nearest.distance) + (p.nearest.other_policy ? " — the other policy" : "") } : null,
         { text: "click to open the task" },
       ];
-      g.append("title").text(p.policy + " · " + p.task_id + " · " + (p.run_id || "") + " — return " + signed(p["return"]) + ", " + (p.success ? "solved" : "failed"));
+      g.append("title").text(p.policy + " · " + p.task_id + " · " + (p.run_id || "") + " — return " + signed(p["return"], 1) + ", " + (p.success ? "solved" : "failed"));
       g.on("pointermove", function (evt) { tip.show(evt, lines); }).on("pointerleave", tip.hide)
         .on("click", function () { tip.hide(); selectTask(ctx, p.task_id); });
     });
@@ -21701,7 +21669,7 @@ THIS SOFTWARE.
       var by = m.policies.map(function (p) { return p.name + " " + ((n.by_policy && n.by_policy[p.name]) || 0); }).join(" · ");
       return [
         { b: true, text: "step " + n.depth + (n.token ? " · " + n.token : " · the root") },
-        { text: n.episodes + " episodes (" + by + ") · return " + signed(n.mean_return) + " · " + (isNum(n.success_rate) ? Math.round(n.success_rate * 100) + "% solved" : "—") },
+        { text: n.episodes + " episodes (" + by + ") · return " + signed(n.mean_return, 1) + " · " + (isNum(n.success_rate) ? Math.round(n.success_rate * 100) + "% solved" : "—") },
         n.prefix && n.prefix.length ? { text: "…" + n.prefix.slice(-4).join(" → ") } : null,
         isNum(n.tail) ? { text: n.tail + " more steps folded: one episode goes on alone" } : null,
         isNum(n.truncated) ? { text: n.truncated + " more steps beyond the depth cap" } : null,
@@ -21741,7 +21709,7 @@ THIS SOFTWARE.
         g.append("line").attr("class", "seg").attr("x1", 0).attr("x2", w).attr("y1", 0).attr("y2", 0)
           .attr("stroke", mix(n.by_policy)).attr("stroke-width", strokeW(n.episodes)).attr("stroke-opacity", 0.85).attr("stroke-linecap", "round");
         g.append("rect").attr("x", 0).attr("y", -8).attr("width", Math.max(w, 6)).attr("height", 16).attr("fill", "transparent");
-        g.append("title").text((n.token || "root") + " · " + n.episodes + " episodes · return " + signed(n.mean_return));
+        g.append("title").text((n.token || "root") + " · " + n.episodes + " episodes · return " + signed(n.mean_return, 1));
         var lines = nodeLines(n);
         g.on("pointermove", function (evt) { tip.show(evt, lines); }).on("pointerleave", tip.hide)
           .on("click", function () { tip.hide(); if (state.open[n.id]) { delete state.open[n.id]; repaint(); } });
@@ -21761,8 +21729,8 @@ THIS SOFTWARE.
       // what this thread is and what it holds, once, at its right-hand end
       var last = it.chain.nodes[it.chain.nodes.length - 1];
       var endX = X(it.x1) + 7, room = W - endX - 2;
-      var full = (it.from ? it.head + " · " : "") + last.episodes + (last.episodes === 1 ? " ep · " : " eps · ") + signed(last.mean_return);
-      var label = narrow ? (it.from ? it.head + " " : "") + signed(last.mean_return) : full;
+      var full = (it.from ? it.head + " · " : "") + last.episodes + (last.episodes === 1 ? " ep · " : " eps · ") + signed(last.mean_return, 1);
+      var label = narrow ? (it.from ? it.head + " " : "") + signed(last.mean_return, 1) : full;
       if (room > 14) {
         var t = svg.append("text").attr("class", "lab mono" + (it.from ? " dim" : "")).attr("x", endX).attr("y", rowY(it.row) + 3.5)
           .attr("fill", it.from ? "var(--ink-3)" : "var(--ink-2)");
@@ -21801,7 +21769,7 @@ THIS SOFTWARE.
         if (!s) return H("td", { text: "—" });
         return H("td", { class: "n" }, [
           H("span", { style: { fontFamily: "var(--mono)", color: "var(--ink)" }, text: s.token }),
-          document.createTextNode(" " + signed(s.mean_return) + " (" + s.episodes + ")"),
+          document.createTextNode(" " + signed(s.mean_return, 1) + " (" + s.episodes + ")"),
         ]);
       }
       var drawn = !state.drawn || state.drawn[p.id];
@@ -21907,6 +21875,8 @@ THIS SOFTWARE.
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, signed = L.fmt.signed, short = L.fmt.short, colorOf = L.color.agent;
 
   //: eight steps a second — fast enough to feel like motion, slow enough to read
   var STEP_MS = 125;
@@ -21914,14 +21884,9 @@ THIS SOFTWARE.
   var PART_AT = 1.0;
   //: past this many episodes in one ridgeline row the curves stop being legible and become a band
   var BAND_AT = 16;
-  var PREF_KEY = "agentdiff:rl-theatre";
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("rltheatre", [
       ".rlt{position:relative}",
       ".rlt svg{display:block;width:100%;height:auto;font-family:var(--sans)}",
       ".rlt .lab{font-size:var(--fs-xs);fill:var(--ink-2)}.rlt .lab.dim{fill:var(--ink-3)}.rlt .lab.mono{font-family:var(--mono)}",
@@ -21956,35 +21921,23 @@ THIS SOFTWARE.
       ".rlt .hit{cursor:pointer}",
       ".rlt-cell{shape-rendering:crispEdges}",
       "@media (max-width:520px){.rlt-cards{grid-template-columns:1fr}}",
-    ].join("\n");
-    document.head.appendChild(node);
+    ].join("\n"));
   }
 
   // ------------------------------------------------------------ helpers
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function signed(v, p) {
-    if (!isNum(v)) return "—";
-    var s = Math.abs(v).toFixed(p === undefined ? 2 : p);
-    return v > 0 ? "+" + s : v < 0 ? "−" + s : s;
-  }
   function plain(v, p) { return isNum(v) ? v.toFixed(p === undefined ? 2 : p) : "—"; }
-  function short(id) { return String(id || "").replace(/^t\d+_/, "").replace(/_/g, " "); }
   function trunc(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
   function sum(arr) { var t = 0; for (var i = 0; i < arr.length; i++) if (isNum(arr[i])) t += arr[i]; return t; }
   function mean(arr) { var xs = arr.filter(isNum); return xs.length ? sum(xs) / xs.length : null; }
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
-  function width(host) { var w = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0; return Math.max(280, Math.min(1400, w || 320)); }
-  function colorOf(side, i) { return side === "a" ? "var(--a)" : side === "b" ? "var(--b)" : i === 2 ? "var(--warn)" : "var(--ink-3)"; }
+  function width(host) { return L.layout.measure(host, 280, 1400); }
   function epKey(ep) { return ep.task_id + "|" + ep.policy + "|" + (ep.run_id || ""); }
   function prefersReduced() {
     try { return !!(global.matchMedia && global.matchMedia("(prefers-reduced-motion: reduce)").matches); }
     catch (err) { return false; }
   }
-  function responsive(host, draw, k) {
-    if (AgentDiff.charts && AgentDiff.charts.responsive) return AgentDiff.charts.responsive(host, draw, k);
-    draw(); return host;
-  }
+  var responsive = L.layout.responsive;
   //: the shared step inspector, when the page has one — otherwise nothing happens
   function selectStep(report, side, step) {
     var fn = AgentDiff.charts && AgentDiff.charts.selectStep;
@@ -21992,44 +21945,15 @@ THIS SOFTWARE.
   }
   function canSelectStep() { return !!(AgentDiff.charts && typeof AgentDiff.charts.selectStep === "function"); }
 
-  /* The reader's task and run choice, per browser. The page's own store
-   * degrades to memory when a file:// origin refuses localStorage, so a
-   * choice never fails loudly; it just does not survive the reload. */
-  function store() {
-    try { return AgentDiff._internals && AgentDiff._internals.Store ? AgentDiff._internals.Store : null; }
-    catch (err) { return null; }
-  }
-  function loadPref() {
-    var s = store();
-    var v = s ? s.get(PREF_KEY) : null;
-    if (!v || typeof v !== "object") v = {};
-    return { task: typeof v.task === "string" ? v.task : null, runs: v.runs && typeof v.runs === "object" ? v.runs : {} };
-  }
-  function savePref(pref) {
-    var s = store();
-    if (s) { try { s.set(PREF_KEY, { task: pref.task, runs: pref.runs }); } catch (err) { /* quota; the session still holds it */ } }
-  }
+  /* The reader's task and run choice, per browser: one page-wide state,
+   * persisted through the page's own store (which degrades to memory when a
+   * file:// origin refuses localStorage, so a choice never fails loudly).
+   * The theatre repaints in place, so a change never re-renders the page. */
+  var PREF = L.family("rl-theatre", { task: null, runs: {} }, { scope: "page", persist: true });
+  function loadPref() { return PREF.get(); }
+  function savePref() { PREF.persist(); }
 
-  function tooltip(root) {
-    var tip = document.createElement("div"); tip.className = "rlt-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) {
-          if (!l) return;
-          var d = document.createElement("div");
-          if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text;
-          tip.appendChild(d);
-        });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 300 > r.width) x = Math.max(0, evt.clientX - r.left - 310);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "rlt-tip", width: 300 }); }
 
   // -------------------------------------------------------------- model
 
@@ -25501,8 +25425,8 @@ THIS SOFTWARE.
   var PREF_KEY = "agentdiff:evolution-compare";
   //: the transition when a selection or the x measure moves; none under reduced motion
   var DUR = 260;
-  //: ~6.2px per character at the page's small size; good enough to truncate by
-  var CH = 6.2;
+  //: ~6.2px per character at the page's small size, 7.3 in the monospace face; good enough to truncate by
+  var CH = 6.2, CHM = 7.3;
 
   var CSS = [
     ".evc{position:relative}",
@@ -25603,7 +25527,7 @@ THIS SOFTWARE.
     return side === "a" ? "var(--a)" : "var(--b)";
   }
   function tooltip(root) {
-    if (L && L.svg && typeof L.svg.tip === "function") { try { var t = L.svg.tip(root); if (t && typeof t.show === "function" && typeof t.hide === "function") return t; } catch (err) { /* local */ } }
+    if (L && L.svg && typeof L.svg.tip === "function") { try { var t = L.svg.tip(root, { class: "evc-tip", width: 340 }); if (t && typeof t.show === "function" && typeof t.hide === "function") return t; } catch (err) { /* local */ } }
     var tip = document.createElement("div"); tip.className = "evc-tip"; tip.hidden = true; root.appendChild(tip);
     return {
       show: function (evt, lines) {
@@ -25630,7 +25554,7 @@ THIS SOFTWARE.
   function interval(g, x, point, lo, hi, color, y, r) {
     y = y || 0; r = r || 4.5;
     if (L && L.glyph && typeof L.glyph.interval === "function") {
-      try { var out = L.glyph.interval(g, x, point, lo, hi); if (out !== undefined) { g.attr("color", color); return; } } catch (err) { /* local */ }
+      try { L.glyph.interval(g.node ? g.node() : g, x, point, lo, hi, { y: y, color: color, width: 6, opacity: 0.3, tick: 5, r: r, lineClass: "int", dotClass: "pt" }); return; } catch (err) { /* local */ }
     }
     if (isNum(lo) && isNum(hi)) {
       g.append("line").attr("class", "int").attr("x1", x(lo)).attr("x2", x(hi)).attr("y1", y).attr("y2", y).attr("stroke", color).attr("stroke-width", 6).attr("stroke-opacity", 0.3).attr("stroke-linecap", "round");
@@ -25651,10 +25575,8 @@ THIS SOFTWARE.
     traded: { color: "var(--warn)", glyph: "⇄", word: "traded" },
   };
   var VERDICT_ORDER = ["improved", "flat", "regressed", "traded", "overfit", "forgot", "gamed"];
-  function verdictColor(k) {
-    if (L && L.color && typeof L.color.verdict === "function") { try { var c = L.color.verdict(k); if (c) return c; } catch (err) { /* local */ } }
-    return VERDICT[k] ? VERDICT[k].color : "var(--ink-3)";
-  }
+  //: the library's verdict colours speak sign and better/worse, not this vocabulary, so the table above is the source
+  function verdictColor(k) { return VERDICT[k] ? VERDICT[k].color : "var(--ink-3)"; }
 
   // --------------------------------------------------------------- model
 
@@ -25809,35 +25731,41 @@ THIS SOFTWARE.
    * of the curves, the pair mode. Persisted per browser through the shared
    * family store when it exists, else the page's own Store; a change
    * re-paints every mounted block in place. */
+  var DEFAULTS = { gen: null, x: "index", pair: "peak" };
   var S = { gen: null, x: "index", pair: "peak", loaded: false };
   var LISTENERS = [];
-  var FAMILY = null;
+  var FAMILY;
   function store() {
     try { return AgentDiff._internals && AgentDiff._internals.Store ? AgentDiff._internals.Store : null; } catch (err) { return null; }
   }
+  /* The library's family store when it is on the page: page scope, so one
+   * selection serves every task, persisted under the same key the fallback
+   * uses. Its `set` persists and notifies its own subscribers; the blocks
+   * here are repainted from this file's listener list, so a change is drawn
+   * once either way. */
   function family() {
-    if (FAMILY !== null) return FAMILY || null;
-    FAMILY = false;
+    if (FAMILY !== undefined) return FAMILY;
+    FAMILY = null;
     if (L && typeof L.family === "function") {
-      try { var f = L.family("evolution-compare", { gen: null, x: "index", pair: "peak" }); if (f && typeof f.get === "function" && typeof f.set === "function") FAMILY = f; } catch (err) { FAMILY = false; }
+      try {
+        var f = L.family("evolution-compare", DEFAULTS, { scope: "page", persist: true });
+        if (f && typeof f.get === "function" && typeof f.set === "function") FAMILY = f;
+      } catch (err) { FAMILY = null; }
     }
-    return FAMILY || null;
+    return FAMILY;
   }
-  function readStored() {
-    var f = family();
-    if (f) { try { var v = f.get(); return v && typeof v === "object" ? v : null; } catch (err) { /* the store */ } }
-    var s = store();
-    return s ? s.get(PREF_KEY) : null;
+  function takeInto(v) {
+    if (!v || typeof v !== "object") return;
+    if (isNum(v.gen)) S.gen = v.gen; else if (v.gen === null) S.gen = null;
+    if (v.x === "episodes" || v.x === "index") S.x = v.x;
+    if (v.pair === "final" || v.pair === "peak") S.pair = v.pair;
   }
   function loadState(m) {
     if (!S.loaded) {
       S.loaded = true;
-      var v = readStored();
-      if (v && typeof v === "object") {
-        if (isNum(v.gen)) S.gen = v.gen;
-        if (v.x === "episodes" || v.x === "index") S.x = v.x;
-        if (v.pair === "final" || v.pair === "peak") S.pair = v.pair;
-      }
+      var f = family();
+      if (f) { try { takeInto(f.get()); } catch (err) { /* the library's to fix */ } }
+      else { var s = store(); takeInto(s ? s.get(PREF_KEY) : null); }
     }
     // a stored choice this comparison cannot honour falls back to nothing selected
     if (S.gen !== null && (!isNum(S.gen) || S.gen < 0 || S.gen >= m.maxN)) S.gen = null;
@@ -25847,7 +25775,7 @@ THIS SOFTWARE.
   function saveState() {
     var snap = { gen: S.gen, x: S.x, pair: S.pair };
     var f = family();
-    if (f) { try { f.set(snap); if (typeof f.persist === "function") f.persist(); return; } catch (err) { /* fall through */ } }
+    if (f) { try { f.set(snap); return; } catch (err) { /* fall through to the page's own store */ } }
     var s = store();
     if (s) { try { s.set(PREF_KEY, snap); } catch (err) { /* quota; the session still holds it */ } }
   }
@@ -26040,7 +25968,7 @@ THIS SOFTWARE.
       var host = H("div", { class: "evc-chart" });
       root.appendChild(responsive(host, function () { drawCurves(host, ctx, m, tip, refs); }, "evc-curves"));
       var thrText = m.threshold ? " The dashed rule is the race threshold, " + num(m.threshold.value) + " on " + (m.threshold.metric || m.metric) + ": " + (m.threshold.source ? String(m.threshold.source) : "its source was not stated") + ". The ringed point is the first generation of each lineage at or over it." : " No race threshold was measured.";
-      root.appendChild(H("p", { class: "evc-note", text: "A point is a generation's " + m.metric + (m.metricDefinition ? " (" + m.metricDefinition + ")" : "") + ", the band its stratified bootstrap interval, the zero line where it falls; the filled point is the generation the engine recommends keeping." + thrText
+      root.appendChild(H("p", { class: "evc-note", title: m.metricDefinition || null, text: "A point is a generation's " + m.metric + " over the shared tasks, the band its stratified bootstrap interval, the zero line where it falls; the filled point is the generation the engine recommends keeping." + thrText
         + (m.hasEpisodes ? " \"By episodes\" puts each generation at the episodes its lineage had spent by then" + (m.alignment.by_episodes ? " — " + m.alignment.by_episodes : "") + "." : " The episode alignment is not available for these lineages, so x is the generation index only.")
         + " Hover a generation for both lineages' numbers; click one to select it across the comparison blocks." }));
       if (m.advisory) root.appendChild(H("p", { class: "evc-note evc-advisory", text: m.advisory }));
@@ -26160,10 +26088,12 @@ THIS SOFTWARE.
       var winners = {};
       AXES.forEach(function (ax) { var w = axes[ax.key].winner; if (w) winners[w] = (winners[w] || 0) + 1; });
       var names = Object.keys(winners);
-      var headline = m.verdict.reading ? String(m.verdict.reading)
-        : names.length ? names.map(function (n) { return n + " takes " + AXES.filter(function (ax) { return axes[ax.key].winner === n; }).map(function (ax) { return ax.label; }).join(" and "); }).join("; ") + "."
+      // the headline is the tally; the engine's full reading is in the four sentences under the chart
+      var open = AXES.filter(function (ax) { return !axes[ax.key].winner; }).map(function (ax) { return ax.label; });
+      var headline = names.length
+        ? names.map(function (n) { return n + " takes " + AXES.filter(function (ax) { return axes[ax.key].winner === n; }).map(function (ax) { return ax.label; }).join(" and "); }).join("; ") + (open.length ? "; " + open.join(" and ") + (open.length === 1 ? " does" : " do") + " not separate them." : ".")
         : "No axis separates " + m.A.family + " from " + m.B.family + " on these runs.";
-      root.appendChild(H("p", { class: "evc-lede", "data-winners": names.length, text: cap(headline) }));
+      root.appendChild(H("p", { class: "evc-lede", "data-winners": names.length, title: m.verdict.reading ? String(m.verdict.reading) : null, text: cap(headline) }));
       var host = H("div", { class: "evc-chart" });
       root.appendChild(responsive(host, function () { drawVerdict(host, ctx, m, tip, axes); }, "evc-verdict"));
       var list = H("ul", { class: "evc-axes" });
@@ -26180,7 +26110,6 @@ THIS SOFTWARE.
       root.appendChild(H("p", { class: "evc-note", text: "One row per axis; the dot sits at the lineage the engine named, or hollow in the middle when the runs do not separate them. "
         + (rule ? "Rules: peak — " + rule.peak + "; final — " + rule.final + "; learning — " + rule.learning + "; process — " + rule.process + "." : "Peak and final separate when the improvement interval clears 50%; learning is decided on episodes to the threshold; process lexicographically on gamed + protected touched, forgot, retention, accepted on noise.")
         + " A lineage can win on peak and lose on process; the reading says both." }));
-      if (m.advisory) root.appendChild(H("p", { class: "evc-note evc-advisory", text: m.advisory }));
     },
   });
 
@@ -26304,7 +26233,7 @@ THIS SOFTWARE.
       group("drift");
       row("drift_from_origin_at_last", "drift from origin at the last", function (p) { return num(p.drift_from_origin_at_last); });
       row("best_paying_mechanism", "best-paying mechanism", function (p) { return p.best_paying_mechanism || null; });
-      root.appendChild(H("div", { class: "scroll-x" }, [table]));
+      root.appendChild(H("details", { class: "evc-details" }, [H("summary", { text: "every number, both lineages" }), H("div", { class: "scroll-x" }, [table])]));
       var rule = m.verdict.rule && m.verdict.rule.process ? String(m.verdict.rule.process) : "fewer gamed + protected touched, then fewer forgot, then higher retention, then fewer accepted on noise; ties null";
       var noiseRule = rows.length && rows[0].process.accepted_on_noise_rule ? " Accepted on noise: " + rows[0].process.accepted_on_noise_rule + "." : "";
       var retRule = rows.length && rows[0].process.retention && rows[0].process.retention.rule ? " Retention: " + rows[0].process.retention.rule + "." : "";
@@ -26336,8 +26265,8 @@ THIS SOFTWARE.
     var A = m.A, B = m.B;
     var tasks = P.tasks.slice().sort(function (p, q) { return (isNum(P.per[q].delta) ? P.per[q].delta : -Infinity) - (isNum(P.per[p].delta) ? P.per[p].delta : -Infinity); });
     if (!tasks.length) return;
-    var labW = narrow ? 78 : Math.min(150, 14 + 6.6 * tasks.reduce(function (a, t) { return Math.max(a, short(t).length); }, 6));
-    var markW = 26, textW = narrow ? 0 : 70, padR = 8 + markW + textW;
+    var labW = narrow ? 78 : Math.min(160, 14 + CHM * tasks.reduce(function (a, t) { return Math.max(a, short(t).length); }, 6));
+    var markW = 26, textW = narrow ? 0 : 76, padR = 8 + markW + textW;
     var rowH = 20, padT = 16, padB = 20;
     var H = padT + tasks.length * rowH + padB;
     var maxAbs = 0;
@@ -26354,7 +26283,7 @@ THIS SOFTWARE.
       var color = isNum(d.delta) ? (d.delta > 0 ? B.color : d.delta < 0 ? A.color : "var(--ink-2)") : "var(--ink-3)";
       var g = svg.append("g").attr("class", "evc-tdot").attr("data-task", t).attr("data-delta", isNum(d.delta) ? d.delta : "").attr("data-p", isNum(d.p) ? d.p : "")
         .style("cursor", taskOnPage(t) ? "pointer" : "default");
-      g.append("text").attr("class", "lab mono").attr("x", labW - 8).attr("y", y + 4).attr("text-anchor", "end").text(trunc(short(t), Math.floor((labW - 10) / 6.6))).append("title").text(t);
+      g.append("text").attr("class", "lab mono").attr("x", labW - 8).attr("y", y + 4).attr("text-anchor", "end").text(trunc(short(t), Math.floor((labW - 10) / CHM))).append("title").text(t);
       if (isNum(d.delta)) {
         g.append("line").attr("x1", x(0)).attr("x2", x(d.delta)).attr("y1", y).attr("y2", y).attr("stroke", color).attr("stroke-opacity", 0.35).attr("stroke-width", 1.5);
         g.append("circle").attr("class", "dot").attr("cx", x(d.delta)).attr("cy", y).attr("r", 4.2).attr("fill", color);
@@ -26448,8 +26377,8 @@ THIS SOFTWARE.
     if (!d3) return;
     var W = width(host), narrow = W < 560;
     var tasks = m.raceTasks, n = m.maxN;
-    var labW = narrow ? 76 : Math.min(160, 16 + 6.6 * tasks.reduce(function (a, t) { return Math.max(a, short(t).length); }, 6));
-    var edgeW = narrow ? 70 : 132, padR = 6, headH = 30, cellH = narrow ? 18 : 22, gap = 3;
+    var labW = narrow ? 76 : Math.min(170, 16 + CHM * tasks.reduce(function (a, t) { return Math.max(a, short(t).length); }, 6));
+    var edgeW = narrow ? 70 : 136, padR = 6, headH = 30, cellH = narrow ? 18 : 22, gap = 3;
     var x = d3.scaleBand().domain(d3.range(n)).range([labW, W - padR - edgeW]).paddingInner(0.18);
     var cw = x.bandwidth(), half = Math.max(3, (cw - 2) / 2);
     var H = headH + tasks.length * (cellH + gap) + 4;
@@ -26469,7 +26398,7 @@ THIS SOFTWARE.
     svg.append("text").attr("class", "tick").attr("x", W - padR - edgeW + 6).attr("y", 12).text(fit(narrow ? "first" : "first solver", edgeW - 8));
     tasks.forEach(function (t, ti) {
       var yy = headH + ti * (cellH + gap), mid = yy + cellH / 2;
-      svg.append("text").attr("class", "lab mono").attr("x", labW - 8).attr("y", mid + 4).attr("text-anchor", "end").text(trunc(short(t), Math.floor((labW - 10) / 6.6))).append("title").text(t);
+      svg.append("text").attr("class", "lab mono").attr("x", labW - 8).attr("y", mid + 4).attr("text-anchor", "end").text(trunc(short(t), Math.floor((labW - 10) / CHM))).append("title").text(t);
       var cellRows = m.trTasks[t] || {};
       m.lineages.forEach(function (l, li) {
         var row = cellRows[l.family] && typeof cellRows[l.family] === "object" ? cellRows[l.family] : null;
@@ -26600,7 +26529,7 @@ THIS SOFTWARE.
     //: the count column is as wide as its longest entry, so it never runs past the edge
     function valText(c) { return narrow ? c.steps + " · +" + c.improved + "/−" + c.regressed : c.steps + " step" + (c.steps === 1 ? "" : "s") + " · +" + c.improved + " / −" + c.regressed; }
     var valHead = narrow ? "n · +/−" : "steps · improved/regressed";
-    var valW = 10 + CH * rows.reduce(function (a, r) { return Object.keys(r.per).reduce(function (b, f) { return Math.max(b, valText(r.per[f]).length); }, a); }, valHead.length);
+    var valW = 10 + CHM * rows.reduce(function (a, r) { return Object.keys(r.per).reduce(function (b, f) { return Math.max(b, valText(r.per[f]).length); }, a); }, valHead.length);
     var lo = 0, hi = 0;
     rows.forEach(function (r) { Object.keys(r.per).forEach(function (f) { var c = r.per[f]; [c.mean, c.min, c.max].forEach(function (v) { if (isNum(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }); }); });
     if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
@@ -26616,7 +26545,7 @@ THIS SOFTWARE.
     rows.forEach(function (r, i) {
       var top = padT + i * rowH;
       var g = svg.append("g").attr("class", "evc-mrow").attr("data-mechanism", r.mech);
-      g.append("text").attr("class", "lab mono").attr("x", labW - 8).attr("y", top + rowH / 2 + 4).attr("text-anchor", "end").text(trunc(r.mech, Math.floor((labW - 10) / 6.6)));
+      g.append("text").attr("class", "lab mono").attr("x", labW - 8).attr("y", top + rowH / 2 + 4).attr("text-anchor", "end").text(trunc(r.mech, Math.floor((labW - 10) / CHM)));
       m.lineages.forEach(function (l, li) {
         var c = r.per[l.family], y = top + 9 + li * 13;
         if (!c) { g.append("text").attr("class", "tick").attr("x", x(0) + 6).attr("y", y + 4).attr("fill", l.color).attr("opacity", 0.7).text(narrow ? "—" : "no step"); return; }

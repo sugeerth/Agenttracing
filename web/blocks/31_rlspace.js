@@ -28,17 +28,15 @@
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
   var d3 = global.d3;
+  var L = AgentDiff.lib;
+  var isNum = L.fmt.isNum, signed = L.fmt.signed, short = L.fmt.short;
 
   //: rows the divergence tree draws before it folds the rest away
   var MAX_ROWS = 14;
   var ROW = 17;
 
-  var styled = false;
   function ensureStyle() {
-    if (styled) return;
-    styled = true;
-    var node = document.createElement("style");
-    node.textContent = [
+    L.style.once("rlspace", [
       ".rsp{position:relative}",
       ".rsp svg{display:block;width:100%;height:auto;font-family:var(--sans)}",
       ".rsp text{font-size:var(--fs-xs)}",
@@ -76,25 +74,14 @@
       ".rsp-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);max-width:330px}",
       ".rsp-tip b{color:var(--ink)}",
       "@media (max-width:640px){.rsp-row{grid-template-columns:minmax(62px,1fr) 54px 62px}}",
-    ].join("\n");
-    document.head.appendChild(node);
+    ].join("\n"));
   }
 
   // ------------------------------------------------------------ helpers
 
-  function isNum(v) { return typeof v === "number" && isFinite(v); }
-  function signed(v, p) {
-    if (!isNum(v)) return "—";
-    var s = Math.abs(v).toFixed(p === undefined ? 1 : p);
-    return v > 0 ? "+" + s : v < 0 ? "−" + s : s;
-  }
   function plain(v, p) { return isNum(v) ? v.toFixed(p === undefined ? 2 : p) : "—"; }
-  function short(id) { return String(id || "").replace(/^(rl|t)\d+_/, "").replace(/_/g, " "); }
-  function width(host) { var w = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0; return Math.max(300, Math.min(1400, w || 320)); }
-  function responsive(host, draw, k) {
-    if (AgentDiff.charts && AgentDiff.charts.responsive) return AgentDiff.charts.responsive(host, draw, k);
-    draw(); return host;
-  }
+  function width(host) { return L.layout.measure(host, 300, 1400); }
+  var responsive = L.layout.responsive;
   function selectTask(ctx, id) {
     var fn = ctx && typeof ctx.selectTask === "function" ? ctx.selectTask
       : AgentDiff._internals && typeof AgentDiff._internals.selectTask === "function" ? AgentDiff._internals.selectTask : null;
@@ -116,26 +103,7 @@
     return sel;
   }
 
-  function tooltip(root) {
-    var tip = document.createElement("div"); tip.className = "rsp-tip"; tip.hidden = true; root.appendChild(tip);
-    return {
-      show: function (evt, lines) {
-        tip.innerHTML = "";
-        lines.forEach(function (l) {
-          if (!l) return;
-          var d = document.createElement("div");
-          if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text;
-          tip.appendChild(d);
-        });
-        tip.hidden = false;
-        var r = root.getBoundingClientRect();
-        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
-        if (x + 330 > r.width) x = Math.max(0, evt.clientX - r.left - 340);
-        tip.style.left = x + "px"; tip.style.top = y + "px";
-      },
-      hide: function () { tip.hidden = true; },
-    };
-  }
+  function tooltip(root) { return L.svg.tip(root, { class: "rsp-tip", width: 330 }); }
 
   // -------------------------------------------------------------- model
 
@@ -283,11 +251,11 @@
       g.append("circle").attr("r", Math.max(9, r + 4)).attr("fill", "transparent");
       var lines = [
         { b: true, text: p.policy + " · " + short(p.task_id) + (p.run_id ? " · " + p.run_id : "") },
-        { text: "return " + signed(p["return"]) + " · " + p.steps + " steps · " + (p.success ? "solved" : "failed") },
+        { text: "return " + signed(p["return"], 1) + " · " + p.steps + " steps · " + (p.success ? "solved" : "failed") },
         p.nearest ? { text: "nearest: " + p.nearest.key.split("|").slice(0, 1).concat(short(p.nearest.key.split("|")[1] || "")).join(" · ") + " at " + plain(p.nearest.distance) + (p.nearest.other_policy ? " — the other policy" : "") } : null,
         { text: "click to open the task" },
       ];
-      g.append("title").text(p.policy + " · " + p.task_id + " · " + (p.run_id || "") + " — return " + signed(p["return"]) + ", " + (p.success ? "solved" : "failed"));
+      g.append("title").text(p.policy + " · " + p.task_id + " · " + (p.run_id || "") + " — return " + signed(p["return"], 1) + ", " + (p.success ? "solved" : "failed"));
       g.on("pointermove", function (evt) { tip.show(evt, lines); }).on("pointerleave", tip.hide)
         .on("click", function () { tip.hide(); selectTask(ctx, p.task_id); });
     });
@@ -521,7 +489,7 @@
       var by = m.policies.map(function (p) { return p.name + " " + ((n.by_policy && n.by_policy[p.name]) || 0); }).join(" · ");
       return [
         { b: true, text: "step " + n.depth + (n.token ? " · " + n.token : " · the root") },
-        { text: n.episodes + " episodes (" + by + ") · return " + signed(n.mean_return) + " · " + (isNum(n.success_rate) ? Math.round(n.success_rate * 100) + "% solved" : "—") },
+        { text: n.episodes + " episodes (" + by + ") · return " + signed(n.mean_return, 1) + " · " + (isNum(n.success_rate) ? Math.round(n.success_rate * 100) + "% solved" : "—") },
         n.prefix && n.prefix.length ? { text: "…" + n.prefix.slice(-4).join(" → ") } : null,
         isNum(n.tail) ? { text: n.tail + " more steps folded: one episode goes on alone" } : null,
         isNum(n.truncated) ? { text: n.truncated + " more steps beyond the depth cap" } : null,
@@ -561,7 +529,7 @@
         g.append("line").attr("class", "seg").attr("x1", 0).attr("x2", w).attr("y1", 0).attr("y2", 0)
           .attr("stroke", mix(n.by_policy)).attr("stroke-width", strokeW(n.episodes)).attr("stroke-opacity", 0.85).attr("stroke-linecap", "round");
         g.append("rect").attr("x", 0).attr("y", -8).attr("width", Math.max(w, 6)).attr("height", 16).attr("fill", "transparent");
-        g.append("title").text((n.token || "root") + " · " + n.episodes + " episodes · return " + signed(n.mean_return));
+        g.append("title").text((n.token || "root") + " · " + n.episodes + " episodes · return " + signed(n.mean_return, 1));
         var lines = nodeLines(n);
         g.on("pointermove", function (evt) { tip.show(evt, lines); }).on("pointerleave", tip.hide)
           .on("click", function () { tip.hide(); if (state.open[n.id]) { delete state.open[n.id]; repaint(); } });
@@ -581,8 +549,8 @@
       // what this thread is and what it holds, once, at its right-hand end
       var last = it.chain.nodes[it.chain.nodes.length - 1];
       var endX = X(it.x1) + 7, room = W - endX - 2;
-      var full = (it.from ? it.head + " · " : "") + last.episodes + (last.episodes === 1 ? " ep · " : " eps · ") + signed(last.mean_return);
-      var label = narrow ? (it.from ? it.head + " " : "") + signed(last.mean_return) : full;
+      var full = (it.from ? it.head + " · " : "") + last.episodes + (last.episodes === 1 ? " ep · " : " eps · ") + signed(last.mean_return, 1);
+      var label = narrow ? (it.from ? it.head + " " : "") + signed(last.mean_return, 1) : full;
       if (room > 14) {
         var t = svg.append("text").attr("class", "lab mono" + (it.from ? " dim" : "")).attr("x", endX).attr("y", rowY(it.row) + 3.5)
           .attr("fill", it.from ? "var(--ink-3)" : "var(--ink-2)");
@@ -621,7 +589,7 @@
         if (!s) return H("td", { text: "—" });
         return H("td", { class: "n" }, [
           H("span", { style: { fontFamily: "var(--mono)", color: "var(--ink)" }, text: s.token }),
-          document.createTextNode(" " + signed(s.mean_return) + " (" + s.episodes + ")"),
+          document.createTextNode(" " + signed(s.mean_return, 1) + " (" + s.episodes + ")"),
         ]);
       }
       var drawn = !state.drawn || state.drawn[p.id];

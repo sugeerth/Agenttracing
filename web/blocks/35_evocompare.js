@@ -53,8 +53,8 @@
   var PREF_KEY = "agentdiff:evolution-compare";
   //: the transition when a selection or the x measure moves; none under reduced motion
   var DUR = 260;
-  //: ~6.2px per character at the page's small size; good enough to truncate by
-  var CH = 6.2;
+  //: ~6.2px per character at the page's small size, 7.3 in the monospace face; good enough to truncate by
+  var CH = 6.2, CHM = 7.3;
 
   var CSS = [
     ".evc{position:relative}",
@@ -155,7 +155,7 @@
     return side === "a" ? "var(--a)" : "var(--b)";
   }
   function tooltip(root) {
-    if (L && L.svg && typeof L.svg.tip === "function") { try { var t = L.svg.tip(root); if (t && typeof t.show === "function" && typeof t.hide === "function") return t; } catch (err) { /* local */ } }
+    if (L && L.svg && typeof L.svg.tip === "function") { try { var t = L.svg.tip(root, { class: "evc-tip", width: 340 }); if (t && typeof t.show === "function" && typeof t.hide === "function") return t; } catch (err) { /* local */ } }
     var tip = document.createElement("div"); tip.className = "evc-tip"; tip.hidden = true; root.appendChild(tip);
     return {
       show: function (evt, lines) {
@@ -182,7 +182,7 @@
   function interval(g, x, point, lo, hi, color, y, r) {
     y = y || 0; r = r || 4.5;
     if (L && L.glyph && typeof L.glyph.interval === "function") {
-      try { var out = L.glyph.interval(g, x, point, lo, hi); if (out !== undefined) { g.attr("color", color); return; } } catch (err) { /* local */ }
+      try { L.glyph.interval(g.node ? g.node() : g, x, point, lo, hi, { y: y, color: color, width: 6, opacity: 0.3, tick: 5, r: r, lineClass: "int", dotClass: "pt" }); return; } catch (err) { /* local */ }
     }
     if (isNum(lo) && isNum(hi)) {
       g.append("line").attr("class", "int").attr("x1", x(lo)).attr("x2", x(hi)).attr("y1", y).attr("y2", y).attr("stroke", color).attr("stroke-width", 6).attr("stroke-opacity", 0.3).attr("stroke-linecap", "round");
@@ -203,10 +203,8 @@
     traded: { color: "var(--warn)", glyph: "⇄", word: "traded" },
   };
   var VERDICT_ORDER = ["improved", "flat", "regressed", "traded", "overfit", "forgot", "gamed"];
-  function verdictColor(k) {
-    if (L && L.color && typeof L.color.verdict === "function") { try { var c = L.color.verdict(k); if (c) return c; } catch (err) { /* local */ } }
-    return VERDICT[k] ? VERDICT[k].color : "var(--ink-3)";
-  }
+  //: the library's verdict colours speak sign and better/worse, not this vocabulary, so the table above is the source
+  function verdictColor(k) { return VERDICT[k] ? VERDICT[k].color : "var(--ink-3)"; }
 
   // --------------------------------------------------------------- model
 
@@ -361,35 +359,41 @@
    * of the curves, the pair mode. Persisted per browser through the shared
    * family store when it exists, else the page's own Store; a change
    * re-paints every mounted block in place. */
+  var DEFAULTS = { gen: null, x: "index", pair: "peak" };
   var S = { gen: null, x: "index", pair: "peak", loaded: false };
   var LISTENERS = [];
-  var FAMILY = null;
+  var FAMILY;
   function store() {
     try { return AgentDiff._internals && AgentDiff._internals.Store ? AgentDiff._internals.Store : null; } catch (err) { return null; }
   }
+  /* The library's family store when it is on the page: page scope, so one
+   * selection serves every task, persisted under the same key the fallback
+   * uses. Its `set` persists and notifies its own subscribers; the blocks
+   * here are repainted from this file's listener list, so a change is drawn
+   * once either way. */
   function family() {
-    if (FAMILY !== null) return FAMILY || null;
-    FAMILY = false;
+    if (FAMILY !== undefined) return FAMILY;
+    FAMILY = null;
     if (L && typeof L.family === "function") {
-      try { var f = L.family("evolution-compare", { gen: null, x: "index", pair: "peak" }); if (f && typeof f.get === "function" && typeof f.set === "function") FAMILY = f; } catch (err) { FAMILY = false; }
+      try {
+        var f = L.family("evolution-compare", DEFAULTS, { scope: "page", persist: true });
+        if (f && typeof f.get === "function" && typeof f.set === "function") FAMILY = f;
+      } catch (err) { FAMILY = null; }
     }
-    return FAMILY || null;
+    return FAMILY;
   }
-  function readStored() {
-    var f = family();
-    if (f) { try { var v = f.get(); return v && typeof v === "object" ? v : null; } catch (err) { /* the store */ } }
-    var s = store();
-    return s ? s.get(PREF_KEY) : null;
+  function takeInto(v) {
+    if (!v || typeof v !== "object") return;
+    if (isNum(v.gen)) S.gen = v.gen; else if (v.gen === null) S.gen = null;
+    if (v.x === "episodes" || v.x === "index") S.x = v.x;
+    if (v.pair === "final" || v.pair === "peak") S.pair = v.pair;
   }
   function loadState(m) {
     if (!S.loaded) {
       S.loaded = true;
-      var v = readStored();
-      if (v && typeof v === "object") {
-        if (isNum(v.gen)) S.gen = v.gen;
-        if (v.x === "episodes" || v.x === "index") S.x = v.x;
-        if (v.pair === "final" || v.pair === "peak") S.pair = v.pair;
-      }
+      var f = family();
+      if (f) { try { takeInto(f.get()); } catch (err) { /* the library's to fix */ } }
+      else { var s = store(); takeInto(s ? s.get(PREF_KEY) : null); }
     }
     // a stored choice this comparison cannot honour falls back to nothing selected
     if (S.gen !== null && (!isNum(S.gen) || S.gen < 0 || S.gen >= m.maxN)) S.gen = null;
@@ -399,7 +403,7 @@
   function saveState() {
     var snap = { gen: S.gen, x: S.x, pair: S.pair };
     var f = family();
-    if (f) { try { f.set(snap); if (typeof f.persist === "function") f.persist(); return; } catch (err) { /* fall through */ } }
+    if (f) { try { f.set(snap); return; } catch (err) { /* fall through to the page's own store */ } }
     var s = store();
     if (s) { try { s.set(PREF_KEY, snap); } catch (err) { /* quota; the session still holds it */ } }
   }
@@ -592,7 +596,7 @@
       var host = H("div", { class: "evc-chart" });
       root.appendChild(responsive(host, function () { drawCurves(host, ctx, m, tip, refs); }, "evc-curves"));
       var thrText = m.threshold ? " The dashed rule is the race threshold, " + num(m.threshold.value) + " on " + (m.threshold.metric || m.metric) + ": " + (m.threshold.source ? String(m.threshold.source) : "its source was not stated") + ". The ringed point is the first generation of each lineage at or over it." : " No race threshold was measured.";
-      root.appendChild(H("p", { class: "evc-note", text: "A point is a generation's " + m.metric + (m.metricDefinition ? " (" + m.metricDefinition + ")" : "") + ", the band its stratified bootstrap interval, the zero line where it falls; the filled point is the generation the engine recommends keeping." + thrText
+      root.appendChild(H("p", { class: "evc-note", title: m.metricDefinition || null, text: "A point is a generation's " + m.metric + " over the shared tasks, the band its stratified bootstrap interval, the zero line where it falls; the filled point is the generation the engine recommends keeping." + thrText
         + (m.hasEpisodes ? " \"By episodes\" puts each generation at the episodes its lineage had spent by then" + (m.alignment.by_episodes ? " — " + m.alignment.by_episodes : "") + "." : " The episode alignment is not available for these lineages, so x is the generation index only.")
         + " Hover a generation for both lineages' numbers; click one to select it across the comparison blocks." }));
       if (m.advisory) root.appendChild(H("p", { class: "evc-note evc-advisory", text: m.advisory }));
@@ -712,10 +716,12 @@
       var winners = {};
       AXES.forEach(function (ax) { var w = axes[ax.key].winner; if (w) winners[w] = (winners[w] || 0) + 1; });
       var names = Object.keys(winners);
-      var headline = m.verdict.reading ? String(m.verdict.reading)
-        : names.length ? names.map(function (n) { return n + " takes " + AXES.filter(function (ax) { return axes[ax.key].winner === n; }).map(function (ax) { return ax.label; }).join(" and "); }).join("; ") + "."
+      // the headline is the tally; the engine's full reading is in the four sentences under the chart
+      var open = AXES.filter(function (ax) { return !axes[ax.key].winner; }).map(function (ax) { return ax.label; });
+      var headline = names.length
+        ? names.map(function (n) { return n + " takes " + AXES.filter(function (ax) { return axes[ax.key].winner === n; }).map(function (ax) { return ax.label; }).join(" and "); }).join("; ") + (open.length ? "; " + open.join(" and ") + (open.length === 1 ? " does" : " do") + " not separate them." : ".")
         : "No axis separates " + m.A.family + " from " + m.B.family + " on these runs.";
-      root.appendChild(H("p", { class: "evc-lede", "data-winners": names.length, text: cap(headline) }));
+      root.appendChild(H("p", { class: "evc-lede", "data-winners": names.length, title: m.verdict.reading ? String(m.verdict.reading) : null, text: cap(headline) }));
       var host = H("div", { class: "evc-chart" });
       root.appendChild(responsive(host, function () { drawVerdict(host, ctx, m, tip, axes); }, "evc-verdict"));
       var list = H("ul", { class: "evc-axes" });
@@ -732,7 +738,6 @@
       root.appendChild(H("p", { class: "evc-note", text: "One row per axis; the dot sits at the lineage the engine named, or hollow in the middle when the runs do not separate them. "
         + (rule ? "Rules: peak — " + rule.peak + "; final — " + rule.final + "; learning — " + rule.learning + "; process — " + rule.process + "." : "Peak and final separate when the improvement interval clears 50%; learning is decided on episodes to the threshold; process lexicographically on gamed + protected touched, forgot, retention, accepted on noise.")
         + " A lineage can win on peak and lose on process; the reading says both." }));
-      if (m.advisory) root.appendChild(H("p", { class: "evc-note evc-advisory", text: m.advisory }));
     },
   });
 
@@ -856,7 +861,7 @@
       group("drift");
       row("drift_from_origin_at_last", "drift from origin at the last", function (p) { return num(p.drift_from_origin_at_last); });
       row("best_paying_mechanism", "best-paying mechanism", function (p) { return p.best_paying_mechanism || null; });
-      root.appendChild(H("div", { class: "scroll-x" }, [table]));
+      root.appendChild(H("details", { class: "evc-details" }, [H("summary", { text: "every number, both lineages" }), H("div", { class: "scroll-x" }, [table])]));
       var rule = m.verdict.rule && m.verdict.rule.process ? String(m.verdict.rule.process) : "fewer gamed + protected touched, then fewer forgot, then higher retention, then fewer accepted on noise; ties null";
       var noiseRule = rows.length && rows[0].process.accepted_on_noise_rule ? " Accepted on noise: " + rows[0].process.accepted_on_noise_rule + "." : "";
       var retRule = rows.length && rows[0].process.retention && rows[0].process.retention.rule ? " Retention: " + rows[0].process.retention.rule + "." : "";
@@ -888,8 +893,8 @@
     var A = m.A, B = m.B;
     var tasks = P.tasks.slice().sort(function (p, q) { return (isNum(P.per[q].delta) ? P.per[q].delta : -Infinity) - (isNum(P.per[p].delta) ? P.per[p].delta : -Infinity); });
     if (!tasks.length) return;
-    var labW = narrow ? 78 : Math.min(150, 14 + 6.6 * tasks.reduce(function (a, t) { return Math.max(a, short(t).length); }, 6));
-    var markW = 26, textW = narrow ? 0 : 70, padR = 8 + markW + textW;
+    var labW = narrow ? 78 : Math.min(160, 14 + CHM * tasks.reduce(function (a, t) { return Math.max(a, short(t).length); }, 6));
+    var markW = 26, textW = narrow ? 0 : 76, padR = 8 + markW + textW;
     var rowH = 20, padT = 16, padB = 20;
     var H = padT + tasks.length * rowH + padB;
     var maxAbs = 0;
@@ -906,7 +911,7 @@
       var color = isNum(d.delta) ? (d.delta > 0 ? B.color : d.delta < 0 ? A.color : "var(--ink-2)") : "var(--ink-3)";
       var g = svg.append("g").attr("class", "evc-tdot").attr("data-task", t).attr("data-delta", isNum(d.delta) ? d.delta : "").attr("data-p", isNum(d.p) ? d.p : "")
         .style("cursor", taskOnPage(t) ? "pointer" : "default");
-      g.append("text").attr("class", "lab mono").attr("x", labW - 8).attr("y", y + 4).attr("text-anchor", "end").text(trunc(short(t), Math.floor((labW - 10) / 6.6))).append("title").text(t);
+      g.append("text").attr("class", "lab mono").attr("x", labW - 8).attr("y", y + 4).attr("text-anchor", "end").text(trunc(short(t), Math.floor((labW - 10) / CHM))).append("title").text(t);
       if (isNum(d.delta)) {
         g.append("line").attr("x1", x(0)).attr("x2", x(d.delta)).attr("y1", y).attr("y2", y).attr("stroke", color).attr("stroke-opacity", 0.35).attr("stroke-width", 1.5);
         g.append("circle").attr("class", "dot").attr("cx", x(d.delta)).attr("cy", y).attr("r", 4.2).attr("fill", color);
@@ -1000,8 +1005,8 @@
     if (!d3) return;
     var W = width(host), narrow = W < 560;
     var tasks = m.raceTasks, n = m.maxN;
-    var labW = narrow ? 76 : Math.min(160, 16 + 6.6 * tasks.reduce(function (a, t) { return Math.max(a, short(t).length); }, 6));
-    var edgeW = narrow ? 70 : 132, padR = 6, headH = 30, cellH = narrow ? 18 : 22, gap = 3;
+    var labW = narrow ? 76 : Math.min(170, 16 + CHM * tasks.reduce(function (a, t) { return Math.max(a, short(t).length); }, 6));
+    var edgeW = narrow ? 70 : 136, padR = 6, headH = 30, cellH = narrow ? 18 : 22, gap = 3;
     var x = d3.scaleBand().domain(d3.range(n)).range([labW, W - padR - edgeW]).paddingInner(0.18);
     var cw = x.bandwidth(), half = Math.max(3, (cw - 2) / 2);
     var H = headH + tasks.length * (cellH + gap) + 4;
@@ -1021,7 +1026,7 @@
     svg.append("text").attr("class", "tick").attr("x", W - padR - edgeW + 6).attr("y", 12).text(fit(narrow ? "first" : "first solver", edgeW - 8));
     tasks.forEach(function (t, ti) {
       var yy = headH + ti * (cellH + gap), mid = yy + cellH / 2;
-      svg.append("text").attr("class", "lab mono").attr("x", labW - 8).attr("y", mid + 4).attr("text-anchor", "end").text(trunc(short(t), Math.floor((labW - 10) / 6.6))).append("title").text(t);
+      svg.append("text").attr("class", "lab mono").attr("x", labW - 8).attr("y", mid + 4).attr("text-anchor", "end").text(trunc(short(t), Math.floor((labW - 10) / CHM))).append("title").text(t);
       var cellRows = m.trTasks[t] || {};
       m.lineages.forEach(function (l, li) {
         var row = cellRows[l.family] && typeof cellRows[l.family] === "object" ? cellRows[l.family] : null;
@@ -1152,7 +1157,7 @@
     //: the count column is as wide as its longest entry, so it never runs past the edge
     function valText(c) { return narrow ? c.steps + " · +" + c.improved + "/−" + c.regressed : c.steps + " step" + (c.steps === 1 ? "" : "s") + " · +" + c.improved + " / −" + c.regressed; }
     var valHead = narrow ? "n · +/−" : "steps · improved/regressed";
-    var valW = 10 + CH * rows.reduce(function (a, r) { return Object.keys(r.per).reduce(function (b, f) { return Math.max(b, valText(r.per[f]).length); }, a); }, valHead.length);
+    var valW = 10 + CHM * rows.reduce(function (a, r) { return Object.keys(r.per).reduce(function (b, f) { return Math.max(b, valText(r.per[f]).length); }, a); }, valHead.length);
     var lo = 0, hi = 0;
     rows.forEach(function (r) { Object.keys(r.per).forEach(function (f) { var c = r.per[f]; [c.mean, c.min, c.max].forEach(function (v) { if (isNum(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }); }); });
     if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
@@ -1168,7 +1173,7 @@
     rows.forEach(function (r, i) {
       var top = padT + i * rowH;
       var g = svg.append("g").attr("class", "evc-mrow").attr("data-mechanism", r.mech);
-      g.append("text").attr("class", "lab mono").attr("x", labW - 8).attr("y", top + rowH / 2 + 4).attr("text-anchor", "end").text(trunc(r.mech, Math.floor((labW - 10) / 6.6)));
+      g.append("text").attr("class", "lab mono").attr("x", labW - 8).attr("y", top + rowH / 2 + 4).attr("text-anchor", "end").text(trunc(r.mech, Math.floor((labW - 10) / CHM)));
       m.lineages.forEach(function (l, li) {
         var c = r.per[l.family], y = top + 9 + li * 13;
         if (!c) { g.append("text").attr("class", "tick").attr("x", x(0) + 6).attr("y", y + 4).attr("fill", l.color).attr("opacity", 0.7).text(narrow ? "—" : "no step"); return; }
