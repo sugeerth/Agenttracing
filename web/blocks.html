@@ -156,7 +156,7 @@ select.picker {
      takes the row it already sits on and the tabs share it equally, so
      every view stays reachable and none is cut off the edge. */
   .seg { display: flex; flex: 1 1 100%; min-width: 0; flex-wrap: wrap; }
-  .seg .tab { flex: 1 1 30%; min-width: 0; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .seg .tab { flex: 1 1 22%; min-width: 0; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 
 .stack { display: flex; flex-direction: column; gap: 14px; min-height: 60px; min-width: 0; }
@@ -654,6 +654,8 @@ body[data-view="training"] .stack-label .pip { display: none; }
 /* ---------- the evolution lane: one column, every block the full width;
    the lineage thread and the timescape need it ---------- */
 body[data-view="evolution"] .stack-label .pip { display: none; }
+/* ---------- the evals lane: one column, the same way ---------- */
+body[data-view="coevolution"] .stack-label .pip { display: none; }
 </style>
 </head>
 <body>
@@ -668,6 +670,7 @@ body[data-view="evolution"] .stack-label .pip { display: none; }
     <button class="tab" role="tab" data-view="panels" aria-selected="false" title="Your panels: pick the charts you want side by side; the page remembers them">Panels</button>
     <button class="tab" role="tab" data-view="training" aria-selected="false" title="The RL training ground: learning curves, the reward map, values and advantages, what the reward paid for, the preference pairs">Training</button>
     <button class="tab" role="tab" data-view="evolution" aria-selected="false" title="A self-evolving agent as a lineage: each generation, what it changed, whether that helped, and where the evolution went wrong">Evolution</button>
+    <button class="tab" role="tab" data-view="coevolution" aria-selected="false" title="The self-evolving eval that watches the lineage: its own lineage of metrics, what each agent step taught it, what it would have caught with hindsight, and its own integrity">Evals</button>
   </div>
   <button class="btn ghost" id="btn-cols" title="Columns">▥ 3</button>
   <button class="btn ghost" id="btn-theme" title="Theme">◐</button>
@@ -722,7 +725,7 @@ body[data-view="evolution"] .stack-label .pip { display: none; }
   <div class="panel-body">
     <dl class="keys">
       <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>previous / next task</dd>
-      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>on the view tabs: Story · Evidence · Batch · Panels · Training · Evolution</dd>
+      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>on the view tabs: Story · Evidence · Batch · Panels · Training · Evolution · Evals</dd>
       <dt><kbd>Tab</kbd></dt><dd>reach a step on the map</dd>
       <dt><kbd>Enter</kbd> <kbd>Space</kbd></dt><dd>open the step under focus in the inspector</dd>
       <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>walk along one run</dd>
@@ -826,13 +829,17 @@ THIS SOFTWARE.
   //: pairs — its own lane, read top-down; the pair's own reward panel leads.
   //: Evolution: a self-evolving agent read as a lineage — each generation,
   //: what changed, whether it helped, and the ways evolution goes wrong.
-  var VIEWS = ["story", "evidence", "batch", "panels", "training", "evolution"];
+  //: Evals: the self-evolving eval that watches that lineage — its own
+  //: lineage of metrics, what each agent step taught it, what it would
+  //: have caught with hindsight, and its own integrity.
+  var VIEWS = ["story", "evidence", "batch", "panels", "training", "evolution", "coevolution"];
   var VIEW_GROUPS = {
     evidence: ["outcome", "trajectory", "integrity"],
     batch: ["cost", "signal", "other"],
     panels: [],
     training: ["training"],
     evolution: ["evolution"],
+    coevolution: ["coevolution"],
   };
   //: the panels view's presets: which blocks, in which order
   var PANEL_PRESETS = {
@@ -1232,6 +1239,23 @@ THIS SOFTWARE.
         "evc-race", "evc-mechanisms", "evc-divergence",
         "evo-lineage", "evo-steps", "evo-timescape", "evo-matrix",
         "evo-step", "evo-integrity", "evo-drift",
+      ],
+    },
+    {
+      label: "Evals",
+      groups: ["coevolution"],
+      blurb: "The self-evolving eval that watches the lineage: its own lineage of metrics, what each agent step taught it, what it would have caught with hindsight, and its own integrity.",
+      open: Infinity,
+      /* The two lineages interleaved lead — the agent's generations and
+       * the eval's, each eval step tied to the agent step that triggered
+       * it. Then the hindsight: every agent step under the base eval and
+       * under the evolved one. Then the matrix of every metric on every
+       * generation, the candidates through the validators, one metric in
+       * full, the probes that proposed, and the eval's own integrity.
+       * Overview, then details on demand. */
+      order: [
+        "cov-ledger", "cov-hindsight", "cov-matrix", "cov-funnel",
+        "cov-metric", "cov-probes", "cov-integrity",
       ],
     },
   ];
@@ -1991,7 +2015,7 @@ THIS SOFTWARE.
     els.hero.innerHTML = "";
     // the panels view is the reader's own grid, the training view has its
     // own lead (the pair's reward panel): no hero above either
-    if (!hero || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution") {
+    if (!hero || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") {
       els.hero.hidden = true;
       return;
     }
@@ -2003,7 +2027,7 @@ THIS SOFTWARE.
     var host = els.reading;
     host.innerHTML = "";
     // the story lane IS the reading order; the strip guides the columns
-    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution") { host.hidden = true; return; }
+    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") { host.hidden = true; return; }
     host.hidden = false;
     host.appendChild(h("span", { class: "lead", text: "Read in this order" }));
     if (hero) {
@@ -3002,7 +3026,7 @@ THIS SOFTWARE.
     // a view named in the URL (report.html#view=evidence) wins for this
     // load — a link can open the page on its evidence or its batch
     try {
-      var m = /(?:^|[#&])view=(story|evidence|batch|panels|training|evolution)\b/.exec(global.location.hash || "");
+      var m = /(?:^|[#&])view=(story|evidence|batch|panels|training|evolution|coevolution)\b/.exec(global.location.hash || "");
       if (m) State.prefs.view = m[1];
     } catch (err) { /* no location: keep the preference */ }
     State.signals = Store.get(key("signals")) || {};

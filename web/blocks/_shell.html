@@ -156,7 +156,7 @@ select.picker {
      takes the row it already sits on and the tabs share it equally, so
      every view stays reachable and none is cut off the edge. */
   .seg { display: flex; flex: 1 1 100%; min-width: 0; flex-wrap: wrap; }
-  .seg .tab { flex: 1 1 30%; min-width: 0; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .seg .tab { flex: 1 1 22%; min-width: 0; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 
 .stack { display: flex; flex-direction: column; gap: 14px; min-height: 60px; min-width: 0; }
@@ -654,6 +654,8 @@ body[data-view="training"] .stack-label .pip { display: none; }
 /* ---------- the evolution lane: one column, every block the full width;
    the lineage thread and the timescape need it ---------- */
 body[data-view="evolution"] .stack-label .pip { display: none; }
+/* ---------- the evals lane: one column, the same way ---------- */
+body[data-view="coevolution"] .stack-label .pip { display: none; }
 </style>
 </head>
 <body>
@@ -668,6 +670,7 @@ body[data-view="evolution"] .stack-label .pip { display: none; }
     <button class="tab" role="tab" data-view="panels" aria-selected="false" title="Your panels: pick the charts you want side by side; the page remembers them">Panels</button>
     <button class="tab" role="tab" data-view="training" aria-selected="false" title="The RL training ground: learning curves, the reward map, values and advantages, what the reward paid for, the preference pairs">Training</button>
     <button class="tab" role="tab" data-view="evolution" aria-selected="false" title="A self-evolving agent as a lineage: each generation, what it changed, whether that helped, and where the evolution went wrong">Evolution</button>
+    <button class="tab" role="tab" data-view="coevolution" aria-selected="false" title="The self-evolving eval that watches the lineage: its own lineage of metrics, what each agent step taught it, what it would have caught with hindsight, and its own integrity">Evals</button>
   </div>
   <button class="btn ghost" id="btn-cols" title="Columns">▥ 3</button>
   <button class="btn ghost" id="btn-theme" title="Theme">◐</button>
@@ -722,7 +725,7 @@ body[data-view="evolution"] .stack-label .pip { display: none; }
   <div class="panel-body">
     <dl class="keys">
       <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>previous / next task</dd>
-      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>on the view tabs: Story · Evidence · Batch · Panels · Training · Evolution</dd>
+      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>on the view tabs: Story · Evidence · Batch · Panels · Training · Evolution · Evals</dd>
       <dt><kbd>Tab</kbd></dt><dd>reach a step on the map</dd>
       <dt><kbd>Enter</kbd> <kbd>Space</kbd></dt><dd>open the step under focus in the inspector</dd>
       <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>walk along one run</dd>

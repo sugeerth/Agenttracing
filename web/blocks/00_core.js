@@ -54,13 +54,17 @@
   //: pairs — its own lane, read top-down; the pair's own reward panel leads.
   //: Evolution: a self-evolving agent read as a lineage — each generation,
   //: what changed, whether it helped, and the ways evolution goes wrong.
-  var VIEWS = ["story", "evidence", "batch", "panels", "training", "evolution"];
+  //: Evals: the self-evolving eval that watches that lineage — its own
+  //: lineage of metrics, what each agent step taught it, what it would
+  //: have caught with hindsight, and its own integrity.
+  var VIEWS = ["story", "evidence", "batch", "panels", "training", "evolution", "coevolution"];
   var VIEW_GROUPS = {
     evidence: ["outcome", "trajectory", "integrity"],
     batch: ["cost", "signal", "other"],
     panels: [],
     training: ["training"],
     evolution: ["evolution"],
+    coevolution: ["coevolution"],
   };
   //: the panels view's presets: which blocks, in which order
   var PANEL_PRESETS = {
@@ -460,6 +464,23 @@
         "evc-race", "evc-mechanisms", "evc-divergence",
         "evo-lineage", "evo-steps", "evo-timescape", "evo-matrix",
         "evo-step", "evo-integrity", "evo-drift",
+      ],
+    },
+    {
+      label: "Evals",
+      groups: ["coevolution"],
+      blurb: "The self-evolving eval that watches the lineage: its own lineage of metrics, what each agent step taught it, what it would have caught with hindsight, and its own integrity.",
+      open: Infinity,
+      /* The two lineages interleaved lead — the agent's generations and
+       * the eval's, each eval step tied to the agent step that triggered
+       * it. Then the hindsight: every agent step under the base eval and
+       * under the evolved one. Then the matrix of every metric on every
+       * generation, the candidates through the validators, one metric in
+       * full, the probes that proposed, and the eval's own integrity.
+       * Overview, then details on demand. */
+      order: [
+        "cov-ledger", "cov-hindsight", "cov-matrix", "cov-funnel",
+        "cov-metric", "cov-probes", "cov-integrity",
       ],
     },
   ];
@@ -1219,7 +1240,7 @@
     els.hero.innerHTML = "";
     // the panels view is the reader's own grid, the training view has its
     // own lead (the pair's reward panel): no hero above either
-    if (!hero || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution") {
+    if (!hero || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") {
       els.hero.hidden = true;
       return;
     }
@@ -1231,7 +1252,7 @@
     var host = els.reading;
     host.innerHTML = "";
     // the story lane IS the reading order; the strip guides the columns
-    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution") { host.hidden = true; return; }
+    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") { host.hidden = true; return; }
     host.hidden = false;
     host.appendChild(h("span", { class: "lead", text: "Read in this order" }));
     if (hero) {
@@ -2230,7 +2251,7 @@
     // a view named in the URL (report.html#view=evidence) wins for this
     // load — a link can open the page on its evidence or its batch
     try {
-      var m = /(?:^|[#&])view=(story|evidence|batch|panels|training|evolution)\b/.exec(global.location.hash || "");
+      var m = /(?:^|[#&])view=(story|evidence|batch|panels|training|evolution|coevolution)\b/.exec(global.location.hash || "");
       if (m) State.prefs.view = m[1];
     } catch (err) { /* no location: keep the preference */ }
     State.signals = Store.get(key("signals")) || {};
