@@ -508,3 +508,135 @@ traces, a task present in one generation only, a missing `agent.json`
 field, an artifacts block that is a string, invalid JSON, no
 `lineage.json`), byte-determinism, and the command end to end with
 `--fail-on`.
+
+## Comparing two lineages
+
+Two self-evolving agents ran over the same tasks for some generations.
+"Which is better" has no single answer and the layer does not pretend it
+has: `deepcompare/evolvecompare.py` gives four, each named by its axis,
+and a lineage can win on one and lose on another.
+
+    python3 -m deepcompare evolve <lineageA> --against <lineageB> [--against <lineageC>] -o out
+    python3 -m deepcompare evolve-compare <lineageA> <lineageB> ... -o out      # the alias
+        [--threshold X] [--layout ...] [--metric return] [--samples 2000] [--fail-on ...]
+
+The output directory is lineage A's ordinary `evolve` output — the last
+step's pair as a runs batch, `aggregate["evolution"]` for A — plus
+`aggregate["evolution_compare"]`, and `report.html` over both.
+`--fail-on` still judges the primary lineage. From Python,
+`evolvecompare.compare_lineages([A, B])` is the same section.
+
+**The four axes.**
+
+- *Peak* — A's recommended generation against B's, through the ordinary
+  pair machinery: the two generations' traces go through
+  `rl_aggregate([], traces, names=(a, b))` and the block's
+  `stats.improvement` (P(b > a) with its stratified-bootstrap interval,
+  per task) and `space.distance.between` are read off it — the same
+  block the page's Training view reads, so a reader can open it. The
+  axis is decided when the interval clears 0.5; an interval that spans
+  it is "these runs do not separate them", never a tie.
+- *Final* — the same for the two last generations, because a loop that
+  keeps its latest self ships this one.
+- *Learning* — the curves on one axis, `iqm_by_task`, aligned twice: by
+  generation index (`curves.by_index`; where one lineage is shorter the
+  missing side is `null`, never padded) and by cumulative episodes
+  (`curves.by_episodes`), which differ from the index whenever the runs
+  per task differ. A threshold, the generation and episode count at
+  which each lineage first reached it (`race.reached`), and the area
+  under each curve by trapezoid over the lineage's own length (a longer
+  series has more room under it, and the reading says so when the spans
+  differ). Decided on the episodes to the threshold (fewer wins), by
+  whoever reached it when only one did, by the by-episodes area when
+  none did; a tie is `null`.
+- *Process* — who evolved soundly. Per lineage: the verdict counts,
+  steps accepted on noise (the engine's `noisy` flag), protected paths
+  touched (distinct `(step, path)` pairs, so a removal the diff and the
+  episodes both saw is one finding), budgets breached, collapses,
+  retention, drift from the origin at the last generation, and the
+  mechanisms. Decided lexicographically — fewer gamed + protected
+  touched, then fewer forgot, then higher retention, then fewer accepted
+  on noise, a tie at every rung `null` — and the raw numbers and the
+  `score` vector are all in the output, so a reader can disagree with
+  the order.
+
+**The metric.** `iqm_by_task` is the task-balanced IQM the single-lineage
+section already recommends on: within each task the IQM of the runs'
+return, then the mean over tasks. Tasks are matched by id; a task not
+run by every lineage is named in `tasks.only` and excluded from every
+curve, race and pair block, never imputed. When a lineage ran exactly
+the shared tasks its own generation bands are carried as they are
+(`metric_source: "evolution.generations[].iqm_by_task"`), so the two
+sections agree to the digit; otherwise the metric is recomputed over
+the shared tasks and the source says so. Each lineage's full
+`evolution` section rides along under `lineages[i].evolution`.
+
+**The threshold** is, by default, the midpoint between the lowest
+generation-0 point and the highest recommended point across the
+lineages — halfway between where the worst lineage started and where
+the best one is worth keeping — and `race.threshold.source` states that
+with the two numbers it came from; `--threshold` overrides it and the
+source says `--threshold`.
+
+**Retention** counts a task as solved at a generation when its pass
+rate there is above 0.5; `ever_solved` are the shared tasks solved at
+any generation, `lost` those solved once and not at the last one, and
+`task_race` gives every task's pass curve per lineage, who solved it
+first (by cumulative episodes) and who never did.
+
+**Mechanisms.** Each lineage's steps grouped by `mechanism`: the count,
+the mean Δ`iqm_by_task`, how many steps went up and down, the verdicts.
+"Which kind of self-modification paid" is the most useful thing this
+layer can say, and the reading names the best-paying mechanism per
+lineage with its n — and the verdicts beside it, because a gamed step
+can pay best on the metric, which is exactly what the flag is for.
+
+**Cost and caps.** Peak and final are two `rl_aggregate` calls;
+`by_generation` (A@k vs B@k, P(b > a) and the behaviour distance at
+every aligned index, the learning curve's honest companion) is one more
+per index, capped at 12 generations and saying so past the cap; a pair
+already built is reused. Two seven-generation lineages of 210 traces
+compare in about ten seconds beyond the single-lineage reads.
+
+**What cannot be read says so.** One lineage, a lineage that cannot be
+read, no shared task: the section is `measurable: false` with the
+reason, and what can still be said (each lineage's own section, the
+task sets) is. A lineage of one generation has no curve to race and no
+step to judge, so `race` and its `process` are unmeasurable and the
+learning and process verdicts are `null`, while peak and final still
+compare. Every interval is a stratified bootstrap over the runs recorded
+on the shared tasks, and the advisory names the thinnest task.
+
+**The demo.** `demo/evolve/lineage` (ledger-agent) against
+`demo/evolve/lineage_b` (memo-agent), six shared tasks, seven
+generations and 210 episodes each:
+
+- *peak*: no separation — ledger-agent g4 vs memo-agent g5,
+  P(memo g5 > ledger g4) 40% [27%, 52%], `iqm_by_task` 5.52 vs 5.84,
+  passes 25/30 vs 24/30; per task memo-agent is ahead on 2 of 6.
+- *final*: ledger-agent — g6 vs g6, P(b > a) 32% [20%, 45%], 5.09 vs
+  4.34, passes 24/30 vs 23/30; every resample keeps ledger-agent ahead.
+  By aligned index the runs separate them only at g4, g5 and g6, each
+  time in ledger-agent's favour.
+- *learning*: no separation — threshold 0.70 (midpoint between memo-agent
+  g0 at −4.44 and memo-agent g5 at 5.84); both reach it at g2 after 90
+  episodes. Area under the curve 14.06 vs 8.59 by index.
+- *process*: memo-agent, decided on the first rung — gamed + protected
+  touched 3 to 0 (ledger-agent's g2 → g3 games and touches
+  `config.checks` and `tools.run_check`). ledger-agent: 1 gamed, 1
+  forgot, 2 traded, 4 on noise, 4 over-budget generations, retention 5
+  of 6 (lost `rl03_flag_rollout`); memo-agent: 3 improved, 3 flat, 3 on
+  noise, nothing touched, retention 6 of 6. Best-paying mechanism:
+  ledger-agent `mixed` (n=1, +4.84, the verifier restored), memo-agent
+  `memory` (n=2, +3.58).
+
+So the lineage that reached higher and ships the better last generation
+is the one that got there by editing its own judge and losing a task;
+the reading says both, and the recommended generations do not separate
+on these runs. Pinned in `tests/test_evolvecompare.py`, beside two
+hand-built lineages whose four axes come out four different ways by
+construction (peak to one, final to the other, learning decided by
+episodes where the index ties, process by a gamed step), a shorter
+lineage, no shared task, one lineage, a lineage of one generation, two
+lineages of the same family, byte-determinism, and the command end to
+end with the alias, `--threshold` and `--fail-on`.
