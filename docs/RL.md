@@ -549,3 +549,36 @@ value estimate against the realised discounted return-to-go with y = x as
 the only reference, the decile calibration curve over it, points coloured
 by policy and the residuals as a small marginal underneath, and states the
 explained variance in words.
+
+### A worked example: what "paid while labelled bad" actually means
+
+The audit's unearned-reward list is the part most likely to be misread as
+a bug report, so it is worth walking one row of it. On the shipped
+training set, 358 of 3,858 labelled steps were paid a positive reward
+while the reading had labelled them `dead_end`, worth +157.5 to one
+policy and +164.7 to the other. Every one of them is a `read_file` step
+paying +0.9.
+
+Take the first: step 22 of `rl01_ledger_reconcile__policy-v1__r1`. The
+agent searched for invoice INV-2077, read the row, and got back exactly
+the fact the task needed. The scripted environment paid it +1.0 for
+finding a required piece of evidence, less the 0.1 every tool call
+costs. And `dead_end` means, in `feedback`, *a step that fed nothing
+measurable into the answer* — which is also true, because that run went
+on to answer wrongly, so nothing it gathered reached the answer at all.
+
+Neither side is broken. The environment is paying for process, because
+that is what dense shaping is for: it wants the agent to look up the
+invoice even on the runs where the agent later fumbles the total. The
+reading is attributing to outcome, because that is what attribution is
+for. The disagreement between them is the finding, and it is the whole
+reason the audit reports it rather than quietly reconciling the two.
+
+What it tells a person about to train on this reward is concrete: 322
+points of return on this set are paid for work that never reached an
+answer, and a policy optimising it can collect them without ever
+finishing a task. Whether that is the intent — shaping the search
+behaviour deliberately — or an accident of the reward design is a
+judgement the page cannot make. It can only put the number in front of
+the person who can, which is why the rows are labelled `signal` and not
+`defect`.
