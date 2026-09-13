@@ -248,12 +248,24 @@ def _lineage_view(index: int, label: str, lineage: dict, ev: dict, shared: list,
     gens_in = lineage.get("generations") or []
     gens_ev = ev.get("generations") or []
     shared_set = set(shared)
+    # when every task of the lineage is shared, the engine's own band is
+    # the same statistic over the same episodes, so it is carried as is
+    # and the two sections agree to the digit; otherwise it is recomputed
+    # over the shared tasks and the source says so
+    own = _gen_tasks(ev) == shared_set
     rows: list = []
     episodes_cum = seconds_cum = tokens_cum = 0
     for i, g in enumerate(gens_ev):
         eps = [e for e in (g.get("episodes") or []) if str(e.get("task_id")) in shared_set]
         trajs = [t for t in (gens_in[i]["trajectories"] if i < len(gens_in) else []) if t.task.id in shared_set]
-        band = iqm_by_task(eps, shared, samples=samples, label=f"{label}:{g['id']}")
+        engine = g.get("iqm_by_task") if isinstance(g.get("iqm_by_task"), dict) else None
+        if own and engine is not None and engine.get("point") is not None:
+            band = {"measurable": True, "reason": None, "point": engine["point"], "lo": engine["lo"],
+                    "hi": engine["hi"], "per_task": dict(engine.get("per_task") or {}),
+                    "source": "evolution.generations[].iqm_by_task"}
+        else:
+            band = dict(iqm_by_task(eps, shared, samples=samples, label=f"{label}:{g['id']}"),
+                        source="recomputed over the shared tasks")
         passes = sum(1 for e in eps if e.get("success") is True)
         by_task: dict = {}
         for e in eps:
@@ -271,7 +283,7 @@ def _lineage_view(index: int, label: str, lineage: dict, ev: dict, shared: list,
             "pass_by_task": {t: _r(c[0] / c[1]) for t, c in sorted(by_task.items())},
             "runs_per_task": {t: c[1] for t, c in sorted(by_task.items())},
             "policy": g.get("policy") or (gens_in[i]["policy"] if i < len(gens_in) else None),
-            "trajectories": trajs, "per_task_iqm": band["per_task"],
+            "trajectories": trajs, "per_task_iqm": band["per_task"], "metric_source": band["source"],
         })
     ids = [g["id"] for g in gens_ev]
 
@@ -285,6 +297,8 @@ def _lineage_view(index: int, label: str, lineage: dict, ev: dict, shared: list,
     last = where(ids[-1]) if ids else None
     return {"index": index, "label": label, "family": ev.get("family"), "path": lineage.get("path"),
             "lineage": lineage, "evolution": ev, "rows": rows, "ids": ids,
+            "metric_source": ("evolution.generations[].iqm_by_task" if own else
+                              "recomputed over the shared tasks (this lineage also ran unshared tasks)"),
             "recommended": rec, "best": best, "last": last,
             "generations_n": len(gens_ev),
             "episodes_n": sum(g.get("episodes_n") or 0 for g in gens_ev),
@@ -400,7 +414,7 @@ def _pair_reading(p: dict) -> str:
 
 def _curve_rows(view: dict) -> list:
     keep = ("index", "id", "point", "lo", "hi", "pass_rate", "episodes_cum", "seconds_cum", "tokens_cum",
-            "measurable", "reason", "episodes")
+            "measurable", "reason", "episodes", "metric_source")
     return [{k: r[k] for k in keep} for r in view["rows"]]
 
 
@@ -515,7 +529,9 @@ def _process(view: dict, shared: list) -> dict:
     for s in steps:
         imp = ((s.get("effect") or {}).get("improvement") or {})
         lo, hi = imp.get("lo"), imp.get("hi")
-        if (s.get("effect") or {}).get("measurable") and lo is not None and hi is not None and lo <= 0.5 <= hi:
+        noisy = ("noisy" in _step_flags(s) if engine_flags else
+                 bool((s.get("effect") or {}).get("measurable")) and lo is not None and hi is not None and lo <= 0.5 <= hi)
+        if noisy:
             noise.append(s.get("to"))
         if engine_flags:
             hit = "collapsed" in _step_flags(s)
@@ -527,7 +543,13 @@ def _process(view: dict, shared: list) -> dict:
             collapsed += 1
             collapsed_rows.append({"step": s.get("index"), "to": s.get("to"), "what": what})
     integrity = ev.get("integrity") or {}
-    touched = [t for t in (integrity.get("touched") or []) if isinstance(t, dict)]
+    # the engine reports a touch from the diff and again from the episodes;
+    # one path weakened at one step is one finding
+    touched, seen = [], set()
+    for t in integrity.get("touched") or []:
+        if isinstance(t, dict) and (t.get("step"), t.get("path")) not in seen:
+            seen.add((t.get("step"), t.get("path")))
+            touched.append(t)
     over = [o for o in ((integrity.get("growth") or {}).get("over_budget") or []) if isinstance(o, dict)]
     # retention on the shared tasks: solved = pass rate above SOLVED_RATE
     solved_at = [{t for t, p in r["pass_by_task"].items() if p is not None and p > SOLVED_RATE} for r in rows]
@@ -580,12 +602,17 @@ def _process(view: dict, shared: list) -> dict:
         **{v: verdicts.get(v, 0) for v in ("improved", "regressed", "flat", "gamed", "forgot", "traded")},
         "verdicts": dict(sorted(verdicts.items())),
         "accepted_on_noise": len(noise), "accepted_on_noise_steps": noise,
-        "accepted_on_noise_rule": "a measurable step whose improvement interval contains 0.5 was kept without "
-                                  "evidence it helped",
+        "accepted_on_noise_rule": ("the engine's noisy flag: neither the return axis nor the success axis of the "
+                                   "step's improvement clears 0.5, so the step was kept without evidence it helped"
+                                   if engine_flags else
+                                   "a measurable step whose improvement interval contains 0.5 was kept without "
+                                   "evidence it helped"),
         "monotone": (ev.get("trajectory") or {}).get("monotone"),
         "protected_touched": len(touched),
+        "protected_touched_basis": "distinct (step, path) pairs the engine's integrity block reports as weakened "
+                                   "or changed, from the diff or the episodes",
         "protected_touched_paths": [{"step": t.get("step"), "from": t.get("from_gen"), "to": t.get("to_gen"),
-                                     "path": t.get("path")} for t in touched],
+                                     "path": t.get("path"), "source": t.get("source")} for t in touched],
         "over_budget": len(over), "over_budget_rows": over,
         "collapsed": collapsed, "collapsed_rows": collapsed_rows,
         "collapsed_basis": ("the engine's step flags" if engine_flags else
@@ -727,8 +754,8 @@ def _race_reading(race: dict, views: list) -> str:
         if auc["by_episodes"]["value"] is not None:
             bits[-1] += (f"; area under the curve {_num(auc['by_index']['value'])} by index, "
                          f"{_num(auc['by_episodes']['value'])} by episodes")
-    lengths = {v["label"]: v["rows"][-1]["episodes_cum"] if v["rows"] else 0 for v in views}
-    if len(set(lengths.values())) > 1:
+    spans = {(race["auc"][v["label"]]["by_episodes"] or {}).get("span") for v in views}
+    if len(spans - {None}) > 1:
         bits.append("the areas are over each lineage's own length, so the longer series has more room under it")
     return "; ".join(bits) + "."
 
@@ -824,7 +851,8 @@ def _metric_definition() -> str:
 def _lineage_entry(v: dict) -> dict:
     return {"label": v["label"], "family": v["family"], "path": v["path"], "generations_n": v["generations_n"],
             "episodes_n": v["episodes_n"], "tasks_n": v["tasks_n"], "recommended": v["recommended"],
-            "best": v["best"], "last": v["last"], "evolution": v["evolution"]}
+            "best": v["best"], "last": v["last"], "metric_source": v.get("metric_source"),
+            "evolution": v["evolution"]}
 
 
 def evolution_compare(lineages: list, evolutions: list, *, threshold=None, samples: int = BOOTSTRAP_SAMPLES,

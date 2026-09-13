@@ -7054,3 +7054,785 @@ class RLAuditBlocksTest(unittest.TestCase):
         self.assertEqual(small, [])
         self.assertEqual(self._errors(errors), [])
         context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class EvoTimescapeTest(unittest.TestCase):
+    """The timescape: every episode of every generation along constricted
+    time, four levels of semantic zoom, reached by mouse and by keyboard.
+
+    Self-contained: it builds `aggregate["evolution"]` in the contract's
+    shape from the lineage traces (the step timelines exactly as the
+    contract lays them out) unless `deepcompare.evolve` exists and writes
+    one, in which case the engine's output is used. A second page carries
+    2,100 episodes — ten of every demo episode — to check the drawing cap
+    and the frame budget."""
+
+    LINEAGE = ROOT / "demo" / "evolve" / "lineage"
+    BLK = '.block[data-block="evo-timescape"]'
+    tmp = None
+
+    # ------------------------------------------------------------ fixture
+
+    @staticmethod
+    def _timeline(data):
+        from deepcompare.timing import TOOLISH, time_attribution
+        from deepcompare.trace import Trajectory
+        wasted = {r["index"] for r in (time_attribution(Trajectory.from_dict(data)).get("steps") or []) if r.get("wasted")}
+        out, t = [], 0.0
+        for s in data["steps"]:
+            dur = float(s.get("latency_s") or 0.0)
+            kind = "answer" if s["type"] == "answer" else "tool" if s["type"] in TOOLISH else "think"
+            flags = ("e" if s.get("error") else "") + ("w" if s["index"] in wasted else "") + \
+                ("v" if isinstance(s.get("span"), dict) and s["span"].get("agent") == "verifier" else "")
+            out.append([round(t, 4), round(dur, 4), kind, s.get("name") or s["type"], float(s.get("reward") or 0.0), flags])
+            t += dur
+        return out
+
+    @classmethod
+    def _evolution(cls, replicate=1, cap=2000):
+        from deepcompare.timing import TOOLISH
+        manifests = {p.parent.name: json.loads(p.read_text(encoding="utf-8")) for p in cls.LINEAGE.glob("*/agent.json")}
+        by_parent = {m["parent"]: g for g, m in manifests.items()}
+        order, cur = [], by_parent.get(None)
+        while cur and cur not in order:
+            order.append(cur)
+            cur = by_parent.get(cur)
+        gens, total, capped = [], 0, False
+        for i, g in enumerate(order):
+            eps = []
+            for path in sorted((cls.LINEAGE / g / "traces").glob("*.json")):
+                data = json.loads(path.read_text(encoding="utf-8"))
+                tl = cls._timeline(data)
+                tools = {}
+                for s in data["steps"]:
+                    if s["type"] in TOOLISH:
+                        tools[s["name"]] = tools.get(s["name"], 0) + 1
+                for k in range(replicate):
+                    rid = data["run_id"] + ("" if k == 0 else f"x{k}")
+                    eps.append({"task_id": data["task"]["id"], "run_id": rid, "trace_id": f"{data['task']['id']}__{data['agent']['name']}__{rid}",
+                                "success": bool(data["outcome"]["success"]), "return": round(sum(e[4] for e in tl), 4), "steps": len(tl),
+                                "seconds": round(sum(e[1] for e in tl), 4), "tools": tools, "errors": sum(1 for e in tl if "e" in e[5]),
+                                "wasted_s": round(sum(e[1] for e in tl if "w" in e[5]), 4), "timeline": tl})
+            for e in eps:
+                total += 1
+                if total > cap:
+                    e.pop("timeline")
+                    capped = True
+            passes = sum(1 for e in eps if e["success"])
+            gens.append({"id": g, "parent": manifests[g].get("parent"), "index": i, "mechanism": manifests[g].get("mechanism"),
+                         "episodes_n": len(eps), "tasks": sorted({e["task_id"] for e in eps}), "pass_rate": passes / len(eps), "passes": passes,
+                         "mean_return": sum(e["return"] for e in eps) / len(eps), "episodes": eps, "episodes_capped": capped})
+        steps = []
+        for i in range(1, len(gens)):
+            a, b = gens[i - 1], gens[i]
+            d, dp = b["mean_return"] - a["mean_return"], b["pass_rate"] - a["pass_rate"]
+            steps.append({"from": a["id"], "to": b["id"], "index": i, "mechanism": b["mechanism"],
+                          "verdict": "gamed" if d > 0 and dp < 0 else "improved" if d > 0.5 else "regressed" if d < -0.5 else "flat",
+                          "reading": f"{a['id']} → {b['id']}: fixture rule"})
+        return {"version": 1, "measurable": True, "reason": None, "family": "ledger-agent", "generations": gens, "steps": steps}
+
+    @classmethod
+    def _render(cls, out, replicate):
+        """The page: the runs output for the last pair, the evolution section
+        added to its aggregate — the engine's when it exists, else the fixture."""
+        from deepcompare.report import render_html
+        out.mkdir(parents=True, exist_ok=True)
+        evolution, source = None, "fixture"
+        if replicate == 1 and (ROOT / "deepcompare" / "evolve.py").is_file():
+            real = out / "engine"
+            proc = subprocess.run([sys.executable, "-m", "deepcompare", "evolve", str(cls.LINEAGE), "-o", str(real)],
+                                  cwd=str(ROOT), capture_output=True)
+            agg_path = real / "aggregate.json"
+            if proc.returncode == 0 and agg_path.is_file():
+                agg = json.loads(agg_path.read_text(encoding="utf-8"))
+                ev = agg.get("evolution") or {}
+                if ev.get("generations") and (ev["generations"][0].get("episodes") or [{}])[0].get("timeline"):
+                    evolution, source = ev, "engine"
+                    reports = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(real.glob("report_*.json"))]
+                    page = out / "report.html"
+                    render_html(reports, agg, cls.template, page)
+                    return page, evolution, source
+        pair = out / "pair"
+        pair.mkdir(exist_ok=True)
+        gens = sorted(p.parent.name for p in cls.LINEAGE.glob("*/agent.json"))[-2:]
+        for g in gens:
+            for p in (cls.LINEAGE / g / "traces").glob("*.json"):
+                (pair / p.name).write_bytes(p.read_bytes())
+        runs = out / "runs"
+        subprocess.run([sys.executable, "-m", "deepcompare", "runs", str(pair), "-o", str(runs)], cwd=str(ROOT), check=True, capture_output=True)
+        agg = json.loads((runs / "aggregate.json").read_text(encoding="utf-8"))
+        agg["evolution"] = evolution = cls._evolution(replicate)
+        reports = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(runs.glob("report_*.json"))]
+        page = out / "report.html"
+        render_html(reports, agg, cls.template, page)
+        return page, evolution, source
+
+    @classmethod
+    def setUpClass(cls):
+        if not cls.LINEAGE.is_dir():
+            raise unittest.SkipTest("no evolve demo lineage")
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+        # the template is built into the temp dir; web/blocks.html is the integrator's
+        sys.path.insert(0, str(ROOT / "web"))
+        import build_blocks
+        cls.template = out / "blocks.html"
+        cls.template.write_text(build_blocks.build()[0], encoding="utf-8")
+        cls.page, cls.ev, cls.source = cls._render(out / "demo", 1)
+        cls.big, cls.big_ev, _ = cls._render(out / "big", 10)
+        cls.gens = [g["id"] for g in cls.ev["generations"]]
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _open(self, page_path=None, width=1440, **context_args):
+        context = self.browser.new_context(viewport={"width": width, "height": 1000}, **context_args)
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{page_path or self.page}#view=evolution")
+        page.wait_for_timeout(900)
+        blk = page.locator(self.BLK)
+        self.assertEqual(blk.count(), 1, "the timescape is on the evolution view")
+        if "collapsed" in (blk.get_attribute("class") or ""):
+            blk.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(300)
+        blk.evaluate("el => el.scrollIntoView({block: 'center'})")
+        page.wait_for_timeout(200)
+        return context, page, blk, errors
+
+    def _status(self, blk):
+        return blk.locator(".evt-status").first.text_content()
+
+    def _time_l0(self, page, n=6):
+        # the constriction toggle redraws level 0 synchronously: an even count leaves it as it was
+        return page.evaluate("""(sel) => { const b = document.querySelector(sel + ' [data-act=constrict]'); const out = [];
+            for (let i = 0; i < %d; i++) { const t0 = performance.now(); b.click(); out.push(performance.now() - t0); } return out; }""" % n, self.BLK)
+
+    # ------------------------------------------------------------ level 0
+
+    def test_level_0_draws_every_generation_with_its_verdict_and_says_what_it_folded(self):
+        context, page, blk, errors = self._open()
+        stage = blk.locator(".evt-stage")
+        self.assertEqual(stage.get_attribute("role"), "application")
+        self.assertIn("Level 0", stage.get_attribute("aria-label"))
+        self.assertEqual(stage.locator("canvas").get_attribute("aria-hidden"), "true")
+        svg = stage.locator("svg")
+        self.assertEqual(svg.get_attribute("role"), "img")
+        self.assertIn("lineage", svg.get_attribute("aria-label"))
+        self.assertEqual(blk.locator(".evt-status").get_attribute("aria-live"), "polite")
+        self.assertEqual(stage.locator("g.evt-lane").count(), len(self.gens))
+        for i, g in enumerate(self.gens):
+            self.assertEqual(stage.locator("g.evt-lane").nth(i).get_attribute("data-gen"), g)
+        self.assertEqual(stage.locator("g.evt-verdict").count(), len(self.ev["steps"]))
+        verdicts = {(v["from"], v["to"]): v["verdict"] for v in self.ev["steps"]}
+        for i in range(stage.locator("g.evt-verdict").count()):
+            mark = stage.locator("g.evt-verdict").nth(i)
+            self.assertEqual(mark.get_attribute("data-verdict"), verdicts[(mark.get_attribute("data-from"), mark.get_attribute("data-to"))])
+        n_eps = sum(len(g["episodes"]) for g in self.ev["generations"])
+        self.assertIn(f"{n_eps} episodes", self._status(blk))
+        # the constriction says how many folds hide how much; off, the folds are gone and the count is said
+        btn = blk.locator("[data-act=constrict]")
+        self.assertEqual(btn.get_attribute("aria-pressed"), "true")
+        folds = stage.locator("g.evt-fold").count()
+        self.assertGreaterEqual(folds, 1, "the demo's first seconds are plan and grep at the shaping cost: a fold")
+        self.assertRegex(btn.text_content(), r"constricted · \d+ folds? hides? ")
+        self.assertEqual(stage.locator("text.evt-gap").count(), folds)
+        btn.click()
+        page.wait_for_timeout(200)
+        self.assertEqual(stage.locator("g.evt-fold").count(), 0)
+        self.assertIn("not constricted", btn.text_content())
+        self.assertNotIn("constricted wall-clock", self._status(blk))
+        btn.click()
+        page.wait_for_timeout(200)
+        self.assertEqual(stage.locator("g.evt-fold").count(), folds)
+        # the level-0 draw of the demo, timed
+        ms = sorted(self._time_l0(page))
+        self.assertLess(ms[len(ms) // 2], 250, f"level-0 draw at {n_eps} episodes: {ms}")
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ---------------------------------------------------------- the levels
+
+    def test_every_level_is_reached_by_mouse_and_no_click_is_dead(self):
+        context, page, blk, errors = self._open()
+        stage = blk.locator(".evt-stage")
+        gen = self.ev["generations"][2]
+        stage.locator(f'g.evt-lane[data-gen="{gen["id"]}"] rect.evt-lane-hit').click()
+        page.wait_for_timeout(500)
+        self.assertIn(f"Level 1 of 3 · generation {gen['id']}", self._status(blk))
+        self.assertEqual(stage.locator("g.evt-group").count(), len(gen["tasks"]))
+        self.assertEqual([b.strip() for b in blk.locator(".evt-crumbs button").all_text_contents()], ["lineage", gen["id"]])
+        # no DOM per episode or per step at level 1
+        self.assertLess(stage.locator("svg *").count(), 120)
+        # the first ribbon row: hover says the step, click opens its task
+        sb = stage.locator("svg").bounding_box()
+        page.mouse.move(sb["x"] + sb["width"] * 0.5, sb["y"] + 70)
+        page.wait_for_timeout(150)
+        tip = blk.locator(".evt-tip")
+        self.assertTrue(tip.is_visible())
+        self.assertIn("reward", tip.text_content())
+        page.mouse.click(sb["x"] + sb["width"] * 0.5, sb["y"] + 70)
+        page.wait_for_timeout(500)
+        blk.evaluate("el => el.scrollIntoView({block: 'center'})")
+        self.assertIn("Level 2 of 3", self._status(blk))
+        task = blk.locator(".evt-crumbs button").nth(2).get_attribute("title")
+        runs = [e for e in gen["episodes"] if e["task_id"] == task]
+        self.assertEqual(stage.locator("g.evt-run").count(), len(runs))
+        self.assertEqual(stage.locator("g.evt-step").count(), sum(e["steps"] for e in runs), "one mark per step at level 2")
+        self.assertEqual(stage.locator("g.evt-verifier").count(),
+                         sum(1 for e in runs for i, s in enumerate(e["timeline"]) if "v" in s[5] and (i == 0 or "v" not in e["timeline"][i - 1][5])),
+                         "one bracket per verifier span")
+        ringed = stage.locator('g.evt-step[data-flags*="e"]')
+        self.assertEqual(ringed.count(), sum(e["errors"] for e in runs), "every error is a step mark")
+        for i in range(ringed.count()):
+            self.assertGreaterEqual(ringed.nth(i).locator("circle").count(), 1, "every error ringed")
+        # a step click is never dead: the block's own panel opens (no pair report covers this generation)
+        step = stage.locator("g.evt-step").nth(4)
+        step.hover()
+        page.wait_for_timeout(120)
+        self.assertIn("return so far", tip.text_content())
+        step.click()
+        page.wait_for_timeout(200)
+        detail = blk.locator(".evt-detail")
+        self.assertEqual(detail.count(), 1)
+        self.assertEqual(detail.get_attribute("data-step"), step.get_attribute("data-step"))
+        self.assertIn("no pair report covers this run", detail.text_content())
+        # the run's label opens the episode: level 3, one node per step, a fold that dilates on click
+        stage.locator("g.evt-run").first.locator("text").first.click()
+        page.wait_for_timeout(500)
+        blk.evaluate("el => el.scrollIntoView({block: 'center'})")
+        self.assertIn("Level 3 of 3", self._status(blk))
+        ep = runs[0]
+        self.assertEqual(stage.locator("g.evt-step").count(), ep["steps"])
+        self.assertEqual(stage.locator("rect.evt-rbar").count(), sum(1 for s in ep["timeline"] if s[4] != 0), "a reward bar per paying step")
+        folds = stage.locator("g.evt-fold3").count()
+        self.assertGreaterEqual(folds, 1)
+        self.assertEqual(stage.locator("g.evt-fold3").first.locator("text").text_content()[0], "×")
+        stage.locator("g.evt-fold3").first.click()
+        page.wait_for_timeout(200)
+        self.assertEqual(stage.locator("g.evt-fold3").count(), folds - 1, "a fold dilates on click")
+        self.assertEqual(stage.locator('g.evt-step[data-folded="false"]').count() + stage.locator('g.evt-step[data-folded="true"]').count(), ep["steps"])
+        # the breadcrumb is the way back up
+        blk.locator('.evt-crumbs button[data-level="0"]').click()
+        page.wait_for_timeout(500)
+        self.assertIn("Level 0 of 3", self._status(blk))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_every_level_is_reached_by_keyboard(self):
+        context, page, blk, errors = self._open()
+        stage = blk.locator(".evt-stage")
+        stage.focus()
+        page.keyboard.press("ArrowDown")
+        self.assertIn(f"Selected: lane {self.gens[1]}", self._status(blk))
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(400)
+        self.assertIn(f"Level 1 of 3 · generation {self.gens[1]}", self._status(blk))
+        page.keyboard.press("ArrowDown")
+        page.keyboard.press("ArrowDown")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(400)
+        self.assertIn("Level 2 of 3", self._status(blk))
+        page.keyboard.press("ArrowRight")
+        page.keyboard.press("ArrowRight")
+        self.assertIn("step 2", self._status(blk))
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(400)
+        self.assertIn("Level 3 of 3", self._status(blk))
+        self.assertIn("Level 3", stage.get_attribute("aria-label"))
+        page.keyboard.press("End")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(200)
+        detail = blk.locator(".evt-detail")
+        self.assertEqual(detail.count(), 1, "Enter on a step opens it")
+        self.assertEqual(int(detail.get_attribute("data-step")), int(stage.locator("g.evt-step").count()) - 1)
+        for level in (2, 1, 0):
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(350)
+            self.assertIn(f"Level {level} of 3", self._status(blk))
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ------------------------------------------------------------ features
+
+    def test_minimap_brush_compare_brush_and_the_x_measure(self):
+        context, page, blk, errors = self._open()
+        stage = blk.locator(".evt-stage")
+        mini = blk.locator(".evt-mini")
+        self.assertEqual(mini.locator("canvas").get_attribute("aria-hidden"), "true")
+        self.assertIn("minimap", mini.locator("svg").get_attribute("aria-label"))
+        self.assertEqual(mini.locator(".evt-minibrush").count(), 1, "the viewport is a brush on the minimap")
+        mb = mini.locator("svg").bounding_box()
+        page.mouse.move(mb["x"] + 150, mb["y"] + 22)
+        page.mouse.down()
+        page.mouse.move(mb["x"] + 400, mb["y"] + 22, steps=6)
+        page.mouse.up()
+        page.wait_for_timeout(400)
+        self.assertRegex(self._status(blk), r"window [\d.]+s–[\d.]+s")
+        # the compare brush under the clock: a table per generation, counted from the timelines
+        sb = stage.locator("svg").bounding_box()
+        page.mouse.move(sb["x"] + 200, sb["y"] + 26)
+        page.mouse.down()
+        page.mouse.move(sb["x"] + 500, sb["y"] + 26, steps=6)
+        page.mouse.up()
+        page.wait_for_timeout(300)
+        table = blk.locator(".evt-table")
+        self.assertEqual(table.count(), 1)
+        self.assertEqual(table.locator("tr").count(), len(self.gens) + 1)
+        a, b = float(table.get_attribute("data-from")), float(table.get_attribute("data-to"))
+        for g in self.ev["generations"]:
+            tools = sum(1 for e in g["episodes"] for s in e["timeline"] if a <= s[0] < b and s[2] == "tool")
+            errs = sum(1 for e in g["episodes"] for s in e["timeline"] if a <= s[0] < b and "e" in s[5])
+            ret = sum(s[4] for e in g["episodes"] for s in e["timeline"] if a <= s[0] < b)
+            cells = table.locator(f'tr[data-gen="{g["id"]}"] td').all_text_contents()
+            self.assertEqual(cells[2], str(tools), g["id"])
+            self.assertEqual(cells[6], str(errs), g["id"])
+            self.assertAlmostEqual(float(cells[4].replace("−", "-").replace("+", "")), ret, delta=0.11, msg=g["id"])
+        # the x measure: steps, and the status says so
+        blk.locator("[data-measure=steps]").click()
+        page.wait_for_timeout(400)
+        self.assertIn("step index", self._status(blk))
+        self.assertEqual(blk.locator("[data-measure=steps]").get_attribute("aria-pressed"), "true")
+        self.assertRegex(blk.locator("[data-act=constrict]").text_content(), r"folds? hides? \d+ steps|no fold in view")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_reader_s_choices_persist_per_browser_under_one_key(self):
+        context, page, blk, errors = self._open()
+        stage = blk.locator(".evt-stage")
+        stage.locator(f'g.evt-lane[data-gen="{self.gens[3]}"] rect.evt-lane-hit').click()
+        page.wait_for_timeout(400)
+        blk.locator("[data-measure=steps]").click()
+        page.wait_for_timeout(300)
+        blk.locator("[data-act=constrict]").click()
+        page.wait_for_timeout(200)
+        stored = page.evaluate("() => AgentDiff._internals.Store.get('agentdiff:evo-timescape')")
+        self.assertEqual((stored["level"], stored["path"]["gen"], stored["measure"], stored["constrict"]), (1, self.gens[3], "steps", False))
+        page.reload()
+        page.wait_for_timeout(900)
+        blk = page.locator(self.BLK)
+        self.assertIn(f"Level 1 of 3 · generation {self.gens[3]}", self._status(blk))
+        self.assertIn("step index", self._status(blk))
+        self.assertEqual(blk.locator("[data-act=constrict]").get_attribute("aria-pressed"), "false")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_reduced_motion_makes_a_level_change_instant(self):
+        context, page, blk, errors = self._open(reduced_motion="reduce")
+        stage = blk.locator(".evt-stage")
+        stage.locator("g.evt-lane rect.evt-lane-hit").first.click()
+        page.wait_for_timeout(60)
+        self.assertEqual(stage.locator("g.evt-content").get_attribute("opacity"), "1")
+        self.assertIn("Level 1 of 3", self._status(blk))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_phone_reaches_every_level_without_overflow_or_small_text(self):
+        context, page, blk, errors = self._open(width=390)
+        stage = blk.locator(".evt-stage")
+        self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), 392)
+        stage.focus()
+        for level in (1, 2, 3):
+            page.keyboard.press("Enter")
+            page.wait_for_timeout(400)
+            self.assertIn(f"Level {level} of 3", self._status(blk))
+            self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), 392, f"level {level}")
+            box = blk.bounding_box()
+            self.assertLessEqual(box["x"] + box["width"], 391)
+        small = page.evaluate("""(sel) => { const out = []; const card = document.querySelector(sel);
+            const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT); let node;
+            while ((node = walker.nextNode())) { if (!node.textContent.trim()) continue; const el = node.parentElement; if (!el) continue;
+              if (parseFloat(getComputedStyle(el).fontSize) < 11) out.push(node.textContent.trim().slice(0, 30)); }
+            return out; }""", self.BLK)
+        self.assertEqual(small, [])
+        self.assertEqual(errors, [])
+        context.close()
+
+    # --------------------------------------------------------------- scale
+
+    def test_two_thousand_episodes_draw_within_the_budget_and_the_cap_is_said(self):
+        context, page, blk, errors = self._open(page_path=self.big)
+        stage = blk.locator(".evt-stage")
+        drawn = sum(1 for g in self.big_ev["generations"] for e in g["episodes"] if e.get("timeline"))
+        skipped = sum(1 for g in self.big_ev["generations"] for e in g["episodes"] if not e.get("timeline"))
+        self.assertEqual((drawn, skipped), (2000, 100))
+        self.assertIn("2000 episodes", self._status(blk))
+        self.assertIn("100 episodes past the cap of 2000 carry no timeline and are not drawn", self._status(blk))
+        ms = sorted(self._time_l0(page))
+        self.assertLess(ms[len(ms) // 2], 500, f"level-0 draw at 2000 episodes: {ms}")
+        # level 1 of a 300-episode generation: ribbons, and still no DOM per episode
+        stage.locator('g.evt-lane[data-gen="g2"] rect.evt-lane-hit').click()
+        page.wait_for_timeout(500)
+        self.assertIn("300 episodes", self._status(blk))
+        self.assertLess(stage.locator("svg *").count(), 120)
+        self.assertEqual(errors, [])
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class EvolutionBlocksTest(unittest.TestCase):
+    """The Evolution view's core blocks (33_evolve.js) against the demo
+    lineage: the lineage thread, the ledger of steps, the tasks × generations
+    matrix, one step in full, the integrity check and the drift chart.
+
+    What is checked is that the page draws `aggregate.evolution` and nothing
+    else — one node per generation and one edge per step with the engine's
+    verdict, the thickest edge the largest IQM move, the marked cells the
+    ones that fell, the protected paths named where the step is shown — and
+    that one selection drives every block: a click on an edge selects the
+    same step in the ledger, the step view, the matrix and the drift chart,
+    the keyboard does the same, and the choice survives a reload.
+
+    The page comes from the `evolve` command when it is registered; until
+    then from the engine module directly, over the same lineage, so the test
+    reads the real engine either way.
+    """
+
+    tmp = None
+    IDS = ("evo-lineage", "evo-steps", "evo-matrix", "evo-step", "evo-integrity", "evo-drift")
+
+    @classmethod
+    def setUpClass(cls):
+        lineage = ROOT / "demo" / "evolve" / "lineage"
+        if not (lineage / "g0" / "agent.json").is_file():
+            raise unittest.SkipTest("no demo lineage to analyse")
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "evo"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        template = ROOT / "web" / "blocks.html"
+        done = subprocess.run([sys.executable, "-m", "deepcompare", "evolve", str(lineage), "-o", str(out),
+                               "--template", str(template)], cwd=str(ROOT), capture_output=True)
+        if done.returncode != 0 or not (out / "aggregate.json").is_file():
+            cls._build_without_the_command(lineage, out, template)
+        agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
+        cls.ev = agg.get("evolution") or {}
+        if not cls.ev.get("measurable"):
+            raise unittest.SkipTest("the demo lineage carries no measurable evolution section")
+        cls.page_path = out / "report.html"
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def _build_without_the_command(cls, lineage, out, template):
+        # the engine module over the lineage, grafted onto a `runs` output of
+        # the last pair — what the command writes once it exists
+        import shutil
+        from deepcompare import evolve as engine
+        from deepcompare.report import render_html
+        ev = engine.analyse_lineage(str(lineage))
+        flat = out / "flat"
+        flat.mkdir(parents=True, exist_ok=True)
+        last = [g["id"] for g in ev.get("generations", [])][-2:]
+        for gen in last:
+            for path in (lineage / gen / "traces").glob("*.json"):
+                shutil.copy(path, flat / path.name)
+        subprocess.run([sys.executable, "-m", "deepcompare", "runs", str(flat), "-o", str(out),
+                        "--template", str(template)], cwd=str(ROOT), check=True, capture_output=True)
+        agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
+        agg["evolution"] = ev
+        (out / "aggregate.json").write_text(json.dumps(agg, sort_keys=True), encoding="utf-8")
+        reports = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(out.glob("report_*.json"))]
+        render_html(reports, agg, template, out / "report.html")
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _open(self, width=1280):
+        context = self.browser.new_context(viewport={"width": width, "height": 1000})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view=evolution")
+        page.wait_for_timeout(1000)
+        return context, page, errors
+
+    def _errors(self, errors):
+        # a sibling block failing is not this block's failure to report
+        return [e for e in errors if "evo" in e.lower() or "evolution" in e.lower()]
+
+    def _state(self, page):
+        return page.evaluate("() => AgentDiff.evolution.state()")
+
+    def _steps(self):
+        return [s for s in self.ev["steps"] if s.get("from") and s.get("to")]
+
+    # ------------------------------------------------------------ rendering
+
+    def test_all_six_blocks_render_without_an_empty_state(self):
+        context, page, errors = self._open()
+        for bid in self.IDS:
+            block = page.locator(f'#stacks [data-block="{bid}"]')
+            self.assertEqual(block.count(), 1, bid)
+            body = block.locator(".block-body").inner_text()
+            self.assertNotIn("failed to render", body, bid)
+            self.assertNotIn("Nothing to show", body, bid)
+            self.assertGreater(len(body.strip()), 80, bid)
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    def test_every_chart_is_an_image_with_a_label(self):
+        context, page, _ = self._open()
+        nodes = page.locator("#stacks .evo svg").all()
+        self.assertGreaterEqual(len(nodes), 6)
+        for node in nodes:
+            self.assertEqual(node.get_attribute("role"), "img")
+            self.assertTrue((node.get_attribute("aria-label") or "").strip())
+        context.close()
+
+    # -------------------------------------------------------------- lineage
+
+    def test_the_lineage_draws_every_generation_and_every_step_with_its_verdict(self):
+        context, page, _ = self._open()
+        gens = [g["id"] for g in self.ev["generations"]]
+        nodes = page.locator(".evo-lineage .evo-node")
+        self.assertEqual(nodes.count(), len(gens))
+        self.assertEqual([n.get_attribute("data-gen") for n in nodes.all()], gens)
+        edges = page.locator(".evo-lineage .evo-edge")
+        steps = self._steps()
+        self.assertEqual(edges.count(), len(steps))
+        for edge, step in zip(edges.all(), steps):
+            self.assertEqual(edge.get_attribute("data-step"), f"{step['from']} → {step['to']}")
+            self.assertEqual(edge.get_attribute("data-verdict"), step.get("verdict") or "")
+        # the marks the reader is meant to find
+        self.assertEqual(page.locator(".evo-node[data-best]").get_attribute("data-gen"), self.ev["best"]["id"])
+        self.assertEqual(page.locator(".evo-node[data-recommended]").get_attribute("data-gen"), self.ev["recommended"]["id"])
+        self.assertEqual(page.locator(".evo-node[data-last]").get_attribute("data-gen"), gens[-1])
+        lede = page.locator(".evo-lineage .evo-lead")
+        self.assertEqual(lede.get_attribute("data-recommended"), self.ev["recommended"]["id"])
+        self.assertIn(self.ev["recommended"]["id"], lede.inner_text())
+        context.close()
+
+    def test_the_thickest_edge_is_the_largest_iqm_move(self):
+        context, page, _ = self._open()
+        steps = self._steps()
+        deltas = [abs(((s.get("effect") or {}).get("iqm") or {}).get("delta") or 0) for s in steps]
+        widths = [float(e.get_attribute("stroke-width")) for e in page.locator(".evo-lineage .evo-edge .seg").all()]
+        self.assertEqual(len(widths), len(deltas))
+        if len(set(deltas)) > 1:
+            self.assertEqual(widths.index(max(widths)), deltas.index(max(deltas)))
+            self.assertEqual(widths.index(min(widths)), deltas.index(min(deltas)))
+        context.close()
+
+    # --------------------------------------------------------------- ledger
+
+    def test_the_ledger_has_one_row_per_step_in_lineage_order(self):
+        context, page, _ = self._open()
+        rows = page.locator('.evo-steps .evo-row[role="listitem"]')
+        steps = self._steps()
+        self.assertEqual(rows.count(), len(steps))
+        for row, step in zip(rows.all(), steps):
+            self.assertEqual(row.get_attribute("data-to"), step["to"])
+            self.assertEqual(row.locator(".evo-v").get_attribute("data-verdict"), step.get("verdict") or "")
+            eff = step.get("effect") or {}
+            if eff.get("measurable"):
+                delta = eff["iqm"]["delta"]
+                text = row.locator(".evo-num").first.inner_text()
+                self.assertIn(f"{abs(delta):.2f}".rstrip("0").rstrip("."), text)
+                p = eff["improvement"]["point"]
+                self.assertIn(f"{round(p * 100)}%", row.locator(".evo-track").get_attribute("aria-label"))
+                self.assertIn(step["reading"][:40], row.locator(".evo-read").inner_text())
+        context.close()
+
+    # ------------------------------------------------------------ selection
+
+    def test_a_click_on_an_edge_selects_that_step_in_every_block_and_survives_a_reload(self):
+        context, page, errors = self._open()
+        steps = self._steps()
+        target = steps[len(steps) // 2]
+        page.locator(f'.evo-lineage .evo-edge[data-to="{target["to"]}"]').click()
+        page.wait_for_timeout(500)
+        self.assertEqual(self._state(page)["gen"], target["to"])
+        self.assertEqual(page.locator('.evo-steps .evo-row[aria-current="true"]').get_attribute("data-to"), target["to"])
+        key = f"{target['from']} → {target['to']}"
+        self.assertEqual(page.locator(".evo-step .evo-lede").get_attribute("data-step"), key)
+        self.assertEqual(page.locator(".evo-drift .evo-branch").get_attribute("data-step"), key)
+        self.assertIn(key, page.locator(".evo-drift .evo-branch").inner_text())
+        lit = page.evaluate("() => Array.from(document.querySelectorAll('.evo-matrix .evo-col')).filter(r => +r.getAttribute('fill-opacity') > 0).map(r => r.getAttribute('data-gen'))")
+        self.assertEqual(lit, [target["to"]])
+        page.reload()
+        page.wait_for_timeout(1000)
+        self.assertEqual(self._state(page)["gen"], target["to"])
+        self.assertEqual(page.locator(".evo-step .evo-lede").get_attribute("data-step"), key)
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    def test_the_ledger_is_driven_by_the_keyboard_alone(self):
+        context, page, _ = self._open()
+        first = page.locator('.evo-steps .evo-row[role="listitem"]').first
+        first.focus()
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(400)
+        self.assertEqual(self._state(page)["gen"], first.get_attribute("data-to"))
+        self.assertEqual(first.get_attribute("aria-current"), "true")
+        context.close()
+
+    # --------------------------------------------------------------- matrix
+
+    def test_the_matrix_marks_exactly_the_cells_that_fell_and_outlines_the_trigger_tasks(self):
+        context, page, _ = self._open()
+        gens = self.ev["generations"]
+        tasks = []
+        for g in gens:
+            for t in g.get("tasks") or []:
+                if t not in tasks:
+                    tasks.append(t)
+        fell = 0
+        for t in tasks:
+            prev = None
+            for g in gens:
+                eps = [e for e in g.get("episodes") or [] if e.get("task_id") == t]
+                if not eps:
+                    continue
+                rate = sum(1 for e in eps if e.get("success")) / len(eps)
+                if prev is not None and rate < prev - 1e-9:
+                    fell += 1
+                prev = rate
+        self.assertEqual(page.locator('.evo-matrix .evo-cell[data-fell="1"]').count(), fell)
+        self.assertEqual(int(page.locator(".evo-matrix .evo-lede").get_attribute("data-fell")), fell)
+        trig = sum(len([t for t in s.get("trigger_tasks") or [] if t in tasks]) for s in self._steps())
+        self.assertEqual(page.locator('.evo-matrix .evo-cell[data-trigger="1"]').count(), trig)
+        self.assertEqual(page.locator(".evo-matrix .evo-cell").count(), len(tasks) * len(gens))
+        page.locator('.evo-matrix button[data-metric="return"]').click()
+        page.wait_for_timeout(400)
+        self.assertEqual(page.locator(".evo-matrix .evo-chart svg").get_attribute("data-metric"), "return")
+        self.assertEqual(self._state(page)["metric"], "return")
+        context.close()
+
+    # ----------------------------------------------------------- one step
+
+    def test_the_step_view_shows_the_protected_paths_the_diff_and_the_three_readings(self):
+        context, page, _ = self._open()
+        touched = [s for s in self._steps() if (s.get("diff") or {}).get("protected_touched")]
+        if not touched:
+            raise unittest.SkipTest("the demo lineage touches no protected path")
+        step = touched[0]
+        page.locator(f'.evo-lineage .evo-edge[data-to="{step["to"]}"]').click()
+        page.wait_for_timeout(500)
+        block = page.locator('#stacks [data-block="evo-step"]')
+        note = block.locator('[data-role="protected"]').inner_text()
+        for path in step["diff"]["protected_touched"]:
+            self.assertIn(path, note)
+        for change in (step["diff"].get("config") or {}).get("changed") or []:
+            item = block.locator(f'.evo-list[data-part="config"] li[data-key="{change["key"]}"]')
+            self.assertEqual(item.count(), 1)
+            self.assertIn(f"{change['from']} → {change['to']}", item.inner_text())
+            if f"config.{change['key']}" in step["diff"]["protected_touched"]:
+                self.assertEqual(item.locator(".evo-prot").count(), 1)
+        eff = step["effect"]
+        self.assertAlmostEqual(float(block.locator(".evo-big").get_attribute("data-p")), eff["improvement"]["point"], places=4)
+        for kind in ("overfit", "gaming", "drift"):
+            self.assertEqual(block.locator(f'.evo-read[data-kind="{kind}"]').count(), 1, kind)
+        gaming = step.get("gaming") or {}
+        if gaming.get("reading"):
+            self.assertIn(gaming["reading"][:30], block.locator('.evo-read[data-kind="gaming"]').inner_text())
+        self.assertIn("run(s) per task", block.locator(".evo-advisory").inner_text())
+        self.assertEqual(block.locator(".evo-tdot").count(), len(eff.get("per_task") or {}))
+        self.assertEqual(block.locator('.evo-tdot[data-trigger="1"]').count(),
+                         len([t for t in step.get("trigger_tasks") or [] if t in (eff.get("per_task") or {})]))
+        context.close()
+
+    # ----------------------------------------------------------- integrity
+
+    def test_the_integrity_lede_names_every_protected_touch_and_the_growth_charts_mark_the_overruns(self):
+        context, page, _ = self._open()
+        block = page.locator('#stacks [data-block="evo-integrity"]')
+        ig = self.ev.get("integrity") or {}
+        touched = ig.get("touched") or []
+        lede = block.locator(".evo-lede")
+        self.assertEqual(int(lede.get_attribute("data-touched")), len(touched))
+        text = lede.inner_text()
+        for t in touched:
+            self.assertIn(t["path"], text)
+            if t.get("to_gen"):
+                self.assertIn(f"{t['from_gen']} → {t['to_gen']}", text)
+        self.assertEqual(block.locator("svg").count(), 3)
+        over = [o for o in ((ig.get("growth") or {}).get("over_budget") or []) if o.get("what") in ("prompt_chars", "rules", "memory")]
+        self.assertEqual(block.locator('.evo-gpt[data-over="1"]').count(), len(over))
+        for o in over:
+            self.assertEqual(block.locator(f'[data-growth="{o["what"]}"] .evo-gpt[data-over="1"][data-gen="{o["gen"]}"]').count(), 1)
+        context.close()
+
+    # -------------------------------------------------------------- brush
+
+    def test_a_brush_under_the_axis_narrows_the_ledger_and_the_matrix_to_that_range(self):
+        context, page, _ = self._open()
+        gens = [g["id"] for g in self.ev["generations"]]
+        if len(gens) < 4:
+            raise unittest.SkipTest("too few generations to brush")
+        svg = page.locator(".evo-lineage .evo-chart svg")
+        svg.scroll_into_view_if_needed()
+        box = svg.bounding_box()
+        # from the second generation's column to the fourth's, in the strip under the axis
+        nodes = page.locator(".evo-lineage .evo-node")
+        b1, b3 = nodes.nth(1).bounding_box(), nodes.nth(3).bounding_box()
+        x0 = b1["x"] + b1["width"] / 2
+        x1 = b3["x"] + b3["width"] / 2
+        y = box["y"] + box["height"] - 10
+        page.mouse.move(x0, y)
+        page.mouse.down()
+        page.mouse.move(x1, y, steps=6)
+        page.mouse.up()
+        page.wait_for_timeout(500)
+        rng = self._state(page)["range"]
+        self.assertIsNotNone(rng)
+        lo, hi = rng
+        self.assertLess(lo, hi)
+        shown = [s for s in self._steps() if lo <= gens.index(s["to"]) <= hi]
+        self.assertEqual(page.locator('.evo-steps .evo-row[role="listitem"]').count(), len(shown))
+        self.assertEqual(page.locator(".evo-matrix .evo-mhead").count(), hi - lo + 1)
+        page.locator(".evo-lineage .evo-range-chip button").click()
+        page.wait_for_timeout(400)
+        self.assertIsNone(self._state(page)["range"])
+        self.assertEqual(page.locator('.evo-steps .evo-row[role="listitem"]').count(), len(self._steps()))
+        context.close()
+
+    # -------------------------------------------------------------- phone
+
+    def test_nothing_overflows_on_a_phone_and_no_text_is_too_small(self):
+        context, page, errors = self._open(width=390)
+        self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth"), 392)
+        for bid in self.IDS:
+            box = page.locator(f'#stacks [data-block="{bid}"]').bounding_box()
+            self.assertLessEqual(box["x"] + box["width"], 391, bid)
+        small = page.evaluate("""() => {
+          const bad = [];
+          document.querySelectorAll('.evo, .evo *').forEach(function (el) {
+            if (!el.textContent || !el.textContent.trim()) return;
+            const size = parseFloat(getComputedStyle(el).fontSize);
+            if (size && size < 11) bad.push((el.className.baseVal !== undefined ? el.className.baseVal : el.className) + ':' + size);
+          });
+          return bad; }""")
+        self.assertEqual(small, [])
+        wide = page.evaluate("""() => {
+          const bad = [], W = document.documentElement.clientWidth;
+          document.querySelectorAll('.evo *').forEach(function (el) {
+            const r = el.getBoundingClientRect();
+            if (r.width && r.right > W + 1) bad.push(el.tagName + ':' + Math.round(r.right));
+          });
+          return bad; }""")
+        self.assertEqual(wide, [])
+        self.assertEqual(self._errors(errors), [])
+        context.close()

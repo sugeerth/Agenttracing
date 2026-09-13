@@ -24,8 +24,9 @@
  * stretch folds into a dotted segment 6 + 6·log2(1 + units) long with a
  * "⋯" on the clock, and a click dilates it. Quiet here means what it
  * means there — steps may be present, but nothing eventful: no error, no
- * flag, no answer, no reward beyond the ordinary shaping cost (the modal
- * per-step reward of the lineage). A stretch with no step at all is quiet
+ * decisive or fault step, no answer, no reward beyond the ordinary shaping
+ * cost (the modal per-step reward of the lineage); a wasted step is quiet
+ * by definition. A stretch with no step at all is quiet
  * too, so a recording with idle time folds it. The folds are recomputed
  * for the scope in view, so a generation folds only its own quiet time.
  *
@@ -233,11 +234,14 @@
     var best = null;
     Object.keys(counts).forEach(function (k) { if (best === null || counts[k] > counts[best]) best = k; });
     m.modal = best === null ? 0 : +best;
+    // eventful: the answer, an error, the decisive step, the fault's path, or a reward beyond the
+    // shaping cost. A wasted step (w) is the quiet the folds exist for, and being inside the
+    // verifier span (v) is drawn, not an event — the errors inside it are.
     m.eps.forEach(function (ep) {
       ep.ev = new Uint8Array(ep.n);
       for (var i = 0; i < ep.n; i++) {
-        var r = ep.rw[i];
-        ep.ev[i] = ep.kind[i] === 2 || ep.fl[i] !== "" || (r !== 0 && r !== m.modal) ? 1 : 0;
+        var r = ep.rw[i], fl = ep.fl[i];
+        ep.ev[i] = ep.kind[i] === 2 || fl.indexOf("e") >= 0 || fl.indexOf("d") >= 0 || fl.indexOf("f") >= 0 || (r !== 0 && r !== m.modal) ? 1 : 0;
         if (Math.abs(r) > m.maxAbs) m.maxAbs = Math.abs(r);
       }
     });
@@ -625,14 +629,15 @@
           });
         mini.brush = brush;
         mini.g = svg.append("g").attr("class", "brush evt-minibrush").call(brush);
-        mini.g.selectAll(".overlay").attr("cursor", "crosshair").append("title").text("drag to choose the window in view; the same as zooming");
+        mini.g.selectAll(".overlay").attr("cursor", "crosshair").append("title").text("drag to choose the window in view — the same as zooming; no brush means the whole span is in view");
         syncMini();
       }
       function syncMini() {
         if (!mini || !mini.g) return;
-        var w = window_();
+        // the whole span in view is an empty brush, so a drag can always start a new window
+        var w = window_(), full = !st.view;
         applying = true;
-        try { mini.g.call(mini.brush.move, [mini.xm(w[0]), mini.xm(w[1])]); } finally { applying = false; }
+        try { mini.g.call(mini.brush.move, full ? null : [mini.xm(w[0]), mini.xm(w[1])]); } finally { applying = false; }
       }
 
       // ----------------------------------------------------------- stage
@@ -991,7 +996,8 @@
             if (isErr) sg.append("circle").attr("cx", a + w / 2).attr("cy", mid).attr("r", 6.5).attr("fill", "none").attr("stroke", "var(--bad)").attr("stroke-width", 1.5);
             if (r > 0 && k !== 2) sg.append("text").attr("class", "g").attr("x", a + w / 2).attr("y", mid - 7).attr("text-anchor", "middle").attr("fill", "var(--good)").text("◆");
             if (ep.fl[i].indexOf("d") >= 0) sg.append("circle").attr("cx", a + w / 2).attr("cy", mid).attr("r", 5).attr("fill", "none").attr("stroke", "var(--bad)").attr("stroke-width", 2);
-            sg.append("rect").attr("x", a - 1).attr("y", mid - 10).attr("width", w + 2).attr("height", 20).attr("fill", "transparent");
+            // the hit target is the step's own interval, so neighbours never cover each other
+            sg.append("rect").attr("x", a).attr("y", mid - 10).attr("width", Math.max(1, b - a)).attr("height", 20).attr("fill", "transparent");
             sg.append("title").text("step " + i + " · " + kindWord(k) + " " + ep.nm[i] + " · reward " + signed(r) + " — click to open");
             (function (idx) {
               sg.on("pointermove", function (evt) { evt.stopPropagation(); tip.show(evt, stepLines(ep, idx, "click to open the step")); })
@@ -1052,7 +1058,7 @@
             sg.append("rect").attr("class", "evt-rbar").attr("x", cxm - Math.min(3, w / 2)).attr("width", Math.min(6, Math.max(1.5, w))).attr("y", r > 0 ? barY - hgt : barY).attr("height", hgt).attr("fill", r > 0 ? "var(--good)" : "var(--bad)").attr("fill-opacity", folded ? 0.35 : 0.85);
           }
           // a folded step is reachable at its reward bar only: the thread there belongs to the fold
-          sg.append("rect").attr("x", a - 1).attr("y", folded ? barY - barH : threadY - 10).attr("width", w + 2).attr("height", folded ? barH * 2 : barY + barH - threadY + 10).attr("fill", "transparent");
+          sg.append("rect").attr("x", a).attr("y", folded ? barY - barH : threadY - 10).attr("width", Math.max(1, b - a)).attr("height", folded ? barH * 2 : barY + barH - threadY + 10).attr("fill", "transparent");
           sg.append("title").text("step " + i + " · " + kindWord(k) + " " + ep.nm[i] + " · reward " + signed(r) + (folded ? " · in a fold" : "") + " — click to open");
           (function (idx, fd) {
             sg.on("pointermove", function (evt) { evt.stopPropagation(); tip.show(evt, stepLines(ep, idx, fd ? "in a folded stretch · click to open" : "click to open the step")); })
@@ -1071,7 +1077,7 @@
         compareHost.innerHTML = "";
         if (!st.compare) return;
         var a = Math.min(st.compare[0], st.compare[1]), b = Math.max(st.compare[0], st.compare[1]);
-        var t = H("table", { class: "evt-table", "data-from": a.toFixed(2), "data-to": b.toFixed(2) });
+        var t = H("table", { class: "evt-table", "data-from": String(a), "data-to": String(b) });
         t.appendChild(H("caption", { class: "evt-status", style: { textAlign: "left", captionSide: "top" }, text: "inside " + tickText(a, st.measure) + "–" + tickText(b, st.measure) + (st.measure === "steps" ? " (step index)" : " of each episode's clock") + ", per generation" }));
         t.appendChild(H("tr", null, ["gen", "episodes", "tool calls", "per ep", "return earned", "per ep", "errors"].map(function (h) { return H("th", { text: h }); })));
         m.gens.forEach(function (g) {

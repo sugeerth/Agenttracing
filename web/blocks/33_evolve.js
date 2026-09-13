@@ -92,6 +92,8 @@
       ".evo-int{position:absolute;top:2px;height:6px;border-radius:3px;background:var(--ink-3);opacity:.35}",
       ".evo-pt{position:absolute;top:1px;width:8px;height:8px;margin-left:-4px;border-radius:50%;background:var(--ink)}",
       "@media (max-width:820px){.evo-row{grid-template-columns:72px minmax(80px,1fr) 56px 84px}.evo-row .evo-mech,.evo-row .evo-sum,.evo-row .evo-pass,.evo-row .evo-tasks{display:none}}",
+      // a long chip wraps on a phone rather than pushing the body into a scroll
+      "@media (max-width:640px){.evo-bar .evo-chip{white-space:normal}}",
       // one step
       ".evo-nav{display:flex;gap:8px;align-items:center;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 8px;flex-wrap:wrap}",
       ".evo-cols{display:flex;gap:16px 24px;flex-wrap:wrap;align-items:flex-start}.evo-cols>*{flex:1 1 300px;min-width:0}",
@@ -134,7 +136,15 @@
   function pts(v) { return isNum(v) ? signed(v * 100, 0) + " pts" : "—"; }
   function short(id) { return String(id || "").replace(/^(rl|t)\d+_/, "").replace(/_/g, " "); }
   function trunc(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
-  function cap(s) { s = String(s || ""); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+  //: the generation ids of the lineage on the page, so a sentence that opens with one ("g3 earns …") is never re-cased
+  var GEN_IDS = {};
+  function cap(s) {
+    s = String(s || "");
+    if (!s) return s;
+    var first = /^([^\s,.;:!?—-]+)/.exec(s);
+    if (first && GEN_IDS[first[1]]) return s;
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
   function width(host) { var w = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0; return Math.max(300, Math.min(1400, w || 320)); }
   function responsive(host, draw, k) {
     if (AgentDiff.charts && AgentDiff.charts.responsive) return AgentDiff.charts.responsive(host, draw, k);
@@ -247,7 +257,7 @@
     }).sort(function (p, q) { return p.index - q.index || p.i - q.i; });
     gens.forEach(function (g, i) { g.i = i; });
     var byId = {};
-    gens.forEach(function (g) { byId[g.id] = g; });
+    gens.forEach(function (g) { byId[g.id] = g; GEN_IDS[g.id] = true; });
     var steps = (Array.isArray(ev.steps) ? ev.steps : []).filter(function (s) { return s && s.from && s.to && byId[s.to]; }).map(function (s, i) {
       var eff = s.effect && typeof s.effect === "object" ? s.effect : { measurable: false, reason: "no effect was measured" };
       var imp = eff.improvement && typeof eff.improvement === "object" ? eff.improvement : {};
@@ -330,18 +340,54 @@
    * a change re-paints every mounted block in place. */
   var S = { gen: null, metric: "pass", range: null, loaded: false };
   var LISTENERS = [];
+  var KEYS = ["gen", "metric", "range"];
   function store() {
     try { return AgentDiff._internals && AgentDiff._internals.Store ? AgentDiff._internals.Store : null; } catch (err) { return null; }
+  }
+  function sameValue(k, v) {
+    if (k === "range") return (v === null && S.range === null) || (!!v && !!S.range && v[0] === S.range[0] && v[1] === S.range[1]);
+    return S[k] === v;
+  }
+  //: what a stored or shared state may set: a string id, one of the two metrics, a pair of indices
+  function takeInto(target, v) {
+    if (!v || typeof v !== "object") return;
+    if (typeof v.gen === "string") target.gen = v.gen;
+    if (v.metric === "return" || v.metric === "pass") target.metric = v.metric;
+    if (v.range === null) target.range = null;
+    else if (Array.isArray(v.range) && isNum(v.range[0]) && isNum(v.range[1])) target.range = [v.range[0], v.range[1]];
+  }
+  /* The page's shared-selection library, when it has landed: the family
+   * "evolution" holds the same three keys, persists them and notifies on a
+   * change; this file's own store and Store key are the fallback so it
+   * works before and after the library. Its notification is read by
+   * diffing the state, so the callback's payload shape does not matter;
+   * and if `set` does not notify, the change is broadcast here. */
+  var FAMILY, PENDING = null;
+  function family() {
+    if (FAMILY !== undefined) return FAMILY;
+    FAMILY = null;
+    var lib = AgentDiff.lib || null;
+    if (!lib || typeof lib.family !== "function") return FAMILY;
+    try {
+      var f = lib.family("evolution", { gen: null, metric: "pass", range: null });
+      if (!f || typeof f.get !== "function" || typeof f.set !== "function" || typeof f.subscribe !== "function") return FAMILY;
+      FAMILY = f;
+      f.subscribe(function () {
+        var next = {}; takeInto(next, f.get());
+        var changed = {};
+        KEYS.forEach(function (k) { if (k in next && !sameValue(k, next[k])) { S[k] = next[k]; changed[k] = true; } });
+        if (PENDING) { KEYS.forEach(function (k) { if (PENDING[k]) changed[k] = true; }); PENDING = null; }
+        if (Object.keys(changed).length) broadcast(changed);
+      });
+    } catch (err) { FAMILY = null; }
+    return FAMILY;
   }
   function loadState(m) {
     if (!S.loaded) {
       S.loaded = true;
-      var s = store(), v = s ? s.get(PREF_KEY) : null;
-      if (v && typeof v === "object") {
-        if (typeof v.gen === "string") S.gen = v.gen;
-        if (v.metric === "return" || v.metric === "pass") S.metric = v.metric;
-        if (Array.isArray(v.range) && isNum(v.range[0]) && isNum(v.range[1])) S.range = [v.range[0], v.range[1]];
-      }
+      var f = family();
+      if (f) takeInto(S, f.get());
+      else { var s = store(); takeInto(S, s ? s.get(PREF_KEY) : null); }
     }
     // a stored choice that this lineage cannot honour falls back to the last step
     if (!S.gen || !m.byId[S.gen]) S.gen = m.steps.length ? m.steps[m.steps.length - 1].to : m.last.id;
@@ -360,12 +406,18 @@
   function select(patch) {
     var changed = {};
     Object.keys(patch || {}).forEach(function (k) {
-      var v = patch[k];
-      if (k === "range") { var same = (v === null && S.range === null) || (v && S.range && v[0] === S.range[0] && v[1] === S.range[1]); if (same) return; }
-      else if (S[k] === v) return;
-      S[k] = v; changed[k] = true;
+      if (KEYS.indexOf(k) < 0 || sameValue(k, patch[k])) return;
+      S[k] = patch[k]; changed[k] = true;
     });
     if (!Object.keys(changed).length) return;
+    var f = family();
+    if (f) {
+      // the library persists and notifies; a `set` that stays silent is broadcast here
+      PENDING = changed;
+      try { f.set({ gen: S.gen, metric: S.metric, range: S.range }); } catch (err) { /* the library is not ours to fix */ }
+      if (PENDING) { PENDING = null; broadcast(changed); }
+      return;
+    }
     saveState();
     broadcast(changed);
   }
@@ -1101,8 +1153,8 @@
     });
     if (isNum(budget)) {
       svg.append("line").attr("class", "evo-budget").attr("x1", padL).attr("x2", W - padR).attr("y1", y(budget)).attr("y2", y(budget)).attr("stroke", "var(--rule-2)").attr("stroke-dasharray", "3 3");
-      // the label sits at the left end, where growth has not yet reached the rule
-      svg.append("text").attr("class", "tick backed").attr("x", padL + 2).attr("y", y(budget) - 3).text("budget " + num(budget, 0));
+      // the label sits at the left end, where growth has not yet reached the rule — under it when the rule is up against the title
+      svg.append("text").attr("class", "tick backed").attr("x", padL + 2).attr("y", y(budget) < padT + 10 ? y(budget) + 11 : y(budget) - 3).text("budget " + num(budget, 0));
     }
     var pts = values.map(function (v, i) { return { id: ids[i], v: v, i: i }; }).filter(function (p) { return isNum(p.v); });
     var line = d3.line().x(function (p) { return x(p.id); }).y(function (p) { return y(p.v); });

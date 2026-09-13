@@ -158,6 +158,11 @@ FAMILIES: dict[str, tuple[str, str]] = {
     "evolution_iqm": ("gauge", "interquartile mean return of the generation over its episodes"),
     "evolution_iqm_lo": ("gauge", f"lower bound of the generation's IQM; {_BOOT}"),
     "evolution_iqm_hi": ("gauge", f"upper bound of the generation's IQM; {_BOOT}"),
+    "evolution_iqm_balanced": ("gauge", "task-balanced IQM of the generation: the mean over tasks of each task's IQM, so a task lost outright is not trimmed away as the pooled IQM's lower tail; what the engine ranks generations by"),
+    "evolution_iqm_balanced_lo": ("gauge", f"lower bound of the generation's task-balanced IQM; {_BOOT}"),
+    "evolution_iqm_balanced_hi": ("gauge", f"upper bound of the generation's task-balanced IQM; {_BOOT}"),
+    "evolution_task_iqm": ("gauge", "IQM return of the generation on one task over its runs there; where forgetting shows, per task"),
+    "evolution_task_pass_rate": ("gauge", "pass rate of the generation on one task over its runs there; a proportion of a handful of runs, read it with the runs advisory"),
     "evolution_prompt_chars": ("gauge", "characters in the generation's system prompt; a size, not a quality"),
     "evolution_rules": ("gauge", "rules in the generation's artifacts; a count"),
     "evolution_memory": ("gauge", "memory entries in the generation's artifacts; a count"),
@@ -175,11 +180,13 @@ FAMILIES: dict[str, tuple[str, str]] = {
     "evolution_step_pass_rate_delta": ("gauge", "child pass rate minus parent pass rate for the step"),
     "evolution_step_overfit_gap": ("gauge", "mean per-task return delta on the tasks whose episodes triggered the step minus the delta on every other task; past the engine's margin the step fits its evidence more than the rest"),
     "evolution_step_drift": ("gauge", "normalised edit distance between the parent's and the child's step-token streams, 0 = the same actions in the same order, 1 = nothing shared"),
-    "evolution_protected_touched": ("gauge", "1 where the step changed a protected artifact path (the agent edited the thing that judges it); the direction label says weakened or restored"),
+    "evolution_step_flag": ("gauge", "1 for each flag the step carries beside its verdict (overfit, protected, over_budget, collapsed, noisy, axes_disagree); a check that fired, not a verdict"),
+    "evolution_protected_touched": ("gauge", "1 where the step changed a protected artifact path (the agent edited the thing that judges it); the direction label says weakened or restored, the source label whether the diff or the episodes showed it"),
+    "evolution_flags": ("gauge", "steps of the lineage that carry the flag; a count"),
     "evolution_verdicts": ("gauge", "steps of the lineage that earned the verdict; a count"),
     "evolution_net_iqm_delta": ("gauge", "last generation's IQM minus the root's; a difference of point estimates, and not the sum of what each step earned"),
-    "evolution_best": ("gauge", "the IQM of the generation with the highest IQM; the generation label names it"),
-    "evolution_recommended": ("gauge", "the IQM of the generation the engine recommends keeping: the best, unless a later one's interval clears it, never a gamed one; the is_last label says whether it is the latest"),
+    "evolution_best": ("gauge", "the IQM the engine ranks by (task-balanced when the section carries one) of the generation with the highest; the generation label names it"),
+    "evolution_recommended": ("gauge", "the same IQM of the generation the engine recommends keeping: the best, unless a later one's interval clears it, never a gamed one; the is_last label says whether it is the latest"),
     # one run, step by step
     "step_reward": ("gauge", "reward recorded at the step by the environment; absent when the trace recorded none"),
     "step_return_cum": ("gauge", "return so far: the sum of recorded rewards up to and including the step"),
@@ -564,6 +571,14 @@ def _collect_evolution(c: _Collector, aggregate: dict) -> None:
         c.add("evolution_iqm", labels, _r(iqm.get("point")))
         c.add("evolution_iqm_lo", labels, _r(iqm.get("lo")))
         c.add("evolution_iqm_hi", labels, _r(iqm.get("hi")))
+        balanced = g.get("iqm_by_task") or {}
+        c.add("evolution_iqm_balanced", labels, _r(balanced.get("point")))
+        c.add("evolution_iqm_balanced_lo", labels, _r(balanced.get("lo")))
+        c.add("evolution_iqm_balanced_hi", labels, _r(balanced.get("hi")))
+        for task in sorted(balanced.get("per_task") or {}):
+            c.add("evolution_task_iqm", dict(labels, task=task), _r(balanced["per_task"][task]))
+        for task in sorted(g.get("pass_by_task") or {}):
+            c.add("evolution_task_pass_rate", dict(labels, task=task), _r(g["pass_by_task"][task]))
         size = g.get("size") or {}
         if size.get("measurable", True):
             c.add("evolution_prompt_chars", labels, size.get("prompt_chars"))
@@ -591,6 +606,8 @@ def _collect_evolution(c: _Collector, aggregate: dict) -> None:
             c.add("evolution_step_verdict_code", dict(labels, verdict=verdict), VERDICT_CODES[verdict])
         else:
             c.note(f"step {frm} -> {to}: no verdict ({step.get('reading') or 'not measurable'})")
+        for flag in sorted(set(str(f) for f in (step.get("flags") or []))):
+            c.add("evolution_step_flag", dict(labels, flag=flag), 1)
         effect = step.get("effect") or {}
         if effect.get("measurable"):
             imp = effect.get("improvement") or {}
@@ -614,11 +631,14 @@ def _collect_evolution(c: _Collector, aggregate: dict) -> None:
             c.add("evolution_protected_touched",
                   dict(base, step=str(row.get("step")), path=str(row.get("path")),
                        direction=str(row.get("direction") or direction_key),
+                       source=str(row.get("source") or "diff"),
                        **{"from": frm, "to": to, "synthetic": _bool_label(syn_by_gen.get(to))}), 1)
     trajectory = ev.get("trajectory") or {}
     for verdict in sorted(VERDICT_CODES):
         if _num(trajectory.get(verdict)):
             c.add("evolution_verdicts", dict(base, verdict=verdict, synthetic=any_syn), trajectory[verdict])
+    for flag in sorted(trajectory.get("flags") or {}):
+        c.add("evolution_flags", dict(base, flag=flag, synthetic=any_syn), (trajectory["flags"] or {}).get(flag))
     c.add("evolution_net_iqm_delta", dict(base, synthetic=any_syn), _r(trajectory.get("net_iqm_delta")))
     best, rec = ev.get("best") or {}, ev.get("recommended") or {}
     if best.get("id") is not None:

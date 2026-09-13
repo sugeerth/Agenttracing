@@ -62,6 +62,7 @@ from .evolve import FLAGS as EVOLVE_FLAGS, LAYOUTS as EVOLVE_LAYOUTS, VERDICTS a
 
 #: default viewer template, relative to the repo root (parent of the package).
 from .commands.paths import DEFAULT_TEMPLATE, LEGACY_TEMPLATE  # noqa: E402
+from .commands.grafana import register as _register_grafana  # noqa: E402
 from .commands.live import (  # noqa: E402
     _cmd_checkpoint, _cmd_context, _cmd_judge, _cmd_loop, _cmd_replay, _cmd_rerun, _cmd_run, _cmd_watch, _cmd_why, _load_report, _provider_options,
     _save_report, _split_spec,
@@ -1612,6 +1613,16 @@ def _cmd_evolve(args: argparse.Namespace) -> int:
             print(f"warning: the last pair cannot be analysed as a runs batch: {exc}", file=sys.stderr)
     evolution = evolve(lineage, metric=args.metric, samples=args.samples, reports=reports)
     agg["evolution"] = evolution
+    # against other lineages: the same output, lineage A primary, plus the
+    # four-axis comparison beside it
+    against = [a for a in (getattr(args, "against", None) or []) if a]
+    comparison = None
+    if against:
+        from .evolvecompare import compare_lineages
+        comparison = compare_lineages([args.lineage] + against, layout=args.layout, metric=args.metric,
+                                      samples=args.samples, threshold=getattr(args, "threshold", None),
+                                      evolutions=[evolution])
+        agg["evolution_compare"] = comparison
 
     for report in reports:
         path = out_dir / f"report_{_safe_name(report['task']['id'])}.json"
@@ -1633,6 +1644,8 @@ def _cmd_evolve(args: argparse.Namespace) -> int:
         print(f"warning: viewer template not found at {template}; skipping report.html", file=sys.stderr)
 
     _print_evolution(evolution)
+    if comparison is not None:
+        _print_evolution_compare(comparison)
     hits = fail_on(evolution, names) if names else []
     if hits:
         print("fail-on: " + ", ".join(f"step {i} {name}" for i, name in hits))
@@ -1681,6 +1694,63 @@ def _print_evolution(ev: dict) -> None:
               + (f" ({', '.join(tr['noisy_steps'])})" if tr["noisy_steps"] else ""))
     print(f"Integrity: {ev['integrity']['reading']}")
     print(f"Advisory: {ev['advisory']}")
+
+
+def _print_evolution_compare(cmp: dict) -> None:
+    """The comparison in the CLI voice: the four axes, one line each, then
+    the race, the process tallies and the verdict."""
+    print("Comparison: " + " vs ".join(f"{ln['label']} ({ln['generations_n']} gen, {ln['episodes_n']} ep)"
+                                       for ln in cmp["lineages"]))
+    if not cmp["measurable"]:
+        print(f"  not readable: {cmp['reason']}")
+        return
+    tasks = cmp["tasks"]
+    only = {k: v for k, v in tasks["only"].items() if v}
+    print(f"  Tasks: {len(tasks['shared'])} shared" + ("; excluded " + "; ".join(
+        f"{k} {', '.join(v)}" for k, v in sorted(only.items())) if only else ""))
+    for axis in ("peak", "final"):
+        blk = cmp[axis]
+        if not blk["measurable"]:
+            print(f"  {axis.capitalize():<9}{blk['reason']}")
+            continue
+        imp, m = blk["improvement"], blk["metric"]
+        print(f"  {axis.capitalize():<9}{blk['a']['label']} {blk['a']['id']} vs {blk['b']['label']} {blk['b']['id']}  "
+              f"P(b > a) {imp['point']:.2f} [{imp['lo']:.2f}, {imp['hi']:.2f}]  {cmp['metric']} "
+              f"{m['a']:+.2f} vs {m['b']:+.2f}  → " + (blk["separates"] or "no separation"))
+    race = cmp["race"]
+    if race["measurable"]:
+        th = race["threshold"]
+        reached = ", ".join(f"{k} " + (f"{r['id']} @{r['episodes_cum']} ep" if r else "never")
+                            for k, r in sorted(race["reached"].items()))
+        print(f"  Learning threshold {th['value']:+.2f} ({th['source']}); reached: {reached}  → "
+              + (cmp["verdict"]["learning"] or "no separation"))
+    else:
+        print(f"  Learning {race['reason']}")
+    for label, pr in sorted(cmp["process"].items()):
+        if not pr["measurable"]:
+            print(f"  Process  {label}: {pr['reason']}")
+            continue
+        ret = pr["retention"]
+        best = pr["best_paying_mechanism"]
+        print(f"  Process  {label}: {pr['steps']} step(s)  gamed {pr['gamed']}  forgot {pr['forgot']}  traded "
+              f"{pr['traded']}  on-noise {pr['accepted_on_noise']}  protected {pr['protected_touched']}  over-budget "
+              f"{pr['over_budget']}  collapsed {pr['collapsed']}  retention "
+              f"{len(ret['solved_at_last'])}/{ret['ever_solved_n']}"
+              + (f"  best mechanism {best} (n={pr['mechanisms'][best]['steps']}, "
+                 f"Δ {pr['mechanisms'][best]['mean_delta']:+.2f})" if best else ""))
+    v = cmp["verdict"]
+    print(f"  Verdict  peak {v['peak'] or '—'} · final {v['final'] or '—'} · learning {v['learning'] or '—'} · "
+          f"process {v['process'] or '—'}  → " + (cmp["verdict"]["process_basis"] if v["process"] else v["process_basis"]))
+    print(f"  Advisory: {cmp['advisory']}")
+
+
+def _cmd_evolve_compare(args: argparse.Namespace) -> int:
+    """``evolve-compare A B [C ...]`` is ``evolve A --against B [--against C]``."""
+    if len(args.lineages) < 2:
+        print("error: evolve-compare needs at least two lineage directories", file=sys.stderr)
+        return 2
+    args.lineage, args.against = args.lineages[0], list(args.lineages[1:])
+    return _cmd_evolve(args)
 
 
 def _cmd_rlexport(args: argparse.Namespace) -> int:
@@ -2122,7 +2192,31 @@ def build_parser() -> argparse.ArgumentParser:
     p_evolve.add_argument("--fail-on", default=None,
                           help="comma-separated verdicts or flags (" + ", ".join(EVOLVE_VERDICTS + EVOLVE_FLAGS)
                                + "): exit 1 when any step carries one")
+    p_evolve.add_argument("--against", action="append", default=[], metavar="LINEAGE",
+                          help="another lineage over the same tasks to compare with, on four axes (peak, final, "
+                               "learning, process); repeatable; adds aggregate[\"evolution_compare\"]")
+    p_evolve.add_argument("--threshold", type=float, default=None,
+                          help="the learning race's threshold on the task-balanced IQM (default: the midpoint "
+                               "between the lowest g0 and the highest recommended point, stated in the output)")
     p_evolve.set_defaults(func=_cmd_evolve)
+
+    p_evc = sub.add_parser(
+        "evolve-compare", help="two or more self-evolving lineages over the same tasks, compared as processes: "
+                               "peak, final, learning and process each get their own verdict "
+                               "(alias of: evolve A --against B [--against C])")
+    p_evc.add_argument("lineages", nargs="+", help="lineage directories, the first one primary")
+    p_evc.add_argument("-o", "--output", default="out", help="output directory (default: out)")
+    p_evc.add_argument("--template", help=f"viewer HTML template (default: {DEFAULT_TEMPLATE})")
+    p_evc.add_argument("--layout", choices=EVOLVE_LAYOUTS, default="native",
+                       help="native: <gen>/agent.json + <gen>/traces; flat: one runs directory with agents/<gen>.json")
+    p_evc.add_argument("--metric", choices=("return", "discounted_return", "success", "steps", "seconds"),
+                       default="return", help="the score the IQM and the improvement are computed on")
+    p_evc.add_argument("--samples", type=int, default=2000, help="bootstrap resamples per statistic")
+    p_evc.add_argument("--fail-on", default=None,
+                       help="comma-separated verdicts or flags of the primary lineage: exit 1 when any step carries one")
+    p_evc.add_argument("--threshold", type=float, default=None,
+                       help="the learning race's threshold on the task-balanced IQM (default: stated midpoint)")
+    p_evc.set_defaults(func=_cmd_evolve_compare)
 
     p_run = sub.add_parser(
         "run", help="run a task set against one or more model providers and "
@@ -2373,6 +2467,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_rlexport.add_argument("-o", "--output", default=None,
                             help="write here (JSONL; a .py file for verl-reward-fn); default: stdout")
     p_rlexport.set_defaults(func=_cmd_rlexport)
+
+    _register_grafana(sub)
 
     p_watch = sub.add_parser(
         "watch", help="serve the report page live over a trace directory: "

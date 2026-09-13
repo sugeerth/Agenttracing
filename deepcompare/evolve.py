@@ -15,8 +15,13 @@ ways evolution goes wrong.
 an ordinary two-policy RL batch — :func:`deepcompare.rl.rl_aggregate` over
 the two generations' traces with ``names=(from, to)`` — and the step's
 effect is read off that block: the probability of improvement P(to >
-from) on return (the within-task Mann-Whitney statistic averaged over
-tasks, :mod:`deepcompare.rlstats`), both generations' IQM return with
+from) — the within-task Mann-Whitney statistic averaged over tasks,
+:mod:`deepcompare.rlstats` — on **two axes**, the return (``improvement``)
+and the outcome (``improvement_success``, success as 0/1 per episode),
+because on a gamed reward the two part: a pass that skipped its checks
+earns more than a pass that paid for them, so P(to > from) on return can
+sit at the coin flip while the outcome says 25/30 against 11/30. Then
+both generations' IQM return with
 their stratified-bootstrap intervals, the per-task return deltas, the
 pass rates (a count of ``outcome.success`` over the traces), the reward
 audit (:mod:`deepcompare.rlaudit`) and the behaviour distance and branch
@@ -128,18 +133,22 @@ only, and ``null`` when the effect cannot be measured (a generation with
 no traces, no shared task) rather than a word that pretends it was:
 
 1. ``gamed``  — ``gaming.flag``.
-2. ``forgot`` — ``forgotten`` non-empty, improvement not below
+2. ``forgot`` — ``forgotten`` non-empty, the return improvement not below
    ``0.5 − half-width``.
 3. ``traded`` — ``rose`` and ``fell`` both non-empty, same condition.
-4. ``improved`` when the improvement interval's low end clears 0.5,
-   ``regressed`` when its high end sits under 0.5, else ``flat``.
+4. ``improved`` when either axis's interval clears 0.5 upward and neither
+   clears it downward; ``regressed`` symmetrically; ``flat`` when neither
+   clears on either axis, or the two axes clear in opposite directions.
 
 Everything else a step can carry is a **flag** beside the verdict —
-``overfit``, ``protected``, ``over_budget``, ``collapsed``, ``noisy`` — so
-a step can be improved *and* overfit, and ``--fail-on`` accepts either
-kind of name. The improvement probability is on return, so on a gamed
-reward it can sit at the coin flip while the pass rate leaps — the
-reading says so when the two disagree.
+``overfit``, ``protected``, ``over_budget``, ``collapsed``, ``noisy`` (no
+axis clears 0.5 either way: the step was kept without evidence),
+``axes_disagree`` (the return axis and the outcome axis do not agree on
+the direction) — so a step can be improved *and* overfit, and
+``--fail-on`` accepts either kind of name. When the axes disagree the
+reading says so in words, and names the protected path the step
+restored when it did, because that is the shape a gamed reward leaves
+behind: the reward prefers the cheaper pass, the outcome the correct one.
 
 **Best and recommended.** ``best`` is the generation with the highest
 task-balanced IQM (the earliest on a tie). ``recommended`` is the
@@ -179,7 +188,7 @@ from typing import Optional
 from .rl import GAMMA, rl_aggregate, rl_run_from_trace
 from .rlaudit import audit_aggregate
 from .rlspace import MAX_DISTANCE_TOKENS, episode_tokens, normalised_distance
-from .rlstats import BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE, METRICS, iqm, score_matrix
+from .rlstats import BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE, METRICS, iqm, probability_of_improvement, score_matrix
 from .trace import Trajectory
 
 VERSION = 1
@@ -206,7 +215,7 @@ CHECK_TOOL_RE = re.compile(r"check|test|verif", re.IGNORECASE)
 #: every verdict a step can carry, in the order the trajectory counts them
 VERDICTS = ("improved", "regressed", "flat", "gamed", "forgot", "traded")
 #: flags a step can carry beside its verdict (``--fail-on`` accepts both)
-FLAGS = ("overfit", "protected", "over_budget", "collapsed", "noisy")
+FLAGS = ("overfit", "protected", "over_budget", "collapsed", "noisy", "axes_disagree")
 #: the known artifact kinds and how each is diffed
 ARTIFACT_KINDS = {"system_prompt": "text", "rules": "list", "skills": "named", "tools": "list",
                   "memory": "list", "config": "dict"}
@@ -910,16 +919,21 @@ def _per_task_passes(episodes: list) -> dict:
     return out
 
 
-def step_effect(block: dict, frm: str, to: str, by_task: Optional[dict] = None) -> dict:
+def step_effect(block: dict, frm: str, to: str, by_task: Optional[dict] = None,
+                success_improvement: Optional[dict] = None) -> dict:
     """The effect of one step read off its two-policy ``rl`` block.
     ``by_task`` is ``{frm: iqm_by_task(...), to: iqm_by_task(...)}`` when
     the caller has them; ``iqm`` is then task-balanced and ``iqm_pooled``
-    the rlstats one, else both are pooled and ``iqm.basis`` says so."""
+    the rlstats one, else both are pooled and ``iqm.basis`` says so.
+    ``success_improvement`` is :func:`deepcompare.rlstats.probability_of_improvement`
+    on the ``success`` metric, the outcome axis; without it that axis is
+    ``measurable: False``."""
     stats = block.get("stats") or {}
     agents = block.get("agents") or {}
     eps_from = (agents.get(frm) or {}).get("episodes") or []
     eps_to = (agents.get(to) or {}).get("episodes") or []
     imp = stats.get("improvement") or {}
+    imp_s = success_improvement if isinstance(success_improvement, dict) else {}
     agg = stats.get("aggregates") or {}
     pooled_from, pooled_to = _band(((agg.get(frm) or {}).get("iqm"))), _band(((agg.get(to) or {}).get("iqm")))
     by_task = by_task or {}
@@ -939,6 +953,7 @@ def step_effect(block: dict, frm: str, to: str, by_task: Optional[dict] = None) 
         pf = pt_from[tid][0] / pt_from[tid][1]
         pt = pt_to[tid][0] / pt_to[tid][1]
         per_task[tid] = {"delta_return": cell.get("delta"), "p": (imp.get("per_task") or {}).get(tid),
+                         "p_success": (imp_s.get("per_task") or {}).get(tid),
                          "pass_from": _r(pf), "pass_to": _r(pt), "pass_delta": _r(pt - pf),
                          "passes_from": pt_from[tid][0], "passes_to": pt_to[tid][0],
                          "runs_from": pt_from[tid][1], "runs_to": pt_to[tid][1],
@@ -965,12 +980,21 @@ def step_effect(block: dict, frm: str, to: str, by_task: Optional[dict] = None) 
         reason = None
     mean_from, mean_to = (agents.get(frm) or {}).get("mean_return"), (agents.get(to) or {}).get("mean_return")
     band = _band(imp) if imp.get("measurable") else {"point": None, "lo": None, "hi": None}
-    noisy = measurable and band["lo"] is not None and band["lo"] <= 0.5 <= band["hi"]
+    band_s = _band(imp_s) if imp_s.get("measurable") else {"point": None, "lo": None, "hi": None}
+    states = [st for st in (_axis_state(band), _axis_state(band_s)) if st is not None]
+    noisy = measurable and bool(states) and all(st == "flat" for st in states)
     return {
         "measurable": measurable, "reason": reason,
-        "improvement": dict(band, noisy=noisy,
-                            basis=f"P(a run of {to} beats a run of {frm} on the same task), ties half, averaged "
-                                  f"over the shared tasks; a bootstrap interval over the runs recorded"),
+        "improvement": dict(band, noisy=noisy, metric=stats.get("metric") or "return",
+                            basis=f"P(a run of {to} beats a run of {frm} on the same task) on "
+                                  f"{stats.get('metric_label') or 'episode return'}, ties half, averaged over the "
+                                  f"shared tasks; a bootstrap interval over the runs recorded"),
+        "improvement_success": dict(band_s, measurable=bool(imp_s.get("measurable")),
+                                    reason=None if imp_s.get("measurable") else (imp_s.get("reason") or "not computed"),
+                                    metric="success",
+                                    basis=f"P(a run of {to} beats a run of {frm} on the same task) on success (1 / 0), "
+                                          f"ties half, averaged over the shared tasks"),
+        "axes_disagree": measurable and len(states) == 2 and states[0] != states[1],
         "iqm": {"from": iqm_from["point"], "to": iqm_to["point"],
                 "delta": _r(iqm_to["point"] - iqm_from["point"]) if measurable else None,
                 "from_lo": iqm_from["lo"], "from_hi": iqm_from["hi"], "to_lo": iqm_to["lo"], "to_hi": iqm_to["hi"],
@@ -1094,6 +1118,14 @@ def step_drift(block: dict, frm: str, to: str) -> dict:
             "top_branch": _top_branch(space)}
 
 
+def _axis_state(band: dict) -> Optional[str]:
+    """``up`` when the interval's low end clears 0.5, ``down`` when its
+    high end sits under it, ``flat`` between, None when there is none."""
+    if band.get("lo") is None or band.get("hi") is None:
+        return None
+    return "up" if band["lo"] > 0.5 else "down" if band["hi"] < 0.5 else "flat"
+
+
 def _improvement_held(effect: dict) -> bool:
     """The improvement did not fall below the coin flip by more than its
     own half-width — a fall the runs cannot separate from noise is not a
@@ -1106,8 +1138,9 @@ def _improvement_held(effect: dict) -> bool:
 
 def step_verdict(effect: dict, gaming: dict) -> Optional[str]:
     """Exactly one verdict per step, in the module's stated precedence:
-    gamed > forgot > traded > improved / regressed / flat; None when the
-    effect is not measurable."""
+    gamed > forgot > traded > improved / regressed / flat, the last three
+    read on both axes (return and success); None when the effect is not
+    measurable."""
     if not effect.get("measurable"):
         return None
     if gaming.get("flag"):
@@ -1117,10 +1150,11 @@ def step_verdict(effect: dict, gaming: dict) -> Optional[str]:
         return "forgot"
     if effect["rose"] and effect["fell"] and held:
         return "traded"
-    lo, hi = effect["improvement"]["lo"], effect["improvement"]["hi"]
-    if lo is not None and lo > 0.5:
+    states = {st for st in (_axis_state(effect["improvement"]),
+                            _axis_state(effect.get("improvement_success") or {})) if st is not None}
+    if "up" in states and "down" not in states:
         return "improved"
-    if hi is not None and hi < 0.5:
+    if "down" in states and "up" not in states:
         return "regressed"
     return "flat"
 
@@ -1171,9 +1205,22 @@ def _step_reading(step: dict) -> str:
         "flat": "the interval spans 50%, so these runs do not settle which generation is ahead on return",
     }[verdict]
     tail = []
-    if verdict == "flat" and pr["delta"] and abs(pr["delta"]) >= TRADE_MOVE:
-        tail.append(f"the pass rate {'rose' if pr['delta'] > 0 else 'fell'} {_num(abs(pr['delta']))} all the same, so "
-                    f"the return and the outcome disagree about this step")
+    imp_s = eff.get("improvement_success") or {}
+    if imp_s.get("measurable"):
+        tail.append(f"on outcome P({to} > {frm}) {_pct(imp_s['point'])} [{_pct(imp_s['lo'])}, {_pct(imp_s['hi'])}]")
+    if "axes_disagree" in step["flags"]:
+        words = {"up": "clears the coin flip upward", "down": "clears the coin flip downward", "flat": "is a coin flip"}
+        r_state, s_state = _axis_state(imp), _axis_state(imp_s)
+        sentence = (f"the two axes disagree: on return this step {words[r_state]} ({_num(imp['point'])} "
+                    f"[{_num(imp['lo'])}, {_num(imp['hi'])}]); on outcome it {words[s_state]} — "
+                    f"{pr['passes_to']}/{pr['episodes_to']} against {pr['passes_from']}/{pr['episodes_from']} "
+                    f"(P {_num(imp_s['point'])} [{_num(imp_s['lo'])}, {_num(imp_s['hi'])}])")
+        if step["diff"]["protected_restored"] and s_state == "up":
+            sentence += (f", because a pass that pays for {', '.join(step['diff']['protected_restored'])} earns less "
+                         f"than a pass that skipped it: the reward prefers the cheaper pass, the outcome the correct one")
+        else:
+            sentence += ": the reward and the outcome do not agree about what this step bought"
+        tail.append(sentence)
     if "overfit" in step["flags"]:
         tail.append(step["overfit"]["reading"])
     if step["diff"]["protected_touched"]:
@@ -1656,7 +1703,8 @@ def evolve(lineage: dict, *, metric: str = "return", samples: int = BOOTSTRAP_SA
         triggers = trigger_tasks(evidence, a)
         frm, to = a["policy"] or a["id"], b["policy"] or b["id"]
         if block is not None:
-            effect = step_effect(block, frm, to, {frm: by_task[i - 1], to: by_task[i]})
+            success_axis = probability_of_improvement(score_matrix(block, "success"), samples=samples)
+            effect = step_effect(block, frm, to, {frm: by_task[i - 1], to: by_task[i]}, success_axis)
         else:
             reason = (f"{a['id']} has no trace" if not a["trajectories"] else f"{b['id']} has no trace"
                       if not b["trajectories"] else "a generation has no policy name")
@@ -1687,6 +1735,8 @@ def evolve(lineage: dict, *, metric: str = "return", samples: int = BOOTSTRAP_SA
             step["flags"].append("collapsed")
         if effect["improvement"].get("noisy"):
             step["flags"].append("noisy")
+        if effect.get("axes_disagree"):
+            step["flags"].append("axes_disagree")
         step["reading"] = _step_reading(step)
         steps.append(step)
 
