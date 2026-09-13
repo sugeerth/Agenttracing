@@ -471,15 +471,16 @@
       groups: ["coevolution"],
       blurb: "The self-evolving eval that watches the lineage: its own lineage of metrics, what each agent step taught it, what it would have caught with hindsight, and its own integrity.",
       open: Infinity,
-      /* The two lineages interleaved lead — the agent's generations and
-       * the eval's, each eval step tied to the agent step that triggered
-       * it. Then the hindsight: every agent step under the base eval and
-       * under the evolved one. Then the matrix of every metric on every
-       * generation, the candidates through the validators, one metric in
-       * full, the probes that proposed, and the eval's own integrity.
-       * Overview, then details on demand. */
+      /* The flow leads: the whole loop in one picture — the agent's steps
+       * triggering probes, candidates flowing through the validators to
+       * the eval's generations, and the hindsight and recovery edges back
+       * up to the agent's steps — with the step and the candidate as its
+       * zoom levels. Then the hindsight: every agent step under the base
+       * eval and under the evolved one. Then the matrix of every metric on
+       * every generation, one metric in full, the probes that proposed,
+       * and the eval's own integrity. Overview, then details on demand. */
       order: [
-        "cov-ledger", "cov-hindsight", "cov-matrix", "cov-funnel",
+        "cov-flow", "cov-hindsight", "cov-matrix",
         "cov-metric", "cov-probes", "cov-integrity",
       ],
     },
