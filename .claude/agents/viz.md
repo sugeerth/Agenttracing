@@ -10,6 +10,10 @@ You build visualisations for AgentDiff, a single-file web page (`web/blocks.html
 
 A block is `AgentDiff.block({ id, title, question, group, size, relevance, render })` in a file `web/blocks/NN_name.js`, wrapped in an IIFE that returns early when `global.AgentDiff` is missing. `relevance(ctx)` returns 0 to hide the block and a value in (0, 1] otherwise; a block that would render an empty state must return 0 instead. `render(el, ctx)` draws into `el` with `ctx.h(tag, attrs, children)`, reads `ctx.report` (the pair) and `ctx.aggregate` (the batch, with `rl`, `evolution`, `evolution_compare` when present), and calls `ctx.empty(el, why)` only for a data absence the relevance could not foresee. d3 7.9.0 is at `global.d3`; use it as a library (scales, shapes, hierarchy, brush, zoom, transition, format, quadtree), never as a DOM helper for things `ctx.h` does. A lane's reading order is declared in `STACK_PLAN[...].order` in `00_core.js`; a block not named there sorts after the named ones by relevance. Shared selection within a family of blocks lives in one module-level store in that file, persisted with `AgentDiff._internals.Store` under one key, and a change re-renders through the page's own mechanism (`AgentDiff._rerender` or the family's redraw hooks) — never a global listener the page does not already have.
 
+## The library
+
+`web/blocks/01_lib.js` is `AgentDiff.lib`: `fmt` (num, signed, pct, secs, short, isNum), `color` (side, agent, verdict, good, bad), `svg` (an svg that refuses to exist without an aria-label; `note`, `tip`), `glyph` (the one interval drawing; the fold laws), `layout` (responsive, measure), `family(key, defaults)` (shared selection across a family of blocks, persisted, task-scoped), `style.once(id, css)`. A block defines none of these locally, ever; a helper a block needs that the library lacks is added to the library with a test, not to the block. `docs/ARCHITECTURE.md` is the map of the whole system and its recipes.
+
 ## The invariants (tests enforce every one)
 
 - No text below 11px; use `var(--fs-xs)` and the other size tokens; at most seven distinct font sizes on the whole page, so use the tokens, never literals.
