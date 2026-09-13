@@ -103,7 +103,7 @@ scorecard (§6).
 ## 4. What the page draws, and how to read it
 
 The page is one file (`web/blocks.html`, built from `web/blocks/*.js`)
-with four views. The **Story** is a numbered sequence:
+with five views. The **Story** is a numbered sequence:
 
 1. **What happened** — the reading as charts.
 2. **Where the time went** — one strip per run along wall-clock, every
@@ -221,6 +221,54 @@ single fold. Every chart has a table view; tooltips enhance, never gate.
 The chrome is quiet: no borders, no boxes, a block is a small label and
 its chart with air around it, and the only saturated ink on the page is
 data — run A, run B, the fault's red — so the charts carry the eye.
+
+The **Training** view is the fifth, and the only one that reads a whole
+batch as a training set rather than a comparison. It opens where a
+person asks the question they actually have — is this policy better? —
+and it answers in the order the question decomposes:
+
+- **Is one policy better?** The interquartile mean, median, mean and
+  optimality gap for both policies on one axis, each with a bootstrap
+  interval stratified by task, because tasks are strata and runs are
+  exchangeable only inside one. Then the performance profile, which is
+  the whole distribution rather than a point, and the probability that
+  a random run of one policy beats a random run of the other. A mean can
+  look decisive while the intervals overlap; the view says so when they
+  do, and says that overlapping is not the same as the policies being
+  equal. Every figure carries the runs-per-task advisory beneath it.
+- **Where does the aggregate hide something?** The per-task delta,
+  sorted, with the probability of improvement on each task. A headline
+  that says one policy wins can sit on top of a task where it loses, and
+  that task is the one worth opening.
+- **What do the episodes look like?** Every episode's cumulative return
+  as small multiples, one row per policy per task on a shared axis, with
+  the median drawn heavy; past sixteen episodes a row becomes a band
+  with its median over it and says that is what it did. Clicking a curve
+  opens that episode in the theatre, where two episodes play against
+  each other step by step under a scrubber: both returns drawn to the
+  scrub position and ghosted past it, the reward at the position as a
+  bar, the step where the two first part by a whole point ringed and
+  labelled. The runs are aligned by step index only and the view says
+  so, with both lengths given, because the alignment means nothing more.
+- **Is the reward measuring the right thing?** Where return and outcome
+  disagree, how much of an episode's reward lands on a single step, and
+  which steps were paid while the reading had labelled them bad. Beside
+  it, whether the critic predicts anything: the value estimate against
+  the discounted return-to-go it was predicting, with the explained
+  variance stated in words and the plain sentence when the critic is
+  worse than guessing the mean.
+- **How does each policy behave?** Each episode reduced to a stream of
+  tokens — the tool for a tool step, the family otherwise — and from
+  that a prefix tree of where the two policies part, with the return on
+  each side of a branch, and a layout of every episode by behavioural
+  distance, so two policies read as clouds rather than as means. An
+  episode of the better policy sitting inside the worse one's cloud is
+  the case worth finding.
+
+Nothing here is simulated. A reward is the one the environment recorded
+when the trace carries one, and otherwise it is shaped from the reading
+and labelled as shaped; a bootstrap interval is a statement about the
+runs recorded, not about a population, and says that too.
 
 ## 5. The agentic loop
 

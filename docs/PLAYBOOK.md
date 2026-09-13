@@ -134,6 +134,27 @@ and a page is a single file, so it can be sent afterwards.
   interval, and `feedback.to_jsonl` hands the labels, the preference
   pair and the shaped rewards to a trainer. Recorded rewards win over
   shaped ones, and the page says which it is showing.
+- **Deciding whether a new policy is actually better**: run both
+  policies over the same tasks several times each, `agentdiff runs` the
+  directory, and open the Training view. Read it in this order. Do the
+  interquartile intervals separate? If they overlap, you do not have an
+  answer yet, whatever the means say, and the advisory tells you how many
+  runs per task you have against the eight-to-sixteen floor. If they
+  separate, look at the probability of improvement rather than the gap
+  between means — it is the number that survives a reader asking "on a
+  given task, how often?" Then go straight to the per-task list and open
+  the worst task. An aggregate that says a policy wins will often sit on
+  top of one task where it loses, and shipping is a decision about that
+  task as much as about the average.
+- **Before trusting a reward you are about to train on**: the reward
+  audit asks whether the signal and the outcome agree, whether an
+  episode's return is really one terminal number wearing a dense
+  disguise, and which steps were paid while the analysis had labelled
+  them bad. A policy that collects return without passing is the
+  specification-gaming shape, and it is cheaper to find in a comparison
+  than after a training run. The critic panel is the same question about
+  the value head: when it explains less variance than guessing the mean,
+  the page says that in those words.
 - **What to put in the next prompt**: the Tool behaviour panel ends
   with the sentences derived from how the two agents used their tools;
   copy them into the failing agent's prompt, then `agentdiff replay`
