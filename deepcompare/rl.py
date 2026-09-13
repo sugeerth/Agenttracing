@@ -51,6 +51,8 @@ from typing import Optional
 
 from . import impact as _impact
 from .feedback import preference_pair, step_labels
+from .rlaudit import audit_aggregate, audit_pair
+from .rlstats import BOOTSTRAP_SAMPLES as _rlstats_samples, rl_stats
 from .trace import Trajectory
 
 VERSION = 1
@@ -79,6 +81,7 @@ FAULT_LABELS = ("fault_enters", "wrong_answer")
 FAULT_SCORE = 2.0
 TOP = 5                 #: largest rewards / top credits listed per run
 MARK_QUANTILE = 0.9     #: |reward| at or above this quantile of the run marks a step
+RLSTATS_SAMPLES = _rlstats_samples   #: bootstrap resamples for the ``stats`` section
 TOOLISH = _impact.TOOLISH
 
 
@@ -432,8 +435,15 @@ def rl_pair(report: dict, gamma: float = GAMMA) -> dict:
     preference = preference_pair(report) if measurable else None
     narrative = _pair_narrative(a, b, source, preference) if measurable else \
         " ".join(r["narrative"] for r in (a, b) if not r["measurable"])
-    return {"version": VERSION, "measurable": measurable, "source": source, "gamma": gamma,
-            "a": a, "b": b, "preference": preference, "narrative": narrative}
+    section = {"version": VERSION, "measurable": measurable, "source": source, "gamma": gamma,
+               "a": a, "b": b, "preference": preference, "narrative": narrative}
+    # the same audit at pair scale: two episodes cannot support a rank
+    # correlation, but concentration, unearned reward, cost, tools and the
+    # critic all still count over the pair's own steps
+    section["audit"] = audit_pair(section, task_id=((report.get("task") or {}).get("id")),
+                                  run_ids={s: (report.get(s) or {}).get("run_id") for s in ("a", "b")},
+                                  gamma=gamma)
+    return section
 
 
 def rl_run_from_trace(traj: Trajectory, gamma: float = GAMMA, reading: Optional[dict] = None) -> dict:
@@ -499,18 +509,23 @@ def mean_ci(values: list) -> tuple:
     return round(mean, 4), [round(mean - half, 4), round(mean + half, 4)]
 
 
-def rl_aggregate(reports: list, trajectories: list, names: Optional[tuple] = None, gamma: float = GAMMA) -> dict:
+def rl_aggregate(reports: list, trajectories: list, names: Optional[tuple] = None, gamma: float = GAMMA,
+                 stats_metric: str = "return", stats_samples: int = RLSTATS_SAMPLES) -> dict:
     """``aggregate["rl"]`` for the runs layout: one episode per trace,
     per-agent mean return with a normal-approximation 95% interval (None
     under two episodes), per-task means and their delta in the aggregate's
-    agent order, the preference pairs the pair reports carry."""
+    agent order, the preference pairs the pair reports carry, and
+    ``stats`` — :func:`deepcompare.rlstats.rl_stats` over the same
+    episodes, which is the section to read when the episodes are few."""
     agents: dict = {}
     order = list(names) if names else sorted({t.agent.name for t in trajectories})
     for name in order:
         agents[name] = {"episodes": [], "mean_return": None, "return_ci": None, "episodes_n": 0}
     sources = set()
+    runs: list = []
     for traj in sorted(trajectories, key=lambda t: (t.agent.name, t.task.id, t.run_id)):
         run = rl_run_from_trace(traj, gamma)
+        runs.append(run)
         sources.add(run["source"])
         agents.setdefault(traj.agent.name, {"episodes": [], "mean_return": None, "return_ci": None, "episodes_n": 0})
         agents[traj.agent.name]["episodes"].append(_episode(run, traj))
@@ -555,9 +570,20 @@ def rl_aggregate(reports: list, trajectories: list, names: Optional[tuple] = Non
     pairs.sort(key=lambda p: str(p["task_id"]))
     preferences.sort(key=lambda p: str(p["task_id"]))
     source = "recorded" if sources == {"recorded"} else "shaped" if sources == {"shaped"} else "mixed" if sources else "shaped"
-    return {"version": VERSION, "gamma": gamma, "source": source, "agents": agents, "tasks": tasks,
-            "pairs": pairs, "preferences": preferences,
-            "narrative": _aggregate_narrative(agents, tasks, preferences, source, (first, second))}
+    block = {"version": VERSION, "gamma": gamma, "source": source, "agents": agents, "tasks": tasks,
+             "pairs": pairs, "preferences": preferences,
+             "narrative": _aggregate_narrative(agents, tasks, preferences, source, (first, second))}
+    # the small-sample toolkit over the same episodes: IQM and friends with a
+    # stratified bootstrap, the performance profiles, P(B > A). A mean with a
+    # normal interval is the one thing a dozen episodes cannot support, so the
+    # section that says what they *do* support ships beside it.
+    block["stats"] = rl_stats(block, metric=stats_metric, samples=stats_samples)
+    # is the signal itself trustworthy? the reward read against the outcome and
+    # the critic read against what actually arrived, over the same episodes —
+    # from the run readings, which are the only place the per-step labels and
+    # the step's tool survive
+    block["audit"] = audit_aggregate(runs, gamma=gamma)
+    return block
 
 
 def _aggregate_narrative(agents: dict, tasks: dict, preferences: list, source: str, order: tuple) -> str:
@@ -583,5 +609,5 @@ def _aggregate_narrative(agents: dict, tasks: dict, preferences: list, source: s
     return "; ".join(parts) + "."
 
 
-__all__ = ["rl_pair", "rl_run_from_trace", "rl_aggregate", "mean_ci", "GAMMA", "SHAPED_WEIGHTS", "ANSWER_REWARD", "DECISIVE_REWARD",
-           "MILESTONE_REWARD", "FAULT_LABELS", "VERSION"]
+__all__ = ["rl_pair", "rl_run_from_trace", "rl_aggregate", "rl_stats", "audit_aggregate", "audit_pair", "mean_ci", "GAMMA", "SHAPED_WEIGHTS", "ANSWER_REWARD",
+           "DECISIVE_REWARD", "MILESTONE_REWARD", "FAULT_LABELS", "RLSTATS_SAMPLES", "VERSION"]
