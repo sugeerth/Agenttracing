@@ -14,16 +14,37 @@ Two halves, both counts over recorded steps and nothing else.
   the return orders the wrong way round. A failed episode that out-earned
   a passing one is the classic specification-gaming shape; a passing
   episode that scored below a failing one means the reward is missing the
-  thing that mattered. Ranked by the size of the disagreement (the return
-  gap), each finding naming the task, the run and the return.
+  thing that mattered. Counted in three readings, because they answer
+  different questions: **pooled** over every episode; **within each task**,
+  which is the fair one, since returns on different tasks are not on a
+  common scale; and over the **shaping alone** — the return with the last
+  step's reward removed, within each task. That third reading is the one
+  that matters when the answer step itself pays: a reward that carries the
+  outcome in its terminal term agrees with the outcome by construction,
+  and the question is whether the dense part a policy collects along the
+  way agrees too. Findings come from the first reading that has any, each
+  ranked by the size of the disagreement and naming the task, the run and
+  the value. Beside them, the policy-level shape of the same question: per
+  task, does the policy the reward prefers also pass more often?
 * *rank agreement* — Spearman's rho between the return and the outcome
-  over the episodes (:func:`spearman`, average ranks, pure stdlib). With
-  a binary outcome the ties hold rho below 1 even under perfect
-  separation, so the ceiling is stated beside the number.
+  over the episodes (:func:`spearman`, average ranks, pure stdlib). A
+  binary outcome is one long pair of ties, so rho cannot reach 1 however
+  good the reward is: the attainable **ceiling** (the same returns
+  reordered to be perfectly consistent) is reported beside it, and rho on
+  the shaping alone says how much of the agreement the outcome term is
+  carrying by itself.
 * *concentration* — the share of an episode's total absolute reward that
-  its single largest step and its last step carry. A return that is one
-  terminal number is a sparse reward and behaves nothing like a dense
-  one; the reading says which this is.
+  its single largest step and its last step carry, the share of steps paid
+  anything at all, and how many times its even share the largest step
+  carries. The classification is stated with those numbers, never instead
+  of them, so a reader can disagree with it: *terminal* when the last step
+  is at least :data:`TERMINAL_SHARE` of the episode (the whole return is
+  one number), *terminal-dominated* when the last step is the largest and
+  carries at least :data:`DOMINANT_SHARE`, *peaked* when some other step
+  does, *dense* otherwise. A terminal payoff with a dense cost term under
+  it behaves nothing like an evenly shaped reward, and the two halves of
+  this module meet there: when the outcome arrives as one number at the
+  end, the critic is the only thing carrying it backwards.
 * *unearned reward* — steps paid positively while carrying a label the
   analysis calls bad (:data:`BAD_LABELS`: an error, a repeat, a dead end,
   the fault entering), and steps punished while carrying a good one
@@ -117,6 +138,11 @@ def _num(v: float) -> str:
 
 def _plural(n: int, word: str, plural: Optional[str] = None) -> str:
     return f"{n} {word if n == 1 else (plural or word + 's')}"
+
+
+def _cap(text: str) -> str:
+    """A narrative is a sentence, so it starts with a capital."""
+    return text[:1].upper() + text[1:] if text else text
 
 
 def _mean(values: list) -> Optional[float]:
@@ -419,6 +445,7 @@ def _disagreement(episodes: list) -> dict:
             break
     else:
         findings, findings_basis = [], None
+    flagged = sorted({f"{f['agent']}|{f['task_id'] or ''}|{f['run_id'] or ''}" for f in findings})
     by_policy = _by_policy(episodes)
     gamed = [r for r in by_policy if r["disagrees"]]
     bits = []
@@ -440,7 +467,7 @@ def _disagreement(episodes: list) -> dict:
         bits.append(f"on {_plural(len(gamed), 'task')} the reward prefers the policy that passes less often")
     bits.append("each finding is a signal to investigate, not a proven defect")
     return {"measurable": True, "reason": None, "passed": len(passed), "failed": len(failed), "unknown": unknown,
-            "scopes": scopes, "findings": findings[:TOP], "findings_n": len(findings),
+            "scopes": scopes, "findings": findings[:TOP], "findings_n": len(findings), "flagged": flagged,
             "findings_basis": findings_basis, "by_policy": by_policy, "note": "; ".join(bits)}
 
 
@@ -462,8 +489,13 @@ def _ceiling(values: list, outcomes: list) -> Optional[float]:
 
 def _rank_agreement(episodes: list) -> dict:
     scored = [e for e in episodes if e["success"] is not None]
-    if len(scored) < 2:
-        return {"measurable": False, "reason": f"only {_plural(len(scored), 'episode')} carries an outcome",
+    if len(scored) < 3:
+        # over two points a rank correlation is ±1 whatever the numbers are
+        reason = (f"only {_plural(len(scored), 'episode')} carries an outcome"
+                  if len(scored) < 2 else
+                  "two episodes: a rank correlation over two points is ±1 whatever the returns are, so there is "
+                  "nothing here to report")
+        return {"measurable": False, "reason": reason,
                 "spearman": None, "spearman_shaping": None, "n": len(scored), "ceiling": None,
                 "per_agent": {}, "note": ""}
     outcomes = [1.0 if e["success"] else 0.0 for e in scored]
@@ -551,6 +583,23 @@ def _concentration(episodes: list) -> dict:
             "kinds": kinds, "kind": kind, "note": note}
 
 
+def _spread(rows: list, per_place: int = 2, limit: int = TOP) -> list:
+    """The largest rows, at most ``per_place`` from any one policy and task.
+    A dozen rows from the same run says far less than a dozen rows from a
+    dozen runs, and the cap is stated wherever the list is shown."""
+    seen: dict = {}
+    out = []
+    for row in rows:
+        key = (row["agent"], row["task_id"] or "")
+        if seen.get(key, 0) >= per_place:
+            continue
+        seen[key] = seen.get(key, 0) + 1
+        out.append(row)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _unearned(episodes: list) -> dict:
     labelled_eps = [e for e in episodes if any(r["labels"] is not None for r in e["rows"])]
     labelled_steps = sum(1 for e in episodes for r in e["rows"] if r["labels"] is not None)
@@ -558,7 +607,7 @@ def _unearned(episodes: list) -> dict:
         return {"measurable": False,
                 "reason": "no step carries a label, so there is nothing for the reward to argue with",
                 "episodes_covered": 0, "episodes_n": len(episodes), "steps_labelled": 0,
-                "positive_while_bad": 0, "negative_while_good": 0, "rows": [], "note": ""}
+                "positive_while_bad": 0, "negative_while_good": 0, "by_label": {}, "rows": [], "note": ""}
     rows = []
     for ep in episodes:
         for r in ep["rows"]:
@@ -578,16 +627,27 @@ def _unearned(episodes: list) -> dict:
     rows.sort(key=lambda r: (-abs(r["reward"]), r["agent"], r["task_id"] or "", r["run_id"] or "", r["step"] or 0))
     pos = sum(1 for r in rows if r["kind"] == "positive_while_bad")
     neg = sum(1 for r in rows if r["kind"] == "negative_while_good")
+    # the overview the rows are details of: which label, whose, how many
+    # steps and how much reward — a dozen identical rows say far less
+    by_label: dict = {}
+    for r in rows:
+        for label in sorted(set(r["labels"]) & set(BAD_LABELS if r["kind"] == "positive_while_bad" else GOOD_LABELS)):
+            cell = by_label.setdefault(label, {})
+            agent = cell.setdefault(r["agent"], {"steps": 0, "reward": 0.0, "kind": r["kind"]})
+            agent["steps"] += 1
+            agent["reward"] = _r(agent["reward"] + r["reward"])
+    by_label = {label: dict(sorted(by_label[label].items())) for label in sorted(by_label)}
     if pos or neg:
-        note = (f"{_plural(pos, 'step')} was paid while labelled bad and {_plural(neg, 'step')} was punished while "
-                f"labelled good, over {_plural(labelled_steps, 'labelled step')} — each is a place the shaping and "
+        note = (f"{_plural(pos, 'step')} of {_plural(labelled_steps, 'labelled step')} "
+                f"{'was' if pos == 1 else 'were'} paid while labelled bad, and {neg} "
+                f"{'was' if neg == 1 else 'were'} punished while labelled good — each is a place the shaping and "
                 "the reading disagree, and a signal to investigate rather than a proven defect")
     else:
         note = (f"no step of the {_plural(labelled_steps, 'labelled step')} was paid while labelled bad or punished "
                 "while labelled good: the shaping and the reading agree everywhere they both speak")
     return {"measurable": True, "reason": None, "episodes_covered": len(labelled_eps), "episodes_n": len(episodes),
             "steps_labelled": labelled_steps, "positive_while_bad": pos, "negative_while_good": neg,
-            "rows": rows[:TOP], "note": note}
+            "by_label": by_label, "rows": _spread(rows), "note": note}
 
 
 def _cost(episodes: list) -> dict:
@@ -661,16 +721,33 @@ def _tools(episodes: list) -> dict:
             "note": "; ".join(bits) + (f"; {_plural(named, 'tool step')} carried a reward" if bits else "")}
 
 
+def _episode_table(episodes: list, flagged: list) -> list:
+    """One row per episode, both measures side by side and whether the
+    disagreement check flagged it — the evidence a page plots, so the chart
+    and the finding list can never drift apart."""
+    marked = set(flagged or [])
+    rows = []
+    for ep in episodes:
+        key = f"{ep['agent']}|{ep['task_id'] or ''}|{ep['run_id'] or ''}"
+        rows.append(dict(_where(ep), success=ep["success"], steps=ep["steps"], seconds=ep["seconds"],
+                         **{"return": ep["return"]}, shaping_return=_shaping_return(ep),
+                         last_reward=_r(ep["rows"][-1]["reward"]) if ep["rows"] else 0.0,
+                         flagged=key in marked))
+    return rows
+
+
 def reward_integrity(episodes: list, *, gamma: float = DEFAULT_GAMMA) -> dict:
     """The six reward readings over normalised audit episodes. Every count
     is over recorded steps; every finding names the task, the run and the
     step, and is a signal to investigate, not a proven defect."""
     if not episodes:
         return {"measurable": False, "reason": "no episodes to read", "episodes_n": 0,
-                "disagreement": {}, "rank_agreement": {}, "concentration": {},
+                "episodes": [], "disagreement": {}, "rank_agreement": {}, "concentration": {},
                 "unearned": {}, "cost": {}, "tools": {}, "narrative": "No episode carries a reward."}
+    disagreement = _disagreement(episodes)
     block = {"measurable": True, "reason": None, "episodes_n": len(episodes),
-             "disagreement": _disagreement(episodes), "rank_agreement": _rank_agreement(episodes),
+             "episodes": _episode_table(episodes, disagreement.get("flagged")),
+             "disagreement": disagreement, "rank_agreement": _rank_agreement(episodes),
              "concentration": _concentration(episodes), "unearned": _unearned(episodes),
              "cost": _cost(episodes), "tools": _tools(episodes)}
     block["narrative"] = _reward_narrative(block)
@@ -681,26 +758,37 @@ def _reward_narrative(block: dict) -> str:
     dis, rank, con, un = block["disagreement"], block["rank_agreement"], block["concentration"], block["unearned"]
     parts = []
     if dis.get("measurable"):
-        if dis["inversions"]:
-            parts.append(f"the reward and the outcome disagree on {_plural(dis['inversions'], 'ordered pair')} "
-                         f"of {dis['pairs_n']}")
-        else:
-            parts.append(f"the reward and the outcome agree on all {_plural(dis['pairs_n'], 'ordered pair')}")
+        task = dis["scopes"]["by_task"]
+        shaping = dis["scopes"]["shaping"]
+        lead = (f"the return and the outcome disagree on {task['inversions']} of "
+                f"{_plural(task['pairs_n'], 'ordered pair')} within a task"
+                if task["inversions"] else
+                f"the return and the outcome never disagree within a task, over "
+                f"{_plural(task['pairs_n'], 'ordered pair')}")
+        if shaping["pairs_n"] and shaping["inversions"]:
+            lead += (f", but with the last step removed the shaping alone gets {shaping['inversions']} of them "
+                     "the wrong way round")
+        parts.append(lead)
     else:
         parts.append(dis.get("reason") or "the outcomes cannot be compared")
     if rank.get("measurable"):
-        parts.append(f"rank correlation {_num(rank['spearman'])} (ceiling {_num(rank['ceiling'])}) "
-                     f"over {_plural(rank['n'], 'episode')}")
+        parts.append(f"rank correlation {_num(rank['spearman'])} against a ceiling of {_num(rank['ceiling'])} "
+                     f"over {_plural(rank['n'], 'episode')}"
+                     + (f", {_num(rank['spearman_shaping'])} on the shaping alone"
+                        if rank.get("spearman_shaping") is not None else ""))
     if con.get("measurable"):
-        parts.append(f"the reward is {con['kind'] if con['kind'] != 'peaked' else 'peaked on one step'}, "
-                     f"the largest step carrying {_num(100 * con['mean_largest_share'])}% of an episode on average")
+        parts.append(f"the reward is {con['kind'].replace('_', '-')}: the largest step carries "
+                     f"{_num(100 * con['mean_largest_share'])}% and the last step "
+                     f"{_num(100 * con['mean_last_share'])}% of an episode's absolute reward on average, "
+                     f"over {_num(100 * con['mean_paid_share'])}% of steps paid anything at all")
     if un.get("measurable"):
         if un["positive_while_bad"] or un["negative_while_good"]:
-            parts.append(f"{_plural(un['positive_while_bad'], 'step')} was paid while labelled bad and "
-                         f"{un['negative_while_good']} punished while labelled good")
+            parts.append(f"{_plural(un['positive_while_bad'], 'step')} paid while labelled bad and "
+                         f"{un['negative_while_good']} punished while labelled good, "
+                         f"of {_plural(un['steps_labelled'], 'labelled step')}")
         else:
-            parts.append("no step was paid while labelled bad")
-    return "; ".join(parts) + "."
+            parts.append(f"no step of {_plural(un['steps_labelled'], 'labelled step')} was paid while labelled bad")
+    return _cap("; ".join(parts)) + "."
 
 
 # ---------------------------------------------------- critic calibration
@@ -715,8 +803,7 @@ def _points(episodes: list, gamma: float) -> list:
             if r["value"] is None:
                 continue
             pts.append(dict(_where(ep), step=r["step"], predicted=_r(r["value"]), actual=_r(actual[i]),
-                            residual=_r(r["value"] - actual[i]), success=ep["success"],
-                            advantage=r["advantage"], reward=_r(r["reward"])))
+                            residual=_r(r["value"] - actual[i]), success=ep["success"]))
     pts.sort(key=lambda p: (p["agent"], p["task_id"] or "", p["run_id"] or "", p["step"] if p["step"] is not None else 0))
     return pts
 
@@ -748,7 +835,7 @@ def _ev_words(scores: dict) -> str:
             f"so a constant equal to the average return-to-go would have scored better than this value head")
     return (f"{lead}; it runs {direction} by {_num(abs(bias))} on average "
             f"(mean absolute error {_num(scores['mean_absolute_error'])}, RMSE {_num(scores['rmse'])}) "
-            f"over {_plural(scores['n'], 'step with a value')}")
+            f"over {_plural(scores['n'], 'step with a value', 'steps with a value')}")
 
 
 def _deciles(points: list) -> list:
@@ -873,10 +960,11 @@ def critic_calibration(episodes: list, *, gamma: float = DEFAULT_GAMMA) -> dict:
             "episodes_covered": len(covered), "episodes_n": len(episodes),
             "overall": overall, "per_agent": per_agent, "deciles": _deciles(points),
             "residual_bins": _residual_bins(points), "points": points, "advantages": advantages,
-            "note": (f"{_plural(len(points), 'step')} of {sum(e['steps'] for e in episodes)} carries a value estimate, "
+            "note": (f"{_plural(len(points), 'step')} of {sum(e['steps'] for e in episodes)} "
+                     f"{'carries' if len(points) == 1 else 'carry'} a value estimate, "
                      f"over {len(covered)} of {_plural(len(episodes), 'episode')}; the target is the realised "
                      f"discounted return-to-go at γ={gamma}, recomputed here from the recorded rewards"),
-            "narrative": narrative + "."}
+            "narrative": _cap(narrative) + "."}
 
 
 # ---------------------------------------------------------------- public
@@ -900,7 +988,7 @@ def rl_audit(episodes: list, *, gamma: float = DEFAULT_GAMMA, scope: str = "batc
     if critic.get("measurable"):
         narrative += " " + critic["narrative"]
     else:
-        narrative += " " + (critic.get("reason") or "").capitalize() + "."
+        narrative += " " + _cap(critic.get("reason") or "the critic cannot be scored") + "."
     return {"version": VERSION, "measurable": True, "reason": None, "gamma": gamma, "scope": scope,
             "episodes_n": len(episodes), "policies": sorted({e["agent"] for e in episodes}),
             "reward": reward, "critic": critic, "narrative": narrative.strip(), "caveat": CAVEAT}

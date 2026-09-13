@@ -39,7 +39,12 @@ that set, all counts over recorded steps:
   carried so a reader can see that a ratio of 3.0 may be 3 against 1. A
   gram absent from the losing episodes has no ratio (``None``) and is
   listed first; nothing is smoothed, and a gram under ``min_count``
-  occurrences among the winners is not listed at all.
+  occurrences is not listed at all. The rate's denominator is the group's
+  own gram count, so a winning episode that is simply shorter raises the
+  rate of everything it does — ``per_episode`` is carried beside it for
+  that reason, and the block says so. Both ends are returned: ``top`` is
+  the winners' habits, ``bottom`` the losers' (a retry loop lives there,
+  not among the winners).
 
 * **Distance.** Normalised edit distance over the token streams:
   Levenshtein / the longer stream's length, so it is 0..1. Edit distance
@@ -54,12 +59,19 @@ that set, all counts over recorded steps:
   policies, and each episode's nearest neighbour, so an episode sitting
   inside the other policy's cloud can be found.
 
-  The matrix is quadratic in episodes and the distance itself is
-  quadratic in tokens, so both are capped: at most
-  ``MAX_DISTANCE_EPISODES`` episodes (chosen round-robin over the
-  policies in ``(task, run)`` order, so both are represented) over at
-  most ``MAX_DISTANCE_TOKENS`` tokens each. ``distance["capped"]`` says
-  whether the cap bit and what was left out.
+  The matrix is quadratic in episodes; the distance itself would be
+  quadratic in tokens, but Myers' bit-parallel algorithm holds the DP's
+  columns as bit vectors and makes it linear in the text over a few
+  machine words (checked against the textbook row DP in the tests).
+  Both are still capped: at most
+  ``MAX_DISTANCE_EPISODES`` (120) episodes, chosen round-robin over the
+  policies in ``(task, run)`` order so both are represented, over at most
+  ``MAX_DISTANCE_TOKENS`` (200) tokens each. Past the cap the extra
+  episodes are simply not in the matrix, the spread or the layout — they
+  are not estimated from the ones that are — and ``distance["capped"]``,
+  ``counted``, ``of`` and ``note`` say exactly that, so the page can too.
+  At the cap the whole section costs about two seconds; the 96-episode
+  training demo fits inside it whole.
 
 * **The layout.** Classical multidimensional scaling of that matrix in
   pure Python: double-centre the squared distances, then the top two
@@ -88,9 +100,12 @@ MAX_DEPTH = 24
 #: a subtree reached by fewer episodes than this is folded into one leaf
 MIN_TAIL_EPISODES = 2
 #: at most this many episodes enter the distance matrix and the layout
-MAX_DISTANCE_EPISODES = 30
+MAX_DISTANCE_EPISODES = 120
 #: at most this many tokens of an episode enter a distance
-MAX_DISTANCE_TOKENS = 120
+MAX_DISTANCE_TOKENS = 200
+#: the full matrix is carried in the output only up to this many episodes;
+#: past it every number read off it still is, but N² numbers are not
+MATRIX_JSON_EPISODES = 40
 NGRAM_SIZES = (2, 3)
 #: n-grams listed per policy, and per side of the winning/losing ratio
 TOP_NGRAMS = 8
@@ -292,7 +307,24 @@ def build_trie(episodes: list, policies: list, max_depth: int = MAX_DEPTH,
         note = "nothing pruned: every branch carries at least "f"{min_tail} episodes and fits the depth cap"
     return {"root": root, "nodes": counter["n"], "max_depth": max_depth, "min_tail_episodes": min_tail,
             "deepest_stream": deepest,
+            "per_policy": "every node carries by_policy, so one policy's own trie is this tree "
+                          "restricted to the nodes it reaches (deepcompare.rlspace.policy_trie)",
             "pruned": dict(pruned, note=note)}
+
+
+def policy_trie(root: dict, policy: str) -> Optional[dict]:
+    """One policy's own prefix tree, read off the merged one: the nodes that
+    policy's episodes actually pass through, with its own counts. The merged
+    tree carries every policy's traffic at every node, so there is no second
+    tree to build — this is that tree restricted, and it is what "per policy
+    and merged" means here."""
+    if not root or not root["by_policy"].get(policy):
+        return None
+    node = {k: v for k, v in root.items() if k != "children"}
+    node["episodes"] = root["by_policy"].get(policy, 0)
+    node["by_policy"] = {policy: node["episodes"]}
+    node["children"] = [c for c in (policy_trie(k, policy) for k in root.get("children") or []) if c]
+    return node
 
 
 def _walk(node: dict):
@@ -393,9 +425,9 @@ def _gram_text(gram: tuple) -> str:
 
 def ngrams(episodes: list, policies: list, sizes: tuple = NGRAM_SIZES, top: int = TOP_NGRAMS,
            min_count: int = MIN_NGRAM_COUNT) -> dict:
-    """The commonest grams per policy, and the ones over-represented in the
-    episodes that succeeded against the ones that failed — a ratio of rates,
-    every count carried."""
+    """The commonest grams per policy, and the ones over- and under-
+    represented in the episodes that succeeded against the ones that failed
+    — a ratio of rates, every count carried."""
     by_policy: dict = {}
     for p in policies:
         eps = [e for e in episodes if e["policy"] == p]
@@ -409,18 +441,24 @@ def ngrams(episodes: list, policies: list, sizes: tuple = NGRAM_SIZES, top: int 
         by_policy[p] = per
     winners = [e for e in episodes if e["success"]]
     losers = [e for e in episodes if not e["success"]]
+    note = ("a gram's rate is its share of every gram of that length in the group, so a shorter "
+            "winning episode raises the rate of everything it does; per_episode says the same thing "
+            "per episode instead, and both counts are here to be read against the ratio")
     if not winners or not losers:
         why = ("every episode succeeded" if not losers else "no episode succeeded") if episodes \
             else "there are no episodes"
         winning = {"measurable": False, "reason": f"the winning/losing ratio needs both: {why}",
-                   "winners": len(winners), "losers": len(losers), "min_count": min_count, "top": []}
+                   "winners": len(winners), "losers": len(losers), "min_count": min_count,
+                   "top": [], "bottom": [], "note": note}
         return {"sizes": list(sizes), "top_n": top, "by_policy": by_policy, "winning": winning}
     rows: list = []
+    grams_win, grams_lose = {}, {}
     for n in sizes:
         wc, we, wt = _count_grams(winners, n)
         lc, le, lt = _count_grams(losers, n)
+        grams_win[str(n)], grams_lose[str(n)] = wt, lt
         for g in sorted(set(wc) | set(lc), key=_gram_text):
-            if wc.get(g, 0) < min_count:
+            if max(wc.get(g, 0), lc.get(g, 0)) < min_count:
                 continue
             wr = wc.get(g, 0) / wt if wt else 0.0
             lr = lc.get(g, 0) / lt if lt else 0.0
@@ -428,16 +466,26 @@ def ngrams(episodes: list, policies: list, sizes: tuple = NGRAM_SIZES, top: int 
             rows.append({"n": n, "gram": list(g), "text": _gram_text(g), "ratio": ratio,
                          "win_count": wc.get(g, 0), "lose_count": lc.get(g, 0),
                          "win_rate": round(wr, 6), "lose_rate": round(lr, 6),
+                         "win_per_episode": round(wc.get(g, 0) / len(winners), 4),
+                         "lose_per_episode": round(lc.get(g, 0) / len(losers), 4),
                          "win_episodes": we.get(g, 0), "lose_episodes": le.get(g, 0),
-                         "only_in_winners": lc.get(g, 0) == 0})
-    rows.sort(key=lambda r: (0 if r["ratio"] is None else 1,
+                         "only_in_winners": lc.get(g, 0) == 0, "only_in_losers": wc.get(g, 0) == 0})
+    # over-represented in the winners first (a gram the losers never played has
+    # no ratio at all and leads); the other end is the losing habit
+    over = [r for r in rows if r["win_count"] >= min_count]
+    over.sort(key=lambda r: (0 if r["ratio"] is None else 1,
                              -(r["ratio"] or 0.0), -r["win_count"], r["n"], r["text"]))
-    winning = {"measurable": bool(rows), "reason": None if rows else
+    under = [r for r in rows if r["lose_count"] >= min_count]
+    under.sort(key=lambda r: (0 if r["ratio"] is None else 1,
+                              (r["ratio"] if r["ratio"] is not None else 0.0), -r["lose_count"],
+                              r["n"], r["text"]))
+    winning = {"measurable": bool(over), "reason": None if over else
                f"no gram reaches {min_count} occurrences among the winning episodes",
                "winners": len(winners), "losers": len(losers), "min_count": min_count,
-               "win_grams": {str(n): _count_grams(winners, n)[2] for n in sizes},
-               "lose_grams": {str(n): _count_grams(losers, n)[2] for n in sizes},
-               "top": rows[:top]}
+               "win_grams": grams_win, "lose_grams": grams_lose,
+               "win_steps_mean": _mean([len(e["tokens"]) for e in winners]),
+               "lose_steps_mean": _mean([len(e["tokens"]) for e in losers]),
+               "top": over[:top], "bottom": under[:top], "note": note}
     return {"sizes": list(sizes), "top_n": top, "by_policy": by_policy, "winning": winning}
 
 
@@ -506,14 +554,16 @@ def edit_distance(a: list, b: list) -> int:
         return len(b2)
     if not b2:
         return len(a2)
-    return _edit_myers(a2, b2)
+    # the pattern is the longer stream: the columns are bits (a few machine
+    # words either way), the iterations are the other stream's length
+    return _edit_myers(a2, b2) if len(a2) >= len(b2) else _edit_myers(b2, a2)
 
 
 def normalised_distance(a: list, b: list) -> float:
     """Edit distance over the longer stream's length — 0 (the same stream)
     to 1 (nothing in common)."""
     longest = max(len(a), len(b))
-    return 0.0 if not longest else round(edit_distance(a, b) / longest, 6)
+    return 0.0 if not longest else round(edit_distance(a, b) / longest, 4)
 
 
 def _key(e: dict) -> str:
@@ -576,14 +626,20 @@ def distances(episodes: list, policies: list, cap: int = MAX_DISTANCE_EPISODES,
             nearest.append(None)
             continue
         d, key, j = min(others, key=lambda t: (t[0], t[1]))
+        cross = [t for t in others if chosen[t[2]]["policy"] != chosen[i]["policy"]]
+        other = None
+        if cross:
+            od, okey, oj = min(cross, key=lambda t: (t[0], t[1]))
+            other = {"key": okey, "policy": chosen[oj]["policy"], "distance": od}
         nearest.append({"key": key, "policy": chosen[j]["policy"], "distance": d,
-                        "other_policy": chosen[j]["policy"] != chosen[i]["policy"]})
+                        "other_policy": chosen[j]["policy"] != chosen[i]["policy"],
+                        "nearest_other": other})
     return {
         "metric": "normalised edit distance (Levenshtein over the token streams, divided by the longer one)",
         "episodes": [{"key": _key(e), "policy": e["policy"], "task_id": e["task_id"], "run_id": e["run_id"],
                       "return": e.get("return"), "success": e.get("success") is True,
                       "steps": len(e["tokens"])} for e in chosen],
-        "matrix": matrix, "within": within, "between": between, "cross_pairs": cross_pairs,
+        "matrix": matrix, "matrix_note": None, "within": within, "between": between, "cross_pairs": cross_pairs,
         "counted": n, "of": len(episodes), "capped": n < len(episodes),
         "episode_cap": cap, "token_cap": token_cap, "tokens_truncated": truncated,
         "nearest": nearest,
@@ -693,11 +749,21 @@ def behaviour_space(episodes: list, names: Optional[tuple] = None, max_depth: in
     grams = ngrams(eps, policies)
     dist = distances(eps, policies, cap=distance_cap, token_cap=token_cap)
     layout = mds(dist["matrix"])
+    # the matrix is what everything above was read off; carrying N² numbers
+    # into the page on top of that is weight, not honesty
+    if dist["counted"] > MATRIX_JSON_EPISODES:
+        n = dist["counted"]
+        dist = dict(dist, matrix=None, matrix_note=(
+            f"the {n}×{n} matrix is not carried ({n * n} numbers); the spreads, the distance between "
+            f"the policies, every nearest neighbour and the layout are all read off it"))
+    # the layout's marks carry their own token stream: it is what the page
+    # needs to highlight the episodes an n-gram habit actually appears in
+    streams = {e["key"]: e["tokens"] for e in eps}
     points: list = []
     for i, e in enumerate(dist["episodes"]):
         xy = layout["points"][i] if i < len(layout["points"]) else [0.0, 0.0]
         near = dist["nearest"][i] if i < len(dist["nearest"]) else None
-        points.append(dict(e, x=xy[0], y=xy[1], nearest=near))
+        points.append(dict(e, x=xy[0], y=xy[1], nearest=near, tokens=streams.get(e["key"], [])))
     space = {
         "version": VERSION, "measurable": True, "reason": None, "policies": policies,
         "episodes_n": len(eps), "vocabulary": vocab, "trie": trie, "branches": branches,
@@ -732,7 +798,14 @@ def _narrative(space: dict) -> str:
     win = space["ngrams"]["winning"]
     if win.get("measurable") and win["top"]:
         t = win["top"][0]
-        parts.append(f"the strongest winning habit is {t['text']} ({t['win_count']} against {t['lose_count']})")
+        said = (f"the strongest winning habit is {t['text']} "
+                f"({t['win_count']} against {t['lose_count']}"
+                + (f", {t['ratio']:.2f}×)" if t["ratio"] is not None else ", never in a losing episode)"))
+        if win.get("bottom"):
+            b = win["bottom"][0]
+            said += (f", the strongest losing one {b['text']} ({b['lose_count']} against {b['win_count']}"
+                     + (f", {b['ratio']:.2f}×)" if b["ratio"] is not None else ")"))
+        parts.append(said)
     return "; ".join(parts) + "."
 
 
@@ -744,7 +817,7 @@ def rl_space(trajectories: list, agents: Optional[dict] = None, names: Optional[
 
 
 __all__ = ["behaviour_space", "behaviour_episodes", "rl_space", "episode_tokens", "step_token",
-           "vocabulary", "build_trie", "branch_points", "ngrams", "distances", "edit_distance",
+           "vocabulary", "build_trie", "policy_trie", "branch_points", "ngrams", "distances", "edit_distance",
            "normalised_distance", "mds", "VERSION", "MAX_DEPTH", "MIN_TAIL_EPISODES",
            "MAX_DISTANCE_EPISODES", "MAX_DISTANCE_TOKENS", "NGRAM_SIZES", "TOP_NGRAMS",
            "MIN_NGRAM_COUNT", "TOP_BRANCHES", "POWER_ITERS", "MDS_SEED"]

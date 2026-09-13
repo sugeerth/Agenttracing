@@ -18824,6 +18824,1269 @@ THIS SOFTWARE.
 })(typeof window !== "undefined" ? window : this);
 
 </script>
+<!-- 28_rlstats.js -->
+<script>
+/* AgentDiff blocks — two policies from few episodes, read the way the RL
+ * literature asks for rather than as a mean with a normal interval.
+ *
+ * `aggregate.rl.stats` (deepcompare/rlstats.py) carries the small-sample
+ * toolkit over the same episodes the rest of the Training view draws:
+ * IQM, median, mean and the optimality gap, each with a stratified
+ * bootstrap interval; the performance profiles with their bands; and the
+ * probability that a random run of one policy beats a random run of the
+ * other on the same task. These blocks draw exactly those numbers:
+ *
+ *   rl-stats-aggregate   four metric rows on one shared score axis, both
+ *                        policies' point and interval per row — overlap is
+ *                        the thing the reader is meant to see first
+ *   rl-stats-profile     fraction of runs clearing τ, for every τ, with the
+ *                        bootstrap band; says whether the curves cross
+ *   rl-stats-improvement P(B > A) with its interval, and the per-task
+ *                        breakdown the average hides (hover for the task's
+ *                        own runs, click to open it)
+ *
+ * Nothing here is recomputed in the browser: every point, bound and
+ * sentence comes from the JSON, so the page and the engine cannot drift.
+ */
+(function (global) {
+  "use strict";
+  var AgentDiff = global.AgentDiff;
+  if (!AgentDiff) return;
+
+  var styled = false;
+  function ensureStyle() {
+    if (styled) return;
+    styled = true;
+    var node = document.createElement("style");
+    node.textContent = [
+      ".rls{position:relative}",
+      ".rls svg{display:block;width:100%;height:auto;font-family:var(--sans)}",
+      ".rls .lab{font-size:var(--fs-xs);fill:var(--ink-2)}",
+      ".rls .lab.dim{fill:var(--ink-3)}",
+      ".rls .tick{font-size:var(--fs-xs);fill:var(--ink-3);font-variant-numeric:tabular-nums}",
+      ".rls .val{font-size:var(--fs-xs);font-variant-numeric:tabular-nums;font-family:var(--mono)}",
+      ".rls .zero{stroke:var(--rule-2)}.rls .rule{stroke:var(--rule)}",
+      ".rls .hit{cursor:default}",
+      ".rls-head{font-size:var(--fs-m);color:var(--ink);margin:0 0 8px;max-width:90ch}",
+      ".rls-bar{display:flex;gap:8px 14px;flex-wrap:wrap;align-items:center;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 8px}",
+      ".rls-bar i{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:-1px;margin-right:5px}",
+      ".rls-chip{font-family:var(--mono);color:var(--ink-2);font-variant-numeric:tabular-nums;white-space:nowrap}",
+      ".rls-chip b{color:var(--ink);font-weight:600}",
+      ".rls-note{font-size:var(--fs-xs);color:var(--ink-3);margin:8px 0 0;max-width:90ch;line-height:1.5}",
+      ".rls-figure{display:flex;gap:6px 16px;flex-wrap:wrap;align-items:baseline;margin:0 0 6px}",
+      ".rls-big{font-size:var(--fs-l);color:var(--ink);font-variant-numeric:tabular-nums;font-weight:600}",
+      ".rls-ci{font-family:var(--mono);font-size:var(--fs-xs);color:var(--ink-3);font-variant-numeric:tabular-nums}",
+      ".rls-rows{margin-top:10px}",
+      ".rls-row{display:grid;grid-template-columns:minmax(74px,1fr) minmax(110px,2.4fr) 46px;gap:10px;align-items:center;padding:3px 2px;border-radius:5px;cursor:pointer;font-size:var(--fs-xs);color:var(--ink-2)}",
+      ".rls-row:hover,.rls-row:focus-visible{background:var(--surface-2);outline:none}",
+      ".rls-row[aria-current=true] .rls-lab{color:var(--ink);font-weight:600}",
+      ".rls-lab{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono)}",
+      ".rls-track{position:relative;height:10px;background:var(--surface-2);border-radius:2px}",
+      ".rls-track:before{content:'';position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--rule-2)}",
+      ".rls-fill{position:absolute;top:0;height:10px;border-radius:2px}",
+      ".rls-val{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink)}",
+      ".rls-table{border-collapse:collapse;width:100%;font-size:var(--fs-xs);font-variant-numeric:tabular-nums}",
+      ".rls-table th{font-family:var(--mono);font-weight:500;color:var(--ink-3);text-align:left;padding:2px 10px 5px 0;border-bottom:1px solid var(--rule);white-space:nowrap}",
+      ".rls-table td{padding:3px 10px 3px 0;white-space:nowrap;color:var(--ink-2)}",
+      ".rls-table td.num{text-align:right;font-family:var(--mono)}",
+      ".rls-details{margin-top:8px;font-size:var(--fs-xs)}",
+      ".rls-details summary{cursor:pointer;color:var(--ink-2)}",
+      ".rls-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);max-width:300px}",
+      ".rls-tip b{color:var(--ink)}",
+      ".rls-tip .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}",
+      "@media (max-width:640px){.rls-row{grid-template-columns:minmax(58px,1fr) minmax(80px,2fr) 44px}}",
+    ].join("\n");
+    document.head.appendChild(node);
+  }
+
+  // ------------------------------------------------------------- helpers
+
+  function isNum(v) { return typeof v === "number" && isFinite(v); }
+  function num(v, p) {
+    if (!isNum(v)) return "—";
+    var s = v.toFixed(p === undefined ? 2 : p);
+    if (s.indexOf(".") >= 0) s = s.replace(/0+$/, "").replace(/\.$/, "");
+    return s.replace("-", "−");
+  }
+  function pct(v) { return isNum(v) ? Math.round(v * 100) + "%" : "—"; }
+  function short(id) { return String(id || "").replace(/^(rl|t)\d+_/, "").replace(/_/g, " "); }
+  function trunc(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+  function hostWidth(host) {
+    var w = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0;
+    return Math.max(280, Math.min(1400, w || 320));
+  }
+  function responsive(host, draw, key) {
+    if (AgentDiff.charts && AgentDiff.charts.responsive) return AgentDiff.charts.responsive(host, draw, key);
+    draw();
+    return host;
+  }
+  function selectTask(ctx, id) {
+    var fn = ctx && typeof ctx.selectTask === "function" ? ctx.selectTask
+      : AgentDiff._internals && typeof AgentDiff._internals.selectTask === "function" ? AgentDiff._internals.selectTask : null;
+    if (fn && id) fn(id);
+  }
+  //: a linear map from the data domain onto pixels; a flat domain maps to r0
+  function scale(d0, d1, r0, r1) {
+    var span = d1 - d0;
+    if (!(Math.abs(span) > 1e-12)) return function () { return r0; };
+    return function (v) { return r0 + (v - d0) * (r1 - r0) / span; };
+  }
+  //: round tick values at roughly `count` intervals, so an axis never invents precision
+  function niceTicks(lo, hi, count) {
+    if (!(hi > lo)) return [lo];
+    var raw = (hi - lo) / Math.max(1, count);
+    var step = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10));
+    var err = raw / step;
+    if (err >= 7.5) step *= 10; else if (err >= 3.5) step *= 5; else if (err >= 1.5) step *= 2;
+    var out = [], t = Math.ceil(lo / step) * step;
+    for (var guard = 0; t <= hi + step * 1e-9 && guard < 40; guard++, t += step) out.push(Math.round(t / step) * step);
+    return out.length ? out : [lo, hi];
+  }
+
+  function tooltip(root) {
+    var tip = document.createElement("div");
+    tip.className = "rls-tip";
+    tip.hidden = true;
+    root.appendChild(tip);
+    return {
+      show: function (evt, lines) {
+        tip.innerHTML = "";
+        lines.forEach(function (l) {
+          if (!l) return;
+          var d = document.createElement("div");
+          if (l.mono) d.className = "mono";
+          if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text;
+          tip.appendChild(d);
+        });
+        tip.hidden = false;
+        var r = root.getBoundingClientRect();
+        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
+        if (x + 300 > r.width) x = Math.max(0, evt.clientX - r.left - 310);
+        tip.style.left = x + "px";
+        tip.style.top = y + "px";
+      },
+      hide: function () { tip.hidden = true; },
+    };
+  }
+
+  // --------------------------------------------------------------- model
+
+  /* The JSON as the blocks want it: the policies in the aggregate's order,
+   * each given the page's own A/B colour when it is one of the selected
+   * pair's sides, so a policy is the same colour here as in every other
+   * Training block. Nothing is recomputed — `s` is `aggregate.rl.stats`. */
+  var cache = null;
+  function model(ctx) {
+    var agg = ctx.aggregate || {}, report = ctx.report || null;
+    if (cache && cache.agg === agg && cache.report === report) return cache.m;
+    var m = null;
+    try { m = build(agg, report); } catch (err) { console.warn("AgentDiff rlstats: model failed", err); m = null; }
+    cache = { agg: agg, report: report, m: m };
+    return m;
+  }
+
+  function build(agg, report) {
+    var rl = agg && agg.rl && typeof agg.rl === "object" ? agg.rl : null;
+    var s = rl && rl.stats && typeof rl.stats === "object" ? rl.stats : null;
+    if (!s || !s.measurable || !Array.isArray(s.policies) || !s.policies.length) return null;
+    var an = report && report.a && report.a.agent && report.a.agent.name;
+    var bn = report && report.b && report.b.agent && report.b.agent.name;
+    var sideOf = {};
+    s.policies.forEach(function (n) { sideOf[n] = n === an ? "a" : n === bn ? "b" : null; });
+    var free = ["a", "b"].filter(function (side) {
+      return s.policies.every(function (n) { return sideOf[n] !== side; });
+    });
+    s.policies.forEach(function (n) { if (!sideOf[n] && free.length) sideOf[n] = free.shift(); });
+    var policies = s.policies.map(function (n, i) {
+      return {
+        name: n, side: sideOf[n],
+        color: sideOf[n] === "a" ? "var(--a)" : sideOf[n] === "b" ? "var(--b)" : i === 2 ? "var(--warn)" : "var(--ink-3)",
+        n: (s.n && isNum(s.n[n])) ? s.n[n] : null,
+        agg: (s.aggregates && s.aggregates[n]) || {},
+      };
+    });
+    return {
+      s: s, policies: policies, tasks: Array.isArray(s.tasks) ? s.tasks : [],
+      byTask: s.by_task && typeof s.by_task === "object" ? s.by_task : {},
+      profile: s.profile && typeof s.profile === "object" ? s.profile : null,
+      improvement: s.improvement && typeof s.improvement === "object" ? s.improvement : null,
+      advisory: s.advisory && typeof s.advisory === "object" ? s.advisory : null,
+      metric: s.metric_label || s.metric || "score",
+      higher: s.higher_is_better !== false,
+      target: s.target && typeof s.target === "object" ? s.target : null,
+      samples: s.bootstrap && isNum(s.bootstrap.samples) ? s.bootstrap.samples : null,
+    };
+  }
+
+  function legend(H, m, text) {
+    var bar = H("div", { class: "rls-bar" });
+    m.policies.forEach(function (p) {
+      bar.appendChild(H("span", { class: "rls-chip", "data-policy": p.name }, [
+        H("i", { style: { background: p.color } }),
+        H("b", { text: p.name }),
+        H("span", { text: " · " + text(p) }),
+      ]));
+    });
+    return bar;
+  }
+
+  function runsOn(m, task, policy) {
+    var cell = m.byTask[task];
+    var runs = cell && Array.isArray(cell[policy]) ? cell[policy] : [];
+    return runs.slice().sort(function (x, y) { return x - y; });
+  }
+
+  function taskLines(m, task) {
+    var lines = [{ b: true, text: short(task) }];
+    m.policies.forEach(function (p) {
+      var runs = runsOn(m, task, p.name);
+      lines.push({ mono: true, text: p.name + ": " + (runs.length ? runs.map(function (v) { return num(v); }).join("  ") : "no runs") });
+    });
+    lines.push({ text: "click to open this task" });
+    return lines;
+  }
+
+  //: the advisory sentence, never omitted — a wide interval must not read as a finding
+  function advisoryNote(H, m) {
+    var message = m.advisory && m.advisory.message ? String(m.advisory.message) : "";
+    if (!message) return null;
+    return H("p", { class: "rls-note rls-advisory", text: message });
+  }
+
+  // ------------------------------------------------ the aggregate interval plot
+
+  var ROWS = [
+    { key: "iqm", label: "IQM", hint: "the mean of the middle 50% of runs — the least moved by one exceptional episode" },
+    { key: "median", label: "median", hint: "the middle run; robust, but it throws away half the sample" },
+    { key: "mean", label: "mean", hint: "every run weighted equally, so one outlier carries it" },
+    { key: "optimality_gap", label: "optimality gap", sub: "lower is better", hint: "mean shortfall against the target — lower is better" },
+  ];
+
+  function drawAggregate(host, ctx, m, tip) {
+    host.innerHTML = "";
+    var H = ctx.h, S = ctx.svg;
+    var W = hostWidth(host);
+    var padL = W < 420 ? 78 : 104, padR = 10, padT = 8, padB = 24;
+    var rowH = 46, lineGap = 18;
+    var lo = Infinity, hi = -Infinity;
+    ROWS.forEach(function (row) {
+      m.policies.forEach(function (p) {
+        var cell = p.agg[row.key];
+        if (!cell) return;
+        [cell.point, cell.lo, cell.hi].forEach(function (v) {
+          if (!isNum(v)) return;
+          lo = Math.min(lo, v); hi = Math.max(hi, v);
+        });
+      });
+    });
+    if (!isFinite(lo)) { lo = 0; hi = 1; }
+    if (Math.abs(hi - lo) < 1e-9) { lo -= 1; hi += 1; }
+    // the axis starts where the data starts: one row's padding, never at zero
+    var padding = (hi - lo) * 0.06;
+    lo -= padding; hi += padding;
+    var height = padT + ROWS.length * rowH + padB;
+    var x = scale(lo, hi, padL, W - padR);
+    var node = S("svg", {
+      viewBox: "0 0 " + W + " " + height, width: W, height: height, role: "img",
+      "aria-label": "Aggregate " + m.metric + " per policy: " + ROWS.map(function (r) { return r.label; }).join(", ")
+        + ", each with a stratified bootstrap interval",
+    });
+
+    if (lo < 0 && hi > 0) {
+      node.appendChild(S("line", { class: "zero", x1: x(0), x2: x(0), y1: padT, y2: padT + ROWS.length * rowH, "stroke-width": 1 }));
+    }
+    niceTicks(lo, hi, W < 480 ? 3 : 5).forEach(function (t) {
+      if (t < lo || t > hi) return;
+      node.appendChild(S("line", { class: "rule", x1: x(t), x2: x(t), y1: padT + ROWS.length * rowH, y2: padT + ROWS.length * rowH + 4, "stroke-width": 1 }));
+      node.appendChild(S("text", { class: "tick", x: x(t), y: padT + ROWS.length * rowH + 16, "text-anchor": "middle", text: num(t) }));
+    });
+
+    ROWS.forEach(function (row, ri) {
+      var top = padT + ri * rowH;
+      var mid = top + rowH / 2;
+      var g = S("g", { class: "rls-metric", "data-metric": row.key });
+      node.appendChild(g);
+      g.appendChild(S("text", {
+        class: "lab", x: padL - 10, y: row.sub ? mid : mid + 4, "text-anchor": "end",
+        text: trunc(row.label, W < 420 ? 11 : 16),
+      }));
+      if (row.sub) {
+        g.appendChild(S("text", { class: "tick", x: padL - 10, y: mid + 13, "text-anchor": "end", text: row.sub }));
+      }
+      m.policies.forEach(function (p, pi) {
+        var cell = p.agg[row.key];
+        if (!cell || !isNum(cell.point)) return;
+        var y = top + (rowH - (m.policies.length - 1) * lineGap) / 2 + pi * lineGap;
+        var a = isNum(cell.lo) ? x(cell.lo) : x(cell.point);
+        var b = isNum(cell.hi) ? x(cell.hi) : x(cell.point);
+        var line = S("g", { class: "rls-int hit", "data-metric": row.key, "data-policy": p.name, "data-point": cell.point });
+        g.appendChild(line);
+        line.appendChild(S("line", { x1: a, x2: b, y1: y, y2: y, stroke: p.color, "stroke-width": 2, "stroke-opacity": 0.42, "stroke-linecap": "round" }));
+        [a, b].forEach(function (px) {
+          line.appendChild(S("line", { x1: px, x2: px, y1: y - 4, y2: y + 4, stroke: p.color, "stroke-width": 1.5, "stroke-opacity": 0.42 }));
+        });
+        line.appendChild(S("circle", { cx: x(cell.point), cy: y, r: 3.6, fill: p.color }));
+        line.appendChild(S("text", {
+          class: "val", x: clamp(x(cell.point), padL + 14, W - padR - 14), y: y - 6,
+          "text-anchor": "middle", fill: p.color, text: num(cell.point),
+        }));
+        line.appendChild(S("rect", { x: Math.min(a, b) - 6, y: y - 10, width: Math.abs(b - a) + 12, height: 20, fill: "transparent" }));
+        var lines = [
+          { b: true, text: p.name + " · " + row.label },
+          { mono: true, text: num(cell.point) + "  [" + num(cell.lo) + ", " + num(cell.hi) + "]" },
+          { text: cell.degenerate && cell.reason ? cell.reason : row.hint },
+        ];
+        line.addEventListener("pointermove", function (evt) { tip.show(evt, lines); });
+        line.addEventListener("pointerleave", tip.hide);
+      });
+    });
+    host.appendChild(node);
+  }
+
+  //: do the two policies' intervals on `key` overlap? null when there is no pair
+  function overlapOn(m, key) {
+    if (m.policies.length !== 2) return null;
+    var a = m.policies[0].agg[key], b = m.policies[1].agg[key];
+    if (!a || !b || !isNum(a.lo) || !isNum(a.hi) || !isNum(b.lo) || !isNum(b.hi)) return null;
+    return a.lo <= b.hi && b.lo <= a.hi;
+  }
+
+  AgentDiff.block({
+    id: "rl-stats-aggregate",
+    title: "Aggregate score, with intervals",
+    question: "IQM, median, mean and optimality gap for each policy — and whether the bootstrap intervals over these runs actually separate them.",
+    group: "training",
+    size: "wide",
+    relevance: function (ctx) { return model(ctx) ? 0.795 : 0; },
+    render: function (el, ctx) {
+      ensureStyle();
+      var H = ctx.h, m = model(ctx);
+      var root = H("div", { class: "rls rls-aggregate" });
+      el.appendChild(root);
+      var tip = tooltip(root);
+
+      var overlap = overlapOn(m, "iqm");
+      var head;
+      if (overlap === null) {
+        head = "IQM " + m.metric + " per policy, each with its stratified bootstrap interval.";
+      } else {
+        var a = m.policies[0], b = m.policies[1];
+        var ahead = a.agg.iqm.point > b.agg.iqm.point ? a : b;
+        head = overlap
+          ? "The IQM intervals overlap: these runs do not separate " + a.name + " from " + b.name + ". "
+            + "That is not the same as the policies being equal — it is the sample saying so."
+          : "The IQM intervals do not overlap: over these runs " + ahead.name + " is ahead at every resample.";
+      }
+      root.appendChild(H("p", { class: "rls-head rls-verdict", "data-overlap": overlap === null ? "" : String(overlap), text: head }));
+      root.appendChild(legend(H, m, function (p) {
+        var iqm = p.agg.iqm || {};
+        return "IQM " + num(iqm.point) + " [" + num(iqm.lo) + ", " + num(iqm.hi) + "] · n=" + (isNum(p.n) ? p.n : "?");
+      }));
+
+      var chart = H("div", { class: "rls-chart" });
+      root.appendChild(responsive(chart, function () { drawAggregate(chart, ctx, m, tip); }, "rl-stats-aggregate"));
+
+      var details = H("details", { class: "rls-details" }, [H("summary", { text: "every number, both policies" })]);
+      var table = H("table", { class: "rls-table" });
+      var head2 = [H("th", { text: "metric" })];
+      m.policies.forEach(function (p) { head2.push(H("th", { text: p.name })); });
+      table.appendChild(H("tr", null, head2));
+      ROWS.forEach(function (row) {
+        var tr = H("tr", { "data-metric": row.key }, [H("td", { text: row.label })]);
+        m.policies.forEach(function (p) {
+          var cell = p.agg[row.key] || {};
+          tr.appendChild(H("td", { class: "num", text: num(cell.point) + " [" + num(cell.lo) + ", " + num(cell.hi) + "]" }));
+        });
+        table.appendChild(tr);
+      });
+      details.appendChild(table);
+      root.appendChild(details);
+
+      var target = m.target || {};
+      root.appendChild(H("p", { class: "rls-note", text:
+        "Score: " + m.metric + (m.higher ? ", higher is better. " : ", lower is better. ")
+        + "The interval is a percentile bootstrap over " + (isNum(m.samples) ? m.samples : "the") + " resamples, "
+        + "stratified by task: runs are redrawn with replacement within each task, and every task keeps its own run count. "
+        + (target.note ? target.note.charAt(0).toUpperCase() + target.note.slice(1) + "." : "") }));
+      var advisory = advisoryNote(H, m);
+      if (advisory) root.appendChild(advisory);
+    },
+  });
+
+  // ------------------------------------------------------- performance profile
+
+  function drawProfile(host, ctx, m, tip) {
+    host.innerHTML = "";
+    var H = ctx.h, S = ctx.svg;
+    var profile = m.profile;
+    var taus = profile.taus || [];
+    var W = hostWidth(host);
+    var padL = 44, padR = 12, padT = 10, padB = 26;
+    var height = Math.max(160, Math.min(240, Math.round(W * 0.34))) + padT + padB;
+    var plotBottom = height - padB, plotTop = padT;
+    var lo = taus.length ? taus[0] : 0, hi = taus.length ? taus[taus.length - 1] : 1;
+    var x = scale(lo, hi, padL, W - padR);
+    var y = scale(0, 1, plotBottom, plotTop);
+    var node = S("svg", {
+      viewBox: "0 0 " + W + " " + height, width: W, height: height, role: "img",
+      "aria-label": "Performance profile: " + (profile.rule || "fraction of runs reaching τ") + ", per policy, with a bootstrap band",
+    });
+
+    [0, 0.5, 1].forEach(function (f) {
+      node.appendChild(S("line", { class: "rule", x1: padL, x2: W - padR, y1: y(f), y2: y(f), "stroke-width": 1, "stroke-dasharray": f === 0.5 ? "2 4" : null }));
+      node.appendChild(S("text", { class: "tick", x: padL - 6, y: y(f) + 4, "text-anchor": "end", text: Math.round(f * 100) + "%" }));
+    });
+    if (lo < 0 && hi > 0) node.appendChild(S("line", { class: "zero", x1: x(0), x2: x(0), y1: plotTop, y2: plotBottom, "stroke-width": 1 }));
+    niceTicks(lo, hi, W < 480 ? 3 : 6).forEach(function (t) {
+      if (t < lo || t > hi) return;
+      node.appendChild(S("text", { class: "tick", x: x(t), y: plotBottom + 16, "text-anchor": "middle", text: num(t) }));
+    });
+    (profile.crossings || []).forEach(function (t) {
+      if (t < lo || t > hi) return;
+      node.appendChild(S("line", { class: "rls-cross", x1: x(t), x2: x(t), y1: plotTop, y2: plotBottom, stroke: "var(--ink-3)", "stroke-width": 1, "stroke-dasharray": "1 3" }));
+    });
+
+    m.policies.forEach(function (p) {
+      var rows = (profile.curves || {})[p.name];
+      if (!Array.isArray(rows) || !rows.length) return;
+      var up = rows.map(function (r) { return x(r[0]) + "," + y(r[3]); });
+      var down = rows.slice().reverse().map(function (r) { return x(r[0]) + "," + y(r[2]); });
+      node.appendChild(S("polygon", { class: "rls-band", "data-policy": p.name, points: up.concat(down).join(" "), fill: p.color, "fill-opacity": 0.15, stroke: "none" }));
+      node.appendChild(S("polyline", {
+        class: "rls-curve", "data-policy": p.name, fill: "none", stroke: p.color, "stroke-width": 1.8,
+        points: rows.map(function (r) { return x(r[0]) + "," + y(r[1]); }).join(" "),
+      }));
+    });
+
+    var tracker = S("line", { x1: 0, x2: 0, y1: plotTop, y2: plotBottom, stroke: "var(--ink-3)", "stroke-width": 1, opacity: 0 });
+    node.appendChild(tracker);
+    var surface = S("rect", { class: "hit", x: padL, y: plotTop, width: Math.max(1, W - padR - padL), height: Math.max(1, plotBottom - plotTop), fill: "transparent" });
+    node.appendChild(surface);
+    surface.addEventListener("pointermove", function (evt) {
+      if (!taus.length) return;
+      var box = node.getBoundingClientRect();
+      var px = (evt.clientX - box.left) * (W / Math.max(1, box.width));
+      var best = 0, bestD = Infinity;
+      taus.forEach(function (t, i) { var d = Math.abs(x(t) - px); if (d < bestD) { bestD = d; best = i; } });
+      tracker.setAttribute("x1", x(taus[best]));
+      tracker.setAttribute("x2", x(taus[best]));
+      tracker.setAttribute("opacity", 0.5);
+      var lines = [{ b: true, text: "τ = " + num(taus[best]) }];
+      m.policies.forEach(function (p) {
+        var row = ((profile.curves || {})[p.name] || [])[best];
+        if (!row) return;
+        lines.push({ mono: true, text: p.name + ": " + pct(row[1]) + " of runs  [" + pct(row[2]) + ", " + pct(row[3]) + "]" });
+      });
+      tip.show(evt, lines);
+    });
+    surface.addEventListener("pointerleave", function () { tracker.setAttribute("opacity", 0); tip.hide(); });
+    host.appendChild(node);
+  }
+
+  AgentDiff.block({
+    id: "rl-stats-profile",
+    title: "Performance profile",
+    question: "For every threshold τ, what fraction of each policy's runs clears it — a whole distribution rather than one number, and whether the two curves cross.",
+    group: "training",
+    size: "wide",
+    relevance: function (ctx) {
+      var m = model(ctx);
+      if (!m || !m.profile || !Array.isArray(m.profile.taus) || m.profile.taus.length < 2) return 0;
+      return 0.794;
+    },
+    render: function (el, ctx) {
+      ensureStyle();
+      var H = ctx.h, m = model(ctx), profile = m.profile;
+      var root = H("div", { class: "rls rls-profile" });
+      el.appendChild(root);
+      var tip = tooltip(root);
+      root.appendChild(H("p", { class: "rls-head rls-reading",
+        "data-crossings": (profile.crossings || []).length,
+        text: (profile.reading ? profile.reading.charAt(0).toUpperCase() + profile.reading.slice(1) : "") + "." }));
+      root.appendChild(legend(H, m, function (p) { return "n=" + (isNum(p.n) ? p.n : "?") + " runs"; }));
+      var chart = H("div", { class: "rls-chart" });
+      root.appendChild(responsive(chart, function () { drawProfile(chart, ctx, m, tip); }, "rl-stats-profile"));
+      root.appendChild(H("p", { class: "rls-note", text:
+        "Vertical: the " + (profile.rule || "fraction of runs reaching τ") + ". Horizontal: τ in " + m.metric + ", running from "
+        + "the lowest to the highest score any run reached — the axis starts at the data, not at zero, and the zero line is drawn "
+        + "where it falls. "
+        + "The band is the stratified bootstrap of the same fraction. A curve everywhere above the other is ahead at every "
+        + "threshold; a crossing (dotted) means the ordering depends on where the bar is set." }));
+    },
+  });
+
+  // --------------------------------------------------- probability of improvement
+
+  function drawImprovement(host, ctx, m, tip) {
+    host.innerHTML = "";
+    var S = ctx.svg;
+    var imp = m.improvement;
+    var W = hostWidth(host);
+    var padL = 10, padR = 10, height = 54;
+    var x = scale(0, 1, padL, W - padR);
+    var color = m.policies.length === 2 ? m.policies[1].color : "var(--ink-2)";
+    var node = S("svg", {
+      viewBox: "0 0 " + W + " " + height, width: W, height: height, role: "img",
+      "aria-label": "Probability that a random run of " + imp.b + " beats a random run of " + imp.a
+        + " on the same task: " + pct(imp.point) + ", bootstrap interval " + pct(imp.lo) + " to " + pct(imp.hi),
+    });
+    var y = 20;
+    node.appendChild(S("line", { class: "rule", x1: padL, x2: W - padR, y1: y, y2: y, "stroke-width": 1 }));
+    node.appendChild(S("line", { class: "zero", x1: x(0.5), x2: x(0.5), y1: y - 13, y2: y + 13, "stroke-width": 1.5 }));
+    node.appendChild(S("text", { class: "tick", x: x(0.5), y: height - 5, "text-anchor": "middle", text: "50% · a coin flip" }));
+    node.appendChild(S("text", { class: "tick", x: padL, y: height - 5, "text-anchor": "start", text: "0%" }));
+    node.appendChild(S("text", { class: "tick", x: W - padR, y: height - 5, "text-anchor": "end", text: "100%" }));
+    if (isNum(imp.lo) && isNum(imp.hi)) {
+      node.appendChild(S("line", { class: "rls-int", x1: x(imp.lo), x2: x(imp.hi), y1: y, y2: y, stroke: color, "stroke-width": 6, "stroke-opacity": 0.3, "stroke-linecap": "round" }));
+    }
+    if (isNum(imp.point)) node.appendChild(S("circle", { class: "rls-point", cx: x(imp.point), cy: y, r: 4.5, fill: color }));
+    host.appendChild(node);
+  }
+
+  AgentDiff.block({
+    id: "rl-stats-improvement",
+    title: "Probability of improvement",
+    question: "How often a random run of one policy beats a random run of the other on the same task — which is not the same question as whose mean is higher.",
+    group: "training",
+    size: "normal",
+    relevance: function (ctx) {
+      var m = model(ctx);
+      return m && m.improvement && m.improvement.measurable && isNum(m.improvement.point) ? 0.793 : 0;
+    },
+    render: function (el, ctx) {
+      ensureStyle();
+      var H = ctx.h, m = model(ctx), imp = m.improvement;
+      var root = H("div", { class: "rls rls-improve" });
+      el.appendChild(root);
+      var tip = tooltip(root);
+      root.appendChild(H("div", { class: "rls-figure" }, [
+        H("span", { class: "rls-big", "data-p": imp.point, text: "P(" + imp.b + " > " + imp.a + ") = " + pct(imp.point) }),
+        H("span", { class: "rls-ci", text: "[" + pct(imp.lo) + ", " + pct(imp.hi) + "]" }),
+      ]));
+      var chart = H("div", { class: "rls-chart" });
+      root.appendChild(responsive(chart, function () { drawImprovement(chart, ctx, m, tip); }, "rl-stats-improvement"));
+      root.appendChild(H("p", { class: "rls-head rls-reading", text:
+        imp.reading ? imp.reading.charAt(0).toUpperCase() + imp.reading.slice(1) : "" }));
+
+      var per = imp.per_task && typeof imp.per_task === "object" ? imp.per_task : {};
+      var ids = Object.keys(per).sort(function (p, q) { return per[p] - per[q]; });
+      if (ids.length) {
+        var rows = H("div", { class: "rls-rows", role: "list" });
+        ids.forEach(function (id) {
+          var p = per[id];
+          var worse = p < 0.5;
+          var fill = H("div", { class: "rls-fill", style: worse
+            ? { right: "50%", width: (100 * (0.5 - p)) + "%", background: m.policies[0] ? m.policies[0].color : "var(--bad)" }
+            : { left: "50%", width: (100 * (p - 0.5)) + "%", background: m.policies[1] ? m.policies[1].color : "var(--good)" } });
+          var row = H("div", {
+            class: "rls-row", role: "listitem", tabindex: "0", "data-task": id, "data-p": p,
+            "aria-current": ctx.task === id ? "true" : "false",
+            "aria-label": short(id) + ": " + pct(p),
+            onclick: function () { selectTask(ctx, id); },
+            onkeydown: function (evt) { if (evt.key === "Enter" || evt.key === " ") { evt.preventDefault(); selectTask(ctx, id); } },
+          }, [
+            H("span", { class: "rls-lab", text: short(id) }),
+            H("div", { class: "rls-track" }, [fill]),
+            H("span", { class: "rls-val", text: pct(p) }),
+          ]);
+          var lines = taskLines(m, id).concat([{ text: "P(" + imp.b + " > " + imp.a + ") on this task: " + pct(p) }]);
+          row.addEventListener("pointermove", function (evt) { tip.show(evt, lines); });
+          row.addEventListener("pointerleave", tip.hide);
+          row.addEventListener("focus", function () { tip.hide(); });
+          rows.appendChild(row);
+        });
+        root.appendChild(rows);
+      }
+      if (Array.isArray(imp.tasks_skipped) && imp.tasks_skipped.length) {
+        root.appendChild(H("p", { class: "rls-note", text:
+          "Excluded, because only one policy ran them: " + imp.tasks_skipped.map(short).join(", ") + "." }));
+      }
+      root.appendChild(H("p", { class: "rls-note", text:
+        "Per task, every run of " + imp.b + " is compared against every run of " + imp.a + " (a tie counts a half), "
+        + "and the tasks are averaged — so one task cannot dominate by having more runs, and one enormous episode "
+        + "cannot win more than one comparison. The interval is the same stratified bootstrap." }));
+      var advisory = advisoryNote(H, m);
+      if (advisory) root.appendChild(advisory);
+    },
+  });
+})(typeof window !== "undefined" ? window : this);
+
+</script>
+<!-- 29_rlaudit.js -->
+<script>
+/* AgentDiff blocks — auditing the signal itself.
+ *
+ * Every other training block reads a policy by what it earned. These two
+ * ask the question one layer down, the one nobody asks until a policy is
+ * already gamed:
+ *
+ *   rl-audit-reward  is the reward measuring the right thing? the return
+ *                    against the outcome, episode by episode, with the
+ *                    disagreeing ones ringed and named; the concentration
+ *                    reading; the steps paid while labelled bad
+ *   rl-audit-critic  does the critic know what is coming? the value
+ *                    estimate against the realised discounted return-to-go
+ *                    with the y = x line as the only reference, the decile
+ *                    calibration curve over it, the residuals as a
+ *                    marginal, and the explained variance said in words
+ *
+ * Both read `aggregate.rl.audit` (deepcompare/rlaudit.py) and fall back to
+ * `report.rl.audit` for a single pair. Every number drawn here is one the
+ * engine computed and wrote down — nothing is recomputed in the page, so
+ * the chart and the finding list cannot drift apart.
+ */
+(function (global) {
+  "use strict";
+  var AgentDiff = global.AgentDiff;
+  if (!AgentDiff) return;
+  var d3 = global.d3;
+
+  var styled = false;
+  function ensureStyle() {
+    if (styled) return;
+    styled = true;
+    var node = document.createElement("style");
+    node.textContent = [
+      ".rlq{position:relative}",
+      ".rlq svg{display:block;width:100%;height:auto;font-family:var(--sans)}",
+      ".rlq .lab{font-size:var(--fs-xs);fill:var(--ink-2)}.rlq .lab.dim{fill:var(--ink-3)}",
+      ".rlq .tick{font-size:var(--fs-xs);fill:var(--ink-3);font-variant-numeric:tabular-nums}",
+      ".rlq .zero{stroke:var(--rule-2)}.rlq .diag{stroke:var(--ink-3);stroke-dasharray:3 3;fill:none}",
+      ".rlq-lede{font-size:var(--fs-m);color:var(--ink);margin:0 0 6px;max-width:90ch}",
+      ".rlq-lede b{font-weight:650}",
+      ".rlq-bar{display:flex;gap:8px 14px;flex-wrap:wrap;align-items:center;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 8px}",
+      ".rlq-bar i{display:inline-block;width:9px;height:9px;border-radius:50%;vertical-align:-1px;margin-right:5px}",
+      ".rlq-chip{font-family:var(--mono);color:var(--ink-2);font-variant-numeric:tabular-nums;white-space:nowrap}",
+      "@media (max-width:560px){.rlq-chip{white-space:normal}}",
+      ".rlq-chip b{color:var(--ink);font-weight:600}",
+      ".rlq-bar button{font:inherit;font-size:var(--fs-xs);border:0;background:var(--surface-2);color:var(--ink-3);border-radius:999px;padding:1px 9px;cursor:pointer}",
+      ".rlq-bar button[aria-pressed=true]{background:var(--ink-3);color:var(--surface)}",
+      ".rlq-bar button:hover{color:var(--ink)}.rlq-bar button[aria-pressed=true]:hover{color:var(--surface)}",
+      ".rlq-note{font-size:var(--fs-xs);color:var(--ink-3);margin:6px 0 0;max-width:90ch;line-height:1.45}",
+      ".rlq-row{display:flex;gap:14px 18px;flex-wrap:wrap;align-items:flex-start}",
+      ".rlq-row>.rlq-main{flex:3 1 320px;min-width:0}.rlq-row>.rlq-side{flex:1 1 220px;min-width:0}",
+      ".rlq-h{font-size:var(--fs-xs);color:var(--ink-3);text-transform:uppercase;letter-spacing:.07em;margin:0 0 5px}",
+      ".rlq-strip{display:flex;height:9px;border-radius:2px;overflow:hidden;margin:0 0 6px}",
+      ".rlq-strip span{display:block;height:100%}",
+      ".rlq-kv{display:grid;grid-template-columns:1fr auto;gap:2px 10px;font-size:var(--fs-xs);color:var(--ink-3);font-variant-numeric:tabular-nums;margin:0 0 8px}",
+      ".rlq-kv b{color:var(--ink);font-weight:600;font-family:var(--mono)}",
+      ".rlq-list{list-style:none;margin:0;padding:0}",
+      ".rlq-list li{display:grid;grid-template-columns:1fr auto;gap:0 10px;padding:3px 4px;border-radius:5px;font-size:var(--fs-xs);color:var(--ink-3)}",
+      ".rlq-list li.hit{cursor:pointer}.rlq-list li.hit:hover,.rlq-list li.hit:focus-visible{background:var(--surface-2);outline:none;color:var(--ink-2)}",
+      ".rlq-list .who{font-family:var(--mono);color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+      ".rlq-list .amt{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink);white-space:nowrap}",
+      ".rlq-list .why{grid-column:1/-1;color:var(--ink-3)}",
+      ".rlq .pt{cursor:default}.rlq .pt.hit{cursor:pointer}.rlq .pt.hit:hover{stroke-width:2.5}",
+      ".rlq .ring{fill:none;stroke-width:1.4;pointer-events:none}",
+      ".rlq-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);max-width:300px}",
+      ".rlq-tip b{color:var(--ink)}",
+      ".rlq-scroll{overflow-x:auto;max-width:100%}",
+      /* the audit reads across the whole desk: the scatter needs the width,
+         and the panel beside it is the evidence for the same sentence */
+      'body[data-view="training"] .stack>[data-block="rl-audit-reward"],',
+      'body[data-view="training"] .stack>[data-block="rl-audit-critic"]{grid-column:1/-1}',
+    ].join("\n");
+    document.head.appendChild(node);
+  }
+
+  // ------------------------------------------------------------ helpers
+
+  function isNum(v) { return typeof v === "number" && isFinite(v); }
+  function plain(v, p) { return isNum(v) ? v.toFixed(p === undefined ? 2 : p).replace("-", "−") : "—"; }
+  function signed(v, p) {
+    if (!isNum(v)) return "—";
+    var s = Math.abs(v).toFixed(p === undefined ? 2 : p);
+    return v > 0 ? "+" + s : v < 0 ? "−" + s : s;
+  }
+  function pct(v, p) { return isNum(v) ? (100 * v).toFixed(p === undefined ? 0 : p) + "%" : "—"; }
+  function short(id) { return String(id || "").replace(/^(rl|t)\d+_/, "").replace(/_/g, " "); }
+  function trunc(s, n) { s = String(s === null || s === undefined ? "" : s); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  function width(host) {
+    var w = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0;
+    return Math.max(280, Math.min(1120, w || 320));
+  }
+  function responsive(host, draw, k) {
+    if (AgentDiff.charts && AgentDiff.charts.responsive) return AgentDiff.charts.responsive(host, draw, k);
+    draw(); return host;
+  }
+  function selectStep(report, side, step) {
+    if (AgentDiff.charts && AgentDiff.charts.selectStep && report && side && isNum(step)) {
+      AgentDiff.charts.selectStep(report, side, step);
+    }
+  }
+  function tooltip(root) {
+    var tip = document.createElement("div"); tip.className = "rlq-tip"; tip.hidden = true; root.appendChild(tip);
+    return {
+      show: function (evt, lines) {
+        tip.innerHTML = "";
+        lines.forEach(function (l) {
+          if (!l) return;
+          var d = document.createElement("div");
+          if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text;
+          tip.appendChild(d);
+        });
+        tip.hidden = false;
+        var r = root.getBoundingClientRect();
+        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
+        if (x + 300 > r.width) x = Math.max(0, evt.clientX - r.left - 310);
+        tip.style.left = x + "px"; tip.style.top = y + "px";
+      },
+      hide: function () { tip.hidden = true; },
+    };
+  }
+
+  // -------------------------------------------------------------- model
+
+  /* The audit as the engine wrote it, plus the page's own colours for the
+   * policies and the side each episode sits on in the open pair (so a row
+   * can click through to the step it names). */
+  var cache = null;
+  function model(ctx) {
+    var agg = ctx.aggregate || {}, report = ctx.report || null;
+    if (cache && cache.agg === agg && cache.report === report) return cache.m;
+    var m;
+    try { m = build(agg, report); } catch (err) { console.warn("AgentDiff rl-audit: model failed", err); m = build({}, null); }
+    cache = { agg: agg, report: report, m: m };
+    return m;
+  }
+
+  function build(agg, report) {
+    var rl = agg && agg.rl && typeof agg.rl === "object" ? agg.rl : null;
+    var audit = rl && rl.audit && typeof rl.audit === "object" ? rl.audit : null;
+    var scope = audit ? "batch" : null;
+    if (!audit && report && report.rl && report.rl.audit && typeof report.rl.audit === "object") {
+      audit = report.rl.audit; scope = "pair";
+    }
+    var m = { audit: null, scope: scope, gamma: 0.99, policies: [], colors: {}, report: report };
+    if (!audit || !audit.measurable) return m;
+    m.audit = audit;
+    m.gamma = isNum(audit.gamma) ? audit.gamma : 0.99;
+    var an = report && report.a && report.a.agent && report.a.agent.name;
+    var bn = report && report.b && report.b.agent && report.b.agent.name;
+    var names = Array.isArray(audit.policies) ? audit.policies.slice() : [];
+    var sideOf = {};
+    names.forEach(function (n) { sideOf[n] = n === an ? "a" : n === bn ? "b" : null; });
+    var free = ["a", "b"].filter(function (s) { return names.every(function (n) { return sideOf[n] !== s; }); });
+    names.forEach(function (n) { if (!sideOf[n] && free.length) sideOf[n] = free.shift(); });
+    names.sort(function (x, y) {
+      var rank = { a: 0, b: 1 };
+      return (sideOf[x] in rank ? rank[sideOf[x]] : 2) - (sideOf[y] in rank ? rank[sideOf[y]] : 2);
+    });
+    names.forEach(function (n) {
+      var color = sideOf[n] === "a" ? "var(--a)" : sideOf[n] === "b" ? "var(--b)" : "var(--ink-3)";
+      m.colors[n] = color;
+      m.policies.push({ name: n, side: sideOf[n], color: color });
+    });
+    return m;
+  }
+
+  function colorOf(m, name) { return m.colors[name] || "var(--ink-3)"; }
+
+  /* Which side of the open pair a finding sits on, when it sits on one at
+   * all: the page can only open a step it is actually showing. */
+  function sideFor(m, row) {
+    if (!m.report || !row) return null;
+    if (m.scope === "pair") return row.side || null;
+    var task = m.report.task && m.report.task.id;
+    if (!task || String(row.task_id) !== String(task)) return null;
+    for (var i = 0; i < 2; i++) {
+      var side = i ? "b" : "a", block = m.report[side];
+      if (!block || !block.agent || block.agent.name !== row.agent) continue;
+      var rid = block.run_id === null || block.run_id === undefined ? null : String(block.run_id);
+      if (row.run_id && rid && String(row.run_id) !== rid) continue;
+      return side;
+    }
+    return null;
+  }
+
+  function policyChips(H, m, text) {
+    var bar = H("div", { class: "rlq-bar" });
+    m.policies.forEach(function (p) {
+      var t = text(p);
+      if (t === null) return;
+      bar.appendChild(H("span", { class: "rlq-chip", "data-policy": p.name }, [
+        H("i", { style: { background: p.color } }), H("b", { text: p.name }), H("span", { text: " · " + t }),
+      ]));
+    });
+    return bar;
+  }
+
+  // ------------------------------------------- 1. is the reward right?
+
+  var MEASURE = {};   //: the chosen x measure per block instance, by id
+
+  function measures(audit) {
+    var d = audit.reward.disagreement || {};
+    var scopes = d.scopes || {};
+    var out = [{ key: "return", label: "return", field: "return",
+                 inversions: (scopes.by_task || scopes.pooled || {}).inversions || 0,
+                 pairs: (scopes.by_task || scopes.pooled || {}).pairs_n || 0 }];
+    if (scopes.shaping && scopes.shaping.pairs_n) {
+      out.push({ key: "shaping", label: "shaping only", field: "shaping_return",
+                 inversions: scopes.shaping.inversions || 0, pairs: scopes.shaping.pairs_n || 0 });
+    }
+    return out;
+  }
+
+  /* The sentence that answers the question, before any chart. */
+  function verdict(audit) {
+    var d = audit.reward.disagreement || {};
+    if (!d.measurable) return { head: "Not from these episodes.", rest: d.reason || "" };
+    var scopes = d.scopes || {}, task = scopes.by_task || scopes.pooled || {}, sh = scopes.shaping || {};
+    if (task.inversions) {
+      return { head: "No — the return and the outcome disagree.",
+               rest: task.inversions + " of " + task.pairs_n + " ordered pairs within a task put a failed episode "
+                     + "above a passing one, which is where a policy collects return without passing." };
+    }
+    if (sh.inversions) {
+      return { head: "Only through its last step.",
+               rest: "The return never puts a failed episode above a passing one on the same task (" + task.pairs_n
+                     + " ordered pairs). Take the last step out and the dense shaping that remains gets "
+                     + sh.inversions + " of " + sh.pairs_n + " the wrong way round — so the agreement is the "
+                     + "outcome term restating itself, not the shaping tracking the outcome." };
+    }
+    return { head: "As far as these episodes can show, yes.",
+             rest: "No failed episode out-earns a passing one on the same task, over " + task.pairs_n
+                   + " ordered pairs, and the shaping alone orders them the same way." };
+  }
+
+  function drawOutcomes(host, ctx, m, measure, tip) {
+    if (!d3) return;
+    var audit = m.audit, rows = audit.reward.episodes || [];
+    var d = audit.reward.disagreement || {};
+    var showRings = d.findings_basis === measure.key
+      || (d.findings_basis === "by_task" && measure.key === "return")
+      || (d.findings_basis === "pooled" && measure.key === "return");
+    var W = width(host), R = 3.2;
+    var pad = { l: 76, r: 14, t: 22, b: 34 };
+    var vals = rows.map(function (r) { return r[measure.field]; }).filter(isNum);
+    if (!vals.length) return;
+    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    if (lo === hi) { lo -= 1; hi += 1; }
+    var x = d3.scaleLinear().domain([lo, hi]).nice().range([pad.l, W - pad.r]);
+    var lanes = [{ key: true, label: "passed" }, { key: false, label: "failed" }];
+    // deterministic stacking: points near each other on x step away from the
+    // lane in a fixed order, so the same data always draws the same picture
+    var placed = {};
+    lanes.forEach(function (lane) {
+      var mine = rows.filter(function (r) { return r.success === lane.key && isNum(r[measure.field]); })
+        .sort(function (p, q) {
+          return (p[measure.field] - q[measure.field]) || (p.agent < q.agent ? -1 : p.agent > q.agent ? 1 : 0)
+            || (String(p.task_id) < String(q.task_id) ? -1 : 1) || (String(p.run_id) < String(q.run_id) ? -1 : 1);
+        });
+      var lastX = -1e9, depth = 0, maxDepth = 0;
+      mine.forEach(function (r) {
+        var px = x(r[measure.field]);
+        if (px - lastX < 2 * R - 0.5) { depth += 1; } else { depth = 0; lastX = px; }
+        maxDepth = Math.max(maxDepth, depth);
+        r._px = px; r._depth = depth;
+      });
+      placed[String(lane.key)] = { rows: mine, depth: maxDepth };
+    });
+    // passes stack upward and failures downward from their own baselines, so
+    // a deep pile never climbs out of the frame
+    var STEP = R * 1.55, GAP = 30;
+    var up = placed["true"].depth * STEP, down = placed["false"].depth * STEP;
+    var yOf = { "true": pad.t + up + R, "false": pad.t + up + R + GAP };
+    var Hh = yOf["false"] + down + R + pad.b;
+    var svg = d3.select(host).append("svg").attr("viewBox", "0 0 " + W + " " + Hh).attr("role", "img")
+      .attr("aria-label", "each episode's " + measure.label + " on the horizontal axis, passing episodes on the top "
+        + "row and failing episodes below, coloured by policy"
+        + (showRings && d.findings_n ? "; the " + d.findings_n + " episodes the outcome disagrees with are ringed" : ""));
+    x.ticks(Math.max(3, Math.min(7, Math.round(W / 130)))).forEach(function (v) {
+      svg.append("text").attr("class", "tick").attr("x", x(v)).attr("y", Hh - pad.b + 15)
+        .attr("text-anchor", "middle").text(signed(v, 0));
+    });
+    if (x.domain()[0] < 0 && x.domain()[1] > 0) {
+      svg.append("line").attr("class", "zero").attr("x1", x(0)).attr("x2", x(0))
+        .attr("y1", pad.t - 2).attr("y2", Hh - pad.b);
+    }
+    svg.append("text").attr("class", "lab dim").attr("x", W - pad.r).attr("y", pad.t - 4)
+      .attr("text-anchor", "end").text(measure.label + " →");
+    lanes.forEach(function (lane, li) {
+      var y0 = yOf[String(lane.key)];
+      var bundle = placed[String(lane.key)];
+      svg.append("text").attr("class", "lab").attr("x", pad.l - 10).attr("y", y0 + 4)
+        .attr("text-anchor", "end").text(lane.label + " " + bundle.rows.length);
+      bundle.rows.forEach(function (r) {
+        var dir = li ? 1 : -1;                       // passes stack up, failures down
+        var cy = y0 + dir * r._depth * STEP;
+        var side = sideFor(m, r);
+        var g = svg.append("g").attr("class", "rlq-ep");
+        if (showRings && r.flagged) {
+          g.append("circle").attr("class", "ring").attr("cx", r._px).attr("cy", cy).attr("r", R + 3)
+            .attr("stroke", "var(--warn, var(--bad))");
+        }
+        g.append("circle").attr("class", "pt" + (side ? " hit" : "")).attr("data-policy", r.agent)
+          .attr("data-task", r.task_id).attr("data-run", r.run_id).attr("data-flagged", r.flagged ? "true" : "false")
+          .attr("cx", r._px).attr("cy", cy).attr("r", R)
+          .attr("fill", colorOf(m, r.agent)).attr("fill-opacity", lane.key ? 0.85 : 0.35)
+          .attr("stroke", colorOf(m, r.agent)).attr("stroke-width", 1)
+          .on("pointermove", function (evt) {
+            tip.show(evt, [
+              { b: true, text: r.agent + " · " + short(r.task_id) + (r.run_id ? " · " + r.run_id : "") },
+              { text: measure.label + " " + signed(r[measure.field]) + " · " + (r.success ? "passed" : "failed")
+                  + " · " + r.steps + " steps" },
+              { text: "return " + signed(r["return"]) + ", of which the last step paid " + signed(r.last_reward) },
+              showRings && r.flagged ? { text: "the outcome disagrees with this one" } : null,
+              side ? { text: "click to open this run" } : null]);
+          })
+          .on("pointerleave", tip.hide)
+          .on("click", function () { tip.hide(); if (side) selectStep(m.report, side, 0); });
+      });
+    });
+    // the named ones: the largest disagreements, labelled where they sit
+    if (showRings) {
+      (d.findings || []).slice(0, 3).forEach(function (f) {
+        var r = rows.filter(function (row) {
+          return row.agent === f.agent && String(row.task_id) === String(f.task_id) && String(row.run_id) === String(f.run_id);
+        })[0];
+        if (!r || !isNum(r._px)) return;
+        var li = r.success ? 0 : 1, cy = yOf[String(r.success)] + (li ? 1 : -1) * r._depth * STEP;
+        var anchor = r._px > W * 0.72 ? "end" : "start";
+        svg.append("text").attr("class", "lab").attr("x", r._px + (anchor === "end" ? -(R + 6) : R + 6))
+          .attr("y", cy + (li ? 12 : -7)).attr("text-anchor", anchor)
+          .text(trunc(short(f.task_id) + " " + (f.run_id || ""), 26));
+      });
+    }
+  }
+
+  function concentrationPanel(H, m) {
+    var c = m.audit.reward.concentration || {};
+    var wrap = H("div", { class: "rlq-conc" });
+    wrap.appendChild(H("p", { class: "rlq-h", text: "Where the reward sits" }));
+    if (!c.measurable) {
+      wrap.appendChild(H("p", { class: "rlq-note", text: c.reason || "No episode was paid any reward." }));
+      return wrap;
+    }
+    var last = c.mean_last_share || 0;
+    wrap.appendChild(H("div", { class: "rlq-strip", "data-last": last, title: "the last step against everything else" }, [
+      H("span", { style: { width: (100 * last).toFixed(2) + "%", background: "var(--ink)" } }),
+      H("span", { style: { width: (100 * (1 - last)).toFixed(2) + "%", background: "var(--rule-2)" } }),
+    ]));
+    var kv = H("div", { class: "rlq-kv" });
+    [["last step", pct(c.mean_last_share, 1)],
+     ["largest step", pct(c.mean_largest_share, 1)],
+     ["× an even spread", plain(c.mean_peakedness, 1)],
+     ["steps paid anything", pct(c.mean_paid_share, 0)]].forEach(function (row) {
+      kv.appendChild(H("span", { text: row[0] }));
+      kv.appendChild(H("b", { text: row[1] }));
+    });
+    wrap.appendChild(kv);
+    wrap.appendChild(H("p", { class: "rlq-note", "data-kind": c.kind, text: c.note }));
+    return wrap;
+  }
+
+  function unearnedPanel(H, m) {
+    var u = m.audit.reward.unearned || {};
+    var wrap = H("div", { class: "rlq-unearned" });
+    wrap.appendChild(H("p", { class: "rlq-h", text: "Paid while labelled bad" }));
+    if (!u.measurable) {
+      wrap.appendChild(H("p", { class: "rlq-note", text: u.reason || "No step carries a label." }));
+      return wrap;
+    }
+    if (!(u.rows || []).length) {
+      wrap.appendChild(H("p", { class: "rlq-note", text: u.note }));
+      return wrap;
+    }
+    var labels = u.by_label || {};
+    var keys = Object.keys(labels).sort();
+    if (keys.length) {
+      var kv = H("div", { class: "rlq-kv" });
+      keys.forEach(function (label) {
+        m.policies.forEach(function (p) {
+          var cell = labels[label][p.name];
+          if (!cell) return;
+          kv.appendChild(H("span", { "data-label": label, "data-policy": p.name }, [
+            H("i", { style: { display: "inline-block", width: "8px", height: "8px", borderRadius: "50%",
+                              background: p.color, marginRight: "5px" } }),
+            H("span", { text: label.replace(/_/g, " ") + " \u00b7 " + cell.steps + " steps" }),
+          ]));
+          kv.appendChild(H("b", { text: signed(cell.reward, 1) }));
+        });
+      });
+      wrap.appendChild(kv);
+    }
+    var list = H("ul", { class: "rlq-list" });
+    u.rows.slice(0, 6).forEach(function (r) {
+      var side = sideFor(m, r);
+      var li = H("li", {
+        class: side ? "hit" : "", "data-kind": r.kind, "data-step": r.step, "data-policy": r.agent,
+        tabindex: side ? "0" : null, role: side ? "button" : null,
+        onclick: side ? function () { selectStep(m.report, side, r.step); } : null,
+        onkeydown: side ? function (evt) { if (evt.key === "Enter" || evt.key === " ") { evt.preventDefault(); selectStep(m.report, side, r.step); } } : null,
+      }, [
+        H("span", { class: "who", text: r.agent + " · " + short(r.task_id) + (r.run_id ? " " + r.run_id : "") + " · step " + r.step }),
+        H("span", { class: "amt", style: { color: r.reward > 0 ? "var(--good)" : "var(--bad)" }, text: signed(r.reward) }),
+        H("span", { class: "why", text: (r.labels || []).join(", ") + (r.name ? " · " + r.name : "") }),
+      ]);
+      list.appendChild(li);
+    });
+    wrap.appendChild(list);
+    var shown = Math.min(6, u.rows.length), total = u.positive_while_bad + u.negative_while_good;
+    if (shown < total) {
+      wrap.appendChild(H("p", { class: "rlq-note", text: "the " + shown + " largest of " + total
+        + ", at most two from any one policy and task; each names the step it happened on." }));
+    }
+    return wrap;
+  }
+
+  AgentDiff.block({
+    id: "rl-audit-reward",
+    title: "Reward integrity",
+    question: "Is the reward measuring the right thing?",
+    group: "training",
+    size: "wide",
+    relevance: function (ctx) {
+      var m = model(ctx);
+      return m.audit && (m.audit.reward || {}).measurable && (m.audit.reward.episodes || []).length ? 0.735 : 0;
+    },
+    render: function (el, ctx) {
+      ensureStyle();
+      var H = ctx.h, m = model(ctx), audit = m.audit;
+      var root = H("div", { class: "rlq rlq-reward" });
+      el.appendChild(root);
+      var tip = tooltip(root);
+      var v = verdict(audit);
+      root.appendChild(H("p", { class: "rlq-lede" }, [H("b", { text: v.head }), H("span", { text: " " + v.rest })]));
+
+      var opts = measures(audit);
+      var chosen = MEASURE["rl-audit-reward"];
+      if (!chosen || !opts.some(function (o) { return o.key === chosen; })) chosen = opts[0].key;
+      var bar = H("div", { class: "rlq-bar" });
+      if (opts.length > 1) {
+        bar.appendChild(H("span", { class: "rlq-chip", text: "x axis" }));
+        opts.forEach(function (o) {
+          bar.appendChild(H("button", {
+            type: "button", "data-measure": o.key, "aria-pressed": o.key === chosen ? "true" : "false",
+            text: o.label + (o.inversions ? " · " + o.inversions + " disagree" : " · none disagree"),
+            onclick: function () { MEASURE["rl-audit-reward"] = o.key; if (AgentDiff._rerender) AgentDiff._rerender(); },
+          }));
+        });
+      }
+      var rank = audit.reward.rank_agreement || {};
+      if (rank.measurable) {
+        bar.appendChild(H("span", { class: "rlq-chip", "data-key": "spearman" }, [
+          H("b", { text: "ρ " + plain(rank.spearman) }),
+          H("span", { text: " of a possible " + plain(rank.ceiling) + " · n=" + rank.n }),
+        ]));
+      }
+      var cost = (audit.reward.cost || {}).per_agent || {};
+      m.policies.forEach(function (p) {
+        var c = cost[p.name];
+        if (!c) return;
+        bar.appendChild(H("span", { class: "rlq-chip", "data-policy": p.name }, [
+          H("i", { style: { background: p.color } }), H("b", { text: p.name }),
+          H("span", { text: " · " + signed(c.return_per_step, 3) + "/step"
+            + (isNum(c.return_per_second) ? ", " + signed(c.return_per_second, 3) + "/s" : "") }),
+        ]));
+      });
+      root.appendChild(bar);
+
+      var row = H("div", { class: "rlq-row" });
+      root.appendChild(row);
+      var main = H("div", { class: "rlq-main" });
+      var host = H("div", { class: "rlq-chart" });
+      main.appendChild(responsive(host, function () {
+        drawOutcomes(host, ctx, m, opts.filter(function (o) { return o.key === chosen; })[0], tip);
+      }, "rl-audit-outcomes"));
+      row.appendChild(main);
+      var side = H("div", { class: "rlq-side" });
+      side.appendChild(concentrationPanel(H, m));
+      side.appendChild(unearnedPanel(H, m));
+      row.appendChild(side);
+
+      var notes = [audit.reward.disagreement.note, rank.measurable ? rank.note : null];
+      var tools = audit.reward.tools || {};
+      if ((tools.findings || []).length) {
+        var byTool = {};
+        tools.findings.forEach(function (f) {
+          (byTool[f.tool] || (byTool[f.tool] = [])).push(f.agent + " " + pct(f.share));
+        });
+        notes.push("The positive reward is tool-concentrated: "
+          + Object.keys(byTool).sort().map(function (t) {
+              return byTool[t].join(" and ") + " of it through " + t;
+            }).join("; ")
+          + ". A policy earning through one tool is a fragile policy.");
+      }
+      notes.push(audit.caveat);
+      notes.filter(Boolean).forEach(function (t) {
+        main.appendChild(H("p", { class: "rlq-note", text: t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? "" : ".") }));
+      });
+    },
+  });
+
+  // ------------------------------------- 2. does the critic know what is coming?
+
+  function drawCalibration(host, ctx, m, tip) {
+    if (!d3) return;
+    var c = m.audit.critic, pts = c.points || [];
+    if (!pts.length) return;
+    var W = width(host), Hh = Math.max(200, Math.min(340, Math.round(W * 0.52)));
+    var pad = { l: 44, r: 12, t: 16, b: 30 };
+    var lo = Infinity, hi = -Infinity;
+    pts.forEach(function (p) { lo = Math.min(lo, p.predicted, p.actual); hi = Math.max(hi, p.predicted, p.actual); });
+    if (lo === hi) { lo -= 1; hi += 1; }
+    var x = d3.scaleLinear().domain([lo, hi]).nice().range([pad.l, W - pad.r]);
+    var y = d3.scaleLinear().domain([lo, hi]).nice().range([Hh - pad.b, pad.t]);
+    var svg = d3.select(host).append("svg").attr("viewBox", "0 0 " + W + " " + Hh).attr("role", "img")
+      .attr("aria-label", "the value estimate against the realised discounted return-to-go, one point per step, "
+        + "coloured by policy, with the y equals x line and the decile calibration curve over it");
+    x.ticks(5).forEach(function (v) {
+      svg.append("text").attr("class", "tick").attr("x", x(v)).attr("y", Hh - pad.b + 15).attr("text-anchor", "middle").text(signed(v, 0));
+    });
+    y.ticks(5).forEach(function (v) {
+      if (y(v) > Hh - pad.b - 10) return;          // the corner belongs to the x axis
+      svg.append("text").attr("class", "tick").attr("x", pad.l - 6).attr("y", y(v) + 4).attr("text-anchor", "end").text(signed(v, 0));
+    });
+    // the only reference a reader needs
+    var d0 = Math.max(x.domain()[0], y.domain()[0]), d1 = Math.min(x.domain()[1], y.domain()[1]);
+    svg.append("line").attr("class", "diag").attr("x1", x(d0)).attr("y1", y(d0)).attr("x2", x(d1)).attr("y2", y(d1));
+    svg.append("text").attr("class", "lab dim").attr("x", x(d1)).attr("y", y(d1) - 5).attr("text-anchor", "end").text("y = x");
+    svg.append("text").attr("class", "lab dim").attr("x", W - pad.r).attr("y", Hh - 4).attr("text-anchor", "end").text("value estimate →");
+    svg.append("text").attr("class", "lab dim").attr("x", pad.l - 30).attr("y", pad.t - 4).text("↑ realised return-to-go (γ=" + m.gamma + ")");
+    pts.forEach(function (p) {
+      var side = sideFor(m, p);
+      svg.append("circle").attr("class", "pt" + (side ? " hit" : "")).attr("data-policy", p.agent)
+        .attr("data-task", p.task_id).attr("data-run", p.run_id).attr("data-step", p.step)
+        .attr("cx", x(p.predicted)).attr("cy", y(p.actual)).attr("r", 2.6)
+        .attr("fill", colorOf(m, p.agent)).attr("fill-opacity", 0.5).attr("stroke", "none")
+        .on("pointermove", function (evt) {
+          tip.show(evt, [
+            { b: true, text: p.agent + " · " + short(p.task_id) + (p.run_id ? " · " + p.run_id : "") + " · step " + p.step },
+            { text: "predicted " + signed(p.predicted) + " · arrived " + signed(p.actual) },
+            { text: "residual " + signed(p.residual) + " (" + (p.residual > 0 ? "optimistic" : p.residual < 0 ? "pessimistic" : "exact") + ")" },
+            side ? { text: "click to open the step" } : null]);
+        })
+        .on("pointerleave", tip.hide)
+        .on("click", function () { tip.hide(); if (side) selectStep(m.report, side, p.step); });
+    });
+    // the calibration curve: predicted against actual, averaged by decile
+    var bins = (c.deciles || []).filter(function (b) { return isNum(b.predicted) && isNum(b.actual); });
+    if (bins.length > 1) {
+      svg.append("path").attr("class", "rlq-cal").attr("fill", "none").attr("stroke", "var(--ink)")
+        .attr("stroke-width", 1.6).attr("stroke-linejoin", "round")
+        .attr("d", d3.line().x(function (b) { return x(b.predicted); }).y(function (b) { return y(b.actual); })(bins));
+      bins.forEach(function (b) {
+        svg.append("rect").attr("class", "rlq-cal-pt").attr("data-bin", b.bin).attr("data-n", b.n)
+          .attr("x", x(b.predicted) - 2.6).attr("y", y(b.actual) - 2.6).attr("width", 5.2).attr("height", 5.2)
+          .attr("fill", "var(--ink)")
+          .on("pointermove", function (evt) {
+            tip.show(evt, [{ b: true, text: "decile " + (b.bin + 1) + " of " + bins.length + " · " + b.n + " steps" },
+              { text: "predicted " + signed(b.predicted) + " in [" + signed(b.predicted_lo) + ", " + signed(b.predicted_hi) + "]" },
+              { text: "arrived " + signed(b.actual) + " · residual " + signed(b.residual) }]);
+          }).on("pointerleave", tip.hide);
+      });
+    }
+  }
+
+  function drawResiduals(host, ctx, m, tip) {
+    if (!d3) return;
+    var c = m.audit.critic, bins = c.residual_bins || [];
+    if (!bins.length) return;
+    var W = width(host), Hh = 92, pad = { l: 44, r: 12, t: 14, b: 22 };
+    var lo = bins[0].from, hi = bins[bins.length - 1].to;
+    if (lo === hi) { lo -= 1; hi += 1; }
+    var x = d3.scaleLinear().domain([lo, hi]).range([pad.l, W - pad.r]);
+    var maxC = 1;
+    bins.forEach(function (b) { maxC = Math.max(maxC, b.count); });
+    var y = d3.scaleLinear().domain([0, maxC]).range([Hh - pad.b, pad.t]);
+    var svg = d3.select(host).append("svg").attr("viewBox", "0 0 " + W + " " + Hh).attr("role", "img")
+      .attr("aria-label", "the residuals, value estimate minus what arrived, as a histogram stacked by policy");
+    svg.append("text").attr("class", "lab dim").attr("x", pad.l - 30).attr("y", pad.t - 3).text("↑ steps");
+    svg.append("text").attr("class", "tick").attr("x", pad.l - 6).attr("y", y(maxC) + 4).attr("text-anchor", "end").text(String(maxC));
+    [lo, 0, hi].forEach(function (v) {
+      if (v < lo || v > hi) return;
+      svg.append("text").attr("class", "tick").attr("x", x(v)).attr("y", Hh - pad.b + 14)
+        .attr("text-anchor", v === lo ? "start" : v === hi ? "end" : "middle").text(signed(v, 1));
+    });
+    svg.append("text").attr("class", "lab dim").attr("x", W - pad.r).attr("y", Hh - 4).attr("text-anchor", "end")
+      .text("residual →");
+    if (lo < 0 && hi > 0) {
+      svg.append("line").attr("class", "zero").attr("x1", x(0)).attr("x2", x(0)).attr("y1", pad.t - 4).attr("y2", Hh - pad.b);
+    }
+    bins.forEach(function (b, bi) {
+      var bw = Math.max(1, x(b.to) - x(b.from) - 1), base = Hh - pad.b, acc = 0;
+      m.policies.forEach(function (p) {
+        var n = (b.by_agent || {})[p.name] || 0;
+        if (!n) return;
+        var h = base - y(n);
+        svg.append("rect").attr("class", "rlq-res").attr("data-bin", bi).attr("data-policy", p.name).attr("data-count", n)
+          .attr("x", x(b.from) + 0.5).attr("width", bw).attr("y", base - acc - h).attr("height", Math.max(0.5, h))
+          .attr("fill", p.color).attr("fill-opacity", 0.75)
+          .on("pointermove", function (evt) {
+            tip.show(evt, [{ b: true, text: p.name },
+              { text: n + " steps with a residual in [" + signed(b.from) + ", " + signed(b.to) + ")" }]);
+          }).on("pointerleave", tip.hide);
+        acc += h;
+      });
+    });
+  }
+
+  AgentDiff.block({
+    id: "rl-audit-critic",
+    title: "Critic calibration",
+    question: "Does the critic know what is coming?",
+    group: "training",
+    size: "wide",
+    relevance: function (ctx) {
+      var m = model(ctx);
+      return m.audit && (m.audit.critic || {}).measurable && (m.audit.critic.points || []).length ? 0.73 : 0;
+    },
+    render: function (el, ctx) {
+      ensureStyle();
+      var H = ctx.h, m = model(ctx), c = m.audit.critic;
+      var root = H("div", { class: "rlq rlq-critic" });
+      el.appendChild(root);
+      var tip = tooltip(root);
+      var ev = (c.overall || {}).explained_variance;
+      var head = !isNum(ev) ? "There is no variance to explain."
+        : ev < 0 ? "No — it is worse than predicting the mean."
+        : ev < 0.5 ? "Only partly." : "Mostly, yes.";
+      root.appendChild(H("p", { class: "rlq-lede" }, [
+        H("b", { class: "rlq-verdict", "data-ev": isNum(ev) ? ev : "", text: head }),
+        H("span", { text: " " + c.narrative }),
+      ]));
+      root.appendChild(policyChips(H, m, function (p) {
+        var b = (c.per_agent || {})[p.name];
+        if (!b) return null;
+        return "EV " + (isNum(b.explained_variance) ? plain(b.explained_variance) : "—")
+          + (b.worse_than_the_mean ? " (worse than the mean)" : "")
+          + " · bias " + signed(b.mean_error) + " · RMSE " + plain(b.rmse) + " · n=" + b.n;
+      }));
+
+      var main = H("div", { class: "rlq-main" });
+      root.appendChild(main);
+      var scatter = H("div", { class: "rlq-chart rlq-cal-host" });
+      main.appendChild(responsive(scatter, function () { drawCalibration(scatter, ctx, m, tip); }, "rl-audit-calibration"));
+      var margin = H("div", { class: "rlq-chart rlq-res-host" });
+      main.appendChild(responsive(margin, function () { drawResiduals(margin, ctx, m, tip); }, "rl-audit-residuals"));
+
+      var worse = Object.keys(c.per_agent || {}).filter(function (n) { return c.per_agent[n].worse_than_the_mean; }).sort();
+      var notes = [c.note];
+      if (worse.length) {
+        notes.push("Read the explained variance plainly: for " + worse.join(" and ")
+          + ", a constant equal to the average return-to-go would have scored better than this value head. "
+          + "That is what a negative explained variance means, and it is worth saying rather than rounding past.");
+      }
+      notes.push("The heavy line is the calibration curve: each mark is a decile of predicted value, plotted at the "
+        + "decile's mean prediction against the mean of what actually arrived. Where it sits above y = x the critic "
+        + "was pessimistic in that band, below it optimistic.");
+      var adv = c.advantages || {};
+      if (adv.measurable) {
+        notes.push(adv.note.charAt(0).toUpperCase() + adv.note.slice(1) + ".");
+      } else if (adv.reason) {
+        notes.push("Advantages: " + adv.reason + ".");
+      }
+      notes.filter(Boolean).forEach(function (t) {
+        main.appendChild(H("p", { class: "rlq-note", text: t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? "" : ".") }));
+      });
+    },
+  });
+})(this);
+
+</script>
 <!-- 30_cost.js -->
 <script>
 /* AgentDiff blocks — cost & change.
@@ -19701,6 +20964,1707 @@ THIS SOFTWARE.
               "divergences in this batch's favour, which is evidence it worked here " +
               "rather than proof it generalizes.",
       }));
+    },
+  });
+})(typeof window !== "undefined" ? window : this);
+
+</script>
+<!-- 31_rlspace.js -->
+<script>
+/* AgentDiff blocks — the behaviour space: what a policy does, and where two part.
+ *
+ * The Training view's other blocks read the reward. These read the
+ * *behaviour*: every step reduced to one token (the tool's name, or the
+ * step's family), so an episode is a stream of tokens and a policy is a
+ * set of streams. Two blocks over `aggregate.rl.space`:
+ *
+ *   rl-atlas       the episodes laid out by how differently they behaved —
+ *                  classical MDS of the pairwise normalised edit distance,
+ *                  a mark per episode, shape by outcome, colour by policy,
+ *                  size by |return| — with the n-gram habits underneath: a
+ *                  ranked row highlights, in the atlas above, the episodes
+ *                  that actually contain it. The axes are meaningless and
+ *                  are therefore not drawn; a scale bar carries the one
+ *                  length that means something.
+ *   rl-divergence  the policy trie as a horizontal thread with branches,
+ *                  in the vocabulary of "Where it mattered": thickness is
+ *                  the episodes through a branch, colour the mix of the
+ *                  two policies, quiet runs of single-child nodes folded
+ *                  into ×N segments that dilate on click, the ranked
+ *                  branch points ringed and labelled with the return on
+ *                  each side.
+ *
+ * Every number is read from the JSON, never recomputed here.
+ */
+(function (global) {
+  "use strict";
+  var AgentDiff = global.AgentDiff;
+  if (!AgentDiff) return;
+  var d3 = global.d3;
+
+  //: rows the divergence tree draws before it folds the rest away
+  var MAX_ROWS = 12;
+  var ROW = 17;
+
+  var styled = false;
+  function ensureStyle() {
+    if (styled) return;
+    styled = true;
+    var node = document.createElement("style");
+    node.textContent = [
+      ".rsp{position:relative}",
+      ".rsp svg{display:block;width:100%;height:auto;font-family:var(--sans)}",
+      ".rsp text{font-size:var(--fs-xs)}",
+      ".rsp .lab{fill:var(--ink-2)}.rsp .lab.dim{fill:var(--ink-3)}.rsp .lab.mono{font-family:var(--mono)}",
+      ".rsp-narr{font-size:var(--fs-m);color:var(--ink);margin:0 0 8px;max-width:90ch}",
+      ".rsp-bar{display:flex;gap:8px 14px;flex-wrap:wrap;align-items:center;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 8px}",
+      ".rsp-bar i{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:-1px;margin-right:5px}",
+      ".rsp-chip{font-family:var(--mono);color:var(--ink-2);font-variant-numeric:tabular-nums;white-space:nowrap}",
+      ".rsp-chip b{color:var(--ink);font-weight:600}",
+      ".rsp-bar button{font:inherit;font-size:var(--fs-xs);border:0;background:var(--surface-2);color:var(--ink-2);border-radius:999px;padding:1px 9px;cursor:pointer}",
+      ".rsp-bar button[aria-pressed=true]{background:var(--ink);color:var(--bg)}",
+      ".rsp-note{font-size:var(--fs-xs);color:var(--ink-3);margin:6px 0 0;max-width:90ch;line-height:1.45}",
+      ".rsp-mark{cursor:pointer}.rsp-mark.mute{opacity:.18}",
+      ".rsp-mark:hover .hit,.rsp-mark[aria-current=true] .hit{stroke:var(--ink);stroke-width:1.4;stroke-opacity:.9}",
+      ".rsp-scale line{stroke:var(--ink-3)}.rsp-scale text{fill:var(--ink-3);font-family:var(--mono)}",
+      ".rsp-habits{margin-top:10px}",
+      ".rsp-row{display:grid;grid-template-columns:minmax(90px,1fr) 66px 74px;gap:8px;align-items:center;padding:3px 4px;border-radius:5px;cursor:pointer;font-size:var(--fs-xs);color:var(--ink-2)}",
+      ".rsp-row:hover,.rsp-row:focus-visible{background:var(--surface-2);outline:none}",
+      ".rsp-row[aria-current=true]{background:var(--surface-2)}.rsp-row[aria-current=true] .rsp-g{color:var(--ink);font-weight:600}",
+      ".rsp-g{font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+      ".rsp-n{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink-3)}",
+      ".rsp-n.k{color:var(--ink)}",
+      ".rsp-head{font-size:var(--fs-xs);color:var(--ink-3);margin:8px 0 2px;font-family:var(--mono)}",
+      ".rsp-details{margin-top:8px;font-size:var(--fs-xs)}.rsp-details summary{cursor:pointer;color:var(--ink-2)}",
+      ".rsp-table{border-collapse:collapse;width:100%;font-size:var(--fs-xs);font-variant-numeric:tabular-nums;margin-top:4px}",
+      ".rsp-table th{font-family:var(--mono);font-weight:500;color:var(--ink-3);text-align:left;padding:2px 10px 5px 0;border-bottom:1px solid var(--rule);white-space:nowrap}",
+      ".rsp-table td{padding:3px 10px 3px 0;color:var(--ink-2);vertical-align:top}",
+      ".rsp-table td.n{text-align:right;font-family:var(--mono);white-space:nowrap}",
+      ".rsp-table tr[data-node]{cursor:pointer}.rsp-table tr[data-node]:hover td{color:var(--ink)}",
+      ".rsp-table tr[aria-current=true] td{color:var(--ink)}",
+      ".rsp-unit{cursor:pointer}.rsp-unit:hover .seg{stroke-opacity:1}",
+      ".rsp-fold text{fill:var(--ink-3);font-family:var(--mono);pointer-events:none}",
+      ".rsp-fold:hover line{stroke:var(--ink)}",
+      ".rsp-bp{cursor:pointer}.rsp-bp text{font-family:var(--mono);fill:var(--ink);paint-order:stroke;stroke:var(--bg);stroke-width:3px;stroke-linejoin:round}",
+      ".rsp-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);max-width:330px}",
+      ".rsp-tip b{color:var(--ink)}",
+      "@media (max-width:640px){.rsp-row{grid-template-columns:minmax(70px,1fr) 58px 62px}}",
+    ].join("\n");
+    document.head.appendChild(node);
+  }
+
+  // ------------------------------------------------------------ helpers
+
+  function isNum(v) { return typeof v === "number" && isFinite(v); }
+  function signed(v, p) {
+    if (!isNum(v)) return "—";
+    var s = Math.abs(v).toFixed(p === undefined ? 1 : p);
+    return v > 0 ? "+" + s : v < 0 ? "−" + s : s;
+  }
+  function plain(v, p) { return isNum(v) ? v.toFixed(p === undefined ? 2 : p) : "—"; }
+  function short(id) { return String(id || "").replace(/^(rl|t)\d+_/, "").replace(/_/g, " "); }
+  function trunc(s, n) { s = String(s === null || s === undefined ? "" : s); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  var CH = 6.2;
+  function width(host) { var w = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0; return Math.max(300, Math.min(1400, w || 320)); }
+  function responsive(host, draw, k) {
+    if (AgentDiff.charts && AgentDiff.charts.responsive) return AgentDiff.charts.responsive(host, draw, k);
+    draw(); return host;
+  }
+  function selectTask(ctx, id) {
+    var fn = ctx && typeof ctx.selectTask === "function" ? ctx.selectTask
+      : AgentDiff._internals && typeof AgentDiff._internals.selectTask === "function" ? AgentDiff._internals.selectTask : null;
+    if (fn && id) fn(id);
+  }
+  //: a fold's length grows with what it holds — the rule "Where it mattered" uses
+  function foldW(n) { return 6 + 6 * Math.log(1 + Math.max(0, n)) / Math.LN2; }
+
+  function tooltip(root) {
+    var tip = document.createElement("div"); tip.className = "rsp-tip"; tip.hidden = true; root.appendChild(tip);
+    return {
+      show: function (evt, lines) {
+        tip.innerHTML = "";
+        lines.forEach(function (l) {
+          if (!l) return;
+          var d = document.createElement("div");
+          if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text;
+          tip.appendChild(d);
+        });
+        tip.hidden = false;
+        var r = root.getBoundingClientRect();
+        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
+        if (x + 330 > r.width) x = Math.max(0, evt.clientX - r.left - 340);
+        tip.style.left = x + "px"; tip.style.top = y + "px";
+      },
+      hide: function () { tip.hidden = true; },
+    };
+  }
+
+  // -------------------------------------------------------------- model
+
+  /* The space as the page needs it: the policies with a side (so the page's
+   * A/B colours carry over), the layout's marks, the trie, the branch points
+   * and the habits — all straight off `aggregate.rl.space`. */
+  var cache = null;
+  function model(ctx) {
+    var agg = ctx.aggregate || {}, report = ctx.report || null;
+    if (cache && cache.agg === agg && cache.report === report) return cache.m;
+    var m;
+    try { m = build(agg, report); } catch (err) { console.warn("AgentDiff behaviour space: model failed", err); m = { ok: false }; }
+    cache = { agg: agg, report: report, m: m };
+    return m;
+  }
+
+  function build(agg, report) {
+    var rl = agg && agg.rl && typeof agg.rl === "object" ? agg.rl : null;
+    var space = rl && rl.space && typeof rl.space === "object" ? rl.space : null;
+    if (!space || !space.measurable) return { ok: false, reason: space ? space.reason : null };
+    var names = Array.isArray(space.policies) ? space.policies.slice() : [];
+    var an = report && report.a && report.a.agent && report.a.agent.name;
+    var bn = report && report.b && report.b.agent && report.b.agent.name;
+    var sideOf = {};
+    names.forEach(function (n) { sideOf[n] = n === an ? "a" : n === bn ? "b" : null; });
+    var free = ["a", "b"].filter(function (s) { return names.every(function (n) { return sideOf[n] !== s; }); });
+    names.forEach(function (n) { if (!sideOf[n] && free.length) sideOf[n] = free.shift(); });
+    var policies = names.map(function (n) {
+      return { name: n, side: sideOf[n], color: sideOf[n] === "a" ? "var(--a)" : sideOf[n] === "b" ? "var(--b)" : "var(--ink-3)" };
+    });
+    var points = (space.layout && Array.isArray(space.layout.points) ? space.layout.points : [])
+      .filter(function (p) { return p && isNum(p.x) && isNum(p.y); });
+    return {
+      ok: points.length > 0, space: space, policies: policies,
+      colorOf: function (name) { for (var i = 0; i < policies.length; i++) if (policies[i].name === name) return policies[i].color; return "var(--ink-3)"; },
+      points: points, trie: space.trie || null, branches: space.branches || null,
+      ngrams: space.ngrams || null, distance: space.distance || null,
+      vocabulary: space.vocabulary || null, narrative: space.narrative || "",
+    };
+  }
+
+  //: the concrete colours behind --a/--b, so a branch can be drawn as the
+  //: *mix* of the two policies rather than as one of them
+  function resolve(el, name, fallback) {
+    try {
+      var v = getComputedStyle(el).getPropertyValue(name);
+      return v && v.trim() ? v.trim() : fallback;
+    } catch (err) { return fallback; }
+  }
+  function mixer(el, m) {
+    var ca = resolve(el, "--a", "#2f6f9f"), cb = resolve(el, "--b", "#b5651d");
+    var pa = m.policies[0] ? m.policies[0].name : null, pb = m.policies[1] ? m.policies[1].name : null;
+    if (m.policies[0] && m.policies[0].side === "b") { var t = ca; ca = cb; cb = t; }
+    var interp = null;
+    try { interp = d3 && d3.interpolateLab ? d3.interpolateLab(ca, cb) : null; } catch (err) { interp = null; }
+    return function (by) {
+      var na = (by && by[pa]) || 0, nb = (by && by[pb]) || 0;
+      if (!na && !nb) return "var(--ink-3)";
+      if (!interp) return na >= nb ? ca : cb;
+      return interp(nb / (na + nb));
+    };
+  }
+
+  function policyChips(H, m) {
+    var bar = H("div", { class: "rsp-bar" });
+    m.policies.forEach(function (p) {
+      var within = m.distance && m.distance.within && m.distance.within[p.name];
+      var spread = within && isNum(within.spread) ? "spread " + plain(within.spread) : (within && within.reason) || "";
+      bar.appendChild(H("span", { class: "rsp-chip" }, [
+        H("i", { style: { background: p.color } }),
+        H("b", { text: p.name }), document.createTextNode(spread ? " · " + spread : ""),
+      ]));
+    });
+    if (m.distance && isNum(m.distance.between)) {
+      bar.appendChild(H("span", { class: "rsp-chip", text: "between " + plain(m.distance.between) }));
+    }
+    return bar;
+  }
+
+  // ============================================================ the atlas
+
+  function drawAtlas(host, ctx, m, tip, state) {
+    if (!d3) return;
+    var W = width(host), narrow = W < 520;
+    var H = Math.max(220, Math.min(narrow ? 300 : 420, Math.round(W * 0.52)));
+    var pad = 16, padB = 26;
+    var pts = m.points;
+    var xs = pts.map(function (p) { return p.x; }), ys = pts.map(function (p) { return p.y; });
+    var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
+    var y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
+    var spanX = Math.max(x1 - x0, 1e-9), spanY = Math.max(y1 - y0, 1e-9);
+    // one scale for both axes: the distance between two marks is the only
+    // thing this picture says, so it must not be stretched in one direction
+    var k = Math.min((W - 2 * pad) / spanX, (H - pad - padB) / spanY);
+    if (!isFinite(k) || k <= 0) k = 1;
+    var cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    function px(p) { return W / 2 + (p.x - cx) * k; }
+    function py(p) { return (H - padB + pad) / 2 - (p.y - cy) * k; }
+    var maxAbs = 0;
+    pts.forEach(function (p) { if (isNum(p["return"])) maxAbs = Math.max(maxAbs, Math.abs(p["return"])); });
+    function radius(p) {
+      var r = isNum(p["return"]) && maxAbs > 0 ? Math.abs(p["return"]) / maxAbs : 0;
+      return (narrow ? 2.6 : 3) + (narrow ? 3.4 : 4.4) * Math.sqrt(r);
+    }
+    var svg = d3.select(host).append("svg").attr("viewBox", "0 0 " + W + " " + H).attr("role", "img")
+      .attr("aria-label", pts.length + " episodes laid out by how differently they behaved: "
+        + m.policies.map(function (p) { return p.name; }).join(" and ")
+        + ", a filled mark solved, a hollow diamond failed, its size the size of the return; the axes carry no meaning");
+    // the scale bar: the one length in the picture that means something
+    var want = spanX / 4, step = [0.05, 0.1, 0.2, 0.25, 0.5, 1].filter(function (s) { return s >= want; })[0] || 1;
+    var bar = svg.append("g").attr("class", "rsp-scale").attr("transform", "translate(" + pad + "," + (H - 10) + ")");
+    bar.append("line").attr("x1", 0).attr("x2", step * k).attr("y1", 0).attr("y2", 0).attr("stroke-width", 1);
+    bar.append("line").attr("x1", 0).attr("x2", 0).attr("y1", -3).attr("y2", 3).attr("stroke-width", 1);
+    bar.append("line").attr("x1", step * k).attr("x2", step * k).attr("y1", -3).attr("y2", 3).attr("stroke-width", 1);
+    bar.append("text").attr("x", step * k + 6).attr("y", 3.5).text(plain(step) + " distance");
+    // the marks
+    var sel = state.gram ? state.gram.keys : null;
+    pts.forEach(function (p) {
+      var muted = sel && !sel[p.key];
+      var g = svg.append("g").attr("class", "rsp-mark" + (muted ? " mute" : "")).attr("data-key", p.key)
+        .attr("data-policy", p.policy).attr("data-task", p.task_id).attr("data-success", p.success ? "1" : "0")
+        .attr("transform", "translate(" + px(p).toFixed(2) + "," + py(p).toFixed(2) + ")");
+      var color = m.colorOf(p.policy), r = radius(p);
+      if (p.success) {
+        g.append("circle").attr("class", "hit").attr("r", r).attr("fill", color).attr("fill-opacity", 0.72).attr("stroke", color).attr("stroke-opacity", 0);
+      } else {
+        var d = r + 1.4;
+        g.append("path").attr("class", "hit").attr("d", "M0," + (-d) + "L" + d + ",0L0," + d + "L" + (-d) + ",0Z")
+          .attr("fill", "var(--surface)").attr("fill-opacity", 0.55).attr("stroke", color).attr("stroke-width", 1.4);
+      }
+      // an episode whose nearest neighbour belongs to the other policy: the
+      // interesting case, ringed so it can be found
+      if (p.nearest && p.nearest.other_policy) {
+        g.append("circle").attr("class", "rsp-cross").attr("r", r + 3.6).attr("fill", "none")
+          .attr("stroke", "var(--ink-3)").attr("stroke-width", 1).attr("stroke-dasharray", "1.5 2");
+      }
+      g.append("circle").attr("r", Math.max(9, r + 4)).attr("fill", "transparent");
+      var lines = [
+        { b: true, text: p.policy + " · " + short(p.task_id) + (p.run_id ? " · " + p.run_id : "") },
+        { text: "return " + signed(p["return"]) + " · " + p.steps + " steps · " + (p.success ? "solved" : "failed") },
+        p.nearest ? { text: "nearest: " + p.nearest.key.split("|").slice(0, 1).concat(short(p.nearest.key.split("|")[1] || "")).join(" · ") + " at " + plain(p.nearest.distance) + (p.nearest.other_policy ? " — the other policy" : "") } : null,
+        { text: "click to open the task" },
+      ];
+      g.append("title").text(p.policy + " · " + p.task_id + " · " + (p.run_id || "") + " — return " + signed(p["return"]) + ", " + (p.success ? "solved" : "failed"));
+      g.on("pointermove", function (evt) { tip.show(evt, lines); }).on("pointerleave", tip.hide)
+        .on("click", function () { tip.hide(); selectTask(ctx, p.task_id); });
+    });
+  }
+
+  //: the episodes whose token stream contains this gram
+  function containing(points, gram) {
+    var keys = {}, n = 0;
+    points.forEach(function (p) {
+      var toks = Array.isArray(p.tokens) ? p.tokens : [];
+      for (var i = 0; i + gram.length <= toks.length; i++) {
+        var hit = true;
+        for (var j = 0; j < gram.length; j++) if (toks[i + j] !== gram[j]) { hit = false; break; }
+        if (hit) { keys[p.key] = true; n++; return; }
+      }
+    });
+    return { keys: keys, episodes: Object.keys(keys).length, hits: n };
+  }
+
+  function habits(H, m, state, repaint) {
+    var win = m.ngrams && m.ngrams.winning ? m.ngrams.winning : null;
+    var wrap = H("div", { class: "rsp-habits" });
+    if (!win || !win.measurable) {
+      wrap.appendChild(H("p", { class: "rsp-note", text: "Habits: " + ((win && win.reason) || "no n-gram ratio to show.") }));
+      return wrap;
+    }
+    var side = state.side || "top";
+    var bar = H("div", { class: "rsp-bar" });
+    [["top", "over-represented in the " + win.winners + " solved"], ["bottom", "in the " + win.losers + " failed"]].forEach(function (opt) {
+      bar.appendChild(H("button", {
+        type: "button", "aria-pressed": side === opt[0] ? "true" : "false", text: opt[1],
+        onclick: function () { state.side = opt[0]; state.gram = null; repaint(); },
+      }));
+    });
+    wrap.appendChild(bar);
+    var rows = (side === "top" ? win.top : win.bottom) || [];
+    rows.forEach(function (r) {
+      var on = state.gram && state.gram.text === r.text;
+      var row = H("div", {
+        class: "rsp-row", role: "button", tabindex: "0", "data-gram": r.text, "data-n": r.n,
+        "aria-current": on ? "true" : "false",
+        "data-ratio": r.ratio === null || r.ratio === undefined ? "" : r.ratio,
+        onclick: function () {
+          if (on) { state.gram = null; } else {
+            var hit = containing(m.points, r.gram);
+            state.gram = { text: r.text, gram: r.gram, keys: hit.keys, episodes: hit.episodes };
+          }
+          repaint();
+        },
+        onkeydown: function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); this.click(); } },
+      }, [
+        H("span", { class: "rsp-g", title: r.text, text: r.text }),
+        H("span", { class: "rsp-n k", text: r.ratio === null || r.ratio === undefined ? "only here" : plain(r.ratio) + "×" }),
+        H("span", { class: "rsp-n", text: r.win_count + " / " + r.lose_count }),
+      ]);
+      wrap.appendChild(row);
+    });
+    wrap.appendChild(H("p", {
+      class: "rsp-note",
+      text: "ratio = the gram's share of every " + (win.top[0] ? "" : "") + "gram of its length among the solved episodes over its share among the failed; "
+        + "the pair after it is those two counts (solved / failed), so a big ratio on small counts stays visible. "
+        + (isNum(win.win_steps_mean) && isNum(win.lose_steps_mean)
+          ? "A solved episode runs " + plain(win.win_steps_mean, 1) + " steps against " + plain(win.lose_steps_mean, 1) + ", which lifts every rate a short episode has. " : "")
+        + "Click a row to light up the episodes that contain it.",
+    }));
+    return wrap;
+  }
+
+  AgentDiff.block({
+    id: "rl-atlas",
+    title: "Behaviour atlas",
+    question: "Laid out by how differently they behaved: which episodes did the same thing, which policy sits where — and which habits go with winning.",
+    group: "training",
+    size: "wide",
+    relevance: function (ctx) { var m = model(ctx); return m.ok && m.points.length > 1 ? 0.745 : 0; },
+    render: function (el, ctx) {
+      ensureStyle();
+      var Hh = ctx.h, m = model(ctx);
+      var root = Hh("div", { class: "rsp rsp-atlas" });
+      el.appendChild(root);
+      var tip = tooltip(root);
+      var state = { gram: null, side: "top" };
+      var narr = Hh("p", { class: "rsp-narr" });
+      root.appendChild(narr);
+      root.appendChild(policyChips(Hh, m));
+      var host = Hh("div", { class: "rsp-chart" });
+      root.appendChild(host);
+      var habitHost = Hh("div");
+      root.appendChild(habitHost);
+      var note = Hh("p", { class: "rsp-note" });
+      root.appendChild(note);
+      function paint() {
+        host.innerHTML = "";
+        habitHost.innerHTML = "";
+        var dist = m.distance || {};
+        narr.textContent = "Distance is the normalised edit distance between two episodes' step tokens — Levenshtein over the longer stream, 0 identical, 1 nothing in common."
+          + (state.gram ? " Lit: the " + state.gram.episodes + " episodes that play " + state.gram.text + "." : "");
+        responsive(host, function () { drawAtlas(host, ctx, m, tip, state); }, "rl-atlas");
+        habitHost.appendChild(habits(Hh, m, state, paint));
+        var layout = (m.space && m.space.layout) || {};
+        note.textContent = "Classical MDS of that distance matrix: the axes have no units and no direction, only how far apart two marks sit"
+          + (isNum(layout.stress) ? " (stress " + plain(layout.stress) + ": how much the plane had to bend to hold the distances)" : "") + ". "
+          + "Filled = solved, hollow diamond = failed, size = |return|, a dashed ring = its nearest neighbour belongs to the other policy. "
+          + (dist.note ? dist.note.charAt(0).toUpperCase() + dist.note.slice(1) + "; at most " + dist.episode_cap + " episodes enter the matrix. " : "")
+          + "Click a mark to open its task.";
+      }
+      paint();
+    },
+  });
+
+  // ======================================================= the divergence tree
+
+  /* The trie as a thread with branches. The thread is the heaviest path
+   * from the root — the behaviour most episodes share; every other child of
+   * a node on it hangs below as a branch, itself drawn as its own heaviest
+   * path. Quiet runs (single-child nodes that are neither a branch point nor
+   * a leaf) fold into one ×N segment that dilates on click. */
+  function chainOf(node) {
+    var nodes = [node], branches = [], cur = node, guard = 0;
+    while (cur && Array.isArray(cur.children) && cur.children.length && guard++ < 400) {
+      var kids = cur.children.slice().sort(function (p, q) {
+        return (q.episodes - p.episodes) || String(p.token).localeCompare(String(q.token));
+      });
+      for (var i = 1; i < kids.length; i++) branches.push({ at: nodes.length - 1, node: kids[i] });
+      nodes.push(kids[0]);
+      cur = kids[0];
+    }
+    return { nodes: nodes, branches: branches };
+  }
+  function isJunction(n) { return Array.isArray(n.children) && n.children.length > 1; }
+  //: a chain as drawable units: single nodes where something happens, folds elsewhere
+  function unitsOf(chain, state, marked) {
+    var out = [], nodes = chain.nodes, branchAt = {};
+    chain.branches.forEach(function (b) { branchAt[b.at] = true; });
+    var i = 0;
+    while (i < nodes.length) {
+      var n = nodes[i];
+      var quiet = i > 0 && i < nodes.length - 1 && !isJunction(n) && !branchAt[i] && !marked[n.id]
+        && !isNum(n.tail) && !isNum(n.truncated);
+      if (quiet) {
+        var j = i;
+        while (j < nodes.length) {
+          var q = nodes[j];
+          if (j >= nodes.length - 1 || isJunction(q) || branchAt[j] || marked[q.id] || isNum(q.tail) || isNum(q.truncated)) break;
+          j++;
+        }
+        var group = nodes.slice(i, j);
+        if (group.length >= 2 && !state.open[group[0].id]) {
+          out.push({ type: "fold", id: group[0].id, nodes: group, index: i, last: j - 1 });
+          i = j;
+          continue;
+        }
+      }
+      out.push({ type: "node", id: n.id, node: n, index: i });
+      i++;
+    }
+    return out;
+  }
+
+  function drawTree(host, ctx, m, tip, state, repaint) {
+    if (!d3 || !m.trie || !m.trie.root) return;
+    var W = width(host), narrow = W < 560;
+    var root = m.trie.root, total = Math.max(1, root.episodes);
+    var ranked = (m.branches && Array.isArray(m.branches.points) ? m.branches.points : []);
+    var marked = {};
+    ranked.forEach(function (p, i) { marked[p.id] = i + 1; });
+    var mix = mixer(host, m);
+    var SEG = narrow ? 15 : 21, padL = 6, padR = narrow ? 46 : 96;
+    var avail = Math.max(80, W - padL - padR);
+    var rows = [], laid = [], hidden = 0, hiddenEps = 0;
+    var cap = state.rows || MAX_ROWS;
+
+    function widthOf(u) { return u.type === "fold" ? foldW(u.nodes.length) : SEG; }
+    // lay a chain out at a row, then its branches on the rows below
+    function lay(node, x0, row, depth) {
+      var chain = chainOf(node), units = unitsOf(chain, state, marked);
+      var xs = [], x = x0;
+      units.forEach(function (u) { xs.push(x); x += widthOf(u); });
+      var item = { units: units, xs: xs, row: row, x0: x0, x1: x, chain: chain, depth: depth };
+      laid.push(item);
+      rows[row] = item;
+      if (depth > 3) return item;
+      var pending = chain.branches.slice().sort(function (p, q) { return (q.node.episodes - p.node.episodes) || (p.at - q.at); });
+      pending.forEach(function (b) {
+        // where the branch leaves the thread: the right edge of the unit holding its parent
+        var ui = 0;
+        for (var i = 0; i < units.length; i++) {
+          var u = units[i];
+          if ((u.type === "node" && u.index === b.at) || (u.type === "fold" && b.at >= u.index && b.at <= u.last)) { ui = i; break; }
+        }
+        var bx = xs[ui] + widthOf(units[ui]);
+        if (rows.length >= cap) { hidden++; hiddenEps += b.node.episodes; return; }
+        var r = rows.length;
+        rows.push(null);
+        var kid = lay(b.node, bx, r, depth + 1);
+        kid.from = { row: row, x: bx };
+      });
+      return item;
+    }
+    rows.push(null);
+    lay(root, padL, 0, 0);
+    // scale so the longest row fits
+    var maxX = 0;
+    laid.forEach(function (it) { maxX = Math.max(maxX, it.x1); });
+    var kx = maxX > padL + avail ? avail / Math.max(1, maxX - padL) : 1;
+    function X(v) { return padL + (v - padL) * kx; }
+
+    var top = 16, Hh = top + rows.length * ROW + (hidden ? ROW : 0) + 14;
+    var svg = d3.select(host).append("svg").attr("viewBox", "0 0 " + W + " " + Hh).attr("role", "img")
+      .attr("aria-label", "the policy trie as a thread: " + total + " episodes from one root, a branch's thickness the episodes through it, its colour the mix of the two policies, "
+        + ranked.length + " ranked branch points ringed");
+    function rowY(r) { return top + r * ROW; }
+    function strokeW(n) { return 1 + 4.5 * Math.sqrt(Math.max(0, n) / total); }
+
+    function nodeLines(n) {
+      var by = m.policies.map(function (p) { return p.name + " " + ((n.by_policy && n.by_policy[p.name]) || 0); }).join(" · ");
+      return [
+        { b: true, text: "step " + n.depth + (n.token ? " · " + n.token : " · the root") },
+        { text: n.episodes + " episodes (" + by + ") · return " + signed(n.mean_return) + " · " + (isNum(n.success_rate) ? Math.round(n.success_rate * 100) + "% solved" : "—") },
+        n.prefix && n.prefix.length ? { text: "…" + n.prefix.slice(-4).join(" → ") } : null,
+        isNum(n.tail) ? { text: n.tail + " more steps folded: one episode goes on alone" } : null,
+        isNum(n.truncated) ? { text: n.truncated + " more steps beyond the depth cap" } : null,
+        marked[n.id] ? { text: "branch point #" + marked[n.id] } : null,
+      ];
+    }
+
+    laid.forEach(function (it) {
+      // the elbow from the parent thread down to this row
+      if (it.from) {
+        svg.append("path").attr("class", "rsp-elbow")
+          .attr("d", "M" + X(it.from.x).toFixed(2) + "," + rowY(it.from.row) + "V" + rowY(it.row))
+          .attr("fill", "none").attr("stroke", mix(it.chain.nodes[0].by_policy)).attr("stroke-width", Math.max(1, strokeW(it.chain.nodes[0].episodes) * 0.8)).attr("stroke-opacity", 0.5);
+      }
+      it.units.forEach(function (u, ui) {
+        var x = X(it.xs[ui]), w = Math.max(2, widthOf(u) * kx), y = rowY(it.row);
+        if (u.type === "fold") {
+          var eps = u.nodes[0].episodes;
+          var fg = svg.append("g").attr("class", "rsp-unit rsp-fold").attr("data-fold", u.id).attr("data-steps", u.nodes.length)
+            .attr("transform", "translate(" + x + "," + y + ")");
+          fg.append("line").attr("x1", 0).attr("x2", w).attr("y1", 0).attr("y2", 0)
+            .attr("stroke", mix(u.nodes[0].by_policy)).attr("stroke-width", Math.max(1.2, strokeW(eps) * 0.7))
+            .attr("stroke-dasharray", "1.5 2.5").attr("stroke-linecap", "round").attr("stroke-opacity", 0.75);
+          if (w >= 18) fg.append("text").attr("x", w / 2).attr("y", -5).attr("text-anchor", "middle").text("×" + u.nodes.length);
+          fg.append("rect").attr("x", 0).attr("y", -8).attr("width", w).attr("height", 16).attr("fill", "transparent");
+          fg.append("title").text(u.nodes.length + " steps every one of these " + eps + " episodes takes the same way; click to open");
+          fg.on("pointermove", function (evt) {
+            tip.show(evt, [{ b: true, text: "×" + u.nodes.length + " steps folded" },
+              { text: u.nodes.map(function (n) { return n.token; }).join(" → ") },
+              { text: eps + " episodes, all the same way · click to open" }]);
+          }).on("pointerleave", tip.hide).on("click", function () { tip.hide(); state.open[u.id] = true; repaint(); });
+          return;
+        }
+        var n = u.node;
+        var g = svg.append("g").attr("class", "rsp-unit").attr("data-node", n.id).attr("data-token", n.token || "root")
+          .attr("data-episodes", n.episodes).attr("transform", "translate(" + x + "," + y + ")");
+        g.append("line").attr("class", "seg").attr("x1", 0).attr("x2", w).attr("y1", 0).attr("y2", 0)
+          .attr("stroke", mix(n.by_policy)).attr("stroke-width", strokeW(n.episodes)).attr("stroke-opacity", 0.85).attr("stroke-linecap", "round");
+        g.append("rect").attr("x", 0).attr("y", -8).attr("width", Math.max(w, 6)).attr("height", 16).attr("fill", "transparent");
+        g.append("title").text((n.token || "root") + " · " + n.episodes + " episodes · return " + signed(n.mean_return));
+        var lines = nodeLines(n);
+        g.on("pointermove", function (evt) { tip.show(evt, lines); }).on("pointerleave", tip.hide)
+          .on("click", function () { tip.hide(); if (state.open[n.id]) delete state.open[n.id]; repaint(); });
+        if (marked[n.id]) {
+          var bg = svg.append("g").attr("class", "rsp-bp").attr("data-node", n.id).attr("data-rank", marked[n.id])
+            .attr("transform", "translate(" + x + "," + y + ")");
+          bg.append("circle").attr("r", 5).attr("fill", "var(--bg)").attr("stroke", "var(--ink)").attr("stroke-width", 1.4)
+            .attr("stroke-opacity", state.point === n.id ? 1 : 0.75);
+          bg.append("text").attr("x", 0).attr("y", 3).attr("text-anchor", "middle").text(marked[n.id]);
+          bg.append("title").text("branch point #" + marked[n.id] + " — " + (ranked[marked[n.id] - 1] || {}).label);
+          bg.on("pointermove", function (evt) { tip.show(evt, [{ b: true, text: "branch point #" + marked[n.id] }, { text: (ranked[marked[n.id] - 1] || {}).label }].concat(nodeLines(n).slice(1))); })
+            .on("pointerleave", tip.hide).on("click", function () { tip.hide(); state.point = state.point === n.id ? null : n.id; repaint(); });
+        }
+      });
+      // the end of a thread: what it holds
+      var last = it.chain.nodes[it.chain.nodes.length - 1];
+      var endX = X(it.x1) + 5, room = W - endX - 2;
+      var label = last.episodes + (last.episodes === 1 ? " ep" : " eps") + " · " + signed(last.mean_return);
+      if (room > 6) {
+        svg.append("text").attr("class", "lab mono dim").attr("x", endX).attr("y", rowY(it.row) + 3.5)
+          .attr("fill", it.row === 0 ? "var(--ink-2)" : "var(--ink-3)").text(trunc(label, Math.floor(room / CH)))
+          .append("title").text(label + (isNum(last.tail) ? " · " + last.tail + " more steps folded" : ""));
+      }
+    });
+    if (hidden) {
+      var y = rowY(rows.length);
+      var more = svg.append("g").attr("class", "rsp-unit rsp-more").attr("data-hidden", hidden)
+        .on("click", function () { state.rows = cap + MAX_ROWS; repaint(); }).style("cursor", "pointer");
+      more.append("text").attr("class", "lab dim").attr("x", padL + 10).attr("y", y + 4)
+        .text("+" + hidden + " more branch" + (hidden === 1 ? "" : "es") + " · " + hiddenEps + " episodes — click to draw them");
+    }
+  }
+
+  function branchTable(H, m, state, repaint) {
+    var br = m.branches;
+    if (!br || !br.measurable || !br.points.length) {
+      return H("p", { class: "rsp-note", text: "Branch points: " + ((br && br.reason) || "none.") });
+    }
+    var a = br.policies[0], b = br.policies[1];
+    var table = H("table", { class: "rsp-table" });
+    table.appendChild(H("thead", {}, [H("tr", {}, [
+      H("th", { text: "#" }), H("th", { text: "step" }),
+      H("th", { text: a }), H("th", { text: b }), H("th", { text: "reach" }), H("th", { text: "imbalance" }),
+    ])]));
+    var body = H("tbody");
+    br.points.forEach(function (p, i) {
+      var sides = {};
+      (p.sides || []).forEach(function (s) { sides[s.policy] = s; });
+      function cell(name) {
+        var s = sides[name];
+        if (!s) return H("td", { text: "—" });
+        return H("td", { class: "n" }, [
+          H("span", { style: { fontFamily: "var(--mono)", color: "var(--ink)" }, text: s.token }),
+          document.createTextNode(" " + signed(s.mean_return) + " (" + s.episodes + ")"),
+        ]);
+      }
+      var row = H("tr", {
+        "data-node": p.id, "data-rank": i + 1, "data-score": p.score,
+        "aria-current": state.point === p.id ? "true" : "false",
+        onclick: function () { state.point = state.point === p.id ? null : p.id; repaint(); },
+      }, [
+        H("td", { class: "n", text: String(i + 1) }),
+        H("td", { class: "n", text: String(p.depth) }),
+        cell(a), cell(b),
+        H("td", { class: "n", text: p.episodes + " eps" }),
+        H("td", { class: "n", text: plain(p.imbalance) }),
+      ]);
+      body.appendChild(row);
+    });
+    table.appendChild(body);
+    var wrap = H("div", { class: "scroll-x" }, [table]);
+    return wrap;
+  }
+
+  AgentDiff.block({
+    id: "rl-divergence",
+    title: "Where the policies part",
+    question: "One thread from the first step, branches where the episodes diverge: which step the two policies take differently, and what the return is on each side.",
+    group: "training",
+    size: "wide",
+    relevance: function (ctx) {
+      var m = model(ctx);
+      return m.ok && m.trie && m.trie.root && m.trie.root.children && m.trie.root.children.length ? 0.74 : 0;
+    },
+    render: function (el, ctx) {
+      ensureStyle();
+      var H = ctx.h, m = model(ctx);
+      var root = H("div", { class: "rsp rsp-tree" });
+      el.appendChild(root);
+      var tip = tooltip(root);
+      var state = { open: {}, point: null, rows: MAX_ROWS };
+      var head = H("p", { class: "rsp-narr" });
+      root.appendChild(head);
+      root.appendChild(policyChips(H, m));
+      var host = H("div", { class: "rsp-chart" });
+      root.appendChild(host);
+      var tableHost = H("div");
+      root.appendChild(tableHost);
+      var note = H("p", { class: "rsp-note" });
+      root.appendChild(note);
+      function paint() {
+        host.innerHTML = ""; tableHost.innerHTML = "";
+        var br = m.branches && m.branches.points && m.branches.points.length ? m.branches.points[0] : null;
+        head.textContent = br ? br.label.charAt(0).toUpperCase() + br.label.slice(1)
+          + " — " + br.episodes + " of " + m.points.length + " episodes reach that step."
+          : "Every episode of both policies takes the same path as far as this tree is drawn.";
+        responsive(host, function () { drawTree(host, ctx, m, tip, state, paint); }, "rl-divergence");
+        tableHost.appendChild(branchTable(H, m, state, paint));
+        var pruned = (m.trie && m.trie.pruned) || {};
+        note.textContent = "A branch's thickness is the episodes through it and its colour the mix of the two policies; "
+          + "a dashed ×N is a run of steps every episode below it takes the same way — click to open it. "
+          + "A branch point is scored by how unevenly the two policies split there, weighted by the episodes that reach it. "
+          + (pruned.note ? pruned.note.charAt(0).toUpperCase() + pruned.note.slice(1) + ". " : "")
+          + "Only the heaviest path is drawn on each row; the rest hang below it.";
+      }
+      paint();
+    },
+  });
+})(typeof window !== "undefined" ? window : this);
+
+</script>
+<!-- 32_rltheatre.js -->
+<script>
+/* AgentDiff blocks — the episode theatre.
+ *
+ * The rest of the Training view draws distributions: returns per episode,
+ * rewards as a map, advantages as a histogram. None of them show an
+ * episode *happening* — reward arriving step by step, the return climbing
+ * or sinking, two policies on the same task coming apart at one moment.
+ * These two blocks are that, overview first:
+ *
+ *   rl-ridgeline  every episode at once — one row per policy per task,
+ *                 the episodes' cumulative-return curves overlaid with
+ *                 the median solid. Click a curve to open it below.
+ *   rl-theatre    two episodes, played — a scrubber over both runs'
+ *                 cumulative return, their step tracks as ribbons, and
+ *                 the step under the scrubber in full.
+ *
+ * Nothing here computes anything the engine did not: every curve is the
+ * `cum` array recorded on an episode (or the running sum of its rewards
+ * when the engine did not store one), every reward is a recorded reward,
+ * and the per-step tool, input and labels come from a pair report when
+ * one covers that run and are left blank when none does.
+ *
+ * Reads `aggregate.rl` (agents -> episodes, tasks -> per-policy returns
+ * and delta) and, for per-step detail, `report.rl.a/b.rewards` alongside
+ * `report.a/b.steps`. It writes nothing back to the engine.
+ */
+(function (global) {
+  "use strict";
+  var AgentDiff = global.AgentDiff;
+  if (!AgentDiff) return;
+  var d3 = global.d3;
+
+  //: eight steps a second — fast enough to feel like motion, slow enough to read
+  var STEP_MS = 125;
+  //: the returns "part" when they differ by a whole point, the unit the reward is written in
+  var PART_AT = 1.0;
+  //: past this many episodes in one ridgeline row the curves stop being legible and become a band
+  var BAND_AT = 16;
+  var PREF_KEY = "agentdiff:rl-theatre";
+
+  var styled = false;
+  function ensureStyle() {
+    if (styled) return;
+    styled = true;
+    var node = document.createElement("style");
+    node.textContent = [
+      ".rlt{position:relative}",
+      ".rlt svg{display:block;width:100%;height:auto;font-family:var(--sans)}",
+      ".rlt .lab{font-size:var(--fs-xs);fill:var(--ink-2)}.rlt .lab.dim{fill:var(--ink-3)}.rlt .lab.mono{font-family:var(--mono)}",
+      ".rlt .tick{font-size:var(--fs-xs);fill:var(--ink-3);font-variant-numeric:tabular-nums}",
+      ".rlt .grid{stroke:var(--rule)}.rlt .zero{stroke:var(--rule-2)}",
+      ".rlt-bar{display:flex;gap:8px 14px;flex-wrap:wrap;align-items:center;font-size:var(--fs-xs);color:var(--ink-3);margin:0 0 8px}",
+      ".rlt-bar i{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:-1px;margin-right:5px;flex:0 0 auto}",
+      ".rlt-bar label{display:inline-flex;align-items:center;gap:6px;min-width:0}",
+      ".rlt-bar select{font:inherit;font-size:var(--fs-xs);font-family:var(--mono);color:var(--ink);background:var(--surface);border:1px solid var(--rule-2);border-radius:6px;padding:2px 6px;max-width:100%}",
+      ".rlt-btn{font:inherit;font-size:var(--fs-xs);border:1px solid var(--rule-2);background:var(--surface);color:var(--ink-2);border-radius:999px;padding:2px 10px;cursor:pointer;min-height:22px}",
+      ".rlt-btn:hover{color:var(--ink);background:var(--surface-2)}",
+      ".rlt-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}",
+      ".rlt-btn[disabled]{opacity:.45;cursor:default}",
+      ".rlt-run{display:inline-flex;align-items:center;gap:5px;min-width:0}",
+      ".rlt-run .rlt-btn{padding:0 7px;font-family:var(--mono)}",
+      ".rlt-run b{font-weight:600;color:var(--ink);font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}",
+      ".rlt-now{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink-2);white-space:nowrap}",
+      ".rlt-stage{position:relative;touch-action:none}",
+      ".rlt-scrubber{position:absolute;inset:0;cursor:ew-resize;background:transparent;touch-action:none}",
+      ".rlt-scrubber:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}",
+      ".rlt-cards{display:grid;gap:8px 10px;margin-top:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}",
+      ".rlt-card{min-width:0;border-left:2px solid var(--rule-2);padding:2px 0 2px 8px;font-size:var(--fs-xs);color:var(--ink-3);line-height:1.5}",
+      ".rlt-card[role=button]{cursor:pointer;border-radius:0 5px 5px 0}",
+      ".rlt-card[role=button]:hover,.rlt-card[role=button]:focus-visible{background:var(--surface-2);outline:none}",
+      ".rlt-card b{color:var(--ink);font-weight:600}",
+      ".rlt-card .k{color:var(--ink-2);font-family:var(--mono);font-variant-numeric:tabular-nums;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+      ".rlt-card .in{font-family:var(--mono);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+      ".rlt-card .ls{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+      ".rlt-note{font-size:var(--fs-xs);color:var(--ink-3);margin:8px 0 0;max-width:90ch;line-height:1.45}",
+      ".rlt-tip{position:absolute;z-index:5;pointer-events:none;background:var(--surface);border:1px solid var(--rule);border-radius:7px;box-shadow:var(--shadow);padding:6px 9px;font-size:var(--fs-xs);color:var(--ink-2);max-width:300px}",
+      ".rlt-tip b{color:var(--ink)}",
+      ".rlt .hit{cursor:pointer}",
+      ".rlt-cell{shape-rendering:crispEdges}",
+      "@media (max-width:520px){.rlt-cards{grid-template-columns:1fr}}",
+    ].join("\n");
+    document.head.appendChild(node);
+  }
+
+  // ------------------------------------------------------------ helpers
+
+  function isNum(v) { return typeof v === "number" && isFinite(v); }
+  function signed(v, p) {
+    if (!isNum(v)) return "—";
+    var s = Math.abs(v).toFixed(p === undefined ? 2 : p);
+    return v > 0 ? "+" + s : v < 0 ? "−" + s : s;
+  }
+  function plain(v, p) { return isNum(v) ? v.toFixed(p === undefined ? 2 : p) : "—"; }
+  function short(id) { return String(id || "").replace(/^t\d+_/, "").replace(/_/g, " "); }
+  function trunc(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  function sum(arr) { var t = 0; for (var i = 0; i < arr.length; i++) if (isNum(arr[i])) t += arr[i]; return t; }
+  function mean(arr) { var xs = arr.filter(isNum); return xs.length ? sum(xs) / xs.length : null; }
+  function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+  function width(host) { var w = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0; return Math.max(280, Math.min(1400, w || 320)); }
+  function colorOf(side, i) { return side === "a" ? "var(--a)" : side === "b" ? "var(--b)" : i === 2 ? "var(--warn)" : "var(--ink-3)"; }
+  function epKey(ep) { return ep.task_id + "|" + ep.policy + "|" + (ep.run_id || ""); }
+  function prefersReduced() {
+    try { return !!(global.matchMedia && global.matchMedia("(prefers-reduced-motion: reduce)").matches); }
+    catch (err) { return false; }
+  }
+  function responsive(host, draw, k) {
+    if (AgentDiff.charts && AgentDiff.charts.responsive) return AgentDiff.charts.responsive(host, draw, k);
+    draw(); return host;
+  }
+  //: the shared step inspector, when the page has one — otherwise nothing happens
+  function selectStep(report, side, step) {
+    var fn = AgentDiff.charts && AgentDiff.charts.selectStep;
+    if (typeof fn === "function" && report && side) { try { fn(report, side, step); } catch (err) { /* the inspector is not ours to fix */ } }
+  }
+  function canSelectStep() { return !!(AgentDiff.charts && typeof AgentDiff.charts.selectStep === "function"); }
+
+  /* The reader's task and run choice, per browser. The page's own store
+   * degrades to memory when a file:// origin refuses localStorage, so a
+   * choice never fails loudly; it just does not survive the reload. */
+  function store() {
+    try { return AgentDiff._internals && AgentDiff._internals.Store ? AgentDiff._internals.Store : null; }
+    catch (err) { return null; }
+  }
+  function loadPref() {
+    var s = store();
+    var v = s ? s.get(PREF_KEY) : null;
+    if (!v || typeof v !== "object") v = {};
+    return { task: typeof v.task === "string" ? v.task : null, runs: v.runs && typeof v.runs === "object" ? v.runs : {} };
+  }
+  function savePref(pref) {
+    var s = store();
+    if (s) { try { s.set(PREF_KEY, { task: pref.task, runs: pref.runs }); } catch (err) { /* quota; the session still holds it */ } }
+  }
+
+  function tooltip(root) {
+    var tip = document.createElement("div"); tip.className = "rlt-tip"; tip.hidden = true; root.appendChild(tip);
+    return {
+      show: function (evt, lines) {
+        tip.innerHTML = "";
+        lines.forEach(function (l) {
+          if (!l) return;
+          var d = document.createElement("div");
+          if (l.b) { var b = document.createElement("b"); b.textContent = l.text; d.appendChild(b); } else d.textContent = l.text;
+          tip.appendChild(d);
+        });
+        tip.hidden = false;
+        var r = root.getBoundingClientRect();
+        var x = evt.clientX - r.left + 14, y = evt.clientY - r.top + 12;
+        if (x + 300 > r.width) x = Math.max(0, evt.clientX - r.left - 310);
+        tip.style.left = x + "px"; tip.style.top = y + "px";
+      },
+      hide: function () { tip.hidden = true; },
+    };
+  }
+
+  // -------------------------------------------------------------- model
+
+  /* The episodes, keyed the way the theatre needs them: per policy, per
+   * task, with the per-step detail attached when a pair report covers
+   * that exact run. Built here rather than borrowed from the Training
+   * blocks because a block must render on its own — but it reads the
+   * same JSON, assigns sides the same way and uses the same colours, so
+   * a policy is the same colour everywhere on the page. */
+  var cache = null;
+  function model(ctx) {
+    var agg = ctx.aggregate || {}, reports = ctx.reports || [], report = ctx.report || null;
+    if (cache && cache.agg === agg && cache.reports === reports && cache.report === report) return cache.m;
+    var m;
+    try { m = build(agg, reports, report); }
+    catch (err) { console.warn("AgentDiff theatre: model failed", err); m = { policies: [], episodes: [], tasks: [], gamma: 0.99, source: null }; }
+    cache = { agg: agg, reports: reports, report: report, m: m };
+    return m;
+  }
+
+  function cumsum(rewards) { var out = [], acc = 0; rewards.forEach(function (r) { acc += r; out.push(acc); }); return out; }
+
+  //: a per-step reward list from either numbers or {step, reward} entries, zero-filled to n
+  function perStep(list, n) {
+    var out = [];
+    if (Array.isArray(list)) {
+      list.forEach(function (v, i) {
+        if (isNum(v)) { out[i] = v; return; }
+        if (v && typeof v === "object") { var s = isNum(v.step) ? v.step : i; if (isNum(v.reward)) out[s] = v.reward; }
+      });
+    }
+    var len = Math.max(isNum(n) ? n : 0, out.length);
+    for (var i = 0; i < len; i++) if (!isNum(out[i])) out[i] = 0;
+    out.length = len;
+    return out;
+  }
+
+  /* Per-step detail for one run: the tool it called, the input it passed
+   * and the labels the reward analysis attached. Only a pair report
+   * carries this, and only for the two runs it compares, so most
+   * episodes get null and the panel says the detail was not recorded. */
+  function detailIndex(reports) {
+    var index = {};
+    reports.forEach(function (r) {
+      var rl = r && r.rl; if (!rl || !r.task) return;
+      ["a", "b"].forEach(function (side) {
+        var run = rl[side];
+        if (!run || !Array.isArray(run.rewards)) return;
+        var policy = run.agent || (r[side] && r[side].agent && r[side].agent.name) || side.toUpperCase();
+        var rid = r[side] && r[side].run_id !== null && r[side].run_id !== undefined ? String(r[side].run_id) : "";
+        var traceSteps = r[side] && Array.isArray(r[side].steps) ? r[side].steps : [];
+        var steps = [];
+        run.rewards.forEach(function (e, i) {
+          if (!e || typeof e !== "object") return;
+          var k = isNum(e.step) ? e.step : i;
+          var t = traceSteps[k] || {};
+          steps[k] = {
+            name: e.name || t.name || null,
+            kind: e.kind || t.type || null,
+            input: t.input === undefined || t.input === null ? null : String(t.input),
+            labels: Array.isArray(e.labels) ? e.labels.filter(Boolean).map(String) : [],
+          };
+        });
+        index[r.task.id + "|" + policy + "|" + rid] = { steps: steps, report: r, side: side };
+      });
+    });
+    return index;
+  }
+
+  function episodeOf(raw, pol, source) {
+    var n = isNum(raw.steps) ? raw.steps : 0;
+    var rewards = perStep(raw.rewards, n);
+    n = rewards.length;
+    var ep = {
+      policy: pol.name, side: pol.side, color: pol.color,
+      task_id: String(raw.task_id || ""),
+      run_id: raw.run_id === null || raw.run_id === undefined ? "" : String(raw.run_id),
+      steps: n, rewards: rewards, success: !!raw.success,
+      seconds: isNum(raw.seconds) ? raw.seconds : null,
+      source: source,
+    };
+    ep.cum = Array.isArray(raw.cum) && raw.cum.length === n && raw.cum.every(isNum) ? raw.cum.slice() : cumsum(rewards);
+    ep.ret = isNum(raw["return"]) ? raw["return"] : sum(rewards);
+    return ep;
+  }
+
+  function build(agg, reports, report) {
+    var rl = agg && agg.rl && typeof agg.rl === "object" ? agg.rl : null;
+    var an = report && report.a && report.a.agent && report.a.agent.name;
+    var bn = report && report.b && report.b.agent && report.b.agent.name;
+    var m = { policies: [], episodes: [], tasks: [], gamma: isNum(rl && rl.gamma) ? rl.gamma : 0.99, source: null, reward_source: rl ? rl.source || null : null };
+    var detail = detailIndex(reports);
+    var names = [], raws = {};
+
+    if (rl && rl.agents && typeof rl.agents === "object" && Object.keys(rl.agents).length) {
+      m.source = "aggregate";
+      names = Object.keys(rl.agents);
+      names.forEach(function (n) {
+        var ag = rl.agents[n] || {};
+        raws[n] = (Array.isArray(ag.episodes) ? ag.episodes : []).filter(function (e) { return e && typeof e === "object"; });
+      });
+    } else {
+      // no batch aggregate: one episode per policy per task, from the reports
+      m.source = "reports";
+      reports.forEach(function (r) {
+        var prl = r && r.rl; if (!prl || !r.task) return;
+        ["a", "b"].forEach(function (side) {
+          var run = prl[side]; if (!run || !Array.isArray(run.rewards)) return;
+          var policy = run.agent || (r[side] && r[side].agent && r[side].agent.name) || side.toUpperCase();
+          if (names.indexOf(policy) < 0) { names.push(policy); raws[policy] = []; }
+          if (!m.reward_source) m.reward_source = prl.source || null;
+          if (isNum(prl.gamma)) m.gamma = prl.gamma;
+          raws[policy].push({
+            task_id: r.task.id,
+            run_id: r[side] && r[side].run_id !== null && r[side].run_id !== undefined ? String(r[side].run_id) : "",
+            steps: isNum(run.steps) ? run.steps : run.rewards.length,
+            rewards: run.rewards, "return": run["return"], success: !!run.success, seconds: run.seconds,
+          });
+        });
+      });
+    }
+    if (!names.length) return m;
+
+    // sides: the pair the page is on keeps its colours, everything else follows
+    var sideOf = {};
+    names.forEach(function (n) { sideOf[n] = n === an ? "a" : n === bn ? "b" : null; });
+    var free = ["a", "b"].filter(function (s) { return names.every(function (n) { return sideOf[n] !== s; }); });
+    names.forEach(function (n) { if (!sideOf[n] && free.length) sideOf[n] = free.shift(); });
+    var rankOf = { a: 0, b: 1 };
+    names.sort(function (x, y) { return (sideOf[x] in rankOf ? rankOf[sideOf[x]] : 2) - (sideOf[y] in rankOf ? rankOf[sideOf[y]] : 2); });
+
+    names.forEach(function (n, i) {
+      var pol = { name: n, side: sideOf[n], color: colorOf(sideOf[n], i), episodes: [] };
+      raws[n].forEach(function (raw) {
+        var ep = episodeOf(raw, pol, m.source);
+        if (!ep.steps) return;
+        ep.detail = detail[epKey(ep)] || null;
+        pol.episodes.push(ep);
+        m.episodes.push(ep);
+      });
+      pol.mean_return = mean(pol.episodes.map(function (e) { return e.ret; }));
+      if (pol.episodes.length) m.policies.push(pol);
+    });
+
+    // tasks in the page's order first, then whatever the aggregate names beyond it
+    var order = [];
+    reports.forEach(function (r) { if (r && r.task && order.indexOf(r.task.id) < 0) order.push(r.task.id); });
+    m.episodes.forEach(function (e) { if (order.indexOf(e.task_id) < 0) order.push(e.task_id); });
+    var rt = rl && rl.tasks && typeof rl.tasks === "object" ? rl.tasks : {};
+    order.forEach(function (t) {
+      var eps = m.episodes.filter(function (e) { return e.task_id === t; });
+      if (!eps.length) return;
+      var raw = rt[t] && typeof rt[t] === "object" ? rt[t] : null;
+      var per = {};
+      m.policies.forEach(function (p) {
+        var src = raw && raw[p.name] && typeof raw[p.name] === "object" ? raw[p.name] : null;
+        var own = eps.filter(function (e) { return e.policy === p.name; });
+        per[p.name] = { mean_return: src && isNum(src.mean_return) ? src.mean_return : mean(own.map(function (e) { return e.ret; })), episodes: own };
+      });
+      var A = m.policies[0], B = m.policies[1];
+      var delta = raw && isNum(raw.delta) ? raw.delta
+        : A && B && isNum(per[B.name].mean_return) && isNum(per[A.name].mean_return) ? per[B.name].mean_return - per[A.name].mean_return : null;
+      m.tasks.push({ id: t, per: per, delta: delta, episodes: eps });
+    });
+    return m;
+  }
+
+  /* Which task to open on.
+   *
+   * The obvious answer is the largest |Δ|, and that is the fallback. But
+   * the largest gap is usually the least interesting one to watch: it is
+   * the task the winning policy wins the way it wins everywhere. The task
+   * worth playing is the *contested* one — where the policy that is ahead
+   * across the batch is behind here, so the two runs really do pull apart
+   * for a reason. Among contested tasks the widest gap wins; with none,
+   * the widest gap overall. The bar says which rule fired. */
+  function defaultTask(m) {
+    var A = m.policies[0], B = m.policies[1];
+    var overall = A && B && isNum(A.mean_return) && isNum(B.mean_return) ? B.mean_return - A.mean_return : 0;
+    var s = overall > 0 ? 1 : overall < 0 ? -1 : 0;
+    var contested = null, cAbs = -1, widest = null, wAbs = -1;
+    m.tasks.forEach(function (t) {
+      if (!isNum(t.delta)) return;
+      var a = Math.abs(t.delta);
+      if (a > wAbs) { wAbs = a; widest = t; }
+      if (s && t.delta !== 0 && (t.delta > 0 ? 1 : -1) === -s && a > cAbs) { cAbs = a; contested = t; }
+    });
+    if (contested) { contested.__why = "contested"; return contested; }
+    if (widest) { widest.__why = "widest"; return widest; }
+    return m.tasks[0] || null;
+  }
+  //: the policy that is ahead over every episode, named so the contested rule can be said out loud
+  function leader(m) {
+    var best = null;
+    m.policies.forEach(function (p) { if (isNum(p.mean_return) && (!best || p.mean_return > best.mean_return)) best = p; });
+    return best;
+  }
+  function taskById(m, id) { for (var i = 0; i < m.tasks.length; i++) if (m.tasks[i].id === id) return m.tasks[i]; return null; }
+
+  //: sorted by return, so "step to the next run" walks the policy's spread in order
+  function runsOn(task, policy) {
+    var eps = (task && task.per[policy] ? task.per[policy].episodes : []).slice();
+    eps.sort(function (x, y) { return x.ret - y.ret || String(x.run_id).localeCompare(String(y.run_id)); });
+    return eps;
+  }
+  /* The median episode by return: the honest representative of a policy on
+   * a task. With an even count there is no middle episode, so this takes
+   * the lower of the two rather than averaging two runs into one that
+   * nobody ran. */
+  function medianIndex(n) { return n ? (n - 1) >> 1 : 0; }
+
+  /* The first step at which the two returns differ by a whole point,
+   * counted only over steps both runs actually reached. */
+  function partedAt(eps) {
+    if (eps.length < 2) return null;
+    var n = Math.min.apply(null, eps.map(function (e) { return e.steps; }));
+    for (var i = 0; i < n; i++) {
+      var lo = Infinity, hi = -Infinity;
+      for (var j = 0; j < eps.length; j++) { var v = eps[j].cum[i]; if (v < lo) lo = v; if (v > hi) hi = v; }
+      if (hi - lo >= PART_AT) return { step: i, spread: hi - lo };
+    }
+    return null;
+  }
+
+  // ------------------------------------------- the live theatre instances
+
+  /* The ridgeline opens an episode in the theatre by talking to the
+   * mounted block, not by re-rendering the page: a redraw would lose the
+   * reader's scroll position and their scrub. Detached mounts are pruned
+   * as they are found. */
+  var MOUNTED = [];
+  function mount(entry) {
+    MOUNTED = MOUNTED.filter(function (e) { return e.root.isConnected; });
+    MOUNTED.push(entry);
+  }
+  function openInTheatre(taskId, policy, runId) {
+    MOUNTED = MOUNTED.filter(function (e) { return e.root.isConnected; });
+    var hit = false;
+    MOUNTED.forEach(function (e) { if (e.show(taskId, policy, runId)) hit = true; });
+    if (!hit) {
+      // the theatre is not on the page right now; leave the choice for next time
+      var pref = loadPref();
+      pref.task = taskId; pref.runs[policy] = runId;
+      savePref(pref);
+    }
+    return hit;
+  }
+
+  // ----------------------------------------------------------- ridgeline
+
+  function drawRidge(host, m, tip) {
+    if (!d3) return;
+    var W = width(host), narrow = W < 520;
+    var gutter = narrow ? 30 : 40, padR = narrow ? 8 : 14;
+    var LABH = 14, TOP = 4;
+
+    var rows = [];
+    m.tasks.forEach(function (t) {
+      m.policies.forEach(function (p) {
+        var eps = runsOn(t, p.name);
+        if (eps.length) rows.push({ task: t, policy: p, eps: eps });
+      });
+    });
+    if (!rows.length) return;
+    var ROW = narrow ? 34 : 40;
+    //: the policies of one task sit close together, tasks are held apart — the comparison is within a task
+    var GAP_IN = 5, GAP_OUT = 15;
+
+    var lo = Infinity, hi = -Infinity, maxSteps = 1;
+    m.episodes.forEach(function (e) {
+      maxSteps = Math.max(maxSteps, e.steps);
+      e.cum.forEach(function (v) { if (v < lo) lo = v; if (v > hi) hi = v; });
+    });
+    if (!isFinite(lo)) { lo = 0; hi = 1; }
+    lo = Math.min(lo, 0); hi = Math.max(hi, 0);
+    if (lo === hi) { lo -= 1; hi += 1; }
+
+    var tops = [], at = TOP;
+    rows.forEach(function (row, ri) {
+      tops.push(at);
+      at += LABH + ROW + (ri + 1 < rows.length && rows[ri + 1].task === row.task ? GAP_IN : GAP_OUT);
+    });
+    var Hh = at;
+    var x = d3.scaleLinear().domain([0, Math.max(1, maxSteps - 1)]).range([gutter, W - padR]);
+
+    var svg = d3.select(host).append("svg")
+      .attr("viewBox", "0 0 " + W + " " + Hh).attr("role", "img")
+      .attr("aria-label", "every episode's cumulative return, one row per policy per task over " + m.tasks.length +
+        " tasks; each row's episodes overlaid with the median solid, all rows on one return axis from " +
+        plain(lo, 1) + " to " + plain(hi, 1));
+
+    rows.forEach(function (row, ri) {
+      var top = tops[ri];
+      var y = d3.scaleLinear().domain([lo, hi]).range([top + LABH + ROW, top + LABH]);
+      var col = row.policy.color;
+      var solved = row.eps.filter(function (e) { return e.success; }).length;
+      var tm = row.task.per[row.policy.name] ? row.task.per[row.policy.name].mean_return : null;
+
+      var head = svg.append("text").attr("class", "lab").attr("x", gutter).attr("y", top + 10);
+      head.append("tspan").attr("fill", col).attr("font-weight", "600").text(trunc(row.policy.name, 22));
+      head.append("tspan").attr("class", "dim").attr("fill", "var(--ink-3)")
+        .text(" · " + trunc(short(row.task.id), narrow ? 14 : 30) + " · n=" + row.eps.length +
+          " · mean " + signed(tm) + " · " + solved + "/" + row.eps.length + " solved");
+
+      // the shared zero line, drawn in every row so the eye can land on it
+      svg.append("line").attr("class", "zero").attr("x1", gutter).attr("x2", W - padR).attr("y1", y(0)).attr("y2", y(0));
+      svg.append("text").attr("class", "tick").attr("x", gutter - 4).attr("y", y(0) + 4).attr("text-anchor", "end").text("0");
+
+      var med = row.eps[medianIndex(row.eps.length)];
+
+      function path(ep) {
+        return ep.cum.map(function (v, i) { return (i ? "L" : "M") + x(i).toFixed(1) + "," + y(v).toFixed(1); }).join(" ");
+      }
+
+      if (row.eps.length > BAND_AT) {
+        // too many curves to read: the envelope at each step, over the
+        // episodes that actually reach that step, with the median over it
+        var area = [], back = [];
+        for (var i = 0; i < maxSteps; i++) {
+          var alive = row.eps.filter(function (e) { return i < e.steps; });
+          if (!alive.length) break;
+          var vs = alive.map(function (e) { return e.cum[i]; });
+          area.push(x(i).toFixed(1) + "," + y(Math.max.apply(null, vs)).toFixed(1));
+          back.unshift(x(i).toFixed(1) + "," + y(Math.min.apply(null, vs)).toFixed(1));
+        }
+        if (area.length) {
+          svg.append("path").attr("class", "rlr-band").attr("data-policy", row.policy.name).attr("data-task", row.task.id)
+            .attr("d", "M" + area.concat(back).join("L") + "Z").attr("fill", col).attr("fill-opacity", 0.14).attr("stroke", "none");
+        }
+      } else {
+        row.eps.forEach(function (ep) {
+          if (ep === med) return;
+          svg.append("path").attr("class", "rlr-line").attr("data-policy", ep.policy).attr("data-task", ep.task_id).attr("data-run", ep.run_id)
+            .attr("fill", "none").attr("stroke", col).attr("stroke-opacity", 0.4).attr("stroke-width", 1)
+            .attr("stroke-dasharray", ep.success ? null : "3 2").attr("d", path(ep));
+        });
+      }
+
+      if (med) {
+        svg.append("path").attr("class", "rlr-median").attr("data-policy", med.policy).attr("data-task", med.task_id).attr("data-run", med.run_id)
+          .attr("fill", "none").attr("stroke", col).attr("stroke-width", 1.8)
+          .attr("stroke-dasharray", med.success ? null : "3 2").attr("d", path(med));
+      }
+
+      // a transparent hit path per episode: a 1px line is not a target
+      (row.eps.length > BAND_AT ? [med] : row.eps).forEach(function (ep) {
+        if (!ep) return;
+        svg.append("path").attr("class", "rlr-hit hit").attr("data-policy", ep.policy).attr("data-task", ep.task_id).attr("data-run", ep.run_id)
+          .attr("fill", "none").attr("stroke", "transparent").attr("stroke-width", 9).attr("d", path(ep))
+          .on("pointermove", function (evt) {
+            tip.show(evt, [
+              { b: true, text: ep.policy + " · " + short(ep.task_id) + (ep.run_id ? " · " + ep.run_id : "") },
+              { text: "return " + signed(ep.ret) + " · " + ep.steps + " steps · " + (ep.success ? "solved" : "failed") + (ep === med ? " · median" : "") },
+              { text: "click to play this episode below" },
+            ]);
+          })
+          .on("pointerleave", tip.hide)
+          .on("click", function () { tip.hide(); openInTheatre(ep.task_id, ep.policy, ep.run_id); });
+      });
+    });
+  }
+
+  AgentDiff.block({
+    id: "rl-ridgeline",
+    title: "Every episode",
+    question: "One row per policy per task: every episode's cumulative return overlaid, the median solid — the overview the theatre is the detail of.",
+    group: "training",
+    size: "wide",
+    relevance: function (ctx) {
+      var m = model(ctx);
+      return m.episodes.length && m.tasks.length ? 0.785 : 0;
+    },
+    render: function (el, ctx) {
+      ensureStyle();
+      var H = ctx.h, m = model(ctx);
+      var root = H("div", { class: "rlt rlt-ridge" });
+      el.appendChild(root);
+      var tip = tooltip(root);
+
+      var bar = H("div", { class: "rlt-bar" });
+      m.policies.forEach(function (p) {
+        bar.appendChild(H("span", { class: "rlt-now" }, [
+          H("i", { style: { background: p.color } }),
+          H("b", { text: p.name }),
+          H("span", { text: " · mean " + signed(p.mean_return) + " · n=" + p.episodes.length }),
+        ]));
+      });
+      bar.appendChild(H("span", { text: "solid = solved · dashed = failed" }));
+      root.appendChild(bar);
+
+      var host = H("div", { class: "rlt-stage" });
+      root.appendChild(responsive(host, function () { drawRidge(host, m, tip); }, "rl-ridgeline"));
+
+      // said from the data rather than from the draw, so the note is right before the first paint
+      var lo = Infinity, hi = -Infinity;
+      m.episodes.forEach(function (e) { e.cum.forEach(function (v) { if (v < lo) lo = v; if (v > hi) hi = v; }); });
+      lo = Math.min(isFinite(lo) ? lo : 0, 0); hi = Math.max(isFinite(hi) ? hi : 1, 0);
+      var banded = m.tasks.some(function (t) {
+        return m.policies.some(function (p) { return runsOn(t, p.name).length > BAND_AT; });
+      });
+      root.appendChild(H("p", { class: "rlt-note", text:
+        "x = step index, y = cumulative return, every row on the same return axis from " + plain(lo, 1) + " to " + plain(hi, 1) +
+        " and on the same step axis, so a short task's curves stop early. " +
+        (banded
+          ? "Rows with more than " + BAND_AT + " episodes are drawn as a band from the lowest to the highest return at each step, with the median episode over it; the band at step k covers only the episodes that reach step k, and the median is the curve you can click."
+          : "Each row draws every episode; the median episode by return is the solid heavy line.") +
+        " Click any curve to play that episode in the theatre below." +
+        (m.reward_source ? " Rewards " + m.reward_source + "." : "") }));
+    },
+  });
+
+  // ------------------------------------------------------------- theatre
+
+  function tsLabel(ep, i) {
+    if (!ep || i >= ep.steps) return "ended";
+    var d = ep.detail && ep.detail.steps[i];
+    var what = d && d.name ? d.name : d && d.kind ? d.kind : "step " + i;
+    return what + " " + signed(ep.rewards[i]);
+  }
+
+  function drawStage(host, ctx, m, state, paintRef) {
+    if (!d3) return;
+    var eps = state.eps;
+    if (!eps.length) return;
+    var W = width(host), narrow = W < 520;
+    //: the top band is the parting label's lane, so it never lands on a curve
+    var padL = narrow ? 34 : 48, padR = narrow ? 10 : 16, padT = 24, padB = 6;
+    var chartH = Math.max(118, Math.min(210, Math.round(W * 0.26)));
+    var LABH = 13, RIB = 11, GAP = 9;
+    var y0 = padT, y1 = padT + chartH;
+    var trackTop = y1 + 20;
+    var Hh = trackTop + eps.length * (LABH + RIB + GAP) + padB;
+    var N = state.n;
+
+    var lo = Infinity, hi = -Infinity, maxAbs = 0;
+    eps.forEach(function (e) {
+      e.cum.forEach(function (v) { if (v < lo) lo = v; if (v > hi) hi = v; });
+      e.rewards.forEach(function (r) { maxAbs = Math.max(maxAbs, Math.abs(r)); });
+    });
+    if (!isFinite(lo)) { lo = 0; hi = 1; }
+    lo = Math.min(lo, 0); hi = Math.max(hi, 0);
+    if (lo === hi) { lo -= 1; hi += 1; }
+
+    var x = d3.scaleLinear().domain([0, Math.max(1, N - 1)]).range([padL, W - padR]);
+    var y = d3.scaleLinear().domain([lo, hi]).nice(4).range([y1, y0]);
+    var cw = (W - padR - padL) / Math.max(1, N);
+    var BAR = Math.min(18, chartH * 0.18);
+
+    var svg = d3.select(host).append("svg")
+      .attr("viewBox", "0 0 " + W + " " + Hh).attr("role", "img")
+      .attr("aria-label", "cumulative return of " + eps.map(function (e) { return e.policy + " run " + (e.run_id || "1"); }).join(" and ") +
+        " on " + short(state.task.id) + ", drawn up to the scrub position, with each run's steps as a ribbon below");
+
+    // the return axis: the zero line carries the meaning, the rest is faint
+    y.ticks(4).forEach(function (v) {
+      svg.append("line").attr("class", v === 0 ? "zero" : "grid").attr("x1", padL).attr("x2", W - padR).attr("y1", y(v)).attr("y2", y(v))
+        .attr("stroke-opacity", v === 0 ? 1 : 0.5);
+      svg.append("text").attr("class", "tick").attr("x", padL - 5).attr("y", y(v) + 4).attr("text-anchor", "end").text(signed(v, 0));
+    });
+
+    function pathTo(ep, upto) {
+      var n = Math.min(upto + 1, ep.steps);
+      if (n <= 0) return "";
+      var d = "";
+      for (var i = 0; i < n; i++) d += (i ? "L" : "M") + x(i).toFixed(1) + "," + y(ep.cum[i]).toFixed(1);
+      return d;
+    }
+
+    var lines = eps.map(function (ep) {
+      svg.append("path").attr("class", "rlt-ghost").attr("data-policy", ep.policy).attr("fill", "none")
+        .attr("stroke", ep.color).attr("stroke-opacity", 0.2).attr("stroke-width", 1.2)
+        .attr("stroke-dasharray", ep.success ? null : "3 2")
+        .attr("d", pathTo(ep, ep.steps - 1));
+      return svg.append("path").attr("class", "rlt-played").attr("data-policy", ep.policy).attr("data-run", ep.run_id)
+        .attr("fill", "none").attr("stroke", ep.color).attr("stroke-width", 1.9)
+        .attr("stroke-dasharray", ep.success ? null : "3 2").attr("d", "");
+    });
+
+    // where the returns first parted by a whole point: ringed, and left ringed
+    var part = state.part;
+    if (part) {
+      var vs = eps.map(function (e) { return e.cum[part.step]; });
+      var pLo = Math.min.apply(null, vs), pHi = Math.max.apply(null, vs);
+      var g = svg.append("g").attr("class", "rlt-part").attr("data-step", part.step);
+      g.append("line").attr("x1", x(part.step)).attr("x2", x(part.step)).attr("y1", y(pHi)).attr("y2", y(pLo))
+        .attr("stroke", "var(--warn)").attr("stroke-width", 1).attr("stroke-opacity", 0.8);
+      vs.forEach(function (v) {
+        g.append("circle").attr("cx", x(part.step)).attr("cy", y(v)).attr("r", 5.5)
+          .attr("fill", "none").attr("stroke", "var(--warn)").attr("stroke-width", 1.3);
+      });
+      // the label rides at the top of the plot, out of the way of the curves and the scrub marks
+      var right = x(part.step) > W * 0.5;
+      g.append("line").attr("x1", x(part.step)).attr("x2", x(part.step)).attr("y1", y0 - 6).attr("y2", y(pHi) - 7)
+        .attr("stroke", "var(--warn)").attr("stroke-width", 1).attr("stroke-opacity", 0.35).attr("stroke-dasharray", "2 3");
+      g.append("text").attr("class", "lab").style("fill", "var(--warn)")
+        .attr("x", clamp(x(part.step) + (right ? -7 : 7), padL, W - padR))
+        .attr("y", y0 - 10)
+        .attr("text-anchor", right ? "end" : "start")
+        .text(narrow ? "part · step " + part.step : "returns part here · step " + part.step + " · " + plain(part.spread, 1) + " apart");
+      g.append("title").text("the first step at which the returns differ by " + PART_AT.toFixed(1) + " or more: step " + part.step + ", " + plain(part.spread, 2) + " apart");
+    }
+
+    // the step ribbons: one cell per step, reward sign and intensity
+    var tracks = eps.map(function (ep, ei) {
+      var top = trackTop + ei * (LABH + RIB + GAP);
+      var g = svg.append("g").attr("class", "rlt-track").attr("data-policy", ep.policy).attr("data-run", ep.run_id).attr("data-steps", ep.steps);
+      var t = g.append("text").attr("class", "lab").attr("x", padL).attr("y", top + 9);
+      t.append("tspan").attr("fill", ep.color).attr("font-weight", "600").text(trunc(ep.policy, 20));
+      t.append("tspan").attr("fill", "var(--ink-3)").text(" · " + (ep.run_id || "run 1") + " · " + ep.steps + " steps · return " + signed(ep.ret) + " · " + (ep.success ? "solved" : "failed"));
+      var ribY = top + LABH;
+      // the run's own extent: it stops where the run stopped
+      g.append("rect").attr("x", padL).attr("y", ribY).attr("width", Math.max(1, cw * ep.steps)).attr("height", RIB)
+        .attr("fill", "var(--surface-2)");
+      for (var i = 0; i < ep.steps; i++) {
+        var r = ep.rewards[i];
+        if (r === 0) continue;
+        var op = maxAbs > 0 ? 0.28 + 0.72 * Math.abs(r) / maxAbs : 0.8;
+        g.append("rect").attr("class", "rlt-cell").attr("data-step", i).attr("data-reward", r)
+          .attr("x", padL + i * cw).attr("y", ribY).attr("width", Math.max(0.8, cw - (cw > 3 ? 0.7 : 0))).attr("height", RIB)
+          .attr("fill", r > 0 ? "var(--good)" : "var(--bad)").attr("fill-opacity", op);
+      }
+      // the end of the run, said rather than padded
+      g.append("line").attr("class", "rlt-end").attr("x1", padL + cw * ep.steps).attr("x2", padL + cw * ep.steps)
+        .attr("y1", ribY - 2).attr("y2", ribY + RIB + 2).attr("stroke", ep.color).attr("stroke-width", 1.2);
+      var mark = g.append("rect").attr("class", "rlt-cellnow").attr("y", ribY - 2).attr("height", RIB + 4)
+        .attr("width", Math.max(2, cw)).attr("fill", "none").attr("stroke", "var(--ink)").attr("stroke-width", 1).attr("x", padL).attr("opacity", 0);
+      return { ep: ep, top: top, ribY: ribY, mark: mark };
+    });
+
+    var scrub = svg.append("line").attr("class", "rlt-scrubline").attr("y1", y0).attr("y2", Hh - padB)
+      .attr("stroke", "var(--ink)").attr("stroke-opacity", 0.45).attr("stroke-width", 1);
+    var now = svg.append("g").attr("class", "rlt-nowlayer");
+
+    state.geom = { W: W, padL: padL, padR: padR, x: x, cw: cw };
+
+    paintRef.paint = function (pos) {
+      var px = x(pos);
+      scrub.attr("x1", px).attr("x2", px);
+      eps.forEach(function (ep, i) { lines[i].attr("d", pathTo(ep, pos)); });
+      tracks.forEach(function (tr) {
+        if (pos < tr.ep.steps) tr.mark.attr("x", padL + pos * cw).attr("opacity", 1);
+        else tr.mark.attr("opacity", 0);
+      });
+      now.selectAll("*").remove();
+      // the two marks, labelled away from each other so neither is covered
+      var live = [];
+      eps.forEach(function (ep) { if (pos < ep.steps) live.push(ep); });
+      live.sort(function (p, q) { return y(p.cum[pos]) - y(q.cum[pos]); });
+      live.forEach(function (ep, k) {
+        var cy = y(ep.cum[pos]), r = ep.rewards[pos];
+        if (r !== 0 && maxAbs > 0) {
+          /* Square-rooted, and the note says so. These rewards span two
+           * orders of magnitude — a −0.1 step against a −10 wrong answer —
+           * and a linear bar renders every ordinary step as nothing at all.
+           * The root keeps the order intact and keeps the small ones seen. */
+          var hgt = Math.max(1.5, BAR * Math.sqrt(Math.abs(r) / maxAbs));
+          now.append("rect").attr("class", "rlt-rbar").attr("x", px - 1.6).attr("width", 3.2)
+            .attr("y", r > 0 ? cy - hgt : cy).attr("height", hgt)
+            .attr("fill", r > 0 ? "var(--good)" : "var(--bad)").attr("fill-opacity", 0.85);
+        }
+        now.append("circle").attr("class", "rlt-mark").attr("data-policy", ep.policy).attr("cx", px).attr("cy", cy).attr("r", 3.6)
+          .attr("fill", ep.color).attr("stroke", "var(--surface)").attr("stroke-width", 1.2);
+        var right = px > W * 0.58;
+        now.append("text").attr("class", "lab mono").style("fill", ep.color)
+          .attr("x", px + (right ? -7 : 7)).attr("y", cy + (k === 0 ? -8 : 15))
+          .attr("text-anchor", right ? "end" : "start")
+          .text(trunc(tsLabel(ep, pos), narrow ? 16 : 28));
+      });
+    };
+    paintRef.paint(state.pos);
+  }
+
+  function cardFor(H, ep, pos) {
+    var ended = pos >= ep.steps;
+    var d = !ended && ep.detail ? ep.detail.steps[pos] : null;
+    var actionable = !ended && ep.detail && canSelectStep();
+    var attrs = { class: "rlt-card", "data-policy": ep.policy, "data-run": ep.run_id, style: { borderLeftColor: ep.color } };
+    if (actionable) {
+      attrs.role = "button";
+      attrs.tabindex = "0";
+      attrs["aria-label"] = "open step " + pos + " of " + ep.policy + " " + (ep.run_id || "run 1") + " in the step inspector";
+    }
+    var kids = [
+      H("div", {}, [H("i", { class: "dot", style: { display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", background: ep.color, marginRight: "5px" } }),
+        H("b", { text: ep.policy }), H("span", { text: " · " + (ep.run_id || "run 1") })]),
+    ];
+    if (ended) {
+      kids.push(H("span", { class: "k", text: "ended at step " + (ep.steps - 1) }));
+      kids.push(H("span", { class: "ls", text: "return " + signed(ep.ret) + " · " + (ep.success ? "solved" : "failed") }));
+    } else {
+      kids.push(H("span", { class: "k", text: "step " + pos + (d && d.name ? " · " + d.name : d && d.kind ? " · " + d.kind : "") }));
+      if (d && d.input) kids.push(H("span", { class: "in", text: trunc(d.input.replace(/\s+/g, " "), 64) }));
+      kids.push(H("span", { class: "k", text: "reward " + signed(ep.rewards[pos]) + " · return " + signed(ep.cum[pos]) }));
+      if (d && d.labels.length) kids.push(H("span", { class: "ls", text: d.labels.join(", ").replace(/_/g, " ") }));
+      if (!ep.detail) kids.push(H("span", { class: "ls", text: "no per-step detail recorded for this run" }));
+    }
+    var card = H("div", attrs, kids);
+    if (actionable) {
+      var open = function () { selectStep(ep.detail.report, ep.detail.side, pos); };
+      card.addEventListener("click", open);
+      card.addEventListener("keydown", function (evt) {
+        if (evt.key === "Enter" || evt.key === " " || evt.key === "Spacebar") { evt.preventDefault(); open(); }
+      });
+    }
+    return card;
+  }
+
+  AgentDiff.block({
+    id: "rl-theatre",
+    title: "Episode theatre",
+    question: "One episode per policy on a task, played step by step: where the reward lands, where the returns come apart.",
+    group: "training",
+    size: "wide",
+    relevance: function (ctx) {
+      var m = model(ctx);
+      return m.episodes.length && m.tasks.length ? 0.782 : 0;
+    },
+    render: function (el, ctx) {
+      ensureStyle();
+      var H = ctx.h, m = model(ctx);
+      var root = H("div", { class: "rlt rlt-theatre" });
+      el.appendChild(root);
+
+      var pref = loadPref();
+      var reduced = prefersReduced();
+      var auto = defaultTask(m), lead = leader(m);
+      var state = {
+        task: taskById(m, pref.task) || auto,
+        chosen: {},          // policy name -> run_id
+        eps: [], n: 1, pos: 0, part: null,
+        playing: false, timer: null, geom: null,
+      };
+
+      var paintRef = { paint: function () {} };
+
+      function pickEpisodes() {
+        state.eps = [];
+        m.policies.forEach(function (p) {
+          var runs = runsOn(state.task, p.name);
+          if (!runs.length) return;
+          var want = state.chosen[p.name] !== undefined ? state.chosen[p.name] : pref.runs[p.name];
+          var at = -1;
+          if (want !== undefined && want !== null) {
+            for (var i = 0; i < runs.length; i++) if (runs[i].run_id === String(want)) { at = i; break; }
+          }
+          if (at < 0) at = medianIndex(runs.length);
+          state.chosen[p.name] = runs[at].run_id;
+          runs[at].__at = at; runs[at].__of = runs.length;
+          state.eps.push(runs[at]);
+        });
+        state.n = Math.max(1, state.eps.reduce(function (a, e) { return Math.max(a, e.steps); }, 1));
+        state.pos = clamp(state.pos, 0, state.n - 1);
+        state.part = partedAt(state.eps);
+        state.maxAbs = state.eps.reduce(function (a, e) {
+          return e.rewards.reduce(function (b, r) { return Math.max(b, Math.abs(r)); }, a);
+        }, 0);
+      }
+
+      // ------------------------------------------------------- controls
+
+      var bar = H("div", { class: "rlt-bar" });
+      root.appendChild(bar);
+
+      var sel = H("select", { "aria-label": "Task to play" });
+      m.tasks.forEach(function (t) {
+        sel.appendChild(H("option", { value: t.id, text: trunc(short(t.id), 34) + (isNum(t.delta) ? " · Δ " + signed(t.delta, 1) : "") }));
+      });
+      sel.addEventListener("change", function () {
+        var t = taskById(m, sel.value);
+        if (!t) return;
+        stop();
+        state.task = t; state.chosen = {}; state.pos = 0;
+        pref.task = t.id; pref.runs = {};
+        rebuild();
+      });
+      bar.appendChild(H("label", {}, [H("span", { text: "task" }), sel]));
+
+      var playBtn = H("button", { class: "rlt-btn", type: "button", "aria-label": "Play the episode", "aria-pressed": "false", text: "▶ play" });
+      playBtn.addEventListener("click", function () { if (state.playing) stop(); else play(); });
+      bar.appendChild(playBtn);
+
+      var readout = H("span", { class: "rlt-now" });
+      bar.appendChild(readout);
+
+      var why = H("span", {});
+      bar.appendChild(why);
+
+      var runsBar = H("div", { class: "rlt-bar" });
+      root.appendChild(runsBar);
+
+      // ---------------------------------------------------------- stage
+
+      var stage = H("div", { class: "rlt-stage" });
+      var svgHost = H("div", {});
+      var scrubber = H("div", {
+        class: "rlt-scrubber", role: "slider", tabindex: "0",
+        "aria-label": "Episode position: the step both runs are shown at",
+        "aria-orientation": "horizontal", "aria-valuemin": "0", "aria-valuemax": "0", "aria-valuenow": "0", "aria-valuetext": "step 0",
+      });
+      stage.appendChild(svgHost);
+      stage.appendChild(scrubber);
+      root.appendChild(stage);
+
+      var cards = H("div", { class: "rlt-cards" });
+      root.appendChild(cards);
+
+      var note = H("p", { class: "rlt-note" });
+      root.appendChild(note);
+
+      // ------------------------------------------------------- painting
+
+      function valueText() {
+        var parts = ["step " + state.pos + " of " + (state.n - 1)];
+        state.eps.forEach(function (ep) {
+          if (state.pos >= ep.steps) { parts.push(ep.policy + " ended at step " + (ep.steps - 1) + ", return " + signed(ep.ret)); return; }
+          var d = ep.detail && ep.detail.steps[state.pos];
+          parts.push(ep.policy + " " + (d && d.name ? d.name : "step " + state.pos) +
+            ", reward " + signed(ep.rewards[state.pos]) + ", return " + signed(ep.cum[state.pos]));
+        });
+        return parts.join(" · ");
+      }
+
+      function paint() {
+        try { paintRef.paint(state.pos); } catch (err) { /* the stage may be mid-redraw */ }
+        scrubber.setAttribute("aria-valuemin", "0");
+        scrubber.setAttribute("aria-valuemax", String(state.n - 1));
+        scrubber.setAttribute("aria-valuenow", String(state.pos));
+        scrubber.setAttribute("aria-valuetext", valueText());
+        readout.textContent = "step " + state.pos + " / " + (state.n - 1);
+        cards.innerHTML = "";
+        state.eps.forEach(function (ep) { cards.appendChild(cardFor(H, ep, state.pos)); });
+      }
+
+      function setPos(v) {
+        v = clamp(Math.round(v), 0, state.n - 1);
+        if (v === state.pos) return;
+        state.pos = v;
+        paint();
+      }
+
+      // -------------------------------------------------------- playing
+
+      function stop() {
+        if (state.timer) { clearInterval(state.timer); state.timer = null; }
+        state.playing = false;
+        playBtn.textContent = "▶ play";
+        playBtn.setAttribute("aria-pressed", "false");
+        playBtn.setAttribute("aria-label", "Play the episode");
+      }
+      function play() {
+        if (state.playing) return;
+        if (state.pos >= state.n - 1) state.pos = 0;
+        state.playing = true;
+        playBtn.textContent = "❚❚ pause";
+        playBtn.setAttribute("aria-pressed", "true");
+        playBtn.setAttribute("aria-label", "Pause the episode");
+        paint();
+        state.timer = setInterval(function () {
+          if (!root.isConnected) { stop(); return; }
+          if (state.pos >= state.n - 1) { stop(); return; }
+          state.pos += 1;
+          paint();
+        }, STEP_MS);
+      }
+
+      // -------------------------------------------------------- pointer
+
+      function posFromEvent(evt) {
+        var g = state.geom;
+        if (!g) return state.pos;
+        var r = stage.getBoundingClientRect();
+        if (!r.width) return state.pos;
+        var scale = g.W / r.width;
+        var px = (evt.clientX - r.left) * scale;
+        var lo = g.x.range()[0], hi = g.x.range()[1];
+        if (hi <= lo) return 0;
+        return Math.round((clamp(px, lo, hi) - lo) / (hi - lo) * (state.n - 1));
+      }
+      var dragging = false;
+      scrubber.addEventListener("pointerdown", function (evt) {
+        dragging = true; stop();
+        try { scrubber.setPointerCapture(evt.pointerId); } catch (err) { /* older pointer stacks */ }
+        setPos(posFromEvent(evt));
+        scrubber.focus();
+        evt.preventDefault();
+      });
+      scrubber.addEventListener("pointermove", function (evt) { if (dragging) setPos(posFromEvent(evt)); });
+      scrubber.addEventListener("pointerup", function (evt) {
+        dragging = false;
+        try { scrubber.releasePointerCapture(evt.pointerId); } catch (err) { /* already released */ }
+      });
+      scrubber.addEventListener("pointercancel", function () { dragging = false; });
+
+      // ------------------------------------------------------- keyboard
+
+      scrubber.addEventListener("keydown", function (evt) {
+        var jump = evt.shiftKey ? 10 : 1, handled = true;
+        switch (evt.key) {
+          case "ArrowLeft": case "Left": stop(); setPos(state.pos - jump); break;
+          case "ArrowRight": case "Right": stop(); setPos(state.pos + jump); break;
+          case "ArrowDown": case "Down": stop(); setPos(state.pos - jump); break;
+          case "ArrowUp": case "Up": stop(); setPos(state.pos + jump); break;
+          case "PageDown": stop(); setPos(state.pos - 10); break;
+          case "PageUp": stop(); setPos(state.pos + 10); break;
+          case "Home": stop(); setPos(0); break;
+          case "End": stop(); setPos(state.n - 1); break;
+          case " ": case "Spacebar": case "Space":
+            if (state.playing) stop(); else play();
+            break;
+          default: handled = false;
+        }
+        if (handled) { evt.preventDefault(); evt.stopPropagation(); }
+      });
+
+      // -------------------------------------------------------- rebuild
+
+      function runStepper(p) {
+        var runs = runsOn(state.task, p.name);
+        var ep = null, at = 0;
+        for (var i = 0; i < runs.length; i++) if (runs[i].run_id === state.chosen[p.name]) { ep = runs[i]; at = i; }
+        if (!ep) return null;
+        function go(delta) {
+          stop();
+          var next = runs[(at + delta + runs.length) % runs.length];
+          state.chosen[p.name] = next.run_id;
+          pref.runs[p.name] = next.run_id;
+          pref.task = state.task.id;
+          savePref(pref);
+          rebuild();
+        }
+        var prev = H("button", { class: "rlt-btn", type: "button", "aria-label": "Previous episode of " + p.name + " on this task", text: "◂" });
+        var next = H("button", { class: "rlt-btn", type: "button", "aria-label": "Next episode of " + p.name + " on this task", text: "▸" });
+        prev.addEventListener("click", function () { go(-1); });
+        next.addEventListener("click", function () { go(1); });
+        if (runs.length < 2) { prev.disabled = true; next.disabled = true; }
+        return H("span", { class: "rlt-run" }, [
+          H("i", { style: { background: p.color } }),
+          prev,
+          H("b", { text: (ep.run_id || "run 1") }),
+          next,
+          H("span", { text: "return " + signed(ep.ret) + " · " + (at + 1) + " of " + runs.length + " by return" +
+            (at === medianIndex(runs.length) ? " · median" : "") + (ep.detail ? " · step detail" : "") }),
+        ]);
+      }
+
+      function rebuild() {
+        pickEpisodes();
+        sel.value = state.task.id;
+        savePref(pref);
+        runsBar.innerHTML = "";
+        m.policies.forEach(function (p) {
+          var s = runStepper(p);
+          if (s) runsBar.appendChild(s);
+        });
+        svgHost.innerHTML = "";
+        responsive(svgHost, function () { drawStage(svgHost, ctx, m, state, paintRef); paintRef.paint(state.pos); }, "rl-theatre");
+        paint();
+        why.textContent = state.task !== auto || !auto.__why ? ""
+          : auto.__why === "contested" && lead
+            ? "opened here because this is the contested task: " + lead.name + " is ahead over the batch but behind on this one (Δ " + signed(state.task.delta, 1) + ")"
+            : "opened here because this is the widest gap between the policies (Δ " + signed(state.task.delta, 1) + ")";
+        note.textContent = "The two runs are lined up by step index only: step " + state.pos +
+          " of one run is not the same action as step " + state.pos + " of the other, and the tracks end where each run ended — " +
+          state.eps.map(function (e) { return e.policy + " " + e.steps; }).join(" steps, ") + " steps. " +
+          "Drag or click the chart to scrub, ← → to step (shift for ten), Home and End for the ends, space to play at 8 steps a second. " +
+          "The bar at each mark is that step's reward, up or down from the line, its height the square root of the reward against the largest here (" +
+          plain(state.maxAbs) + ") so the ordinary −0.10 steps stay visible next to a terminal ±5." +
+          (reduced ? " Reduced motion is on, so it never plays on its own." : " It never plays on its own.") +
+          (state.part ? " The ring marks step " + state.part.step + ", where the returns first differ by a whole point." : " The returns never differ by a whole point on these two runs.");
+      }
+
+      // ridgeline hand-off: show this exact episode
+      mount({
+        root: root,
+        show: function (taskId, policy, runId) {
+          var t = taskById(m, taskId);
+          if (!t) return false;
+          stop();
+          if (t !== state.task) { state.task = t; state.chosen = {}; state.pos = 0; pref.runs = {}; }
+          state.chosen[policy] = runId;
+          pref.task = taskId; pref.runs[policy] = runId;
+          rebuild();
+          try { root.scrollIntoView({ block: "nearest", behavior: reduced ? "auto" : "smooth" }); } catch (err) { /* older browsers */ }
+          return true;
+        },
+      });
+
+      rebuild();
     },
   });
 })(typeof window !== "undefined" ? window : this);

@@ -52,6 +52,7 @@ from typing import Optional
 from . import impact as _impact
 from .feedback import preference_pair, step_labels
 from .rlaudit import audit_aggregate, audit_pair
+from .rlspace import rl_space
 from .rlstats import BOOTSTRAP_SAMPLES as _rlstats_samples, rl_stats
 from .trace import Trajectory
 
@@ -583,6 +584,10 @@ def rl_aggregate(reports: list, trajectories: list, names: Optional[tuple] = Non
     # from the run readings, which are the only place the per-step labels and
     # the step's tool survive
     block["audit"] = audit_aggregate(runs, gamma=gamma)
+    # the same episodes read as behaviour rather than as return: the action
+    # vocabulary, the prefix tree of what each policy does and where the two
+    # part, the habits that go with winning, and how far apart the episodes sit
+    block["space"] = rl_space(trajectories, agents, names=tuple(n for n in (first, second) if n))
     return block
 
 

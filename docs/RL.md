@@ -131,3 +131,183 @@ record carries the same `source` (`recorded` / `shaped`). Coming in, `convert --
 veRL agent-loop rollout or an Agent Lightning span / event export into traces whose steps carry the trainer's own
 rewards, so this section reads them as *recorded*. `docs/FRAMEWORKS.md` §6 says what each trainer logs and where
 this project sits relative to one.
+
+## Comparing two policies from few episodes
+
+A mean return with a normal-approximation interval is the wrong instrument
+for the sample a runs layout actually has. With three runs per task the
+mean is dragged wherever the luckiest or unluckiest episode went, and the
+normal approximation assumes a sample size nobody running agents has.
+Agarwal, Schwarzer, Castro, Courville and Bellemare showed in 2021 how far
+that goes wrong in published deep-RL results — comparisons drawn from a
+handful of runs routinely reverse when the runs are redrawn — and set out
+the alternative this project implements in `deepcompare/rlstats.py`, from
+scratch and in the standard library, over the same episodes `rl_aggregate`
+already builds. It lands at `aggregate["rl"]["stats"]`.
+
+### What it computes
+
+- **IQM**, the interquartile mean: sort every run's score, drop
+  `int(n × 0.25)` from each end, average what is left. It ignores the one
+  exceptional episode the mean chases while keeping far more of the sample
+  than the median does, which is why it leads the block rather than the
+  mean. At three runs nothing is cut and the IQM *is* the mean; the output
+  says so rather than pretending otherwise.
+- **median** and **mean**, reported beside it so the reader can see how
+  much each disagrees.
+- the **optimality gap**: `mean(max(0, target − score))`, the average
+  shortfall against a stated target. A run at or past the target
+  contributes 0, so the gap is never negative and one exceptional episode
+  cannot buy a policy out of a failure. The target is configurable and
+  defaults to the best score any run of any policy actually reached; the
+  block names it and says which it used, because a gap against an unstated
+  ceiling means nothing.
+- a **stratified bootstrap** interval on all four. Tasks are the strata:
+  runs are exchangeable *within* a task and not across tasks, so a resample
+  redraws each task's runs with replacement and keeps every task's own run
+  count. Pooling the runs first would quietly assume a run on one task
+  could have landed on another. 2000 resamples, a percentile interval at
+  95%, one fixed seed and tasks visited in sorted order — so the whole
+  section is byte-identical run to run.
+- the **performance profile**: the fraction of runs scoring at least τ, for
+  every τ on a shared grid, with the bootstrap band. A distribution rather
+  than a point. Where one curve sits at or above the other at every τ the
+  ordering holds at every threshold and the block says so; where they cross
+  the block names the τ values, because a crossing means the answer depends
+  on where the bar is set.
+- the **probability of improvement**, P(B > A): per task, every run of B is
+  compared against every run of A with a tie counting a half (a
+  Mann-Whitney statistic scaled to a probability), and the tasks are then
+  averaged. One task cannot dominate by having more runs, and one enormous
+  episode cannot win more than one comparison. Tasks only one policy ran
+  are excluded and named. This is not the same question as "whose mean is
+  higher", and on small samples the two regularly disagree.
+
+The score is selectable — `return` (the default), `discounted_return`,
+`success` as 1/0, `steps`, `seconds` — because the same machinery answers
+"is it better" for any of them; `steps` and `seconds` are read as
+lower-is-better, which flips the gap, the profile's direction and the
+comparison inside the probability of improvement.
+
+### What the interval is, and is not
+
+Every interval here is a bootstrap **over the runs that were recorded**. It
+says how far this sample's statistic moves when these runs are redrawn. It
+is not a confidence statement about a population of runs nobody made, and
+at three runs per task it will be wide. The section therefore carries the
+reliability layer's own runs advisory (`rlstats.sample_advisory`) plus a
+sentence saying what a bootstrap over so few runs can and cannot support,
+and the block renders that advisory under every figure. An overlap is read
+as *these runs do not separate the policies* — never as *the policies are
+equal*. Degenerate shapes say so instead of returning a number: one run per
+task gives an interval of no width and is labelled `degenerate` with the
+reason; all-equal scores likewise; a policy missing a task simply does not
+have that task among its strata; fewer than two policies leaves the
+profile comparison and the probability of improvement unmeasurable with a
+reason attached.
+
+### The demos
+
+`demo/rl/traces` (12 episodes, 2 policies × 2 tasks × 3 runs) is the
+small-sample case, and it is instructive: policy-v2's IQM return is 6.8
+[1.8, 7.65] against policy-v1's −3.25 [−6.7, 2.55], and those intervals
+**overlap**. Three runs per task cannot separate the policies even though
+the means are 5.23 and −2.47 and the preference pairs all point one way.
+P(policy-v2 > policy-v1) is 94% [78%, 100%] over the two shared tasks —
+an interval that reaches the ceiling, which is what a two-task bootstrap
+looks like. The profiles do not cross: policy-v2's curve is at or above
+policy-v1's at every τ.
+
+`demo/rl/train` (96 episodes, 2 policies × 6 tasks × 8 runs) is the case
+worth trusting. policy-v2's IQM is 6.1 [4.19, 6.74] against policy-v1's
+−6.2 [−6.8, −4.6]: the intervals no longer overlap. P(policy-v2 >
+policy-v1) is 88% [82%, 94%], and that figure earns its keep — it is an
+average over tasks, and on `rl05_incident_postmortem` it is 41%, below the
+coin flip, because policy-v2 passes 0 of 8 there where policy-v1 passes 4.
+A policy can win the aggregate and still be a regression on a task, and
+the block puts that task at the top of its per-task list rather than
+letting the average bury it. The pooled profiles still do not cross, since
+policy-v1's runs on the other five tasks are weak enough to cover it; the
+per-task view is what carries the exception.
+
+### Reading it on the page
+
+`web/blocks/28_rlstats.js` draws three blocks in the Training view.
+*Aggregate score, with intervals* is the paper's Figure-1 idiom: four
+metric rows on one shared score axis, both policies' point estimate and
+bootstrap interval on each, so an overlap is the first thing seen; the
+optimality gap row is marked *lower is better* because a long bar there is
+bad news. *Performance profile* draws the two curves with their bands, τ on
+x and the fraction of runs on y, and says in a sentence whether one
+dominates or where they cross. *Probability of improvement* gives the
+single figure with its interval against a visible coin-flip line, the
+sentence that interprets it, and the per-task breakdown — hover a task for
+its own runs, click to open it.
+
+## Watching one episode happen
+
+Everything above is a distribution: returns per episode, rewards as a map,
+intervals over runs. None of it shows an episode *unfolding* — reward
+arriving step by step, the return climbing or sinking, two policies on the
+same task pulling apart at a particular moment. Two blocks in
+`web/blocks/32_rltheatre.js` add that, overview first.
+
+**Every episode** (`rl-ridgeline`) is one row per policy per task. Each row
+overlays that policy's episodes on the task as cumulative-return curves,
+with the median episode by return drawn heavy — the median rather than the
+mean because a mean curve is a curve nobody ran. Every row shares one
+return axis and one step axis, so the rows are comparable and a short task's
+curves visibly stop early. Colour carries the policy, so success and
+failure are carried by line style instead: solid solved, dashed failed. On
+`demo/rl/train` that is twelve rows of eight curves, and the shape of the
+reward is legible at a glance — a long shallow drift, then the terminal
+answer reward fanning up for policy-v2 and down for policy-v1, except on
+`rl05_incident_postmortem` where it is the other way round. Past sixteen
+episodes in a row the curves stop being separable, so the row becomes a
+band from the lowest to the highest return at each step with the median
+over it; the band at step *k* covers only the episodes that reach step *k*,
+and the note on the block says so rather than letting the tail imply that
+every run was still going.
+
+**Episode theatre** (`rl-theatre`) plays one episode per policy on a task.
+It opens on the *contested* task — the one where the policy that is ahead
+across the batch is behind here — because the widest gap is usually the
+task the winner wins the way it wins everywhere, and the contested task is
+the one worth watching. With no contested task it opens on the widest gap,
+and the bar says which rule fired. Within the task it takes each policy's
+median episode by return, and a stepper walks the policy's other runs in
+return order.
+
+A scrubber sets one position along the episode. Both runs' cumulative
+returns are drawn solid up to it and ghosted past it, so the reader can see
+where they are in the whole. At the position each run gets a mark, a small
+bar for that step's reward — square-rooted against the largest reward in
+view, because these rewards span two orders of magnitude and a linear bar
+renders an ordinary −0.1 step as nothing — and a label naming the tool and
+the reward. The first step at which the two returns differ by a whole point
+is ringed and labelled permanently: that is the answer to "when did it go
+wrong", and it stays on screen wherever the scrubber is.
+
+Below the chart each run's steps are a ribbon, one cell per step, coloured
+by the sign and size of the reward, with the scrub position a line across
+both. **The two runs are aligned by step index and nothing more** — step 12
+of one run is not the same action as step 12 of the other — and the block
+says so, because the alignment is a drawing convenience, not a claim. Where
+a run ended its ribbon ends; nothing is padded to make the two match, and
+the scrubber's value text says "ended at step N" for the run that has
+finished.
+
+Under that, the step under the scrubber on each side in full: the tool, its
+input abbreviated, the reward, the cumulative return and the labels the
+analysis attached. Per-step detail like this exists only for the runs a
+pair report covers, so a run without one says "no per-step detail recorded
+for this run" instead of inventing a tool name. Where the detail is there,
+clicking the panel opens that step in the page's step inspector.
+
+The whole thing is drivable without a mouse: the scrubber is a
+`role="slider"` with a live `aria-valuetext` naming the step and both runs'
+current tool, reward and return; ← and → step one, shift steps ten, Home
+and End go to the ends, and space plays at eight steps a second. It never
+plays on its own, under `prefers-reduced-motion` or otherwise. The task and
+run choice are remembered per browser through the page's own store, which
+falls back to memory when a `file://` origin refuses `localStorage`.

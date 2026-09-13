@@ -6070,3 +6070,494 @@ class TrainingViewTest(unittest.TestCase):
         self.assertEqual(small, 0)
         self.assertEqual(errors, [])
         context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class RLTheatreTest(unittest.TestCase):
+    """The episode theatre and its overview.
+
+    `rl-ridgeline` draws every episode's cumulative return, one row per
+    policy per task; `rl-theatre` plays one episode per policy on a task
+    under a scrubber. What is checked here is what a person actually does
+    with them and cannot check any other way: that the scrubber is a real
+    ARIA slider whose value and value-text track the step, that the whole
+    thing is drivable from the keyboard alone (arrows, shift-arrows, home,
+    end, space to play), that a click on a ridgeline curve opens that
+    episode below, and that neither block overflows a 390px phone or drops
+    any text under 11px.
+
+    Uses the larger RL demo (`demo/rl/train`) when it is present, the
+    small one otherwise; skips when the engine ships no RL demo at all."""
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        traces = None
+        for name in ("train", "traces"):
+            candidate = ROOT / "demo" / "rl" / name
+            if candidate.is_dir():
+                traces = candidate
+                break
+        if traces is None:
+            raise unittest.SkipTest("no demo/rl traces to build a training page from")
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "deepcompare", "runs", str(traces), "-o", str(out),
+                        "--template", str(ROOT / "web" / "blocks.html")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
+        rl = agg.get("rl")
+        if not (isinstance(rl, dict) and rl.get("agents")):
+            raise unittest.SkipTest("this build carries no aggregate.rl to play")
+        cls.rl = rl
+        cls.page_path = out / "report.html"
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    SCRUB = '[data-block="rl-theatre"] .rlt-scrubber'
+
+    def _open(self, width=1280, reduced=None):
+        kwargs = {"viewport": {"width": width, "height": 900}}
+        if reduced:
+            kwargs["reduced_motion"] = reduced
+        context = self.browser.new_context(**kwargs)
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view=training")
+        page.wait_for_timeout(1200)
+        page.wait_for_selector(self.SCRUB)
+        return context, page, errors
+
+    def _now(self, page):
+        return int(page.get_attribute(self.SCRUB, "aria-valuenow"))
+
+    # --------------------------------------------------------------- aria
+
+    def test_the_scrubber_is_a_real_slider_and_says_where_it_is(self):
+        context, page, errors = self._open()
+        self.assertEqual(page.get_attribute(self.SCRUB, "role"), "slider")
+        self.assertEqual(page.get_attribute(self.SCRUB, "aria-valuemin"), "0")
+        self.assertEqual(page.get_attribute(self.SCRUB, "aria-orientation"), "horizontal")
+        self.assertTrue((page.get_attribute(self.SCRUB, "aria-label") or "").strip())
+        top = int(page.get_attribute(self.SCRUB, "aria-valuemax"))
+        # the slider spans the longer of the two runs, counted from the data
+        longest = max(e["steps"] for agent in self.rl["agents"].values()
+                      for e in agent["episodes"]) - 1
+        self.assertGreater(top, 0)
+        self.assertLessEqual(top, longest)
+        self.assertEqual(self._now(page), 0)
+        text = page.get_attribute(self.SCRUB, "aria-valuetext")
+        self.assertIn("step 0", text)
+        for name in self.rl["agents"]:
+            self.assertIn(name, text)
+        page.keyboard.press("Tab")   # the slider is reachable, not a mouse-only target
+        self.assertTrue(page.evaluate(
+            """(sel) => { const s = document.querySelector(sel);
+                 s.focus(); return document.activeElement === s; }""", self.SCRUB))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_every_chart_is_an_image_with_a_label_and_every_control_is_named(self):
+        context, page, errors = self._open()
+        for bid in ("rl-ridgeline", "rl-theatre"):
+            svgs = page.evaluate(
+                """(id) => [...document.querySelectorAll('[data-block="' + id + '"] .rlt svg')]
+                     .map(s => [s.getAttribute('role'), (s.getAttribute('aria-label') || '').length])""", bid)
+            self.assertTrue(svgs, bid)
+            for role, label_len in svgs:
+                self.assertEqual(role, "img", bid)
+                self.assertGreater(label_len, 20, bid)
+        unnamed = page.evaluate(
+            """() => [...document.querySelectorAll('[data-block="rl-theatre"] button, [data-block="rl-theatre"] select')]
+                 .filter(el => !(el.getAttribute('aria-label') || '').trim()
+                            && !(el.closest('.rlt')) === false && el.closest('.rlt'))
+                 .map(el => el.outerHTML.slice(0, 60))""")
+        self.assertEqual(unnamed, [])
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ----------------------------------------------------------- keyboard
+
+    def test_the_scrubber_is_driven_by_the_keyboard_alone(self):
+        context, page, errors = self._open()
+        page.focus(self.SCRUB)
+        top = int(page.get_attribute(self.SCRUB, "aria-valuemax"))
+
+        page.keyboard.press("ArrowRight")
+        self.assertEqual(self._now(page), 1)
+        page.keyboard.press("ArrowRight")
+        self.assertEqual(self._now(page), 2)
+        page.keyboard.press("Shift+ArrowRight")
+        self.assertEqual(self._now(page), 12, "shift steps ten at a time")
+        page.keyboard.press("Shift+ArrowLeft")
+        self.assertEqual(self._now(page), 2)
+        page.keyboard.press("ArrowLeft")
+        self.assertEqual(self._now(page), 1)
+
+        page.keyboard.press("End")
+        self.assertEqual(self._now(page), top)
+        page.keyboard.press("ArrowRight")
+        self.assertEqual(self._now(page), top, "the end is the end")
+        page.keyboard.press("Home")
+        self.assertEqual(self._now(page), 0)
+        page.keyboard.press("ArrowLeft")
+        self.assertEqual(self._now(page), 0, "the start is the start")
+
+        # the value text follows the position, and names the step
+        page.keyboard.press("Shift+ArrowRight")
+        self.assertIn("step 10", page.get_attribute(self.SCRUB, "aria-valuetext"))
+        self.assertEqual(page.get_attribute(self.SCRUB, "aria-valuenow"), "10")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_space_plays_and_pauses_at_a_readable_rate(self):
+        context, page, errors = self._open()
+        play = page.locator('[data-block="rl-theatre"] .rlt-btn[aria-pressed]').first
+        self.assertEqual(play.get_attribute("aria-pressed"), "false")
+        page.focus(self.SCRUB)
+        page.keyboard.press("Home")
+
+        page.keyboard.press("Space")
+        page.wait_for_timeout(800)
+        moved = self._now(page)
+        self.assertGreaterEqual(moved, 3, "play should advance several steps in 0.8s")
+        self.assertLessEqual(moved, 12, "play must not race the frame rate")
+        self.assertEqual(play.get_attribute("aria-pressed"), "true")
+
+        page.keyboard.press("Space")
+        paused = self._now(page)
+        self.assertEqual(play.get_attribute("aria-pressed"), "false")
+        page.wait_for_timeout(500)
+        self.assertEqual(self._now(page), paused, "pause means pause")
+
+        # an arrow key while playing stops the playback too
+        page.keyboard.press("Space")
+        page.wait_for_timeout(300)
+        page.keyboard.press("ArrowRight")
+        stopped = self._now(page)
+        page.wait_for_timeout(500)
+        self.assertEqual(self._now(page), stopped)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_it_never_plays_on_its_own_under_reduced_motion(self):
+        context, page, errors = self._open(reduced="reduce")
+        self.assertEqual(self._now(page), 0)
+        page.wait_for_timeout(900)
+        self.assertEqual(self._now(page), 0)
+        self.assertEqual(
+            page.locator('[data-block="rl-theatre"] .rlt-btn[aria-pressed]').first
+                .get_attribute("aria-pressed"), "false")
+        self.assertEqual(errors, [])
+        context.close()
+
+    # -------------------------------------------------------- the drawing
+
+    def test_the_tracks_stop_where_each_run_stopped(self):
+        context, page, errors = self._open()
+        tracks = page.evaluate(
+            """() => [...document.querySelectorAll('[data-block="rl-theatre"] .rlt-track')]
+                 .map(g => ({steps: +g.getAttribute('data-steps'),
+                             cells: g.querySelectorAll('.rlt-cell').length,
+                             ends: g.querySelectorAll('.rlt-end').length}))""")
+        self.assertTrue(tracks)
+        for t in tracks:
+            self.assertGreater(t["steps"], 0)
+            self.assertEqual(t["ends"], 1, "a run ends once, and says so")
+            self.assertLessEqual(t["cells"], t["steps"], "no cell past the last step")
+        # at the end of the longer run, the shorter run's mark is gone rather than pinned
+        page.focus(self.SCRUB)
+        page.keyboard.press("End")
+        page.wait_for_timeout(120)
+        if len({t["steps"] for t in tracks}) > 1:
+            shown = page.evaluate(
+                """() => [...document.querySelectorAll('[data-block="rl-theatre"] .rlt-cellnow')]
+                     .map(r => r.getAttribute('opacity'))""")
+            self.assertIn("0", shown)
+            self.assertIn("ended", page.get_attribute(self.SCRUB, "aria-valuetext"))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_ridgeline_curve_opens_that_episode_in_the_theatre(self):
+        context, page, errors = self._open()
+        target = page.evaluate(
+            """() => { const hits = [...document.querySelectorAll('[data-block="rl-ridgeline"] .rlr-hit')];
+                 if (!hits.length) return null;
+                 const h = hits[hits.length - 1];
+                 return {task: h.getAttribute('data-task'), policy: h.getAttribute('data-policy'),
+                         run: h.getAttribute('data-run')}; }""")
+        self.assertIsNotNone(target, "the ridgeline draws a clickable curve per episode")
+        page.evaluate(
+            """() => { const hits = [...document.querySelectorAll('[data-block="rl-ridgeline"] .rlr-hit')];
+                 hits[hits.length - 1].dispatchEvent(new MouseEvent('click', {bubbles: true})); }""")
+        page.wait_for_timeout(500)
+        chosen = page.evaluate(
+            """() => { const c = document.querySelector('[data-block="rl-theatre"]');
+                 return {task: c.querySelector('select').value,
+                         runs: [...c.querySelectorAll('.rlt-run b')].map(e => e.textContent)}; }""")
+        self.assertEqual(chosen["task"], target["task"])
+        self.assertIn(target["run"], chosen["runs"])
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ------------------------------------------------------------- phone
+
+    def test_neither_block_overflows_a_phone_or_shrinks_its_text(self):
+        context, page, errors = self._open(width=390)
+        self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), 392)
+        for bid in ("rl-ridgeline", "rl-theatre"):
+            box = page.locator(f'#stacks [data-block="{bid}"]').bounding_box()
+            self.assertIsNotNone(box, bid)
+            self.assertLessEqual(box["x"] + box["width"], 391, bid)
+            widest = page.evaluate(
+                """(id) => { const root = document.querySelector('[data-block="' + id + '"]');
+                     let over = 0;
+                     root.querySelectorAll('*').forEach(el => {
+                       const cs = getComputedStyle(el);
+                       if (cs.overflowX === 'auto' || cs.overflowX === 'scroll') return;
+                       if (cs.textOverflow === 'ellipsis') return;
+                       if (el.scrollWidth > el.clientWidth + 2 && el.clientWidth > 0) over++;
+                     });
+                     return over; }""", bid)
+            self.assertEqual(widest, 0, bid)
+        small = page.evaluate(
+            """() => { const out = [];
+                 document.querySelectorAll('[data-block="rl-theatre"] *, [data-block="rl-ridgeline"] *')
+                   .forEach(el => {
+                     if (el.children.length || !(el.textContent || '').trim()) return;
+                     const fs = parseFloat(getComputedStyle(el).fontSize);
+                     if (fs && fs < 11) out.push(el.tagName + ':' + fs);
+                   });
+                 return out; }""")
+        self.assertEqual(small, [])
+        # and the scrubber still works with a thumb rather than a keyboard
+        page.locator(self.SCRUB).scroll_into_view_if_needed()
+        page.wait_for_timeout(150)
+        box = page.locator(self.SCRUB).bounding_box()
+        page.mouse.move(box["x"] + box["width"] * 0.15, box["y"] + box["height"] * 0.4)
+        page.mouse.down()
+        page.mouse.move(box["x"] + box["width"] * 0.85, box["y"] + box["height"] * 0.4, steps=6)
+        page.mouse.up()
+        self.assertGreater(self._now(page), 0, "dragging moves the scrubber")
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ------------------------------------------------------ the reader's choice
+
+    def test_the_task_and_run_choice_survive_a_reload(self):
+        context, page, errors = self._open()
+        tasks = page.evaluate(
+            """() => [...document.querySelectorAll('[data-block="rl-theatre"] select option')].map(o => o.value)""")
+        if len(tasks) < 2:
+            self.skipTest("one task only: nothing to switch to")
+        other = [t for t in tasks
+                 if t != page.evaluate("""() => document.querySelector('[data-block="rl-theatre"] select').value""")][0]
+        page.select_option('[data-block="rl-theatre"] select', other)
+        page.wait_for_timeout(400)
+        page.locator('[data-block="rl-theatre"] .rlt-run .rlt-btn').nth(1).click()
+        page.wait_for_timeout(400)
+        before = page.evaluate(
+            """() => { const c = document.querySelector('[data-block="rl-theatre"]');
+                 return [c.querySelector('select').value,
+                         [...c.querySelectorAll('.rlt-run b')].map(e => e.textContent)]; }""")
+        page.reload()
+        page.wait_for_timeout(1300)
+        after = page.evaluate(
+            """() => { const c = document.querySelector('[data-block="rl-theatre"]');
+                 return [c.querySelector('select').value,
+                         [...c.querySelectorAll('.rlt-run b')].map(e => e.textContent)]; }""")
+        self.assertEqual(before, after)
+        self.assertEqual(errors, [])
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class RLStatsBlocksTest(unittest.TestCase):
+    """The small-sample statistics blocks (28_rlstats.js) against the RL
+    training demo: the four-row interval plot, the performance profile with
+    its bands, and the probability of improvement with its per-task rows.
+
+    Every figure drawn must be the one `aggregate.rl.stats` carries — the
+    page recomputes nothing — and the sample advisory must be on the page
+    beside the intervals, because a wide bootstrap interval that reads as a
+    finding is the exact failure these blocks exist to prevent.
+    """
+
+    tmp = None
+    IDS = ("rl-stats-aggregate", "rl-stats-profile", "rl-stats-improvement")
+
+    @classmethod
+    def setUpClass(cls):
+        train = ROOT / "demo" / "rl" / "train"
+        traces = train if train.is_dir() else ROOT / "demo" / "rl" / "traces"
+        if not traces.is_dir():
+            raise unittest.SkipTest("no RL demo traces to analyse")
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "deepcompare", "runs", str(traces), "-o", str(out),
+                        "--template", str(ROOT / "web" / "blocks.html")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
+        cls.stats = ((agg.get("rl") or {}).get("stats")) or {}
+        if not cls.stats.get("measurable"):
+            raise unittest.SkipTest("the RL demo carries no stats section")
+        cls.page_path = out / "report.html"
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _open(self, width=1280):
+        context = self.browser.new_context(viewport={"width": width, "height": 1000})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}#view=training")
+        page.wait_for_timeout(800)
+        return context, page, errors
+
+    def _errors(self, errors):
+        # a sibling block failing is not this block's failure to report
+        return [e for e in errors if "rlstats" in e or "rl-stats" in e]
+
+    def test_all_three_blocks_render_without_an_empty_state(self):
+        context, page, errors = self._open()
+        for bid in self.IDS:
+            block = page.locator(f'#stacks [data-block="{bid}"]')
+            self.assertEqual(block.count(), 1, bid)
+            body = block.locator(".block-body").inner_text()
+            self.assertNotIn("failed to render", body, bid)
+            self.assertGreater(len(body.strip()), 60, bid)
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
+    def test_every_chart_is_labelled_for_a_screen_reader(self):
+        context, page, _ = self._open()
+        for bid in self.IDS:
+            for node in page.locator(f'#stacks [data-block="{bid}"] svg').all():
+                self.assertEqual(node.get_attribute("role"), "img", bid)
+                self.assertTrue((node.get_attribute("aria-label") or "").strip(), bid)
+        context.close()
+
+    def test_the_interval_plot_draws_every_metric_for_every_policy(self):
+        context, page, _ = self._open()
+        block = page.locator('#stacks [data-block="rl-stats-aggregate"]')
+        for metric in ("iqm", "median", "mean", "optimality_gap"):
+            for policy, cells in self.stats["aggregates"].items():
+                row = block.locator(f'.rls-int[data-metric="{metric}"][data-policy="{policy}"]')
+                self.assertEqual(row.count(), 1, f"{metric}/{policy}")
+                self.assertAlmostEqual(float(row.get_attribute("data-point")),
+                                       cells[metric]["point"], places=4)
+        context.close()
+
+    def test_the_headline_says_whether_the_intervals_overlap(self):
+        context, page, _ = self._open()
+        verdict = page.locator('#stacks [data-block="rl-stats-aggregate"] .rls-verdict')
+        names = self.stats["policies"]
+        a, b = self.stats["aggregates"][names[0]]["iqm"], self.stats["aggregates"][names[1]]["iqm"]
+        overlap = a["lo"] <= b["hi"] and b["lo"] <= a["hi"]
+        self.assertEqual(verdict.get_attribute("data-overlap"), str(overlap).lower())
+        text = verdict.inner_text()
+        self.assertIn("do not overlap" if not overlap else "overlap", text)
+        if overlap:
+            # the one sentence that must never be omitted
+            self.assertIn("not the same as the policies being equal", text)
+        context.close()
+
+    def test_the_profile_draws_one_curve_and_one_band_per_policy(self):
+        context, page, _ = self._open()
+        block = page.locator('#stacks [data-block="rl-stats-profile"]')
+        for policy in self.stats["policies"]:
+            self.assertEqual(block.locator(f'.rls-curve[data-policy="{policy}"]').count(), 1, policy)
+            self.assertEqual(block.locator(f'.rls-band[data-policy="{policy}"]').count(), 1, policy)
+        crossings = self.stats["profile"]["crossings"]
+        self.assertEqual(int(block.locator(".rls-reading").get_attribute("data-crossings")), len(crossings))
+        self.assertEqual(block.locator(".rls-cross").count(), len([t for t in crossings]))
+        reading = block.locator(".rls-reading").inner_text()
+        self.assertIn("cross" if crossings else "every τ", reading)
+        context.close()
+
+    def test_the_probability_of_improvement_matches_the_json_and_names_its_tasks(self):
+        context, page, _ = self._open()
+        block = page.locator('#stacks [data-block="rl-stats-improvement"]')
+        imp = self.stats["improvement"]
+        self.assertAlmostEqual(float(block.locator(".rls-big").get_attribute("data-p")), imp["point"], places=4)
+        self.assertIn(f"{round(imp['point'] * 100)}%", block.locator(".rls-big").inner_text())
+        rows = block.locator(".rls-row")
+        self.assertEqual(rows.count(), len(imp["per_task"]))
+        for row in rows.all():
+            task = row.get_attribute("data-task")
+            self.assertAlmostEqual(float(row.get_attribute("data-p")), imp["per_task"][task], places=4)
+        # a task where the average hides a regression must sort to the top
+        if imp.get("regressions"):
+            self.assertEqual(rows.first.get_attribute("data-task"), imp["regressions"][0])
+        context.close()
+
+    def test_a_task_row_opens_that_task(self):
+        context, page, _ = self._open()
+        block = page.locator('#stacks [data-block="rl-stats-improvement"]')
+        current = page.evaluate("() => document.getElementById('task-picker').value")
+        other = block.locator(f'.rls-row:not([data-task="{current}"])').first
+        target = other.get_attribute("data-task")
+        other.click()
+        page.wait_for_timeout(500)
+        self.assertEqual(page.evaluate("() => document.getElementById('task-picker').value"), target)
+        self.assertEqual(page.locator('#stacks [data-block="rl-stats-improvement"] .rls-row[aria-current="true"]')
+                         .get_attribute("data-task"), target)
+        context.close()
+
+    def test_the_sample_advisory_is_on_the_page_beside_the_intervals(self):
+        context, page, _ = self._open()
+        message = self.stats["advisory"]["message"]
+        for bid in ("rl-stats-aggregate", "rl-stats-improvement"):
+            note = page.locator(f'#stacks [data-block="{bid}"] .rls-advisory').inner_text()
+            self.assertIn("run(s) per task", note, bid)
+            self.assertIn("stratified bootstrap over those runs", note, bid)
+            self.assertEqual(note.strip(), message.strip(), bid)
+        context.close()
+
+    def test_nothing_overflows_or_shrinks_below_eleven_pixels_on_a_phone(self):
+        context, page, errors = self._open(width=390)
+        self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth"), 392)
+        for bid in self.IDS:
+            box = page.locator(f'#stacks [data-block="{bid}"]').bounding_box()
+            self.assertLessEqual(box["x"] + box["width"], 391, bid)
+        small = page.evaluate("""() => {
+          const bad = [];
+          document.querySelectorAll('.rls, .rls *').forEach(function (el) {
+            if (!el.textContent || !el.textContent.trim()) return;
+            const size = parseFloat(getComputedStyle(el).fontSize);
+            if (size && size < 11) bad.push(el.className + ':' + size);
+          });
+          return bad; }""")
+        self.assertEqual(small, [])
+        self.assertEqual(self._errors(errors), [])
+        context.close()
