@@ -12,7 +12,7 @@ A block is `AgentDiff.block({ id, title, question, group, size, relevance, rende
 
 ## The library
 
-`web/blocks/01_lib.js` is `AgentDiff.lib`: `fmt` (num, signed, pct, secs, short, isNum), `color` (side, agent, verdict, good, bad), `svg` (an svg that refuses to exist without an aria-label; `note`, `tip`), `glyph` (the one interval drawing; the fold laws), `layout` (responsive, measure), `family(key, defaults)` (shared selection across a family of blocks, persisted, task-scoped), `style.once(id, css)`. A block defines none of these locally, ever; a helper a block needs that the library lacks is added to the library with a test, not to the block. `docs/ARCHITECTURE.md` is the map of the whole system and its recipes.
+`web/blocks/01_lib.js` is `AgentDiff.lib`: `fmt` (num, signed, pct, secs, short, isNum), `color` (side, agent, verdict, good, bad), `svg` (an svg that refuses to exist without an aria-label; `note`, `tip`), `glyph` (the one interval drawing; the fold laws), `layout` (responsive, measure), `family(key, defaults, opts)` (shared selection across a family of blocks; persisted by default and restored on load; task-scoped unless `{ scope: "page" }` — a selection that belongs to the whole page, such as a lineage's, must say so), `style.once(id, css)`. A block defines none of these locally, ever; a helper a block needs that the library lacks is added to the library with a test, not to the block. `docs/ARCHITECTURE.md` is the map of the whole system and its recipes.
 
 ## The invariants (tests enforce every one)
 
