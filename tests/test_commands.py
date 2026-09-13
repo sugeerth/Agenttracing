@@ -38,7 +38,7 @@ RL_TRACES = ROOT / "demo" / "rl" / "traces"
 SUBCOMMANDS = [
     "compare", "demo", "batch", "fleet", "gate", "runs", "profile", "progress", "bench",
     "experiments", "narrate", "variance", "cohort", "check", "select", "convert", "frameworks",
-    "rl", "evolve", "evolve-compare", "run", "loop", "replay", "rerun", "checkpoint", "context",
+    "rl", "evolve", "evolve-compare", "coevolve", "run", "loop", "replay", "rerun", "checkpoint", "context",
     "judge", "why", "db", "hook", "eval", "route", "feedback", "rlexport", "grafana", "watch",
     "explain",
 ]
@@ -274,6 +274,22 @@ class TestEndToEnd(unittest.TestCase):
             self.assertTrue(out.is_file() and page.is_file())
             self.assertIn("Task: t05_flight_duration", result.stdout)
             self.assertIn("Attribution:", result.stdout)
+
+    def test_coevolve_on_the_demo_lineage(self):
+        lineage = ROOT / "demo" / "evolve" / "lineage"
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_cli("coevolve", str(lineage), "-o", tmp, "--samples", "200")
+            self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+            self.assert_three_artifacts(Path(tmp))
+            self.assertIn("Last step: A=ledger-agent@g5  B=ledger-agent@g6", result.stdout)
+            self.assertIn("Eval: ledger-agent", result.stdout)
+            self.assertIn("Hindsight:", result.stdout)
+            self.assertIn("Recommended: base g4, evolved g4 (agree)", result.stdout)
+            agg = json.loads((Path(tmp) / "aggregate.json").read_text(encoding="utf-8"))
+            self.assertIn("evolution", agg)
+            self.assertIn("coevolution", agg)
+            self.assertTrue(agg["coevolution"]["measurable"])
+            self.assertEqual(agg["coevolution"]["samples"], 200)
 
     def test_help_lists_the_pinned_subcommands_in_order(self):
         result = run_cli("--help")

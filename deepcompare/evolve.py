@@ -1790,7 +1790,7 @@ def _lineage_section(agg: dict, ctx: "sections.LineageContext"):
 
 def attach_sections(lineage: dict, agg: dict, *, metric: str = "return", samples: int = BOOTSTRAP_SAMPLES,
                     gamma: float = GAMMA, reports: Optional[list] = None, against=(), layout: str = "native",
-                    threshold=None) -> dict:
+                    threshold=None, candidates=None) -> dict:
     """The attach site of the ``lineage`` scope: every registered lineage
     section, run on ``agg`` in dependency order and placed under its key
     (``evolution``, then ``evolution_compare`` when ``against`` names other
@@ -1799,7 +1799,11 @@ def attach_sections(lineage: dict, agg: dict, *, metric: str = "return", samples
     them, for the timeline's decisive and fault marks; ``metric``,
     ``samples``, ``gamma``, ``layout`` and ``threshold`` are the command's
     arguments and travel to the sections in
-    :class:`deepcompare.sections.LineageContext.extra`. Returns ``agg``.
+    :class:`deepcompare.sections.LineageContext.extra`; ``candidates``
+    are the external candidate metrics the co-evolving eval
+    (:mod:`deepcompare.coevolve`) puts through its validators, None when
+    the caller gave none — the output is then byte-identical to a run
+    without the keyword apart from the ``coevolution`` key. Returns ``agg``.
     An unknown metric is the caller's error and raises before the pass;
     a section that fails inside it is recorded as unmeasurable under its
     key, never raised."""
@@ -1808,7 +1812,8 @@ def attach_sections(lineage: dict, agg: dict, *, metric: str = "return", samples
     others = [str(a) for a in (against or ()) if a]
     ctx = sections.LineageContext(lineage=lineage, generations=list(lineage.get("generations") or []),
                                   extra={"metric": metric, "samples": samples, "gamma": gamma, "reports": reports,
-                                         "against": others, "layout": layout, "threshold": threshold})
+                                         "against": others, "layout": layout, "threshold": threshold,
+                                         "candidates": candidates})
     sections.attach("lineage", agg, ctx)
     if others:
         # the comparison attaches on demand: its input, the other lineages,
@@ -1819,7 +1824,7 @@ def attach_sections(lineage: dict, agg: dict, *, metric: str = "return", samples
 
 
 def lineage_batch(lineage: dict, *, warn=None, metric: str = "return", samples: int = BOOTSTRAP_SAMPLES,
-                  gamma: float = GAMMA, against=(), layout: str = "native", threshold=None) -> dict:
+                  gamma: float = GAMMA, against=(), layout: str = "native", threshold=None, candidates=None) -> dict:
     """The lineage command's analysis: the last step's pair as an ordinary
     runs batch — :func:`deepcompare.suite.analyse_runs` over the two
     generations' traces with the parent as A and the child as B, whatever
@@ -1829,7 +1834,8 @@ def lineage_batch(lineage: dict, *, warn=None, metric: str = "return", samples: 
     "names": (a, b) | None, "reports": [pair reports], "aggregate":
     {...}}``; without two generations carrying traces, or when the pair
     cannot be read as a batch, ``warn`` hears why, the reports are empty
-    and the aggregate carries the sections alone."""
+    and the aggregate carries the sections alone. ``candidates`` travel
+    to the co-evolving eval (see :func:`attach_sections`)."""
     say = warn if callable(warn) else (lambda message: None)
     reports: list = []
     agg: dict = {}
@@ -1845,7 +1851,7 @@ def lineage_batch(lineage: dict, *, warn=None, metric: str = "return", samples: 
         except (SuiteError, ValueError) as exc:
             say(f"the last pair cannot be analysed as a runs batch: {exc}")
     attach_sections(lineage, agg, metric=metric, samples=samples, gamma=gamma, reports=reports, against=against,
-                    layout=layout, threshold=threshold)
+                    layout=layout, threshold=threshold, candidates=candidates)
     return {"pair": pair, "names": names, "reports": reports, "aggregate": agg}
 
 
@@ -1882,6 +1888,11 @@ def fail_on(evolution: dict, names) -> list:
                 hits.append((s["index"], name))
     return hits
 
+
+# the co-evolving eval registers its lineage section when imported; it
+# imports this module's constants, so it is imported here, last, once every
+# name it needs exists — the one place the section is wired
+from . import coevolve as _coevolve  # noqa: E402,F401
 
 __all__ = ["read_lineage", "evolve", "analyse_lineage", "attach_sections", "lineage_batch", "diff_artifacts", "artifact_size", "artifact_digest",
            "trigger_tasks", "evidence_check", "iqm_by_task", "step_effect", "step_gaming", "step_overfit",

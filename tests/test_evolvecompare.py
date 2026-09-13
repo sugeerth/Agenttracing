@@ -724,13 +724,13 @@ class EmbeddedCopyTest(unittest.TestCase):
         sec = sections.get("lineage", "evolution_compare")
         self.assertTrue(sec.on_demand)
         self.assertEqual(sec.requires, ("evolution",))
-        self.assertEqual(sections.registered("lineage")[:2], ["evolution", "evolution_compare"])
+        self.assertEqual(sections.registered("lineage")[:3], ["evolution", "coevolution", "evolution_compare"])
         agg = evolve_module.attach_sections(self.lineage_a, {}, samples=SAMPLES, against=[str(self.b)])
-        self.assertEqual(list(agg), ["evolution", "evolution_compare"])
+        self.assertEqual(list(agg), ["evolution", "coevolution", "evolution_compare"])
         self.assertEqual(json.dumps(agg["evolution"], sort_keys=True), self.before)
         self.assertEqual(json.dumps(agg["evolution_compare"], sort_keys=True), json.dumps(self.cmp, sort_keys=True))
         alone = evolve_module.attach_sections(self.lineage_a, {}, samples=SAMPLES)
-        self.assertEqual(list(alone), ["evolution"], "without lineages to compare against, nothing attaches")
+        self.assertEqual(list(alone), ["evolution", "coevolution"], "without lineages to compare against, the comparison does not attach")
 
     def test_compare_lineages_reuses_a_lineage_already_read(self):
         reread = ec.compare_lineages([str(self.a), str(self.b)], samples=SAMPLES, evolutions=[self.ev_a])
