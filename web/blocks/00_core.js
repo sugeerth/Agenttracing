@@ -52,12 +52,15 @@
   //: Training: the RL training ground — every episode of every policy,
   //: the reward map, values, what the reward paid for, the preference
   //: pairs — its own lane, read top-down; the pair's own reward panel leads.
-  var VIEWS = ["story", "evidence", "batch", "panels", "training"];
+  //: Evolution: a self-evolving agent read as a lineage — each generation,
+  //: what changed, whether it helped, and the ways evolution goes wrong.
+  var VIEWS = ["story", "evidence", "batch", "panels", "training", "evolution"];
   var VIEW_GROUPS = {
     evidence: ["outcome", "trajectory", "integrity"],
     batch: ["cost", "signal", "other"],
     panels: [],
     training: ["training"],
+    evolution: ["evolution"],
   };
   //: the panels view's presets: which blocks, in which order
   var PANEL_PRESETS = {
@@ -436,6 +439,20 @@
         "rl-audit-reward", "rl-audit-critic", "rl-advantage", "rl-events",
         "rl-atlas", "rl-divergence",
         "rl-preferences",
+      ],
+    },
+    {
+      label: "Evolution",
+      groups: ["evolution"],
+      blurb: "A self-evolving agent as a lineage: each generation, what it changed, whether that helped, and where the evolution went wrong.",
+      open: Infinity,
+      /* The lineage first, then the ledger of steps, then every episode
+       * along constricted time, then the tasks across generations, then
+       * one step in full, then whether the evolution is sound and how far
+       * it has drifted. Overview, then details on demand. */
+      order: [
+        "evo-lineage", "evo-steps", "evo-timescape", "evo-matrix",
+        "evo-step", "evo-integrity", "evo-drift",
       ],
     },
   ];
@@ -1195,7 +1212,7 @@
     els.hero.innerHTML = "";
     // the panels view is the reader's own grid, the training view has its
     // own lead (the pair's reward panel): no hero above either
-    if (!hero || State.prefs.view === "panels" || State.prefs.view === "training") {
+    if (!hero || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution") {
       els.hero.hidden = true;
       return;
     }
@@ -1207,7 +1224,7 @@
     var host = els.reading;
     host.innerHTML = "";
     // the story lane IS the reading order; the strip guides the columns
-    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels" || State.prefs.view === "training") { host.hidden = true; return; }
+    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution") { host.hidden = true; return; }
     host.hidden = false;
     host.appendChild(h("span", { class: "lead", text: "Read in this order" }));
     if (hero) {
@@ -2206,7 +2223,7 @@
     // a view named in the URL (report.html#view=evidence) wins for this
     // load — a link can open the page on its evidence or its batch
     try {
-      var m = /(?:^|[#&])view=(story|evidence|batch|panels|training)\b/.exec(global.location.hash || "");
+      var m = /(?:^|[#&])view=(story|evidence|batch|panels|training|evolution)\b/.exec(global.location.hash || "");
       if (m) State.prefs.view = m[1];
     } catch (err) { /* no location: keep the preference */ }
     State.signals = Store.get(key("signals")) || {};

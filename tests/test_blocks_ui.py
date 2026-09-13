@@ -6061,6 +6061,11 @@ class TrainingViewTest(unittest.TestCase):
         self.assertEqual(page.evaluate("() => document.activeElement.dataset.view"), "training")
         self.assertFalse(page.locator("#stacks").is_hidden())
         self.assertTrue(page.locator("#panels-lane").is_hidden())
+        # the sixth tab, then the wrap back to the first
+        page.keyboard.press("ArrowRight")
+        page.wait_for_timeout(400)
+        self.assertEqual(page.locator('.tab[data-view="evolution"]').get_attribute("aria-selected"), "true")
+        self.assertEqual(page.evaluate("() => document.activeElement.dataset.view"), "evolution")
         page.keyboard.press("ArrowRight")
         page.wait_for_timeout(400)
         self.assertEqual(page.locator('.tab[data-view="story"]').get_attribute("aria-selected"), "true")
