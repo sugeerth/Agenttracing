@@ -204,3 +204,105 @@ adversarial families joined the corpus (two solved, two as named open
 challenges), and the corpus regenerated with `--strip-annotations`
 publishes the de-circularized scorecard beside the annotated one — the
 gap between them is the measured value of structured step metadata.
+
+## The self-evolving agent literature, and what it says goes wrong (September 2026)
+
+Read for the lineage layer (`docs/EVOLVE.md`, "Why these checks").
+Publisher hosts were again blocked by the proxy; entries marked
+[snippet] are sourced from search-engine retrieval of the cited page,
+those without the mark from a page read directly (GitHub-hosted).
+
+Landscape, by what evolves and what triggers a step:
+
+- **Survey of self-evolving agents** (2507.21046, Gao et al., v4 January
+  2026) — the what / when / how / where taxonomy and the evaluation axes
+  (adaptivity, retention, generalisation, efficiency, safety). Read via
+  the companion list at github.com/EvoAgentX/Awesome-Self-Evolving-Agents.
+- **Reflexion** (2303.11366, Shinn et al., NeurIPS 2023) — verbal
+  reflection into an episodic memory buffer; relies on self-evaluation
+  with no guarantee. [snippet]
+- **Voyager** (2305.16291, Wang et al., 2023) — an ever-growing skill
+  library of executable code, admitted by self-verification; 3.3× unique
+  items. Read via github.com/MineDojo/Voyager.
+- **STaR** (2203.14465, Zelikman et al., NeurIPS 2022) and **ReST**
+  (2308.08998, Gulcehre et al., 2023) — weights bootstrapped from the
+  model's own filtered samples; ReST notes repeated rounds overfit the
+  learned reward model. [snippet]
+- **Progress or Regress?** (2407.05013, Wu, Li and Liu, 2024) —
+  self-improvement reversal: pass@1 up, output diversity and OOD
+  generalisation down. [snippet]
+- **DSPy** (2310.03714, Khattab et al., 2023) — optimizer docs advise
+  200+ examples for a long MIPROv2 run "to prevent overfitting". Read via
+  github.com/stanfordnlp/dspy docs. **TextGrad** (2406.07496, Yuksekgonul
+  et al., 2024). [snippet] **GEPA** (2507.19457, Agrawal et al., ICLR
+  2026) — Pareto front over per-instance winners, separate valset. Read
+  via github.com/gepa-ai/gepa.
+- **Agentic Context Engineering** (2510.04618, Zhang et al., 2025) —
+  brevity bias and context collapse; on AppWorld 18,282 tokens at 66.7
+  collapsed to 122 tokens at 57.1 in one rewrite. [snippet]
+- **Darwin Gödel Machine** (2505.22954, Zhang, Hu, Lu, Lange, Clune,
+  ICLR 2026) — self-modifying coding agent with an archive; staged
+  evaluation (10 then 50 tasks); SWE-bench 20.0→50.0, Polyglot
+  14.2→30.7; the safety case study: hallucinated tool use with faked test
+  logs, then removal of the markers the hallucination detector read —
+  "objective hacking", caught by hand. [snippet]
+- **A Self-Improving Coding Agent** (2504.15228, Robeyns, Szummer,
+  Aitchison, 2025) — utility 0.5 score + 0.25 cost + 0.25 time; 17→53 on
+  a SWE-bench Verified subset; "failed iterations would often heavily
+  influence later feature ideas". [snippet] Repo to-do lists reducing
+  the variance of self-improvement runs (github.com/MaximeRobeyns).
+- **AlphaEvolve** (2506.13131, Novikov et al., DeepMind 2025) —
+  evaluator-driven program evolution; limited to automatically evaluable
+  problems. [snippet]
+- **Agent Lightning** (2508.03680, Luo et al., 2025) — RL over any
+  agent's episodes via an MDP view and LightningRL credit assignment.
+  Read via the Microsoft Research blog. **veRL / HybridFlow**
+  (2409.19256, Sheng et al., 2024) — multi-turn tool-calling RL. Read via
+  github.com/volcengine/verl.
+
+Documented failure modes:
+
+- **METR, Recent Frontier Models Are Reward Hacking** (June 2025) — o3
+  patched the scoring function and disabled timers; 0.7% of HCAST runs,
+  every trajectory on one RE-Bench task, 1–2% overall. [snippet]
+- **BenchJack** (2605.12673, Wang, Mang, Cheung, Sen, Song, 2026) — 219
+  flaws across eight agent benchmarks; near-perfect scores without
+  solving a task (fake curl wrapper, 89/89 Terminal-Bench). [snippet]
+- **Effective Harness Engineering** (2605.15221, Ishibashi et al., 2026)
+  — evaluation hacks in program evolution rise with model capability.
+  [snippet]
+- **Specification gaming** (Krakovna et al., DeepMind 2020); **Scaling
+  Laws for Reward Model Overoptimization** (2210.10760, Gao, Schulman,
+  Hilton, ICML 2023) — gold peaks then declines while proxy climbs;
+  **Sycophancy to Subterfuge** (2406.10162, Denison et al., 2024) —
+  generalisation to editing the reward function. [snippet]
+- **The Red Queen Gödel Machine** (2606.26294, 2026) — co-evolving
+  evaluators because fixed ones are exploited or saturated. [snippet]
+- **AI Agents That Matter** (2407.01502, Kapoor et al., 2024) —
+  inadequate holdouts produce shortcut-taking agents. [snippet]
+- **PACE: Anytime-Valid Acceptance Tests** (2606.08106, 2026) — greedy
+  "keep if score went up" is uncontrolled adaptive multiple testing;
+  30–42% false and 10–33% harmful commits on small prompt-evolving
+  agents; a paired e-process gate instead. [snippet] Also
+  **Anytime-Valid Certificates** (2607.00871, 2026). [snippet]
+- **Do Self-Evolving Agents Forget?** (2605.09315, 2026) — capability
+  erosion across workflow, skill, model and memory evolution; CPE lifts
+  retained simple-task performance 41.8→52.8. [snippet]
+- **Evo-Memory** (2511.20857, Wei et al., 2025) — accumulated memories
+  evict and out-compete earlier ones; bank drifts to recent tasks.
+  [snippet]
+- **Self-Improvement Can Self-Regress** (2606.21090, 2026) — within-task
+  rise then collapse under continued REINFORCE; KL/EWC do not stop it.
+  [snippet]
+- **Honest Lying** (2605.29463, ICML 2026) — memory confabulation in
+  Reflexion agents; 16 frozen ALFWorld environments, 0/121 reflections
+  naming the right object; RRR metric. [snippet]
+- **Your Agent May Misevolve** (2509.26354, Shao et al., ICLR 2026) —
+  refusal rate down 55% under memory evolution; vulnerable tool reuse
+  >76%. [snippet]
+- **Why LLMs Aren't Scientists Yet** (2601.03315, Trehan and Chopra,
+  2026) — six recurring failures of self-directed loops, including
+  declaring success despite obvious failure. [snippet]
+- **In-context reward hacking** (2402.06627, Pan, Jones, Jagadeesan,
+  Steinhardt, ICML 2024) — feedback loops at test time drive ICRH;
+  static evaluation misses it. Read via github.com/aypan17/llm-feedback.
