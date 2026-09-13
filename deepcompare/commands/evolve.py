@@ -51,8 +51,7 @@ def run(args: argparse.Namespace) -> int:
     ``aggregate["evolution"]`` attached, and a one-line-per-step summary.
     Exit 0 always — it is a report — unless ``--fail-on`` names a verdict
     or flag some step carries."""
-    from ..evolve import evolve, fail_on, last_pair, read_lineage
-    from ..suite import SuiteError, analyse_runs
+    from ..evolve import fail_on, lineage_batch, read_lineage
     lineage = read_lineage(args.lineage, layout=args.layout)
     if not lineage["measurable"]:
         print(f"error: {lineage['reason']}", file=sys.stderr)
@@ -68,34 +67,23 @@ def run(args: argparse.Namespace) -> int:
     out_dir = Path(args.output)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # the last step as an ordinary runs batch, so the Story, Evidence and
-    # Training views read "what just changed"
-    reports: list = []
-    agg: dict = {}
-    pair = last_pair(lineage)
-    if pair is None:
-        print("warning: fewer than two generations carry traces; no pair report is written", file=sys.stderr)
-    else:
-        a, b = pair
-        try:
-            analysed = analyse_runs(a["trajectories"] + b["trajectories"],
-                                    warn=lambda m: print(f"warning: {m}", file=sys.stderr))
-            reports, agg = analysed["reports"], analysed["aggregate"]
-            print(f"Last step: A={a['policy']}  B={b['policy']}")
-        except (SuiteError, ValueError) as exc:
-            print(f"warning: the last pair cannot be analysed as a runs batch: {exc}", file=sys.stderr)
-    evolution = evolve(lineage, metric=args.metric, samples=args.samples, reports=reports)
-    agg["evolution"] = evolution
-    # against other lineages: the same output, lineage A primary, plus the
-    # four-axis comparison beside it
+    # The last step as an ordinary runs batch, so the Story, Evidence and
+    # Training views read "what just changed", with the parent as A and the
+    # child as B whatever the names sort to; then every lineage section
+    # attached to the aggregate — the comparison too when --against names
+    # other lineages. One function owns that, so the command and the
+    # library cannot drift apart.
     against = [a for a in (getattr(args, "against", None) or []) if a]
-    comparison = None
-    if against:
-        from ..evolvecompare import compare_lineages
-        comparison = compare_lineages([args.lineage] + against, layout=args.layout, metric=args.metric,
-                                      samples=args.samples, threshold=getattr(args, "threshold", None),
-                                      evolutions=[evolution])
-        agg["evolution_compare"] = comparison
+    batch = lineage_batch(lineage, warn=lambda m: print(f"warning: {m}", file=sys.stderr),
+                          metric=args.metric, samples=args.samples, against=against,
+                          layout=args.layout, threshold=getattr(args, "threshold", None))
+    reports, agg = batch["reports"], batch["aggregate"]
+    if batch["pair"] is None:
+        print("warning: fewer than two generations carry traces; no pair report is written", file=sys.stderr)
+    elif batch["names"]:
+        print(f"Last step: A={batch['names'][0]}  B={batch['names'][1]}")
+    evolution = agg["evolution"]
+    comparison = agg.get("evolution_compare")
 
     # no pair report means no page: the page is the pair
     write_outputs(out_dir, reports, agg, template_from(args), html=bool(reports))

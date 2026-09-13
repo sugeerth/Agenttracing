@@ -650,3 +650,11 @@ episodes where the index ties, process by a gamed step), a shorter
 lineage, no shared task, one lineage, a lineage of one generation, two
 lineages of the same family, byte-determinism, and the command end to
 end with the alias, `--threshold` and `--fail-on`.
+
+Each lineage's own section rides along under `lineages[i].evolution`
+so the comparison is self-contained, but without the per-episode
+`timeline` arrays: those are what the timescape reads, it reads them
+from `aggregate.evolution` (the primary lineage), and carrying them
+twice made the comparison section six times larger than it needed to
+be. The embedded copy says `timelines: "omitted; see
+aggregate.evolution"` beside `episodes_capped`.
