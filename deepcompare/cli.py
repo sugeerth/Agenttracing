@@ -148,3 +148,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     return args.func(args)
+
+
+if __name__ == "__main__":  # pragma: no cover - python -m deepcompare.cli is the same entry as python -m deepcompare
+    sys.exit(main())
