@@ -239,5 +239,35 @@ door: dispatch `agentdiff:select-step` on `document` with
 `{detail: {row, side}}` and the family cursor moves as if clicked — the
 walkthrough uses exactly this when Tracks is not on the page.
 
+## The library
+
+`01_lib.js` loads right after the core and before every block and exposes
+`AgentDiff.lib` — the helpers thirty-seven block files used to carry their
+own copies of. A block binds what it needs at the top of its IIFE
+(`var L = AgentDiff.lib, isNum = L.fmt.isNum;`) and **defines none of these
+locally** (`SharedLibraryTest` pins it):
+
+| namespace | surface |
+|---|---|
+| `fmt` | `num(v, p)`, `signed(v, p)`, `pct(v, p)`, `secs(v)`, `short(id)`, `isNum(v)` — the strings the blocks print; `—` for a non-number |
+| `color` | `side(side, ns)` (`var(--a)`, or `var(--im-a)` for a block with its own dark override), `agent(side, i)`, `verdict(kind)` (a sign or a word → good / bad / ink), `good`, `bad` |
+| `svg` | `svg(attrs, kids)` — the root `<svg>`, `role="img"` unless told otherwise, **throws without an `aria-label`**; `svg.note(text, cls)`; `svg.tip(host, {class, width})` → `{show(evt, [{text, b?, mono?}]), hide()}` |
+| `glyph` | `interval(g, x, point, lo, hi, {y, color, width, opacity, tick, r, lineClass, dotClass})` — the one interval drawing; `foldWidth(n)` and `foldSeconds(s)` — the fold law, `6 + 6·log2(1 + n)` |
+| `layout` | `responsive(host, draw, key)` (the story charts' painter when it is on the page), `measure(host, lo, hi)` |
+| `family` | `family(key, defaults, {scope, persist, rerender})` → `{get(task?), set(patch, {task, rerender}), subscribe(fn, el?), reset(task?), persist(), state}` |
+| `style` | `once(id, cssText)` — a block's stylesheet, injected once |
+
+A family is the shared state of a family of blocks (a selection, an axis,
+an open fold). It is **task-scoped by default** — one state per task, so a
+choice never leaks between tasks — and `scope: "page"` for a reader's
+preference. It **persists by default** through the page's own store
+(`agentdiff:<key>` for a page family, `agentdiff:<key>:<task>` per task);
+`persist: false` keeps exploration state in memory, `persist: [fields]`
+saves only those. `set` notifies subscribers and re-renders the page only
+when asked (`rerender: true`, per family or per call), so a block that
+repaints in place keeps its scroll. Legacy copies that the library does not
+replace byte-for-byte are named in `SharedLibraryTest.LEGACY`; do not add
+to that list.
+
 Data shapes are in `SCHEMA.md`; every field named there is what a report
 actually carries.

@@ -8159,3 +8159,210 @@ class EvolutionCompareBlocksTest(unittest.TestCase):
         self.assertEqual(audit["small"], [])
         self.assertEqual(self._errors(errors), [])
         context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class SharedLibraryTest(unittest.TestCase):
+    """`AgentDiff.lib` (01_lib.js), the helpers every block used to carry a
+    copy of: a chart svg is refused without an accessible name, the
+    formatters print the strings the blocks printed, the fold law is the
+    one from Where it mattered, a family persists through the store by
+    default and per task when task-scoped, and no block defines one of
+    these helpers locally."""
+
+    tmp = None
+    LIB_FREE = ("00_core.js", "01_lib.js")
+    #: still binding the library while their authors finish them; drop as they adopt
+    IN_FLIGHT = ("33_evolve.js", "34_evotime.js", "35_evocompare.js")
+    #: an `isNum` that accepts Infinity (40, 60), a coarser `secs` (18, 19): documented legacy copies
+    LEGACY = {"isNum": ("40_signal.js", "60_science.js"), "secs": ("18_time.js", "19_horizon.js")}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "runs"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "deepcompare", "runs", str(ROOT / "demo" / "rl" / "train"), "-o", str(out),
+                        "--template", str(ROOT / "web" / "blocks.html")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        cls.page_path = out / "report.html"
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _open(self):
+        context = self.browser.new_context(viewport={"width": 1280, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page_path}")
+        page.wait_for_timeout(500)
+        return context, page, errors
+
+    def test_a_chart_svg_is_refused_without_an_accessible_name(self):
+        context, page, errors = self._open()
+        result = page.evaluate("""() => {
+            const L = AgentDiff.lib, out = {};
+            try { L.svg({ viewBox: '0 0 10 10' }); out.bare = 'allowed'; } catch (e) { out.bare = String(e.message); }
+            try { L.svg({ 'aria-label': '   ' }); out.blank = 'allowed'; } catch (e) { out.blank = String(e.message); }
+            const ok = L.svg({ 'aria-label': 'two runs over time', viewBox: '0 0 10 10' });
+            out.role = ok.getAttribute('role'); out.tag = ok.tagName.toLowerCase(); out.label = ok.getAttribute('aria-label');
+            const app = L.svg({ 'aria-label': 'a map', role: 'application' });
+            out.kept = app.getAttribute('role');
+            return out;
+        }""")
+        self.assertIn("aria-label", result["bare"])
+        self.assertIn("aria-label", result["blank"])
+        self.assertEqual((result["tag"], result["role"], result["label"]), ("svg", "img", "two runs over time"))
+        self.assertEqual(result["kept"], "application")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_formatters_print_the_strings_the_blocks_printed(self):
+        context, page, errors = self._open()
+        got = page.evaluate("""() => {
+            const f = AgentDiff.lib.fmt;
+            return {
+                num: [f.num(5.23), f.num(-2.47), f.num(1.5), f.num(2), f.num(0.125, 3), f.num(null), f.num(NaN)],
+                signed: [f.signed(0.5), f.signed(-1.25), f.signed(0), f.signed(2.32, 1), f.signed(undefined)],
+                pct: [f.pct(0.5), f.pct(0.833), f.signed(0) && f.pct(0.125, 1), f.pct(1), f.pct('x')],
+                secs: [f.secs(123.4), f.secs(12.34), f.secs(1.5), f.secs(0.25), f.secs(Infinity)],
+                short: [f.short('rl01_ledger_reconcile'), f.short('t03_a_b'), f.short('plain'), f.short(null)],
+                isNum: [f.isNum(1), f.isNum('1'), f.isNum(NaN), f.isNum(Infinity), f.isNum(null)],
+            };
+        }""")
+        self.assertEqual(got["num"], ["5.23", "−2.47", "1.5", "2", "0.125", "—", "—"])
+        self.assertEqual(got["signed"], ["+0.50", "−1.25", "0.00", "+2.3", "—"])
+        self.assertEqual(got["pct"], ["50%", "83%", "12.5%", "100%", "—"])
+        self.assertEqual(got["secs"], ["123s", "12s", "1.5s", "0.25s", "—"])
+        self.assertEqual(got["short"], ["ledger reconcile", "a b", "plain", ""])
+        self.assertEqual(got["isNum"], [True, False, False, False, False])
+        context.close()
+
+    def test_the_fold_law_is_the_one_from_where_it_mattered(self):
+        context, page, errors = self._open()
+        got = page.evaluate("""() => {
+            const g = AgentDiff.lib.glyph;
+            return { w: [0, 1, 4, 5, 11, 100].map(n => +g.foldWidth(n).toFixed(2)),
+                     s: [0, 1, 4, 100].map(n => +g.foldSeconds(n).toFixed(2)),
+                     neg: g.foldWidth(-3), bad: g.foldWidth(null) };
+        }""")
+        self.assertEqual(got["w"], [6, 12, 19.93, 21.51, 27.51, 45.95])
+        self.assertEqual(got["s"], [6, 12, 19.93, 45.95])
+        self.assertEqual((got["neg"], got["bad"]), (6, 6))
+        context.close()
+
+    def test_a_family_persists_through_a_reload_by_default(self):
+        context, page, errors = self._open()
+        task = page.evaluate("() => AgentDiff.state().task")
+        self.assertTrue(task)
+        page.evaluate("() => { AgentDiff.lib.family('lib-test-default', { gen: null, metric: 'pass' }).set({ gen: 'g6' }); }")
+        saved = page.evaluate(f"() => AgentDiff._internals.Store.get('agentdiff:lib-test-default:{task}')")
+        self.assertEqual(saved, {"gen": "g6", "metric": "pass"})
+        page.reload()
+        page.wait_for_timeout(400)
+        self.assertEqual(page.evaluate("() => AgentDiff.lib.family('lib-test-default', { gen: null, metric: 'pass' }).get().gen"), "g6")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_page_family_persists_flat_under_its_key(self):
+        context, page, errors = self._open()
+        page.evaluate("""() => {
+            const P = AgentDiff.lib.family('lib-test-page', { task: null, runs: {} }, { scope: 'page' });
+            P.get().runs['policy-v2'] = 'r3'; P.get().task = 'rl02_flaky_test'; P.persist();
+        }""")
+        self.assertEqual(page.evaluate("() => AgentDiff._internals.Store.get('agentdiff:lib-test-page')"),
+                         {"task": "rl02_flaky_test", "runs": {"policy-v2": "r3"}})
+        page.reload()
+        page.wait_for_timeout(400)
+        self.assertEqual(page.evaluate("() => AgentDiff.lib.family('lib-test-page', { task: null, runs: {} }, { scope: 'page' }).get()"),
+                         {"task": "rl02_flaky_test", "runs": {"policy-v2": "r3"}})
+        context.close()
+
+    def test_a_task_family_resets_per_task_and_never_leaks(self):
+        context, page, errors = self._open()
+        ids = page.evaluate("() => AgentDiff.taskIds()")
+        self.assertGreaterEqual(len(ids), 2)
+        first, second = ids[0], ids[1]
+        page.select_option("#task-picker", first)
+        page.wait_for_timeout(200)
+        page.evaluate("() => { AgentDiff.lib.family('lib-test-task', { open: null }).set({ open: 'c3' }, { rerender: false }); }")
+        page.select_option("#task-picker", second)
+        page.wait_for_timeout(200)
+        self.assertEqual(page.evaluate("() => AgentDiff.state().task"), second)
+        self.assertIsNone(page.evaluate("() => AgentDiff.lib.family('lib-test-task', { open: null }).get().open"))
+        self.assertIsNone(page.evaluate(f"() => AgentDiff._internals.Store.get('agentdiff:lib-test-task:{second}')"))
+        page.select_option("#task-picker", first)
+        page.wait_for_timeout(200)
+        self.assertEqual(page.evaluate("() => AgentDiff.lib.family('lib-test-task', { open: null }).get().open"), "c3")
+        # an explicit task key reads that task's state whichever task is selected
+        self.assertIsNone(page.evaluate(f"() => AgentDiff.lib.family('lib-test-task', {{ open: null }}).get('{second}').open"))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_reset_clears_memory_and_the_saved_entry(self):
+        context, page, errors = self._open()
+        task = page.evaluate("() => AgentDiff.state().task")
+        page.evaluate("() => { AgentDiff.lib.family('lib-test-reset', { gen: null }).set({ gen: 'g2' }); }")
+        self.assertEqual(page.evaluate(f"() => AgentDiff._internals.Store.get('agentdiff:lib-test-reset:{task}')"), {"gen": "g2"})
+        page.evaluate("() => { AgentDiff.lib.family('lib-test-reset', { gen: null }).reset(); }")
+        self.assertIsNone(page.evaluate("() => AgentDiff.lib.family('lib-test-reset', { gen: null }).get().gen"))
+        self.assertIsNone(page.evaluate(f"() => AgentDiff._internals.Store.get('agentdiff:lib-test-reset:{task}')"))
+        page.reload()
+        page.wait_for_timeout(400)
+        self.assertIsNone(page.evaluate("() => AgentDiff.lib.family('lib-test-reset', { gen: null }).get().gen"))
+        # a memory-only family writes nothing
+        page.evaluate("() => { AgentDiff.lib.family('lib-test-memory', { open: {} }, { persist: false }).set({ open: { a: 1 } }); }")
+        self.assertEqual(page.evaluate("() => AgentDiff._internals.Store.keys('agentdiff:lib-test-memory')"), [])
+        context.close()
+
+    def test_subscribers_hear_a_set_and_the_page_rerenders_only_when_asked(self):
+        context, page, errors = self._open()
+        got = page.evaluate("""() => {
+            const F = AgentDiff.lib.family('lib-test-subs', { n: 0 }, { persist: false });
+            let heard = 0, renders = 0;
+            const was = AgentDiff._rerender; AgentDiff._rerender = function () { renders++; };
+            F.subscribe(function (st) { heard = st.n; });
+            F.set({ n: 4 });
+            F.set({ n: 5 }, { rerender: true });
+            AgentDiff._rerender = was;
+            return { heard, renders, state: F.state.n };
+        }""")
+        self.assertEqual(got, {"heard": 5, "renders": 1, "state": 5})
+        context.close()
+
+    def test_no_block_defines_a_library_helper_locally(self):
+        import re
+        blocks = ROOT / "web" / "blocks"
+        local = {
+            "style injection": re.compile(r'createElement\("style"\)'),
+            "isNum": re.compile(r"^\s*function isNum\(", re.M),
+            "short": re.compile(r"^\s*function short\(", re.M),
+            "secs": re.compile(r"^\s*function secs\(", re.M),
+            "foldW": re.compile(r"^\s*function foldWT?\(", re.M),
+            "fold law": re.compile(r"6 \+ 6 \* Math\.log\("),
+            "responsive": re.compile(r"^\s*function responsive\(", re.M),
+            "tooltip": re.compile(r"tip\.className = \"[a-z-]+-tip\""),
+        }
+        offenders = []
+        for path in sorted(blocks.glob("*.js")):
+            if path.name in self.LIB_FREE or path.name in self.IN_FLIGHT or path.name.startswith("_"):
+                continue
+            source = path.read_text(encoding="utf-8")
+            for name, pattern in local.items():
+                if path.name in self.LEGACY.get(name, ()):
+                    continue
+                if pattern.search(source):
+                    offenders.append(f"{path.name}: {name}")
+        self.assertEqual(offenders, [])
