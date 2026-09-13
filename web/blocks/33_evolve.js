@@ -259,6 +259,7 @@
         dIqm: eff.iqm && isNum(eff.iqm.delta) ? eff.iqm.delta : null,
         dPass: eff.pass_rate && isNum(eff.pass_rate.delta) ? eff.pass_rate.delta : null,
         gained: Array.isArray(eff.gained) ? eff.gained : [], regressed: Array.isArray(eff.regressed) ? eff.regressed : [],
+        forgotten: Array.isArray(eff.forgotten) ? eff.forgotten : [], noisy: imp.noisy === true,
         perTask: eff.per_task && typeof eff.per_task === "object" ? eff.per_task : {},
         trigger: Array.isArray(s.trigger_tasks) ? s.trigger_tasks.map(String) : [],
         overfit: s.overfit || null, gaming: s.gaming || null, drift: s.drift || null, reading: s.reading || "",
@@ -370,6 +371,8 @@
   }
   function selectedStep(m) { return m.stepByTo[S.gen] || null; }
   function inRange(m, g) { return !S.range || (g.i >= S.range[0] && g.i <= S.range[1]); }
+  //: a step is in the range when the generation it made is — so a range of one generation still shows the step that made it
+  function stepInRange(m, s) { return inRange(m, s.toGen); }
   function rangeLabel(m) { return S.range ? m.gens[S.range[0]].id + "–" + m.gens[S.range[1]].id : ""; }
 
   // a small surface for the sibling blocks (the timescape) and the tests
@@ -381,12 +384,15 @@
 
   function stepLines(s) {
     var v = verdictOf(s);
+    var flags = Array.isArray(s.raw.flags) ? s.raw.flags.map(String) : s.raw.flags && typeof s.raw.flags === "object" ? Object.keys(s.raw.flags).filter(function (k) { return s.raw.flags[k]; }) : [];
     return [
       { b: true, text: s.key + " · " + (s.mechanism || "step") + " · " + verdictLabel(v) },
       s.summary ? { text: s.summary } : null,
-      s.measurable ? { mono: true, text: "P(improve) " + pct(s.p) + " [" + pct(s.plo) + ", " + pct(s.phi) + "] · ΔIQM " + signed(s.dIqm) + " · Δpass " + pts(s.dPass) }
+      s.measurable ? { mono: true, text: "P(improve) " + pct(s.p) + " [" + pct(s.plo) + ", " + pct(s.phi) + "]" + (s.noisy ? " · spans the coin flip" : "") + " · ΔIQM " + signed(s.dIqm) + " · Δpass " + pts(s.dPass) }
         : { text: "effect not measured: " + (s.effect.reason || "no reason given") },
       s.gained.length || s.regressed.length ? { text: (s.gained.length ? "gained " + s.gained.map(short).join(", ") : "") + (s.gained.length && s.regressed.length ? " · " : "") + (s.regressed.length ? "regressed " + s.regressed.map(short).join(", ") : "") } : null,
+      s.forgotten.length ? { text: "forgot " + s.forgotten.map(short).join(", ") } : null,
+      flags.length ? { text: "flags: " + flags.join(", ") } : null,
       { text: "click to open this step" },
     ];
   }
@@ -396,6 +402,7 @@
       { b: true, text: g.id + (m.best && m.best.id === g.id ? " · best" : "") + (m.recommended && m.recommended.id === g.id ? " · recommended" : "") + (g.id === m.last.id ? " · last" : "") },
       { mono: true, text: (g.estimate ? "mean return " : "IQM ") + num(g.point) + (isNum(g.lo) ? " [" + num(g.lo) + ", " + num(g.hi) + "]" : "") + " · pass " + pct(g.pass) + (isNum(g.passes) && isNum(g.n) ? " (" + g.passes + "/" + g.n + ")" : "") },
       { text: (s ? "made by " + s.key + " (" + (s.mechanism || "step") + ")" : "the root: no step made it") + " · prompt " + num(g.size.prompt_chars, 0) + " chars · " + num(g.size.rules, 0) + " rules · " + num(g.size.memory, 0) + " notes" },
+      g.raw.measurable === false && g.raw.reason ? { text: "not measured: " + g.raw.reason } : null,
       { text: s ? "click to open the step that made it" : "click to open the root" },
     ];
   }
@@ -542,6 +549,12 @@
       if (!isNum(c) || !c) return;
       bar.appendChild(H("span", { class: "evo-chip", "data-verdict": k, style: { color: VERDICT[k].color } }, [H("span", { text: (VERDICT[k].glyph ? VERDICT[k].glyph + " " : "") + c + " " + k })]));
     });
+    // the engine's flags across the lineage — not verdicts, but counted the same way
+    var fl = m.trajectory && m.trajectory.flags && typeof m.trajectory.flags === "object" ? m.trajectory.flags : null;
+    if (fl) {
+      var flagText = Object.keys(fl).filter(function (k) { return isNum(fl[k]) && fl[k] > 0; }).map(function (k) { return fl[k] + " " + k.replace(/_/g, " "); }).join(" · ");
+      if (flagText) bar.appendChild(H("span", { class: "evo-chip", "data-role": "flags", title: "flags the engine raised on steps, beside their verdicts", text: "flags: " + flagText }));
+    }
     var rangeChip = H("span", { class: "evo-chip evo-range-chip", hidden: !S.range }, [
       H("span", { text: "range " }), H("b", { text: rangeLabel(m) }), H("span", { text: " " }),
       H("button", { type: "button", text: "clear", onclick: function () { if (refs.brush) refs.brush.clear(); select({ range: null }); } })]);
@@ -564,7 +577,17 @@
       var root = H("div", { class: "evo evo-lineage" });
       el.appendChild(root);
       var tip = tooltip(root);
-      if (m.narrative) root.appendChild(H("p", { class: "evo-narr", text: m.narrative }));
+      // the lede is the answer to "which generation to keep"; the whole narrative is one click away
+      var rec = m.recommended;
+      var lede = H("p", { class: "evo-narr evo-lead", "data-recommended": rec ? rec.id : "" });
+      if (rec) {
+        lede.appendChild(H("span", { text: m.gens.length + " generations of " + (m.family || "the agent") + ". Keep " }));
+        lede.appendChild(H("b", { text: rec.id }));
+        lede.appendChild(H("span", { text: (rec.is_last ? " — the last generation" : " — not the last (" + m.last.id + ")") + (rec.why ? ": " + cap(String(rec.why)) : "") + (rec.why && String(rec.why).slice(-1) === "." ? "" : ".") }));
+      } else {
+        lede.appendChild(H("span", { text: m.gens.length + " generations of " + (m.family || "the agent") + "; the engine named no generation to keep." }));
+      }
+      root.appendChild(lede);
       var refs = {};
       root.appendChild(lineageBar(H, m, ctx, refs));
       var host = H("div", { class: "evo-chart" });
@@ -577,6 +600,7 @@
         + "The best generation is ringed, the recommended one filled, the last one says so. Hover an edge for the change and P(improve); click it to open the step; "
         + "drag under the axis to pick a range." + (m.branching ? " This lineage branches: a parent with more than one child." : "") }));
       if (m.advisory) root.appendChild(H("p", { class: "evo-note evo-advisory", text: m.advisory }));
+      if (m.narrative) root.appendChild(H("details", { class: "evo-details" }, [H("summary", { class: "evo-note", style: { cursor: "pointer", color: "var(--ink-2)", marginTop: "6px" }, text: "the whole lineage in a paragraph" }), H("p", { class: "evo-note evo-narrative", text: m.narrative })]));
       listen(root, function (changed) {
         if (refs.apply && (changed.gen || changed.range)) refs.apply(true);
         if (refs.rangeChip) { refs.rangeChip.hidden = !S.range; var b = refs.rangeChip.querySelector("b"); if (b) b.textContent = rangeLabel(m); }
@@ -616,7 +640,7 @@
       var rows = {};
       function paint() {
         list.innerHTML = "";
-        var shown = m.steps.filter(function (s) { return inRange(m, s.toGen) && (!S.range || s.toGen.i > S.range[0]); });
+        var shown = m.steps.filter(function (s) { return stepInRange(m, s); });
         var head = H("div", { class: "evo-row evo-head", role: "presentation" }, [
           H("span", { text: "step" }), H("span", { class: "evo-mech", text: "mechanism" }), H("span", { class: "evo-sum", text: "change" }),
           H("span", { text: "P(improve)" }), H("span", { class: "evo-num", text: "ΔIQM" }), H("span", { class: "evo-num evo-pass", text: "Δpass" }),
@@ -1098,16 +1122,37 @@
       var ig = m.integrity || {};
       var touched = Array.isArray(ig.touched) ? ig.touched : [];
       var lede = H("p", { class: "evo-lede", "data-touched": touched.length });
-      if (touched.length) {
-        lede.appendChild(H("b", { text: touched.length + " protected path" + (touched.length === 1 ? "" : "s") + " touched. " }));
-        touched.forEach(function (t, i) {
-          var stepKey = String(t.step || "");
-          var stepObj = m.steps.filter(function (s) { return s.key === stepKey || s.to === stepKey || (t.step && t.step.to === s.to); })[0] || null;
-          var span = H("span", { class: "evo-touch", "data-path": t.path, style: { cursor: stepObj ? "pointer" : "default" },
-            text: stepKey + " changed " + t.path + " " + String(t.from) + " → " + String(t.to) + (i < touched.length - 1 ? "; " : "."),
-            onclick: function () { if (stepObj) select({ gen: stepObj.to }); } });
-          lede.appendChild(span);
+      //: the step a touch names: "g2 → g3", {from_gen, to_gen}, or the child's index
+      function stepOfTouch(t) {
+        if (t.to_gen && m.stepByTo[t.to_gen]) return m.stepByTo[t.to_gen];
+        var key = String(t.step === undefined || t.step === null ? "" : t.step);
+        return m.steps.filter(function (s) { return s.key === key || s.to === key || String(s.raw.index) === key || String(s.toGen.i) === key; })[0] || null;
+      }
+      function touchText(t) { return t.path + " " + String(t.from) + " → " + String(t.to) + (t.unit ? " " + t.unit : "") + (t.source === "episodes" ? " (seen in the episodes)" : ""); }
+      //: one clause per step: "g2 → g3 weakened config.checks 5 → 0, tools.run_check present → absent"
+      function clauses(list, verb) {
+        var groups = [], byKey = {};
+        list.forEach(function (t) {
+          var s = stepOfTouch(t), k = s ? s.key : (t.from_gen && t.to_gen ? t.from_gen + " → " + t.to_gen : "step " + String(t.step));
+          if (!byKey[k]) { byKey[k] = { key: k, step: s, items: [] }; groups.push(byKey[k]); }
+          byKey[k].items.push(t);
         });
+        return groups.map(function (g) {
+          return H("span", { class: "evo-touch", "data-step": g.key, "data-paths": g.items.map(function (t) { return t.path; }).join(","), style: { cursor: g.step ? "pointer" : "default" },
+            text: g.key + " " + verb + " " + g.items.map(touchText).join(", "),
+            onclick: function () { if (g.step) select({ gen: g.step.to }); } });
+        });
+      }
+      var distinct = {};
+      touched.forEach(function (t) { distinct[t.path] = true; });
+      var nPaths = Object.keys(distinct).length;
+      if (touched.length) {
+        lede.appendChild(H("b", { text: nPaths + " protected path" + (nPaths === 1 ? "" : "s") + " touched. " }));
+        clauses(touched, "weakened").forEach(function (c, i, all) { lede.appendChild(c); lede.appendChild(H("span", { text: i < all.length - 1 ? "; " : ". " })); });
+        var restored = Array.isArray(ig.restored) ? ig.restored : [];
+        if (restored.length) {
+          lede.appendChild(H("span", { class: "evo-restored", style: { color: "var(--ink-2)" } }, [H("span", { text: "Restored later: " })].concat(clauses(restored, "restored").map(function (c, i, all) { return H("span", null, [c, H("span", { text: i < all.length - 1 ? "; " : "." })]); }))));
+        }
       } else {
         lede.appendChild(H("span", { text: "No protected path was touched across " + m.steps.length + " step" + (m.steps.length === 1 ? "" : "s") + (m.protected.length ? " (protected: " + m.protected.join(", ") + ")" : " — none was declared, so nothing could be caught") + "." }));
       }

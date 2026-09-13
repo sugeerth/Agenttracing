@@ -58,6 +58,7 @@ from .reliability import reliability
 from .report import compare, render_html, attach_milestones
 from .trace import Trajectory
 from .variance import METRICS as VARIANCE_METRICS, variance_report
+from .evolve import FLAGS as EVOLVE_FLAGS, LAYOUTS as EVOLVE_LAYOUTS, VERDICTS as EVOLVE_VERDICTS
 
 #: default viewer template, relative to the repo root (parent of the package).
 from .commands.paths import DEFAULT_TEMPLATE, LEGACY_TEMPLATE  # noqa: E402
@@ -1570,6 +1571,118 @@ def _cmd_rl(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_evolve(args: argparse.Namespace) -> int:
+    """A self-evolving agent's lineage: the last step's pair as an ordinary
+    runs output (report_<task>.json, aggregate.json, report.html) with
+    ``aggregate["evolution"]`` attached, and a one-line-per-step summary.
+    Exit 0 always — it is a report — unless ``--fail-on`` names a verdict
+    or flag some step carries."""
+    from .evolve import evolve, fail_on, last_pair, read_lineage
+    from .suite import SuiteError, analyse_runs
+    lineage = read_lineage(args.lineage, layout=args.layout)
+    if not lineage["measurable"]:
+        print(f"error: {lineage['reason']}", file=sys.stderr)
+        return 2
+    for note in lineage["notes"]:
+        print(f"warning: {note}", file=sys.stderr)
+    names = [n.strip() for n in (args.fail_on or "").split(",") if n.strip()]
+    unknown = sorted(set(names) - set(EVOLVE_VERDICTS) - set(EVOLVE_FLAGS))
+    if unknown:
+        print(f"error: unknown --fail-on name(s): {', '.join(unknown)}; choose from "
+              f"{', '.join(EVOLVE_VERDICTS + EVOLVE_FLAGS)}", file=sys.stderr)
+        return 2
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # the last step as an ordinary runs batch, so the Story, Evidence and
+    # Training views read "what just changed"
+    reports: list = []
+    agg: dict = {}
+    pair = last_pair(lineage)
+    if pair is None:
+        print("warning: fewer than two generations carry traces; no pair report is written", file=sys.stderr)
+    else:
+        a, b = pair
+        try:
+            analysed = analyse_runs(a["trajectories"] + b["trajectories"],
+                                    warn=lambda m: print(f"warning: {m}", file=sys.stderr))
+            reports, agg = analysed["reports"], analysed["aggregate"]
+            print(f"Last step: A={a['policy']}  B={b['policy']}")
+        except (SuiteError, ValueError) as exc:
+            print(f"warning: the last pair cannot be analysed as a runs batch: {exc}", file=sys.stderr)
+    evolution = evolve(lineage, metric=args.metric, samples=args.samples, reports=reports)
+    agg["evolution"] = evolution
+
+    for report in reports:
+        path = out_dir / f"report_{_safe_name(report['task']['id'])}.json"
+        path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"Wrote {path}")
+    agg_path = out_dir / "aggregate.json"
+    agg_path.write_text(json.dumps(agg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"Wrote {agg_path}")
+    template = Path(args.template) if args.template else DEFAULT_TEMPLATE
+    if not reports:
+        print("warning: no pair report, so report.html is not rendered", file=sys.stderr)
+    elif template.is_file():
+        try:
+            html_path = render_html(reports, agg, template, out_dir / "report.html")
+            print(f"Wrote {html_path}")
+        except ValueError as exc:
+            print(f"warning: could not render HTML: {exc}", file=sys.stderr)
+    else:
+        print(f"warning: viewer template not found at {template}; skipping report.html", file=sys.stderr)
+
+    _print_evolution(evolution)
+    hits = fail_on(evolution, names) if names else []
+    if hits:
+        print("fail-on: " + ", ".join(f"step {i} {name}" for i, name in hits))
+        return 1
+    return 0
+
+
+def _print_evolution(ev: dict) -> None:
+    """The lineage summary in the CLI voice: one line per step, then best,
+    recommended and the advisory."""
+    gens = ev["generations"]
+    print(f"Lineage: {ev['family'] or '?'}  {len(gens)} generation(s) [{ev['order_basis']}]")
+    for g in gens:
+        iqm = g["iqm_by_task"]
+        band = (f"{iqm['point']:+.2f} [{iqm['lo']:+.2f}, {iqm['hi']:+.2f}]" if iqm["point"] is not None else "n/a")
+        print(f"  {g['id']:<6} {g['episodes_n']:>3} episode(s)  passes {g['passes']}/{g['episodes_n']}  "
+              f"IQM {band}" + (f"  ({g['reason']})" if g["reason"] else ""))
+    if ev["steps"]:
+        print("Steps:")
+    for s in ev["steps"]:
+        e = s["effect"]
+        bits = [f"{s['from']} → {s['to']}  {s['mechanism'] or '?'}  {s['diff']['summary']}"]
+        if e["measurable"]:
+            imp, iqm = e["improvement"], e["iqm"]
+            bits.append(f"P(improve) {imp['point']:.2f} [{imp['lo']:.2f}, {imp['hi']:.2f}]")
+            bits.append(f"IQM {iqm['delta']:+.1f}")
+            bits.append(s["verdict"] + (f": return {s['gaming']['return_delta']:+.2f}, passes "
+                                        f"{s['gaming']['pass_delta']:+.2f}" if s["verdict"] == "gamed" else ""))
+        else:
+            bits.append(f"unmeasurable: {e['reason']}")
+        touched = s["diff"]["protected_touched"] + [c["path"] for c in s["protected_episodes"]
+                                                    if c["direction"] == "weakened" and c["path"] not in s["diff"]["protected_touched"]]
+        if touched:
+            bits.append("touched " + ", ".join(touched))
+        if s["flags"]:
+            bits.append("flags: " + ", ".join(s["flags"]))
+        print("  " + " · ".join(bits))
+    best, rec = ev["best"], ev["recommended"]
+    print(f"Best: {best['id']}" + (f" (task-balanced IQM {best['iqm']:+.2f})" if best.get("iqm") is not None else "")
+          + f" — {best['why']}")
+    print(f"Recommended: {rec['id']}" + ("" if rec["is_last"] or rec["id"] is None else " (not the last generation)")
+          + f" — {rec['why']}")
+    tr = ev["trajectory"]
+    if tr.get("steps"):
+        print(f"Kept on noise: {tr['accepted_on_noise']} of {tr['steps']} step(s)"
+              + (f" ({', '.join(tr['noisy_steps'])})" if tr["noisy_steps"] else ""))
+    print(f"Integrity: {ev['integrity']['reading']}")
+    print(f"Advisory: {ev['advisory']}")
+
+
 def _cmd_rlexport(args: argparse.Namespace) -> int:
     """The bridge out to a trainer: per-trajectory rewards for a veRL reward
     manager, the compute_score template, DPO-style preference pairs, or
@@ -1993,6 +2106,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_rl.add_argument("target", help="a trace file or a directory of traces")
     p_rl.add_argument("--json", action="store_true", help="print every episode as JSON")
     p_rl.set_defaults(func=_cmd_rl)
+
+    p_evolve = sub.add_parser(
+        "evolve", help="a self-evolving agent's lineage (<gen>/agent.json + <gen>/traces/*.json): per step, did it "
+                       "help, what changed, and did it game, forget, overfit or touch a protected path; which "
+                       "generation to keep; the last step as an ordinary runs output")
+    p_evolve.add_argument("lineage", help="lineage directory")
+    p_evolve.add_argument("-o", "--output", default="out", help="output directory (default: out)")
+    p_evolve.add_argument("--template", help=f"viewer HTML template (default: {DEFAULT_TEMPLATE})")
+    p_evolve.add_argument("--layout", choices=EVOLVE_LAYOUTS, default="native",
+                          help="native: <gen>/agent.json + <gen>/traces; flat: one runs directory with agents/<gen>.json")
+    p_evolve.add_argument("--metric", choices=("return", "discounted_return", "success", "steps", "seconds"),
+                          default="return", help="the score the IQM and the improvement are computed on")
+    p_evolve.add_argument("--samples", type=int, default=2000, help="bootstrap resamples per statistic")
+    p_evolve.add_argument("--fail-on", default=None,
+                          help="comma-separated verdicts or flags (" + ", ".join(EVOLVE_VERDICTS + EVOLVE_FLAGS)
+                               + "): exit 1 when any step carries one")
+    p_evolve.set_defaults(func=_cmd_evolve)
 
     p_run = sub.add_parser(
         "run", help="run a task set against one or more model providers and "
