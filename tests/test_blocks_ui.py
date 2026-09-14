@@ -9415,3 +9415,409 @@ class ChatViewTest(unittest.TestCase):
         self.assertEqual(page.evaluate("() => getComputedStyle(document.querySelector('.chat-turn.new')).animationName"), "none")
         self.assertEqual(errors, [])
         context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class LevelsViewTest(unittest.TestCase):
+    """The Levels view (38_levels.js): three levels of grain over a bundle
+    of the three demo outputs (`batch demo/traces`, `runs demo/rl/train`,
+    `coevolve demo/evolve/lineage`, packed by `bundle`), and the same view
+    derived from a plain output that is not a bundle.
+
+    What is checked is that the three blocks render in the lane's declared
+    order with nothing empty and the console clean; that level 1 draws every
+    agent of `levels.overview` with its Wilson interval as an interval and
+    every lineage with its loop; that level 2 sorts and filters the
+    `levels.runs` rows by the engine's rule (descending, unrecorded last)
+    and binds only the visible window to the DOM even at ten times the
+    shipped scale; that a click or Enter on a row opens level 3 through the
+    page-scoped `levels` family; that the burn-down and the search map on
+    the heaviest run with steps carry the record's numbers in their labels,
+    and that the heaviest run of all — whose steps the runs layout did not
+    keep — says so with the reason; that a plain batch page still has the
+    view and says what it cannot show; and that the lane fits a phone.
+    """
+
+    tmp = None
+    IDS = ("lv-overview", "lv-runs", "lv-run")
+    VIEWS = ("chat", "levels", "story", "evidence", "batch", "panels", "training", "evolution", "coevolution")
+
+    @classmethod
+    def setUpClass(cls):
+        lineage = ROOT / "demo" / "evolve" / "lineage"
+        if not (lineage / "g0" / "agent.json").is_file() or not (ROOT / "demo" / "traces").is_dir() or not (ROOT / "demo" / "rl" / "train").is_dir():
+            raise unittest.SkipTest("no demo outputs to bundle")
+        cls.tmp = tempfile.TemporaryDirectory()
+        root = Path(cls.tmp.name)
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        template = ROOT / "web" / "blocks.html"
+
+        def run(name, *args):
+            out = root / name
+            done = subprocess.run([sys.executable, "-m", "deepcompare"] + list(args) + ["-o", str(out), "--template", str(template)],
+                                  cwd=str(ROOT), capture_output=True)
+            if done.returncode != 0 or not (out / "report.html").is_file():
+                raise unittest.SkipTest(f"the {args[0]} command did not write a page: " + done.stderr.decode("utf-8", "replace")[-300:])
+            return out
+
+        cls.batch_dir = run("batch", "batch", str(ROOT / "demo" / "traces"))
+        cls.runs_dir = run("runs", "runs", str(ROOT / "demo" / "rl" / "train"), "--token-cap", "3000")
+        cls.cov_dir = run("cov", "coevolve", str(lineage))
+        cls.bundle_dir = run("bundle", "bundle", str(cls.batch_dir), str(cls.runs_dir), str(cls.cov_dir), "--name", "demo")
+        cls.bundle = json.loads((cls.bundle_dir / "bundle.json").read_text(encoding="utf-8"))
+        cls.rows = cls.bundle["levels"]["runs"]
+        cls.overview = cls.bundle["levels"]["overview"]
+        cls.batch_agg = json.loads((cls.batch_dir / "aggregate.json").read_text(encoding="utf-8"))
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    # ------------------------------------------------------------- helpers
+
+    def _open(self, path=None, width=1440, reduced_motion=False):
+        context = self.browser.new_context(viewport={"width": width, "height": 1000},
+                                           reduced_motion="reduce" if reduced_motion else "no-preference")
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        # unfiltered: a warning from any block on the page is a failure here
+        page.on("console", lambda m: errors.append(m.type + ": " + m.text) if m.type in ("error", "warning") else None)
+        page.goto(f"file://{(path or self.bundle_dir) / 'report.html'}#view=levels")
+        page.wait_for_timeout(1200)
+        page.evaluate("() => AgentDiff.levels.reset()")
+        page.wait_for_timeout(400)
+        return context, page, errors
+
+    @staticmethod
+    def _pct(v):
+        """The page's percentage: JS Math.round (half up), not Python's half-even."""
+        return f"{int(v * 100 + 0.5)}%"
+
+    @staticmethod
+    def _sorted(rows, field):
+        """The engine's level-2 order: descending, rows without the number last, then by key."""
+        def key(r):
+            v = r.get(field)
+            known = isinstance(v, (int, float)) and not isinstance(v, bool)
+            return (0 if known else 1, -(v if known else 0), r["key"])
+        return sorted(rows, key=key)
+
+    def _record(self, key):
+        return json.loads((self.bundle_dir / self.bundle["levels"]["run_index"][key]).read_text(encoding="utf-8"))
+
+    def _heaviest_with_steps(self):
+        return self._sorted([r for r in self.rows if r["detail"]], "tokens")[0]
+
+    # ------------------------------------------------------------ rendering
+
+    def test_the_three_blocks_render_in_the_declared_order_on_the_bundle_page(self):
+        context, page, errors = self._open()
+        ids = page.evaluate("() => Array.from(document.querySelectorAll('#stacks .block')).map(b => b.getAttribute('data-block'))")
+        self.assertEqual(tuple(ids), self.IDS)
+        for bid in self.IDS:
+            body = page.locator(f'#stacks [data-block="{bid}"] .block-body').inner_text()
+            self.assertNotIn("failed to render", body, bid)
+            self.assertNotIn("Nothing to show", body, bid)
+            self.assertGreater(len(body.strip()), 80, bid)
+        self.assertEqual(page.evaluate("() => Array.from(document.querySelectorAll('#stacks .block .empty')).filter(e => e.offsetParent !== null).length"), 0)
+        # every chart of the lane is labelled with its numbers; the run table and the map are applications
+        unlabelled = page.evaluate("() => Array.from(document.querySelectorAll('#stacks .lv svg')).filter(s => !(s.getAttribute('aria-label') || '').trim() || !s.getAttribute('role')).length")
+        self.assertEqual(unlabelled, 0)
+        self.assertEqual(page.locator('.lv-vp[role="application"][aria-label]').count(), 1)
+        self.assertEqual(page.locator('.lv-run [role="status"][aria-live="polite"]').count(), 2)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_level_one_draws_every_agent_with_its_interval_and_every_lineage_with_its_loop(self):
+        context, page, errors = self._open()
+        agents = self.overview["agents"]
+        self.assertEqual(page.locator(".lv-overview table[data-agents] tbody tr").count(), min(len(agents), 40))
+        with_ci = [a for a in agents if a["success_rate"]["lo"] is not None]
+        self.assertEqual(page.locator(".lv-overview svg.lv-iv").count(), len(with_ci))
+        for a in with_ci[:3]:
+            label = page.locator(f'.lv-overview tr[data-agent="{a["name"]}"] svg.lv-iv').get_attribute("aria-label")
+            self.assertIn(self._pct(a['success_rate']['rate']), label)
+            self.assertIn(f"{self._pct(a['success_rate']['lo'])} to {self._pct(a['success_rate']['hi'])}", label)
+            self.assertIn("Wilson", label)
+        # the self-evolving mark on every generation of the lineage, none elsewhere
+        self.assertEqual(page.locator(".lv-overview .lv-evo").count(), sum(1 for a in agents if a["self_evolving"]))
+        for ln in self.overview["lineages"]:
+            loop = page.locator(f'.lv-loop[data-family="{ln["family"]}"]')
+            self.assertEqual(loop.count(), 1)
+            label = loop.get_attribute("aria-label")
+            self.assertIn(f"{ln['generations_n']} generations", label)
+            if ln["eval"]:
+                self.assertIn(f"{ln['eval']['generations']} generations", label)
+                self.assertIn(f"{ln['eval']['closures']} loops", label)
+                self.assertEqual(loop.get_attribute("data-closures"), str(ln["eval"]["closures"]))
+        totals = page.locator(".lv-overview .lv-totals").inner_text()
+        t = self.overview["totals"]
+        self.assertIn(f"{t['runs']} runs", totals)
+        self.assertIn(f"{t['tokens']:,} tokens over {t['tokens_runs']} runs", totals)
+        self.assertIn(f"SYNTHETIC {self._pct(t['synthetic_share'])}", totals)
+        self.assertEqual(errors, [])
+        context.close()
+
+    # -------------------------------------------------------------- level 2
+
+    def test_level_two_sorts_and_filters_the_rows_by_the_engine_rule(self):
+        context, page, errors = self._open()
+        vp = page.locator(".lv-vp")
+        self.assertEqual(vp.get_attribute("data-rows"), str(len(self.rows)))
+        first = page.evaluate("() => document.querySelector('.lv-row').getAttribute('data-key')")
+        self.assertEqual(first, self._sorted(self.rows, "tokens")[0]["key"])
+        for sort, field in (("fetches", "fetches"), ("errors", "errors"), ("seconds", "seconds"), ("cost", "cost_usd"), ("steps", "steps")):
+            page.locator(f'.lv-controls button[data-sort="{sort}"]').click()
+            page.wait_for_timeout(200)
+            self.assertEqual(page.evaluate("() => AgentDiff.levels.state().sort"), sort)
+            keys = page.evaluate("() => Array.from(document.querySelectorAll('.lv-row')).slice(0, 5).map(r => r.getAttribute('data-key'))")
+            self.assertEqual(keys, [r["key"] for r in self._sorted(self.rows, field)[:5]], sort)
+        # a header click sorts too
+        page.locator('.lv-head button[data-sort="tokens"]').click()
+        page.wait_for_timeout(200)
+        self.assertEqual(page.evaluate("() => AgentDiff.levels.state().sort"), "tokens")
+        # filter chips: an agent, then an outcome, then a member
+        agent = self.overview["agents"][-1]["name"]
+        page.locator(f'.lv-controls [data-facet="agent"] button[data-value="{agent}"]').click()
+        page.wait_for_timeout(250)
+        own = [r for r in self.rows if r["agent"] == agent]
+        self.assertEqual(page.locator(".lv-vp").get_attribute("data-rows"), str(len(own)))
+        self.assertIn(f"{len(own)} shown (agent {agent})", page.locator(".lv-runs .lv-status").inner_text())
+        page.locator('.lv-controls [data-facet="outcome"] button[data-value="fail"]').click()
+        page.wait_for_timeout(250)
+        failed = [r for r in own if r["success"] is False]
+        self.assertEqual(page.locator(".lv-vp").get_attribute("data-rows"), str(len(failed)))
+        self.assertEqual(page.evaluate("() => Array.from(document.querySelectorAll('.lv-row .lv-mark')).every(m => m.textContent === '✗')"), True)
+        member = self.bundle["members"][1]["label"]
+        page.locator('.lv-controls button:has-text("clear filters")').click()
+        page.wait_for_timeout(200)
+        page.locator(f'.lv-controls [data-facet="member"] button[data-value="{member}"]').click()
+        page.wait_for_timeout(250)
+        self.assertEqual(page.locator(".lv-vp").get_attribute("data-rows"), str(self.bundle["members"][1]["runs"]))
+        self.assertEqual(page.evaluate("() => AgentDiff.levels.state().member"), member)
+        # the selection persists through the page's store and a reload
+        page.reload()
+        page.wait_for_timeout(1200)
+        self.assertEqual(page.evaluate("() => AgentDiff.levels.state().member"), member)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_level_two_binds_only_the_visible_window_even_at_ten_times_the_scale(self):
+        context, page, errors = self._open()
+        vp = page.locator(".lv-vp")
+        n = len(self.rows)
+        self.assertGreater(n, 100)
+        self.assertLessEqual(int(vp.get_attribute("data-dom-rows")), 40)
+        self.assertEqual(page.locator(".lv-row").count(), int(vp.get_attribute("data-dom-rows")))
+        page.evaluate("() => AgentDiff.levels.tile(10)")
+        page.wait_for_timeout(800)
+        vp = page.locator(".lv-vp")
+        self.assertEqual(vp.get_attribute("data-rows"), str(10 * n))
+        self.assertLessEqual(int(vp.get_attribute("data-dom-rows")), 40)
+        self.assertLess(float(page.locator(".lv-runs").get_attribute("data-draw-ms")), 250)
+        self.assertIn("tiled ×10", page.locator(".lv-runs .lv-status").inner_text())
+        before = vp.get_attribute("data-window")
+        page.evaluate("() => { const vp = document.querySelector('.lv-vp'); vp.scrollTop = vp.scrollHeight / 2; }")
+        page.wait_for_timeout(300)
+        after = page.locator(".lv-vp").get_attribute("data-window")
+        self.assertNotEqual(before, after)
+        self.assertLessEqual(int(page.locator(".lv-vp").get_attribute("data-dom-rows")), 40)
+        self.assertLessEqual(page.locator(".lv-row").count(), 40)
+        page.evaluate("() => AgentDiff.levels.tile(1)")
+        page.wait_for_timeout(600)
+        self.assertEqual(page.locator(".lv-vp").get_attribute("data-rows"), str(n))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_row_opens_level_three_through_the_family_by_mouse_and_by_keyboard(self):
+        context, page, errors = self._open()
+        order = self._sorted(self.rows, "tokens")
+        # by default level 3 shows the heaviest run whose steps are in the output, and says so
+        run = page.locator(".lv-run")
+        self.assertEqual(run.get_attribute("data-run"), self._heaviest_with_steps()["key"])
+        self.assertIn("no run chosen", run.locator(".lv-status").first.inner_text())
+        self.assertIsNone(page.evaluate("() => AgentDiff.levels.state().run"))
+        page.locator(".lv-row").nth(1).click()
+        page.wait_for_timeout(500)
+        self.assertEqual(page.evaluate("() => AgentDiff.levels.state().run"), order[1]["key"])
+        self.assertEqual(page.locator(".lv-run").get_attribute("data-run"), order[1]["key"])
+        self.assertEqual(page.locator('.lv-row[aria-current="true"]').get_attribute("data-key"), order[1]["key"])
+        # the keyboard: the table is one application; arrows move the cursor, Enter opens
+        page.focus(".lv-vp")
+        page.keyboard.press("Home")
+        page.keyboard.press("ArrowDown")
+        page.keyboard.press("ArrowDown")
+        page.keyboard.press("ArrowDown")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(500)
+        self.assertEqual(page.evaluate("() => AgentDiff.levels.state().run"), order[3]["key"])
+        self.assertEqual(page.locator(".lv-run").get_attribute("data-run"), order[3]["key"])
+        # the walk at level 3 follows the level-2 order; the crumb goes back up
+        page.locator('.lv-run button:has-text("next ›")').click()
+        page.wait_for_timeout(400)
+        self.assertEqual(page.locator(".lv-run").get_attribute("data-run"), order[4]["key"])
+        page.locator('.lv-run .lv-crumbs button:has-text("all runs")').click()
+        page.wait_for_timeout(400)
+        self.assertIsNone(page.evaluate("() => AgentDiff.levels.state().run"))
+        # the family is page-scoped and exposed
+        self.assertEqual(page.evaluate("() => AgentDiff.lib.family('levels').scope"), "page")
+        self.assertEqual(errors, [])
+        context.close()
+
+    # -------------------------------------------------------------- level 3
+
+    def test_level_three_draws_the_burn_down_and_the_search_map_of_the_heaviest_run_with_steps(self):
+        context, page, errors = self._open()
+        row = self._heaviest_with_steps()
+        rec = self._record(row["key"])
+        self.assertTrue(rec["measurable"])
+        page.evaluate(f"() => AgentDiff.levels.select({{run: {json.dumps(row['key'])}}})")
+        page.wait_for_timeout(500)
+        run = page.locator(".lv-run")
+        self.assertEqual(run.get_attribute("data-measurable"), "true")
+        burn = run.locator("svg.lv-burn")
+        self.assertEqual(burn.count(), 1)
+        label = burn.get_attribute("aria-label")
+        total = rec["budget"]["tokens"]["total"]
+        self.assertIn(f"{total:,} cumulative tokens over {len(rec['steps'])} steps", label)
+        self.assertIn("coloured by kind", label)
+        waste = rec["budget"]["waste"]["after_last_evidence"]
+        if waste:
+            self.assertIn(f"{waste:,} tokens after the last evidence", label)
+            self.assertEqual(run.locator(".lv-waste").count(), 1)
+        top = rec["budget"]["top"][0]
+        self.assertIn(f"#{top['index']} {top['name']} {top['tokens']:,}", label)
+        self.assertEqual(burn.get_attribute("data-steps"), str(len(rec["budget"]["burn"])))
+        unmeasured = sum(1 for s in rec["steps"] if s["tokens_basis"] != "measured")
+        self.assertEqual(run.locator(".lv-burn .lv-unmeasured").count(), unmeasured)
+        # the x measure toggles to wall-clock from the steps' latencies
+        page.locator('.lv-run button[data-x="time"]').click()
+        page.wait_for_timeout(400)
+        self.assertEqual(page.locator("svg.lv-burn").get_attribute("data-x"), "time")
+        self.assertIn("wall-clock seconds", page.locator("svg.lv-burn").get_attribute("aria-label"))
+        page.locator('.lv-run button[data-x="steps"]').click()
+        page.wait_for_timeout(300)
+        # the search map: every node of the record's map, every edge, the reaches edges only where use is recorded
+        fmap = rec["fetches"]["map"]
+        m = run.locator("svg.lv-map")
+        self.assertEqual(m.count(), 1)
+        self.assertEqual(m.get_attribute("role"), "application")
+        self.assertEqual(m.get_attribute("data-nodes"), str(len(fmap["nodes"])))
+        self.assertEqual(m.get_attribute("data-edges"), str(len(fmap["edges"])))
+        reaches = sum(1 for e in fmap["edges"] if e["kind"] == "reaches")
+        self.assertEqual(run.locator('.lv-map path[data-kind="reaches"]').count(), reaches)
+        self.assertEqual(reaches, rec["fetches"]["counts"]["used"])
+        self.assertIn(f"{rec['fetches']['counts']['unknown_use']} of unknown use", m.get_attribute("aria-label"))
+        self.assertEqual(run.locator(".lv-map .lv-node").count(), len(fmap["nodes"]))
+        # the fetch table has every record; the budget bars carry the split
+        self.assertEqual(run.locator(".lv-fetches tbody tr").count(), len(rec["fetches"]["records"]))
+        by_kind = rec["budget"]["tokens"]["by_kind"]
+        bud = run.locator("svg.lv-budget").get_attribute("aria-label")
+        for kind, v in by_kind.items():
+            if v:
+                self.assertIn(f"{kind} {v:,}", bud)
+        # a node is reached by Tab and its record reads in the status line
+        page.locator(".lv-map .lv-node").first.focus()
+        page.wait_for_timeout(200)
+        first = fmap["nodes"][0] if fmap["nodes"][0]["kind"] != "answer" else fmap["nodes"][1]
+        status = run.locator(".lv-map-host").locator("xpath=preceding-sibling::p[1]").inner_text()
+        self.assertIn(f"#{first['index']}", status)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_heaviest_run_of_all_has_no_steps_in_the_output_and_says_why(self):
+        context, page, errors = self._open()
+        heaviest = self.overview["heaviest_runs"][0]
+        row = [r for r in self.rows if r["key"] == heaviest["key"]][0]
+        rec = self._record(row["key"])
+        if rec["measurable"]:
+            raise unittest.SkipTest("the heaviest run's steps are in the output")
+        page.evaluate(f"() => AgentDiff.levels.select({{run: {json.dumps(row['key'])}}})")
+        page.wait_for_timeout(500)
+        run = page.locator(".lv-run")
+        self.assertEqual(run.get_attribute("data-measurable"), "false")
+        self.assertEqual(run.locator("svg.lv-burn").count(), 0)
+        self.assertEqual(run.locator("svg.lv-map").count(), 0)
+        cannot = run.locator(".lv-cannot").inner_text()
+        self.assertIn(rec["reason"], cannot)
+        nums = run.locator(".lv-nums").inner_text()
+        self.assertIn(f"{row['tokens']:,} tokens", nums)
+        self.assertIn(f"{row['steps']} steps", nums)
+        self.assertIn(f"{row['fetches']} fetches", nums)
+        self.assertEqual(page.evaluate("() => Array.from(document.querySelectorAll('#stacks .block .empty')).filter(e => e.offsetParent !== null).length"), 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ---------------------------------------------------------- plain pages
+
+    def test_a_plain_batch_page_derives_the_view_and_says_what_it_cannot_show(self):
+        context, page, errors = self._open(path=self.batch_dir)
+        ids = page.evaluate("() => Array.from(document.querySelectorAll('#stacks .block')).map(b => b.getAttribute('data-block'))")
+        self.assertEqual(tuple(ids), self.IDS)
+        self.assertEqual(page.locator(".lv-overview").get_attribute("data-source"), "page")
+        cannot = page.locator(".lv-overview .lv-cannot").inner_text()
+        self.assertIn("not a bundle", cannot)
+        self.assertIn("agentdiff bundle", cannot)
+        per_run = self.batch_agg["scorecard"]["per_run"]
+        self.assertEqual(page.locator(".lv-vp").get_attribute("data-rows"), str(len(per_run)))
+        # the scorecard's own Wilson interval is drawn per agent; nothing is computed on the page
+        agents = self.batch_agg["scorecard"]["agents"]
+        self.assertEqual(page.locator(".lv-overview svg.lv-iv").count(), len(agents))
+        name = sorted(agents)[0]
+        ci = agents[name]["rates"]["success"]["ci95"]
+        label = page.locator(f'.lv-overview tr[data-agent="{name}"] svg.lv-iv').get_attribute("aria-label")
+        self.assertIn(f"{self._pct(ci[0])} to {self._pct(ci[1])}", label)
+        # level 3 is whole for a run whose report is on the page
+        run = page.locator(".lv-run")
+        self.assertEqual(run.get_attribute("data-measurable"), "true")
+        self.assertEqual(run.locator("svg.lv-burn").count(), 1)
+        self.assertEqual(run.locator("svg.lv-map").count(), 1)
+        self.assertTrue(run.get_attribute("data-run").startswith("page/"))
+        self.assertEqual(page.evaluate("() => Array.from(document.querySelectorAll('#stacks .block .empty')).filter(e => e.offsetParent !== null).length"), 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_console_is_clean_across_every_view_on_every_output(self):
+        for path in (self.bundle_dir, self.runs_dir, self.cov_dir):
+            context, page, errors = self._open(path=path)
+            views = page.evaluate("() => Array.from(document.querySelectorAll('#view-tabs [data-view]')).map(t => t.dataset.view)")
+            self.assertIn("levels", views)
+            for view in views + ["levels"]:
+                page.locator(f'#view-tabs [data-view="{view}"]').click()
+                page.wait_for_timeout(300)
+            self.assertEqual(page.evaluate("() => Array.from(document.querySelectorAll('#stacks .block .empty')).filter(e => e.offsetParent !== null).length"), 0)
+            self.assertEqual(errors, [], str(path))
+            context.close()
+
+    # ------------------------------------------------------- small screens
+
+    def test_the_lane_fits_a_phone_with_no_small_text(self):
+        for width in (390, 360):
+            context, page, errors = self._open(width=width)
+            self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth"), 1)
+            self.assertEqual(page.locator(".lv-grid").evaluate("e => e.closest('.scroll-x') !== null"), True)
+            small = page.evaluate("""() => Array.from(document.querySelectorAll('#stacks .lv *'))
+                .filter(e => e.tagName.toLowerCase() !== 'title' && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()))
+                .filter(e => parseFloat(getComputedStyle(e).fontSize) < 11).length""")
+            self.assertEqual(small, 0)
+            sizes = page.evaluate("""() => [...new Set(Array.from(document.querySelectorAll('#stacks *'))
+                .filter(e => [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())).map(e => getComputedStyle(e).fontSize))]""")
+            self.assertLessEqual(len(sizes), 7)
+            page.locator(".lv-row").first.click()
+            page.wait_for_timeout(500)
+            top = self._sorted(self.rows, "tokens")[0]
+            self.assertEqual(page.locator(".lv-run").get_attribute("data-run"), top["key"])
+            self.assertEqual(page.locator(".lv-run svg.lv-burn").count(), 1 if self._record(top["key"])["measurable"] else 0)
+            self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth"), 1)
+            self.assertEqual(errors, [], str(width))
+            context.close()
