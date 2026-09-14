@@ -34,6 +34,31 @@ intervals and reasons, and the eval's own drift, multiplicity and
 unconfirmed adoptions are measured the way the agent's gaming and
 forgetting are.
 
+When `evolve --against` compares two agent lineages, it also sets their
+two evals side by side under `evolution_compare.evals`: each lineage is
+read by `coevolve` over the evolution section the comparison already
+carries, and the block lists per lineage what its eval learned (the eval
+generations, the metrics adopted, demoted and retired, the candidates
+tested and which validator turned each rejected one away, the drift, the
+loop closures, the longest hindsight lag, the recommendation under both
+rules), the metrics more than one eval adopted, and a **transfer**:
+every metric one eval learned applied to the *other* lineage's last
+step with the same delta test the validators use — `coevolve.delta` at
+`ALPHA`, one test per metric and lineage, unadjusted, and the block says
+so. On the demo, ledger-agent's eval learned three metrics and
+memo-agent's none (six candidates: three noise, three one reading with
+`tool_errors_mean`); nothing is shared; on memo-agent's last step
+g5→g6, `verified_rate` reads 1 → 1 and `frugal_pass_rate` 0.9 → 0.9,
+each saying nothing there, while the retired `clean_pass_rate` falls
+1 → 0.86 with an interval that excludes zero and would flag that step.
+The reading declares no winner between the evals: an eval that learned
+nothing may have watched a lineage with nothing to learn, and the
+comparison's verdict is the four axes. `agentdiff chat <out_dir>`
+answers questions about the whole directory under the narration
+covenant — the eval's ledger, hindsight, integrity and recommendation
+are numbered facts in its brief, every answer is checked against them
+and printed with its violations (`docs/EVOLVE.md`, `SCHEMA.md`).
+
 ## The flow
 
 One agent step drives one turn of the loop:

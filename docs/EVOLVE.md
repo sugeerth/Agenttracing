@@ -671,3 +671,30 @@ from `aggregate.evolution` (the primary lineage), and carrying them
 twice made the comparison section six times larger than it needed to
 be. The embedded copy says `timelines: "omitted; see
 aggregate.evolution"` beside `episodes_capped`.
+
+**The evals.** The comparison also compares the two evals that evolved
+with the lineages (`docs/COEVOLVE.md`): `evolution_compare.evals` runs
+`coevolve` on each lineage over the evolution section already in hand
+and reports, per lineage, what its eval learned — eval generations,
+adopted, demoted and retired metrics, candidates tested and the
+validator each rejected one failed, drift, closures, the longest
+hindsight lag, the recommendation under both rules — then the metrics
+both adopted (`shared_metrics`) and the `transfer`: every metric one
+eval learned applied to the other lineage's last step with the same
+delta test at `ALPHA`, one test per metric and lineage, unadjusted and
+stated in `transfer_rule`. On the demo, ledger-agent's eval learned
+`verified_rate`, `clean_pass_rate` (later retired) and
+`frugal_pass_rate`; memo-agent's learned nothing (six candidates, three
+noise and three redundant with `tool_errors_mean`); applied to
+memo-agent's g5→g6, `verified_rate` and `frugal_pass_rate` say nothing
+there and `clean_pass_rate` falls 1 → 0.86 with an interval excluding
+zero. The reading declares no winner between the evals; the axes above
+are the verdict. Everything else in the section is byte-identical to
+before the key existed. `agentdiff chat <out_dir> [--provider …] [--ask
+"…"] [--script FILE]` is a grounded conversation about the whole
+output directory: the engine builds one brief from the aggregate's
+facts, each pair's, the evolution, the coevolution and the evals
+comparison, the model is told to cite `[F7]`-style facts or say "not in
+the report", and every answer is checked number by number and printed
+with its violations attached — never silently; without a provider the
+command prints the brief and the prompt.

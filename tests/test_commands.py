@@ -37,7 +37,7 @@ RL_TRACES = ROOT / "demo" / "rl" / "traces"
 #: the subcommands, in --help order; a new command is appended here on purpose
 SUBCOMMANDS = [
     "compare", "demo", "batch", "fleet", "gate", "runs", "profile", "progress", "bench",
-    "experiments", "narrate", "variance", "cohort", "check", "select", "convert", "frameworks",
+    "experiments", "narrate", "chat", "variance", "cohort", "check", "select", "convert", "frameworks",
     "rl", "evolve", "evolve-compare", "coevolve", "run", "loop", "replay", "rerun", "checkpoint", "context",
     "judge", "why", "db", "hook", "eval", "route", "feedback", "rlexport", "grafana", "watch",
     "explain",

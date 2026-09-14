@@ -415,6 +415,46 @@ class HandPairTest(_Temp):
         self.assertTrue(self.cmp["advisory"].startswith("[insufficient]"), self.cmp["advisory"])
         self.assertIn("stratified bootstrap", self.cmp["advisory"])
 
+    def test_the_evals_side_by_side_and_the_transfer_at_the_stated_level(self):
+        ev = self.cmp["evals"]
+        self.assertEqual(list(self.cmp)[-1], "evals", "the new key is last; everything before it is unchanged")
+        self.assertTrue(ev["measurable"], ev["reason"])
+        self.assertEqual(ev["alpha"], 0.05)
+        self.assertIn("one test per metric and lineage, unadjusted", ev["transfer_rule"])
+        a, b = ev["lineages"]
+        self.assertEqual((a["label"], b["label"]), ("alpha", "beta"))
+        # what each eval learned is read off its own coevolution section, not recomputed
+        from deepcompare.coevolve import coevolve
+        co_a = coevolve(read_lineage(self.tmpdir / "alpha"), self.cmp["lineages"][0]["evolution"], samples=SAMPLES)
+        self.assertEqual(a["adopted"], [m for e in co_a["eval_generations"][1:] for m in e["adopted"]])
+        self.assertEqual(a["eval_generations"], len(co_a["eval_generations"]))
+        self.assertEqual(a["tested"], co_a["integrity"]["multiplicity"]["tested"])
+        self.assertEqual(a["rejected"], sum(a["rejected_by"].values()))
+        self.assertEqual(a["recommended"], {k: co_a["recommended"][k] for k in ("base", "evolved", "agree")})
+        self.assertEqual(a["narrative"], co_a["narrative"])
+        self.assertEqual(a["closures"], co_a["flow"]["summary"]["closures"])
+        # the two evals learned different things, so nothing is shared
+        self.assertTrue(a["adopted"] and b["adopted"])
+        self.assertEqual(set(a["adopted"]) & set(b["adopted"]), set())
+        self.assertEqual(ev["shared_metrics"], [])
+        # every learned metric is applied to the other lineage's last step, once
+        pairs = [(t["metric"], t["learned_on"], t["applied_to"], t["step"]) for t in ev["transfer"]]
+        self.assertEqual(pairs, [(m, "alpha", "beta", "g1→g2") for m in a["adopted"]]
+                         + [(m, "beta", "alpha", "g2→g3") for m in b["adopted"]])
+        for t in ev["transfer"]:
+            self.assertEqual(t["alpha"], 0.05)
+            self.assertTrue(t["measurable"], t["reason"])
+            self.assertTrue(t["delta"]["lo"] <= t["delta"]["point"] <= t["delta"]["hi"])
+            self.assertEqual(t["informative_there"], t["delta"]["lo"] > 0 or t["delta"]["hi"] < 0)
+            self.assertIn(t["metric"], t["reading"])
+        # the reading names both evals, what only one learned, and declares no winner
+        self.assertIn("alpha's eval grew to e1 and adopted", ev["reading"])
+        self.assertIn("beta's eval grew to e1 and adopted", ev["reading"])
+        self.assertIn("no metric was adopted by more than one eval", ev["reading"])
+        self.assertIn("no eval is declared the better one", ev["reading"])
+        for word in ("better eval", "wins", "winner:"):
+            self.assertNotIn(word, ev["reading"])
+
     def test_deterministic_twice_and_json_clean(self):
         ra, rb = self.tmpdir / "alpha", self.tmpdir / "beta"
         again = ec.compare_lineages([ra, rb], samples=SAMPLES)
@@ -445,6 +485,8 @@ class ShapeTest(_Temp):
             self.assertFalse(c[key]["measurable"], key)
         self.assertEqual(c["by_generation"], [])
         self.assertEqual({ax: c["verdict"][ax] for ax in ec.AXES}, {ax: None for ax in ec.AXES})
+        self.assertFalse(c["evals"]["measurable"])
+        self.assertEqual((c["evals"]["lineages"], c["evals"]["transfer"], c["evals"]["reading"]), ([], [], c["reason"]))
 
     def test_an_unshared_task_is_excluded_and_the_metric_recomputed(self):
         extra = alpha_gens(tasks=("ta", "tb", "tc", "td"))
@@ -518,6 +560,13 @@ class ShapeTest(_Temp):
         self.assertTrue(c["peak"]["measurable"], "peak and final are built whatever the cap")
         with self.assertRaises(ValueError):
             ec.evolution_compare([ra, rb], [ea], samples=SAMPLES)
+        # an eval section already computed is reused; the block is the same either way
+        from deepcompare.coevolve import coevolve
+        given = ec.evolution_compare([ra, rb], [ea, eb], samples=SAMPLES, by_generation_cap=2,
+                                     coevolutions=[coevolve(ra, ea, samples=SAMPLES), None])
+        self.assertEqual(json.dumps(given["evals"], sort_keys=True), json.dumps(c["evals"], sort_keys=True))
+        with self.assertRaises(ValueError):
+            ec.evolution_compare([ra, rb], [ea, eb], samples=SAMPLES, coevolutions=[None, None, None])
 
 
 # ---------------------------------------------------------------- the command
@@ -544,6 +593,10 @@ class CommandTest(_Temp):
         self.assertEqual({ax: cmp["verdict"][ax] for ax in ec.AXES},
                          {"peak": "alpha", "final": "beta", "learning": "alpha", "process": "beta"})
         self.assertEqual(cmp["lineages"][0]["evolution"]["recommended"]["id"], agg["evolution"]["recommended"]["id"])
+        self.assertEqual(cmp["evals"]["lineages"][0]["narrative"], agg["coevolution"]["narrative"],
+                         "the primary's eval is the one already on the aggregate")
+        self.assertEqual(len(cmp["evals"]["transfer"]), len(cmp["evals"]["lineages"][0]["adopted"])
+                         + len(cmp["evals"]["lineages"][1]["adopted"]))
         self.assertTrue((out_dir / "report_ta.json").is_file())
         if (ROOT / "web" / "blocks.html").is_file():
             self.assertTrue((out_dir / "report.html").is_file())
@@ -658,6 +711,56 @@ class DemoCompareTest(unittest.TestCase):
                          {"rl01_ledger_reconcile": "ledger-agent", "rl02_flaky_test": "ledger-agent",
                           "rl03_flag_rollout": "ledger-agent", "rl04_query_regression": "ledger-agent",
                           "rl05_incident_postmortem": None, "rl06_api_contract": None})
+
+    def test_the_evals_ledger_agent_learned_three_memo_agent_none_and_what_transferred(self):
+        ev = self.cmp["evals"]
+        self.assertTrue(ev["measurable"], ev["reason"])
+        a, b = ev["lineages"]
+        self.assertEqual(a["label"], "ledger-agent")
+        self.assertEqual(a["eval_generations"], 4)
+        self.assertEqual(a["adopted"], ["verified_rate", "clean_pass_rate", "frugal_pass_rate"])
+        self.assertEqual(a["active"], ["verified_rate", "frugal_pass_rate"])
+        self.assertEqual((a["retired"], a["demoted"], a["unconfirmed"]), (["clean_pass_rate"], [], ["clean_pass_rate"]))
+        self.assertEqual((a["tested"], a["rejected"]), (20, 17))
+        self.assertEqual(a["rejected_by"], {"computable": 1, "distinct": 9, "informative": 6, "not_already": 1})
+        self.assertEqual((a["min_adjusted_alpha"], a["drift"]), (0.0083, 0.3333))
+        self.assertEqual((a["closures"], a["closures_learned"], a["hindsight_changed"], a["hindsight_lag_max"]), (4, 2, 0, 3))
+        self.assertEqual(a["recommended"], {"base": "g4", "evolved": "g4", "agree": True})
+        self.assertEqual(b["label"], "memo-agent")
+        self.assertEqual(b["eval_generations"], 1)
+        self.assertEqual((b["adopted"], b["active"], b["retired"]), ([], [], []))
+        self.assertEqual((b["tested"], b["rejected"]), (6, 6))
+        self.assertEqual(b["rejected_by"], {"distinct": 3, "informative": 3}, "every candidate noise or redundant")
+        self.assertEqual((b["min_adjusted_alpha"], b["drift"], b["hindsight_lag_max"]), (0.0167, 0.0, None))
+        self.assertEqual(b["recommended"], {"base": "g5", "evolved": "g5", "agree": True})
+        self.assertEqual(ev["shared_metrics"], [])
+        # the transfer: ledger-agent's three metrics on memo-agent's last step, g5→g6, one test each at 0.05
+        rows = {t["metric"]: t for t in ev["transfer"]}
+        self.assertEqual([t["metric"] for t in ev["transfer"]], ["verified_rate", "clean_pass_rate", "frugal_pass_rate"])
+        self.assertTrue(all((t["learned_on"], t["applied_to"], t["step"], t["alpha"]) == ("ledger-agent", "memo-agent", "g5→g6", 0.05)
+                            for t in ev["transfer"]))
+        v = rows["verified_rate"]
+        self.assertEqual((v["from"], v["to"], v["delta"]), (1.0, 1.0, {"point": 0.0, "lo": 0.0, "hi": 0.0}))
+        self.assertFalse(v["informative_there"], "memo-agent verifies every episode at both generations: nothing to say")
+        self.assertIn("says nothing there", v["reading"])
+        c = rows["clean_pass_rate"]
+        self.assertEqual(c["status"], "retired")
+        self.assertEqual((c["from"], round(c["to"], 4)), (1.0, 0.8571))
+        self.assertEqual({k: round(c["delta"][k], 4) for k in ("point", "lo", "hi")}, {"point": -0.1429, "lo": -0.1429, "hi": -0.1429})
+        self.assertTrue(c["informative_there"] and c["flags_there"], "a zero-width interval below zero, as the resamples fall")
+        self.assertEqual(c["moved"], "down")
+        self.assertIn("it would flag that step", c["reading"])
+        f = rows["frugal_pass_rate"]
+        self.assertEqual((f["from"], f["to"], f["delta"]["point"]), (0.9, 0.9, 0.0))
+        self.assertEqual((f["delta"]["lo"], f["delta"]["hi"]), (-0.2, 0.2))
+        self.assertFalse(f["informative_there"])
+        reading = ev["reading"]
+        self.assertIn("ledger-agent's eval grew to e3 and adopted verified_rate, clean_pass_rate and frugal_pass_rate "
+                      "(retired clean_pass_rate): 20 candidates tested, 17 rejected", reading)
+        self.assertIn("memo-agent's eval learned nothing and stayed at e0: 6 candidates tested, 6 rejected "
+                      "(3 by distinct, 3 by informative)", reading)
+        self.assertIn("only ledger-agent's eval learned a metric", reading)
+        self.assertIn("no eval is declared the better one", reading)
 
 
 # ---------------------------------------------------------------- the embedded copies and the registry

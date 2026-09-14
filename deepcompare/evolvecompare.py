@@ -35,6 +35,23 @@ that have answers, each named by its axis:
 A lineage can win on peak and lose on process; the verdict names every
 axis and the reading says both.
 
+**The evals.** Each lineage is also read by the eval that evolves with
+it (:func:`deepcompare.coevolve.coevolve`, over the lineage's own
+``evolution`` section, the one the comparison already carries), and
+``evals`` sets the two evals side by side: per lineage what its eval
+learned (the eval generations, the metrics adopted, demoted and
+retired, the candidates tested and rejected and which validator turned
+each away, the drift from the base, the loop closures, the longest
+hindsight lag, the recommendation under both rules), the metrics more
+than one eval adopted, and a **transfer**: every metric one eval
+learned applied to the *other* lineage's last step with the same delta
+test the validators use (:func:`deepcompare.coevolve.delta` at
+:data:`deepcompare.coevolve.ALPHA`, one test per metric and lineage,
+unadjusted, and the block says so). An eval that learned nothing may
+have watched a lineage with nothing to learn, so the reading declares
+no winner between the evals; the axes above are the comparison's
+verdict.
+
 **The metric.** ``iqm_by_task`` is the task-stratified interquartile
 mean of episode return: within each shared task the runs' IQM
 (:func:`deepcompare.rlstats.iqm`, so at five runs the top and bottom run
@@ -87,7 +104,8 @@ from typing import Optional
 
 from . import sections
 from ._stats import CONFIDENCE, mean, percentile_interval, rng, rounded
-from ._text import interval, num, pct, plural, signed
+from ._text import interval, join_names, num, pct, plural, signed
+from .coevolve import ALPHA as EVAL_ALPHA, BASE_SPECS, coevolve, delta as metric_delta, feature_table
 from .evolve import evolve, read_lineage
 from .rl import GAMMA, rl_aggregate
 from .rlstats import BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, iqm
@@ -782,6 +800,186 @@ def _narrative(out: dict, views: list) -> str:
     return "; ".join(parts) + "."
 
 
+# ---------------------------------------------------------------- the evals
+
+#: how the transfer test is made, stated in the output
+TRANSFER_RULE = (f"each metric one lineage's eval learned, applied to the other lineage's last step: the child's value "
+                 f"minus the parent's with a percentile-bootstrap interval at level 1 − {EVAL_ALPHA} "
+                 f"(deepcompare.coevolve.delta, both sides resampled within their tasks); one test per metric and "
+                 f"lineage, unadjusted; informative_there when the interval excludes zero, flags_there when it moves "
+                 f"against the metric's direction")
+
+
+def _learned_ids(co: dict) -> list:
+    """Every metric an eval adopted, in adoption order (the base eval's
+    four excluded); a retired or demoted metric was still learned."""
+    out: list = []
+    for e in (co.get("eval_generations") or [])[1:]:
+        for mid in e.get("adopted") or []:
+            if mid not in out:
+                out.append(mid)
+    return out
+
+
+def _eval_summary(view: dict, co: dict) -> dict:
+    """What one lineage's eval learned, read off its ``coevolution`` section."""
+    base = {"label": view["label"], "family": view["family"], "measurable": bool(co.get("measurable")),
+            "reason": co.get("reason")}
+    if not co.get("measurable"):
+        return {**base, "eval_generations": 1, "adopted": [], "active": [], "demoted": [], "retired": [],
+                "unconfirmed": [], "tested": 0, "rejected": 0, "rejected_by": {}, "min_adjusted_alpha": None,
+                "drift": 0.0, "closures": 0, "closures_learned": 0, "hindsight_changed": 0, "hindsight_lag_max": None,
+                "recommended": {"base": None, "evolved": None, "agree": True}, "narrative": co.get("narrative") or co.get("reason")}
+    metrics = co.get("metrics") or {}
+    integ = co.get("integrity") or {}
+    mult = integ.get("multiplicity") or {}
+    rejected_by: dict = {}
+    for r in co.get("ledger") or []:
+        if r.get("decision") == "rejected":
+            first = (r.get("failed") or ["unparseable"])[0]
+            rejected_by[first] = rejected_by.get(first, 0) + 1
+    lags = [c["lag"] for c in ((co.get("hindsight") or {}).get("caught_at") or {}).values()
+            if isinstance(c, dict) and isinstance(c.get("lag"), int)]
+    rec = co.get("recommended") or {}
+    return {**base,
+            "eval_generations": len(co.get("eval_generations") or []),
+            "adopted": _learned_ids(co),
+            "active": [mid for mid, m in metrics.items() if m.get("status") == "adopted"],
+            "demoted": list(integ.get("demoted") or []), "retired": list(integ.get("retired") or []),
+            "unconfirmed": list(integ.get("unconfirmed") or []),
+            "tested": mult.get("tested") or 0, "rejected": mult.get("rejected") or 0,
+            "rejected_by": dict(sorted(rejected_by.items())), "min_adjusted_alpha": mult.get("min_adjusted_alpha"),
+            "drift": (integ.get("drift") or {}).get("jaccard_distance_from_base"),
+            "closures": ((co.get("flow") or {}).get("summary") or {}).get("closures") or 0,
+            "closures_learned": ((co.get("flow") or {}).get("summary") or {}).get("closures_learned") or 0,
+            "hindsight_changed": (co.get("hindsight") or {}).get("changed") or 0,
+            "hindsight_lag_max": max(lags) if lags else None,
+            "recommended": {"base": rec.get("base"), "evolved": rec.get("evolved"), "agree": rec.get("agree")},
+            "narrative": co.get("narrative")}
+
+
+def _last_step(table: list) -> Optional[tuple]:
+    """The last two generations of a feature table that carry episodes."""
+    rows = [r for r in table if r["episodes"]]
+    return (rows[-2], rows[-1]) if len(rows) >= 2 else None
+
+
+def _transfer(views: list, cos: list, tables: list, samples: int) -> list:
+    rows: list = []
+    for i, (vi, ci) in enumerate(zip(views, cos)):
+        if not ci.get("measurable"):
+            continue
+        metrics = ci.get("metrics") or {}
+        for mid in _learned_ids(ci):
+            m = metrics.get(mid)
+            if not m:
+                continue
+            spec = dict(m["spec"])
+            for j, vj in enumerate(views):
+                if j == i:
+                    continue
+                row: dict = {"metric": mid, "name": spec.get("name"), "status": m.get("status"),
+                             "direction": spec.get("direction"),
+                             "learned_on": vi["label"], "applied_to": vj["label"], "step": None,
+                             "measurable": False, "reason": None, "delta": {"point": None, "lo": None, "hi": None},
+                             "from": None, "to": None, "alpha": EVAL_ALPHA, "informative_there": False,
+                             "moved": None, "flags_there": False, "reading": ""}
+                step = _last_step(tables[j])
+                if step is None:
+                    row["reason"] = f"{vj['label']} has fewer than two generations with episodes"
+                else:
+                    parent, child = step
+                    row["step"] = f"{parent['id']}→{child['id']}"
+                    d = metric_delta(spec, parent["episodes"], child["episodes"], samples, EVAL_ALPHA)
+                    row["measurable"] = bool(d.get("measurable"))
+                    row["reason"] = d.get("reason")
+                    if d.get("measurable"):
+                        row["delta"] = {"point": d["point"], "lo": d["lo"], "hi": d["hi"]}
+                        row["from"], row["to"] = d.get("from"), d.get("to")
+                        row["informative_there"] = bool(d.get("excludes_zero"))
+                        row["moved"] = "up" if d["lo"] > 0 else "down" if d["hi"] < 0 else None
+                        bad = {"up": "down", "down": "up"}.get(spec.get("direction"))
+                        row["flags_there"] = row["moved"] is not None and row["moved"] == bad
+                row["reading"] = _transfer_reading(row)
+                rows.append(row)
+    return rows
+
+
+def _transfer_reading(row: dict) -> str:
+    head = f"{row['metric']} (learned on {row['learned_on']}, {row['status']}) on {row['applied_to']}"
+    if not row["measurable"]:
+        return f"{head}: cannot be read — {row['reason']}."
+    d = row["delta"]
+    core = f"{row['step']}: {num(row['from'])} → {num(row['to'])}, delta {signed(d['point'])} [{signed(d['lo'])}, {signed(d['hi'])}]"
+    if row["informative_there"]:
+        tail = f"moves {row['moved']}" + (", against its direction — it would flag that step" if row["flags_there"]
+                                         else "; a neutral metric flags nothing" if row["direction"] == "neutral"
+                                         else ", in its good direction")
+    else:
+        tail = "the interval includes zero, so it says nothing there"
+    return f"{head} {core}; {tail}."
+
+
+def _evals_reading(summaries: list, shared: list, transfer: list) -> str:
+    parts = []
+    for sm in summaries:
+        if not sm["measurable"]:
+            parts.append(f"{sm['label']}'s eval cannot be read — {sm['reason']}")
+            continue
+        if sm["adopted"]:
+            what = f"{sm['label']}'s eval grew to e{sm['eval_generations'] - 1} and adopted {join_names(sm['adopted'])}"
+            if sm["retired"]:
+                what += f" (retired {join_names(sm['retired'])})"
+            if sm["demoted"]:
+                what += f" (demoted {join_names(sm['demoted'])})"
+        else:
+            what = f"{sm['label']}'s eval learned nothing and stayed at e0"
+        what += f": {plural(sm['tested'], 'candidate')} tested, {sm['rejected']} rejected"
+        if sm["rejected_by"]:
+            what += " (" + ", ".join(f"{n} by {v}" for v, n in sm["rejected_by"].items()) + ")"
+        if sm["hindsight_lag_max"] is not None:
+            what += f"; the longest hindsight lag {plural(sm['hindsight_lag_max'], 'step')}"
+        what += (f"; both rules recommend {sm['recommended']['base']}" if sm["recommended"]["agree"]
+                 else f"; base recommends {sm['recommended']['base']}, evolved {sm['recommended']['evolved']}")
+        parts.append(what)
+    learned = [sm for sm in summaries if sm["measurable"] and sm["adopted"]]
+    if shared:
+        parts.append("adopted by more than one eval: " + join_names(shared))
+    elif len(learned) == 1:
+        parts.append(f"only {learned[0]['label']}'s eval learned a metric")
+    elif len(learned) > 1:
+        parts.append("no metric was adopted by more than one eval")
+    for row in transfer:
+        parts.append(row["reading"].rstrip("."))
+    parts.append("no eval is declared the better one: an eval that learned nothing may have watched a lineage with "
+                 "nothing to learn, and the comparison's verdict is the four axes above")
+    return "; ".join(parts) + "."
+
+
+def _evals(views: list, cos: list, samples: int) -> dict:
+    tables = [feature_table(v["lineage"]) if v["lineage"].get("generations") else [] for v in views]
+    summaries = [_eval_summary(v, co) for v, co in zip(views, cos)]
+    counts: dict = {}
+    for sm in summaries:
+        for mid in sm["adopted"]:
+            counts[mid] = counts.get(mid, 0) + 1
+    shared = sorted(mid for mid, n in counts.items() if n > 1)
+    transfer = _transfer(views, cos, tables, samples)
+    unreadable = [sm["label"] for sm in summaries if not sm["measurable"]]
+    out = {"measurable": not unreadable,
+           "reason": None if not unreadable else f"{', '.join(unreadable)}'s eval cannot be read",
+           "base": [s_["id"] for s_ in BASE_SPECS], "lineages": summaries, "shared_metrics": shared,
+           "transfer": transfer, "transfer_rule": TRANSFER_RULE, "alpha": EVAL_ALPHA}
+    out["reading"] = _evals_reading(summaries, shared, transfer)
+    return out
+
+
+def _evals_empty(reason: str) -> dict:
+    return {"measurable": False, "reason": reason, "base": [s_["id"] for s_ in BASE_SPECS], "lineages": [],
+            "shared_metrics": [], "transfer": [], "transfer_rule": TRANSFER_RULE, "alpha": EVAL_ALPHA,
+            "reading": reason}
+
+
 # ---------------------------------------------------------------- the section
 
 def _empty(reason: str, lineages: Optional[list] = None, tasks: Optional[dict] = None) -> dict:
@@ -791,7 +989,8 @@ def _empty(reason: str, lineages: Optional[list] = None, tasks: Optional[dict] =
             "race": {"measurable": False, "reason": reason}, "peak": {"measurable": False, "reason": reason},
             "final": {"measurable": False, "reason": reason}, "by_generation": [],
             "process": {}, "task_race": {"measurable": False, "reason": reason},
-            "verdict": {**{ax: None for ax in AXES}, "reading": reason}, "narrative": reason, "advisory": ""}
+            "verdict": {**{ax: None for ax in AXES}, "reading": reason}, "narrative": reason, "advisory": "",
+            "evals": _evals_empty(reason)}
 
 
 def _metric_definition() -> str:
@@ -848,7 +1047,8 @@ def _lineage_entry(v: dict) -> dict:
 
 
 def evolution_compare(lineages: list, evolutions: list, *, threshold=None, samples: int = BOOTSTRAP_SAMPLES,
-                      gamma: float = GAMMA, by_generation_cap: int = BY_GENERATION_CAP) -> dict:
+                      gamma: float = GAMMA, by_generation_cap: int = BY_GENERATION_CAP,
+                      coevolutions: Optional[list] = None) -> dict:
     """``aggregate["evolution_compare"]`` for lineages already read.
 
     ``lineages`` are :func:`deepcompare.evolve.read_lineage` results and
@@ -856,11 +1056,17 @@ def evolution_compare(lineages: list, evolutions: list, *, threshold=None, sampl
     the same order (A first). ``threshold`` overrides the race threshold;
     ``samples`` is the bootstrap resamples for every interval built here
     (the pair blocks use it too); ``by_generation_cap`` bounds the A@k vs
-    B@k pair blocks. Returns ``measurable: False`` with a reason for one
-    lineage, an unreadable lineage, or no shared task.
+    B@k pair blocks. ``coevolutions`` may carry an already computed
+    :func:`deepcompare.coevolve.coevolve` section for any position (None
+    elsewhere); the rest are computed here over the same evolution
+    sections, and ``evals`` is byte-identical either way. Returns
+    ``measurable: False`` with a reason for one lineage, an unreadable
+    lineage, or no shared task.
     """
     if len(lineages) != len(evolutions):
         raise ValueError("lineages and evolutions must pair up")
+    if coevolutions is not None and len(coevolutions) > len(lineages):
+        raise ValueError("coevolutions must not outnumber the lineages")
     labels = _labels(lineages)
     if len(lineages) < 2:
         entries = []
@@ -1002,6 +1208,14 @@ def evolution_compare(lineages: list, evolutions: list, *, threshold=None, sampl
     out["verdict"] = verdict
     out["advisory"] = _advisory(views, shared)
     out["narrative"] = _narrative(out, views)
+
+    # the evals, last: each lineage read by the eval that evolves with it,
+    # over the evolution section already in hand, then set side by side
+    cos = []
+    for i, v in enumerate(views):
+        given = coevolutions[i] if coevolutions and i < len(coevolutions) else None
+        cos.append(given if isinstance(given, dict) else coevolve(v["lineage"], v["evolution"], samples=samples))
+    out["evals"] = _evals(views, cos, samples)
     return out
 
 
@@ -1032,12 +1246,14 @@ def _axis_basis(block: dict) -> str:
 
 def compare_lineages(paths: list, *, layout: str = "native", metric: str = "return", samples: int = BOOTSTRAP_SAMPLES,
                      gamma: float = GAMMA, threshold=None, reports: Optional[list] = None,
-                     evolutions: Optional[list] = None, lineages: Optional[list] = None) -> dict:
+                     evolutions: Optional[list] = None, lineages: Optional[list] = None,
+                     coevolutions: Optional[list] = None) -> dict:
     """Read every lineage, evolve each, compare: the section for ``paths``
     (A first). ``evolutions`` may carry an already computed section for
     any position (None elsewhere) so the CLI reuses lineage A's, and
     ``lineages`` an already read :func:`deepcompare.evolve.read_lineage`
-    result the same way; ``reports`` are passed to lineage A's evolve for
+    result the same way, ``coevolutions`` an already computed eval
+    section likewise; ``reports`` are passed to lineage A's evolve for
     the timeline flags. ``metric`` and ``samples`` are the single-lineage
     engine's."""
     read, evs = [], []
@@ -1047,7 +1263,7 @@ def compare_lineages(paths: list, *, layout: str = "native", metric: str = "retu
         read.append(ln)
         evs.append(given if given is not None else
                    evolve(ln, metric=metric, samples=samples, gamma=gamma, reports=reports if i == 0 else None))
-    return evolution_compare(read, evs, threshold=threshold, samples=samples, gamma=gamma)
+    return evolution_compare(read, evs, threshold=threshold, samples=samples, gamma=gamma, coevolutions=coevolutions)
 
 
 @sections.register("lineage", "evolution_compare", requires=("evolution",), on_demand=True)
@@ -1060,9 +1276,10 @@ def _lineage_section(agg: dict, ctx: "sections.LineageContext"):
     return compare_lineages([primary.get("path")] + against, layout=extra.get("layout", "native"),
                             metric=extra.get("metric", "return"), samples=extra.get("samples", BOOTSTRAP_SAMPLES),
                             gamma=extra.get("gamma", GAMMA), threshold=extra.get("threshold"),
-                            evolutions=[agg["evolution"]], lineages=[primary])
+                            evolutions=[agg["evolution"]], lineages=[primary],
+                            coevolutions=[agg.get("coevolution")])
 
 
 __all__ = ["compare_lineages", "evolution_compare", "embedded_evolution", "iqm_by_task", "learning_verdict",
            "process_verdict", "VERSION", "METRIC", "SCORE", "BY_GENERATION_CAP", "SOLVED_RATE", "COLLAPSE_FRACTION",
-           "AXES", "TIMELINES_OMITTED"]
+           "AXES", "TIMELINES_OMITTED", "TRANSFER_RULE"]

@@ -524,6 +524,260 @@ def _progress_brief(result: dict) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# the chat: one output directory under the same covenant
+
+def _band(v) -> str:
+    if not isinstance(v, dict) or v.get("point") is None:
+        return "n/a"
+    return f"{v['point']} [{v['lo']}, {v['hi']}]"
+
+
+def coevolution_brief(coevolution: dict, evolution_compare: Optional[dict] = None,
+                      evolution: Optional[dict] = None) -> dict:
+    """The numbered facts about the eval that evolves with a lineage —
+    the eval generations, every ledger row's decision and reason, the
+    hindsight lags, the integrity, the recommendation under both rules —
+    and, when ``evolution_compare`` carries ``evals``, the two evals side
+    by side; ``evolution`` adds the agent's own steps and recommendation.
+    Every number in a fact is in ``allowed_numbers``; nothing here is
+    computed, every text is a field the engine wrote.
+    """
+    facts: list[dict] = []
+    co = coevolution or {}
+    ev = evolution or {}
+    if ev:
+        if ev.get("narrative"):
+            _fact(facts, "evolution", ev["narrative"], None)
+        for step in ev.get("steps") or []:
+            if step.get("reading"):
+                _fact(facts, "evolution.step", f"{step.get('from')}→{step.get('to')}: {step['reading']}",
+                      {"effect": (step.get("effect") or {}).get("improvement"), "verdict": step.get("verdict"),
+                       "flags": step.get("flags")})
+        for key in ("best", "recommended"):
+            block = ev.get(key) or {}
+            if block.get("id"):
+                _fact(facts, f"evolution.{key}", f"{key}: {block['id']} — {block.get('why')}", block.get("iqm"))
+        integ = ev.get("integrity") or {}
+        if integ.get("reading"):
+            _fact(facts, "evolution.integrity", integ["reading"], None)
+    if not co.get("measurable"):
+        _fact(facts, "coevolution", f"the eval cannot be read: {co.get('reason') or 'absent'}", None)
+    else:
+        if co.get("synthetic"):
+            _fact(facts, "coevolution", "SYNTHETIC: every episode of this lineage was generated", None)
+        _fact(facts, "coevolution", co.get("narrative") or "", None)
+        for e in co.get("eval_generations") or []:
+            if e.get("after_step") is None:
+                _fact(facts, "coevolution.eval_generation",
+                      f"{e['id']}: the base eval, {e['size']} metric(s): {', '.join(e.get('adopted') or [])}", e)
+            else:
+                bits = []
+                if e.get("adopted"):
+                    bits.append("adopted " + ", ".join(e["adopted"]))
+                if e.get("demoted"):
+                    bits.append("demoted " + ", ".join(e["demoted"]))
+                if e.get("retired"):
+                    bits.append("retired " + ", ".join(e["retired"]))
+                _fact(facts, "coevolution.eval_generation",
+                      f"{e['id']} after {e['after_step']} ({e.get('trigger_probe')}): {'; '.join(bits)}; "
+                      f"{e['size']} active metric(s)", e)
+        for mid, m in (co.get("metrics") or {}).items():
+            spec = m.get("spec") or {}
+            where = spec.get("where")
+            cond = ""
+            if isinstance(where, dict):
+                preds = where.get("all") if "all" in where else [where]
+                cond = " where " + " and ".join(f"{p.get('feature')} {p.get('op')} {p.get('value')}" for p in preds)
+            _fact(facts, "coevolution.metric",
+                  f"{mid} ({spec.get('name')}): {spec.get('agg')} of {spec.get('feature')}{cond}, direction "
+                  f"{spec.get('direction')}, status {m.get('status')}, from the {(m.get('origin') or {}).get('probe')} probe"
+                  + (f" at {m['adopted_at']['step']}" if m.get("adopted_at") else "")
+                  + (f"; confirmation {m['confirmation']['status']} ({m['confirmation']['moved']} of "
+                     f"{m['confirmation']['tested']} later steps moved)" if m.get("confirmation") else "")
+                  + (f"; retired at {m['retired_at']['step']}: {m['retired_at'].get('reason')}" if m.get("retired_at") else "")
+                  + (f"; demoted at {m['demoted_at']['step']}: {m['demoted_at'].get('reason')}" if m.get("demoted_at") else ""),
+                  {"where": where, "confirmation": m.get("confirmation")})
+        for r in co.get("ledger") or []:
+            _fact(facts, "coevolution.ledger",
+                  f"ledger #{r.get('index')} at {r.get('step')} ({r.get('probe')} probe, eval {r.get('eval_gen')}): "
+                  f"{r.get('spec_id') or '?'} {r.get('decision')}"
+                  + (f" (failed {', '.join(r['failed'])})" if r.get("failed") else "")
+                  + f" — {r.get('reason')}; {r.get('k')} candidate(s) tested at this step, level {r.get('alpha')}",
+                  {"k": r.get("k"), "alpha": r.get("alpha")})
+        for mid, gens in (co.get("matrix") or {}).items():
+            cells = ", ".join(f"{gid} {_band(v)}" if v.get("measurable") else f"{gid} n/a" for gid, v in gens.items())
+            _fact(facts, "coevolution.matrix", f"{mid} by generation: {cells}", gens)
+        for st in co.get("steps") or []:
+            evd = st.get("evolved") or {}
+            _fact(facts, "coevolution.hindsight",
+                  f"{st.get('from')}→{st.get('to')}: base verdict {(st.get('base') or {}).get('verdict')}, "
+                  f"{'changed' if evd.get('changed') else 'unchanged'} with hindsight — {evd.get('reading')}",
+                  {"flags": evd.get("flags"), "base_flags": evd.get("base_flags")})
+        for mid, c in ((co.get("hindsight") or {}).get("caught_at") or {}).items():
+            _fact(facts, "coevolution.caught_at",
+                  f"{mid}: adopted at {c.get('adopted_step')}, first flags {c.get('first_flag_step') or 'no step'}, "
+                  f"lag {c.get('lag') if c.get('lag') is not None else 'none'} — {c.get('note')}", c)
+        hs = co.get("hindsight") or {}
+        if hs:
+            _fact(facts, "coevolution.hindsight",
+                  f"hindsight over {hs.get('steps')} step(s): {hs.get('changed')} changed by a learned metric, "
+                  f"{hs.get('learned_flags')} learned flag(s), {hs.get('base_flags')} base flag(s) on "
+                  f"{hs.get('steps_with_base_flags')} step(s)", hs)
+        for pr in co.get("probes") or []:
+            _fact(facts, "coevolution.probe",
+                  f"probe {pr.get('name')} ({pr.get('question')}): fired at {', '.join(pr.get('fired') or []) or 'no step'}, "
+                  f"proposed {pr.get('proposed')}, adopted {pr.get('adopted')}", pr)
+        rec = co.get("recommended") or {}
+        _fact(facts, "coevolution.recommended",
+              f"recommended: base {rec.get('base')}, evolved {rec.get('evolved')}, "
+              f"{'they agree' if rec.get('agree') else 'they disagree'} — {rec.get('why')}", rec.get("excluded"))
+        integ = co.get("integrity") or {}
+        drift, mult = integ.get("drift") or {}, integ.get("multiplicity") or {}
+        _fact(facts, "coevolution.integrity",
+              f"integrity: drift {drift.get('jaccard_distance_from_base')} from the base ({drift.get('basis')}); "
+              f"sizes by eval generation {drift.get('size_by_eval_gen')}; {mult.get('tested')} tested, "
+              f"{mult.get('adopted')} adopted, {mult.get('rejected')} rejected, {mult.get('unparseable')} unparseable "
+              f"at alpha {mult.get('alpha')}, smallest adjusted level {mult.get('min_adjusted_alpha')} "
+              f"({mult.get('basis')}); demoted {', '.join(integ.get('demoted') or []) or 'none'}; retired "
+              f"{', '.join(integ.get('retired') or []) or 'none'}; unconfirmed "
+              f"{', '.join(integ.get('unconfirmed') or []) or 'none'}", {"drift": drift, "multiplicity": mult})
+        ext = integ.get("external") or {}
+        _fact(facts, "coevolution.external",
+              f"external candidates: {ext.get('received')} received, {ext.get('parsed')} parsed, "
+              f"{ext.get('adopted')} adopted, {ext.get('rejected')} rejected"
+              + (f" from {', '.join(ext.get('sources') or [])}" if ext.get("sources") else ""), ext)
+        if integ.get("gap"):
+            _fact(facts, "coevolution.gap", "the gap: " + integ["gap"], None)
+        flow = (co.get("flow") or {}).get("summary") or {}
+        if flow.get("sentence"):
+            _fact(facts, "coevolution.flow", flow["sentence"], flow)
+    cmp = evolution_compare or {}
+    if cmp:
+        if cmp.get("narrative"):
+            _fact(facts, "evolution_compare", cmp["narrative"], None)
+        verdict = cmp.get("verdict") or {}
+        if verdict.get("reading"):
+            _fact(facts, "evolution_compare.verdict", verdict["reading"],
+                  {ax: verdict.get(ax) for ax in ("peak", "final", "learning", "process")})
+        for key in ("peak", "final"):
+            blk = cmp.get(key) or {}
+            if blk.get("reading"):
+                _fact(facts, f"evolution_compare.{key}", f"{key}: {blk['reading']}",
+                      {"improvement": blk.get("improvement"), "metric": blk.get("metric"), "pass_rate": blk.get("pass_rate")})
+        race = cmp.get("race") or {}
+        if race.get("reading"):
+            _fact(facts, "evolution_compare.race", race["reading"], {"threshold": race.get("threshold"), "reached": race.get("reached")})
+        for label, pr in sorted((cmp.get("process") or {}).items()):
+            if isinstance(pr, dict) and pr.get("reading"):
+                _fact(facts, "evolution_compare.process", pr["reading"], {"score": pr.get("score")})
+        evals = cmp.get("evals") or {}
+        if evals:
+            if not evals.get("measurable"):
+                _fact(facts, "evolution_compare.evals", f"the evals cannot be compared: {evals.get('reason')}", None)
+            for ln in evals.get("lineages") or []:
+                _fact(facts, "evolution_compare.evals.lineage",
+                      f"{ln.get('label')}'s eval: {ln.get('eval_generations')} eval generation(s), adopted "
+                      f"{', '.join(ln.get('adopted') or []) or 'nothing'}, active {', '.join(ln.get('active') or []) or 'the base only'}, "
+                      f"demoted {', '.join(ln.get('demoted') or []) or 'none'}, retired {', '.join(ln.get('retired') or []) or 'none'}, "
+                      f"{ln.get('tested')} tested, {ln.get('rejected')} rejected"
+                      + (" (" + ", ".join(f"{n} by {v}" for v, n in (ln.get("rejected_by") or {}).items()) + ")"
+                         if ln.get("rejected_by") else "")
+                      + f", drift {ln.get('drift')}, {ln.get('closures')} closure(s) ({ln.get('closures_learned')} on learned "
+                      f"metrics), longest hindsight lag {ln.get('hindsight_lag_max')}, recommended base "
+                      f"{(ln.get('recommended') or {}).get('base')} / evolved {(ln.get('recommended') or {}).get('evolved')}",
+                      ln)
+            if evals.get("lineages"):
+                _fact(facts, "evolution_compare.evals.shared",
+                      "adopted by more than one eval: " + (", ".join(evals.get("shared_metrics") or []) or "none"), None)
+            for row in evals.get("transfer") or []:
+                _fact(facts, "evolution_compare.evals.transfer", row.get("reading") or "", row)
+            if evals.get("transfer_rule"):
+                _fact(facts, "evolution_compare.evals.rule", evals["transfer_rule"], {"alpha": evals.get("alpha")})
+            if evals.get("reading"):
+                _fact(facts, "evolution_compare.evals", evals["reading"], None)
+    return {
+        "task": f"the eval of {co.get('family') or 'a lineage'}",
+        "agents": {"0": co.get("family") or "lineage"},
+        "shape": "coevolution",
+        "facts": facts,
+        "allowed_numbers": sorted(_collect_allowed(facts)),
+        "brief_digest": _digest_of(facts),
+    }
+
+
+def chat_brief(aggregate: dict, reports: Optional[list] = None) -> dict:
+    """Every fact one output directory can vouch for, numbered once: the
+    aggregate's facts (:func:`_aggregate_brief`), each pair report's
+    (:func:`narration_brief`, its source prefixed by the task), and the
+    lineage's — the evolution, the eval that evolved with it and, when
+    the directory is a comparison, the evals side by side
+    (:func:`coevolution_brief`). The chat's whole authority; a fact not
+    here is a fact an answer is not entitled to state.
+    """
+    facts: list[dict] = []
+    agg = aggregate or {}
+
+    def take(brief: dict, prefix: str = "") -> None:
+        for fact in brief.get("facts") or []:
+            _fact(facts, f"{prefix}{fact['source']}", fact["text"], fact["value"])
+
+    if agg.get("agents") or agg.get("success_rate"):
+        take(_aggregate_brief(agg))
+    for report in reports or []:
+        if not isinstance(report, dict):
+            continue
+        task = (report.get("task") or {}).get("id") or "?"
+        take(narration_brief(report), f"task {task}: ")
+    if "coevolution" in agg or "evolution" in agg or "evolution_compare" in agg:
+        take(coevolution_brief(agg.get("coevolution") or {}, agg.get("evolution_compare"), agg.get("evolution")))
+    agents = dict(agg.get("agents") or {})
+    if not agents and (agg.get("evolution") or {}).get("family"):
+        agents = {"0": agg["evolution"]["family"]}
+    steps_max = 0
+    for report in reports or []:
+        if isinstance(report, dict):
+            for side in ("a", "b"):
+                steps_max = max(steps_max, len(((report.get(side) or {}).get("steps") or [])))
+    return {
+        "task": (f"batch of {agg.get('tasks')} task(s)" if agg.get("tasks") is not None
+                 else f"the lineage of {agents.get('0', 'an agent')}"),
+        "agents": agents,
+        "shape": "chat",
+        "facts": facts,
+        "allowed_numbers": sorted(_collect_allowed(facts, extra_ints=steps_max)),
+        "brief_digest": _digest_of(facts),
+    }
+
+
+CHAT_HEADER = """You answer questions about one AgentDiff report for an engineer \
+reading it. The numbered facts below are the whole report as far as you are \
+concerned: answer only from them, in one to four plain sentences, citing the \
+facts you use inline like [F7]. HARD RULES: use no number that does not appear \
+in the facts, and quote every number and interval exactly as a fact states it; \
+assert no cause the facts do not state; declare no winner the facts do not \
+declare; when the facts do not answer the question, say "not in the report" \
+and, if you can, name the nearest fact that is. Every answer is machine-checked \
+against the facts, and any number or citation not in them is flagged to the \
+reader beside your answer."""
+
+
+def chat_prompt(brief: dict) -> str:
+    """The system prompt of the chat: the covenant, then the numbered
+    facts. Deterministic given the directory."""
+    agents = brief.get("agents") or {}
+    if set(agents) == {"a", "b"}:
+        agent_line = f"Agent A: {agents['a']}   Agent B: {agents['b']}"
+    elif agents:
+        agent_line = "Subjects: " + ", ".join(str(v) for _, v in sorted(agents.items()))
+    else:
+        agent_line = "Subjects: (see facts)"
+    lines = [CHAT_HEADER, "", f"Report: {brief.get('task')}", agent_line, "", "FACTS:"]
+    for fact in brief["facts"]:
+        lines.append(f"[{fact['id']}] ({fact['source']}) {fact['text']}")
+    return "\n".join(lines)
+
+
 PROMPT_HEADER = """You are narrating a comparison between two AI-agent runs \
 for an engineer who has not seen the report. Write two or three plain \
 paragraphs: what happened, why, and what it means. Ground every claim in the \
