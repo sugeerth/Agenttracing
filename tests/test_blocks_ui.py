@@ -6070,10 +6070,13 @@ class TrainingViewTest(unittest.TestCase):
         page.wait_for_timeout(400)
         self.assertEqual(page.locator('.tab[data-view="coevolution"]').get_attribute("aria-selected"), "true")
         self.assertEqual(page.evaluate("() => document.activeElement.dataset.view"), "coevolution")
-        # the eighth tab is the first: the cycle wraps to Chat, then Story
+        # the first two tabs come after the last: the cycle wraps to Chat, then Levels, then Story
         page.keyboard.press("ArrowRight")
         page.wait_for_timeout(400)
         self.assertEqual(page.locator('.tab[data-view="chat"]').get_attribute("aria-selected"), "true")
+        page.keyboard.press("ArrowRight")
+        page.wait_for_timeout(400)
+        self.assertEqual(page.locator('.tab[data-view="levels"]').get_attribute("aria-selected"), "true")
         page.keyboard.press("ArrowRight")
         page.wait_for_timeout(400)
         self.assertEqual(page.locator('.tab[data-view="story"]').get_attribute("aria-selected"), "true")
