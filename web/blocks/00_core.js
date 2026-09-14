@@ -64,11 +64,15 @@
   //: Data: the inputs side — the prompt given to both agents, what each
   //: read, the answer's provenance, data → model → agent → answer, and
   //: how a self-evolving agent changes from the data it saw.
-  var VIEWS = ["chat", "levels", "data", "story", "evidence", "batch", "panels", "training", "evolution", "coevolution"];
+  //: Trace: one run's execution at semantic zoom, with replay — every step
+  //: along constricted time, its phases, marks, burn and reward, the other
+  //: run aligned beside it, and the run's readings gathered.
+  var VIEWS = ["chat", "levels", "data", "trace", "story", "evidence", "batch", "panels", "training", "evolution", "coevolution"];
   var VIEW_GROUPS = {
     chat: ["chat"],
     levels: ["levels"],
     data: ["data"],
+    trace: ["trace"],
     evidence: ["outcome", "trajectory", "integrity"],
     batch: ["cost", "signal", "other"],
     panels: [],
@@ -431,6 +435,13 @@
       blurb: "The inputs: the prompt given to both agents, what each read, the answer's provenance, data → model → agent → answer step by step, and how a self-evolving agent changes from the data it saw.",
       open: Infinity,
       order: ["dt-task", "dt-corpus", "dt-provenance", "dt-chain", "dt-evolution"],
+    },
+    {
+      label: "Trace",
+      groups: ["trace"],
+      blurb: "One run's execution at semantic zoom, with replay: every step along constricted time with its phases, marks, burn and reward; one step in full; the other run aligned beside it; the run's readings gathered.",
+      open: Infinity,
+      order: ["tr-timeline", "tr-step", "tr-compare", "tr-detail"],
     },
     {
       label: "Outcome",
@@ -1272,7 +1283,7 @@
     els.hero.innerHTML = "";
     // the panels view is the reader's own grid, the training view has its
     // own lead (the pair's reward panel): no hero above either
-    if (!hero || State.prefs.view === "chat" || State.prefs.view === "levels" || State.prefs.view === "data" || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") {
+    if (!hero || State.prefs.view === "chat" || State.prefs.view === "levels" || State.prefs.view === "data" || State.prefs.view === "trace" || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") {
       els.hero.hidden = true;
       return;
     }
@@ -1284,7 +1295,7 @@
     var host = els.reading;
     host.innerHTML = "";
     // the story lane IS the reading order; the strip guides the columns
-    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels" || State.prefs.view === "chat" || State.prefs.view === "levels" || State.prefs.view === "data" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") { host.hidden = true; return; }
+    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels" || State.prefs.view === "chat" || State.prefs.view === "levels" || State.prefs.view === "data" || State.prefs.view === "trace" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") { host.hidden = true; return; }
     host.hidden = false;
     host.appendChild(h("span", { class: "lead", text: "Read in this order" }));
     if (hero) {
@@ -2283,7 +2294,7 @@
     // a view named in the URL (report.html#view=evidence) wins for this
     // load — a link can open the page on its evidence or its batch
     try {
-      var m = /(?:^|[#&])view=(chat|levels|data|story|evidence|batch|panels|training|evolution|coevolution)\b/.exec(global.location.hash || "");
+      var m = /(?:^|[#&])view=(chat|levels|data|trace|story|evidence|batch|panels|training|evolution|coevolution)\b/.exec(global.location.hash || "");
       if (m) State.prefs.view = m[1];
     } catch (err) { /* no location: keep the preference */ }
     State.signals = Store.get(key("signals")) || {};
@@ -2586,7 +2597,7 @@
         // selection: {family: "coevolution" | "evolution" | "evolution-compare", value: <what that family's select takes>}
         var families = { coevolution: global.AgentDiff.coevolution, evolution: global.AgentDiff.evolution,
                          "evolution-compare": global.AgentDiff.evolutionCompare,
-                         levels: global.AgentDiff.levels, data: global.AgentDiff.data };
+                         levels: global.AgentDiff.levels, data: global.AgentDiff.data, trace: global.AgentDiff.trace };
         var fam = families[selection.family];
         if (fam && typeof fam.select === "function") {
           try { fam.select(selection.value); } catch (err) { /* a family that refuses keeps its state */ }

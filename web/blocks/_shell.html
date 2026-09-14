@@ -660,6 +660,7 @@ body[data-view="coevolution"] .stack-label .pip { display: none; }
 body[data-view="chat"] .stack-label { display: none; }
 body[data-view="levels"] .stack-label .pip { display: none; }
 body[data-view="data"] .stack-label .pip { display: none; }
+body[data-view="trace"] .stack-label .pip { display: none; }
 </style>
 </head>
 <body>
@@ -671,6 +672,7 @@ body[data-view="data"] .stack-label .pip { display: none; }
     <button class="tab" role="tab" data-view="chat" aria-selected="false" title="Ask the page in plain words: every block by asking, and the self-evolving eval answering for itself">Chat</button>
     <button class="tab" role="tab" data-view="levels" aria-selected="false" title="Three levels of grain: what is running, every run, one run in full with its token burn-down and its search map">Levels</button>
     <button class="tab" role="tab" data-view="data" aria-selected="false" title="The inputs: the prompt given to both agents, what each read, the answer's provenance, data → model → agent → answer, and how a self-evolving agent changes from the data it saw">Data</button>
+    <button class="tab" role="tab" data-view="trace" aria-selected="false" title="One run's execution at semantic zoom, with replay: every step along constricted time, one step in full, the other run aligned, the run's readings gathered">Trace</button>
     <button class="tab" role="tab" data-view="story" aria-selected="true" title="The story: verdict, map, reading, what to do">Story</button>
     <button class="tab" role="tab" data-view="evidence" aria-selected="false" title="Every block behind the verdict: hypotheses, alignment, process checks">Evidence</button>
     <button class="tab" role="tab" data-view="batch" aria-selected="false" title="Across all tasks: cost, issues, recommendations, variance">Batch</button>
@@ -732,7 +734,7 @@ body[data-view="data"] .stack-label .pip { display: none; }
   <div class="panel-body">
     <dl class="keys">
       <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>previous / next task</dd>
-      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>on the view tabs: Chat · Levels · Data · Story · Evidence · Batch · Panels · Training · Evolution · Evals</dd>
+      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>on the view tabs: Chat · Levels · Data · Trace · Story · Evidence · Batch · Panels · Training · Evolution · Evals</dd>
       <dt><kbd>Tab</kbd></dt><dd>reach a step on the map</dd>
       <dt><kbd>Enter</kbd> <kbd>Space</kbd></dt><dd>open the step under focus in the inspector</dd>
       <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>walk along one run</dd>
