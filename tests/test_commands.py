@@ -299,3 +299,27 @@ class TestEndToEnd(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DemoEverythingTest(unittest.TestCase):
+    """One command builds the whole demo: the three outputs, the bundle
+    with every trace, the key and the assistant snippet."""
+
+    def test_demo_everything_builds_three_outputs_and_a_full_bundle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_cli("demo", "--everything", "-o", tmp)
+            self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+            out = Path(tmp)
+            for member in ("batch", "runs", "evolve"):
+                self.assertTrue((out / member / "aggregate.json").is_file(), member)
+            manifest = json.loads((out / "bundle" / "bundle.json").read_text(encoding="utf-8"))
+            self.assertEqual([m["kind"] for m in manifest["members"]], ["batch", "runs", "coevolve"])
+            rows = manifest["levels"]["runs"]
+            self.assertTrue(rows)
+            self.assertTrue(all(r.get("detail") for r in rows), "every run has its level three with --traces")
+            key = (out / "bundle" / "KEY.txt").read_text(encoding="utf-8").strip()
+            self.assertTrue(key.startswith("agentdiff1:"))
+            self.assertIn(manifest["id"], result.stdout)
+            self.assertIn(key, result.stdout)
+            self.assertIn('"mcpServers"', result.stdout)
+            self.assertIn("call overview, then runs, then run", result.stdout)

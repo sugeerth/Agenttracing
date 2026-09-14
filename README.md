@@ -16,6 +16,9 @@ contains no network code; only the harness talks to a model.
 pip install -e .          # installs `agentdiff` (python -m deepcompare works too)
 agentdiff demo --open     # compares the 8 shipped pairs, writes out_demo/report.html,
                           # prints the flagship pair's verdict card
+agentdiff demo --everything -o out_all   # the whole demo: pairs, training runs, two self-evolving
+                          # lineages with their evals, one bundle with every trace, the key,
+                          # and the MCP snippet for a coding assistant (ten views in one page)
 agentdiff explain demo/traces/t05_flight_duration__bolt-v3.json --html run.html
 ```
 
@@ -140,7 +143,6 @@ demo/                   shipped traces (scripted agents), the diagnosis benchmar
 docs/                   RESEARCH_INSIGHTS.md, BENCHMARK.md, CHANGELOG.md, CITATIONS.md
 tests/                  1,800+ tests, including browser tests of the page and offline harness tests
 ```
-
 ## Watch it run
 
 ```bash
@@ -154,7 +156,6 @@ replaces the stream in place. A run in progress is shown, never analysed.
 `python web/build_live.py` writes `web/live.html`, the deployable demo: as
 a claude.ai artifact it runs two real Claude agents on the viewer's account
 with tools defined in the page and streams every step; elsewhere it replays the recorded pair.
-
 ## Trace Claude Code, and route
 
 Add two hooks to `.claude/settings.json` and every tool call streams into a
@@ -190,7 +191,6 @@ for an RL environment. A *preference pair* — the passing run, or the
 reconciled splice, against the failing one, in the shape a
 preference-optimisation loader reads. `deepcompare feedback out/ --jsonl
 pairs.jsonl` writes them for a whole batch; every item is labelled a hypothesis until a replay confirms it.
-
 ## Research direction
 
 A ranked program distilled from the interpretability and agent-evaluation
