@@ -98,8 +98,7 @@
 
   // ------------------------------------------------------------- helpers
 
-  //: no library counterpart: cut a label to n characters with an ellipsis
-  function trunc(s, n) { s = String(s === null || s === undefined ? "" : s); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  var trunc = L.fmt.trunc;
   function fit(text, px) { var n = Math.floor(px / CH); return n < 2 ? "" : trunc(text, n); }
   function cap(s) { s = String(s || ""); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
   function dot(s) { s = String(s || ""); return !s || /[.!?]$/.test(s) ? s : s + "."; }

@@ -129,7 +129,7 @@
   }
   function pts(v) { return isNum(v) ? signed(v * 100, 0) + " pts" : "—"; }
   //: no library counterpart: cut a label to n characters with an ellipsis
-  function trunc(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  var trunc = L.fmt.trunc;
   //: the generation ids of the lineage on the page, so a sentence that opens with one ("g3 earns …") is never re-cased
   var GEN_IDS = {};
   function cap(s) {

@@ -8,7 +8,7 @@
  * (`var L = AgentDiff.lib, isNum = L.fmt.isNum;`) and defines none of
  * these locally — the surface, and the rule, are in web/blocks/README.md.
  *
- *   fmt     num, signed, pct, secs, short, isNum
+ *   fmt     num, signed, pct, secs, short, isNum, plural, trunc
  *   color   side(side, ns), agent(side, i), verdict(kind), good, bad
  *   svg     svg(attrs, kids) — role="img" by default, aria-label required
  *           svg.note(text, cls), svg.tip(host, {class, width})
@@ -52,7 +52,25 @@
   //: a task id without its numbering prefix: "rl01_ledger_reconcile" → "ledger reconcile"
   function short(id) { return String(id || "").replace(/^(rl|t)\d+_/, "").replace(/_/g, " "); }
 
-  var fmt = { num: num, signed: signed, pct: pct, secs: secs, short: short, isNum: isNum };
+  //: an integer with thousands separators: 1234 → "1,234"; a non-number is "—"
+  function int(v) { return isNum(v) ? String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "—"; }
+  /* A count with its noun: "1 run", "2 runs", "1,234 characters", "3 fetches",
+   * "2 recoveries"; the plural given as the third argument wins ("2 people"). */
+  function plural(n, word, pl) {
+    word = String(word === null || word === undefined ? "" : word);
+    var one = isNum(n) && n === 1;
+    var many = pl ? String(pl) : /(ch|sh|s|x|z)$/.test(word) ? word + "es" : /[^aeiou]y$/.test(word) ? word.slice(0, -1) + "ies" : word + "s";
+    return int(n) + " " + (one ? word : many);
+  }
+  /* Text cut to n characters with an ellipsis, its whitespace collapsed
+   * first so a label never carries a newline; null and undefined are "". */
+  function trunc(text, n) {
+    var s = String(text === null || text === undefined ? "" : text).replace(/\s+/g, " ").trim();
+    n = isNum(n) ? n : 0;
+    return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "\u2026" : s;
+  }
+
+  var fmt = { num: num, signed: signed, pct: pct, secs: secs, short: short, isNum: isNum, plural: plural, trunc: trunc };
 
   // ---------------------------------------------------------------- color
   //
@@ -267,11 +285,11 @@
 
     function fresh() { return clone(defaults); }
     function fields() { return persist === true ? Object.keys(defaults) : Array.isArray(persist) ? persist : []; }
-    //: a saved field is taken when it has the default's type (a null default takes a scalar)
+    //: a saved field is taken when it has the default's type; a null default takes a scalar, an array or a plain object (a brush range saved as [lo, hi] restores)
     function accept(f, saved) {
       var d = defaults[f], v = saved[f];
       if (v === undefined) return false;
-      if (d === null) return v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+      if (d === null) return v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean" || Array.isArray(v) || (typeof v === "object" && Object.prototype.toString.call(v) === "[object Object]");
       if (Array.isArray(d)) return Array.isArray(v);
       if (typeof d === "object") return v !== null && typeof v === "object" && !Array.isArray(v);
       return typeof v === typeof d;

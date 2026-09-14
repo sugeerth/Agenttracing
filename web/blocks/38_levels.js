@@ -137,8 +137,7 @@
   var fmtInt = d3.format(",d");
   function tok(v) { return isNum(v) ? fmtInt(Math.round(v)) : "—"; }
   function usd(v) { return isNum(v) ? "$" + num(v, 4) : "—"; }
-  function plural(n, word) { return (isNum(n) ? fmtInt(n) : "—") + " " + word + (n === 1 ? "" : /(ch|sh|s|x)$/.test(word) ? "es" : "s"); }
-  function trunc(s, n) { s = String(s === null || s === undefined ? "" : s); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  var plural = L.fmt.plural, trunc = L.fmt.trunc;
   function prefersReduced() {
     try { return !!(global.matchMedia && global.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (err) { return false; }
   }

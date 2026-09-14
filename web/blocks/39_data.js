@@ -153,8 +153,7 @@
   var H = null;
   var fmtInt = d3.format(",d");
   function int(v) { return isNum(v) ? fmtInt(Math.round(v)) : "—"; }
-  function plural(n, word) { return int(n) + " " + word + (n === 1 ? "" : /(ch|sh|s|x)$/.test(word) ? "es" : "s"); }
-  function trunc(s, n) { s = String(s === null || s === undefined ? "" : s); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  var plural = L.fmt.plural, trunc = L.fmt.trunc;
   function cap(s) { s = String(s || ""); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
   function prefersReduced() {
     try { return !!(global.matchMedia && global.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (err) { return false; }

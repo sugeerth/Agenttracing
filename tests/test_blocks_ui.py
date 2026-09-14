@@ -7823,6 +7823,31 @@ class EvolutionBlocksTest(unittest.TestCase):
         self.assertEqual(page.locator('.evo-steps .evo-row[role="listitem"]').count(), len(self._steps()))
         context.close()
 
+    def test_a_brushed_range_survives_a_reload(self):
+        """The lineage's range is a page selection saved under a null
+        default; it must come back after a reload with the ledger and the
+        matrix still narrowed to it (the library once refused the saved
+        array, so the range silently reset)."""
+        context, page, errors = self._open()
+        gens = [g["id"] for g in self.ev["generations"]]
+        if len(gens) < 3:
+            raise unittest.SkipTest("too few generations to range")
+        lo, hi = 1, min(2, len(gens) - 2)
+        page.evaluate(f"() => AgentDiff.evolution.select({{ range: [{lo}, {hi}] }})")
+        page.wait_for_timeout(400)
+        self.assertEqual(self._state(page)["range"], [lo, hi])
+        self.assertEqual(page.evaluate("() => AgentDiff._internals.Store.get('agentdiff:evolution').range"), [lo, hi])
+        page.reload()
+        page.wait_for_timeout(1000)
+        self.assertEqual(self._state(page)["range"], [lo, hi])
+        shown = [s for s in self._steps() if lo <= gens.index(s["to"]) <= hi]
+        self.assertEqual(page.locator('.evo-steps .evo-row[role="listitem"]').count(), len(shown))
+        self.assertEqual(page.locator(".evo-matrix .evo-mhead").count(), hi - lo + 1)
+        self.assertFalse(page.locator(".evo-lineage .evo-range-chip").first.is_hidden())
+        self.assertIn(f"{gens[lo]}–{gens[hi]}", page.locator(".evo-lineage .evo-range-chip").first.inner_text())
+        self.assertEqual(self._errors(errors), [])
+        context.close()
+
     # -------------------------------------------------------------- phone
 
     def test_nothing_overflows_on_a_phone_and_no_text_is_too_small(self):
@@ -8193,6 +8218,9 @@ class SharedLibraryTest(unittest.TestCase):
     #: 03 holds the responsive painter the library delegates to
     LEGACY = {"isNum": ("40_signal.js", "60_science.js"), "secs": ("18_time.js", "19_horizon.js"),
               "responsive": ("03_d3charts.js",)}
+    #: local `trunc` / `plural` copies in blocks another round owns; each is dropped the day its block binds the library's
+    IN_FLIGHT_RULES = {"trunc": ("17_debug.js", "27_training.js", "28_rlstats.js", "29_rlaudit.js", "32_rltheatre.js", "34_evotime.js"),
+                       "plural": ("50_integrity.js",)}
 
     @classmethod
     def setUpClass(cls):
@@ -8264,6 +8292,53 @@ class SharedLibraryTest(unittest.TestCase):
         self.assertEqual(got["secs"], ["123s", "12s", "1.5s", "0.25s", "—"])
         self.assertEqual(got["short"], ["ledger reconcile", "a b", "plain", ""])
         self.assertEqual(got["isNum"], [True, False, False, False, False])
+        context.close()
+
+    def test_plural_counts_and_trunc_cuts_as_the_blocks_did(self):
+        context, page, errors = self._open()
+        got = page.evaluate("""() => {
+            const f = AgentDiff.lib.fmt;
+            return {
+                plural: [f.plural(1, 'run'), f.plural(2, 'run'), f.plural(0, 'step'), f.plural(1234, 'character'), f.plural(3, 'fetch'),
+                         f.plural(2, 'recovery'), f.plural(1, 'recovery'), f.plural(2, 'protected touch'), f.plural(2, 'person', 'people'), f.plural(null, 'run'), f.plural(2.4, 'step')],
+                trunc: [f.trunc('ledger reconcile', 8), f.trunc('ledger', 8), f.trunc('  a\\n  b\\t c ', 40), f.trunc('abcdefgh', 1), f.trunc(null, 5), f.trunc(undefined, 5), f.trunc('abc', 3), f.trunc('abcd', 3)],
+            };
+        }""")
+        self.assertEqual(got["plural"], ["1 run", "2 runs", "0 steps", "1,234 characters", "3 fetches",
+                                         "2 recoveries", "1 recovery", "2 protected touches", "2 people", "— runs", "2 steps"])
+        # n−1 characters and the ellipsis, so the label is n wide; a cut never leaves a bare ellipsis
+        self.assertEqual(got["trunc"], ["ledger …", "ledger", "a b c", "a…", "", "", "abc", "ab…"])
+        # the blocks bind the library's and carry no copy of their own
+        for name in ("36_coevolve.js", "37_chat.js", "38_levels.js", "39_data.js", "33_evolve.js", "35_evocompare.js"):
+            source = (ROOT / "web" / "blocks" / name).read_text(encoding="utf-8")
+            self.assertIn("L.fmt.trunc" if name in ("33_evolve.js", "35_evocompare.js") else "L.fmt.plural", source, name)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_null_default_restores_a_saved_array_or_object(self):
+        """The migration finding: a brush range saved as [lo, hi] under a
+        `range: null` default was refused on load, so it never survived a
+        reload. A null default now takes a scalar, an array or a plain
+        object; a typed default still refuses the wrong type."""
+        context, page, errors = self._open()
+        page.evaluate("""() => {
+            const F = AgentDiff.lib.family('lib-test-null', { range: null, box: null, gen: null, n: 0, list: [] }, { scope: 'page' });
+            F.set({ range: [1, 3], box: { a: 1 }, gen: 'g2' });
+            AgentDiff._internals.Store.set('agentdiff:lib-test-typed', { n: 'seven', list: { not: 'a list' }, gen: 'g1' });
+        }""")
+        self.assertEqual(page.evaluate("() => AgentDiff._internals.Store.get('agentdiff:lib-test-null')"),
+                         {"range": [1, 3], "box": {"a": 1}, "gen": "g2", "n": 0, "list": []})
+        page.reload()
+        page.wait_for_timeout(400)
+        got = page.evaluate("""() => {
+            const F = AgentDiff.lib.family('lib-test-null', { range: null, box: null, gen: null, n: 0, list: [] }, { scope: 'page' });
+            const T = AgentDiff.lib.family('lib-test-typed', { n: 0, list: [], gen: null }, { scope: 'page' });
+            return { restored: F.get(), typed: T.get() };
+        }""")
+        self.assertEqual(got["restored"], {"range": [1, 3], "box": {"a": 1}, "gen": "g2", "n": 0, "list": []})
+        # a number default still refuses a string and a list default an object; the null default takes its scalar
+        self.assertEqual(got["typed"], {"n": 0, "list": [], "gen": "g1"})
+        self.assertEqual(errors, [])
         context.close()
 
     def test_the_fold_law_is_the_one_from_where_it_mattered(self):
@@ -8370,6 +8445,8 @@ class SharedLibraryTest(unittest.TestCase):
             "fold law": re.compile(r"6 \+ 6 \* Math\.log\("),
             "responsive": re.compile(r"^\s*function responsive\(", re.M),
             "tooltip": re.compile(r"tip\.className = \"[a-z-]+-tip\""),
+            "plural": re.compile(r"^\s*function plural\(", re.M),
+            "trunc": re.compile(r"^\s*function trunc\(", re.M),
         }
         offenders = []
         for path in sorted(blocks.glob("*.js")):
@@ -8377,7 +8454,7 @@ class SharedLibraryTest(unittest.TestCase):
                 continue
             source = path.read_text(encoding="utf-8")
             for name, pattern in local.items():
-                if path.name in self.LEGACY.get(name, ()):
+                if path.name in self.LEGACY.get(name, ()) or path.name in self.IN_FLIGHT_RULES.get(name, ()):
                     continue
                 if pattern.search(source):
                     offenders.append(f"{path.name}: {name}")
@@ -9619,6 +9696,172 @@ class ChatViewTest(unittest.TestCase):
         row = self._ask(page, f"what data triggered {key}?")
         self.assertEqual(row.locator(".chat-a.cannot").count(), 1)
         self.assertIn("no self-evolving lineage", self._text(row))
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ----------------------------------------------------------- follow-ups
+
+    @staticmethod
+    def _resolved(row):
+        """The question the typed one resolved into, as the transcript shows it under the typed one."""
+        line = row.locator(".chat-q-resolved")
+        return line.inner_text().replace("↳", "").strip() if line.count() else None
+
+    def test_a_follow_up_carries_the_last_answers_step_metric_and_candidate(self):
+        steps = [self._key(s) for s in self.evo["steps"] if s.get("from") and s.get("to")]
+        metrics = list(self.cov["metrics"])
+        rejected = sorted({r["spec_id"] for r in self.cov["ledger"] if r.get("decision") == "rejected"})
+        if len(steps) < 3 or len(metrics) < 2 or len(rejected) < 2:
+            raise unittest.SkipTest("too little in the demo lineage to carry")
+        context, page, errors = self._open()
+        # a step, then "what about <another step>" carries the intent; "did it help?" carries the step into a new intent
+        row = self._ask(page, f"what changed at {steps[0]}?")
+        self.assertEqual((row.get_attribute("data-intent"), self._resolved(row)), ("evo-changed", None))
+        row = self._ask(page, f"what about {steps[1]}?")
+        self.assertEqual(row.get_attribute("data-intent"), "evo-changed")
+        self.assertEqual(self._resolved(row), f"what changed at {steps[1]}?")
+        self.assertEqual(row.get_attribute("data-resolved"), f"what changed at {steps[1]}?")
+        self.assertIn(f"At {steps[1]}", self._text(row))
+        self.assertEqual(page.evaluate("() => AgentDiff.evolution.state().gen"), steps[1].split("→")[1])
+        row = self._ask(page, "did it help?")
+        self.assertEqual(row.get_attribute("data-intent"), "evo-helped")
+        self.assertEqual(self._resolved(row), f"did {steps[1]} help?")
+        self.assertIn(f"verdict on {steps[1]}", self._text(row))
+        # a bare generation carries the intent: "and g4?" is the step into g4
+        gen = steps[2].split("→")[1]
+        row = self._ask(page, f"and {gen}?")
+        self.assertEqual((row.get_attribute("data-intent"), self._resolved(row)), ("evo-helped", f"did {steps[2]} help?"))
+        # a metric, then a bare metric name
+        row = self._ask(page, f"what does {metrics[0]} say?")
+        self.assertEqual((row.get_attribute("data-intent"), self._resolved(row)), ("eval-metric", None))
+        row = self._ask(page, metrics[1])
+        self.assertEqual((row.get_attribute("data-intent"), self._resolved(row)), ("eval-metric", f"what does {metrics[1]} say?"))
+        self.assertTrue(self._text(row).startswith(metrics[1]))
+        self.assertEqual(page.evaluate("() => AgentDiff.coevolution.state().metric"), metrics[1])
+        # a candidate, then "and <candidate>?"
+        row = self._ask(page, f"why did you reject {rejected[0]}?")
+        self.assertEqual((row.get_attribute("data-intent"), self._resolved(row)), ("eval-rejected", None))
+        row = self._ask(page, f"and {rejected[1]}?")
+        self.assertEqual((row.get_attribute("data-intent"), self._resolved(row)), ("eval-rejected", f"why did you reject {rejected[1]}?"))
+        self.assertIn(f"I rejected {rejected[1]}", self._text(row))
+        # the resolved question sits under the typed one, in small type but never under 11px, and is read to assistive technology
+        line = row.locator(".chat-q-resolved")
+        self.assertEqual(row.locator(".chat-q").inner_text(), f"and {rejected[1]}?")
+        self.assertEqual(line.get_attribute("aria-label"), f"read as: why did you reject {rejected[1]}?")
+        sizes = page.evaluate("() => { const q = document.querySelector('.chat-turn:last-child .chat-q'), r = document.querySelector('.chat-turn:last-child .chat-q-resolved'); return [parseFloat(getComputedStyle(q).fontSize), parseFloat(getComputedStyle(r).fontSize)]; }")
+        self.assertLess(sizes[1], sizes[0])
+        self.assertGreaterEqual(sizes[1], 11)
+        self.assertIn(f"read as “why did you reject {rejected[1]}?”", page.locator(".chat-status").inner_text())
+        # the subject the next question will resolve against
+        last = page.evaluate("() => AgentDiff.chat.last()")
+        self.assertEqual((last["intent"], last["subject"]["candidate"]), ("eval-rejected", rejected[1]))
+        # a reload recomputes the transcript in order, so every resolved line comes back
+        page.reload()
+        page.wait_for_timeout(1000)
+        self.assertEqual(page.evaluate("() => Array.from(document.querySelectorAll('.chat-q-resolved')).map(e => e.textContent.replace('↳', '').trim())"),
+                         [f"what changed at {steps[1]}?", f"did {steps[1]} help?", f"did {steps[2]} help?", f"what does {metrics[1]} say?", f"why did you reject {rejected[1]}?"])
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_follow_up_carries_the_agent_the_other_one_and_a_pronoun_into_a_new_intent(self):
+        if not self.bundle:
+            raise unittest.SkipTest("the bundle command did not write a page")
+        pair = self.batch_pair
+        a, b = pair["a"]["agent"]["name"], pair["b"]["agent"]["name"]
+        context, page, errors = self._open(self.bundle_dir, width=1440)
+        row = self._ask(page, f"what did {a} fetch?", 600)
+        self.assertEqual((row.get_attribute("data-intent"), self._resolved(row)), ("lv-fetch", None))
+        self.assertIn(pair["fetches"]["a"]["narrative"], self._text(row))
+        # "and for <the other agent>" carries the intent
+        row = self._ask(page, f"and for {b}?", 600)
+        self.assertEqual((row.get_attribute("data-intent"), self._resolved(row)), ("lv-fetch", f"what did {b} fetch?"))
+        self.assertIn(pair["fetches"]["b"]["narrative"], self._text(row))
+        self.assertNotIn(pair["fetches"]["a"]["narrative"], self._text(row))
+        self.assertEqual(page.evaluate("() => AgentDiff.levels.state().run"), self._member_key(pair, "b"))
+        # "the other one" is the pair's other side
+        row = self._ask(page, "the other one", 600)
+        self.assertEqual((row.get_attribute("data-intent"), self._resolved(row)), ("lv-fetch", f"what did {a} fetch?"))
+        self.assertIn(pair["fetches"]["a"]["narrative"], self._text(row))
+        self.assertEqual(page.evaluate("() => AgentDiff.levels.state().run"), self._member_key(pair, "a"))
+        # a pronoun with an intent of its own borrows the agent: "and its tokens?" is that agent's budget
+        row = self._ask(page, "and its tokens?", 600)
+        self.assertEqual((row.get_attribute("data-intent"), self._resolved(row)), ("lv-budget", f"where did the tokens go for {a}?"))
+        self.assertIn(pair["budget"]["a"]["narrative"], self._text(row))
+        self.assertNotIn(pair["budget"]["b"]["narrative"], self._text(row))
+        # a run id the page does not hold is refused, with the count it does hold, and never invented
+        row = self._ask(page, "and on r9?", 600)
+        self.assertEqual(row.get_attribute("data-intent"), "cannot")
+        self.assertIn(f"no run r9 of {a}", self._text(row))
+        # a full question keeps its own subject: it never borrows
+        row = self._ask(page, "how many fetches were wasted?", 600)
+        self.assertEqual((row.get_attribute("data-intent"), self._resolved(row)), ("lv-waste", None))
+        for side in ("a", "b"):
+            self.assertIn(f"{pair[side]['agent']['name']}: of {pair['fetches'][side]['counts']['total']} fetches", self._text(row))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_chips_offer_two_follow_ups_on_the_carried_subject(self):
+        steps = [self._key(s) for s in self.evo["steps"] if s.get("from") and s.get("to")]
+        context, page, errors = self._open()
+        # before any answer nothing is carried
+        self.assertEqual(page.locator('.chat-composer .chat-chip[data-carried="true"]').count(), 0)
+        self._ask(page, f"what changed at {steps[0]}?")
+        carried = page.evaluate("() => Array.from(document.querySelectorAll('.chat-composer .chat-chip[data-carried=\"true\"]')).map(b => b.textContent)")
+        self.assertEqual(len(carried), 2)
+        for q in carried:
+            self.assertIn(steps[0], q)
+        self.assertEqual(self._chips(page)[:2], carried)
+        # a carried chip asks a full question about the subject: no resolution needed, a different intent
+        page.locator('.chat-composer .chat-chip[data-carried="true"]').first.click()
+        page.wait_for_timeout(500)
+        row = page.locator(".chat-turn").last
+        self.assertEqual(row.locator(".chat-q").inner_text(), carried[0])
+        self.assertIsNone(self._resolved(row))
+        self.assertNotEqual(row.get_attribute("data-intent"), "evo-changed")
+        self.assertNotEqual(row.get_attribute("data-intent"), "cannot")
+        # a cannot card carries nothing
+        self._ask(page, "what is the weather like")
+        self.assertEqual(page.locator('.chat-composer .chat-chip[data-carried="true"]').count(), 0)
+        if self.bundle:
+            context.close()
+            pair = self.batch_pair
+            a = pair["a"]["agent"]["name"]
+            context, page, errors = self._open(self.bundle_dir, width=1440)
+            self._ask(page, f"what did {a} fetch?", 600)
+            carried = page.evaluate("() => Array.from(document.querySelectorAll('.chat-composer .chat-chip[data-carried=\"true\"]')).map(b => b.textContent)")
+            self.assertEqual(len(carried), 2)
+            for q in carried:
+                self.assertIn(a, q)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_follow_up_with_no_earlier_answer_gets_the_cannot_card(self):
+        steps = [self._key(s) for s in self.evo["steps"] if s.get("from") and s.get("to")]
+        context, page, errors = self._open()
+        for q in (f"and for {steps[0]}?", "the other one", "what about it?", steps[1]):
+            row = self._ask(page, q)
+            self.assertEqual(row.get_attribute("data-intent"), "cannot", q)
+            self.assertEqual(row.locator(".chat-a.cannot").count(), 1, q)
+            self.assertIn("no earlier answer", self._text(row), q)
+            self.assertIsNone(self._resolved(row), q)
+            self.assertFalse(any(ch.isdigit() for ch in self._text(row).replace(steps[0], "").replace(steps[1], "")), q)
+        # a cannot card leaves nothing to carry, so the next follow-up is refused too; a full answer then gives the subject
+        self.assertIsNone(page.evaluate("() => AgentDiff.chat.last()"))
+        self._ask(page, f"what changed at {steps[0]}?")
+        row = self._ask(page, f"what about {steps[1]}?")
+        self.assertEqual((row.get_attribute("data-intent"), self._resolved(row)), ("evo-changed", f"what changed at {steps[1]}?"))
+        # "the other one" without an agent, run or lineage to be the other of says so
+        row = self._ask(page, "the other one")
+        self.assertEqual(row.get_attribute("data-intent"), "cannot")
+        self.assertIn("which other one", self._text(row))
+        # the stateless surface: the same resolution, given the subject
+        got = page.evaluate(f"""() => {{
+            const bare = AgentDiff.chat.route('and for {steps[1]}?');
+            const carried = AgentDiff.chat.route('and for {steps[1]}?', {{ intent: 'evo-changed', q: 'what changed at {steps[0]}?', subject: {{ intent: 'evo-changed', step: '{steps[0]}' }} }});
+            return {{ bare: [bare.intent, !!bare.card.cannot, bare.resolved], carried: [carried.intent, carried.resolved, carried.subject.step] }};
+        }}""")
+        self.assertEqual(got["bare"], [None, True, None])
+        self.assertEqual(got["carried"], ["evo-changed", f"what changed at {steps[1]}?", steps[1]])
         self.assertEqual(errors, [])
         context.close()
 

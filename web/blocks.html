@@ -3404,7 +3404,7 @@ THIS SOFTWARE.
  * (`var L = AgentDiff.lib, isNum = L.fmt.isNum;`) and defines none of
  * these locally — the surface, and the rule, are in web/blocks/README.md.
  *
- *   fmt     num, signed, pct, secs, short, isNum
+ *   fmt     num, signed, pct, secs, short, isNum, plural, trunc
  *   color   side(side, ns), agent(side, i), verdict(kind), good, bad
  *   svg     svg(attrs, kids) — role="img" by default, aria-label required
  *           svg.note(text, cls), svg.tip(host, {class, width})
@@ -3448,7 +3448,25 @@ THIS SOFTWARE.
   //: a task id without its numbering prefix: "rl01_ledger_reconcile" → "ledger reconcile"
   function short(id) { return String(id || "").replace(/^(rl|t)\d+_/, "").replace(/_/g, " "); }
 
-  var fmt = { num: num, signed: signed, pct: pct, secs: secs, short: short, isNum: isNum };
+  //: an integer with thousands separators: 1234 → "1,234"; a non-number is "—"
+  function int(v) { return isNum(v) ? String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "—"; }
+  /* A count with its noun: "1 run", "2 runs", "1,234 characters", "3 fetches",
+   * "2 recoveries"; the plural given as the third argument wins ("2 people"). */
+  function plural(n, word, pl) {
+    word = String(word === null || word === undefined ? "" : word);
+    var one = isNum(n) && n === 1;
+    var many = pl ? String(pl) : /(ch|sh|s|x|z)$/.test(word) ? word + "es" : /[^aeiou]y$/.test(word) ? word.slice(0, -1) + "ies" : word + "s";
+    return int(n) + " " + (one ? word : many);
+  }
+  /* Text cut to n characters with an ellipsis, its whitespace collapsed
+   * first so a label never carries a newline; null and undefined are "". */
+  function trunc(text, n) {
+    var s = String(text === null || text === undefined ? "" : text).replace(/\s+/g, " ").trim();
+    n = isNum(n) ? n : 0;
+    return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "\u2026" : s;
+  }
+
+  var fmt = { num: num, signed: signed, pct: pct, secs: secs, short: short, isNum: isNum, plural: plural, trunc: trunc };
 
   // ---------------------------------------------------------------- color
   //
@@ -3663,11 +3681,11 @@ THIS SOFTWARE.
 
     function fresh() { return clone(defaults); }
     function fields() { return persist === true ? Object.keys(defaults) : Array.isArray(persist) ? persist : []; }
-    //: a saved field is taken when it has the default's type (a null default takes a scalar)
+    //: a saved field is taken when it has the default's type; a null default takes a scalar, an array or a plain object (a brush range saved as [lo, hi] restores)
     function accept(f, saved) {
       var d = defaults[f], v = saved[f];
       if (v === undefined) return false;
-      if (d === null) return v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+      if (d === null) return v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean" || Array.isArray(v) || (typeof v === "object" && Object.prototype.toString.call(v) === "[object Object]");
       if (Array.isArray(d)) return Array.isArray(v);
       if (typeof d === "object") return v !== null && typeof v === "object" && !Array.isArray(v);
       return typeof v === typeof d;
@@ -22958,7 +22976,7 @@ THIS SOFTWARE.
   }
   function pts(v) { return isNum(v) ? signed(v * 100, 0) + " pts" : "—"; }
   //: no library counterpart: cut a label to n characters with an ellipsis
-  function trunc(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  var trunc = L.fmt.trunc;
   //: the generation ids of the lineage on the page, so a sentence that opens with one ("g3 earns …") is never re-cased
   var GEN_IDS = {};
   function cap(s) {
@@ -25363,8 +25381,7 @@ THIS SOFTWARE.
 
   // ------------------------------------------------------------- helpers
 
-  //: no library counterpart: cut a label to n characters with an ellipsis
-  function trunc(s, n) { s = String(s === null || s === undefined ? "" : s); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  var trunc = L.fmt.trunc;
   function fit(text, px) { var n = Math.floor(px / CH); return n < 2 ? "" : trunc(text, n); }
   function cap(s) { s = String(s || ""); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
   function dot(s) { s = String(s || ""); return !s || /[.!?]$/.test(s) ? s : s + "."; }
@@ -26665,7 +26682,7 @@ THIS SOFTWARE.
     var s = num(Math.abs(v), p);
     return v > 0 ? "+" + s : v < 0 ? "−" + s : s;
   }
-  function trunc(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  var trunc = L.fmt.trunc, plural = L.fmt.plural;
   function cap(s) { s = String(s || ""); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
   function width(host) { return L.layout.measure(host, 300, 1400); }
   function prefersReduced() {
@@ -26679,7 +26696,6 @@ THIS SOFTWARE.
   function tooltip(root) { return L.svg.tip(root, { class: "cov-tip", width: 340 }); }
   function ci(v) { return v && isNum(v.point) ? num(v.point) + (isNum(v.lo) ? " [" + num(v.lo) + ", " + num(v.hi) + "]" : "") : "—"; }
   function dci(v) { return v && isNum(v.point) ? signed(v.point) + (isNum(v.lo) ? " [" + signed(v.lo) + ", " + signed(v.hi) + "]" : "") : "—"; }
-  function plural(n, w) { return n + " " + w + (n === 1 ? "" : "s"); }
   //: the string of the level's alpha: 0.0083 → "0.0083", 0.008333 → "0.0083"
   function alpha(a) { return isNum(a) ? num(a, 4) : "—"; }
 
@@ -28015,6 +28031,16 @@ THIS SOFTWARE.
  * the data it saw; embeds dt-task, dt-corpus, dt-provenance, dt-chain,
  * dt-evolution when the page has them, and answers in words when not).
  *
+ * A question that leans on the last answer — a pronoun ("did it help?",
+ * "the other one"), a carrying phrase ("and for bolt-v3?", "what about
+ * g3→g4?") or a bare name ("memo-agent", "m2") — resolves against that
+ * answer's subject (its intent and the agent, side, run, step, generation,
+ * metric, candidate, family and task it was about) into a full question
+ * the router answers as if typed; the transcript shows the resolved
+ * question in small type under the typed one, and the chips offer two
+ * follow-ups that use the carried subject. With no earlier answer there is
+ * nothing to carry, and the card says so.
+ *
  * The persona is a voice, not a source: nothing is generated beyond the
  * templates below, every card carries a "sources" fold with the JSON paths
  * it read, a question the router cannot map gets a "cannot answer" card
@@ -28054,6 +28080,7 @@ THIS SOFTWARE.
     "@keyframes chat-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}",
     "@media (prefers-reduced-motion:reduce){.chat-turn.new{animation:none}}",
     ".chat-q{align-self:flex-end;max-width:min(72ch,92%);background:var(--surface-2);color:var(--ink);border-radius:14px 14px 3px 14px;padding:8px 12px;font-size:var(--fs-m);line-height:1.45;overflow-wrap:anywhere}",
+    ".chat-q-resolved{align-self:flex-end;max-width:min(72ch,92%);margin:-2px 4px 0 0;font-size:var(--fs-xs);color:var(--ink-3);font-family:var(--mono);overflow-wrap:anywhere}",
     ".chat-a{align-self:flex-start;width:100%;max-width:100%;background:var(--surface);border:1px solid var(--rule);border-radius:3px 14px 14px 14px;padding:10px 12px 8px;box-sizing:border-box;min-width:0}",
     ".chat-a.cannot{border-style:dashed}",
     ".chat-a:focus-visible{outline:2px solid var(--accent);outline-offset:1px}",
@@ -28090,7 +28117,7 @@ THIS SOFTWARE.
   function dci(v) { return v && isNum(v.point) ? signed(v.point) + (isNum(v.lo) ? " [" + signed(v.lo) + ", " + signed(v.hi) + "]" : "") : "—"; }
   function pci(v) { return v && isNum(v.point) ? pct(v.point) + (isNum(v.lo) ? " [" + pct(v.lo) + ", " + pct(v.hi) + "]" : "") : "—"; }
   function usd(v) { return isNum(v) ? "$" + num(v, 6) : "—"; }
-  function plural(n, w) { return n + " " + w + (n === 1 ? "" : "s"); }
+  var plural = L.fmt.plural, trunc = L.fmt.trunc;
   function cap(s) { s = String(s || ""); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
   function dot(s) { s = String(s || "").trim(); return !s ? "" : /[.!?]$/.test(s) ? s : s + "."; }
   function listOf(a) { return Array.isArray(a) && a.length ? a.join(", ") : "none"; }
@@ -28170,7 +28197,8 @@ THIS SOFTWARE.
     d.dataEvo = agg.data_evolution && agg.data_evolution.measurable !== false && Array.isArray(agg.data_evolution.steps) ? agg.data_evolution : null;
     d.runs = runRows(d);
     d.runByKey = {};
-    d.runs.forEach(function (r) { d.runByKey[r.key] = r; });
+    d.runAgents = [];
+    d.runs.forEach(function (r) { d.runByKey[r.key] = r; if (d.runAgents.indexOf(r.agent) < 0) d.runAgents.push(r.agent); });
     d.hasPairLevels = d.reports.some(function (r) { return r && (r.budget || r.fetches); });
     d.hasPairData = d.reports.some(function (r) { return r && r.data && r.data.measurable !== false; });
     cache = { agg: agg, d: d };
@@ -28249,11 +28277,12 @@ THIS SOFTWARE.
     if (g && d.genIds.indexOf("g" + g[1]) >= 0) E.gen = "g" + g[1];
     if (!E.gen && E.step) E.gen = E.step.split("→")[1];
     if (!E.step && E.gen && !/\bg\d+\s*→/.test(q)) { var into = d.steps.filter(function (x) { return x.to === E.gen; })[0]; if (into) E.stepInto = into.from + "→" + into.to; }
+    //: an id as the normalised question can carry it: verbatim, underscores as spaces, or every other mark as a space ("ledger-agent@g5" → "ledger-agent g5")
     function named(ids) {
       var best = null;
       ids.forEach(function (id) {
-        var a = " " + id.toLowerCase() + " ", b = " " + id.toLowerCase().replace(/_/g, " ") + " ";
-        if (q.indexOf(a) >= 0 || q.indexOf(b) >= 0) { if (!best || id.length > best.length) best = id; }
+        var a = " " + id.toLowerCase() + " ", b = " " + id.toLowerCase().replace(/_/g, " ") + " ", c = " " + id.toLowerCase().replace(/[^a-z0-9→'-]+/g, " ").trim() + " ";
+        if (q.indexOf(a) >= 0 || q.indexOf(b) >= 0 || q.indexOf(c) >= 0) { if (!best || id.length > best.length) best = id; }
       });
       return best;
     }
@@ -28263,7 +28292,8 @@ THIS SOFTWARE.
     }
     E.candidate = named(d.candidateIds);
     E.family = named(d.families);
-    E.agent = named(d.agents.concat(d.policies));
+    // an agent of the pair, a policy, or any agent the page's runs name (a bundle's other members)
+    E.agent = named(d.agents.concat(d.policies, d.runAgents));
     E.task = named(d.tasks);
     // a run: its full key, or an agent named with a task and/or a run id
     E.run = null;
@@ -28383,7 +28413,7 @@ THIS SOFTWARE.
     when: function (d) { return !!d.cov && d.ledger.length > 0; }, absent: noEval,
     match: function (q, E) { return kw(q, ["reject", "rejected", "why not", "turned down", "refuse", "refused", "didn't you adopt", "did you not adopt", "not adopt", "failed"]) * 2 + (E.candidate ? 2 : 0); },
     answer: function (q, E, d) {
-      var text = [], src = [], sel = null, follow = [];
+      var text = [], src = [], sel = null, follow = [], subject = null;
       var id = E.candidate || (E.metric && rowsOf(d, E.metric).length ? E.metric : null);
       if (id) {
         var rows = rowsOf(d, id), rej = rows.filter(function (r) { return r.decision === "rejected"; }), ad = rows.filter(function (r) { return r.decision === "adopted"; });
@@ -28391,6 +28421,7 @@ THIS SOFTWARE.
           text.push("I never rejected " + metricLabel(d, id) + ": I adopted it at " + ad[0].step + " (" + ad[0].probe + " probe) because " + ad[0].reason + ".");
           src.push("aggregate.coevolution.ledger[" + ad[0].index + "]");
           sel = { candidate: ad[0].index, step: ad[0].step, evalGen: null };
+          subject = { candidate: id, step: ad[0].step };
         } else {
           var times = rej.length === 1 ? "once" : rej.length === 2 ? "twice" : rej.length + " times";
           var attempts = rej.map(function (r) {
@@ -28401,6 +28432,7 @@ THIS SOFTWARE.
           if (ad.length) { text.push("I did adopt it at " + ad[0].step + " because " + ad[0].reason + "."); src.push("aggregate.coevolution.ledger[" + ad[0].index + "]"); }
           var last = rej[rej.length - 1];
           sel = { candidate: last.index, step: last.step, evalGen: null };
+          subject = { candidate: id, step: last.step };
           var others = d.candidateIds.filter(function (x) { return x !== id && rowsOf(d, x).some(function (r) { return r.decision === "rejected"; }); });
           if (others.length) follow.push("why did you reject " + others[0] + "?");
           follow.push("what did the agent do at " + last.step + "?");
@@ -28421,7 +28453,7 @@ THIS SOFTWARE.
         ids.slice(0, 3).forEach(function (x) { follow.push("why did you reject " + x + "?"); });
       }
       follow.push("what did you learn?", "which probes fired?");
-      return { speaker: evalSpeaker(d), text: text, embed: "cov-flow", select: { family: "coevolution", value: sel }, sources: src, synthetic: true, followups: follow };
+      return { speaker: evalSpeaker(d), text: text, embed: "cov-flow", select: { family: "coevolution", value: sel }, sources: src, synthetic: true, followups: follow, subject: subject };
     },
   });
 
@@ -28478,7 +28510,7 @@ THIS SOFTWARE.
       }
       if (d.evo && d.evo.recommended && d.evo.recommended.why) { text.push("The page's own reading of the lineage: " + dot(d.evo.recommended.why)); src.push("aggregate.evolution.recommended.why"); }
       var into = d.steps.filter(function (s) { return s.to === pick; })[0];
-      return { speaker: evalSpeaker(d), text: text, embed: firstBlock(["evo-lineage", "cov-hindsight"]), select: pick && inCatalogue("evo-lineage") ? { family: "evolution", value: { gen: pick } } : null, sources: src, synthetic: true,
+      return { speaker: evalSpeaker(d), text: text, embed: firstBlock(["evo-lineage", "cov-hindsight"]), select: pick && inCatalogue("evo-lineage") ? { family: "evolution", value: { gen: pick } } : null, sources: src, synthetic: true, subject: { gen: pick, step: into ? stepKey(into) : null },
         followups: [into ? "did " + stepKey(into) + " help?" : null, "what would you have caught earlier?", d.other ? "compare with " + d.other : "show the lineage"] };
     },
   });
@@ -28504,7 +28536,7 @@ THIS SOFTWARE.
       if (mt.retired_at) tail.push("retired at " + (mt.retired_at.step || "?") + (mt.retired_at.reason || mt.retired_at.note ? " — " + (mt.retired_at.reason || mt.retired_at.note) : ""));
       if (tail.length) text.push(cap(tail.join("; ")) + ".");
       var others = d.metricIds.filter(function (x) { return x !== id; });
-      return { speaker: evalSpeaker(d), text: text, embed: "cov-metric", select: { family: "coevolution", value: { metric: id } }, sources: src, synthetic: true,
+      return { speaker: evalSpeaker(d), text: text, embed: "cov-metric", select: { family: "coevolution", value: { metric: id } }, sources: src, synthetic: true, subject: { metric: id },
         followups: [others[0] ? "what does " + others[0] + " say?" : null, rowsOf(d, id).some(function (r) { return r.decision === "rejected"; }) ? "why did you reject " + id + "?" : "what did you learn?", "what would you have caught earlier?"] };
     },
   });
@@ -28544,7 +28576,7 @@ THIS SOFTWARE.
         src.push("aggregate.coevolution.steps[" + Object.keys(d.covSteps).indexOf(key) + "].evolved.reading", "aggregate.coevolution.probes[].fired");
       }
       var rej = d.ledger.filter(function (r) { return r.step === key && r.decision === "rejected"; })[0];
-      return { speaker: evalSpeaker(d), text: text, embed: "cov-flow", select: { family: "coevolution", value: { step: key, evalGen: null, candidate: null } }, sources: src, synthetic: true,
+      return { speaker: evalSpeaker(d), text: text, embed: "cov-flow", select: { family: "coevolution", value: { step: key, evalGen: null, candidate: null } }, sources: src, synthetic: true, subject: { step: key, gen: key.split("→")[1] },
         followups: ["what changed at " + key + "?", "did " + key + " help?", rej ? "why did you reject " + rej.spec_id + "?" : null] };
     },
   });
@@ -28581,7 +28613,7 @@ THIS SOFTWARE.
         text.push("What " + B + "'s own eval learned is not in this report: the comparison carries no evals section (evolution_compare.evals" + (ev && ev.reason ? ": " + ev.reason : "") + "). " + (d.cov ? "I can only speak for what I watched." : "The page can only compare the two lineages' outcomes and process."));
         src.push("aggregate.evolution_compare.evals (absent)");
       }
-      return { speaker: me, text: text, more: more, embed: firstBlock(["evc-verdict", "evc-curves"]), select: null, sources: src, synthetic: true,
+      return { speaker: me, text: text, more: more, embed: firstBlock(["evc-verdict", "evc-curves"]), select: null, sources: src, synthetic: true, subject: { family: B },
         followups: ["who evolved better?", "show the task race", "show who learned faster", "show how soundly each evolved"] };
     },
   });
@@ -28600,6 +28632,8 @@ THIS SOFTWARE.
     return withRec.length ? [withRec[0]] : [];
   }
   function levelsSelect(row) { return row ? { family: "levels", value: { run: row.key } } : null; }
+  //: the subject of a levels answer: the run it read first, as an agent, a side and a run key
+  function runSubject(row) { return row ? { agent: sideName(row), run: row.key, side: row.side || null, task: row.task || null } : null; }
   //: the heaviest runs the page knows: the bundle's, the aggregate ledger's, else the pair reports' sides by their budget totals
   function heaviest(d) {
     if (d.overview && Array.isArray(d.overview.heaviest_runs) && d.overview.heaviest_runs.length) return { rows: d.overview.heaviest_runs.map(function (h) { return { key: h.key, tokens: h.tokens }; }), source: "DEEPCOMPARE_DATA.bundle.levels.overview.heaviest_runs", cap: d.overview.cap || null };
@@ -28655,7 +28689,7 @@ THIS SOFTWARE.
       if (!E.run && pb && pb.narrative && runs.length > 1) { text.push(dot(pb.narrative)); src.push("report.budget.narrative"); }
       if (!text.length && d.budgetAgg) { text.push(dot(d.budgetAgg.narrative)); src.push("aggregate.budget.narrative"); }
       if (!text.length) return cannot("no run on this page carries a budget reading", d, ctx);
-      return { speaker: PAGE, text: text, embed: firstBlock(["lv-run", "lv-runs"]), select: levelsSelect(first), sources: src, synthetic: d.synthetic,
+      return { speaker: PAGE, text: text, embed: firstBlock(["lv-run", "lv-runs"]), select: levelsSelect(first), sources: src, synthetic: d.synthetic, subject: runSubject(first),
         followups: ["which run was the most expensive?", "how many fetches were wasted?", first ? "what did " + sideName(first) + " fetch?" : "show the searches", "what is running?"] };
     },
   });
@@ -28669,7 +28703,7 @@ THIS SOFTWARE.
       text.push("The heaviest run is " + (rows[0].label || rows[0].key) + " at " + tok(rows[0].tokens) + " tokens" + (rows.length > 1 ? "; then " + rows.slice(1).map(function (r) { return (r.label || r.key) + " (" + tok(r.tokens) + ")"; }).join(", ") : "") + ".");
       if (h.cap) { text.push(isNum(h.cap.value) ? "The token cap is " + tok(h.cap.value) + " (" + (h.cap.source || "") + "): " + plural((h.cap.over || []).length, "run") + " over it" + ((h.cap.over || []).length ? " — " + h.cap.over.slice(0, 5).map(function (o) { return o.key || (o.agent + " on " + o.task + " (" + o.run + ")"); }).join(", ") : "") + "." : "No token cap was given (" + (h.cap.source || "none given") + "), so no run is over one."); src.push(h.source.replace("heaviest_runs", "cap")); }
       var row = d.runByKey[rows[0].key] || null;
-      return { speaker: PAGE, text: text, embed: firstBlock(["lv-runs", "lv-run"]), select: { family: "levels", value: { sort: "tokens", run: row ? row.key : null } }, sources: src, synthetic: d.synthetic,
+      return { speaker: PAGE, text: text, embed: firstBlock(["lv-runs", "lv-run"]), select: { family: "levels", value: { sort: "tokens", run: row ? row.key : null } }, sources: src, synthetic: d.synthetic, subject: runSubject(row),
         followups: ["where did the tokens go?", row && row.detail ? "what did " + row.agent + " fetch?" : "show the searches", "what is running?"] };
     },
   });
@@ -28694,7 +28728,7 @@ THIS SOFTWARE.
       });
       if (!text.length && d.fetchesAgg) { text.push(dot(d.fetchesAgg.narrative)); src.push("aggregate.fetches.narrative"); }
       if (!text.length) return cannot("no run on this page carries a fetches reading", d, ctx);
-      return { speaker: PAGE, text: text, embed: firstBlock(["lv-run", "lv-runs"]), select: levelsSelect(first), sources: src, synthetic: d.synthetic,
+      return { speaker: PAGE, text: text, embed: firstBlock(["lv-run", "lv-runs"]), select: levelsSelect(first), sources: src, synthetic: d.synthetic, subject: runSubject(first),
         followups: ["how many fetches were wasted?", "where did the tokens go?", first && !E.run && runs.length > 1 ? "what did " + sideName(runs[1]) + " fetch?" : "which run was the most expensive?", d.hasPairData ? "what did they read?" : null] };
     },
   });
@@ -28720,7 +28754,7 @@ THIS SOFTWARE.
       if (!text.length) return cannot("no run on this page carries a fetches reading", d, ctx);
       var basis = first ? (runRecord(d, first).budget || {}).waste : null;
       if (basis && basis.basis) { text.push("How waste is read: " + dot(basis.basis)); }
-      return { speaker: PAGE, text: text, embed: firstBlock(["lv-run", "lv-runs"]), select: levelsSelect(first), sources: src, synthetic: d.synthetic,
+      return { speaker: PAGE, text: text, embed: firstBlock(["lv-run", "lv-runs"]), select: levelsSelect(first), sources: src, synthetic: d.synthetic, subject: runSubject(first),
         followups: ["show the searches", "where did the tokens go?", "which run was the most expensive?"] };
     },
   });
@@ -28817,7 +28851,7 @@ THIS SOFTWARE.
         if (gens.length) { text.push("The instructions grew from " + plural(count(gens[0].instructions && gens[0].instructions.chars), "character") + " at " + gens[0].id + " to " + plural(count(gens[gens.length - 1].instructions && gens[gens.length - 1].instructions.chars), "character") + " at " + gens[gens.length - 1].id + "; ask “what data triggered " + (de.steps[0] ? de.steps[0].from + "→" + de.steps[0].to : "a step") + "” for one step in full."); src.push("aggregate.data_evolution.generations[].instructions.chars"); }
       }
       var other = de.steps.filter(function (s) { return s.from + "→" + s.to !== key; })[0];
-      return { speaker: d.cov ? evalSpeaker(d) : PAGE, text: text, embed: firstBlock(["dt-evolution"]), select: key ? { family: "data", value: { gen: key } } : null, sources: src, synthetic: true,
+      return { speaker: d.cov ? evalSpeaker(d) : PAGE, text: text, embed: firstBlock(["dt-evolution"]), select: key ? { family: "data", value: { gen: key } } : null, sources: src, synthetic: true, subject: key ? { step: key, gen: key.split("→")[1] } : null,
         followups: [other ? "what data triggered " + other.from + "→" + other.to + "?" : null, key ? "what changed at " + key + "?" : "how did the agent evolve?", d.cov ? "what did you learn?" : "which generation should I keep?"] };
     },
   });
@@ -28956,7 +28990,7 @@ THIS SOFTWARE.
       text.push("At " + key + " (" + (s.mechanism || "step") + ") the agent changed: " + (s.diff && s.diff.summary ? s.diff.summary : "nothing the diff can name") + (s.evidence && s.evidence.summary ? " — citing " + s.evidence.summary + (s.evidence_check && s.evidence_check.reading ? " (" + s.evidence_check.reading + ")" : "") : "") + ".");
       if (s.diff && Array.isArray(s.diff.protected_touched) && s.diff.protected_touched.length) text.push("It touched a protected path: " + s.diff.protected_touched.join(", ") + ".");
       if (s.reading) text.push(dot(s.reading));
-      return { speaker: PAGE, text: text, embed: "evo-step", select: { family: "evolution", value: { gen: s.to } }, sources: src, synthetic: d.synthetic,
+      return { speaker: PAGE, text: text, embed: "evo-step", select: { family: "evolution", value: { gen: s.to } }, sources: src, synthetic: d.synthetic, subject: { step: key, gen: s.to },
         followups: ["did " + key + " help?", d.cov ? "what did the agent do at " + key + "?" : "show the lineage", "which generation should I keep?"] };
     },
   });
@@ -28972,7 +29006,7 @@ THIS SOFTWARE.
       var word = s.verdict === "improved" ? "Yes" : s.verdict === "regressed" || s.verdict === "gamed" || s.verdict === "forgot" ? "No" : "Not clearly";
       text.push(word + " — the engine's verdict on " + key + " is " + (s.verdict || "unmeasured") + (Array.isArray(s.flags) && s.flags.length ? " (flags: " + s.flags.join(", ") + ")" : "") + (imp && isNum(imp.point) ? ": P(" + s.to + " > " + s.from + ") " + pci(imp) + " on return" + (imp.noisy ? " — spans the coin flip" : "") : ": the effect is not measured" + (eff.reason ? " (" + eff.reason + ")" : "")) + (imps && isNum(imps.point) ? ", " + pci(imps) + " on outcome" : "") + ".");
       if (s.reading) text.push(dot(s.reading));
-      return { speaker: PAGE, text: text, embed: "evo-step", select: { family: "evolution", value: { gen: s.to } }, sources: src, synthetic: d.synthetic,
+      return { speaker: PAGE, text: text, embed: "evo-step", select: { family: "evolution", value: { gen: s.to } }, sources: src, synthetic: d.synthetic, subject: { step: key, gen: s.to },
         followups: ["what changed at " + key + "?", "which generation should I keep?", "show the steps"] };
     },
   });
@@ -28984,7 +29018,7 @@ THIS SOFTWARE.
     answer: function (q, E, d) {
       var r = d.evo.recommended, text = ["Keep " + r.id + (r.is_last ? " (the last generation)" : "") + (r.why ? ": " + dot(r.why) : ".")];
       if (d.evo.best && d.evo.best.why && d.evo.best.id !== r.id) text.push("The best-scoring generation is " + d.evo.best.id + ": " + dot(d.evo.best.why));
-      return { speaker: PAGE, text: text, embed: firstBlock(["evo-lineage", "evo-steps"]), select: { family: "evolution", value: { gen: r.id } }, sources: ["aggregate.evolution.recommended", "aggregate.evolution.best"], synthetic: d.synthetic,
+      return { speaker: PAGE, text: text, embed: firstBlock(["evo-lineage", "evo-steps"]), select: { family: "evolution", value: { gen: r.id } }, sources: ["aggregate.evolution.recommended", "aggregate.evolution.best"], synthetic: d.synthetic, subject: { gen: r.id, step: stepOf({ gen: r.id }, d) },
         followups: ["what changed at " + stepKey(worstStep(d)) + "?", "show the lineage", d.other ? "compare with " + d.other : "is the evolution sound?"] };
     },
   });
@@ -29055,10 +29089,236 @@ THIS SOFTWARE.
   //: "show the lineage", not "show The lineage": a title's first letter lowered unless it opens an acronym
   function showQ(title) { var t = String(title || ""); return "show " + (t.length > 1 && t.charAt(1) === t.charAt(1).toUpperCase() && /[A-Z]/.test(t.charAt(1)) ? t : t.charAt(0).toLowerCase() + t.slice(1)); }
 
+  // ---------------------------------------------------------- follow-ups
+  //
+  // The last answer's subject: its intent and the agent, side, run, step,
+  // generation, metric, candidate, family and task it was about. A question
+  // that leans on it resolves into a full question, in three ways:
+  //
+  //   a carrying phrase   "and for bolt-v3?", "what about g3→g4?", "same for m2"
+  //   a bare name         "bolt-v3", "g3→g4", "m2", "r2"
+  //   a pronoun           "did it help?", "and its tokens?", "the other one"
+  //
+  // A question with an intent of its own keeps it and only borrows the
+  // subject it lacks ("and its tokens?" after an agent asks that agent's
+  // budget); a question without one carries the last intent ("and for
+  // bolt-v3?" after "what did memo-agent fetch?" asks what bolt-v3
+  // fetched). The resolved question is routed with its intent forced, so
+  // the words of a template never re-route it, and it is shown under the
+  // typed one. Without an earlier answer there is nothing to carry.
+
+  var SUBJECT_KINDS = ["step", "gen", "metric", "candidate", "agent", "run", "family", "task"];
+  var CARRY = ["what about", "how about", "and for", "and on", "and the", "and its", "and their", "same for", "the same for", "the same", "the other one", "the other", "other one", "again", "also", "as well", "instead"];
+  var PRONOUNS = ["it", "its", "that", "this", "them", "those", "there", "that one", "this one"];
+  //: phrases where the pronoun is part of the question, not a reference to the last answer
+  var NOT_ANAPHORA = ["how did it evolve", "which one wins", "in this bundle", "produced this", "was it good", "worth it", "is it", "what is this"];
+  var OTHER = /\s(the other one|the other|other one)\s/;
+  function carrying(nq) { return CARRY.some(function (p) { return nq.indexOf(" " + p + " ") >= 0; }); }
+  function pronoun(nq) {
+    if (NOT_ANAPHORA.some(function (p) { return nq.indexOf(" " + p + " ") >= 0; })) return false;
+    return PRONOUNS.some(function (p) { return nq.indexOf(" " + p + " ") >= 0; });
+  }
+  //: the question without its carrying phrases and pronouns: what it asks on its own
+  function residue(nq) {
+    var s = nq;
+    CARRY.concat(PRONOUNS).sort(function (a, b) { return b.length - a.length; }).forEach(function (p) { s = s.split(" " + p + " ").join(" "); });
+    return " " + s.replace(/\s+/g, " ").trim() + " ";
+  }
+  var EMPTY_E = { step: null, stepInto: null, gen: null, metric: null, candidate: null, block: null, blockScore: 0, family: null, agent: null, task: null, run: null };
+  //: the intent a question asks for by its own words, entities aside
+  function ownIntent(nq, d) {
+    var best = null;
+    INTENTS.forEach(function (it) {
+      var s = 0;
+      try { s = it.match(nq, EMPTY_E, d) || 0; } catch (err) { s = 0; }
+      if (s > 0 && (!best || s > best.score)) best = { it: it, score: s };
+    });
+    return best ? best.it : null;
+  }
+  //: what a question names, by kind
+  function namedKinds(E) {
+    var out = {};
+    if (E.step) { out.step = E.step; out.gen = E.step.split("→")[1]; }
+    else if (E.gen) { out.gen = E.gen; if (E.stepInto) out.step = E.stepInto; }
+    if (E.metric) out.metric = E.metric;
+    if (E.candidate) out.candidate = E.candidate;
+    if (E.agent) { out.agent = E.agent; out.run = E.run ? E.run.key : null; }
+    if (E.family) out.family = E.family;
+    if (E.task) out.task = E.task;
+    return out;
+  }
+  function sideOfAgent(name, ctx) {
+    var r = ctx && ctx.report;
+    if (!r || !name) return null;
+    return ["a", "b"].filter(function (side) { return r[side] && r[side].agent && String(r[side].agent.name) === String(name); })[0] || null;
+  }
+  //: the step a subject stands on: its own, or the step into its generation
+  function stepOf(S, d) {
+    if (S.step) return S.step;
+    if (S.gen) { var into = d.steps.filter(function (x) { return x.to === S.gen; })[0]; return into ? stepKey(into) : null; }
+    return null;
+  }
+  //: a run as a question names it: the agent, plus its task and run id when the run is not the pair in view
+  function runLabel(S, d, ctx) {
+    var row = S.run ? d.runByKey[S.run] : null;
+    if (!row) return S.agent || "";
+    if (row.report && ctx && row.report === ctx.report) return row.agent;
+    var same = d.runs.filter(function (r) { return r.agent === row.agent; });
+    return same.length > 1 ? row.agent + " on " + row.task + " (" + row.run_id + ")" : row.agent;
+  }
+  //: the other one: the pair's other side, the other of two agents or policies, the other lineage
+  function otherOf(S, d, ctx) {
+    var r = ctx && ctx.report;
+    if (S.side && r) {
+      var side = S.side === "a" ? "b" : "a";
+      if (r[side] && r[side].agent) { var row = pairRuns(d, ctx).filter(function (x) { return x.side === side; })[0]; return { agent: String(r[side].agent.name), side: side, run: row ? row.key : null }; }
+    }
+    if (S.agent) {
+      var names = d.agents.length === 2 ? d.agents : d.policies.length === 2 ? d.policies : [];
+      var o = names.filter(function (n) { return n !== S.agent; })[0];
+      if (o) { var orow = d.runs.filter(function (x) { return x.agent === o && (!S.task || x.task === S.task); })[0]; return { agent: o, side: sideOfAgent(o, ctx), run: orow ? orow.key : null }; }
+    }
+    if (S.family) { var f = d.families.filter(function (x) { return x && x !== S.family; })[0]; if (f) return { family: f }; }
+    return null;
+  }
+  //: the last subject with what the new question names laid over it (or its other one)
+  function merge(base, named, d, ctx, other) {
+    var S = {};
+    for (var k in base) if (Object.prototype.hasOwnProperty.call(base, k)) S[k] = base[k];
+    if (other) { var o = otherOf(base, d, ctx); if (!o) return null; for (var k2 in o) if (Object.prototype.hasOwnProperty.call(o, k2)) S[k2] = o[k2]; }
+    if (named.step || named.gen) { S.step = named.step || null; S.gen = named.gen || null; }
+    if (named.metric) S.metric = named.metric;
+    if (named.candidate) S.candidate = named.candidate;
+    if (named.agent) { S.agent = named.agent; S.run = named.run || null; S.side = sideOfAgent(named.agent, ctx); }
+    if (named.family) S.family = named.family;
+    if (named.task) S.task = named.task;
+    return S;
+  }
+  /* The question each intent asks about a subject of a given kind — the
+   * templates a follow-up resolves into and the chips are built from. An
+   * intent absent here takes the generic rewrite: the last question with
+   * the old name replaced by the new one, or "… for <name>?". */
+  var ASK = {
+    "eval-rejected": { kinds: ["candidate", "metric"], ask: function (k, S) { return "why did you reject " + S[k] + "?"; } },
+    "eval-metric": { kinds: ["metric"], ask: function (k, S) { return "what does " + S.metric + " say?"; } },
+    "eval-saw": { kinds: ["step", "gen"], ask: function (k, S, d) { var s = stepOf(S, d); return s ? "what did the agent do at " + s + "?" : null; } },
+    "eval-compare": { kinds: ["family"], ask: function (k, S) { return "compare with " + S.family; } },
+    "lv-budget": { kinds: ["agent", "run"], ask: function (k, S, d, ctx) { return "where did the tokens go for " + runLabel(S, d, ctx) + "?"; } },
+    "lv-fetch": { kinds: ["agent", "run"], ask: function (k, S, d, ctx) { return "what did " + runLabel(S, d, ctx) + " fetch?"; } },
+    "lv-waste": { kinds: ["agent", "run"], ask: function (k, S, d, ctx) { return "how many fetches were wasted by " + runLabel(S, d, ctx) + "?"; } },
+    "evo-changed": { kinds: ["step", "gen"], ask: function (k, S, d) { var s = stepOf(S, d); return s ? "what changed at " + s + "?" : null; } },
+    "evo-helped": { kinds: ["step", "gen"], ask: function (k, S, d) { var s = stepOf(S, d); return s ? "did " + s + " help?" : null; } },
+    "dt-evolve": { kinds: ["step", "gen"], ask: function (k, S, d) { var s = stepOf(S, d); return s ? "what data triggered " + s + "?" : null; } },
+    "verdict": { kinds: ["task"], ask: function (k, S) { return "what happened on " + S.task + "?"; } },
+  };
+  //: the kind of a subject an intent's template can take: the preferred one, else the first it holds
+  function kindFor(id, S, prefer) {
+    var t = ASK[id];
+    if (!t || !S) return null;
+    if (prefer && t.kinds.indexOf(prefer) >= 0 && S[prefer]) return prefer;
+    return t.kinds.filter(function (k) { return !!S[k]; })[0] || null;
+  }
+  function askFor(id, S, kind, d, ctx) { var t = ASK[id]; if (!t || !kind) return null; try { return t.ask(kind, S, d, ctx) || null; } catch (err) { return null; } }
+  //: the generic rewrite: the last question with the old name swapped for the new, else "… for <name>?"
+  function generic(prev, S, kind, d, ctx) {
+    var q = String(prev.q || "");
+    if (!kind) return q;
+    var oldV = kind === "run" ? runLabel(prev.subject, d, ctx) : prev.subject[kind], newV = kind === "run" ? runLabel(S, d, ctx) : S[kind];
+    if (!newV) return q;
+    if (oldV && String(oldV) !== String(newV)) {
+      var at = q.toLowerCase().indexOf(String(oldV).toLowerCase());
+      if (at >= 0) return q.slice(0, at) + newV + q.slice(at + String(oldV).length);
+    }
+    if (q.toLowerCase().indexOf(String(newV).toLowerCase()) >= 0) return q;
+    return q.replace(/[?.!]\s*$/, "") + " for " + newV + "?";
+  }
+  /* The resolution: null when the question stands on its own; {none} when
+   * it leans on an answer that was never given; {other} when "the other
+   * one" has no other; else {intent, resolved, subject}. */
+  function followup(nq, E, d, ctx, prev) {
+    // the question's own intent, by its words with the entities blanked; a question that is nothing but a carrying phrase has none
+    var own = residue(nq).trim() ? ownIntent(nq, d) : null, named = namedKinds(E), kinds = Object.keys(named);
+    var rid = /\s(r\d+)\s/.exec(nq), other = OTHER.test(nq);
+    var anaphoric = carrying(nq) || pronoun(nq) || other;
+    var S, kind;
+    if (own) {
+      if (!anaphoric || !prev) return null;
+      S = merge(prev.subject, named, d, ctx, other);
+      if (!S) return { other: true };
+      kind = kindFor(own.id, S, kinds[0]);
+      var q1 = kind ? askFor(own.id, S, kind, d, ctx) : null;
+      return q1 ? { intent: own.id, resolved: q1, subject: S } : null;
+    }
+    if (!kinds.length && !rid && !anaphoric) return null;
+    if (!prev) return { none: true };
+    S = merge(prev.subject, named, d, ctx, other);
+    if (!S) return { other: true };
+    if (rid && !named.agent && S.agent) {
+      var row = d.runs.filter(function (r) { return r.agent === S.agent && r.run_id === rid[1] && (!S.task || r.task === S.task); })[0] || d.runs.filter(function (r) { return r.agent === S.agent && r.run_id === rid[1]; })[0];
+      if (!row) return { norun: rid[1], agent: S.agent };
+      S.run = row.key; S.side = row.side || null; S.task = row.task; kinds.unshift("run");
+    }
+    kind = kindFor(prev.intent, S, kinds[0]);
+    var q2 = kind ? askFor(prev.intent, S, kind, d, ctx) : null;
+    return { intent: prev.intent, resolved: q2 || generic(prev, S, kinds[0] || null, d, ctx), subject: S };
+  }
+  //: the resolved question's entities, completed from the subject where its words name none
+  function overlay(E, S, d) {
+    if (!S) return E;
+    if (S.run && d.runByKey[S.run] && (!E.agent || d.runByKey[S.run].agent === E.agent)) { E.run = d.runByKey[S.run]; E.agent = E.agent || E.run.agent; }
+    if (!E.step && S.step) E.step = S.step;
+    if (!E.gen && S.gen) E.gen = S.gen;
+    ["metric", "candidate", "family", "task"].forEach(function (k) { if (!E[k] && S[k]) E[k] = S[k]; });
+    if (!E.agent && S.agent) E.agent = S.agent;
+    return E;
+  }
+  //: the subject of an answer: what the question named, corrected by what the intent actually answered
+  function subjectOf(res, E, d, ctx) {
+    var S = { intent: res.intent, agent: E.agent || null, run: E.run ? E.run.key : null, side: null, step: E.step || E.stepInto || null, gen: E.gen || null, metric: E.metric || null, candidate: E.candidate || null, family: E.family || null, task: E.task || null, block: E.block ? E.block.id : null };
+    var cs = res.card && res.card.subject;
+    if (cs && typeof cs === "object") for (var k in cs) if (Object.prototype.hasOwnProperty.call(cs, k) && cs[k] !== undefined) S[k] = cs[k];
+    if (S.run && d.runByKey[S.run]) { var row = d.runByKey[S.run]; S.agent = S.agent || row.agent; S.side = S.side || row.side || null; S.task = S.task || row.task || null; }
+    if (S.agent && !S.side) S.side = sideOfAgent(S.agent, ctx);
+    if (S.step && !S.gen) S.gen = S.step.split("→")[1];
+    return S;
+  }
+  //: two follow-ups that use the carried subject, from other intents' templates the report can answer
+  var CHIP_ORDER = { step: ["evo-helped", "evo-changed", "eval-saw", "dt-evolve"], gen: ["evo-changed", "evo-helped", "eval-saw"], agent: ["lv-fetch", "lv-budget", "lv-waste"], run: ["lv-fetch", "lv-budget", "lv-waste"], metric: ["eval-metric", "eval-rejected"], candidate: ["eval-rejected"], family: ["eval-compare"], task: ["verdict"] };
+  function carriedChips(S, d, ctx) {
+    var out = [];
+    if (!S) return out;
+    ["step", "gen", "agent", "run", "metric", "candidate", "family", "task"].forEach(function (kind) {
+      if (!S[kind] || out.length >= 2) return;
+      (CHIP_ORDER[kind] || []).forEach(function (id) {
+        if (out.length >= 2 || id === S.intent || !INTENT_BY_ID[id] || !safeWhen(INTENT_BY_ID[id], d, ctx)) return;
+        var q = askFor(id, S, kind, d, ctx);
+        if (q && out.indexOf(q) < 0) out.push(q);
+      });
+    });
+    if (out.length < 2 && otherOf(S, d, ctx)) out.push("and the other one?");
+    return out.slice(0, 2);
+  }
+
   // -------------------------------------------------------------- router
 
-  function route(q, d, ctx) {
-    var nq = norm(q), E = entities(nq, d);
+  /* prev: the last answer's {intent, q, subject}, or null. Returns {intent,
+   * E, card, resolved, subject}: `resolved` is the question the typed one
+   * became (null when it stood on its own), `subject` what the answer was
+   * about (null for a cannot card). */
+  function route(q, d, ctx, prev) {
+    var nq = norm(q), E = entities(nq, d), fu = null;
+    try { fu = followup(nq, E, d, ctx, prev || null); } catch (err) { if (global.console) console.warn("AgentDiff chat: the follow-up could not be resolved", err); fu = null; }
+    if (fu && fu.none) return { intent: null, E: E, card: cannot("there is no earlier answer to carry that from — ask a full question first, naming the agent, the step or the metric", d, ctx), resolved: null, subject: null };
+    if (fu && fu.norun) return { intent: null, E: E, card: cannot("this page has no run " + fu.norun + " of " + fu.agent + " (" + plural(d.runs.filter(function (r) { return r.agent === fu.agent; }).length, "run") + " of it listed)", d, ctx), resolved: null, subject: null };
+    if (fu && fu.other) return { intent: null, E: E, card: cannot("I can't tell which other one: the last answer was not about one agent, run or lineage", d, ctx), resolved: null, subject: null };
+    var force = null;
+    if (fu && fu.resolved) { nq = norm(fu.resolved); E = overlay(entities(nq, d), fu.subject, d); force = fu.intent; }
+    var out = routeIntent(nq, E, d, ctx, force);
+    out.resolved = fu && fu.resolved && fu.resolved.trim().toLowerCase() !== String(q).trim().toLowerCase() ? fu.resolved : null;
+    out.subject = out.card && !out.card.cannot && !out.card.welcome ? subjectOf(out, E, d, ctx) : null;
+    return out;
+  }
+  function routeIntent(nq, E, d, ctx, force) {
     var scored = INTENTS.map(function (it) {
       var s = 0;
       try { s = it.match(nq, E, d) || 0; } catch (err) { s = 0; }
@@ -29066,7 +29326,8 @@ THIS SOFTWARE.
     });
     // the best intent this report can answer; failing that, the best it cannot, for its reason
     var best = null;
-    scored.forEach(function (x) { if (x.ok && x.score > 0 && (!best || x.score > best.score)) best = x; });
+    if (force) best = scored.filter(function (x) { return x.it.id === force; })[0] || null;
+    if (!best) scored.forEach(function (x) { if (x.ok && x.score > 0 && (!best || x.score > best.score)) best = x; });
     if (!best) scored.forEach(function (x) { if (x.score > 0 && (!best || x.score > best.score)) best = x; });
     if (!best) return { intent: null, E: E, card: cannot(null, d, ctx, nearest(scored, d, ctx)) };
     if (!best.ok) {
@@ -29156,7 +29417,10 @@ THIS SOFTWARE.
     family().persist();
     return st;
   }
-  function clearTurns() { family().reset(); }
+  function clearTurns() { family().reset(); LAST = null; }
+  //: the last answer's subject, threaded through the transcript on render and advanced by every ask
+  var LAST = null;
+  function advance(prev, res, q) { return res && res.subject ? { intent: res.intent, q: res.resolved || q, subject: res.subject } : prev; }
 
   // -------------------------------------------------------------- render
 
@@ -29273,15 +29537,25 @@ THIS SOFTWARE.
       function history() { return st.turns.filter(function (t) { return t.q; }).map(function (t) { return t.q; }).slice(-HISTORY); }
       function setChips(list, evalFam) {
         chips.innerHTML = "";
-        (list || []).filter(Boolean).forEach(function (q) {
-          chips.appendChild(H("button", { type: "button", class: "chat-chip" + (evalFam && d.cov && /you|your|yourself|compare|keep|probes/.test(q) ? " eval" : ""), text: q, onclick: function () { ask(q); } }));
+        (list || []).filter(Boolean).forEach(function (c) {
+          var q = typeof c === "string" ? c : c.q;
+          chips.appendChild(H("button", { type: "button", class: "chat-chip" + (evalFam && d.cov && /you|your|yourself|compare|keep|probes/.test(q) ? " eval" : ""), "data-carried": c.carried ? "true" : null, text: q, onclick: function () { ask(q); } }));
         });
       }
-      function chipsFor(card) {
-        var f = card && Array.isArray(card.followups) ? card.followups.filter(Boolean) : [];
-        if (f.length < 3) defaultChips(d, ctx).forEach(function (c) { if (f.length < 5 && f.indexOf(c) < 0) f.push(c); });
-        if (f.indexOf("what can you answer?") < 0) f.push("what can you answer?");
+      function chipsFor(res) {
+        var card = res && res.card, f = [];
+        // two follow-ups on the carried subject first, then the answer's own, then the data's
+        carriedChips(res && res.subject, d, ctx).forEach(function (c) { f.push({ q: c, carried: true }); });
+        (card && Array.isArray(card.followups) ? card.followups.filter(Boolean) : []).forEach(function (c) { if (!f.some(function (x) { return x.q === c; })) f.push({ q: c }); });
+        var own = f.filter(function (x) { return !x.carried; }).length;
+        if (own < 3) defaultChips(d, ctx).forEach(function (c) { if (own < 5 && !f.some(function (x) { return x.q === c; })) { f.push({ q: c }); own++; } });
+        if (!f.some(function (x) { return x.q === "what can you answer?"; })) f.push({ q: "what can you answer?" });
         return f;
+      }
+      //: the typed question, and under it the question it resolved into when it leaned on the last answer
+      function question(row, q, resolved) {
+        row.appendChild(H("p", { class: "chat-q", text: q, "aria-label": "you asked: " + q }));
+        if (resolved) row.appendChild(H("p", { class: "chat-q-resolved", text: "↳ " + resolved, "aria-label": "read as: " + resolved }));
       }
       function ask(q) {
         q = String(q || "").trim();
@@ -29291,10 +29565,11 @@ THIS SOFTWARE.
         var i = st.turns.length - 1;
         // the answer, then its selection (the page is connected now, so the
         // families' subscribers hear it), then the embed drawn on the new state
-        var res = route(q, d, ctx);
+        var res = route(q, d, ctx, LAST);
+        LAST = advance(LAST, res, q);
         applySelection(res.card.select);
-        var row = H("li", { class: "chat-turn new", "data-turn": String(i) });
-        row.appendChild(H("p", { class: "chat-q", text: q, "aria-label": "you asked: " + q }));
+        var row = H("li", { class: "chat-turn new", "data-turn": String(i), "data-resolved": res.resolved || null });
+        question(row, q, res.resolved);
         // the older answers' embeds beyond the live window fold to a control, and so
         // does every older embed of the family whose selection this answer moves
         var lives = log.querySelectorAll('.chat-embed[data-drawn="true"]');
@@ -29307,8 +29582,8 @@ THIS SOFTWARE.
         var ms = (global.performance && performance.now ? performance.now() : Date.now()) - t0;
         row.setAttribute("data-answer-ms", ms.toFixed(1));
         row.setAttribute("data-intent", res.intent || "cannot");
-        setChips(chipsFor(res.card), true);
-        status.textContent = (res.card.cannot ? "No answer for that; " : "Answered by " + res.card.speaker + "; ") + "turn " + (i + 1) + " of " + st.turns.length + (st.turns.length >= MAX_TURNS ? " (the transcript keeps the latest " + MAX_TURNS + ")" : "") + ".";
+        setChips(chipsFor(res), true);
+        status.textContent = (res.card.cannot ? "No answer for that; " : "Answered by " + res.card.speaker + "; ") + (res.resolved ? "read as “" + res.resolved + "”; " : "") + "turn " + (i + 1) + " of " + st.turns.length + (st.turns.length >= MAX_TURNS ? " (the transcript keeps the latest " + MAX_TURNS + ")" : "") + ".";
         input.value = ""; draft = ""; histAt = -1;
         try { row.scrollIntoView({ block: "nearest", behavior: prefersReduced() ? "auto" : "smooth" }); } catch (err) { /* fine */ }
         ctx.signal("inspect");
@@ -29318,7 +29593,15 @@ THIS SOFTWARE.
       // LIVE_EMBEDS embeds drawn live, except a selection-bound one whose
       // selection the page no longer holds (it folds to "draw at this
       // answer's selection"), and only the latest per family stays live
-      var cards = st.turns.map(function (turn) { return turn.q === null || turn.q === undefined ? welcome(d, ctx) : route(turn.q, d, ctx).card; });
+      var prev = null;
+      var results = st.turns.map(function (turn) {
+        if (turn.q === null || turn.q === undefined) return { card: welcome(d, ctx), resolved: null, subject: null };
+        var r = route(turn.q, d, ctx, prev);
+        prev = advance(prev, r, turn.q);
+        return r;
+      });
+      LAST = prev;
+      var cards = results.map(function (r) { return r.card; });
       var liveSet = {}, seenFam = {}, n = 0;
       for (var i = cards.length - 1; i >= 0 && n < LIVE_EMBEDS; i--) {
         var c = cards[i];
@@ -29329,12 +29612,12 @@ THIS SOFTWARE.
         liveSet[i] = true;
       }
       st.turns.forEach(function (turn, i) {
-        var row = H("li", { class: "chat-turn", "data-turn": String(i) });
-        if (turn.q) row.appendChild(H("p", { class: "chat-q", text: turn.q, "aria-label": "you asked: " + turn.q }));
+        var row = H("li", { class: "chat-turn", "data-turn": String(i), "data-resolved": results[i].resolved || null });
+        if (turn.q) question(row, turn.q, results[i].resolved);
         renderCard(H, cards[i], d, ctx, { ask: ask, live: !!liveSet[i], parent: row });
         log.appendChild(row);
       });
-      setChips(chipsFor(cards[cards.length - 1]), true);
+      setChips(chipsFor(results[results.length - 1]), true);
 
       var composer = H("div", { class: "chat-composer" });
       composer.appendChild(chips);
@@ -29368,7 +29651,10 @@ THIS SOFTWARE.
   // a small surface for the tests and for a block that wants to ask
   AgentDiff.chat = {
     ask: function (q) { var input = document.querySelector(".chat-input"); var form = input && input.closest("form"); if (!input || !form) return false; input.value = q; form.requestSubmit ? form.requestSubmit() : form.dispatchEvent(new Event("submit", { cancelable: true })); return true; },
-    route: function (q) { var ctx = { aggregate: AgentDiff.state().data.aggregate || {}, report: null, task: AgentDiff.state().task }; try { ctx.report = (AgentDiff.state().data.reports || []).filter(function (r) { return r && r.task && r.task.id === ctx.task; })[0] || (AgentDiff.state().data.reports || [])[0] || null; } catch (err) { ctx.report = null; } var r = route(q, data(ctx), ctx); return { intent: r.intent, card: r.card }; },
+    //: route a question on its own, or against a subject (`prev`: {intent, q, subject}, as `last()` returns)
+    route: function (q, prev) { var ctx = { aggregate: AgentDiff.state().data.aggregate || {}, report: null, task: AgentDiff.state().task }; try { ctx.report = (AgentDiff.state().data.reports || []).filter(function (r) { return r && r.task && r.task.id === ctx.task; })[0] || (AgentDiff.state().data.reports || [])[0] || null; } catch (err) { ctx.report = null; } var r = route(q, data(ctx), ctx, prev || null); return { intent: r.intent, card: r.card, resolved: r.resolved, subject: r.subject }; },
+    //: the last answer's subject, as the next question will resolve against it
+    last: function () { return LAST ? { intent: LAST.intent, q: LAST.q, subject: LAST.subject } : null; },
     intents: function () { return INTENTS.map(function (i) { return { id: i.id, family: i.family, example: i.example }; }); },
     turns: function () { return (family().get().turns || []).map(function (t) { return t.q; }); },
     clear: clearTurns,
@@ -29517,8 +29803,7 @@ THIS SOFTWARE.
   var fmtInt = d3.format(",d");
   function tok(v) { return isNum(v) ? fmtInt(Math.round(v)) : "—"; }
   function usd(v) { return isNum(v) ? "$" + num(v, 4) : "—"; }
-  function plural(n, word) { return (isNum(n) ? fmtInt(n) : "—") + " " + word + (n === 1 ? "" : /(ch|sh|s|x)$/.test(word) ? "es" : "s"); }
-  function trunc(s, n) { s = String(s === null || s === undefined ? "" : s); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  var plural = L.fmt.plural, trunc = L.fmt.trunc;
   function prefersReduced() {
     try { return !!(global.matchMedia && global.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (err) { return false; }
   }
@@ -30704,8 +30989,7 @@ THIS SOFTWARE.
   var H = null;
   var fmtInt = d3.format(",d");
   function int(v) { return isNum(v) ? fmtInt(Math.round(v)) : "—"; }
-  function plural(n, word) { return int(n) + " " + word + (n === 1 ? "" : /(ch|sh|s|x)$/.test(word) ? "es" : "s"); }
-  function trunc(s, n) { s = String(s === null || s === undefined ? "" : s); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  var plural = L.fmt.plural, trunc = L.fmt.trunc;
   function cap(s) { s = String(s || ""); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
   function prefersReduced() {
     try { return !!(global.matchMedia && global.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (err) { return false; }

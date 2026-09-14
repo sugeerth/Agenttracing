@@ -132,7 +132,7 @@
     var s = num(Math.abs(v), p);
     return v > 0 ? "+" + s : v < 0 ? "−" + s : s;
   }
-  function trunc(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  var trunc = L.fmt.trunc, plural = L.fmt.plural;
   function cap(s) { s = String(s || ""); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
   function width(host) { return L.layout.measure(host, 300, 1400); }
   function prefersReduced() {
@@ -146,7 +146,6 @@
   function tooltip(root) { return L.svg.tip(root, { class: "cov-tip", width: 340 }); }
   function ci(v) { return v && isNum(v.point) ? num(v.point) + (isNum(v.lo) ? " [" + num(v.lo) + ", " + num(v.hi) + "]" : "") : "—"; }
   function dci(v) { return v && isNum(v.point) ? signed(v.point) + (isNum(v.lo) ? " [" + signed(v.lo) + ", " + signed(v.hi) + "]" : "") : "—"; }
-  function plural(n, w) { return n + " " + w + (n === 1 ? "" : "s"); }
   //: the string of the level's alpha: 0.0083 → "0.0083", 0.008333 → "0.0083"
   function alpha(a) { return isNum(a) ? num(a, 4) : "—"; }
 
