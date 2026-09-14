@@ -659,6 +659,7 @@ body[data-view="coevolution"] .stack-label .pip { display: none; }
 /* ---------- the chat lane: one column, the transcript the full width ---------- */
 body[data-view="chat"] .stack-label { display: none; }
 body[data-view="levels"] .stack-label .pip { display: none; }
+body[data-view="data"] .stack-label .pip { display: none; }
 </style>
 </head>
 <body>
@@ -669,6 +670,7 @@ body[data-view="levels"] .stack-label .pip { display: none; }
   <div class="seg" id="view-tabs" role="tablist" aria-label="View">
     <button class="tab" role="tab" data-view="chat" aria-selected="false" title="Ask the page in plain words: every block by asking, and the self-evolving eval answering for itself">Chat</button>
     <button class="tab" role="tab" data-view="levels" aria-selected="false" title="Three levels of grain: what is running, every run, one run in full with its token burn-down and its search map">Levels</button>
+    <button class="tab" role="tab" data-view="data" aria-selected="false" title="The inputs: the prompt given to both agents, what each read, the answer's provenance, data → model → agent → answer, and how a self-evolving agent changes from the data it saw">Data</button>
     <button class="tab" role="tab" data-view="story" aria-selected="true" title="The story: verdict, map, reading, what to do">Story</button>
     <button class="tab" role="tab" data-view="evidence" aria-selected="false" title="Every block behind the verdict: hypotheses, alignment, process checks">Evidence</button>
     <button class="tab" role="tab" data-view="batch" aria-selected="false" title="Across all tasks: cost, issues, recommendations, variance">Batch</button>
@@ -730,7 +732,7 @@ body[data-view="levels"] .stack-label .pip { display: none; }
   <div class="panel-body">
     <dl class="keys">
       <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>previous / next task</dd>
-      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>on the view tabs: Chat · Levels · Story · Evidence · Batch · Panels · Training · Evolution · Evals</dd>
+      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>on the view tabs: Chat · Levels · Data · Story · Evidence · Batch · Panels · Training · Evolution · Evals</dd>
       <dt><kbd>Tab</kbd></dt><dd>reach a step on the map</dd>
       <dt><kbd>Enter</kbd> <kbd>Space</kbd></dt><dd>open the step under focus in the inspector</dd>
       <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>walk along one run</dd>
@@ -841,10 +843,14 @@ THIS SOFTWARE.
   //: and, for a lineage, the self-evolving eval answering for itself.
   //: Levels: the three levels of grain — what is running, every run, one
   //: run in full with its token burn and its search map.
-  var VIEWS = ["chat", "levels", "story", "evidence", "batch", "panels", "training", "evolution", "coevolution"];
+  //: Data: the inputs side — the prompt given to both agents, what each
+  //: read, the answer's provenance, data → model → agent → answer, and
+  //: how a self-evolving agent changes from the data it saw.
+  var VIEWS = ["chat", "levels", "data", "story", "evidence", "batch", "panels", "training", "evolution", "coevolution"];
   var VIEW_GROUPS = {
     chat: ["chat"],
     levels: ["levels"],
+    data: ["data"],
     evidence: ["outcome", "trajectory", "integrity"],
     batch: ["cost", "signal", "other"],
     panels: [],
@@ -1200,6 +1206,13 @@ THIS SOFTWARE.
       blurb: "Three levels of grain: what is running and which agents evolve; every run with its tokens, tools and fetches; one run in full with its token burn-down and its search map.",
       open: Infinity,
       order: ["lv-overview", "lv-runs", "lv-run"],
+    },
+    {
+      label: "Data",
+      groups: ["data"],
+      blurb: "The inputs: the prompt given to both agents, what each read, the answer's provenance, data → model → agent → answer step by step, and how a self-evolving agent changes from the data it saw.",
+      open: Infinity,
+      order: ["dt-task", "dt-corpus", "dt-provenance", "dt-chain", "dt-evolution"],
     },
     {
       label: "Outcome",
@@ -2041,7 +2054,7 @@ THIS SOFTWARE.
     els.hero.innerHTML = "";
     // the panels view is the reader's own grid, the training view has its
     // own lead (the pair's reward panel): no hero above either
-    if (!hero || State.prefs.view === "chat" || State.prefs.view === "levels" || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") {
+    if (!hero || State.prefs.view === "chat" || State.prefs.view === "levels" || State.prefs.view === "data" || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") {
       els.hero.hidden = true;
       return;
     }
@@ -2053,7 +2066,7 @@ THIS SOFTWARE.
     var host = els.reading;
     host.innerHTML = "";
     // the story lane IS the reading order; the strip guides the columns
-    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels" || State.prefs.view === "chat" || State.prefs.view === "levels" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") { host.hidden = true; return; }
+    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels" || State.prefs.view === "chat" || State.prefs.view === "levels" || State.prefs.view === "data" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") { host.hidden = true; return; }
     host.hidden = false;
     host.appendChild(h("span", { class: "lead", text: "Read in this order" }));
     if (hero) {
@@ -3052,7 +3065,7 @@ THIS SOFTWARE.
     // a view named in the URL (report.html#view=evidence) wins for this
     // load — a link can open the page on its evidence or its batch
     try {
-      var m = /(?:^|[#&])view=(chat|levels|story|evidence|batch|panels|training|evolution|coevolution)\b/.exec(global.location.hash || "");
+      var m = /(?:^|[#&])view=(chat|levels|data|story|evidence|batch|panels|training|evolution|coevolution)\b/.exec(global.location.hash || "");
       if (m) State.prefs.view = m[1];
     } catch (err) { /* no location: keep the preference */ }
     State.signals = Store.get(key("signals")) || {};

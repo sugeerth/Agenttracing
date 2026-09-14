@@ -61,10 +61,14 @@
   //: and, for a lineage, the self-evolving eval answering for itself.
   //: Levels: the three levels of grain — what is running, every run, one
   //: run in full with its token burn and its search map.
-  var VIEWS = ["chat", "levels", "story", "evidence", "batch", "panels", "training", "evolution", "coevolution"];
+  //: Data: the inputs side — the prompt given to both agents, what each
+  //: read, the answer's provenance, data → model → agent → answer, and
+  //: how a self-evolving agent changes from the data it saw.
+  var VIEWS = ["chat", "levels", "data", "story", "evidence", "batch", "panels", "training", "evolution", "coevolution"];
   var VIEW_GROUPS = {
     chat: ["chat"],
     levels: ["levels"],
+    data: ["data"],
     evidence: ["outcome", "trajectory", "integrity"],
     batch: ["cost", "signal", "other"],
     panels: [],
@@ -420,6 +424,13 @@
       blurb: "Three levels of grain: what is running and which agents evolve; every run with its tokens, tools and fetches; one run in full with its token burn-down and its search map.",
       open: Infinity,
       order: ["lv-overview", "lv-runs", "lv-run"],
+    },
+    {
+      label: "Data",
+      groups: ["data"],
+      blurb: "The inputs: the prompt given to both agents, what each read, the answer's provenance, data → model → agent → answer step by step, and how a self-evolving agent changes from the data it saw.",
+      open: Infinity,
+      order: ["dt-task", "dt-corpus", "dt-provenance", "dt-chain", "dt-evolution"],
     },
     {
       label: "Outcome",
@@ -1261,7 +1272,7 @@
     els.hero.innerHTML = "";
     // the panels view is the reader's own grid, the training view has its
     // own lead (the pair's reward panel): no hero above either
-    if (!hero || State.prefs.view === "chat" || State.prefs.view === "levels" || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") {
+    if (!hero || State.prefs.view === "chat" || State.prefs.view === "levels" || State.prefs.view === "data" || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") {
       els.hero.hidden = true;
       return;
     }
@@ -1273,7 +1284,7 @@
     var host = els.reading;
     host.innerHTML = "";
     // the story lane IS the reading order; the strip guides the columns
-    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels" || State.prefs.view === "chat" || State.prefs.view === "levels" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") { host.hidden = true; return; }
+    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels" || State.prefs.view === "chat" || State.prefs.view === "levels" || State.prefs.view === "data" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") { host.hidden = true; return; }
     host.hidden = false;
     host.appendChild(h("span", { class: "lead", text: "Read in this order" }));
     if (hero) {
@@ -2272,7 +2283,7 @@
     // a view named in the URL (report.html#view=evidence) wins for this
     // load — a link can open the page on its evidence or its batch
     try {
-      var m = /(?:^|[#&])view=(chat|levels|story|evidence|batch|panels|training|evolution|coevolution)\b/.exec(global.location.hash || "");
+      var m = /(?:^|[#&])view=(chat|levels|data|story|evidence|batch|panels|training|evolution|coevolution)\b/.exec(global.location.hash || "");
       if (m) State.prefs.view = m[1];
     } catch (err) { /* no location: keep the preference */ }
     State.signals = Store.get(key("signals")) || {};
