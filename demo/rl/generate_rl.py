@@ -14,8 +14,10 @@ estimate, so the RL layer reads these traces as *recorded* rather than
 shaping a reward from the labels. ``policy-v1`` is the weaker policy: it
 needs more attempts per item, errs more often in the verifier and misses
 evidence more; ``policy-v2`` is stronger. A ``verifier`` sub-agent gives
-every run a second lane. 30–60 steps per run; every number is invented
-and labelled so.
+every run a second lane. Each policy records the instructions it was
+given (``agent.system_prompt``, :data:`PROMPTS`) and each model step its
+model telemetry (``demo/_env.py``). 30–60 steps per run; every number
+is invented and labelled so.
 
     python demo/rl/generate_rl.py            # both sets, in place
     python demo/rl/generate_rl.py --set demo|train [out_dir]
@@ -40,6 +42,18 @@ NOTE = "SYNTHETIC: a generated RL episode whose rewards were paid by a scripted 
 RUNS = ("r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8")
 POLICIES = {"policy-v1": {"strong": False, "hit": 0.72, "error": 0.35, "checks": 4},
             "policy-v2": {"strong": True, "hit": 0.985, "error": 0.1, "checks": 3}}
+#: the instructions each policy was given, written onto its traces
+#: (SYNTHETIC, like everything here); they differ where the policies do
+PROMPTS = {
+    "policy-v1": ("You are an analyst with grep, read_file, search and run_check.\n"
+                  "Locate every fact the task needs, searching again when a search finds nothing.\n"
+                  "Run four consistency checks before answering.\n"
+                  "Answer with the corrected figure on one line."),
+    "policy-v2": ("You are an analyst with grep, read_file, search and run_check.\n"
+                  "Locate every fact the task needs; a search that finds nothing is retried once, with the id alone.\n"
+                  "Run three consistency checks before answering, validating the arguments first.\n"
+                  "Answer with the corrected figure on one line."),
+}
 #: the small set: what the shipped tests pin, unchanged
 DEMO_TASKS, DEMO_RUNS = 2, 3
 
@@ -55,7 +69,8 @@ def make(task: dict, agent: str, run: str, out: Path) -> Path:
     hit = min(0.999, max(0.05, policy["hit"] + task.get("adj", {}).get(agent, 0.0)))
     behaviour = dict(policy, hit=hit)
     r = Recorder(task=task["id"], prompt=task["prompt"], agent=agent, model=f"sim-{agent}", version="synthetic",
-                 expected=task["expected"], run_id=run, out_dir=out, tools=tools_for(behaviour["checks"]))
+                 expected=task["expected"], run_id=run, out_dir=out, tools=tools_for(behaviour["checks"]),
+                 system_prompt=PROMPTS[agent])
     run_episode(task, behaviour, rng, r)
     label_synthetic(r.path, NOTE)
     return r.path

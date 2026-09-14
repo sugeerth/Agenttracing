@@ -5,7 +5,13 @@
   "agent": {
     "name": "memo-agent@g0",
     "model": "sim-memo-agent@g0",
-    "version": "g0"
+    "version": "g0",
+    "system_prompt": "You are a careful analyst. You have grep, read_file, search and run_check. Locate every fact the task needs, then answer with the corrected figure.\n\nRules:\n- Answer from the evidence you find.",
+    "config": {
+      "checks": 5,
+      "max_search_retries": 1,
+      "verify_before_answer": false
+    }
   },
   "task": {
     "id": "rl05_incident_postmortem",
@@ -35,7 +41,10 @@
       "latency_s": 1.4,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -291,7 +300,10 @@
       "latency_s": 0.683133,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -343,7 +355,10 @@
       "latency_s": 0.757582,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -395,7 +410,10 @@
       "latency_s": 0.752555,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -447,7 +465,10 @@
       "latency_s": 0.599736,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -499,7 +520,10 @@
       "latency_s": 0.809514,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -551,7 +575,10 @@
       "latency_s": 0.45727,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -603,7 +630,10 @@
       "latency_s": 0.790584,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -642,7 +672,10 @@
       "latency_s": 0.648813,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": {
@@ -769,7 +802,10 @@
       "latency_s": 0.837794,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -787,7 +823,10 @@
       "latency_s": 1.1,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,

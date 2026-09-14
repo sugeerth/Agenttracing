@@ -39,6 +39,10 @@ arrived later with nothing to apologise for, and their recommended
 generations do not separate on these runs. Every reward is paid by the same scripted environment as
 ``demo/rl/generate_rl.py`` (−0.1 per tool call, −1 on an error, +1 per
 fact found, ±5 at the answer), every value is invented and labelled so.
+Every trace of a generation carries that generation's
+``artifacts.system_prompt`` and ``artifacts.config`` under ``agent``, so
+the instructions can be read from the traces as well as from the
+manifest, and each model step its model telemetry (``demo/_env.py``).
 
     python demo/evolve/generate_evolve.py                      # both lineages, in place
     python demo/evolve/generate_evolve.py --family memo-agent [out_dir]
@@ -297,8 +301,10 @@ def make(task: dict, gen: dict, run: str, out: Path, family: str = FAMILY) -> Pa
     behaviour = {"hit": min(0.999, max(0.05, sim["hit"] + sim["adj"].get(task["id"], 0.0))),
                  "error": sim["error"], "checks": checks, "retries": cfg["max_search_retries"],
                  "unverified_wrong": UNVERIFIED_WRONG}
+    arts = artifacts_of(gen)
     r = Recorder(task=task["id"], prompt=task["prompt"], agent=agent, model=f"sim-{agent}", version=gen["id"],
-                 expected=task["expected"], run_id=run, out_dir=out, tools=tools_for(checks))
+                 expected=task["expected"], run_id=run, out_dir=out, tools=tools_for(checks),
+                 system_prompt=arts["system_prompt"], config=arts["config"])
     files = task["files"]
     if "schema" in "".join(gen["rules"]).lower():
         # the schema-first rule: README and schema read before the rest

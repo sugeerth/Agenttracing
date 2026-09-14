@@ -106,7 +106,9 @@ feature and dilute the level; ``CONFIRM_STEPS`` 2, the fewest later
 steps on which "never moved again" is a statement and not an absence.
 
 **Hindsight** is the payoff: the final eval applied to every
-generation (``matrix``) and every step; per step the base verdict and
+generation (``matrix``; every cell also carries ``per_task``, the metric
+read within each task with a bootstrap over that task's own runs, so a
+task an average hides is one cell away — :func:`per_task`) and every step; per step the base verdict and
 flags untouched beside the evolved flags — the *learned* metrics
 (adopted, not demoted, not retired) whose delta interval excludes zero
 in their bad direction, each marked ``learned: true`` — and, separately
@@ -587,6 +589,67 @@ def value(spec: dict, episodes: list, samples: int = BOOTSTRAP_SAMPLES) -> dict:
     return measurable({"point": rounded(point), "lo": rounded(point if lo is None else lo),
                        "hi": rounded(point if hi is None else hi), "n": pt["n"], "tasks": len(pt["by_task"]),
                        "coverage": rounded(pt["coverage"]), "basis": _basis(spec, pt["n"], len(pt["by_task"]))})
+
+
+#: what a per-task cell is, per aggregation: the task's own mean or rate, and
+#: for the three aggregations that are not a per-task mean, the note that says so
+_PER_TASK_NOTE = {"iqm": "the task's own mean, not its IQM: the metric's aggregate is the task-balanced IQM",
+                  "task_min": "the task's own mean: the metric's aggregate is the worst task's",
+                  "task_spread": "the task's own mean: the metric's aggregate is the spread across tasks"}
+
+
+def per_task(spec: dict, episodes: list, samples: int = BOOTSTRAP_SAMPLES) -> dict:
+    """The metric read within each task of ``episodes``: ``{task: {point,
+    lo, hi, n, measurable, reason}}`` in sorted task order, each a
+    percentile-bootstrap interval at :data:`deepcompare._stats.CONFIDENCE`
+    over the task's own runs redrawn with replacement (``samples`` draws,
+    the stream seeded ``<spec id>:<task>``). The point is the task's own
+    mean (for ``rate`` the fraction positive), which is the per-task
+    meaning of ``mean``, ``rate`` and ``task_mean``; for ``iqm``,
+    ``task_min`` and ``task_spread`` — whose aggregate is not a per-task
+    mean — the cell carries a ``note`` saying so. ``n`` counts the task's
+    episodes after the filter, as the generation's cell does; a task is
+    ``measurable: False`` with the reason under :data:`MIN_N` of them, or
+    with the feature readable on under :data:`MIN_COVERAGE` of them.
+    Every number is rounded to four places; no draw here is shared with
+    the generation's own interval."""
+    feature, agg, where = spec["feature"], spec["agg"], spec.get("where")
+    counts: dict = {}
+    values: dict = {}
+    for e in episodes:
+        vals = e["values"]
+        if not _matches(where, vals):
+            continue
+        counts[e["task"]] = counts.get(e["task"], 0) + 1
+        v = vals.get(feature)
+        if v is not None:
+            values.setdefault(e["task"], []).append(_as_value(v, agg))
+    note = _PER_TASK_NOTE.get(agg)
+    out: dict = {}
+    samples = max(0, int(samples))
+    for task in sorted(counts):
+        vs = values.get(task) or []
+        k, n = len(vs), counts[task]
+        cell: dict
+        if n < MIN_N:
+            cell = {"point": None, "lo": None, "hi": None, "n": n, "measurable": False,
+                    "reason": f"{plural(n, 'episode')} of the task after the filter, under the {MIN_N} needed"}
+        elif k / n < MIN_COVERAGE - 1e-9:
+            cell = {"point": None, "lo": None, "hi": None, "n": n, "measurable": False,
+                    "reason": f"{feature} is unreadable on {n - k} of the task's {n} episodes "
+                              f"(coverage {num(k / n)} under {num(MIN_COVERAGE)})"}
+        else:
+            point = sum(vs) / k
+            lo = hi = point
+            if samples:
+                draws = rng(BOOTSTRAP_SEED, f"{spec['id']}:{task}", section=SECTION).choices(vs, k=k * samples)
+                boots = [sum(draws[s * k:(s + 1) * k]) / k for s in range(samples)]
+                lo, hi = percentile_interval(boots, CONFIDENCE)
+            cell = {"point": rounded(point), "lo": rounded(lo), "hi": rounded(hi), "n": n, "measurable": True, "reason": None}
+        if note:
+            cell["note"] = note
+        out[task] = cell
+    return out
 
 
 def _delta_draws(spec: dict, parent_eps: list, child_eps: list, samples: int) -> dict:
@@ -1544,7 +1607,8 @@ def _hindsight(walk: dict, evolution: dict) -> dict:
         for gid in gens:
             v = cache.value(m["spec"], gid)
             matrix[mid][gid] = {"point": v["point"], "lo": v["lo"], "hi": v["hi"], "n": v["n"],
-                                "measurable": v["measurable"], "reason": v["reason"]}
+                                "measurable": v["measurable"], "reason": v["reason"],
+                                "per_task": per_task(m["spec"], cache.by_gen.get(gid) or [], cache.samples)}
     steps_out = []
     walked = {w["index"]: w for w in walk["walked"]}
     for i in range(1, len(gens)):
@@ -1948,7 +2012,7 @@ def fail_on(coevolution: dict, names) -> list:
     return hits
 
 
-__all__ = ["coevolve", "features", "feature_table", "feature_shifts", "parse_spec", "value", "delta", "proposal_brief",
+__all__ = ["coevolve", "features", "feature_table", "feature_shifts", "parse_spec", "value", "per_task", "delta", "proposal_brief",
            "proposal_briefs", "fail_on", "Feature", "Probe", "StepView", "FEATURES", "PROBES", "VALIDATORS", "BASE_SPECS",
            "AGGS", "OPS", "DIRECTIONS", "FAIL_ON", "GAP", "VERSION", "ALPHA", "REDUNDANT_RHO", "LINK_RHO", "MIN_COVERAGE",
            "MIN_N", "PROBE_TOP", "CONFIRM_STEPS", "MIN_SERIES"]

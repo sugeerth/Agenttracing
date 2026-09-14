@@ -4,7 +4,8 @@
   "agent": {
     "name": "atlas-v2",
     "model": "sim-planner-2",
-    "version": "v2"
+    "version": "v2",
+    "system_prompt": "You are a research agent with web search, result selection, page reading and tools.\nPlan before you search, and follow the plan.\nPrefer the primary source: the publisher's own site, the advisory, the official release notes.\nRead the source before you answer.\nAnswer with the figure and say where it came from."
   },
   "task": {
     "id": "t05_flight_duration",
@@ -32,7 +33,11 @@
       "tokens": 156,
       "latency_s": 2.03,
       "quality": "good",
-      "note": null
+      "note": null,
+      "model": {
+        "name": "sim-planner-2",
+        "temperature": 0.2
+      }
     },
     {
       "index": 1,
@@ -43,7 +48,11 @@
       "tokens": 168,
       "latency_s": 2.04,
       "quality": "good",
-      "note": null
+      "note": null,
+      "model": {
+        "name": "sim-planner-2",
+        "temperature": 0.2
+      }
     },
     {
       "index": 2,
@@ -76,7 +85,11 @@
       "tokens": 152,
       "latency_s": 1.76,
       "quality": "good",
-      "note": null
+      "note": null,
+      "model": {
+        "name": "sim-planner-2",
+        "temperature": 0.2
+      }
     },
     {
       "index": 5,
@@ -87,7 +100,11 @@
       "tokens": 152,
       "latency_s": 1.86,
       "quality": "good",
-      "note": null
+      "note": null,
+      "model": {
+        "name": "sim-planner-2",
+        "temperature": 0.2
+      }
     }
   ]
 }

@@ -92,15 +92,23 @@ class RunTest(unittest.TestCase):
         self.assertEqual(d["task"]["prompt"], self.atlas.task.prompt)
         a = d["agent"]
         self.assertEqual((a["name"], a["model"], a["version"], a["framework"]), ("atlas-v2", self.atlas.agent.model, "v2", None))
-        self.assertEqual(a["instructions"], {"system_prompt": None, "source": None, "chars": None})
+        # the demo records each agent's instructions (SYNTHETIC, invented for the persona)
+        self.assertEqual(a["instructions"], {"system_prompt": self.atlas.agent.system_prompt,
+                                             "source": "trace.agent.system_prompt", "chars": 309})
         self.assertEqual(a["tools_declared"], [])
         self.assertEqual([t["name"] for t in a["tools_used"]], ["open_page", "select_result", "web_search"])
-        self.assertEqual(d["models"], [{"model": self.atlas.agent.model, "steps": 5,
-                                        "kinds": {"answer": 1, "plan": 1, "read": 1, "retrieve": 1, "search": 1},
-                                        "tokens": 840, "temperature": None, "source": "trace.agent.model"}])
+        # the plan and the answer carry their model as telemetry (name and temperature, nothing else); the
+        # three fetch steps carry none, so the declared model stands for them — two rows, one per source
+        self.assertEqual(d["models"], [{"model": self.atlas.agent.model, "steps": 2, "kinds": {"answer": 1, "plan": 1},
+                                        "tokens": 319, "temperature": 0.2, "source": "steps[].model"},
+                                       {"model": self.atlas.agent.model, "steps": 3, "kinds": {"read": 1, "retrieve": 1, "search": 1},
+                                        "tokens": 521, "temperature": None, "source": "trace.agent.model"}])
+        self.assertEqual(sum(m["tokens"] for m in d["models"]), 840)
         self.assertFalse(d["synthetic"])
         self.assertIn("110-character prompt", d["narrative"])
-        self.assertIn(f"produced by {self.atlas.agent.model} (5 steps, trace.agent.model)", d["narrative"])
+        self.assertIn("its instructions are recorded (309 characters, trace.agent.system_prompt)", d["narrative"])
+        self.assertIn(f"produced by {self.atlas.agent.model} (2 steps, steps[].model) and "
+                      f"{self.atlas.agent.model} (3 steps, trace.agent.model)", d["narrative"])
 
     def test_the_corpus_identifies_a_source_the_way_fetches_identifies_a_repeat(self):
         c = dm.data_run(self.atlas)["corpus"]
@@ -242,7 +250,13 @@ class RunTest(unittest.TestCase):
         self.assertEqual(dm.data_run(raw), dm.data_run(self.atlas))
         report = compare(self.atlas, self.bolt)
         side = dm.data_run(report["a"], task=report["task"])
-        self.assertEqual(side, dm.data_run(self.atlas))
+        # a report side carries no instructions (AgentInfo.to_dict keeps them off, so a side is byte-identical
+        # with or without them): it reads exactly as the trace read without its system prompt
+        bare = Trajectory.from_json(DEMO / "t01_acme_revenue__atlas-v2.json")
+        bare.agent.system_prompt = None
+        self.assertEqual(side, dm.data_run(bare))
+        self.assertEqual(side["agent"]["instructions"], {"system_prompt": None, "source": None, "chars": None})
+        self.assertNotEqual(side, dm.data_run(self.atlas), "the trace records instructions the side does not carry")
         self.assertFalse(dm.data_run(report["a"])["measurable"], "a report side alone has no task, so no prompt")
 
 
@@ -261,19 +275,32 @@ class PairTest(unittest.TestCase):
         self.assertTrue(sec["measurable"])
         self.assertEqual(list(self.report)[-1], "data")
         self.assertEqual(sec["task"]["prompt_chars"], 110)
-        self.assertEqual(sec["instructions_diff"], {"same": None, "hunks": [], "added": None, "removed": None,
-                                                    "reason": "no instructions recorded on either side"})
+        # both sides record instructions that share their first and last lines and differ between: one hunk
+        idiff = sec["instructions_diff"]
+        self.assertEqual((idiff["same"], idiff["added"], idiff["removed"], idiff["reason"], len(idiff["hunks"])), (False, 2, 3, None, 1))
+        self.assertTrue(idiff["hunks"][0].startswith("@@ -1,5 +1,4 @@\n"), idiff["hunks"][0])
+        self.assertIn("-Plan before you search, and follow the plan.", idiff["hunks"][0])
+        self.assertIn("+Answer quickly: take the first result that gives the figure.", idiff["hunks"][0])
+        self.assertEqual((sec["a"]["agent"]["instructions"]["chars"], sec["b"]["agent"]["instructions"]["chars"]), (309, 246))
         cd = sec["corpus_diff"]
         self.assertEqual((len(cd["shared"]), len(cd["only_a"]), len(cd["only_b"]), cd["jaccard"]), (1, 2, 5, 0.125))
         self.assertEqual(cd["shared"], [sec["a"]["corpus"]["sources"][0]["id"]], "the same first search on both sides")
+        # one name each: the telemetry-attributed steps and the declared-model steps name the same model
         self.assertEqual(sec["models"], {"a": [self.a.agent.model], "b": [self.b.agent.model], "same": False})
         pv = sec["provenance"]
         self.assertEqual((pv["a"]["supported"], pv["b"]["supported"], pv["delta_grounded"]), (3, 3, 0.0))
         self.assertEqual(pv["readings"]["a"]["answer_basis"]["source"], "reading.answer_basis")
         self.assertEqual(pv["readings"]["b"]["semantic"]["claims_total"], self.report["semantic"]["grounding"]["b"]["claims_total"])
         self.assertIn("1 shared (Jaccard 0.12)", sec["narrative"])
+        self.assertIn("instructions that differ in 1 hunk (+2 −3 lines)", sec["narrative"])
         self.assertIn("different models", sec["narrative"])
-        self.assertEqual(sec, dm.data_pair(self.report), "the report's sides read the same as the trajectories")
+        self.assertEqual(sec, dm.data_pair(self.report, self.a, self.b), "the section is the pair read from the trajectories")
+        # from the report's sides alone the instructions are not in hand (a side carries none), so that reading
+        # differs from the attached section exactly there
+        alone = dm.data_pair(self.report)
+        self.assertEqual(alone["instructions_diff"]["reason"], "no instructions recorded on either side")
+        self.assertEqual(alone["corpus_diff"], sec["corpus_diff"])
+        self.assertEqual(alone["models"], sec["models"])
 
     def test_the_instructions_diff_is_a_unified_diff_by_hunk(self):
         d = dm.instructions_diff("Be careful.\nCheck twice.", "Be careful.\nCheck twice.\nCite sources.", "x", "y")
@@ -307,8 +334,11 @@ class AggregateTest(unittest.TestCase):
             runs = [t for t in self.trajs if t.agent.name == name]
             self.assertEqual(ag["runs"], len(runs))
             self.assertEqual(ag["models"], sorted({t.agent.model for t in runs}))
-            self.assertIsNone(ag["instructions_digest"])
-            self.assertEqual(ag["instructions_distinct"], 0)
+            # every run of a policy records the same instructions: one text, digested
+            prompts = {t.agent.system_prompt for t in runs}
+            self.assertEqual(len(prompts), 1)
+            self.assertEqual(ag["instructions_digest"], dm._sha(next(iter(prompts))))
+            self.assertEqual(ag["instructions_distinct"], 1)
             ids = {}
             for t in runs:
                 for s in dm.data_run(t)["corpus"]["sources"]:
@@ -451,10 +481,12 @@ class BriefTest(unittest.TestCase):
             self.assertIn(needed, sources, needed)
         facts = {f["source"].split(": ", 1)[1]: f for f in brief["facts"] if f["source"].startswith("task t01_acme_revenue: data.")}
         self.assertIn("110 characters", facts["data.task"]["text"])
-        self.assertIn(f"produced by {a.agent.model} (5 steps, trace.agent.model)", facts["data.models"]["text"])
+        self.assertIn(f"produced by {a.agent.model} (2 steps, steps[].model), {a.agent.model} (3 steps, trace.agent.model)",
+                      facts["data.models"]["text"])
         self.assertIn("1 shared, 2 only atlas-v2, 5 only bolt-v3, Jaccard 0.125", facts["data.corpus"]["text"])
         self.assertIn("3 typed values, 3 traced", facts["data.provenance"]["text"])
-        self.assertEqual(facts["data.instructions"]["value"], {"hunks": 0, "same": None})
+        self.assertEqual(facts["data.instructions"]["value"], {"hunks": 1, "same": False})
+        self.assertIn("atlas-v2: 309 characters (trace.agent.system_prompt); bolt-v3: 246 characters", facts["data.instructions"]["text"])
         for fact in brief["facts"]:
             self.assertEqual(check_narration(brief, fact["text"])["unsupported_numbers"], [], fact["id"])
         self.assertEqual(data_brief({})["facts"], [])

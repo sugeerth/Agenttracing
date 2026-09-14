@@ -4,7 +4,8 @@
   "agent": {
     "name": "atlas-v2",
     "model": "sim-planner-2",
-    "version": "v2"
+    "version": "v2",
+    "system_prompt": "You are a research agent with web search, result selection, page reading and tools.\nPlan before you search, and follow the plan.\nPrefer the primary source: the publisher's own site, the advisory, the official release notes.\nRead the source before you answer.\nAnswer with the figure and say where it came from."
   },
   "task": {
     "id": "t03_saas_pricing",
@@ -32,7 +33,11 @@
       "tokens": 154,
       "latency_s": 1.85,
       "quality": "good",
-      "note": null
+      "note": null,
+      "model": {
+        "name": "sim-planner-2",
+        "temperature": 0.2
+      }
     },
     {
       "index": 1,
@@ -87,7 +92,11 @@
       "tokens": 164,
       "latency_s": 2.2,
       "quality": "good",
-      "note": null
+      "note": null,
+      "model": {
+        "name": "sim-planner-2",
+        "temperature": 0.2
+      }
     }
   ]
 }

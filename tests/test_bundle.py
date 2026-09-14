@@ -6,7 +6,11 @@ directory; verify recomputes the id and notices a changed byte; the
 level-2 rows carry every run with numbers only where a source recorded
 them; the level-3 record holds the steps, the budget, the fetches and
 the timeline in the timescape's shape; a lineage's episodes become rows
-with their generation and SYNTHETIC label; the key round-trips, stays
+with their generation and SYNTHETIC label; with ``--traces`` every
+record whose steps the output did not keep is completed from its trace
+(matched by trace id, else by task, agent and run), the trace copied
+into the bundle, and the demo's 322 runs all hold level 3, while
+without it every byte is as before; the key round-trips, stays
 printable ASCII on one line under its size cap, truncates by counting
 and refuses a malformed text with a reason; the commands' exit codes;
 no timestamp and no model identifier anywhere in the index.
@@ -29,7 +33,7 @@ sys.path.insert(0, str(ROOT))
 from deepcompare import bundle  # noqa: E402
 from deepcompare.commands import key as key_cmd  # noqa: E402
 from deepcompare.commands.paths import DEFAULT_TEMPLATE  # noqa: E402
-from tests.helpers_bundle import batch_output, demo_bundle, parser  # noqa: E402
+from tests.helpers_bundle import BATCH, LINEAGE, TRAIN, batch_output, demo_bundle, demo_outputs, full_bundle, parser  # noqa: E402
 
 
 def _files(root: Path) -> dict:
@@ -230,7 +234,8 @@ class BuildTest(unittest.TestCase):
                 self.assertNotIn(model, rest, path.name)
             self.assertEqual(data["agent"]["model"], data["models"][0]["model"])
             self.assertIn(data["agent"]["model"], models)
-            self.assertEqual(data["models"][0]["source"], "trace.agent.model")
+            # the demo's plan, reason and answer steps carry their model as telemetry, so the first row is theirs
+            self.assertEqual(data["models"][0]["source"], "steps[].model")
 
 
 class StepTextTest(unittest.TestCase):
@@ -243,6 +248,146 @@ class StepTextTest(unittest.TestCase):
         self.assertEqual((rows[0]["input_text"], rows[0]["input_truncated"], rows[0]["input_chars"]), ("short", False, 5))
         self.assertEqual((len(rows[0]["output_text"]), rows[0]["output_truncated"], rows[0]["output_chars"]), (TEXT_CAP, True, TEXT_CAP + 7))
         self.assertEqual(rows[0]["output_text"], long[:TEXT_CAP])
+
+
+class TracesTest(unittest.TestCase):
+    """``--traces``: the loader, the matching, the completed record, and
+    nothing changed without it."""
+
+    def test_load_traces_reads_every_demo_layout_and_passes_over_what_is_not_a_trace(self):
+        entries, notes = bundle.load_traces([BATCH])
+        self.assertEqual((len(entries), notes), (16, []))
+        self.assertTrue(all(e["trajectory"].run_id == "r1" and e["root"] == BATCH for e in entries))
+        entries, _ = bundle.load_traces([TRAIN])
+        self.assertEqual(len(entries), 96)
+        e = next(e for e in entries if e["rel"] == "rl01_ledger_reconcile__policy-v1__r2.json")
+        self.assertEqual((e["trajectory"].run_id, e["trajectory"].trace_id, e["trajectory"].agent.name, e["trajectory"].harness["adapter"]),
+                         ("r2", "rl01_ledger_reconcile-policy-v1-r2", "policy-v1", "synthetic"))
+        entries, _ = bundle.load_traces([LINEAGE])
+        self.assertEqual(len(entries), 210)
+        self.assertEqual(entries[0]["rel"], "g0/traces/rl01_ledger_reconcile__ledger-agent@g0__r1.json")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "not_a_trace.json").write_text(json.dumps({"a": 1}), encoding="utf-8")
+            (root / "bad__x__r1.json").write_text(json.dumps({"task": {"id": "t"}, "steps": []}), encoding="utf-8")
+            from tests.test_budget import step, trace
+            good = trace([step(0, "plan"), step(1, "answer")], agent="x", task="t", run_id="r1")
+            (root / "sub").mkdir()
+            (root / "sub" / "t__x__r7.json").write_text(json.dumps({
+                "schema_version": 1, "trace_id": good.trace_id, "run_id": "r1", "agent": {"name": "x", "model": "", "version": ""},
+                "task": {"id": "t", "prompt": "p"}, "outcome": {"success": True, "answer": "a"}, "totals": {},
+                "steps": [s.to_dict() for s in good.steps]}), encoding="utf-8")
+            entries, notes = bundle.load_traces([root])
+            self.assertEqual(len(entries), 1)
+            self.assertEqual((entries[0]["rel"], entries[0]["trajectory"].run_id), ("sub/t__x__r7.json", "r7"), "the name's run id wins")
+            self.assertEqual(len(notes), 1)
+            self.assertIn("bad__x__r1.json", notes[0])
+        with self.assertRaises(ValueError):
+            bundle.load_traces(["/nonexistent/traces"])
+
+    def test_a_lineage_member_s_earlier_generation_is_completed_from_its_traces(self):
+        from tests.test_budget import step, trace
+        member = fake_evolve_member()
+
+        def write(root: Path, name: str, trace_id: str, run_id: str) -> None:
+            t = trace([step(0, "plan", tokens=40, basis="measured", latency_s=1.0),
+                       step(1, "tool_call", "grep", tokens=60, basis="measured", latency_s=2.5, reward=-0.1),
+                       step(2, "answer", tokens=20, basis="measured")], agent="fam@g0", task="t1", run_id=run_id)
+            (root / name).write_text(json.dumps({
+                "schema_version": 1, "trace_id": trace_id, "run_id": run_id, "agent": {"name": "fam@g0", "model": "sim-x", "version": "g0"},
+                "task": {"id": "t1", "prompt": "p"}, "outcome": {"success": True, "answer": "a"}, "totals": {"tokens": 120},
+                "harness": {"adapter": "synthetic", "note": "SYNTHETIC: a test"},
+                "steps": [s.to_dict() for s in t.steps]}), encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write(root, "by_id.json", "t1-r0", "r9")               # matched by trace id, though its run id says r9
+            write(root, "t1__fam@g0__r1.json", "some-other-id", "r1")  # matched by task, agent and run
+            plain = bundle.build([member])
+            info = bundle.build([member], traces=[root])
+            self.assertEqual(bundle.build([member], traces=[])["records"], plain["records"], "no traces: nothing changes")
+            self.assertEqual(info["id"], plain["id"], "the id is the members' content")
+            self.assertEqual({k: v for k, v in info["traces"].items() if k != "files"},
+                             {"dirs": [str(root)], "read": 2, "notes": [], "completed": 2})
+            self.assertEqual([f["rel"] for f in info["traces"]["files"]], ["traces/fake/by_id.json", "traces/fake/t1__fam@g0__r1.json"])
+            r0 = info["records"]["fake/t1/fam@g0/r0"]
+            self.assertTrue(r0["measurable"])
+            self.assertEqual((r0["steps_source"], r0["trace_path"], r0["trace_id"], r0["report"], r0["side"]),
+                             ("trace traces/fake/by_id.json", "traces/fake/by_id.json", "t1-r0", None, None))
+            self.assertEqual(len(r0["steps"]), 3)
+            self.assertEqual(r0["steps"][1]["input_text"], "in1")
+            self.assertEqual(r0["budget"]["tokens"]["total"], 120)
+            self.assertEqual(r0["fetches"]["counts"]["total"], 1)
+            self.assertTrue(r0["data"]["measurable"])
+            self.assertEqual(r0["timeline"], plain["records"]["fake/t1/fam@g0/r0"]["timeline"], "the episode's timeline is kept")
+            self.assertEqual(r0["reward_basis"], "the lineage's episode timeline")
+            self.assertEqual((r0["tokens"], r0["tokens_measured_share"], r0["fetches_n"], r0["steps_n"], r0["seconds"]),
+                             (120, 1.0, 3, 10, 3.5), "the episode's own numbers are kept; only what it lacked is filled")
+            self.assertEqual((r0["detail"], r0["basis"], r0["synthetic"]), (True, ["evolution", "trace"], True))
+            r1 = info["records"]["fake/t1/fam@g0/r1"]
+            self.assertEqual(r1["steps_source"], "trace traces/fake/t1__fam@g0__r1.json")
+            r2 = info["records"]["fake/t1/fam@g0/r2"]
+            self.assertEqual((r2["measurable"], r2["steps"], r2.get("steps_source")), (False, [], None))
+            row = next(r for r in info["runs"] if r["key"] == "fake/t1/fam@g0/r2")
+            self.assertEqual((row["detail"], row["basis"]), (False, ["evolution"]))
+            g0 = next(a for a in info["overview"]["agents"] if a["name"] == "fam@g0")
+            self.assertEqual((g0["tokens_runs"], g0["tokens_total"]), (2, 240))
+
+    def test_traces_that_complete_nothing_leave_the_batch_bundle_byte_identical(self):
+        members = [bundle.read_member(batch_output())]
+        with tempfile.TemporaryDirectory() as one:
+            info = bundle.write_bundle(members, one, DEFAULT_TEMPLATE, name="demo", locators=["file:///tmp/demo"], traces=[BATCH])
+            self.assertEqual((info["traces"]["read"], info["traces"]["completed"], info["traces"]["files"]), (16, 0, []))
+            self.assertEqual(_files(Path(one)), _files(demo_bundle()))
+
+    def test_the_demo_bundle_with_traces_has_level_3_for_all_322_runs(self):
+        root = full_bundle()
+        b = bundle.Bundle(root)
+        outputs = demo_outputs()
+        self.assertEqual(b.id, bundle.digest([bundle.read_member(outputs[k]) for k in ("batch", "runs", "coevolve")]))
+        self.assertEqual([m["runs"] for m in b.members], [16, 96, 210])
+        self.assertEqual(len(b.rows), 322)
+        records = {key: b.run(key) for key in b.run_index}
+        self.assertEqual(len(records), 322)
+        self.assertTrue(all(r["measurable"] and r["steps"] for r in records.values()))
+        self.assertEqual(sum(1 for r in records.values() if r.get("steps_source")), 282)
+        self.assertEqual(sum(1 for r in records.values() if r.get("report")), 40, "the reports' 8 + 6 + 6 pairs")
+        self.assertTrue(all(r["detail"] for r in b.rows))
+        self.assertEqual(sum(1 for r in b.rows if "trace" in r["basis"]), 282)
+        t = b.overview["totals"]
+        self.assertEqual((t["runs"], t["tokens_runs"], t["fetches_runs"], t["cost_runs"]), (322, 322, 322, 16))
+        self.assertTrue(all(a["tokens_runs"] == a["runs"] == a["fetches_runs"] for a in b.overview["agents"]))
+        self.assertEqual(len(list((root / "traces").rglob("*.json"))), 282)
+        self.assertTrue((root / "traces" / "coevolve" / "g0" / "traces" / "rl01_ledger_reconcile__ledger-agent@g0__r1.json").is_file())
+        self.assertTrue((root / "traces" / "runs" / "rl01_ledger_reconcile__policy-v1__r2.json").is_file())
+        self.assertFalse((root / "traces" / "batch").exists(), "every batch run has its report")
+        # a completed record: the lineage's timeline kept, the steps from the trace, the step tool reading the copy
+        key = "coevolve/rl01_ledger_reconcile/ledger-agent@g0/r1"
+        rec = records[key]
+        self.assertEqual(rec["steps_source"], "trace traces/coevolve/g0/traces/rl01_ledger_reconcile__ledger-agent@g0__r1.json")
+        self.assertEqual((rec["lineage_gen"], rec["reward_basis"], rec["synthetic"]), ("g0", "the lineage's episode timeline", True))
+        self.assertEqual(len(rec["steps"]), rec["steps_n"])
+        self.assertTrue(rec["data"]["measurable"])
+        self.assertIn(rec["data"]["models"][0]["source"], ("steps[].model", "trace.agent.model"))
+        source = json.loads((LINEAGE / "g0" / "traces" / "rl01_ledger_reconcile__ledger-agent@g0__r1.json").read_text(encoding="utf-8"))
+        full = b.step(key, 1)
+        self.assertEqual((full["input"], full["output"]), (source["steps"][1]["input"], source["steps"][1]["output"]))
+        self.assertEqual(full["source"], "traces/coevolve/g0/traces/rl01_ledger_reconcile__ledger-agent@g0__r1.json#steps[1]")
+        with self.assertRaises(ValueError):
+            b.step(key, len(source["steps"]))
+        run_key = "runs/rl01_ledger_reconcile/policy-v1/r2"
+        self.assertEqual(records[run_key]["reward_basis"], "steps as recorded (null where no reward was recorded)")
+        self.assertEqual(records[run_key]["timeline"][1][4], -0.1)
+        # the MCP tools and the HTTP routes read the completed records as they are
+        from deepcompare import mcpserver
+        from deepcompare.harness.serve import route
+        server = mcpserver.Server(b)
+        self.assertEqual(server.call("step", {"key": key, "index": 1}), full)
+        self.assertTrue(server.call("run", {"key": key})["measurable"])
+        self.assertEqual(server.call("data", {"key": key}), rec["data"])
+        self.assertEqual(route(b, f"/api/v1/runs/{key}/steps/1", {}), (200, full))
+        status, payload = route(b, f"/api/v1/runs/{key}", {})
+        self.assertEqual((status, payload["steps_source"]), (200, rec["steps_source"]))
 
 
 class VerifyTest(unittest.TestCase):
@@ -312,12 +457,23 @@ class CommandTest(unittest.TestCase):
             self.assertIn("batch     ", out)
             self.assertIn("Level 1: 2 agent(s), 8 task(s), 16 run(s)", out)
             self.assertIn("agentdiff1:", out)
+            self.assertNotIn("Traces:", out)
             manifest = json.loads((Path(tmp) / "bundle.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["levels"]["overview"]["cap"]["value"], 1500)
         args = parser().parse_args(["bundle", "/nonexistent/dir", "-o", tempfile.mkdtemp()])
         code, out, err = _run(bundle_cmd, args)
         self.assertEqual(code, 2)
         self.assertIn("error:", err)
+        args = parser().parse_args(["bundle", str(batch_output()), "-o", tempfile.mkdtemp(), "--traces", "/nonexistent/traces"])
+        code, out, err = _run(bundle_cmd, args)
+        self.assertEqual(code, 2)
+        self.assertIn("not a directory", err)
+        with tempfile.TemporaryDirectory() as tmp:
+            args = parser().parse_args(["bundle", str(batch_output()), "-o", tmp, "--traces", str(BATCH)])
+            code, out, err = _run(bundle_cmd, args)
+            self.assertEqual(code, 0, err)
+            self.assertIn("Traces: 16 read under 1 dir(s); 0 record(s) completed from 0 file(s)", out)
+            self.assertIn("16 of 16 record(s) hold their steps", out)
 
     def test_key_decodes_verifies_and_re_derives(self):
         root = demo_bundle()

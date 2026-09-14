@@ -351,7 +351,10 @@ class Recorder:
 
     *identity* — ``task``, ``prompt``, ``agent``, ``model``, ``version``,
     ``expected`` (the gold answer, when there is one) and ``run_id`` for
-    repetitions of the same (task, agent) pair;
+    repetitions of the same (task, agent) pair; ``system_prompt`` (the
+    instructions the agent was given) and ``config`` (its configuration, an
+    object) are written under ``agent`` only when given, so the data section
+    can read what the agent was told and a trace without them is unchanged;
 
     *what the agent was allowed to do* — ``tools`` (the SCHEMA v22 list, with
     ``effect`` and ``parameters``) and ``budget`` (e.g. ``{"max_steps": 20}``).
@@ -373,7 +376,9 @@ class Recorder:
                  out_dir: Optional[Union[str, Path]] = "traces",
                  trace_id: Optional[str] = None,
                  input_tokens: Optional[int] = None,
-                 stream: bool = False) -> None:
+                 stream: bool = False,
+                 system_prompt: Optional[str] = None,
+                 config: Optional[dict] = None) -> None:
         self.task = _component(task, "task")
         #: stream=True writes the run-so-far to ``<file>.live.json`` after
         #: every step (and every observation), for a watcher to draw while
@@ -390,6 +395,12 @@ class Recorder:
         self.expected = expected
         _check(expected is None or isinstance(expected, str),
                "expected must be a string (the gold answer) or None")
+        _check(system_prompt is None or isinstance(system_prompt, str),
+               "system_prompt must be a string (the instructions the agent was given) or None")
+        _check(config is None or isinstance(config, dict),
+               "config must be an object (the agent's configuration) or None")
+        self.system_prompt = system_prompt
+        self.config = None if config is None else dict(config)
 
         self.tools = self._validate_tools(tools)
         self._tool_effects = {
@@ -985,12 +996,18 @@ class Recorder:
         else:
             input_tokens = estimate_tokens(self.prompt)
 
+        agent = {"name": self.agent, "model": self.model, "version": self.version}
+        # the optional fields are written only when given, so a trace that
+        # never recorded them is byte-identical to one written before them
+        if self.system_prompt is not None:
+            agent["system_prompt"] = self.system_prompt
+        if self.config is not None:
+            agent["config"] = self.config
         data = {
             "schema_version": SCHEMA_VERSION,
             "trace_id": self.trace_id,
             "run_id": self.run_id or "r1",
-            "agent": {"name": self.agent, "model": self.model,
-                      "version": self.version},
+            "agent": agent,
             "task": {"id": self.task, "prompt": self.prompt,
                      "expected": self.expected},
             "outcome": {

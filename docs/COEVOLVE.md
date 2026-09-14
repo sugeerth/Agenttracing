@@ -299,7 +299,28 @@ at the last step, tested 0).
 After the walk the final eval is applied to every generation
 (`matrix`, every cell a point with its interval, its n and whether it
 was measurable; cells before a metric's adoption are computed with
-hindsight and the page hatches them) and to every step. Each step keeps
+hindsight and the page hatches them) and to every step. Every cell also
+carries `per_task`: the metric read within each task of the generation
+(`{task: {point, lo, hi, n, measurable, reason}}`, sorted task order),
+so a task an average hides — the forgotten task of a `forgot` step, the
+one task a rate collapsed on — is one cell away. The point is the
+task's own mean (for `rate`, the fraction positive), which is the
+per-task meaning of `mean`, `rate` and `task_mean`; for `iqm`,
+`task_min` and `task_spread`, whose aggregate is not a per-task mean,
+the cell says so in a `note` (`the task's own mean, not its IQM: the
+metric's aggregate is the task-balanced IQM`). The interval is a
+percentile bootstrap over that task's own runs redrawn with
+replacement, the same `samples` count as the generation's interval, its
+stream seeded `<metric id>:<task>` in the `coevolve` section, so no draw
+is shared with the generation's cell and neither moves the other. A task
+is `measurable: false` with the reason under `MIN_N` of its episodes
+after the metric's filter, or when the feature is readable on under
+`MIN_COVERAGE` of them; a task with no episode under the filter is
+absent (on the demo `frugal_pass_rate` on g6 reads four tasks, one of
+them with two episodes). `n` counts the task's episodes after the
+filter, as the generation's cell does. On the demo the per-task pass
+rate is the Evolution section's `pass_by_task` to the digit, and the
+cells cost about 0.3 s on top of the section's 1.3 s. Each step keeps
 the base verdict and flags untouched beside two evolved readings. The
 **learned** flags are the adopted metrics — not demoted, not retired —
 whose delta on this step has an interval excluding zero in their bad

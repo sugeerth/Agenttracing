@@ -5,7 +5,13 @@
   "agent": {
     "name": "ledger-agent@g0",
     "model": "sim-ledger-agent@g0",
-    "version": "g0"
+    "version": "g0",
+    "system_prompt": "You are a careful analyst. You have grep, read_file, search and run_check. Locate every fact the task needs, then answer with the corrected figure.\n\nRules:\n- Answer from the evidence you find.",
+    "config": {
+      "checks": 5,
+      "max_search_retries": 1,
+      "verify_before_answer": false
+    }
   },
   "task": {
     "id": "rl03_flag_rollout",
@@ -35,7 +41,10 @@
       "latency_s": 1.4,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -257,7 +266,10 @@
       "latency_s": 0.46238,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -309,7 +321,10 @@
       "latency_s": 0.801402,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -361,7 +376,10 @@
       "latency_s": 0.758436,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -413,7 +431,10 @@
       "latency_s": 0.501388,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -452,7 +473,10 @@
       "latency_s": 0.786389,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": {
@@ -537,7 +561,10 @@
       "latency_s": 0.562661,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": {
@@ -601,7 +628,10 @@
       "latency_s": 0.673406,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": {
@@ -665,7 +695,10 @@
       "latency_s": 0.657409,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": {
@@ -708,7 +741,10 @@
       "latency_s": 1.199617,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -726,7 +762,10 @@
       "latency_s": 1.1,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,

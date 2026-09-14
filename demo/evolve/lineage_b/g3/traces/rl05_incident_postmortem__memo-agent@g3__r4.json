@@ -5,7 +5,13 @@
   "agent": {
     "name": "memo-agent@g3",
     "model": "sim-memo-agent@g3",
-    "version": "g3"
+    "version": "g3",
+    "system_prompt": "You are a careful analyst. You have grep, read_file, search and run_check. Locate every fact the task needs, then answer with the corrected figure.\n\nRules:\n- Answer from the evidence you find.\n\nNotes from earlier runs:\n- note 1: grep the directory before reading any file\n- note 2: the README often names the schema file\n- note 3: always look for the prior occurrence in history or alerts\n- note 4: if a search returns no rows, retry with the id prefix only",
+    "config": {
+      "checks": 5,
+      "max_search_retries": 2,
+      "verify_before_answer": false
+    }
   },
   "task": {
     "id": "rl05_incident_postmortem",
@@ -35,7 +41,10 @@
       "latency_s": 1.4,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g3",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -291,7 +300,10 @@
       "latency_s": 0.455714,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g3",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -343,7 +355,10 @@
       "latency_s": 0.588037,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g3",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -395,7 +410,10 @@
       "latency_s": 0.764372,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g3",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -481,7 +499,10 @@
       "latency_s": 0.757158,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g3",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -533,7 +554,10 @@
       "latency_s": 0.426786,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g3",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -585,7 +609,10 @@
       "latency_s": 0.505899,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g3",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -637,7 +664,10 @@
       "latency_s": 0.807515,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g3",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -697,7 +727,10 @@
       "latency_s": 0.537279,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g3",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": {
@@ -803,7 +836,10 @@
       "latency_s": 0.668155,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g3",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": {
@@ -846,7 +882,10 @@
       "latency_s": 1.088604,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g3",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -864,7 +903,10 @@
       "latency_s": 1.1,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g3",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,

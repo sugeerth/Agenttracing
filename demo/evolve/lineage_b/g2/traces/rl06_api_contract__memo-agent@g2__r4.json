@@ -5,7 +5,13 @@
   "agent": {
     "name": "memo-agent@g2",
     "model": "sim-memo-agent@g2",
-    "version": "g2"
+    "version": "g2",
+    "system_prompt": "You are a careful analyst. You have grep, read_file, search and run_check. Locate every fact the task needs, then answer with the corrected figure.\n\nRules:\n- Answer from the evidence you find.\n\nNotes from earlier runs:\n- note 1: grep the directory before reading any file\n- note 2: the README often names the schema file\n- note 3: always look for the prior occurrence in history or alerts\n- note 4: if a search returns no rows, retry with the id prefix only",
+    "config": {
+      "checks": 5,
+      "max_search_retries": 2,
+      "verify_before_answer": false
+    }
   },
   "task": {
     "id": "rl06_api_contract",
@@ -35,7 +41,10 @@
       "latency_s": 1.4,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g2",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -274,7 +283,10 @@
       "latency_s": 0.593183,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g2",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -326,7 +338,10 @@
       "latency_s": 0.481679,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g2",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -378,7 +393,10 @@
       "latency_s": 0.855595,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g2",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -438,7 +456,10 @@
       "latency_s": 0.383884,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g2",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": {
@@ -544,7 +565,10 @@
       "latency_s": 0.590908,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g2",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": {
@@ -587,7 +611,10 @@
       "latency_s": 0.824665,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g2",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -605,7 +632,10 @@
       "latency_s": 1.1,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g2",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,

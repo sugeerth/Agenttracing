@@ -8,6 +8,10 @@
   tool-selection divergence (t05 fail), one over-searching divergence
   (t03, still succeeds). Succeeds on 5/8 tasks.
 
+Each agent records the instructions it was given (``agent.system_prompt``,
+invented for the persona) and each plan, reason and answer step the model
+that produced it (``steps[].model``, see ``simulator.py``).
+
 Alignment contract: in every divergent task both trajectories share
 identical wording up to the first diverging step, and the first diverging
 step differs genuinely in name and/or input. Every trajectory ends with an
@@ -19,8 +23,20 @@ from __future__ import annotations
 from simulator import TrajectoryBuilder
 from tasks import TASKS_BY_ID
 
-AGENT_A = {"name": "atlas-v2", "model": "sim-planner-2", "version": "v2"}
-AGENT_B = {"name": "bolt-v3", "model": "sim-sprinter-3", "version": "v3"}
+# Each agent records the instructions it was given (``agent.system_prompt``):
+# short, invented for the scripted persona, and different where the
+# personas differ, so a pair's instructions diff has hunks to show.
+AGENT_A = {"name": "atlas-v2", "model": "sim-planner-2", "version": "v2",
+           "system_prompt": ("You are a research agent with web search, result selection, page reading and tools.\n"
+                             "Plan before you search, and follow the plan.\n"
+                             "Prefer the primary source: the publisher's own site, the advisory, the official release notes.\n"
+                             "Read the source before you answer.\n"
+                             "Answer with the figure and say where it came from.")}
+AGENT_B = {"name": "bolt-v3", "model": "sim-sprinter-3", "version": "v3",
+           "system_prompt": ("You are a research agent with web search, result selection, page reading and tools.\n"
+                             "Answer quickly: take the first result that gives the figure.\n"
+                             "Confirm it with one more search before you answer.\n"
+                             "Answer with the figure and say where it came from.")}
 
 # Documentation of where each scripted divergence begins (0-based step index,
 # same index in both trajectories) and what kind it is. Tasks t04 and t08

@@ -31,6 +31,10 @@ def register(subparsers) -> None:
                         help="a token cap: the overview lists the runs over it (default: none given)")
     parser.add_argument("--locator", action="append", default=[], metavar="URL_OR_PATH",
                         help="where the bundle will live, carried in bundle.json and the key (repeatable)")
+    parser.add_argument("--traces", nargs="+", action="extend", default=[], metavar="DIR",
+                        help="the source traces (repeatable): every run whose steps are not in the output is completed "
+                             "from the trace matched by trace_id, else by task, agent and run id, and the file is copied "
+                             "under traces/<member>/ so the bundle stays self-contained; without it nothing changes")
     parser.add_argument("--template", help=f"viewer HTML template (default: {DEFAULT_TEMPLATE})")
     parser.set_defaults(func=run)
 
@@ -45,7 +49,7 @@ def run(args: argparse.Namespace) -> int:
             return 2
     try:
         info = write_bundle(members, Path(args.output), template_from(args), name=args.name,
-                            token_cap=args.token_cap, locators=args.locator)
+                            token_cap=args.token_cap, locators=args.locator, traces=args.traces)
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -62,6 +66,13 @@ def run(args: argparse.Namespace) -> int:
           + f"; fetches {num(t['fetches'])} over {t['fetches_runs']} run(s); SYNTHETIC share {pct(t['synthetic_share'])}")
     print(f"  {info['overview']['reading']}")
     print(f"Level 2: {len(info['runs'])} row(s); level 3: {len(info['run_index'])} record(s) under {out / 'runs'}")
+    tr = info["traces"]
+    if tr["dirs"]:
+        whole = sum(1 for r in info["records"].values() if r.get("measurable"))
+        print(f"Traces: {tr['read']} read under {len(tr['dirs'])} dir(s); {tr['completed']} record(s) completed from "
+              f"{len(tr['files'])} file(s) copied under {out / 'traces'}; {whole} of {len(info['records'])} record(s) hold their steps")
+        for note in tr["notes"]:
+            print(f"  skipped: {note}")
     print(f"Wrote {out / 'report.html'}")
     print(f"Key ({len(info['key'])} bytes, {out / 'KEY.txt'}):")
     print(info["key"])

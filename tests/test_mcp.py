@@ -81,7 +81,7 @@ class ServerTest(unittest.TestCase):
         d = self.call("data", key=KEY)["result"]["structuredContent"]
         self.assertTrue(d["measurable"])
         self.assertEqual(d["task"]["prompt_chars"], 110)
-        self.assertEqual(d["models"][0]["source"], "trace.agent.model")
+        self.assertEqual(d["models"][0]["source"], "steps[].model")
         self.assertEqual(d["corpus"]["distinct"], 3)
         self.assertEqual(d["provenance"]["supported"], 3)
         self.assertEqual(d, record["data"])

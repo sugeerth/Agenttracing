@@ -16,6 +16,15 @@ re-reads on every step.
 Cost model (per SCHEMA.md demo contract)
 ----------------------------------------
 cost_usd = input_tokens * 3e-6 + output_tokens * 15e-6
+
+Instructions and model telemetry
+--------------------------------
+An agent dict may carry ``system_prompt`` (the instructions it was given)
+and ``config``; both are written under ``agent`` when present. Every step
+the agent authors (plan, reason, answer) carries ``model: {name,
+temperature}`` — the trace's declared model and :data:`TEMPERATURE`,
+nothing else invented — and a tool step carries none: a tool is not a
+model. Neither touches the seeded RNG, which draws latency only.
 """
 
 from __future__ import annotations
@@ -41,6 +50,9 @@ _AGENT_AUTHORS_OUTPUT = {"plan", "reason", "answer"}
 # ---- cost model ------------------------------------------------------------
 COST_PER_INPUT_TOKEN = 3e-6
 COST_PER_OUTPUT_TOKEN = 15e-6
+
+# ---- model telemetry -------------------------------------------------------
+TEMPERATURE = 0.2                # the sampling temperature every model step records
 
 # ---- latency model ---------------------------------------------------------
 BASE_LATENCY_S = {
@@ -82,6 +94,11 @@ class TrajectoryBuilder:
             "model": agent["model"],
             "version": agent["version"],
         }
+        # optional, written only when the agent dict carries them
+        if isinstance(agent.get("system_prompt"), str):
+            self.agent["system_prompt"] = agent["system_prompt"]
+        if isinstance(agent.get("config"), dict):
+            self.agent["config"] = dict(agent["config"])
         self.task = {
             "id": task["id"],
             "prompt": task["prompt"],
@@ -128,19 +145,21 @@ class TrajectoryBuilder:
         )
         latency = round(latency, 2)
 
-        self.steps.append(
-            {
-                "index": len(self.steps),
-                "type": type,
-                "name": name,
-                "input": input,
-                "output": output,
-                "tokens": in_tok + out_tok,
-                "latency_s": latency,
-                "quality": quality,
-                "note": note,
-            }
-        )
+        step = {
+            "index": len(self.steps),
+            "type": type,
+            "name": name,
+            "input": input,
+            "output": output,
+            "tokens": in_tok + out_tok,
+            "latency_s": latency,
+            "quality": quality,
+            "note": note,
+        }
+        if type in _AGENT_AUTHORS_OUTPUT:
+            # the model step's telemetry: the declared model and the temperature
+            step["model"] = {"name": self.agent["model"], "temperature": TEMPERATURE}
+        self.steps.append(step)
         self._input_tokens += in_tok
         self._output_tokens += out_tok
         self._latency_s += latency

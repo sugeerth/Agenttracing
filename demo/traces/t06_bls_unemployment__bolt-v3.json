@@ -4,7 +4,8 @@
   "agent": {
     "name": "bolt-v3",
     "model": "sim-sprinter-3",
-    "version": "v3"
+    "version": "v3",
+    "system_prompt": "You are a research agent with web search, result selection, page reading and tools.\nAnswer quickly: take the first result that gives the figure.\nConfirm it with one more search before you answer.\nAnswer with the figure and say where it came from."
   },
   "task": {
     "id": "t06_bls_unemployment",
@@ -32,7 +33,11 @@
       "tokens": 148,
       "latency_s": 1.89,
       "quality": "good",
-      "note": null
+      "note": null,
+      "model": {
+        "name": "sim-sprinter-3",
+        "temperature": 0.2
+      }
     },
     {
       "index": 1,
@@ -76,7 +81,11 @@
       "tokens": 141,
       "latency_s": 1.57,
       "quality": "good",
-      "note": null
+      "note": null,
+      "model": {
+        "name": "sim-sprinter-3",
+        "temperature": 0.2
+      }
     },
     {
       "index": 5,
@@ -120,7 +129,11 @@
       "tokens": 134,
       "latency_s": 1.37,
       "quality": "bad",
-      "note": "Both sources reflect the November release; the BLS December figure (4.1%) was never opened."
+      "note": "Both sources reflect the November release; the BLS December figure (4.1%) was never opened.",
+      "model": {
+        "name": "sim-sprinter-3",
+        "temperature": 0.2
+      }
     },
     {
       "index": 9,
@@ -131,7 +144,11 @@
       "tokens": 148,
       "latency_s": 1.85,
       "quality": "good",
-      "note": null
+      "note": null,
+      "model": {
+        "name": "sim-sprinter-3",
+        "temperature": 0.2
+      }
     }
   ]
 }

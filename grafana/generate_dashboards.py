@@ -1,5 +1,6 @@
-"""Generate grafana/dashboards/*.json: six dashboards, one question each,
-every panel a question, every interval drawn (never a bare point)."""
+"""Generate grafana/dashboards/*.json: seven dashboards, one question each,
+every panel a question, every interval drawn (never a bare point; the
+budget dashboard's numbers are counts, which have none)."""
 import json
 from pathlib import Path
 
@@ -411,8 +412,59 @@ d.add(stat("How many loop closures?",
            [target("agentdiff_coevolution_closures", "A", "{{kind}}", instant=True)], decimals=0, color_mode="none"), 18, 25, 6, 6)
 DASH.append(d)
 
+# ---------------------------------------------------------------- budget: where the tokens went, what was fetched and wasted
+BUD_TABLE = lambda renames, sort_field, numeric=(): to_table(renames, exclude=("synthetic",), sort_field=sort_field, numeric=numeric)
+COUNTS = "These are counts and sums over recorded steps, so there is no interval to draw beside them."
+d = D("agentdiff-budget", "AgentDiff · Budget",
+      "Where did the tokens go, and what was fetched and wasted? Each run's tokens under the basis the trace labelled them with, the split by kind of step and by tool, the three wastes, the cost where recorded, the cap and the runs over it, every fetch by kind, the errors and repeats, and whether what came back was used. From the runs aggregate's ledgers, or the pair reports' sides when a batch carries no ledger. " + COUNTS + " " + SYN,
+      ["agentdiff", "budget", "fetches"])
+d.add(stat("How many tokens were counted, and how many of them were measured?",
+           "The sum over every run of the tokens its steps recorded, split by the basis the trace gave each step: measured, estimated, or unknown when the step carried no label. Nothing is re-estimated on the way out; an unknown count is a gap in the trace, not zero. " + COUNTS,
+           [target("sum by (basis) (agentdiff_budget_tokens)", "A", "{{basis}}", instant=True)], decimals=0, color_mode="none"), 0, 0, 8, 5)
+d.add(stat("What did the runs cost, where a cost was recorded?",
+           "The recorded cost summed per agent; a run with no recorded cost contributes no sample, so an absent agent here is an agent whose traces recorded no cost — unrecorded is not free. A sum of what the traces recorded, with no interval, like every count on this page.",
+           [target("sum by (agent) (agentdiff_budget_cost_usd)", "A", "{{agent}}", instant=True)], unit="currencyUSD", decimals=4, color_mode="none"), 8, 0, 8, 5)
+d.add(stat("Is there a cap, and how many runs are over it?",
+           "The cap the analysis was given with --token-cap, and the count of runs it listed over it. Absent when no cap was given: a cap is a constant of the analysis, not a measurement.",
+           [target("agentdiff_budget_cap", "A", "cap", instant=True), target("count(agentdiff_budget_over_cap)", "B", "runs over it", instant=True)],
+           decimals=0, steps=thresholds("text", (1, "orange"))), 16, 0, 8, 5)
+d.add(bargauge("How much of each agent's count is measured, estimated or unlabelled?",
+               "Tokens summed over the agent's runs by the basis their steps carried. An agent whose count is mostly estimated or unlabelled cannot be compared on tokens with one whose count is measured. " + COUNTS,
+               [target("sum by (agent, basis) (agentdiff_budget_tokens)", "A", "{{agent}} · {{basis}}", instant=True)], decimals=0), 0, 5, 8, 9)
+d.add(bargauge("Where did each agent's tokens go, by kind of step?",
+               "Tokens on plan, reason, search, retrieve, read, tool call and answer steps, summed over the agent's runs. A count that sits in read and search is a count spent on what came back, not on thinking. " + COUNTS,
+               [target("agentdiff_budget_by_kind", "A", "{{agent}} · {{kind}}", instant=True)], decimals=0), 8, 5, 8, 9)
+d.add(bargauge("Which tool ate the tokens?",
+               "Tokens on the fetch steps of each tool, summed over the agent's runs; the tool whose results are the widest is the one to read first. " + COUNTS,
+               [target("agentdiff_budget_by_tool", "A", "{{agent}} · {{tool}}", instant=True)], decimals=0), 16, 5, 8, 9)
+d.add(bargauge("What was wasted: after the last evidence, in errored calls, in repeats?",
+               "Three sums over recorded steps, per agent over the pair reports' sides (one representative pair per task in a runs layout, so these are the reports' runs and not every run): tokens after the last step that carried a recorded reward > 0 or a quality label good and before the answer, tokens in steps that errored, and tokens in fetches that repeated an earlier one. A run with no evidence signal has no after_last_evidence sample. " + COUNTS,
+               [target("sum by (agent, what) (agentdiff_budget_waste)", "A", "{{agent}} · {{what}}", instant=True)],
+               steps=thresholds("green", (500, "orange"), (2000, "red")), decimals=0), 0, 14, 12, 9)
+d.add(table("Which runs were heaviest, and what was each count made of?",
+            "One row per run and basis: agent, task, run, the basis (measured, estimated, unknown) and the tokens under it. Sort by tokens to find the run to read first; the run's steps are one call away in the bundle. " + COUNTS,
+            [target("agentdiff_budget_tokens", "A", table=True)],
+            BUD_TABLE({"Value #A": "tokens", "Value": "tokens"}, "agent")), 12, 14, 12, 9)
+d.add(bargauge("What was fetched, by kind?",
+               "Every search, retrieve, read and tool call the agent's runs made, summed by kind. " + COUNTS,
+               [target("sum by (agent, kind) (agentdiff_fetches)", "A", "{{agent}} · {{kind}}", instant=True)], decimals=0), 0, 23, 8, 9)
+d.add(bargauge("How many fetches errored, and how many repeated an earlier one?",
+               "Fetches that returned an error, and fetches that sent the same name and input as an earlier fetch of the same run, summed over the agent's runs. A repeat is a fetch the agent paid for twice. " + COUNTS,
+               [target("sum by (agent) (agentdiff_fetches_errors)", "A", "{{agent}} · errors", instant=True),
+                target("sum by (agent) (agentdiff_fetches_repeats)", "B", "{{agent}} · repeats", instant=True)],
+               steps=thresholds("green", (1, "orange"), (20, "red")), decimals=0), 8, 23, 8, 9)
+d.add(bargauge("Was what came back used?",
+               "Fetches by use, summed over the agent's runs: used is a recorded reward > 0 or a quality label good on the step, unused a recorded reward of zero or less or a label bad, unknown a step with neither — the engine never infers use from the answer's text, so a large unknown is a trace that recorded no signal, not an agent that wasted its fetches. " + COUNTS,
+               [target("sum by (agent, use) (agentdiff_fetches_used)", "A", "{{agent}} · {{use}}", instant=True)], decimals=0), 16, 23, 8, 9)
+d.add(table("What did every run fetch, and how much of it errored or repeated?",
+            "One row per run: agent, task, run, its fetches (every kind summed), the errors and the repeats. " + COUNTS,
+            [target("sum by (agent, task, run, synthetic) (agentdiff_fetches)", "A", table=True),
+             target("agentdiff_fetches_errors", "B", table=True), target("agentdiff_fetches_repeats", "C", table=True)],
+            BUD_TABLE({"Value #A": "fetches", "Value #B": "errors", "Value #C": "repeats"}, "agent")), 0, 32, 24, 10)
+DASH.append(d)
+
 OUT.mkdir(parents=True, exist_ok=True)
-names = {"agentdiff-agents": "agents", "agentdiff-tools": "tools", "agentdiff-training": "training", "agentdiff-evolution": "evolution", "agentdiff-run": "run", "agentdiff-evals": "evals"}
+names = {"agentdiff-agents": "agents", "agentdiff-tools": "tools", "agentdiff-training": "training", "agentdiff-evolution": "evolution", "agentdiff-run": "run", "agentdiff-evals": "evals", "agentdiff-budget": "budget"}
 for dash in DASH:
     path = OUT / (names[dash.uid] + ".json")
     path.write_text(json.dumps(dash.build(), indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")

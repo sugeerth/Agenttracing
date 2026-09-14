@@ -5,7 +5,13 @@
   "agent": {
     "name": "ledger-agent@g0",
     "model": "sim-ledger-agent@g0",
-    "version": "g0"
+    "version": "g0",
+    "system_prompt": "You are a careful analyst. You have grep, read_file, search and run_check. Locate every fact the task needs, then answer with the corrected figure.\n\nRules:\n- Answer from the evidence you find.",
+    "config": {
+      "checks": 5,
+      "max_search_retries": 1,
+      "verify_before_answer": false
+    }
   },
   "task": {
     "id": "rl02_flaky_test",
@@ -35,7 +41,10 @@
       "latency_s": 1.4,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -240,7 +249,10 @@
       "latency_s": 0.449897,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -292,7 +304,10 @@
       "latency_s": 0.852588,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -344,7 +359,10 @@
       "latency_s": 0.561231,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -396,7 +414,10 @@
       "latency_s": 0.475532,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -448,7 +469,10 @@
       "latency_s": 0.678603,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -487,7 +511,10 @@
       "latency_s": 0.616457,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": {
@@ -551,7 +578,10 @@
       "latency_s": 0.69163,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": {
@@ -615,7 +645,10 @@
       "latency_s": 0.416466,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": {
@@ -679,7 +712,10 @@
       "latency_s": 0.377347,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": {
@@ -743,7 +779,10 @@
       "latency_s": 0.725681,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": {
@@ -786,7 +825,10 @@
       "latency_s": 1.155538,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -804,7 +846,10 @@
       "latency_s": 1.1,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g0",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,

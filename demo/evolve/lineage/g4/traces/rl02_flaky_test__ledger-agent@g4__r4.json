@@ -5,7 +5,13 @@
   "agent": {
     "name": "ledger-agent@g4",
     "model": "sim-ledger-agent@g4",
-    "version": "g4"
+    "version": "g4",
+    "system_prompt": "You are a careful analyst. You have grep, read_file, search and run_check. Locate every fact the task needs, then answer with the corrected figure.\n\nRules:\n- Answer from the evidence you find.\n- Read the schema and the README before searching.\n- Retry a search up to three times before giving up on a fact.\n- Verify every item with a check before answering.",
+    "config": {
+      "checks": 3,
+      "max_search_retries": 3,
+      "verify_before_answer": true
+    }
   },
   "task": {
     "id": "rl02_flaky_test",
@@ -35,7 +41,10 @@
       "latency_s": 1.4,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g4",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -240,7 +249,10 @@
       "latency_s": 0.404892,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g4",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -292,7 +304,10 @@
       "latency_s": 0.42911,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g4",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -344,7 +359,10 @@
       "latency_s": 0.470114,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g4",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -396,7 +414,10 @@
       "latency_s": 0.571571,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g4",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -448,7 +469,10 @@
       "latency_s": 0.558344,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g4",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -508,7 +532,10 @@
       "latency_s": 0.493902,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g4",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": {
@@ -572,7 +599,10 @@
       "latency_s": 0.985778,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g4",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -590,7 +620,10 @@
       "latency_s": 1.1,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g4",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,

@@ -5,7 +5,8 @@
   "agent": {
     "name": "policy-v2",
     "model": "sim-policy-v2",
-    "version": "synthetic"
+    "version": "synthetic",
+    "system_prompt": "You are an analyst with grep, read_file, search and run_check.\nLocate every fact the task needs; a search that finds nothing is retried once, with the id alone.\nRun three consistency checks before answering, validating the arguments first.\nAnswer with the corrected figure on one line."
   },
   "task": {
     "id": "rl01_ledger_reconcile",
@@ -35,7 +36,10 @@
       "latency_s": 1.4,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-policy-v2",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -274,7 +278,10 @@
       "latency_s": 0.705009,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-policy-v2",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -360,7 +367,10 @@
       "latency_s": 0.717028,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-policy-v2",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -446,7 +456,10 @@
       "latency_s": 0.716905,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-policy-v2",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -532,7 +545,10 @@
       "latency_s": 0.438585,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-policy-v2",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -618,7 +634,10 @@
       "latency_s": 0.679435,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-policy-v2",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -678,7 +697,10 @@
       "latency_s": 0.503226,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-policy-v2",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": {
@@ -742,7 +764,10 @@
       "latency_s": 0.640476,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-policy-v2",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -760,7 +785,10 @@
       "latency_s": 1.1,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-policy-v2",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,

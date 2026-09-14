@@ -2,7 +2,7 @@
 
 `agentdiff grafana <out_dir | trace.json> -o grafana/out` writes the
 engine's numbers as Prometheus samples, and `grafana/` at the repo root
-holds six dashboards, the provisioning that loads them, a scrape
+holds seven dashboards, the provisioning that loads them, a scrape
 config and a compose file. Nothing runs inside AgentDiff: the exporter
 writes three files to disk, and a node exporter's textfile collector
 (or a Grafana datasource pointed at the file) does the serving. The
@@ -53,6 +53,24 @@ not. The families, by what they read:
   `_tool_errors`, `_tool_repeats`, `_tool_wasted_calls`,
   `_tool_wasted_seconds`, `_tool_seconds` summed over the reports, and
   `agentdiff_tool_max_identical_run` as a maximum.
+- **Where the tokens went and what was fetched** (the `runs` aggregate's
+  `budget` and `fetches` ledgers; a batch, whose aggregate carries no
+  ledger, reads the pair reports' sides and the export notes it): per
+  run `agentdiff_budget_tokens{agent,task,run,basis}` (`measured`,
+  `estimated`, `unknown` — the basis the trace gave each step, never
+  re-estimated), `_budget_cost_usd{agent,task,run}` only where a cost was
+  recorded (unrecorded is not free and is no sample), `_budget_waste{agent,
+  task,run,what}` (`after_last_evidence`, `in_errored_calls`,
+  `in_repeats`; read from the pair reports' sides, one representative
+  pair per task in a runs layout; a run with no evidence signal has no
+  `after_last_evidence` sample); per agent `_budget_by_kind{agent,kind}`
+  and `_budget_by_tool{agent,tool}`; `_budget_cap{source}` and
+  `_budget_over_cap{agent,task,run}` when the analysis was given
+  `--token-cap`; per run `agentdiff_fetches{agent,task,run,kind}`,
+  `_fetches_errors`, `_fetches_repeats` and `_fetches_used{agent,task,run,
+  use}` (`used`, `unused`, `unknown` — a recorded signal or none, never
+  inferred from the answer). Every one is a count or a sum over recorded
+  steps, so none has an interval family, and each `HELP` says so.
 - **A fleet** (`fleet.json`): `agentdiff_fleet_rank`, `agentdiff_fleet_score`,
   plus the per-task and per-agent families above read from one run per
   task.
@@ -121,7 +139,10 @@ never draws a point without its interval.
   `structured-ok`, `open-ended-ok`, the engine's own tiers.
 - `index` on a generation (its position in the lineage) and `step` on
   a step, so a panel can sort by lineage order; `scope` and `basis` on
-  the reward audit; `what` on a budget; `kind` on a floor.
+  the reward audit; `what` on a budget (a growth budget's artifact, or a
+  token budget's waste); `basis` on a run's tokens (`measured`,
+  `estimated`, `unknown`); `use` on a fetch; `kind` on a floor, a step or
+  a fetch.
 
 Every label value is escaped as the format requires; label names are
 sorted, and families are written in a fixed order, so two exports of
@@ -180,7 +201,7 @@ family and the label columns group it.
    the datasource (`uid: prometheus`, default) and a file provider that
    loads `dashboards/*.json` into a folder named AgentDiff.
 4. Open `http://localhost:3000` (anonymous viewer; `admin` /
-   `agentdiff` to edit). The AgentDiff folder holds the six dashboards;
+   `agentdiff` to edit). The AgentDiff folder holds the seven dashboards;
    the first scrape lands within the 15-second interval.
 
 Without docker: run any node exporter and Prometheus, import
@@ -207,10 +228,12 @@ Each dashboard is one question, and each panel's title is a question.
 | `agentdiff-evolution` | Did each step of the lineage help, and which generation should be kept? IQM (pooled and task-balanced) with intervals per generation in lineage order, pass rate per generation and per task, prompt, rules and memory against their budgets, the step verdicts as a state timeline, the protected paths touched and the flags as tables, best and recommended as stats. |
 | `agentdiff-run` | What did this run earn, step by step, and where did the time go? Reward per step, return so far, latency and tokens per step, the step table. |
 | `agentdiff-evals` | What did the eval learn from watching the lineage, and can it be trusted? How many generations the eval grew, candidates tested against kept, whether the base and the evolved eval keep the same generation, every metric on every generation with its interval, what the evolved eval flags with hindsight step by step, the ledger of candidates with the validators each failed, candidates by probe, the lag of each learned metric, drift from the base and the strictest adjusted level, loop closures. |
+| `agentdiff-budget` | Where did the tokens go, and what was fetched and wasted? Tokens counted by the basis the trace gave them, per agent by kind of step and by tool, the three wastes, the cost where recorded, the cap and the runs over it, fetches by kind, errors and repeats, and whether what came back was used. Every panel is a count or a sum over recorded steps, so none draws an interval and each description says so. On the runs demo: 255 315 tokens, every one measured (policy-v1 142 031, policy-v2 113 284; 71 224 of policy-v1's on `read` steps); 3 000 fetches, 90 errored, 327 repeated, 390 recorded as used and 2 610 as not, none unknown; no cost recorded and no cap given. |
 
 Panels that draw a point draw its interval beside it: dashed lines in
 the time-series panels, `lo` and `hi` bars beside the point in the bar
-charts, `lo` and `hi` columns in the tables. A panel that showed a mean
+charts, `lo` and `hi` columns in the tables; the budget dashboard's
+numbers are counts, which have none, and say so. A panel that showed a mean
 without its interval would be exactly the reading the training ground
 exists to prevent: the difference between two policies at five runs a
 task is usually inside the interval, and a bare number on a dashboard

@@ -4,7 +4,8 @@
   "agent": {
     "name": "bolt-v3",
     "model": "sim-sprinter-3",
-    "version": "v3"
+    "version": "v3",
+    "system_prompt": "You are a research agent with web search, result selection, page reading and tools.\nAnswer quickly: take the first result that gives the figure.\nConfirm it with one more search before you answer.\nAnswer with the figure and say where it came from."
   },
   "task": {
     "id": "t05_flight_duration",
@@ -32,7 +33,11 @@
       "tokens": 156,
       "latency_s": 2.08,
       "quality": "good",
-      "note": null
+      "note": null,
+      "model": {
+        "name": "sim-sprinter-3",
+        "temperature": 0.2
+      }
     },
     {
       "index": 1,
@@ -65,7 +70,11 @@
       "tokens": 134,
       "latency_s": 1.39,
       "quality": "weak",
-      "note": "Failed sanity check: SIN to New York via London in under 12 hours should have triggered a re-check of timezone handling."
+      "note": "Failed sanity check: SIN to New York via London in under 12 hours should have triggered a re-check of timezone handling.",
+      "model": {
+        "name": "sim-sprinter-3",
+        "temperature": 0.2
+      }
     },
     {
       "index": 4,
@@ -76,7 +85,11 @@
       "tokens": 138,
       "latency_s": 1.75,
       "quality": "good",
-      "note": null
+      "note": null,
+      "model": {
+        "name": "sim-sprinter-3",
+        "temperature": 0.2
+      }
     }
   ]
 }

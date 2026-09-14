@@ -5,7 +5,13 @@
   "agent": {
     "name": "memo-agent@g6",
     "model": "sim-memo-agent@g6",
-    "version": "g6"
+    "version": "g6",
+    "system_prompt": "You are a careful analyst. You have grep, read_file, search and run_check. Locate every fact the task needs, then answer with the corrected figure.\n\nRules:\n- Answer from the evidence you find.\n- Confirm every item before composing the answer.\n\nNotes from earlier runs:\n- note 1: grep the directory before reading any file\n- note 2: the README often names the schema file\n- note 3: always look for the prior occurrence in history or alerts\n- note 4: if a search returns no rows, retry with the id prefix only\n- note 5: a check that errors is retried with validated arguments, never skipped\n- note 6: answer with the count and the figure on one line\n- note 7: read the file the task names before the ones it does not\n- note 8: confirm every item before composing the answer",
+    "config": {
+      "checks": 5,
+      "max_search_retries": 2,
+      "verify_before_answer": true
+    }
   },
   "task": {
     "id": "rl04_query_regression",
@@ -35,7 +41,10 @@
       "latency_s": 1.4,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g6",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -274,7 +283,10 @@
       "latency_s": 0.857047,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g6",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -326,7 +338,10 @@
       "latency_s": 0.564066,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g6",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -378,7 +393,10 @@
       "latency_s": 0.802604,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g6",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -430,7 +448,10 @@
       "latency_s": 0.604774,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g6",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -482,7 +503,10 @@
       "latency_s": 0.482477,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g6",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -534,7 +558,10 @@
       "latency_s": 0.583583,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g6",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -573,7 +600,10 @@
       "latency_s": 0.68946,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g6",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": {
@@ -658,7 +688,10 @@
       "latency_s": 0.35768,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g6",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": {
@@ -743,7 +776,10 @@
       "latency_s": 0.675758,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g6",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -761,7 +797,10 @@
       "latency_s": 1.1,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-memo-agent@g6",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,

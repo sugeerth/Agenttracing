@@ -34,7 +34,10 @@ LINEAGE = ROOT / "demo" / "evolve" / "lineage"
 TRACE = TRAIN / "rl01_ledger_reconcile__policy-v1__r1.json"
 GRAFANA = ROOT / "grafana"
 DASHBOARDS = sorted((GRAFANA / "dashboards").glob("*.json"))
-UIDS = {"agentdiff-agents", "agentdiff-tools", "agentdiff-training", "agentdiff-evolution", "agentdiff-run", "agentdiff-evals"}
+UIDS = {"agentdiff-agents", "agentdiff-tools", "agentdiff-training", "agentdiff-evolution", "agentdiff-run", "agentdiff-evals",
+        "agentdiff-budget"}
+BUDGET_FAMILIES = ("budget_tokens", "budget_by_kind", "budget_by_tool", "budget_waste", "budget_cost_usd", "budget_cap",
+                   "budget_over_cap", "fetches", "fetches_errors", "fetches_repeats", "fetches_used")
 METRIC_IN_EXPR = re.compile(r"\bagentdiff_[a-z0-9_]+")
 
 _CACHE: dict = {}
@@ -175,8 +178,61 @@ class TrainExportTest(unittest.TestCase):
         self.assertEqual(self.collected["notes"], [])
 
     def test_sample_and_family_counts_are_pinned(self):
-        self.assertEqual(len(self.collected["samples"]), 1147)
-        self.assertEqual(len({m for m, _l, _v in self.collected["samples"]}), 64)
+        self.assertEqual(len(self.collected["samples"]), 2357)
+        self.assertEqual(len({m for m, _l, _v in self.collected["samples"]}), 72)
+
+    def test_where_the_tokens_went_and_what_was_fetched_are_exported_as_counts(self):
+        s = self.samples
+        agg = json.loads((self.out / "aggregate.json").read_text(encoding="utf-8"))
+        families = {m for m, _l, _v in self.collected["samples"]}
+        for name in BUDGET_FAMILIES:
+            if name in ("budget_cost_usd", "budget_cap", "budget_over_cap"):
+                self.assertNotIn(PREFIX + name, families, f"{name}: the RL demo records no cost and was given no cap")
+            else:
+                self.assertIn(PREFIX + name, families, name)
+            self.assertNotIn(name + "_lo", FAMILIES, "a count has no interval family")
+            self.assertIn("no interval", FAMILIES[name][1] if name != "budget_cap" else "no interval", name)
+        # per run, three bases; the runs demo measured every token
+        self.assertEqual(len(_find(s, "budget_tokens")), 96 * 3)
+        self.assertEqual(_one(s, "budget_tokens", agent="policy-v1", task="rl01_ledger_reconcile", run="r1", basis="measured"), 2701)
+        self.assertEqual(_one(s, "budget_tokens", agent="policy-v1", task="rl01_ledger_reconcile", run="r1", basis="estimated"), 0)
+        for name in ("policy-v1", "policy-v2"):
+            self.assertEqual(sum(_find(s, "budget_tokens", agent=name, basis="measured")), agg["budget"]["agents"][name]["measured"])
+            self.assertEqual({k: _one(s, "budget_by_kind", agent=name, kind=k) for k in agg["budget"]["agents"][name]["by_kind"]},
+                             agg["budget"]["agents"][name]["by_kind"])
+            self.assertEqual(_one(s, "budget_by_tool", agent=name, tool="read_file"), agg["budget"]["agents"][name]["by_tool"]["read_file"])
+            self.assertEqual(sum(_find(s, "fetches", agent=name)), agg["fetches"]["agents"][name]["fetches"])
+            self.assertEqual(sum(_find(s, "fetches_errors", agent=name)), agg["fetches"]["agents"][name]["errors"])
+            self.assertEqual(sum(_find(s, "fetches_repeats", agent=name)), agg["fetches"]["agents"][name]["repeats"])
+            self.assertEqual(sum(_find(s, "fetches_used", agent=name, use="used")), agg["fetches"]["agents"][name]["used"])
+            self.assertEqual(sum(_find(s, "fetches_used", agent=name, use="unknown")), agg["fetches"]["agents"][name]["unknown_use"])
+        self.assertEqual(_one(s, "budget_by_kind", agent="policy-v1", kind="read"), 71224)
+        # the waste is read per run from the pair reports' sides: one representative pair per task
+        self.assertEqual(len(_find(s, "budget_waste")), 6 * 2 * 3)
+        self.assertEqual([_one(s, "budget_waste", agent="policy-v1", task="rl01_ledger_reconcile", run="r1", what=w)
+                          for w in ("after_last_evidence", "in_errored_calls", "in_repeats")], [533, 37, 390])
+        self.assertEqual(len(_find(s, "fetches", kind="search")), 96)
+        self.assertEqual(_one(s, "fetches", agent="policy-v1", task="rl01_ledger_reconcile", run="r1", kind="read"), 15)
+        for (metric, labels), _v in s.items():
+            if any(metric == PREFIX + n for n in BUDGET_FAMILIES):
+                self.assertEqual(dict(labels).get("synthetic"), "true", (metric, labels))
+
+    def test_a_cap_and_the_runs_over_it_are_exported_when_the_analysis_was_given_one(self):
+        runs = [{"agent": "a", "task": "t", "run": "r1", "measurable": True, "tokens": 900, "measured": 900, "estimated": 0,
+                 "unknown": 0, "steps": 3, "cost_usd": 0.5, "seconds": 1.0, "synthetic": True},
+                {"agent": "a", "task": "t", "run": "r2", "measurable": True, "tokens": 100, "measured": 0, "estimated": 100,
+                 "unknown": 0, "steps": 3, "cost_usd": None, "seconds": 1.0, "synthetic": True}]
+        budget = {"version": 1, "measurable": True, "reason": None,
+                  "agents": {"a": {"by_kind": {"plan": 1000}, "by_tool": {}, "synthetic": True}}, "tasks": {},
+                  "heaviest_runs": [], "cap": {"value": 500, "source": "--token-cap", "over": [{"agent": "a", "task": "t", "run": "r1", "tokens": 900}]},
+                  "runs": runs}
+        c = grafana.collect_batch({"aggregate": {"budget": budget, "fetches": {"measurable": False, "reason": "none", "runs": []}}, "reports": []})
+        s = {(m, tuple(sorted(l.items()))): v for m, l, v in c.samples}
+        self.assertEqual(_one(s, "budget_cap", source="--token-cap"), 500)
+        self.assertEqual(_one(s, "budget_over_cap", agent="a", task="t", run="r1", synthetic="true"), 900)
+        self.assertEqual(_find(s, "budget_cost_usd"), [0.5], "a run without a recorded cost is no sample")
+        self.assertEqual(_one(s, "budget_tokens", run="r2", basis="estimated"), 100)
+        self.assertIn("no fetches reading in the aggregate or the reports: fetch families omitted", c.notes)
 
     def test_every_sample_says_it_is_synthetic(self):
         for (metric, labels), _value in self.samples.items():
@@ -226,12 +282,12 @@ class TrainExportTest(unittest.TestCase):
 
     def test_json_and_csv_carry_the_same_samples(self):
         payload = render_json(self.collected)
-        self.assertEqual(len(payload["samples"]), 1147)
-        self.assertEqual(sum(len(v) for v in payload["series"].values()), 1147)
+        self.assertEqual(len(payload["samples"]), 2357)
+        self.assertEqual(sum(len(v) for v in payload["series"].values()), 2357)
         self.assertTrue(set(payload["families"]) <= {PREFIX + n for n in FAMILIES})
         self.assertEqual(set(payload["families"]), set(payload["series"]))
         rows = render_csv(self.collected["samples"]).splitlines()
-        self.assertEqual(len(rows), 1148)
+        self.assertEqual(len(rows), 2358)
         self.assertTrue(rows[0].startswith("metric,value,agent,"))
 
     def test_two_exports_are_the_same_bytes(self):
@@ -252,13 +308,23 @@ class TrainExportTest(unittest.TestCase):
 class BatchExportTest(unittest.TestCase):
     def test_a_batch_without_rl_says_so_and_still_exports(self):
         collected = collect(_output("batch"))
-        self.assertEqual(len(collected["samples"]), 439)
-        self.assertEqual(len({m for m, _l, _v in collected["samples"]}), 42)
+        self.assertEqual(len(collected["samples"]), 722)
+        self.assertEqual(len({m for m, _l, _v in collected["samples"]}), 51)
         self.assertIn("no rl section: return, IQM and improvement families omitted", collected["notes"])
+        self.assertIn("no budget ledger in the aggregate: token families read from the pair reports' sides", collected["notes"])
+        self.assertIn("no fetches ledger in the aggregate: fetch families read from the pair reports' sides", collected["notes"])
         self.assertEqual(validate_exposition(render_prom(collected["samples"])), [])
         s = _samples(_output("batch"))
         self.assertEqual(_one(s, "runs", agent="atlas-v2", task="t01_acme_revenue"), 1)
         self.assertEqual(_one(s, "runs_per_task_min", level="insufficient"), 1)
+        # the batch demo records a cost on every run and measured every token
+        self.assertEqual(len(_find(s, "budget_cost_usd")), 16)
+        self.assertEqual(_one(s, "budget_cost_usd", agent="atlas-v2", task="t01_acme_revenue", run="r1"), 0.0051)
+        # the batch demo's steps carry counts but no tokens_basis, so every token is counted under unknown, never measured
+        self.assertEqual(_one(s, "budget_tokens", agent="atlas-v2", task="t01_acme_revenue", run="r1", basis="unknown"), 840)
+        self.assertEqual(_one(s, "budget_tokens", agent="atlas-v2", task="t01_acme_revenue", run="r1", basis="measured"), 0)
+        self.assertEqual(sum(_find(s, "fetches", agent="atlas-v2", task="t01_acme_revenue")), 3)
+        self.assertEqual(dict(next(l for (m, l), _v in s.items() if m == PREFIX + "budget_tokens")).get("synthetic"), "false")
 
 
 # ---------------------------------------------------------------- the lineage
@@ -408,8 +474,8 @@ class DashboardTest(unittest.TestCase):
         cls.dashboards = {p.name: json.loads(p.read_text(encoding="utf-8")) for p in DASHBOARDS}
         cls.families = {PREFIX + n for n in FAMILIES}
 
-    def test_six_dashboards_with_uid_title_and_schema_version(self):
-        self.assertEqual(len(self.dashboards), 6)
+    def test_seven_dashboards_with_uid_title_and_schema_version(self):
+        self.assertEqual(len(self.dashboards), 7)
         self.assertEqual({d["uid"] for d in self.dashboards.values()}, UIDS)
         for name, d in self.dashboards.items():
             self.assertTrue(d["title"].startswith("AgentDiff"), name)
@@ -459,6 +525,17 @@ class DashboardTest(unittest.TestCase):
             steps = panels[0]["fieldConfig"]["defaults"]["thresholds"]["steps"]
             self.assertEqual(steps[0]["color"], "orange")
             self.assertEqual([s["value"] for s in steps[1:]], [8, 32])
+
+    def test_the_budget_dashboard_draws_counts_and_says_so(self):
+        d = self.dashboards["budget.json"]
+        self.assertEqual(d["uid"], "agentdiff-budget")
+        metrics = {m for p in d["panels"] for t in p["targets"] for m in METRIC_IN_EXPR.findall(t["expr"])}
+        self.assertEqual(metrics, {PREFIX + n for n in BUDGET_FAMILIES})
+        self.assertFalse(any(m.endswith(("_lo", "_hi")) for m in metrics), "counts have no interval to draw")
+        for panel in d["panels"]:
+            self.assertIn("count", panel["description"].lower(), panel["title"])
+        self.assertTrue(any("wasted" in p["title"] for p in d["panels"]))
+        self.assertTrue(any("used" in p["title"] for p in d["panels"]))
 
     def test_the_verdict_timeline_maps_every_verdict(self):
         panel = next(p for p in self.dashboards["evolution.json"]["panels"] if p["type"] == "state-timeline")

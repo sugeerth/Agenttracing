@@ -1,4 +1,4 @@
-# the six AgentDiff dashboards, loaded from disk into one folder; a
+# the seven AgentDiff dashboards, loaded from disk into one folder; a
 # change to a JSON file is picked up within updateIntervalSeconds
 apiVersion: 1
 

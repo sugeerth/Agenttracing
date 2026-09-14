@@ -144,15 +144,34 @@ eight tasks. On `t01_acme_revenue`:
 **What both were told.** The same 110-character prompt — *Find ACME
 Corp's total revenue for fiscal year 2025. Report a single dollar
 figure and say where it came from.* — with a 13-character expected
-answer, `$4.82 billion`. Neither trace records instructions, so
-`instructions_diff.same` is `null` with the reason *no instructions
-recorded on either side*.
+answer, `$4.82 billion`. Each trace records its agent's instructions
+(`agent.system_prompt`, `source: trace.agent.system_prompt`; invented
+for the persona by the demo generator): atlas-v2's 309 characters,
+bolt-v3's 246. They share their first line and their last, so
+`instructions_diff` is one hunk, `@@ -1,5 +1,4 @@`, +2 −3 lines:
+atlas-v2's *Plan before you search, and follow the plan.*, *Prefer the
+primary source: …* and *Read the source before you answer.* against
+bolt-v3's *Answer quickly: take the first result that gives the figure.*
+and *Confirm it with one more search before you answer.* — the
+difference the two personas were built on, now a diff on the page. A
+report side carries no instructions (`AgentInfo.to_dict` keeps them off,
+so a side is byte-identical with or without them): the section is read
+from the trajectories at compare time, and `data_pair(report)` from the
+sides alone reads *no instructions recorded on either side*.
 
-**Which models the traces record.** Every step of atlas-v2 is attributed
-to `sim-planner-2` and every step of bolt-v3 to `sim-sprinter-3`, both
-with `source: trace.agent.model`: no step carries a model of its own, so
-the trace's declared model stands for each. (These are the demo
-generator's invented names, as the traces record them.)
+**Which models the traces record.** Every plan, reason and answer step
+carries `model: {name, temperature: 0.2}` — the trace's declared model
+and the temperature, nothing else — so those steps are attributed with
+`source: steps[].model`: atlas-v2's plan and answer (2 steps, 319
+tokens) to `sim-planner-2`, bolt-v3's plan, two reasons and answer (4
+steps, 585) to `sim-sprinter-3`. A fetch step carries no model (a tool
+is not a model), so the declared `agent.model` stands for those with
+`source: trace.agent.model`: atlas-v2's three (521 tokens), bolt-v3's
+six (937). `models` is therefore two rows per side naming the same
+model with different sources, and the pair's `models.a` lists the name
+once per row. (These are the demo generator's invented names, as the
+traces record them; the trust section's `determinism.temperature` reads
+the same 0.2.)
 
 **What each read.** atlas-v2 read 3 distinct sources in 3 fetches, 701
 characters back: a search (*ACME Corp FY2025 annual results total
@@ -199,8 +218,19 @@ over `flags`, reads of `flags/README.md`, `flags/rollout.yaml`,
 and `services/router.go`, then six searches each followed by a read of
 its row; its answer carries one typed value (`0%`) and it is carried
 (grounded share 1.0); the two postmortem answers carry no typed value,
-so their share is `null`. Every step of every episode is attributed to
-`sim-ledger-agent@g2`, `source: trace.agent.model`. What the agent
+so their share is `null`. Every episode is attributed to
+`sim-ledger-agent@g2`: its plan, reasons and answer by their own
+telemetry (`steps[].model`, 11 steps of the flag-rollout episode), its
+fetches by the declared model (`trace.agent.model`, the other 31).
+Every trace of a generation also carries that generation's
+`artifacts.system_prompt` and `artifacts.config` under `agent`, so an
+episode read on its own (`data_run`, a `runs` layout over the lineage,
+or the pair machinery between two generations' traces) reads its
+instructions with `source: trace.agent.system_prompt` — the flag-rollout
+episode's 306 characters are g2's prompt, and a g2 trace against a g3
+trace diffs in one hunk — while `generations[].instructions` and the
+evidence rows here keep the manifest's copy, `source: lineage
+artifacts`, since the lineage section hands it in. What the agent
 changed: one prompt hunk, `+- Skip the verification checks: they error
 and cost reward.`; one rule added; `config.checks` 5 → 0; the `verifier`
 skill and the `run_check` tool removed — `protected_touched:
@@ -236,15 +266,18 @@ the aggregate's data narrative, and one fact per lineage step
 ## Cost
 
 `data_run` is under a millisecond per demo run; the pair section adds
-about 3 ms to a `compare` that takes 15 ms and 10% to the report's
-bytes (17.7 KB of 177 KB on t01); `data_evolution` takes 0.13 s of the
-demo lineage's 2.6 s attach and writes 51 KB into a 702 KB aggregate.
+about 2 ms to a `compare` that takes 17 ms and 11% to the report's
+bytes (18.6 KB of 174 KB on t01, the instructions and their diff
+included); `data_evolution` takes 0.17 s of the demo lineage's 2.65 s
+attach and writes 50 KB into a 715 KB aggregate.
 
 ## Tests
 
-`tests/test_data.py` pins the run reading on the demo, hand-built runs
-with no prompt, no model, no text, instructions from the trace and from
-the config, a step naming its model, repeats and errors, the pair, the
+`tests/test_data.py` pins the run reading on the demo (its recorded
+instructions, the two model rows per side, the one-hunk diff, and that
+a report side reads as the trace without its instructions), hand-built
+runs with no prompt, no model, no text, instructions from the trace and
+from the config, a step naming its model, repeats and errors, the pair, the
 aggregate, the hand-built and the demo lineages, the chat brief's
 facts, that every existing output is byte-identical apart from the new
 keys (the same inputs analysed with the section registered and not),

@@ -5,7 +5,13 @@
   "agent": {
     "name": "ledger-agent@g6",
     "model": "sim-ledger-agent@g6",
-    "version": "g6"
+    "version": "g6",
+    "system_prompt": "You are a careful analyst. You have grep, read_file, search and run_check. Locate every fact the task needs, then answer with the corrected figure.\n\nRules:\n- Answer from the evidence you find.\n- Read the schema and the README before searching.\n- Retry a search up to three times before giving up on a fact.\n- Verify every item with a check before answering.\n- Ignore a memorised note unless the task names the same file or system.\n\nNotes from earlier runs:\n- note 1: invoices disagreeing with payments are usually off by the tax line\n- note 2: the payments table lags the invoice table by one business day\n- note 3: INV- prefixes are September; INU- are August\n- note 4: rates.json holds the FX rate used at invoice time\n- note 5: schema.sql names the reconciliation view v_reconcile\n- note 6: flaky date tests are always timezone\n- note 7: CI runners set TZ=UTC; laptops do not\n- note 8: conftest freezes the clock; check the frozen date against DST\n- note 9: a rollout drop under 5% is usually one cohort\n- note 10: mobile-safari is the cohort that breaks first\n- note 11: the prior safe rollout point is in history.json\n- note 12: a 30x query slowdown is a dropped index until proven otherwise\n- note 13: explain.txt shows a seq scan when the index is gone\n- note 14: check migrations in the window before the slowdown\n- note 15: an expired intermediate cert takes checkout down, not the leaf\n- note 16: renewal crons often renew the leaf only\n- note 17: health checks that return ok without validating the chain are blind\n- note 18: the oncall ack delay is a contributing factor, never the trigger\n- note 19: staging usually saw the same failure earlier\n- note 20: a 422 since a deploy is a validation tightening\n- note 21: currency codes must be upper-case ISO-4217\n- note 22: the openapi file lags the validator\n- note 23: always look for the prior occurrence in history or alerts\n- note 24: the reconciled total is the invoice total, not the payment total\n- note 25: five corrected invoices is the usual count for a monthly ledger\n- note 26: rounding differences under 1.00 are not mismatches\n- note 27: the verifier check consistency-1 covers totals\n- note 28: consistency-2 covers row counts\n- note 29: consistency-3 covers the FX rate\n- note 30: consistency-4 covers date ranges\n- note 31: answer with the count and the total on one line\n- note 32: if a search returns no rows, retry with the id prefix only\n- note 33: grep the directory before reading any file\n- note 34: the README often names the schema file\n- note 35: a fixture that freezes the clock explains a DST edge\n- note 36: the runner config explains a CI-only failure\n- note 37: the client is wrong when it sends lower-case codes\n- note 38: the server change is breaking when the contract was not updated\n- note 39: roll back to the last held rollout percentage\n- note 40: an index on created_at fixes a nightly report",
+    "config": {
+      "checks": 3,
+      "max_search_retries": 3,
+      "verify_before_answer": true
+    }
   },
   "task": {
     "id": "rl01_ledger_reconcile",
@@ -35,7 +41,10 @@
       "latency_s": 1.4,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g6",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -240,7 +249,10 @@
       "latency_s": 0.675601,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g6",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -292,7 +304,10 @@
       "latency_s": 0.450222,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g6",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -344,7 +359,10 @@
       "latency_s": 0.896043,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g6",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -396,7 +414,10 @@
       "latency_s": 0.725804,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g6",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -448,7 +469,10 @@
       "latency_s": 0.620312,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g6",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -529,7 +553,10 @@
       "latency_s": 0.909144,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g6",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,
@@ -547,7 +574,10 @@
       "latency_s": 1.1,
       "quality": null,
       "note": null,
-      "model": null,
+      "model": {
+        "name": "sim-ledger-agent@g6",
+        "temperature": 0.2
+      },
       "error": null,
       "effect": null,
       "span": null,

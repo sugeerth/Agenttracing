@@ -65,7 +65,7 @@ carries a signal).
 ## The bundle
 
 ```
-agentdiff bundle <out_dir> [<out_dir> ...] -o <bundle_dir> [--name NAME] [--token-cap N] [--locator URL_OR_PATH ...]
+agentdiff bundle <out_dir> [<out_dir> ...] -o <bundle_dir> [--name NAME] [--token-cap N] [--locator URL_OR_PATH ...] [--traces DIR ...]
 ```
 
 A member is what `batch`, `runs`, `evolve`, `coevolve` or `fleet` wrote:
@@ -77,6 +77,7 @@ bundle directory holds:
 | `bundle.json` | `{version: 1, id, name, members [{index, label, kind, source, tasks, agents, lineage, sections, runs}], levels {overview, runs, run_index, budget, fetches}, locators, key}` |
 | `members/<n>/aggregate.json`, `members/<n>/report_*.json` | byte copies of the members |
 | `runs/<key>.json` | the level-3 record of one run |
+| `traces/<member>/…` | with `--traces`, a byte copy of every trace that completed a record |
 | `report.html` | the primary (first) member's page, with `DEEPCOMPARE_DATA.bundle = {id, name, members, levels}` (`levels` also carries `records`) inlined so the Levels view has every run of every member |
 | `KEY.txt` | the key |
 
@@ -109,8 +110,8 @@ recomputes it from the copies and reports `{id, recomputed, match}`.
   n}, tokens, tokens_measured_share, cost_usd, seconds, fetches, errors,
   repeats, return, lineage_gen, synthetic, detail, basis}`. `basis` names
   the sources that filled the row (`scorecard`, `budget`, `fetches`,
-  `evolution`, `report`); `detail` is true when a report carries the
-  run's steps, so level 3 is whole.
+  `evolution`, `report`, `trace`); `detail` is true when a report — or,
+  with `--traces`, a trace — carries the run's steps, so level 3 is whole.
 - *run* (level 3): `runs/<key>.json` — the row (its counts as `steps_n`
   and `fetches_n`), `steps [{index, type, name, tokens, tokens_basis,
   latency_s, error, effect, reward, value, input_chars, output_chars,
@@ -128,7 +129,34 @@ recomputes it from the copies and reports `{id, recomputed, match}`.
   `w`asted, `d`ecisive, `f`ault, `v`erifier — `trace_id`, `report`,
   `side`. A run whose steps the output did not keep (a runs layout keeps
   one representative pair per task; a lineage keeps its episodes'
-  timelines) is `measurable: false` with that reason, its row intact.
+  timelines and the last pair's reports) is `measurable: false` with that
+  reason, its row intact.
+
+**`--traces DIR [DIR …]`** attaches the source traces: every directory is
+walked recursively, every trace file read (the runs layout's
+`<task>__<agent>__<run>.json` name gives the run id, else the file's
+`run_id`; a file that is not a trace is passed over, an invalid one is
+listed as skipped), and every record whose steps are not in the output is
+completed from the trace matched by `trace_id` (the scorecard's or the
+lineage episode's), else by task, agent and run id: `steps`, `budget`,
+`fetches`, `data` and — unless the lineage's episode timeline is there,
+which keeps the flags the pair established — `timeline` are read from the
+trace, `trace_id` and `trace_path` are set, `report` and `side` are null,
+and `steps_source: "trace traces/<member>/<path>"` names the copy the
+bundle now holds, so it stays self-contained (only traces that completed
+a record are copied). The row's numbers a source had not recorded are
+filled from the trace (`tokens`, `tokens_measured_share`, `cost_usd`,
+`seconds`, `fetches`, `errors`, `repeats`, `tools`, `success`, `steps`,
+`tool_calls`), never overwritten; `detail` becomes true and `trace` joins
+`basis`; the overview's `tokens_runs` and `fetches_runs` rise
+accordingly. The id does not change (it is the members' content), and
+without `--traces` every byte is as before. On the demo, `bundle
+<batch> <runs> <coevolve> --traces demo/traces demo/rl/train
+demo/evolve/lineage` gives level 3 for all 322 runs: 40 from the reports,
+282 from traces. The `step` tool and `/runs/<key>/steps/<index>` return
+the whole text of a step from the trace copy (`source:
+"traces/<member>/<path>#steps[<index>]"`); the `run` and `data` tools
+and routes read the completed record with no change.
 
 ## The key
 

@@ -329,6 +329,68 @@ class ValueDeltaTest(unittest.TestCase):
 
 # ---------------------------------------------------------------- probes
 
+class PerTaskTest(unittest.TestCase):
+    """The per-task reading of a metric: the task's own mean or rate with
+    a bootstrap over that task's runs, unmeasurable under MIN_N readable
+    episodes or under MIN_COVERAGE of them, the note on the three
+    aggregations that are not a per-task mean, and no draw shared with
+    the generation's own interval."""
+
+    @staticmethod
+    def rows(**per_task):
+        out = []
+        for task, values in per_task.items():
+            for k, v in enumerate(values):
+                out.append({"id": f"{task}-r{k}", "run": f"r{k}", "task": task, "values": v})
+        return out
+
+    def test_the_task_s_own_rate_with_its_own_interval(self):
+        eps = self.rows(ta=[{"success": 1, "tool_calls": 2}] * 4 + [{"success": 0, "tool_calls": 9}],
+                        tb=[{"success": 0, "tool_calls": 3}] * 5)
+        spec = co.parse_spec({"id": "pass_rate", "feature": "success", "agg": "rate", "direction": "up"})
+        cells = co.per_task(spec, eps, samples=200)
+        self.assertEqual(list(cells), ["ta", "tb"])
+        self.assertEqual(list(cells["ta"]), ["point", "lo", "hi", "n", "measurable", "reason"])
+        self.assertEqual((cells["ta"]["point"], cells["ta"]["n"], cells["ta"]["measurable"]), (0.8, 5, True))
+        self.assertTrue(cells["ta"]["lo"] <= 0.8 <= cells["ta"]["hi"])
+        self.assertLess(cells["ta"]["lo"], cells["ta"]["hi"], "four passes and a failure redrawn have width")
+        self.assertEqual(cells["tb"], {"point": 0.0, "lo": 0.0, "hi": 0.0, "n": 5, "measurable": True, "reason": None})
+        self.assertEqual(co.per_task(spec, eps, samples=200), cells, "the stream is seeded by the spec id and the task")
+        self.assertEqual((co.per_task(spec, eps, samples=0)["ta"]["lo"], co.per_task(spec, eps, samples=0)["ta"]["hi"]), (0.8, 0.8),
+                         "no draws: the interval collapses to the point, never to zero")
+        whole = co.value(spec, eps, samples=200)
+        self.assertEqual(whole["point"], 0.4)
+        self.assertNotEqual((whole["lo"], whole["hi"]), (cells["ta"]["lo"], cells["ta"]["hi"]))
+
+    def test_under_min_n_or_under_coverage_the_task_says_why_and_a_filter_can_drop_it(self):
+        eps = self.rows(ta=[{"success": 1, "tool_calls": 2}] * 3,
+                        tb=[{"success": 1, "tool_calls": None}] * 2 + [{"success": 1, "tool_calls": 4}] * 3,
+                        tc=[{"success": 0, "tool_calls": 30}] * 5)
+        spec = co.parse_spec({"id": "calls", "feature": "tool_calls", "agg": "mean", "direction": "down"})
+        cells = co.per_task(spec, eps, samples=50)
+        self.assertEqual(cells["ta"], {"point": None, "lo": None, "hi": None, "n": 3, "measurable": False,
+                                       "reason": "3 episodes of the task after the filter, under the 4 needed"})
+        self.assertEqual(cells["tb"]["measurable"], False)
+        self.assertEqual(cells["tb"]["reason"], "tool_calls is unreadable on 2 of the task's 5 episodes (coverage 0.6 under 0.8)")
+        self.assertEqual(cells["tc"]["point"], 30.0)
+        frugal = co.parse_spec({"id": "frugal", "feature": "success", "agg": "rate", "direction": "up",
+                                "where": {"feature": "tool_calls", "op": "<=", "value": 10}})
+        self.assertEqual(list(co.per_task(frugal, eps, samples=50)), ["ta", "tb"], "tc has no episode under the filter")
+        self.assertEqual(co.per_task(spec, [], samples=50), {})
+
+    def test_the_three_aggregations_that_are_not_a_per_task_mean_say_so(self):
+        eps = self.rows(ta=[{"return": v} for v in (1.0, 2.0, 3.0, 4.0, 40.0)], tb=[{"return": v} for v in (0.0, 0.0, 1.0, 1.0, 2.0)])
+        for agg, word in (("iqm", "task-balanced IQM"), ("task_min", "worst task's"), ("task_spread", "spread across tasks")):
+            spec = co.parse_spec({"id": f"r_{agg}", "feature": "return", "agg": agg, "direction": "up"})
+            cells = co.per_task(spec, eps, samples=100)
+            self.assertEqual(cells["ta"]["point"], 10.0, "the task's own mean, not its IQM")
+            self.assertIn(word, cells["ta"]["note"])
+            self.assertEqual(list(cells["ta"]), ["point", "lo", "hi", "n", "measurable", "reason", "note"])
+        for agg in ("mean", "rate", "task_mean"):
+            spec = co.parse_spec({"id": f"r_{agg}", "feature": "return", "agg": agg, "direction": "up"})
+            self.assertNotIn("note", co.per_task(spec, eps, samples=100)["ta"])
+
+
 class ProbeTriggerTest(unittest.TestCase):
     def setUp(self):
         self.g0 = gen_rows(lambda t, k: {"success": k % 2, "verified": 1, "check_calls": 2, "uses:check": 2})
@@ -674,6 +736,19 @@ class HandLineageTest(_Temp):
         self.assertTrue(all(cell["measurable"] and cell["n"] == 6 for row in m.values() for cell in row.values()))
         self.assertEqual((m["pass_rate"]["g1"]["lo"], m["pass_rate"]["g1"]["hi"]), (1.0, 1.0), "every run passes, so the interval has no width")
 
+    def test_every_matrix_cell_carries_its_per_task_reading(self):
+        m = self.co["matrix"]
+        for mid, row in m.items():
+            for gid, cell in row.items():
+                self.assertEqual(list(cell), ["point", "lo", "hi", "n", "measurable", "reason", "per_task"], (mid, gid))
+                self.assertEqual(list(cell["per_task"]), ["ta", "tb"], (mid, gid))
+                for task, pt in cell["per_task"].items():
+                    self.assertEqual((pt["point"], pt["lo"], pt["hi"], pt["n"], pt["measurable"]), (None, None, None, 3, False), (mid, gid, task))
+                    self.assertEqual(pt["reason"], "3 episodes of the task after the filter, under the 4 needed")
+        self.assertIn("note", m["return_iqm"]["g0"]["per_task"]["ta"])
+        self.assertNotIn("note", m["pass_rate"]["g0"]["per_task"]["ta"])
+        self.assertNotIn("note", m["tool_calls_mean"]["g0"]["per_task"]["ta"])
+
     def test_recommended_and_integrity(self):
         rec = self.co["recommended"]
         self.assertEqual((rec["base"], rec["evolved"], rec["agree"]), ("g1", "g1", True))
@@ -969,6 +1044,45 @@ class DemoLineageTest(unittest.TestCase):
         self.assertEqual(sorted(self.co["hindsight"]["caught_at"]), ["clean_pass_rate", "frugal_pass_rate", "verified_rate"])
         self.assertEqual(co.fail_on(self.co, ["hindsight"]), [])
         self.assertEqual(co.fail_on(self.co, ["unconfirmed"]), [("unconfirmed", "clean_pass_rate")])
+
+    def test_the_per_task_cells_of_the_demo(self):
+        m = self.co["matrix"]
+        gens = [g["id"] for g in self.evolution["generations"]]
+        tasks = [f"rl0{i}_{n}" for i, n in enumerate(("ledger_reconcile", "flaky_test", "flag_rollout", "query_regression",
+                                                        "incident_postmortem", "api_contract"), 1)]
+        for g in self.evolution["generations"]:
+            cells = m["pass_rate"][g["id"]]["per_task"]
+            self.assertEqual(list(cells), tasks, g["id"])
+            self.assertEqual({t: c["point"] for t, c in cells.items()}, g["pass_by_task"],
+                             "the per-task pass rate is the evolution section's pass_by_task")
+            self.assertTrue(all(c["n"] == 5 and c["measurable"] and c["lo"] <= c["point"] <= c["hi"] for c in cells.values()), g["id"])
+        self.assertEqual(m["pass_rate"]["g3"]["per_task"]["rl01_ledger_reconcile"], {"point": 0.6, "lo": 0.2, "hi": 1.0, "n": 5, "measurable": True, "reason": None})
+        self.assertEqual({t: c["point"] for t, c in m["verified_rate"]["g3"]["per_task"].items()}, dict.fromkeys(tasks, 0.0),
+                         "g3 dropped verification on every task, not on average")
+        # the frugal pass rate filters episodes, so a task can have too few (rl03) or none (rl04, rl05) under the filter
+        frugal = m["frugal_pass_rate"]["g6"]["per_task"]
+        self.assertEqual(list(frugal), [tasks[0], tasks[1], tasks[2], tasks[5]])
+        self.assertEqual((frugal["rl03_flag_rollout"]["measurable"], frugal["rl03_flag_rollout"]["n"]), (False, 2))
+        self.assertEqual(frugal["rl06_api_contract"], {"point": 0.8, "lo": 0.4, "hi": 1.0, "n": 5, "measurable": True, "reason": None})
+        self.assertEqual([m["clean_pass_rate"][g]["per_task"] for g in gens[:2]], [{}, {}], "no episode of g0 or g1 passes the filter")
+        self.assertEqual(m["clean_pass_rate"]["g2"]["per_task"], {"rl05_incident_postmortem": {
+            "point": None, "lo": None, "hi": None, "n": 1, "measurable": False,
+            "reason": "1 episode of the task after the filter, under the 4 needed"}}, "one clean episode in g2, on one task")
+        # the base return IQM's per-task cell is the task's own mean return, and says so
+        cell = m["return_iqm"]["g4"]["per_task"]["rl01_ledger_reconcile"]
+        self.assertEqual((cell["point"], cell["lo"], cell["hi"], cell["n"]), (6.8, 5.8, 7.6, 5))
+        self.assertEqual(cell["note"], "the task's own mean, not its IQM: the metric's aggregate is the task-balanced IQM")
+        self.assertNotIn("note", m["tool_calls_mean"]["g2"]["per_task"]["rl03_flag_rollout"])
+        self.assertEqual(m["tool_calls_mean"]["g2"]["per_task"]["rl03_flag_rollout"]["point"], 28.6)
+        json.dumps(self.co)
+
+    def test_the_per_task_cells_cost_under_two_seconds(self):
+        table = co.feature_table(self.lineage)
+        start = time.monotonic()
+        for m in self.co["metrics"].values():
+            for row in table:
+                co.per_task(m["spec"], row["episodes"], self.co["samples"])
+        self.assertLess(time.monotonic() - start, 2.0)
 
     def test_the_matrix_agrees_with_the_evolution_section_on_the_base_metrics(self):
         m = self.co["matrix"]

@@ -16,7 +16,12 @@ The reward table, paid per step by :func:`run_episode`:
 
 Every thinking step carries a ``value`` estimate (:func:`value_estimate`),
 so the RL layer reads these traces as *recorded* rather than shaping a
-reward from the labels. Every number is invented and labelled so.
+reward from the labels. Every model step (plan, reason, answer) carries
+the model telemetry :func:`telemetry` — the trace's declared model name
+and the temperature, nothing else invented and no logprobs — so the data
+section attributes those steps to ``steps[].model``; a tool step carries
+none, because a tool is not a model. Every number is invented and
+labelled so.
 
 A **behaviour** is a small dict: ``hit`` (the chance a fact is found on
 the attempt that can find it), ``error`` (the chance a verifier check
@@ -54,6 +59,8 @@ TOOLS = ({"name": "grep", "effect": "read"}, {"name": "read_file", "effect": "re
          {"name": "search", "effect": "read"}, {"name": "run_check", "effect": "read"})
 #: the probes a task greps for when it names none
 DEFAULT_PROBES = ("invoices", "payments", "totals", "mismatch")
+#: the sampling temperature every model step records
+TEMPERATURE = 0.2
 
 TASKS = [
     {"id": "rl01_ledger_reconcile",
@@ -152,6 +159,13 @@ def value_estimate(rng: random.Random, expected_final: float, remaining: int) ->
     return round(expected_final + TOOL_COST * remaining + rng.gauss(0.0, 0.6), 2)
 
 
+def telemetry(recorder) -> dict:
+    """The model telemetry a model step (plan, reason, answer) carries: the
+    trace's declared model and the temperature — read from the recorder,
+    drawn from nothing."""
+    return {"name": str(recorder.model), "temperature": TEMPERATURE}
+
+
 def tools_for(checks: int) -> list:
     """The tools a run declares: the three readers, and ``run_check`` when
     the behaviour verifies at all."""
@@ -194,7 +208,7 @@ def run_episode(task: dict, behaviour: dict, rng: random.Random, recorder, *,
     with r:
         r.plan(f"Plan: inventory the inputs, locate each of the {n} facts the answer needs, "
                + ("verify, " if checks else "") + "answer.", latency_s=1.4, tokens=plan_tokens,
-               reward=0.0, value=value_estimate(rng, expected_final, 40))
+               reward=0.0, value=value_estimate(rng, expected_final, 40), model=telemetry(r))
         for name in task.get("probes", DEFAULT_PROBES):
             r.tool("grep", {"pattern": name, "path": task["files"][0].split("/")[0]},
                    output=f"{rng.randint(3, 40)} lines match '{name}'", latency_s=rng.uniform(0.1, 0.4),
@@ -225,7 +239,7 @@ def run_episode(task: dict, behaviour: dict, rng: random.Random, recorder, *,
             remaining = 2 * (n - k - 1) + checks + 2
             r.reason(f"{'Recorded' if got else 'Could not confirm'} item {k + 1} of {n}: {query}",
                      latency_s=rng.uniform(0.4, 0.9), tokens=rng.randint(40, 90),
-                     reward=0.0, value=value_estimate(rng, expected_final, remaining))
+                     reward=0.0, value=value_estimate(rng, expected_final, remaining), model=telemetry(r))
         if checks:
             with r.span("verifier"):
                 for j in range(checks):
@@ -237,7 +251,8 @@ def run_episode(task: dict, behaviour: dict, rng: random.Random, recorder, *,
                     if err:
                         r.reason(f"verifier: check {j + 1} rejected the input; retry with the corrected arguments",
                                  latency_s=rng.uniform(0.3, 0.8), tokens=rng.randint(30, 60),
-                                 reward=0.0, value=value_estimate(rng, expected_final, checks - j + 1))
+                                 reward=0.0, value=value_estimate(rng, expected_final, checks - j + 1),
+                                 model=telemetry(r))
                         r.tool("run_check", {"check": f"consistency-{j + 1}", "retry": True}, output="ok",
                                latency_s=rng.uniform(1.0, 2.0), tokens=rng.randint(20, 40), reward=TOOL_COST)
         all_found = found == n
@@ -245,9 +260,10 @@ def run_episode(task: dict, behaviour: dict, rng: random.Random, recorder, *,
         # answer some of the time: that is what verification was buying
         success = all_found and (checks > 0 or unverified_wrong is None or rng.random() >= unverified_wrong)
         r.reason("Compose the answer from the " + (f"{found} confirmed items" if all_found else f"{found} of {n} items confirmed"),
-                 latency_s=rng.uniform(0.6, 1.2), tokens=rng.randint(50, 100), reward=0.0, value=value_estimate(rng, expected_final, 1))
+                 latency_s=rng.uniform(0.6, 1.2), tokens=rng.randint(50, 100), reward=0.0, value=value_estimate(rng, expected_final, 1),
+                 model=telemetry(r))
         r.answer(task["answer"] if success else task["wrong"], success=success, tokens=60, latency_s=1.1,
-                 reward=ANSWER_REWARD if success else -ANSWER_REWARD)
+                 reward=ANSWER_REWARD if success else -ANSWER_REWARD, model=telemetry(r))
     return success
 
 
@@ -261,4 +277,5 @@ def label_synthetic(path: Path, note: str) -> dict:
 
 
 __all__ = ["TOOL_COST", "ERROR_REWARD", "EVIDENCE_REWARD", "ANSWER_REWARD", "RETRY_DECAY", "TOOLS",
-           "DEFAULT_PROBES", "TASKS", "value_estimate", "tools_for", "run_episode", "label_synthetic"]
+           "DEFAULT_PROBES", "TEMPERATURE", "TASKS", "value_estimate", "telemetry", "tools_for", "run_episode",
+           "label_synthetic"]

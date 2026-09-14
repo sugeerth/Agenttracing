@@ -4,7 +4,8 @@
   "agent": {
     "name": "bolt-v3",
     "model": "sim-sprinter-3",
-    "version": "v3"
+    "version": "v3",
+    "system_prompt": "You are a research agent with web search, result selection, page reading and tools.\nAnswer quickly: take the first result that gives the figure.\nConfirm it with one more search before you answer.\nAnswer with the figure and say where it came from."
   },
   "task": {
     "id": "t01_acme_revenue",
@@ -32,7 +33,11 @@
       "tokens": 162,
       "latency_s": 2.09,
       "quality": "good",
-      "note": null
+      "note": null,
+      "model": {
+        "name": "sim-sprinter-3",
+        "temperature": 0.2
+      }
     },
     {
       "index": 1,
@@ -76,7 +81,11 @@
       "tokens": 143,
       "latency_s": 1.59,
       "quality": "weak",
-      "note": null
+      "note": null,
+      "model": {
+        "name": "sim-sprinter-3",
+        "temperature": 0.2
+      }
     },
     {
       "index": 5,
@@ -120,7 +129,11 @@
       "tokens": 132,
       "latency_s": 1.56,
       "quality": "bad",
-      "note": "Both sources trace to the same blog; the official release (never opened) states $4.82 billion."
+      "note": "Both sources trace to the same blog; the official release (never opened) states $4.82 billion.",
+      "model": {
+        "name": "sim-sprinter-3",
+        "temperature": 0.2
+      }
     },
     {
       "index": 9,
@@ -131,7 +144,11 @@
       "tokens": 148,
       "latency_s": 2.05,
       "quality": "good",
-      "note": null
+      "note": null,
+      "model": {
+        "name": "sim-sprinter-3",
+        "temperature": 0.2
+      }
     }
   ]
 }

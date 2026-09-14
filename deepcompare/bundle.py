@@ -28,8 +28,14 @@ Three levels of grain are indexed from the members:
   cut; :meth:`Bundle.step` returns the whole of one), the budget,
   fetches and data readings, and the timeline in the shape the
   Evolution timescape draws. A run whose steps are not in the output (a
-  runs layout keeps one representative pair per task) has a record that
-  says so.
+  runs layout keeps one representative pair per task; a lineage keeps
+  the last pair's reports) has a record that says so — unless the
+  source traces are given (``--traces DIR …``): then every such record
+  is completed from the trace file matched by ``trace_id`` (else by
+  task, agent and run id), the file is copied under ``traces/<member>/…``
+  so the bundle stays self-contained, and the record says
+  ``steps_source: "trace <path relative to the bundle>"``. Without
+  traces nothing changes.
 
 The key (``agentdiff1:…``) is the level-1 overview compressed into one
 paste-safe line that also names the bundle by its id: a tool holding the
@@ -195,6 +201,16 @@ def _set(row: dict, source: str, **fields: Any) -> None:
         row["basis"].append(source)
 
 
+def _fill(row: dict, source: str, **fields: Any) -> None:
+    """Like :func:`_set`, but a number a source already recorded is kept:
+    only ``None`` (and an empty ``tools``) is filled."""
+    for k, v in fields.items():
+        if v is not None and (row.get(k) is None or (k == "tools" and not row.get(k))):
+            row[k] = v
+    if source not in row["basis"]:
+        row["basis"].append(source)
+
+
 def _traj_of_side(report: dict, side: str) -> Optional[Trajectory]:
     """A typed trajectory from a report side, the task riding along; None
     when the side cannot be read as one."""
@@ -272,11 +288,13 @@ def _step_rows(traj: Trajectory) -> list:
 
 
 def _member_rows(m: dict, label: str) -> tuple:
-    """``(rows, details)`` for one member: the level-2 rows keyed by
-    (task, agent, run) and, for runs whose steps a report carries, the
-    level-3 detail."""
+    """``(rows, details, ids)`` for one member: the level-2 rows keyed by
+    (task, agent, run), for runs whose steps a report carries the
+    level-3 detail, and the trace id each row's source named (a lineage's
+    episodes, the scorecard), by the same key, for matching a trace."""
     rows: dict = {}
     details: dict = {}
+    ids: dict = {}
     agg = m["aggregate"]
 
     def row(task: str, agent: str, run: str) -> dict:
@@ -295,6 +313,8 @@ def _member_rows(m: dict, label: str) -> tuple:
             if not isinstance(ep, dict) or not ep.get("task_id"):
                 continue
             r = row(str(ep["task_id"]), agent, str(ep.get("run_id") or "r1"))
+            if ep.get("trace_id"):
+                ids[(str(ep["task_id"]), agent, str(ep.get("run_id") or "r1"))] = str(ep["trace_id"])
             tools = ep.get("tools") if isinstance(ep.get("tools"), dict) else None
             _set(r, "evolution", success=ep.get("success") if isinstance(ep.get("success"), bool) else None,
                  steps=ep.get("steps"), seconds=ep.get("seconds"), tools=tools, errors=ep.get("errors"),
@@ -307,6 +327,8 @@ def _member_rows(m: dict, label: str) -> tuple:
         if not sc.get("task") or not sc.get("agent"):
             continue
         r = row(str(sc["task"]), str(sc["agent"]), str(sc.get("run_id") or "r1"))
+        if sc.get("trace_id"):
+            ids.setdefault((str(sc["task"]), str(sc["agent"]), str(sc.get("run_id") or "r1")), str(sc["trace_id"]))
         spend, tools, traj = sc.get("spend") or {}, sc.get("tools") or {}, sc.get("trajectory") or {}
         cost = spend.get("cost_usd")
         _set(r, "scorecard", success=sc.get("success") if isinstance(sc.get("success"), bool) else None,
@@ -354,7 +376,113 @@ def _member_rows(m: dict, label: str) -> tuple:
             details[(task, traj.agent.name, traj.run_id)] = {
                 "steps": _step_rows(traj), "budget": b, "fetches": f, "data": d, "timeline": timeline, "reward_basis": reward_basis,
                 "trace_id": traj.trace_id, "trace_path": None, "report": f"report_{_UNSAFE.sub('_', task)}.json", "side": side}
-    return rows, details
+    return rows, details, ids
+
+
+# ------------------------------------------------------------ the traces
+
+def load_traces(dirs: Any) -> tuple:
+    """Every trace file under ``dirs`` (each walked recursively, files in
+    sorted order): ``([{"root", "rel", "path", "trajectory"}], notes)``.
+    The run id is the runs layout's ``<task>__<agent>__<run>`` name when
+    the file has one, else what the trace carries; the ``harness`` block
+    rides beside the typed trajectory. A JSON file that is not a trace
+    is passed over; one that is a trace but invalid is counted in the
+    notes with its reason, never guessed at."""
+    entries: list = []
+    notes: list = []
+    for d in dirs or []:
+        root = Path(d)
+        if not root.is_dir():
+            raise ValueError(f"--traces {d}: not a directory")
+        for path in sorted(root.rglob("*.json")):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                notes.append(f"{path}: not valid JSON: {exc}")
+                continue
+            if not isinstance(data, dict) or "steps" not in data or "task" not in data:
+                continue
+            try:
+                t = Trajectory.from_dict(data)
+            except (ValueError, TypeError, KeyError) as exc:
+                notes.append(f"{path}: {exc}")
+                continue
+            parts = path.stem.split("__")
+            if len(parts) >= 3:
+                t.run_id = parts[2]
+            if isinstance(data.get("harness"), dict):
+                t.harness = data["harness"]  # type: ignore[attr-defined]
+            entries.append({"root": root, "rel": path.relative_to(root).as_posix(), "path": path, "trajectory": t})
+    return entries, notes
+
+
+class _TracePool:
+    """The loaded traces indexed by trace id and by (task, agent, run),
+    so a record is completed by its trace id first and by its key when
+    the trace id is unknown or unmatched."""
+
+    def __init__(self, entries: list) -> None:
+        self.by_id: dict = {}
+        self.by_key: dict = {}
+        for e in entries:
+            t = e["trajectory"]
+            if t.trace_id:
+                self.by_id.setdefault(t.trace_id, e)
+            self.by_key.setdefault((t.task.id, t.agent.name, t.run_id), e)
+
+    def match(self, trace_id: Optional[str], key: tuple) -> Optional[dict]:
+        """The trace for a run: by trace id when the trace names the same
+        task and agent (an id that names another agent's run is not a
+        match, whatever it says), else by (task, agent, run id)."""
+        e = self.by_id.get(trace_id) if trace_id else None
+        if e is not None and (e["trajectory"].task.id, e["trajectory"].agent.name) == key[:2]:
+            return e
+        return self.by_key.get(key)
+
+
+def _trace_file(label: str, rel: str, taken: dict, source: Path) -> str:
+    """The bundle-relative path a trace is copied to: ``traces/<member>/<rel>``,
+    suffixed ``~n`` before the extension when the same relative name
+    arrives from another directory."""
+    base = f"traces/{_UNSAFE.sub('_', label)}/{rel}"
+    candidate = base
+    n = 1
+    while candidate in taken and taken[candidate] != source:
+        n += 1
+        stem, dot, ext = base.rpartition(".")
+        candidate = f"{stem}~{n}.{ext}" if dot else f"{base}~{n}"
+    taken[candidate] = source
+    return candidate
+
+
+def _complete(row: dict, detail: Optional[dict], entry: dict, rel: str) -> dict:
+    """The level-3 detail of a run from its trace: the steps, the budget,
+    fetches and data readings, the timeline (the lineage's episode
+    timeline when the member carries one, since it holds the flags a
+    pair established; else the trace's steps as recorded) and
+    ``steps_source``. The row is filled where no source had recorded the
+    number, never overwritten."""
+    traj = entry["trajectory"]
+    b, f, d = budget_run(traj), fetches_run(traj), data_run(traj)
+    seconds = b["per_second"]["seconds"] if b["per_second"]["measurable"] else None
+    tools: dict = {}
+    for st in traj.steps:
+        if st.type in FETCH_KINDS:
+            tools[st.name or "?"] = tools.get(st.name or "?", 0) + 1
+    if detail and detail.get("timeline"):
+        timeline, reward_basis = detail["timeline"], "the lineage's episode timeline"
+    else:
+        timeline, reward_basis = _timeline({}, "a", traj)
+    _fill(row, "trace", success=traj.outcome.success, steps=len(traj.steps),
+          tool_calls=sum(1 for st in traj.steps if st.type == "tool_call"), tools=dict(sorted(tools.items())),
+          tokens=b["tokens"]["total"], tokens_measured_share=rounded(b["tokens"]["measured"] / b["tokens"]["total"]) if b["tokens"]["total"] else None,
+          cost_usd=b["cost_usd"]["value"], seconds=seconds, fetches=f["counts"]["total"], errors=f["counts"]["errors"],
+          repeats=f["counts"]["repeats"])
+    row["synthetic"] = bool(row["synthetic"] or synthetic_of(getattr(traj, "harness", None)))
+    row["detail"] = True
+    return {"steps": _step_rows(traj), "budget": b, "fetches": f, "data": d, "timeline": timeline, "reward_basis": reward_basis,
+            "trace_id": traj.trace_id, "trace_path": rel, "report": None, "side": None, "steps_source": f"trace {rel}"}
 
 
 def _record(row: dict, detail: Optional[dict]) -> dict:
@@ -365,9 +493,10 @@ def _record(row: dict, detail: Optional[dict]) -> dict:
     renamed = {"steps": "steps_n", "fetches": "fetches_n"}
     head = {renamed.get(k, k): v for k, v in row.items()}
     if detail and detail.get("steps"):
+        source = {"steps_source": detail["steps_source"]} if detail.get("steps_source") else {}
         return measurable(dict(head, steps=detail["steps"], budget=detail["budget"], fetches=detail["fetches"], data=detail["data"],
                                timeline=detail["timeline"], reward_basis=detail["reward_basis"], trace_id=detail["trace_id"],
-                               trace_path=detail["trace_path"], report=detail["report"], side=detail["side"]), version=VERSION)
+                               trace_path=detail["trace_path"], report=detail["report"], side=detail["side"], **source), version=VERSION)
     reason = ("the run's steps are not in the output: a runs layout keeps one representative pair per task, "
               "and a lineage keeps its episodes' timelines")
     return unmeasurable(reason, version=VERSION, **head, steps=[],
@@ -543,11 +672,15 @@ def _member_sections(m: dict) -> tuple:
             dict(fetches_aggregate(trajs), source="derived from the pair reports' sides"))
 
 
-def levels(members: list, token_cap: Any = None) -> dict:
+def levels(members: list, token_cap: Any = None, traces: Optional[list] = None) -> dict:
     """The three levels from the members: ``overview``, ``runs`` (the
     rows), ``records`` (the level-3 record per key), ``run_index`` (key →
-    path under the bundle), and per member the ``budget`` and ``fetches``
-    aggregates."""
+    path under the bundle), per member the ``budget`` and ``fetches``
+    aggregates, and ``traces`` — the trace files (:func:`load_traces`
+    entries) that completed a record, each with the member and the
+    bundle-relative path it is copied to. ``traces`` given completes every
+    record whose steps are not in the output from the matching trace;
+    absent, nothing here changes."""
     labels = _labels(members)
     rows: list = []
     records: dict = {}
@@ -555,16 +688,27 @@ def levels(members: list, token_cap: Any = None) -> dict:
     taken: set = set()
     budgets: dict = {}
     fetches: dict = {}
+    pool = _TracePool(traces or [])
+    copies: dict = {}
+    used: list = []
     for m, label in zip(members, labels):
-        mrows, details = _member_rows(m, label)
+        mrows, details, ids = _member_rows(m, label)
         for key in sorted(mrows):
             row = mrows[key]
+            detail = details.get(key)
+            if traces and not (detail and detail.get("steps")):
+                entry = pool.match(ids.get(key), key)
+                if entry is not None:
+                    rel = _trace_file(label, entry["rel"], copies, entry["path"])
+                    if not any(u["rel"] == rel for u in used):
+                        used.append({"member": label, "rel": rel, "source": entry["path"]})
+                    detail = _complete(row, detail, entry, rel)
             rows.append(row)
-            records[row["key"]] = _record(row, details.get(key))
+            records[row["key"]] = _record(row, detail)
             run_index[row["key"]] = _run_file(row["key"], taken)
         budgets[label], fetches[label] = _member_sections(m)
     return {"overview": _overview(members, labels, rows, token_cap), "runs": rows, "records": records,
-            "run_index": run_index, "budget": budgets, "fetches": fetches, "labels": labels}
+            "run_index": run_index, "budget": budgets, "fetches": fetches, "labels": labels, "traces": used}
 
 
 def select_runs(rows: list, agent: Optional[str] = None, task: Optional[str] = None, member: Optional[str] = None,
@@ -649,20 +793,26 @@ def decode_key(text: str) -> dict:
 
 # --------------------------------------------------------------- building
 
-def build(members: list, name: Optional[str] = None, token_cap: Any = None, locators: Any = ()) -> dict:
+def build(members: list, name: Optional[str] = None, token_cap: Any = None, locators: Any = (), traces: Any = ()) -> dict:
     """Everything the bundle holds, in memory: ``id``, ``name``,
     ``members`` (the index rows), ``levels``, ``records``, ``locators``,
-    ``key``."""
+    ``key``, and ``traces`` — ``{dirs, read, notes, completed, files}``
+    when trace directories were given (the id is unchanged by them: it
+    is the members' content)."""
     if not members:
         raise ValueError("a bundle needs at least one output directory")
-    lv = levels(members, token_cap)
+    entries, notes = load_traces(traces)
+    lv = levels(members, token_cap, entries if traces else None)
     labels = lv.pop("labels")
+    used = lv.pop("traces")
     index = [{"index": i, "label": label, "kind": m["kind"], "source": m["source"], "tasks": m["tasks"], "agents": m["agents"],
               "lineage": m["lineage"], "sections": m["sections"], "runs": sum(1 for r in lv["runs"] if r["member"] == label)}
              for i, (m, label) in enumerate(zip(members, labels))]
     info = {"version": VERSION, "id": digest(members), "name": name or "+".join(labels), "members": index,
             "overview": lv["overview"], "runs": lv["runs"], "run_index": lv["run_index"], "budget": lv["budget"],
-            "fetches": lv["fetches"], "records": lv["records"], "locators": [str(x) for x in (locators or [])]}
+            "fetches": lv["fetches"], "records": lv["records"], "locators": [str(x) for x in (locators or [])],
+            "traces": {"dirs": [str(d) for d in (traces or [])], "read": len(entries), "notes": notes,
+                       "completed": sum(1 for r in lv["records"].values() if r.get("steps_source")), "files": used}}
     info["key"] = encode_key(info)
     return info
 
@@ -672,12 +822,13 @@ def _dump(path: Path, payload: Any) -> None:
 
 
 def write_bundle(members: list, out_dir: Union[str, Path], template: Union[str, Path], name: Optional[str] = None,
-                 token_cap: Any = None, locators: Any = ()) -> dict:
+                 token_cap: Any = None, locators: Any = (), traces: Any = ()) -> dict:
     """Build and write the bundle under ``out_dir``: ``bundle.json``, the
-    members' copies, ``runs/<key>.json`` per run, ``report.html`` (the
-    primary member's page with the bundle inlined) and ``KEY.txt``.
-    Returns :func:`build`'s dict plus ``files``."""
-    info = build(members, name=name, token_cap=token_cap, locators=locators)
+    members' copies, ``runs/<key>.json`` per run, with ``traces`` the
+    copies under ``traces/<member>/…`` of every trace that completed a
+    record, ``report.html`` (the primary member's page with the bundle
+    inlined) and ``KEY.txt``. Returns :func:`build`'s dict plus ``files``."""
+    info = build(members, name=name, token_cap=token_cap, locators=locators, traces=traces)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     files: list = []
@@ -699,6 +850,11 @@ def write_bundle(members: list, out_dir: Union[str, Path], template: Union[str, 
     for key, rel in info["run_index"].items():
         _dump(out / rel, info["records"][key])
         files.append(rel)
+    for t in info["traces"]["files"]:
+        dest = out / t["rel"]
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(t["source"], dest)
+        files.append(t["rel"])
     primary = members[0]
     page = {"id": info["id"], "name": info["name"], "members": info["members"],
             "levels": dict(levels_block, records=info["records"])}
@@ -792,25 +948,36 @@ class Bundle:
 
     def step(self, key: str, index: int) -> dict:
         """The full text of one step, uncapped, read from the member's copy
-        of the report the record came from: ``{key, index, type, name,
-        input, output, input_chars, output_chars, tokens, tokens_basis,
-        latency_s, error, effect, quality, note, model, span, source}``.
-        ``KeyError`` when the key names no run, ``ValueError`` with the
-        reason when the run's steps are not in the output or the index
-        names no step."""
+        of the report the record came from — or from the bundle's copy of
+        the trace when the record was completed from one (``steps_source``):
+        ``{key, index, type, name, input, output, input_chars, output_chars,
+        tokens, tokens_basis, latency_s, error, effect, quality, note,
+        model, span, source}``. ``KeyError`` when the key names no run,
+        ``ValueError`` with the reason when the run's steps are not in the
+        output or the index names no step."""
         record = self.run(key)
         if record is None:
             raise KeyError(key)
-        if not record.get("measurable") or not record.get("report"):
+        source = str(record.get("steps_source") or "")
+        if not record.get("measurable") or not (record.get("report") or source.startswith("trace ")):
             raise ValueError(f"the steps of {key!r} are not in the output: {record.get('reason')}")
-        member = next((m for m in self.members if m.get("label") == record.get("member")), None)
-        if member is None:
-            raise ValueError(f"the record of {key!r} names a member the bundle does not hold: {record.get('member')!r}")
-        path = self.path / "members" / str(member["index"]) / str(record["report"])
-        if not path.is_file():
-            raise ValueError(f"the member's copy of {record['report']} is not in the bundle")
-        report = json.loads(path.read_text(encoding="utf-8"))
-        steps = ((report.get(record.get("side")) or {}).get("steps") or [])
+        if source.startswith("trace "):
+            rel = source[len("trace "):]
+            path = self.path / rel
+            if not path.is_file():
+                raise ValueError(f"the bundle's copy of the trace {rel} is not in the bundle")
+            steps = json.loads(path.read_text(encoding="utf-8")).get("steps") or []
+            where = f"{rel}#steps"
+        else:
+            member = next((m for m in self.members if m.get("label") == record.get("member")), None)
+            if member is None:
+                raise ValueError(f"the record of {key!r} names a member the bundle does not hold: {record.get('member')!r}")
+            path = self.path / "members" / str(member["index"]) / str(record["report"])
+            if not path.is_file():
+                raise ValueError(f"the member's copy of {record['report']} is not in the bundle")
+            report = json.loads(path.read_text(encoding="utf-8"))
+            steps = ((report.get(record.get("side")) or {}).get("steps") or [])
+            where = f"members/{member['index']}/{record['report']}#{record.get('side')}.steps"
         if not isinstance(index, int) or isinstance(index, bool) or index < 0 or index >= len(steps):
             raise ValueError(f"{key!r} has {len(steps)} steps, indexed 0 to {len(steps) - 1}; no step {index!r}")
         st = steps[index] if isinstance(steps[index], dict) else {}
@@ -819,8 +986,7 @@ class Bundle:
                 "input_chars": len(str(st.get("input") or "")), "output_chars": len(str(st.get("output") or "")),
                 "tokens": st.get("tokens"), "tokens_basis": st.get("tokens_basis"), "latency_s": st.get("latency_s"),
                 "error": st.get("error"), "effect": st.get("effect"), "quality": st.get("quality"), "note": st.get("note"),
-                "model": st.get("model"), "span": st.get("span"),
-                "source": f"members/{member['index']}/{record['report']}#{record.get('side')}.steps[{index}]"}
+                "model": st.get("model"), "span": st.get("span"), "source": f"{where}[{index}]"}
 
     def budget(self, agent: Optional[str] = None, task: Optional[str] = None) -> dict:
         """The per-member budget aggregates, narrowed to one agent and/or task."""
@@ -888,4 +1054,4 @@ def _narrow(per_member: dict, agent: Optional[str], task: Optional[str]) -> dict
 
 
 __all__ = ["VERSION", "KEY_PREFIX", "KEY_MAX_BYTES", "KEY_AGENTS", "SORT_FIELDS", "RESOURCE_ROOT", "canonical", "digest",
-           "read_member", "levels", "select_runs", "encode_key", "decode_key", "build", "write_bundle", "verify", "Bundle"]
+           "read_member", "load_traces", "levels", "select_runs", "encode_key", "decode_key", "build", "write_bundle", "verify", "Bundle"]

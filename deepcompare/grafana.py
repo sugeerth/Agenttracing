@@ -4,8 +4,8 @@ invented on the way out.
 The engine already computed every number a dashboard could show — the
 pass rate per agent per task and its Wilson interval, the mean return and
 its bootstrap interval, the IQM, the probability that one policy beats
-the other, the tool profile, the lineage of a self-evolving agent, the eval that
-evolves beside it.  This
+the other, the tool profile, where the tokens went and what was fetched,
+the lineage of a self-evolving agent, the eval that evolves beside it.  This
 module writes those as flat samples so that a Grafana that reads
 Prometheus (or a JSON, or a CSV) can plot them; it computes nothing new
 except the per-task means of the per-run rows the scorecard already
@@ -147,6 +147,20 @@ FAMILIES: dict[str, tuple[str, str]] = {
     "tool_wasted_seconds": ("gauge", f"seconds the agent waited on wasted calls of the tool; {_TOOLS}"),
     "tool_seconds": ("gauge", f"seconds the agent waited on the tool; {_TOOLS}"),
     "tool_max_identical_run": ("gauge", "the longest run of consecutive identical calls of the tool by the agent in any one pair report; the maximum over reports, not a sum"),
+    # where the tokens went (aggregate.budget, else the pair reports' sides) — counts and sums over recorded steps,
+    # so no interval family accompanies any of them
+    "budget_tokens": ("gauge", "tokens of the run counted under the basis the trace labelled them with (measured, estimated, or unknown when the step carried no label); a sum over the run's steps as recorded, never re-estimated; a count, so it carries no interval"),
+    "budget_by_kind": ("gauge", "tokens the agent spent on steps of the kind (plan, reason, search, retrieve, read, tool_call, answer), summed over its runs; a count, no interval"),
+    "budget_by_tool": ("gauge", "tokens the agent spent on fetch steps of the tool, summed over its runs; a count, no interval"),
+    "budget_waste": ("gauge", f"tokens of the run the reading marks as wasted, by what: after_last_evidence (steps after the last step carrying a recorded reward > 0 or a quality label good, before the answer; absent when the run recorded no evidence signal), in_errored_calls, in_repeats (fetches repeating an earlier name and input); read from the pair reports' sides, {_TOOLS}; a count over recorded steps, no interval"),
+    "budget_cost_usd": ("gauge", "cost of the run in USD as its totals recorded it; present only where a cost was recorded — unrecorded is not free and is no sample; a recorded sum, no interval"),
+    "budget_cap": ("gauge", "the token cap the analysis was given (--token-cap); a constant of the analysis, not a measurement; absent when none was given"),
+    "budget_over_cap": ("gauge", "tokens of a run the analysis listed over its cap; one sample per run over it; a count, no interval"),
+    # what was fetched (aggregate.fetches, else the pair reports' sides)
+    "fetches": ("gauge", "fetches the run made of the kind (search, retrieve, read, tool_call); a count of steps, no interval"),
+    "fetches_errors": ("gauge", "fetches of the run that returned an error; a count, no interval"),
+    "fetches_repeats": ("gauge", "fetches of the run that repeated an earlier fetch with the same name and input; a count, no interval"),
+    "fetches_used": ("gauge", "fetches of the run by use: used (a recorded reward > 0 or a quality label good), unused (a recorded reward of zero or less, or a label bad), unknown (no signal recorded — never inferred from the answer's text); a count, no interval"),
     # a fleet
     "fleet_rank": ("gauge", "the agent's rank in the fleet by composite score, 1 = best; depends on the scoring weights in fleet.json"),
     "fleet_score": ("gauge", "the agent's composite score in the fleet, a weighted sum of min-max normalised dimensions; comparable within this fleet only"),
@@ -759,9 +773,135 @@ def collect_batch(loaded: dict) -> _Collector:
     _collect_rl(c, aggregate, synthetic)
     _collect_paired(c, aggregate, synthetic)
     _collect_tools(c, reports, synthetic)
+    _collect_budget(c, aggregate, reports)
+    _collect_fetches(c, aggregate, reports)
     _collect_evolution(c, aggregate)
     _collect_coevolution(c, aggregate)
     return c
+
+
+# ---------------------------------------------------------------- the budget and the fetches
+
+_WASTES = ("after_last_evidence", "in_errored_calls", "in_repeats")
+_USES = (("used", "used"), ("unused", "unused"), ("unknown_use", "unknown"))
+
+
+def _sides(reports: list) -> list:
+    """``(agent, task, run, side, report)`` per report side that names an agent."""
+    out = []
+    for report in reports:
+        task = str(((report.get("task") or {}).get("id")) or "")
+        for side in ("a", "b"):
+            block = report.get(side) or {}
+            name = str(((block.get("agent") or {}).get("name")) or "")
+            if name:
+                out.append((name, task, str(block.get("run_id") or "r1"), side, report))
+    return out
+
+
+def _side_section(report: dict, key: str, side: str) -> Optional[dict]:
+    section = report.get(key)
+    block = section.get(side) if isinstance(section, dict) else None
+    return block if isinstance(block, dict) and block.get("measurable") else None
+
+
+def _collect_budget(c: _Collector, aggregate: dict, reports: list) -> None:
+    """Where the tokens went: the aggregate's ledger when it carries one,
+    else the pair reports' sides (one run each); the waste always from
+    the reports' sides, the only place it is read per run."""
+    section = aggregate.get("budget") if isinstance(aggregate.get("budget"), dict) else None
+    rows: list = []
+    agents: dict = {}
+    cap = None
+    if section and section.get("measurable") and isinstance(section.get("runs"), list):
+        for r in section["runs"]:
+            rows.append({"agent": str(r.get("agent")), "task": str(r.get("task")), "run": str(r.get("run")),
+                         "measured": r.get("measured"), "estimated": r.get("estimated"), "unknown": r.get("unknown"),
+                         "cost_usd": r.get("cost_usd"), "synthetic": bool(r.get("synthetic"))})
+        for name, ag in sorted((section.get("agents") or {}).items()):
+            agents[str(name)] = {"by_kind": ag.get("by_kind") or {}, "by_tool": ag.get("by_tool") or {}, "synthetic": bool(ag.get("synthetic"))}
+        cap = section.get("cap") or {}
+    else:
+        for name, task, run, side, report in _sides(reports):
+            b = _side_section(report, "budget", side)
+            if b is None:
+                continue
+            tk = b.get("tokens") or {}
+            rows.append({"agent": name, "task": task, "run": run, "measured": tk.get("measured"), "estimated": tk.get("estimated"),
+                         "unknown": tk.get("unknown"), "cost_usd": (b.get("cost_usd") or {}).get("value"), "synthetic": bool(b.get("synthetic"))})
+            ag = agents.setdefault(name, {"by_kind": {}, "by_tool": {}, "synthetic": False})
+            for k, v in (tk.get("by_kind") or {}).items():
+                ag["by_kind"][k] = ag["by_kind"].get(k, 0) + (v or 0)
+            for k, v in (tk.get("by_tool") or {}).items():
+                ag["by_tool"][k] = ag["by_tool"].get(k, 0) + (v or 0)
+            ag["synthetic"] = ag["synthetic"] or bool(b.get("synthetic"))
+        if rows:
+            c.note("no budget ledger in the aggregate: token families read from the pair reports' sides")
+    if not rows:
+        c.note("no budget reading in the aggregate or the reports: token families omitted")
+        return
+    for r in rows:
+        base = {"agent": r["agent"], "task": r["task"], "run": r["run"], "synthetic": _bool_label(r["synthetic"])}
+        for basis in ("measured", "estimated", "unknown"):
+            c.add("budget_tokens", dict(base, basis=basis), r[basis])
+        if finite(r["cost_usd"]):
+            c.add("budget_cost_usd", base, _r(r["cost_usd"], 6))
+    for name in sorted(agents):
+        ag = agents[name]
+        base = {"agent": name, "synthetic": _bool_label(ag["synthetic"])}
+        for kind in sorted(ag["by_kind"]):
+            c.add("budget_by_kind", dict(base, kind=kind), ag["by_kind"][kind])
+        for tool in sorted(ag["by_tool"]):
+            c.add("budget_by_tool", dict(base, tool=tool), ag["by_tool"][tool])
+    for name, task, run, side, report in _sides(reports):
+        b = _side_section(report, "budget", side)
+        if b is None:
+            continue
+        waste = b.get("waste") or {}
+        base = {"agent": name, "task": task, "run": run, "synthetic": _bool_label(b.get("synthetic"))}
+        for what in _WASTES:
+            c.add("budget_waste", dict(base, what=what), waste.get(what))
+    if cap and finite(cap.get("value")):
+        c.add("budget_cap", {"source": str(cap.get("source") or "")}, cap["value"])
+        for over in cap.get("over") or []:
+            if isinstance(over, dict):
+                syn = next((r["synthetic"] for r in rows if (r["agent"], r["task"], r["run"]) ==
+                            (str(over.get("agent")), str(over.get("task")), str(over.get("run")))), False)
+                c.add("budget_over_cap", {"agent": str(over.get("agent")), "task": str(over.get("task")), "run": str(over.get("run")),
+                                          "synthetic": _bool_label(syn)}, over.get("tokens"))
+
+
+def _collect_fetches(c: _Collector, aggregate: dict, reports: list) -> None:
+    """What was fetched: the aggregate's ledger when it carries one, else
+    the pair reports' sides (one run each)."""
+    section = aggregate.get("fetches") if isinstance(aggregate.get("fetches"), dict) else None
+    rows: list = []
+    if section and section.get("measurable") and isinstance(section.get("runs"), list):
+        for r in section["runs"]:
+            rows.append({"agent": str(r.get("agent")), "task": str(r.get("task")), "run": str(r.get("run")), "by_kind": r.get("by_kind") or {},
+                         "errors": r.get("errors"), "repeats": r.get("repeats"), "synthetic": bool(r.get("synthetic")),
+                         **{k: r.get(k) for k, _label in _USES}})
+    else:
+        for name, task, run, side, report in _sides(reports):
+            f = _side_section(report, "fetches", side)
+            if f is None:
+                continue
+            counts = f.get("counts") or {}
+            rows.append({"agent": name, "task": task, "run": run, "by_kind": counts.get("by_kind") or {}, "errors": counts.get("errors"),
+                         "repeats": counts.get("repeats"), "synthetic": bool(f.get("synthetic")), **{k: counts.get(k) for k, _label in _USES}})
+        if rows:
+            c.note("no fetches ledger in the aggregate: fetch families read from the pair reports' sides")
+    if not rows:
+        c.note("no fetches reading in the aggregate or the reports: fetch families omitted")
+        return
+    for r in rows:
+        base = {"agent": r["agent"], "task": r["task"], "run": r["run"], "synthetic": _bool_label(r["synthetic"])}
+        for kind in sorted(r["by_kind"]):
+            c.add("fetches", dict(base, kind=kind), r["by_kind"][kind])
+        c.add("fetches_errors", base, r["errors"])
+        c.add("fetches_repeats", base, r["repeats"])
+        for key, label in _USES:
+            c.add("fetches_used", dict(base, use=label), r[key])
 
 
 # ---------------------------------------------------------------- fleet

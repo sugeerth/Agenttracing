@@ -595,6 +595,41 @@ class TestInstrument(RecorderCase):
         self.assertEqual(data["outcome"]["termination"], "agent_error")
 
 
+class TestInstructions(RecorderCase):
+    """``system_prompt`` and ``config`` are written under ``agent`` only when
+    given: the data section reads what the agent was told, and a trace that
+    never recorded them is byte-identical to one written before the fields."""
+
+    def test_given_they_are_written_and_read_back_typed(self):
+        with self.recorder(system_prompt="Be careful.\nCite sources.",
+                           config={"checks": 3, "retries": 1}) as run:
+            run.plan("Read, then cancel", model={"name": "claude-sonnet-5", "temperature": 0.2})
+            run.tool("get_booking", {"reference": "QX7T2"}).observe("{ok}")
+            run.answer("Cancelled.", success=True)
+        data = self.written(run)
+        self.assertEqual(list(data["agent"]), ["name", "model", "version", "system_prompt", "config"])
+        self.assertEqual(data["agent"]["system_prompt"], "Be careful.\nCite sources.")
+        self.assertEqual(data["agent"]["config"], {"checks": 3, "retries": 1})
+        traj = Trajectory.from_json(data)
+        self.assertEqual((traj.agent.system_prompt, traj.agent.config), ("Be careful.\nCite sources.", {"checks": 3, "retries": 1}))
+        # the model step carries its telemetry as given; the tool step none
+        self.assertEqual(data["steps"][0]["model"], {"name": "claude-sonnet-5", "temperature": 0.2})
+        self.assertIsNone(data["steps"][1]["model"])
+
+    def test_omitted_they_are_absent_not_null(self):
+        with self.recorder() as run:
+            run.answer("Cancelled.", success=True)
+        data = self.written(run)
+        self.assertEqual(list(data["agent"]), ["name", "model", "version"])
+        self.assertIsNone(Trajectory.from_json(data).agent.system_prompt)
+
+    def test_the_wrong_types_are_refused_at_construction(self):
+        with self.assertRaisesRegex(ValueError, "system_prompt must be a string"):
+            self.recorder(system_prompt=["not", "text"])
+        with self.assertRaisesRegex(ValueError, "config must be an object"):
+            self.recorder(config="checks=3")
+
+
 if __name__ == "__main__":   # pragma: no cover
     unittest.main()
 

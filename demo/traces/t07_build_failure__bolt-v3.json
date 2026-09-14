@@ -4,7 +4,8 @@
   "agent": {
     "name": "bolt-v3",
     "model": "sim-sprinter-3",
-    "version": "v3"
+    "version": "v3",
+    "system_prompt": "You are a research agent with web search, result selection, page reading and tools.\nAnswer quickly: take the first result that gives the figure.\nConfirm it with one more search before you answer.\nAnswer with the figure and say where it came from."
   },
   "task": {
     "id": "t07_build_failure",
@@ -32,7 +33,11 @@
       "tokens": 146,
       "latency_s": 1.75,
       "quality": "good",
-      "note": null
+      "note": null,
+      "model": {
+        "name": "sim-sprinter-3",
+        "temperature": 0.2
+      }
     },
     {
       "index": 1,
@@ -76,7 +81,11 @@
       "tokens": 184,
       "latency_s": 2.39,
       "quality": "good",
-      "note": null
+      "note": null,
+      "model": {
+        "name": "sim-sprinter-3",
+        "temperature": 0.2
+      }
     },
     {
       "index": 5,
@@ -87,7 +96,11 @@
       "tokens": 192,
       "latency_s": 2.88,
       "quality": "good",
-      "note": null
+      "note": null,
+      "model": {
+        "name": "sim-sprinter-3",
+        "temperature": 0.2
+      }
     }
   ]
 }

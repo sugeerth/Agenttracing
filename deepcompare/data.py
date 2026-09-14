@@ -512,8 +512,10 @@ def data_pair(report: dict, a: Any = None, b: Any = None) -> dict:
     ins_a, ins_b = (da.get("agent") or {}).get("instructions") or {}, (db.get("agent") or {}).get("instructions") or {}
     idiff = instructions_diff(ins_a.get("system_prompt"), ins_b.get("system_prompt"), name_a, name_b)
     cdiff = corpus_diff(da.get("corpus") or {}, db.get("corpus") or {})
-    models_a = [m["model"] for m in da.get("models") or [] if m["model"]]
-    models_b = [m["model"] for m in db.get("models") or [] if m["model"]]
+    # one name each: a model attributed by step telemetry and the same model
+    # declared on the trace are two rows of the side's reading, one model
+    models_a = list(dict.fromkeys(m["model"] for m in da.get("models") or [] if m["model"]))
+    models_b = list(dict.fromkeys(m["model"] for m in db.get("models") or [] if m["model"]))
     models = {"a": models_a, "b": models_b, "same": (set(models_a) == set(models_b)) if models_a and models_b else None}
     pa, pb = _prov_summary(da), _prov_summary(db)
     delta = (rounded(pa["grounded_share"] - pb["grounded_share"])
