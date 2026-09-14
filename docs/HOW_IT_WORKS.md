@@ -103,7 +103,7 @@ scorecard (§6).
 ## 4. What the page draws, and how to read it
 
 The page is one file (`web/blocks.html`, built from `web/blocks/*.js`)
-with nine views. The **Story** is a numbered sequence:
+with ten views. The **Story** is a numbered sequence:
 
 1. **What happened** — the reading as charts.
 2. **Where the time went** — one strip per run along wall-clock, every
@@ -396,6 +396,24 @@ fetches reached the answer, drawn only where the use is recorded and
 counted where it is not. On a plain output the view derives the first
 two levels from the `budget` and `fetches` sections and says what a
 plain page cannot show.
+
+The **Data** view is the third tab, the inputs side
+(`web/blocks/39_data.js`, `deepcompare/data.py`, `docs/DATA.md`). **The
+task**: the prompt given to both agents, the expected answer if any,
+each agent's own instructions side by side with the hunks of their
+difference, and the models each used as the traces record them. **The
+corpus**: what each agent read — the sources as two columns with the
+shared ones joined, sizes, errors and repeats, the text of any source
+on demand. **The provenance**: the answer with each claim marked by the
+source it traces to and the unsupported ones marked, as counts. **The
+chain**: data → model → agent → answer for one run, the fetched outputs
+feeding the reasoning steps that share their content and reaching the
+answer where the provenance says so. **The evolution**: for a lineage,
+one row per step — the episodes that triggered it and the data they
+read, the prompt hunks, the behaviour shift, the effect with its
+intervals and what the eval made of it — each row opening to the full
+diff. Every overlap is a stated measure with its basis; nothing is
+inferred beyond it.
 
 ## 5. The agentic loop
 
