@@ -8218,9 +8218,8 @@ class SharedLibraryTest(unittest.TestCase):
     #: 03 holds the responsive painter the library delegates to
     LEGACY = {"isNum": ("40_signal.js", "60_science.js"), "secs": ("18_time.js", "19_horizon.js"),
               "responsive": ("03_d3charts.js",)}
-    #: local `trunc` / `plural` copies in blocks another round owns; each is dropped the day its block binds the library's
-    IN_FLIGHT_RULES = {"trunc": ("17_debug.js", "27_training.js", "28_rlstats.js", "29_rlaudit.js", "32_rltheatre.js", "34_evotime.js"),
-                       "plural": ("50_integrity.js",)}
+    #: no block carries a local `trunc` or `plural` any more: the rule has no exceptions
+    IN_FLIGHT_RULES = {}
 
     @classmethod
     def setUpClass(cls):
@@ -8302,16 +8301,20 @@ class SharedLibraryTest(unittest.TestCase):
                 plural: [f.plural(1, 'run'), f.plural(2, 'run'), f.plural(0, 'step'), f.plural(1234, 'character'), f.plural(3, 'fetch'),
                          f.plural(2, 'recovery'), f.plural(1, 'recovery'), f.plural(2, 'protected touch'), f.plural(2, 'person', 'people'), f.plural(null, 'run'), f.plural(2.4, 'step')],
                 trunc: [f.trunc('ledger reconcile', 8), f.trunc('ledger', 8), f.trunc('  a\\n  b\\t c ', 40), f.trunc('abcdefgh', 1), f.trunc(null, 5), f.trunc(undefined, 5), f.trunc('abc', 3), f.trunc('abcd', 3)],
+                keep: [f.trunc('  a\\n  b\\t c ', 40, true), f.trunc('line one\\nline two\\nline three', 14, true), f.trunc(null, 5, true)],
             };
         }""")
         self.assertEqual(got["plural"], ["1 run", "2 runs", "0 steps", "1,234 characters", "3 fetches",
                                          "2 recoveries", "1 recovery", "2 protected touches", "2 people", "— runs", "2 steps"])
         # n−1 characters and the ellipsis, so the label is n wide; a cut never leaves a bare ellipsis
         self.assertEqual(got["trunc"], ["ledger …", "ledger", "a b c", "a…", "", "", "abc", "ab…"])
+        # `keep` keeps the whitespace as recorded, for a step's log shown in a <pre>; the cut is the same
+        self.assertEqual(got["keep"], ["  a\n  b\t c ", "line one\nline…", ""])
         # the blocks bind the library's and carry no copy of their own
-        for name in ("36_coevolve.js", "37_chat.js", "38_levels.js", "39_data.js", "33_evolve.js", "35_evocompare.js"):
+        for name in ("36_coevolve.js", "37_chat.js", "38_levels.js", "39_data.js", "33_evolve.js", "35_evocompare.js",
+                     "17_debug.js", "27_training.js", "28_rlstats.js", "29_rlaudit.js", "32_rltheatre.js", "34_evotime.js", "50_integrity.js"):
             source = (ROOT / "web" / "blocks" / name).read_text(encoding="utf-8")
-            self.assertIn("L.fmt.trunc" if name in ("33_evolve.js", "35_evocompare.js") else "L.fmt.plural", source, name)
+            self.assertIn("L.fmt.plural" if name in ("36_coevolve.js", "37_chat.js", "38_levels.js", "39_data.js", "50_integrity.js") else "L.fmt.trunc", source, name)
         self.assertEqual(errors, [])
         context.close()
 
@@ -8498,6 +8501,7 @@ class CoevolutionBlocksTest(unittest.TestCase):
             raise unittest.SkipTest("the coevolve command did not write a page: " + done.stderr.decode("utf-8", "replace")[-300:])
         agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
         cls.cov = agg.get("coevolution") or {}
+        cls.evo = agg.get("evolution") or {}
         if not cls.cov.get("measurable"):
             raise unittest.SkipTest("the demo lineage carries no measurable coevolution section")
         cls.page_path = out / "report.html"
@@ -8909,6 +8913,110 @@ class CoevolutionBlocksTest(unittest.TestCase):
         for view in ("story", "evidence", "batch", "panels", "training", "evolution", "coevolution"):
             page.evaluate(f"() => {{ location.hash = '#view={view}'; }}")
             page.wait_for_timeout(250)
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ------------------------------------------------------------- per task
+
+    def _per_task(self, mid):
+        """The per-task cells of a metric as the matrix carries them: the
+        sorted task union, the cell count, the unmeasurable count, the
+        reasons, and the note on the cells (an IQM metric's)."""
+        cells = self.cov["matrix"][mid]
+        tasks = sorted({t for c in cells.values() for t in (c.get("per_task") or {})})
+        flat = [cell for c in cells.values() for cell in (c.get("per_task") or {}).values()]
+        un = [cell for cell in flat if not cell.get("measurable")]
+        return {"tasks": tasks, "total": len(flat), "unmeasurable": un, "gens": list(cells),
+                "note": next((cell["note"] for cell in flat if cell.get("note")), None)}
+
+    def test_the_metric_block_draws_one_panel_per_task_with_the_forgotten_task_marked(self):
+        """The per-task small multiples: one panel per task of the matrix
+        cells' `per_task`, a row per generation with the task's own
+        bootstrap interval on one shared axis, the adoption generation
+        ringed, a task the Evolution section says a step forgot banded at
+        that step, an unmeasurable cell drawn as absent (its reason in the
+        tooltip) and counted in the status line, every task in the table
+        view, and the note on an IQM metric's cells shown."""
+        context, page, errors = self._open(width=1440)
+        block = page.locator('#stacks [data-block="cov-metric"]')
+        mid = block.locator(".cov-lede").get_attribute("data-metric")
+        pt = self._per_task(mid)
+        if not pt["tasks"]:
+            raise unittest.SkipTest("the matrix carries no per_task cells")
+        status = block.locator('[data-role="per-task"]')
+        self.assertEqual(status.count(), 1)
+        self.assertEqual((status.get_attribute("data-tasks"), status.get_attribute("data-cells"), status.get_attribute("data-unmeasurable")),
+                         (str(len(pt["tasks"])), str(pt["total"]), str(len(pt["unmeasurable"]))))
+        text = status.inner_text()
+        self.assertIn(f"{len(pt['tasks'])} tasks × {len(pt['gens'])} generations: {pt['total']} cells", text)
+        self.assertIn("bootstrap within the task", text)
+        if pt["unmeasurable"]:
+            self.assertIn(f"{len(pt['unmeasurable'])} not measurable, drawn as absent", text)
+            self.assertTrue(any(cell["reason"] in text for cell in pt["unmeasurable"]), text)
+        # one panel per task, in sorted order, each a row per generation with the interval glyph on the measurable cells
+        panels = block.locator("svg.cov-task")
+        self.assertEqual(panels.count(), min(len(pt["tasks"]), 24))
+        self.assertEqual([p.get_attribute("data-task") for p in panels.all()], pt["tasks"][:24])
+        absent = 0
+        for task in pt["tasks"][:24]:
+            panel = block.locator(f'svg.cov-task[data-task="{task}"]')
+            self.assertEqual(panel.get_attribute("role"), "img")
+            label = panel.get_attribute("aria-label")
+            self.assertIn(f"{mid} on {task} per generation", label)
+            self.assertEqual(panel.locator("g.cov-tcell").count(), len(pt["gens"]))
+            for gen in pt["gens"]:
+                cell = (self.cov["matrix"][mid][gen].get("per_task") or {}).get(task)
+                row = panel.locator(f'g.cov-tcell[data-gen="{gen}"]')
+                ok = bool(cell and cell.get("measurable") and isinstance(cell.get("point"), (int, float)))
+                self.assertEqual(row.get_attribute("data-measurable"), "1" if ok else "0", f"{task} {gen}")
+                # a measurable cell is a line from lo to hi with a dot; an absent one is a dash and no dot
+                self.assertEqual(row.locator("circle:not(.ring)").count(), 1 if ok else 0, f"{task} {gen}")
+                self.assertEqual(row.locator("text.absent").count(), 0 if ok else 1, f"{task} {gen}")
+                if not ok:
+                    absent += 1
+                    self.assertIn(f"{gen} not measurable", label)
+        self.assertEqual(absent, len(pt["unmeasurable"]))
+        # the adoption generation is ringed on every panel whose cell there is measurable
+        adopted = (self.cov["metrics"][mid].get("adopted_at") or {}).get("step")
+        if adopted:
+            to = adopted.split("→")[1]
+            rings = sum(1 for task in pt["tasks"][:24]
+                        if ((self.cov["matrix"][mid][to].get("per_task") or {}).get(task) or {}).get("measurable"))
+            self.assertEqual(block.locator("svg.cov-task circle.ring").count(), rings)
+        else:
+            self.assertEqual(block.locator("svg.cov-task circle.ring").count(), 0)
+        # the forgotten tasks: from evolution.steps[].effect.forgotten, a ▏ band on that task's panel at the step's `to`
+        marks = 0
+        for step in self.evo.get("steps") or []:
+            key = f"{step['from']}→{step['to']}"
+            for task in (step.get("effect") or {}).get("forgotten") or []:
+                if task not in pt["tasks"][:24]:
+                    continue
+                marks += 1
+                panel = block.locator(f'svg.cov-task[data-task="{task}"]')
+                self.assertEqual(panel.locator(f'g.cov-tcell[data-gen="{step["to"]}"] text.forgot').count(), 1, f"{task} {key}")
+                self.assertIn(f"forgotten at {key}", panel.get_attribute("aria-label"))
+        self.assertEqual(status.get_attribute("data-forgotten"), str(marks))
+        self.assertIn(f"{marks} forgot mark" if marks else "no step forgot a task", text)
+        # the table view carries every task by generation
+        self.assertEqual(block.locator('[data-role="per-task-table"] tbody tr').count(), len(pt["tasks"]))
+        # the reason of an absent cell is in its tooltip
+        if pt["unmeasurable"]:
+            row = block.locator('svg.cov-task g.cov-tcell[data-measurable="0"]').first
+            row.locator("rect").last.hover()
+            page.wait_for_timeout(200)
+            tip = block.locator(".cov-tip")
+            self.assertTrue(tip.is_visible())
+            self.assertIn("not measurable:", tip.inner_text())
+        # an IQM metric's cells carry the note, and the status line says it
+        iqm = [m for m, spec in self.cov["metrics"].items() if spec["spec"]["agg"] in ("iqm", "task_min", "task_spread") and self._per_task(m)["note"]]
+        if iqm:
+            page.evaluate(f"() => AgentDiff.coevolution.select({{metric: {json.dumps(iqm[0])}}})")
+            page.wait_for_timeout(400)
+            status = block.locator('[data-role="per-task"]')
+            self.assertEqual(status.get_attribute("data-note"), "1")
+            note = self._per_task(iqm[0])["note"]
+            self.assertIn(note[1:], status.inner_text())
         self.assertEqual(errors, [])
         context.close()
 
@@ -9938,6 +10046,10 @@ class LevelsViewTest(unittest.TestCase):
         cls.cov_dir = run("cov", "coevolve", str(lineage))
         cls.bundle_dir = run("bundle", "bundle", str(cls.batch_dir), str(cls.runs_dir), str(cls.cov_dir), "--name", "demo")
         cls.bundle = json.loads((cls.bundle_dir / "bundle.json").read_text(encoding="utf-8"))
+        # the same bundle with the source traces attached: every level-3 record completed
+        cls.bundle_full_dir = run("bundle_full", "bundle", str(cls.batch_dir), str(cls.runs_dir), str(cls.cov_dir), "--name", "demo",
+                                  "--traces", str(ROOT / "demo" / "traces"), str(ROOT / "demo" / "rl" / "train"), str(lineage))
+        cls.bundle_full = json.loads((cls.bundle_full_dir / "bundle.json").read_text(encoding="utf-8"))
         cls.rows = cls.bundle["levels"]["runs"]
         cls.overview = cls.bundle["levels"]["overview"]
         cls.batch_agg = json.loads((cls.batch_dir / "aggregate.json").read_text(encoding="utf-8"))
@@ -10293,6 +10405,62 @@ class LevelsViewTest(unittest.TestCase):
             self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth"), 1)
             self.assertEqual(errors, [], str(width))
             context.close()
+
+    # --------------------------------------------------------- with traces
+
+    def test_a_bundle_built_with_traces_completes_every_run_and_says_the_steps_source(self):
+        """`--traces` completes every level-3 record from the source traces:
+        the run whose steps the plain bundle did not keep draws its
+        burn-down and its search map on the traced bundle, its numbers line
+        says `steps_source`, and the record's numbers are in the labels;
+        the plain bundle still says the steps are not in the output, with
+        the reason. Both pages, the console unfiltered."""
+        heaviest = self.overview["heaviest_runs"][0]["key"]
+        plain = self._record(heaviest)
+        if plain["measurable"]:
+            raise unittest.SkipTest("the heaviest run's steps are in the plain bundle")
+        full_rows = self.bundle_full["levels"]["runs"]
+        self.assertEqual(len(full_rows), len(self.rows))
+        self.assertEqual(sum(1 for r in full_rows if r["detail"]), len(full_rows))
+        rec = json.loads((self.bundle_full_dir / self.bundle_full["levels"]["run_index"][heaviest]).read_text(encoding="utf-8"))
+        self.assertTrue(rec["measurable"])
+        self.assertTrue(rec["steps_source"].startswith("trace "), rec["steps_source"])
+        self.assertTrue((self.bundle_full_dir / rec["steps_source"].split(" ", 1)[1]).is_file())
+        for path, traced in ((self.bundle_dir, False), (self.bundle_full_dir, True)):
+            with self.subTest(traced=traced):
+                context, page, errors = self._open(path=path)
+                page.wait_for_timeout(800)
+                page.evaluate(f"() => AgentDiff.levels.select({{run: {json.dumps(heaviest)}}})")
+                page.wait_for_timeout(800)
+                run = page.locator(".lv-run")
+                self.assertEqual(run.get_attribute("data-run"), heaviest)
+                self.assertEqual(run.get_attribute("data-measurable"), "true" if traced else "false")
+                nums = run.locator(".lv-nums").inner_text()
+                source = run.locator('.lv-nums [data-role="steps-source"]').inner_text()
+                if traced:
+                    self.assertEqual(run.get_attribute("data-steps-source"), rec["steps_source"])
+                    self.assertEqual(source, "steps from " + rec["steps_source"])
+                    self.assertEqual(run.locator(".lv-cannot").count(), 0)
+                    burn = run.locator("svg.lv-burn")
+                    self.assertEqual(burn.count(), 1)
+                    total = rec["budget"]["tokens"]["total"]
+                    self.assertIn(f"{total:,} cumulative tokens over {len(rec['steps'])} steps", burn.get_attribute("aria-label"))
+                    self.assertEqual(burn.get_attribute("data-steps"), str(len(rec["budget"]["burn"])))
+                    self.assertEqual(run.locator("svg.lv-map").count(), 1 if rec["fetches"]["counts"]["total"] else 0)
+                    if rec["fetches"]["counts"]["total"]:
+                        self.assertEqual(run.locator("svg.lv-map").get_attribute("data-nodes"), str(len(rec["fetches"]["map"]["nodes"])))
+                    self.assertIn(f"{len(rec['steps'])} steps, {len(rec['fetches']['records'])} fetch records", run.locator('[role="status"]').first.inner_text())
+                    self.assertEqual(run.locator('[data-role="steps-table"] tbody tr').count(), min(len(rec["steps"]), 500))
+                else:
+                    self.assertEqual(run.get_attribute("data-steps-source"), "")
+                    self.assertEqual(source, "steps not in the output")
+                    self.assertEqual(run.locator("svg.lv-burn").count(), 0)
+                    self.assertIn(plain["reason"], run.locator(".lv-cannot").inner_text())
+                row = [r for r in self.rows if r["key"] == heaviest][0]
+                self.assertIn(f"{row['tokens']:,} tokens", nums)
+                self.assertEqual(page.evaluate("() => Array.from(document.querySelectorAll('#stacks .block .empty')).filter(e => e.offsetParent !== null).length"), 0)
+                self.assertEqual(errors, [])
+                context.close()
 
 
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
@@ -10755,3 +10923,133 @@ class DataViewTest(unittest.TestCase):
                     self.assertEqual(clipped, [])
                     self.assertEqual(errors, [], f"{path.name} {width}")
                     context.close()
+
+    # ------------------------------------------------------- instructions
+
+    def test_the_task_block_draws_the_instructions_diff_as_hunks_and_keeps_the_no_instructions_path(self):
+        """The demo records instructions on every trace now: the pair's
+        difference is drawn as hunks in the Evolution step block's
+        vocabulary (one span per line — hunk, add, del, ctx) with the
+        section's counts; a fixture copy of the same page with the field
+        stripped from both sides still says no instructions are recorded,
+        without an error and without a diff."""
+        task = self._first_task(self.batch_reports)
+        d = self.batch_reports[task]["data"]
+        diff = d["instructions_diff"]
+        if diff["same"] is not False:
+            raise unittest.SkipTest("the demo pair's instructions do not differ")
+        context, page, errors = self._open()
+        self._task(page, task)
+        card = page.locator('#stacks [data-block="dt-task"]')
+        self.assertEqual(card.locator('[data-role="no-instructions"]').count(), 0)
+        self.assertIn(f"differ by {len(diff['hunks'])} hunk", card.locator(".dt-lede").inner_text())
+        for side in ("a", "b"):
+            ins = d[side]["agent"]["instructions"]
+            self.assertIn(f"{ins['chars']:,} characters · {ins['source']}", card.inner_text())
+        block = card.locator('[data-role="instructions-diff"]')
+        self.assertEqual(block.count(), 1)
+        self.assertEqual((block.get_attribute("data-hunks"), block.get_attribute("data-added"), block.get_attribute("data-removed")),
+                         (str(len(diff["hunks"])), str(diff["added"]), str(diff["removed"])))
+        lines = [line for h in diff["hunks"] for line in h.split("\n")]
+        self.assertEqual(block.locator(".dt-diff span.hunk").count(), sum(1 for l in lines if l.startswith("@@")))
+        self.assertEqual(block.locator(".dt-diff span.add").count(), sum(1 for l in lines if l.startswith("+")))
+        self.assertEqual(block.locator(".dt-diff span.del").count(), sum(1 for l in lines if l.startswith("-")))
+        self.assertEqual(block.locator(".dt-diff span.add").count(), diff["added"])
+        self.assertEqual(block.locator(".dt-diff span.del").count(), diff["removed"])
+        self.assertEqual(block.locator(".dt-diff").inner_text().strip(), "\n".join(lines).strip())
+        self.assertIn(f"+{diff['added']} −{diff['removed']} lines", block.locator(".dt-h").text_content())
+        self.assertEqual(errors, [])
+        context.close()
+        # the fixture copy: the same page, the instructions stripped from both sides of every report's data section
+        html = (self.batch_dir / "report.html").read_text(encoding="utf-8")
+        marker = "window.DEEPCOMPARE_DATA = "
+        start = html.index(marker) + len(marker)
+        end = html.index("\n", start)
+        payload = json.loads(html[start:end].rstrip().rstrip(";"))
+        for rep in payload["reports"]:
+            for side in ("a", "b"):
+                rep["data"][side]["agent"]["instructions"] = {"system_prompt": None, "source": None, "chars": None}
+                rep[side]["agent"].pop("system_prompt", None)
+            rep["data"]["instructions_diff"] = {"same": None, "hunks": [], "added": None, "removed": None,
+                                                "reason": "no instructions recorded on either side"}
+        stripped = Path(self.tmp.name) / "stripped"
+        stripped.mkdir(exist_ok=True)
+        (stripped / "report.html").write_text(html[:start] + json.dumps(payload) + ";" + html[end:], encoding="utf-8")
+        context, page, errors = self._open(path=stripped)
+        self._task(page, task)
+        card = page.locator('#stacks [data-block="dt-task"]')
+        self.assertEqual(card.locator('[data-role="instructions-diff"]').count(), 0)
+        self.assertEqual(card.locator(".dt-diff").count(), 0)
+        self.assertEqual(card.locator('[data-role="no-instructions"]').count(), 1)
+        self.assertIn("no instructions recorded on either side", card.locator('[data-role="no-instructions"]').inner_text())
+        self.assertIn("No instructions recorded on either side", card.locator(".dt-lede").inner_text())
+        self.assertEqual(page.evaluate("() => Array.from(document.querySelectorAll('#stacks .block .empty')).filter(e => e.offsetParent !== null).length"), 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_lineage_page_diffs_consecutive_generations_under_a_picker_from_the_family(self):
+        """On a lineage page the task block adds the instructions between
+        consecutive generations: one button per step of the section, the
+        pair's own step chosen first, the chosen step's hunks drawn in the
+        Evolution view's vocabulary with the section's counts; the choice
+        is the `data` family's gen, so the same row opens in “How the agent
+        evolves”, by mouse and by keyboard, and it survives a reload."""
+        de = self.cov_agg["data_evolution"]
+        steps = de["steps"]
+        keys = [f"{s['from']}→{s['to']}" for s in steps]
+        context, page, errors = self._open(path=self.cov_dir)
+        card = page.locator('#stacks [data-block="dt-task"]')
+        host = card.locator('[data-role="lineage-steps"]')
+        self.assertEqual(host.count(), 1)
+        self.assertEqual(host.get_attribute("data-steps"), str(len(steps)))
+        buttons = host.locator("button[data-gen]")
+        self.assertEqual([b.get_attribute("data-gen") for b in buttons.all()], keys)
+        # the default is the pair's own step: the page's two generations
+        rep = self.cov_reports[sorted(self.cov_reports)[0]]
+        pair = f"{rep['data']['a']['agent']['version']}→{rep['data']['b']['agent']['version']}"
+        first = pair if pair in keys else keys[-1]
+        panel = host.locator('[data-role="gen-diff"]')
+        self.assertEqual(panel.get_attribute("data-gen"), first)
+        self.assertEqual(host.locator('button[aria-pressed="true"]').get_attribute("data-gen"), first)
+        if pair in keys:
+            self.assertIn("the pair on this page", panel.inner_text())
+
+        def check(key):
+            s = steps[keys.index(key)]
+            ch = s["change"]
+            lines = [line for h in ch["hunks"] for line in h.split("\n")]
+            self.assertEqual(panel.get_attribute("data-gen"), key)
+            self.assertEqual((panel.get_attribute("data-hunks"), panel.get_attribute("data-added"), panel.get_attribute("data-removed")),
+                             (str(len(ch["hunks"])), str(ch["prompt_added"]), str(ch["prompt_removed"])))
+            self.assertEqual(panel.locator(".dt-diff span.add").count(), sum(1 for l in lines if l.startswith("+")))
+            self.assertEqual(panel.locator(".dt-diff span.del").count(), sum(1 for l in lines if l.startswith("-")))
+            self.assertEqual(panel.locator(".dt-diff span.hunk").count(), sum(1 for l in lines if l.startswith("@@")))
+            gens = {g["id"]: g for g in de["generations"]}
+            self.assertIn(f"{gens[s['from']]['instructions']['chars']:,} characters", panel.inner_text())
+            self.assertIn(f"{gens[s['to']]['instructions']['chars']:,} characters", panel.inner_text())
+            if ch.get("summary"):
+                self.assertIn(ch["summary"], panel.inner_text())
+            self.assertEqual(host.locator('button[aria-pressed="true"]').get_attribute("data-gen"), key)
+            self.assertEqual(self._state(page)["gen"], key)
+            evo = page.locator('.dt-evolution .dt-erow[aria-expanded="true"]')
+            self.assertEqual(evo.get_attribute("data-gen"), key)
+
+        # the step that added the most prompt lines, by mouse
+        most = keys[max(range(len(steps)), key=lambda i: (steps[i]["change"]["prompt_added"], -i))]
+        host.locator(f'button[data-gen="{most}"]').click()
+        page.wait_for_timeout(500)
+        check(most)
+        # the first step, by keyboard
+        buttons.first.focus()
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(500)
+        check(keys[0])
+        # the family persists: a reload keeps the step
+        page.reload()
+        page.wait_for_timeout(1200)
+        card = page.locator('#stacks [data-block="dt-task"]')
+        host = card.locator('[data-role="lineage-steps"]')
+        panel = host.locator('[data-role="gen-diff"]')
+        self.assertEqual(panel.get_attribute("data-gen"), keys[0])
+        self.assertEqual(errors, [])
+        context.close()

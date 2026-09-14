@@ -8,7 +8,7 @@
  * (`var L = AgentDiff.lib, isNum = L.fmt.isNum;`) and defines none of
  * these locally — the surface, and the rule, are in web/blocks/README.md.
  *
- *   fmt     num, signed, pct, secs, short, isNum, plural, trunc
+ *   fmt     num, signed, pct, secs, short, isNum, plural, trunc(text, n, keep?)
  *   color   side(side, ns), agent(side, i), verdict(kind), good, bad
  *   svg     svg(attrs, kids) — role="img" by default, aria-label required
  *           svg.note(text, cls), svg.tip(host, {class, width})
@@ -63,9 +63,12 @@
     return int(n) + " " + (one ? word : many);
   }
   /* Text cut to n characters with an ellipsis, its whitespace collapsed
-   * first so a label never carries a newline; null and undefined are "". */
-  function trunc(text, n) {
-    var s = String(text === null || text === undefined ? "" : text).replace(/\s+/g, " ").trim();
+   * first so a label never carries a newline; null and undefined are "".
+   * `keep` keeps the whitespace as recorded — for a step's log shown in a
+   * <pre>, where the newlines are the text. */
+  function trunc(text, n, keep) {
+    var s = String(text === null || text === undefined ? "" : text);
+    if (!keep) s = s.replace(/\s+/g, " ").trim();
     n = isNum(n) ? n : 0;
     return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "\u2026" : s;
   }

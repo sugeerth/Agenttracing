@@ -70,7 +70,7 @@
 
   // ------------------------------------------------------------- helpers
 
-  function trunc(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  var trunc = L.fmt.trunc;
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
   function hostWidth(host) { return L.layout.measure(host, 280, 1400); }
   var responsive = L.layout.responsive;

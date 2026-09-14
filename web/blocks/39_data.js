@@ -4,7 +4,10 @@
  *
  *   dt-task        what both agents were told: the task prompt and the
  *                  expected answer as recorded, each side's instructions
- *                  side by side with the hunks of their difference (or the
+ *                  side by side with the hunks of their difference (in the
+ *                  Evolution step block's vocabulary), on a lineage the
+ *                  hunks between consecutive generations under a
+ *                  generation picker that is the `data` family's gen (or the
  *                  plain fact that none are recorded, and what is), the
  *                  models as the traces record them with the source of that
  *                  attribution, the tools declared and used.
@@ -340,11 +343,14 @@
       });
       root.appendChild(cols);
       if (hasA && hasB) {
-        root.appendChild(H("div", { class: "dt-h", text: "their difference · +" + int(diff.added) + " −" + int(diff.removed) + " lines · " + plural((diff.hunks || []).length, "hunk") }));
-        if ((diff.hunks || []).length) root.appendChild(diffLines(diff.hunks));
-        else root.appendChild(H("p", { class: "dt-note", style: { margin: 0 }, text: "the texts differ only in whitespace, or the hunks were not included." }));
+        var dwrap = H("div", { "data-role": "instructions-diff", "data-hunks": String((diff.hunks || []).length), "data-added": String(isNum(diff.added) ? diff.added : 0), "data-removed": String(isNum(diff.removed) ? diff.removed : 0) });
+        dwrap.appendChild(H("div", { class: "dt-h", text: "their difference · " + agentOf(d, "a") + " → " + agentOf(d, "b") + " · +" + int(diff.added) + " −" + int(diff.removed) + " lines · " + plural((diff.hunks || []).length, "hunk") }));
+        if ((diff.hunks || []).length) dwrap.appendChild(diffLines(diff.hunks));
+        else dwrap.appendChild(H("p", { class: "dt-note", style: { margin: 0 }, text: "the texts differ only in whitespace, or the hunks were not included." }));
+        root.appendChild(dwrap);
       }
     }
+    lineageSteps(root, ctx, d);
     // the models, as recorded, with the source of the attribution
     root.appendChild(H("div", { class: "dt-h", text: "models · as the traces record them" + (models.same ? " · the same on both sides" : "") }));
     var mrows = [];
@@ -399,6 +405,51 @@
     if (step && step.change && (step.change.hunks || []).length) { det.appendChild(H("div", { class: "dt-h", text: "the hunks of " + stepKey(step) })); det.appendChild(diffLines(step.change.hunks)); }
     det.appendChild(H("p", { class: "dt-note", text: "These are the generations' artifacts (aggregate.data_evolution.generations[].instructions), not the traces: the page says which. The whole lineage, step by step, is in “How the agent evolves” below." }));
     root.appendChild(det);
+  }
+  /* On a lineage page: the instructions between consecutive generations,
+   * one step at a time under a picker that is the `data` family's `gen`
+   * — so the choice here opens the same step's row in “How the agent
+   * evolves” and survives a reload. The hunks are the section's
+   * (data_evolution.steps[].change.hunks, the generations' artifacts), in
+   * the Evolution step block's vocabulary; the default step is the pair's
+   * own (its two generations), else the last. Repaints in place. */
+  function lineageSteps(root, ctx, d) {
+    var de = lineageOf(ctx);
+    if (!de || !de.steps.length) return;
+    var byId = {};
+    (Array.isArray(de.generations) ? de.generations : []).forEach(function (g) { if (g && g.id !== undefined) byId[String(g.id)] = g; });
+    var va = d.a && d.a.agent && d.a.agent.version, vb = d.b && d.b.agent && d.b.agent.version;
+    var pairStep = de.steps.filter(function (s) { return String(s.from) === String(va) && String(s.to) === String(vb); })[0] || null;
+    var host = H("div", { class: "dt-gensteps", "data-role": "lineage-steps", "data-steps": String(de.steps.length) });
+    root.appendChild(host);
+    function chosen() {
+      var key = genSel(de);
+      var hit = key ? de.steps.filter(function (s) { return stepKey(s) === key; })[0] : null;
+      return hit || pairStep || de.steps[de.steps.length - 1];
+    }
+    function paint() {
+      host.textContent = "";
+      var s = chosen(), key = stepKey(s), ch = s.change || {}, hunks = Array.isArray(ch.hunks) ? ch.hunks : [];
+      var gf = byId[String(s.from)] || {}, gt = byId[String(s.to)] || {}, insF = gf.instructions || {}, insT = gt.instructions || {};
+      host.appendChild(H("div", { class: "dt-h", text: "instructions between consecutive generations · " + plural(de.steps.length, "step") }));
+      var bar = H("div", { class: "dt-bar", role: "group", "aria-label": "the lineage step in view" });
+      de.steps.forEach(function (q) {
+        var k = stepKey(q), n = Array.isArray(q.change && q.change.hunks) ? q.change.hunks.length : 0;
+        bar.appendChild(H("button", { type: "button", class: "dt-btn", "data-gen": k, "aria-pressed": k === key ? "true" : "false", title: k + " · " + plural(n, "hunk") + (q.change && q.change.summary ? " · " + q.change.summary : ""), text: k, onclick: function () { ctx.signal("inspect"); select({ gen: k }); } }));
+      });
+      host.appendChild(bar);
+      var panel = H("div", { "data-role": "gen-diff", "data-gen": key, "data-hunks": String(hunks.length), "data-added": String(isNum(ch.prompt_added) ? ch.prompt_added : 0), "data-removed": String(isNum(ch.prompt_removed) ? ch.prompt_removed : 0) });
+      panel.appendChild(H("p", { class: "dt-read", style: { margin: "0 0 4px" } }, [
+        H("b", { text: String(s.from) }), H("span", { text: " (" + plural(insF.chars, "character") + ", " + String(insF.source || "lineage artifacts") + ") → " }),
+        H("b", { text: String(s.to) }), H("span", { text: " (" + plural(insT.chars, "character") + "): +" + int(isNum(ch.prompt_added) ? ch.prompt_added : 0) + " −" + int(isNum(ch.prompt_removed) ? ch.prompt_removed : 0) + " lines · " + plural(hunks.length, "hunk") + (ch.summary ? " · " + String(ch.summary) : "") + (Array.isArray(ch.protected_touched) && ch.protected_touched.length ? " · protected: " + ch.protected_touched.join(", ") : "") + (s === pairStep ? " · the pair on this page" : "") + "." }),
+      ]));
+      if (hunks.length) panel.appendChild(diffLines(hunks));
+      else panel.appendChild(H("p", { class: "dt-note", style: { margin: 0 }, text: "No prompt hunk on this step: " + (ch.summary ? "the change is " + String(ch.summary) : "the instructions did not change") + "." }));
+      host.appendChild(panel);
+      host.appendChild(H("p", { class: "dt-note", style: { margin: "6px 0 0" }, text: "The hunks are the section's (aggregate.data_evolution.steps[].change.hunks, the generations' artifacts), read in the Evolution view's vocabulary so the two agree; the step chosen here is the same one opened in “How the agent evolves” below." }));
+    }
+    paint();
+    listen(host, function () { paint(); });
   }
   //: the aggregate's data section, when the page carries one: every run of every agent
   function aggregateFold(root, ctx) {

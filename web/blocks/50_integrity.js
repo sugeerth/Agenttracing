@@ -170,10 +170,7 @@
 
   function count(list) { return Array.isArray(list) ? list.length : 0; }
 
-  function plural(n, word) {
-    var value = num(n) || 0;
-    return F.int(value) + " " + word + (value === 1 ? "" : "s");
-  }
+  var plural = L.fmt.plural;
 
   //: the eleven checks, in the order `process._PATHOLOGIES` declares them, so
   //: the matrix reads in the same order the narrative is built from.

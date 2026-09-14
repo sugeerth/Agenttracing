@@ -32,7 +32,10 @@
  *   cov-matrix     metrics × generations, standardised per row, the cells
  *                  before a metric's adoption hatched (computed with hindsight).
  *   cov-metric     one metric in full: its spec, its curve with intervals,
- *                  its validation row, its confirmation, its origin.
+ *                  its per-task small multiples (one panel per task from the
+ *                  matrix cells' `per_task`, the forgotten task marked at the
+ *                  step the Evolution section names), its validation row,
+ *                  its confirmation, its origin.
  *   cov-probes     the probes as agents, and the external proposer's status.
  *   cov-integrity  the eval's own drift, multiplicity, retirements, the gap.
  *
@@ -120,6 +123,7 @@
     ".cov-tip b{color:var(--ink)}.cov-tip .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}",
     ".cov-multi{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px 18px}",
     ".cov-hatch{fill:url(#cov-hatch)}",
+    ".cov-multi svg{width:100%}.cov-task .forgot{fill:var(--warn);font-weight:700}.cov-task .absent{fill:var(--ink-3)}",
   ].join("\n");
   function ensureStyle() { L.style.once("coevolve", CSS); }
 
@@ -262,7 +266,16 @@
     metricList.forEach(function (mt) { metricById[mt.id] = mt; });
     var hind = c.hindsight && typeof c.hindsight === "object" ? c.hindsight : {};
     var probesFired = probes.filter(function (p) { return Array.isArray(p.fired) && p.fired.length; });
+    // the tasks the Evolution section says a step forgot: {task: [{key, to}]}, read from evolution.steps[].effect.forgotten
+    var forgot = {};
+    var evSteps = agg && agg.evolution && Array.isArray(agg.evolution.steps) ? agg.evolution.steps : [];
+    evSteps.forEach(function (s) {
+      if (!s || !s.from || !s.to) return;
+      var key = String(s.from) + "→" + String(s.to), list = s.effect && Array.isArray(s.effect.forgotten) ? s.effect.forgotten : [];
+      list.forEach(function (t) { (forgot[String(t)] = forgot[String(t)] || []).push({ key: key, to: String(s.to) }); });
+    });
     return {
+      forgotten: forgot,
       ok: true, c: c, flow: flow, nodes: nodes, edges: edges, byId: byId, byKind: byKind, edgesByKind: edgesByKind,
       gens: gens, genIndex: genIndex, steps: steps, stepByKey: stepByKey, ledger: ledger, ledgerByStep: ledgerByStep,
       probes: probes, probesFired: probesFired, probeByName: probeByName, evalGens: evalGens, evalByStep: evalByStep,
@@ -1237,6 +1250,130 @@
     if (pts.length > 1) el.insert("path", ":first-child").attr("fill", "none").attr("stroke", statusColor(mt.status)).attr("stroke-opacity", 0.5).attr("stroke-width", 1.2).attr("d", d3.line()(pts));
   }
 
+  /* The per-task cells of a metric, the union over the generations of the
+   * matrix cells' `per_task`: {tasks (sorted), cells: {task: {gen: cell}},
+   * total, unmeasurable, reasons: {reason: n}, note, lo, hi, rate} — the axis
+   * spans the measurable cells (a rate spans 0..1). null when the matrix
+   * carries no per_task (an output from before it was recorded). */
+  function perTask(m, mt) {
+    var cs = m.matrix[mt.id] || {}, cells = {}, tasks = [], any = false, total = 0, un = 0, reasons = {}, note = null, lo = Infinity, hi = -Infinity;
+    m.gens.forEach(function (g) {
+      var c = cs[g.id], pt = c && c.per_task;
+      if (!pt || typeof pt !== "object") return;
+      any = true;
+      Object.keys(pt).forEach(function (t) {
+        var cell = pt[t];
+        if (!cell || typeof cell !== "object") return;
+        if (!cells[t]) { cells[t] = {}; tasks.push(t); }
+        cells[t][g.id] = cell;
+        total++;
+        if (cell.note && !note) note = String(cell.note);
+        if (cell.measurable === false || !isNum(cell.point)) { un++; var r = cell.reason ? String(cell.reason) : "no value"; reasons[r] = (reasons[r] || 0) + 1; }
+        else [cell.point, cell.lo, cell.hi].forEach(function (v) { if (isNum(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } });
+      });
+    });
+    if (!any) return null;
+    tasks.sort();
+    var rate = mt.spec.agg === "rate" || (mt.spec.feature === "success" && mt.spec.agg !== "iqm");
+    if (!isFinite(lo)) { lo = 0; hi = 1; }
+    if (rate) { lo = Math.min(lo, 0); hi = Math.max(hi, 1); }
+    if (hi - lo < 1e-9) { lo -= 0.5; hi += 0.5; }
+    return { tasks: tasks, cells: cells, total: total, unmeasurable: un, reasons: reasons, note: note, lo: lo, hi: hi, rate: rate };
+  }
+  //: the small multiples draw this many panels at most; the rest are in the table view
+  var MULTI_CAP = 24;
+  //: the panels the grid draws: the first MULTI_CAP tasks in sorted order
+  function multiShown(pt) { return pt.tasks.slice(0, MULTI_CAP); }
+  //: the forgot marks a metric's panels carry: one per (task, step) the Evolution section names, among the tasks drawn
+  function forgotMarks(m, pt) { return multiShown(pt).reduce(function (n, t) { return n + (m.forgotten[t] || []).length; }, 0); }
+
+  /* The per-task small multiples: one panel per task, the same drawing as
+   * the curve — a row per generation, the value across, the library's
+   * interval glyph — on one shared axis so the panels compare; the
+   * adoption generation ringed; a generation that a `forgot` step of the
+   * Evolution section named this task at is banded in the warn colour with
+   * the ▏ glyph; an unmeasurable cell is drawn as absent (a dash), its
+   * reason in the tooltip. Panels are laid out in as many columns as the
+   * width holds at 220px each, every panel at that width. */
+  function drawMultiples(host, m, mt, pt, tip) {
+    if (!d3) return;
+    var W = width(host), gap = 16, shown = multiShown(pt);
+    var cols = Math.max(1, Math.min(shown.length, Math.floor((W + gap) / (220 + gap)))), pw = Math.floor((W - (cols - 1) * gap) / cols);
+    var gens = m.gens, rowH = 14, padT = 18, padB = 16, labW = 32, padR = 10, Hh = padT + gens.length * rowH + padB;
+    var x = d3.scaleLinear().domain([pt.lo, pt.hi]).nice().range([labW, pw - padR]);
+    var adoptedAt = mt.raw.adopted_at && mt.raw.adopted_at.step ? m.stepByKey[mt.raw.adopted_at.step] : null;
+    var stroke = statusColor(mt.status);
+    var grid = document.createElement("div");
+    grid.className = "cov-multi";
+    grid.style.gridTemplateColumns = "repeat(" + cols + ", minmax(0, 1fr))";
+    host.appendChild(grid);
+    var fitChars = Math.max(6, Math.floor((pw - labW - 4) / 6.6));
+    shown.forEach(function (t) {
+      var cells = pt.cells[t] || {}, forgot = m.forgotten[t] || [];
+      var said = gens.map(function (g) { var c = cells[g.id]; return g.id + " " + (c && c.measurable !== false && isNum(c.point) ? ci(c) : "not measurable"); }).join(", ");
+      var label = mt.id + " on " + t + " per generation, each a point with its bootstrap interval within the task: " + said + (forgot.length ? "; forgotten at " + forgot.map(function (f) { return f.key; }).join(", ") : "") + (adoptedAt ? "; adopted at " + adoptedAt.to : "");
+      var svg = L.svg({ viewBox: "0 0 " + pw + " " + Hh, class: "cov-task", "data-task": t, "aria-label": label });
+      grid.appendChild(svg);
+      var el = d3.select(svg);
+      el.append("text").attr("class", "lab strong").attr("x", labW).attr("y", 11).text(trunc(short(t), fitChars)).append("title").text(t);
+      x.ticks(3).forEach(function (tk) {
+        el.append("line").attr("class", tk === 0 ? "zero" : "rule").attr("x1", x(tk)).attr("x2", x(tk)).attr("y1", padT - 4).attr("y2", Hh - padB + 2).attr("stroke-dasharray", tk === 0 ? null : "1 3");
+        // an edge tick's label is anchored inward so it never leaves the panel
+        el.append("text").attr("class", "tick").attr("x", x(tk)).attr("y", Hh - 4).attr("text-anchor", x(tk) > pw - 22 ? "end" : x(tk) < labW + 12 ? "start" : "middle").text(pt.rate ? pct(tk) : signed(tk, 1));
+      });
+      var pts = [];
+      gens.forEach(function (g, i) {
+        var c = cells[g.id], y = padT + i * rowH + rowH / 2, ok = c && c.measurable !== false && isNum(c.point);
+        var marks = forgot.filter(function (f) { return f.to === g.id; });
+        var gg = el.append("g").attr("class", "cov-tcell").attr("data-gen", g.id).attr("data-measurable", ok ? "1" : "0");
+        if (marks.length) {
+          gg.append("rect").attr("x", labW - 2).attr("y", y - rowH / 2).attr("width", pw - labW - padR + 4).attr("height", rowH).attr("fill", "var(--warn)").attr("fill-opacity", 0.14);
+          gg.append("text").attr("class", "forgot").attr("data-step", marks[0].key).attr("x", 2).attr("y", y + 4).attr("text-anchor", "start").text("▏");
+        }
+        gg.append("text").attr("class", "tick").attr("x", labW - 4).attr("y", y + 4).attr("text-anchor", "end").text(trunc(g.id, 3));
+        if (ok) {
+          L.glyph.interval(gg.node(), x, c.point, c.lo, c.hi, { y: y, color: stroke, width: 1.6, tick: 3, r: 2.6 });
+          if (adoptedAt && adoptedAt.to === g.id) gg.append("circle").attr("class", "ring").attr("cx", x(c.point)).attr("cy", y).attr("r", 5.5).attr("fill", "none").attr("stroke", "var(--ink)").attr("stroke-width", 1.2);
+          pts.push([x(c.point), y]);
+        } else gg.append("text").attr("class", "absent").attr("x", labW + 2).attr("y", y + 4).text("—");
+        gg.append("rect").attr("x", 0).attr("y", y - rowH / 2).attr("width", pw).attr("height", rowH).attr("fill", "transparent");
+        gg.on("pointermove", function (evt) {
+          tip.show(evt, [{ b: true, text: mt.id + " · " + t + " · " + g.id },
+            ok ? { mono: true, text: ci(c) + " · n " + (isNum(c.n) ? c.n : "?") + " · bootstrap within the task" } : { text: "not measurable: " + (c && c.reason ? c.reason : "no value") },
+            c && c.note ? { text: cap(String(c.note)) } : null,
+            adoptedAt && adoptedAt.to === g.id ? { text: "adopted at " + adoptedAt.key } : null,
+            marks.length ? { text: "▏ forgotten at " + marks.map(function (f) { return f.key; }).join(", ") + " — the Evolution section's forgot verdict names this task" } : null]);
+        }).on("pointerleave", tip.hide);
+      });
+      if (pts.length > 1) el.insert("path", ":first-child").attr("fill", "none").attr("stroke", stroke).attr("stroke-opacity", 0.45).attr("stroke-width", 1).attr("d", d3.line()(pts));
+    });
+  }
+  //: the table view of the multiples: a row per task, a column per generation, every cell its interval or its reason
+  function multiTable(H, m, mt, pt) {
+    var tbl = H("table", { class: "cov-table", "data-role": "per-task-table" });
+    tbl.appendChild(H("thead", null, H("tr", null, [H("th", { text: "task" })].concat(m.gens.map(function (g) { return H("th", { text: g.id }); })))));
+    var body = H("tbody");
+    pt.tasks.forEach(function (t) {
+      var cells = pt.cells[t] || {}, forgot = m.forgotten[t] || [];
+      body.appendChild(H("tr", { "data-task": t }, [H("td", { class: "wrap", text: t + (forgot.length ? " · ▏ forgotten at " + forgot.map(function (f) { return f.key; }).join(", ") : "") })].concat(m.gens.map(function (g) {
+        var c = cells[g.id], ok = c && c.measurable !== false && isNum(c.point);
+        return H("td", { class: ok ? "num" : "wrap", text: ok ? ci(c) + " · n " + (isNum(c.n) ? c.n : "?") : c ? "not measurable: " + (c.reason || "no value") : "—" });
+      }))));
+    });
+    tbl.appendChild(body);
+    return H("div", { class: "scroll-x" }, tbl);
+  }
+  //: what the status line under the multiples says: the counts, the unmeasurable cells with their reasons, the note, the cap
+  function multiStatus(m, mt, pt) {
+    var reasons = Object.keys(pt.reasons).sort(function (a, b) { return pt.reasons[b] - pt.reasons[a] || (a < b ? -1 : 1); });
+    var why = reasons.slice(0, 3).map(function (r) { return r + (pt.reasons[r] > 1 ? " ×" + pt.reasons[r] : ""); }).join("; ") + (reasons.length > 3 ? "; and " + plural(reasons.length - 3, "other reason") + " in the table" : "");
+    var marks = forgotMarks(m, pt);
+    return plural(pt.tasks.length, "task") + " × " + plural(m.gens.length, "generation") + ": " + plural(pt.total, "cell") + ", " + (pt.unmeasurable ? pt.unmeasurable + " not measurable, drawn as absent (" + why + ")" : "every one measurable")
+      + (marks ? "; " + plural(marks, "forgot mark") + " from the Evolution section's steps" : "; no step forgot a task")
+      + (pt.note ? ". " + cap(pt.note) : "") + (pt.tasks.length > MULTI_CAP ? ". The first " + MULTI_CAP + " tasks are drawn; every task is in the table" : "")
+      + ". Each interval is a percentile bootstrap within the task over its own runs" + (isNum(m.samples) ? " (" + m.samples + " draws)" : "") + ", on one shared axis.";
+  }
+
   AgentDiff.block({
     id: "cov-metric",
     title: "One metric, in full",
@@ -1269,7 +1406,8 @@
         left.appendChild(H("div", { class: "cov-h", text: "across the generations, with intervals" }));
         var host = H("div", { class: "cov-chart" });
         left.appendChild(responsive(host, function () { host.innerHTML = ""; drawCurve(host, m, mt, tip); }, "cov-curve"));
-        left.appendChild(H("p", { class: "cov-note", "data-role": "per-task", style: { marginTop: "4px" }, text: "Per-task small multiples are not drawn: the matrix carries one value per generation, not per task, so the per-task view is not in the data." }));
+        var pt = perTask(m, mt);
+        if (!pt) left.appendChild(H("p", { class: "cov-note", "data-role": "per-task", "data-tasks": "0", style: { marginTop: "4px" }, text: "Per-task small multiples are not drawn: this matrix carries no per_task cells (an output from before they were recorded), so the per-task view is not in the data." }));
         var right = H("div");
         cols.appendChild(right);
         var val = raw.validation;
@@ -1281,9 +1419,22 @@
         right.appendChild(H("div", { class: "cov-h", text: "confirmation" }));
         right.appendChild(H("p", { class: "cov-read", "data-role": "confirmation", "data-status": cf ? cf.status : "", text: cf ? cap(cf.status) + ": tested on " + plural(cf.tested, "later step") + ", moved on " + cf.moved + (cf.status === "unconfirmed" ? " — it never moved again after its adoption, which is a statement after " + m.thresholds.confirm_steps + " tests, not an absence" : cf.status === "pending" ? " — fewer than " + m.thresholds.confirm_steps + " later steps yet" : "") + "." : "Not applicable: a base metric is never tested out of sample." }));
         if (ca) { right.appendChild(H("div", { class: "cov-h", text: "hindsight" })); right.appendChild(H("p", { class: "cov-read", "data-role": "caught", text: cap(ca.note) + (isNum(ca.lag) ? " (first flag " + ca.first_flag_step + ", adopted " + ca.adopted_step + ", lag " + plural(ca.lag, "step") + ")" : "") + "." })); }
+        if (pt) {
+          body.appendChild(H("div", { class: "cov-h", text: "per task, with intervals" }));
+          var status = H("p", { class: "cov-status", "data-role": "per-task", "data-tasks": String(pt.tasks.length), "data-cells": String(pt.total), "data-unmeasurable": String(pt.unmeasurable), "data-forgotten": String(forgotMarks(m, pt)), "data-note": pt.note ? "1" : "0", text: multiStatus(m, mt, pt) });
+          body.appendChild(status);
+          var mhost = H("div", { class: "cov-chart cov-multi-host" });
+          body.appendChild(responsive(mhost, function () {
+            var t0 = global.performance ? performance.now() : Date.now();
+            mhost.innerHTML = "";
+            drawMultiples(mhost, m, mt, pt, tip);
+            status.setAttribute("data-draw-ms", ((global.performance ? performance.now() : Date.now()) - t0).toFixed(1));
+          }, "cov-multi"));
+          body.appendChild(H("details", { class: "cov-details" }, [H("summary", { text: "table view: every task by generation" }), multiTable(H, m, mt, pt)]));
+        }
       }
       paint();
-      root.appendChild(H("p", { class: "cov-note", text: "The curve is the final eval's value of the metric on every generation — a point with its stratified bootstrap interval, the adoption generation ringed. The validation row is the ledger row that adopted it (c computable · i informative · d distinct · l linked · n not already); confirmation is the out-of-sample test at every later step." }));
+      root.appendChild(H("p", { class: "cov-note", text: "The curve is the final eval's value of the metric on every generation — a point with its stratified bootstrap interval, the adoption generation ringed. The per-task panels are the same cells read within each task (matrix[metric][generation].per_task): the task's own mean, or rate, with a bootstrap over that task's runs — no draw shared with the generation's interval; a ▏ band is the generation a forgot step of the Evolution section named that task at; a dash is a cell under the episodes needed. The validation row is the ledger row that adopted it (c computable · i informative · d distinct · l linked · n not already); confirmation is the out-of-sample test at every later step." }));
       listen(root, function () { paint(); });
     },
   });

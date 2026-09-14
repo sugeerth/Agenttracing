@@ -110,7 +110,7 @@
 
   // ------------------------------------------------------------ helpers
   //: no library counterpart: cut a label to n characters with an ellipsis, whitespace collapsed
-  function trunc(s, n) { s = String(s === null || s === undefined ? "" : s).replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  var trunc = L.fmt.trunc;
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
   //: ~6.2px per character at the page's small size; good enough to truncate by
   var CH = 6.2;

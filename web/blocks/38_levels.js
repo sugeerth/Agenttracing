@@ -22,7 +22,10 @@
  *                shaded), where the budget went (by kind and by tool), the
  *                search map (query → yields → reads → answer, node size by
  *                output chars, a `reaches` edge only for a fetch whose use
- *                is recorded), and the fetch table.
+ *                is recorded), and the fetch table. The numbers line says
+ *                where the steps come from: the output, or a trace the
+ *                bundle attached (`steps_source: "trace …"`, `--traces`);
+ *                a run whose steps are in neither says so with the reason.
  *
  * The data is `DEEPCOMPARE_DATA.bundle` when the page is a bundle's
  * (`agentdiff bundle`): its three levels come from deepcompare/bundle.py
@@ -1068,6 +1071,8 @@
       H("span", null, [H("b", { text: tok(r.fetches) }), " fetches"]), H("span", null, [H("b", { text: tok(r.errors) }), " errors"]), H("span", null, [H("b", { text: tok(r.repeats) }), " repeats"]),
       isNum(r["return"]) ? H("span", null, [H("b", { text: num(r["return"], 2) }), " return"]) : null, r.lineage_gen ? H("span", null, [H("b", { text: r.lineage_gen }), " generation"]) : null,
       r.synthetic ? H("span", { class: "lv-syn", text: "SYNTHETIC" }) : null, H("span", { text: "from " + (r.basis || []).join(", ") }),
+      // where the steps come from: the output itself, a trace the bundle attached (`--traces`), or nowhere
+      H("span", { "data-role": "steps-source", text: rec.measurable ? (typeof rec.steps_source === "string" && rec.steps_source ? "steps from " + rec.steps_source : "steps in the output") : "steps not in the output" }),
     ]);
   }
 
@@ -1096,6 +1101,7 @@
         var list = visibleRows(m, st), at = list.findIndex(function (x) { return x.key === key; });
         root.setAttribute("data-run", key);
         root.setAttribute("data-measurable", rec.measurable ? "true" : "false");
+        root.setAttribute("data-steps-source", typeof rec.steps_source === "string" ? rec.steps_source : "");
         // the crumbs and the walk
         var crumbs = H("nav", { class: "lv-crumbs", "aria-label": "level 3 breadcrumb" }, [
           H("button", { text: "all runs", title: "back to level 2", onclick: function () { select({ run: null }); scrollToRuns(); } }), H("span", { class: "sep", text: "›", "aria-hidden": "true" }),

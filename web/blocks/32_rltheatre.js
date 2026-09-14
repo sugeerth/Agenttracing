@@ -80,7 +80,8 @@
   // ------------------------------------------------------------ helpers
 
   function plain(v, p) { return isNum(v) ? v.toFixed(p === undefined ? 2 : p) : "—"; }
-  function trunc(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  //: the library's cut; a label that begins with its " · " separator keeps that whitespace (the third argument)
+  var trunc = L.fmt.trunc;
   function sum(arr) { var t = 0; for (var i = 0; i < arr.length; i++) if (isNum(arr[i])) t += arr[i]; return t; }
   function mean(arr) { var xs = arr.filter(isNum); return xs.length ? sum(xs) / xs.length : null; }
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
@@ -413,7 +414,7 @@
         : " · " + short(row.task.id) + " · n=" + row.eps.length + " · mean " + signed(tm) + " · " + solved + "/" + row.eps.length + " solved";
       var head = svg.append("text").attr("class", "lab").attr("x", gutter).attr("y", top + 10);
       head.append("tspan").attr("fill", col).attr("font-weight", "600").text(who);
-      head.append("tspan").attr("class", "dim").attr("fill", "var(--ink-3)").text(trunc(rest, Math.max(6, budget - who.length)));
+      head.append("tspan").attr("class", "dim").attr("fill", "var(--ink-3)").text(trunc(rest, Math.max(6, budget - who.length), true));
       head.append("title").text(row.policy.name + " · " + short(row.task.id) + " · " + row.eps.length +
         " episodes · mean return " + signed(tm) + " · " + solved + " of " + row.eps.length + " solved");
 
@@ -624,7 +625,7 @@
       var rest = " · " + (ep.run_id || "run 1") + " · " + ep.steps + " steps · return " + signed(ep.ret) + " · " + (ep.success ? "solved" : "failed");
       var t = g.append("text").attr("class", "lab").attr("x", padL).attr("y", top + 9);
       t.append("tspan").style("fill", ep.color).attr("font-weight", "600").text(who);
-      t.append("tspan").style("fill", "var(--ink-3)").text(trunc(rest, Math.max(6, budget - who.length)));
+      t.append("tspan").style("fill", "var(--ink-3)").text(trunc(rest, Math.max(6, budget - who.length), true));
       t.append("title").text(ep.policy + " · " + (ep.run_id || "run 1") + " · " + ep.steps + " steps · return " + signed(ep.ret) + " · " + (ep.success ? "solved" : "failed"));
       var ribY = top + LABH;
       // the run's own extent: it stops where the run stopped

@@ -70,7 +70,8 @@
     ].join(""));
   }
 
-  function trunc(s, n) { s = String(s === null || s === undefined ? "" : s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+  //: a step's text in a <pre> keeps its whitespace (the third argument); a label collapses it
+  var trunc = L.fmt.trunc;
   function stepsOf(report, side) { var box = report && report[side]; return box && Array.isArray(box.steps) ? box.steps : []; }
   function stepAt(report, side, index) {
     var steps = stepsOf(report, side);
@@ -131,7 +132,7 @@
       layer(card, "model call", e.kind === "tool" ? "the turn that chose this call" : "the turn", [
         H("span", null, [H("b", { text: m || r.agent.model || "model not recorded" }), H("span", { text: (isNum(st.tokens) ? " · " + st.tokens + " tokens" + (st.tokens_basis ? " (" + st.tokens_basis + ")" : "") : "") + (isNum(st.latency_s) ? " · " + st.latency_s.toFixed(2) + "s" : "") + (conf !== null ? " · confidence " + conf.toFixed(2) : "") })]),
         e.modelSwitch ? H("div", null, [H("span", { class: "tag warn", text: "model switch" }), H("span", { text: e.modelSwitch.from + " → " + e.modelSwitch.to })]) : null,
-        e.kind === "reason" ? H("pre", { text: trunc(st.input || st.output, 600) }) : null,
+        e.kind === "reason" ? H("pre", { text: trunc(st.input || st.output, 600, true) }) : null,
       ]);
       if (e.kind === "tool") {
         var same = counterpart && kindOf(counterpart) === "tool" ? (counterpart.name === st.name) : null;
@@ -140,12 +141,12 @@
           H("span", null, [H("b", { text: st.name || "?" }), H("span", { text: same === null ? (counterpart ? " · the other side did not call a tool here" : " · no aligned step on the other side") : same ? " · same tool as the other side" : " · the other side used " + counterpart.name })]),
           e.retry ? H("div", null, [H("span", { class: "tag warn", text: e.retry.same ? "retry, identical arguments" : "retry, changed arguments" }), H("span", { text: "of step " + e.retry.of })]) : null,
           tdiff && tdiff.changed && tdiff.changed.length ? H("div", null, [H("span", { class: "tag", text: "argument diff" }), H("span", { text: tdiff.changed.map(function (c) { return c.key + ": " + trunc(c.a, 40) + " ↔ " + trunc(c.b, 40); }).join("; ") })]) : null,
-          H("pre", { text: trunc(st.input, 500) }),
+          H("pre", { text: trunc(st.input, 500, true) }),
         ]);
         layer(card, "tool response", "what came back", [
           e.error ? H("span", { class: "tag bad", text: "error" }) : null,
           e.noInfo ? H("span", { class: "tag warn", text: "no new information" }) : null,
-          H("pre", { text: trunc(st.output || st.error || "(empty)", 600) }),
+          H("pre", { text: trunc(st.output || st.error || "(empty)", 600, true) }),
         ]);
       } else {
         layer(card, "tool selection", "", "no tool at this step", true);
@@ -154,7 +155,7 @@
       layer(card, "state", "phase from the reading", e.transition ? [H("span", { class: "tag", text: e.transition.from + " → " + e.transition.to }), H("span", { text: "a transition at this step" })]
         : e.phase ? "stays in " + e.phase : "no phase assigned", !e.transition);
       var out = [];
-      if (e.kind === "answer") out.push(H("div", null, [H("span", { class: "tag " + (r.outcome.success ? "good" : "bad"), text: r.outcome.success ? "final answer · solved" : "final answer · failed" }), H("pre", { text: trunc(st.output || st.input, 600) })]));
+      if (e.kind === "answer") out.push(H("div", null, [H("span", { class: "tag " + (r.outcome.success ? "good" : "bad"), text: r.outcome.success ? "final answer · solved" : "final answer · failed" }), H("pre", { text: trunc(st.output || st.input, 600, true) })]));
       (e.values || []).forEach(function (v) { out.push(H("div", null, [H("span", { class: "tag " + (v.status === "wrong" || v.status === "unsupported" ? "bad" : v.status === "supported" || v.status === "basis" ? "good" : ""), text: String(v.status || "value") }), H("span", { text: String(v.value) })])); });
       layer(card, "output", "what this step gave the answer", out.length ? out : "nothing the answer rests on", !out.length);
       if (dec.side === sd && dec.step === st.index) {

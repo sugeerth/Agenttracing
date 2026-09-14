@@ -3404,7 +3404,7 @@ THIS SOFTWARE.
  * (`var L = AgentDiff.lib, isNum = L.fmt.isNum;`) and defines none of
  * these locally — the surface, and the rule, are in web/blocks/README.md.
  *
- *   fmt     num, signed, pct, secs, short, isNum, plural, trunc
+ *   fmt     num, signed, pct, secs, short, isNum, plural, trunc(text, n, keep?)
  *   color   side(side, ns), agent(side, i), verdict(kind), good, bad
  *   svg     svg(attrs, kids) — role="img" by default, aria-label required
  *           svg.note(text, cls), svg.tip(host, {class, width})
@@ -3459,9 +3459,12 @@ THIS SOFTWARE.
     return int(n) + " " + (one ? word : many);
   }
   /* Text cut to n characters with an ellipsis, its whitespace collapsed
-   * first so a label never carries a newline; null and undefined are "". */
-  function trunc(text, n) {
-    var s = String(text === null || text === undefined ? "" : text).replace(/\s+/g, " ").trim();
+   * first so a label never carries a newline; null and undefined are "".
+   * `keep` keeps the whitespace as recorded — for a step's log shown in a
+   * <pre>, where the newlines are the text. */
+  function trunc(text, n, keep) {
+    var s = String(text === null || text === undefined ? "" : text);
+    if (!keep) s = s.replace(/\s+/g, " ").trim();
     n = isNum(n) ? n : 0;
     return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "\u2026" : s;
   }
@@ -11880,7 +11883,8 @@ THIS SOFTWARE.
     ].join(""));
   }
 
-  function trunc(s, n) { s = String(s === null || s === undefined ? "" : s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+  //: a step's text in a <pre> keeps its whitespace (the third argument); a label collapses it
+  var trunc = L.fmt.trunc;
   function stepsOf(report, side) { var box = report && report[side]; return box && Array.isArray(box.steps) ? box.steps : []; }
   function stepAt(report, side, index) {
     var steps = stepsOf(report, side);
@@ -11941,7 +11945,7 @@ THIS SOFTWARE.
       layer(card, "model call", e.kind === "tool" ? "the turn that chose this call" : "the turn", [
         H("span", null, [H("b", { text: m || r.agent.model || "model not recorded" }), H("span", { text: (isNum(st.tokens) ? " · " + st.tokens + " tokens" + (st.tokens_basis ? " (" + st.tokens_basis + ")" : "") : "") + (isNum(st.latency_s) ? " · " + st.latency_s.toFixed(2) + "s" : "") + (conf !== null ? " · confidence " + conf.toFixed(2) : "") })]),
         e.modelSwitch ? H("div", null, [H("span", { class: "tag warn", text: "model switch" }), H("span", { text: e.modelSwitch.from + " → " + e.modelSwitch.to })]) : null,
-        e.kind === "reason" ? H("pre", { text: trunc(st.input || st.output, 600) }) : null,
+        e.kind === "reason" ? H("pre", { text: trunc(st.input || st.output, 600, true) }) : null,
       ]);
       if (e.kind === "tool") {
         var same = counterpart && kindOf(counterpart) === "tool" ? (counterpart.name === st.name) : null;
@@ -11950,12 +11954,12 @@ THIS SOFTWARE.
           H("span", null, [H("b", { text: st.name || "?" }), H("span", { text: same === null ? (counterpart ? " · the other side did not call a tool here" : " · no aligned step on the other side") : same ? " · same tool as the other side" : " · the other side used " + counterpart.name })]),
           e.retry ? H("div", null, [H("span", { class: "tag warn", text: e.retry.same ? "retry, identical arguments" : "retry, changed arguments" }), H("span", { text: "of step " + e.retry.of })]) : null,
           tdiff && tdiff.changed && tdiff.changed.length ? H("div", null, [H("span", { class: "tag", text: "argument diff" }), H("span", { text: tdiff.changed.map(function (c) { return c.key + ": " + trunc(c.a, 40) + " ↔ " + trunc(c.b, 40); }).join("; ") })]) : null,
-          H("pre", { text: trunc(st.input, 500) }),
+          H("pre", { text: trunc(st.input, 500, true) }),
         ]);
         layer(card, "tool response", "what came back", [
           e.error ? H("span", { class: "tag bad", text: "error" }) : null,
           e.noInfo ? H("span", { class: "tag warn", text: "no new information" }) : null,
-          H("pre", { text: trunc(st.output || st.error || "(empty)", 600) }),
+          H("pre", { text: trunc(st.output || st.error || "(empty)", 600, true) }),
         ]);
       } else {
         layer(card, "tool selection", "", "no tool at this step", true);
@@ -11964,7 +11968,7 @@ THIS SOFTWARE.
       layer(card, "state", "phase from the reading", e.transition ? [H("span", { class: "tag", text: e.transition.from + " → " + e.transition.to }), H("span", { text: "a transition at this step" })]
         : e.phase ? "stays in " + e.phase : "no phase assigned", !e.transition);
       var out = [];
-      if (e.kind === "answer") out.push(H("div", null, [H("span", { class: "tag " + (r.outcome.success ? "good" : "bad"), text: r.outcome.success ? "final answer · solved" : "final answer · failed" }), H("pre", { text: trunc(st.output || st.input, 600) })]));
+      if (e.kind === "answer") out.push(H("div", null, [H("span", { class: "tag " + (r.outcome.success ? "good" : "bad"), text: r.outcome.success ? "final answer · solved" : "final answer · failed" }), H("pre", { text: trunc(st.output || st.input, 600, true) })]));
       (e.values || []).forEach(function (v) { out.push(H("div", null, [H("span", { class: "tag " + (v.status === "wrong" || v.status === "unsupported" ? "bad" : v.status === "supported" || v.status === "basis" ? "good" : ""), text: String(v.status || "value") }), H("span", { text: String(v.value) })])); });
       layer(card, "output", "what this step gave the answer", out.length ? out : "nothing the answer rests on", !out.length);
       if (dec.side === sd && dec.step === st.index) {
@@ -18285,7 +18289,7 @@ THIS SOFTWARE.
   // ------------------------------------------------------------ helpers
 
   function plain(v, p) { return isNum(v) ? v.toFixed(p === undefined ? 2 : p) : "—"; }
-  function trunc(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  var trunc = L.fmt.trunc;
   function sum(arr) { var t = 0; for (var i = 0; i < arr.length; i++) if (isNum(arr[i])) t += arr[i]; return t; }
   function mean(arr) { var xs = arr.filter(isNum); return xs.length ? sum(xs) / xs.length : null; }
   function ret(ep) { return ep.ret; }
@@ -19186,7 +19190,7 @@ THIS SOFTWARE.
 
   // ------------------------------------------------------------- helpers
 
-  function trunc(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  var trunc = L.fmt.trunc;
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
   function hostWidth(host) { return L.layout.measure(host, 280, 1400); }
   var responsive = L.layout.responsive;
@@ -19727,7 +19731,7 @@ THIS SOFTWARE.
   // ------------------------------------------------------------ helpers
 
   function plain(v, p) { return isNum(v) ? v.toFixed(p === undefined ? 2 : p).replace("-", "−") : "—"; }
-  function trunc(s, n) { s = String(s === null || s === undefined ? "" : s); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  var trunc = L.fmt.trunc;
   function width(host) { return L.layout.measure(host, 280, 1120); }
   var responsive = L.layout.responsive;
   function selectStep(report, side, step) {
@@ -21913,7 +21917,8 @@ THIS SOFTWARE.
   // ------------------------------------------------------------ helpers
 
   function plain(v, p) { return isNum(v) ? v.toFixed(p === undefined ? 2 : p) : "—"; }
-  function trunc(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  //: the library's cut; a label that begins with its " · " separator keeps that whitespace (the third argument)
+  var trunc = L.fmt.trunc;
   function sum(arr) { var t = 0; for (var i = 0; i < arr.length; i++) if (isNum(arr[i])) t += arr[i]; return t; }
   function mean(arr) { var xs = arr.filter(isNum); return xs.length ? sum(xs) / xs.length : null; }
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
@@ -22246,7 +22251,7 @@ THIS SOFTWARE.
         : " · " + short(row.task.id) + " · n=" + row.eps.length + " · mean " + signed(tm) + " · " + solved + "/" + row.eps.length + " solved";
       var head = svg.append("text").attr("class", "lab").attr("x", gutter).attr("y", top + 10);
       head.append("tspan").attr("fill", col).attr("font-weight", "600").text(who);
-      head.append("tspan").attr("class", "dim").attr("fill", "var(--ink-3)").text(trunc(rest, Math.max(6, budget - who.length)));
+      head.append("tspan").attr("class", "dim").attr("fill", "var(--ink-3)").text(trunc(rest, Math.max(6, budget - who.length), true));
       head.append("title").text(row.policy.name + " · " + short(row.task.id) + " · " + row.eps.length +
         " episodes · mean return " + signed(tm) + " · " + solved + " of " + row.eps.length + " solved");
 
@@ -22457,7 +22462,7 @@ THIS SOFTWARE.
       var rest = " · " + (ep.run_id || "run 1") + " · " + ep.steps + " steps · return " + signed(ep.ret) + " · " + (ep.success ? "solved" : "failed");
       var t = g.append("text").attr("class", "lab").attr("x", padL).attr("y", top + 9);
       t.append("tspan").style("fill", ep.color).attr("font-weight", "600").text(who);
-      t.append("tspan").style("fill", "var(--ink-3)").text(trunc(rest, Math.max(6, budget - who.length)));
+      t.append("tspan").style("fill", "var(--ink-3)").text(trunc(rest, Math.max(6, budget - who.length), true));
       t.append("title").text(ep.policy + " · " + (ep.run_id || "run 1") + " · " + ep.steps + " steps · return " + signed(ep.ret) + " · " + (ep.success ? "solved" : "failed"));
       var ribY = top + LABH;
       // the run's own extent: it stops where the run stopped
@@ -24257,7 +24262,7 @@ THIS SOFTWARE.
 
   // ------------------------------------------------------------ helpers
   //: no library counterpart: cut a label to n characters with an ellipsis, whitespace collapsed
-  function trunc(s, n) { s = String(s === null || s === undefined ? "" : s).replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s; }
+  var trunc = L.fmt.trunc;
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
   //: ~6.2px per character at the page's small size; good enough to truncate by
   var CH = 6.2;
@@ -26582,7 +26587,10 @@ THIS SOFTWARE.
  *   cov-matrix     metrics × generations, standardised per row, the cells
  *                  before a metric's adoption hatched (computed with hindsight).
  *   cov-metric     one metric in full: its spec, its curve with intervals,
- *                  its validation row, its confirmation, its origin.
+ *                  its per-task small multiples (one panel per task from the
+ *                  matrix cells' `per_task`, the forgotten task marked at the
+ *                  step the Evolution section names), its validation row,
+ *                  its confirmation, its origin.
  *   cov-probes     the probes as agents, and the external proposer's status.
  *   cov-integrity  the eval's own drift, multiplicity, retirements, the gap.
  *
@@ -26670,6 +26678,7 @@ THIS SOFTWARE.
     ".cov-tip b{color:var(--ink)}.cov-tip .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}",
     ".cov-multi{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px 18px}",
     ".cov-hatch{fill:url(#cov-hatch)}",
+    ".cov-multi svg{width:100%}.cov-task .forgot{fill:var(--warn);font-weight:700}.cov-task .absent{fill:var(--ink-3)}",
   ].join("\n");
   function ensureStyle() { L.style.once("coevolve", CSS); }
 
@@ -26812,7 +26821,16 @@ THIS SOFTWARE.
     metricList.forEach(function (mt) { metricById[mt.id] = mt; });
     var hind = c.hindsight && typeof c.hindsight === "object" ? c.hindsight : {};
     var probesFired = probes.filter(function (p) { return Array.isArray(p.fired) && p.fired.length; });
+    // the tasks the Evolution section says a step forgot: {task: [{key, to}]}, read from evolution.steps[].effect.forgotten
+    var forgot = {};
+    var evSteps = agg && agg.evolution && Array.isArray(agg.evolution.steps) ? agg.evolution.steps : [];
+    evSteps.forEach(function (s) {
+      if (!s || !s.from || !s.to) return;
+      var key = String(s.from) + "→" + String(s.to), list = s.effect && Array.isArray(s.effect.forgotten) ? s.effect.forgotten : [];
+      list.forEach(function (t) { (forgot[String(t)] = forgot[String(t)] || []).push({ key: key, to: String(s.to) }); });
+    });
     return {
+      forgotten: forgot,
       ok: true, c: c, flow: flow, nodes: nodes, edges: edges, byId: byId, byKind: byKind, edgesByKind: edgesByKind,
       gens: gens, genIndex: genIndex, steps: steps, stepByKey: stepByKey, ledger: ledger, ledgerByStep: ledgerByStep,
       probes: probes, probesFired: probesFired, probeByName: probeByName, evalGens: evalGens, evalByStep: evalByStep,
@@ -27787,6 +27805,130 @@ THIS SOFTWARE.
     if (pts.length > 1) el.insert("path", ":first-child").attr("fill", "none").attr("stroke", statusColor(mt.status)).attr("stroke-opacity", 0.5).attr("stroke-width", 1.2).attr("d", d3.line()(pts));
   }
 
+  /* The per-task cells of a metric, the union over the generations of the
+   * matrix cells' `per_task`: {tasks (sorted), cells: {task: {gen: cell}},
+   * total, unmeasurable, reasons: {reason: n}, note, lo, hi, rate} — the axis
+   * spans the measurable cells (a rate spans 0..1). null when the matrix
+   * carries no per_task (an output from before it was recorded). */
+  function perTask(m, mt) {
+    var cs = m.matrix[mt.id] || {}, cells = {}, tasks = [], any = false, total = 0, un = 0, reasons = {}, note = null, lo = Infinity, hi = -Infinity;
+    m.gens.forEach(function (g) {
+      var c = cs[g.id], pt = c && c.per_task;
+      if (!pt || typeof pt !== "object") return;
+      any = true;
+      Object.keys(pt).forEach(function (t) {
+        var cell = pt[t];
+        if (!cell || typeof cell !== "object") return;
+        if (!cells[t]) { cells[t] = {}; tasks.push(t); }
+        cells[t][g.id] = cell;
+        total++;
+        if (cell.note && !note) note = String(cell.note);
+        if (cell.measurable === false || !isNum(cell.point)) { un++; var r = cell.reason ? String(cell.reason) : "no value"; reasons[r] = (reasons[r] || 0) + 1; }
+        else [cell.point, cell.lo, cell.hi].forEach(function (v) { if (isNum(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } });
+      });
+    });
+    if (!any) return null;
+    tasks.sort();
+    var rate = mt.spec.agg === "rate" || (mt.spec.feature === "success" && mt.spec.agg !== "iqm");
+    if (!isFinite(lo)) { lo = 0; hi = 1; }
+    if (rate) { lo = Math.min(lo, 0); hi = Math.max(hi, 1); }
+    if (hi - lo < 1e-9) { lo -= 0.5; hi += 0.5; }
+    return { tasks: tasks, cells: cells, total: total, unmeasurable: un, reasons: reasons, note: note, lo: lo, hi: hi, rate: rate };
+  }
+  //: the small multiples draw this many panels at most; the rest are in the table view
+  var MULTI_CAP = 24;
+  //: the panels the grid draws: the first MULTI_CAP tasks in sorted order
+  function multiShown(pt) { return pt.tasks.slice(0, MULTI_CAP); }
+  //: the forgot marks a metric's panels carry: one per (task, step) the Evolution section names, among the tasks drawn
+  function forgotMarks(m, pt) { return multiShown(pt).reduce(function (n, t) { return n + (m.forgotten[t] || []).length; }, 0); }
+
+  /* The per-task small multiples: one panel per task, the same drawing as
+   * the curve — a row per generation, the value across, the library's
+   * interval glyph — on one shared axis so the panels compare; the
+   * adoption generation ringed; a generation that a `forgot` step of the
+   * Evolution section named this task at is banded in the warn colour with
+   * the ▏ glyph; an unmeasurable cell is drawn as absent (a dash), its
+   * reason in the tooltip. Panels are laid out in as many columns as the
+   * width holds at 220px each, every panel at that width. */
+  function drawMultiples(host, m, mt, pt, tip) {
+    if (!d3) return;
+    var W = width(host), gap = 16, shown = multiShown(pt);
+    var cols = Math.max(1, Math.min(shown.length, Math.floor((W + gap) / (220 + gap)))), pw = Math.floor((W - (cols - 1) * gap) / cols);
+    var gens = m.gens, rowH = 14, padT = 18, padB = 16, labW = 32, padR = 10, Hh = padT + gens.length * rowH + padB;
+    var x = d3.scaleLinear().domain([pt.lo, pt.hi]).nice().range([labW, pw - padR]);
+    var adoptedAt = mt.raw.adopted_at && mt.raw.adopted_at.step ? m.stepByKey[mt.raw.adopted_at.step] : null;
+    var stroke = statusColor(mt.status);
+    var grid = document.createElement("div");
+    grid.className = "cov-multi";
+    grid.style.gridTemplateColumns = "repeat(" + cols + ", minmax(0, 1fr))";
+    host.appendChild(grid);
+    var fitChars = Math.max(6, Math.floor((pw - labW - 4) / 6.6));
+    shown.forEach(function (t) {
+      var cells = pt.cells[t] || {}, forgot = m.forgotten[t] || [];
+      var said = gens.map(function (g) { var c = cells[g.id]; return g.id + " " + (c && c.measurable !== false && isNum(c.point) ? ci(c) : "not measurable"); }).join(", ");
+      var label = mt.id + " on " + t + " per generation, each a point with its bootstrap interval within the task: " + said + (forgot.length ? "; forgotten at " + forgot.map(function (f) { return f.key; }).join(", ") : "") + (adoptedAt ? "; adopted at " + adoptedAt.to : "");
+      var svg = L.svg({ viewBox: "0 0 " + pw + " " + Hh, class: "cov-task", "data-task": t, "aria-label": label });
+      grid.appendChild(svg);
+      var el = d3.select(svg);
+      el.append("text").attr("class", "lab strong").attr("x", labW).attr("y", 11).text(trunc(short(t), fitChars)).append("title").text(t);
+      x.ticks(3).forEach(function (tk) {
+        el.append("line").attr("class", tk === 0 ? "zero" : "rule").attr("x1", x(tk)).attr("x2", x(tk)).attr("y1", padT - 4).attr("y2", Hh - padB + 2).attr("stroke-dasharray", tk === 0 ? null : "1 3");
+        // an edge tick's label is anchored inward so it never leaves the panel
+        el.append("text").attr("class", "tick").attr("x", x(tk)).attr("y", Hh - 4).attr("text-anchor", x(tk) > pw - 22 ? "end" : x(tk) < labW + 12 ? "start" : "middle").text(pt.rate ? pct(tk) : signed(tk, 1));
+      });
+      var pts = [];
+      gens.forEach(function (g, i) {
+        var c = cells[g.id], y = padT + i * rowH + rowH / 2, ok = c && c.measurable !== false && isNum(c.point);
+        var marks = forgot.filter(function (f) { return f.to === g.id; });
+        var gg = el.append("g").attr("class", "cov-tcell").attr("data-gen", g.id).attr("data-measurable", ok ? "1" : "0");
+        if (marks.length) {
+          gg.append("rect").attr("x", labW - 2).attr("y", y - rowH / 2).attr("width", pw - labW - padR + 4).attr("height", rowH).attr("fill", "var(--warn)").attr("fill-opacity", 0.14);
+          gg.append("text").attr("class", "forgot").attr("data-step", marks[0].key).attr("x", 2).attr("y", y + 4).attr("text-anchor", "start").text("▏");
+        }
+        gg.append("text").attr("class", "tick").attr("x", labW - 4).attr("y", y + 4).attr("text-anchor", "end").text(trunc(g.id, 3));
+        if (ok) {
+          L.glyph.interval(gg.node(), x, c.point, c.lo, c.hi, { y: y, color: stroke, width: 1.6, tick: 3, r: 2.6 });
+          if (adoptedAt && adoptedAt.to === g.id) gg.append("circle").attr("class", "ring").attr("cx", x(c.point)).attr("cy", y).attr("r", 5.5).attr("fill", "none").attr("stroke", "var(--ink)").attr("stroke-width", 1.2);
+          pts.push([x(c.point), y]);
+        } else gg.append("text").attr("class", "absent").attr("x", labW + 2).attr("y", y + 4).text("—");
+        gg.append("rect").attr("x", 0).attr("y", y - rowH / 2).attr("width", pw).attr("height", rowH).attr("fill", "transparent");
+        gg.on("pointermove", function (evt) {
+          tip.show(evt, [{ b: true, text: mt.id + " · " + t + " · " + g.id },
+            ok ? { mono: true, text: ci(c) + " · n " + (isNum(c.n) ? c.n : "?") + " · bootstrap within the task" } : { text: "not measurable: " + (c && c.reason ? c.reason : "no value") },
+            c && c.note ? { text: cap(String(c.note)) } : null,
+            adoptedAt && adoptedAt.to === g.id ? { text: "adopted at " + adoptedAt.key } : null,
+            marks.length ? { text: "▏ forgotten at " + marks.map(function (f) { return f.key; }).join(", ") + " — the Evolution section's forgot verdict names this task" } : null]);
+        }).on("pointerleave", tip.hide);
+      });
+      if (pts.length > 1) el.insert("path", ":first-child").attr("fill", "none").attr("stroke", stroke).attr("stroke-opacity", 0.45).attr("stroke-width", 1).attr("d", d3.line()(pts));
+    });
+  }
+  //: the table view of the multiples: a row per task, a column per generation, every cell its interval or its reason
+  function multiTable(H, m, mt, pt) {
+    var tbl = H("table", { class: "cov-table", "data-role": "per-task-table" });
+    tbl.appendChild(H("thead", null, H("tr", null, [H("th", { text: "task" })].concat(m.gens.map(function (g) { return H("th", { text: g.id }); })))));
+    var body = H("tbody");
+    pt.tasks.forEach(function (t) {
+      var cells = pt.cells[t] || {}, forgot = m.forgotten[t] || [];
+      body.appendChild(H("tr", { "data-task": t }, [H("td", { class: "wrap", text: t + (forgot.length ? " · ▏ forgotten at " + forgot.map(function (f) { return f.key; }).join(", ") : "") })].concat(m.gens.map(function (g) {
+        var c = cells[g.id], ok = c && c.measurable !== false && isNum(c.point);
+        return H("td", { class: ok ? "num" : "wrap", text: ok ? ci(c) + " · n " + (isNum(c.n) ? c.n : "?") : c ? "not measurable: " + (c.reason || "no value") : "—" });
+      }))));
+    });
+    tbl.appendChild(body);
+    return H("div", { class: "scroll-x" }, tbl);
+  }
+  //: what the status line under the multiples says: the counts, the unmeasurable cells with their reasons, the note, the cap
+  function multiStatus(m, mt, pt) {
+    var reasons = Object.keys(pt.reasons).sort(function (a, b) { return pt.reasons[b] - pt.reasons[a] || (a < b ? -1 : 1); });
+    var why = reasons.slice(0, 3).map(function (r) { return r + (pt.reasons[r] > 1 ? " ×" + pt.reasons[r] : ""); }).join("; ") + (reasons.length > 3 ? "; and " + plural(reasons.length - 3, "other reason") + " in the table" : "");
+    var marks = forgotMarks(m, pt);
+    return plural(pt.tasks.length, "task") + " × " + plural(m.gens.length, "generation") + ": " + plural(pt.total, "cell") + ", " + (pt.unmeasurable ? pt.unmeasurable + " not measurable, drawn as absent (" + why + ")" : "every one measurable")
+      + (marks ? "; " + plural(marks, "forgot mark") + " from the Evolution section's steps" : "; no step forgot a task")
+      + (pt.note ? ". " + cap(pt.note) : "") + (pt.tasks.length > MULTI_CAP ? ". The first " + MULTI_CAP + " tasks are drawn; every task is in the table" : "")
+      + ". Each interval is a percentile bootstrap within the task over its own runs" + (isNum(m.samples) ? " (" + m.samples + " draws)" : "") + ", on one shared axis.";
+  }
+
   AgentDiff.block({
     id: "cov-metric",
     title: "One metric, in full",
@@ -27819,7 +27961,8 @@ THIS SOFTWARE.
         left.appendChild(H("div", { class: "cov-h", text: "across the generations, with intervals" }));
         var host = H("div", { class: "cov-chart" });
         left.appendChild(responsive(host, function () { host.innerHTML = ""; drawCurve(host, m, mt, tip); }, "cov-curve"));
-        left.appendChild(H("p", { class: "cov-note", "data-role": "per-task", style: { marginTop: "4px" }, text: "Per-task small multiples are not drawn: the matrix carries one value per generation, not per task, so the per-task view is not in the data." }));
+        var pt = perTask(m, mt);
+        if (!pt) left.appendChild(H("p", { class: "cov-note", "data-role": "per-task", "data-tasks": "0", style: { marginTop: "4px" }, text: "Per-task small multiples are not drawn: this matrix carries no per_task cells (an output from before they were recorded), so the per-task view is not in the data." }));
         var right = H("div");
         cols.appendChild(right);
         var val = raw.validation;
@@ -27831,9 +27974,22 @@ THIS SOFTWARE.
         right.appendChild(H("div", { class: "cov-h", text: "confirmation" }));
         right.appendChild(H("p", { class: "cov-read", "data-role": "confirmation", "data-status": cf ? cf.status : "", text: cf ? cap(cf.status) + ": tested on " + plural(cf.tested, "later step") + ", moved on " + cf.moved + (cf.status === "unconfirmed" ? " — it never moved again after its adoption, which is a statement after " + m.thresholds.confirm_steps + " tests, not an absence" : cf.status === "pending" ? " — fewer than " + m.thresholds.confirm_steps + " later steps yet" : "") + "." : "Not applicable: a base metric is never tested out of sample." }));
         if (ca) { right.appendChild(H("div", { class: "cov-h", text: "hindsight" })); right.appendChild(H("p", { class: "cov-read", "data-role": "caught", text: cap(ca.note) + (isNum(ca.lag) ? " (first flag " + ca.first_flag_step + ", adopted " + ca.adopted_step + ", lag " + plural(ca.lag, "step") + ")" : "") + "." })); }
+        if (pt) {
+          body.appendChild(H("div", { class: "cov-h", text: "per task, with intervals" }));
+          var status = H("p", { class: "cov-status", "data-role": "per-task", "data-tasks": String(pt.tasks.length), "data-cells": String(pt.total), "data-unmeasurable": String(pt.unmeasurable), "data-forgotten": String(forgotMarks(m, pt)), "data-note": pt.note ? "1" : "0", text: multiStatus(m, mt, pt) });
+          body.appendChild(status);
+          var mhost = H("div", { class: "cov-chart cov-multi-host" });
+          body.appendChild(responsive(mhost, function () {
+            var t0 = global.performance ? performance.now() : Date.now();
+            mhost.innerHTML = "";
+            drawMultiples(mhost, m, mt, pt, tip);
+            status.setAttribute("data-draw-ms", ((global.performance ? performance.now() : Date.now()) - t0).toFixed(1));
+          }, "cov-multi"));
+          body.appendChild(H("details", { class: "cov-details" }, [H("summary", { text: "table view: every task by generation" }), multiTable(H, m, mt, pt)]));
+        }
       }
       paint();
-      root.appendChild(H("p", { class: "cov-note", text: "The curve is the final eval's value of the metric on every generation — a point with its stratified bootstrap interval, the adoption generation ringed. The validation row is the ledger row that adopted it (c computable · i informative · d distinct · l linked · n not already); confirmation is the out-of-sample test at every later step." }));
+      root.appendChild(H("p", { class: "cov-note", text: "The curve is the final eval's value of the metric on every generation — a point with its stratified bootstrap interval, the adoption generation ringed. The per-task panels are the same cells read within each task (matrix[metric][generation].per_task): the task's own mean, or rate, with a bootstrap over that task's runs — no draw shared with the generation's interval; a ▏ band is the generation a forgot step of the Evolution section named that task at; a dash is a cell under the episodes needed. The validation row is the ledger row that adopted it (c computable · i informative · d distinct · l linked · n not already); confirmation is the out-of-sample test at every later step." }));
       listen(root, function () { paint(); });
     },
   });
@@ -29688,7 +29844,10 @@ THIS SOFTWARE.
  *                shaded), where the budget went (by kind and by tool), the
  *                search map (query → yields → reads → answer, node size by
  *                output chars, a `reaches` edge only for a fetch whose use
- *                is recorded), and the fetch table.
+ *                is recorded), and the fetch table. The numbers line says
+ *                where the steps come from: the output, or a trace the
+ *                bundle attached (`steps_source: "trace …"`, `--traces`);
+ *                a run whose steps are in neither says so with the reason.
  *
  * The data is `DEEPCOMPARE_DATA.bundle` when the page is a bundle's
  * (`agentdiff bundle`): its three levels come from deepcompare/bundle.py
@@ -30734,6 +30893,8 @@ THIS SOFTWARE.
       H("span", null, [H("b", { text: tok(r.fetches) }), " fetches"]), H("span", null, [H("b", { text: tok(r.errors) }), " errors"]), H("span", null, [H("b", { text: tok(r.repeats) }), " repeats"]),
       isNum(r["return"]) ? H("span", null, [H("b", { text: num(r["return"], 2) }), " return"]) : null, r.lineage_gen ? H("span", null, [H("b", { text: r.lineage_gen }), " generation"]) : null,
       r.synthetic ? H("span", { class: "lv-syn", text: "SYNTHETIC" }) : null, H("span", { text: "from " + (r.basis || []).join(", ") }),
+      // where the steps come from: the output itself, a trace the bundle attached (`--traces`), or nowhere
+      H("span", { "data-role": "steps-source", text: rec.measurable ? (typeof rec.steps_source === "string" && rec.steps_source ? "steps from " + rec.steps_source : "steps in the output") : "steps not in the output" }),
     ]);
   }
 
@@ -30762,6 +30923,7 @@ THIS SOFTWARE.
         var list = visibleRows(m, st), at = list.findIndex(function (x) { return x.key === key; });
         root.setAttribute("data-run", key);
         root.setAttribute("data-measurable", rec.measurable ? "true" : "false");
+        root.setAttribute("data-steps-source", typeof rec.steps_source === "string" ? rec.steps_source : "");
         // the crumbs and the walk
         var crumbs = H("nav", { class: "lv-crumbs", "aria-label": "level 3 breadcrumb" }, [
           H("button", { text: "all runs", title: "back to level 2", onclick: function () { select({ run: null }); scrollToRuns(); } }), H("span", { class: "sep", text: "›", "aria-hidden": "true" }),
@@ -30840,7 +31002,10 @@ THIS SOFTWARE.
  *
  *   dt-task        what both agents were told: the task prompt and the
  *                  expected answer as recorded, each side's instructions
- *                  side by side with the hunks of their difference (or the
+ *                  side by side with the hunks of their difference (in the
+ *                  Evolution step block's vocabulary), on a lineage the
+ *                  hunks between consecutive generations under a
+ *                  generation picker that is the `data` family's gen (or the
  *                  plain fact that none are recorded, and what is), the
  *                  models as the traces record them with the source of that
  *                  attribution, the tools declared and used.
@@ -31176,11 +31341,14 @@ THIS SOFTWARE.
       });
       root.appendChild(cols);
       if (hasA && hasB) {
-        root.appendChild(H("div", { class: "dt-h", text: "their difference · +" + int(diff.added) + " −" + int(diff.removed) + " lines · " + plural((diff.hunks || []).length, "hunk") }));
-        if ((diff.hunks || []).length) root.appendChild(diffLines(diff.hunks));
-        else root.appendChild(H("p", { class: "dt-note", style: { margin: 0 }, text: "the texts differ only in whitespace, or the hunks were not included." }));
+        var dwrap = H("div", { "data-role": "instructions-diff", "data-hunks": String((diff.hunks || []).length), "data-added": String(isNum(diff.added) ? diff.added : 0), "data-removed": String(isNum(diff.removed) ? diff.removed : 0) });
+        dwrap.appendChild(H("div", { class: "dt-h", text: "their difference · " + agentOf(d, "a") + " → " + agentOf(d, "b") + " · +" + int(diff.added) + " −" + int(diff.removed) + " lines · " + plural((diff.hunks || []).length, "hunk") }));
+        if ((diff.hunks || []).length) dwrap.appendChild(diffLines(diff.hunks));
+        else dwrap.appendChild(H("p", { class: "dt-note", style: { margin: 0 }, text: "the texts differ only in whitespace, or the hunks were not included." }));
+        root.appendChild(dwrap);
       }
     }
+    lineageSteps(root, ctx, d);
     // the models, as recorded, with the source of the attribution
     root.appendChild(H("div", { class: "dt-h", text: "models · as the traces record them" + (models.same ? " · the same on both sides" : "") }));
     var mrows = [];
@@ -31235,6 +31403,51 @@ THIS SOFTWARE.
     if (step && step.change && (step.change.hunks || []).length) { det.appendChild(H("div", { class: "dt-h", text: "the hunks of " + stepKey(step) })); det.appendChild(diffLines(step.change.hunks)); }
     det.appendChild(H("p", { class: "dt-note", text: "These are the generations' artifacts (aggregate.data_evolution.generations[].instructions), not the traces: the page says which. The whole lineage, step by step, is in “How the agent evolves” below." }));
     root.appendChild(det);
+  }
+  /* On a lineage page: the instructions between consecutive generations,
+   * one step at a time under a picker that is the `data` family's `gen`
+   * — so the choice here opens the same step's row in “How the agent
+   * evolves” and survives a reload. The hunks are the section's
+   * (data_evolution.steps[].change.hunks, the generations' artifacts), in
+   * the Evolution step block's vocabulary; the default step is the pair's
+   * own (its two generations), else the last. Repaints in place. */
+  function lineageSteps(root, ctx, d) {
+    var de = lineageOf(ctx);
+    if (!de || !de.steps.length) return;
+    var byId = {};
+    (Array.isArray(de.generations) ? de.generations : []).forEach(function (g) { if (g && g.id !== undefined) byId[String(g.id)] = g; });
+    var va = d.a && d.a.agent && d.a.agent.version, vb = d.b && d.b.agent && d.b.agent.version;
+    var pairStep = de.steps.filter(function (s) { return String(s.from) === String(va) && String(s.to) === String(vb); })[0] || null;
+    var host = H("div", { class: "dt-gensteps", "data-role": "lineage-steps", "data-steps": String(de.steps.length) });
+    root.appendChild(host);
+    function chosen() {
+      var key = genSel(de);
+      var hit = key ? de.steps.filter(function (s) { return stepKey(s) === key; })[0] : null;
+      return hit || pairStep || de.steps[de.steps.length - 1];
+    }
+    function paint() {
+      host.textContent = "";
+      var s = chosen(), key = stepKey(s), ch = s.change || {}, hunks = Array.isArray(ch.hunks) ? ch.hunks : [];
+      var gf = byId[String(s.from)] || {}, gt = byId[String(s.to)] || {}, insF = gf.instructions || {}, insT = gt.instructions || {};
+      host.appendChild(H("div", { class: "dt-h", text: "instructions between consecutive generations · " + plural(de.steps.length, "step") }));
+      var bar = H("div", { class: "dt-bar", role: "group", "aria-label": "the lineage step in view" });
+      de.steps.forEach(function (q) {
+        var k = stepKey(q), n = Array.isArray(q.change && q.change.hunks) ? q.change.hunks.length : 0;
+        bar.appendChild(H("button", { type: "button", class: "dt-btn", "data-gen": k, "aria-pressed": k === key ? "true" : "false", title: k + " · " + plural(n, "hunk") + (q.change && q.change.summary ? " · " + q.change.summary : ""), text: k, onclick: function () { ctx.signal("inspect"); select({ gen: k }); } }));
+      });
+      host.appendChild(bar);
+      var panel = H("div", { "data-role": "gen-diff", "data-gen": key, "data-hunks": String(hunks.length), "data-added": String(isNum(ch.prompt_added) ? ch.prompt_added : 0), "data-removed": String(isNum(ch.prompt_removed) ? ch.prompt_removed : 0) });
+      panel.appendChild(H("p", { class: "dt-read", style: { margin: "0 0 4px" } }, [
+        H("b", { text: String(s.from) }), H("span", { text: " (" + plural(insF.chars, "character") + ", " + String(insF.source || "lineage artifacts") + ") → " }),
+        H("b", { text: String(s.to) }), H("span", { text: " (" + plural(insT.chars, "character") + "): +" + int(isNum(ch.prompt_added) ? ch.prompt_added : 0) + " −" + int(isNum(ch.prompt_removed) ? ch.prompt_removed : 0) + " lines · " + plural(hunks.length, "hunk") + (ch.summary ? " · " + String(ch.summary) : "") + (Array.isArray(ch.protected_touched) && ch.protected_touched.length ? " · protected: " + ch.protected_touched.join(", ") : "") + (s === pairStep ? " · the pair on this page" : "") + "." }),
+      ]));
+      if (hunks.length) panel.appendChild(diffLines(hunks));
+      else panel.appendChild(H("p", { class: "dt-note", style: { margin: 0 }, text: "No prompt hunk on this step: " + (ch.summary ? "the change is " + String(ch.summary) : "the instructions did not change") + "." }));
+      host.appendChild(panel);
+      host.appendChild(H("p", { class: "dt-note", style: { margin: "6px 0 0" }, text: "The hunks are the section's (aggregate.data_evolution.steps[].change.hunks, the generations' artifacts), read in the Evolution view's vocabulary so the two agree; the step chosen here is the same one opened in “How the agent evolves” below." }));
+    }
+    paint();
+    listen(host, function () { paint(); });
   }
   //: the aggregate's data section, when the page carries one: every run of every agent
   function aggregateFold(root, ctx) {
@@ -33573,10 +33786,7 @@ THIS SOFTWARE.
 
   function count(list) { return Array.isArray(list) ? list.length : 0; }
 
-  function plural(n, word) {
-    var value = num(n) || 0;
-    return F.int(value) + " " + word + (value === 1 ? "" : "s");
-  }
+  var plural = L.fmt.plural;
 
   //: the eleven checks, in the order `process._PATHOLOGIES` declares them, so
   //: the matrix reads in the same order the narrative is built from.

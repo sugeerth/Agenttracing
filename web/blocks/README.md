@@ -257,7 +257,7 @@ locally** (`SharedLibraryTest` pins it):
 
 | namespace | surface |
 |---|---|
-| `fmt` | `num(v, p)`, `signed(v, p)`, `pct(v, p)`, `secs(v)`, `short(id)`, `isNum(v)` — the strings the blocks print; `—` for a non-number, `plural(n, word, plural?)` (thousands-separated, es/ies), `trunc(text, n)` (whitespace-collapsing, n−1 chars and an ellipsis) |
+| `fmt` | `num(v, p)`, `signed(v, p)`, `pct(v, p)`, `secs(v)`, `short(id)`, `isNum(v)` — the strings the blocks print; `—` for a non-number, `plural(n, word, plural?)` (thousands-separated, es/ies), `trunc(text, n, keep?)` (n−1 chars and an ellipsis; whitespace collapsed unless `keep`) |
 | `color` | `side(side, ns)` (`var(--a)`, or `var(--im-a)` for a block with its own dark override), `agent(side, i)`, `verdict(kind)` (a sign or a word → good / bad / ink), `good`, `bad` |
 | `svg` | `svg(attrs, kids)` — the root `<svg>`, `role="img"` unless told otherwise, **throws without an `aria-label`**; `svg.note(text, cls)`; `svg.tip(host, {class, width})` → `{show(evt, [{text, b?, mono?}]), hide()}` |
 | `glyph` | `interval(g, x, point, lo, hi, {y, color, width, opacity, tick, r, lineClass, dotClass})` — the one interval drawing; `foldWidth(n)` and `foldSeconds(s)` — the fold law, `6 + 6·log2(1 + n)` |
