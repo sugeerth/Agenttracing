@@ -8882,6 +8882,13 @@ class ChatViewTest(unittest.TestCase):
         cls.cmp_dir, cmp_agg = run("cmp", "evolve", str(lineage), "--against", str(lineage_b))
         cls.train_dir, train_agg = run("train", "runs", str(ROOT / "demo" / "rl" / "train"))
         cls.batch_dir, batch_agg = run("batch", "batch", str(ROOT / "demo" / "traces"))
+        # the bundle of the pair batch and the lineage: the page with the three levels
+        cls.bundle_dir = root / "bundle"
+        done = subprocess.run([sys.executable, "-m", "deepcompare", "bundle", str(cls.batch_dir), str(cls.cov_dir), "-o", str(cls.bundle_dir), "--name", "demo"],
+                              cwd=str(ROOT), capture_output=True)
+        cls.bundle = json.loads((cls.bundle_dir / "bundle.json").read_text(encoding="utf-8")) if done.returncode == 0 and (cls.bundle_dir / "bundle.json").is_file() else None
+        cls.batch_pair = json.loads(sorted(cls.batch_dir.glob("report_*.json"))[0].read_text(encoding="utf-8"))
+        cls.cov_agg = cov_agg
         cls.cov = cov_agg.get("coevolution") or {}
         cls.evo = cov_agg.get("evolution") or {}
         if not cls.cov.get("measurable") or not cls.evo.get("measurable"):
@@ -8938,13 +8945,14 @@ class ChatViewTest(unittest.TestCase):
     def _chips(page):
         return page.evaluate("() => Array.from(document.querySelectorAll('.chat-composer .chat-chip')).map(b => b.textContent)")
 
-    #: the library's `fmt.num`: p places, trailing zeros dropped, a real minus sign
+    #: the library's `fmt.num`: p places (a tie rounds away from zero, as toFixed does), trailing zeros dropped, a real minus sign
     @staticmethod
     def _num(v, p=2):
-        s = f"{v:.{p}f}"
+        from decimal import Decimal, ROUND_HALF_UP
+        s = str(Decimal(repr(abs(v))).quantize(Decimal(1).scaleb(-p), rounding=ROUND_HALF_UP))
         if "." in s:
             s = s.rstrip("0").rstrip(".")
-        return s.replace("-", "−")
+        return ("−" if v < 0 and s not in ("0", "") else "") + s
 
     #: the library's `fmt.pct`: whole points, rounded half up
     @staticmethod
@@ -9416,6 +9424,227 @@ class ChatViewTest(unittest.TestCase):
         self.assertEqual(errors, [])
         context.close()
 
+    # ------------------------------------------------------- the levels
+
+    def _member_key(self, pair, side):
+        """The bundle's key of a pair report's side: <member>/<task>/<agent>/<run>."""
+        return f"{self.bundle['members'][0]['label']}/{pair['task']['id']}/{pair[side]['agent']['name']}/{pair[side].get('run_id') or 'r1'}"
+
+    def test_the_levels_questions_read_the_bundle_overview_the_budget_and_the_fetches(self):
+        if not self.bundle:
+            raise unittest.SkipTest("the bundle command did not write a page")
+        pair = self.batch_pair
+        context, page, errors = self._open(self.bundle_dir, width=1440)
+        self.assertEqual(self._chips(page)[0], "what is running?")
+        row = self._ask(page, "what is running?", 600)
+        self.assertEqual(row.get_attribute("data-intent"), "lv-running")
+        overview = self.bundle["levels"]["overview"]
+        self.assertIn(overview["reading"], self._text(row))
+        for a in overview["agents"][:3]:
+            self.assertIn(f"{a['name']}{' (self-evolving)' if a['self_evolving'] else ''} — {a['runs']} run", self._text(row))
+        self.assertEqual(self._embed(row), ("lv-overview", "true"))
+
+        row = self._ask(page, "where did the tokens go?", 600)
+        self.assertEqual(row.get_attribute("data-intent"), "lv-budget")
+        text = self._text(row)
+        for side in ("a", "b"):
+            b = pair["budget"][side]
+            self.assertIn(b["narrative"], text)
+            self.assertIn(f"{b['tokens']['measured']} measured, {b['tokens']['estimated']} estimated and {b['tokens']['unknown']} unlabelled", text)
+            self.assertIn(f"{b['waste']['after_last_evidence']} tokens after the last evidence, {b['waste']['in_errored_calls']} in errored calls, {b['waste']['in_repeats']} in repeats", text)
+        self.assertIn(pair["budget"]["narrative"], text)
+        self.assertEqual(self._embed(row), ("lv-run", "true"))
+        self.assertEqual(page.evaluate("() => AgentDiff.levels.state().run"), self._member_key(pair, "a"))
+
+        row = self._ask(page, "which run was the most expensive?", 600)
+        self.assertEqual(row.get_attribute("data-intent"), "lv-heaviest")
+        heaviest = overview["heaviest_runs"][0]
+        self.assertIn(f"The heaviest run is {heaviest['key']} at {heaviest['tokens']} tokens", self._text(row))
+        self.assertEqual(self._embed(row)[0], "lv-runs")
+        state = page.evaluate("() => AgentDiff.levels.state()")
+        self.assertEqual((state["sort"], state["run"]), ("tokens", heaviest["key"]))
+
+        b_name = pair["b"]["agent"]["name"]
+        row = self._ask(page, f"what did {b_name} fetch?", 600)
+        self.assertEqual(row.get_attribute("data-intent"), "lv-fetch")
+        f = pair["fetches"]["b"]
+        self.assertIn(f["narrative"], self._text(row))
+        for rec in [r for r in f["records"] if r["kind"] == "search"][:6]:
+            self.assertIn(f"#{rec['index']} {rec['name']}", self._text(row))
+        self.assertIn(f"{len(f['map']['nodes'])} nodes and {len(f['map']['edges'])} edges", self._text(row))
+        self.assertEqual(self._embed(row), ("lv-run", "true"))
+        self.assertEqual(page.evaluate("() => AgentDiff.levels.state().run"), self._member_key(pair, "b"))
+
+        row = self._ask(page, "how many fetches were wasted?", 600)
+        self.assertEqual(row.get_attribute("data-intent"), "lv-waste")
+        for side in ("a", "b"):
+            c = pair["fetches"][side]["counts"]
+            self.assertIn(f"of {c['total']} fetches, {c['repeats']} repeated an earlier one, {c['errors']} errored, {c['unused']} recorded as not used and {c['unknown_use']} with no use signal ({c['used']} used)", self._text(row))
+        self.assertIn(pair["budget"]["a"]["waste"]["basis"], self._text(row))
+        # a question outside every intent still gets the cannot card, not a budget
+        row = self._ask(page, "what is the weather like")
+        self.assertEqual(row.get_attribute("data-intent"), "cannot")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_levels_questions_answer_a_plain_output_from_its_own_ledgers(self):
+        budget = self.cov_agg.get("budget") or {}
+        fetches = self.cov_agg.get("fetches") or {}
+        if not budget.get("measurable") or not fetches.get("measurable"):
+            raise unittest.SkipTest("the lineage output carries no budget or fetches ledger")
+        context, page, errors = self._open()
+        row = self._ask(page, "what is running?")
+        self.assertEqual(row.get_attribute("data-intent"), "lv-running")
+        self.assertIn("not a bundle", self._text(row))
+        self.assertIn(budget["narrative"], self._text(row))
+        self.assertIn(fetches["narrative"], self._text(row))
+        self.assertEqual(self._embed(row), ("lv-overview", "true"))
+        row = self._ask(page, "which run was the most expensive?")
+        h = budget["heaviest_runs"][0]
+        self.assertIn(f"The heaviest run is {h['agent']} on {h['task']} ({h['run']}) at {h['tokens']} tokens", self._text(row))
+        self.assertIn(budget["cap"]["source"], self._text(row))
+        self.assertEqual(page.evaluate("() => AgentDiff.levels.state().run"), f"page/{h['task']}/{h['agent']}/{h['run']}")
+        row = self._ask(page, "where did the tokens go?")
+        self.assertIn(self.pair["budget"]["a"]["narrative"], self._text(row))
+        self.assertEqual(self._embed(row), ("lv-run", "true"))
+        self.assertEqual(errors, [])
+        context.close()
+
+    # --------------------------------------------------------- the data
+
+    def _embed_or_absent(self, page, row, block_id):
+        """The Data blocks may not be on the page yet: drawn when the catalogue
+        has the block, no embed at all when it does not — never an empty one."""
+        present = page.evaluate("(id) => AgentDiff.catalogue().some(b => b.id === id)", block_id)
+        if present:
+            self.assertEqual(self._embed(row), (block_id, "true"))
+        else:
+            self.assertIsNone(self._embed(row)[0])
+
+    def test_the_data_questions_read_the_prompt_the_corpus_the_provenance_and_the_models(self):
+        pair = self.batch_pair
+        dt = pair.get("data") or {}
+        if not dt.get("measurable"):
+            raise unittest.SkipTest("the pair batch carries no data section")
+        A, B = pair["a"]["agent"]["name"], pair["b"]["agent"]["name"]
+        context, page, errors = self._open(self.batch_dir)
+        self.assertIn("what prompt was given?", self._chips(page))
+        row = self._ask(page, "what were the agents told?")
+        self.assertEqual(row.get_attribute("data-intent"), "dt-prompt")
+        text = self._text(row)
+        self.assertIn(dt["task"]["prompt"], text)
+        self.assertIn(f"{dt['task']['prompt_chars']}-character prompt", text)
+        if dt["task"].get("expected"):
+            self.assertIn(dt["task"]["expected"], text)
+        idf = dt["instructions_diff"]
+        self.assertIn("the same instructions" if idf["same"] is True else f"{len(idf['hunks'])} hunk" if idf["same"] is False else idf["reason"], text)
+        for side in ("a", "b"):
+            for m in dt[side]["models"]:
+                self.assertIn(f"{m['model']} ({m['steps']} step", text)
+                self.assertIn(m["source"], text)
+        self._embed_or_absent(page, row, "dt-task")
+
+        row = self._ask(page, f"what did {A} read that {B} didn't?")
+        self.assertEqual(row.get_attribute("data-intent"), "dt-corpus")
+        cd = dt["corpus_diff"]
+        text = self._text(row)
+        self.assertIn(f"Shared: {len(cd['shared'])}; only {A}: {len(cd['only_a'])}; only {B}: {len(cd['only_b'])}; Jaccard {self._num(cd['jaccard'])}", text)
+        self.assertIn(f"{A} read {dt['a']['corpus']['distinct']} distinct source", text)
+        for sid in cd["only_a"][:4]:
+            src = [s for s in dt["a"]["corpus"]["sources"] if s["id"] == sid][0]
+            self.assertIn(src["name"], text)
+        self._embed_or_absent(page, row, "dt-corpus")
+
+        row = self._ask(page, "is the answer grounded?")
+        self.assertEqual(row.get_attribute("data-intent"), "dt-grounded")
+        text = self._text(row)
+        for side, name in (("a", A), ("b", B)):
+            p = dt["provenance"][side]
+            if p["atoms"]:
+                self.assertIn(f"{name}'s answer carries {p['atoms']} typed value", text)
+                self.assertIn(f"{p['supported']} traced to a fetched output and {p['unsupported']} not ({self._pct(p['grounded_share'])} grounded)", text)
+                for g in dt[side]["provenance"]["grounded_in"]:
+                    self.assertIn(f"step {g['step']} {g['name']} ({self._pct(g['overlap'])} of the values)", text)
+            else:
+                self.assertIn("no typed value", text)
+            outcome = pair[side]["outcome"]["success"]
+            self.assertIn(f"Grounded is not correct: {name} {'solved' if outcome else 'failed'} the task", text)
+        self._embed_or_absent(page, row, "dt-provenance")
+
+        row = self._ask(page, "which model produced this?")
+        self.assertEqual(row.get_attribute("data-intent"), "dt-model")
+        text = self._text(row)
+        for side in ("a", "b"):
+            for m in dt[side]["models"]:
+                self.assertIn(f"{m['model']} ({m['steps']} steps, {m['tokens']} tokens; {m['source']})", text)
+            if dt[side]["chain"].get("reading"):
+                self.assertIn(dt[side]["chain"]["reading"], text)
+        self.assertIn("the page names none of its own", text)
+        self._embed_or_absent(page, row, "dt-chain")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_data_evolution_answers_a_step_from_its_evidence_change_behaviour_effect_and_eval(self):
+        de = self.cov_agg.get("data_evolution") or {}
+        if not de.get("measurable"):
+            raise unittest.SkipTest("the lineage carries no data_evolution section")
+        step = [s for s in de["steps"] if (s.get("effect") or {}).get("verdict") == "gamed"][0]
+        key = self._key(step)
+        context, page, errors = self._open()
+        self.assertIn(f"what data triggered {key}?", self._chips(page))
+        row = self._ask(page, f"what data triggered {key}?")
+        self.assertEqual(row.get_attribute("data-intent"), "dt-evolve")
+        text = self._text(row)
+        self.assertIn(step["reading"], text)
+        ev, ch, ef, el = step["evidence"], step["change"], step["effect"], step["eval"]
+        self.assertIn(f"{len(ev['episodes'])} episodes cited ({ev['found']} found, {ev['failures']} failures)", text)
+        for ep in ev["episodes"]:
+            self.assertIn(ep, text)
+        self.assertIn(ch["summary"], text)
+        for rule in ch.get("rules_added", []):
+            self.assertIn(rule, text)
+        self.assertIn(f"sources {step['behaviour']['sources_before']} → {step['behaviour']['sources_after']}", text)
+        self.assertIn(f"P({step['to']} > {step['from']}) {self._pct(ef['improvement']['point'])} [{self._pct(ef['improvement']['lo'])}, {self._pct(ef['improvement']['hi'])}]", text)
+        for f in el.get("flags", []):
+            self.assertIn(f["metric"], text)
+        if el.get("eval_gen"):
+            self.assertIn(f"advanced to {el['eval_gen']}", text)
+        self._embed_or_absent(page, row, "dt-evolution")
+        row = self._ask(page, "how did the agent evolve?")
+        self.assertEqual(row.get_attribute("data-intent"), "dt-evolve")
+        self.assertIn(de["narrative"], self._text(row))
+        # a batch with no lineage says so
+        context.close()
+        context, page, errors = self._open(self.batch_dir)
+        row = self._ask(page, f"what data triggered {key}?")
+        self.assertEqual(row.locator(".chat-a.cannot").count(), 1)
+        self.assertIn("no self-evolving lineage", self._text(row))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_every_view_stays_clean_on_the_bundle_page_with_the_levels_and_data_answers_in_place(self):
+        if not self.bundle:
+            raise unittest.SkipTest("the bundle command did not write a page")
+        for width in (1280, 390):
+            with self.subTest(width=width):
+                context, page, errors = self._open(self.bundle_dir, width=width)
+                for q in ("what is running?", "where did the tokens go?", "what prompt was given?", "is the answer grounded?"):
+                    self._ask(page, q, 500)
+                self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth"), 1)
+                views = page.evaluate("() => Array.from(document.querySelectorAll('#view-tabs [data-view]')).map(t => t.dataset.view)")
+                self.assertIn("levels", views)
+                for view in views + ["chat"]:
+                    page.locator(f'#view-tabs [data-view="{view}"]').click()
+                    page.wait_for_timeout(300)
+                self.assertEqual(page.locator(".chat-turn").count(), 5)
+                self.assertEqual(page.locator("#stacks .block .empty:visible").count(), 0)
+                small = page.evaluate("""() => { const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); let n = 0, node;
+                    while ((node = w.nextNode())) { if (!node.textContent.trim()) continue; const el = node.parentElement; if (!el) continue;
+                    if (parseFloat(getComputedStyle(el).fontSize) < 11) n++; } return n; }""")
+                self.assertEqual(small, 0)
+                self.assertEqual(errors, [])
+                context.close()
+
 
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
                      "playwright + chromium required for browser tests")
@@ -9821,3 +10050,465 @@ class LevelsViewTest(unittest.TestCase):
             self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth"), 1)
             self.assertEqual(errors, [], str(width))
             context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class DataViewTest(unittest.TestCase):
+    """The Data view (39_data.js): the inputs side of a pair — the prompt
+    both agents were told, what each read, what each answer rests on, the
+    chain data → model → agent → answer — and, on a lineage, how the agent
+    evolves from the data its evidence episodes read.
+
+    What is checked is that the lane's blocks render in the order
+    `00_core.js` declares for it (four on a batch page, the evolution row
+    ledger joining them on a lineage page) with nothing empty, every chart
+    labelled with its numbers and the console clean, unfiltered, across
+    every view of the batch, runs and lineage outputs; that the task block
+    says plainly that the demo records no instructions and shows the
+    models as the traces record them with the source of that attribution;
+    that the corpus table is the section's set diff row for row and a click
+    (or Enter) reveals a source's input and output from the report's step;
+    that the provenance marks and counts are the section's, with the pair's
+    own answer_eval beside them; that the chain draws exactly the section's
+    nodes and edges for either side and a node opens the step by mouse and
+    by keyboard; that a lineage row opens to the section's hunks and the
+    episodes' sources; that one page-scoped `data` family carries the
+    selection between the blocks and through a reload; that the drawings
+    stay in tens of milliseconds at ten times the shipped scale; and that
+    the lane fits a phone at 390 and 360 with no text under 11px.
+    """
+
+    tmp = None
+    PAIR_IDS = ("dt-task", "dt-corpus", "dt-provenance", "dt-chain")
+
+    @classmethod
+    def setUpClass(cls):
+        lineage = ROOT / "demo" / "evolve" / "lineage"
+        if not (lineage / "g0" / "agent.json").is_file() or not (ROOT / "demo" / "traces").is_dir() or not (ROOT / "demo" / "rl" / "train").is_dir():
+            raise unittest.SkipTest("no demo outputs to analyse")
+        cls.tmp = tempfile.TemporaryDirectory()
+        root = Path(cls.tmp.name)
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        template = ROOT / "web" / "blocks.html"
+
+        def run(name, *args):
+            out = root / name
+            done = subprocess.run([sys.executable, "-m", "deepcompare"] + list(args) + ["-o", str(out), "--template", str(template)],
+                                  cwd=str(ROOT), capture_output=True)
+            if done.returncode != 0 or not (out / "report.html").is_file():
+                raise unittest.SkipTest(f"the {args[0]} command did not write a page: " + done.stderr.decode("utf-8", "replace")[-300:])
+            return out
+
+        cls.batch_dir = run("batch", "batch", str(ROOT / "demo" / "traces"))
+        cls.cov_dir = run("cov", "coevolve", str(lineage))
+        cls.runs_dir = run("runs", "runs", str(ROOT / "demo" / "rl" / "train"))
+        cls.batch_reports = {}
+        for path in sorted(cls.batch_dir.glob("report_*.json")):
+            rep = json.loads(path.read_text(encoding="utf-8"))
+            cls.batch_reports[rep["task"]["id"]] = rep
+        cls.cov_agg = json.loads((cls.cov_dir / "aggregate.json").read_text(encoding="utf-8"))
+        cls.cov_reports = {}
+        for path in sorted(cls.cov_dir.glob("report_*.json")):
+            rep = json.loads(path.read_text(encoding="utf-8"))
+            cls.cov_reports[rep["task"]["id"]] = rep
+        if not any(r.get("data") for r in cls.batch_reports.values()):
+            raise unittest.SkipTest("the batch reports carry no data section")
+        if not (cls.cov_agg.get("data_evolution") or {}).get("measurable"):
+            raise unittest.SkipTest("the lineage carries no measurable data_evolution section")
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    # ------------------------------------------------------------- helpers
+
+    def _open(self, path=None, width=1440, reduced_motion=False, reset=True):
+        context = self.browser.new_context(viewport={"width": width, "height": 1000},
+                                           reduced_motion="reduce" if reduced_motion else "no-preference")
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        # unfiltered: a warning from any block on the page is a failure here
+        page.on("console", lambda m: errors.append(m.type + ": " + m.text) if m.type in ("error", "warning") else None)
+        page.goto(f"file://{(path or self.batch_dir) / 'report.html'}#view=data")
+        page.wait_for_timeout(1200)
+        if reset:
+            page.evaluate("() => AgentDiff.data.reset()")
+            page.wait_for_timeout(400)
+        return context, page, errors
+
+    def _task(self, page, task_id):
+        page.select_option("#task-picker", task_id)
+        page.wait_for_timeout(600)
+
+    def _state(self, page):
+        return page.evaluate("() => AgentDiff.data.state()")
+
+    def _ids(self, page):
+        return page.evaluate("() => Array.from(document.querySelectorAll('#stacks .block')).map(b => b.getAttribute('data-block'))")
+
+    def _lane_order(self, page):
+        """The order 00_core.js declares for the data lane — the rule, not a roster."""
+        return page.evaluate("() => (AgentDiff._internals.STACK_PLAN.filter(p => p.groups.indexOf('data') >= 0)[0] || {}).order || []")
+
+    def _first_task(self, reports):
+        return sorted(reports)[0]
+
+    @staticmethod
+    def _pct(v):
+        return f"{int(v * 100 + 0.5)}%"
+
+    # ------------------------------------------------------------ rendering
+
+    def test_the_blocks_render_in_the_declared_order_on_a_batch_and_on_a_lineage(self):
+        for path, with_lineage in ((self.batch_dir, False), (self.cov_dir, True)):
+            context, page, errors = self._open(path=path)
+            ids = self._ids(page)
+            order = self._lane_order(page)
+            self.assertTrue(order, "the core declares the data lane's order")
+            # every drawn block is one the lane names, in the lane's order; the four pair blocks are always there
+            self.assertEqual(ids, [i for i in order if i in ids])
+            for bid in self.PAIR_IDS:
+                self.assertIn(bid, ids)
+            self.assertEqual("dt-evolution" in ids, with_lineage, str(path))
+            for bid in ids:
+                body = page.locator(f'#stacks [data-block="{bid}"] .block-body').inner_text()
+                self.assertNotIn("failed to render", body, bid)
+                self.assertNotIn("Nothing to show", body, bid)
+                self.assertGreater(len(body.strip()), 80, bid)
+            self.assertEqual(page.evaluate("() => Array.from(document.querySelectorAll('#stacks .block .empty')).filter(e => e.offsetParent !== null).length"), 0)
+            unlabelled = page.evaluate("() => Array.from(document.querySelectorAll('#stacks .dt svg')).filter(s => !(s.getAttribute('aria-label') || '').trim() || !s.getAttribute('role')).length")
+            self.assertEqual(unlabelled, 0)
+            self.assertEqual(page.locator('.dt-chain .dt-stage[role="application"][aria-label]').count(), 1)
+            self.assertEqual(page.locator('.dt-chain [role="status"][aria-live="polite"]').count(), 1)
+            self.assertEqual(errors, [], str(path))
+            context.close()
+
+    def test_the_task_block_shows_the_prompt_says_no_instructions_and_names_the_models_as_recorded(self):
+        task = self._first_task(self.batch_reports)
+        rep = self.batch_reports[task]
+        d = rep["data"]
+        context, page, errors = self._open()
+        self._task(page, task)
+        card = page.locator('#stacks [data-block="dt-task"]')
+        self.assertEqual(card.locator('[data-role="prompt"]').first.inner_text(), rep["task"]["prompt"])
+        if d["task"].get("expected") is not None:
+            self.assertEqual(card.locator('[data-role="expected"]').inner_text(), d["task"]["expected"])
+        # the demo records no instructions: the page says so and shows what is recorded
+        if d["instructions_diff"]["same"] is None:
+            self.assertEqual(card.locator('[data-role="no-instructions"]').count(), 1)
+            self.assertIn(d["instructions_diff"]["reason"], card.locator('[data-role="no-instructions"]').inner_text())
+        else:
+            self.assertEqual(card.locator('[data-role="no-instructions"]').count(), 0)
+        body = card.inner_text()
+        for side in ("a", "b"):
+            for m in d[side]["models"]:
+                self.assertIn(str(m["model"]), body)
+                self.assertIn(m["source"], body)
+            for t in d[side]["agent"]["tools_used"]:
+                self.assertIn(t["name"], body)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_corpus_table_is_the_sections_set_diff_and_a_click_reveals_the_sources_text(self):
+        task = self._first_task(self.batch_reports)
+        rep = self.batch_reports[task]
+        d = rep["data"]
+        cd = d["corpus_diff"]
+        context, page, errors = self._open()
+        self._task(page, task)
+        card = page.locator('#stacks [data-block="dt-corpus"]')
+        rows = page.evaluate("() => Array.from(document.querySelectorAll('.dt-corpus tr.dt-src')).map(r => [r.dataset.source, r.dataset.set])")
+        self.assertEqual(len(rows), len(cd["shared"]) + len(cd["only_a"]) + len(cd["only_b"]))
+        self.assertEqual(sorted(r[0] for r in rows if r[1] == "shared"), sorted(cd["shared"]))
+        self.assertEqual(sorted(r[0] for r in rows if r[1] == "only_a"), sorted(cd["only_a"]))
+        self.assertEqual(sorted(r[0] for r in rows if r[1] == "only_b"), sorted(cd["only_b"]))
+        # shared first, then only A, then only B
+        sets = [r[1] for r in rows]
+        self.assertEqual(sets, sorted(sets, key=lambda s: {"shared": 0, "only_a": 1, "only_b": 2}[s]))
+        self.assertIn(f"Jaccard {cd['jaccard']:.3f}".rstrip("0").rstrip("."), card.locator(".dt-lede").inner_text())
+        self.assertEqual(card.locator(".dt-set").evaluate("e => e.closest('.scroll-x') !== null"), True)
+        # a click opens the source: its input and output from the report's step, capped at 4,000
+        src = d["a"]["corpus"]["sources"][0]
+        page.locator(f'.dt-corpus tr.dt-src[data-source="{src["id"]}"]').click()
+        page.wait_for_timeout(400)
+        self.assertEqual(self._state(page)["source"], src["id"])
+        self.assertEqual(page.locator(f'.dt-corpus tr.dt-src[aria-selected="true"]').get_attribute("data-source"), src["id"])
+        detail = page.locator(".dt-corpus .dt-detail")
+        self.assertEqual(detail.get_attribute("data-source"), src["id"])
+        step = [s for s in rep["a"]["steps"] if s["index"] == src["first_step"]][0]
+        pres = detail.locator('[data-side="a"] pre.dt-text')
+        self.assertEqual(pres.nth(0).inner_text(), (step["input"] or "")[:4000])
+        self.assertEqual(pres.nth(1).inner_text(), (step["output"] or "")[:4000])
+        self.assertLessEqual(int(pres.nth(1).get_attribute("data-chars")), max(len(step["output"] or ""), 1) if step["output"] else 0)
+        # Enter on another row moves the selection; a second click on the same row clears it
+        second = rows[1][0]
+        page.locator(f'.dt-corpus tr.dt-src[data-source="{second}"]').focus()
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(300)
+        self.assertEqual(self._state(page)["source"], second)
+        page.locator(f'.dt-corpus tr.dt-src[data-source="{second}"]').click()
+        page.wait_for_timeout(300)
+        self.assertIsNone(self._state(page)["source"])
+        self.assertEqual(page.locator(".dt-corpus .dt-detail").count(), 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_provenance_marks_and_counts_are_the_sections_with_answer_eval_beside(self):
+        # a task whose answers carry an unsupported value when the demo has one, else the first
+        tasks = sorted(self.batch_reports)
+        pick = [t for t in tasks if any(self.batch_reports[t]["data"][s]["provenance"]["unsupported"] for s in ("a", "b"))]
+        task = pick[0] if pick else tasks[0]
+        rep = self.batch_reports[task]
+        d = rep["data"]
+        context, page, errors = self._open()
+        self._task(page, task)
+        for side in ("a", "b"):
+            pv = d[side]["provenance"]
+            col = page.locator(f'.dt-provenance .dt-prov[data-side="{side}"]')
+            counts = col.locator('[data-role="counts"]').inner_text()
+            self.assertIn(f"{pv['atoms']} typed value", counts)
+            self.assertIn(f"{pv['supported']} supported", counts)
+            self.assertIn(f"{pv['unsupported']} unsupported", counts)
+            self.assertIn(self._pct(pv["grounded_share"]) if pv["grounded_share"] is not None else "null", counts)
+            marked = page.evaluate(f"""() => Array.from(document.querySelectorAll('.dt-provenance .dt-prov[data-side="{side}"] mark.dt-val')).map(m => [m.dataset.value, m.dataset.supported, m.dataset.source || null])""")
+            not_located = col.locator('[data-role="not-located"]').count()
+            located_ids = {m[0] for m in marked}
+            self.assertTrue(located_ids <= {v["id"] for v in pv["values"]})
+            # every value is either marked in the text or named as not located verbatim
+            self.assertEqual(len(marked) + (len(pv["values"]) - len(marked) if not_located else 0), len(pv["values"]))
+            for m in marked:
+                v = [x for x in pv["values"] if x["id"] == m[0]][0]
+                self.assertEqual(m[1], "true" if v["supported"] else "false", m)
+                if v["supported"]:
+                    carrier = [g for g in pv["grounded_in"] if m[0] in g["atoms"]][0]
+                    self.assertEqual(m[2], carrier["source"])
+            self.assertEqual(col.locator('.dt-leg li[data-source]').count(), len(pv["grounded_in"]))
+            ev = col.locator('[data-role="answer-eval"]').inner_text()
+            self.assertIn(rep["answer_eval"][f"{side}_vs_expected"]["verdict"], ev)
+            self.assertIn("not correct", ev)
+        # the legend hands the source to the corpus block through the family
+        g = d["a"]["provenance"]["grounded_in"]
+        if g:
+            page.locator('.dt-provenance .dt-prov[data-side="a"] .dt-leg button').first.click()
+            page.wait_for_timeout(400)
+            self.assertEqual(self._state(page)["source"], g[0]["source"])
+            self.assertEqual(page.locator(".dt-corpus .dt-detail").get_attribute("data-source"), g[0]["source"])
+        # the limits of the measure are on the page
+        self.assertIn("not true", page.locator('#stacks [data-block="dt-provenance"]').inner_text())
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_chain_draws_the_sections_nodes_and_edges_and_a_node_opens_the_step(self):
+        task = self._first_task(self.batch_reports)
+        rep = self.batch_reports[task]
+        d = rep["data"]
+        context, page, errors = self._open()
+        self._task(page, task)
+        for side in ("a", "b"):
+            if side == "b":
+                page.locator('.dt-chain .dt-btn[data-side="b"]').click()
+                page.wait_for_timeout(600)
+                self.assertEqual(self._state(page)["side"], "b")
+            ch = d[side]["chain"]
+            chart = page.locator(".dt-chain .dt-chart")
+            self.assertEqual(int(chart.get_attribute("data-nodes")), len(ch["nodes"]))
+            self.assertEqual(int(chart.get_attribute("data-edges")), len(ch["edges"]))
+            drawn = page.evaluate("() => Array.from(document.querySelectorAll('.dt-chain .dt-node')).map(n => [n.dataset.id, n.dataset.kind, n.dataset.step])")
+            self.assertEqual(sorted(x[0] for x in drawn), sorted(n["id"] for n in ch["nodes"]))
+            edges = page.evaluate("() => Array.from(document.querySelectorAll('.dt-chain path.dt-edge')).map(e => [e.dataset.from, e.dataset.to, e.dataset.kind])")
+            self.assertEqual(sorted(tuple(e) for e in edges), sorted((e["from"], e["to"], e["kind"]) for e in ch["edges"]))
+            # feeds edges by adjacency alone are dashed and say so
+            adjacent = [e for e in ch["edges"] if e["kind"] == "feeds" and e["overlap"] is None]
+            self.assertEqual(page.locator(".dt-chain path.dt-edge.adjacent").count(), len(adjacent))
+            label = page.locator(".dt-chain svg.dt-chain-svg").get_attribute("aria-label")
+            self.assertIn(ch["reading"], label)
+            self.assertIn(ch["reading"], page.locator(f'.dt-chain .dt-read[data-side="{side}"]').inner_text())
+        # back to A: a click on a data node opens the step, the text is the report's
+        page.locator('.dt-chain .dt-btn[data-side="a"]').click()
+        page.wait_for_timeout(600)
+        data_node = [n for n in d["a"]["chain"]["nodes"] if n["kind"] == "data"][0]
+        page.locator(f'.dt-chain .dt-node[data-id="{data_node["id"]}"]').click()
+        page.wait_for_timeout(400)
+        st = self._state(page)
+        self.assertEqual((st["side"], st["step"]), ("a", data_node["step"]))
+        panel = page.locator(".dt-chain .dt-detail")
+        self.assertEqual(panel.get_attribute("data-step"), str(data_node["step"]))
+        step = [s for s in rep["a"]["steps"] if s["index"] == data_node["step"]][0]
+        self.assertEqual(panel.locator("pre.dt-text").nth(1).inner_text(), (step["output"] or "")[:4000])
+        self.assertEqual(page.locator('.dt-chain .dt-node[aria-pressed="true"]').get_attribute("data-id"), data_node["id"])
+        # the keyboard: Escape closes the open step; the stage moves between nodes, Enter opens, Escape closes
+        page.locator(".dt-chain .dt-stage").focus()
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(300)
+        self.assertIsNone(self._state(page)["step"])
+        page.keyboard.press("ArrowRight")
+        page.keyboard.press("ArrowRight")
+        focused = page.evaluate("() => document.activeElement.getAttribute('data-id')")
+        self.assertIsNotNone(focused)
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(300)
+        st = self._state(page)
+        target = [n for n in d["a"]["chain"]["nodes"] if n["id"] == focused][0]
+        self.assertEqual(st["step"], target["step"])
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(300)
+        self.assertIsNone(self._state(page)["step"])
+        self.assertEqual(page.locator(".dt-chain .dt-detail").count(), 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_lineage_row_opens_to_the_hunks_and_the_episodes_sources(self):
+        de = self.cov_agg["data_evolution"]
+        context, page, errors = self._open(path=self.cov_dir)
+        rows = page.evaluate("() => Array.from(document.querySelectorAll('.dt-evolution .dt-erow:not(.head)')).map(r => r.dataset.gen)")
+        self.assertEqual(rows, [f"{s['from']}→{s['to']}" for s in de["steps"]])
+        self.assertEqual(page.locator(".dt-evolution svg.dt-effect").count(), len(de["steps"]))
+        self.assertEqual(page.locator(".dt-evolution svg.dt-growth").count(), 1)
+        growth = page.locator(".dt-evolution svg.dt-growth").get_attribute("aria-label")
+        for g in de["generations"]:
+            self.assertIn(f"{g['id']} {g['instructions']['chars']:,}", growth)
+        # the step with the most prompt hunks, or the first
+        s = max(de["steps"], key=lambda x: (len(x["change"]["hunks"]), -x["index"]))
+        key = f"{s['from']}→{s['to']}"
+        page.locator(f'.dt-evolution .dt-erow[data-gen="{key}"]').click()
+        page.wait_for_timeout(400)
+        self.assertEqual(self._state(page)["gen"], key)
+        self.assertEqual(page.locator(f'.dt-evolution .dt-erow[data-gen="{key}"]').get_attribute("aria-expanded"), "true")
+        panel = page.locator(".dt-evolution .dt-epanel")
+        self.assertEqual(panel.get_attribute("data-gen"), key)
+        added = sum(1 for h in s["change"]["hunks"] for line in h.split("\n") if line.startswith("+"))
+        removed = sum(1 for h in s["change"]["hunks"] for line in h.split("\n") if line.startswith("-"))
+        self.assertEqual(panel.locator(".dt-diff .add").count(), added)
+        self.assertEqual(panel.locator(".dt-diff .del").count(), removed)
+        self.assertEqual(panel.locator(".dt-diff .hunk").count(), len(s["change"]["hunks"]))
+        self.assertEqual(panel.locator("li[data-episode]").count(), len(s["evidence"]["data"]))
+        for e in s["evidence"]["data"]:
+            text = panel.locator(f'li[data-episode="{e["episode"]}"]').inner_text()
+            self.assertIn(f"{len(e['sources'])} distinct source", text)
+        self.assertIn("Sources are ids", panel.locator('[data-role="names-basis"]').inner_text())
+        if s["change"].get("protected_touched"):
+            self.assertEqual(panel.locator('[data-role="protected"]').count(), 1)
+        self.assertIn(s["reading"][:60].lower(), panel.locator('[data-role="reading"]').inner_text().lower())
+        # the row's effect is drawn as intervals with the section's numbers
+        eff = s["effect"]["improvement"]
+        label = page.locator(f'.dt-evolution .dt-erow[data-gen="{key}"] svg.dt-effect').get_attribute("aria-label")
+        self.assertIn(f"{eff['point']:.2f}".rstrip("0").rstrip("."), label)
+        # the keyboard walks the rows; a generation id selects the step that made it
+        page.locator(f'.dt-evolution .dt-erow[data-gen="{key}"]').focus()
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(300)
+        self.assertIsNone(self._state(page)["gen"])
+        self.assertEqual(page.locator(".dt-evolution .dt-epanel").count(), 0)
+        page.evaluate(f"() => AgentDiff.data.select({{gen: '{s['to']}'}})")
+        page.wait_for_timeout(300)
+        self.assertEqual(page.locator(".dt-evolution .dt-epanel").get_attribute("data-gen"), key)
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ---------------------------------------------------------- the family
+
+    def test_the_selection_is_one_page_family_that_survives_a_reload(self):
+        task = self._first_task(self.batch_reports)
+        d = self.batch_reports[task]["data"]
+        src = d["a"]["corpus"]["sources"][0]["id"]
+        context, page, errors = self._open()
+        self._task(page, task)
+        page.evaluate(f"() => AgentDiff.data.select({{source: '{src}', side: 'a', step: {d['a']['chain']['nodes'][1]['step']}}})")
+        page.wait_for_timeout(400)
+        self.assertEqual(page.locator(".dt-corpus .dt-detail").get_attribute("data-source"), src)
+        self.assertEqual(page.locator(".dt-chain .dt-detail").count(), 1)
+        self.assertEqual(page.evaluate("() => AgentDiff._internals.Store.get('agentdiff:data')")["source"], src)
+        page.reload()
+        page.wait_for_timeout(1200)
+        st = self._state(page)
+        self.assertEqual(st["source"], src)
+        self.assertEqual(page.locator(f'.dt-corpus tr.dt-src[aria-selected="true"]').get_attribute("data-source"), src)
+        page.evaluate("() => AgentDiff.data.reset()")
+        page.wait_for_timeout(300)
+        self.assertEqual(self._state(page), {"source": None, "step": None, "gen": None, "side": None})
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ------------------------------------------------------- scale, motion
+
+    def test_the_drawings_stay_in_tens_of_milliseconds_at_ten_times_the_scale(self):
+        context, page, errors = self._open(path=self.cov_dir)
+        chart = page.locator(".dt-chain .dt-chart")
+        self.assertLess(float(chart.get_attribute("data-draw-ms")), 120)
+        base_nodes = int(chart.get_attribute("data-nodes"))
+        page.evaluate("() => AgentDiff.data.tile(10)")
+        page.wait_for_timeout(1500)
+        chart = page.locator(".dt-chain .dt-chart")
+        self.assertGreater(int(chart.get_attribute("data-nodes")), base_nodes * 5)
+        self.assertLess(float(chart.get_attribute("data-draw-ms")), 400)
+        self.assertLess(float(page.locator(".dt-corpus").get_attribute("data-draw-ms")), 400)
+        self.assertIn("tiled", page.locator(".dt-chain .dt-status").inner_text())
+        page.evaluate("() => AgentDiff.data.tile(1)")
+        page.wait_for_timeout(800)
+        self.assertEqual(int(page.locator(".dt-chain .dt-chart").get_attribute("data-nodes")), base_nodes)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_reduced_motion_opens_a_source_without_a_transition(self):
+        context, page, errors = self._open(reduced_motion=True)
+        page.locator(".dt-corpus tr.dt-src").first.click()
+        page.wait_for_timeout(40)
+        self.assertEqual(page.evaluate("() => getComputedStyle(document.querySelector('.dt-corpus .dt-detail')).opacity"), "1")
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ---------------------------------------------------- every view, phone
+
+    def test_the_console_is_clean_across_every_view_on_every_output(self):
+        for path in (self.batch_dir, self.runs_dir, self.cov_dir):
+            context, page, errors = self._open(path=path)
+            views = page.evaluate("() => Array.from(document.querySelectorAll('#view-tabs [data-view]')).map(t => t.dataset.view)")
+            self.assertIn("data", views)
+            for view in views + ["data"]:
+                page.locator(f'#view-tabs [data-view="{view}"]').click()
+                page.wait_for_timeout(300)
+            self.assertEqual(page.evaluate("() => Array.from(document.querySelectorAll('#stacks .block .empty')).filter(e => e.offsetParent !== null).length"), 0)
+            self.assertEqual(errors, [], str(path))
+            context.close()
+
+    def test_the_lane_fits_a_phone_with_no_small_text(self):
+        for path in (self.batch_dir, self.cov_dir):
+            for width in (390, 360):
+                with self.subTest(path=path.name, width=width):
+                    context, page, errors = self._open(path=path, width=width)
+                    self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth"), 1)
+                    self.assertEqual(page.locator(".dt-set").evaluate("e => e.closest('.scroll-x') !== null"), True)
+                    small = page.evaluate("""() => { const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); let n = 0, node;
+                        while ((node = w.nextNode())) { if (!node.textContent.trim()) continue; const el = node.parentElement; if (!el) continue;
+                        if (parseFloat(getComputedStyle(el).fontSize) < 11) n++; } return n; }""")
+                    self.assertEqual(small, 0)
+                    sizes = page.evaluate("""() => [...new Set(Array.from(document.querySelectorAll('#stacks *'))
+                        .filter(e => [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())).map(e => getComputedStyle(e).fontSize))]""")
+                    self.assertLessEqual(len(sizes), 7)
+                    # open a source, a step and (on the lineage) a row: nothing overflows or clips
+                    page.locator(".dt-corpus tr.dt-src").first.click()
+                    page.wait_for_timeout(300)
+                    page.evaluate("() => { const n = document.querySelector('.dt-chain .dt-node[data-kind=\"data\"]'); if (n) n.dispatchEvent(new MouseEvent('click', {bubbles: true})); }")
+                    page.wait_for_timeout(300)
+                    if page.locator(".dt-evolution .dt-erow:not(.head)").count():
+                        page.locator(".dt-evolution .dt-erow:not(.head)").nth(2).click()
+                        page.wait_for_timeout(300)
+                        self.assertEqual(page.locator(".dt-evolution .dt-epanel").count(), 1)
+                    self.assertEqual(page.locator(".dt-corpus .dt-detail").count(), 1)
+                    self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth"), 1)
+                    clipped = page.evaluate("""() => { const bad = []; document.querySelectorAll('[data-block^="dt-"]').forEach(card => {
+                        const body = card.querySelector('.block-body'); if (!body) return; const st = getComputedStyle(body);
+                        if (body.scrollWidth > body.clientWidth + 2 && st.overflowX !== 'auto' && st.overflowX !== 'scroll') bad.push(card.getAttribute('data-block')); }); return bad; }""")
+                    self.assertEqual(clipped, [])
+                    self.assertEqual(errors, [], f"{path.name} {width}")
+                    context.close()

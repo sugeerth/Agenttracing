@@ -29,6 +29,17 @@
  *                              (`evolution_compare.evals`, when present;
  *                              said to be absent when not).
  *
+ * Two more layers answer through the page: the Levels (`budget` and
+ * `fetches` on a pair, on an aggregate, and a bundle page's
+ * `DEEPCOMPARE_DATA.bundle.levels` — what is running, where the tokens
+ * went, the heaviest run, what a run fetched, what was wasted; embeds
+ * lv-overview, lv-runs, lv-run with the run selected) and the Data
+ * (`data` on a pair and `data_evolution` on a lineage — the prompt and
+ * the instructions, what each agent read, the answer's provenance beside
+ * its outcome, which model produced the steps, how the agent evolved from
+ * the data it saw; embeds dt-task, dt-corpus, dt-provenance, dt-chain,
+ * dt-evolution when the page has them, and answers in words when not).
+ *
  * The persona is a voice, not a source: nothing is generated beyond the
  * templates below, every card carries a "sources" fold with the JSON paths
  * it read, a question the router cannot map gets a "cannot answer" card
@@ -52,7 +63,7 @@
   var LIVE_EMBEDS = 6;
   //: the composer recalls this many questions with ↑ / ↓
   var HISTORY = 40;
-  var VIEW_LABEL = { chat: "Chat", levels: "Levels", story: "Story", evidence: "Evidence", batch: "Batch", panels: "Panels", training: "Training", evolution: "Evolution", coevolution: "Evals" };
+  var VIEW_LABEL = { chat: "Chat", levels: "Levels", data: "Data", story: "Story", evidence: "Evidence", batch: "Batch", panels: "Panels", training: "Training", evolution: "Evolution", coevolution: "Evals" };
   //: a view's name as the tab bar prints it, so the "open in …" link and the tab agree
   function viewLabel(v) {
     try { var tab = document.querySelector('#view-tabs [data-view="' + v + '"]'); if (tab && tab.textContent.trim()) return tab.textContent.trim(); } catch (err) { /* no tabs */ }
@@ -172,8 +183,64 @@
     d.agents = agg.agents && typeof agg.agents === "object" ? [agg.agents.a, agg.agents.b].filter(Boolean).map(String) : [];
     d.policies = d.stats && Array.isArray(d.stats.policies) ? d.stats.policies.map(String) : [];
     d.tasks = typeof AgentDiff.taskIds === "function" ? AgentDiff.taskIds() : [];
+    d.reports = Array.isArray(ctx.reports) ? ctx.reports : [];
+    // the Levels: a bundle's three levels when the page is a bundle's, the aggregate's budget and fetches ledgers otherwise
+    var bd = global.DEEPCOMPARE_DATA && global.DEEPCOMPARE_DATA.bundle && global.DEEPCOMPARE_DATA.bundle.levels ? global.DEEPCOMPARE_DATA.bundle : null;
+    d.bundle = bd;
+    d.overview = bd && bd.levels.overview ? bd.levels.overview : null;
+    d.records = bd && bd.levels.records && typeof bd.levels.records === "object" ? bd.levels.records : {};
+    d.budgetAgg = agg.budget && agg.budget.measurable !== false && agg.budget.agents ? agg.budget : null;
+    d.fetchesAgg = agg.fetches && agg.fetches.measurable !== false && agg.fetches.agents ? agg.fetches : null;
+    d.dataAgg = agg.data && agg.data.measurable !== false && agg.data.agents ? agg.data : null;
+    d.dataEvo = agg.data_evolution && agg.data_evolution.measurable !== false && Array.isArray(agg.data_evolution.steps) ? agg.data_evolution : null;
+    d.runs = runRows(d);
+    d.runByKey = {};
+    d.runs.forEach(function (r) { d.runByKey[r.key] = r; });
+    d.hasPairLevels = d.reports.some(function (r) { return r && (r.budget || r.fetches); });
+    d.hasPairData = d.reports.some(function (r) { return r && r.data && r.data.measurable !== false; });
     cache = { agg: agg, d: d };
     return d;
+  }
+  /* Every run the page knows, keyed the way the Levels block keys them:
+   * the bundle's level-2 rows, else "page/<task>/<agent>/<run>" from the
+   * pair reports' sides and the aggregate ledgers. `detail` says a
+   * level-3 record (a budget and a fetches reading) is on the page. */
+  function runRows(d) {
+    var rows = [], seen = {};
+    function add(r) { if (!seen[r.key]) { seen[r.key] = true; rows.push(r); } else if (r.detail) { var o = rows.filter(function (x) { return x.key === r.key; })[0]; o.detail = true; o.report = r.report; o.side = r.side; if (isNum(r.tokens)) o.tokens = r.tokens; } }
+    if (d.bundle) {
+      (d.bundle.levels.runs || []).forEach(function (r) { if (r && r.key) add({ key: r.key, member: r.member, task: String(r.task), agent: String(r.agent), run_id: String(r.run_id), tokens: r.tokens, fetches: r.fetches, detail: !!d.records[r.key] }); });
+    }
+    var label = d.bundle && d.bundle.members && d.bundle.members[0] ? String(d.bundle.members[0].label) : "page";
+    d.reports.forEach(function (rep) {
+      var task = rep && rep.task && rep.task.id ? String(rep.task.id) : "";
+      if (!task) return;
+      ["a", "b"].forEach(function (side) {
+        var blk = rep[side];
+        if (!blk || !blk.agent) return;
+        var agent = String(blk.agent.name || side), run = String(blk.run_id || "r1"), key = label + "/" + task + "/" + agent + "/" + run;
+        var b = rep.budget && rep.budget[side] && rep.budget[side].measurable !== false ? rep.budget[side] : null;
+        add({ key: key, member: label, task: task, agent: agent, run_id: run, tokens: b && b.tokens ? b.tokens.total : null, fetches: rep.fetches && rep.fetches[side] && rep.fetches[side].counts ? rep.fetches[side].counts.total : null, detail: !!(b || (rep.fetches && rep.fetches[side])), report: rep, side: side });
+      });
+    });
+    if (!d.bundle) [d.budgetAgg, d.fetchesAgg].forEach(function (sec) {
+      (sec && Array.isArray(sec.runs) ? sec.runs : []).forEach(function (r) { if (r && r.task && r.agent) add({ key: label + "/" + r.task + "/" + r.agent + "/" + r.run, member: label, task: String(r.task), agent: String(r.agent), run_id: String(r.run), tokens: r.tokens, fetches: r.fetches, detail: false }); });
+    });
+    return rows;
+  }
+  //: the level-3 reading of a run: its budget, its fetches, its data — from the bundle's record or the pair report's side
+  function runRecord(d, row) {
+    if (!row) return null;
+    var rec = d.records[row.key];
+    if (rec) return { key: row.key, budget: rec.budget || null, fetches: rec.fetches || null, data: rec.data || null, source: "DEEPCOMPARE_DATA.bundle.levels.records[" + row.key + "]" };
+    if (row.report) return { key: row.key, budget: row.report.budget && row.report.budget[row.side] || null, fetches: row.report.fetches && row.report.fetches[row.side] || null, data: row.report.data && row.report.data[row.side] || null, source: "report.<section>." + row.side };
+    return null;
+  }
+  //: the pair's two sides as runs of the page, for the report in view
+  function pairRuns(d, ctx) {
+    var rep = ctx.report;
+    if (!rep || !rep.task) return [];
+    return d.runs.filter(function (r) { return r.report === rep; }).sort(function (a, b) { return a.side < b.side ? -1 : 1; });
   }
   //: the page's catalogue, read once per (report, task): relevance is stable within a render
   var catCache = null;
@@ -223,6 +290,15 @@
     E.family = named(d.families);
     E.agent = named(d.agents.concat(d.policies));
     E.task = named(d.tasks);
+    // a run: its full key, or an agent named with a task and/or a run id
+    E.run = null;
+    var runId = /\b(r\d+)\b/.exec(q);
+    d.runs.forEach(function (r) { if (q.indexOf(" " + r.key.toLowerCase() + " ") >= 0) E.run = r; });
+    if (!E.run && E.agent) {
+      var cands = d.runs.filter(function (r) { return r.agent.toLowerCase() === E.agent.toLowerCase() && (!E.task || r.task === E.task) && (!runId || r.run_id === runId[1]); });
+      cands.sort(function (a, b) { return (b.detail ? 1 : 0) - (a.detail ? 1 : 0); });
+      E.run = cands[0] || null;
+    }
     // a block of the catalogue, fuzzy on the title's words
     var best = null, bestScore = 0, qw = words(q);
     catalogue().forEach(function (b) {
@@ -231,9 +307,10 @@
       else {
         var tw = words(b.title).filter(function (w) { return w.length >= 3; });
         if (!tw.length) return;
-        var hit = tw.filter(function (w) { return qw.indexOf(w) >= 0 || qw.some(function (x) { return x.length >= 4 && (w.indexOf(x) === 0 || x.indexOf(w) === 0); }); }).length;
+        // a title word hits on the word itself or a five-letter prefix either way; a title needs two hits or every word
+        var hit = tw.filter(function (w) { return qw.indexOf(w) >= 0 || qw.some(function (x) { return x.length >= 5 && w.length >= 5 && (w.indexOf(x) === 0 || x.indexOf(w) === 0); }); }).length;
         var ratio = hit / tw.length;
-        if (hit && ratio >= 0.5) score = 1 + 2 * ratio;
+        if (hit && ratio >= 0.5 && (hit >= 2 || ratio === 1)) score = 1 + 2 * ratio;
       }
       if (score > bestScore) { bestScore = score; best = b; }
     });
@@ -534,6 +611,242 @@
     },
   });
 
+
+  // ---- the levels: what is running, where the tokens went, the fetches
+
+  function tok(v) { return isNum(v) ? num(v, 0) : "—"; }
+  function sideName(row) { return row.report && row.report[row.side] && row.report[row.side].agent ? String(row.report[row.side].agent.name) : row.agent; }
+  //: the runs a question is about: the one it names, else the pair in view (both sides), else the heaviest run with a record
+  function runsFor(E, d, ctx) {
+    if (E.run) return [E.run];
+    var pair = pairRuns(d, ctx).filter(function (r) { return r.detail; });
+    if (pair.length) return pair;
+    var withRec = d.runs.filter(function (r) { return r.detail && isNum(r.tokens); }).sort(function (a, b) { return b.tokens - a.tokens; });
+    return withRec.length ? [withRec[0]] : [];
+  }
+  function levelsSelect(row) { return row ? { family: "levels", value: { run: row.key } } : null; }
+  //: the heaviest runs the page knows: the bundle's, the aggregate ledger's, else the pair reports' sides by their budget totals
+  function heaviest(d) {
+    if (d.overview && Array.isArray(d.overview.heaviest_runs) && d.overview.heaviest_runs.length) return { rows: d.overview.heaviest_runs.map(function (h) { return { key: h.key, tokens: h.tokens }; }), source: "DEEPCOMPARE_DATA.bundle.levels.overview.heaviest_runs", cap: d.overview.cap || null };
+    if (d.budgetAgg && Array.isArray(d.budgetAgg.heaviest_runs) && d.budgetAgg.heaviest_runs.length) return { rows: d.budgetAgg.heaviest_runs.map(function (h) { return { key: "page/" + h.task + "/" + h.agent + "/" + h.run, tokens: h.tokens, label: h.agent + " on " + h.task + " (" + h.run + ")" }; }), source: "aggregate.budget.heaviest_runs", cap: d.budgetAgg.cap || null };
+    var rows = d.runs.filter(function (r) { return isNum(r.tokens); }).sort(function (a, b) { return b.tokens - a.tokens || (a.key < b.key ? -1 : 1); }).slice(0, 8);
+    return rows.length ? { rows: rows.map(function (r) { return { key: r.key, tokens: r.tokens, label: r.agent + " on " + r.task + " (" + r.run_id + ")" }; }), source: "report.budget.<side>.tokens.total, over the pair reports on this page", cap: null } : null;
+  }
+
+  intent("lv-running", {
+    family: "page", example: "what is running?",
+    when: function () { return true; },
+    match: function (q) { return kw(q, ["what is running", "what's running", "running", "overview", "what agents", "which agents", "how many runs", "how many agents", "level 1", "the bundle", "what is in this bundle"]) * 2; },
+    answer: function (q, E, d, ctx) {
+      var text = [], src = [];
+      if (d.overview) {
+        text.push(dot(d.overview.reading || ""));
+        src.push("DEEPCOMPARE_DATA.bundle.levels.overview.reading");
+        var t = d.overview.totals || {};
+        if (Array.isArray(d.overview.agents) && d.overview.agents.length) {
+          text.push("Agent by agent: " + d.overview.agents.slice(0, 12).map(function (a) { var sr = a.success_rate || {}; return a.name + (a.self_evolving ? " (self-evolving)" : "") + " — " + plural(count(a.runs), "run") + ", success " + pct(sr.rate) + (isNum(sr.lo) ? " [" + pct(sr.lo) + ", " + pct(sr.hi) + "]" : "") + ", " + tok(a.tokens_total) + " tokens" + (isNum(a.cost_usd_total) ? ", " + usd(a.cost_usd_total) : "") + ", " + count(a.fetches_total) + " fetches"; }).join("; ") + (d.overview.agents.length > 12 ? "; and " + (d.overview.agents.length - 12) + " more" : "") + ".");
+          src.push("DEEPCOMPARE_DATA.bundle.levels.overview.agents[]");
+        }
+        if (t.basis) { text.push(cap(dot(t.basis))); src.push("DEEPCOMPARE_DATA.bundle.levels.overview.totals.basis"); }
+      } else {
+        var who = d.family ? "the lineage of " + d.family + (d.genIds.length ? " (" + plural(d.genIds.length, "generation") + (d.cov ? "; its eval " + plural(d.evalGens.length, "eval generation") : "") + ")" : "") : d.policies.length ? d.policies.join(" and ") : d.agents.length ? d.agents.join(" and ") : "its agents";
+        text.push("This page is one output, not a bundle: it reads " + who + " over " + plural(d.tasks.length, "task") + " (" + plural(d.runs.length, "run") + " the Levels view can list). `agentdiff bundle` packs several outputs into one page with a level-1 overview, a bundle id and a key.");
+        src.push("aggregate.agents / aggregate.evolution.family / AgentDiff.taskIds()");
+        if (d.budgetAgg && d.budgetAgg.narrative) { text.push(dot(d.budgetAgg.narrative)); src.push("aggregate.budget.narrative"); }
+        if (d.fetchesAgg && d.fetchesAgg.narrative) { text.push(dot(d.fetchesAgg.narrative)); src.push("aggregate.fetches.narrative"); }
+      }
+      return { speaker: PAGE, text: text, embed: firstBlock(["lv-overview"]), select: null, sources: src, synthetic: d.synthetic,
+        followups: ["which run was the most expensive?", "where did the tokens go?", "show the searches", "how many fetches were wasted?"] };
+    },
+  });
+
+  intent("lv-budget", {
+    family: "page", example: "where did the tokens go?",
+    when: function (d) { return d.hasPairLevels || !!d.budgetAgg || Object.keys(d.records).length > 0; }, absent: function () { return "this report carries no budget section (rerun the command to add it)"; },
+    match: function (q, E) { var k = kw(q, ["where did the tokens go", "tokens", "token", "token budget", "budget", "burn", "burn-down", "what did this cost", "what did it cost", "cost", "expensive", "spend", "spent"]); return k ? k * 2 + 1 + (E.run ? 2 : 0) : 0; },
+    answer: function (q, E, d, ctx) {
+      var text = [], src = [], runs = runsFor(E, d, ctx), first = null;
+      runs.forEach(function (row) {
+        var rec = runRecord(d, row), b = rec && rec.budget;
+        if (!b) return;
+        if (!first) first = row;
+        if (b.measurable === false) { text.push(sideName(row) + ": the budget is not measurable — " + (b.reason || "no reason given") + "."); src.push(rec.source.replace("<section>", "budget")); return; }
+        var tk = b.tokens || {}, io = b.io || {}, cost = b.cost_usd || {}, w = b.waste || {};
+        text.push(dot(b.narrative || (sideName(row) + " spent " + tok(tk.total) + " tokens")) + " Of those, " + tok(tk.measured) + " measured, " + tok(tk.estimated) + " estimated and " + tok(tk.unknown) + " unlabelled" + (io.measurable !== false && isNum(io.input_tokens) ? "; the totals record " + tok(io.input_tokens) + " input and " + tok(io.output_tokens) + " output tokens" : "; input/output tokens not recorded" + (io.reason ? " (" + io.reason + ")" : "")) + (cost.measurable !== false && isNum(cost.value) ? "; cost " + usd(cost.value) + " from " + (cost.source || "the totals") : "; no cost recorded") + ".");
+        if (isNum(w.after_last_evidence) || isNum(w.in_errored_calls) || isNum(w.in_repeats)) text.push("Waste, three ways: " + tok(w.after_last_evidence) + " tokens after the last evidence, " + tok(w.in_errored_calls) + " in errored calls, " + tok(w.in_repeats) + " in repeats.");
+        src.push(rec.source.replace("<section>", "budget") + ".narrative", rec.source.replace("<section>", "budget") + ".tokens", rec.source.replace("<section>", "budget") + ".waste");
+      });
+      var pb = ctx.report && ctx.report.budget;
+      if (!E.run && pb && pb.narrative && runs.length > 1) { text.push(dot(pb.narrative)); src.push("report.budget.narrative"); }
+      if (!text.length && d.budgetAgg) { text.push(dot(d.budgetAgg.narrative)); src.push("aggregate.budget.narrative"); }
+      if (!text.length) return cannot("no run on this page carries a budget reading", d, ctx);
+      return { speaker: PAGE, text: text, embed: firstBlock(["lv-run", "lv-runs"]), select: levelsSelect(first), sources: src, synthetic: d.synthetic,
+        followups: ["which run was the most expensive?", "how many fetches were wasted?", first ? "what did " + sideName(first) + " fetch?" : "show the searches", "what is running?"] };
+    },
+  });
+
+  intent("lv-heaviest", {
+    family: "page", example: "which run was the most expensive?",
+    when: function (d) { return !!heaviest(d); }, absent: function () { return "this report carries no per-run token totals"; },
+    match: function (q) { var k = kw(q, ["most expensive", "heaviest", "heaviest run", "biggest run", "most tokens", "largest run", "costliest", "which run", "over the cap", "token cap"]); return k ? k * 2 + 1 : 0; },
+    answer: function (q, E, d, ctx) {
+      var h = heaviest(d), rows = h.rows.slice(0, 3), text = [], src = [h.source];
+      text.push("The heaviest run is " + (rows[0].label || rows[0].key) + " at " + tok(rows[0].tokens) + " tokens" + (rows.length > 1 ? "; then " + rows.slice(1).map(function (r) { return (r.label || r.key) + " (" + tok(r.tokens) + ")"; }).join(", ") : "") + ".");
+      if (h.cap) { text.push(isNum(h.cap.value) ? "The token cap is " + tok(h.cap.value) + " (" + (h.cap.source || "") + "): " + plural((h.cap.over || []).length, "run") + " over it" + ((h.cap.over || []).length ? " — " + h.cap.over.slice(0, 5).map(function (o) { return o.key || (o.agent + " on " + o.task + " (" + o.run + ")"); }).join(", ") : "") + "." : "No token cap was given (" + (h.cap.source || "none given") + "), so no run is over one."); src.push(h.source.replace("heaviest_runs", "cap")); }
+      var row = d.runByKey[rows[0].key] || null;
+      return { speaker: PAGE, text: text, embed: firstBlock(["lv-runs", "lv-run"]), select: { family: "levels", value: { sort: "tokens", run: row ? row.key : null } }, sources: src, synthetic: d.synthetic,
+        followups: ["where did the tokens go?", row && row.detail ? "what did " + row.agent + " fetch?" : "show the searches", "what is running?"] };
+    },
+  });
+
+  intent("lv-fetch", {
+    family: "page", example: "show the searches",
+    when: function (d) { return d.hasPairLevels || !!d.fetchesAgg || Object.keys(d.records).length > 0; }, absent: function () { return "this report carries no fetches section (rerun the command to add it)"; },
+    match: function (q, E) { return kw(q, ["fetch", "fetched", "fetches", "search", "searches", "searched", "queries", "query", "retrieve", "retrieved", "what came back", "search map"]) * 2 + (E.run ? 2 : 0); },
+    answer: function (q, E, d, ctx) {
+      var text = [], src = [], runs = runsFor(E, d, ctx), first = null;
+      runs.forEach(function (row) {
+        var rec = runRecord(d, row), f = rec && rec.fetches;
+        if (!f) return;
+        if (!first) first = row;
+        if (f.measurable === false) { text.push(sideName(row) + ": the fetches are not measurable — " + (f.reason || "no reason given") + "."); src.push(rec.source.replace("<section>", "fetches")); return; }
+        var c = f.counts || {}, m = f.map || {};
+        text.push(dot(f.narrative || (sideName(row) + " made " + count(c.total) + " fetches")) + (c.unknown_use ? " " + count(c.unknown_use) + " carry no use signal, so the reading never infers their use from the answer." : ""));
+        var searches = (f.records || []).filter(function (r) { return r.kind === "search"; });
+        if (searches.length) text.push("The searches: " + searches.slice(0, 6).map(function (r) { return "#" + r.index + " " + r.name + " “" + String(r.query || "").slice(0, 80) + (String(r.query || "").length > 80 ? "…" : "") + "” (" + tok(r.output_chars) + " chars back" + (r.used === true ? ", used" : r.used === false ? ", not used" : ", use unrecorded") + (r.error ? ", error" : "") + (isNum(r.repeat_of) ? ", repeats #" + r.repeat_of : "") + ")"; }).join("; ") + (searches.length > 6 ? "; and " + (searches.length - 6) + " more" : "") + ".");
+        if (Array.isArray(m.nodes)) text.push("The search map has " + plural(m.nodes.length, "node") + " and " + plural((m.edges || []).length, "edge") + (m.basis ? " — " + m.basis : "") + ".");
+        src.push(rec.source.replace("<section>", "fetches") + ".narrative", rec.source.replace("<section>", "fetches") + ".records[]", rec.source.replace("<section>", "fetches") + ".map");
+      });
+      if (!text.length && d.fetchesAgg) { text.push(dot(d.fetchesAgg.narrative)); src.push("aggregate.fetches.narrative"); }
+      if (!text.length) return cannot("no run on this page carries a fetches reading", d, ctx);
+      return { speaker: PAGE, text: text, embed: firstBlock(["lv-run", "lv-runs"]), select: levelsSelect(first), sources: src, synthetic: d.synthetic,
+        followups: ["how many fetches were wasted?", "where did the tokens go?", first && !E.run && runs.length > 1 ? "what did " + sideName(runs[1]) + " fetch?" : "which run was the most expensive?", d.hasPairData ? "what did they read?" : null] };
+    },
+  });
+
+  intent("lv-waste", {
+    family: "page", example: "how many fetches were wasted?",
+    when: function (d) { return d.hasPairLevels || Object.keys(d.records).length > 0 || !!d.fetchesAgg; }, absent: function () { return "this report carries no fetches section (rerun the command to add it)"; },
+    match: function (q) { var k = kw(q, ["wasted", "waste", "wasted fetches", "repeats", "repeated", "unused", "errored", "errors", "how many fetches were wasted"]); return k ? k * 2 + 1 : 0; },
+    answer: function (q, E, d, ctx) {
+      var text = [], src = [], runs = runsFor(E, d, ctx), first = null;
+      runs.forEach(function (row) {
+        var rec = runRecord(d, row), f = rec && rec.fetches, b = rec && rec.budget;
+        if (!f || f.measurable === false) return;
+        if (!first) first = row;
+        var c = f.counts || {}, w = b && b.waste ? b.waste : null;
+        text.push(sideName(row) + ": of " + count(c.total) + " fetches, " + count(c.repeats) + " repeated an earlier one, " + count(c.errors) + " errored, " + count(c.unused) + " recorded as not used and " + count(c.unknown_use) + " with no use signal (" + count(c.used) + " used)" + (w ? "; in tokens, " + tok(w.in_repeats) + " in repeats, " + tok(w.in_errored_calls) + " in errored calls and " + tok(w.after_last_evidence) + " after the last evidence" : "") + ".");
+        src.push(rec.source.replace("<section>", "fetches") + ".counts", rec.source.replace("<section>", "budget") + ".waste");
+      });
+      if (!text.length && d.fetchesAgg) {
+        text.push(Object.keys(d.fetchesAgg.agents).map(function (n) { var a = d.fetchesAgg.agents[n]; return n + ": " + count(a.fetches) + " fetches over " + plural(count(a.runs), "run") + ", " + count(a.repeats) + " repeats, " + count(a.errors) + " errors, " + count(a.unused) + " not used, " + count(a.unknown_use) + " with no use signal"; }).join("; ") + ".");
+        src.push("aggregate.fetches.agents");
+      }
+      if (!text.length) return cannot("no run on this page carries a fetches reading", d, ctx);
+      var basis = first ? (runRecord(d, first).budget || {}).waste : null;
+      if (basis && basis.basis) { text.push("How waste is read: " + dot(basis.basis)); }
+      return { speaker: PAGE, text: text, embed: firstBlock(["lv-run", "lv-runs"]), select: levelsSelect(first), sources: src, synthetic: d.synthetic,
+        followups: ["show the searches", "where did the tokens go?", "which run was the most expensive?"] };
+    },
+  });
+
+  // ---- the data: what the agents were told and read, what the answer rests on, how the agent evolved from it
+
+  function pairData(ctx) { var r = ctx.report; return r && r.data && r.data.measurable !== false ? r.data : null; }
+  function sideLabel(ctx, side) { var r = ctx.report; return r && r[side] && r[side].agent ? String(r[side].agent.name) : side.toUpperCase(); }
+  function instrText(ins) { return ins && isNum(ins.chars) && ins.chars > 0 ? plural(ins.chars, "character") + " of instructions from " + (ins.source || "the trace") : "no instructions recorded"; }
+  function modelsText(list) { return Array.isArray(list) && list.length ? list.map(function (m) { return (m.model === null || m.model === undefined ? "no model recorded" : String(m.model)) + " (" + plural(count(m.steps), "step") + ", " + tok(m.tokens) + " tokens; " + (m.source || "source unstated") + ")"; }).join(", ") : "no model recorded"; }
+  function srcName(data, id) { var s = data && data.corpus && Array.isArray(data.corpus.sources) ? data.corpus.sources.filter(function (x) { return x.id === id; })[0] : null; return s ? s.name + " “" + String(s.input || "").slice(0, 60) + (String(s.input || "").length > 60 ? "…" : "") + "”" : id; }
+
+  intent("dt-prompt", {
+    family: "page", example: "what prompt was given?",
+    when: function (d, ctx) { return !!pairData(ctx); }, absent: function () { return "this report carries no data section for the pair (rerun the command to add it)"; },
+    match: function (q) { return kw(q, ["prompt", "what prompt", "told", "were the agents told", "instructions", "system prompt", "given", "what was given", "expected answer", "the task"]) * 2; },
+    answer: function (q, E, d, ctx) {
+      var dt = pairData(ctx), t = dt.task || {}, text = [], src = ["report.data.task", "report.data.a.agent.instructions", "report.data.b.agent.instructions", "report.data.instructions_diff", "report.data.models"];
+      text.push("Both agents were given the " + count(t.prompt_chars) + "-character prompt “" + String(t.prompt || "") + "”" + (t.expected ? ", with the expected answer “" + String(t.expected) + "” (" + plural(count(t.expected_chars), "character") + ")" : ", with no expected answer recorded") + ".");
+      var idf = dt.instructions_diff || {};
+      text.push(sideLabel(ctx, "a") + ": " + instrText(dt.a && dt.a.agent && dt.a.agent.instructions) + "; " + sideLabel(ctx, "b") + ": " + instrText(dt.b && dt.b.agent && dt.b.agent.instructions) + " — " + (idf.same === true ? "the same instructions." : idf.same === false ? "they differ in " + plural((idf.hunks || []).length, "hunk") + (isNum(idf.added) ? " (+" + idf.added + "/−" + count(idf.removed) + " lines)" : "") + "." : (idf.reason || "the instructions cannot be compared") + "."));
+      text.push("Models, as recorded: " + sideLabel(ctx, "a") + " " + modelsText(dt.a && dt.a.models) + "; " + sideLabel(ctx, "b") + " " + modelsText(dt.b && dt.b.models) + (dt.models && dt.models.same === true ? " — the same model." : dt.models && dt.models.same === false ? " — different models." : "."));
+      return { speaker: PAGE, text: text, embed: firstBlock(["dt-task"]), select: null, sources: src, synthetic: d.synthetic,
+        followups: ["what did they read?", "is the answer grounded?", "which model produced this?", "what happened?"] };
+    },
+  });
+
+  intent("dt-corpus", {
+    family: "page", example: "what did they read?",
+    when: function (d, ctx) { return !!pairData(ctx) && !!pairData(ctx).corpus_diff; }, absent: function () { return "this report carries no data section for the pair (rerun the command to add it)"; },
+    match: function (q, E) { return kw(q, ["read", "what did they read", "didn't", "did not", "corpus", "sources", "source", "read that", "only", "shared sources", "jaccard"]) * 2 + (E.agent ? 1 : 0); },
+    answer: function (q, E, d, ctx) {
+      var dt = pairData(ctx), cd = dt.corpus_diff, A = sideLabel(ctx, "a"), B = sideLabel(ctx, "b"), text = [], src = ["report.data.corpus_diff", "report.data.a.corpus", "report.data.b.corpus"];
+      var ca = dt.a && dt.a.corpus || {}, cb = dt.b && dt.b.corpus || {};
+      text.push(A + " read " + plural(count(ca.distinct), "distinct source") + " in " + count(ca.fetches) + " fetches (" + tok(ca.total_chars) + " characters back" + (count(ca.repeated_reads) ? ", " + plural(ca.repeated_reads, "repeated read") : "") + "); " + B + " read " + plural(count(cb.distinct), "distinct source") + " in " + count(cb.fetches) + " fetches (" + tok(cb.total_chars) + " characters" + (count(cb.repeated_reads) ? ", " + plural(cb.repeated_reads, "repeated read") : "") + "). Shared: " + (cd.shared || []).length + "; only " + A + ": " + (cd.only_a || []).length + "; only " + B + ": " + (cd.only_b || []).length + "; Jaccard " + num(cd.jaccard) + (cd.basis ? " (" + cd.basis + ")" : "") + ".");
+      var onlyA = (cd.only_a || []).slice(0, 4).map(function (id) { return srcName(dt.a, id); }), onlyB = (cd.only_b || []).slice(0, 4).map(function (id) { return srcName(dt.b, id); });
+      if (onlyA.length || onlyB.length) text.push((onlyA.length ? "Only " + A + " read: " + onlyA.join("; ") + ((cd.only_a || []).length > 4 ? "; and " + ((cd.only_a || []).length - 4) + " more" : "") + ". " : "") + (onlyB.length ? "Only " + B + " read: " + onlyB.join("; ") + ((cd.only_b || []).length > 4 ? "; and " + ((cd.only_b || []).length - 4) + " more" : "") + "." : ""));
+      var firstOnly = (cd.only_a || [])[0] || (cd.only_b || [])[0] || null;
+      return { speaker: PAGE, text: text, embed: firstBlock(["dt-corpus"]), select: firstOnly ? { family: "data", value: { source: firstOnly } } : null, sources: src, synthetic: d.synthetic,
+        followups: ["is the answer grounded?", "what prompt was given?", "show the searches", "which model produced this?"] };
+    },
+  });
+
+  intent("dt-grounded", {
+    family: "page", example: "is the answer grounded?",
+    when: function (d, ctx) { return !!pairData(ctx) && !!pairData(ctx).provenance; }, absent: function () { return "this report carries no data section for the pair (rerun the command to add it)"; },
+    match: function (q) { return kw(q, ["grounded", "grounding", "rest on", "rests on", "provenance", "supported", "typed values", "where did the answer come from", "traced", "what does the answer rest on"]) * 2; },
+    answer: function (q, E, d, ctx) {
+      var dt = pairData(ctx), pv = dt.provenance, r = ctx.report, text = [], src = ["report.data.provenance", "report.data.a.provenance.grounded_in", "report.data.b.provenance.grounded_in", "report.a.outcome.success", "report.b.outcome.success", "report.answer_eval.expected"];
+      ["a", "b"].forEach(function (side) {
+        var p = pv[side] || {}, full = dt[side] && dt[side].provenance || {}, name = sideLabel(ctx, side), outcome = r[side] && r[side].outcome || {};
+        var gi = Array.isArray(full.grounded_in) ? full.grounded_in : [];
+        text.push(name + "'s answer carries " + plural(count(p.atoms), "typed value") + (count(p.atoms) ? ": " + count(p.supported) + " traced to a fetched output and " + count(p.unsupported) + " not (" + pct(p.grounded_share) + " grounded)" + (gi.length ? "; it rests on " + gi.map(function (g) { return "step " + g.step + " " + g.name + " (" + pct(g.overlap) + " of the values)"; }).join(", ") : "") : " — no typed value, so its grounded share is not a number (" + (full.basis || "an answer of prose only has no figure to trace") + ")") + ". Grounded is not correct: " + name + " " + (outcome.success === true ? "solved" : outcome.success === false ? "failed" : "has no recorded outcome on") + " the task" + (r.answer_eval && r.answer_eval.expected ? ", whose expected answer is “" + String(r.answer_eval.expected) + "”" : "") + ".");
+      });
+      if (isNum(pv.delta_grounded)) text.push("Grounded share, " + sideLabel(ctx, "a") + " minus " + sideLabel(ctx, "b") + ": " + signed(pv.delta_grounded) + ".");
+      return { speaker: PAGE, text: text, embed: firstBlock(["dt-provenance"]), select: null, sources: src, synthetic: d.synthetic,
+        followups: ["what did they read?", "what happened?", "what prompt was given?", "show the claims"] };
+    },
+  });
+
+  intent("dt-model", {
+    family: "page", example: "which model produced this?",
+    when: function (d, ctx) { return !!pairData(ctx); }, absent: function () { return "this report carries no data section for the pair (rerun the command to add it)"; },
+    match: function (q) { return kw(q, ["which model", "what model", "model", "models", "produced", "produced this", "which model produced", "temperature", "the chain"]) * 2; },
+    answer: function (q, E, d, ctx) {
+      var dt = pairData(ctx), text = [], src = ["report.data.a.models", "report.data.b.models", "report.data.models", "report.data.a.chain.reading", "report.data.b.chain.reading"];
+      text.push(sideLabel(ctx, "a") + ": " + modelsText(dt.a && dt.a.models) + ". " + sideLabel(ctx, "b") + ": " + modelsText(dt.b && dt.b.models) + "." + (dt.models && dt.models.same === true ? " The same model on both sides." : dt.models && dt.models.same === false ? " Different models." : "") + " A model's name here is the trace's own record (steps[].model, else trace.agent.model); the page names none of its own.");
+      ["a", "b"].forEach(function (side) { var ch = dt[side] && dt[side].chain; if (ch && ch.reading) text.push(sideLabel(ctx, side) + "'s chain: " + dot(ch.reading)); });
+      return { speaker: PAGE, text: text, embed: firstBlock(["dt-chain"]), select: null, sources: src, synthetic: d.synthetic,
+        followups: ["what prompt was given?", "is the answer grounded?", "where did the tokens go?"] };
+    },
+  });
+
+  intent("dt-evolve", {
+    family: "page", example: "how did the agent evolve?",
+    when: function (d) { return !!d.dataEvo; }, absent: function (d) { return d.evo ? "this lineage carries no data_evolution section (rerun the command to add it)" : "this report has no self-evolving lineage"; },
+    match: function (q, E) { return kw(q, ["how did the agent evolve", "how did it evolve", "evolve from the data", "what data", "data triggered", "triggered", "evidence episodes", "from the data", "what did it read before", "evolve", "evolved"]) * 2 + (E.step || E.stepInto ? 2 : 0); },
+    answer: function (q, E, d) {
+      var de = d.dataEvo, key = E.step || E.stepInto || null, text = [], src = [];
+      var stepRow = key ? de.steps.filter(function (s) { return s.from + "→" + s.to === key; })[0] : null;
+      if (key && !stepRow) return cannot("I can't find that step in this lineage", d);
+      if (stepRow) {
+        var i = de.steps.indexOf(stepRow), ev = stepRow.evidence || {}, ch = stepRow.change || {}, bh = stepRow.behaviour || {}, ef = stepRow.effect || {}, el = stepRow.eval || {};
+        src.push("aggregate.data_evolution.steps[" + i + "].reading", "aggregate.data_evolution.steps[" + i + "].evidence", "aggregate.data_evolution.steps[" + i + "].change", "aggregate.data_evolution.steps[" + i + "].behaviour", "aggregate.data_evolution.steps[" + i + "].effect", "aggregate.data_evolution.steps[" + i + "].eval");
+        text.push("At " + key + ", " + dot(stepRow.reading || ""));
+        var eps = Array.isArray(ev.episodes) ? ev.episodes : [];
+        text.push("The evidence: " + plural(eps.length, "episode") + " cited (" + count(ev.found) + " found, " + count(ev.failures) + " failures)" + (eps.length ? " — " + eps.join(", ") : "") + (Array.isArray(ev.data) && ev.data.length ? "; they read " + ev.data.map(function (e) { return (Array.isArray(e.sources) ? e.sources.length : 0); }).reduce(function (a, b) { return a + b; }, 0) + " source reads in all" : "") + ".");
+        var hunks = Array.isArray(ch.hunks) ? ch.hunks : [];
+        text.push("The change: " + (ch.summary || "nothing the diff can name") + (Array.isArray(ch.rules_added) && ch.rules_added.length ? "; rules added: “" + ch.rules_added.join("”, “") + "”" : "") + (Array.isArray(ch.rules_removed) && ch.rules_removed.length ? "; rules removed: “" + ch.rules_removed.join("”, “") + "”" : "") + (Array.isArray(ch.protected_touched) && ch.protected_touched.length ? "; protected paths touched: " + ch.protected_touched.join(", ") : "") + (hunks.length ? " (" + plural(hunks.length, "prompt hunk") + ")" : "") + ". Behaviour: sources " + count(bh.sources_before) + " → " + count(bh.sources_after) + (isNum(bh.grounded_before) || isNum(bh.grounded_after) ? ", grounded " + pct(bh.grounded_before) + " → " + pct(bh.grounded_after) : "") + ". Effect: " + (ef.verdict || "unmeasured") + (ef.improvement && isNum(ef.improvement.point) ? ", P(" + stepRow.to + " > " + stepRow.from + ") " + pci(ef.improvement) + " on return" : "") + (ef.improvement_success && isNum(ef.improvement_success.point) ? ", " + pci(ef.improvement_success) + " on outcome" : "") + ". The eval: " + (Array.isArray(el.flags) && el.flags.length ? el.flags.map(function (f) { return f.metric + " " + dci(f.delta) + (f.learned ? " (learned)" : ""); }).join(", ") : "no flag") + (el.eval_gen ? "; advanced to " + el.eval_gen : "") + ".");
+      } else {
+        text.push(dot(de.narrative || ""));
+        src.push("aggregate.data_evolution.narrative");
+        var gens = Array.isArray(de.generations) ? de.generations : [];
+        if (gens.length) { text.push("The instructions grew from " + plural(count(gens[0].instructions && gens[0].instructions.chars), "character") + " at " + gens[0].id + " to " + plural(count(gens[gens.length - 1].instructions && gens[gens.length - 1].instructions.chars), "character") + " at " + gens[gens.length - 1].id + "; ask “what data triggered " + (de.steps[0] ? de.steps[0].from + "→" + de.steps[0].to : "a step") + "” for one step in full."); src.push("aggregate.data_evolution.generations[].instructions.chars"); }
+      }
+      var other = de.steps.filter(function (s) { return s.from + "→" + s.to !== key; })[0];
+      return { speaker: d.cov ? evalSpeaker(d) : PAGE, text: text, embed: firstBlock(["dt-evolution"]), select: key ? { family: "data", value: { gen: key } } : null, sources: src, synthetic: true,
+        followups: [other ? "what data triggered " + other.from + "→" + other.to + "?" : null, key ? "what changed at " + key + "?" : "how did the agent evolve?", d.cov ? "what did you learn?" : "which generation should I keep?"] };
+    },
+  });
+
   // ---- the dashboard, asked for
 
   intent("help", {
@@ -543,7 +856,9 @@
     answer: function (q, E, d) {
       var cat = catalogue(), byView = {};
       cat.forEach(function (b) { (byView[b.view] = byView[b.view] || []).push(b); });
+      // every view the catalogue names, the known ones first in the tab order, then any the page added
       var views = Object.keys(VIEW_LABEL).filter(function (v) { return byView[v]; });
+      Object.keys(byView).forEach(function (v) { if (views.indexOf(v) < 0) views.push(v); });
       var text = ["This report has " + plural(cat.length, "block") + " I can show, by view: " + views.map(function (v) { return viewLabel(v) + " " + byView[v].length; }).join(", ") + ". Ask \"show <block>\" by its title, or click one below; a title in the answer opens it in its own view."];
       if (d.cov) text.push("And the eval that watched " + d.family + " answers for itself: what it learned, why it rejected a candidate, what it would have caught earlier, whether it trusts itself, which generation to keep, what a metric says, which probes fired, what it saw at a step" + (d.ec ? ", and how " + (d.other || "the other lineage") + " compares" : "") + ".");
       var groups = views.map(function (v) { return { title: viewLabel(v), chips: byView[v].map(function (b) { return { label: b.title, q: showQ(b.title) }; }) }; });
@@ -774,8 +1089,10 @@
       try { s = it.match(nq, E, d) || 0; } catch (err) { s = 0; }
       return { it: it, score: s, ok: safeWhen(it, d, ctx) };
     });
+    // the best intent this report can answer; failing that, the best it cannot, for its reason
     var best = null;
-    scored.forEach(function (x) { if (x.score > 0 && (!best || x.score > best.score)) best = x; });
+    scored.forEach(function (x) { if (x.ok && x.score > 0 && (!best || x.score > best.score)) best = x; });
+    if (!best) scored.forEach(function (x) { if (x.score > 0 && (!best || x.score > best.score)) best = x; });
     if (!best) return { intent: null, E: E, card: cannot(null, d, ctx, nearest(scored, d, ctx)) };
     if (!best.ok) {
       var why = "";
@@ -816,6 +1133,10 @@
       out.push("which agent is better?", "what happened?", "where did the time go?", "show the tools", "what should I change?");
     }
     if (d.cov && d.stats) out.push("show the timescape");
+    if (d.bundle) out.unshift("what is running?");
+    if (d.hasPairLevels || d.bundle || d.budgetAgg) out.push("where did the tokens go?", heaviest(d) ? "which run was the most expensive?" : null);
+    if (d.hasPairData) out.push("what prompt was given?", "is the answer grounded?");
+    if (d.dataEvo && d.steps.length) out.push("what data triggered " + stepKey(worstStep(d)) + "?");
     out.push("what can you answer?");
     return out.filter(Boolean);
   }
@@ -825,14 +1146,14 @@
     var cat = catalogue();
     if (d.cov) {
       var c = d.cov, mu = c.integrity && c.integrity.multiplicity;
-      var text = "I am the eval that watched " + d.family + " evolve" + (d.genIds.length ? ": " + plural(d.genIds.length, "generation") + ", " + plural(d.steps.length, "step") : "") + ". I grew from e0 (" + plural(Array.isArray(c.base) ? c.base.length : 0, "base metric") + ") to " + (d.evalGens.length ? d.evalGens[d.evalGens.length - 1].id + " (" + plural(count(d.evalGens[d.evalGens.length - 1].size), "active metric") + ")" : "nothing more") + (mu ? ", testing " + plural(count(mu.tested), "candidate") + " and adopting " + count(mu.adopted) : "") + ". Ask me what I learned and when, why I rejected a candidate, what I would have caught earlier, whether I trust myself, which generation to keep, what a metric says, which probes fired, or what I saw at a step" + (d.ec ? " — and how " + (d.other || "the other lineage") + " compares" + (d.evals ? ", eval against eval" : "") : "") + ". Ask the page for any of its " + plural(cat.length, "block") + " by name (“show the timescape”, “what changed at " + stepKey(d.steps[0]) + "”)." + (c.synthetic ? " SYNTHETIC: the lineage's traces are a synthetic demo; every number is real arithmetic over synthetic episodes." : "");
+      var text = "I am the eval that watched " + d.family + " evolve" + (d.genIds.length ? ": " + plural(d.genIds.length, "generation") + ", " + plural(d.steps.length, "step") : "") + ". I grew from e0 (" + plural(Array.isArray(c.base) ? c.base.length : 0, "base metric") + ") to " + (d.evalGens.length ? d.evalGens[d.evalGens.length - 1].id + " (" + plural(count(d.evalGens[d.evalGens.length - 1].size), "active metric") + ")" : "nothing more") + (mu ? ", testing " + plural(count(mu.tested), "candidate") + " and adopting " + count(mu.adopted) : "") + ". Ask me what I learned and when, why I rejected a candidate, what I would have caught earlier, whether I trust myself, which generation to keep, what a metric says, which probes fired, or what I saw at a step" + (d.ec ? " — and how " + (d.other || "the other lineage") + " compares" + (d.evals ? ", eval against eval" : "") : "") + (d.dataEvo ? ", or what data triggered a step" : "") + ". Ask the page for any of its " + plural(cat.length, "block") + " by name (“show the timescape”, “what changed at " + stepKey(d.steps[0]) + "”)." + (c.synthetic ? " SYNTHETIC: the lineage's traces are a synthetic demo; every number is real arithmetic over synthetic episodes." : "");
       return { speaker: evalSpeaker(d), text: [text], embed: null, select: null, sources: ["aggregate.coevolution.family", "aggregate.coevolution.eval_generations[]", "aggregate.coevolution.integrity.multiplicity", "AgentDiff.catalogue()"], followups: defaultChips(d, ctx), welcome: true };
     }
     var what = d.ec ? "two self-evolving lineages, " + d.families.join(" and ") + ", over " + plural(count(d.ec.tasks && d.ec.tasks.shared && d.ec.tasks.shared.length), "shared task")
       : d.evo ? "the lineage of " + d.family + (d.genIds.length ? " (" + plural(d.genIds.length, "generation") + ")" : "")
       : d.stats ? "a training batch: " + d.policies.join(" vs ") + " over " + plural(d.tasks.length, "task")
       : d.agents.length === 2 ? d.agents[0] + " vs " + d.agents[1] + " over " + plural(d.tasks.length, "task") : "this report";
-    var t = "This page reads " + what + ". " + (d.evo || d.ec ? "" : "There is no self-evolving eval in this report, so the page answers for itself. ") + "Ask it what happened, which " + (d.stats ? "policy" : "agent") + " is better, where the time and the tokens went, which tools were called, or to show any of its " + plural(cat.length, "block") + " by name." + (d.synthetic ? " SYNTHETIC: the traces are a synthetic demo." : "");
+    var t = "This page reads " + what + ". " + (d.evo || d.ec ? "" : "There is no self-evolving eval in this report, so the page answers for itself. ") + "Ask it what happened, which " + (d.stats ? "policy" : "agent") + " is better, where the time and the tokens went, which tools were called" + (d.hasPairData ? ", what prompt was given, what each agent read and what its answer rests on" : "") + (d.bundle ? ", what is running in this bundle and which run was the heaviest" : "") + ", or to show any of its " + plural(cat.length, "block") + " by name." + (d.synthetic ? " SYNTHETIC: the traces are a synthetic demo." : "");
     return { speaker: PAGE, text: [t], embed: null, select: null, sources: ["aggregate.agents", "AgentDiff.catalogue()"], followups: defaultChips(d, ctx), welcome: true };
   }
 
@@ -865,9 +1186,9 @@
   // -------------------------------------------------------------- render
 
   //: the shared-selection family a block listens to, if any
-  function familyOfBlock(id) { return /^cov-/.test(id) ? "coevolution" : /^evo-/.test(id) ? "evolution" : /^evc-/.test(id) ? "evolution-compare" : null; }
+  function familyOfBlock(id) { return /^cov-/.test(id) ? "coevolution" : /^evo-/.test(id) ? "evolution" : /^evc-/.test(id) ? "evolution-compare" : /^lv-/.test(id) ? "levels" : /^dt-/.test(id) ? "data" : null; }
   function familyState(name) {
-    var fams = { coevolution: AgentDiff.coevolution, evolution: AgentDiff.evolution, "evolution-compare": AgentDiff.evolutionCompare };
+    var fams = { coevolution: AgentDiff.coevolution, evolution: AgentDiff.evolution, "evolution-compare": AgentDiff.evolutionCompare, levels: AgentDiff.levels, data: AgentDiff.data };
     var f = fams[name];
     try { return f && typeof f.state === "function" ? f.state() : null; } catch (err) { return null; }
   }
@@ -880,7 +1201,7 @@
   }
   function applySelection(sel) {
     if (!sel || typeof sel !== "object") return;
-    var fams = { coevolution: AgentDiff.coevolution, evolution: AgentDiff.evolution, "evolution-compare": AgentDiff.evolutionCompare };
+    var fams = { coevolution: AgentDiff.coevolution, evolution: AgentDiff.evolution, "evolution-compare": AgentDiff.evolutionCompare, levels: AgentDiff.levels, data: AgentDiff.data };
     var f = fams[sel.family];
     if (f && typeof f.select === "function") { try { f.select(sel.value); } catch (err) { /* a family that refuses keeps its state */ } }
   }

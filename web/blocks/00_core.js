@@ -2585,7 +2585,8 @@
       if (selection && typeof selection === "object") {
         // selection: {family: "coevolution" | "evolution" | "evolution-compare", value: <what that family's select takes>}
         var families = { coevolution: global.AgentDiff.coevolution, evolution: global.AgentDiff.evolution,
-                         "evolution-compare": global.AgentDiff.evolutionCompare };
+                         "evolution-compare": global.AgentDiff.evolutionCompare,
+                         levels: global.AgentDiff.levels, data: global.AgentDiff.data };
         var fam = families[selection.family];
         if (fam && typeof fam.select === "function") {
           try { fam.select(selection.value); } catch (err) { /* a family that refuses keeps its state */ }
