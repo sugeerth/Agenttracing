@@ -96,7 +96,8 @@ class PairTest(unittest.TestCase):
         self.assertEqual(list(sec)[:3], ["version", "measurable", "reason"])
         self.assertEqual(sec["delta"]["total"], sec["a"]["counts"]["total"] - sec["b"]["counts"]["total"])
         self.assertEqual(sec, fetches_pair(report))
-        self.assertEqual(list(report)[-1], "fetches")
+        # the data section reads the fetches and attaches after them; fetches stays the last of the third-level pair
+        self.assertEqual(list(report)[-2:], ["fetches", "data"])
         self.assertIn("fetches", sections.registered("aggregate"))
 
 

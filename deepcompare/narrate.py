@@ -706,14 +706,114 @@ def coevolution_brief(coevolution: dict, evolution_compare: Optional[dict] = Non
     }
 
 
+def data_brief(report: dict) -> dict:
+    """The numbered facts of a pair's ``data`` section: the prompt's
+    length and whether an expected answer is recorded, each side's
+    instructions and the hunks they differ in, the models each side's
+    steps were produced by with the source of that fact, the sources each
+    read and the ones shared, the provenance shares. Every text is a
+    field the engine wrote or a count it made; nothing here is computed.
+    """
+    facts: list[dict] = []
+    d = report.get("data") if isinstance(report.get("data"), dict) else None
+    if d is None:
+        return {"facts": facts}
+    if not d.get("measurable"):
+        _fact(facts, "data", f"the data side cannot be read in full: {d.get('reason')}", None)
+    names = {side: str(((d.get(side) or {}).get("agent") or {}).get("name") or side) for side in ("a", "b")}
+    task = d.get("task") or {}
+    _fact(facts, "data.task",
+          f"the prompt given to both agents is {task.get('prompt_chars')} characters"
+          + (f"; the expected answer is recorded ({task.get('expected_chars')} characters)" if task.get("expected") is not None
+             else "; no expected answer is recorded"),
+          {"prompt_chars": task.get("prompt_chars"), "expected_chars": task.get("expected_chars")})
+    idiff = d.get("instructions_diff") or {}
+    bits = []
+    for side in ("a", "b"):
+        ins = ((d.get(side) or {}).get("agent") or {}).get("instructions") or {}
+        bits.append(f"{names[side]}: " + (f"{ins.get('chars')} characters ({ins.get('source')})" if ins.get("system_prompt") is not None
+                                          else "not recorded"))
+    if idiff.get("same") is True:
+        bits.append("the same instructions")
+    elif idiff.get("same") is False:
+        bits.append(f"they differ in {len(idiff.get('hunks') or [])} hunk(s), +{idiff.get('added')} −{idiff.get('removed')} lines")
+    _fact(facts, "data.instructions", "instructions — " + "; ".join(bits),
+          {"hunks": len(idiff.get("hunks") or []), "same": idiff.get("same")})
+    models = d.get("models") or {}
+    bits = []
+    for side in ("a", "b"):
+        rows = [m for m in ((d.get(side) or {}).get("models") or []) if m.get("model")]
+        bits.append(f"{names[side]}'s steps were produced by "
+                    + (", ".join(f"{m['model']} ({m.get('steps')} steps, {m.get('source')})" for m in rows) if rows else "no recorded model"))
+    if models.get("same") is not None:
+        bits.append("the same model" if models["same"] else "different models")
+    _fact(facts, "data.models", "; ".join(bits), {"a": models.get("a"), "b": models.get("b"), "same": models.get("same")})
+    cdiff = d.get("corpus_diff") or {}
+    bits = []
+    for side in ("a", "b"):
+        c = (d.get(side) or {}).get("corpus") or {}
+        bits.append(f"{names[side]} read {c.get('distinct')} distinct sources in {c.get('fetches')} fetches "
+                    f"({c.get('repeated_reads')} repeated), {c.get('total_chars')} characters back")
+    bits.append(f"{len(cdiff.get('shared') or [])} shared, {len(cdiff.get('only_a') or [])} only {names['a']}, "
+                f"{len(cdiff.get('only_b') or [])} only {names['b']}"
+                + (f", Jaccard {cdiff['jaccard']}" if cdiff.get("jaccard") is not None else ""))
+    _fact(facts, "data.corpus", "; ".join(bits), {"jaccard": cdiff.get("jaccard"), "shared": len(cdiff.get("shared") or [])})
+    prov = d.get("provenance") or {}
+    bits = []
+    for side in ("a", "b"):
+        pv = prov.get(side) or {}
+        if pv.get("atoms"):
+            bits.append(f"{names[side]}'s answer carries {pv['atoms']} typed values, {pv.get('supported')} traced to a fetched "
+                        f"output and {pv.get('unsupported')} not (grounded share {pv.get('grounded_share')})")
+        else:
+            bits.append(f"{names[side]}'s answer carries no typed value to trace")
+    if prov.get("delta_grounded") is not None:
+        bits.append(f"delta grounded (A − B) {prov['delta_grounded']}")
+    _fact(facts, "data.provenance", "; ".join(bits), {"a": prov.get("a"), "b": prov.get("b"), "delta": prov.get("delta_grounded")})
+    if d.get("narrative"):
+        _fact(facts, "data.narrative", d["narrative"], None)
+    return {"facts": facts}
+
+
+def data_evolution_brief(section: Optional[dict]) -> dict:
+    """The numbered facts of a lineage's ``data_evolution`` section: one
+    per step (its reading — what the evidence episodes read, the change,
+    the behaviour shift, the base and evolved evals) and the narrative."""
+    facts: list[dict] = []
+    d = section if isinstance(section, dict) else None
+    if d is None:
+        return {"facts": facts}
+    if not d.get("measurable"):
+        _fact(facts, "data_evolution", f"how the agent evolved from its data cannot be read: {d.get('reason')}", None)
+        return {"facts": facts}
+    for step in d.get("steps") or []:
+        if step.get("reading"):
+            ev = step.get("evidence") or {}
+            bh = step.get("behaviour") or {}
+            _fact(facts, "data_evolution.step", f"{step.get('from')}→{step.get('to')}: {step['reading']}",
+                  {"episodes": len(ev.get("episodes") or []), "found": ev.get("found"), "failures": ev.get("failures"),
+                   "hunks": len((step.get("change") or {}).get("hunks") or []),
+                   "sources": [bh.get("sources_before"), bh.get("sources_after")],
+                   "grounded": [bh.get("grounded_before"), bh.get("grounded_after")],
+                   "effect": (step.get("effect") or {}).get("improvement"),
+                   "flags": [f.get("metric") for f in ((step.get("eval") or {}).get("flags") or [])]})
+    if d.get("narrative"):
+        _fact(facts, "data_evolution", d["narrative"], None)
+    return {"facts": facts}
+
+
 def chat_brief(aggregate: dict, reports: Optional[list] = None) -> dict:
     """Every fact one output directory can vouch for, numbered once: the
     aggregate's facts (:func:`_aggregate_brief`), each pair report's
     (:func:`narration_brief`, its source prefixed by the task), and the
     lineage's — the evolution, the eval that evolved with it and, when
     the directory is a comparison, the evals side by side
-    (:func:`coevolution_brief`). The chat's whole authority; a fact not
-    here is a fact an answer is not entitled to state.
+    (:func:`coevolution_brief`) — and the data side: each pair's prompt,
+    instructions, models, sources and provenance (:func:`data_brief`),
+    the aggregate's data narrative, and how a lineage's agent evolved
+    from the data its evidence read (:func:`data_evolution_brief`). The
+    chat's whole authority; a fact not here is a fact an answer is not
+    entitled to state.
     """
     facts: list[dict] = []
     agg = aggregate or {}
@@ -729,8 +829,13 @@ def chat_brief(aggregate: dict, reports: Optional[list] = None) -> dict:
             continue
         task = (report.get("task") or {}).get("id") or "?"
         take(narration_brief(report), f"task {task}: ")
+        take(data_brief(report), f"task {task}: ")
     if "coevolution" in agg or "evolution" in agg or "evolution_compare" in agg:
         take(coevolution_brief(agg.get("coevolution") or {}, agg.get("evolution_compare"), agg.get("evolution")))
+    if isinstance(agg.get("data"), dict) and agg["data"].get("narrative"):
+        _fact(facts, "data", agg["data"]["narrative"], None)
+    if "data_evolution" in agg:
+        take(data_evolution_brief(agg.get("data_evolution")))
     agents = dict(agg.get("agents") or {})
     if not agents and (agg.get("evolution") or {}).get("family"):
         agents = {"0": agg["evolution"]["family"]}

@@ -5,8 +5,10 @@ A coding assistant given a key pastes it, adds this server to its
 ``mcpServers`` and pulls every level itself: ``overview`` for what ran,
 ``runs`` for one row per run with filters and a sort, ``run`` for the
 whole third level of one run — its steps, budget, fetches and timeline —
-and ``fetches``, ``budget``, ``lineage``, ``key`` and ``verify`` for the
-readings by name. Every number a tool returns is the bundle's, which is
+``step`` for the whole text of one step, ``data`` for the data side of
+one run (the prompt, the instructions, the models, the corpus, the
+provenance, the chain), and ``fetches``, ``budget``, ``lineage``, ``key``
+and ``verify`` for the readings by name. Every number a tool returns is the bundle's, which is
 the members' — a count or a sum over recorded steps, an interval where
 the engine drew one, ``null`` with a reason where nothing was recorded;
 the server computes nothing new and never re-estimates.
@@ -34,8 +36,9 @@ SERVER_NAME = "agentdiff"
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, SERVER_ERROR = -32700, -32600, -32601, -32602, -32000
 
 INSTRUCTIONS = ("AgentDiff bundle: call overview for what ran (level 1), runs for one row per run (level 2), "
-                "run with a key for the steps, budget, fetches and timeline of one run (level 3). Every number "
-                "is a count or a sum over recorded steps; null means unrecorded, never zero.")
+                "run with a key for the steps, budget, fetches, data and timeline of one run (level 3), step with a key "
+                "and an index for the full text of one step, data with a key for what the run was given and read. Every "
+                "number is a count or a sum over recorded steps; null means unrecorded, never zero.")
 
 _NUMBERS = ("Every number is a count or a sum over the steps the traces recorded, carried through from the "
             "bundle's members; a token count labelled estimated in the trace stays labelled; null means the trace "
@@ -81,6 +84,23 @@ TOOLS = (
                     f"when named. With a key, one run's budget: its split, cumulative burn, heaviest steps and waste. {_NUMBERS}",
      "inputSchema": {"type": "object", "additionalProperties": False,
                      "properties": {"agent": {"type": "string"}, "task": {"type": "string"}, "key": {"type": "string"}}}},
+    {"name": "step",
+     "description": "One step of one run in full: its type, name, the whole input and output text uncapped (the level-3 "
+                    "record keeps the first 4000 characters of each and flags the cut), tokens and their basis, latency, "
+                    "error, effect, quality, note, the step's model telemetry and sub-agent span — read from the member's "
+                    f"copy of the report the record came from, and the source path said. {_NUMBERS}",
+     "inputSchema": {"type": "object", "required": ["key", "index"], "additionalProperties": False,
+                     "properties": {"key": {"type": "string", "description": "<member>/<task>/<agent>/<run>"},
+                                    "index": {"type": "integer", "minimum": 0, "description": "the step's index, 0-based"}}}},
+    {"name": "data",
+     "description": "The data side of one run: the task prompt and expected answer as recorded, the agent's instructions "
+                    "when the trace carries them, which model produced which steps with the source of that fact (the "
+                    "step telemetry or the trace's declared model, shown as recorded), the corpus — every distinct source "
+                    "fetched, its input, size, digest, error — the answer's provenance (its typed values traced to the "
+                    "fetched outputs that carry them, a share per output) and the chain data → model → agent → answer "
+                    f"with each edge's overlap and basis. Unmeasurable with a reason where the trace lacks a prompt, a model or text. {_NUMBERS}",
+     "inputSchema": {"type": "object", "required": ["key"], "additionalProperties": False,
+                     "properties": {"key": {"type": "string", "description": "<member>/<task>/<agent>/<run>"}}}},
     {"name": "lineage",
      "description": "The evolution and coevolution summaries of the bundle's lineages: generations, the recommended and "
                     "best generation, the verdict counts, the eval's generations, adopted metrics, loop closures and "
@@ -168,6 +188,14 @@ class Server:
             if "key" in args:
                 return self._run(args["key"])["budget"]
             return b.budget(args.get("agent"), args.get("task"))
+        if name == "step":
+            self._run(args["key"])
+            try:
+                return b.step(args["key"], args["index"])
+            except ValueError as exc:
+                raise RpcError(SERVER_ERROR, str(exc)) from None
+        if name == "data":
+            return self._run(args["key"])["data"]
         if name == "lineage":
             return b.lineage(args.get("family"))
         if name == "key":

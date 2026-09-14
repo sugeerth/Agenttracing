@@ -114,8 +114,15 @@ recomputes it from the copies and reports `{id, recomputed, match}`.
 - *run* (level 3): `runs/<key>.json` — the row (its counts as `steps_n`
   and `fetches_n`), `steps [{index, type, name, tokens, tokens_basis,
   latency_s, error, effect, reward, value, input_chars, output_chars,
-  span}]`, `budget` (the per-run budget reading), `fetches` (the per-run
-  fetches reading), `timeline [[t0, dur, kind, name, reward, flags]]` —
+  span, input_text, input_truncated, output_text, output_truncated}]`
+  (each text capped at `data.TEXT_CAP = 4000` characters, the flag true
+  when cut, the full length in `*_chars`; the `step` tool returns the
+  whole), `budget` (the per-run budget reading), `fetches` (the per-run
+  fetches reading), `data` (the per-run data reading — the prompt, the
+  instructions, the models, the corpus, the provenance, the chain;
+  `docs/DATA.md`; the report's own when it carries one, unmeasurable
+  with the reason where the trace lacks a prompt, a model or text),
+  `timeline [[t0, dur, kind, name, reward, flags]]` —
   the shape the Evolution timescape draws, rewards from the report's
   `rl` reading (`reward_basis` says recorded or shaped), flags `e`rror,
   `w`asted, `d`ecisive, `f`ault, `v`erifier — `trace_id`, `report`,
@@ -177,6 +184,8 @@ says what the numbers are and are not:
 | `run` | `key` | the level-3 record |
 | `fetches` | `key?, agent?` | one run's fetch records, or the per-member per-agent fetch summary |
 | `budget` | `agent?, task?, key?` | the per-member budget aggregates, narrowed; with `key`, one run's budget and burn |
+| `step` | `key, index` | one step in full — the whole input and output text, uncapped, with tokens, latency, error, effect, quality, note, model telemetry, span and the source path (`members/<n>/report_<task>.json#<side>.steps[<index>]`); −32000 when the run's steps are not in the output or the index names no step |
+| `data` | `key` | the run's data reading (level 3's `data`) |
 | `lineage` | `family?` | the lineages and loops of the overview, one family when named |
 | `key` | — | `{key, overview}` |
 | `verify` | — | `{id, recomputed, match}` |
@@ -229,6 +238,8 @@ default; another `--host` is warned about on stderr.
 | `/api/v1/runs?agent=&task=&member=&success=true\|false&sort=&limit=` | `{runs, n, of}`; a bad `sort`, `success` or `limit` is 400 |
 | `/api/v1/runs/<key>` | the level-3 record; 404 with a reason when the key names no run |
 | `/api/v1/runs/<key>/fetches` | the run's fetches reading |
+| `/api/v1/runs/<key>/data` | the run's data reading |
+| `/api/v1/runs/<key>/steps/<index>` | one step in full, as the `step` tool; 404 with a reason for an index that names no step, 400 for one that is not an integer |
 | `/api/v1/budget?agent=&task=` | the per-member budget aggregates, narrowed |
 | `/api/v1/lineage?family=` | the lineages and loops |
 | `/api/v1/key` | `{key, overview}` |
@@ -248,6 +259,12 @@ GET /api/v1/runs?agent=bolt-v3&sort=tokens&limit=2
 GET /api/v1/runs/batch/t01_acme_revenue/atlas-v2/r1/fetches
 200 {"measurable":true,"records":[{"index":1,"kind":"search","name":"web_search","query":"ACME Corp FY2025 annual results …","query_chars":64,"output_chars":275,"tokens":183,"latency_s":2.47,"error":null,"repeat_of":null,"used":true,"used_basis":"quality label good",…},…],"counts":{"total":3,"used":3,…},…}
 
+GET /api/v1/runs/batch/t01_acme_revenue/atlas-v2/r1/steps/3
+200 {"key":"batch/t01_acme_revenue/atlas-v2/r1","index":3,"type":"read","name":"open_page","input":"https://ir.acmecorp.com/news/fy2025-results","output":"ACME Corp Reports Fourth Quarter and Full Year Fiscal 2025 Results. Full year fiscal 2025 highlights: Total revenue of $4.82 billion, up 11% year over year. …","input_chars":43,"output_chars":301,"tokens":184,…,"source":"members/0/report_t01_acme_revenue.json#a.steps[3]"}
+
+GET /api/v1/runs/batch/t01_acme_revenue/atlas-v2/r1/data
+200 {"measurable":true,"reason":null,"task":{"id":"t01_acme_revenue","prompt":"Find ACME Corp's total revenue …","prompt_chars":110,"expected":"$4.82 billion","expected_chars":13},"agent":{"name":"atlas-v2","model":"sim-planner-2",…,"instructions":{"system_prompt":null,"source":null,"chars":null},…},"models":[{"model":"sim-planner-2","steps":5,…,"source":"trace.agent.model"}],"corpus":{"sources":[…],"total_chars":701,"distinct":3,"fetches":3,"repeated_reads":0,…},"provenance":{"atoms":3,"supported":3,"unsupported":0,…,"grounded_in":[{"step":1,"name":"web_search","overlap":0.3333,…},…]},"chain":{"nodes":[…],"edges":[…],"reading":"3 data nodes, 1 model node and the answer; …"},…}
+
 GET /api/v1/runs/no/such/run/r1
 404 {"error":"not found","reason":"no run 'no/such/run/r1'; keys are <member>/<task>/<agent>/<run>, listed by /api/v1/runs"}
 
@@ -266,3 +283,8 @@ in a thread and drive it with `urllib` from the test alone
 (`tests/test_serve.py`). The sections are pinned on the demo traces and
 on hand-built runs in `tests/test_budget.py` and `tests/test_fetches.py`;
 every existing output is byte-identical apart from the two new keys.
+The data reading and the `step`/`data` tools and routes are pinned in
+`tests/test_data.py` and the three test files above; the level-3
+record's `data` carries the trace's own recorded model name (it is the
+trace's data), and the index — `bundle.json`, levels 1 and 2 — still
+carries none.

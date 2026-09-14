@@ -3,7 +3,9 @@
 ``agentdiff serve --bundle DIR`` answers GET, and only GET, over the same
 three levels the MCP server exposes: ``/api/v1/overview`` (level 1),
 ``/api/v1/runs`` with the filters and sort of the ``runs`` tool (level 2),
-``/api/v1/runs/<key>`` and ``/api/v1/runs/<key>/fetches`` (level 3),
+``/api/v1/runs/<key>``, ``/api/v1/runs/<key>/fetches``,
+``/api/v1/runs/<key>/data`` and ``/api/v1/runs/<key>/steps/<index>``
+(level 3, the last one the whole text of one step),
 ``/api/v1/budget``, ``/api/v1/lineage``, ``/api/v1/key``,
 ``/api/v1/verify``, the page at ``/`` and ``/report.html``, and
 ``/bundle.json``. Every response is JSON (the page apart) with
@@ -20,6 +22,7 @@ bundle's, which are the members' — counts and sums over recorded steps,
 from __future__ import annotations
 
 import json
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Optional
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -65,11 +68,27 @@ def route(bundle: Bundle, path: str, query: dict) -> tuple:
         if rest.startswith("runs/"):
             key = unquote(rest[len("runs/"):])
             want = None
+            step_index = None
             if key.endswith("/fetches"):
                 key, want = key[: -len("/fetches")], "fetches"
+            elif key.endswith("/data"):
+                key, want = key[: -len("/data")], "data"
+            else:
+                m = re.fullmatch(r"(.+)/steps/([^/]+)", key)
+                if m:
+                    key, want = m.group(1), "step"
+                    try:
+                        step_index = int(m.group(2))
+                    except ValueError:
+                        raise ValueError(f"a step index is an integer, not {m.group(2)!r}") from None
             record = bundle.run(key)
             if record is None:
                 return 404, {"error": "not found", "reason": f"no run {key!r}; keys are <member>/<task>/<agent>/<run>, listed by /api/v1/runs"}
+            if want == "step":
+                try:
+                    return 200, bundle.step(key, step_index)
+                except ValueError as exc:
+                    return 404, {"error": "not found", "reason": str(exc)}
             return 200, record[want] if want else record
         if rest == "budget":
             return 200, bundle.budget(query.get("agent"), query.get("task"))
@@ -81,7 +100,8 @@ def route(bundle: Bundle, path: str, query: dict) -> tuple:
             return 200, bundle.verify()
     except ValueError as exc:
         return 400, {"error": "bad request", "reason": str(exc)}
-    return 404, {"error": "not found", "reason": f"no route {path!r}; overview, runs, runs/<key>, runs/<key>/fetches, budget, lineage, key, verify"}
+    return 404, {"error": "not found", "reason": f"no route {path!r}; overview, runs, runs/<key>, runs/<key>/fetches, "
+                                                  "runs/<key>/data, runs/<key>/steps/<index>, budget, lineage, key, verify"}
 
 
 class Handler(BaseHTTPRequestHandler):

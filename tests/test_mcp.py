@@ -61,11 +61,38 @@ class ServerTest(unittest.TestCase):
 
     def test_the_tool_list_has_a_schema_and_a_description_per_tool(self):
         tools = self.server.handle(_req(4, "tools/list"))["result"]["tools"]
-        self.assertEqual([t["name"] for t in tools], ["overview", "runs", "run", "fetches", "budget", "lineage", "key", "verify"])
+        self.assertEqual([t["name"] for t in tools], ["overview", "runs", "run", "fetches", "budget", "step", "data", "lineage", "key", "verify"])
         for t in tools:
             self.assertEqual(t["inputSchema"]["type"], "object")
             self.assertGreater(len(t["description"]), 80)
         self.assertEqual(tools[2]["inputSchema"]["required"], ["key"])
+        self.assertEqual(tools[5]["inputSchema"]["required"], ["key", "index"])
+        self.assertEqual(tools[6]["inputSchema"]["required"], ["key"])
+
+    def test_step_returns_the_whole_text_of_one_step_and_data_the_run_s_data_side(self):
+        record = self.call("run", key=KEY)["result"]["structuredContent"]
+        st = self.call("step", key=KEY, index=3)["result"]["structuredContent"]
+        self.assertEqual((st["key"], st["index"], st["type"], st["name"]), (KEY, 3, "read", "open_page"))
+        self.assertEqual(st["input"], record["steps"][3]["input_text"])
+        self.assertEqual(st["output"], record["steps"][3]["output_text"])
+        self.assertEqual((st["input_chars"], st["output_chars"]), (43, 301))
+        self.assertEqual(st["source"], "members/0/report_t01_acme_revenue.json#a.steps[3]")
+        self.assertIn("$4.82 billion", st["output"])
+        d = self.call("data", key=KEY)["result"]["structuredContent"]
+        self.assertTrue(d["measurable"])
+        self.assertEqual(d["task"]["prompt_chars"], 110)
+        self.assertEqual(d["models"][0]["source"], "trace.agent.model")
+        self.assertEqual(d["corpus"]["distinct"], 3)
+        self.assertEqual(d["provenance"]["supported"], 3)
+        self.assertEqual(d, record["data"])
+        # the errors: a bad index, a missing index, a key that names no run
+        bad = self.call("step", key=KEY, index=99)["error"]
+        self.assertEqual(bad["code"], -32000)
+        self.assertIn("no step 99", bad["message"])
+        self.assertEqual(self.call("step", key=KEY)["error"]["code"], -32602)
+        self.assertEqual(self.call("step", key=KEY, index=-1)["error"]["code"], -32602)
+        self.assertEqual(self.call("step", key="no/such/run/r1", index=0)["error"]["code"], -32000)
+        self.assertEqual(self.call("data", key="no/such/run/r1")["error"]["code"], -32000)
 
     def test_overview_runs_and_run(self):
         r = self.call("overview")["result"]

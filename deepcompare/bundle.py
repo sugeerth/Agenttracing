@@ -23,8 +23,10 @@ Three levels of grain are indexed from the members:
   that recorded it (the scorecard's per-run rows, the budget and fetches
   ledgers, a lineage's episodes, a report's steps) and ``null`` where none
   did — never 0 for unrecorded.
-* **run** (level 3) — one record per run under ``runs/``: the steps, the
-  budget and fetches readings, and the timeline in the shape the
+* **run** (level 3) — one record per run under ``runs/``: the steps
+  (with their text, capped at ``TEXT_CAP`` characters and flagged when
+  cut; :meth:`Bundle.step` returns the whole of one), the budget,
+  fetches and data readings, and the timeline in the shape the
   Evolution timescape draws. A run whose steps are not in the output (a
   runs layout keeps one representative pair per task) has a record that
   says so.
@@ -53,6 +55,7 @@ from . import sections as _sections
 from ._stats import finite, rounded
 from ._text import join_names, num, pct, plural
 from .budget import budget_aggregate, budget_run
+from .data import TEXT_CAP, data_run
 from .evolve import _flags as timeline_flags, _kind as timeline_kind
 from .fetches import FETCH_KINDS, fetches_aggregate, fetches_run, synthetic_of
 from .grafana import load_target
@@ -245,13 +248,26 @@ def _timeline(report: dict, side: str, traj: Trajectory) -> tuple:
     return out, basis
 
 
+def _capped(text: str) -> tuple:
+    """``(text, truncated)``: the first ``TEXT_CAP`` characters and whether
+    any were dropped; the full length rides in ``*_chars`` beside it."""
+    text = text or ""
+    if len(text) <= TEXT_CAP:
+        return text, False
+    return text[:TEXT_CAP], True
+
+
 def _step_rows(traj: Trajectory) -> list:
     rows = []
     for st in traj.steps:
+        input_text, input_truncated = _capped(st.input)
+        output_text, output_truncated = _capped(st.output)
         rows.append({"index": st.index, "type": st.type, "name": st.name or "", "tokens": st.tokens,
                      "tokens_basis": st.tokens_basis, "latency_s": st.latency_s, "error": st.error, "effect": st.effect,
                      "reward": st.reward, "value": st.value, "input_chars": len(st.input or ""),
-                     "output_chars": len(st.output or ""), "span": (st.span or {}).get("agent") if isinstance(st.span, dict) else None})
+                     "output_chars": len(st.output or ""), "span": (st.span or {}).get("agent") if isinstance(st.span, dict) else None,
+                     "input_text": input_text, "input_truncated": input_truncated,
+                     "output_text": output_text, "output_truncated": output_truncated})
     return rows
 
 
@@ -319,6 +335,11 @@ def _member_rows(m: dict, label: str) -> tuple:
             b = section.get(side) if isinstance(section, dict) and (section.get(side) or {}).get("measurable") else budget_run(traj)
             section = report.get("fetches") or {}
             f = section.get(side) if isinstance(section, dict) and (section.get(side) or {}).get("measurable") else fetches_run(traj)
+            # the data side: the report's reading when it carries one (measurable or not — an
+            # unmeasurable reading names what the trace lacks), else read from the side
+            section = report.get("data") or {}
+            d = section.get(side) if isinstance(section, dict) and isinstance(section.get(side), dict) \
+                and "measurable" in section[side] else data_run(traj, task=report.get("task"))
             seconds = b["per_second"]["seconds"] if b["per_second"]["measurable"] else None
             tools: dict = {}
             for st in traj.steps:
@@ -331,7 +352,7 @@ def _member_rows(m: dict, label: str) -> tuple:
                  cost_usd=b["cost_usd"]["value"], seconds=seconds, fetches=f["counts"]["total"], errors=f["counts"]["errors"],
                  repeats=f["counts"]["repeats"], synthetic=synthetic_of(getattr(traj, "harness", None)), detail=True)
             details[(task, traj.agent.name, traj.run_id)] = {
-                "steps": _step_rows(traj), "budget": b, "fetches": f, "timeline": timeline, "reward_basis": reward_basis,
+                "steps": _step_rows(traj), "budget": b, "fetches": f, "data": d, "timeline": timeline, "reward_basis": reward_basis,
                 "trace_id": traj.trace_id, "trace_path": None, "report": f"report_{_UNSAFE.sub('_', task)}.json", "side": side}
     return rows, details
 
@@ -344,13 +365,14 @@ def _record(row: dict, detail: Optional[dict]) -> dict:
     renamed = {"steps": "steps_n", "fetches": "fetches_n"}
     head = {renamed.get(k, k): v for k, v in row.items()}
     if detail and detail.get("steps"):
-        return measurable(dict(head, steps=detail["steps"], budget=detail["budget"], fetches=detail["fetches"],
+        return measurable(dict(head, steps=detail["steps"], budget=detail["budget"], fetches=detail["fetches"], data=detail["data"],
                                timeline=detail["timeline"], reward_basis=detail["reward_basis"], trace_id=detail["trace_id"],
                                trace_path=detail["trace_path"], report=detail["report"], side=detail["side"]), version=VERSION)
     reason = ("the run's steps are not in the output: a runs layout keeps one representative pair per task, "
               "and a lineage keeps its episodes' timelines")
     return unmeasurable(reason, version=VERSION, **head, steps=[],
                         budget=unmeasurable(reason, tokens=None), fetches=unmeasurable(reason, records=[]),
+                        data=unmeasurable(reason, task=None, agent=None, models=[], corpus=None, provenance=None, chain=None),
                         timeline=(detail or {}).get("timeline") or [], reward_basis=("the lineage's episode timeline" if detail else None),
                         trace_id=None, trace_path=None, report=None, side=None)
 
@@ -760,6 +782,45 @@ class Bundle:
         if rel is None:
             return None
         return json.loads((self.path / rel).read_text(encoding="utf-8"))
+
+    def data(self, key: str) -> Optional[dict]:
+        """The data reading of one run's level-3 record — the prompt, the
+        instructions, the models, the corpus, the provenance, the chain —
+        or None when the key names no run."""
+        record = self.run(key)
+        return None if record is None else record.get("data")
+
+    def step(self, key: str, index: int) -> dict:
+        """The full text of one step, uncapped, read from the member's copy
+        of the report the record came from: ``{key, index, type, name,
+        input, output, input_chars, output_chars, tokens, tokens_basis,
+        latency_s, error, effect, quality, note, model, span, source}``.
+        ``KeyError`` when the key names no run, ``ValueError`` with the
+        reason when the run's steps are not in the output or the index
+        names no step."""
+        record = self.run(key)
+        if record is None:
+            raise KeyError(key)
+        if not record.get("measurable") or not record.get("report"):
+            raise ValueError(f"the steps of {key!r} are not in the output: {record.get('reason')}")
+        member = next((m for m in self.members if m.get("label") == record.get("member")), None)
+        if member is None:
+            raise ValueError(f"the record of {key!r} names a member the bundle does not hold: {record.get('member')!r}")
+        path = self.path / "members" / str(member["index"]) / str(record["report"])
+        if not path.is_file():
+            raise ValueError(f"the member's copy of {record['report']} is not in the bundle")
+        report = json.loads(path.read_text(encoding="utf-8"))
+        steps = ((report.get(record.get("side")) or {}).get("steps") or [])
+        if not isinstance(index, int) or isinstance(index, bool) or index < 0 or index >= len(steps):
+            raise ValueError(f"{key!r} has {len(steps)} steps, indexed 0 to {len(steps) - 1}; no step {index!r}")
+        st = steps[index] if isinstance(steps[index], dict) else {}
+        return {"key": key, "index": index, "type": st.get("type"), "name": st.get("name") or "",
+                "input": str(st.get("input") or ""), "output": str(st.get("output") or ""),
+                "input_chars": len(str(st.get("input") or "")), "output_chars": len(str(st.get("output") or "")),
+                "tokens": st.get("tokens"), "tokens_basis": st.get("tokens_basis"), "latency_s": st.get("latency_s"),
+                "error": st.get("error"), "effect": st.get("effect"), "quality": st.get("quality"), "note": st.get("note"),
+                "model": st.get("model"), "span": st.get("span"),
+                "source": f"members/{member['index']}/{record['report']}#{record.get('side')}.steps[{index}]"}
 
     def budget(self, agent: Optional[str] = None, task: Optional[str] = None) -> dict:
         """The per-member budget aggregates, narrowed to one agent and/or task."""

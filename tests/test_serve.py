@@ -79,6 +79,27 @@ class ServeTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(fetches["counts"]["total"], 3)
 
+    def test_the_data_side_and_one_step_in_full(self):
+        status, d = self.json(f"/api/v1/runs/{KEY}/data")
+        self.assertEqual(status, 200)
+        self.assertTrue(d["measurable"])
+        self.assertEqual((d["task"]["prompt_chars"], d["corpus"]["distinct"], d["provenance"]["supported"]), (110, 3, 3))
+        self.assertEqual(d, self.bundle.data(KEY))
+        status, st = self.json(f"/api/v1/runs/{KEY}/steps/3")
+        self.assertEqual(status, 200)
+        self.assertEqual((st["index"], st["name"], st["output_chars"]), (3, "open_page", 301))
+        self.assertEqual(st, self.bundle.step(KEY, 3))
+        status, payload = self.json(f"/api/v1/runs/{KEY}/steps/99")
+        self.assertEqual(status, 404)
+        self.assertIn("no step 99", payload["reason"])
+        status, payload = self.json(f"/api/v1/runs/{KEY}/steps/three")
+        self.assertEqual(status, 400)
+        self.assertIn("integer", payload["reason"])
+        status, payload = self.json("/api/v1/runs/no/such/run/r1/data")
+        self.assertEqual(status, 404)
+        status, payload = self.json("/api/v1/runs/no/such/run/r1/steps/0")
+        self.assertEqual(status, 404)
+
     def test_budget_lineage_key_and_verify(self):
         status, b = self.json("/api/v1/budget?agent=atlas-v2")
         self.assertEqual(status, 200)

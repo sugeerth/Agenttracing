@@ -137,7 +137,7 @@ class PairTest(unittest.TestCase):
         self.assertEqual(sec["cheaper"], "atlas-v2")
         self.assertIn("atlas-v2 was cheaper", sec["narrative"])
         keys = list(report)
-        self.assertEqual(keys[keys.index("rl"):], ["rl", "budget", "fetches"])
+        self.assertEqual(keys[keys.index("rl"):], ["rl", "budget", "fetches", "data"])
         self.assertIn("budget", sections.registered("pair"))
 
     def test_a_tie_names_nobody(self):

@@ -58,13 +58,23 @@ class AgentInfo:
     name: str
     model: str = ""
     version: str = ""
+    #: the instructions the agent was given, when the trace records them
+    #: (``agent.system_prompt`` as text, ``agent.config`` as an object).
+    #: Kept off ``to_dict`` so a report side is byte-identical with or
+    #: without them; the data section reads them (:mod:`deepcompare.data`).
+    system_prompt: Optional[str] = field(default=None, compare=False)
+    config: Optional[dict] = field(default=None, compare=False)
 
     @classmethod
     def from_dict(cls, d: dict) -> "AgentInfo":
         name = _require(d, "name", "agent")
         if not isinstance(name, str) or not name:
             raise ValueError("agent.name must be a non-empty string")
-        return cls(name=name, model=str(d.get("model", "")), version=str(d.get("version", "")))
+        prompt = d.get("system_prompt")
+        config = d.get("config")
+        return cls(name=name, model=str(d.get("model", "")), version=str(d.get("version", "")),
+                   system_prompt=prompt if isinstance(prompt, str) else None,
+                   config=dict(config) if isinstance(config, dict) else None)
 
     def to_dict(self) -> dict:
         return {"name": self.name, "model": self.model, "version": self.version}

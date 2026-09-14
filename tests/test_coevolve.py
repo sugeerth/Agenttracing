@@ -726,7 +726,7 @@ class HandLineageTest(_Temp):
         self.assertFalse(sec.on_demand)
         self.assertEqual(sections.registered("lineage")[:2], ["evolution", "coevolution"])
         agg = ev.attach_sections(self.lineage, {}, samples=SAMPLES)
-        self.assertEqual(list(agg), ["evolution", "coevolution"])
+        self.assertEqual(list(agg), ["evolution", "coevolution", "data_evolution"])
         self.assertEqual(json.dumps(agg["coevolution"], sort_keys=True), json.dumps(self.co, sort_keys=True))
         self.assertEqual(json.dumps(agg["evolution"], sort_keys=True), json.dumps(self.evolution, sort_keys=True),
                          "the evolution section is byte-identical; the new key is the only change")
@@ -773,7 +773,7 @@ class DegenerateTest(_Temp):
         self.assertFalse(co.coevolve(one, None)["measurable"])
         self.assertIn("the evolution section is unmeasurable", co.coevolve(one, {"measurable": False, "reason": "x"})["reason"])
         agg = ev.attach_sections(one, {}, samples=20)
-        self.assertEqual(list(agg), ["evolution", "coevolution"])
+        self.assertEqual(list(agg), ["evolution", "coevolution", "data_evolution"])
         self.assertFalse(agg["coevolution"]["measurable"])
 
     def test_a_generation_without_traces_is_not_walked_and_the_rest_is(self):
@@ -1106,7 +1106,7 @@ class CommandTest(_Temp):
                                       "--candidates", str(cands), "--ledger")
         self.assertEqual(code, 0, err)
         agg = json.loads((out_dir / "aggregate.json").read_text(encoding="utf-8"))
-        self.assertEqual(list(agg)[-2:], ["evolution", "coevolution"])
+        self.assertEqual(list(agg)[-3:], ["evolution", "coevolution", "data_evolution"])
         self.assertIn("rl", agg)
         self.assertTrue((out_dir / "report_ta.json").is_file())
         if (ROOT / "web" / "blocks.html").is_file():
@@ -1178,7 +1178,7 @@ class CommandTest(_Temp):
         self.assertEqual(code, 0)
         self.assertIn("fewer than two generations carry traces", err)
         agg = json.loads((out_dir / "aggregate.json").read_text(encoding="utf-8"))
-        self.assertEqual(list(agg), ["evolution", "coevolution"])
+        self.assertEqual(list(agg), ["evolution", "coevolution", "data_evolution"])
         self.assertIn("not readable: 1 generation carry episodes, so there is no step to walk", out)
 
 

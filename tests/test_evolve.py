@@ -795,7 +795,7 @@ class CommandTest(_Temp):
         self.assertEqual(code, 0)
         self.assertIn("fewer than two generations carry traces", err)
         agg = json.loads((out_dir / "aggregate.json").read_text(encoding="utf-8"))
-        self.assertEqual(list(agg), ["evolution", "coevolution"], "the co-evolving eval always rides beside the section")
+        self.assertEqual(list(agg), ["evolution", "coevolution", "data_evolution"], "the co-evolving eval and the data side always ride beside the section")
         self.assertFalse((out_dir / "report.html").exists())
         self.assertIn("Recommended: g0", out)
 
@@ -989,7 +989,7 @@ class RegistryTest(_Temp):
         lineage = ev.read_lineage(root)
         direct = ev.evolve(lineage, samples=SAMPLES)
         attached = ev.attach_sections(lineage, {}, samples=SAMPLES)
-        self.assertEqual(list(attached), ["evolution", "coevolution"])
+        self.assertEqual(list(attached), ["evolution", "coevolution", "data_evolution"])
         self.assertEqual(json.dumps(attached["evolution"], sort_keys=True), json.dumps(direct, sort_keys=True))
         self.assertEqual(json.dumps(ev.analyse_lineage(root, samples=SAMPLES), sort_keys=True),
                          json.dumps(direct, sort_keys=True))
@@ -1011,7 +1011,7 @@ class RegistryTest(_Temp):
         self.assertEqual([g["id"] for g in out["pair"]], ["g1", "g2"])
         self.assertEqual(sorted(r["task"]["id"] for r in out["reports"]), list(TASKS))
         agg = out["aggregate"]
-        self.assertEqual(list(agg)[-2:], ["evolution", "coevolution"], "the sections attach after the runs batch's own keys")
+        self.assertEqual(list(agg)[-3:], ["evolution", "coevolution", "data_evolution"], "the sections attach after the runs batch's own keys")
         self.assertIn("rl", agg)
         self.assertNotIn("evolution_compare", agg, "the comparison is on demand: nothing to compare against")
         # the pair reports reach the section: the episodes the last step's
@@ -1033,7 +1033,7 @@ class RegistryTest(_Temp):
         self.assertIsNone(out["pair"])
         self.assertIsNone(out["names"])
         self.assertEqual(out["reports"], [])
-        self.assertEqual(list(out["aggregate"]), ["evolution", "coevolution"])
+        self.assertEqual(list(out["aggregate"]), ["evolution", "coevolution", "data_evolution"])
         self.assertTrue(out["aggregate"]["evolution"]["measurable"])
         self.assertEqual(heard, ["fewer than two generations carry traces; no pair report is written"])
 

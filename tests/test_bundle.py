@@ -145,6 +145,24 @@ class BuildTest(unittest.TestCase):
         self.assertEqual(record["timeline"][0][2], "think")
         self.assertIn("rl section", record["reward_basis"])
         self.assertIsNone(b.run("no/such/run/r1"))
+        # the steps carry their text, capped and flagged; the data reading rides with the record
+        st = record["steps"][3]
+        self.assertEqual((st["input_text"], st["input_truncated"], st["output_truncated"]), ("https://ir.acmecorp.com/news/fy2025-results", False, False))
+        self.assertEqual(len(st["output_text"]), st["output_chars"])
+        self.assertTrue(record["data"]["measurable"])
+        self.assertEqual(record["data"]["corpus"]["distinct"], 3)
+        self.assertEqual(record["data"]["provenance"]["supported"], 3)
+        report = json.loads((root / "members" / "0" / "report_t01_acme_revenue.json").read_text(encoding="utf-8"))
+        self.assertEqual(record["data"], report["data"]["a"], "the report's own reading, not a second one")
+        full = b.step(row["key"], 3)
+        self.assertEqual((full["input"], full["output"]), (report["a"]["steps"][3]["input"], report["a"]["steps"][3]["output"]))
+        self.assertEqual(full["source"], "members/0/report_t01_acme_revenue.json#a.steps[3]")
+        self.assertEqual(b.data(row["key"]), record["data"])
+        self.assertIsNone(b.data("no/such/run/r1"))
+        with self.assertRaises(KeyError):
+            b.step("no/such/run/r1", 0)
+        with self.assertRaises(ValueError):
+            b.step(row["key"], 5)
         self.assertEqual(bundle.select_runs(b.rows, sort="tokens", limit=1)[0]["tokens"], max(r["tokens"] for r in b.rows))
         self.assertEqual(len(bundle.select_runs(b.rows, agent="bolt-v3", success=False)), 3)
         with self.assertRaises(ValueError):
@@ -179,6 +197,8 @@ class BuildTest(unittest.TestCase):
         record = info["records"][g0["key"]]
         self.assertFalse(record["measurable"])
         self.assertEqual(len(record["timeline"]), 2)
+        self.assertFalse(record["data"]["measurable"])
+        self.assertEqual(record["data"]["models"], [])
         o = info["overview"]
         self.assertTrue(all(a["self_evolving"] and a["lineage"] == "fam" for a in o["agents"]))
         self.assertEqual(o["agents"][0]["tokens_runs"], 0)
@@ -197,9 +217,32 @@ class BuildTest(unittest.TestCase):
                 models.add(data[side]["agent"]["model"])
         models.discard("")
         self.assertTrue(models)
-        index = (root / "bundle.json").read_text(encoding="utf-8") + "".join(p.read_text(encoding="utf-8") for p in (root / "runs").glob("*.json"))
+        # the index (levels 1 and 2, the manifest) carries no model identifier; a level-3 record carries the
+        # trace's own recorded model name in its data reading and nowhere else — it is the trace's data
+        index = (root / "bundle.json").read_text(encoding="utf-8")
         for model in models:
             self.assertNotIn(model, index)
+        for path in (root / "runs").glob("*.json"):
+            record = json.loads(path.read_text(encoding="utf-8"))
+            data = record.pop("data")
+            rest = json.dumps(record, ensure_ascii=False)
+            for model in models:
+                self.assertNotIn(model, rest, path.name)
+            self.assertEqual(data["agent"]["model"], data["models"][0]["model"])
+            self.assertIn(data["agent"]["model"], models)
+            self.assertEqual(data["models"][0]["source"], "trace.agent.model")
+
+
+class StepTextTest(unittest.TestCase):
+    def test_a_step_s_text_is_capped_at_text_cap_and_flagged_with_the_full_length_beside(self):
+        from deepcompare.data import TEXT_CAP
+        from tests.test_budget import step, trace
+        long = "x" * (TEXT_CAP + 7)
+        t = trace([step(0, "read", "open", input="short", output=long), step(1, "answer", output="a")])
+        rows = bundle._step_rows(t)
+        self.assertEqual((rows[0]["input_text"], rows[0]["input_truncated"], rows[0]["input_chars"]), ("short", False, 5))
+        self.assertEqual((len(rows[0]["output_text"]), rows[0]["output_truncated"], rows[0]["output_chars"]), (TEXT_CAP, True, TEXT_CAP + 7))
+        self.assertEqual(rows[0]["output_text"], long[:TEXT_CAP])
 
 
 class VerifyTest(unittest.TestCase):

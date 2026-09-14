@@ -31,7 +31,7 @@ every generated file stays byte-identical to the one its test pins.
 A section is one analysis with one question, one module, one output
 dict. Every section — `impact`, `trust`, `tools_profile`, `rl`,
 `rl.stats`, `rl.audit`, `rl.space`, `evolution`, `evolution_compare`, `budget`, `fetches`,
-`coevolution` — obeys the same envelope, produced by `deepcompare/section.py`:
+`coevolution`, `data`, `data_evolution` — obeys the same envelope, produced by `deepcompare/section.py`:
 
     {"version": int, "measurable": bool, "reason": str | None, ..., "narrative": str}
 
@@ -95,7 +95,27 @@ reads `ctx.lineage`, `agg["evolution"]` and that key, imports its shared
 constants from `evolve` (`CHECK_TOOL_RE`, `CLAIM_PHRASES`, `TOOLISH`)
 rather than copying them, and imports nothing from `harness/`; the
 proposer seam (`harness/proposer.py`) is imported by the `coevolve`
-command alone, inside `run`.
+command alone, inside `run`. `data_evolution` (`data.py`) is the
+scope's fourth section: `requires=("evolution",)`, `after=("coevolution",
+"evolution_compare")`, so it reads the eval's flags when the eval
+walked the step and attaches last; it reads `ctx.lineage` (the
+generations' artifacts and traces), `agg["evolution"]` and
+`agg["coevolution"]`, and imports `evolve` and `coevolve` inside the
+function only, because `data.py` is imported by `report.py`, which
+`evolve` imports through `suite`.
+
+*The data side.* `data` (`deepcompare/data.py`, `docs/DATA.md`) attaches
+to every pair report after `fetches` and to the `runs` aggregate; it
+reads the prompt, the instructions, the models, the corpus, the
+answer's provenance and the chain data → model → agent → answer. It
+shares the fetches section's source identity (the tool name and the
+normalised input) rather than inventing a second, and the semantic
+section's claim extractor and normalisation for provenance. Two
+measures, both containment shares over recorded text with their basis
+in the output, and nothing inferred beyond them. `trace.AgentInfo`
+keeps `system_prompt` and `config` off `to_dict` so a report side is
+byte-identical with or without them; the section reads them from the
+typed agent, a raw dict, or a lineage's artifacts.
 
 ## 3. Aggregates and commands
 
@@ -113,7 +133,11 @@ with the data inlined. Every command follows one shape, implemented once in
 writes the three levels (`deepcompare/bundle.py`); `key`, `mcp`
 (`deepcompare/mcpserver.py`, stdlib JSON-RPC in the engine) and `serve`
 (`deepcompare/harness/serve.py`, the HTTP server in the harness) read the
-bundle back. `AggregateContext.extra` is where a command puts what a
+bundle back. A level-3 record carries each step's text capped at
+`data.TEXT_CAP` and flagged when cut, and the run's `data` reading; the
+`step` tool and the `/steps/<index>` route return the whole text of one
+step from the member's copy of the report, so a detail is one call
+away and the record stays bounded. `AggregateContext.extra` is where a command puts what a
 section reads and the aggregate does not carry (`token_cap`). The batch
 aggregate does not run the aggregate scope (it never did), so the bundle
 derives a batch member's `budget` and `fetches` from the reports' sides
@@ -169,6 +193,7 @@ in `web/blocks/README.md`; the agent that knows them is
 |---|---|---|---|
 | a framework's logs | one adapter fn in `adapters.py` | `register_formats()` | `tests/test_adapters.py` |
 | an analysis of a pair | `deepcompare/<name>.py` | `@sections.register("pair", key)` | `tests/test_<name>.py`, pinned on `demo/traces` |
+| a reading of a lineage that is not a check | `deepcompare/<name>.py`, `requires=("evolution",)`, `after=("coevolution", "evolution_compare")` | `@sections.register("lineage", key, …)` | pinned on the hand-built lineage of `tests/test_evolve.py` and on `demo/evolve/lineage` |
 | an analysis of a batch | same | `@sections.register("aggregate", key)` | pinned on `demo/rl/train` |
 | a check on a lineage | a function in `evolve.py`'s checks table | the table | pinned on `demo/evolve/lineage` |
 | a probe of the eval | `Probe(name, question, trigger(view), propose(view) -> [spec])` in `coevolve.PROBES`; pure, no lookahead, specs in the metric language | the tuple, in the order the probes run | `tests/test_coevolve.py`: its trigger on a synthetic step view, its candidates on the demo, the pinned ledger |
