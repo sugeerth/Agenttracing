@@ -257,7 +257,7 @@ locally** (`SharedLibraryTest` pins it):
 
 | namespace | surface |
 |---|---|
-| `fmt` | `num(v, p)`, `signed(v, p)`, `pct(v, p)`, `secs(v)`, `short(id)`, `isNum(v)` — the strings the blocks print; `—` for a non-number |
+| `fmt` | `num(v, p)`, `signed(v, p)`, `pct(v, p)`, `secs(v)`, `short(id)`, `isNum(v)` — the strings the blocks print; `—` for a non-number, `plural(n, word, plural?)` (thousands-separated, es/ies), `trunc(text, n)` (whitespace-collapsing, n−1 chars and an ellipsis) |
 | `color` | `side(side, ns)` (`var(--a)`, or `var(--im-a)` for a block with its own dark override), `agent(side, i)`, `verdict(kind)` (a sign or a word → good / bad / ink), `good`, `bad` |
 | `svg` | `svg(attrs, kids)` — the root `<svg>`, `role="img"` unless told otherwise, **throws without an `aria-label`**; `svg.note(text, cls)`; `svg.tip(host, {class, width})` → `{show(evt, [{text, b?, mono?}]), hide()}` |
 | `glyph` | `interval(g, x, point, lo, hi, {y, color, width, opacity, tick, r, lineClass, dotClass})` — the one interval drawing; `foldWidth(n)` and `foldSeconds(s)` — the fold law, `6 + 6·log2(1 + n)` |
@@ -265,7 +265,9 @@ locally** (`SharedLibraryTest` pins it):
 | `family` | `family(key, defaults, {scope, persist, rerender})` → `{get(task?), set(patch, {task, rerender}), subscribe(fn, el?), reset(task?), persist(), state}` |
 | `style` | `once(id, cssText)` — a block's stylesheet, injected once |
 
-A family is the shared state of a family of blocks (a selection, an axis,
+A saved value restores when its type matches the default's, and under a
+null default when it is an array or a plain object (the lineage's brush
+range). A family is the shared state of a family of blocks (a selection, an axis,
 an open fold). It is **task-scoped by default** — one state per task, so a
 choice never leaks between tasks — and `scope: "page"` for a reader's
 preference. It **persists by default** through the page's own store
@@ -284,7 +286,9 @@ candidate}`), `levels` (`AgentDiff.levels`, `{run, agent, task, member,
 outcome, sort, x}`, plus `timing` and `tile(n)` as measurement hooks),
 `data` (`AgentDiff.data`, `{source, step, gen, side}`); the chat keeps
 its transcript under `agentdiff:chat` and exposes `AgentDiff.chat`
-(`ask`, `route`, `intents`, `turns`, `clear`).
+(`ask`, `route(q, prev?)`, `last()`, `intents`, `turns`, `clear`); a follow-up
+("and for bolt-v3?", "what about g3→g4?", "the other one") resolves against
+the last answer's subject and the transcript shows the question as read.
 
 Data shapes are in `SCHEMA.md`; every field named there is what a report
 actually carries.
