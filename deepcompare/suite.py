@@ -63,10 +63,13 @@ def group_runs(trajectories: list, warn=None, names: Optional[tuple] = None) -> 
 
 def analyse_runs(trajectories: list, *, warn=None, family_pattern: Optional[str] = None,
                  golden: Optional[dict] = None, policy: Optional[dict] = None, raws: Optional[dict] = None,
-                 names: Optional[tuple] = None) -> dict:
+                 names: Optional[tuple] = None, extra: Optional[dict] = None) -> dict:
     """``golden``/``policy`` (see :mod:`deepcompare.scorecard`) make tool
     correctness and policy compliance measurable; ``raws`` (trace_id →
-    trace dict) lets the scorecard report a judge's verdicts."""
+    trace dict) lets the scorecard report a judge's verdicts; ``extra``
+    is handed to the aggregate sections as ``AggregateContext.extra``
+    (``token_cap`` for the budget section) and the output is
+    byte-identical when it is absent."""
     name_a, name_b, runs_by_task = group_runs(trajectories, warn, names=names)
     stability = stability_analysis(runs_by_task)
     reliability_analysis = reliability.reliability(runs_by_task)
@@ -81,7 +84,7 @@ def analyse_runs(trajectories: list, *, warn=None, family_pattern: Optional[str]
     sections.attach("aggregate", agg, sections.AggregateContext(
         trajectories=trajectories, runs_by_task=runs_by_task, reports=reports, names=(name_a, name_b),
         stability=stability, reliability=reliability_analysis, golden=golden, policy=policy, raws=raws,
-        family_pattern=family_pattern))
+        family_pattern=family_pattern, extra=dict(extra or {})))
     return {"names": (name_a, name_b), "runs_by_task": runs_by_task, "reports": reports,
             "aggregate": agg, "stability": stability, "reliability": reliability_analysis}
 

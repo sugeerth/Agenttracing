@@ -89,6 +89,7 @@ agentdiff loop --tasks tasks.json --provider atlas=openai:gpt-4o \
 | what to fix first, and did the fix work | triage, `progress` | ranked actions with verification contracts, before/after matching |
 | whether the number can be trusted | `bench --strict` | the diagnoser's own benchmark with a leakage probe: the margin over a surface-cue detector is the headline |
 | N agents, selection, CI, dashboards | `fleet`, `select`, `gate`, `experiments`, `variance`, `grafana` | rankings, interchangeability, a regression gate, variance attribution; every number as Prometheus samples with intervals as separate series, and six provisioned Grafana dashboards under `grafana/` ([docs/GRAFANA.md](docs/GRAFANA.md)) |
+| what is running, what each run did, where every token and fetch went — in a product, a chat, a coding assistant | `bundle`, `key`, `mcp`, `serve`, the Levels view | one content-addressed directory with three levels of grain, a paste-safe key that carries the overview and names the bundle by its hash, an MCP server and a local HTTP API over the same levels ([docs/API.md](docs/API.md)) |
 | does the recording reproduce; what does the next model do in it; what did the model see; how far did a long run get | `rerun` (`--span`, `--from/--until`, `--provider`, `--golden`), `checkpoint`, `context`, the Milestones ladder | hermetic replay with the world served from a cassette, by segment or sub-agent, the first miss named, a drift map over the sub-agents, milestones reached before the answer; the context before any step ([docs/REPLAY.md](docs/REPLAY.md)) |
 
 Every finding cites the step and field it rests on; abstention is an
@@ -177,7 +178,6 @@ import` keeps every trace in one SQLite file with full-text search over steps
 and a checkpoint per step for running agents. `runs` adds output equality: do
 repeated runs say the same thing, and do the two agents. `judge` lets a second
 model grade answers no exact match can, recorded beside the grade and applied only on request.
-
 ## Why use it: the loop
 
 Mapping a failure is the first half. The second half is what the page

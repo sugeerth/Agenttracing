@@ -82,8 +82,8 @@ class AggregateContext:
     """What an aggregate section may need beyond the aggregate dict: every
     trajectory, the runs grouped by task and side, the pair reports, the
     two agent names, the stability and reliability readings computed before
-    the pairs were chosen, and the golden tasks, policy, raw traces and
-    family pattern the command was given."""
+    the pairs were chosen, the golden tasks, policy, raw traces and
+    family pattern the command was given, and ``extra`` for the rest."""
     trajectories: list = field(default_factory=list)
     runs_by_task: dict = field(default_factory=dict)
     reports: list = field(default_factory=list)
@@ -94,6 +94,9 @@ class AggregateContext:
     policy: Optional[dict] = None
     raws: Optional[dict] = None
     family_pattern: Optional[str] = None
+    #: whatever else the command was given that a section reads
+    #: (``token_cap`` for the budget section); empty when it was given nothing
+    extra: dict = field(default_factory=dict)
 
 
 @dataclass

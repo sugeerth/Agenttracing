@@ -32,10 +32,10 @@ DEMO = ROOT / "demo" / "traces"
 #: the order report.compare attached its sections by hand before the registry
 PAIR_ORDER = ["success_analysis", "uncertainty", "semantic", "counterfactual", "shapley", "process", "tradeoff",
               "efficiency", "diagnosis", "internals", "reading", "timing", "horizon", "impact", "trust",
-              "tools_profile", "verdict_card", "feedback", "rl"]
+              "tools_profile", "verdict_card", "feedback", "rl", "budget", "fetches"]
 #: the order suite.analyse_runs attached its sections by hand before the registry
 AGGREGATE_ORDER = ["equality", "routing", "stability", "reliability", "task_signal", "diagnosis_consolidated",
-                   "paired_inference", "triage", "scorecard", "rl"]
+                   "paired_inference", "triage", "scorecard", "rl", "budget", "fetches"]
 
 
 class RegistryTest(unittest.TestCase):

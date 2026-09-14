@@ -28,6 +28,8 @@ def register(subparsers) -> None:
                         help=f"viewer HTML template (default: {DEFAULT_TEMPLATE})")
     parser.add_argument("--golden", default=None, help="golden dataset (tasks JSON with expected_tools, forbidden_tools, …): scores tool correctness and policy")
     parser.add_argument("--policy", default=None, help="safety policy JSON (forbidden_tools, forbidden_patterns, max_writes, write_requires_read)")
+    parser.add_argument("--token-cap", type=int, default=None, metavar="N",
+                        help="a token cap per run: the budget section lists the runs over it (default: none given)")
     parser.set_defaults(func=run)
 
 
@@ -51,8 +53,9 @@ def run(args: argparse.Namespace) -> int:
         golden = load_golden(args.golden) if getattr(args, "golden", None) else None
         policy = load_policy(args.policy) if getattr(args, "policy", None) else None
         raws = {t.trace_id: json.loads(path.read_text(encoding="utf-8")) for path, t in loaded}
+        extra = {"token_cap": args.token_cap} if getattr(args, "token_cap", None) is not None else {}
         analysed = analyse_runs(trajectories, warn=lambda m: print(f"warning: {m}", file=sys.stderr),
-                                golden=golden, policy=policy, raws=raws)
+                                golden=golden, policy=policy, raws=raws, extra=extra)
     except (SuiteError, ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

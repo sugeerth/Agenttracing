@@ -30,7 +30,7 @@ every generated file stays byte-identical to the one its test pins.
 
 A section is one analysis with one question, one module, one output
 dict. Every section — `impact`, `trust`, `tools_profile`, `rl`,
-`rl.stats`, `rl.audit`, `rl.space`, `evolution`, `evolution_compare`,
+`rl.stats`, `rl.audit`, `rl.space`, `evolution`, `evolution_compare`, `budget`, `fetches`,
 `coevolution` — obeys the same envelope, produced by `deepcompare/section.py`:
 
     {"version": int, "measurable": bool, "reason": str | None, ..., "narrative": str}
@@ -109,11 +109,21 @@ with the data inlined. Every command follows one shape, implemented once in
     result = <the analysis>                            # pure
     write_outputs(out_dir, reports, aggregate, html=…) # report_<task>.json, aggregate.json, report.html
 
+`bundle` reads output directories through `grafana.load_target` and
+writes the three levels (`deepcompare/bundle.py`); `key`, `mcp`
+(`deepcompare/mcpserver.py`, stdlib JSON-RPC in the engine) and `serve`
+(`deepcompare/harness/serve.py`, the HTTP server in the harness) read the
+bundle back. `AggregateContext.extra` is where a command puts what a
+section reads and the aggregate does not carry (`token_cap`). The batch
+aggregate does not run the aggregate scope (it never did), so the bundle
+derives a batch member's `budget` and `fetches` from the reports' sides
+and says so (`source`).
+
 `deepcompare/cli.py` is the parser and the dispatch only; each command
 is a module in `deepcompare/commands/` exposing `register(subparsers)`
 and `run(args) -> int`. **Adding a command is adding one module.**
 (Status: `live` and `paths` are there; the remaining commands move as
-the in-flight work lands — see the changelog. Commands: landed — all 39
+the in-flight work lands — see the changelog. Commands: landed — all 43
 are modules under `deepcompare/commands/`, listed in `cli.COMMANDS` in
 `--help` order; `_io.py` holds the load-run-write shape and `_common.py`
 the shared argument groups (CI artifacts, provider options, the trace
@@ -167,6 +177,7 @@ in `web/blocks/README.md`; the agent that knows them is
 | a command | `deepcompare/commands/<name>.py` | `register(subparsers)` | `tests/test_cli.py` |
 | a chart | `web/blocks/NN_<name>.js` | `AgentDiff.block({...})` | a class at the end of `tests/test_blocks_ui.py` |
 | a demo | a behaviour table + caller over `demo/_env.py` | — | a determinism test |
+| a level of the bundle | a function in `bundle.py`, its tool in `mcpserver.TOOLS`, its route in `harness/serve.py` | the tool table / the route table | `tests/test_bundle.py`, `tests/test_mcp.py`, `tests/test_serve.py` |
 | a dashboard | a panel in `grafana/generate_dashboards.py`, then regenerate `grafana/dashboards/<name>.json` | the provisioning yaml | `tests/test_grafana.py` (every metric exists) |
 
 ## What must stay true

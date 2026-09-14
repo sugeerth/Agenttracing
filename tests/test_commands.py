@@ -39,8 +39,8 @@ SUBCOMMANDS = [
     "compare", "demo", "batch", "fleet", "gate", "runs", "profile", "progress", "bench",
     "experiments", "narrate", "chat", "variance", "cohort", "check", "select", "convert", "frameworks",
     "rl", "evolve", "evolve-compare", "coevolve", "run", "loop", "replay", "rerun", "checkpoint", "context",
-    "judge", "why", "db", "hook", "eval", "route", "feedback", "rlexport", "grafana", "watch",
-    "explain",
+    "judge", "why", "db", "hook", "eval", "route", "feedback", "rlexport", "grafana", "bundle", "key",
+    "mcp", "serve", "watch", "explain",
 ]
 
 

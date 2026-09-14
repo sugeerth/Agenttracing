@@ -17,8 +17,8 @@ from . import sections
 # each section module registers itself with the registry when imported;
 # the import list is the one place a section is wired
 from . import (  # noqa: F401
-    counterfactual, diagnosis, efficiency, feedback, horizon, impact, internals, milestones, process, reasoning, rl,
-    semantic, shapley, success, timing, toolprofile, tradeoff, trust, uncertainty, verdict,
+    budget, counterfactual, diagnosis, efficiency, feedback, fetches, horizon, impact, internals, milestones, process,
+    reasoning, rl, semantic, shapley, success, timing, toolprofile, tradeoff, trust, uncertainty, verdict,
 )
 from .align import align
 from .attribution import attribute
