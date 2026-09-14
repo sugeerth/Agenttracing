@@ -20,7 +20,7 @@ A block is `AgentDiff.block({ id, title, question, group, size, relevance, rende
 - Theme tokens only: `--ink`, `--ink-2`, `--ink-3`, `--rule`, `--rule-2`, `--surface`, `--surface-2`, `--accent`, `--good`, `--bad`, `--sans`, `--mono`. Colour is meaning: run A red-ish, run B green-ish, the fault's path red, wasted hatched; never decoration.
 - Every chart `<svg>` carries `role="img"` and a real `aria-label` that says what the picture shows with its numbers; a `<canvas>` is `aria-hidden` with its description carried by a sibling svg or a status line; interactive drawings are `role="application"` with a named level and an `aria-live="polite"` status.
 - No horizontal overflow at 390px; a wide table sits in `<div class="scroll-x">`; a chart measures its host and redraws on resize.
-- No visible `.empty` in an open block; no console error or warning, unfiltered, across all ten views (Chat, Levels, Data, Story, Evidence, Batch, Panels, Training, Evolution, Evals).
+- No visible `.empty` in an open block; no console error or warning, unfiltered, across all eleven views (Chat, Levels, Data, Trace, Story, Evidence, Batch, Panels, Training, Evolution, Evals).
 - `web/blocks.html` must match its sources; you never edit it, and you never edit `00_core.js`, `_shell.html`, `README.md`, `SCHEMA.md` or `docs/CHANGELOG.md` — you report what those need.
 
 ## Efficient drawing (the rule that scales)

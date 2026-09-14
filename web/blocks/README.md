@@ -48,9 +48,10 @@ map — the browser tests measure the drawn SVG against the report.
 
 ### Lanes and views (`ctx.lane`)
 
-The page has ten views — Chat (the page asked in plain words,
+The page has eleven views — Chat (the page asked in plain words,
 `37_chat.js`), Levels (what is running · every run · one run in full,
-`38_levels.js`), Data (the inputs side, `39_data.js`), Story (the
+`38_levels.js`), Data (the inputs side, `39_data.js`), Trace (one run's
+execution with replay, `40_trace.js`), Story (the
 one-column narrative), Evidence (outcome · trajectory · integrity
 columns), Batch (cost · signal · other columns), Panels, Training,
 Evolution and Evals — chosen with the segmented control or `#view=…` in
@@ -284,7 +285,9 @@ The page-scoped families and their public surfaces: `evolution`
 `coevolution` (`AgentDiff.coevolution`, `{step, evalGen, metric,
 candidate}`), `levels` (`AgentDiff.levels`, `{run, agent, task, member,
 outcome, sort, x}`, plus `timing` and `tile(n)` as measurement hooks),
-`data` (`AgentDiff.data`, `{source, step, gen, side}`); the chat keeps
+`data` (`AgentDiff.data`, `{source, step, gen, side}`), `trace`
+(`AgentDiff.trace`, `{side, run, step, level, phase, playing, t, x}`,
+task-scoped, plus `play`, `pause`, `seek`); the chat keeps
 its transcript under `agentdiff:chat` and exposes `AgentDiff.chat`
 (`ask`, `route(q, prev?)`, `last()`, `intents`, `turns`, `clear`); a follow-up
 ("and for bolt-v3?", "what about g3→g4?", "the other one") resolves against

@@ -103,7 +103,7 @@ scorecard (§6).
 ## 4. What the page draws, and how to read it
 
 The page is one file (`web/blocks.html`, built from `web/blocks/*.js`)
-with ten views. The **Story** is a numbered sequence:
+with eleven views. The **Story** is a numbered sequence:
 
 1. **What happened** — the reading as charts.
 2. **Where the time went** — one strip per run along wall-clock, every
@@ -414,6 +414,26 @@ read, the prompt hunks, the behaviour shift, the effect with its
 intervals and what the eval made of it — each row opening to the full
 diff. Every overlap is a stated measure with its basis; nothing is
 inferred beyond it.
+
+The **Trace** view is the fourth tab, one run watched as it executed
+(`web/blocks/40_trace.js`). **The execution** at semantic zoom: every
+step along constricted wall-clock time in one lane per sub-agent,
+coloured by kind and sized by tokens with the unmeasured hatched,
+errors ringed, rewards ticked above or below with the value estimate
+beside, evidence, the decisive and fault steps, the divergence rows and
+the milestones marked, the phases from the impact section as bands
+above, and the burn, the running reward and the sources read so far as
+three aligned tracks below; a phase opens alone, a step opens in full.
+**Replay**: play, a speed, a scrubber and the arrow keys walk the run
+with the state so far — tokens and their basis, seconds, sources read,
+evidence found, the reward, the last model that spoke — while the step
+block and the run's readings follow the playhead; replay is a view of
+recorded timings, never a re-execution, and says so. **The other run,
+aligned**: on a pair page the two strips share one axis with the
+alignment's matched steps joined and the divergences drawn as bands.
+**The readings gathered**: the run block's burn-down and search map,
+the chain and the provenance drawn into the view for the selected run,
+nothing redrawn.
 
 ## 5. The agentic loop
 
