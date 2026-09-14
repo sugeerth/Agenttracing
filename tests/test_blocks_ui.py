@@ -8831,3 +8831,584 @@ class CoevolutionBlocksTest(unittest.TestCase):
             page.wait_for_timeout(250)
         self.assertEqual(errors, [])
         context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class ChatViewTest(unittest.TestCase):
+    """The Chat view (37_chat.js): the page asked in plain words, on the four
+    outputs the repository's own commands write — a lineage with its
+    co-evolving eval (`coevolve`), a comparison of two lineages (`evolve
+    --against`), a training batch with no lineage (`runs`) and a pair batch
+    (`batch`).
+
+    What is checked is that every answer is templated over the report's own
+    fields — the eval's reasons come from the ledger, its lags from the
+    hindsight, its drift and gap from the integrity, the four axes from the
+    comparison's verdict — with the block the sentence cites drawn inside the
+    card and an "open in …" link that lands on the same selection; that a
+    question the router cannot map gets a "cannot answer" card and never an
+    invented number; that the transcript persists under one key and clears;
+    that the chips follow the data and the last answer; that the composer is
+    driven by the keyboard; and that the lane fits a phone with the console
+    clean across every view on every output.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        lineage = ROOT / "demo" / "evolve" / "lineage"
+        lineage_b = ROOT / "demo" / "evolve" / "lineage_b"
+        if not (lineage / "g0" / "agent.json").is_file() or not (lineage_b / "g0" / "agent.json").is_file():
+            raise unittest.SkipTest("no demo lineages to analyse")
+        cls.tmp = tempfile.TemporaryDirectory()
+        root = Path(cls.tmp.name)
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        template = ROOT / "web" / "blocks.html"
+
+        def run(name, *args):
+            out = root / name
+            done = subprocess.run([sys.executable, "-m", "deepcompare"] + list(args) + ["-o", str(out), "--template", str(template)],
+                                  cwd=str(ROOT), capture_output=True)
+            if done.returncode != 0 or not (out / "aggregate.json").is_file() or not (out / "report.html").is_file():
+                raise unittest.SkipTest(f"the {args[0]} command did not write a page: " + done.stderr.decode("utf-8", "replace")[-300:])
+            return out, json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
+
+        cls.cov_dir, cov_agg = run("cov", "coevolve", str(lineage))
+        cls.cmp_dir, cmp_agg = run("cmp", "evolve", str(lineage), "--against", str(lineage_b))
+        cls.train_dir, train_agg = run("train", "runs", str(ROOT / "demo" / "rl" / "train"))
+        cls.batch_dir, batch_agg = run("batch", "batch", str(ROOT / "demo" / "traces"))
+        cls.cov = cov_agg.get("coevolution") or {}
+        cls.evo = cov_agg.get("evolution") or {}
+        if not cls.cov.get("measurable") or not cls.evo.get("measurable"):
+            raise unittest.SkipTest("the demo lineage carries no measurable eval")
+        cls.cmp = cmp_agg.get("evolution_compare") or {}
+        cls.stats = ((train_agg.get("rl") or {}).get("stats")) or {}
+        cls.score = batch_agg.get("scorecard") or {}
+        cls.pair = json.loads(sorted(cls.cov_dir.glob("report_*.json"))[0].read_text(encoding="utf-8"))
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    # ------------------------------------------------------------- helpers
+
+    def _open(self, path=None, width=1280, reduced_motion=False):
+        context = self.browser.new_context(viewport={"width": width, "height": 1000},
+                                           reduced_motion="reduce" if reduced_motion else "no-preference")
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        # unfiltered: a warning from any block on the page is a failure here
+        page.on("console", lambda m: errors.append(m.type + ": " + m.text) if m.type in ("error", "warning") else None)
+        page.goto(f"file://{(path or self.cov_dir) / 'report.html'}#view=chat")
+        page.wait_for_timeout(900)
+        return context, page, errors
+
+    def _ask(self, page, q, wait=400):
+        page.fill(".chat-input", q)
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(wait)
+        return page.locator(".chat-turn").last
+
+    @staticmethod
+    def _text(row):
+        return " ".join(row.locator(".chat-a .chat-text").all_inner_texts())
+
+    @staticmethod
+    def _embed(row):
+        emb = row.locator(".chat-embed")
+        if not emb.count():
+            return None, None
+        return emb.first.get_attribute("data-embed"), emb.first.get_attribute("data-drawn")
+
+    @staticmethod
+    def _chips(page):
+        return page.evaluate("() => Array.from(document.querySelectorAll('.chat-composer .chat-chip')).map(b => b.textContent)")
+
+    #: the library's `fmt.num`: p places, trailing zeros dropped, a real minus sign
+    @staticmethod
+    def _num(v, p=2):
+        s = f"{v:.{p}f}"
+        if "." in s:
+            s = s.rstrip("0").rstrip(".")
+        return s.replace("-", "−")
+
+    #: the library's `fmt.pct`: whole points, rounded half up
+    @staticmethod
+    def _pct(v):
+        import math
+        return f"{int(math.floor(v * 100 + 0.5))}%"
+
+    def _key(self, s):
+        return f"{s['from']}→{s['to']}"
+
+    def _rows(self, spec_id):
+        return [r for r in self.cov["ledger"] if r.get("spec_id") == spec_id]
+
+    def _most_rejected(self):
+        counts = {}
+        for r in self.cov["ledger"]:
+            if r.get("decision") == "rejected":
+                counts[r["spec_id"]] = counts.get(r["spec_id"], 0) + 1
+        return max(counts, key=counts.get) if counts else None
+
+    # ------------------------------------------------------------ the lane
+
+    def test_the_chat_lane_holds_one_block_with_a_log_a_composer_and_a_welcome_turn(self):
+        context, page, errors = self._open()
+        self.assertEqual(page.evaluate("() => Array.from(document.querySelectorAll('#stacks .block')).map(b => b.getAttribute('data-block'))"), ["chat"])
+        self.assertEqual(page.locator('.chat-log[role="log"][aria-live="polite"]').count(), 1)
+        self.assertEqual(page.locator('.chat-input[aria-label="Ask the page"]').count(), 1)
+        self.assertEqual(page.locator(".chat-turn").count(), 1)
+        first = page.locator(".chat-turn").first
+        self.assertEqual(first.locator(".chat-speaker").inner_text().strip().lower(), ("the eval · " + self.cov["family"]).lower())
+        text = self._text(first)
+        self.assertIn(self.cov["family"], text)
+        self.assertIn(self.cov["eval_generations"][-1]["id"], text)
+        self.assertIn(str(self.cov["integrity"]["multiplicity"]["tested"]), text)
+        if self.cov.get("synthetic"):
+            self.assertIn("SYNTHETIC", text)
+        chips = self._chips(page)
+        self.assertGreaterEqual(len(chips), 4)
+        self.assertIn("what did you learn?", chips)
+        self.assertEqual(page.locator("#stacks .block .empty:visible").count(), 0)
+        self.assertEqual(errors, [])
+        context.close()
+        # a batch with no lineage: the page speaks, with the batch's own chips
+        context, page, errors = self._open(self.batch_dir)
+        first = page.locator(".chat-turn").first
+        self.assertEqual(first.locator(".chat-speaker").inner_text().strip().lower(), "the page")
+        self.assertNotIn("what did you learn?", self._chips(page))
+        self.assertIn("which agent is better?", self._chips(page))
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ------------------------------------------------------- the eval layer
+
+    def test_the_eval_says_what_it_learned_with_the_ledgers_reasons_and_embeds_the_loop(self):
+        context, page, errors = self._open()
+        row = self._ask(page, "what did you learn?")
+        self.assertEqual(row.get_attribute("data-intent"), "eval-learned")
+        text = self._text(row)
+        for e in self.cov["eval_generations"][1:]:
+            for mid in e.get("adopted", []):
+                self.assertIn(mid, text)
+                self.assertIn(e["after_step"], text)
+                adopted = [r for r in self._rows(mid) if r["decision"] == "adopted" and r["step"] == e["after_step"]]
+                self.assertTrue(adopted, mid)
+                self.assertIn(adopted[0]["reason"], text)
+        mu = self.cov["integrity"]["multiplicity"]
+        self.assertIn(f"tested {mu['tested']} candidates, adopted {mu['adopted']} and rejected {mu['rejected']}", text)
+        self.assertEqual(self._embed(row), ("cov-flow", "true"))
+        svg = row.locator(".chat-embed svg").first
+        self.assertTrue(svg.get_attribute("aria-label"))
+        # the sources fold is closed, so its paths are read as text content
+        self.assertIn("aggregate.coevolution.eval_generations[]", page.evaluate("() => Array.from(document.querySelectorAll('.chat-turn:last-child .chat-sources li')).map(l => l.textContent)"))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_eval_explains_a_rejection_from_the_ledger_and_opens_the_candidate_level(self):
+        cand = self._most_rejected()
+        self.assertIsNotNone(cand)
+        rejected = [r for r in self._rows(cand) if r["decision"] == "rejected"]
+        context, page, errors = self._open()
+        row = self._ask(page, f"why did you reject {cand}?")
+        self.assertEqual(row.get_attribute("data-intent"), "eval-rejected")
+        text = self._text(row)
+        self.assertIn(cand, text)
+        for r in rejected:
+            self.assertIn(r["step"], text)
+            self.assertIn(r["reason"], text)
+            for v in r["failed"]:
+                self.assertIn(v, text)
+        state = page.evaluate("() => AgentDiff.coevolution.state()")
+        self.assertEqual(state["level"], "candidate")
+        self.assertEqual(state["candidate"], rejected[-1]["index"])
+        self.assertEqual(self._embed(row), ("cov-flow", "true"))
+        self.assertEqual(row.locator(".cov-stage").get_attribute("data-level"), "candidate")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_hindsight_trust_and_the_recommendation_read_their_sections(self):
+        context, page, errors = self._open()
+        row = self._ask(page, "what would you have caught earlier?")
+        self.assertEqual(row.get_attribute("data-intent"), "eval-hindsight")
+        text = self._text(row)
+        h = self.cov["hindsight"]
+        for mid, c in h["caught_at"].items():
+            self.assertIn(mid, text)
+            if c.get("lag") is not None:
+                self.assertIn(f"lag {c['lag']}", text)
+            if c.get("note"):
+                self.assertIn(c["note"], text)
+        self.assertIn(f"{h['changed']} changed verdict", text)
+        self.assertEqual(self._embed(row), ("cov-hindsight", "true"))
+
+        row = self._ask(page, "do you trust yourself?")
+        self.assertEqual(row.get_attribute("data-intent"), "eval-trust")
+        text = self._text(row)
+        g = self.cov["integrity"]
+        self.assertIn(self._num(g["drift"]["jaccard_distance_from_base"]), text)
+        self.assertIn(f"tested {g['multiplicity']['tested']}, adopted {g['multiplicity']['adopted']}, rejected {g['multiplicity']['rejected']}", text)
+        self.assertIn(self._num(g["multiplicity"]["min_adjusted_alpha"], 4), text)
+        self.assertIn(g["gap"], text)
+        for mid in g.get("retired", []) + g.get("unconfirmed", []):
+            self.assertIn(mid, text)
+        self.assertEqual(self._embed(row), ("cov-integrity", "true"))
+
+        row = self._ask(page, "which generation should I keep?")
+        self.assertEqual(row.get_attribute("data-intent"), "eval-keep")
+        text = self._text(row)
+        r = self.cov["recommended"]
+        self.assertIn(f"Keep {r['evolved'] or r['base']}", text)
+        self.assertIn(r["why"], text)
+        for gen, whys in (r.get("excluded", {}).get("evolved") or {}).items():
+            self.assertIn(gen, text)
+            for w in whys:
+                self.assertIn(w, text)
+        self.assertEqual(self._embed(row)[0], "evo-lineage")
+        self.assertEqual(page.evaluate("() => AgentDiff.evolution.state().gen"), r["evolved"] or r["base"])
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_metric_the_probes_and_a_step_are_answered_in_the_evals_voice(self):
+        adopted = [m for e in self.cov["eval_generations"][1:] for m in e.get("adopted", [])]
+        mid = adopted[0]
+        context, page, errors = self._open()
+        row = self._ask(page, f"what does {mid} say?")
+        self.assertEqual(row.get_attribute("data-intent"), "eval-metric")
+        text = self._text(row)
+        self.assertIn(mid, text)
+        for gen, cell in self.cov["matrix"][mid].items():
+            if cell.get("measurable") is not False:
+                self.assertIn(f"{gen} {self._num(cell['point'])} [{self._num(cell['lo'])}, {self._num(cell['hi'])}]", text)
+        self.assertEqual(page.evaluate("() => AgentDiff.coevolution.state().metric"), mid)
+        self.assertEqual(self._embed(row), ("cov-metric", "true"))
+
+        row = self._ask(page, "which probes fired?")
+        self.assertEqual(row.get_attribute("data-intent"), "eval-probes")
+        text = self._text(row)
+        for p in self.cov["probes"]:
+            self.assertIn(p["name"], text)
+            if p.get("fired"):
+                self.assertIn(", ".join(p["fired"]), text)
+                self.assertIn(f"proposed {p['proposed']}, adopted {p['adopted']}", text)
+        self.assertEqual(self._embed(row), ("cov-probes", "true"))
+
+        step = [s for s in self.evo["steps"] if s.get("verdict") == "gamed"][0]
+        key = self._key(step)
+        row = self._ask(page, f"what did the agent do at {key}?")
+        self.assertEqual(row.get_attribute("data-intent"), "eval-saw")
+        text = self._text(row)
+        self.assertIn(step["diff"]["summary"], text)
+        self.assertIn(step["verdict"], text)
+        self.assertIn(self._pct(step["effect"]["improvement"]["point"]), text)
+        cov_step = [s for s in self.cov["steps"] if s["from"] == step["from"] and s["to"] == step["to"]][0]
+        self.assertIn(cov_step["evolved"]["reading"], text)
+        state = page.evaluate("() => AgentDiff.coevolution.state()")
+        self.assertEqual((state["step"], state["level"]), (key, "step"))
+        self.assertEqual(self._embed(row), ("cov-flow", "true"))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_comparison_answers_on_the_four_axes_and_for_both_evals(self):
+        if not self.cmp.get("measurable"):
+            raise unittest.SkipTest("the demo comparison is not measurable")
+        other = [l["family"] for l in self.cmp["lineages"] if l["family"] != self.cov["family"]][0]
+        context, page, errors = self._open(self.cmp_dir)
+        self.assertIn(f"compare with {other}", self._chips(page))
+        row = self._ask(page, f"compare with {other}", 600)
+        self.assertEqual(row.get_attribute("data-intent"), "eval-compare")
+        text = self._text(row)
+        self.assertIn(self.cmp["verdict"]["reading"], text)
+        self.assertIn("No winner is declared without its axis", text)
+        for fam, p in self.cmp["process"].items():
+            self.assertIn(f"{fam} {p['improved']} improved, {p['regressed']} regressed, {p['flat']} flat, {p['gamed']} gamed", text)
+        evals = self.cmp.get("evals")
+        if evals and evals.get("measurable") is not False and evals.get("lineages"):
+            for l in evals["lineages"]:
+                self.assertIn(f"{l['eval_generations']} eval generation", text)
+                if l.get("adopted"):
+                    self.assertIn(", ".join(l["adopted"]), text)
+                else:
+                    self.assertIn("adopting nothing", text)
+                self.assertIn(f"{l['tested']} tested, {l['rejected']} rejected, drift {self._num(l['drift'])}", text)
+            for t in evals.get("transfer", []):
+                self.assertIn(f"{t['metric']} learned on {t['learned_on']}, applied to {t['applied_to']}", text)
+            if evals.get("reading"):
+                self.assertIn(evals["reading"], page.evaluate("() => Array.from(document.querySelectorAll('.chat-turn:last-child .chat-more .chat-text')).map(p => p.textContent).join(' ')"))
+        else:
+            self.assertIn("not in this report", text)
+        self.assertEqual(self._embed(row), ("evc-verdict", "true"))
+        for q in ("who evolved better?", "which agent is better?"):
+            self.assertEqual(self._ask(page, q).get_attribute("data-intent"), "eval-compare")
+        self.assertEqual(errors, [])
+        context.close()
+
+    # -------------------------------------------------------- the dashboard
+
+    def test_every_dashboard_question_embeds_the_block_it_cites(self):
+        step = [s for s in self.evo["steps"] if s.get("verdict") == "gamed"][0]
+        key = self._key(step)
+        context, page, errors = self._open()
+        row = self._ask(page, "show the timescape")
+        self.assertEqual(row.get_attribute("data-intent"), "show")
+        self.assertEqual(self._embed(row), ("evo-timescape", "true"))
+        self.assertTrue(row.locator(".chat-embed svg").first.get_attribute("aria-label"))
+        self.assertEqual(row.locator("[data-goto]").inner_text(), "open in Evolution")
+
+        row = self._ask(page, f"what changed at {key}?")
+        self.assertEqual(row.get_attribute("data-intent"), "evo-changed")
+        self.assertIn(step["diff"]["summary"], self._text(row))
+        self.assertEqual(self._embed(row), ("evo-step", "true"))
+        self.assertEqual(page.evaluate("() => AgentDiff.evolution.state().gen"), step["to"])
+
+        row = self._ask(page, f"did {key} help?")
+        self.assertEqual(row.get_attribute("data-intent"), "evo-helped")
+        imp = step["effect"]["improvement"]
+        self.assertIn(f"{self._pct(imp['point'])} [{self._pct(imp['lo'])}, {self._pct(imp['hi'])}]", self._text(row))
+        self.assertIn(step["reading"], self._text(row))
+
+        row = self._ask(page, "where did the time go?")
+        self.assertEqual(row.get_attribute("data-intent"), "cost")
+        self.assertIn(self.pair["tradeoff"]["statement"], self._text(row))
+        self.assertIn(self._embed(row)[0], ("time", "impact", "treemap", "deltas"))
+        self.assertEqual(self._embed(row)[1], "true")
+
+        row = self._ask(page, "show the tools")
+        self.assertEqual(row.get_attribute("data-intent"), "tools")
+        for side in ("a", "b"):
+            tp = self.pair["tools_profile"][side]
+            for name, t in (tp.get("tools") or {}).items():
+                self.assertIn(f"{name} ×{t['calls']}", self._text(row))
+        self.assertEqual(self._embed(row)[0], "tool-behaviour")
+
+        row = self._ask(page, "what happened?")
+        self.assertEqual(row.get_attribute("data-intent"), "verdict")
+        self.assertIn(self.pair["verdict_card"]["lines"][0]["text"], self._text(row))
+        self.assertEqual(self._embed(row)[0], "verdict-card")
+
+        row = self._ask(page, "what can you answer?")
+        self.assertEqual(row.get_attribute("data-intent"), "help")
+        n = page.evaluate("() => AgentDiff.catalogue().length")
+        self.assertIn(f"{n} blocks", self._text(row))
+        self.assertEqual(row.locator(".chat-group .chat-chip").count(), n)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_training_batch_and_a_pair_batch_answer_without_the_eval(self):
+        context, page, errors = self._open(self.train_dir)
+        row = self._ask(page, "which policy is better?")
+        self.assertEqual(row.get_attribute("data-intent"), "better")
+        text = self._text(row)
+        for pol in self.stats["policies"]:
+            a = self.stats["aggregates"][pol]["iqm"]
+            self.assertIn(f"{pol}: IQM {self.stats['metric_label']} {self._num(a['point'])} [{self._num(a['lo'])}, {self._num(a['hi'])}]", text)
+        imp = self.stats["improvement"]
+        self.assertIn(f"P({imp['b']} > {imp['a']}) {self._pct(imp['point'])} [{self._pct(imp['lo'])}, {self._pct(imp['hi'])}]", text)
+        self.assertIn(imp["reading"], text)
+        self.assertEqual(self._embed(row), ("rl-stats-improvement", "true"))
+        row = self._ask(page, "what did you learn?")
+        self.assertEqual(row.locator(".chat-a.cannot").count(), 1)
+        self.assertIn("no self-evolving", self._text(row))
+        self.assertEqual(errors, [])
+        context.close()
+
+        context, page, errors = self._open(self.batch_dir)
+        row = self._ask(page, "which agent is better?")
+        self.assertEqual(row.get_attribute("data-intent"), "better")
+        for name, a in self.score["agents"].items():
+            s = a["rates"]["success"]
+            self.assertIn(f"{name} solved {s['successes']} of {s['runs']} ({self._pct(s['rate'])} [{self._pct(s['ci95'][0])}, {self._pct(s['ci95'][1])}])", self._text(row))
+        self.assertEqual(self._embed(row), ("scorecard", "true"))
+        row = self._ask(page, "which generation should I keep?")
+        self.assertEqual(row.locator(".chat-a.cannot").count(), 1)
+        self.assertIn("no self-evolving lineage", self._text(row))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_question_the_router_cannot_map_gets_a_cannot_card_with_three_intents(self):
+        context, page, errors = self._open()
+        row = self._ask(page, "what is the weather like")
+        self.assertEqual(row.get_attribute("data-intent"), "cannot")
+        self.assertEqual(row.locator(".chat-a.cannot").count(), 1)
+        self.assertIn("can't answer that from this report", self._text(row))
+        self.assertIsNone(self._embed(row)[0])
+        self.assertEqual(len(self._chips(page)), 4)   # the three nearest intents and the help chip
+        self.assertFalse(any(ch.isdigit() for ch in self._text(row).replace("report", "")))
+        # a lineage without a comparison says so rather than inventing the other agent
+        row = self._ask(page, "compare with the other agent")
+        self.assertEqual(row.locator(".chat-a.cannot").count(), 1)
+        self.assertIn("no second lineage", self._text(row))
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ---------------------------------------------------------- navigation
+
+    def test_open_in_switches_the_view_and_lands_on_the_selection(self):
+        adopted = [m for e in self.cov["eval_generations"][1:] for m in e.get("adopted", [])][-1]
+        context, page, errors = self._open()
+        row = self._ask(page, f"what does {adopted} say?")
+        row.locator("[data-goto]").click()
+        page.wait_for_timeout(600)
+        self.assertEqual(page.evaluate("() => AgentDiff.state().prefs.view"), "coevolution")
+        self.assertEqual(page.evaluate("() => AgentDiff.coevolution.state().metric"), adopted)
+        self.assertEqual(page.locator('#stacks [data-block="cov-metric"]').count(), 1)
+        page.locator('#view-tabs [data-view="chat"]').click()
+        page.wait_for_timeout(500)
+        step = self.evo["steps"][-1]
+        row = self._ask(page, f"what changed at {self._key(step)}?")
+        row.locator("[data-goto]").click()
+        page.wait_for_timeout(600)
+        self.assertEqual(page.evaluate("() => AgentDiff.state().prefs.view"), "evolution")
+        self.assertEqual(page.evaluate("() => AgentDiff.evolution.state().gen"), step["to"])
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_transcript_persists_under_one_key_and_clears(self):
+        context, page, errors = self._open()
+        self._ask(page, "what did you learn?")
+        self._ask(page, "which probes fired?")
+        page.reload()
+        page.wait_for_timeout(1200)
+        self.assertEqual(page.evaluate("() => AgentDiff.chat.turns()"), [None, "what did you learn?", "which probes fired?"])
+        self.assertEqual(page.locator(".chat-turn").count(), 3)
+        saved = page.evaluate("() => AgentDiff._internals.Store.get('agentdiff:chat')")
+        self.assertEqual([t["q"] for t in saved["turns"]], [None, "what did you learn?", "which probes fired?"])
+        # the answers are recomputed from the report, not stored
+        self.assertNotIn("text", saved["turns"][1])
+        self.assertIn(self.cov["probes"][0]["name"], self._text(page.locator(".chat-turn").last))
+        page.locator('[data-role="clear"]').click()
+        page.wait_for_timeout(500)
+        self.assertEqual(page.locator(".chat-turn").count(), 1)
+        self.assertEqual(page.evaluate("() => AgentDiff.chat.turns()"), [None])
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_later_selection_folds_the_older_embed_of_the_same_family(self):
+        cand = self._most_rejected()
+        context, page, errors = self._open()
+        self._ask(page, "what did you learn?")
+        self._ask(page, f"why did you reject {cand}?")
+        embeds = page.evaluate("() => Array.from(document.querySelectorAll('.chat-embed')).map(e => e.dataset.embed + ':' + e.dataset.drawn)")
+        self.assertEqual(embeds, ["cov-flow:deferred", "cov-flow:true"])
+        button = page.locator('.chat-embed[data-drawn="deferred"] [data-role="draw"]')
+        self.assertIn("at this answer's selection", button.inner_text())
+        button.click()
+        page.wait_for_timeout(500)
+        self.assertEqual(page.evaluate("() => AgentDiff.coevolution.state().level"), "loop")
+        self.assertEqual(page.locator('.chat-embed[data-embed="cov-flow"]').first.locator(".cov-stage").get_attribute("data-level"), "loop")
+        self.assertEqual(page.locator('.chat-embed[data-embed="cov-flow"]').last.get_attribute("data-drawn"), "deferred")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_chips_follow_the_data_and_the_last_answer(self):
+        context, page, errors = self._open()
+        before = self._chips(page)
+        self.assertIn(f"why did you reject {self._most_rejected()}?", before)
+        self.assertIn("which generation should I keep?", before)
+        self._ask(page, "what would you have caught earlier?")
+        after = self._chips(page)
+        self.assertNotEqual(before, after)
+        self.assertIn("do you trust yourself?", after)
+        page.locator(".chat-composer .chat-chip").first.click()
+        page.wait_for_timeout(400)
+        self.assertEqual(page.locator(".chat-turn").last.locator(".chat-q").inner_text(), after[0])
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_composer_is_driven_by_the_keyboard(self):
+        context, page, errors = self._open()
+        page.locator(".chat-input").focus()
+        page.keyboard.type("which probes fired?")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(400)
+        self.assertEqual(page.locator(".chat-turn").last.get_attribute("data-intent"), "eval-probes")
+        self.assertEqual(page.locator(".chat-input").input_value(), "")
+        page.keyboard.type("dra")
+        page.keyboard.press("ArrowUp")
+        self.assertEqual(page.locator(".chat-input").input_value(), "which probes fired?")
+        page.keyboard.press("ArrowDown")
+        self.assertEqual(page.locator(".chat-input").input_value(), "dra")
+        page.keyboard.press("Escape")
+        self.assertEqual(page.locator(".chat-input").input_value(), "")
+        # the answer cards and every control in them are reachable by Tab
+        self.assertEqual(page.locator('.chat-a[tabindex="0"]').count(), 2)
+        page.locator(".chat-turn").last.locator(".chat-a").focus()
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate("() => document.activeElement.getAttribute('data-goto')"), "cov-probes")
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ------------------------------------------------------- phone, budget
+
+    def test_the_chat_fits_a_phone_with_no_text_under_11px_and_every_view_stays_clean(self):
+        for width in (390, 360):
+            with self.subTest(width=width):
+                context, page, errors = self._open(width=width)
+                for q in ("what did you learn?", "do you trust yourself?", "show the timescape", "what can you answer?"):
+                    self._ask(page, q, 500)
+                self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth"), 1)
+                clipped = page.evaluate("""() => Array.from(document.querySelectorAll('.chat-embed')).filter(e => e.scrollWidth > e.clientWidth + 2 && getComputedStyle(e).overflowX !== 'auto').map(e => e.dataset.embed)""")
+                self.assertEqual(clipped, [])
+                small = page.evaluate("""() => { const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); let n = 0, node;
+                    while ((node = w.nextNode())) { if (!node.textContent.trim()) continue; const el = node.parentElement; if (!el) continue;
+                    if (parseFloat(getComputedStyle(el).fontSize) < 11) n++; } return n; }""")
+                self.assertEqual(small, 0)
+                self.assertEqual(page.locator("#stacks .block .empty:visible").count(), 0)
+                self.assertEqual(errors, [])
+                context.close()
+        # every view the shell has, on every output, with a transcript in place: the console stays clean
+        for path in (self.cov_dir, self.cmp_dir, self.train_dir, self.batch_dir):
+            with self.subTest(output=path.name):
+                context, page, errors = self._open(path)
+                self._ask(page, "what can you answer?")
+                self._ask(page, "where did the time go?")
+                views = page.evaluate("() => Array.from(document.querySelectorAll('#view-tabs [data-view]')).map(t => t.dataset.view)")
+                self.assertIn("chat", views)
+                for view in views + ["chat"]:
+                    page.locator(f'#view-tabs [data-view="{view}"]').click()
+                    page.wait_for_timeout(300)
+                self.assertEqual(page.locator(".chat-turn").count(), 3)
+                self.assertEqual(page.locator("#stacks .block .empty:visible").count(), 0)
+                self.assertEqual(errors, [])
+                context.close()
+
+    def test_an_answer_with_the_loop_embedded_draws_within_the_budget_and_the_transcript_is_capped(self):
+        context, page, errors = self._open(width=1440)
+        row = self._ask(page, "what did you learn?")
+        self.assertLess(float(row.get_attribute("data-answer-ms")), 200)
+        self.assertEqual(self._embed(row), ("cov-flow", "true"))
+        # the cap: sixty turns kept, the latest six embeds live, the rest drawn on demand
+        page.evaluate("""() => { const S = AgentDiff._internals.Store; const src = S.get('agentdiff:chat').source;
+            const qs = ['what did you learn?', 'do you trust yourself?', 'what would you have caught earlier?', 'show the timescape', 'where did the time go?', 'which probes fired?'];
+            S.set('agentdiff:chat', {turns: [{q: null}].concat(Array.from({length: 70}, (_, i) => ({q: qs[i % qs.length]}))), source: src}); }""")
+        page.reload()
+        page.wait_for_timeout(1500)
+        self.assertEqual(page.locator(".chat-turn").count(), 60)
+        self.assertLessEqual(page.locator('.chat-embed[data-drawn="true"]').count(), 6)
+        self.assertGreater(page.locator('.chat-embed[data-drawn="deferred"]').count(), 40)
+        ms = page.evaluate("() => { const t0 = performance.now(); AgentDiff._rerender(); return performance.now() - t0; }")
+        self.assertLess(ms, 1000)
+        page.locator('.chat-embed[data-drawn="deferred"] [data-role="draw"]').first.click()
+        page.wait_for_timeout(400)
+        self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth"), 1)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_reduced_motion_adds_a_turn_without_a_transition(self):
+        context, page, errors = self._open(reduced_motion=True)
+        row = self._ask(page, "what did you learn?", 50)
+        self.assertEqual(page.evaluate("() => getComputedStyle(document.querySelector('.chat-turn.new')).animationName"), "none")
+        self.assertEqual(errors, [])
+        context.close()
