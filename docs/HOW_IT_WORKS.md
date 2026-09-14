@@ -103,7 +103,7 @@ scorecard (§6).
 ## 4. What the page draws, and how to read it
 
 The page is one file (`web/blocks.html`, built from `web/blocks/*.js`)
-with seven views. The **Story** is a numbered sequence:
+with nine views. The **Story** is a numbered sequence:
 
 1. **What happened** — the reading as charts.
 2. **Where the time went** — one strip per run along wall-clock, every
@@ -361,6 +361,41 @@ tested against the adjusted level, what was demoted, retired and never
 confirmed, and the gap sentence — a fooled grader fools every metric in
 this vocabulary. On the demo lineage the eval learned a verification
 rate at the gamed step, and both readings recommend the same generation.
+
+The **Chat** view is the first tab, the page asked in plain words
+(`web/blocks/37_chat.js`). Two layers. Every block the page has is
+reachable by asking — "show the timescape", "which policy is better",
+"what changed at g2→g3" — and the answer is a card: a sentence or two
+from the engine's own reading, the block drawn inside the card, and a
+link that opens it in its view with the same selection. For a lineage
+the self-evolving eval answers for itself: what it learned and when,
+why it rejected what it rejected, what it would have caught earlier,
+whether it trusts itself, which generation to keep, and how the other
+self-evolving agent compares on the four axes and what its eval
+learned. Every sentence is templated from the engine's numbers with
+its JSON path in a sources fold; nothing is generated, no model is
+called, and a question the router cannot map gets a plain "not in this
+report" with the nearest questions it can answer. Suggestion chips
+change with the data and with the last answer; the transcript persists
+per page.
+
+The **Levels** view is the second tab, the three levels of grain a
+bundle indexes (`web/blocks/38_levels.js`, `docs/API.md`). **The
+overview**: which agents are running, which are self-evolving, their
+eval loops with the closures counted, runs and success with its
+interval, tokens with the measured share, cost when recorded, seconds
+and fetches, the SYNTHETIC share stated. **The runs**: every run as a
+row in a virtualised table — outcome, steps, tool calls by tool, tokens
+measured against estimated, cost, seconds, fetches, errors, repeats —
+sortable and filtered by agent, task and outcome; a click opens the
+run. **The run**: the token burn-down step by step coloured by step
+kind with the estimated part hatched, where the budget went by kind and
+by tool, the waste after the last recorded evidence shaded, and the
+search map — each query, what it yielded, what was read, and which
+fetches reached the answer, drawn only where the use is recorded and
+counted where it is not. On a plain output the view derives the first
+two levels from the `budget` and `fetches` sections and says what a
+plain page cannot show.
 
 ## 5. The agentic loop
 
