@@ -853,7 +853,7 @@ def _eval_summary(view: dict, co: dict) -> dict:
             "closures": ((co.get("flow") or {}).get("summary") or {}).get("closures") or 0,
             "closures_learned": ((co.get("flow") or {}).get("summary") or {}).get("closures_learned") or 0,
             "hindsight_changed": (co.get("hindsight") or {}).get("changed") or 0,
-            "hindsight_lag_max": max(lags) if lags else None,
+            "hindsight_lag_max": max((lag for lag in lags if lag > 0), default=None),
             "recommended": {"base": rec.get("base"), "evolved": rec.get("evolved"), "agree": rec.get("agree")},
             "narrative": co.get("narrative")}
 
@@ -862,6 +862,25 @@ def _last_step(table: list) -> Optional[tuple]:
     """The last two generations of a feature table that carry episodes."""
     rows = [r for r in table if r["episodes"]]
     return (rows[-2], rows[-1]) if len(rows) >= 2 else None
+
+
+def _spec_tools(spec: dict) -> list:
+    """The ``uses:<tool>`` features a spec reads: its feature and its filter's."""
+    where = spec.get("where")
+    predicates = [] if where is None else (list(where["all"]) if "all" in where else [where])
+    names = [spec.get("feature")] + [p.get("feature") for p in predicates]
+    return [f for f in names if isinstance(f, str) and f.startswith("uses:")]
+
+
+def _with_tools(spec: dict, episodes: list) -> list:
+    """The episodes with every ``uses:<tool>`` feature the spec reads
+    present — 0 where the episode's lineage never called the tool, which
+    is what the vocabulary defines it as, so a transferred metric reads
+    the other lineage's episodes rather than finding them unreadable."""
+    tools = _spec_tools(spec)
+    if not tools:
+        return episodes
+    return [dict(e, values=dict(e["values"], **{f: 0 for f in tools if f not in e["values"]})) for e in episodes]
 
 
 def _transfer(views: list, cos: list, tables: list, samples: int) -> list:
@@ -890,7 +909,8 @@ def _transfer(views: list, cos: list, tables: list, samples: int) -> list:
                 else:
                     parent, child = step
                     row["step"] = f"{parent['id']}→{child['id']}"
-                    d = metric_delta(spec, parent["episodes"], child["episodes"], samples, EVAL_ALPHA)
+                    d = metric_delta(spec, _with_tools(spec, parent["episodes"]), _with_tools(spec, child["episodes"]),
+                                     samples, EVAL_ALPHA)
                     row["measurable"] = bool(d.get("measurable"))
                     row["reason"] = d.get("reason")
                     if d.get("measurable"):

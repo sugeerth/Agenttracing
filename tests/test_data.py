@@ -460,7 +460,10 @@ class DemoLineageTest(unittest.TestCase):
         self.assertIn("run_check −237", s["reading"])
         self.assertIn("the evolved eval flags verified_rate (−1) and frugal_pass_rate (−0.52)", s["reading"])
         self.assertIn("it advanced to e1 after this step", s["reading"])
-        self.assertEqual([x["eval"]["eval_gen"] for x in d["steps"]], [None, None, "e1", "e2", None, "e3"])
+        # at 20 draws an interval is the draws' min and max; under the key-seeded stream both forgetting candidates
+        # clear zero at g4→g5 (worst_task_pass −0.6 [−0.8, −0.2], pass_task_spread +0.6 [0.2, 0.6]), so the eval
+        # advances there too — at the demo's 2000 draws it does not (tests/test_coevolve.py pins that)
+        self.assertEqual([x["eval"]["eval_gen"] for x in d["steps"]], [None, None, "e1", "e2", "e3", "e4"])
         self.assertEqual([x["effect"]["verdict"] for x in d["steps"]], ["traded", "flat", "gamed", "improved", "forgot", "traded"])
         self.assertEqual([x["behaviour"]["sources_after"] for x in d["steps"]], [130, 164, 148, 142, 141, 140])
         self.assertEqual(d["steps"][5]["behaviour"]["grounded_after"], 0.8)

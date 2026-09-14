@@ -219,6 +219,8 @@ class Server:
         rid = message.get("id")
         method = message.get("method")
         is_notification = "id" not in message
+        if message.get("jsonrpc") != "2.0":
+            return _error(rid, INVALID_REQUEST, 'a request carries "jsonrpc": "2.0"')
         if not isinstance(method, str):
             return None if is_notification else _error(rid, INVALID_REQUEST, "a request names a method")
         try:
@@ -269,7 +271,8 @@ class Server:
 
     def handle_line(self, line: str) -> list:
         """The response lines for one input line: none for a blank line
-        or a notification, one per request in a batch."""
+        or a notification, one per request in a batch; an empty batch is
+        an invalid request, answered as JSON-RPC says."""
         line = line.strip()
         if not line:
             return []
@@ -277,6 +280,8 @@ class Server:
             message = json.loads(line)
         except ValueError as exc:
             return [json.dumps(_error(None, PARSE_ERROR, f"not JSON: {exc}"), ensure_ascii=False)]
+        if isinstance(message, list) and not message:
+            return [json.dumps(_error(None, INVALID_REQUEST, "an empty batch"), ensure_ascii=False)]
         messages = message if isinstance(message, list) else [message]
         out = []
         for m in messages:

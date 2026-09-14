@@ -18,6 +18,7 @@ no timestamp and no model identifier anywhere in the index.
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import io
 import json
@@ -25,6 +26,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -107,7 +109,36 @@ class BuildTest(unittest.TestCase):
             self.assertEqual(_files(Path(one)), _files(Path(two)))
             self.assertEqual(a["id"], bundle.digest(members))
             self.assertTrue(a["id"].startswith("sha256:"))
-            self.assertEqual(bundle.verify(one), {"id": a["id"], "recomputed": a["id"], "match": True})
+            self.assertEqual(bundle.verify(one), {"id": a["id"], "recomputed": a["id"], "match": True,
+                                                  "records_digest": a["records_digest"], "records_recomputed": a["records_digest"],
+                                                  "records_match": True, "records_reason": None})
+            self.assertEqual(a["records_digest"], b["records_digest"])
+            self.assertTrue(a["records_digest"].startswith("sha256:") and a["records_digest"] != a["id"])
+
+    def test_rewriting_into_an_existing_bundle_directory_leaves_nothing_stale(self):
+        # finding 1: members/, runs/ and traces/ were only added to, so a second write kept stale members and records
+        # and the bundle it had just written no longer verified
+        with tempfile.TemporaryDirectory() as tmp:
+            small_src = Path(tmp) / "batch"   # the batch output minus four of its eight reports
+            small_src.mkdir()
+            shutil.copyfile(batch_output() / "aggregate.json", small_src / "aggregate.json")
+            kept = sorted(batch_output().glob("report_*.json"))[:4]
+            for report in kept:
+                shutil.copyfile(report, small_src / report.name)
+            out = Path(tmp) / "x"
+            bundle.write_bundle([bundle.read_member(batch_output())], out, DEFAULT_TEMPLATE, name="demo")
+            (out / "traces" / "old").mkdir(parents=True)
+            (out / "traces" / "old" / "stale.json").write_text("{}", encoding="utf-8")
+            self.assertEqual(len(list((out / "runs").glob("*.json"))), 16)
+            info = bundle.write_bundle([bundle.read_member(small_src)], out, DEFAULT_TEMPLATE, name="demo")
+            check = bundle.verify(out)
+            self.assertTrue(check["match"], check)
+            self.assertTrue(check["records_match"], check)
+            self.assertEqual(sorted(p.name for p in (out / "members" / "0").glob("*.json")),
+                             ["aggregate.json"] + [r.name for r in kept])
+            self.assertEqual(len(list((out / "runs").glob("*.json"))), len(info["run_index"]))
+            self.assertFalse((out / "traces").exists(), "a stale traces/ directory is cleared too")
+            self.assertEqual(sorted(_files(out)), sorted(info["files"]), "every file on disk is one the manifest wrote")
 
     def test_the_demo_bundle_has_every_file_and_no_timestamp(self):
         root = demo_bundle()
@@ -405,6 +436,46 @@ class VerifyTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             bundle.verify(tempfile.mkdtemp())
 
+    def test_a_changed_run_record_or_trace_copy_is_a_records_mismatch_the_id_does_not_see(self):
+        # improvement 2: the id covers the members' content only; a tampered runs/<key>.json used to verify clean
+        with tempfile.TemporaryDirectory() as tmp:
+            copy = Path(tmp) / "b"
+            shutil.copytree(demo_bundle(), copy)
+            manifest = json.loads((copy / "bundle.json").read_text(encoding="utf-8"))
+            intact = bundle.verify(copy)
+            self.assertEqual((intact["match"], intact["records_match"], intact["records_reason"]), (True, True, None))
+            self.assertEqual(intact["records_digest"], manifest["records_digest"])
+            self.assertEqual(intact["records_recomputed"], manifest["records_digest"])
+            rel = next(iter(manifest["levels"]["run_index"].values()))
+            target = copy / rel
+            original = target.read_text(encoding="utf-8")
+            target.write_text(original.replace('"tokens":', '"tokens_TAMPERED":', 1), encoding="utf-8")
+            check = bundle.verify(copy)
+            self.assertTrue(check["match"], "the id still matches: the members are untouched")
+            self.assertFalse(check["records_match"])
+            self.assertIn("differs from what the manifest recorded", check["records_reason"])
+            self.assertNotEqual(check["records_recomputed"], check["records_digest"])
+            target.unlink()
+            check = bundle.verify(copy)
+            self.assertFalse(check["records_match"])
+            self.assertIn(f"missing from the bundle: {rel}", check["records_reason"])
+            target.write_text(original, encoding="utf-8")
+            self.assertTrue(bundle.verify(copy)["records_match"])
+            del manifest["records_digest"]
+            (copy / "bundle.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+            check = bundle.verify(copy)
+            self.assertEqual((check["records_digest"], check["records_match"]), (None, False))
+            self.assertEqual(check["records_reason"], "the manifest carries no records_digest")
+        with tempfile.TemporaryDirectory() as tmp:
+            copy = Path(tmp) / "full"
+            shutil.copytree(full_bundle(), copy)
+            trace = next(p for p in sorted((copy / "traces").rglob("*.json")))
+            self.assertTrue(bundle.verify(copy)["records_match"])
+            trace.write_bytes(trace.read_bytes() + b"\n")
+            check = bundle.verify(copy)
+            self.assertTrue(check["match"])
+            self.assertFalse(check["records_match"], "a copied trace is under the records digest")
+
 
 class KeyTest(unittest.TestCase):
     def test_the_key_round_trips_and_is_paste_safe(self):
@@ -444,6 +515,39 @@ class KeyTest(unittest.TestCase):
             with self.assertRaises(ValueError) as ctx:
                 bundle.decode_key(text)
             self.assertIn("not an AgentDiff key", str(ctx.exception))
+
+    def test_a_tampered_key_that_still_decodes_is_refused_with_a_reason_and_the_decode_is_capped(self):
+        # finding 5: decode_key checked only v and id, and `agentdiff key` crashed on the fields it then read
+        def key_of(payload):
+            return bundle.KEY_PREFIX + base64.urlsafe_b64encode(zlib.compress(bundle.canonical(payload), 9)).decode().rstrip("=")
+
+        cases = {"agents[0] is not an object with a name": {"v": 1, "id": "sha256:x", "agents": [{"runs": 1}]},
+                 "agents[0].runs is not an integer": {"v": 1, "id": "sha256:x", "agents": [{"name": "a", "runs": "1"}]},
+                 "agents is not a list": {"v": 1, "id": "sha256:x", "agents": "nope"},
+                 "lineages[0] is not an object with a family": {"v": 1, "id": "sha256:x", "lineages": [{"generations": 2}]},
+                 "lineages[0].eval_adopted is not a list of metric ids": {"v": 1, "id": "sha256:x", "lineages": [{"family": "f", "generations": 2, "eval_adopted": "x"}]},
+                 "truncated is not a count": {"v": 1, "id": "sha256:x", "truncated": "many"},
+                 "totals is not an object": {"v": 1, "id": "sha256:x", "totals": [1]},
+                 "locators is not a list of strings": {"v": 1, "id": "sha256:x", "locators": [1]},
+                 "name is not a string": {"v": 1, "id": "sha256:x", "name": 3}}
+        for reason, payload in cases.items():
+            with self.assertRaises(ValueError) as ctx:
+                bundle.decode_key(key_of(payload))
+            self.assertEqual(str(ctx.exception), f"not an AgentDiff key: {reason}")
+            code, _, err = _run(key_cmd, _key_parser().parse_args(["key", key_of(payload)]))
+            self.assertEqual(code, 2, reason)
+            self.assertIn(reason, err)
+        minimal = {"v": 1, "id": "sha256:x", "name": "n", "agents": [], "truncated": 0, "lineages": [], "totals": {}, "locators": []}
+        self.assertEqual(bundle.decode_key(key_of(minimal)), minimal)
+        big = key_of({"v": 1, "id": "x", "pad": "0" * 3_000_000})
+        with self.assertRaises(ValueError) as ctx:
+            bundle.decode_key(big)
+        self.assertIn(f"over the {bundle.KEY_MAX_BYTES} a key can be", str(ctx.exception))
+        bomb = key_of({"v": 1, "id": "x", "pad": "0" * 400_000})   # a few hundred bytes of text, 400 KB once inflated
+        self.assertLessEqual(len(bomb), bundle.KEY_MAX_BYTES)
+        with self.assertRaises(ValueError) as ctx:
+            bundle.decode_key(bomb)
+        self.assertIn(f"decompresses past {bundle.KEY_DECODED_MAX} bytes", str(ctx.exception))
 
 
 class CommandTest(unittest.TestCase):
@@ -485,6 +589,16 @@ class CommandTest(unittest.TestCase):
         code, out, _ = _run(key_cmd, _key_parser().parse_args(["key", key, "--bundle", str(root)]))
         self.assertEqual(code, 0)
         self.assertIn("match:", out)
+        self.assertIn("records: match", out)
+        with tempfile.TemporaryDirectory() as tmp:
+            copy = Path(tmp) / "b"
+            shutil.copytree(root, copy)
+            rel = next(iter(bundle.Bundle(copy).run_index.values()))
+            (copy / rel).write_text((copy / rel).read_text(encoding="utf-8").replace('"tokens":', '"t":', 1), encoding="utf-8")
+            code, out, _ = _run(key_cmd, _key_parser().parse_args(["key", key, "--bundle", str(copy)]))
+            self.assertEqual(code, 1, "the id matches, the records do not: exit 1")
+            self.assertIn("match:", out)
+            self.assertIn("records: mismatch", out)
         code, out, _ = _run(key_cmd, _key_parser().parse_args(["key", "--from", str(root)]))
         self.assertEqual(code, 0)
         self.assertTrue(out.startswith(key))

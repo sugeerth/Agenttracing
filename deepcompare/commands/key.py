@@ -5,8 +5,9 @@ carries; verify it against a bundle; or re-derive it from one.
     agentdiff key <key> --bundle DIR     # verify: recompute the bundle id, match or mismatch, then print
     agentdiff key --from DIR             # re-derive the key from a bundle
 
-A malformed key is an error with the reason, exit 2; a mismatch prints
-both ids and exits 1."""
+A malformed key — including one that decodes but does not carry the
+overview's shape — is an error with the reason, exit 2; a mismatch of
+the id or of the run records prints both digests and exits 1."""
 
 from __future__ import annotations
 
@@ -80,6 +81,12 @@ def run(args: argparse.Namespace) -> int:
             print(f"match: the bundle at {args.bundle} recomputes to {check['recomputed']}")
         else:
             print(f"mismatch: the key names {payload['id']}, the bundle claims {check['id']} and recomputes to {check['recomputed']}")
+            code = 1
+        if check["records_match"]:
+            print(f"records: match — runs/*.json and the copied traces recompute to {check['records_recomputed']}")
+        else:
+            print(f"records: mismatch — {check['records_reason']}; the manifest records {check['records_digest']}, "
+                  f"the bundle recomputes to {check['records_recomputed']}")
             code = 1
     print_overview(payload)
     return code

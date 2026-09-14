@@ -40,7 +40,7 @@ def register(subparsers) -> None:
                         help="native: <gen>/agent.json + <gen>/traces; flat: one runs directory with agents/<gen>.json")
     parser.add_argument("--metric", choices=("return", "discounted_return", "success", "steps", "seconds"),
                         default="return", help="the score the evolution section's IQM and improvement are computed on")
-    parser.add_argument("--samples", type=int, default=2000, help="bootstrap resamples per statistic")
+    parser.add_argument("--samples", type=int, default=2000, help="bootstrap resamples per statistic (at least 1: an interval is never a bare point)")
     parser.add_argument("--candidates", default=None, metavar="FILE.json",
                         help="external candidate metrics, a JSON list of {\"at\": \"<from>→<to>\" | null, "
                              "\"spec\": {...}, \"source\": \"...\"}; each goes through the validators")
@@ -77,6 +77,10 @@ def run(args: argparse.Namespace) -> int:
     Exit 2 on an unreadable input, 1 on a ``--fail-on`` hit, else 0."""
     from ..coevolve import coevolve, fail_on, proposal_briefs
     from ..evolve import lineage_batch, read_lineage
+    if args.samples < 1:
+        print(f"error: --samples must be at least 1, not {args.samples}: with no bootstrap draw every interval would be a "
+              "bare point", file=sys.stderr)
+        return 2
     lineage = read_lineage(args.lineage, layout=args.layout)
     if not lineage["measurable"]:
         print(f"error: {lineage['reason']}", file=sys.stderr)

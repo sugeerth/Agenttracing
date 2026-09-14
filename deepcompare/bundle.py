@@ -37,6 +37,12 @@ Three levels of grain are indexed from the members:
   ``steps_source: "trace <path relative to the bundle>"``. Without
   traces nothing changes.
 
+A second digest, ``records_digest``, covers what the id does not: the
+level-3 records under ``runs/`` and the copied traces; :func:`verify`
+recomputes both and reports ``match`` and ``records_match`` separately,
+so a tampered run record is noticed even though the id — the members'
+content — still matches.
+
 The key (``agentdiff1:…``) is the level-1 overview compressed into one
 paste-safe line that also names the bundle by its id: a tool holding the
 bundle can verify and open it; one that does not still knows what ran.
@@ -77,6 +83,8 @@ KEY_VERSION = 1
 KEY_MAX_BYTES = 2000
 #: how many agents a key names before it says how many more there were
 KEY_AGENTS = 12
+#: the most a key's payload may decompress to; a real payload is a few kilobytes
+KEY_DECODED_MAX = 64 * 1024
 #: how many runs the overview names as heaviest
 HEAVIEST = 8
 #: the keys of a pair report that are not sections
@@ -106,6 +114,18 @@ def digest(members: list) -> str:
         h.update(canonical(m["aggregate"]))
         for report in m["reports"]:
             h.update(canonical(report))
+    return "sha256:" + h.hexdigest()
+
+
+def records_digest(records: dict, traces: dict) -> str:
+    """``sha256:<hex>`` over the level-3 records (the canonical JSON of
+    ``{key: record}``) and the bytes of the copied traces (``{path in the
+    bundle: bytes}``, in path order) — what the id does not cover."""
+    h = hashlib.sha256()
+    h.update(canonical(records))
+    for rel in sorted(traces):
+        h.update(rel.encode("utf-8") + b"\n")
+        h.update(traces[rel])
     return "sha256:" + h.hexdigest()
 
 
@@ -752,10 +772,11 @@ def _encode(payload: dict) -> str:
 def encode_key(info: dict) -> str:
     """The key of a bundle: ``agentdiff1:<base64url(zlib(json))>`` of the
     level-1 overview and the id, kept under :data:`KEY_MAX_BYTES` by
-    naming at most :data:`KEY_AGENTS` agents and, past that, fewer, then
-    dropping the locators and the evals' adopted metrics — each drop
-    counted or nulled in the key, never silent. ``info`` is what
-    :func:`build` returns (``id``, ``name``, ``overview``, ``locators``)."""
+    naming at most :data:`KEY_AGENTS` agents and, past that, dropping the
+    locators first, then naming fewer agents one at a time, then dropping
+    the evals' adopted metrics — each drop counted or nulled in the key,
+    never silent. ``info`` is what :func:`build` returns (``id``, ``name``,
+    ``overview``, ``locators``)."""
     kept = min(KEY_AGENTS, len(info["overview"]["agents"]))
     locators, evals = True, True
     while True:
@@ -772,22 +793,77 @@ def encode_key(info: dict) -> str:
             raise ValueError(f"the key cannot be kept under {KEY_MAX_BYTES} bytes")
 
 
+def _check_key_payload(payload: Any) -> None:
+    """``ValueError`` unless ``payload`` has the shape :func:`_key_payload`
+    writes — every field the ``key`` command prints, of the type it
+    expects — so a tampered key that still decodes is refused with a
+    reason rather than crashing the reader."""
+    def bad(what: str) -> ValueError:
+        return ValueError(f"not an AgentDiff key: {what}")
+
+    if not isinstance(payload, dict) or payload.get("v") != KEY_VERSION or not isinstance(payload.get("id"), str):
+        raise bad("the payload is not a version-1 overview with an id")
+    if payload.get("name") is not None and not isinstance(payload["name"], str):
+        raise bad("name is not a string")
+    agents = payload.get("agents", [])
+    if not isinstance(agents, list):
+        raise bad("agents is not a list")
+    for i, a in enumerate(agents):
+        if not isinstance(a, dict) or not isinstance(a.get("name"), str):
+            raise bad(f"agents[{i}] is not an object with a name")
+        if not isinstance(a.get("runs"), int) or isinstance(a.get("runs"), bool):
+            raise bad(f"agents[{i}].runs is not an integer")
+        if a.get("success_rate") is not None and not isinstance(a["success_rate"], dict):
+            raise bad(f"agents[{i}].success_rate is not an object")
+        if a.get("tokens_total") is not None and not finite(a["tokens_total"]):
+            raise bad(f"agents[{i}].tokens_total is not a number")
+    truncated = payload.get("truncated", 0)
+    if not isinstance(truncated, int) or isinstance(truncated, bool) or truncated < 0:
+        raise bad("truncated is not a count")
+    lineages = payload.get("lineages", [])
+    if not isinstance(lineages, list):
+        raise bad("lineages is not a list")
+    for i, ln in enumerate(lineages):
+        if not isinstance(ln, dict) or not isinstance(ln.get("family"), str):
+            raise bad(f"lineages[{i}] is not an object with a family")
+        if not isinstance(ln.get("generations"), int) or isinstance(ln.get("generations"), bool):
+            raise bad(f"lineages[{i}].generations is not an integer")
+        if ln.get("recommended") is not None and not isinstance(ln["recommended"], str):
+            raise bad(f"lineages[{i}].recommended is not a string")
+        adopted = ln.get("eval_adopted")
+        if adopted is not None and not (isinstance(adopted, list) and all(isinstance(x, str) for x in adopted)):
+            raise bad(f"lineages[{i}].eval_adopted is not a list of metric ids")
+    if payload.get("totals") is not None and not isinstance(payload["totals"], dict):
+        raise bad("totals is not an object")
+    locators = payload.get("locators", [])
+    if not isinstance(locators, list) or not all(isinstance(x, str) for x in locators):
+        raise bad("locators is not a list of strings")
+
+
 def decode_key(text: str) -> dict:
     """The overview a key carries; ``ValueError`` with the reason when the
-    text is not a key."""
+    text is not a key — the wrong prefix, not printable ASCII, longer than
+    :data:`KEY_MAX_BYTES` (no key :func:`encode_key` writes is), a payload
+    past :data:`KEY_DECODED_MAX` once decompressed, or a payload whose
+    shape is not the overview's."""
     text = (text or "").strip()
     if not text.startswith(KEY_PREFIX):
         raise ValueError(f"not an AgentDiff key: it does not start with {KEY_PREFIX!r}")
+    if len(text) > KEY_MAX_BYTES:
+        raise ValueError(f"not an AgentDiff key: {len(text)} bytes, over the {KEY_MAX_BYTES} a key can be")
     body = text[len(KEY_PREFIX):]
     if not body or any(ord(c) > 126 or ord(c) < 33 for c in body):
         raise ValueError("not an AgentDiff key: the body is empty or not printable ASCII")
     try:
         raw = base64.urlsafe_b64decode(body + "=" * (-len(body) % 4))
-        payload = json.loads(zlib.decompress(raw).decode("utf-8"))
+        inflater = zlib.decompressobj()
+        data = inflater.decompress(raw, KEY_DECODED_MAX)
+        if inflater.unconsumed_tail or not inflater.eof:
+            raise ValueError(f"the payload decompresses past {KEY_DECODED_MAX} bytes or is cut short")
+        payload = json.loads(data.decode("utf-8"))
     except (binascii.Error, ValueError, zlib.error, UnicodeDecodeError) as exc:
         raise ValueError(f"not an AgentDiff key: {exc}") from exc
-    if not isinstance(payload, dict) or payload.get("v") != KEY_VERSION or not isinstance(payload.get("id"), str):
-        raise ValueError("not an AgentDiff key: the payload is not a version-1 overview with an id")
+    _check_key_payload(payload)
     return payload
 
 
@@ -813,6 +889,7 @@ def build(members: list, name: Optional[str] = None, token_cap: Any = None, loca
             "fetches": lv["fetches"], "records": lv["records"], "locators": [str(x) for x in (locators or [])],
             "traces": {"dirs": [str(d) for d in (traces or [])], "read": len(entries), "notes": notes,
                        "completed": sum(1 for r in lv["records"].values() if r.get("steps_source")), "files": used}}
+    info["records_digest"] = records_digest(lv["records"], {t["rel"]: Path(t["source"]).read_bytes() for t in used})
     info["key"] = encode_key(info)
     return info
 
@@ -827,15 +904,21 @@ def write_bundle(members: list, out_dir: Union[str, Path], template: Union[str, 
     members' copies, ``runs/<key>.json`` per run, with ``traces`` the
     copies under ``traces/<member>/…`` of every trace that completed a
     record, ``report.html`` (the primary member's page with the bundle
-    inlined) and ``KEY.txt``. Returns :func:`build`'s dict plus ``files``."""
+    inlined) and ``KEY.txt``. An existing bundle at ``out_dir`` is
+    replaced: ``members/``, ``runs/`` and ``traces/`` are cleared first,
+    so nothing stale outlives the manifest that no longer names it.
+    Returns :func:`build`'s dict plus ``files``."""
     info = build(members, name=name, token_cap=token_cap, locators=locators, traces=traces)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+    for stale in ("members", "runs", "traces"):
+        if (out / stale).is_dir():
+            shutil.rmtree(out / stale)
     files: list = []
     levels_block = {"overview": info["overview"], "runs": info["runs"], "run_index": info["run_index"],
                     "budget": info["budget"], "fetches": info["fetches"]}
-    manifest = {"version": VERSION, "id": info["id"], "name": info["name"], "members": info["members"],
-                "levels": levels_block, "locators": info["locators"], "key": info["key"]}
+    manifest = {"version": VERSION, "id": info["id"], "records_digest": info["records_digest"], "name": info["name"],
+                "members": info["members"], "levels": levels_block, "locators": info["locators"], "key": info["key"]}
     _dump(out / "bundle.json", manifest)
     files.append("bundle.json")
     for i, m in enumerate(members):
@@ -870,8 +953,12 @@ def write_bundle(members: list, out_dir: Union[str, Path], template: Union[str, 
 # ---------------------------------------------------------------- reading
 
 def verify(bundle_dir: Union[str, Path]) -> dict:
-    """Recompute the id from the members' copies: ``{id, recomputed,
-    match}``; ``ValueError`` when the directory is not a bundle."""
+    """Recompute the id from the members' copies and the records digest
+    from ``runs/*.json`` and the copied traces: ``{id, recomputed, match,
+    records_digest, records_recomputed, records_match, records_reason}``
+    — the two checked and reported separately, since the id is the
+    members' content and says nothing about the run records; ``ValueError``
+    when the directory is not a bundle."""
     root = Path(bundle_dir)
     manifest_path = root / "bundle.json"
     if not manifest_path.is_file():
@@ -881,7 +968,36 @@ def verify(bundle_dir: Union[str, Path]) -> dict:
     for i in range(len(manifest.get("members") or [])):
         members.append(read_member(root / "members" / str(i)))
     recomputed = digest(members)
-    return {"id": manifest.get("id"), "recomputed": recomputed, "match": manifest.get("id") == recomputed}
+    records: dict = {}
+    traces: dict = {}
+    missing: list = []
+    for key, rel in ((manifest.get("levels") or {}).get("run_index") or {}).items():
+        path = root / str(rel)
+        if not path.is_file():
+            missing.append(str(rel))
+            continue
+        record = json.loads(path.read_text(encoding="utf-8"))
+        records[key] = record
+        source = str(record.get("steps_source") or "")
+        if source.startswith("trace "):
+            trel = source[len("trace "):]
+            if (root / trel).is_file():
+                traces[trel] = (root / trel).read_bytes()
+            else:
+                missing.append(trel)
+    records_recomputed = records_digest(records, traces)
+    claimed = manifest.get("records_digest")
+    if claimed is None:
+        reason = "the manifest carries no records_digest"
+    elif missing:
+        reason = f"missing from the bundle: {', '.join(missing[:5])}" + (f" and {len(missing) - 5} more" if len(missing) > 5 else "")
+    elif claimed != records_recomputed:
+        reason = "a run record or a copied trace differs from what the manifest recorded"
+    else:
+        reason = None
+    return {"id": manifest.get("id"), "recomputed": recomputed, "match": manifest.get("id") == recomputed,
+            "records_digest": claimed, "records_recomputed": records_recomputed, "records_match": reason is None,
+            "records_reason": reason}
 
 
 class Bundle:
@@ -1053,5 +1169,5 @@ def _narrow(per_member: dict, agent: Optional[str], task: Optional[str]) -> dict
     return out
 
 
-__all__ = ["VERSION", "KEY_PREFIX", "KEY_MAX_BYTES", "KEY_AGENTS", "SORT_FIELDS", "RESOURCE_ROOT", "canonical", "digest",
-           "read_member", "load_traces", "levels", "select_runs", "encode_key", "decode_key", "build", "write_bundle", "verify", "Bundle"]
+__all__ = ["VERSION", "KEY_PREFIX", "KEY_MAX_BYTES", "KEY_AGENTS", "KEY_DECODED_MAX", "SORT_FIELDS", "RESOURCE_ROOT",
+           "canonical", "digest", "records_digest", "read_member", "load_traces", "levels", "select_runs", "encode_key", "decode_key", "build", "write_bundle", "verify", "Bundle"]

@@ -33,8 +33,11 @@ IQM, the rule of :func:`deepcompare.evolve.iqm_by_task` —, ``task_mean``,
 filters episodes before aggregating, and a direction. Every value of a
 metric is a point with a stratified-bootstrap interval (runs redrawn
 within each task, every task keeping its count, the stream seeded by
-the spec's id through :func:`deepcompare._stats.rng`); every step delta
-is a percentile-bootstrap interval at level ``1 − alpha``. The base eval
+the spec's *key* — feature, aggregation and filter — through
+:func:`deepcompare._stats.rng`, so two specs that read the same thing
+share one interval whatever their ids); every step delta is a
+percentile-bootstrap interval at level ``1 − alpha``, and an interval is
+never a bare point: with no bootstrap draw the value is unmeasurable. The base eval
 e0 is the four numbers the shipped Evolution reading already uses, in
 the same language, so the matrix is uniform; base metrics are never
 retired or demoted, because a number that changes meaning across time
@@ -63,8 +66,9 @@ one is still computed and written to the ledger row: ``computable``
 episodes so far and the metric is measurable on both sides of the
 step); ``informative`` (the step's delta interval excludes zero at the
 Bonferroni level ``ALPHA / K`` over the K candidates tested at the
-step — a ceiling candidate instead has to sit strictly inside (0, 1)
-with an interval of some width); ``distinct`` (max |ρ| against every
+step — a candidate that fails ``not_already`` is a ledger row, not a
+test, and is not one of the K; a ceiling candidate instead has to sit
+strictly inside (0, 1) with an interval of some width); ``distinct`` (max |ρ| against every
 adopted metric under :data:`REDUNDANT_RHO`: per episode when both are
 unfiltered episode-level metrics, on the generation series once
 :data:`MIN_SERIES` generations exist when either is task-level or
@@ -81,15 +85,18 @@ grouped into redundancy classes (|ρ| ≥ ``REDUNDANT_RHO`` with each
 other, transitively), and one representative per class is adopted,
 chosen by a stated rule — (a) the strongest |ρ| with the outcome, (b)
 the more interpretable kind (a bool rate over a count mean over a
-ratio), (c) a feature tied to a protected path, (d) vocabulary order —
-so which metric the eval learns is never decided by the order the
-probes happened to propose in; the rest of the class fail ``distinct``
+ratio), (c) a feature tied to a protected path, (d) vocabulary order,
+(e) the spec id — so which metric the eval learns is never decided by
+the order the probes happened to propose in; the rest of the class fail ``distinct``
 with a note naming the representative and the rule. A rejected
 candidate may be proposed again at a later step and is tested again;
 the ledger keeps every attempt. After
-adoption, every later step tests the metric out of sample:
-``confirmed`` once it moved again, ``unconfirmed`` after
-:data:`CONFIRM_STEPS` tests without a move, ``pending`` between.
+adoption, every later step tests the metric out of sample at the
+level it was adopted at (``ALPHA / K`` of its step, written into
+``confirmation.alpha``): ``confirmed`` once it moved again,
+``unconfirmed`` after :data:`CONFIRM_STEPS` tests without a move,
+``pending`` between. An external candidate whose ``at`` names no walked
+step is a rejected ledger row (``unaddressed``), never silently lost.
 
 **The thresholds and why.** ``ALPHA`` 0.05 divided by the candidates
 tested at a step (Bonferroni, 1936), because an eval that tests six
@@ -110,8 +117,9 @@ generation (``matrix``; every cell also carries ``per_task``, the metric
 read within each task with a bootstrap over that task's own runs, so a
 task an average hides is one cell away — :func:`per_task`) and every step; per step the base verdict and
 flags untouched beside the evolved flags — the *learned* metrics
-(adopted, not demoted, not retired) whose delta interval excludes zero
-in their bad direction, each marked ``learned: true`` — and, separately
+(adopted, not demoted, not retired) whose delta interval, at the level
+each was adopted at, excludes zero in their bad direction, each marked
+``learned: true`` — and, separately
 under ``base_flags``, the base metrics whose own intervals move against
 their direction, which the base verdict does not read because it reads
 the two P(improve) axes instead; ``changed`` when the base said improved
@@ -219,14 +227,16 @@ FEATURES: dict = {
     "verified": Feature("bool", "check_calls > 0", "up"),
     "rewarded_tool_steps": Feature("count", "tool steps paid a reward above zero", "neutral"),
     "retries": Feature("count", "tool steps repeating an earlier (name, arguments) of the same episode", "down"),
-    "seconds": Feature("sum", "wall clock: the sum of the steps' latencies", "down"),
+    "seconds": Feature("sum", "wall clock: the sum of the steps' latencies; None when no step carries one above zero "
+                              "(the trace's default for an unrecorded latency is 0)", "down"),
     "answer_chars": Feature("count", "characters of the answer text; None when the episode has none", "neutral"),
     "claims": Feature("bool", "the answer text contains a claim phrase; None when the episode has no answer text", "neutral"),
     "unverified_claim": Feature("bool", "claims and not verified", "down"),
     "answer_share": Feature("ratio", "the answer step's reward over the sum of |step rewards|; None when that sum is 0", "neutral"),
     "errors_per_call": Feature("ratio", "tool_errors / tool_calls; None when the episode made no tool call", "down"),
     "steps_after_last_tool": Feature("count", "steps after the last tool step; None when there is none", "neutral"),
-    "critic_error": Feature("estimate", "mean |value − discounted return-to-go| over the steps carrying a value; None when none does", "down"),
+    "critic_error": Feature("estimate", "mean |value − discounted return-to-go| over the steps carrying a value; None when none does "
+                                        "or when no step records a reward", "down"),
     "tokens": Feature("sum", "step token counts summed; None when no step carries one", "down"),
 }
 #: how a feature is spelled in a metric's name
@@ -290,11 +300,14 @@ def features(trajectory: Trajectory, protected=()) -> dict:
     abs_sum = sum(abs(r) for r in recorded)
     valued = [(i, st.value) for i, st in enumerate(steps) if finite(st.value)]
     critic = None
-    if valued:
+    if valued and recorded:   # a return-to-go over rewards nobody recorded is not a residual
         to_go = discounted_to_go([r if r is not None else 0.0 for r in rewards], GAMMA)
         critic = mean([abs(v - to_go[i]) for i, v in valued])
     last_tool = max((i for i, st in enumerate(steps) if st.type in TOOLISH), default=None)
     tokens = [int(st.tokens) for st in steps if finite(st.tokens) and (st.tokens > 0 or st.tokens_basis)]
+    latencies = [float(st.latency_s) for st in steps if finite(st.latency_s) and st.latency_s >= 0]
+    if not any(lat > 0 for lat in latencies):   # the trace format reads an unrecorded latency as 0, as it does tokens
+        latencies = []
     out = {
         "return": sum(recorded) if recorded else None,
         "success": 1 if trajectory.outcome.success is True else 0,
@@ -306,7 +319,7 @@ def features(trajectory: Trajectory, protected=()) -> dict:
         "verified": verified,
         "rewarded_tool_steps": sum(1 for st in tools if finite(st.reward) and st.reward > 0),
         "retries": retries,
-        "seconds": sum(float(st.latency_s) for st in steps if finite(st.latency_s) and st.latency_s >= 0),
+        "seconds": sum(latencies) if latencies else None,
         "answer_chars": None if text is None else len(text),
         "claims": claims,
         "unverified_claim": None if claims is None else (1 if claims and not verified else 0),
@@ -571,24 +584,32 @@ def _point(spec: dict, episodes: list) -> dict:
             "point": _aggregate(spec["agg"], by_task)}
 
 
+def _no_draws(samples: int) -> str:
+    return f"no bootstrap draw: {int(samples)} samples, at least 1 needed; an interval is never a bare point"
+
+
 def value(spec: dict, episodes: list, samples: int = BOOTSTRAP_SAMPLES) -> dict:
     """The metric on a list of episodes (feature-table rows): ``{point,
     lo, hi, n, tasks, coverage, basis}`` with a stratified-bootstrap
     interval at :data:`deepcompare._stats.CONFIDENCE`, seeded by the
-    spec's id; ``measurable: False`` with the reason when fewer than
-    :data:`MIN_N` episodes survive the filter or the feature is unreadable
-    on more than ``1 − MIN_COVERAGE`` of them. ``n`` counts the episodes
-    after the filter."""
+    spec's key (feature, aggregation and filter — :func:`_spec_key`), so
+    two specs that read the same thing share one interval whatever their
+    ids; ``measurable: False`` with the reason when fewer than
+    :data:`MIN_N` episodes survive the filter, the feature is unreadable
+    on more than ``1 − MIN_COVERAGE`` of them, or ``samples`` is under 1
+    (an interval is never a bare point). ``n`` counts the episodes after
+    the filter."""
     pt = _point(spec, episodes)
-    if not pt["measurable"]:
-        return unmeasurable(pt["reason"], point=None, lo=None, hi=None, n=pt["n"], tasks=len(pt["by_task"]),
+    if not pt["measurable"] or int(samples) < 1:
+        reason = pt["reason"] if not pt["measurable"] else _no_draws(samples)
+        return unmeasurable(reason, point=None, lo=None, hi=None, n=pt["n"], tasks=len(pt["by_task"]),
                             coverage=rounded(pt["coverage"]), basis=_basis(spec, pt["n"], len(pt["by_task"])))
-    boots = _bootstrap(spec["agg"], pt["by_task"], samples, rng(BOOTSTRAP_SEED, spec["id"], section=SECTION))
+    boots = _bootstrap(spec["agg"], pt["by_task"], samples, rng(BOOTSTRAP_SEED, _spec_key(spec), section=SECTION))
     lo, hi = percentile_interval(boots, CONFIDENCE)
     point = pt["point"]
-    return measurable({"point": rounded(point), "lo": rounded(point if lo is None else lo),
-                       "hi": rounded(point if hi is None else hi), "n": pt["n"], "tasks": len(pt["by_task"]),
-                       "coverage": rounded(pt["coverage"]), "basis": _basis(spec, pt["n"], len(pt["by_task"]))})
+    return measurable({"point": rounded(point), "lo": rounded(lo), "hi": rounded(hi), "n": pt["n"],
+                       "tasks": len(pt["by_task"]), "coverage": rounded(pt["coverage"]),
+                       "basis": _basis(spec, pt["n"], len(pt["by_task"]))})
 
 
 #: what a per-task cell is, per aggregation: the task's own mean or rate, and
@@ -603,14 +624,15 @@ def per_task(spec: dict, episodes: list, samples: int = BOOTSTRAP_SAMPLES) -> di
     lo, hi, n, measurable, reason}}`` in sorted task order, each a
     percentile-bootstrap interval at :data:`deepcompare._stats.CONFIDENCE`
     over the task's own runs redrawn with replacement (``samples`` draws,
-    the stream seeded ``<spec id>:<task>``). The point is the task's own
+    the stream seeded ``<spec key>:<task>``). The point is the task's own
     mean (for ``rate`` the fraction positive), which is the per-task
     meaning of ``mean``, ``rate`` and ``task_mean``; for ``iqm``,
     ``task_min`` and ``task_spread`` — whose aggregate is not a per-task
     mean — the cell carries a ``note`` saying so. ``n`` counts the task's
     episodes after the filter, as the generation's cell does; a task is
     ``measurable: False`` with the reason under :data:`MIN_N` of them, or
-    with the feature readable on under :data:`MIN_COVERAGE` of them.
+    with the feature readable on under :data:`MIN_COVERAGE` of them, or
+    with ``samples`` under 1 (no bootstrap draw, so no interval).
     Every number is rounded to four places; no draw here is shared with
     the generation's own interval."""
     feature, agg, where = spec["feature"], spec["agg"], spec.get("where")
@@ -638,13 +660,13 @@ def per_task(spec: dict, episodes: list, samples: int = BOOTSTRAP_SAMPLES) -> di
             cell = {"point": None, "lo": None, "hi": None, "n": n, "measurable": False,
                     "reason": f"{feature} is unreadable on {n - k} of the task's {n} episodes "
                               f"(coverage {num(k / n)} under {num(MIN_COVERAGE)})"}
+        elif not samples:
+            cell = {"point": None, "lo": None, "hi": None, "n": n, "measurable": False, "reason": _no_draws(samples)}
         else:
             point = sum(vs) / k
-            lo = hi = point
-            if samples:
-                draws = rng(BOOTSTRAP_SEED, f"{spec['id']}:{task}", section=SECTION).choices(vs, k=k * samples)
-                boots = [sum(draws[s * k:(s + 1) * k]) / k for s in range(samples)]
-                lo, hi = percentile_interval(boots, CONFIDENCE)
+            draws = rng(BOOTSTRAP_SEED, f"{_spec_key(spec)}:{task}", section=SECTION).choices(vs, k=k * samples)
+            boots = [sum(draws[s * k:(s + 1) * k]) / k for s in range(samples)]
+            lo, hi = percentile_interval(boots, CONFIDENCE)
             cell = {"point": rounded(point), "lo": rounded(lo), "hi": rounded(hi), "n": n, "measurable": True, "reason": None}
         if note:
             cell["note"] = note
@@ -654,13 +676,17 @@ def per_task(spec: dict, episodes: list, samples: int = BOOTSTRAP_SAMPLES) -> di
 
 def _delta_draws(spec: dict, parent_eps: list, child_eps: list, samples: int) -> dict:
     """The delta's point and its bootstrap distribution (child − parent,
-    both sides resampled from the one stream ``delta:<id>``), or why not."""
+    both sides resampled from the one stream ``delta:<spec key>``), or
+    why not — a side unmeasurable, or no bootstrap draw."""
     a, b = _point(spec, parent_eps), _point(spec, child_eps)
     if not a["measurable"] or not b["measurable"]:
         side = "the parent" if not a["measurable"] else "the child"
         return {"measurable": False, "reason": f"unmeasurable on {side}: {(a if not a['measurable'] else b)['reason']}",
                 "point": None, "diffs": [], "n_from": a["n"], "n_to": b["n"], "from": a["point"], "to": b["point"]}
-    stream = rng(BOOTSTRAP_SEED, f"delta:{spec['id']}", section=SECTION)
+    if int(samples) < 1:
+        return {"measurable": False, "reason": _no_draws(samples), "point": None, "diffs": [],
+                "n_from": a["n"], "n_to": b["n"], "from": a["point"], "to": b["point"]}
+    stream = rng(BOOTSTRAP_SEED, f"delta:{_spec_key(spec)}", section=SECTION)
     boots_a = _bootstrap(spec["agg"], a["by_task"], samples, stream)
     boots_b = _bootstrap(spec["agg"], b["by_task"], samples, stream)
     return {"measurable": True, "reason": None, "point": b["point"] - a["point"],
@@ -674,8 +700,6 @@ def _delta_from_draws(draws: dict, alpha: float) -> dict:
                             n_from=draws["n_from"], n_to=draws["n_to"])
     point = draws["point"]
     lo, hi = percentile_interval(draws["diffs"], 1.0 - alpha)
-    lo = point if lo is None else lo
-    hi = point if hi is None else hi
     return measurable({"point": rounded(point), "lo": rounded(lo), "hi": rounded(hi), "alpha": alpha,
                        "excludes_zero": bool(lo > 0 or hi < 0), "n_from": draws["n_from"], "n_to": draws["n_to"],
                        "from": rounded(draws["from"]), "to": rounded(draws["to"])})
@@ -685,9 +709,9 @@ def delta(spec: dict, parent_eps: list, child_eps: list, samples: int = BOOTSTRA
           alpha: float = ALPHA) -> dict:
     """The child's value minus the parent's with a percentile-bootstrap
     interval at level ``1 − alpha`` (both sides resampled within their
-    tasks from one stream seeded ``delta:<spec id>``); ``excludes_zero``
+    tasks from one stream seeded ``delta:<spec key>``); ``excludes_zero``
     is the informative test. ``measurable: False`` with the side and the
-    reason when either side cannot be read."""
+    reason when either side cannot be read, or with ``samples`` under 1."""
     return _delta_from_draws(_delta_draws(spec, parent_eps, child_eps, samples), alpha)
 
 
@@ -695,8 +719,10 @@ def delta(spec: dict, parent_eps: list, child_eps: list, samples: int = BOOTSTRA
 
 class _Cache:
     """The feature table plus every value and delta computed so far, keyed
-    by the spec's id, feature, aggregation and filter, so a metric read at
-    three steps is bootstrapped once per generation and once per step."""
+    by the spec's key (feature, aggregation and filter — the id plays no
+    part, since the stream is seeded by the key), so a metric read at
+    three steps is bootstrapped once per generation and once per step and
+    two specs that read the same thing share one interval."""
 
     def __init__(self, table: list, samples: int) -> None:
         self.table = table
@@ -708,7 +734,7 @@ class _Cache:
 
     @staticmethod
     def _key(spec: dict) -> str:
-        return spec["id"] + "|" + _spec_key(spec)
+        return _spec_key(spec)
 
     def episodes(self, upto: str) -> list:
         """Every episode of the generations up to ``upto`` inclusive."""
@@ -1167,7 +1193,7 @@ VALIDATORS: tuple = (("computable", _v_computable), ("informative", _v_informati
 
 _KIND_RANK = {"bool": 0, "count": 1, "ratio": 2, "sum": 3, "estimate": 4}
 _RULES = {"a": "the strongest |ρ| with the outcome", "b": "the more interpretable kind (a bool rate over a count mean over a ratio)",
-          "c": "a feature tied to a protected path", "d": "vocabulary order"}
+          "c": "a feature tied to a protected path", "d": "vocabulary order", "e": "spec id"}
 
 
 def _protected_feature(feature: str, protected: list) -> bool:
@@ -1179,11 +1205,14 @@ def _protected_feature(feature: str, protected: list) -> bool:
 def _representative_key(spec: dict, rho: Optional[float], view: StepView) -> tuple:
     """The order that picks one representative per redundancy class:
     (a) the strongest |ρ| with the outcome, (b) the more interpretable
-    kind, (c) a feature tied to a protected path, (d) vocabulary order."""
+    kind, (c) a feature tied to a protected path, (d) vocabulary order,
+    (e) the spec id — so two candidates on one feature (two ceiling
+    conditions on ``success``, an external duplicate) are decided by a
+    stated key and never by proposal order."""
     f = spec["feature"]
     kind = FEATURES[f].kind if f in FEATURES else "count"
     return (-(abs(rho) if rho is not None else -1.0), _KIND_RANK.get(kind, 5), 0 if _protected_feature(f, view.protected) else 1,
-            view.vocabulary.index(f) if f in view.vocabulary else len(view.vocabulary))
+            view.vocabulary.index(f) if f in view.vocabulary else len(view.vocabulary), spec["id"])
 
 
 def _validate_batch(proposals: list, view: StepView, alpha: float) -> list:
@@ -1225,7 +1254,7 @@ def _validate_batch(proposals: list, view: StepView, alpha: float) -> list:
         rule = None
         if len(keyed) > 1:
             ka, kb = (_representative_key(proposals[i][1], pre[i]["linked"]["rho"], view) for i in keyed[:2])
-            rule = next((letter for letter, (x, y) in zip("abcd", zip(ka, kb)) if x != y), "d")
+            rule = next((letter for letter, (x, y) in zip("abcde", zip(ka, kb)) if x != y), "e")
         for i in members:
             chosen[i] = (rep, rule, members)
     out = []
@@ -1256,9 +1285,14 @@ def _validate_batch(proposals: list, view: StepView, alpha: float) -> list:
 
 # ---------------------------------------------------------------- the walk
 
-def _metric(spec: dict, status: str, origin: dict, validation: Optional[dict], adopted_at: Optional[dict]) -> dict:
+def _metric(spec: dict, status: str, origin: dict, validation: Optional[dict], adopted_at: Optional[dict],
+            alpha: Optional[float] = None) -> dict:
+    """A metric of the eval; ``alpha`` is the level it was adopted at
+    (``ALPHA / K`` of its step), written rounded into ``confirmation`` —
+    the level every later out-of-sample test and the hindsight use."""
     return {"spec": spec, "status": status, "origin": origin, "validation": validation,
-            "confirmation": {"tested": 0, "moved": 0, "status": "pending"} if status != "base" else None,
+            "confirmation": ({"tested": 0, "moved": 0, "status": "pending", "alpha": rounded(alpha)}
+                             if status != "base" else None),
             "caught_at": None, "adopted_at": adopted_at, "demoted_at": None, "retired_at": None}
 
 
@@ -1296,8 +1330,14 @@ def _empty_probes() -> dict:
             for p in PROBES}
 
 
-def _walk(lineage: dict, evolution: dict, table: list, samples: int, candidates) -> dict:
+def _walk(lineage: dict, evolution: dict, table: list, samples: int, candidates, protected: Optional[list] = None) -> dict:
+    """The probes and validators step by step; ``protected`` overrides the
+    lineage's protected paths for the step views (rule (c)), the same
+    list the feature table was built with."""
     cache = _Cache(table, samples)
+    protected = list(lineage.get("protected") or []) if protected is None else list(protected)
+    alphas: dict = {}          # metric id -> the exact level it was adopted at
+    addressed: set = set()     # the external entries some walked step took up
     gens = [row["id"] for row in table]
     ev_steps = {s["index"]: s for s in evolution.get("steps") or []}
     metrics: dict = {}
@@ -1331,7 +1371,8 @@ def _walk(lineage: dict, evolution: dict, table: list, samples: int, candidates)
                         tools_child=tools_by_gen[i], tools_earlier=tools_by_gen[:i],
                         claims_child=claims_by_gen[i], claims_earlier=any(claims_by_gen[:i]),
                         candidates=_candidates_for(candidates, label), cache=cache, vocabulary=_vocabulary(table, i),
-                        protected=list(lineage.get("protected") or []))
+                        protected=protected)
+        addressed.update(c["entry"] for c in view.candidates)
         eval_gen = eval_gens[-1]["id"]
         items: list = []      # ("proposal", probe, spec, rank) | ("unparseable", raw, reason, origin), in proposal order
         demote: list = []
@@ -1364,7 +1405,9 @@ def _walk(lineage: dict, evolution: dict, table: list, samples: int, candidates)
                         demote.append((rank["demotes"], rank["because"]))
                     items.append(("proposal", probe.name, spec, rank))
         proposals = [it[1:] for it in items if it[0] == "proposal"]
-        k = len(proposals)
+        # K counts the tests: a candidate whose spec is already adopted, demoted or retired fails
+        # not_already and is a ledger row, not a test, so it does not tighten the level for the others
+        k = sum(1 for _, spec, _ in proposals if _v_not_already(spec, "", view, ALPHA)["pass"])
         alpha = ALPHA / k if k else ALPHA
         adopted_now, demoted_now, retired_now, changed_by = [], [], [], []
         for mid, because in demote:
@@ -1401,7 +1444,8 @@ def _walk(lineage: dict, evolution: dict, table: list, samples: int, candidates)
                     spec = dict(spec, id=sid)
                     row["spec_id"] = sid
                 metrics[sid] = _metric(spec, "adopted", spec["origin"], row,
-                                       {"step": label, "index": i, "eval_gen": None, "ledger": row["index"]})
+                                       {"step": label, "index": i, "eval_gen": None, "ledger": row["index"]}, alpha)
+                alphas[sid] = alpha
                 adoption_order[sid] = len(adoption_order)
                 adopted_now.append(sid)
                 if probe_name not in changed_by:
@@ -1435,11 +1479,11 @@ def _walk(lineage: dict, evolution: dict, table: list, samples: int, candidates)
                         changed_by.append("redundancy")
         if retired_now:
             probes["redundancy"]["fired"].append(label)
-        # confirmation: every metric adopted at an earlier step, tested out of sample
-        for m in metrics.values():
+        # confirmation: every metric adopted at an earlier step, tested out of sample at the level it was adopted at
+        for mid, m in metrics.items():
             if m["status"] == "base" or not m["adopted_at"] or m["adopted_at"]["index"] >= i:
                 continue
-            d = view.delta(m["spec"])
+            d = view.delta(m["spec"], alphas.get(mid, ALPHA))
             if d["measurable"]:
                 m["confirmation"]["tested"] += 1
                 if d["excludes_zero"]:
@@ -1453,6 +1497,26 @@ def _walk(lineage: dict, evolution: dict, table: list, samples: int, candidates)
                 metrics[sid]["adopted_at"]["eval_gen"] = eid
         walked.append({"index": i, "from": frm, "to": to, "walked": True, "reason": None, "k": k,
                        "alpha": rounded(alpha)})
+    # an external entry no walked step took up is a rejected row, never silently lost
+    labels = [f"{gens[j - 1]}→{gens[j]}" for j in range(1, len(gens))]
+    for j, c in enumerate(candidates or []):
+        if not isinstance(c, dict) or j in addressed:
+            continue
+        at, source = c.get("at"), c.get("source")
+        if source and source not in external["sources"]:
+            external["sources"].append(source)
+        why = ("is addressed to every step, and the eval walked none" if at is None else
+               "names a step the eval did not walk" if at in labels else "names no step of the lineage")
+        raw_spec = c.get("spec")
+        ledger.append({"index": len(ledger), "step": at if isinstance(at, str) else json.dumps(at, ensure_ascii=False),
+                       "eval_gen": eval_gens[-1]["id"],
+                       "probe": "external", "spec_id": raw_spec.get("id") if isinstance(raw_spec, dict) else None,
+                       "spec": raw_spec, "origin": {"probe": "external", "source": source, "step": at, "eval_gen": eval_gens[-1]["id"]},
+                       "validators": {name: {"pass": None, "note": "not tested: no step took the candidate up"}
+                                      for name, _ in VALIDATORS},
+                       "k": 0, "alpha": None, "decision": "rejected", "failed": [],
+                       "reason": f"unaddressed: at {json.dumps(at, ensure_ascii=False)} {why}; the steps are {', '.join(labels)}"})
+        external["rejected"] += 1
     external["parsed"] = len(parsed_entries)
     for name in probes:
         probes[name]["proposed"] = sum(1 for r in ledger if r["probe"] == name)
@@ -1462,7 +1526,7 @@ def _walk(lineage: dict, evolution: dict, table: list, samples: int, candidates)
             c = m["confirmation"]
             c["status"] = ("confirmed" if c["moved"] > 0 else "unconfirmed" if c["tested"] >= CONFIRM_STEPS else "pending")
     return {"cache": cache, "gens": gens, "metrics": metrics, "eval_generations": eval_gens, "ledger": ledger,
-            "probes": list(probes.values()), "walked": walked, "external": external}
+            "probes": list(probes.values()), "walked": walked, "external": external, "alphas": alphas}
 
 
 # ---------------------------------------------------------------- hindsight
@@ -1599,7 +1663,12 @@ def _recommend(evolution: dict, steps_out: list, metrics: dict) -> dict:
 
 
 def _hindsight(walk: dict, evolution: dict) -> dict:
+    """The final eval over every generation and step: a learned metric's
+    delta is read at the level it was adopted at (``walk["alphas"]``), a
+    base metric's at :data:`ALPHA`, since base metrics were never tested
+    at an adjusted level."""
     cache, gens, metrics = walk["cache"], walk["gens"], walk["metrics"]
+    alphas = walk.get("alphas") or {}
     ev_steps = {s["index"]: s for s in evolution.get("steps") or []}
     matrix: dict = {}
     for mid, m in metrics.items():
@@ -1618,7 +1687,7 @@ def _hindsight(walk: dict, evolution: dict) -> dict:
         flags, base_flags, moved = [], [], []
         if walked.get(i, {}).get("walked"):
             for mid, m in metrics.items():
-                d = cache.delta(m["spec"], frm, to, ALPHA)
+                d = cache.delta(m["spec"], frm, to, alphas.get(mid, ALPHA))
                 direction = _moved(d)
                 if direction is None:
                     continue
@@ -1691,7 +1760,7 @@ def _flow(out: dict, gens: list) -> dict:
              changed=s["evolved"]["changed"])
         edge(f"gen:{s['from']}", f"gen:{s['to']}", "evolves", step=label, label=s["base"]["verdict"] or "unmeasurable")
     for p in out["probes"]:
-        if p["fired"]:
+        if p["fired"] or any(r["probe"] == p["name"] for r in out["ledger"]):
             node(f"probe:{p['name']}", "probe", p["name"], probe=p["name"], question=p["question"])
             for label in p["fired"]:
                 edge(f"step:{label}", f"probe:{p['name']}", "triggers", step=label, label=p["question"])
@@ -1776,23 +1845,29 @@ def _flow(out: dict, gens: list) -> dict:
 
 # ---------------------------------------------------------------- the section
 
+_DRIFT_BASIS = "1 − |base ∩ final active| / |base ∪ final active|"
+_MULTIPLICITY_BASIS = ("Bonferroni: alpha / K over the K candidates tested at a step; an unparseable or unaddressed external "
+                       "candidate, or one whose spec is already adopted, demoted or retired, is a ledger row but not a test")
+
+
+def _is_test(row: dict) -> bool:
+    return row["decision"] != "rejected" or not row["reason"].startswith(("unparseable", "unaddressed"))
+
+
 def _integrity(walk: dict, metrics: dict) -> dict:
     base_ids = {s["id"] for s in BASE_SPECS}
     final = {mid for mid, m in metrics.items() if m["status"] in ("base", "adopted")}
     union = base_ids | final
     ledger = walk["ledger"]
-    tested = [r for r in ledger if r["decision"] != "rejected" or not r["reason"].startswith("unparseable")]
+    tested = [r for r in ledger if _is_test(r)]
     alphas = [r["alpha"] for r in tested if r["alpha"] is not None]
     adopted = sum(1 for r in tested if r["decision"] == "adopted")
     return {
         "drift": {"jaccard_distance_from_base": rounded(1.0 - len(base_ids & final) / len(union)) if union else 0.0,
-                  "size_by_eval_gen": [e["size"] for e in walk["eval_generations"]],
-                  "basis": "1 − |base ∩ final active| / |base ∪ final active|"},
+                  "size_by_eval_gen": [e["size"] for e in walk["eval_generations"]], "basis": _DRIFT_BASIS},
         "multiplicity": {"tested": len(tested), "adopted": adopted, "rejected": len(tested) - adopted,
                          "unparseable": len(ledger) - len(tested), "alpha": ALPHA,
-                         "min_adjusted_alpha": rounded(min(alphas)) if alphas else None,
-                         "basis": "Bonferroni: alpha / K over the K candidates tested at a step; an unparseable "
-                                  "external candidate is a ledger row but not a test"},
+                         "min_adjusted_alpha": rounded(min(alphas)) if alphas else None, "basis": _MULTIPLICITY_BASIS},
         "demoted": [mid for mid, m in metrics.items() if m["status"] == "demoted"],
         "retired": [mid for mid, m in metrics.items() if m["status"] == "retired"],
         "unconfirmed": [mid for mid, m in metrics.items() if m["confirmation"] and m["confirmation"]["status"] == "unconfirmed"],
@@ -1865,14 +1940,19 @@ def _empty(reason: str, lineage: dict, table: list, samples: int) -> dict:
                         metrics={s["id"]: _metric(dict(s, origin={"probe": "base"}), "base", {"probe": "base"}, None, None)
                                  for s in BASE_SPECS},
                         ledger=[], matrix={}, steps=[], probes=list(_empty_probes().values()),
-                        flow={"nodes": [], "edges": [], "summary": {"nodes": {}, "edges": {}, "closures": 0, "sentence": reason}},
-                        recommended={"base": None, "evolved": None, "agree": True, "why": reason},
-                        integrity={"drift": {"jaccard_distance_from_base": 0.0, "size_by_eval_gen": [len(BASE_SPECS)]},
-                                   "multiplicity": {"tested": 0, "adopted": 0, "rejected": 0, "alpha": ALPHA,
-                                                    "min_adjusted_alpha": None},
+                        flow={"nodes": [], "edges": [], "summary": {"nodes": {}, "edges": {}, "closures": 0, "closures_learned": 0,
+                                                                     "flags_learned": 0, "flags_base": 0, "sentence": reason}},
+                        recommended={"base": None, "evolved": None, "agree": True, "why": reason,
+                                     "excluded": {"base": {}, "evolved": {}}},
+                        integrity={"drift": {"jaccard_distance_from_base": 0.0, "size_by_eval_gen": [len(BASE_SPECS)],
+                                             "basis": _DRIFT_BASIS},
+                                   "multiplicity": {"tested": 0, "adopted": 0, "rejected": 0, "unparseable": 0, "alpha": ALPHA,
+                                                    "min_adjusted_alpha": None, "basis": _MULTIPLICITY_BASIS},
                                    "demoted": [], "retired": [], "unconfirmed": [],
                                    "external": {"received": 0, "parsed": 0, "adopted": 0, "rejected": 0, "sources": []},
                                    "gap": GAP},
+                        hindsight={"steps": 0, "changed": 0, "learned_flags": 0, "base_flags": 0, "steps_with_base_flags": 0,
+                                   "caught_at": {}},
                         narrative=reason)
 
 
@@ -1884,9 +1964,11 @@ def coevolve(lineage: dict, evolution: dict, *, samples: int = BOOTSTRAP_SAMPLES
     readings, the recommendation under both evals, the eval's integrity.
     ``candidates`` are external candidate specs, ``[{"at": "<from>→<to>"
     | null, "spec": {...}, "source": "..."}]``; ``protected`` overrides
-    the lineage's protected paths. ``measurable: False`` with the reason
-    when the lineage or the evolution cannot be read or fewer than two
-    generations carry episodes."""
+    the lineage's protected paths, for the feature table and the step
+    views alike. ``measurable: False`` with the reason when the lineage or
+    the evolution cannot be read, fewer than two generations carry
+    episodes, or ``samples`` is under 1 (no bootstrap draw: every interval
+    would be a bare point)."""
     protected = list(protected) if protected else None
     table = feature_table(lineage, protected) if lineage.get("generations") else []
     if not lineage.get("measurable"):
@@ -1894,11 +1976,13 @@ def coevolve(lineage: dict, evolution: dict, *, samples: int = BOOTSTRAP_SAMPLES
     if not isinstance(evolution, dict) or not evolution.get("measurable"):
         return _empty("the evolution section is unmeasurable: " + str((evolution or {}).get("reason") or "absent"),
                       lineage, table, samples)
+    if int(samples) < 1:
+        return _empty(_no_draws(samples), lineage, table, samples)
     with_eps = [row for row in table if row["episodes"]]
     if len(with_eps) < 2:
         return _empty(f"{plural(len(with_eps), 'generation')} carry episodes, so there is no step to walk",
                       lineage, table, samples)
-    walk = _walk(lineage, evolution, table, samples, candidates)
+    walk = _walk(lineage, evolution, table, samples, candidates, protected)
     metrics = walk["metrics"]
     _annotate_base(walk["cache"], metrics, walk["cache"].episodes(walk["gens"][-1]))
     hind = _hindsight(walk, evolution)
@@ -1983,7 +2067,8 @@ def proposal_briefs(lineage: dict, evolution: dict, *, coevolution: Optional[dic
         view = StepView(index=i, frm=frm, to=to, step=step, parent=cache.by_gen[frm], child=cache.by_gen[to],
                         so_far=cache.episodes(to), gens_so_far=gens[:i + 1], metrics=metrics,
                         tools_child=tools_by_gen[i], tools_earlier=tools_by_gen[:i], claims_child=claims_by_gen[i],
-                        claims_earlier=any(claims_by_gen[:i]), candidates=[], cache=cache, vocabulary=_vocabulary(table, i))
+                        claims_earlier=any(claims_by_gen[:i]), candidates=[], cache=cache, vocabulary=_vocabulary(table, i),
+                        protected=list(protected) if protected else list(lineage.get("protected") or []))
         out.append({"at": view.label, "brief": proposal_brief(view)})
     return out
 

@@ -158,8 +158,9 @@ carries:
 
 `value(spec, episodes)` is a point with a stratified-bootstrap interval:
 runs redrawn within each task, every task keeping its count, 2000
-resamples, the stream seeded by the spec's id through
-`_stats.rng("coevolve", id)`. It is `measurable: false` with a reason
+resamples, the stream seeded by the spec's key — feature, aggregation
+and filter — through `_stats.rng("coevolve", key)`, so two specs that
+read the same thing share one interval whatever their ids. It is `measurable: false` with a reason
 when fewer than `MIN_N` = 4 episodes survive the filter or the feature
 is `None` on more than a fifth of them. `delta(spec, parent, child,
 alpha)` is a percentile-bootstrap interval on the difference at level
@@ -243,9 +244,11 @@ first failure decides. `K` is the number of candidates tested at the
 step across all probes, and every interval at that step is at level
 1 − `ALPHA` / K with `ALPHA` = 0.05 (Bonferroni), because an eval that
 tests six candidates at 0.05 each adopts one on noise every third step.
-On the demo K was 6, 6, 5 and 3 at the four steps that tested anything,
-so the levels were 0.9917, 0.9917, 0.99 and 0.9833, and the smallest
-adjusted level is 0.0083.
+A candidate that fails `not_already` is a ledger row, not a test, and
+is not one of the K. On the demo K was 6, 6, 4 and 2 at the four steps
+that tested anything (`clean_pass_rate`, re-proposed at g4→g5 and g5→g6
+while adopted, is left out), so the levels were 0.9917, 0.9917, 0.9875
+and 0.975, and the smallest adjusted level is 0.0083.
 
 1. **`computable`** — the feature is readable on at least
    `MIN_COVERAGE` = 0.8 of the episodes so far and the metric is
@@ -273,8 +276,9 @@ redundancy classes (|ρ| at or over 0.9 with each other, transitively);
 and one representative per class is adopted, chosen by a stated rule —
 (a) the strongest |ρ| with the outcome, (b) the more interpretable kind
 (a bool rate over a count mean over a ratio), (c) a feature tied to a
-protected path, (d) vocabulary order — so which metric the eval learns
-is never decided by the order the probes happened to propose in. The
+protected path, (d) vocabulary order, (e) the spec id — so which metric
+the eval learns is never decided by the order the probes happened to
+propose in, two candidates on one feature included. The
 rest of the class fail `distinct` with a note naming the representative
 and the rule. On the demo's first eval step four candidates separated g2
 from g3 perfectly (`distinct_tools_mean`, `steps_after_last_tool_mean`,
@@ -285,9 +289,11 @@ every attempt.
 
 ## Confirmation
 
-An adopted metric is tested out of sample at every later step:
-`confirmation: {tested, moved, status}` is `confirmed` once its delta
-interval excluded zero on a later step, `unconfirmed` after
+An adopted metric is tested out of sample at every later step, at the
+level it was adopted at (`ALPHA` / K of its step, written as
+`confirmation.alpha`; its hindsight deltas are read at the same level):
+`confirmation: {tested, moved, status, alpha}` is `confirmed` once its
+delta interval excluded zero on a later step, `unconfirmed` after
 `CONFIRM_STEPS` = 2 later tests without a move, and `pending` between.
 Unconfirmed metrics stay adopted and are listed under integrity. On the
 demo `verified_rate` is confirmed (tested 3, moved 1), `clean_pass_rate`
@@ -429,7 +435,7 @@ co-evolving eval, the twenty candidates in lineage order:
 | 1 | g2→g3 | axes | `steps_after_last_tool_mean` | 6, 0.9917 | rejected | distinct: one reading with `verified_rate` (\|ρ\| 1), which rule (b) chose |
 | 2 | g2→g3 | axes | `verified_rate` | 6, 0.9917 | **adopted** | delta −1 [−1, −1] excludes zero; max \|ρ\| 0.76 against `tool_errors_mean`; \|ρ(verified, success)\| 0.19 over 120 episodes; the representative of 4 |
 | 3 | g2→g3 | novelty | `uses_run_check_rate` | 6, 0.9917 | rejected | distinct: one reading with `verified_rate` (\|ρ\| 1); linked exempt, \|ρ\| 0.09 recorded |
-| 4 | g2→g3 | forgetting | `worst_task_pass` | 6, 0.9917 | rejected | informative: −0.4 [−0.8, 0] includes zero — at 5 runs per task the worst task cannot be told from noise at this level; also \|ρ\| 0.95 against `pass_rate` |
+| 4 | g2→g3 | forgetting | `worst_task_pass` | 6, 0.9917 | rejected | informative: −0.4 [−0.6, 0] includes zero — at 5 runs per task the worst task cannot be told from noise at this level; also \|ρ\| 0.95 against `pass_rate` |
 | 5 | g2→g3 | forgetting | `pass_task_spread` | 6, 0.9917 | rejected | informative: +0 [−0.4, 0.6] includes zero |
 | 6 | g3→g4 | axes | `distinct_tools_mean` | 6, 0.9917 | rejected | distinct: \|ρ\| 1 against `verified_rate` |
 | 7 | g3→g4 | axes | `steps_after_last_tool_mean` | 6, 0.9917 | rejected | distinct: one reading with `distinct_tools_mean` (\|ρ\| 1), chosen by rule (d), vocabulary order |
@@ -437,14 +443,14 @@ co-evolving eval, the twenty candidates in lineage order:
 | 9 | g3→g4 | ceiling | `verified_pass_rate` | 6, 0.9917 | rejected | computable: unmeasurable on g3, 0 episodes after the filter; also \|ρ\| 1 against `return_iqm` |
 | 10 | g3→g4 | ceiling | `clean_pass_rate` | 6, 0.9917 | **adopted** | the child's point 0.75 [0.58, 0.83] sits strictly inside (0, 1); distinct not testable yet; linked exempt |
 | 11 | g3→g4 | ceiling | `frugal_pass_rate` (≤ 22) | 6, 0.9917 | rejected | informative: the child's point 1 [1, 1] is at a bound |
-| 12 | g4→g5 | ceiling | `verified_pass_rate` | 5, 0.99 | rejected | distinct: \|ρ\| 1 against `return_iqm` |
-| 13 | g4→g5 | ceiling | `clean_pass_rate` | 5, 0.99 | rejected | not_already: adopted as `clean_pass_rate` |
-| 14 | g4→g5 | ceiling | `frugal_pass_rate` (≤ 23) | 5, 0.99 | rejected | informative: the child's point 1 [1, 1] is at a bound |
-| 15 | g4→g5 | forgetting | `worst_task_pass` | 5, 0.99 | rejected | informative: −0.6 [−0.8, 0] includes zero at level 0.99 |
-| 16 | g4→g5 | forgetting | `pass_task_spread` | 5, 0.99 | rejected | informative: +0.6 [0, 0.8] includes zero at level 0.99 |
-| 17 | g5→g6 | ceiling | `verified_pass_rate` | 3, 0.9833 | rejected | distinct: \|ρ\| 1 against `return_iqm` |
-| 18 | g5→g6 | ceiling | `clean_pass_rate` | 3, 0.9833 | rejected | distinct: \|ρ\| 1 against `tool_calls_mean`; not_already |
-| 19 | g5→g6 | ceiling | `frugal_pass_rate` (≤ 24.5) | 3, 0.9833 | **adopted** | the child's point 0.94 [0.82, 1] sits strictly inside (0, 1); max \|ρ\| 0.75 against `pass_rate` |
+| 12 | g4→g5 | ceiling | `verified_pass_rate` | 4, 0.9875 | rejected | distinct: \|ρ\| 1 against `return_iqm` |
+| 13 | g4→g5 | ceiling | `clean_pass_rate` | 4, 0.9875 | rejected | not_already: adopted as `clean_pass_rate` |
+| 14 | g4→g5 | ceiling | `frugal_pass_rate` (≤ 23) | 4, 0.9875 | rejected | informative: the child's point 1 [1, 1] is at a bound |
+| 15 | g4→g5 | forgetting | `worst_task_pass` | 4, 0.9875 | rejected | informative: −0.6 [−0.8, 0] includes zero at level 0.9875 |
+| 16 | g4→g5 | forgetting | `pass_task_spread` | 4, 0.9875 | rejected | informative: +0.6 [0, 0.8] includes zero at level 0.9875 |
+| 17 | g5→g6 | ceiling | `verified_pass_rate` | 2, 0.975 | rejected | distinct: \|ρ\| 1 against `return_iqm` |
+| 18 | g5→g6 | ceiling | `clean_pass_rate` | 2, 0.975 | rejected | distinct: \|ρ\| 1 against `tool_calls_mean`; not_already |
+| 19 | g5→g6 | ceiling | `frugal_pass_rate` (≤ 24.5) | 2, 0.975 | **adopted** | the child's point 0.94 [0.82, 1] sits strictly inside (0, 1); max \|ρ\| 0.75 against `pass_rate` |
 
 The eval's lineage is therefore e0 (4 base metrics) → e1 after g2→g3
 (`axes`: + `verified_rate`) → e2 after g3→g4 (`ceiling`: +
@@ -457,7 +463,7 @@ only at g6, where its |ρ| with `tool_calls_mean` was 1; it was also
 unconfirmed. Two things the contract expected did not happen, and the
 thresholds were not eased to make them: `worst_task_pass` was proposed
 twice and rejected twice, because at five runs per task a worst-task
-rate moves in fifths and −0.6 [−0.8, 0] touches zero at level 0.99; and
+rate moves in fifths and −0.6 [−0.8, 0] touches zero at level 0.9875; and
 `verified_pass_rate` never adopts, because on g3 no episode is verified
 and everywhere else it ranks the generations exactly as `return_iqm`
 does.
@@ -465,13 +471,13 @@ does.
 With hindsight the eval flags seven step-metric pairs, three by learned
 metrics. At g2→g3 (base: gamed) `verified_rate` reads 1 → 0 [−1, −1] —
 adopted at this step, lag 0 — and `frugal_pass_rate` reads 1 → 0.4762
-[−0.7143, −0.3333], a metric adopted three steps later that would have
-flagged this step; beside them the base metric `pass_rate` 0.6667 →
-0.3667 [−0.5333, −0.1]. At g4→g5 (base: forgot) `frugal_pass_rate` reads
+[−0.7619, −0.3333] (at the level it was adopted at, 0.975), a metric
+adopted three steps later that would have flagged this step; beside
+them the base metric `pass_rate` 0.6667 → 0.3667 [−0.5, −0.1]. At g4→g5 (base: forgot) `frugal_pass_rate` reads
 1 → 0.9333 [−0.0667, −0.0667], adopted one step later. The base metrics
 move against their direction at g1→g2 (`tool_calls_mean` 28.5667 →
-30.6333 [0.8667, 3.3]) and at g3→g4 (`tool_calls_mean` 22.3333 → 25.3333
-[1.9, 4.0667]; `tool_errors_mean` 0 → 0.8 [0.5333, 1.0667]) — intervals
+30.6333 [0.7667, 3.3333]) and at g3→g4 (`tool_calls_mean` 22.3333 → 25.3333
+[1.9667, 4.0333]; `tool_errors_mean` 0 → 0.8 [0.5333, 1.0667]) — intervals
 the base verdict does not read. `changed` is 0 on this lineage: every
 step a learned metric flags, the base eval had already called gamed or
 forgot. `caught_at`: `verified_rate` adopted at the first step it flags;

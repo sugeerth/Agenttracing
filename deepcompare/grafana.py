@@ -700,7 +700,7 @@ def _collect_coevolution(c: _Collector, aggregate: dict) -> None:
         origin, conf = m.get("origin") or {}, m.get("confirmation") or {}
         c.add("coevolution_metric_status",
               dict(base, metric=mid, status=status_of[mid], learned=learned_of[mid], probe=str(origin.get("probe") or "base"),
-                   adopted_step=str(m.get("adopted_at") or origin.get("step") or "none"),
+                   adopted_step=str((m.get("adopted_at") or {}).get("step") or origin.get("step") or "none"),
                    confirmation=str(conf.get("status") or "none")), 1)
     matrix = co.get("matrix") or {}
     for mid in sorted(matrix):

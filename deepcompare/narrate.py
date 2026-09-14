@@ -43,9 +43,20 @@ from typing import Callable, Optional
 _FACT_ID = re.compile(r"\[F(\d+)\]")
 
 #: numeric tokens in narration text.  Percentages, decimals, integers,
-#: currency; commas allowed.  Years and step/fact indices are handled by the
-#: allowlist below rather than by weakening this pattern.
-_NUMBER = re.compile(r"(?<![\w/])\$?\d[\d,]*\.?\d*%?")
+#: currency; commas allowed.  A digit glued to a word, a slash or a dot
+#: (``e3``, ``3/6``, the ``.3`` of ``1.2.3``) is not a number, and neither
+#: is a token cut off before more digits.  Step and fact indices are handled
+#: by the allowlist below rather than by weakening this pattern.
+_NUMBER = re.compile(r"(?<![\w/.])\$?\d[\d,]*\.?\d*%?(?!\.?\d)")
+#: spans that carry digits but are not numbers: ISO dates and version strings
+_NOT_NUMBERS = re.compile(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)|(?<![\w.])v\d+(?:\.\d+)+(?![\w.])")
+#: a citation year in parentheses — "Bonferroni (1936)" — is a reference, not a figure
+_CITATION = re.compile(r"\((1[5-9]\d\d|20\d\d)\)")
+
+
+def _numbers(text: str) -> list:
+    """The numeric tokens of ``text``, dates and version strings left out."""
+    return _NUMBER.findall(_NOT_NUMBERS.sub(" ", text or ""))
 
 
 def _norm_number(token: str) -> str:
@@ -73,7 +84,7 @@ def _walk_numbers(value, out: set) -> None:
             out.add(_norm_number(f"{round(value, 1)}"))
             out.add(_norm_number(f"{round(value)}"))
     elif isinstance(value, str):
-        for tok in _NUMBER.findall(value):
+        for tok in _numbers(value):
             out.add(_norm_number(tok))
     elif isinstance(value, dict):
         for v in value.values():
@@ -947,9 +958,11 @@ def check_narration(brief: dict, text: str) -> dict:
     practice: a fluent paragraph quietly containing figures from nowhere.
     """
     allowed = set(brief.get("allowed_numbers") or [])
+    cited_years = set(_CITATION.findall(text or ""))
     unsupported = []
-    for token in _NUMBER.findall(text or ""):
-        if _norm_number(token) not in allowed:
+    tokens = _numbers(text)
+    for token in tokens:
+        if _norm_number(token) not in allowed and token not in cited_years:
             unsupported.append(token)
 
     known = {fact["id"] for fact in brief.get("facts") or []}
@@ -958,7 +971,7 @@ def check_narration(brief: dict, text: str) -> dict:
     cited = {f"F{m}" for m in _FACT_ID.findall(text or "") if f"F{m}" in known}
 
     return {
-        "numbers_checked": len(_NUMBER.findall(text or "")),
+        "numbers_checked": len(tokens),
         "unsupported_numbers": unsupported,
         "citations": len(cited),
         "invalid_citations": bad_citations,

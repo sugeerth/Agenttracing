@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import re
+import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Optional
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -137,15 +138,29 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/bundle.json":
             self._send(200, (self.bundle.path / "bundle.json").read_bytes(), "application/json; charset=utf-8")
             return
-        status, payload = route(self.bundle, path, query)
+        try:
+            status, payload = route(self.bundle, path, query)
+        except (OSError, KeyError) as exc:
+            # a record the index names but the disk no longer holds, or one that cannot be read: an answer, not a dropped connection
+            what = getattr(exc, "strerror", None) or str(exc)
+            status, payload = 500, {"error": "server error", "reason": f"the bundle cannot be read: {what}"}
         self._json(status, payload)
+
+
+def _family(host: str) -> int:
+    """The address family a host binds: IPv6 for a literal with a colon
+    (``::1``), IPv4 otherwise (``127.0.0.1``, ``localhost``)."""
+    return socket.AF_INET6 if ":" in host else socket.AF_INET
 
 
 def make_server(bundle: Bundle, host: str = "127.0.0.1", port: int = 8787, quiet: bool = True) -> ThreadingHTTPServer:
     """A server bound to ``host:port`` (0 picks a free port), not yet
-    serving: the caller runs ``serve_forever`` — in a thread, in a test."""
+    serving: the caller runs ``serve_forever`` — in a thread, in a test.
+    An IPv6 literal (``::1``) binds an IPv6 socket; ``OSError`` when the
+    address cannot be bound."""
     handler = type("BundleHandler", (Handler,), {"bundle": bundle, "quiet": quiet})
-    return ThreadingHTTPServer((host, port), handler)
+    server_cls = type("BundleServer", (ThreadingHTTPServer,), {"address_family": _family(host)})
+    return server_cls((host, port), handler)
 
 
 __all__ = ["API", "route", "Handler", "make_server"]

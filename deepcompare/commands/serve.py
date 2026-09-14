@@ -38,7 +38,11 @@ def run(args: argparse.Namespace) -> int:
         print(f"warning: binding to {args.host} exposes the bundle beyond this machine; the API is read-only but "
               "the bundle's contents are served to anyone who can reach it", file=sys.stderr)
     from ..harness.serve import make_server
-    server = make_server(bundle, args.host, args.port)
+    try:
+        server = make_server(bundle, args.host, args.port)
+    except OSError as exc:
+        print(f"error: cannot bind {args.host}:{args.port}: {exc.strerror or exc}", file=sys.stderr)
+        return 2
     host, port = server.server_address[:2]
     print(f"Serving {bundle.name} ({bundle.id}) at http://{host}:{port}/ — /api/v1/overview, /api/v1/runs, "
           f"/api/v1/runs/<key>; Ctrl-C stops")

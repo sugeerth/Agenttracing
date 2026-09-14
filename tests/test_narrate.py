@@ -100,6 +100,18 @@ class TestFaithfulness(unittest.TestCase):
             check = check_narration(self.brief, f"bolt used {variant} tokens.")
             self.assertEqual(check["unsupported_numbers"], [], variant)
 
+    def test_fragments_of_versions_dates_and_citations_are_not_numbers(self):
+        # finding 12: "v1.2.3" yielded 2.3, "2025-06-18" yielded 2025 and 06, "Bonferroni (1936)" yielded 1936
+        for text in ("agent version v1.2.3 ran", "on 2025-06-18 the run ended", "Bonferroni (1936) divides the level",
+                     "the step g2→g3, eval e3, id sha256:abc123, fact [F5], 3/6 tasks"):
+            check = check_narration(self.brief, text)
+            self.assertEqual(check["unsupported_numbers"], [], text)
+        self.assertEqual(check_narration(self.brief, "3/6 tasks")["numbers_checked"], 1, "3 is still a number; /6 is not")
+        # what is a number is still checked: an invented figure, a negative one, a range, a percentage
+        for text, token in (("a 93% recurrence risk", "93%"), ("a delta of -0.6 points", "0.6"), ("between 2.5-3.25 seconds", "2.5"),
+                            ("between 2.5-3.25 seconds", "3.25"), ("Bonferroni (1936) and 77 tests", "77"), ("in 1936 alone", "1936")):
+            self.assertIn(token, check_narration(self.brief, text)["unsupported_numbers"], text)
+
     def test_the_checkers_own_limit_is_declared(self):
         check = check_narration(self.brief, "no numbers here at all")
         self.assertIn("causal claim", check["limit"])

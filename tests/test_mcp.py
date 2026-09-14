@@ -145,6 +145,20 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(json.loads(parse[0])["error"]["code"], -32700)
         self.assertEqual(self.server.handle([1, 2])["error"]["code"], -32600)
 
+    def test_an_empty_batch_is_an_invalid_request_and_the_jsonrpc_field_is_checked(self):
+        # finding 14: "[]" was answered with silence, and a request without "jsonrpc": "2.0" was served
+        empty = self.server.handle_line("[]")
+        self.assertEqual(len(empty), 1)
+        self.assertEqual(json.loads(empty[0]), {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "an empty batch"}})
+        self.assertEqual(self.server.handle_line("[ ]"), empty)
+        missing = self.server.handle({"id": 1, "method": "ping"})
+        self.assertEqual((missing["id"], missing["error"]["code"]), (1, -32600))
+        self.assertIn('"jsonrpc": "2.0"', missing["error"]["message"])
+        wrong = self.server.handle({"jsonrpc": "1.0", "id": 2, "method": "ping"})
+        self.assertEqual(wrong["error"]["code"], -32600)
+        self.assertEqual(self.server.handle(_req(3, "ping"))["result"], {}, "a well-formed request still answers")
+        self.assertEqual(self.server.handle_line(json.dumps([_req(4, "ping")])), [json.dumps({"jsonrpc": "2.0", "id": 4, "result": {}})])
+
     def test_resources_list_and_read(self):
         resources = self.server.handle(_req(7, "resources/list"))["result"]["resources"]
         uris = [r["uri"] for r in resources]

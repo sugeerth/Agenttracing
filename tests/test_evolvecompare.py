@@ -752,7 +752,7 @@ class DemoCompareTest(unittest.TestCase):
         self.assertIn("it would flag that step", c["reading"])
         f = rows["frugal_pass_rate"]
         self.assertEqual((f["from"], f["to"], f["delta"]["point"]), (0.9, 0.9, 0.0))
-        self.assertEqual((f["delta"]["lo"], f["delta"]["hi"]), (-0.2, 0.2))
+        self.assertEqual((f["delta"]["lo"], f["delta"]["hi"]), (-0.2, 0.3))
         self.assertFalse(f["informative_there"])
         reading = ev["reading"]
         self.assertIn("ledger-agent's eval grew to e3 and adopted verified_rate, clean_pass_rate and frugal_pass_rate "
@@ -764,6 +764,63 @@ class DemoCompareTest(unittest.TestCase):
 
 
 # ---------------------------------------------------------------- the embedded copies and the registry
+
+class EvalSummaryTest(unittest.TestCase):
+    """The evals side read off hand-built sections: the longest hindsight
+    lag ignores a metric that first flags after its adoption, and a
+    transferred ``uses:<tool>`` metric reads 0 where the other lineage
+    never called the tool."""
+
+    @staticmethod
+    def section(caught_at: dict) -> dict:
+        return {"measurable": True, "reason": None, "metrics": {}, "integrity": {}, "ledger": [], "eval_generations": [{"id": "e0"}],
+                "hindsight": {"caught_at": caught_at}, "recommended": {"base": "g1", "evolved": "g1", "agree": True},
+                "flow": {"summary": {}}, "narrative": "n"}
+
+    def test_hindsight_lag_max_ignores_a_metric_that_first_flags_after_its_adoption(self):
+        # finding 11: caught_at.lag = adopted − first is negative then, and max() narrated "the longest hindsight lag -2 steps"
+        view = {"label": "L", "family": "f"}
+        only_after = ec._eval_summary(view, self.section({"m": {"lag": -2}}))
+        self.assertIsNone(only_after["hindsight_lag_max"])
+        self.assertNotIn("hindsight lag", ec._evals_reading([only_after], [], []))
+        at_adoption = ec._eval_summary(view, self.section({"m": {"lag": -2}, "n": {"lag": 0}}))
+        self.assertIsNone(at_adoption["hindsight_lag_max"], "adopted at the first step it flags is no lag")
+        late = ec._eval_summary(view, self.section({"m": {"lag": -2}, "n": {"lag": 0}, "o": {"lag": 3}, "p": {"lag": None}}))
+        self.assertEqual(late["hindsight_lag_max"], 3)
+        self.assertIn("the longest hindsight lag 3 steps", ec._evals_reading([late], [], []))
+
+    def test_a_transferred_tool_metric_reads_0_where_the_other_lineage_never_called_the_tool(self):
+        # finding 10: the other lineage's table carried only its own uses:<tool> columns, so the metric was "unreadable"
+        from deepcompare.coevolve import FEATURES, parse_spec
+        from test_coevolve import gen_rows
+        spec = parse_spec({"id": "uses_run_check_rate", "feature": "uses:run_check", "agg": "rate", "direction": "neutral"},
+                          list(FEATURES) + ["uses:run_check"])
+        co_a = {"measurable": True, "metrics": {"uses_run_check_rate": {"spec": spec, "status": "adopted"}},
+                "eval_generations": [{"id": "e0", "adopted": []}, {"id": "e1", "adopted": ["uses_run_check_rate"]}]}
+        co_b = {"measurable": True, "metrics": {}, "eval_generations": [{"id": "e0", "adopted": []}]}
+        views = [{"label": "A", "family": "a", "lineage": {}}, {"label": "B", "family": "b", "lineage": {}}]
+        strip = lambda rows: [dict(e, values={k: v for k, v in e["values"].items() if not k.startswith("uses:")}) for e in rows]  # noqa: E731
+        table_b = [{"id": "g0", "index": 0, "episodes": strip(gen_rows(lambda t, k: {}))},
+                   {"id": "g1", "index": 1, "episodes": strip(gen_rows(lambda t, k: {}))}]
+        self.assertFalse(any(k.startswith("uses:") for row in table_b for e in row["episodes"] for k in e["values"]))
+        rows = ec._transfer(views, [co_a, co_b], [[], table_b], SAMPLES)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual((row["metric"], row["learned_on"], row["applied_to"], row["step"]), ("uses_run_check_rate", "A", "B", "g0→g1"))
+        self.assertTrue(row["measurable"], row["reason"])
+        self.assertEqual((row["from"], row["to"], row["delta"]), (0.0, 0.0, {"point": 0.0, "lo": 0.0, "hi": 0.0}))
+        self.assertFalse(row["informative_there"])
+        self.assertIn("0 → 0", row["reading"])
+        self.assertFalse(any(k.startswith("uses:") for row_ in table_b for e in row_["episodes"] for k in e["values"]),
+                         "the other lineage's table is read, not rewritten")
+        where = parse_spec({"id": "pass_when_checked", "feature": "success", "agg": "rate", "direction": "up",
+                            "where": {"feature": "uses:run_check", "op": ">", "value": 0}}, list(FEATURES) + ["uses:run_check"])
+        co_a["metrics"]["pass_when_checked"] = {"spec": where, "status": "adopted"}
+        co_a["eval_generations"][1]["adopted"].append("pass_when_checked")
+        filtered = ec._transfer(views, [co_a, co_b], [[], table_b], SAMPLES)[1]
+        self.assertFalse(filtered["measurable"])
+        self.assertIn("0 episodes after the filter", filtered["reason"], "a filter on the tool selects nothing there, and says so")
+
 
 class EmbeddedCopyTest(unittest.TestCase):
     """``lineages[i].evolution`` carries each lineage's own section without

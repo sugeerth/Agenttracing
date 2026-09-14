@@ -19,6 +19,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -144,6 +145,24 @@ class FeatureTest(_Temp):
         self.assertIsNone(f["steps_after_last_tool"], "no tool step")
         self.assertEqual((f["steps"], f["tool_calls"], f["verified"], f["success"]), (2, 0, 0, 0))
 
+    def test_no_reward_and_no_latency_read_none_not_zero(self):
+        # finding 8: a value with no reward recorded is not a residual, and a run whose steps carry no latency has no wall clock
+        d = {"trace_id": "t", "agent": {"name": "a"}, "task": {"id": "k", "prompt": "p"}, "totals": {},
+             "steps": [{"index": 0, "type": "plan", "value": 0.5}, {"index": 1, "type": "tool_call", "name": "grep", "value": 0.2},
+                       {"index": 2, "type": "answer", "output": "done"}],
+             "outcome": {"success": True, "answer": "done"}}
+        f = co.features(Trajectory.from_dict(d), [])
+        self.assertIsNone(f["critic_error"], "two steps carry a value but no step records a reward")
+        self.assertIsNone(f["seconds"], "no step carries a latency above zero")
+        self.assertIsNone(f["return"])
+        d["steps"][1]["reward"] = -0.1
+        d["steps"][2]["latency_s"] = 1.5
+        f = co.features(Trajectory.from_dict(d), [])
+        self.assertIsNotNone(f["critic_error"], "one recorded reward makes the return-to-go a measurement")
+        self.assertAlmostEqual(f["seconds"], 1.5)
+        self.assertIn("None when no step carries one above zero", co.FEATURES["seconds"].basis)
+        self.assertIn("no step records a reward", co.FEATURES["critic_error"].basis)
+
     def test_critic_error_is_the_mean_absolute_residual_against_the_discounted_return_to_go(self):
         from deepcompare.rl import GAMMA
         from deepcompare.rlaudit import discounted_to_go
@@ -260,7 +279,7 @@ class ValueDeltaTest(unittest.TestCase):
         self.assertAlmostEqual(co.value(spec("a", "return", "iqm"), self.eps, SAMPLES)["point"], 2.0)
         self.assertAlmostEqual(co.value(spec("a", "tool_calls", "rate"), self.eps, SAMPLES)["point"], 1.0, msg="a rate of a count is the fraction positive")
 
-    def test_the_interval_is_an_interval_and_the_stream_is_seeded_by_the_spec_id(self):
+    def test_the_interval_is_an_interval_and_the_stream_is_seeded_by_the_spec_key(self):
         v = co.value(spec("a", "success", "rate"), self.eps, SAMPLES)
         self.assertEqual(list(v)[:2], ["measurable", "reason"])
         self.assertTrue(v["measurable"])
@@ -269,9 +288,33 @@ class ValueDeltaTest(unittest.TestCase):
         self.assertEqual((v["n"], v["tasks"], v["coverage"]), (10, 2, 1.0))
         self.assertIn("stratified bootstrap", v["basis"])
         self.assertEqual(v, co.value(spec("a", "success", "rate"), self.eps, SAMPLES), "deterministic")
+        # improvement 5 / finding 4: the stream is the spec's key, so another id reading the same thing is the same interval
         other = co.value(spec("b", "success", "rate"), self.eps, SAMPLES)
-        self.assertEqual(other["point"], v["point"])
-        self.assertNotEqual((other["lo"], other["hi"]), (v["lo"], v["hi"]), "another id, another stream")
+        self.assertEqual(other, v, "another id, the same feature, aggregation and filter: one interval")
+        child = gen_rows(lambda t, k: {"success": 1, "tool_calls": k + 1})
+        self.assertEqual(co.delta(spec("b", "success", "rate"), self.eps, child, SAMPLES, co.ALPHA),
+                         co.delta(spec("a", "success", "rate"), self.eps, child, SAMPLES, co.ALPHA))
+        self.assertEqual(co.per_task(spec("b", "success", "rate"), self.eps, SAMPLES), co.per_task(spec("a", "success", "rate"), self.eps, SAMPLES))
+        filtered = co.value(spec("a", "success", "rate", where={"feature": "tool_calls", "op": "<=", "value": 9}), self.eps, SAMPLES)
+        self.assertNotEqual((filtered["lo"], filtered["hi"]), (v["lo"], v["hi"]), "another key, another stream")
+        self.assertEqual(co._Cache._key(spec("a", "success", "rate")), co._Cache._key(dict(spec("a", "success", "rate"), id="pass_rate@g1→g2")),
+                         "the cache is keyed by the spec key, so a renamed id@step metric shares the interval")
+
+    def test_no_bootstrap_draw_is_unmeasurable_never_a_bare_point(self):
+        # finding 2: samples 0 used to return lo = hi = point, measurable, and excludes_zero = point != 0
+        for samples in (0, -3):
+            v = co.value(spec("a", "success", "rate"), self.eps, samples)
+            self.assertFalse(v["measurable"])
+            self.assertIn("no bootstrap draw", v["reason"])
+            self.assertEqual((v["point"], v["lo"], v["hi"], v["n"]), (None, None, None, 10))
+            child = gen_rows(lambda t, k: {"success": 1, "tool_calls": k + 1})
+            d = co.delta(spec("a", "success", "rate"), self.eps, child, samples, co.ALPHA)
+            self.assertFalse(d["measurable"])
+            self.assertFalse(d["excludes_zero"])
+            self.assertIn("no bootstrap draw", d["reason"])
+            cells = co.per_task(spec("a", "success", "rate"), self.eps, samples)
+            self.assertTrue(all(not c["measurable"] and "no bootstrap draw" in c["reason"] and c["point"] is None for c in cells.values()))
+        self.assertTrue(co.value(spec("a", "success", "rate"), self.eps, 1)["measurable"])
 
     def test_stratification_keeps_a_constant_task_constant(self):
         eps = gen_rows(lambda t, k: {"success": 0 if t == "ta" else k % 2})
@@ -355,9 +398,10 @@ class PerTaskTest(unittest.TestCase):
         self.assertTrue(cells["ta"]["lo"] <= 0.8 <= cells["ta"]["hi"])
         self.assertLess(cells["ta"]["lo"], cells["ta"]["hi"], "four passes and a failure redrawn have width")
         self.assertEqual(cells["tb"], {"point": 0.0, "lo": 0.0, "hi": 0.0, "n": 5, "measurable": True, "reason": None})
-        self.assertEqual(co.per_task(spec, eps, samples=200), cells, "the stream is seeded by the spec id and the task")
-        self.assertEqual((co.per_task(spec, eps, samples=0)["ta"]["lo"], co.per_task(spec, eps, samples=0)["ta"]["hi"]), (0.8, 0.8),
-                         "no draws: the interval collapses to the point, never to zero")
+        self.assertEqual(co.per_task(spec, eps, samples=200), cells, "the stream is seeded by the spec key and the task")
+        none = co.per_task(spec, eps, samples=0)["ta"]
+        self.assertEqual((none["measurable"], none["point"], none["lo"], none["hi"], none["n"]), (False, None, None, None, 5))
+        self.assertIn("no bootstrap draw", none["reason"], "no draw: no interval, never a bare point")
         whole = co.value(spec, eps, samples=200)
         self.assertEqual(whole["point"], 0.4)
         self.assertNotEqual((whole["lo"], whole["hi"]), (cells["ta"]["lo"], cells["ta"]["hi"]))
@@ -637,8 +681,26 @@ class ValidatorTest(unittest.TestCase):
         self.assertLess(key("verified", 0.3), key("distinct_tools", 0.3), "(b) a bool rate over a count mean")
         self.assertLess(key("check_calls", 0.3), key("distinct_tools", 0.3), "(c) a protected-path feature")
         self.assertLess(key("steps", 0.3), key("retries", 0.3), "(d) vocabulary order")
+        ka = co._representative_key(spec("aaa", "verified", "rate"), 0.3, view)
+        kz = co._representative_key(spec("zzz", "verified", "rate"), 0.3, view)
+        self.assertEqual(len(ka), 5)
+        self.assertEqual(ka[:4], kz[:4])
+        self.assertLess(ka, kz, "(e) the spec id, when everything else ties")
         self.assertTrue(co._protected_feature("uses:check", ["tools.check"]))
         self.assertFalse(co._protected_feature("uses:grep", ["tools.check"]))
+
+    def test_two_candidates_on_one_feature_are_decided_by_the_spec_id_not_by_proposal_order(self):
+        # finding 3: with the four stated keys tied, sorted() was stable and proposal order decided, reported as "(d)"
+        a, z = spec("aaa_verified", "verified", "rate"), spec("zzz_verified", "verified", "rate")
+        alpha = co.ALPHA / 2
+        for order in ([("external", a, {}), ("external", z, {})], [("external", z, {}), ("external", a, {})]):
+            rows = co._validate_batch(order, self.view, alpha)
+            by = {order[i][1]["id"]: rows[i] for i in range(2)}
+            self.assertEqual(by["aaa_verified"]["decision"], "adopted", order)
+            self.assertEqual(by["zzz_verified"]["failed"], ["distinct"], order)
+            self.assertEqual(by["zzz_verified"]["validators"]["distinct"]["representative"], "aaa_verified")
+            self.assertEqual(by["zzz_verified"]["validators"]["distinct"]["rule"], "(e) spec id")
+            self.assertIn("aaa_verified chosen by (e) spec id", by["zzz_verified"]["reason"])
 
     def test_multiplicity_shrinks_the_level_with_the_candidates_tested(self):
         cands = [("axes", spec(f"c{i}", f, "mean"), {}) for i, f in enumerate(("retries", "distinct_tools", "steps", "seconds", "tokens"))]
@@ -653,9 +715,12 @@ class ValidatorTest(unittest.TestCase):
 # ---------------------------------------------------------------- the hand-built lineage
 
 class HandLineageTest(_Temp):
-    """Three generations, three runs per task: the eval adopts nothing —
-    every survivor of g1→g2 is one reading with the base tool-call mean —
-    and says why at every row."""
+    """Three generations, three runs per task: every axes and novelty
+    survivor of g1→g2 is one reading with the base tool-call mean; the
+    forgetting probe's worst-task pass rate is the one adoption — at 200
+    draws its delta interval [−1, −0.33] clears zero (a resample in which
+    both tasks' three runs all pass is a 1-in-729 draw) — and every row
+    says why."""
 
     @classmethod
     def setUpClass(cls):
@@ -681,9 +746,9 @@ class HandLineageTest(_Temp):
         self.assertTrue(all(f["basis"] for f in c["features"]))
         json.dumps(c)
 
-    def test_nothing_is_adopted_and_every_row_says_why(self):
+    def test_one_adoption_and_every_row_says_why(self):
         c = self.co
-        self.assertEqual(len(c["eval_generations"]), 1)
+        self.assertEqual(len(c["eval_generations"]), 2)
         self.assertEqual([(r["step"], r["probe"], r["spec_id"], r["decision"], r["failed"]) for r in c["ledger"]], [
             ("g0→g1", "ceiling", "verified_pass_rate", "rejected", ["informative"]),
             ("g0→g1", "ceiling", "clean_pass_rate", "rejected", ["informative"]),
@@ -692,7 +757,7 @@ class HandLineageTest(_Temp):
             ("g1→g2", "axes", "distinct_tools_mean", "rejected", ["distinct"]),
             ("g1→g2", "axes", "retries_mean", "rejected", ["distinct"]),
             ("g1→g2", "novelty", "uses_check_rate", "rejected", ["distinct"]),
-            ("g1→g2", "forgetting", "worst_task_pass", "rejected", ["informative"]),
+            ("g1→g2", "forgetting", "worst_task_pass", "adopted", []),
             ("g1→g2", "forgetting", "pass_task_spread", "rejected", ["informative"]),
         ])
         self.assertEqual([r["k"] for r in c["ledger"]], [3, 3, 3, 6, 6, 6, 6, 6, 6])
@@ -702,33 +767,46 @@ class HandLineageTest(_Temp):
         cls = c["ledger"][3]["validators"]["distinct"]
         self.assertEqual(cls["class"], ["check_calls_mean", "distinct_tools_mean", "retries_mean", "uses_check_rate"])
         self.assertEqual((cls["representative"], cls["rule"]), ("check_calls_mean", "(d) vocabulary order"))
-        self.assertIn("at 3 runs per task worst task pass rate cannot be told from noise at the adjusted level", c["ledger"][7]["reason"])
+        self.assertEqual(c["ledger"][7]["reason"], "every validator passed: delta −0.67 [−1, −0.33] at level 0.9917 excludes zero")
+        self.assertIn("at 3 runs per task pass rate spread across tasks cannot be told from noise at the adjusted level", c["ledger"][8]["reason"])
         self.assertEqual([r["index"] for r in c["ledger"]], list(range(9)))
         self.assertTrue(all(r["eval_gen"] == "e0" for r in c["ledger"]))
         self.assertEqual({p["name"]: p["fired"] for p in c["probes"]},
                          {"axes": ["g1→g2"], "ceiling": ["g0→g1"], "novelty": ["g1→g2"], "forgetting": ["g1→g2"],
                           "goodhart": [], "redundancy": [], "external": []})
-        self.assertEqual([(p["proposed"], p["adopted"]) for p in c["probes"]], [(3, 0), (3, 0), (1, 0), (2, 0), (0, 0), (0, 0), (0, 0)])
-        self.assertTrue(c["narrative"].startswith("the eval stayed at e0 (4 base metrics) over 2 agent steps: no candidate passed every validator"))
+        self.assertEqual([(p["proposed"], p["adopted"]) for p in c["probes"]], [(3, 0), (3, 0), (1, 0), (2, 1), (0, 0), (0, 0), (0, 0)])
+        self.assertEqual([(e["id"], e["after_step"], e["trigger_probe"], e["adopted"], e["size"]) for e in c["eval_generations"]],
+                         [("e0", None, None, c["base"], 4), ("e1", "g1→g2", "forgetting", ["worst_task_pass"], 5)])
+        self.assertTrue(c["narrative"].startswith("the eval grew from e0 (4 base metrics) to e1 (5 active metrics) over 2 agent steps; "
+                                                  "e1 after g1→g2 (forgetting): adopted worst_task_pass; 9 candidates tested, 1 adopted, 8 rejected"))
+        w = c["metrics"]["worst_task_pass"]
+        self.assertEqual(w["confirmation"], {"tested": 0, "moved": 0, "status": "pending", "alpha": 0.0083},
+                         "the level it was adopted at, written for the tests that follow")
+        self.assertEqual(w["adopted_at"], {"step": "g1→g2", "index": 2, "eval_gen": "e1", "ledger": 7})
 
     def test_hindsight_separates_learned_from_base(self):
         s0, s1 = self.co["steps"]
         self.assertEqual((s0["base"], s0["evolved"]["flags"], s0["evolved"]["base_flags"], s0["evolved"]["changed"]),
                          ({"verdict": "improved", "flags": []}, [], [], False))
-        self.assertEqual([x["metric"] for x in s0["evolved"]["moved"]], ["return_iqm", "pass_rate"])
+        self.assertEqual([x["metric"] for x in s0["evolved"]["moved"]], ["return_iqm", "pass_rate", "worst_task_pass"])
         self.assertEqual(s1["base"]["verdict"], "gamed")
         self.assertEqual([f["metric"] for f in s1["evolved"]["base_flags"]], ["pass_rate", "tool_calls_mean"])
         self.assertTrue(all(f["learned"] is False for f in s1["evolved"]["base_flags"]))
-        self.assertEqual(s1["evolved"]["flags"], [])
-        self.assertIn("the base metrics move against their direction: pass rate 1 → 0.33 [−1, −0.17], mean tool calls 2 → 8 [6, 6] "
+        self.assertEqual([(f["metric"], f["learned"], f["delta"]) for f in s1["evolved"]["flags"]],
+                         [("worst_task_pass", True, {"point": -0.6667, "lo": -1.0, "hi": -0.3333})])
+        self.assertFalse(s1["evolved"]["changed"], "the base already said gamed")
+        self.assertIn("the evolved eval sees worst task pass rate 1 → 0.33 [−1, −0.33] — a metric adopted at this step; "
+                      "the base metrics move against their direction: pass rate 1 → 0.33 [−1, −0.33], mean tool calls 2 → 8 [6, 6] "
                       "— base metrics whose intervals the base verdict does not read", s1["evolved"]["reading"])
-        self.assertEqual(self.co["hindsight"], {"steps": 2, "changed": 0, "learned_flags": 0, "base_flags": 2,
-                                                "steps_with_base_flags": 1, "caught_at": {}})
+        self.assertEqual({k: v for k, v in self.co["hindsight"].items() if k != "caught_at"},
+                         {"steps": 2, "changed": 0, "learned_flags": 1, "base_flags": 2, "steps_with_base_flags": 1})
+        self.assertEqual(self.co["hindsight"]["caught_at"]["worst_task_pass"]["note"], "adopted at the first step it flags")
 
     def test_the_matrix_reads_every_metric_on_every_generation_and_agrees_with_the_evolution_section(self):
         m = self.co["matrix"]
-        self.assertEqual(list(m), self.co["base"])
+        self.assertEqual(list(m), self.co["base"] + ["worst_task_pass"])
         self.assertEqual(list(m["pass_rate"]), ["g0", "g1", "g2"])
+        self.assertEqual([m["worst_task_pass"][g]["point"] for g in ("g0", "g1", "g2")], [0.3333, 1.0, 0.3333])
         self.assertEqual([m["pass_rate"][g]["point"] for g in ("g0", "g1", "g2")], [0.3333, 1.0, 0.3333])
         self.assertEqual([m["return_iqm"][g]["point"] for g in ("g0", "g1", "g2")],
                          [g["iqm_by_task"]["point"] for g in self.evolution["generations"]],
@@ -754,18 +832,42 @@ class HandLineageTest(_Temp):
         self.assertEqual((rec["base"], rec["evolved"], rec["agree"]), ("g1", "g1", True))
         self.assertEqual(rec["base"], self.evolution["recommended"]["id"])
         self.assertEqual(rec["excluded"]["base"], {"g2": ["its incoming step was gamed", "it runs with a weakened protected path"]})
+        self.assertEqual(rec["excluded"]["evolved"]["g2"][-1], "its incoming step is flagged by worst_task_pass")
         integ = self.co["integrity"]
-        self.assertEqual(integ["drift"], {"jaccard_distance_from_base": 0.0, "size_by_eval_gen": [4],
+        self.assertEqual(integ["drift"], {"jaccard_distance_from_base": 0.2, "size_by_eval_gen": [4, 5],
                                           "basis": "1 − |base ∩ final active| / |base ∪ final active|"})
         self.assertEqual({k: integ["multiplicity"][k] for k in ("tested", "adopted", "rejected", "unparseable", "alpha", "min_adjusted_alpha")},
-                         {"tested": 9, "adopted": 0, "rejected": 9, "unparseable": 0, "alpha": 0.05, "min_adjusted_alpha": 0.0083})
+                         {"tested": 9, "adopted": 1, "rejected": 8, "unparseable": 0, "alpha": 0.05, "min_adjusted_alpha": 0.0083})
         self.assertEqual((integ["demoted"], integ["retired"], integ["unconfirmed"]), ([], [], []))
         self.assertEqual(integ["external"], {"received": 0, "parsed": 0, "adopted": 0, "rejected": 0, "sources": []})
         self.assertEqual(integ["gap"], co.GAP)
-        for m in self.co["metrics"].values():
-            self.assertEqual(m["status"], "base")
-            self.assertTrue(m["validation"]["annotation"])
-            self.assertIn("linked", m["validation"])
+        for mid, m in self.co["metrics"].items():
+            if mid in self.co["base"]:
+                self.assertEqual(m["status"], "base")
+                self.assertTrue(m["validation"]["annotation"])
+                self.assertIn("linked", m["validation"])
+            else:
+                self.assertEqual((m["status"], m["validation"]["decision"]), ("adopted", "adopted"))
+
+    def test_the_protected_override_reaches_every_step_view(self):
+        # finding 15: coevolve(protected=…) rebuilt the feature table but the walk still gave the views the lineage's own list
+        seen = []
+        real = co.StepView
+
+        def spy(**kw):
+            seen.append(list(kw["protected"]))
+            return real(**kw)
+
+        with mock.patch.object(co, "StepView", spy):
+            c = co.coevolve(self.lineage, self.evolution, samples=20, protected=["tools.grep"])
+            briefs = co.proposal_briefs(self.lineage, self.evolution, protected=["tools.grep"])
+        self.assertTrue(c["measurable"] and briefs)
+        self.assertEqual(len(seen), 2 + len(briefs))
+        self.assertTrue(all(p == ["tools.grep"] for p in seen), seen)
+        seen.clear()
+        with mock.patch.object(co, "StepView", spy):
+            co.coevolve(self.lineage, self.evolution, samples=20)
+        self.assertTrue(all(p == list(self.lineage["protected"]) for p in seen), "no override: the lineage's own list")
 
     def test_external_candidates_go_through_the_same_validators_and_refusals_are_ledger_rows(self):
         cands = [{"at": None, "spec": {"id": "retry_mean", "feature": "retries", "agg": "mean", "direction": "down"}, "source": "file"},
@@ -836,9 +938,27 @@ class DegenerateTest(_Temp):
         self.assertFalse(c["measurable"])
         self.assertIn("is not a directory", c["reason"])
         self.assertEqual((c["eval_generations"][0]["id"], c["ledger"], c["matrix"], c["steps"]), ("e0", [], {}, []))
-        self.assertEqual(c["flow"], {"nodes": [], "edges": [], "summary": {"nodes": {}, "edges": {}, "closures": 0, "sentence": c["reason"]}})
+        self.assertEqual(c["flow"], {"nodes": [], "edges": [], "summary": {"nodes": {}, "edges": {}, "closures": 0, "closures_learned": 0,
+                                                                          "flags_learned": 0, "flags_base": 0, "sentence": c["reason"]}})
         self.assertEqual(c["recommended"]["evolved"], None)
         self.assertEqual(c["integrity"]["gap"], co.GAP)
+        # finding 13: the empty shape is the full shape, key for key, so a reader sees one schema
+        whole = ev.read_lineage(write_lineage(self.tmp / "full", standard_gens()))
+        full = co.coevolve(whole, ev.evolve(whole, samples=20), samples=20)
+        self.assertTrue(full["measurable"])
+        self.assertEqual(list(c), list(full))
+        self.assertEqual(set(c["flow"]["summary"]), set(full["flow"]["summary"]))
+        self.assertEqual(set(c["integrity"]), set(full["integrity"]))
+        for key in ("drift", "multiplicity", "external"):
+            self.assertEqual(set(c["integrity"][key]), set(full["integrity"][key]), key)
+        self.assertEqual(set(c["hindsight"]), set(full["hindsight"]))
+        self.assertEqual(set(c["recommended"]), set(full["recommended"]))
+        self.assertEqual(c["hindsight"], {"steps": 0, "changed": 0, "learned_flags": 0, "base_flags": 0, "steps_with_base_flags": 0, "caught_at": {}})
+        # finding 2: no bootstrap draw is unmeasurable with the reason and the same shape, never a walk on bare points
+        zero = co.coevolve(whole, ev.evolve(whole, samples=20), samples=0)
+        self.assertFalse(zero["measurable"])
+        self.assertIn("no bootstrap draw: 0 samples, at least 1 needed", zero["reason"])
+        self.assertEqual((zero["samples"], zero["ledger"], zero["matrix"], list(zero)), (0, [], {}, list(full)))
         one = ev.read_lineage(write_lineage(self.tmp / "one", standard_gens()[:1]))
         evo = ev.evolve(one, samples=20)
         c = co.coevolve(one, evo, samples=20)
@@ -862,6 +982,37 @@ class DegenerateTest(_Temp):
         self.assertEqual(c["steps"][1]["evolved"]["reading"], "not walked: g1 has no trace.")
         self.assertEqual(c["matrix"]["pass_rate"]["g1"]["measurable"], False)
         self.assertEqual(c["matrix"]["pass_rate"]["g1"]["reason"], "0 episodes after the filter, under the 4 needed")
+
+    def test_an_external_candidate_no_step_takes_up_is_a_rejected_row_not_a_silence(self):
+        # finding 9: an `at` that matches no walked step used to vanish — received 1, parsed 0, no row, no note
+        g0, g1, g2 = standard_gens()
+        lineage = ev.read_lineage(write_lineage(self.tmp / "gap", [g0, (g1[0], []), g2]))
+        evo = ev.evolve(lineage, samples=20)
+        cands = [{"at": "g1->g2", "source": "me", "spec": {"id": "x", "feature": "verified", "agg": "rate", "direction": "up"}},
+                 {"at": "g0→g1", "source": "me", "spec": {"id": "y", "feature": "retries", "agg": "mean", "direction": "down"}},
+                 {"at": None, "source": "me", "spec": {"id": "z", "feature": "retries", "agg": "mean", "direction": "down"}}]
+        c = co.coevolve(lineage, evo, samples=20, candidates=cands)
+        ext = [r for r in c["ledger"] if r["probe"] == "external"]
+        self.assertEqual([(r["step"], r["spec_id"], r["decision"], r["failed"], r["k"], r["alpha"]) for r in ext],
+                         [("g1->g2", "x", "rejected", [], 0, None), ("g0→g1", "y", "rejected", [], 0, None), ("null", "z", "rejected", [], 0, None)],
+                         "g1 has no trace, so neither step is walked: z, addressed to every step, met none either")
+        self.assertEqual(ext[0]["reason"], "unaddressed: at \"g1->g2\" names no step of the lineage; the steps are g0→g1, g1→g2")
+        self.assertEqual(ext[1]["reason"], "unaddressed: at \"g0→g1\" names a step the eval did not walk; the steps are g0→g1, g1→g2")
+        self.assertEqual(ext[2]["reason"], "unaddressed: at null is addressed to every step, and the eval walked none; the steps are g0→g1, g1→g2")
+        self.assertTrue(all(v["pass"] is None for r in ext for v in r["validators"].values()))
+        self.assertEqual(c["integrity"]["external"], {"received": 3, "parsed": 0, "adopted": 0, "rejected": 3, "sources": ["me"]})
+        self.assertEqual(c["integrity"]["multiplicity"]["tested"], 0, "an unaddressed row is not a test")
+        self.assertEqual(c["integrity"]["multiplicity"]["unparseable"], 3)
+        ids = {n["id"] for n in c["flow"]["nodes"]}
+        self.assertIn("probe:external", ids)
+        self.assertTrue(all(e["from"] in ids and e["to"] in ids for e in c["flow"]["edges"]))
+        self.assertEqual(co.fail_on(c, ["rejected_external"]), [("rejected_external", "3 external candidates")])
+        whole = ev.read_lineage(write_lineage(self.tmp / "ok", standard_gens()))
+        full = co.coevolve(whole, ev.evolve(whole, samples=20), samples=20, candidates=[cands[0], cands[2]])
+        ext = [r for r in full["ledger"] if r["probe"] == "external"]
+        self.assertEqual([(r["step"], r["spec_id"]) for r in ext], [("g0→g1", "z"), ("g1→g2", "z"), ("g1->g2", "x")],
+                         "the unaddressed row comes after the walk, at the final eval generation")
+        self.assertEqual(ext[2]["eval_gen"], full["eval_generations"][-1]["id"])
 
     def test_fail_on_names(self):
         with self.assertRaises(ValueError) as caught:
@@ -963,7 +1114,58 @@ class DemoLineageTest(unittest.TestCase):
         by_step = {}
         for r in self.co["ledger"]:
             by_step.setdefault(r["step"], set()).add((r["k"], r["alpha"]))
-        self.assertEqual(by_step, {"g2→g3": {(6, 0.0083)}, "g3→g4": {(6, 0.0083)}, "g4→g5": {(5, 0.01)}, "g5→g6": {(3, 0.0167)}})
+        self.assertEqual(by_step, {"g2→g3": {(6, 0.0083)}, "g3→g4": {(6, 0.0083)}, "g4→g5": {(4, 0.0125)}, "g5→g6": {(2, 0.025)}})
+
+    def test_a_candidate_already_adopted_is_a_row_but_not_one_of_the_k(self):
+        # improvement 3: clean_pass_rate re-proposed at g4→g5 and g5→g6 fails not_already; it used to tighten the level for the others
+        rows = self.co["ledger"]
+        for step, k in (("g4→g5", 4), ("g5→g6", 2)):
+            at = [r for r in rows if r["step"] == step]
+            dup = [r for r in at if "not_already" in r["failed"]]
+            self.assertEqual([r["spec_id"] for r in dup], ["clean_pass_rate"], step)
+            self.assertEqual({r["k"] for r in at}, {k}, step)
+            self.assertEqual(k, len(at) - len(dup), "K is the rows that were tests")
+            self.assertEqual({r["alpha"] for r in at}, {round(co.ALPHA / k, 4)}, step)
+        self.assertEqual(self.co["integrity"]["multiplicity"]["tested"], 20, "the row is still tested and in the ledger")
+        self.assertIn("already adopted, demoted or retired, is a ledger row but not a test", self.co["integrity"]["multiplicity"]["basis"])
+        self.assertIn("at level 0.9875 includes zero", self.co["ledger"][15]["reason"])
+
+    def test_confirmation_and_hindsight_are_read_at_the_level_each_metric_was_adopted_at(self):
+        # improvement 1: both used bare ALPHA while adoption used ALPHA / K; the level is now written into confirmation
+        table = co.feature_table(self.lineage)
+        by = {row["id"]: row["episodes"] for row in table}
+        for mid in ("verified_rate", "clean_pass_rate", "frugal_pass_rate"):
+            m = self.co["metrics"][mid]
+            row = self.co["ledger"][m["adopted_at"]["ledger"]]
+            self.assertEqual(m["confirmation"]["alpha"], row["alpha"], mid)
+            self.assertEqual(m["confirmation"]["alpha"], round(co.ALPHA / row["k"], 4), mid)
+        frugal = self.co["metrics"]["frugal_pass_rate"]
+        self.assertEqual(frugal["confirmation"]["alpha"], 0.025)
+        flag = next(f for f in self.co["steps"][2]["evolved"]["flags"] if f["metric"] == "frugal_pass_rate")
+        at_adopted = co.delta(frugal["spec"], by["g2"], by["g3"], self.co["samples"], co.ALPHA / 2)
+        at_bare = co.delta(frugal["spec"], by["g2"], by["g3"], self.co["samples"], co.ALPHA)
+        self.assertEqual(flag["delta"], {"point": at_adopted["point"], "lo": at_adopted["lo"], "hi": at_adopted["hi"]})
+        self.assertEqual((flag["delta"]["lo"], flag["delta"]["hi"]), (-0.7619, -0.3333))
+        self.assertNotEqual(flag["delta"]["lo"], at_bare["lo"], "at 0.95 the interval would read [−0.71, −0.33]")
+        base = next(f for f in self.co["steps"][2]["evolved"]["base_flags"] if f["metric"] == "pass_rate")
+        at_alpha = co.delta(self.co["metrics"]["pass_rate"]["spec"], by["g2"], by["g3"], self.co["samples"], co.ALPHA)
+        self.assertEqual(base["delta"], {"point": at_alpha["point"], "lo": at_alpha["lo"], "hi": at_alpha["hi"]}, "a base metric stays at ALPHA")
+        self.assertIsNone(self.co["metrics"]["pass_rate"]["confirmation"])
+
+    def test_an_external_duplicate_of_a_base_id_is_renamed_and_the_ledger_agrees_with_the_matrix(self):
+        # finding 4: the renamed metric was re-bootstrapped under its new id, so the ledger and the matrix disagreed
+        cand = [{"at": "g1→g2", "source": "me", "spec": {"id": "pass_rate", "feature": "retries", "agg": "mean", "direction": "down"}}]
+        c = co.coevolve(self.lineage, self.evolution, candidates=cand)
+        self.assertIn("pass_rate@g1→g2", c["metrics"])
+        m = c["metrics"]["pass_rate@g1→g2"]
+        self.assertEqual((m["adopted_at"]["step"], m["spec"]["feature"], m["origin"]["probe"]), ("g1→g2", "retries", "external"))
+        self.assertIn(m["status"], ("adopted", "retired"), "adopted at g1→g2; the redundancy probe may retire it later")
+        row = c["ledger"][m["adopted_at"]["ledger"]]
+        self.assertEqual(row["spec_id"], "pass_rate@g1→g2")
+        for gen, side in (("g1", "from"), ("g2", "to")):
+            cell = c["matrix"]["pass_rate@g1→g2"][gen]
+            self.assertEqual({k: cell[k] for k in ("point", "lo", "hi", "n")}, row["validators"]["computable"][side], gen)
+        self.assertEqual(c["matrix"]["pass_rate"], self.co["matrix"]["pass_rate"], "the base pass rate is untouched")
 
     def test_verified_rate_is_the_representative_of_one_reading_at_the_gamed_step(self):
         r = self.co["ledger"][2]
@@ -984,14 +1186,14 @@ class DemoLineageTest(unittest.TestCase):
                          "(a bool rate over a count mean over a ratio)")
         m = self.co["metrics"]["verified_rate"]
         self.assertEqual(m["adopted_at"], {"step": "g2→g3", "index": 3, "eval_gen": "e1", "ledger": 2})
-        self.assertEqual(m["confirmation"], {"tested": 3, "moved": 1, "status": "confirmed"})
+        self.assertEqual(m["confirmation"], {"tested": 3, "moved": 1, "status": "confirmed", "alpha": 0.0083})
         self.assertEqual(m["caught_at"]["note"], "adopted at the first step it flags")
 
     def test_forgetting_cannot_be_told_from_noise_at_five_runs(self):
         r = self.co["ledger"][15]
         self.assertEqual(r["validators"]["informative"]["delta"]["point"], -0.6)
         self.assertEqual((r["validators"]["informative"]["delta"]["lo"], r["validators"]["informative"]["delta"]["hi"]), (-0.8, 0.0))
-        self.assertEqual(r["reason"], "informative: delta −0.6 [−0.8, 0] at level 0.99 includes zero: at 5 runs per task "
+        self.assertEqual(r["reason"], "informative: delta −0.6 [−0.8, 0] at level 0.9875 includes zero: at 5 runs per task "
                                       "worst task pass rate cannot be told from noise at the adjusted level")
         self.assertTrue(r["validators"]["distinct"]["pass"] and r["validators"]["linked"]["pass"])
 
@@ -1005,7 +1207,7 @@ class DemoLineageTest(unittest.TestCase):
         self.assertEqual(clean["retired_at"]["step"], "g5→g6")
         self.assertEqual(clean["retired_at"]["basis"], "generations")
         self.assertEqual(abs(clean["retired_at"]["rho"]), 1.0)
-        self.assertEqual(clean["confirmation"], {"tested": 2, "moved": 0, "status": "unconfirmed"})
+        self.assertEqual(clean["confirmation"], {"tested": 2, "moved": 0, "status": "unconfirmed", "alpha": 0.0083})
         self.assertEqual(clean["caught_at"]["note"], "never flags a step of this lineage")
         self.assertEqual([self.co["matrix"]["clean_pass_rate"][g]["measurable"] for g in ("g0", "g1", "g2", "g3", "g4", "g5", "g6")],
                          [False, False, False, True, True, True, True])
@@ -1013,7 +1215,7 @@ class DemoLineageTest(unittest.TestCase):
         self.assertEqual(frugal["spec"]["where"], {"feature": "tool_calls", "op": "<=", "value": 24.5})
         self.assertEqual(frugal["caught_at"], {"first_flag_step": "g2→g3", "first_flag_index": 3, "adopted_step": "g5→g6",
                                                "adopted_index": 6, "lag": 3, "note": "would have flagged 3 steps before its adoption"})
-        self.assertEqual(frugal["confirmation"], {"tested": 0, "moved": 0, "status": "pending"})
+        self.assertEqual(frugal["confirmation"], {"tested": 0, "moved": 0, "status": "pending", "alpha": 0.025})
 
     def test_hindsight_learned_flags_beside_base_flags(self):
         steps = self.co["steps"]
@@ -1034,11 +1236,11 @@ class DemoLineageTest(unittest.TestCase):
         self.assertAlmostEqual(f["to"], 0.48, places=2)
         self.assertLess(f["delta"]["hi"], 0)
         self.assertIn("the evolved eval sees verification rate 1 → 0 [−1, −1] — a metric adopted at this step; "
-                      "pass rate among episodes at or under 24.5 tool calls 1 → 0.48 [", g23["reading"])
+                      "pass rate among episodes at or under 24.5 tool calls 1 → 0.48 [−0.76, −0.33]", g23["reading"])
         self.assertIn("— a metric adopted 3 steps later, which would have flagged this step", g23["reading"])
-        self.assertIn("pass rate 0.67 → 0.37 [−0.53, −0.1] — base metrics whose intervals the base verdict does not read", g23["reading"])
+        self.assertIn("pass rate 0.67 → 0.37 [−0.5, −0.1] — base metrics whose intervals the base verdict does not read", g23["reading"])
         self.assertIn("the base eval said improved; the evolved eval adds no learned flag; the base metrics move against their "
-                      "direction: mean tool calls 22.33 → 25.33 [1.9, 4.07], mean tool errors 0 → 0.8 [0.53, 1.07]", steps[3]["evolved"]["reading"])
+                      "direction: mean tool calls 22.33 → 25.33 [1.97, 4.03], mean tool errors 0 → 0.8 [0.53, 1.07]", steps[3]["evolved"]["reading"])
         self.assertEqual({k: v for k, v in self.co["hindsight"].items() if k != "caught_at"},
                          {"steps": 6, "changed": 0, "learned_flags": 3, "base_flags": 4, "steps_with_base_flags": 3})
         self.assertEqual(sorted(self.co["hindsight"]["caught_at"]), ["clean_pass_rate", "frugal_pass_rate", "verified_rate"])
@@ -1229,16 +1431,18 @@ class CommandTest(_Temp):
         self.assertEqual(c["integrity"]["external"], {"received": 2, "parsed": 1, "adopted": 0, "rejected": 3, "sources": ["file"]},
                          "one entry parsed, tested at two steps; one unparseable")
         self.assertIn("Last step: A=toy@g1  B=toy@g2", out)
-        self.assertIn("Eval: toy  1 eval generation(s)  [SYNTHETIC]", out)
+        self.assertIn("Eval: toy  2 eval generation(s)  [SYNTHETIC]", out)
         self.assertIn("e0   4 metric(s)  base: return_iqm, pass_rate, tool_calls_mean, tool_errors_mean", out)
-        self.assertIn("Rejected: 12 candidate(s)", out)
+        self.assertIn("e1   5 metric(s)  after g1→g2 (forgetting)", out)
+        self.assertIn("+ worst_task_pass (worst task pass rate; forgetting) — every validator passed: delta −0.67 [−1, −0.33] at level 0.9929 excludes zero", out)
+        self.assertIn("Rejected: 11 candidate(s)", out)
         self.assertIn('g1→g2 external bogus: unparseable: unknown feature "nope"', out)
         self.assertIn("Hindsight:", out)
-        self.assertIn("g1 → g2  base gamed  evolved same  base metrics: pass_rate +1.00→+0.33", out)
+        self.assertIn("g1 → g2  base gamed  evolved same: worst_task_pass +1.00→+0.33 [-1.00, -0.33]  base metrics: pass_rate +1.00→+0.33", out)
         self.assertIn("Recommended: base g1, evolved g1 (agree)", out)
-        self.assertIn("Integrity: drift 0.0 from the base; 11 tested, 0 adopted, 11 rejected", out)
+        self.assertIn("Integrity: drift 0.2 from the base; 11 tested, 1 adopted, 10 rejected", out)
         self.assertEqual({k: c["integrity"]["multiplicity"][k] for k in ("tested", "adopted", "rejected", "unparseable")},
-                         {"tested": 11, "adopted": 0, "rejected": 11, "unparseable": 1})
+                         {"tested": 11, "adopted": 1, "rejected": 10, "unparseable": 1})
         self.assertIn("Flow: 3 agent generations and 2 steps triggered 5 probes", out)
         self.assertIn("Ledger:", out)
         self.assertIn("#0 g0→g1 ceiling verified_pass_rate k=4 alpha=0.0125 → rejected (failed informative)", out)
@@ -1252,6 +1456,12 @@ class CommandTest(_Temp):
         code, _, err = self.run_cli("coevolve", str(root), "-o", str(out_dir), "--fail-on", "gamed")
         self.assertEqual(code, 2)
         self.assertIn("unknown --fail-on name(s): gamed", err)
+        # finding 2: no bootstrap draw is refused, not walked on bare points
+        for samples in ("0", "-1"):
+            code, _, err = self.run_cli("coevolve", str(root), "-o", str(self.tmp / "zero"), "--samples", samples)
+            self.assertEqual(code, 2, samples)
+            self.assertIn("--samples must be at least 1", err)
+        self.assertFalse((self.tmp / "zero" / "aggregate.json").exists(), "nothing is written")
         bad = self.tmp / "bad.json"
         bad.write_text("{not json", encoding="utf-8")
         code, _, err = self.run_cli("coevolve", str(root), "-o", str(out_dir), "--candidates", str(bad))

@@ -395,6 +395,17 @@ class EvolutionExportTest(unittest.TestCase):
             self.assertEqual(len(_find(s, metric)), len(_find(s, metric + "_lo")))
             self.assertEqual(len(_find(s, metric)), len(_find(s, metric + "_hi")))
 
+    def test_the_adopted_step_label_is_the_step_not_a_stringified_dict(self):
+        # finding 7: adopted_step read str(m["adopted_at"]) — "{'step': 'g2→g3', 'index': 3, …}"
+        s = self.samples
+        rows = {dict(l)["metric"]: dict(l)["adopted_step"] for (m, l), _v in s.items() if m == PREFIX + "coevolution_metric_status"}
+        self.assertEqual(rows["verified_rate"], "g2→g3")
+        self.assertEqual(rows["clean_pass_rate"], "g3→g4")
+        self.assertEqual(rows["frugal_pass_rate"], "g5→g6")
+        self.assertEqual(rows["pass_rate"], "none", "a base metric was never adopted at a step")
+        self.assertFalse(any("{" in v or "'" in v for v in rows.values()), rows)
+        self.assertEqual(_with(s, "coevolution_metric_status", {"metric": "verified_rate", "adopted_step": "g2→g3", "confirmation": "confirmed"}), [1])
+
 
 # ---------------------------------------------------------------- one trace
 

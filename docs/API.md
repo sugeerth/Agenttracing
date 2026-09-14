@@ -86,7 +86,14 @@ whitespace) of every member's aggregate and reports, concatenated in
 member order (a fleet's ranking first). It is content-addressed: the
 same outputs bundle to the same id anywhere, and `bundle.verify(dir)`
 (`agentdiff key <key> --bundle DIR`, the `verify` tool, `/api/v1/verify`)
-recomputes it from the copies and reports `{id, recomputed, match}`.
+recomputes it from the copies and reports `{id, recomputed, match}`; a
+second digest, `records_digest`, covers what the id does not — the
+level-3 records under `runs/` (canonical JSON by key) and the copied
+traces (bytes by path) — and the same call recomputes it and reports
+`records_digest, records_recomputed, records_match, records_reason`
+separately, so a tampered run record is noticed while the id, the
+members' content, still matches. Writing into an existing bundle
+directory clears `members/`, `runs/` and `traces/` first.
 
 **The three levels** (`bundle.levels(members)`):
 
@@ -171,12 +178,16 @@ metrics — each drop visible in the key, never silent.
 
 ```
 agentdiff key <key>                  # decode: print the overview (no bundle needed)
-agentdiff key <key> --bundle DIR     # verify: recompute the bundle id and say match/mismatch, then print
+agentdiff key <key> --bundle DIR     # verify: recompute the bundle id and the records digest, say match/mismatch for each, then print
 agentdiff key --from DIR             # re-derive the key from a bundle
 ```
 
-A malformed key is an error with the reason, exit 2; a mismatch prints
-the key's id, the bundle's claimed id and the recomputed one, exit 1.
+A malformed key — the wrong prefix, not printable ASCII, over 2000
+bytes, a payload past 64 KiB once inflated, or one that decodes to
+something other than the overview's shape — is an error with the
+reason, exit 2; a mismatch of the id prints the key's id, the bundle's
+claimed id and the recomputed one, a mismatch of the records prints
+both digests and the reason, either exit 1.
 
 The sentence to paste beside a key, for a tool that has the MCP server:
 
@@ -216,7 +227,7 @@ says what the numbers are and are not:
 | `data` | `key` | the run's data reading (level 3's `data`) |
 | `lineage` | `family?` | the lineages and loops of the overview, one family when named |
 | `key` | — | `{key, overview}` |
-| `verify` | — | `{id, recomputed, match}` |
+| `verify` | — | `{id, recomputed, match, records_digest, records_recomputed, records_match, records_reason}` |
 
 Resources: `agentdiff://bundle/bundle.json`,
 `agentdiff://bundle/members/<n>/aggregate.json`,
@@ -258,7 +269,10 @@ may live; the command imports it inside `run()`). Read-only GET; every
 answer JSON with `Cache-Control: no-store`, the page apart; anything
 else a 404 with a JSON reason; no directory listing, and a run is found
 through the bundle's own index, never the filesystem. Localhost by
-default; another `--host` is warned about on stderr.
+default; another `--host` is warned about on stderr; `::1` binds an IPv6
+socket; an address or port that cannot be bound is `error: cannot bind …`
+and exit 2; a record the index names but the disk no longer holds is a
+500 with a reason, never a dropped connection.
 
 | route | returns |
 |---|---|
@@ -271,7 +285,7 @@ default; another `--host` is warned about on stderr.
 | `/api/v1/budget?agent=&task=` | the per-member budget aggregates, narrowed |
 | `/api/v1/lineage?family=` | the lineages and loops |
 | `/api/v1/key` | `{key, overview}` |
-| `/api/v1/verify` | `{id, recomputed, match}` |
+| `/api/v1/verify` | `{id, recomputed, match, records_digest, records_recomputed, records_match, records_reason}` |
 | `/`, `/report.html` | the page |
 | `/bundle.json` | the manifest |
 
