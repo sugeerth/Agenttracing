@@ -48,13 +48,21 @@ map — the browser tests measure the drawn SVG against the report.
 
 ### Lanes and views (`ctx.lane`)
 
-The page has three views — Story (the one-column narrative), Evidence
-(outcome · trajectory · integrity columns) and Batch (cost · signal ·
-other columns) — chosen with the segmented control or `#view=…` in the
-URL. `ctx.lane` tells a block where it is being drawn: `"story"`,
-`"hero"` or `"stack"`. A block may show less in the story (fold a walk
-behind a disclosure, show three rows with a "show all") and must never
-show *different numbers*.
+The page has ten views — Chat (the page asked in plain words,
+`37_chat.js`), Levels (what is running · every run · one run in full,
+`38_levels.js`), Data (the inputs side, `39_data.js`), Story (the
+one-column narrative), Evidence (outcome · trajectory · integrity
+columns), Batch (cost · signal · other columns), Panels, Training,
+Evolution and Evals — chosen with the segmented control or `#view=…` in
+the URL; `VIEWS`, `VIEW_GROUPS` and each lane's declared `order` live in
+`00_core.js`. `ctx.lane` tells a block where it is being drawn:
+`"story"`, `"hero"`, `"stack"` or `"chat"` (drawn inside a chat answer
+through `AgentDiff.renderInto`). A block may show less in the story
+(fold a walk behind a disclosure, show three rows with a "show all")
+and must never show *different numbers*. The chat reaches the page
+through three doors on `AgentDiff`: `catalogue()` (every block with
+something to say and the view that holds it), `renderInto(id, host)`,
+and `goTo(id, {family, value})`.
 
 ### Keys and small screens
 
@@ -268,6 +276,15 @@ when asked (`rerender: true`, per family or per call), so a block that
 repaints in place keeps its scroll. Legacy copies that the library does not
 replace byte-for-byte are named in `SharedLibraryTest.LEGACY`; do not add
 to that list.
+
+The page-scoped families and their public surfaces: `evolution`
+(`AgentDiff.evolution`), `evolution-compare` (`AgentDiff.evolutionCompare`),
+`coevolution` (`AgentDiff.coevolution`, `{step, evalGen, metric,
+candidate}`), `levels` (`AgentDiff.levels`, `{run, agent, task, member,
+outcome, sort, x}`, plus `timing` and `tile(n)` as measurement hooks),
+`data` (`AgentDiff.data`, `{source, step, gen, side}`); the chat keeps
+its transcript under `agentdiff:chat` and exposes `AgentDiff.chat`
+(`ask`, `route`, `intents`, `turns`, `clear`).
 
 Data shapes are in `SCHEMA.md`; every field named there is what a report
 actually carries.
