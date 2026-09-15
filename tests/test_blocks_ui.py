@@ -11056,3 +11056,460 @@ class DataViewTest(unittest.TestCase):
         self.assertEqual(panel.get_attribute("data-gen"), keys[0])
         self.assertEqual(errors, [])
         context.close()
+
+
+class TraceViewTest(unittest.TestCase):
+    """The Trace view (40_trace.js): one run as an execution rather than as
+    a set of numbers — the steps in the order and at the pace the trace
+    recorded them, with what the engine already knows about each drawn on
+    top, and a replay that walks the playhead through the run.
+
+    What is checked is that the lane's four blocks render in the order
+    `00_core.js` declares with nothing empty and the console clean,
+    unfiltered, across every view of a batch, a runs, a lineage and a
+    bundle page; that the run's numbers line is the report's own sums and
+    that a run whose steps declare no token basis says so rather than
+    reporting nought per cent measured; that a click or Enter opens a
+    phase and a step and Escape returns; that replay follows the *recorded*
+    clock — a step the trace says took four times as long occupies four
+    times the wall time — that the state-so-far numbers equal the report's
+    cumulative sums at the playhead, that pause stops it, that seek lands,
+    and that `prefers-reduced-motion` lands on the end with no timer; that
+    the compare block draws one strip per side with the alignment's
+    divergences and says so instead of showing an unrelated pair when a
+    bundle record is being traced; that the detail block hosts the run and
+    chain blocks *on the same run* the timeline is showing; that the
+    bundle's picker reaches every level-3 record carrying steps; that the
+    strip draws in tens of milliseconds at ten times the shipped scale and
+    says it is tiled; and that the lane fits a phone at 390 and 360 with no
+    text under 11px and the task-scoped family survives a reload.
+    """
+
+    tmp = None
+    IDS = ("tr-timeline", "tr-step", "tr-compare", "tr-detail")
+    VIEWS = ("chat", "levels", "data", "trace", "story", "evidence", "batch",
+             "panels", "training", "evolution", "coevolution")
+
+    @classmethod
+    def setUpClass(cls):
+        lineage = ROOT / "demo" / "evolve" / "lineage"
+        if not (lineage / "g0" / "agent.json").is_file() or not (ROOT / "demo" / "traces").is_dir() or not (ROOT / "demo" / "rl" / "train").is_dir():
+            raise unittest.SkipTest("no demo outputs to analyse")
+        cls.tmp = tempfile.TemporaryDirectory()
+        root = Path(cls.tmp.name)
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        template = ROOT / "web" / "blocks.html"
+
+        def run(name, *args):
+            out = root / name
+            done = subprocess.run([sys.executable, "-m", "deepcompare"] + list(args) + ["-o", str(out), "--template", str(template)],
+                                  cwd=str(ROOT), capture_output=True)
+            if done.returncode != 0 or not (out / "report.html").is_file():
+                raise unittest.SkipTest(f"the {args[0]} command did not write a page: " + done.stderr.decode("utf-8", "replace")[-300:])
+            return out
+
+        cls.batch_dir = run("batch", "batch", str(ROOT / "demo" / "traces"))
+        cls.runs_dir = run("runs", "runs", str(ROOT / "demo" / "rl" / "train"), "--token-cap", "3000")
+        cls.cov_dir = run("cov", "coevolve", str(lineage))
+        cls.bundle_dir = run("bundle", "bundle", str(cls.batch_dir), str(cls.runs_dir), str(cls.cov_dir), "--name", "demo",
+                             "--traces", str(ROOT / "demo" / "traces"), str(ROOT / "demo" / "rl" / "train"), str(lineage))
+        cls.bundle = json.loads((cls.bundle_dir / "bundle.json").read_text(encoding="utf-8"))
+        cls.reports = {}
+        for path in sorted(cls.batch_dir.glob("report_*.json")):
+            rep = json.loads(path.read_text(encoding="utf-8"))
+            cls.reports[rep["task"]["id"]] = rep
+        if not cls.reports:
+            raise unittest.SkipTest("the batch wrote no pair reports")
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    # ------------------------------------------------------------- helpers
+
+    def _open(self, path=None, width=1440, reduced_motion=False, reset=True):
+        context = self.browser.new_context(viewport={"width": width, "height": 1100},
+                                           reduced_motion="reduce" if reduced_motion else "no-preference")
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        # unfiltered: a warning from any block on the page is a failure here
+        page.on("console", lambda m: errors.append(m.type + ": " + m.text) if m.type in ("error", "warning") else None)
+        page.goto(f"file://{(path or self.batch_dir) / 'report.html'}#view=trace")
+        page.wait_for_timeout(1400)
+        if reset:
+            page.evaluate("() => AgentDiff.trace.reset()")
+            page.wait_for_timeout(500)
+        return context, page, errors
+
+    def _state(self, page):
+        return page.evaluate("() => AgentDiff.trace.state()")
+
+    def _ids(self, page):
+        return page.evaluate("() => Array.from(document.querySelectorAll('#stacks .block')).map(b => b.getAttribute('data-block'))")
+
+    def _lane_order(self, page):
+        """The order 00_core.js declares for the trace lane — the rule, not a roster."""
+        return page.evaluate("() => (AgentDiff._internals.STACK_PLAN.filter(p => p.groups.indexOf('trace') >= 0)[0] || {}).order || []")
+
+    def _first_task(self):
+        return sorted(self.reports)[0]
+
+    @staticmethod
+    def _cum(steps, upto):
+        """The report's own cumulative sums at a step index — the numbers the
+        state-so-far line must equal, computed here from the trace and not
+        read back off the page."""
+        tokens = reward = 0
+        seen, sources = set(), 0
+        for s in steps:
+            if s.get("index", 0) > upto:
+                break
+            if isinstance(s.get("tokens"), (int, float)):
+                tokens += s["tokens"]
+            if isinstance(s.get("reward"), (int, float)):
+                reward += s["reward"]
+            if s.get("type") in ("search", "retrieve", "read", "tool_call"):
+                key = (s.get("name") or "", s.get("input") or "")
+                if key not in seen:
+                    seen.add(key)
+                    sources += 1
+        return {"tokens": tokens, "reward": reward, "sources": sources}
+
+    # ------------------------------------------------------------ rendering
+
+    def test_the_blocks_render_in_the_declared_order_with_the_console_clean(self):
+        for path in (self.batch_dir, self.runs_dir, self.cov_dir, self.bundle_dir):
+            context, page, errors = self._open(path=path)
+            ids = self._ids(page)
+            order = self._lane_order(page)
+            self.assertTrue(order, "the core declares the trace lane's order")
+            self.assertEqual(ids, [i for i in order if i in ids], str(path))
+            self.assertIn("tr-timeline", ids, str(path))
+            for bid in ids:
+                body = page.locator(f'#stacks [data-block="{bid}"] .block-body').inner_text()
+                self.assertNotIn("failed to render", body, bid)
+                self.assertNotIn("Nothing to show", body, bid)
+                self.assertGreater(len(body.strip()), 60, f"{bid} on {path}")
+            self.assertEqual(page.evaluate("() => Array.from(document.querySelectorAll('#stacks .block .empty')).filter(e => e.offsetParent !== null).length"), 0, str(path))
+            unlabelled = page.evaluate("() => Array.from(document.querySelectorAll('#stacks .trc svg')).filter(s => !(s.getAttribute('aria-label') || '').trim() || !s.getAttribute('role')).length")
+            self.assertEqual(unlabelled, 0, str(path))
+            self.assertEqual(errors, [], str(path))
+            context.close()
+
+    def test_the_console_stays_clean_across_every_view(self):
+        context, page, errors = self._open(path=self.bundle_dir)
+        for view in self.VIEWS:
+            page.evaluate("v => { location.hash = 'view=' + v; }", view)
+            page.wait_for_timeout(450)
+        self.assertEqual(errors, [])
+        context.close()
+
+    # -------------------------------------------------------- the numbers
+
+    def test_the_run_line_is_the_reports_own_sums_and_names_an_unrecorded_basis(self):
+        task = self._first_task()
+        rep = self.reports[task]
+        steps = rep["a"]["steps"]
+        context, page, errors = self._open()
+        page.select_option("#task-picker", task)
+        page.wait_for_timeout(700)
+        line = page.locator('#stacks [data-block="tr-timeline"] .trc-nums').first.inner_text()
+        self.assertIn(f"steps {len(steps)}", line)
+        total = self._cum(steps, max(s.get("index", 0) for s in steps))
+        self.assertIn(str(total["tokens"]), line.replace(",", ""))
+        self.assertIn(f"sources read {total['sources']}", line)
+        # a basis no step declares is said to be unrecorded, never called 0% measured
+        declared = [s for s in steps if s.get("tokens_basis")]
+        if not declared:
+            self.assertIn("basis not recorded", line)
+            self.assertNotIn("0% measured", line)
+        else:
+            self.assertIn("measured", line)
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ------------------------------------------------------------- levels
+
+    def test_a_step_opens_by_mouse_and_by_keyboard_and_escape_returns(self):
+        context, page, errors = self._open()
+        hits = page.locator('#stacks [data-block="tr-timeline"] [data-step]')
+        self.assertGreater(hits.count(), 1)
+        hits.nth(1).click()
+        page.wait_for_timeout(500)
+        st = self._state(page)
+        self.assertEqual(st["level"], "step")
+        chosen = st["step"]
+        self.assertIsNotNone(chosen)
+        # the step block is showing that step, not another
+        body = page.locator('#stacks [data-block="tr-step"] .block-body').inner_text()
+        self.assertIn(f"step {chosen}", body)
+        # arrow keys move the playhead from the stage
+        page.locator('#stacks [data-block="tr-timeline"] [role="application"]').first.focus()
+        page.keyboard.press("ArrowRight")
+        page.wait_for_timeout(400)
+        self.assertGreater(self._state(page)["step"], chosen)
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(400)
+        self.assertEqual(self._state(page)["level"], "run")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_phase_opens_to_its_own_steps(self):
+        context, page, errors = self._open()
+        phases = page.locator('#stacks [data-block="tr-timeline"] [data-phase]')
+        if not phases.count():
+            self.skipTest("this page's report carries no impact clusters to phase by")
+        before = page.locator('#stacks [data-block="tr-timeline"] [data-step]').count()
+        phases.nth(0).click()
+        page.wait_for_timeout(600)
+        st = self._state(page)
+        self.assertEqual(st["level"], "phase")
+        self.assertTrue(st["phase"])
+        after = page.locator('#stacks [data-block="tr-timeline"] [data-step]').count()
+        self.assertLessEqual(after, before, "a phase shows its own steps, never more than the run")
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ------------------------------------------------------------- replay
+
+    def test_replay_follows_the_recorded_clock_and_pause_and_seek_land(self):
+        task = self._first_task()
+        rep = self.reports[task]
+        steps = rep["a"]["steps"]
+        context, page, errors = self._open()
+        page.select_option("#task-picker", task)
+        page.wait_for_timeout(700)
+        # at 16x a run of a few recorded seconds finishes inside a second or two
+        page.evaluate("() => AgentDiff.trace.play(16)")
+        page.wait_for_timeout(1800)
+        st = self._state(page)
+        self.assertEqual(st["step"], max(s.get("index", 0) for s in steps))
+        self.assertFalse(st["playing"])
+        # at 1x the playhead is still inside the run after a second, and the
+        # recorded second it reports is one the trace states
+        page.evaluate("() => AgentDiff.trace.reset()")
+        page.wait_for_timeout(400)
+        page.evaluate("() => AgentDiff.trace.play(1)")
+        page.wait_for_timeout(1200)
+        st = self._state(page)
+        self.assertTrue(st["playing"])
+        self.assertLess(st["step"], max(s.get("index", 0) for s in steps), "1x does not race to the end")
+        # pause stops it where it was
+        page.evaluate("() => AgentDiff.trace.pause()")
+        page.wait_for_timeout(300)
+        held = self._state(page)["step"]
+        page.wait_for_timeout(1000)
+        self.assertEqual(self._state(page)["step"], held, "pause stops the playhead")
+        # the state-so-far line equals the report's cumulative sums there
+        line = page.locator('#stacks [data-block="tr-timeline"] .trc-nums').first.inner_text().replace(",", "")
+        want = self._cum(steps, held)
+        self.assertIn(str(want["tokens"]), line)
+        self.assertIn(f"sources read {want['sources']}", line)
+        # seek lands on the step asked for
+        page.evaluate("() => AgentDiff.trace.seek(0)")
+        page.wait_for_timeout(400)
+        self.assertEqual(self._state(page)["step"], 0)
+        self.assertFalse(self._state(page)["playing"])
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_reduced_motion_lands_on_the_end_with_no_timer(self):
+        task = self._first_task()
+        last = max(s.get("index", 0) for s in self.reports[task]["a"]["steps"])
+        context, page, errors = self._open(reduced_motion=True)
+        page.select_option("#task-picker", task)
+        page.wait_for_timeout(700)
+        page.evaluate("() => AgentDiff.trace.play(1)")
+        page.wait_for_timeout(400)
+        st = self._state(page)
+        self.assertFalse(st["playing"], "reduced motion starts no timer")
+        self.assertEqual(st["step"], last, "reduced motion lands on the end at once")
+        # the scrubber still works
+        page.evaluate("() => AgentDiff.trace.seek(0)")
+        page.wait_for_timeout(300)
+        self.assertEqual(self._state(page)["step"], 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ------------------------------------------------------------ compare
+
+    def test_the_compare_block_draws_both_sides_and_the_engines_divergences(self):
+        task = self._first_task()
+        rep = self.reports[task]
+        context, page, errors = self._open()
+        page.select_option("#task-picker", task)
+        page.wait_for_timeout(700)
+        card = page.locator('#stacks [data-block="tr-compare"]')
+        body = card.inner_text()
+        self.assertIn(str(len(rep["a"]["steps"])), body)
+        self.assertIn(str(len(rep["b"]["steps"])), body)
+        # one strip per side, each named by the side it draws
+        self.assertEqual(sorted(card.locator('.trc-part[data-side]').evaluate_all(
+            "els => els.map(e => e.getAttribute('data-side'))")), ["a", "b"])
+        # the divergence rows are the engine's, by rank, and a list that does
+        # not fit says how many it left out rather than truncating silently
+        divs = rep.get("divergences") or []
+        rows = card.locator('[data-divergence]')
+        self.assertEqual(rows.count(), min(len(divs), 6))
+        if divs:
+            self.assertEqual(rows.first.get_attribute("data-divergence"), str(divs[0]["rank"]))
+        self.assertEqual(card.locator('[data-role="divergence-more"]').count(), 1 if len(divs) > 6 else 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_compare_says_a_bundle_record_has_no_twin_rather_than_showing_a_pair(self):
+        context, page, errors = self._open(path=self.bundle_dir)
+        picker = page.locator('#stacks [data-role="run-picker"]')
+        if not picker.count():
+            self.skipTest("this bundle page carries no traceable records")
+        keys = page.evaluate("() => Array.from(document.querySelectorAll('#stacks [data-role=run-picker] option')).map(o => o.value).filter(v => v)")
+        self.assertGreater(len(keys), 1)
+        picker.select_option(keys[1])
+        page.wait_for_timeout(1200)
+        self.assertEqual(self._state(page)["run"], keys[1])
+        body = page.locator('#stacks [data-block="tr-compare"] .block-body').inner_text()
+        self.assertIn("no matched twin", body)
+        self.assertEqual(page.locator('#stacks [data-block="tr-compare"] .trc-part').count(), 0,
+                         "a record with no twin draws no pair of strips")
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ------------------------------------------------------------- detail
+
+    def test_the_detail_block_hosts_the_run_and_chain_blocks_on_the_same_run(self):
+        context, page, errors = self._open()
+        card = page.locator('#stacks [data-block="tr-detail"]')
+        # `renderInto` draws a block's own root into a host, so the block is
+        # identified by its own class and not by the stack's data-block
+        self.assertGreater(card.locator('.lv-run').count(), 0, "the run block is drawn in")
+        self.assertGreater(card.locator('.dt-chain').count(), 0, "the chain is drawn in")
+        # it is the run the timeline is tracing, not the run block's own default
+        linked = page.evaluate("() => AgentDiff.levels.state().run")
+        self.assertTrue(linked)
+        self.assertIn(linked, card.inner_text())
+        # switching side moves the run block with it
+        page.evaluate("() => AgentDiff.trace.select({ side: 'b', step: null })")
+        page.wait_for_timeout(1200)
+        self.assertNotEqual(page.evaluate("() => AgentDiff.levels.state().run"), linked)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_bundle_picker_reaches_every_record_that_carries_steps(self):
+        # the level-3 records live in the bundle's `runs/` files, not in the
+        # manifest — the manifest carries the index and the page loads the
+        # records beside it, so the files on disk are the thing to check
+        records = {}
+        for path in sorted((self.bundle_dir / "runs").glob("*.json")):
+            rec = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(rec.get("steps"), list) and rec["steps"]:
+                records[rec["key"]] = rec
+        self.assertTrue(records, "the bundle was built with --traces, so every run has steps")
+        want = sorted(records)
+        context, page, errors = self._open(path=self.bundle_dir)
+        keys = page.evaluate("() => Array.from(document.querySelectorAll('#stacks [data-role=run-picker] option')).map(o => o.value).filter(v => v)")
+        self.assertEqual(sorted(keys), want)
+        # and the one chosen is the one drawn
+        pick = want[len(want) // 2]
+        page.locator('#stacks [data-role="run-picker"]').select_option(pick)
+        page.wait_for_timeout(1200)
+        self.assertEqual(self._state(page)["run"], pick)
+        n = len(records[pick]["steps"])
+        line = page.locator('#stacks [data-block="tr-timeline"] .trc-nums').first.inner_text()
+        self.assertIn(f"steps {n}", line)
+        self.assertEqual(page.locator('#stacks [data-block="tr-timeline"] [data-step]').count(), n)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_timeline_has_a_table_view_carrying_every_step_and_column(self):
+        task = self._first_task()
+        steps = self.reports[task]["a"]["steps"]
+        context, page, errors = self._open()
+        page.select_option("#task-picker", task)
+        page.wait_for_timeout(700)
+        det = page.locator('#stacks [data-block="tr-timeline"] [data-role="table"]')
+        self.assertEqual(det.count(), 1, "every chart on this page has a table view")
+        det.locator("summary").click()
+        page.wait_for_timeout(400)
+        rows = page.locator('#stacks [data-block="tr-timeline"] [data-row-step]')
+        self.assertEqual(rows.count(), len(steps))
+        self.assertEqual(
+            page.evaluate("() => Array.from(document.querySelectorAll('#stacks [data-block=tr-timeline] [data-row-step]')).map(r => r.getAttribute('data-row-step'))"),
+            [str(s.get("index", i)) for i, s in enumerate(steps)])
+        # an unrecorded field reads as unrecorded in the table too, never as 0
+        text = page.locator('#stacks [data-block="tr-timeline"] .trc-table').inner_text()
+        if not any(s.get("tokens_basis") for s in steps):
+            self.assertIn("not recorded", text)
+        self.assertEqual(errors, [])
+        context.close()
+
+    # -------------------------------------------------------------- scale
+
+    def test_the_strip_draws_in_tens_of_milliseconds_at_ten_times_the_scale(self):
+        context, page, errors = self._open(path=self.bundle_dir)
+        biggest = page.evaluate("""() => {
+          const r = (((window.DEEPCOMPARE_DATA || {}).bundle || {}).levels || {}).records || {};
+          return Object.keys(r).filter(k => (r[k].steps || []).length)
+                       .sort((a, b) => r[b].steps.length - r[a].steps.length)[0] || null; }""")
+        if not biggest:
+            self.skipTest("this bundle carries no records with steps")
+        page.locator('#stacks [data-role="run-picker"]').select_option(biggest)
+        page.wait_for_timeout(1400)
+        one = page.evaluate("() => AgentDiff.trace.timing()")
+        self.assertIsNone(one["tiled"])
+        page.evaluate("() => AgentDiff.trace.tile(10)")
+        page.wait_for_timeout(2500)
+        ten = page.evaluate("() => AgentDiff.trace.timing()")
+        self.assertEqual(ten["tiled"], 10)
+        self.assertEqual(ten["steps"], one["steps"] * 10)
+        self.assertLess(ten["run"], 400, f"the strip at {ten['steps']} steps took {ten['run']}ms")
+        # a tiled strip can never be read as a real run
+        self.assertIn("TILED", page.locator('#stacks [data-block="tr-timeline"] .trc-nums').first.inner_text())
+        page.evaluate("() => AgentDiff.trace.tile(1)")
+        page.wait_for_timeout(1000)
+        self.assertEqual(errors, [])
+        context.close()
+
+    # -------------------------------------------------------- phone, state
+
+    def test_the_lane_fits_a_phone_with_no_tiny_text(self):
+        for width in (390, 360):
+            context, page, errors = self._open(width=width)
+            self.assertEqual(page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth"), 0, str(width))
+            tiny = page.evaluate("""() => Array.from(document.querySelectorAll('#stacks .trc *'))
+                .filter(e => e.children.length === 0 && e.textContent.trim() && e.offsetParent
+                             && parseFloat(getComputedStyle(e).fontSize) < 11).length""")
+            self.assertEqual(tiny, 0, str(width))
+            for bid in self.IDS:
+                self.assertGreater(page.locator(f'#stacks [data-block="{bid}"]').count(), 0, f"{bid} at {width}")
+            self.assertEqual(errors, [], str(width))
+            context.close()
+
+    def test_the_family_is_task_scoped_and_survives_a_reload(self):
+        context, page, errors = self._open()
+        hits = page.locator('#stacks [data-block="tr-timeline"] [data-step]')
+        hits.nth(1).click()
+        page.wait_for_timeout(500)
+        st = self._state(page)
+        self.assertEqual(st["level"], "step")
+        page.reload()
+        page.wait_for_timeout(1500)
+        back = self._state(page)
+        self.assertEqual(back["step"], st["step"])
+        self.assertEqual(back["level"], "step")
+        # and a different task does not inherit the other task's step
+        tasks = sorted(self.reports)
+        if len(tasks) > 1:
+            page.select_option("#task-picker", tasks[1])
+            page.wait_for_timeout(800)
+            self.assertIsNone(self._state(page)["step"], "the family is scoped to the task")
+        self.assertEqual(errors, [])
+        context.close()

@@ -188,6 +188,24 @@
     /* A measurement hook: tile the level-2 rows n times (keys suffixed
      * "~k", marked `tiled`) and re-render, to time the table at ten times
      * the shipped scale. The status line says the rows are tiled. */
+    /* Resolve a run key from what another view knows about a run.  The
+     * Trace view holds a side of a pair (an agent and a task) or a bundle
+     * record key, and needs the level-3 key `lv-run` selects by; the keys
+     * are built differently on a bundle page and on a plain output page,
+     * so the mapping belongs here with the rows rather than in the caller.
+     * Returns the key, or null when this page carries no such run. */
+    find: function (q) {
+      q = q || {};
+      if (!MODEL) return null;
+      if (q.key && MODEL.byKey[q.key]) return q.key;
+      var hits = MODEL.detailRows.filter(function (r) {
+        return (!q.agent || r.agent === q.agent) && (!q.task || r.task === q.task)
+            && (!q.run_id || r.run_id === q.run_id) && (!q.member || r.member === q.member);
+      });
+      if (!hits.length) return null;
+      hits.sort(function (a, b) { return (b.tokens || 0) - (a.tokens || 0) || (a.key < b.key ? -1 : 1); });
+      return hits[0].key;
+    },
     tile: function (n) { TILE = Math.max(1, Math.min(100, isNum(n) ? Math.round(n) : 1)); MODEL = null; if (typeof AgentDiff._rerender === "function") AgentDiff._rerender(); return TILE; },
   };
 

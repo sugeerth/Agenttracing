@@ -284,10 +284,16 @@ The page-scoped families and their public surfaces: `evolution`
 (`AgentDiff.evolution`), `evolution-compare` (`AgentDiff.evolutionCompare`),
 `coevolution` (`AgentDiff.coevolution`, `{step, evalGen, metric,
 candidate}`), `levels` (`AgentDiff.levels`, `{run, agent, task, member,
-outcome, sort, x}`, plus `timing` and `tile(n)` as measurement hooks),
+outcome, sort, x}`, plus `timing` and `tile(n)` as measurement hooks and
+`find({key | agent, task, run_id, member})`, which resolves a level-3 run
+key for another view — the keys are shaped differently on a bundle page
+and on a plain output, so the mapping stays with the rows),
 `data` (`AgentDiff.data`, `{source, step, gen, side}`), `trace`
-(`AgentDiff.trace`, `{side, run, step, level, phase, playing, t, x}`,
-task-scoped, plus `play`, `pause`, `seek`); the chat keeps
+(`AgentDiff.trace`, `{side, run, step, level, phase, playing, t, x,
+speed}`, task-scoped, plus `play(speed)`, `pause`, `seek(index)` and
+`timing`/`tile(n)` as measurement hooks; `speed` is a multiple of the
+*recorded* clock, or the string `"step"` for one step per tick, and `t` is
+the recorded second at which the step now showing began); the chat keeps
 its transcript under `agentdiff:chat` and exposes `AgentDiff.chat`
 (`ask`, `route(q, prev?)`, `last()`, `intents`, `turns`, `clear`); a follow-up
 ("and for bolt-v3?", "what about g3→g4?", "the other one") resolves against

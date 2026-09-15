@@ -5,6 +5,92 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The execution trace, and the package that was missing half of itself (no schema change)
+
+**The Trace view** (`web/blocks/40_trace.js`, the eleventh tab). Every other
+view reads a run as a set of numbers; this one reads it as an execution.
+Four blocks. `tr-timeline` draws the run along its own recorded clock: one
+strip per span lane, each step a block coloured by kind and sized by its
+tokens (hatched where the basis is not "measured"), the phases the impact
+section clustered as labelled bands above, the decisive step, the fault
+steps, the divergence rows and the milestones marked on it, and three
+tracks below that accumulate as the run proceeds — tokens spent, reward
+earned, sources read. Quiet stretches fold by the library's law and the
+fold count is stated. It **replays**: the playhead advances in *recorded*
+seconds, so a step the trace says took four times as long occupies four
+times the wall time, at 1×, 4× or 16× of the recorded clock — the buttons
+say "recorded seconds per second of watching" rather than a bare number —
+with "by step" as the separately-named mode for a run whose latencies are
+equal or absent. A folded gap is crossed in the time the fold is drawn,
+not the time it stands for. While it plays the numbers line shows the state
+*so far* rather than the state at the end, and an `aria-live` status reads
+it. Replay is a view of recorded timings and the status line says so: no
+step is re-executed and no model is called (`agentdiff replay` is the
+command that actually re-executes). `tr-step` shows the selected step in
+full — kind, tokens with basis, latency, model, reward, value, advantage,
+effect, error, its fetch record, its marks, its text — with a field the
+trace omitted saying so rather than reading as zero. `tr-compare` puts both
+sides on one axis with the engine's alignment and divergence rows, using
+the same strip drawing so a rectangle means the same thing in both.
+`tr-detail` composes `lv-run`, `dt-chain` and `dt-provenance` through
+`AgentDiff.renderInto` and **points them at the run the timeline is
+tracing** — `AgentDiff.levels.find({key | agent, task})` resolves the
+level-3 key, which is built differently on a bundle page and on a plain
+output, so the mapping lives with the rows. On a bundle page a picker
+reaches every level-3 record that carries steps (all 322 in the shipped
+demo) and the compare block then says the record has no matched twin
+instead of drawing an unrelated pair. The family is `trace`, task-scoped
+and persisted; `AgentDiff.trace` exposes `select`, `state`, `reset`,
+`play`, `pause`, `seek`, `timing` and `tile`. The strip draws a 66-step run
+in 2.6 ms and a tiled 660-step run in 21 ms, and a tiled strip says
+`TILED ×10 — a scale measurement, not a run` so it can never be read as a
+real one. `prefers-reduced-motion` starts no timer and lands on the end at
+once, with the scrubber and the arrow keys still the way through.
+`TraceViewTest` in `tests/test_blocks_ui.py`.
+
+**Honesty fixes found while building it.** A run whose steps declare no
+`tokens_basis` now reads `basis not recorded`, not `0% measured` — the
+demo corpus declares none, and reporting nought per cent measured asserts
+that every step was estimated, which is the stronger and false claim; a
+run where only some steps declare one states the share *of the steps that
+say*. The keyboard was broken in a way no test would have caught by
+reading the code: `select` re-renders the page synchronously, so the
+element a key was pressed on is replaced before the handler's next line
+runs, and the focus went to `body` — the view was reachable by mouse only
+after the first arrow key. The stage now re-asserts its focus on every
+render for as long as the reader is driving by keyboard, looking itself up
+in the live DOM rather than holding a node that is already detached, and
+releases it on Tab or a pointer so it never becomes a focus trap.
+
+**The installed package was missing half of itself.**
+`[tool.setuptools] packages = ["deepcompare"]` named only the top level, so
+the wheel shipped 92 files with no `deepcompare.commands` (every command
+the CLI dispatches to) and no `deepcompare.harness` (the only modules
+allowed a socket): `pip install agentdiff && agentdiff --help` died on its
+own import line. No test in the suite could see it because no test built a
+wheel. `packages.find` with `include = ["deepcompare*"]` ships all 155
+files; `web/build_blocks.py` also writes `deepcompare/page/blocks.html` and
+`commands/paths.py` resolves the template from the checkout first and the
+package second, so an installed `batch` writes its page instead of
+silently writing none. `tests/test_packaging.py` builds the wheel from a
+pristine copy of the sources — a stale `build/` or `*.egg-info` in the
+checkout reproduces the old package list and hides the bug — and reads
+what is inside it.
+
+**Two documents.** `docs/PRODUCTION.md`: the four layers and why the split
+deploys well, the three paths traces come from, four deployment shapes,
+what it costs measured on this machine against the shipped corpus,
+sampling and retention rules, the privacy decision to take before the
+first deployment, what must stay true, and the failure-mode table.
+`docs/TRACING.md`: the test of an informative trace (can every number be
+recomputed from it, and can it say what would have changed the outcome),
+the measured field coverage over 322 traces and 11,569 steps, and eight
+ranked gaps — the context actually assembled and what was evicted, the
+alternatives not taken, the environment fingerprint, cache and attempt
+structure, retrieval at chunk granularity, the agent's own causal
+self-report, split latency, per-step money — with what each would buy and
+what it would cost.
+
 ## Even better: per-task cells, every run's steps in the bundle, the budget in Grafana, and instructions on every demo trace (no schema version change)
 
 **Per-task cells in the eval's matrix, every run's steps in the bundle, and the budget in Grafana.** `coevolution.matrix[metric][gen]` gains `per_task: {task: {point, lo, hi, n, measurable, reason, note?}}` — the metric read within each task of the generation (`coevolve.per_task`): the task's own mean (for `rate`, the fraction positive), a percentile bootstrap over that task's own runs at the same `samples` count, seeded `<metric id>:<task>` in the `coevolve` section so no draw is shared with the generation's cell; `note` on `iqm`, `task_min` and `task_spread`, whose aggregate is not a per-task mean; `measurable: false` with the reason under `MIN_N` of the task's episodes after the filter or under `MIN_COVERAGE` readable; a task with no episode under the filter is absent. On the demo lineage the per-task pass rate is the Evolution section's `pass_by_task` to the digit, and the cells add about 0.3 s to a 1.3 s section (1.6 s in all, under the two seconds asked). Everything else in every output is byte-identical. `agentdiff bundle … --traces DIR [DIR …]` attaches the source traces: every level-3 record whose steps the output did not keep (a runs layout's non-representative runs, a lineage's generations before the last pair) is completed from the trace matched by `trace_id` — when it names the same task and agent — else by task, agent and run id, with `steps`, `budget`, `fetches`, `data`, `timeline` (the lineage's episode timeline is kept where the member carries one, since it holds the flags the pair established) and `steps_source: "trace traces/<member>/<path>"`; the traces that completed a record are copied under `traces/<member>/…` so the bundle stays self-contained; the row's null numbers are filled and never overwritten, `detail` is true and `trace` joins `basis`; the overview's `tokens_runs` and `fetches_runs` rise accordingly; the id is unchanged (it is the members' content); without `--traces` every byte is as before. The demo bundle of the three outputs plus the three demos' trace directories has level 3 for all 322 runs (40 from the reports, 282 from traces); `Bundle.step` — and so the MCP `step` tool and `/runs/<key>/steps/<index>` — reads the full text from the trace copy (`source: "traces/<member>/<path>#steps[<i>]"`); the `run` and `data` tools and routes needed no change. The Grafana export gains eleven families, every one a count or a sum over recorded steps with no interval and a `HELP` that says so: `agentdiff_budget_tokens{agent,task,run,basis}` (measured / estimated / unknown per run), `_budget_by_kind{agent,kind}`, `_budget_by_tool{agent,tool}`, `_budget_waste{agent,task,run,what}` (from the pair reports' sides, the only place waste is read per run), `_budget_cost_usd{agent,task,run}` only where a cost was recorded, `_budget_cap{source}` with `_budget_over_cap{agent,task,run}` when a cap was given, `_fetches{agent,task,run,kind}`, `_fetches_errors`, `_fetches_repeats`, `_fetches_used{agent,task,run,use}` (used / unused / unknown) — from the `runs` aggregate's ledgers, or from the pair reports' sides when a batch carries no ledger (noted); the runs demo exports 2 357 samples over 72 families (was 1 147 over 64), the batch demo 722 over 51 (was 439 over 42), one trace unchanged. A seventh dashboard, `grafana/dashboards/budget.json` (uid `agentdiff-budget`), asks where the tokens went and what was fetched and wasted, every panel a question, each description saying its numbers are counts; `docs/GRAFANA.md`, `docs/API.md`, `docs/COEVOLVE.md` and `SCHEMA.md` (the matrix cell, the bundle row, the CLI table) say the rest.
