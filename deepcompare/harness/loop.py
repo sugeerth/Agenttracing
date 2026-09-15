@@ -32,7 +32,10 @@ from pathlib import Path
 from typing import Callable, Optional, Union
 
 from ..feedback import feedback_signal
-from ..planner import TIE_RUNS, add_candidates, apply_decision, decide_prompt, new_state, plan, summarise
+from ..planner import _tool_name
+from ..planner import (TIE_RUNS, add_candidates, add_scaffold_candidates, apply_decision, decide_change,
+                       decide_prompt, new_state, plan, summarise)
+from ..scaffold import apply_change as apply_scaffold_change, describe as describe_scaffold, hypotheses
 from ..report import render_html
 from ..router import family_of
 from ..statistics import wilson_interval
@@ -43,6 +46,19 @@ from .runner import run_suite
 
 VERSION = 1
 PROMPT_ENV = "DEEPCOMPARE_SYSTEM_PROMPT"
+
+
+def _episodes(analysed: dict, agent: str) -> list:
+    """One agent's episodes out of an `analyse_runs` result.  They live in
+    ``runs_by_task`` keyed by side, and which side an agent is on differs
+    per call, so the name is matched rather than the position."""
+    out = []
+    for sides in (analysed.get("runs_by_task") or {}).values():
+        for side in ("a", "b"):
+            for traj in sides.get(side) or []:
+                if traj.agent.name == agent:
+                    out.append(traj)
+    return out
 
 
 def _load(entries: list) -> list:
@@ -108,7 +124,7 @@ class Loop:
             self.started = ledger.get("started")
         else:
             self.state = new_state(names, [t["id"] for t in self.tasks], prompt_agents=prompt_agents,
-                                   base_prompt=base_prompt)
+                                   base_prompt=base_prompt, tools=self.tools, budget=self.budget)
             self.pool = {a: [] for a in names}
             self.offset = {a: 0 for a in names}
             self.started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -122,18 +138,40 @@ class Loop:
         slot = self.state["prompts"].get(agent)
         return slot["current"] if slot else self.base_prompt
 
+    def _scaffold_for(self, agent: str) -> dict:
+        slot = (self.state.get("scaffold") or {}).get(agent)
+        if not slot:
+            return {"tools": [_tool_name(x) for x in self.tools], "budget": dict(self.budget or {})}
+        return slot["current"]
+
+    def _resolve_tools(self, names) -> list:
+        """The tool objects behind a scaffold's names.  The state carries
+        names because it is written to loop.json; the runner needs the
+        things themselves, and a name it does not hold is dropped rather
+        than passed on as a string the runner would not understand."""
+        held = {_tool_name(x): x for x in self.tools}
+        return [held[n] for n in (names or []) if n in held]
+
     def _run(self, agent: str, label: str, tasks: list, per: int, prompt: str, version: str,
-             traces_dir: Path) -> list:
+             traces_dir: Path, scaffold: Optional[dict] = None) -> list:
         """Run ``agent`` on ``tasks`` ``per`` times, recording under ``label``;
-        returns the trace paths."""
+        returns the trace paths.
+
+        ``scaffold`` overrides the tool table and the budget for this
+        batch — the two things a harness can genuinely vary, and the two
+        the trace records back (``Trajectory.tools``, ``Trajectory.budget``),
+        so a scaffold experiment is visible to the reading that judges it.
+        """
         task_dicts = [self.by_id[t] for t in tasks]
         offset = self.offset.get(agent, 0)
-        common = dict(out_dir=traces_dir, runs=per, budget=self.budget, run_offset=offset,
-                      progress=lambda line: self.progress(f"    {line}"))
+        scaffold = scaffold or self._scaffold_for(agent)
+        tools = self._resolve_tools(scaffold.get("tools"))
+        common = dict(out_dir=traces_dir, runs=per, budget=dict(scaffold.get("budget") or {}) or None,
+                      run_offset=offset, progress=lambda line: self.progress(f"    {line}"))
         if self.judge_factory is not None:
             common["grader"] = self._judge_grader
         if agent in self.providers:
-            manifest = run_suite({label: self.providers[agent]}, task_dicts, self.tools, system_prompt=prompt,
+            manifest = run_suite({label: self.providers[agent]}, task_dicts, tools, system_prompt=prompt,
                                  provider_factory=self.provider_factory, version=version, **common)
         else:
             # an external agent names its own trace files: a variant run is
@@ -143,7 +181,7 @@ class Loop:
             previous = os.environ.get(PROMPT_ENV)
             os.environ[PROMPT_ENV] = prompt
             try:
-                manifest = run_suite({}, task_dicts, self.tools, agents={label: ext}, **common)
+                manifest = run_suite({}, task_dicts, tools, agents={label: ext}, **common)
             finally:
                 if previous is None:
                     os.environ.pop(PROMPT_ENV, None)
@@ -236,6 +274,29 @@ class Loop:
                                        "risk_reward": card.get("risk_reward"), "judge": card.get("judge")} if card else None}
         return out
 
+    @staticmethod
+    def _terminations(analysed: dict, agent: str) -> dict:
+        """``{termination: runs}`` for one agent, read from the episodes —
+        the aggregate carries no per-agent termination count, and the
+        difference between an agent that stopped and one the harness
+        stopped is the whole of the budget hypothesis."""
+        out: dict = {}
+        for traj in _episodes(analysed, agent):
+            key = traj.outcome.termination or "undeclared"
+            out[key] = out.get(key, 0) + 1
+        return out
+
+    @staticmethod
+    def _calls(analysed: dict, agent: str) -> dict:
+        """``{tool: calls}`` for one agent over its episodes, so a tool is
+        only withdrawn when the agent actually leaned on it."""
+        out: dict = {}
+        for traj in _episodes(analysed, agent):
+            for step in traj.steps:
+                if step.type in ("tool_call", "search", "retrieve", "read") and step.name:
+                    out[step.name] = out.get(step.name, 0) + 1
+        return out
+
     def _routing_slim(self, analysed: dict) -> dict:
         rt = analysed["aggregate"].get("routing") or {}
         fams = {}
@@ -288,8 +349,26 @@ class Loop:
             added += k
             if k:
                 sources.setdefault(failing, []).append(tid)
+        # the scaffold side of the same reading: the triage engine classifies
+        # every recommendation by where the fix lives, and most of those
+        # places are not the prompt. What this harness can turn becomes a
+        # hypothesis; what it cannot is counted and said.
+        scaffold_added, unactionable, readings = 0, 0, {}
+        for agent in p["agents"]:
+            slot = (self.state.get("scaffold") or {}).get(agent) or {}
+            found = hypotheses(analysed["aggregate"], agent,
+                               tools=(slot.get("current") or {}).get("tools") or self.tools,
+                               budget=(slot.get("current") or {}).get("budget") or self.budget,
+                               terminations=self._terminations(analysed, agent),
+                               calls=self._calls(analysed, agent))
+            scaffold_added += add_scaffold_candidates(self.state, agent, found["proposed"], source="triage")
+            unactionable += len(found["unactionable"])
+            readings[agent] = {"reading": found["reading"], "unactionable": found["unactionable"],
+                               "proposed": [{"kind": h["kind"], "knob": h["knob"], "why": h["why"]}
+                                            for h in found["proposed"]]}
         return {"n": n, "action": "compare", "why": p["why"], "tasks": p["tasks"], "runs": p["runs"], "agents": p["agents"],
                 "dir": str(it_dir), "results": results, "routing": self._routing_slim(analysed),
+                "scaffold_added": scaffold_added, "scaffold_unactionable": unactionable, "scaffold": readings,
                 "paired": {k: (analysed["aggregate"].get("paired_inference") or {}).get(k)
                            for k in ("labels", "n_pairs", "a_wins", "b_wins", "ties", "diff", "se", "ci95", "sign_test_p", "verdict")},
                 "suggestions_added": added, "suggestion_sources": sources}
@@ -335,6 +414,53 @@ class Loop:
         return {"n": n, "action": "test-prompt", "why": p["why"], "tasks": p["tasks"], "runs": p["runs"], "agent": agent,
                 "dir": str(it_dir), "results": results, "decision": decision}
 
+    def _test_scaffold(self, p: dict, n: int) -> dict:
+        """The scaffold experiment: the same agent, the same prompt, one
+        knob of the harness turned. Paired against its current scaffold on
+        the same tasks, decided by the same inference as a prompt change —
+        and recorded as the scaffold's win, because that is what it is."""
+        it_dir = self.out / f"iter-{n:02d}"
+        traces_dir = it_dir / "traces"
+        agent, cand, variant = p["agent"], p["candidate"], p["variant"]
+        prompt = self._prompt_for(agent)
+        slot = self.state["scaffold"][agent]
+        current = slot["current"]
+        changed = apply_scaffold_change(current, cand.get("change") or {})
+        pslot = self.state["prompts"].get(agent) or {}
+        cur_version = f"p{pslot.get('version')}" if pslot.get("version") else ""
+        self.progress(f"  scaffold experiment: {agent} vs {agent}+{variant} "
+                      f"({describe_scaffold(cand.get('change') or {})}) on {len(p['tasks'])} task(s) × {p['runs']}")
+        base_paths = self._run(agent, agent, p["tasks"], p["runs"], prompt, cur_version, traces_dir, scaffold=current)
+        var_paths = self._run(agent, f"{agent}+{variant}", p["tasks"], p["runs"], prompt, variant, traces_dir,
+                              scaffold=changed)
+        self.offset[agent] = self.offset.get(agent, 0) + p["runs"]
+        entries = [(str(x), None) for x in base_paths + var_paths]
+        analysed = self._analyse(entries, it_dir)
+        names = analysed["names"]
+        counts = success_by_task(analysed["runs_by_task"])
+        side_base = "a" if names[0] == agent else "b"
+        side_var = "b" if side_base == "a" else "a"
+        baseline = {tid: c[side_base] for tid, c in counts.items()}
+        variant_counts = {tid: c[side_var] for tid, c in counts.items()}
+        decision = decide_change(baseline, variant_counts, agent=agent, candidate=cand, family="scaffold")
+        decision["variant"] = f"{agent}+{variant}"
+        decision["describes"] = describe_scaffold(cand.get("change") or {})
+        apply_decision(self.state, decision)
+        self.pool[agent].extend((str(x), agent) for x in base_paths)
+        results = self._results(analysed)
+        self.state.setdefault("latest", {})[agent] = results[agent]["per_task"]
+        if decision["status"].startswith("kept"):
+            self.pool[agent] = [(str(x), agent) for x in var_paths]
+            self.state["latest"][agent] = results[f"{agent}+{variant}"]["per_task"]
+            missing = [t for t in self.state["tasks"] if t not in set(p["tasks"])]
+            if missing:
+                self.state.setdefault("needs_runs", {})[agent] = missing
+            decision["relabel"] = (f"runs recorded as {agent}+{variant} count as {agent} from here on "
+                                   f"(scaffold version {slot['version']}); its earlier runs are retired from the "
+                                   f"pool, because they were run in a different harness")
+        return {"n": n, "action": "test-scaffold", "why": p["why"], "tasks": p["tasks"], "runs": p["runs"],
+                "agent": agent, "dir": str(it_dir), "results": results, "decision": decision}
+
     # ----------------------------------------------------------------- drive
 
     def ledger(self) -> dict:
@@ -362,20 +488,27 @@ class Loop:
                 break
             self.progress(f"iteration {n} · {p['action']}: {p['why']}")
             try:
-                it = self._compare(p, n) if p["action"] == "compare" else self._test_prompt(p, n)
+                it = (self._compare(p, n) if p["action"] == "compare"
+                      else self._test_scaffold(p, n) if p["action"] == "test-scaffold"
+                      else self._test_prompt(p, n))
             except SuiteError as exc:
                 self.state["stop"] = {"reason": f"iteration {n} could not be analysed: {exc}", "kind": "error", "after_iteration": n - 1}
                 self.progress(f"stop: {self.state['stop']['reason']}")
                 break
             self.state["iterations"].append(it)
             self._save()
-            if it["action"] == "test-prompt":
+            if it["action"] in ("test-prompt", "test-scaffold"):
                 self.progress(f"  {it['decision']['status']}: {it['decision']['why']}")
             else:
                 for agent, r in it["results"].items():
                     self.progress(f"  {agent}: {r['successes']}/{r['runs']} [{r['ci95'][0]:.2f}–{r['ci95'][1]:.2f}]" if r["runs"] else f"  {agent}: no runs")
                 if it["suggestions_added"]:
                     self.progress(f"  {it['suggestions_added']} prompt hypothesis(es) queued from the reading")
+                if it.get("scaffold_added"):
+                    self.progress(f"  {it['scaffold_added']} scaffold hypothesis(es) queued")
+                if it.get("scaffold_unactionable"):
+                    self.progress(f"  {it['scaffold_unactionable']} scaffold recommendation(s) this harness has no "
+                                  f"knob for (see loop.json)")
         ledger = self.ledger()
         # the closing page: the current pools, with the ledger attached so
         # the page draws the loop

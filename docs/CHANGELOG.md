@@ -5,6 +5,84 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## A loop that can change a scaffold, and the two pictures of what it did (no schema change)
+
+**The agentic loop had one actuator.** `ACTIONS` was `("compare",
+"test-prompt", "stop")` and the state it edited was `state["prompts"]`: it
+could change how an agent thinks and nothing else. Meanwhile the triage
+engine classifies every recommendation it makes by where the fix lives
+(`triage.EFFORT`), and of its nineteen categories only four are
+prompt-shaped — `retrieval`, `tool_selection`, `planning`, `reasoning`.
+Eleven name the scaffold (`tool-schema`, `control-flow`, `architecture`,
+`infrastructure`) and four are investigations, not changes. So the engine
+could recommend a scaffold change, `harness_evolution` could detect that a
+gain came from the scaffold, and the thing that drives improvement could
+do neither.
+
+**Two knobs, because a harness has two.** `deepcompare/scaffold.py` turns
+those findings into hypotheses over the only things a harness varies that
+a trace records back: the tool table a run is offered
+(`Trajectory.tools`) and the limits the loop enforces
+(`Trajectory.budget`). Both are what `harnessevo.fingerprint` reads, so a
+change the actuator makes is visible to the reading that judges it — a
+knob whose effect no trace records could never be judged, so there is not
+one. Two rules propose: a tool-schema finding quoting a tool the run is
+offered and the agent leaned on (`MIN_CALLS`, three) becomes *withdraw
+that tool*; runs the harness stopped rather than the agent (`CAP_SHARE`,
+a fifth) become *raise the cap by half*.
+
+**The unactionable list is the finding, and it is the longer one.** Every
+other scaffold recommendation is recorded with its effort class and the
+reason no knob reaches it, rather than being quietly dropped or — worse —
+proposed and never testable. On the shipped demo loop the first comparison
+produces exactly one scaffold recommendation, an `efficiency` finding, and
+says so: *control-flow is the scaffold, but this harness varies only
+budget and tools, and no control-flow change is expressible in either.*
+
+**A scaffold win is not an agent win.** The planner gains
+`add_scaffold_candidates`, a `test-scaffold` action and `decide_change`,
+which is `decide_prompt`'s inference with the family's own words — the
+counts do not care whether a prompt or a tool table moved, so there is one
+function and `decide_prompt` is unchanged to the digit (a test pins that).
+What differs is what a keep *means*: the decision carries `family`,
+`changes` in the same words `harnessevo.KINDS` uses, and
+`transfers: false`, and its sentence ends *the win is the scaffold's — it
+stays with this harness and does not travel with the agent*. A prompt
+hypothesis is always tested first, because a reasoning change travels to
+another harness and a scaffold change does not, so the cheaper claim is
+tested before the dearer one. A kept scaffold change retires the agent's
+older runs for the same reason the fingerprint gives: they were run in a
+different harness. The loop's state holds tool *names*, not tool objects,
+because it is written to `loop.json` and read back on resume; the runner
+resolves a name to the tool it holds.
+
+**Two blocks for the reading, not a twelfth tab.** `web/blocks/41_harness.js`
+joins the Evolution lane directly after the step ledger it qualifies.
+`hn-ladder` is one row per step — which artifacts moved and whether they
+were reasoning or scaffold, the attribution status, and the fingerprint
+evidence on demand by mouse or keyboard, including the model-string note
+that says which question the record cannot settle. `hn-absorb` is the
+plane: each generation a point, what a passing episode cost against how
+often it passed, the lineage the path between them, up-and-left the agent
+needing less and up-and-right the scaffold carrying it. On the shipped
+lineage the path draws its own story — g2→g3 left and down where the
+verifier was removed, g3→g4 hard up and right where it was restored, that
+second leg flagged. Both axes are the data's own range, which the block
+says under the chart with the table beside it.
+
+**Three drawing bugs fixed, all found by looking rather than by a
+failure.** The chart's aria-label was built with `a + b ? c : d`, which
+binds as `(a + b) ? c : d` and threw the whole description away — a bug an
+aria-label never reveals by looking right. The plane was drawn full-bleed
+against a capped height and left two thirds of itself empty. And the
+point labels collided wherever the lineage doubles back, which is exactly
+where it is most interesting.
+
+`tests/test_scaffold.py` (28) and `HarnessBlocksTest` (7). One of the 28
+is the closure end to end: a `test-scaffold` iteration whose variant
+traces carry `max_steps: 30` while the baseline's carry 12 — the loop
+changed the scaffold, the runner obeyed, and the trace recorded it.
+
 ## The harness beside the agent, and the eval learning to watch it (report section `harness_evolution`, v1)
 
 One section, `harness_evolution` (`deepcompare/harnessevo.py`, `docs/HARNESS.md`),

@@ -144,6 +144,85 @@ failing. Adding the probe raised K at that step from 6 to 8 and tightened
 alpha from 0.0083 to 0.0063; **no adoption, rejection or recommendation
 changed.**
 
+## The other half: a loop that can change a scaffold
+
+Everything above *reads* a lineage. The agentic loop is what *makes* one,
+and until now it had a single actuator.
+
+`ACTIONS` was `("compare", "test-prompt", "stop")` and the state it edited
+was `state["prompts"]`. The loop could change how an agent thinks and
+nothing else. Meanwhile the triage engine classifies every recommendation
+it makes by where the fix lives (`deepcompare.triage.EFFORT`), and of its
+nineteen categories only four are prompt-shaped:
+
+| where the fix lives | categories | the loop could act |
+|---|---|---|
+| `prompt` | retrieval, tool_selection, planning, reasoning | yes |
+| `tool-schema` | tool_availability, tool_execution, grounding | no |
+| `control-flow` | efficiency, parallel_reads, recovery | no |
+| `architecture` | safety, verification, calibration | no |
+| `infrastructure` | prompt_cache, result_cache | no |
+| `investigation` | latency_concentration, attribute, regression, oracle | not a change |
+
+Eleven of nineteen name the scaffold. So the engine could *recommend* a
+scaffold change, this section could *detect* that a gain came from the
+scaffold, and the thing that drives improvement could do neither.
+
+### Two knobs, because there are two
+
+`deepcompare/scaffold.py` turns those findings into hypotheses, and it is
+deliberately short about what it can offer. A harness varies exactly two
+things that a trace records back:
+
+- **`tools`** — the tool table a run is offered, which lands in
+  `Trajectory.tools`
+- **`budget`** — the limits the loop enforces, which land in
+  `Trajectory.budget`
+
+Both are read back by `fingerprint()` above. That is the point: a change
+made by the actuator is visible to the reading that judges it. A knob
+whose effect no trace records could never be judged, so there isn't one.
+
+Two rules produce hypotheses. A **tool-schema finding** that quotes a tool
+the run is offered and the agent actually leaned on (`MIN_CALLS`, three)
+becomes *withdraw that tool*. Runs the **harness stopped** rather than the
+agent — a fifth or more ending on the cap — become *raise the cap by half*.
+
+### The unactionable list is the finding
+
+Everything else goes in `unactionable` with the effort class and the
+reason no knob reaches it, and that list is longer than the other one. A
+hypothesis the runner cannot express is not a hypothesis; it is a wish,
+and it belongs somewhere it can be counted rather than quietly dropped.
+
+On the shipped demo loop the first comparison produces exactly one
+scaffold recommendation — an `efficiency` finding — and reports it
+honestly: *control-flow is the scaffold, but this harness varies only
+budget and tools, and no control-flow change is expressible in either.*
+
+### A scaffold win is not an agent win
+
+The planner schedules a scaffold hypothesis as a `test-scaffold`
+iteration: same agent, same prompt, one knob turned, paired against the
+current scaffold on the same tasks and decided by the same inference as a
+prompt change. Two things differ.
+
+**Prompt first, always.** A reasoning change travels to another harness
+and a scaffold change does not, so the cheaper claim is tested before the
+dearer one.
+
+**A kept scaffold change is recorded as the scaffold's.** The decision
+carries `family`, `changes` (in the same words `KINDS` uses) and
+`transfers: false`, and its sentence ends *the win is the scaffold's — it
+stays with this harness and does not travel with the agent*. A kept
+change also retires the agent's older runs, because they were run in a
+different harness — the same reasoning the fingerprint uses one layer up.
+
+So the loop now closes: the engine recommends, the actuator turns what it
+can and counts what it cannot, the paired experiment decides, and the
+reading above can tell afterwards which half of the agent the gain
+belonged to.
+
 ## What it cannot see
 
 A fingerprint is read from what the traces recorded, so a harness change no

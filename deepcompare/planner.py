@@ -34,16 +34,29 @@ from .statistics import paired_inference, sign_test, wilson_interval
 
 VERSION = 1
 
-ACTIONS = ("compare", "test-prompt", "stop")
+ACTIONS = ("compare", "test-prompt", "test-scaffold", "stop")
+#: the two hypothesis families, and what each changes about the agent —
+#: the words `harnessevo.KINDS` uses, so a kept change and the reading
+#: that later judges it agree about what moved
+FAMILIES = {"prompt": "reasoning", "scaffold": "scaffold"}
 #: runs per candidate after which equal success rates count as a tie
 TIE_RUNS = 6
 
 
+def _tool_name(tool) -> str:
+    """A tool's name, whatever shape the caller holds it in."""
+    if isinstance(tool, dict):
+        return str(tool.get("name") or "")
+    return str(getattr(tool, "name", "") or tool)
+
+
 def new_state(agents: list, tasks: list, *, prompt_agents: Optional[list] = None,
-              base_prompt: str = "") -> dict:
+              base_prompt: str = "", tools=(), budget=None) -> dict:
     """The loop's state before its first iteration. ``prompt_agents`` are
     the agents whose system prompt the loop may change (provider agents
-    and command agents that read the prompt from their environment)."""
+    and command agents that read the prompt from their environment);
+    ``tools`` and ``budget`` are the scaffold every agent starts in, which
+    the loop may also change."""
     prompt_agents = list(prompt_agents if prompt_agents is not None else agents)
     return {
         "version": VERSION,
@@ -53,6 +66,15 @@ def new_state(agents: list, tasks: list, *, prompt_agents: Optional[list] = None
         "iterations": [],
         "prompts": {a: {"current": base_prompt, "version": 0, "candidates": [], "history": []}
                     for a in prompt_agents},
+        #: the scaffold each agent runs inside, and the changes queued for
+        #: it. Every agent has one — unlike a prompt, a tool table and a
+        #: budget exist whether or not the agent can be told anything.
+        #: tool *names*, not tool objects: this state is written to
+        #: loop.json and read back on resume, so everything in it is data.
+        #: The runner resolves a name to the tool it holds.
+        "scaffold": {a: {"current": {"tools": [_tool_name(x) for x in (tools or [])],
+                                     "budget": dict(budget or {})},
+                         "version": 0, "candidates": [], "history": []} for a in agents},
         "stop": None,
     }
 
@@ -74,6 +96,33 @@ def add_candidates(state: dict, agent: str, suggestions: list, *, source: str) -
         tried.add(kind)
         slot["candidates"].append({"kind": kind, "text": text, "source": source,
                                    "derived_from": sug.get("derived_from"), "from_tasks": list(sug.get("from_tasks") or [])})
+        added += 1
+    return added
+
+
+def add_scaffold_candidates(state: dict, agent: str, proposals: list, *, source: str) -> int:
+    """Queue scaffold hypotheses for ``agent`` (one per kind, first wins).
+
+    The same discipline as a prompt candidate and for the same reason:
+    one variable per experiment, so a kept change is attributable. A
+    proposal carries the knob it turns and the difference from the
+    current scaffold, never a whole replacement scaffold — two untested
+    changes are never stacked, on either side."""
+    slot = state.get("scaffold", {}).get(agent)
+    if slot is None:
+        return 0
+    tried = {c["kind"] for c in slot["candidates"]} | {h["kind"] for h in slot["history"]}
+    added = 0
+    for prop in proposals or []:
+        kind = prop.get("kind")
+        change = prop.get("change")
+        if not kind or not isinstance(change, dict) or not change or kind in tried:
+            continue
+        tried.add(kind)
+        slot["candidates"].append({"kind": kind, "knob": prop.get("knob"), "change": change,
+                                   "why": prop.get("why"), "source": source,
+                                   "category": prop.get("category"), "effort": prop.get("effort"),
+                                   "from_tasks": list(prop.get("from_tasks") or [])})
         added += 1
     return added
 
@@ -172,6 +221,31 @@ def plan(state: dict, *, runs: int = 3, max_iterations: int = 4, max_runs: Optio
                 "why": (f"test one hypothesis for {agent} — '{cand['kind'].replace('_', ' ')}' from {cand['source']} — as a paired "
                         f"experiment against its current prompt on {scope}, {per} run(s) a side; one variable at a time")}
 
+    # then a queued scaffold hypothesis. Prompt first on purpose: a
+    # reasoning change transfers to another harness and a scaffold change
+    # does not, so the cheaper claim is tested before the dearer one.
+    for agent in agents:
+        slot = (state.get("scaffold") or {}).get(agent)
+        if not slot or not slot["candidates"]:
+            continue
+        cand = slot["candidates"][0]
+        tasks = list(state["tasks"])
+        scope = "every task, so a regression elsewhere shows"
+        if not affordable(len(tasks), 2, runs):
+            tasks = [t for t in tasks if t in set(cand.get("from_tasks") or [])] or tasks[:1]
+            scope = "only the tasks it came from — the run budget does not cover every task"
+        per = runs
+        while per > 1 and not affordable(len(tasks), 2, per):
+            per -= 1
+        if not affordable(len(tasks), 2, per):
+            return stop("run budget too small to test the queued scaffold change as a paired experiment", "runs")
+        return {"action": "test-scaffold", "agent": agent, "candidate": cand, "tasks": tasks, "runs": per,
+                "variant": f"s{slot['version'] + 1}",
+                "why": (f"test one scaffold hypothesis for {agent} — {cand.get('kind')} on the "
+                        f"{cand.get('knob')} knob, from {cand.get('source')} — as a paired experiment against its "
+                        f"current scaffold on {scope}, {per} run(s) a side; one variable at a time, and a win here "
+                        f"belongs to the scaffold rather than to the agent")}
+
     # a kept prompt change retires the agent's older runs: tasks the
     # experiment did not cover are re-run for every agent before the
     # comparison is trusted again
@@ -214,7 +288,24 @@ def plan(state: dict, *, runs: int = 3, max_iterations: int = 4, max_runs: Optio
                 "why": (f"spend runs where the pick is not yet clear: {len(uncertain)} famil{'y' if len(uncertain) == 1 else 'ies'} "
                         f"({lead['family']} first, interval width {lead['width']:.2f}, {lead['confidence']}) — "
                         f"{per} more run(s) per agent on {len(tasks)} task(s)")}
-    return stop("converged: every family has a clear pick or a tie no further run can break, and no prompt hypothesis is left to test", "converged")
+    return stop("converged: every family has a clear pick or a tie no further run can break, and no prompt or "
+                "scaffold hypothesis is left to test", "converged")
+
+
+def decide_change(baseline: dict, variant: dict, *, agent: str, candidate: dict,
+                  family: str = "prompt") -> dict:
+    """Keep or revert a change from its paired experiment.
+
+    The inference is the same whichever family the change belongs to —
+    the counts do not care whether a prompt or a tool table moved — so
+    there is one function and the wording follows ``family``. What does
+    differ is what a kept change *means*: a kept prompt change is the
+    agent reasoning better and travels with it, a kept scaffold change is
+    the agent being given more and stays with the harness. The returned
+    ``family`` and ``transfers`` say which, so a later reading
+    (:mod:`deepcompare.harnessevo`) and this decision agree.
+    """
+    return _decide(baseline, variant, agent=agent, candidate=candidate, family=family)
 
 
 def decide_prompt(baseline: dict, variant: dict, *, agent: str, candidate: dict) -> dict:
@@ -225,6 +316,11 @@ def decide_prompt(baseline: dict, variant: dict, *, agent: str, candidate: dict)
     task regresses from always-pass to always-fail; ``kept`` when the
     sign test is below 0.05, ``kept (provisional)`` otherwise — the
     reader sees which. Every count is in the returned evidence."""
+    return _decide(baseline, variant, agent=agent, candidate=candidate, family="prompt")
+
+
+def _decide(baseline: dict, variant: dict, *, agent: str, candidate: dict, family: str) -> dict:
+    noun = "scaffold change" if family == "scaffold" else "change"
     tasks = sorted(set(baseline) & set(variant))
     wins = losses = ties = 0
     regressions = []
@@ -275,8 +371,13 @@ def decide_prompt(baseline: dict, variant: dict, *, agent: str, candidate: dict)
         why = (f"{agent} with the change won {wins} task(s), lost {losses}, tied {ties}"
                + (f"; it regressed {', '.join(regressions)} from always passing to always failing" if regressions else "")
                + f"; success {v_tot[0]}/{v_tot[1]} against {b_tot[0]}/{b_tot[1]} without it; the current prompt stands")
+    if keep and family == "scaffold":
+        why += ("; the win is the scaffold's — it stays with this harness and does not travel with the agent")
     return {
-        "agent": agent, "kind": candidate.get("kind"), "text": candidate.get("text"), "source": candidate.get("source"),
+        "agent": agent, "family": family, "changes": FAMILIES.get(family, family),
+        "transfers": family != "scaffold",
+        "kind": candidate.get("kind"), "text": candidate.get("text"), "source": candidate.get("source"),
+        "knob": candidate.get("knob"), "change": candidate.get("change"),
         "status": status, "why": why,
         "evidence": {"tasks": len(tasks), "wins": wins, "losses": losses, "ties": ties, "sign_test_p": p,
                      "regressions": regressions, "improvements": improvements,
@@ -289,8 +390,11 @@ def decide_prompt(baseline: dict, variant: dict, *, agent: str, candidate: dict)
 
 
 def apply_decision(state: dict, decision: dict) -> None:
-    """Move the tested candidate into history; on keep, make its text
-    part of the agent's current prompt."""
+    """Move the tested candidate into history; on keep, make the change
+    part of the agent's current prompt or of the scaffold it runs in,
+    according to the decision's family."""
+    if decision.get("family") == "scaffold":
+        return _apply_scaffold(state, decision)
     slot = state["prompts"][decision["agent"]]
     slot["candidates"] = [c for c in slot["candidates"] if c.get("kind") != decision.get("kind")]
     entry = dict(decision)
@@ -300,6 +404,19 @@ def apply_decision(state: dict, decision: dict) -> None:
         slot["version"] += 1
         slot["current"] = (slot["current"].rstrip() + "\n" + decision["text"]).strip()
         entry["prompt_version"] = slot["version"]
+
+
+def _apply_scaffold(state: dict, decision: dict) -> None:
+    from .scaffold import apply_change
+    slot = state["scaffold"][decision["agent"]]
+    slot["candidates"] = [c for c in slot["candidates"] if c.get("kind") != decision.get("kind")]
+    entry = dict(decision)
+    entry["iteration"] = len(state["iterations"])
+    slot["history"].append(entry)
+    if decision["status"].startswith("kept"):
+        slot["version"] += 1
+        slot["current"] = apply_change(slot["current"], decision.get("change") or {})
+        entry["scaffold_version"] = slot["version"]
 
 
 def summarise(state: dict) -> dict:
@@ -328,4 +445,5 @@ def summarise(state: dict) -> dict:
     return out
 
 
-__all__ = ["VERSION", "ACTIONS", "TIE_RUNS", "new_state", "add_candidates", "plan", "decide_prompt", "apply_decision", "summarise"]
+__all__ = ["VERSION", "ACTIONS", "FAMILIES", "TIE_RUNS", "new_state", "add_candidates", "add_scaffold_candidates",
+           "plan", "decide_prompt", "decide_change", "apply_decision", "summarise"]
