@@ -49,6 +49,13 @@ class WheelTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls._tmp = tempfile.TemporaryDirectory(prefix="agentdiff-wheel-")
+        # The page template is a build output (`deepcompare/page/` is
+        # gitignored), so on a fresh checkout it does not exist and the
+        # template assertion below would quietly skip — which is exactly
+        # where it matters most, since CI *is* a fresh checkout.  Build it
+        # first, as the browser tests do, so the assertion runs everywhere.
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), capture_output=True, timeout=300)
         # `pip wheel <dir>` reuses a stale `build/` or `*.egg-info` left in the
         # checkout, which would hide exactly the bug this file exists for; build
         # from a pristine copy of the sources instead.
@@ -95,10 +102,21 @@ class WheelTest(unittest.TestCase):
         self.assertGreater(len(wheeled), 30, "the command modules are the CLI")
 
     def test_the_console_script_names_a_callable_that_exists(self):
+        """Read the entry point out of the *wheel*, not out of
+        `pyproject.toml`.  The wheel's `entry_points.txt` is what pip
+        actually installs the `agentdiff` command from, so it is the thing
+        under test here; and it parses with `configparser`, which every
+        supported Python has, where `tomllib` arrived only in 3.11 and this
+        project supports 3.10."""
+        import configparser
         import importlib
-        import tomllib
-        spec = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-        scripts = spec.get("project", {}).get("scripts", {})
+        entry_points = [n for n in self.names if n.endswith(".dist-info/entry_points.txt")]
+        self.assertEqual(len(entry_points), 1, f"expected one entry_points.txt: {entry_points}")
+        with zipfile.ZipFile(self.wheel) as z:
+            parsed = configparser.ConfigParser()
+            parsed.read_string(z.read(entry_points[0]).decode("utf-8"))
+        self.assertTrue(parsed.has_section("console_scripts"), "the wheel installs no command")
+        scripts = dict(parsed["console_scripts"])
         self.assertIn("agentdiff", scripts)
         module_path, _, attribute = scripts["agentdiff"].partition(":")
         module = importlib.import_module(module_path)

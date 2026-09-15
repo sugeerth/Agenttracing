@@ -11058,6 +11058,8 @@ class DataViewTest(unittest.TestCase):
         context.close()
 
 
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
 class TraceViewTest(unittest.TestCase):
     """The Trace view (40_trace.js): one run as an execution rather than as
     a set of numbers — the steps in the order and at the pace the trace
