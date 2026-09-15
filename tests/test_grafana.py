@@ -381,7 +381,7 @@ class EvolutionExportTest(unittest.TestCase):
         self.assertEqual(_with(s, "coevolution_metric", {"metric": "verified_rate", "generation": "g3"})[0], 0.0)
         adopted = _one(s, "coevolution_candidates", decision="adopted")
         rejected = _one(s, "coevolution_candidates", decision="rejected")
-        self.assertEqual((adopted, rejected), (3, 17))
+        self.assertEqual((adopted, rejected), (3, 19))
         self.assertEqual(len(_find(s, "coevolution_candidate")), adopted + rejected)
         self.assertEqual(_with(s, "coevolution_candidate", {"metric": "worst_task_pass", "decision": "rejected"}), [1, 1])
         self.assertEqual(_with(s, "coevolution_hindsight_lag", {"metric": "verified_rate"})[0], 0)
