@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "trace_id": "ef01_refund_gateway-scout-v2",
+  "agent": {
+    "name": "scout-v2",
+    "model": "gpt-5",
+    "version": "v2"
+  },
+  "task": {
+    "id": "ef01_refund_gateway",
+    "prompt": "Cancel booking VN882 and report the refund.",
+    "expected": "Booking VN882 cancelled with a full refund."
+  },
+  "outcome": {
+    "success": false,
+    "answer": "I could not cancel booking VN882: the payment gateway is unavailable.",
+    "score": 0.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 600,
+    "output_tokens": 200,
+    "cost_usd": 0.0024,
+    "latency_s": 5.5
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "Read the booking, then cancel with refund.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "get_booking",
+      "input": "get_booking(reference='VN882')",
+      "output": "VN882 \u2014 LIS->MAD, Flex fare, refundable.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 2,
+      "type": "tool_call",
+      "name": "cancel_booking",
+      "input": "cancel_booking(reference='VN882', refund=true)",
+      "output": "Error: payment gateway returned 503 Service Unavailable; cancellation rolled back.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "write",
+      "error": true
+    },
+    {
+      "index": 3,
+      "type": "reason",
+      "name": "reason",
+      "input": "The refund gateway is down; the cancellation cannot go through right now.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final",
+      "input": "I could not cancel booking VN882: the payment gateway is unavailable.",
+      "output": "I could not cancel booking VN882: the payment gateway is unavailable.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_booking",
+      "effect": "read"
+    },
+    {
+      "name": "get_policy",
+      "effect": "read"
+    },
+    {
+      "name": "get_refund_quote",
+      "effect": "read"
+    },
+    {
+      "name": "cancel_booking",
+      "effect": "write"
+    },
+    {
+      "name": "update_seat",
+      "effect": "write"
+    }
+  ],
+  "budget": {
+    "max_steps": 12
+  }
+}

@@ -1,0 +1,191 @@
+"""Report building and HTML rendering for DeepCompare AI.
+
+:func:`compare` produces the full per-task comparison report defined in
+SCHEMA.md (alignment, divergences, attribution, metrics_delta).
+:func:`render_html` injects ``{"reports": [...], "aggregate": {...}}`` into a
+viewer template by replacing the single line containing the marker
+``window.DEEPCOMPARE_DATA`` with ``window.DEEPCOMPARE_DATA = <json>;``.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Optional, Union
+
+from . import sections
+# each section module registers itself with the registry when imported;
+# the import list is the one place a section is wired
+from . import (  # noqa: F401
+    budget, counterfactual, data, diagnosis, efficiency, feedback, fetches, horizon, impact, internals, milestones, process,
+    reasoning, rl, semantic, shapley, success, timing, toolprofile, tradeoff, trust, uncertainty, verdict,
+)
+from .align import align
+from .attribution import attribute
+from .divergence import find_divergences
+from .metrics import metrics_delta
+from .steps_eval import answer_eval, step_eval
+from .tooldiff import TOOLISH_TYPES, tool_diff
+from .trace import Trajectory
+
+#: the template line containing this marker is replaced wholesale.
+DATA_MARKER = "window.DEEPCOMPARE_DATA"
+
+
+def _side(t: Trajectory) -> dict:
+    """One run as the report carries it: the four SCHEMA blocks, plus what
+    the trace said about itself (ids, the tools offered, the budget, the
+    token accounting, the harness block when a loader kept it) so the
+    trust section can read provenance without the file."""
+    side = {
+        "agent": t.agent.to_dict(),
+        "outcome": t.outcome.to_dict(),
+        "totals": t.totals.to_dict(),
+        "steps": [s.to_dict() for s in t.steps],
+        "trace_id": t.trace_id, "run_id": t.run_id, "schema_version": t.schema_version,
+        "tools": list(t.tools or []), "budget": dict(t.budget or {}), "token_accounting": dict(t.token_accounting or {}),
+    }
+    harness = getattr(t, "harness", None)
+    if isinstance(harness, dict):
+        side["harness"] = harness
+    return side
+
+
+def compare(a: Trajectory, b: Trajectory) -> dict:
+    """Compare two trajectories on the same task.
+
+    Returns the SCHEMA.md comparison report dict.  Raises ``ValueError`` if
+    the trajectories are not for the same task id.
+    """
+    if a.task.id != b.task.id:
+        raise ValueError(
+            f"cannot compare trajectories for different tasks: "
+            f"{a.task.id!r} vs {b.task.id!r}"
+        )
+    alignment = align(a, b)
+    divergences = find_divergences(a, b, alignment)
+    attribution = attribute(a, b, alignment, divergences)
+
+    # Attach tool-call diffs to alignment entries pairing tool-ish steps.
+    for entry in alignment:
+        if entry["a_index"] is None or entry["b_index"] is None:
+            continue
+        step_a, step_b = a.steps[entry["a_index"]], b.steps[entry["b_index"]]
+        if step_a.type not in TOOLISH_TYPES and step_b.type not in TOOLISH_TYPES:
+            continue
+        if step_a.name == step_b.name and step_a.input == step_b.input:
+            entry["tool_diff"] = {"same_tool": True, "identical": True}
+        else:
+            entry["tool_diff"] = tool_diff(step_a, step_b)
+
+    # Step-level evaluation (SCHEMA.md v5).  Root outputs for propagation:
+    # the failing side's root_cause_step output, and — for the other side —
+    # the output of its aligned counterpart step (None if there is none,
+    # which yields propagation 0.0 for that side).
+    root_output_a: Optional[str] = None
+    root_output_b: Optional[str] = None
+    failed_side = attribution["failed_agent"]
+    root = attribution["root_cause_step"]
+    if failed_side is not None and root is not None:
+        own_key = f"{failed_side}_index"
+        other_side = "b" if failed_side == "a" else "a"
+        other_key = f"{other_side}_index"
+        failed_traj, other_traj = (a, b) if failed_side == "a" else (b, a)
+        failed_out: Optional[str] = failed_traj.steps[root].output
+        other_out: Optional[str] = None
+        for entry in alignment:
+            if entry[own_key] == root and entry[other_key] is not None:
+                other_out = other_traj.steps[entry[other_key]].output
+                break
+        if failed_side == "a":
+            root_output_a, root_output_b = failed_out, other_out
+        else:
+            root_output_a, root_output_b = other_out, failed_out
+    for entry in alignment:
+        evaluation = step_eval(entry, a, b, root_output_a, root_output_b)
+        if evaluation is not None:
+            entry["eval"] = evaluation
+    report = {
+        # the expected answer rides along so a replay can grade its rollouts
+        "task": {"id": a.task.id, "prompt": a.task.prompt, "expected": a.task.expected},
+        "a": _side(a),
+        "b": _side(b),
+        "alignment": alignment,
+        "divergences": divergences,
+        "attribution": attribution,
+        "answer_eval": answer_eval(a, b),
+        "metrics_delta": metrics_delta(a, b),
+    }
+    # every registered pair section, in dependency order (see
+    # deepcompare.sections): each reads the report as it stands and adds
+    # its key; one that fails is recorded as unmeasurable, not raised
+    sections.attach("pair", report, sections.PairContext(a=a, b=b))
+    return report
+
+
+def attach_milestones(report: dict, golden: Optional[dict], policy: Optional[dict] = None) -> dict:
+    """Read both runs against the golden task's milestones (see
+    :mod:`deepcompare.milestones`) and attach ``report["milestones"]``:
+    ``{"a", "b", "diff", "narrative"}``.  Without a golden task or without
+    milestones on it, the section says so and measures nothing.  The trust
+    section is recomputed with the golden task's forbidden tools and the
+    ``policy`` (see :func:`deepcompare.scorecard.load_policy`) now known."""
+    # the milestones section, then the sections that read it: the impact
+    # clusters the milestones mark, the trust grade with the policy now
+    # known, and the shaped reward that pays +2 at each milestone reached
+    sections.attach("pair", report, sections.PairContext(golden=golden, policy=policy),
+                    only=("milestones", "impact", "trust", "rl"))
+    return report
+
+
+def render_html(
+    reports: list[dict],
+    aggregate: dict,
+    template_path: Union[str, Path],
+    out_path: Union[str, Path],
+    fleet: Optional[dict] = None,
+    extra: Optional[dict] = None,
+) -> Path:
+    """Render the viewer HTML by injecting report data into a template.
+
+    Reads ``template_path``, finds the single line containing the marker
+    ``window.DEEPCOMPARE_DATA``, and replaces that whole line with
+    ``window.DEEPCOMPARE_DATA = <json>;`` (preserving the line's original
+    indentation), where the JSON payload is
+    ``{"reports": [...], "aggregate": {...}}`` (plus a ``"fleet"`` key when
+    ``fleet`` is given, for N-agent fleet reports).  Writes the result to
+    ``out_path`` and returns it.  Raises ``ValueError`` if the marker line is
+    not found.
+    """
+    template_path = Path(template_path)
+    out_path = Path(out_path)
+    template = template_path.read_text(encoding="utf-8")
+
+    data: dict = {"reports": reports, "aggregate": aggregate}
+    if fleet is not None:
+        data["fleet"] = fleet
+    if extra:
+        # Additional top-level sections (e.g. similarity/routing for the
+        # selection view); never allowed to clobber the core keys.
+        for key, value in extra.items():
+            if key not in ("reports", "aggregate", "fleet"):
+                data[key] = value
+    payload = json.dumps(data, ensure_ascii=False)
+    # Keep the payload safe inside a <script> block.
+    payload = payload.replace("</", "<\\/")
+
+    lines = template.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if DATA_MARKER in line:
+            indent = line[: len(line) - len(line.lstrip())]
+            newline = "\n" if line.endswith("\n") else ""
+            lines[i] = f"{indent}{DATA_MARKER} = {payload};{newline}"
+            break
+    else:
+        raise ValueError(
+            f"template {template_path} has no line containing the marker "
+            f"{DATA_MARKER!r}"
+        )
+
+    out_path.write_text("".join(lines), encoding="utf-8")
+    return out_path

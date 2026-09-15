@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "trace_id": "cs01_invoice_total-steady-v1",
+  "agent": {
+    "name": "steady-v1",
+    "model": "claude-sonnet-5",
+    "version": "v1"
+  },
+  "task": {
+    "id": "cs01_invoice_total",
+    "prompt": "What is the total of invoice INV-2209 after the partner discount?",
+    "expected": "Invoice INV-2209 totals $8,940.00 after the discount."
+  },
+  "outcome": {
+    "success": true,
+    "answer": "Invoice INV-2209 totals $8,940.00 after the discount.",
+    "score": 1.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 600,
+    "output_tokens": 200,
+    "cost_usd": 0.0024,
+    "latency_s": 5.5
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "Fetch the invoice, apply the partner discount, report the total.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "get_invoice",
+      "input": "get_invoice(id='INV-2209')",
+      "output": "INV-2209: subtotal $9,400.00, partner account.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 2,
+      "type": "tool_call",
+      "name": "get_discount_schedule",
+      "input": "get_discount_schedule(account='partner')",
+      "output": "Current schedule: partner discount is $460.00 flat plus loyalty rebate; net discount for INV-2209 is $460.00.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 3,
+      "type": "reason",
+      "name": "reason",
+      "input": "Subtotal $9,400.00 minus the $460.00 scheduled discount.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final",
+      "input": "Invoice INV-2209 totals $8,940.00 after the discount.",
+      "output": "Invoice INV-2209 totals $8,940.00 after the discount.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_invoice",
+      "effect": "read"
+    },
+    {
+      "name": "get_policy",
+      "effect": "read"
+    },
+    {
+      "name": "get_discount_schedule",
+      "effect": "read"
+    }
+  ],
+  "budget": {
+    "max_steps": 12
+  }
+}

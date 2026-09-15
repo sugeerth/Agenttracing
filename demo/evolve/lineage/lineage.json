@@ -1,0 +1,13 @@
+{
+  "family": "ledger-agent",
+  "protected": [
+    "config.checks",
+    "tools.run_check"
+  ],
+  "budget": {
+    "prompt_chars": 2500,
+    "rules": 8,
+    "memory": 20
+  },
+  "note": "SYNTHETIC: a generated generation of a self-evolving agent; rewards paid by a scripted environment; every value invented"
+}

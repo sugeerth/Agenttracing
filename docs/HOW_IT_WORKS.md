@@ -1,0 +1,508 @@
+# How AgentDiff works — from a step in a trace to a sentence you can check
+
+This is the long explanation: what the system takes in, what it computes,
+in what order, what each drawing on the page shows, and why it is built
+the way it is. Every section names the module that does the work.
+
+## 1. The stance
+
+Traces of agent runs are everywhere; every observability product captures
+them and draws one run's tree. What is thin is the explanation of *why two
+runs differ* — and, for a long or delegated run, *where* the time and the
+fault went. AgentDiff sits there. Its rules:
+
+- **Deterministic.** Every number is a count, a ratio or an interval over
+  the runs listed. No language model is in the control path: not in the
+  diagnosis, not in the loop that runs agents, not in a verdict. A model
+  may be *under test*, or asked to *judge* an answer, or to *narrate*
+  prose that never changes a number.
+- **Honest by construction.** An estimate is labelled an estimate; a
+  decisive step is a hypothesis until a replay flips the outcome; a
+  dimension that cannot be measured reads "not measurable", never a pass
+  or a fail; a run with no recorded latencies is *unmeasurable*, not fast;
+  synthetic demo data says so.
+- **Engine and harness are separate.** The engine (`deepcompare/*.py`)
+  has no network code; only `deepcompare/harness/` talks to a model.
+
+## 2. The trace: steps, spans, and streaming
+
+A trace (`SCHEMA.md`) is a task, an agent, an outcome, totals, and an
+ordered list of steps: `plan`, `reason`, `search`, `retrieve`, `read`,
+`tool_call`, `answer`, each with input, output, tokens, latency, and
+optional fields (an error flag, a read/write effect, model telemetry).
+
+Two optional facts turn a flat trace into a tree:
+
+- **`step.span {id, agent, parent}`** — the (sub-)agent acting at this
+  step and the span it was delegated from. `Recorder.span("researcher")`
+  stamps every step recorded inside a `with`; nested `with`s nest the
+  spans. The OpenTelemetry adapter derives the same from nested
+  `invoke_agent` spans, so Langfuse, Phoenix, LangSmith or raw OTLP
+  exports carry their sub-agents in.
+- **Streaming** — a running agent writes the same trace with the steps
+  so far (`record(stream=True)`, or the Claude Code hook); the watcher
+  serves it to the page as it grows. The span holding the last step is
+  *open*.
+
+So a run that streams and a run that delegates are one object: a tree of
+spans over time, where streaming adds "still open" and delegation adds
+depth. That is why one model (`charts.spanTree` in the page,
+`deepcompare/horizon.py` in the engine) feeds both the live view and
+the finished analysis.
+
+## 3. What the engine computes for a pair, in order
+
+`deepcompare.report.compare(a, b)` builds the report section by section;
+later sections read earlier ones and never change them.
+
+1. **Alignment** (`align.py`) — the two step sequences aligned by type,
+   name and input similarity; rows are `match`, `drift`, `a_only`,
+   `b_only`, with a tool-argument diff where both called a tool.
+2. **Divergences and attribution** (`divergence.py`, `attribution.py`)
+   — where the runs first part, ranked; the failing side's chain from
+   the root cause to the outcome, with a category (tool selection, tool
+   misuse, reasoning, retrieval, planning, stopping).
+3. **The reading** (`reasoning.py`) — each run on its own: phases
+   (frame, acquire, transform, verify, commit …), every step's role
+   (feeds the answer, dead end, no information, repeat, error), what the
+   answer *rests on* (each value traced to the observation that produced
+   it, or marked unsupported), why it ended, findings by evidence class,
+   and the next actions those findings imply.
+4. **The diagnosis** (`diagnosis.py`) — competing hypotheses with an
+   evidence ledger; the *decisive step*: the earliest step whose
+   correction is expected to flip the outcome; a causal window; a replay
+   recipe. `replay` re-executes from that step through a provider and
+   writes the verdict back (`replay-verified` / `replay-refuted`).
+5. **Where the time went** (`timing.py`) — every recorded second to
+   thinking, a named tool, or the answer; the seconds in steps the
+   reading marks wasted counted and named; the slowest steps; a
+   rationale whose every number is in the ledger; the pair narrative
+   (who took longer, by how much, what share of the gap is wasted).
+6. **The horizon** (`horizon.py`) — the run folded into a tree: spans
+   (from `step.span`), *parts* (the reading's phases, split where the
+   agent framed or decided, never bridging a child span), steps. Every
+   node carries steps, seconds, wasted seconds, tokens, tool calls,
+   errors, the fault's path, the decisive step, the values produced.
+   Then: the **delegation graph** (every agent once, every delegation
+   edge with its count), the **blame** (the decisive step lifted to its
+   agent, delegator, depth and part — the "which agent, which step"
+   shape of the failure-attribution benchmarks), and the **diff** of the
+   two graphs aligned by agent (the two roots as one role): every node
+   and edge in both, only A, only B, with counts per side.
+7. **The loop back** (`feedback.py`) — step labels for reward shaping, a
+   preference pair (passing run, or the reconciled splice, against the
+   failing one), and prompt suggestions, one sentence per finding kind,
+   each carrying the replay that would test it.
+
+For repeated runs, `suite.analyse_runs` adds stability and pass^k,
+paired inference with an exact sign test, output equality
+(`equality.py`), the routing table (`router.py`: Wilson lower bound per
+task family, with *clear* / *overlapping* / *insufficient*), and the
+scorecard (§6).
+
+## 4. What the page draws, and how to read it
+
+The page is one file (`web/blocks.html`, built from `web/blocks/*.js`)
+with eleven views. The **Story** is a numbered sequence:
+
+1. **What happened** — the reading as charts.
+2. **Where the time went** — one strip per run along wall-clock, every
+   step a segment, thinking light, tools darker, the answer solid, wasted
+   steps hatched, the slowest few named; the rationale beneath.
+3. **The trace as a tree** — task → runs → phases → steps → values; on a run of more than 80 steps, subdivisions that carry nothing notable start folded into a capsule and anything notable starts open.
+4. **Parts and sub-agents** — three drawings of the horizon tree.
+   *Icicle*: time along x, rows outward from the shared axis (run,
+   sub-agents, parts, steps), widths in seconds, tokens or steps; wasted
+   hatched; the fault red; the decisive step ringed; click a part to zoom.
+   *Tree*: nodes and links, the run at the left, each sub-agent under its
+   parent; node area is time, a wedge the wasted share, a dashed pulsing
+   ring a span still open. *Diff*: the two runs' delegation graphs as one
+   — each node's halves are the two runs' time, links dashed where only
+   one run delegated and thick where the counts differ, a ring on the
+   blamed agent; labels in *words* or *compact*.
+5. **Why**, 6. **Reconcile**, 7. **Take forward**, 8. **Next horizon** —
+   the diagnosis, the splice that would have worked, the prompt
+   suggestions, the reward and the pair.
+
+Above the story sits the hero: a super panel (outcome, decisive step,
+first divergence, paired stats) over the **body chart** — each run a
+trunk along tokens or time, thinking on the trunk, tool calls as
+branches, the alignment in the gutter, the fault's path red, bubbles
+that fold long stretches until you zoom. Its *debug* switch adds the
+phases as state bands, marks for retries, model switches and
+no-information steps, the replay verdict under the decisive step, and
+six layers for the step under the cursor (model call, tool selection,
+tool response, state, output values, replay).
+
+The **Evidence** view holds the map, the run lens and the debug session;
+the **Batch** view holds the cross-task blocks: the scorecard, output
+equality, routing, and the agent loop.
+
+The **Panels** view is the reader's own grid. Any block can be a panel;
+a panel moves, widens to the full row, or goes; the grid has one to
+three columns; presets (*time*, *tools*, *agents*, *eval*, *all*) fill
+it in one click, and *what you use* fills it from the blocks the page
+has recorded the reader opening and starring most. The choice is kept
+in the browser, so a reader who wants the heat map beside the latency
+strip opens the page that way next time; when the page has seen which
+block a reader opens most, one chip offers to add it. Four panels were
+drawn for this view and stand as evidence too, ordered overview first:
+
+- **Where the seconds went** — a treemap per run, both on one scale, so
+  the run that took longer is the larger map; inside it sub-agents and
+  parts as boxes and every step a tile whose area is its seconds. Light
+  tiles think, solid ones call a tool, hatched means wasted, a red edge
+  marks the fault's path. The eye finds the big tile before reading a
+  number; a click on a box zooms into it, on a tile opens the step.
+- **Where it mattered** — the long, multi-agent run as a tree: run →
+  sub-agents → clusters of steps, in the same architecture as the trace
+  tree. Steps are clustered at sub-agent and phase boundaries and every
+  cluster is scored by what it carried (the decisive step, the fault's
+  path, divergences, errors, retries, wasted seconds, milestones, the
+  answer); a cluster's bar is its impact on one scale for both runs, so
+  the stretch that mattered stands out and the quiet ones fold into a
+  capsule node whose size is the steps inside. A capsule dilates on a
+  click, a cluster opens to its marks as leaves, a mark opens the step:
+  details exactly on demand. A time mode puts wall-clock on the thread
+  with quiet stretches constricted by the seconds they hold; trunk and
+  even-time modes remain.
+- **Reward & credit** — the same technology applied to reinforcement
+  learning signals. Rewards are read from the trace when a step records
+  them, or shaped from the reading when it does not and labelled so;
+  credit comes from the Shapley split over the aligned regions. The
+  cumulative return of both runs is one small curve with the step where
+  they parted ringed; then one reward thread per run, folded where
+  nothing was earned or lost, with ticks up and down where the reward
+  was large, credit as a faint bar under the thread, and the preferred
+  trajectory named with its basis. A cluster opens to its per-step
+  rewards, a leaf opens the step.
+- **Tool behaviour, and the dossier on demand** — per tool and per
+  run: calls, distinct inputs, repeats and the longest run of identical
+  calls, errors, wasted calls, latency, and every sub-agent that touched
+  the tool. Under it, the suggestions for the next prompt derived from
+  the contrast between the runs, each a sentence with its evidence and a
+  copy button — "do not call run_tests again with the same input: comet-lh
+  repeated `pytest -q tests/ledger` 12× in a row at steps 397–430". Any
+  tool anywhere opens its dossier: click a name in a table or a row
+  label in the heat map, double-click a tool step in the body chart or
+  the tree. The dossier is the same numbers for one tool, both runs, the
+  agents that touched it, a strip of its calls (click one to open the
+  step), sample inputs and outputs, and the suggestions that concern it.
+- **Trust & behaviour** — the statistics settle who won; this ledger
+  says how each agent behaved and how far the data can be trusted:
+  tool calls, stops and who stopped it, loops and retries, effects and
+  permissions (writes without a read, forbidden calls, calls that reach
+  outside), determinism (replay verification, run consistency), and the
+  data itself (adapter, grader, SYNTHETIC, measured shares). The grade
+  is a rubric with every deduction spelled out, never a black box.
+- **Milestones** — for a long task with a golden set, the ladder:
+  the milestones a correct solution passes through, one stepped line
+  per run over time or steps, a mark where each run reached each rung
+  and the rungs it never reached named at the edge. Where a line stops
+  is where that run stalled; the gap between the lines at a rung is
+  how much later one run got there.
+- **Calls × time** — a heat map: one row per tool (by total seconds),
+  then thinking and the answer; time in bins along the run; each cell
+  split, A over B, darker for more seconds, hatched where those seconds
+  were wasted; row totals A · B at the right. Where one run spent its
+  time on which tool, and whether the other did, is read in one look.
+- **Tool matrix** — per tool, side by side: calls, seconds, per call,
+  wasted, errors, each cell A over B with a bar scaled to the larger.
+- **Latency by tool** — every call as a dot at its latency, A above the
+  line, B below, hollow when wasted, a tick at the mean: the spread of
+  a tool's latency, not only its mean, and the outlier that cost the run.
+
+A click on a cell or a dot moves the shared cursor, so the step opens
+in the body chart's inspector.
+
+The design rule applied everywhere: one line of controls and key, one
+chart, one line per run saying what mattered, everything else behind a
+single fold. Every chart has a table view; tooltips enhance, never gate.
+The chrome is quiet: no borders, no boxes, a block is a small label and
+its chart with air around it, and the only saturated ink on the page is
+data — run A, run B, the fault's red — so the charts carry the eye.
+
+The **Training** view is the fifth, and the only one that reads a whole
+batch as a training set rather than a comparison. It opens where a
+person asks the question they actually have — is this policy better? —
+and it answers in the order the question decomposes:
+
+- **Is one policy better?** The interquartile mean, median, mean and
+  optimality gap for both policies on one axis, each with a bootstrap
+  interval stratified by task, because tasks are strata and runs are
+  exchangeable only inside one. Then the performance profile, which is
+  the whole distribution rather than a point, and the probability that
+  a random run of one policy beats a random run of the other. A mean can
+  look decisive while the intervals overlap; the view says so when they
+  do, and says that overlapping is not the same as the policies being
+  equal. Every figure carries the runs-per-task advisory beneath it.
+- **Where does the aggregate hide something?** The per-task delta,
+  sorted, with the probability of improvement on each task. A headline
+  that says one policy wins can sit on top of a task where it loses, and
+  that task is the one worth opening.
+- **What do the episodes look like?** Every episode's cumulative return
+  as small multiples, one row per policy per task on a shared axis, with
+  the median drawn heavy; past sixteen episodes a row becomes a band
+  with its median over it and says that is what it did. Clicking a curve
+  opens that episode in the theatre, where two episodes play against
+  each other step by step under a scrubber: both returns drawn to the
+  scrub position and ghosted past it, the reward at the position as a
+  bar, the step where the two first part by a whole point ringed and
+  labelled. The runs are aligned by step index only and the view says
+  so, with both lengths given, because the alignment means nothing more.
+- **Is the reward measuring the right thing?** Where return and outcome
+  disagree, how much of an episode's reward lands on a single step, and
+  which steps were paid while the reading had labelled them bad. Beside
+  it, whether the critic predicts anything: the value estimate against
+  the discounted return-to-go it was predicting, with the explained
+  variance stated in words and the plain sentence when the critic is
+  worse than guessing the mean.
+- **How does each policy behave?** Each episode reduced to a stream of
+  tokens — the tool for a tool step, the family otherwise — and from
+  that a prefix tree of where the two policies part, with the return on
+  each side of a branch, and a layout of every episode by behavioural
+  distance, so two policies read as clouds rather than as means. An
+  episode of the better policy sitting inside the worse one's cloud is
+  the case worth finding.
+
+Nothing here is simulated. A reward is the one the environment recorded
+when the trace carries one, and otherwise it is shaped from the reading
+and labelled as shaped; a bootstrap interval is a statement about the
+runs recorded, not about a population, and says that too.
+
+The **Evolution** view is the sixth, for an agent that rewrites itself.
+A self-evolving agent is not two agents but a lineage — g0, g1, g2 —
+where each generation was derived from its parent by a step the agent
+took on its own, from evidence in its own episodes: a rule added, a
+config changed, a memory written, a skill learned. The view reads the
+lineage top-down, overview then detail:
+
+- **The lineage as a thread.** One node per generation, laid out as a
+  tree so a branching lineage draws correctly; at each node the
+  interquartile mean of its episodes with its bootstrap interval, on
+  one shared axis with the zero line. The best generation is ringed and
+  the recommended one filled, and they are not always the last. Each
+  edge is a step and carries its verdict — improved, regressed, flat,
+  gamed, forgot, overfit, traded — as colour and as a word.
+- **The ledger of steps.** One row per step: what changed in one line,
+  the probability the child beats the parent with its interval, the
+  change in the interquartile mean and in the pass rate, the tasks
+  gained and the tasks lost, the verdict and the sentence that reads it.
+- **Every episode along constricted time.** The timescape: one lane per
+  generation, every episode laid along wall-clock with the quiet
+  stretches folded exactly as the impact panel folds them, readable at
+  two hundred episodes and drawn on a canvas so it still is at two
+  thousand. Zoom is semantic: the lineage, then one generation as
+  ribbons, then one task's runs with their step marks, then one episode
+  as the impact thread with its folds. A minimap holds the viewport as a
+  brush; a second brush selects a window and states what each
+  generation did inside it.
+- **Tasks across generations.** A matrix of pass rate per task per
+  generation, a mark where a cell fell from its left neighbour — that is
+  forgetting made visible — and the tasks that triggered each step
+  outlined in its column, so overfitting shows as the outlined cells
+  improving more than the rest.
+- **One step in full.** The artifact diff as a real diff: the prompt's
+  hunks with added and removed lines, rules and memory as lists,
+  config as key: from → to, a protected path marked. Beside it the
+  effect with its interval, the per-task deltas with the trigger tasks
+  distinguished, and the overfit, gaming and drift readings each as one
+  sentence with its numbers.
+- **Is the evolution sound, and how far has it moved.** The protected
+  paths touched — from the agent's own diff and, separately, from its
+  episodes, because an agent that edits what judges it may not say so —
+  the growth of the prompt, the rules and the memory against their
+  budgets, with a collapse flagged as readily as an overrun; and the
+  behavioural distance from the origin and between consecutive
+  generations.
+
+The checks exist because the field has watched self-evolving agents
+fail in these exact ways — an agent that faked its test logs and then
+removed the markers its own detector read, a prompt rewritten from
+eighteen thousand tokens to a hundred and twenty in one step, pass rate
+rising while generalisation fell. `docs/EVOLVE.md` names who observed
+each and what an episode-only reading can and cannot catch: when the
+grader itself is what got fooled, every number here is compromised
+with it, and only a held-out grader can say so.
+
+The **Evals** view is the seventh, for the eval that watches that
+lineage and evolves with it (`deepcompare/coevolve.py`,
+`docs/COEVOLVE.md`). A fixed eval is what a self-evolving agent
+eventually optimises, so the eval is a lineage too — e0, e1, e2 — each
+step of it triggered by an agent step: probes ask one question each of
+what is known up to that step and propose candidate metrics, five
+validators test every candidate at a Bonferroni-adjusted level, and one
+representative per redundancy class is adopted with the reason written.
+The lane reads in this order. **The flow** leads, the whole loop in one
+picture at three zoom levels: the loop — the agent's generations and
+steps along the top, one row per probe with a mark at every step it
+fired, the candidates flowing down through the five validators and
+leaving the flow at the one that stopped them, the eval's generations
+beneath the agent steps that triggered them, and back up the picture
+the hindsight edges (a metric to the steps it would have flagged, the
+lag written on them) and the recovery edges, each labelled *recovered,
+not attributed*; a step — that step's probes, candidates, validator
+marks, decisions and ledger rows alone; a candidate — its spec as a
+sentence, the interval, ρ against each adopted metric, the link to the
+outcome, K and the adjusted level, the decision and its reason. Then
+**hindsight**: per agent step the base verdict beside the evolved
+flags, the steps re-read and the steps changed, the reading of each
+changed step and how many steps late each metric arrived. **The
+matrix**: metrics by generations, cells before a metric's adoption
+hatched because they were computed with hindsight, rows grouped base,
+adopted, demoted, retired. **The metric**: the selected metric's spec
+as a sentence, its curve across generations with intervals, per task,
+its validation row and its confirmation. **The probes**: each with its
+question, the steps it fired on, what it proposed and what was adopted,
+and the external proposer's status — none, or its source and the counts
+received, parsed and adopted, validated and never trusted. **The
+integrity** of the eval itself: drift from the base, the candidates
+tested against the adjusted level, what was demoted, retired and never
+confirmed, and the gap sentence — a fooled grader fools every metric in
+this vocabulary. On the demo lineage the eval learned a verification
+rate at the gamed step, and both readings recommend the same generation.
+
+The **Chat** view is the first tab, the page asked in plain words
+(`web/blocks/37_chat.js`). Two layers. Every block the page has is
+reachable by asking — "show the timescape", "which policy is better",
+"what changed at g2→g3" — and the answer is a card: a sentence or two
+from the engine's own reading, the block drawn inside the card, and a
+link that opens it in its view with the same selection. For a lineage
+the self-evolving eval answers for itself: what it learned and when,
+why it rejected what it rejected, what it would have caught earlier,
+whether it trusts itself, which generation to keep, and how the other
+self-evolving agent compares on the four axes and what its eval
+learned. Every sentence is templated from the engine's numbers with
+its JSON path in a sources fold; nothing is generated, no model is
+called, and a question the router cannot map gets a plain "not in this
+report" with the nearest questions it can answer. Suggestion chips
+change with the data and with the last answer; the transcript persists
+per page.
+
+The **Levels** view is the second tab, the three levels of grain a
+bundle indexes (`web/blocks/38_levels.js`, `docs/API.md`). **The
+overview**: which agents are running, which are self-evolving, their
+eval loops with the closures counted, runs and success with its
+interval, tokens with the measured share, cost when recorded, seconds
+and fetches, the SYNTHETIC share stated. **The runs**: every run as a
+row in a virtualised table — outcome, steps, tool calls by tool, tokens
+measured against estimated, cost, seconds, fetches, errors, repeats —
+sortable and filtered by agent, task and outcome; a click opens the
+run. **The run**: the token burn-down step by step coloured by step
+kind with the estimated part hatched, where the budget went by kind and
+by tool, the waste after the last recorded evidence shaded, and the
+search map — each query, what it yielded, what was read, and which
+fetches reached the answer, drawn only where the use is recorded and
+counted where it is not. On a plain output the view derives the first
+two levels from the `budget` and `fetches` sections and says what a
+plain page cannot show.
+
+The **Data** view is the third tab, the inputs side
+(`web/blocks/39_data.js`, `deepcompare/data.py`, `docs/DATA.md`). **The
+task**: the prompt given to both agents, the expected answer if any,
+each agent's own instructions side by side with the hunks of their
+difference, and the models each used as the traces record them. **The
+corpus**: what each agent read — the sources as two columns with the
+shared ones joined, sizes, errors and repeats, the text of any source
+on demand. **The provenance**: the answer with each claim marked by the
+source it traces to and the unsupported ones marked, as counts. **The
+chain**: data → model → agent → answer for one run, the fetched outputs
+feeding the reasoning steps that share their content and reaching the
+answer where the provenance says so. **The evolution**: for a lineage,
+one row per step — the episodes that triggered it and the data they
+read, the prompt hunks, the behaviour shift, the effect with its
+intervals and what the eval made of it — each row opening to the full
+diff. Every overlap is a stated measure with its basis; nothing is
+inferred beyond it.
+
+The **Trace** view is the fourth tab, one run watched as it executed
+(`web/blocks/40_trace.js`). **The execution** at semantic zoom: every
+step along constricted wall-clock time in one lane per sub-agent,
+coloured by kind and sized by tokens with the unmeasured hatched,
+errors ringed, rewards ticked above or below with the value estimate
+beside, evidence, the decisive and fault steps, the divergence rows and
+the milestones marked, the phases from the impact section as bands
+above, and the burn, the running reward and the sources read so far as
+three aligned tracks below; a phase opens alone, a step opens in full.
+**Replay**: play, a speed, a scrubber and the arrow keys walk the run
+with the state so far — tokens and their basis, seconds, sources read,
+evidence found, the reward, the last model that spoke — while the step
+block and the run's readings follow the playhead; replay is a view of
+recorded timings, never a re-execution, and says so. **The other run,
+aligned**: on a pair page the two strips share one axis with the
+alignment's matched steps joined and the divergences drawn as bands.
+**The readings gathered**: the run block's burn-down and search map,
+the chain and the provenance drawn into the view for the selected run,
+nothing redrawn.
+
+## 5. The agentic loop
+
+`agentdiff loop` runs two agents on a task set and drives the whole
+cycle itself: a baseline; the comparison and the reading; a prompt
+hypothesis from a finding (or `--suggest`); a paired experiment of the
+agent against itself with the change on the same tasks; keep or revert
+on the paired result (kept when wins exceed losses with no
+always-pass→always-fail regression; `kept` under a sign test below 0.05,
+`kept (provisional)` otherwise); more runs on the families whose
+routing pick is still unclear, widest interval first; a stop with a
+stated reason. The controller is `planner.py`, rules over numbers; the
+ledger `loop.json` carries every decision and is resumable. One variable
+per experiment; a hypothesis whose source failure stopped reproducing is
+dropped, not run; equal rates over six runs a side are a tie no run can
+break. `docs/AGENTIC.md` argues the design.
+
+## 6. The evaluation scorecard
+
+`agentdiff eval` (and every `runs`, `batch` and loop aggregate) scores
+each agent on accuracy (task success, the outcome score, the judge
+beside the grade), tool selection (correct tool, wrong-tool calls,
+undeclared tools, invented arguments), retrieval quality (useful tool
+results over calls, expected evidence retrieved over a golden list),
+grounding, safety and policy (forbidden tools and patterns, blind and
+unverified writes, risk flags, risk against reward), trajectory quality
+(loops, repeats, stopping when done, recovery), and spend (latency,
+wasted seconds, share waiting on tools, cost, tokens). Every rate has a
+95% Wilson interval. A golden set (`docs/EVAL.md`) makes tool
+correctness, expected evidence and policy measurable; the card says
+whether it was offline (a golden set) or online (traces as recorded). A
+judging model's verdicts are reported beside the grade with their
+agreement and the 2×2 — never merged into it.
+
+## 7. Where the numbers come from
+
+- **Wilson intervals** for every rate, because small suites live at 0/8
+  and 8/8 where the normal approximation fails.
+- **Paired inference** over per-task rates with a paired standard error
+  and an exact two-sided sign test on the discordant tasks; it refuses
+  to distinguish below ten paired tasks and says so.
+- **Routing confidence** from the lower bound of the Wilson interval:
+  *clear* when the top two intervals separate, *overlapping* when they
+  do not, *insufficient* under three runs a candidate.
+- **Output equality** after a named normalisation (case, punctuation,
+  thousands separators, unit spellings), so "23h 45m" and "23 hours 45
+  minutes" are the same answer and "11 hours" is not.
+
+## 8. Feeding it
+
+`agentdiff run` runs any provider or your own agent through the harness
+(graded, terminations declared, files named); `Recorder` records as it
+happens, with `span()` for delegations; `convert --format otel` reads
+OTel GenAI span trees with nested agents; the Claude Code hook records a
+session live; `watch` serves the page and streams running agents into
+it; `db` keeps every trace in SQLite with full-text search and
+checkpoints; `route --db` and `eval --db` run over everything recorded.
+
+## 9. What is novel, and what is not
+
+Verified against the landscape (`docs/LANDSCAPE.md`): pairwise trajectory
+alignment as the unit of analysis, deterministic causal attribution with
+propagation, behavioural similarity across a fleet, cause reproducibility
+across runs, and now the delegation-graph *diff* and agent-level blame
+without a model, exist in no product surfaced. Counterfactual replay is
+*not* unique (Retrace ships it); sequence alignment of runs exists in
+research (TRACEPROBE, counterfactual trace auditing); the "which agent,
+which step" framing is the benchmarks' (Who&When, AgenTracer). The
+limits are stated in the same file: blame is only as right as the
+decisive step; the graph diff aligns by agent name; parallel sub-agents
+are read from OTel timestamps as sequential — a critical-path analysis
+over overlapping spans is the next thing to build.

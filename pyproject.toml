@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentdiff"
+version = "0.9.0"
+description = "Git diff for AI agents — behavioral comparison and failure attribution"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+keywords = ["agents", "tracing", "evaluation", "observability", "llm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.urls]
+Source = "https://github.com/sugeerth/Agenttracing"
+Documentation = "https://github.com/sugeerth/Agenttracing/blob/main/docs/HOW_IT_WORKS.md"
+
+[project.scripts]
+agentdiff = "deepcompare.cli:main"
+
+# Every subpackage ships: `deepcompare.commands` holds every command the CLI
+# dispatches to and `deepcompare.harness` the only modules allowed a socket.
+# A bare `packages = ["deepcompare"]` installed neither, so the installed
+# console script died on `from .commands import (...)` before parsing a flag.
+[tool.setuptools.packages.find]
+include = ["deepcompare*"]
+
+[tool.setuptools.package-data]
+deepcompare = ["page/*.html"]

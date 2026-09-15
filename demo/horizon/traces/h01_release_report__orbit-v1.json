@@ -1,0 +1,440 @@
+{
+  "schema_version": 1,
+  "trace_id": "h01_release_report__orbit-v1",
+  "run_id": "r1",
+  "agent": {
+    "name": "orbit-v1",
+    "model": "sim-orbit-1",
+    "version": "synthetic"
+  },
+  "task": {
+    "id": "h01_release_report",
+    "prompt": "Produce the release report for build 4821: the failing test, the commit that broke it, the fix, and the verified pass count.",
+    "expected": "test_parse_dates; commit 9f3c2e1; 412 passing"
+  },
+  "outcome": {
+    "success": true,
+    "answer": "Release report 4821: failing test test_parse_dates; broken by commit 9f3c2e1; fixed with a timezone-aware parse in src/dates.py; 412 passed, 412 passing.",
+    "score": null,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 31,
+    "output_tokens": 1409,
+    "cost_usd": 0.0,
+    "latency_s": 31.334251
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "Plan: find the failing test, find the breaking commit, fix, verify.",
+      "output": "",
+      "tokens": 90,
+      "latency_s": 1.6,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": null,
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "ci_get_log",
+      "input": "ci log for build 4821",
+      "output": "FAILED test_parse_dates (AssertionError)",
+      "tokens": 60,
+      "latency_s": 1.2,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": null,
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 2,
+      "type": "reason",
+      "name": "reason",
+      "input": "The failing test is test_parse_dates.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 0.7,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": null,
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 3,
+      "type": "search",
+      "name": "web_search",
+      "input": "search: build 4821 failing test_parse_dates",
+      "output": "3 results for build 4821 failing test_parse_dates: commit 9f3c2e1 'parse dates without tz' touched src/dates.py",
+      "tokens": 47,
+      "latency_s": 1.433331,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s1",
+        "agent": "researcher",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 4,
+      "type": "read",
+      "name": "open_page",
+      "input": "open result 1 for build 4821 failing test_parse_dates",
+      "output": "commit 9f3c2e1 — parse dates without tz; test_parse_dates began failing at build 4821",
+      "tokens": 129,
+      "latency_s": 1.456863,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s1",
+        "agent": "researcher",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 5,
+      "type": "search",
+      "name": "web_search",
+      "input": "search: commit touching dates.py",
+      "output": "3 results for commit touching dates.py: commit 9f3c2e1 'parse dates without tz' touched src/dates.py",
+      "tokens": 46,
+      "latency_s": 1.45191,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s1",
+        "agent": "researcher",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 6,
+      "type": "read",
+      "name": "open_page",
+      "input": "open result 1 for commit touching dates.py",
+      "output": "commit 9f3c2e1 — parse dates without tz; test_parse_dates began failing at build 4821",
+      "tokens": 92,
+      "latency_s": 1.455046,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s1",
+        "agent": "researcher",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 7,
+      "type": "search",
+      "name": "web_search",
+      "input": "search: 9f3c2e1 diff",
+      "output": "3 results for 9f3c2e1 diff: commit 9f3c2e1 'parse dates without tz' touched src/dates.py",
+      "tokens": 46,
+      "latency_s": 1.058524,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s1",
+        "agent": "researcher",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 8,
+      "type": "read",
+      "name": "open_page",
+      "input": "open result 1 for 9f3c2e1 diff",
+      "output": "commit 9f3c2e1 — parse dates without tz; test_parse_dates began failing at build 4821",
+      "tokens": 119,
+      "latency_s": 1.075763,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s1",
+        "agent": "researcher",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 9,
+      "type": "reason",
+      "name": "reason",
+      "input": "researcher: 3 useful source(s); the breaking commit is 9f3c2e1",
+      "output": "",
+      "tokens": 43,
+      "latency_s": 0.975786,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s1",
+        "agent": "researcher",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 10,
+      "type": "reason",
+      "name": "reason",
+      "input": "Decide: the breaking commit is 9f3c2e1; delegate the fix.",
+      "output": "",
+      "tokens": 50,
+      "latency_s": 0.9,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": null,
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 11,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/dates.py",
+      "output": "contents of src/dates.py",
+      "tokens": 69,
+      "latency_s": 0.378637,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "coder",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 12,
+      "type": "read",
+      "name": "read_file",
+      "input": "read tests/test_dates.py",
+      "output": "contents of tests/test_dates.py",
+      "tokens": 111,
+      "latency_s": 0.236268,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "coder",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 13,
+      "type": "reason",
+      "name": "reason",
+      "input": "coder: the fix is a timezone-aware parse in src/dates.py",
+      "output": "",
+      "tokens": 80,
+      "latency_s": 1.423266,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "coder",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 14,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/dates.py",
+      "output": "ok",
+      "tokens": 42,
+      "latency_s": 0.316752,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": "write",
+      "span": {
+        "id": "s2",
+        "agent": "coder",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 15,
+      "type": "tool_call",
+      "name": "run_tests",
+      "input": "pytest -q",
+      "output": "412 passed",
+      "tokens": 40,
+      "latency_s": 6.894273,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s3",
+        "agent": "coder.tests",
+        "parent": "s2"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 16,
+      "type": "tool_call",
+      "name": "run_tests",
+      "input": "pytest -q tests/test_dates.py",
+      "output": "412 passed",
+      "tokens": 30,
+      "latency_s": 4.477832,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s4",
+        "agent": "verifier",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 17,
+      "type": "read",
+      "name": "read_file",
+      "input": "read CHANGELOG.md",
+      "output": "…",
+      "tokens": 50,
+      "latency_s": 0.4,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s4",
+        "agent": "verifier",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 18,
+      "type": "reason",
+      "name": "reason",
+      "input": "verifier: all green, 412 passing",
+      "output": "",
+      "tokens": 45,
+      "latency_s": 0.8,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s4",
+        "agent": "verifier",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 19,
+      "type": "reason",
+      "name": "reason",
+      "input": "Compose the release report.",
+      "output": "",
+      "tokens": 70,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": null,
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 20,
+      "type": "answer",
+      "name": "final",
+      "input": "Release report 4821: failing test test_parse_dates; broken by commit 9f3c2e1; fixed with a timezone-aware parse in src/dates.py; 412 passed, 412 passing.",
+      "output": "Release report 4821: failing test test_parse_dates; broken by commit 9f3c2e1; fixed with a timezone-aware parse in src/dates.py; 412 passed, 412 passing.",
+      "tokens": 110,
+      "latency_s": 2.0,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": null,
+      "tokens_basis": "measured"
+    }
+  ],
+  "tools": [],
+  "budget": {},
+  "token_accounting": {
+    "basis": "measured",
+    "measured_steps": 21,
+    "estimated_steps": 0,
+    "input_tokens_basis": "estimated",
+    "estimator": "len(text)/4",
+    "note": "token counts without a measurement are estimated as len(text)/4; compare against runs recorded the same way"
+  },
+  "harness": {
+    "adapter": "synthetic",
+    "graded_by": "exact-match",
+    "note": "SYNTHETIC: a generated long-horizon multi-agent run; every value invented to exercise the horizon view"
+  }
+}

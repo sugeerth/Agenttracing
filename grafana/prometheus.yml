@@ -1,0 +1,12 @@
+# scrape the node exporter whose textfile collector serves metrics.prom;
+# the samples carry no timestamps, so every scrape re-reads the file as
+# the current state of the analysis
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: agentdiff
+    static_configs:
+      - targets:
+          - node-exporter:9100

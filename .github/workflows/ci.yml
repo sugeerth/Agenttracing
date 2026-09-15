@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Run unit tests
+        run: python -m unittest discover tests -v
+
+      - name: Generate demo traces
+        run: python demo/generate.py
+
+      - name: Batch comparison on demo traces
+        run: python -m deepcompare batch demo/traces -o out/
+
+      - name: Fleet analysis on demo fleet traces
+        run: python -m deepcompare fleet demo/fleet/traces -o out_fleet/
+
+      - name: Gate must fail on the rondo regression
+        run: |
+          mkdir -p gate_base gate_cand
+          cp demo/fleet/traces/*__rondo-v1.json gate_base/
+          cp demo/fleet/traces/*__rondo-v2.json gate_cand/
+          if python -m deepcompare gate gate_base gate_cand -o out_gate/; then
+            echo "ERROR: gate passed, but the rondo-v2 regression should make it fail"
+            exit 1
+          fi
+          echo "OK: gate exited nonzero on the rondo regression, as expected"
+
+      - name: Upload batch HTML report
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: batch-report
+          path: out/report.html
