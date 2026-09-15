@@ -45,13 +45,22 @@ Coverage over the shipped corpus (322 traces, 11,569 steps, 5.9 MB,
 | `tokens`, `latency_s`, `input` | 100 % | the budget, the burn-down, the timing |
 | `tokens_basis` | 99.1 % | measured vs estimated, never re-estimated |
 | `output` | 77.6 % | provenance, the corpus, the search map |
-| `reward` | 76.7 % | the training ground, the reward audit |
+| `reward` | 99.1 % | the training ground, the reward audit |
 | `model` (telemetry) | 25.4 % | uncertainty, "did it know it was wrong" |
 | `effect` (read/write) | 23.5 % | the permission and integrity checks |
 | `value` | 22.3 % | critic calibration |
 | `span` (sub-agent) | 16.8 % | the horizon, the lanes |
 | `error` | 3.8 % | the failure attribution |
 | `quality` | 0.9 % | an annotation, never a measurement |
+
+One row of that table was wrong when this file was first written, in the
+way this file exists to warn about. `reward` was given as 76.7 %, which is
+the share of steps carrying a **non-zero** reward; 99.1 % carry the field.
+The 2,586 steps in between recorded `reward: 0` — the environment was
+asked and paid nothing, which is a measurement and not an absence. Reading
+them as unrecorded is the same mistake as rendering a confident zero where
+nothing was written down, and it is worth leaving the correction visible:
+the distinction is easy to lose even while writing the document about it.
 
 The shape of that table is the point: the fields that cost nothing to
 record are everywhere, and the fields that need the *agent's* cooperation

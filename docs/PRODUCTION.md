@@ -136,10 +136,11 @@ Measured on this machine (single core, CPython 3.11), reproduce with
 
 | command | corpus | wall clock | peak RSS | output |
 |---|---|---|---|---|
-| `batch` | 16 traces / 8 pairs | 0.48 s | 59 MB | 6.1 MB (page 4.0 MB) |
-| `runs` | 96 traces, 2 policies | 14.5 s | 101 MB | 13.9 MB (page 6.5 MB) |
-| `coevolve` | 210 traces, 7 generations | 10.8 s | 108 MB | 13.7 MB (page 6.4 MB) |
-| `evolve --against` | 420 traces, 2 lineages | 20.5 s | 122 MB | 14.7 MB (page 6.7 MB) |
+| `batch` | 16 traces / 8 pairs | 0.48 s | 59 MB | 6.2 MB (page 4.1 MB) |
+| `runs` | 96 traces, 2 policies | 14.4 s | 100 MB | 14.0 MB (page 6.5 MB) |
+| `coevolve` | 210 traces, 7 generations | 10.6 s | 108 MB | 13.7 MB (page 6.4 MB) |
+| `evolve --against` | 420 traces, 2 lineages | 20.0 s | 122 MB | 14.8 MB (page 6.8 MB) |
+| `demo --everything` | all of the above, plus the bundle | 37.3 s | 287 MB | 104 MB |
 
 Two readings of that table. **Pair work is cheap** — half a second for
 eight pairs — so a CI gate is free. **The statistics are what cost**:
