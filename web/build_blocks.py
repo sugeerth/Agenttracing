@@ -92,12 +92,21 @@ def build() -> str:
     return page, modules
 
 
+#: the same bytes, inside the package, so a wheel carries the page it writes.
+#: `web/blocks.html` stays the artifact the tests pin and review reads; this
+#: copy is a build output (gitignored) that `pip` can ship as package data,
+#: because setuptools can only carry files that live under the package.
+PACKAGED = ROOT.parent / "deepcompare" / "page" / "blocks.html"
+
+
 def main() -> int:
     page, modules = build()
     OUTPUT.write_text(page, encoding="utf-8")
+    PACKAGED.parent.mkdir(parents=True, exist_ok=True)
+    PACKAGED.write_text(page, encoding="utf-8")
     registered = len(re.findall(r"AgentDiff\.block\(", page))
     size = len(page.encode("utf-8"))
-    print(f"wrote {OUTPUT.relative_to(ROOT.parent)} "
+    print(f"wrote {OUTPUT.relative_to(ROOT.parent)} (and {PACKAGED.relative_to(ROOT.parent)} for the wheel) "
           f"— {len(vendor_files())} vendored librar{'y' if len(vendor_files()) == 1 else 'ies'}, "
           f"{len(modules)} module(s), {registered} block(s), {size/1024:.0f} KB")
     for path in modules:

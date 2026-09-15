@@ -52,7 +52,9 @@ def run_everything(out_dir: Path) -> int:
     from ..cli import main as cli_main
     for needed in (DEMO_TRACES, DEMO_TRAIN, DEMO_LINEAGE, DEMO_LINEAGE_B):
         if not needed.is_dir():
-            print(f"error: demo data not found at {needed}", file=sys.stderr)
+            print(f"error: the demo data is not here ({needed}).\n"
+                  "  `demo --everything` reads the repository's corpus; clone it and run it there.",
+                  file=sys.stderr)
             return 2
     out_dir.mkdir(parents=True, exist_ok=True)
     steps = [
@@ -100,7 +102,15 @@ def run(args: argparse.Namespace) -> int:
     import contextlib
     import io
     if not DEMO_TRACES.is_dir():
-        print(f"error: demo traces not found at {DEMO_TRACES}", file=sys.stderr)
+        # An installed wheel carries the engine and the page, not the demo
+        # corpus, so this is the one command that needs the checkout. Say
+        # what to run instead rather than printing a path inside site-packages.
+        print(f"error: the demo traces are not here ({DEMO_TRACES}).\n"
+              "  The demo corpus ships with the repository, not with the wheel.\n"
+              "  Clone it:   git clone https://github.com/sugeerth/Agenttracing && "
+              "cd Agenttracing && agentdiff demo\n"
+              "  Or point the engine at your own traces: agentdiff batch <dir> -o out",
+              file=sys.stderr)
         return 2
     out_dir = Path(args.output)
     if getattr(args, "everything", False):
