@@ -504,7 +504,7 @@
       order: [
         "evc-curves", "evc-verdict", "evc-process", "evc-pair",
         "evc-race", "evc-mechanisms", "evc-divergence",
-        "evo-lineage", "evo-steps", "evo-timescape", "evo-matrix",
+        "evo-lineage", "evo-steps", "hn-ladder", "hn-absorb", "evo-timescape", "evo-matrix",
         "evo-step", "evo-integrity", "evo-drift",
       ],
     },

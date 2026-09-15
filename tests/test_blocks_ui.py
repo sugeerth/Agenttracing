@@ -11515,3 +11515,181 @@ class TraceViewTest(unittest.TestCase):
             self.assertIsNone(self._state(page)["step"], "the family is scoped to the task")
         self.assertEqual(errors, [])
         context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class HarnessBlocksTest(unittest.TestCase):
+    """The harness beside the agent (41_harness.js), two blocks in the
+    Evolution lane rather than a twelfth tab.
+
+    `hn-ladder` is one row per step: which artifacts moved and whether they
+    were the agent's reasoning or the scaffold it runs inside, what the
+    attribution status is, and the fingerprint evidence behind that status
+    on demand. `hn-absorb` is the plane — work per pass against pass rate,
+    the lineage walked as a path, the leg where the gain came from the
+    scaffold marked.
+
+    What is checked is that both render in the lane's declared order with
+    the console clean; that every row carries the section's own status and
+    never invents `attributable`; that a row opens to its evidence by mouse
+    and by keyboard; that the plane draws one point per measurable
+    generation and one leg per step, with the absorbing leg marked and no
+    other; that the numbers on the plane are the section's to the digit;
+    that the axes note says the scale is the data's own; and that the lane
+    fits a phone.
+    """
+
+    tmp = None
+    IDS = ("hn-ladder", "hn-absorb")
+
+    @classmethod
+    def setUpClass(cls):
+        lineage = ROOT / "demo" / "evolve" / "lineage"
+        if not (lineage / "g0" / "agent.json").is_file():
+            raise unittest.SkipTest("no demo lineage to analyse")
+        cls.tmp = tempfile.TemporaryDirectory()
+        root = Path(cls.tmp.name)
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        out = root / "cov"
+        done = subprocess.run([sys.executable, "-m", "deepcompare", "coevolve", str(lineage), "-o", str(out),
+                               "--template", str(ROOT / "web" / "blocks.html")], cwd=str(ROOT), capture_output=True)
+        if done.returncode != 0 or not (out / "report.html").is_file():
+            raise unittest.SkipTest("coevolve wrote no page: " + done.stderr.decode("utf-8", "replace")[-300:])
+        cls.dir = out
+        cls.agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
+        cls.h = cls.agg.get("harness_evolution") or {}
+        if not cls.h.get("measurable"):
+            raise unittest.SkipTest("the lineage carries no measurable harness section")
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _open(self, width=1440):
+        context = self.browser.new_context(viewport={"width": width, "height": 1200})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.type + ": " + m.text) if m.type in ("error", "warning") else None)
+        page.goto(f"file://{self.dir / 'report.html'}#view=evolution")
+        page.wait_for_timeout(1600)
+        return context, page, errors
+
+    def test_both_blocks_render_in_the_lanes_order_with_the_console_clean(self):
+        context, page, errors = self._open()
+        ids = page.evaluate("() => Array.from(document.querySelectorAll('#stacks .block')).map(b => b.getAttribute('data-block'))")
+        order = page.evaluate("() => (AgentDiff._internals.STACK_PLAN.filter(p => p.groups.indexOf('evolution') >= 0)[0] || {}).order || []")
+        for bid in self.IDS:
+            self.assertIn(bid, ids)
+            self.assertIn(bid, order)
+        self.assertEqual(ids, [i for i in order if i in ids], "the lane's order is the rule")
+        # the harness reading follows the step ledger it qualifies
+        self.assertLess(ids.index("evo-steps"), ids.index("hn-ladder"))
+        self.assertEqual(page.evaluate("() => Array.from(document.querySelectorAll('#stacks .hn .empty')).filter(e => e.offsetParent !== null).length"), 0)
+        unlabelled = page.evaluate("() => Array.from(document.querySelectorAll('#stacks .hn svg')).filter(s => !(s.getAttribute('aria-label') || '').trim()).length")
+        self.assertEqual(unlabelled, 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_every_row_carries_the_sections_own_status(self):
+        context, page, errors = self._open()
+        rows = page.evaluate("""() => Array.from(document.querySelectorAll('#stacks [data-block="hn-ladder"] [data-step]'))
+            .map(r => [r.getAttribute('data-step'), r.getAttribute('data-status')])""")
+        want = [[s["from"] + "→" + s["to"], s["attribution"]["status"]] for s in self.h["steps"]]
+        self.assertEqual(rows, want)
+        # the invariant, read off the page: no step claims attribution it has no fingerprint for
+        for _, status in rows:
+            self.assertIn(status, ("attributable", "assumed", "confounded"))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_row_opens_to_its_evidence_by_mouse_and_by_keyboard(self):
+        context, page, errors = self._open()
+        rows = page.locator('#stacks [data-block="hn-ladder"] [data-step]')
+        self.assertGreater(rows.count(), 1)
+        first = rows.nth(0)
+        self.assertEqual(first.get_attribute("aria-expanded"), "false")
+        first.click()
+        page.wait_for_timeout(300)
+        self.assertEqual(first.get_attribute("aria-expanded"), "true")
+        panel = page.locator('#stacks [data-block="hn-ladder"] .hn-panel').nth(0)
+        self.assertTrue(panel.is_visible())
+        self.assertIn(self.h["steps"][0]["reading"][:60], panel.inner_text())
+        first.click()
+        page.wait_for_timeout(200)
+        self.assertEqual(first.get_attribute("aria-expanded"), "false")
+        # by keyboard: it is a button, so Enter opens it
+        rows.nth(1).focus()
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(300)
+        self.assertEqual(rows.nth(1).get_attribute("aria-expanded"), "true")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_fingerprint_of_every_generation_is_reachable(self):
+        context, page, errors = self._open()
+        det = page.locator('#stacks [data-block="hn-ladder"] [data-role="fingerprints"]')
+        self.assertEqual(det.count(), 1)
+        det.locator("summary").click()
+        page.wait_for_timeout(300)
+        gens = page.evaluate("""() => Array.from(document.querySelectorAll('#stacks [data-block="hn-ladder"] [data-gen]'))
+            .map(r => r.getAttribute('data-gen'))""")
+        self.assertEqual(gens, [g["id"] for g in self.h["generations"]])
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_plane_is_one_point_per_generation_and_one_leg_per_step(self):
+        context, page, errors = self._open()
+        measurable = [s for s in self.h["steps"] if s["absorption"].get("measurable")]
+        legs = page.evaluate("""() => Array.from(document.querySelectorAll('#stacks [data-block="hn-absorb"] [data-leg]'))
+            .map(l => [l.getAttribute('data-leg'), l.getAttribute('data-absorb')])""")
+        self.assertEqual([l[0] for l in legs], [s["from"] + "→" + s["to"] for s in measurable])
+        # exactly the steps the section flagged are marked, and no others
+        marked = [l[0] for l in legs if l[1] == "true"]
+        self.assertEqual(marked, self.h["summary"]["absorbed"])
+        points = page.evaluate("""() => Array.from(document.querySelectorAll('#stacks [data-block="hn-absorb"] g.pt'))
+            .map(p => p.getAttribute('data-gen'))""")
+        self.assertGreater(len(points), 1)
+        self.assertEqual(len(set(points)), len(points), "a generation is one point, not two")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_planes_numbers_are_the_sections_own(self):
+        context, page, errors = self._open()
+        page.locator('#stacks [data-block="hn-absorb"] [data-role="points"] summary').click()
+        page.wait_for_timeout(300)
+        rows = page.evaluate("""() => Array.from(document.querySelectorAll('#stacks [data-block="hn-absorb"] [data-row-gen]'))
+            .map(r => [r.getAttribute('data-row-gen')].concat(Array.from(r.querySelectorAll('td')).map(td => td.textContent)))""")
+        first = [s for s in self.h["steps"] if s["absorption"].get("measurable")][0]["absorption"]
+        want_rate = first["pass_rate"]["from"]
+        want_work = first["steps_per_pass"]["from"]["point"]
+        self.assertTrue(rows)
+        self.assertEqual(rows[0][2], f"{int(round(want_rate * 100))}%")
+        self.assertEqual(float(rows[0][3]), round(want_work, 2))
+        # the axes are the data's own range, and the block says so
+        note = page.locator('#stacks [data-block="hn-absorb"] [data-role="axes"]').inner_text()
+        self.assertIn("not 0 to 100%", note)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_lane_fits_a_phone(self):
+        for width in (390, 360):
+            context, page, errors = self._open(width=width)
+            self.assertEqual(page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth"), 0, str(width))
+            tiny = page.evaluate("""() => Array.from(document.querySelectorAll('#stacks .hn *'))
+                .filter(e => e.children.length === 0 && e.textContent.trim() && e.offsetParent
+                             && parseFloat(getComputedStyle(e).fontSize) < 11).length""")
+            self.assertEqual(tiny, 0, str(width))
+            for bid in self.IDS:
+                self.assertGreater(page.locator(f'#stacks [data-block="{bid}"]').count(), 0, f"{bid} at {width}")
+            self.assertEqual(errors, [], str(width))
+            context.close()
