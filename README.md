@@ -140,8 +140,7 @@ deepcompare/            the engine (no network code) — diagnosis, reasoning, v
 deepcompare/harness/    the ONE networked package: providers, tool-loop agent, cassette + hermetic rerun, replay; commands/ holds their CLI
 web/blocks/             the report page, one block per file; build with web/build_blocks.py
 demo/                   shipped traces (scripted agents), the diagnosis benchmark, the Who&When converter
-docs/                   HOW_IT_WORKS (the eleven views), PRODUCTION (deploying it), TRACING (what a trace
-                        should record and what ours does not), ARCHITECTURE, API, DATA, COEVOLVE, EVOLVE, RL, …
+docs/                   HOW_IT_WORKS (the eleven views), PRODUCTION (deploying it), TRACING (what a trace should record), ARCHITECTURE, API, DATA, COEVOLVE, EVOLVE, RL, …
 tests/                  1,800+ tests, including browser tests of the page and offline harness tests
 ```
 ## Watch it run
