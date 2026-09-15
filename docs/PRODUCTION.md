@@ -61,14 +61,29 @@ everything downstream.
 
 ### 1. A gate in CI (start here)
 
+`gate` takes **two directories of traces** — the baseline agent's and the
+candidate's — and compares them; it does not read an `aggregate.json`.
+Split whatever your CI produced into the two, then:
+
 ```bash
-agentdiff batch traces/ -o out          # or runs/ for repeated runs
-agentdiff gate out/aggregate.json --max-regressions 0
+agentdiff gate baseline/ candidate/ -o out/gate \
+  --max-success-drop 0 --max-cost-increase 0.10 --max-latency-increase 0.25 \
+  --junit --sarif --job-summary --github-annotations
 ```
 
-`gate` exits non-zero on the conditions you name, and `evolve --fail-on
-gamed,protected` does the same for a self-evolving agent. Run it on the
-PR that changes a prompt, a tool or a model. Cost below.
+It exits non-zero when the success rate drops further than
+`--max-success-drop`, when mean cost or latency rise by more than their
+relative thresholds, or when a failure-origin category appears that the
+baseline never had (`--allow-new-failure-modes` turns that last one off);
+`--fail-on never|regression|pathology|any` sets which severity actually
+fails the build, so a first rollout can report without blocking. The same
+run writes JUnit XML, SARIF for code scanning, and a job summary.
+
+For a self-evolving agent the equivalent is `agentdiff evolve <lineage>
+--fail-on gamed,protected` — any verdict or flag in the list makes it exit
+1. `.github/workflows/agentdiff.yml` in this repository is a working copy
+of both. Run it on the pull request that changes a prompt, a tool or a
+model. Cost below.
 
 ### 2. A nightly read of a trace store
 
