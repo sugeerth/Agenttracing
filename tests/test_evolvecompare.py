@@ -721,9 +721,9 @@ class DemoCompareTest(unittest.TestCase):
         self.assertEqual(a["adopted"], ["verified_rate", "clean_pass_rate", "frugal_pass_rate"])
         self.assertEqual(a["active"], ["verified_rate", "frugal_pass_rate"])
         self.assertEqual((a["retired"], a["demoted"], a["unconfirmed"]), (["clean_pass_rate"], [], ["clean_pass_rate"]))
-        self.assertEqual((a["tested"], a["rejected"]), (20, 17))
-        self.assertEqual(a["rejected_by"], {"computable": 1, "distinct": 9, "informative": 6, "not_already": 1})
-        self.assertEqual((a["min_adjusted_alpha"], a["drift"]), (0.0083, 0.3333))
+        self.assertEqual((a["tested"], a["rejected"]), (22, 19))
+        self.assertEqual(a["rejected_by"], {"computable": 1, "distinct": 11, "informative": 6, "not_already": 1})
+        self.assertEqual((a["min_adjusted_alpha"], a["drift"]), (0.0063, 0.3333))
         self.assertEqual((a["closures"], a["closures_learned"], a["hindsight_changed"], a["hindsight_lag_max"]), (4, 2, 0, 3))
         self.assertEqual(a["recommended"], {"base": "g4", "evolved": "g4", "agree": True})
         self.assertEqual(b["label"], "memo-agent")
@@ -756,7 +756,7 @@ class DemoCompareTest(unittest.TestCase):
         self.assertFalse(f["informative_there"])
         reading = ev["reading"]
         self.assertIn("ledger-agent's eval grew to e3 and adopted verified_rate, clean_pass_rate and frugal_pass_rate "
-                      "(retired clean_pass_rate): 20 candidates tested, 17 rejected", reading)
+                      "(retired clean_pass_rate): 22 candidates tested, 19 rejected", reading)
         self.assertIn("memo-agent's eval learned nothing and stayed at e0: 6 candidates tested, 6 rejected "
                       "(3 by distinct, 3 by informative)", reading)
         self.assertIn("only ledger-agent's eval learned a metric", reading)
@@ -886,11 +886,11 @@ class EmbeddedCopyTest(unittest.TestCase):
         self.assertEqual(sec.requires, ("evolution",))
         self.assertEqual(sections.registered("lineage")[:3], ["evolution", "coevolution", "evolution_compare"])
         agg = evolve_module.attach_sections(self.lineage_a, {}, samples=SAMPLES, against=[str(self.b)])
-        self.assertEqual(list(agg), ["evolution", "coevolution", "data_evolution", "evolution_compare"])
+        self.assertEqual(list(agg), ["evolution", "coevolution", "data_evolution", "harness_evolution", "evolution_compare"])
         self.assertEqual(json.dumps(agg["evolution"], sort_keys=True), self.before)
         self.assertEqual(json.dumps(agg["evolution_compare"], sort_keys=True), json.dumps(self.cmp, sort_keys=True))
         alone = evolve_module.attach_sections(self.lineage_a, {}, samples=SAMPLES)
-        self.assertEqual(list(alone), ["evolution", "coevolution", "data_evolution"], "without lineages to compare against, the comparison does not attach")
+        self.assertEqual(list(alone), ["evolution", "coevolution", "data_evolution", "harness_evolution"], "without lineages to compare against, the comparison does not attach")
 
     def test_compare_lineages_reuses_a_lineage_already_read(self):
         reread = ec.compare_lineages([str(self.a), str(self.b)], samples=SAMPLES, evolutions=[self.ev_a])

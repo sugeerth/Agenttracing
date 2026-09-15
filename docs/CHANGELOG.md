@@ -5,6 +5,98 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The harness beside the agent, and the eval learning to watch it (report section `harness_evolution`, v1)
+
+One section, `harness_evolution` (`deepcompare/harnessevo.py`, `docs/HARNESS.md`),
+attached to every lineage after `data_evolution`, and one probe on the
+co-evolving eval. Every existing output is byte-identical but for the new
+key (checked by attaching the same lineage with the section registered and
+not).
+
+**Two of the artifacts were never the agent.** A generation's `artifacts`
+are `system_prompt`, `rules`, `skills`, `memory`, `tools` and `config`, and
+`evolve` reads every change to any of them as "the agent evolved". The
+first four are how the agent thinks; the last two are what it runs inside.
+A prompt teaching it to check its source is the agent learning something; a
+`max_search_retries` raised from two to five is the agent *buying*
+something, and the two transfer differently. Every step now carries a
+`kind` — `reasoning`, `scaffold`, `mixed` or `none` — and the rule that
+decides it ships in the output as `kinds` rather than living only in a
+function.
+
+**Nothing recorded what ran each generation.** `fingerprint()` reads it
+from the traces and never from the manifest — the manifest says what a
+generation is, the traces say what ran it: the decoding parameters from the
+step telemetry, the tool table the runner offered, the caps the loop
+enforced, how tokens were counted, the trace contract, and a SHA-256 over
+all of it. `measurable: false` with the reason when the episodes record
+none of it, which is the common case; an unrecorded harness is not a
+constant one and `moved` is `null` rather than `false` when a side cannot
+be read.
+
+**The model name is deliberately outside the digest.** A lineage that
+versions its model string per generation — `agent@g0`, `agent@g1` — would
+otherwise have every step confounded by a rename, which is true of the
+string and worthless as a finding. And the honest part: *from a trace, a
+renamed model and a genuinely different model look exactly alike.* So an
+identity change is neither `confounded` nor `attributable` but `assumed`,
+with the sentence naming the question the record cannot settle. The whole
+shipped lineage reads that way, and the reading says what would fix it — a
+model snapshot id recorded once per generation turns the assumption into a
+check. `attributable` is never reached without a fingerprint on both sides
+that did not move and a model string that did not either.
+
+**A tool table the agent moved itself is not the environment moving.**
+`Trajectory.tools` is what the runner offered, and a self-evolving agent
+editing its own `tools` artifact makes that table move; an operator adding
+a tool looks identical in the fingerprint, but the artifact diff separates
+them, so `reconcile()` does. A table that moved by exactly what the step's
+own diff added and removed is `explained` as the agent's work, with the
+reason, and not counted as a confound. Without it the shipped lineage read
+as six confounded steps out of six — the agent's own work blamed on its
+environment every time.
+
+**Absorption: the gain that is not the agent's.** An agent can raise its
+pass rate without getting better, by having more put around it — a verifier
+restored, a retry budget widened, a tool that does the job. The give-away
+is that the work per pass rises with it: the agent is not needing less, it
+is being carried further. `absorption()` measures the pass rate and what
+each *passing* episode costs in steps, tool calls and repeats, every
+quantity a seeded bootstrap interval, unmeasurable under `MIN_PASSES` (3)
+passing episodes a side because a work-per-pass ratio over one or two
+successes is noise wearing a number's clothes. The flag fires when the pass
+rate rose and the work per pass rose by over `ABSORB_MARGIN` (10%). It is
+**not an accusation** and the reading says so: restoring a verifier costs
+steps and buys correctness, and that is a real improvement — it is simply a
+different claim from "the agent got better", and it travels differently,
+because the gain stays with the scaffold. On the demo lineage it fires once,
+at g3→g4, where the agent restored the `run_check` tool it had removed a
+step earlier: +46.7 points of pass rate at +6.6 steps a pass.
+
+**The eval gains one probe, `absorption`,** firing on the same shape and
+proposing metrics that watch what a passing episode costs (`steps` and
+`tool_calls` under `where: {feature: success, op: "==", value: 1}`). The
+spec language could already say that; what was missing was anything that
+thought to ask — every other probe reads the outcome or a metric the agent
+moved, and none reads what a success costs. Its candidates go through the
+same five validators at the same adjusted level, and on the demo lineage
+both are **rejected**: `tool_calls_per_pass` correlates at 0.9 with the base
+metric `tool_calls_mean`, so the eval declines a reading it already has and
+the ledger records why. **Changed (statistics).** K at g3→g4 rises 6 → 8 and
+its level tightens 0.0083 → 0.0063, so the demo's ledger is 22 rows where it
+was 20 and `min_adjusted_alpha` moves; the flow gains a probe node, two
+candidate nodes and their edges. **No adoption, rejection, demotion,
+retirement or recommendation changed** — checked metric by metric against
+the section computed without the probe.
+
+**Ordering.** The section declares `after=("coevolution", "data_evolution")`
+— not because it reads either, but because the registry's soft order
+otherwise falls back to registration order, which is import order, and an
+aggregate's key order may not depend on that. Verified stable from three
+different import paths. `tests/test_harnessevo.py` (35 tests); the roster
+and multiplicity pins in `test_coevolve`, `test_evolve`, `test_evolvecompare`
+and `test_data` move with the new section and probe.
+
 ## The execution trace, and the package that was missing half of itself (no schema change)
 
 **The Trace view** (`web/blocks/40_trace.js`, the eleventh tab). Every other

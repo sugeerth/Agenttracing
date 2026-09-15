@@ -375,8 +375,12 @@ class LineageTest(unittest.TestCase):
 
     def test_the_section_attaches_after_the_eval_and_reads_every_step(self):
         self.assertEqual(sections.registered("lineage")[:2], ["evolution", "coevolution"])
-        self.assertEqual(sections.registered("lineage")[-1], "data_evolution")
-        self.assertEqual(list(self.agg), ["evolution", "coevolution", "data_evolution"])
+        # what this pins is that the data side attaches *after* the eval, not
+        # that it is last: the harness section (deepcompare.harnessevo) also
+        # declares after=("coevolution",) and registers later, so it follows.
+        order = sections.registered("lineage")
+        self.assertGreater(order.index("data_evolution"), order.index("coevolution"))
+        self.assertEqual(list(self.agg), ["evolution", "coevolution", "data_evolution", "harness_evolution"])
         d = self.agg["data_evolution"]
         self.assertTrue(d["measurable"])
         self.assertEqual((d["family"], d["synthetic"]), ("toy", True))

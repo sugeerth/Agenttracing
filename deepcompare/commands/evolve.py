@@ -91,6 +91,7 @@ def run(args: argparse.Namespace) -> int:
         print("warning: no pair report, so report.html is not rendered", file=sys.stderr)
 
     _print_evolution(evolution)
+    _print_harness(agg.get("harness_evolution"))
     if comparison is not None:
         _print_evolution_compare(comparison)
     hits = fail_on(evolution, names) if names else []
@@ -141,6 +142,38 @@ def _print_evolution(ev: dict) -> None:
               + (f" ({', '.join(tr['noisy_steps'])})" if tr["noisy_steps"] else ""))
     print(f"Integrity: {ev['integrity']['reading']}")
     print(f"Advisory: {ev['advisory']}")
+
+
+def _print_harness(h) -> None:
+    """The harness beside the agent: which steps changed reasoning and
+    which changed scaffold, whether the delta may be attributed at all,
+    and where the scaffold carried the run. Printed because a finding
+    nobody reads is not a finding; the JSON carries the rest."""
+    if not isinstance(h, dict):
+        return
+    if not h.get("measurable"):
+        print(f"Harness: not readable — {h.get('reason')}")
+        return
+    s = h["summary"]
+    kinds = ", ".join(f"{n} {k}" for k, n in s["by_kind"].items() if n)
+    print(f"Harness: {s['generations_fingerprinted']}/{s['generations']} generation(s) fingerprinted; "
+          f"steps {kinds or 'none changed an artifact'}")
+    shape = [(len(s["attributable"]), "attributable"), (len(s["confounded"]), "confounded"),
+             (len(s["assumed"]), "assumed")]
+    print("  Attribution: " + " · ".join(f"{n} {name}" for n, name in shape if n))
+    for row in h["steps"]:
+        if row["attribution"]["status"] == "confounded":
+            print(f"    {row['from']}→{row['to']} confounded: "
+                  + ", ".join(f"{c['what']} {c['from']} → {c['to']}" for c in row["harness"]["changes"]))
+    if s["absorbed"]:
+        for row in h["steps"]:
+            a = row["absorption"]
+            if a.get("flag"):
+                print(f"  Scaffold carried {row['from']}→{row['to']}: pass rate "
+                      f"{a['pass_rate']['from']:+.2f} → {a['pass_rate']['to']:+.2f} while each pass cost "
+                      f"{a['steps_per_pass']['from']['point']:.1f} → {a['steps_per_pass']['to']['point']:.1f} "
+                      f"steps — a gain from the scaffold, which does not transfer with the agent")
+    print(f"  {s['reading']}")
 
 
 def _print_evolution_compare(cmp: dict) -> None:

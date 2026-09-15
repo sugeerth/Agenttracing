@@ -441,7 +441,7 @@ class ProbeTriggerTest(unittest.TestCase):
         self.g1 = gen_rows(lambda t, k: {"success": (k + 1) % 2, "verified": 1, "check_calls": 2, "uses:check": 2})
         self.probes = {p.name: p for p in co.PROBES}
         self.assertEqual([p.name for p in co.PROBES],
-                         ["axes", "ceiling", "novelty", "forgetting", "goodhart", "redundancy", "external"])
+                         ["axes", "ceiling", "novelty", "forgetting", "goodhart", "absorption", "redundancy", "external"])
 
     def test_axes_fires_on_disagreement_sign_only_or_gamed(self):
         axes = self.probes["axes"]
@@ -773,8 +773,8 @@ class HandLineageTest(_Temp):
         self.assertTrue(all(r["eval_gen"] == "e0" for r in c["ledger"]))
         self.assertEqual({p["name"]: p["fired"] for p in c["probes"]},
                          {"axes": ["g1→g2"], "ceiling": ["g0→g1"], "novelty": ["g1→g2"], "forgetting": ["g1→g2"],
-                          "goodhart": [], "redundancy": [], "external": []})
-        self.assertEqual([(p["proposed"], p["adopted"]) for p in c["probes"]], [(3, 0), (3, 0), (1, 0), (2, 1), (0, 0), (0, 0), (0, 0)])
+                          "goodhart": [], "absorption": [], "redundancy": [], "external": []})
+        self.assertEqual([(p["proposed"], p["adopted"]) for p in c["probes"]], [(3, 0), (3, 0), (1, 0), (2, 1), (0, 0), (0, 0), (0, 0), (0, 0)])
         self.assertEqual([(e["id"], e["after_step"], e["trigger_probe"], e["adopted"], e["size"]) for e in c["eval_generations"]],
                          [("e0", None, None, c["base"], 4), ("e1", "g1→g2", "forgetting", ["worst_task_pass"], 5)])
         self.assertTrue(c["narrative"].startswith("the eval grew from e0 (4 base metrics) to e1 (5 active metrics) over 2 agent steps; "
@@ -903,7 +903,7 @@ class HandLineageTest(_Temp):
         self.assertFalse(sec.on_demand)
         self.assertEqual(sections.registered("lineage")[:2], ["evolution", "coevolution"])
         agg = ev.attach_sections(self.lineage, {}, samples=SAMPLES)
-        self.assertEqual(list(agg), ["evolution", "coevolution", "data_evolution"])
+        self.assertEqual(list(agg), ["evolution", "coevolution", "data_evolution", "harness_evolution"])
         self.assertEqual(json.dumps(agg["coevolution"], sort_keys=True), json.dumps(self.co, sort_keys=True))
         self.assertEqual(json.dumps(agg["evolution"], sort_keys=True), json.dumps(self.evolution, sort_keys=True),
                          "the evolution section is byte-identical; the new key is the only change")
@@ -968,7 +968,7 @@ class DegenerateTest(_Temp):
         self.assertFalse(co.coevolve(one, None)["measurable"])
         self.assertIn("the evolution section is unmeasurable", co.coevolve(one, {"measurable": False, "reason": "x"})["reason"])
         agg = ev.attach_sections(one, {}, samples=20)
-        self.assertEqual(list(agg), ["evolution", "coevolution", "data_evolution"])
+        self.assertEqual(list(agg), ["evolution", "coevolution", "data_evolution", "harness_evolution"])
         self.assertFalse(agg["coevolution"]["measurable"])
 
     def test_a_generation_without_traces_is_not_walked_and_the_rest_is(self):
@@ -1078,10 +1078,11 @@ class DemoLineageTest(unittest.TestCase):
         ])
         self.assertEqual({p["name"]: p["fired"] for p in c["probes"]}, {
             "axes": ["g2→g3", "g3→g4"], "ceiling": ["g3→g4", "g4→g5", "g5→g6"], "novelty": ["g2→g3"],
-            "forgetting": ["g2→g3", "g4→g5"], "goodhart": [], "redundancy": ["g5→g6"], "external": []})
+            "forgetting": ["g2→g3", "g4→g5"], "goodhart": [], "absorption": ["g3→g4"],
+            "redundancy": ["g5→g6"], "external": []})
         self.assertEqual({p["name"]: (p["proposed"], p["adopted"]) for p in c["probes"]},
                          {"axes": (6, 1), "ceiling": (9, 2), "novelty": (1, 0), "forgetting": (4, 0), "goodhart": (0, 0),
-                          "redundancy": (0, 0), "external": (0, 0)})
+                          "absorption": (2, 0), "redundancy": (0, 0), "external": (0, 0)})
         self.assertEqual({m: v["status"] for m, v in c["metrics"].items()},
                          {"return_iqm": "base", "pass_rate": "base", "tool_calls_mean": "base", "tool_errors_mean": "base",
                           "verified_rate": "adopted", "clean_pass_rate": "retired", "frugal_pass_rate": "adopted"})
@@ -1102,6 +1103,11 @@ class DemoLineageTest(unittest.TestCase):
             ("g3→g4", "ceiling", "verified_pass_rate", "rejected", ["computable", "distinct"]),
             ("g3→g4", "ceiling", "clean_pass_rate", "adopted", []),
             ("g3→g4", "ceiling", "frugal_pass_rate", "rejected", ["informative"]),
+            # the absorption probe fires on the one step where the pass rate
+            # rose while each pass cost more; the eval declines both of its
+            # candidates as readings it already has, and says so
+            ("g3→g4", "absorption", "work_per_pass", "rejected", ["distinct"]),
+            ("g3→g4", "absorption", "tool_calls_per_pass", "rejected", ["distinct"]),
             ("g4→g5", "ceiling", "verified_pass_rate", "rejected", ["distinct"]),
             ("g4→g5", "ceiling", "clean_pass_rate", "rejected", ["not_already"]),
             ("g4→g5", "ceiling", "frugal_pass_rate", "rejected", ["informative"]),
@@ -1114,7 +1120,7 @@ class DemoLineageTest(unittest.TestCase):
         by_step = {}
         for r in self.co["ledger"]:
             by_step.setdefault(r["step"], set()).add((r["k"], r["alpha"]))
-        self.assertEqual(by_step, {"g2→g3": {(6, 0.0083)}, "g3→g4": {(6, 0.0083)}, "g4→g5": {(4, 0.0125)}, "g5→g6": {(2, 0.025)}})
+        self.assertEqual(by_step, {"g2→g3": {(6, 0.0083)}, "g3→g4": {(8, 0.0063)}, "g4→g5": {(4, 0.0125)}, "g5→g6": {(2, 0.025)}})
 
     def test_a_candidate_already_adopted_is_a_row_but_not_one_of_the_k(self):
         # improvement 3: clean_pass_rate re-proposed at g4→g5 and g5→g6 fails not_already; it used to tighten the level for the others
@@ -1126,9 +1132,9 @@ class DemoLineageTest(unittest.TestCase):
             self.assertEqual({r["k"] for r in at}, {k}, step)
             self.assertEqual(k, len(at) - len(dup), "K is the rows that were tests")
             self.assertEqual({r["alpha"] for r in at}, {round(co.ALPHA / k, 4)}, step)
-        self.assertEqual(self.co["integrity"]["multiplicity"]["tested"], 20, "the row is still tested and in the ledger")
+        self.assertEqual(self.co["integrity"]["multiplicity"]["tested"], 22, "the row is still tested and in the ledger")
         self.assertIn("already adopted, demoted or retired, is a ledger row but not a test", self.co["integrity"]["multiplicity"]["basis"])
-        self.assertIn("at level 0.9875 includes zero", self.co["ledger"][15]["reason"])
+        self.assertIn("at level 0.9875 includes zero", self.co["ledger"][17]["reason"])
 
     def test_confirmation_and_hindsight_are_read_at_the_level_each_metric_was_adopted_at(self):
         # improvement 1: both used bare ALPHA while adoption used ALPHA / K; the level is now written into confirmation
@@ -1190,7 +1196,8 @@ class DemoLineageTest(unittest.TestCase):
         self.assertEqual(m["caught_at"]["note"], "adopted at the first step it flags")
 
     def test_forgetting_cannot_be_told_from_noise_at_five_runs(self):
-        r = self.co["ledger"][15]
+        # index 17: the two absorption rows at g3→g4 sit ahead of it
+        r = self.co["ledger"][17]
         self.assertEqual(r["validators"]["informative"]["delta"]["point"], -0.6)
         self.assertEqual((r["validators"]["informative"]["delta"]["lo"], r["validators"]["informative"]["delta"]["hi"]), (-0.8, 0.0))
         self.assertEqual(r["reason"], "informative: delta −0.6 [−0.8, 0] at level 0.9875 includes zero: at 5 runs per task "
@@ -1207,7 +1214,7 @@ class DemoLineageTest(unittest.TestCase):
         self.assertEqual(clean["retired_at"]["step"], "g5→g6")
         self.assertEqual(clean["retired_at"]["basis"], "generations")
         self.assertEqual(abs(clean["retired_at"]["rho"]), 1.0)
-        self.assertEqual(clean["confirmation"], {"tested": 2, "moved": 0, "status": "unconfirmed", "alpha": 0.0083})
+        self.assertEqual(clean["confirmation"], {"tested": 2, "moved": 0, "status": "unconfirmed", "alpha": 0.0063})
         self.assertEqual(clean["caught_at"]["note"], "never flags a step of this lineage")
         self.assertEqual([self.co["matrix"]["clean_pass_rate"][g]["measurable"] for g in ("g0", "g1", "g2", "g3", "g4", "g5", "g6")],
                          [False, False, False, True, True, True, True])
@@ -1308,14 +1315,14 @@ class DemoLineageTest(unittest.TestCase):
         self.assertEqual(integ["drift"]["jaccard_distance_from_base"], 0.3333)
         self.assertEqual(integ["drift"]["size_by_eval_gen"], [4, 5, 6, 6])
         self.assertEqual({k: integ["multiplicity"][k] for k in ("tested", "adopted", "rejected", "alpha", "min_adjusted_alpha")},
-                         {"tested": 20, "adopted": 3, "rejected": 17, "alpha": 0.05, "min_adjusted_alpha": 0.0083})
+                         {"tested": 22, "adopted": 3, "rejected": 19, "alpha": 0.05, "min_adjusted_alpha": 0.0063})
         self.assertEqual((integ["demoted"], integ["retired"], integ["unconfirmed"]), ([], ["clean_pass_rate"], ["clean_pass_rate"]))
         self.assertEqual(integ["external"]["received"], 0)
         self.assertEqual(integ["gap"], co.GAP)
         self.assertTrue(self.co["narrative"].startswith("the eval grew from e0 (4 base metrics) to e3 (6 active metrics) over 6 agent steps; "
                                                         "e1 after g2→g3 (axes): adopted verified_rate; e2 after g3→g4 (ceiling): adopted "
                                                         "clean_pass_rate; e3 after g5→g6 (ceiling, redundancy): adopted frugal_pass_rate; "
-                                                        "retired clean_pass_rate; 20 candidates tested, 3 adopted, 17 rejected"))
+                                                        "retired clean_pass_rate; 22 candidates tested, 3 adopted, 19 rejected"))
         self.assertIn("hindsight: 6 steps re-read, 0 changed by a learned metric, 3 where a base metric's own interval moves against it "
                       "(g1→g2, g2→g3, g3→g4)", self.co["narrative"])
         self.assertIn("recommended: base g4, evolved g4, they agree", self.co["narrative"])
@@ -1328,10 +1335,10 @@ class DemoLineageTest(unittest.TestCase):
             self.assertIn(e["from"], ids, e)
             self.assertIn(e["to"], ids, e)
             self.assertEqual(set(e) >= {"from", "to", "kind", "step", "n", "label"}, True)
-        self.assertEqual(flow["summary"]["nodes"], {"agent_gen": 7, "agent_step": 6, "candidate": 20, "decision": 4, "eval_gen": 4,
-                                                    "flag": 7, "metric": 7, "probe": 5, "validator": 5})
-        self.assertEqual(flow["summary"]["edges"], {"adopts": 3, "advances": 3, "bears": 7, "decides": 20, "evolves": 6, "fails": 21,
-                                                    "flags": 7, "passes": 79, "proposes": 20, "recovers": 4, "retires": 1, "triggers": 9})
+        self.assertEqual(flow["summary"]["nodes"], {"agent_gen": 7, "agent_step": 6, "candidate": 22, "decision": 4, "eval_gen": 4,
+                                                    "flag": 7, "metric": 7, "probe": 6, "validator": 5})
+        self.assertEqual(flow["summary"]["edges"], {"adopts": 3, "advances": 3, "bears": 7, "decides": 22, "evolves": 6, "fails": 23,
+                                                    "flags": 7, "passes": 87, "proposes": 22, "recovers": 4, "retires": 1, "triggers": 10})
         self.assertEqual((flow["summary"]["closures"], flow["summary"]["closures_learned"], flow["summary"]["flags_learned"], flow["summary"]["flags_base"]),
                          (4, 2, 3, 4))
         ledger = self.co["ledger"]
@@ -1342,7 +1349,7 @@ class DemoLineageTest(unittest.TestCase):
         self.assertEqual(flow["summary"]["edges"]["adopts"], sum(1 for r in ledger if r["decision"] == "adopted"))
         self.assertEqual(flow["summary"]["edges"]["triggers"], sum(len(p["fired"]) for p in self.co["probes"]))
         self.assertEqual([n["id"] for n in flow["nodes"] if n["kind"] == "probe"],
-                         ["probe:axes", "probe:ceiling", "probe:novelty", "probe:forgetting", "probe:redundancy"])
+                         ["probe:axes", "probe:ceiling", "probe:novelty", "probe:forgetting", "probe:absorption", "probe:redundancy"])
         recovers = [e for e in flow["edges"] if e["kind"] == "recovers"]
         self.assertEqual([(e["from"], e["to"], e["learned"], e["after"]) for e in recovers], [
             ("metric:tool_calls_mean", "step:g2→g3", False, ["g1→g2"]),
@@ -1422,7 +1429,7 @@ class CommandTest(_Temp):
                                       "--candidates", str(cands), "--ledger")
         self.assertEqual(code, 0, err)
         agg = json.loads((out_dir / "aggregate.json").read_text(encoding="utf-8"))
-        self.assertEqual(list(agg)[-3:], ["evolution", "coevolution", "data_evolution"])
+        self.assertEqual(list(agg)[-4:], ["evolution", "coevolution", "data_evolution", "harness_evolution"])
         self.assertIn("rl", agg)
         self.assertTrue((out_dir / "report_ta.json").is_file())
         if (ROOT / "web" / "blocks.html").is_file():
@@ -1502,7 +1509,7 @@ class CommandTest(_Temp):
         self.assertEqual(code, 0)
         self.assertIn("fewer than two generations carry traces", err)
         agg = json.loads((out_dir / "aggregate.json").read_text(encoding="utf-8"))
-        self.assertEqual(list(agg), ["evolution", "coevolution", "data_evolution"])
+        self.assertEqual(list(agg), ["evolution", "coevolution", "data_evolution", "harness_evolution"])
         self.assertIn("not readable: 1 generation carry episodes, so there is no step to walk", out)
 
 

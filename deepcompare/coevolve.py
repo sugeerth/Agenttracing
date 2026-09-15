@@ -1002,6 +1002,62 @@ def _goodhart_propose(view: StepView) -> list:
     return out
 
 
+#: what a passing episode costs the agent, in the metric language: the
+#: probe below proposes these, and the language could already say them —
+#: what was missing was anything that thought to ask.
+_WORK_ON_PASS = ({"feature": "steps", "id": "work_per_pass", "name": "steps per pass"},
+                 {"feature": "tool_calls", "id": "tool_calls_per_pass", "name": "tool calls per pass"})
+#: the rise in work per pass, as a share of the lower side, that makes the
+#: probe fire; below it the movement is inside these corpora's noise
+_ABSORB_MARGIN = 0.10
+
+
+def _pass_work(view: "StepView", feature: str, gen: str):
+    """The mean of ``feature`` over the passing episodes of one
+    generation, or None when the value cannot be read there."""
+    spec = {"id": f"_{feature}_on_pass", "name": feature, "feature": feature, "agg": "mean",
+            "where": {"feature": "success", "op": "==", "value": 1}, "direction": "down"}
+    v = view.value(spec, gen)
+    return v["point"] if v.get("measurable") else None
+
+
+def _absorption_hit(view: "StepView") -> Optional[dict]:
+    """The step where the outcome improved and each success cost more.
+
+    An agent can raise its pass rate without getting better at the task,
+    by having more put around it: a verifier restored, a retry budget
+    widened, a tool that does the job. The give-away is that the *work per
+    pass* rises at the same time — the agent is not needing less, it is
+    being carried further. Every existing probe reads the outcome or a
+    metric the agent moved; none of them reads what a success costs, so
+    none of them can see this.
+    """
+    rate = {"id": "_pass", "name": "pass", "feature": "success", "agg": "rate", "where": None, "direction": "up"}
+    frm, to = view.value(rate, view.frm), view.value(rate, view.to)
+    if not (frm.get("measurable") and to.get("measurable")) or to["point"] <= frm["point"]:
+        return None
+    before, after = _pass_work(view, "steps", view.frm), _pass_work(view, "steps", view.to)
+    if before in (None, 0) or after is None or (after - before) / before <= _ABSORB_MARGIN:
+        return None
+    return {"rate_from": frm["point"], "rate_to": to["point"], "work_from": before, "work_to": after}
+
+
+def _absorption_trigger(view: "StepView") -> bool:
+    return _absorption_hit(view) is not None
+
+
+def _absorption_propose(view: "StepView") -> list:
+    hit = _absorption_hit(view)
+    if not hit:
+        return []
+    because = (f"the pass rate rose {num(hit['rate_from'], 2)} → {num(hit['rate_to'], 2)} on {view.label} while a "
+               f"passing episode cost {num(hit['work_from'], 2)} → {num(hit['work_to'], 2)} steps, so the gain may "
+               f"be what is around the agent rather than the agent")
+    return [{"id": row["id"], "name": row["name"], "feature": row["feature"], "agg": "mean",
+             "where": {"feature": "success", "op": "==", "value": 1}, "direction": "down",
+             "rank": {"because": because}} for row in _WORK_ON_PASS]
+
+
 def _external_trigger(view: StepView) -> bool:
     return bool(view.candidates)
 
@@ -1029,6 +1085,8 @@ PROBES: tuple = (
     Probe("forgetting", "an average hides a task", _forgetting_trigger, _forgetting_propose),
     Probe("goodhart", "a metric the agent moved without the outcome moving is a metric the agent learned",
           _goodhart_trigger, _goodhart_propose),
+    Probe("absorption", "a pass rate that rose while each pass cost more is a gain from the scaffold, not the agent",
+          _absorption_trigger, _absorption_propose),
     Probe("redundancy", "two metrics that always agree are one metric", lambda view: True, lambda view: [], after=True),
     Probe("external", "candidates from outside, validated and never trusted", _external_trigger, _external_propose),
 )

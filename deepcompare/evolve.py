@@ -1893,6 +1893,9 @@ def fail_on(evolution: dict, names) -> list:
 # imports this module's constants, so it is imported here, last, once every
 # name it needs exists — the one place the section is wired
 from . import coevolve as _coevolve  # noqa: E402,F401
+# and the harness beside it, for the same reason: it reads this module's
+# TOOLISH and attaches after the eval, so it is wired here too
+from . import harnessevo as _harnessevo  # noqa: E402,F401
 
 __all__ = ["read_lineage", "evolve", "analyse_lineage", "attach_sections", "lineage_batch", "diff_artifacts", "artifact_size", "artifact_digest",
            "trigger_tasks", "evidence_check", "iqm_by_task", "step_effect", "step_gaming", "step_overfit",
