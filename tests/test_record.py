@@ -436,6 +436,23 @@ class TestLoudFailures(RecorderCase):
             self.recorder(budget={"max_steps": "twenty"})
         self.assertEqual(list(self.out.iterdir()), [])
 
+    def test_a_budget_setting_that_is_not_a_limit_is_still_held_to_a_type(self):
+        """A loop has switches and settings that name something as well as
+        caps, so those keys are not numbers. The vocabulary is closed, so
+        widening it for a switch did not stop a mistyped limit being
+        caught — which was the whole value of the check."""
+        run = self.recorder(budget={"max_steps": 6, "max_tool_errors": 2,
+                                    "dedupe_tool_calls": True,
+                                    "require_before_answer": "run_check"}, out_dir=None)
+        run.answer("done", success=True)
+        self.assertEqual(run.to_dict()["budget"]["require_before_answer"], "run_check")
+        self.assertIs(run.to_dict()["budget"]["dedupe_tool_calls"], True)
+        for bad in ({"max_steps": "twenty"}, {"max_tool_errors": "lots"},
+                    {"dedupe_tool_calls": "yes"}, {"require_before_answer": True},
+                    {"require_before_answer": ""}, {"max_steps": [1]}):
+            with self.subTest(budget=bad), self.assertRaises(ValueError):
+                self.recorder(budget=bad)
+
     def test_observe_without_a_step_says_what_to_do(self):
         run = self.recorder(out_dir=None)
         with self.assertRaises(ValueError) as caught:

@@ -356,11 +356,22 @@ class Loop:
         scaffold_added, unactionable, readings = 0, 0, {}
         for agent in p["agents"]:
             slot = (self.state.get("scaffold") or {}).get(agent) or {}
+            names = (slot.get("current") or {}).get("tools")
+            # the state carries tool *names* because it is written to
+            # loop.json; the hypotheses need the objects, because a tool's
+            # declared effect is what decides whether a repeat is safe to
+            # serve from a cache
+            offered = self._resolve_tools(names) if names else self.tools
             found = hypotheses(analysed["aggregate"], agent,
-                               tools=(slot.get("current") or {}).get("tools") or self.tools,
+                               tools=offered,
                                budget=(slot.get("current") or {}).get("budget") or self.budget,
                                terminations=self._terminations(analysed, agent),
-                               calls=self._calls(analysed, agent))
+                               calls=self._calls(analysed, agent),
+                               # an external agent runs its own loop: the
+                               # budget is stamped on its trace and nothing
+                               # obeys it, so a budget hypothesis there would
+                               # move the fingerprint without moving the run
+                               enforces_budget=agent in self.providers)
             scaffold_added += add_scaffold_candidates(self.state, agent, found["proposed"], source="triage")
             unactionable += len(found["unactionable"])
             readings[agent] = {"reading": found["reading"], "unactionable": found["unactionable"],

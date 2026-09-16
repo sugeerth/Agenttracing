@@ -103,6 +103,17 @@ def run_task(provider: Provider, task: dict, tools: Optional[list] = None, *,
     by_name = {t.name: t for t in tools}
     budget = dict(budget or {"max_steps": 12})
     max_steps = int(budget.get("max_steps") or 12)
+    #: the loop's other settings, read from the budget so they are recorded
+    #: on the trace beside `max_steps` rather than living only in a call
+    #: signature.  A scaffold experiment can turn any of them, and
+    #: `harnessevo.fingerprint` reads them back, so a run's control flow is
+    #: part of what "the same harness" means.
+    if budget.get("max_tool_errors") is not None:
+        max_tool_errors = int(budget["max_tool_errors"])
+    dedupe = bool(budget.get("dedupe_tool_calls"))
+    require_before_answer = budget.get("require_before_answer") or None
+    if require_before_answer is not None:
+        require_before_answer = str(require_before_answer)
     grade = grader or contains_grader
     if grader is None and not (isinstance(task.get("expected"), str)
                                and task["expected"].strip()):
@@ -125,22 +136,34 @@ def run_task(provider: Provider, task: dict, tools: Optional[list] = None, *,
                       {"role": "user", "content": str(task["prompt"])}]
     with recorder:
         _drive(recorder, provider, messages, tools, task, grade, max_steps,
-               max_tool_errors=max_tool_errors)
+               max_tool_errors=max_tool_errors, dedupe=dedupe,
+               require_before_answer=require_before_answer)
     return recorder.to_dict()
 
 
 def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
            task: dict, grade: Callable, max_steps: int, *,
-           max_tool_errors: int = 3) -> bool:
+           max_tool_errors: int = 3, dedupe: bool = False,
+           require_before_answer: Optional[str] = None) -> bool:
     """The loop itself, shared by a fresh run and a counterfactual replay:
     prompt, act, observe, until the answer or the budget.  ``messages`` is
     continued in place (a replay hands in a rebuilt prefix).  Returns
     whether the run answered; every other outcome is a declared
-    termination on the recorder."""
+    termination on the recorder.
+
+    ``max_tool_errors``, ``dedupe`` and ``require_before_answer`` are the
+    loop's scaffold knobs, read from ``budget`` by :func:`run_task` so
+    that the settings a run obeyed are recorded on its trace and read back
+    by :func:`deepcompare.harnessevo.fingerprint`."""
     by_name = {t.name: t for t in tools}
     declarations = [t.declaration() for t in tools]
     tool_errors = 0
     answered = False
+    #: identical (tool, arguments) already executed, for `dedupe`
+    seen_calls: dict = {}
+    #: whether the required tool has been called, for `require_before_answer`
+    required_done = require_before_answer is None
+    pushed_back = False
     for _turn in range(max_steps):
         try:
             response: ProviderResponse = provider.complete(messages, declarations)
@@ -154,6 +177,24 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
 
         if not response.tool_calls:
             answer = response.text.strip()
+            # the verification gate: an answer that never called the tool the
+            # harness requires is pushed back *once*, with the reason, and the
+            # loop continues.  Once only, and the second answer stands however
+            # it comes: a harness that refuses until it gets what it wants is
+            # not measuring an agent, it is writing one.  Note that a gate
+            # that works shows up as the scaffold carrying the run —
+            # `harnessevo.absorption` is built to see exactly this.
+            if not required_done and not pushed_back:
+                pushed_back = True
+                recorder.reason(
+                    f"the harness requires {require_before_answer!r} before an answer; "
+                    f"this turn answered without calling it",
+                    note="scaffold: verification gate, pushed back once")
+                messages.append({"role": "assistant", "content": response.text})
+                messages.append({"role": "user", "content": (
+                    f"Before answering, call the {require_before_answer} tool to check your work, "
+                    f"then answer.")})
+                continue
             verdict = grade(answer, task)
             if verdict is None:
                 raise ValueError(
@@ -188,13 +229,33 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
                 args = call.arguments
                 if isinstance(args, dict) and set(args) == {"_raw"}:
                     args = str(args["_raw"])
-                try:
-                    result = recorder.tool(call.name, args,
-                                           call=tool.fn, effect=tool.effect)
-                    result_text = _render_result(result)
-                except Exception as exc:
-                    result_text = f"error: {exc.__class__.__name__}: {exc}"
-                    tool_errors += 1
+                # a cache is only sound over calls that *read*: serving a
+                # write from a cache means the write silently did not happen
+                # the second time.  An undeclared effect is undeclared, not
+                # read-only, so it is executed.
+                cacheable = dedupe and str(tool.effect or "").startswith("read")
+                key = (call.name, json.dumps(args, sort_keys=True, default=str))
+                if cacheable and key in seen_calls:
+                    # the engine's own recommendation for `result_cache`:
+                    # memoise identical tool calls at the harness layer. The
+                    # step is still recorded — the agent did make the call —
+                    # with a note saying it was served from the cache, so the
+                    # repeat is visible rather than hidden.
+                    result_text = seen_calls[key]
+                    recorder.tool(call.name, args, result_text, effect=tool.effect,
+                                  note="scaffold: served from the harness cache, not re-executed")
+                else:
+                    try:
+                        result = recorder.tool(call.name, args,
+                                               call=tool.fn, effect=tool.effect)
+                        result_text = _render_result(result)
+                        if cacheable:
+                            seen_calls[key] = result_text
+                    except Exception as exc:
+                        result_text = f"error: {exc.__class__.__name__}: {exc}"
+                        tool_errors += 1
+                if require_before_answer is not None and call.name == require_before_answer:
+                    required_done = True
             messages.append({"role": "tool", "tool_call_id": call.id,
                              "name": call.name, "content": result_text})
         if tool_errors >= max_tool_errors:

@@ -1,8 +1,8 @@
 """Scaffold hypotheses: the changes the loop could make and never could.
 
-The agentic loop (:mod:`deepcompare.harness.loop`) has exactly one
-actuator. ``ACTIONS`` is ``("compare", "test-prompt", "stop")`` and the
-state it edits is ``state["prompts"]``. It can change how an agent
+The agentic loop (:mod:`deepcompare.harness.loop`) had exactly one
+actuator. ``ACTIONS`` was ``("compare", "test-prompt", "stop")`` and the
+state it edited was ``state["prompts"]``: it could change how an agent
 thinks, and nothing else.
 
 Meanwhile the triage engine classifies every recommendation it makes by
@@ -19,28 +19,47 @@ nineteen categories only four are prompt-shaped:
 =================  ==  ===================================================
 
 Eleven of those nineteen are the scaffold — the tools the agent is
-offered and the loop that runs it — and the agentic loop is blind to all
-eleven. It can be told "reconcile the tool list with the tools it
-actually calls" and has no way to change a tool list. So the engine can
-*recommend* a scaffold change, :mod:`deepcompare.harnessevo` can *detect*
-that a gain came from the scaffold, and the thing that drives improvement
-can do neither.
+offered and the loop that runs it — and the loop was blind to all eleven.
+It could be told "reconcile the tool list with the tools it actually
+calls" and had no way to change a tool list. So the engine could
+*recommend* a scaffold change, :mod:`deepcompare.harnessevo` could
+*detect* that a gain came from the scaffold, and the thing that drives
+improvement could do neither.
 
 This module is the hypothesis source that closes that. It reads the
 triage actions the engine already produced and returns two lists:
 
 ``proposed``
-    scaffold changes expressed in a knob a harness can genuinely vary.
-    There are two, because there are two: the tool table a run is offered
-    (``Trajectory.tools``) and the limits the loop enforces
-    (``Trajectory.budget``). Both are exactly what
-    :func:`deepcompare.harnessevo.fingerprint` reads back, so a change
-    made here is visible to the reading that judges it.
+    scaffold changes expressed in a knob a harness can genuinely vary:
+    the tool table a run is offered (``Trajectory.tools``) and the
+    settings the loop enforces (``Trajectory.budget``). Both are exactly
+    what :func:`deepcompare.harnessevo.fingerprint` reads back, so a
+    change made here is visible to the reading that judges it. That is
+    the rule the knob list is held to, and the reason it is short: a knob
+    whose effect no trace records could never be judged.
 
 ``unactionable``
     every other scaffold recommendation, with the effort class and the
     reason no knob reaches it. This list is not a failure of the module;
-    it is the finding, and it is longer than the other one.
+    it is the finding, and it is still the longer of the two.
+
+Four settings inside ``budget`` are read by the loop
+(:data:`BUDGET_KNOBS`), and each was added to answer a recommendation
+class this module had to refuse:
+
+===========================  ======================================
+``max_steps``                the harness stopping runs (terminations)
+``max_tool_errors``          ``recovery`` (control-flow)
+``dedupe_tool_calls``        ``result_cache`` (infrastructure)
+``require_before_answer``    ``verification``, ``calibration``
+                             (architecture)
+===========================  ======================================
+
+Each rule is guarded by what the traces actually say, and a guard that
+does not clear puts the finding in ``unactionable`` with the specific
+reason rather than the generic one. A ``recovery`` finding on runs that
+all reached an answer stays unactionable: moving a cap no run reached
+changes nothing that was measured.
 
 Pure stdlib, no network: an aggregate in, hypotheses out. Nothing here
 runs an agent or decides anything — :mod:`deepcompare.planner` schedules
@@ -52,7 +71,8 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from ._text import join_names, plural
+from ._text import join_names, pct, plural
+from .trace import budget_value_ok
 from .triage import EFFORT
 
 VERSION = 1
@@ -77,16 +97,45 @@ KNOBS: dict = {
     "budget": "the limits the loop enforces (Trajectory.budget)",
 }
 
+#: The settings inside ``budget`` the agent loop actually reads, and the
+#: recommendation class each one answers.  A knob is only listed here once
+#: :mod:`deepcompare.harness.agent` obeys it *and* the trace records it —
+#: a knob whose effect no trace carries could never be judged, so there
+#: isn't one.
+BUDGET_KNOBS: dict = {
+    "max_steps": "how many provider turns a run may take",
+    "max_tool_errors": "how many failed tool calls end the run",
+    "dedupe_tool_calls": "identical read-only calls served from a harness cache",
+    "require_before_answer": "a tool the run must call before it may answer",
+}
+
 #: effort classes whose findings point at the tool table
 _TOOL_CLASSES = ("tool-schema",)
 #: the terminations that mean the harness stopped the run, not the agent
 _HARNESS_STOPS = ("budget_exhausted", "max_steps", "step_limit", "timeout")
+#: the termination that means the loop's tool-error cap ended the run.  It
+#: is kept out of `_HARNESS_STOPS` on purpose: the errors were the agent's,
+#: the harness only counted them and decided when to stop counting.
+_ERROR_STOP = "too_many_errors"
+#: categories whose fix is "cache the repeated identical call at the harness"
+_CACHE_CATEGORIES = ("result_cache",)
+#: categories whose fix is "verify before you claim success".  `calibration`
+#: is here because the engine's own fix for it is an independent
+#: verification step, not a confidence threshold.
+_GATE_CATEGORIES = ("verification", "calibration")
+#: categories about error handling around a tool call
+_RECOVERY_CATEGORIES = ("recovery",)
 #: a tool named in a finding is only withdrawn when the agent leaned on it
 MIN_CALLS = 3
 #: raise the cap by this much of itself when runs are hitting it
 CAP_STEP = 0.5
 #: the share of runs that must end on the harness's cap before raising it
 CAP_SHARE = 0.2
+#: the share of runs that must end on the tool-error cap before raising it
+ERROR_SHARE = 0.2
+#: the loop's tool-error cap when a budget does not name one, kept in step
+#: with `deepcompare.harness.agent.run_task`
+DEFAULT_TOOL_ERRORS = 3
 
 
 def _tool_names(text: str, offered) -> list:
@@ -98,6 +147,28 @@ def _tool_names(text: str, offered) -> list:
     offered = {str(t) for t in offered or []}
     quoted = set(re.findall(r'"([^"]{1,64})"', text or "")) | set(re.findall(r"`([^`]{1,64})`", text or ""))
     return sorted(n for n in quoted if n in offered)
+
+
+def _effects(tools) -> dict:
+    """``{tool name: declared effect}`` over the offered table.
+
+    ``None`` stays ``None``: an undeclared effect is undeclared, and the
+    one thing this module will not do is read it as "read-only".
+    """
+    out: dict = {}
+    for t in tools or []:
+        if isinstance(t, dict):
+            name, effect = t.get("name"), t.get("effect")
+        else:
+            name, effect = getattr(t, "name", None), getattr(t, "effect", None)
+        if name:
+            out[str(name)] = str(effect) if effect else None
+    return out
+
+
+def _read_only(effects: dict) -> list:
+    """Offered tools that declare a read effect, sorted."""
+    return sorted(n for n, e in (effects or {}).items() if e and str(e).startswith("read"))
 
 
 def _action_text(action: dict) -> str:
@@ -114,7 +185,8 @@ def _for_agent(action: dict, agent: str) -> bool:
 
 
 def hypotheses(aggregate: dict, agent: str, *, tools=(), budget=None,
-               terminations: Optional[dict] = None, calls: Optional[dict] = None) -> dict:
+               terminations: Optional[dict] = None, calls: Optional[dict] = None,
+               enforces_budget: bool = True) -> dict:
     """Scaffold hypotheses for one agent, from the engine's own findings.
 
     ``tools`` is the tool table the agent is being offered and ``budget``
@@ -123,17 +195,42 @@ def hypotheses(aggregate: dict, agent: str, *, tools=(), budget=None,
     and ``calls`` ``{tool: n}``; both are read from the traces by the
     caller because an aggregate does not carry them per agent.
 
+    ``enforces_budget`` is false for an agent that runs its own loop (an
+    external adapter). The harness stamps the budget on such a trace but
+    nothing obeys it, so turning a setting there would move the
+    fingerprint without moving the run — a harness change that did not
+    happen. Every budget rule then goes to ``unactionable`` with that
+    reason, and only the tool table, which the runner really does hand
+    over, stays actionable.
+
     Returns ``{"proposed": [...], "unactionable": [...], "skipped": [...]}``.
     A proposal is ``{"kind", "knob", "change", "why", "from_tasks",
     "source", "category", "effort"}`` where ``change`` is the difference
     from the current scaffold, never the whole of it.
     """
-    offered = [str(t.get("name") if isinstance(t, dict) else t) for t in (tools or [])]
-    offered = [t for t in offered if t]
+    effects = _effects(tools)
+    offered = [n for n in effects]
+    budget = budget if isinstance(budget, dict) else {}
     triage = (aggregate or {}).get("triage") or {}
     actions = [a for a in (triage.get("actions") or []) if isinstance(a, dict) and _for_agent(a, agent)]
     proposed, unactionable, skipped = [], [], []
     seen_kinds: set = set()
+
+    # the terminations are read once: three rules below ask what ended the
+    # runs, and they must all be asking about the same runs
+    total = sum((terminations or {}).values())
+    stopped = sum(n for t, n in (terminations or {}).items() if str(t) in _HARNESS_STOPS)
+    errored = sum(n for t, n in (terminations or {}).items() if str(t) == _ERROR_STOP)
+    not_enforced = (f"the budget is a knob this harness has, but {agent} runs its own loop: the harness records "
+                    f"the settings on the trace and nothing obeys them, so turning one would move the harness "
+                    f"fingerprint without moving the run")
+
+    def keep(entry: dict) -> bool:
+        if entry["kind"] in seen_kinds:
+            return False
+        seen_kinds.add(entry["kind"])
+        proposed.append(entry)
+        return True
 
     for action in actions:
         category = str(action.get("category") or "")
@@ -156,12 +253,9 @@ def hypotheses(aggregate: dict, agent: str, *, tools=(), budget=None,
                      if (calls or {}).get(n, MIN_CALLS) >= MIN_CALLS]
             named = [n for n in named if len(offered) > 1]
             if named:
-                kind = "withdraw_tool:" + named[0]
-                if kind in seen_kinds:
-                    continue
-                seen_kinds.add(kind)
-                proposed.append({
-                    "kind": kind, "knob": "tools", "change": {"drop_tools": [named[0]]},
+                keep({
+                    "kind": "withdraw_tool:" + named[0], "knob": "tools",
+                    "change": {"drop_tools": [named[0]]},
                     "category": category, "effort": effort, "source": "triage",
                     "from_tasks": from_tasks,
                     "why": (f"{action.get('title')} — a {effort} finding over "
@@ -175,39 +269,172 @@ def hypotheses(aggregate: dict, agent: str, *, tools=(), budget=None,
                 + plural(MIN_CALLS, "time") + ", so there is nothing specific to withdraw")})
             continue
 
+        # "cache the repeated identical tool call at the harness" is a knob
+        # the loop has, and it is the engine's own words for the fix
+        if category in _CACHE_CATEGORIES:
+            reason = not_enforced if not enforces_budget else _cache_rule(
+                budget, effects, action, keep, from_tasks, category, effort)
+            if reason:
+                unactionable.append({**row, "reason": reason})
+            continue
+
+        # "verify before you claim success" is a gate the loop can enforce,
+        # but only against a tool someone has named
+        if category in _GATE_CATEGORIES:
+            reason = not_enforced if not enforces_budget else _gate_rule(
+                budget, effects, action, keep, from_tasks, category, effort, calls)
+            if reason:
+                unactionable.append({**row, "reason": reason})
+            continue
+
+        # error handling around a tool call: the loop owns exactly one
+        # number here, and it only matters if it is what ended the runs
+        if category in _RECOVERY_CATEGORIES:
+            reason = not_enforced if not enforces_budget else _recovery_rule(
+                budget, keep, from_tasks, category, effort, total, errored)
+            if reason:
+                unactionable.append({**row, "reason": reason})
+            continue
+
         unactionable.append({**row, "reason": (
             f"{effort} is the scaffold, but this harness varies only "
             + join_names(sorted(KNOBS)) + f", and no {effort} change is expressible in either")})
 
     # runs the harness stopped are a budget hypothesis, not an agent one
-    total = sum((terminations or {}).values())
-    stopped = sum(n for t, n in (terminations or {}).items() if str(t) in _HARNESS_STOPS)
-    if total and stopped / total >= CAP_SHARE:
+    if total and stopped / total >= CAP_SHARE and not enforces_budget:
+        unactionable.append({"category": "budget", "effort": "control-flow", "title": None,
+                             "from_tasks": [], "reason": not_enforced})
+    elif total and stopped / total >= CAP_SHARE:
         cap = None
         for key in ("max_steps", "steps", "step_cap"):
-            if isinstance(budget, dict) and isinstance(budget.get(key), (int, float)):
+            if isinstance(budget.get(key), (int, float)):
                 cap = (key, int(budget[key]))
                 break
         if cap:
-            kind = "raise_cap:" + cap[0]
-            if kind not in seen_kinds:
-                seen_kinds.add(kind)
-                nxt = int(cap[1] + max(1, round(cap[1] * CAP_STEP)))
-                proposed.append({
-                    "kind": kind, "knob": "budget", "change": {"budget": {cap[0]: nxt}},
-                    "category": "budget", "effort": "control-flow", "source": "terminations",
-                    "from_tasks": [],
-                    "why": (f"{stopped} of {plural(total, 'run')} ended because the harness stopped them, not because "
-                            f"the agent did. That is the loop's own limit and not a fault of the agent, so raise "
-                            f"{cap[0]} {cap[1]} → {nxt} and see whether the outcome moves. A win here is the "
-                            f"scaffold's: it buys room rather than making the agent need less."),
-                })
+            nxt = int(cap[1] + max(1, round(cap[1] * CAP_STEP)))
+            keep({
+                "kind": "raise_cap:" + cap[0], "knob": "budget",
+                "change": {"budget": {cap[0]: nxt}},
+                "category": "budget", "effort": "control-flow", "source": "terminations",
+                "from_tasks": [],
+                "why": (f"{stopped} of {plural(total, 'run')} ended because the harness stopped them, not because "
+                        f"the agent did. That is the loop's own limit and not a fault of the agent, so raise "
+                        f"{cap[0]} {cap[1]} → {nxt} and see whether the outcome moves. A win here is the "
+                        f"scaffold's: it buys room rather than making the agent need less."),
+            })
         else:
             unactionable.append({"category": "budget", "effort": "control-flow", "title": None, "from_tasks": [],
                                  "reason": (f"{stopped} of {plural(total, 'run')} were stopped by the harness, but no "
                                             f"step cap is recorded in the budget, so there is no number to raise")})
     return {"version": VERSION, "proposed": proposed, "unactionable": unactionable, "skipped": skipped,
-            "knobs": dict(KNOBS), "reading": reading(proposed, unactionable, skipped)}
+            "knobs": dict(KNOBS), "budget_knobs": dict(BUDGET_KNOBS),
+            "reading": reading(proposed, unactionable, skipped)}
+
+
+def _cache_rule(budget: dict, effects: dict, action: dict, keep,
+                from_tasks: list, category: str, effort: str) -> Optional[str]:
+    """``dedupe_tool_calls``: same call, same arguments, served from the
+    harness cache instead of paid for twice.
+
+    Two guards, and the second one is the point.  A cache is only sound
+    over calls that *read* — re-serving a write means the write silently
+    did not happen the second time — so the loop caches read-declared
+    tools only, and this rule will not propose a knob with nothing to
+    cache.  An undeclared effect is undeclared, not read.
+    """
+    if budget.get("dedupe_tool_calls"):
+        return ("the harness is already deduplicating identical read-only calls, so this finding is about "
+                "repeats a cache cannot absorb")
+    readable = _read_only(effects)
+    if not readable:
+        return ("caching repeated calls is a knob this harness has, but no tool on offer declares a read "
+                "effect, and a repeat is only safe to serve from a cache when re-running it would have "
+                "changed nothing")
+    keep({
+        "kind": "dedupe_tool_calls", "knob": "budget",
+        "change": {"budget": {"dedupe_tool_calls": True}},
+        "category": category, "effort": effort, "source": "triage",
+        "from_tasks": from_tasks,
+        "why": (f"{action.get('title')} — an {effort} finding over {plural(len(from_tasks), 'task')}. "
+                f"The loop can serve an identical repeat from a cache, so the hypothesis is testable: turn "
+                f"dedupe_tool_calls on for the {plural(len(readable), 'read-declared tool')} on offer "
+                f"({join_names(readable)}) and see whether the outcome holds at lower cost. The repeat is "
+                f"still recorded as a step, so the agent's behaviour stays visible; what changes is only "
+                f"what the harness paid for it. A win here is the scaffold's."),
+    })
+    return None
+
+
+def _gate_rule(budget: dict, effects: dict, action: dict, keep,
+               from_tasks: list, category: str, effort: str, calls) -> Optional[str]:
+    """``require_before_answer``: a tool the run must call before it may
+    answer.
+
+    The gate needs a tool to require, and this module will not pick one.
+    The finding quotes the step it saw, so a name that is both quoted and
+    on offer is a name someone stood behind; anything else would be the
+    harness inventing the agent's verification step for it.
+    """
+    current = budget.get("require_before_answer")
+    named = _tool_names(_action_text(action), list(effects))
+    named = [n for n in named if n != current]
+    if not named:
+        if current:
+            return (f"the harness already requires {current!r} before an answer, and this finding names no "
+                    f"other tool on offer to require instead")
+        return ("a gate before the answer is a knob this harness has, but the finding names no tool on "
+                "offer to require, and the harness will not choose the agent's check for it")
+    tool = named[0]
+    seen = (calls or {}).get(tool)
+    keep({
+        "kind": "require_before_answer:" + tool, "knob": "budget",
+        "change": {"budget": {"require_before_answer": tool}},
+        "category": category, "effort": effort, "source": "triage",
+        "from_tasks": from_tasks,
+        "why": (f"{action.get('title')} — an {effort} finding over {plural(len(from_tasks), 'task')}. "
+                f"The loop can hold an answer back until a named tool has been called, so the hypothesis is "
+                f"testable: require {tool} before the answer"
+                + (f" (the agent already calls it {plural(int(seen), 'time')} across these runs)" if seen else "")
+                + f". The gate pushes back once and then lets the answer stand, because a harness that "
+                f"refuses until it gets what it wants is writing the agent rather than measuring it. If this "
+                f"wins it is the scaffold's win — and it is exactly the shape harnessevo.absorption reads as "
+                f"the scaffold carrying the run."),
+    })
+    return None
+
+
+def _recovery_rule(budget: dict, keep, from_tasks: list, category: str,
+                   effort: str, total: int, errored: int) -> Optional[str]:
+    """``max_tool_errors``: how many failed calls end the run.
+
+    The loop owns this number and nothing else about error handling, so
+    the rule only fires when the number is what ended the runs.  A
+    recovery finding on runs that all reached an answer is real and is
+    still unactionable here: raising or lowering a cap no run reached
+    changes nothing that was measured.
+    """
+    if not total:
+        return ("error handling is the scaffold, but no terminations were read for this agent, so there is "
+                "no evidence the tool-error cap is what ended anything")
+    if not errored or errored / total < ERROR_SHARE:
+        return (f"error handling is the scaffold, and the one number the loop owns is the tool-error cap — "
+                f"but {errored} of {plural(total, 'run')} ended on it, under the "
+                f"{pct(ERROR_SHARE)} this rule needs, so moving it changes nothing that was measured")
+    cap = budget.get("max_tool_errors")
+    cap = int(cap) if isinstance(cap, (int, float)) else DEFAULT_TOOL_ERRORS
+    nxt = int(cap + max(1, round(cap * CAP_STEP)))
+    keep({
+        "kind": "raise_cap:max_tool_errors", "knob": "budget",
+        "change": {"budget": {"max_tool_errors": nxt}},
+        "category": category, "effort": effort, "source": "triage+terminations",
+        "from_tasks": from_tasks,
+        "why": (f"{errored} of {plural(total, 'run')} ended on the harness's tool-error cap, not on an answer. "
+                f"The errors were the agent's; the decision to stop counting at {cap} was the loop's. Raise "
+                f"max_tool_errors {cap} → {nxt} and see whether those runs were one call from recovering or "
+                f"going in circles — the second is as useful an answer as the first, and it is the one this "
+                f"cap currently assumes without checking."),
+    })
+    return None
 
 
 def reading(proposed: list, unactionable: list, skipped: list) -> str:
@@ -241,7 +468,13 @@ def apply_change(scaffold: dict, change: dict) -> dict:
     add = (change or {}).get("budget")
     if isinstance(add, dict):
         for k, v in add.items():
-            if isinstance(v, (int, float)):
+            # which shape a setting takes is the trace schema's decision, not
+            # this module's: the same check the recorder applies, so a change
+            # that gets past here cannot fail at the moment the run that
+            # tests it is written down.  A value of the wrong shape is
+            # dropped rather than quietly becoming a setting the loop would
+            # then read as something else.
+            if budget_value_ok(str(k), v):
                 budget[str(k)] = v
     return {"tools": tools, "budget": budget}
 
@@ -252,9 +485,16 @@ def describe(change: dict) -> str:
     for name in (change or {}).get("drop_tools") or []:
         bits.append(f"withdraw the {name} tool")
     for k, v in ((change or {}).get("budget") or {}).items():
-        bits.append(f"set {k} to {v}")
+        if k == "dedupe_tool_calls":
+            bits.append("serve identical read-only calls from the harness cache"
+                        if v else "stop caching identical calls")
+        elif k == "require_before_answer":
+            bits.append(f"require {v} before an answer" if v else "drop the answer gate")
+        else:
+            bits.append(f"set {k} to {v}")
     return join_names(bits) or "no change"
 
 
-__all__ = ["VERSION", "WHERE", "KNOBS", "MIN_CALLS", "CAP_SHARE", "CAP_STEP",
+__all__ = ["VERSION", "WHERE", "KNOBS", "BUDGET_KNOBS", "MIN_CALLS", "CAP_SHARE",
+           "CAP_STEP", "ERROR_SHARE", "DEFAULT_TOOL_ERRORS",
            "hypotheses", "reading", "apply_change", "describe"]

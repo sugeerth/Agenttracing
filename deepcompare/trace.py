@@ -24,6 +24,34 @@ QUALITY_VALUES = ("good", "weak", "bad")
 TOKEN_BASES = ("measured", "estimated")
 #: whether a step changed anything outside the agent (SCHEMA.md v22).
 EFFECTS = ("read", "write")
+#: ``budget`` settings that are not limits, and so are not numbers.  A loop
+#: has switches and settings that name something as well as caps, and all of
+#: them belong on the trace for the same reason: this is what a reader must
+#: know to say two runs had the same harness.  The vocabulary is closed
+#: because the point of the check is to catch ``{"max_steps": "twenty"}`` —
+#: a budget that accepts any string for any key stops being a contract.
+#: `deepcompare.harness.agent` reads these; `deepcompare.scaffold` proposes
+#: them.
+BUDGET_FLAGS = ("dedupe_tool_calls",)
+BUDGET_NAMES = ("require_before_answer",)
+
+
+def budget_value_ok(key, value) -> bool:
+    """Whether ``budget[key] = value`` is a setting this schema allows."""
+    if key in BUDGET_FLAGS:
+        return isinstance(value, bool)
+    if key in BUDGET_NAMES:
+        return isinstance(value, str) and bool(value)
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def budget_value_error(key) -> str:
+    if key in BUDGET_FLAGS:
+        return f"budget.{key} must be true or false"
+    if key in BUDGET_NAMES:
+        return f"budget.{key} must be a non-empty string naming a tool"
+    return f"budget.{key} must be a number"
+
 #: why the run stopped.  Reported as a distribution and never averaged
 #: across, because a metric like "share of correct steps" rewards an agent
 #: that quit early over one that kept working.  ``infrastructure_error``
@@ -424,8 +452,8 @@ class Trajectory:
         if not isinstance(budget, dict):
             raise ValueError("trajectory.budget must be an object")
         for key, value in budget.items():
-            if not isinstance(value, (int, float)) or isinstance(value, bool):
-                raise ValueError(f"budget.{key} must be a number")
+            if not budget_value_ok(key, value):
+                raise ValueError(budget_value_error(key))
         return cls(
             trace_id=trace_id,
             agent=agent,

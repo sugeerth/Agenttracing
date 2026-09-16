@@ -47,6 +47,7 @@ def _agg(actions):
 
 
 TOOLS = [{"name": "grep"}, {"name": "web"}, {"name": "run_check"}]
+READ_TOOLS = [{"name": "grep", "effect": "read"}, {"name": "web", "effect": "read"}]
 
 
 class VocabularyTest(unittest.TestCase):
@@ -111,13 +112,28 @@ class HypothesesTest(unittest.TestCase):
     def test_a_scaffold_finding_with_no_knob_is_counted_not_dropped(self):
         """The list that is the finding: the engine asks for a change and
         this harness has nowhere to put it."""
-        got = S.hypotheses(_agg([_action("verification"), _action("result_cache"), _action("recovery")]),
+        got = S.hypotheses(_agg([_action("safety"), _action("parallel_reads"), _action("prompt_cache")]),
                            "a", tools=TOOLS)
         self.assertEqual(got["proposed"], [])
         self.assertEqual(len(got["unactionable"]), 3)
         for row in got["unactionable"]:
             self.assertIn("varies only", row["reason"])
             self.assertIn(row["effort"], ("architecture", "infrastructure", "control-flow"))
+
+    def test_a_knob_that_exists_but_has_no_evidence_gives_its_own_reason(self):
+        """The three categories the loop grew knobs for do not fall back to
+        the generic sentence. Each says what its own guard wanted and did
+        not get, which is a different finding from 'no knob reaches this'."""
+        got = S.hypotheses(_agg([_action("verification"), _action("result_cache"), _action("recovery")]),
+                           "a", tools=TOOLS)
+        self.assertEqual(got["proposed"], [])
+        reasons = {row["category"]: row["reason"] for row in got["unactionable"]}
+        self.assertEqual(set(reasons), {"verification", "result_cache", "recovery"})
+        for reason in reasons.values():
+            self.assertNotIn("varies only", reason)
+        self.assertIn("names no tool on offer to require", reasons["verification"])
+        self.assertIn("no tool on offer declares a read effect", reasons["result_cache"])
+        self.assertIn("no terminations were read", reasons["recovery"])
 
     def test_a_finding_for_another_agent_is_not_this_agents_hypothesis(self):
         got = S.hypotheses(_agg([_action("tool_availability", agents=("b",), details=['at "web"'])]),
@@ -150,6 +166,164 @@ class HypothesesTest(unittest.TestCase):
         self.assertIn("can be tested", got["reading"])
         self.assertIn("cannot", got["reading"])
         self.assertIn("prompt loop", got["reading"])
+
+
+
+class BudgetKnobTest(unittest.TestCase):
+    """The three settings the loop grew, and the guards that decide when a
+    recommendation reaches one.
+
+    The rule every one of them is held to: a knob is only offered when the
+    traces say the thing it would change is a thing that happened. A guard
+    that does not clear is not silence — it is a specific sentence saying
+    what the guard wanted, which is a different finding from "no knob
+    reaches this class at all".
+    """
+
+    def test_a_result_cache_finding_becomes_the_dedupe_knob(self):
+        got = S.hypotheses(_agg([_action("result_cache")]), "a", tools=READ_TOOLS)
+        self.assertEqual(len(got["proposed"]), 1)
+        prop = got["proposed"][0]
+        self.assertEqual((prop["kind"], prop["knob"]), ("dedupe_tool_calls", "budget"))
+        self.assertEqual(prop["change"], {"budget": {"dedupe_tool_calls": True}})
+        self.assertIn("still recorded as a step", prop["why"])
+
+    def test_a_cache_is_never_proposed_over_calls_that_are_not_declared_reads(self):
+        """A write served from a cache is a write that silently did not
+        happen; an undeclared effect is undeclared, not read-only."""
+        for tools in (TOOLS, [{"name": "ship", "effect": "write"}]):
+            with self.subTest(tools=tools):
+                got = S.hypotheses(_agg([_action("result_cache")]), "a", tools=tools)
+                self.assertEqual(got["proposed"], [])
+                self.assertIn("no tool on offer declares a read effect", got["unactionable"][0]["reason"])
+
+    def test_the_cache_is_not_proposed_twice(self):
+        got = S.hypotheses(_agg([_action("result_cache"), _action("result_cache", tasks=("t2",))]),
+                           "a", tools=READ_TOOLS, budget={"dedupe_tool_calls": True})
+        self.assertEqual(got["proposed"], [])
+        self.assertEqual(len(got["unactionable"]), 2)
+        self.assertIn("already deduplicating", got["unactionable"][0]["reason"])
+
+    def test_a_verification_finding_that_names_a_tool_becomes_the_answer_gate(self):
+        got = S.hypotheses(_agg([_action("verification", details=['claimed done without "run_check"'])]),
+                           "a", tools=TOOLS, calls={"run_check": 4})
+        self.assertEqual(len(got["proposed"]), 1)
+        prop = got["proposed"][0]
+        self.assertEqual(prop["kind"], "require_before_answer:run_check")
+        self.assertEqual(prop["change"], {"budget": {"require_before_answer": "run_check"}})
+        self.assertIn("pushes back once", prop["why"])
+        self.assertIn("4 times", prop["why"])
+
+    def test_calibration_is_a_gate_too_because_that_is_the_engines_own_fix(self):
+        got = S.hypotheses(_agg([_action("calibration", details=['wrong while confident at "run_check"'])]),
+                           "a", tools=TOOLS)
+        self.assertEqual([p["kind"] for p in got["proposed"]], ["require_before_answer:run_check"])
+
+    def test_the_gate_will_not_choose_the_agents_check_for_it(self):
+        got = S.hypotheses(_agg([_action("verification")]), "a", tools=TOOLS)
+        self.assertEqual(got["proposed"], [])
+        self.assertIn("will not choose the agent's check", got["unactionable"][0]["reason"])
+
+    def test_a_gate_already_in_force_is_not_proposed_again(self):
+        got = S.hypotheses(_agg([_action("verification", details=['missing "run_check"'])]), "a",
+                           tools=TOOLS, budget={"require_before_answer": "run_check"})
+        self.assertEqual(got["proposed"], [])
+        self.assertIn("already requires 'run_check'", got["unactionable"][0]["reason"])
+
+    def test_runs_that_died_on_the_tool_error_cap_are_a_recovery_hypothesis(self):
+        got = S.hypotheses(_agg([_action("recovery")]), "a", tools=TOOLS,
+                           budget={"max_tool_errors": 2},
+                           terminations={"too_many_errors": 4, "agent_stop": 6})
+        self.assertEqual(len(got["proposed"]), 1)
+        prop = got["proposed"][0]
+        self.assertEqual(prop["kind"], "raise_cap:max_tool_errors")
+        self.assertEqual(prop["change"], {"budget": {"max_tool_errors": 3}})
+        self.assertIn("The errors were the agent's", prop["why"])
+
+    def test_the_default_tool_error_cap_is_used_when_the_budget_names_none(self):
+        """Unlike the step cap, this one has a default the loop really
+        applies, so there is a number to raise even when nothing wrote it
+        down — and it is the same number `run_task` uses."""
+        got = S.hypotheses(_agg([_action("recovery")]), "a", tools=TOOLS, budget={},
+                           terminations={"too_many_errors": 5, "agent_stop": 5})
+        self.assertEqual(got["proposed"][0]["change"],
+                         {"budget": {"max_tool_errors": S.DEFAULT_TOOL_ERRORS + 2}})
+
+    def test_a_recovery_finding_on_runs_that_all_answered_moves_nothing(self):
+        got = S.hypotheses(_agg([_action("recovery")]), "a", tools=TOOLS,
+                           budget={"max_tool_errors": 3}, terminations={"agent_stop": 10})
+        self.assertEqual(got["proposed"], [])
+        self.assertIn("changes nothing that was measured", got["unactionable"][0]["reason"])
+
+    def test_the_tool_error_cap_is_not_a_harness_stop(self):
+        """`too_many_errors` is deliberately outside `_HARNESS_STOPS`: the
+        errors were the agent's, and only the decision of when to stop
+        counting them was the loop's. Without a recovery finding it raises
+        no step cap."""
+        self.assertNotIn("too_many_errors", S._HARNESS_STOPS)
+        got = S.hypotheses(_agg([]), "a", tools=TOOLS, budget={"max_steps": 20},
+                           terminations={"too_many_errors": 9, "agent_stop": 1})
+        self.assertEqual(got["proposed"], [])
+
+    def test_an_agent_that_runs_its_own_loop_gets_no_budget_hypothesis(self):
+        """The harness stamps a budget on an external agent's trace and
+        nothing obeys it. Proposing a setting there would move the harness
+        fingerprint without moving the run — a harness change that did not
+        happen, measured as though it had. The tool table is different: the
+        runner really does hand that over, so it stays actionable."""
+        agg = _agg([_action("result_cache"), _action("verification", details=['missing "run_check"']),
+                    _action("recovery"), _action("tool_availability", details=['at "web"'])])
+        terms = {"budget_exhausted": 4, "too_many_errors": 4, "agent_stop": 2}
+        common = dict(tools=READ_TOOLS + [{"name": "run_check", "effect": "read"}],
+                      budget={"max_steps": 20}, terminations=terms, calls={"web": 9, "run_check": 4})
+        driven = S.hypotheses(agg, "a", **common)
+        external = S.hypotheses(agg, "a", enforces_budget=False, **common)
+        self.assertGreater(len([p for p in driven["proposed"] if p["knob"] == "budget"]), 1)
+        self.assertEqual([p["knob"] for p in external["proposed"]], ["tools"],
+                         "a setting nothing enforces was proposed as a hypothesis")
+        budget_reasons = [u["reason"] for u in external["unactionable"] if "runs its own loop" in u["reason"]]
+        self.assertEqual(len(budget_reasons), 4, "a budget rule that went quiet instead of saying why")
+        for reason in budget_reasons:
+            self.assertIn("without moving the run", reason)
+
+    def test_no_proposal_can_make_a_budget_the_recorder_would_refuse(self):
+        """The knob vocabulary lives in the trace schema, so a change that
+        gets past `apply_change` cannot fail at the moment the run testing
+        it is written down. One list, three modules."""
+        from deepcompare.trace import BUDGET_FLAGS, BUDGET_NAMES, budget_value_ok
+
+        self.assertEqual(set(BUDGET_FLAGS) | set(BUDGET_NAMES) | {"max_steps", "max_tool_errors"},
+                         set(S.BUDGET_KNOBS), "a knob the trace schema and the actuator disagree about")
+        cases = [
+            (_agg([_action("result_cache")]), READ_TOOLS, {}, None),
+            (_agg([_action("verification", details=['missing "run_check"'])]), TOOLS, {}, None),
+            (_agg([_action("recovery")]), TOOLS, {}, {"too_many_errors": 5, "agent_stop": 5}),
+            (_agg([]), TOOLS, {"max_steps": 20}, {"budget_exhausted": 5, "agent_stop": 5}),
+        ]
+        seen = set()
+        for aggregate, tools, budget, terms in cases:
+            got = S.hypotheses(aggregate, "a", tools=tools, budget=budget, terminations=terms)
+            self.assertTrue(got["proposed"])
+            for prop in got["proposed"]:
+                after = S.apply_change({"tools": [t["name"] for t in tools], "budget": dict(budget)},
+                                       prop["change"])
+                for key, value in (prop["change"].get("budget") or {}).items():
+                    seen.add(key)
+                    self.assertTrue(budget_value_ok(key, value),
+                                    f"{key}={value!r} is a setting no trace would accept")
+                    self.assertEqual(after["budget"][key], value, "the change did not survive apply_change")
+        self.assertEqual(seen, set(S.BUDGET_KNOBS), "a documented knob nothing can propose")
+
+    def test_every_budget_knob_is_one_the_loop_reads(self):
+        """The invariant that decides what may become a knob: the loop reads
+        its settings from `budget`, so a turned knob is on the trace and
+        `harnessevo.fingerprint` reads it back."""
+        from deepcompare.harness import agent as agent_mod
+
+        source = Path(agent_mod.__file__).read_text(encoding="utf-8")
+        for knob in S.BUDGET_KNOBS:
+            self.assertIn(f'budget.get("{knob}")' if knob != "max_steps" else 'budget.get("max_steps")',
+                          source, f"{knob} is documented as a knob the loop reads and is not read")
 
 
 class ApplyTest(unittest.TestCase):

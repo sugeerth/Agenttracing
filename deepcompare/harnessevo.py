@@ -158,9 +158,19 @@ def fingerprint(trajectories) -> dict:
     caps: dict = {}
     for traj in trajectories:
         for key, value in (traj.budget or {}).items():
-            if isinstance(key, str) and finite(value):
+            if not isinstance(key, str):
+                continue
+            # a limit is a number, but a loop's switches and named settings
+            # are settings too, and the whole point of this reading is that a
+            # knob the actuator turns is a knob the digest sees. Dropping the
+            # non-numeric ones would make two of the loop's own settings
+            # invisible to the reading that judges the change they made.
+            if isinstance(value, bool) or isinstance(value, str):
+                caps.setdefault(key, set()).add(value)
+            elif finite(value):
                 caps.setdefault(key, set()).add(rounded(float(value), 4))
-    caps = {k: (sorted(v)[0] if len(v) == 1 else sorted(v)) for k, v in sorted(caps.items())}
+    caps = {k: (v.pop() if len(v) == 1 else sorted(v, key=lambda x: (str(type(x)), str(x))))
+            for k, v in sorted(caps.items())}
     basis = sorted({str((traj.token_accounting or {}).get("basis")) for traj in trajectories
                     if (traj.token_accounting or {}).get("basis")})
     schemas = sorted({int(traj.schema_version) for traj in trajectories if finite(traj.schema_version)})

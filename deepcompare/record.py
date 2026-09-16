@@ -77,6 +77,8 @@ from .trace import (
     STEP_TYPES,
     TERMINATIONS,
     Trajectory,
+    budget_value_error,
+    budget_value_ok,
 )
 
 #: how a token count is produced when the caller has none.  Named in the file
@@ -469,8 +471,15 @@ class Recorder:
             return {}
         _check(isinstance(budget, dict), "budget must be an object, e.g. {'max_steps': 20}")
         for key, value in budget.items():
-            _check(isinstance(value, (int, float)) and not isinstance(value, bool),
-                   f"budget.{key} must be a number")
+            # A budget entry is a setting the loop obeys. Most are limits and
+            # so are numbers, but a loop also has switches (`dedupe_tool_calls`)
+            # and settings that name something (`require_before_answer`), and
+            # those belong here for the same reason the numbers do: this is
+            # what a reader must know to say two runs had the same harness.
+            # The vocabulary is closed and lives in `trace`, so that widening
+            # it for a switch did not also stop `{"max_steps": "twenty"}`
+            # being caught.
+            _check(budget_value_ok(key, value), budget_value_error(key))
         return dict(budget)
 
     # ------------------------------------------------------------------

@@ -103,6 +103,24 @@ class FingerprintTest(unittest.TestCase):
         self.assertTrue(move["moved"])
         self.assertIn("temperature", " ".join(c["what"] for c in move["changes"]))
 
+    def test_a_loop_setting_that_is_not_a_number_still_reaches_the_digest(self):
+        """The loop's scaffold knobs are a cap, a flag and a tool name, and
+        the actuator can turn any of them. A digest that kept only the
+        numbers would make two of the three invisible to the very reading
+        that is supposed to judge the change they made."""
+        raw = _trace("g0", "t1", "r1", True, check=True)
+        plain = he.fingerprint([_traj(_with(raw, budget={"max_steps": 6}))])
+        gated = he.fingerprint([_traj(_with(raw, budget={"max_steps": 6, "require_before_answer": "run_check"}))])
+        cached = he.fingerprint([_traj(_with(raw, budget={"max_steps": 6, "dedupe_tool_calls": True}))])
+        self.assertEqual(gated["caps"]["require_before_answer"], "run_check")
+        self.assertIs(cached["caps"]["dedupe_tool_calls"], True)
+        self.assertEqual(len({plain["digest"], gated["digest"], cached["digest"]}), 3,
+                         "a turned knob that leaves the digest where it was")
+        for other in (gated, cached):
+            move = he.harness_moved(plain, other)
+            self.assertTrue(move["moved"])
+            self.assertIn("caps", " ".join(c["what"] for c in move["changes"]))
+
 
 class MovedTest(unittest.TestCase):
     """`moved` is None, not False, when a side cannot be read."""

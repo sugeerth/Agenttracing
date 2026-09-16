@@ -37,6 +37,14 @@
   };
   var KIND_ORDER = ["reasoning", "scaffold", "mixed", "none", "unreadable"];
 
+  // a budget entry is usually a limit and so a number, but a loop also has
+  // switches and settings that name a tool (deepcompare/scaffold.py), and
+  // those are part of what "the same harness" means: shown as recorded
+  // rather than pushed through a number formatter that would lose them
+  function capValue(v) {
+    return isNum(v) ? num(v, 4) : String(v);
+  }
+
   function ensureStyle() {
     L.style.once("harness", [
       ".hn-lede{font-size:var(--fs-m);color:var(--ink);margin:0 0 8px;max-width:95ch}",
@@ -245,7 +253,16 @@
       var dec = (fp.decoding || []).map(function (d) {
         return d.name + (isNum(d.temperature) ? " @" + num(d.temperature, 2) : "");
       }).join(", ");
-      var caps = Object.keys(fp.caps || {}).map(function (k) { return k + " " + num((fp.caps || {})[k]); }).join(", ");
+      // a cap is usually a number, but the loop also has switches and
+      // settings that name a tool, and those are part of the harness too:
+      // shown as written rather than pushed through the number formatter
+      var caps = Object.keys(fp.caps || {}).map(function (k) {
+        var v = (fp.caps || {})[k];
+        if (v === true) return k;
+        if (v === false) return k + " off";
+        if (Array.isArray(v)) return k + " " + v.map(capValue).join("/");
+        return k + " " + capValue(v);
+      }).join(", ");
       body.appendChild(H("tr", { "data-gen": g.id }, [
         g.id, String(g.episodes == null ? "—" : g.episodes),
         fp.measurable ? String(fp.digest || "").slice(0, 10) : "not recorded",

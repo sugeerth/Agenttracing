@@ -41,6 +41,129 @@ def refund_tool(amount="$120.00"):
                  "required": ["reference"]}, effect="read")
 
 
+
+class TestScaffoldKnobs(unittest.TestCase):
+    """The three settings the loop grew so that the engine's scaffold
+    recommendations became testable rather than merely printable.
+
+    Each is read from ``budget``, which means each is recorded on the trace
+    and read back by `harnessevo.fingerprint`: a run under a turned knob is
+    a run under a different harness, and the reading that judges it knows.
+    """
+
+    @staticmethod
+    def _counting_tool(effect="read", calls=None):
+        calls = calls if calls is not None else []
+
+        def get_refund(reference: str):
+            calls.append(reference)
+            return {"reference": reference, "refund": "$120.00"}
+        return Tool("get_refund", get_refund, "refund lookup",
+                    {"type": "object", "properties": {"reference": {"type": "string"}}},
+                    effect=effect), calls
+
+    def test_max_tool_errors_is_the_loops_number_and_the_budget_sets_it(self):
+        """Hardcoded at three, it was a setting nothing could vary and no
+        trace recorded.  Now a run under a different cap says so."""
+        def boom(**_kw):
+            raise RuntimeError("no")
+        tool = Tool("boom", boom, "always fails", {"type": "object", "properties": {}})
+        script = [{"text": "", "tool_calls": [{"name": "boom", "arguments": {}}]} for _ in range(8)]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                         budget={"max_steps": 8, "max_tool_errors": 2})
+        self.assertEqual(trace["outcome"]["termination"], "too_many_errors")
+        self.assertEqual(trace["budget"]["max_tool_errors"], 2)
+        self.assertEqual(len([s for s in trace["steps"] if s["type"] == "tool_call"]), 2)
+
+        looser = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                          budget={"max_steps": 8, "max_tool_errors": 5})
+        self.assertEqual(len([s for s in looser["steps"] if s["type"] == "tool_call"]), 5)
+
+    def test_dedupe_serves_the_repeat_from_the_cache_and_still_records_it(self):
+        """The engine's own words for `result_cache`: same call, same
+        result, paid for twice.  The step stays on the trace — the agent
+        did make the call — with a note saying what served it."""
+        tool, calls = self._counting_tool()
+        script = [{"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
+                  {"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                         budget={"max_steps": 6, "dedupe_tool_calls": True})
+        self.assertTrue(trace["outcome"]["success"])
+        self.assertEqual(calls, ["BK1"], "the second identical call was executed anyway")
+        tools = [s for s in trace["steps"] if s["type"] == "tool_call"]
+        self.assertEqual(len(tools), 2, "the repeat must stay visible as a step")
+        self.assertIn("harness cache", tools[1]["note"])
+
+    def test_dedupe_never_caches_a_call_whose_effect_is_not_read(self):
+        """A write served from a cache is a write that silently did not
+        happen.  An undeclared effect is undeclared, not read-only."""
+        for effect in ("write", None):
+            with self.subTest(effect=effect):
+                tool, calls = self._counting_tool(effect=effect)
+                script = [{"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
+                          {"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
+                          {"text": "the refund is $120.00"}]
+                trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                                 budget={"max_steps": 6, "dedupe_tool_calls": True})
+                self.assertEqual(calls, ["BK1", "BK1"], "a non-read call was served from the cache")
+                notes = [s.get("note") for s in trace["steps"] if s["type"] == "tool_call"]
+                self.assertTrue(all(not n or "harness cache" not in n for n in notes))
+
+    def test_the_answer_gate_pushes_back_once_and_then_lets_the_answer_stand(self):
+        """A harness that refuses until it gets what it wants is writing the
+        agent, not measuring it.  One push-back, then the answer stands
+        however it comes — including wrong."""
+        tool, calls = self._counting_tool()
+        script = [{"text": "the refund is $120.00"},
+                  {"text": "still the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                         budget={"max_steps": 6, "require_before_answer": "get_refund"})
+        self.assertEqual(calls, [], "the gate must not call the tool on the agent's behalf")
+        self.assertEqual(trace["outcome"]["termination"], "agent_stop")
+        self.assertTrue(trace["outcome"]["success"], "the second answer stands on its own merits")
+        gate = [s for s in trace["steps"] if s["type"] == "reason" and "verification gate" in (s.get("note") or "")]
+        self.assertEqual(len(gate), 1, "the gate fires exactly once")
+        self.assertIn("get_refund", gate[0]["input"])
+
+    def test_the_gate_lets_an_answer_through_once_the_tool_has_been_called(self):
+        tool, calls = self._counting_tool()
+        script = [{"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                         budget={"max_steps": 6, "require_before_answer": "get_refund"})
+        self.assertEqual(calls, ["BK1"])
+        self.assertTrue(trace["outcome"]["success"])
+        self.assertEqual([s.get("note") for s in trace["steps"] if s["type"] == "reason"], [])
+
+    def test_every_knob_the_loop_reads_is_recorded_on_the_trace(self):
+        """The invariant that decides what may become a knob at all: a
+        setting whose effect no trace records could never be judged, so the
+        loop reads its settings from `budget` and nowhere else."""
+        from deepcompare import scaffold
+
+        tool, _ = self._counting_tool()
+        budget = {"max_steps": 6, "max_tool_errors": 4, "dedupe_tool_calls": True,
+                  "require_before_answer": "get_refund"}
+        script = [{"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None, budget=dict(budget))
+        self.assertEqual(trace["budget"], budget)
+        self.assertEqual(set(scaffold.BUDGET_KNOBS), set(budget),
+                         "a documented knob the loop does not read, or one it reads undocumented")
+
+    def test_an_unset_knob_changes_nothing_about_the_default_loop(self):
+        tool, calls = self._counting_tool()
+        script = [{"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
+                  {"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                         budget={"max_steps": 6})
+        self.assertEqual(calls, ["BK1", "BK1"])
+        self.assertEqual(trace["budget"], {"max_steps": 6})
+        self.assertTrue(trace["outcome"]["success"])
+
+
 class TestPythonAgents(unittest.TestCase):
     def test_a_message_list_becomes_a_graded_trace_with_declared_termination(self):
         agent = PythonAgent("toy_agents:message_agent", "clerk")

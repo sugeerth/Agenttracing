@@ -168,37 +168,119 @@ Eleven of nineteen name the scaffold. So the engine could *recommend* a
 scaffold change, this section could *detect* that a gain came from the
 scaffold, and the thing that drives improvement could do neither.
 
-### Two knobs, because there are two
+### Two knobs, and the rule that decides what may become one
 
-`deepcompare/scaffold.py` turns those findings into hypotheses, and it is
-deliberately short about what it can offer. A harness varies exactly two
-things that a trace records back:
+`deepcompare/scaffold.py` turns those findings into hypotheses. A harness
+varies two things that a trace records back:
 
 - **`tools`** — the tool table a run is offered, which lands in
   `Trajectory.tools`
-- **`budget`** — the limits the loop enforces, which land in
+- **`budget`** — the settings the loop obeys, which land in
   `Trajectory.budget`
 
-Both are read back by `fingerprint()` above. That is the point: a change
-made by the actuator is visible to the reading that judges it. A knob
-whose effect no trace records could never be judged, so there isn't one.
+Both are read back by `fingerprint()` above, and that is the whole rule: a
+change made by the actuator is visible to the reading that judges it. **A
+knob whose effect no trace records could never be judged, so there isn't
+one.** Every addition below had to pass that test before it was written.
 
-Two rules produce hypotheses. A **tool-schema finding** that quotes a tool
-the run is offered and the agent actually leaned on (`MIN_CALLS`, three)
-becomes *withdraw that tool*. Runs the **harness stopped** rather than the
-agent — a fifth or more ending on the cap — become *raise the cap by half*.
+### The loop had one number, and the list said so
 
-### The unactionable list is the finding
+The first version of this module could express two hypotheses. A
+**tool-schema finding** that quotes a tool the run is offered and the
+agent actually leaned on (`MIN_CALLS`, three) became *withdraw that
+tool*. Runs the **harness stopped** rather than the agent — a fifth or
+more ending on the cap — became *raise the step cap by half*.
 
-Everything else goes in `unactionable` with the effort class and the
-reason no knob reaches it, and that list is longer than the other one. A
-hypothesis the runner cannot express is not a hypothesis; it is a wish,
-and it belongs somewhere it can be counted rather than quietly dropped.
-
-On the shipped demo loop the first comparison produces exactly one
-scaffold recommendation — an `efficiency` finding — and reports it
+Everything else went in `unactionable`, and that list was longer than the
+other one. On the shipped demo loop the first comparison produced exactly
+one scaffold recommendation, an `efficiency` finding, and reported it
 honestly: *control-flow is the scaffold, but this harness varies only
 budget and tools, and no control-flow change is expressible in either.*
+
+That sentence is true and it is also an admission. Nine of the eleven
+scaffold categories sat behind it, not because they were unmeasurable but
+because the loop had exactly one number — `max_steps` — and a retry
+policy or a verification step is not a step cap.
+
+### Three settings, chosen by what a trace can carry
+
+So the loop grew three more, each answering a class it had been refusing,
+and each read from `budget` rather than from a call signature so the
+settings a run obeyed are **on its trace** and inside its fingerprint:
+
+| setting | the class it answers | what the loop does |
+|---|---|---|
+| `max_tool_errors` | `recovery` (control-flow) | how many failed calls end the run; it was hardcoded at three, a setting nothing could vary and no trace recorded |
+| `dedupe_tool_calls` | `result_cache` (infrastructure) | serves an identical repeat from a harness cache — literally the engine's own fix, *same call, same result, paid for twice* |
+| `require_before_answer` | `verification`, `calibration` (architecture) | holds an answer back until a named tool has been called |
+
+Three details are the difference between a knob and a shortcut.
+
+**The cache only caches reads.** Serving a write from a cache means the
+write silently did not happen the second time. The loop caches a call
+only when its tool *declares* a read effect, and an undeclared effect is
+undeclared, not read-only — so it is executed. `scaffold.py` will not
+propose the knob at all when nothing on offer declares a read.
+
+**The repeat stays on the trace.** A cached call is still recorded as a
+step, with `note: "scaffold: served from the harness cache, not
+re-executed"`. The agent did make the call; what changed is only what the
+harness paid for it, and a reading that lost the repeat would lose the
+finding that motivated the change.
+
+**The gate pushes back once.** It states the reason, and then the second
+answer stands however it comes — including wrong. A harness that refuses
+until it gets what it wants is not measuring an agent, it is writing one.
+
+And the closure: a gate that works shows up as **the scaffold carrying
+the run** — the pass rate rises and each pass costs more steps. That is
+precisely the shape `absorption()` above was built to see. The loop can
+now make the change the detector was built to catch.
+
+### The unactionable list is still the finding
+
+Everything a knob does not reach goes in `unactionable` with the effort
+class and the reason. A hypothesis the runner cannot express is not a
+hypothesis; it is a wish, and it belongs somewhere it can be counted
+rather than quietly dropped.
+
+What changed is that three classes no longer fall back to the generic
+sentence. Each has its own guard, and a guard that does not clear says
+what it wanted:
+
+- a `verification` finding that names no offered tool — *the harness will
+  not choose the agent's check for it*
+- a `result_cache` finding where nothing on offer declares a read — *a
+  repeat is only safe to serve from a cache when re-running it would have
+  changed nothing*
+- a `recovery` finding where no run ended on the tool-error cap — *moving
+  it changes nothing that was measured*
+
+That last one matters most. `recovery` is a real finding about a real
+pathology, and this harness still cannot fix it; all it owns is when to
+stop counting errors. Saying so is a better answer than turning a number
+and calling it a response.
+
+Note what stayed out. `too_many_errors` is deliberately **not** in
+`_HARNESS_STOPS`: the errors were the agent's, and only the decision of
+when to stop counting them was the loop's. It raises the tool-error cap
+and never the step cap.
+
+### An agent that runs its own loop gets no budget hypothesis
+
+The knobs are settings of *this* loop. An external agent — a shell
+command, a foreign framework — brings its own, and the harness stamps the
+budget on the trace it produces without anything obeying it.
+
+Proposing a setting there would be the worst possible outcome of this
+whole design: the fingerprint would move, the reading would call the two
+generations a different harness, and the run would be identical. A
+harness change that did not happen, measured as though it had.
+
+So `hypotheses(..., enforces_budget=False)` sends every budget rule to
+`unactionable` with that reason, and the loop passes `agent in
+self.providers`. The tool table survives, because the runner really does
+hand that over.
 
 ### A scaffold win is not an agent win
 

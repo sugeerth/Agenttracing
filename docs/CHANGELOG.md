@@ -5,6 +5,86 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Three settings, so nine refusals became three (budget widened, no section change)
+
+**The previous entry ended in an admission.** The loop could express two
+scaffold hypotheses — withdraw a tool, raise the step cap — and everything
+else went in `unactionable` with the sentence *this harness varies only
+budget and tools, and no control-flow change is expressible in either*.
+True, and an admission: nine of the eleven scaffold categories sat behind
+it not because they were unmeasurable but because the loop had exactly one
+number, and a retry policy or a verification step is not a step cap.
+
+**Three settings, each chosen by what a trace can carry.**
+`deepcompare/harness/agent.py` now reads `max_tool_errors` (how many
+failed calls end the run — it was hardcoded at three, a setting nothing
+could vary and no trace recorded), `dedupe_tool_calls` (an identical
+repeat served from a harness cache, which is literally the engine's own
+wording for `result_cache`: *same call, same result, paid for twice*) and
+`require_before_answer` (a tool the run must call before it may answer).
+All three are read from `budget` rather than from a call signature, so the
+settings a run obeyed are on its trace and inside its fingerprint. That is
+the rule a knob is held to and the reason there are not more of them: a
+knob whose effect no trace records could never be judged.
+
+**The cache only caches reads, and the repeat stays visible.** Serving a
+write from a cache means the write silently did not happen the second
+time, so the loop caches a call only when its tool *declares* a read
+effect — an undeclared effect is undeclared, not read-only, and is
+executed. The cached call is still recorded as a step, with `note:
+"scaffold: served from the harness cache, not re-executed"`: the agent did
+make the call, and what changed is only what the harness paid for it.
+
+**The gate pushes back once.** It states the reason, and the second answer
+stands however it comes, including wrong. A harness that refuses until it
+gets what it wants is not measuring an agent, it is writing one. And the
+closure: a gate that works shows up as the scaffold carrying the run — the
+pass rate rises while each pass costs more steps — which is exactly the
+shape `harnessevo.absorption` was built to see. The loop can now make the
+change the detector was built to catch.
+
+**`scaffold.py` maps three recommendation classes onto them**, each behind
+a guard read from the traces, and a guard that does not clear gives its
+own sentence instead of the generic one: a `verification` or `calibration`
+finding that names no offered tool — *the harness will not choose the
+agent's check for it*; a `result_cache` finding where nothing on offer
+declares a read — *a repeat is only safe to serve from a cache when
+re-running it would have changed nothing*; a `recovery` finding where no
+run ended on the tool-error cap — *moving it changes nothing that was
+measured*. That last is the point: `recovery` is a real finding about a
+real pathology and this harness still cannot fix it, all it owns is when
+to stop counting errors. `too_many_errors` stays out of `_HARNESS_STOPS`
+on purpose — the errors were the agent's, only the decision of when to
+stop counting them was the loop's — so it raises the tool-error cap and
+never the step cap.
+
+**An agent that runs its own loop gets no budget hypothesis.** The knobs
+are settings of *this* loop; an external agent brings its own, and the
+harness stamps the budget on its trace without anything obeying it.
+Proposing a setting there would move the fingerprint, make the reading
+call two generations a different harness, and leave the run identical — a
+harness change that did not happen, measured as though it had. So
+`hypotheses(..., enforces_budget=False)` sends every budget rule to
+`unactionable` with that reason and the loop passes `agent in
+self.providers`. The tool table survives, because the runner really does
+hand that one over.
+
+**The budget contract widened by a closed vocabulary, not a loosened
+type.** A `budget` value was a number. The first attempt allowed any
+number, boolean or string — which carried the new settings and also let
+`{"max_steps": "twenty"}` through, and a budget that accepts any string
+for any key has stopped being a contract. So the widening is two closed
+lists in `trace.py`, `BUDGET_FLAGS` and `BUDGET_NAMES`: an entry is a
+number unless its key is named as a switch or as a name. One vocabulary,
+three readers — both validators (`Recorder._validate_budget`,
+`Trajectory.from_dict`) and `scaffold.apply_change`, so a change that gets
+past the actuator cannot fail at the moment the run testing it is written
+down, and a test pins the three lists against each other. `harnessevo.fingerprint`
+was filtering `caps` through `finite()`, which would have dropped two of
+the three new settings — the flag and the name — and made the actuator's
+own changes invisible to the reading that judges them; `caps` now carries
+every setting, and a turned knob moves the digest.
+
 ## A loop that can change a scaffold, and the two pictures of what it did (no schema change)
 
 **The agentic loop had one actuator.** `ACTIONS` was `("compare",
