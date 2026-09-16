@@ -9,14 +9,22 @@ eleven name the scaffold, which the loop could not touch at all.
 
 These are the tests for closing that: `deepcompare/scaffold.py` turns the
 engine's own findings into hypotheses about the two knobs a harness
-genuinely has, `deepcompare/planner.py` schedules them as paired
-experiments beside the prompt ones, and the loop runs the variant under
-the changed scaffold.
+genuinely has — the tool table a run is offered and the settings the loop
+obeys — `deepcompare/planner.py` schedules them as paired experiments
+beside the prompt ones, and the loop runs the variant under the changed
+scaffold.
 
-The invariant several of these exist to hold is that a hypothesis the
-runner cannot express is not a hypothesis. It goes in `unactionable`
-with the reason, where it can be counted, rather than being quietly
-dropped or — worse — proposed and never testable.
+Two invariants hold most of these up.
+
+A hypothesis the runner cannot express is not a hypothesis. It goes in
+`unactionable` with the reason, where it can be counted, rather than being
+quietly dropped or — worse — proposed and never testable.
+
+And a knob whose effect no trace records could never be judged. That is
+why the budget settings the loop reads are the settings the actuator may
+propose, and why the whole vocabulary lives in the trace schema: `BudgetKnobTest`
+pins the three lists against each other, so a change that gets past the
+actuator cannot fail at the moment the run testing it is written down.
 """
 
 from __future__ import annotations
