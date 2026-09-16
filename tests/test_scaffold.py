@@ -160,6 +160,24 @@ class HypothesesTest(unittest.TestCase):
         self.assertEqual(got["proposed"], [])
         self.assertIn("no step cap is recorded", got["unactionable"][0]["reason"])
 
+    def test_the_reading_claims_no_handover_that_did_not_happen(self):
+        """An investigation is skipped too, but it is left to a person, not
+        to the prompt loop. The clause used to be printed unconditionally,
+        so a reading with no prompt-shaped finding at all still ended '0
+        prompt-shaped findings is left to the prompt loop' — a handover that
+        did not happen, in a sentence that disagreed with itself about
+        number."""
+        got = S.hypotheses(_agg([_action("efficiency"), _action("oracle")]), "a", tools=TOOLS)
+        self.assertTrue(got["skipped"], "the investigation must still be counted")
+        self.assertNotIn("prompt loop", got["reading"])
+        self.assertNotIn(" 0 ", " " + got["reading"])
+        web = _action("tool_availability", details=['at "web"'])
+        one = S.hypotheses(_agg([web, _action("reasoning")]), "a", tools=TOOLS, calls={"web": 9})["reading"]
+        many = S.hypotheses(_agg([web, _action("reasoning"), _action("planning")]), "a",
+                            tools=TOOLS, calls={"web": 9})["reading"]
+        self.assertIn("1 prompt-shaped finding is left", one)
+        self.assertIn("2 prompt-shaped findings are left", many)
+
     def test_the_reading_says_what_could_be_tried_and_what_could_not(self):
         got = S.hypotheses(_agg([_action("tool_availability", details=['at "web"']), _action("verification"),
                                  _action("reasoning")]), "a", tools=TOOLS, calls={"web": 9})

@@ -10984,7 +10984,9 @@ THIS SOFTWARE.
  * task as a dumbbell (without → with the change) over two pooled
  * intervals, a grid of where the runs went (interval width per family
  * per iteration), a table view of every number, and the ledger of
- * decisions with the sentence behind each. From `aggregate.loop`.
+ * decisions with the sentence behind each — including, per comparison,
+ * what the scaffold actuator could turn and the longer list of what it
+ * could not, with the engine's reason for each. From `aggregate.loop`.
  * Every number is a count or an interval over the runs listed.
  */
 (function (global) {
@@ -11053,6 +11055,16 @@ THIS SOFTWARE.
       ".lp-steps .chip i{display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:-1px;margin-right:4px}",
       ".lp-steps .why{color:var(--ink-3);font-size:var(--fs-xs)}",
       ".lp-steps .txt{font-size:var(--fs-xs);color:var(--ink-3);margin-top:2px;font-style:italic}",
+      ".lp-steps .chip.scaf{background:transparent;border:1px solid var(--rule)}",
+      ".lp-steps .chip.travels{background:transparent;border:1px dashed var(--rule);color:var(--ink-3)}",
+      ".lp-act{margin-top:4px;font-size:var(--fs-xs)}",
+      ".lp-act summary{cursor:pointer;color:var(--ink-3)}",
+      ".lp-act .read{color:var(--ink-2);margin:4px 0 2px;max-width:90ch}",
+      ".lp-act ul{list-style:none;margin:2px 0 0;padding:0}",
+      ".lp-act li{padding:2px 0 2px 14px;position:relative;color:var(--ink-3);max-width:90ch}",
+      ".lp-act li:before{content:\"\";position:absolute;left:0;top:8px;width:6px;height:6px;border-radius:50%;background:var(--rule)}",
+      ".lp-act li.can:before{background:var(--good)}",
+      ".lp-act li b{font-family:var(--mono);font-weight:500;color:var(--ink-2)}",
       ".lp-stop{margin-top:10px;font-size:var(--fs-s)}.lp-stop b{font-family:var(--mono);font-weight:500}",
       ".lp-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:8px;max-width:78ch}",
     ].join(""));
@@ -11357,6 +11369,46 @@ THIS SOFTWARE.
     return det;
   }
 
+  // --------------------------------------------- what the engine asked for
+  // `aggregate.loop` records, per comparison, every scaffold recommendation
+  // the triage engine made for each agent: the ones this harness has a knob
+  // for and the ones it does not, each with its reason.  The second list is
+  // normally the longer one and it is the point — a hypothesis the runner
+  // cannot express is not a hypothesis, and it belongs somewhere it can be
+  // counted rather than quietly dropped.  Nothing here is computed; every
+  // sentence is the engine's own.
+  function actuator(H, it) {
+    var by = it.scaffold || {};
+    var agents = Object.keys(by).filter(function (a) {
+      var s = by[a] || {};
+      return (s.proposed || []).length || (s.unactionable || []).length;
+    });
+    if (!agents.length) return null;
+    var fold = H("details", { class: "lp-act", "data-act": it.n });
+    var can = 0, cannot = 0;
+    agents.forEach(function (a) {
+      can += ((by[a] || {}).proposed || []).length;
+      cannot += ((by[a] || {}).unactionable || []).length;
+    });
+    fold.appendChild(H("summary", {
+      text: "the scaffold — " + can + " testable, " + cannot + " with no knob, and why",
+    }));
+    agents.forEach(function (a) {
+      var s = by[a] || {};
+      if (agents.length > 1) fold.appendChild(H("div", { class: "read", text: a }));
+      if (s.reading) fold.appendChild(H("div", { class: "read", text: s.reading }));
+      var ul = H("ul");
+      (s.proposed || []).forEach(function (h) {
+        ul.appendChild(H("li", { class: "can" }, [H("b", { text: h.knob + " · " + h.kind }), " — " + (h.why || "")]));
+      });
+      (s.unactionable || []).forEach(function (u) {
+        ul.appendChild(H("li", {}, [H("b", { text: u.effort + " · " + (u.category || "—") }), " — " + (u.reason || "")]));
+      });
+      fold.appendChild(ul);
+    });
+    return fold;
+  }
+
   // ------------------------------------------------------------ the ledger
   function ledger(H, loop) {
     var st = loop.state, iters = st.iterations || [], agents = st.agents || [];
@@ -11380,14 +11432,25 @@ THIS SOFTWARE.
         stats.appendChild(H("span", { class: "chip", text: clear + "/" + keys.length + " clear" + (ties ? " · " + ties + " tie" + (ties === 1 ? "" : "s") : "") }));
         if (it.paired && isNum(it.paired.diff)) stats.appendChild(H("span", { class: "chip", text: "Δ " + signed(it.paired.diff) + (it.paired.ci95 ? " [" + signed(it.paired.ci95[0]) + ", " + signed(it.paired.ci95[1]) + "]" : "") + " p " + pfmt(it.paired.sign_test_p) }));
         if (it.suggestions_added) stats.appendChild(H("span", { class: "chip", text: it.suggestions_added + " hypothesis" + (it.suggestions_added === 1 ? "" : "es") + " queued" }));
+        // the scaffold actuator's two lists.  The second is the longer one
+        // and is the finding: a recommendation no knob reaches is not a
+        // silence, it is a counted refusal with its reason.
+        if (it.scaffold_added) stats.appendChild(H("span", { class: "chip scaf", text: it.scaffold_added + " scaffold" }));
+        if (it.scaffold_unactionable) stats.appendChild(H("span", { class: "chip scaf", text: it.scaffold_unactionable + " no knob" }));
       } else if (it.decision) {
         var d = it.decision, ev = d.evidence || {};
         stats.appendChild(H("span", { class: "lp-tag " + (d.status.indexOf("kept") === 0 ? "kept" : "reverted"), text: d.status }));
+        // a scaffold win stays with this harness; the ledger says so beside
+        // the verdict rather than only inside the sentence
+        if (d.family) stats.appendChild(H("span", { class: "chip", text: d.changes || d.family }));
+        if (d.transfers === false) stats.appendChild(H("span", { class: "chip travels", text: "does not travel" }));
         stats.appendChild(H("span", { class: "chip", text: "wins " + ev.wins + " · losses " + ev.losses + " · ties " + ev.ties + " · p " + (isNum(ev.sign_test_p) ? pfmt(ev.sign_test_p) : "—") }));
       }
       body.appendChild(stats);
       body.appendChild(H("div", { class: "why", text: it.why }));
       if (it.decision) body.appendChild(H("div", { class: "txt", text: "“" + it.decision.text + "”" }));
+      var act = actuator(H, it);
+      if (act) body.appendChild(act);
       li.appendChild(body);
       list.appendChild(li);
     });

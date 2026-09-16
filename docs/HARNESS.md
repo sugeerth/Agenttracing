@@ -232,6 +232,12 @@ finding that motivated the change.
 answer stands however it comes — including wrong. A harness that refuses
 until it gets what it wants is not measuring an agent, it is writing one.
 
+The push-back spends a provider turn, out of the same `max_steps` both
+sides of the experiment run under. So a run that would have answered on
+its last turn does not, and the variant loses it. That is not a flaw in
+the experiment and it is not compensated for: it is what the gate costs,
+and a change whose cost is quietly refunded has not been measured.
+
 And the closure: a gate that works shows up as **the scaffold carrying
 the run** — the pass rate rises and each pass costs more steps. That is
 precisely the shape `absorption()` above was built to see. The loop can
@@ -265,6 +271,20 @@ Note what stayed out. `too_many_errors` is deliberately **not** in
 `_HARNESS_STOPS`: the errors were the agent's, and only the decision of
 when to stop counting them was the loop's. It raises the tool-error cap
 and never the step cap.
+
+### The refusals are on the page, not only in the JSON
+
+The loop block's ledger gains one fold per comparison: *the scaffold — N
+testable, M with no knob, and why*, listing every recommendation with the
+engine's own sentence, the testable ones marked. A decision row says which
+family it moved and, for a scaffold keep, that the win **does not travel**.
+
+The longer list is the one worth drawing. A refusal that lives only in
+`aggregate.loop` has not been said, and the whole argument of this module
+is that a hypothesis the runner cannot express should be counted rather
+than quietly dropped — which is not true of a count nobody sees. An agent
+with nothing on either list is left out: "no scaffold recommendation" is
+not a finding about the actuator.
 
 ### An agent that runs its own loop gets no budget hypothesis
 

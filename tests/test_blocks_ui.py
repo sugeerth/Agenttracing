@@ -3607,6 +3607,61 @@ class LoopBlockTest(unittest.TestCase):
         self.assertEqual(errors, [])
         context.close()
 
+    def test_the_ledger_shows_what_the_scaffold_actuator_could_not_do(self):
+        """Every scaffold recommendation the engine made, in two lists: the
+        ones this harness has a knob for and the ones it does not, each with
+        the engine's own reason. The second list is normally the longer one
+        and is the finding — before this it existed only in the JSON, which
+        is the same as not saying it."""
+        context, page, errors = self.open()
+        block = page.locator('.block[data-block="loop"]')
+        if "collapsed" in (block.get_attribute("class") or ""):
+            block.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(300)
+            block = page.locator('.block[data-block="loop"]')
+        block.locator('.lp-sec[data-sec="ledger"] > summary').click()
+        page.wait_for_timeout(200)
+        iters = self.ledger["state"]["iterations"]
+        listed = [it for it in iters
+                  if any((s.get("proposed") or s.get("unactionable")) for s in (it.get("scaffold") or {}).values())]
+        self.assertTrue(listed, "the demo loop must produce at least one scaffold reading to draw")
+        self.assertEqual(block.locator(".lp-act").count(), len(listed),
+                         "a comparison with a scaffold reading that drew nothing")
+        for it in listed:
+            fold = block.locator(f'.lp-act[data-act="{it["n"]}"]')
+            can = sum(len(s.get("proposed") or []) for s in it["scaffold"].values())
+            cannot = sum(len(s.get("unactionable") or []) for s in it["scaffold"].values())
+            summary = fold.locator("summary").text_content()
+            self.assertIn(f"{can} testable", summary)
+            self.assertIn(f"{cannot} with no knob", summary)
+            fold.locator("summary").click()
+            page.wait_for_timeout(120)
+            text = fold.text_content()
+            # an agent with nothing on either list is left out of the fold:
+            # "no scaffold recommendation" is not a finding about the
+            # actuator, and a fold about what it could and could not do is
+            # the wrong place to print it
+            for side in it["scaffold"].values():
+                if not (side.get("proposed") or side.get("unactionable")):
+                    continue
+                if side.get("reading"):
+                    self.assertIn(side["reading"], text)
+                for row in side.get("unactionable") or []:
+                    self.assertIn(row["reason"], text, "a refusal drawn without its reason")
+                for hyp in side.get("proposed") or []:
+                    self.assertIn(hyp["kind"], text)
+            self.assertEqual(fold.locator("li").count(), can + cannot)
+            self.assertEqual(fold.locator("li.can").count(), can)
+        # a chip for each list on the comparison row itself
+        for it in iters:
+            row = block.locator(f'.lp-steps li[data-iteration="{it["n"]}"]')
+            if it.get("scaffold_unactionable"):
+                self.assertIn(f'{it["scaffold_unactionable"]} no knob', row.text_content())
+            if (it.get("decision") or {}).get("transfers") is False:
+                self.assertIn("does not travel", row.text_content())
+        self.assertEqual(errors, [])
+        context.close()
+
     def test_no_open_block_shows_an_empty_state_on_the_loop_page(self):
         for view in ("story", "evidence", "batch"):
             context, page, errors = self.open(f"#view={view}")

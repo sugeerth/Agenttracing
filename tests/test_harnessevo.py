@@ -120,6 +120,13 @@ class FingerprintTest(unittest.TestCase):
             move = he.harness_moved(plain, other)
             self.assertTrue(move["moved"])
             self.assertIn("caps", " ".join(c["what"] for c in move["changes"]))
+        # and it is said the way a reader says it, not the way Python
+        # prints a bool
+        caps = [c for c in he.harness_moved(plain, cached)["changes"] if "caps" in c["what"]][0]
+        self.assertIn("dedupe_tool_calls on", caps["to"])
+        self.assertNotIn("True", caps["to"])
+        named = [c for c in he.harness_moved(plain, gated)["changes"] if "caps" in c["what"]][0]
+        self.assertIn("require_before_answer run_check", named["to"])
 
 
 class MovedTest(unittest.TestCase):

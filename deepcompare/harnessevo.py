@@ -204,9 +204,25 @@ def fingerprint(trajectories) -> dict:
                       models=[models[k] for k in sorted(models)], **body)
 
 
+def _cap_value(v) -> str:
+    """One cap as a reader would say it.
+
+    A limit is a number, but a loop also has switches and settings that
+    name a tool, and those are caps too (`deepcompare.scaffold`).  A
+    boolean rendered through the number formatter would come out as
+    Python's own ``True``, which is not a sentence anyone writes.
+    """
+    if isinstance(v, bool):
+        return "on" if v else "off"
+    if isinstance(v, str):
+        return v
+    return num(v)
+
+
 def _cap_text(caps: dict) -> str:
-    return ", ".join(f"{k} {v if not isinstance(v, list) else join_names([num(x) for x in v])}"
-                     for k, v in sorted(caps.items())) or "none recorded"
+    return ", ".join(
+        f"{k} " + (join_names([_cap_value(x) for x in v]) if isinstance(v, list) else _cap_value(v))
+        for k, v in sorted(caps.items())) or "none recorded"
 
 
 def harness_moved(a: dict, b: dict) -> dict:

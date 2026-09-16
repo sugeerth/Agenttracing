@@ -35,8 +35,12 @@ executed. The cached call is still recorded as a step, with `note:
 "scaffold: served from the harness cache, not re-executed"`: the agent did
 make the call, and what changed is only what the harness paid for it.
 
-**The gate pushes back once.** It states the reason, and the second answer
-stands however it comes, including wrong. A harness that refuses until it
+**The gate pushes back once**, and the push-back spends a provider turn out
+of the same step cap both sides run under — so a run that would have
+answered on its last turn does not, and the variant loses it. That is what
+the gate costs, left to be measured rather than quietly refunded. It
+states the reason, and the second answer stands however it comes,
+including wrong. A harness that refuses until it
 gets what it wants is not measuring an agent, it is writing one. And the
 closure: a gate that works shows up as the scaffold carrying the run — the
 pass rate rises while each pass costs more steps — which is exactly the
@@ -57,6 +61,19 @@ to stop counting errors. `too_many_errors` stays out of `_HARNESS_STOPS`
 on purpose — the errors were the agent's, only the decision of when to
 stop counting them was the loop's — so it raises the tool-error cap and
 never the step cap.
+
+**The refusals reached the page.** The loop block's ledger gains a fold
+per comparison — *the scaffold — N testable, M with no knob, and why* —
+listing each recommendation with the engine's own sentence, and a decision
+row now says which family moved and, on a scaffold keep, that the win does
+not travel. A refusal that lives only in `aggregate.loop` has not been
+said, and the argument of the module is that a hypothesis the runner
+cannot express should be counted rather than dropped, which is not true of
+a count nobody sees. Two prose bugs went with it: the reading printed *0
+prompt-shaped findings is left to the prompt loop* when none were —
+claiming a handover that did not happen, in a sentence that disagreed with
+itself about number — and a single effort class read *control-flow name
+changes* instead of *names*.
 
 **An agent that runs its own loop gets no budget hypothesis.** The knobs
 are settings of *this* loop; an external agent brings its own, and the

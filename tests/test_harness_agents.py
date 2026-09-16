@@ -126,6 +126,22 @@ class TestScaffoldKnobs(unittest.TestCase):
         self.assertEqual(len(gate), 1, "the gate fires exactly once")
         self.assertIn("get_refund", gate[0]["input"])
 
+    def test_the_push_back_spends_a_turn_out_of_the_same_cap(self):
+        """The gate costs a provider turn, and the variant runs under the
+        same step cap as the baseline. A run that would have answered on its
+        last turn does not. That is what the gate costs, and it is left to
+        be measured rather than quietly refunded — a change whose cost is
+        compensated for has not been measured."""
+        tool, _ = self._counting_tool()
+        script = [{"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                         budget={"max_steps": 1, "require_before_answer": "get_refund"})
+        self.assertEqual(trace["outcome"]["termination"], "max_steps")
+        self.assertFalse(trace["outcome"]["success"])
+        ungated = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                           budget={"max_steps": 1})
+        self.assertTrue(ungated["outcome"]["success"], "the same script answers without the gate")
+
     def test_the_gate_lets_an_answer_through_once_the_tool_has_been_called(self):
         tool, calls = self._counting_tool()
         script = [{"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},

@@ -396,9 +396,11 @@ def _gate_rule(budget: dict, effects: dict, action: dict, keep,
                 f"testable: require {tool} before the answer"
                 + (f" (the agent already calls it {plural(int(seen), 'time')} across these runs)" if seen else "")
                 + f". The gate pushes back once and then lets the answer stand, because a harness that "
-                f"refuses until it gets what it wants is writing the agent rather than measuring it. If this "
-                f"wins it is the scaffold's win — and it is exactly the shape harnessevo.absorption reads as "
-                f"the scaffold carrying the run."),
+                f"refuses until it gets what it wants is writing the agent rather than measuring it. The "
+                f"push-back spends a provider turn out of the same step cap, which is a real cost of the "
+                f"change and is left to be measured rather than compensated for. If this wins it is the "
+                f"scaffold's win — and it is exactly the shape harnessevo.absorption reads as the scaffold "
+                f"carrying the run."),
     })
     return None
 
@@ -449,10 +451,16 @@ def reading(proposed: list, unactionable: list, skipped: list) -> str:
     if unactionable:
         classes = sorted({u["effort"] for u in unactionable})
         bits.append(plural(len(unactionable), "scaffold recommendation") + " cannot: "
-                    + join_names(classes) + " name changes this harness has no knob for")
-    if skipped:
-        bits.append(plural(len([s for s in skipped if "prompt-shaped" in s["reason"]]), "prompt-shaped finding")
-                    + " is left to the prompt loop")
+                    + join_names(classes) + (" names" if len(classes) == 1 else " name")
+                    + " changes this harness has no knob for")
+    # only the prompt-shaped ones are "left to the prompt loop" — the other
+    # skipped rows are investigations, which are left to a person.  Saying
+    # "0 prompt-shaped findings is left to the prompt loop" claimed a
+    # handover that did not happen, and disagreed with itself about number.
+    prompt_shaped = len([s for s in skipped if "prompt-shaped" in s["reason"]])
+    if prompt_shaped:
+        bits.append(plural(prompt_shaped, "prompt-shaped finding")
+                    + (" is" if prompt_shaped == 1 else " are") + " left to the prompt loop")
     return "; ".join(bits).capitalize() + "."
 
 
