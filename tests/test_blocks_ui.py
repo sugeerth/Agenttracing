@@ -65,6 +65,47 @@ CHROMIUM = find_chromium() if HAVE_PLAYWRIGHT else None
 VID = "() => AgentDiff._internals.Store.get('agentdiff:vid')"
 
 
+class BrowserGuardTest(unittest.TestCase):
+    """Every class here that drives a browser must be skippable without one.
+
+    Deliberately *not* guarded itself: it has to run in the environment
+    that would break, which is CI, where playwright is not installed and
+    `sync_playwright` is an undefined name rather than an import error.
+
+    This has now happened twice, both times by editing near a class rather
+    than by writing an unguarded one: a class inserted directly above
+    another takes the decorator that used to belong to it, and the class
+    below is left bare. Locally it passes — playwright is installed — and
+    CI fails in `setUpClass` with a NameError after running for five
+    minutes. So the check is on the file's own syntax tree, not on anyone
+    remembering.
+    """
+
+    def test_every_browser_class_carries_the_skip_guard(self):
+        import ast
+
+        source = Path(__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+
+        def launches_a_browser(node):
+            # a *call* to sync_playwright, found in the syntax tree rather
+            # than by matching the text — which would flag this class for
+            # naming it in its own docstring
+            return any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                       and n.func.id == "sync_playwright" for n in ast.walk(node))
+
+        checked, bare = 0, []
+        for node in tree.body:
+            if not isinstance(node, ast.ClassDef) or not launches_a_browser(node):
+                continue
+            checked += 1
+            if not any("skipUnless" in (ast.get_source_segment(source, d) or "")
+                       for d in node.decorator_list):
+                bare.append(node.name)
+        self.assertGreater(checked, 10, "the scan found almost no browser classes; it has stopped working")
+        self.assertEqual(bare, [], "browser class(es) that would fail with a NameError where playwright is absent")
+
+
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
                      "playwright + chromium required for browser tests")
 class BlocksPageTest(unittest.TestCase):
@@ -11121,10 +11162,6 @@ class DataViewTest(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
                      "playwright + chromium required for browser tests")
-
-
-@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
-                     "playwright + chromium required for browser tests")
 class ScaffoldMarksTest(unittest.TestCase):
     """What the *harness* did to a step, drawn as such.
 
@@ -11255,6 +11292,8 @@ class ScaffoldMarksTest(unittest.TestCase):
         self.assertEqual(errors, [])
         ctx.close()
 
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
 class TraceViewTest(unittest.TestCase):
     """The Trace view (40_trace.js): one run as an execution rather than as
     a set of numbers — the steps in the order and at the pace the trace
