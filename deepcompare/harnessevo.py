@@ -69,6 +69,21 @@ KINDS: dict = {
 #: A step needs at least this many passing episodes on each side before
 #: the work-per-pass comparison is made; under it the ratio is one or two
 #: episodes' noise and no flag is worth raising.
+#: the dimensions a harness fingerprint is read along, in the order a
+#: reader wants them: what served the run, what it was offered, what the
+#: loop enforced, and the two contract-shaped ones.  ``identity`` is last
+#: and kept apart because it is the names, not the harness proper — see
+#: `harness_moved`.  Closed, so a change can be attributed to a row rather
+#: than matched out of its own prose.
+DIMENSIONS: dict = {
+    "decoding": "how the model was sampled",
+    "tools_offered": "the tool table the runner offered",
+    "caps": "the settings the loop enforced",
+    "token_basis": "how the token counts were obtained",
+    "schema_versions": "the trace contract written against",
+    "identity": "the declared model and version (the names, not the harness)",
+}
+
 MIN_PASSES = 3
 
 #: How much the work per pass must rise, as a share of the lower side,
@@ -138,7 +153,8 @@ def fingerprint(trajectories) -> dict:
     if not trajectories:
         return unmeasurable("the generation carries no episode to read a harness from", version=VERSION,
                             models=[], declared_models=[], tools_offered=[], caps={}, token_basis=[],
-                            schema_versions=[], digest=None, episodes=0, recorded=[])
+                            schema_versions=[], digest=None, episodes=0, recorded=[],
+                            dimensions={k: False for k in DIMENSIONS})
     declared = sorted({(t.agent.model or "").strip() for t in trajectories if (t.agent.model or "").strip()})
     versions = sorted({(t.agent.version or "").strip() for t in trajectories if (t.agent.version or "").strip()})
     models: dict = {}
@@ -178,6 +194,14 @@ def fingerprint(trajectories) -> dict:
     recorded = [name for name, got in (("the declared model", declared), ("the model telemetry", models),
                                        ("the tools offered", tools_offered), ("the harness caps", caps),
                                        ("the token basis", basis)) if got]
+    #: the same answer keyed by :data:`DIMENSIONS`, because a reader that
+    #: has to match the prose above to know whether the caps were recorded
+    #: cannot be trusted to have got it right.  False here means the
+    #: episodes said nothing, which is not the same as "it did not change":
+    #: an unrecorded dimension is unknown, and is drawn as unknown.
+    dimensions = {"decoding": bool(models), "tools_offered": bool(tools_offered),
+                  "caps": bool(caps), "token_basis": bool(basis),
+                  "schema_versions": bool(schemas), "identity": bool(declared)}
     #: The digest covers the harness *proper* and deliberately leaves the
     #: model and agent *names* out of it.  A lineage that versions its model
     #: string per generation — `agent@g0`, `agent@g1` — would otherwise have
@@ -195,13 +219,13 @@ def fingerprint(trajectories) -> dict:
         return unmeasurable("no episode of this generation records a model, a tool table, a harness cap or a token "
                             "basis, so what ran it is not in the traces", version=VERSION,
                             digest=None, identity_digest=None, episodes=len(trajectories), recorded=[],
-                            identity=identity, models=[], **body)
+                            dimensions=dimensions, identity=identity, models=[], **body)
     digest = hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
     identity_digest = hashlib.sha256(
         json.dumps(identity, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
     return measurable(version=VERSION, digest=digest, identity_digest=identity_digest,
-                      episodes=len(trajectories), recorded=recorded, identity=identity,
-                      models=[models[k] for k in sorted(models)], **body)
+                      episodes=len(trajectories), recorded=recorded, dimensions=dimensions,
+                      identity=identity, models=[models[k] for k in sorted(models)], **body)
 
 
 def _cap_value(v) -> str:
@@ -264,23 +288,25 @@ def harness_moved(a: dict, b: dict) -> dict:
             ("the trace schema", "schema_versions", lambda v: join_names([str(x) for x in v]) or "none"),
         ):
             if a.get(key) != b.get(key):
-                changes.append({"what": label, "from": render(a.get(key) or []), "to": render(b.get(key) or [])})
+                changes.append({"what": label, "dimension": key,
+                                "from": render(a.get(key) or []), "to": render(b.get(key) or [])})
         if a.get("caps") != b.get("caps"):
-            changes.append({"what": "the harness caps", "from": _cap_text(a.get("caps") or {}),
-                            "to": _cap_text(b.get("caps") or {})})
+            changes.append({"what": "the harness caps", "dimension": "caps",
+                            "from": _cap_text(a.get("caps") or {}), "to": _cap_text(b.get("caps") or {})})
         frm = {row["name"]: row for row in a.get("decoding") or []}
         to = {row["name"]: row for row in b.get("decoding") or []}
         for name in sorted(set(frm) & set(to)):
             for key in ("temperature", "top_p"):
                 if frm[name].get(key) != to[name].get(key):
-                    changes.append({"what": f"{name} {key}", "from": num(frm[name].get(key)),
-                                    "to": num(to[name].get(key))})
+                    changes.append({"what": f"{name} {key}", "dimension": "decoding",
+                                    "from": num(frm[name].get(key)), "to": num(to[name].get(key))})
     ident_a, ident_b = a.get("identity") or {}, b.get("identity") or {}
     ident_changes = []
     for label, key in (("the declared model", "declared_models"), ("the agent version", "declared_versions"),
                        ("the models that served the steps", "serving_models")):
         if ident_a.get(key) != ident_b.get(key):
-            ident_changes.append({"what": label, "from": join_names(ident_a.get(key) or []) or "none",
+            ident_changes.append({"what": label, "dimension": "identity",
+                                  "from": join_names(ident_a.get(key) or []) or "none",
                                   "to": join_names(ident_b.get(key) or []) or "none"})
     identity = {"moved": bool(ident_changes), "changes": ident_changes,
                 "note": ("the model string changed; a lineage that versions its model name per generation and one "

@@ -12119,3 +12119,158 @@ class HarnessReachTest(unittest.TestCase):
             self.assertLessEqual(round(box["x"] + box["width"]), width + 1, str(width))
             self.assertEqual(errors, [], str(width))
             ctx.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class HarnessDriftTest(unittest.TestCase):
+    """`hn-drift` (43_drift.js): did the same thing run these generations?
+
+    The ladder above says per step whether a delta may be attributed. It
+    cannot say *where* the harness moved, nor which dimensions the traces
+    never recorded — and that second one is the commonest case and the
+    easiest to mistake for "it held constant". The matrix is one row per
+    fingerprint dimension, one column per generation, with each step's
+    verdict on a band centred under the boundary it spans.
+
+    What these check is that the picture cannot disagree with the section:
+    every marked cell is a change the engine put on that dimension, every
+    hatched cell is a dimension the engine said nothing recorded, and the
+    bands are the attribution statuses in order.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        lineage = ROOT / "demo" / "evolve" / "lineage"
+        if not (lineage / "g0" / "agent.json").is_file():
+            raise unittest.SkipTest("no demo lineage")
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.dir = Path(cls.tmp.name) / "cov"
+        done = subprocess.run([sys.executable, "-m", "deepcompare", "coevolve", str(lineage),
+                               "-o", str(cls.dir), "--template", str(ROOT / "web" / "blocks.html")],
+                              cwd=str(ROOT), capture_output=True)
+        if done.returncode != 0 or not (cls.dir / "report.html").is_file():
+            raise unittest.SkipTest("coevolve wrote no page")
+        agg = json.loads((cls.dir / "aggregate.json").read_text(encoding="utf-8"))
+        cls.h = agg["harness_evolution"]
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _open(self, width=1440):
+        ctx = self.browser.new_context(viewport={"width": width, "height": 1200})
+        page = ctx.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.type + ": " + m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.dir / 'report.html'}#view=evolution")
+        page.wait_for_timeout(1600)
+        blk = page.locator('.block[data-block="hn-drift"]')
+        if blk.count() and "collapsed" in (blk.first.get_attribute("class") or ""):
+            blk.first.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(900)
+        return ctx, page, errors, blk
+
+    def test_the_matrix_is_every_dimension_by_every_generation(self):
+        ctx, page, errors, blk = self._open()
+        cells = page.evaluate("""() => Array.from(document.querySelectorAll('[data-block="hn-drift"] .hnd-cell'))
+            .map(e => [e.getAttribute('data-dimension'), e.getAttribute('data-gen'), e.getAttribute('data-state')])""")
+        gens = [g["id"] for g in self.h["generations"]]
+        dims = sorted({c[0] for c in cells})
+        self.assertEqual(len(cells), len(dims) * len(gens))
+        self.assertEqual(sorted({c[1] for c in cells}), sorted(gens))
+        self.assertEqual(errors, [])
+        ctx.close()
+
+    def test_a_hatched_cell_is_one_the_engine_said_nothing_recorded(self):
+        """The finding, not a gap in the drawing: unknown is not held."""
+        ctx, page, errors, blk = self._open()
+        drawn = page.evaluate("""() => Array.from(document.querySelectorAll('[data-block="hn-drift"] .hnd-cell[data-state="unrecorded"]'))
+            .map(e => [e.getAttribute('data-dimension'), e.getAttribute('data-gen')]).sort()""")
+        want = sorted([dim, g["id"]]
+                      for g in self.h["generations"]
+                      for dim, ok in ((g.get("fingerprint") or {}).get("dimensions") or {}).items()
+                      if not ok)
+        self.assertEqual(drawn, want)
+        self.assertTrue(want, "the demo lineage records everything; this check would prove nothing")
+        self.assertEqual(errors, [])
+        ctx.close()
+
+    def test_a_marked_cell_is_a_change_the_engine_put_on_that_dimension(self):
+        ctx, page, errors, blk = self._open()
+        drawn = page.evaluate("""() => Array.from(document.querySelectorAll('[data-block="hn-drift"] .hnd-cell.moved'))
+            .map(e => [e.getAttribute('data-dimension'), e.getAttribute('data-gen')]).sort()""")
+        want = []
+        for step in self.h["steps"]:
+            hm = step.get("harness") or {}
+            dims = {c.get("dimension") for c in (hm.get("changes") or [])}
+            dims |= {c.get("dimension") for c in ((hm.get("identity") or {}).get("changes") or [])}
+            for dim in dims:
+                if dim:
+                    want.append([dim, step["to"]])
+        self.assertEqual(drawn, sorted(want))
+        self.assertEqual(errors, [])
+        ctx.close()
+
+    def test_the_bands_are_the_sections_own_verdicts_and_never_overlap(self):
+        for width in (1440, 390):
+            ctx, page, errors, blk = self._open(width)
+            bands = page.evaluate("""() => Array.from(document.querySelectorAll('[data-block="hn-drift"] .hnd-step'))
+                .map(e => e.getAttribute('data-status'))""")
+            self.assertEqual(bands, [s["attribution"]["status"] for s in self.h["steps"]], str(width))
+            boxes = page.evaluate("""() => Array.from(document.querySelectorAll('[data-block="hn-drift"] .hnd-step rect'))
+                .map(r => { const b = r.getBoundingClientRect(); return [b.left, b.right]; })""")
+            overlaps = [i for i in range(len(boxes) - 1) if boxes[i + 1][0] < boxes[i][1] - 1]
+            self.assertEqual(overlaps, [], f"bands overlap at {width}px")
+            self.assertEqual(errors, [], str(width))
+            ctx.close()
+
+    def test_clicking_a_step_opens_what_moved_and_the_sentence_behind_it(self):
+        ctx, page, errors, blk = self._open()
+        self.assertEqual(blk.first.locator(".hnd-panel").count(), 0, "a panel before anything was clicked")
+        step = self.h["steps"][-1]
+        page.locator(f'[data-block="hn-drift"] .hnd-step[data-step="{step["from"]}→{step["to"]}"]').click()
+        page.wait_for_timeout(400)
+        panel = blk.first.locator(".hnd-panel")
+        self.assertEqual(panel.count(), 1)
+        text = panel.text_content()
+        self.assertIn(step["attribution"]["reason"], text)
+        for change in (step.get("harness") or {}).get("identity", {}).get("changes") or []:
+            self.assertIn(change["from"], text)
+            self.assertIn(change["to"], text)
+        self.assertEqual(errors, [])
+        ctx.close()
+
+    def test_it_fits_a_phone_and_the_chart_stays_inside_it(self):
+        for width in (390, 360):
+            ctx, page, errors, blk = self._open(width)
+            self.assertGreater(blk.count(), 0, str(width))
+            box = blk.first.locator(".hnd-chart svg").bounding_box()
+            self.assertLessEqual(round(box["x"] + box["width"]), width + 1, str(width))
+            tiny = page.evaluate(r"""() => {
+              const card = document.querySelector('[data-block="hn-drift"]');
+              const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
+              const out = []; let node;
+              while ((node = walker.nextNode())) {
+                if (!node.textContent.trim()) continue;
+                const el = node.parentElement; if (!el || el.closest('svg')) continue;
+                if (parseFloat(getComputedStyle(el).fontSize) < 11) out.push(node.textContent.trim().slice(0, 40));
+              }
+              return out;
+            }""")
+            self.assertEqual(tiny, [], str(width))
+            self.assertEqual(errors, [], str(width))
+            ctx.close()

@@ -5,6 +5,33 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Where the harness moved, and what nothing recorded (`dimension`, `dimensions`)
+
+**The ladder could not say where.** It gives a verdict per step;
+`hn-drift` gives the matrix behind it — one row per fingerprint dimension,
+one column per generation, one band per step centred on the boundary it
+spans, so a cell marked *moved* sits directly above the step whose delta
+it confounds.
+
+**Hatched, never pale.** A dimension no episode recorded is drawn as
+hatching rather than as a faint version of *held*, because not knowing is
+not the same as knowing it did not change — and reading one as the other
+is the mistake the whole section exists to stop. On the shipped lineage
+`caps` is hatched across all seven generations and `model name` is marked
+at every step.
+
+Two engine fields were added so the page never has to match English:
+`dimension` on every change row (`harnessevo.DIMENSIONS`, closed) and
+`dimensions` on every fingerprint, saying which rows the episodes recorded
+at all — including on an unmeasurable generation, where every entry is
+false rather than absent.
+
+Two defects the page found: `L.family` has `get()`/`set(patch)`/
+`subscribe(fn, el)` and the block invented `on`; and the verdict bands
+took a fixed minimum width, so at phone width neighbouring bands overlapped
+and their labels ran into each other. They are now sized from the scale's
+own step, and a test asserts zero overlap at 1440 and 390.
+
 ## What this harness can act on, as a picture (`aggregate.loop.reach`)
 
 **The module's claim was prose.** A hypothesis the runner cannot express

@@ -95,6 +95,36 @@ reasoning is visible.
 Without that, the shipped demo lineage read as six confounded steps out of
 six, all of them the agent's own work being blamed on its environment.
 
+### The matrix: where it moved, and what nothing recorded
+
+The ladder says, per step, whether the delta may be attributed. It cannot
+say *where* the harness moved, and it cannot show the thing that matters
+most: which dimensions no episode wrote down at all.
+
+`hn-drift` is one row per dimension (`harnessevo.DIMENSIONS`), one column
+per generation, and one band per step centred on the boundary it spans, so
+a cell marked *moved* sits directly above the step whose delta it
+confounds. Three cell states:
+
+| | |
+|---|---|
+| **held** | recorded on both sides and the same |
+| **moved** | recorded and different; the values from and to on hover |
+| **unrecorded** | no episode of this generation wrote it down — hatched |
+
+The third is the point, and it is drawn as hatching rather than as a pale
+version of *held* because **not knowing is not the same as knowing it did
+not change**. Reading one as the other is the mistake this entire section
+exists to stop, and a picture that let a reader make it would be worse
+than no picture.
+
+On the shipped lineage: `caps` is hatched across all seven generations —
+nothing recorded a budget — `model name` is marked at every step, and
+everything else is recorded and unchanged. Which row a change belongs to
+is the engine's own `dimension` field on the change and its `dimensions`
+map on the fingerprint, both added for this, so the picture cannot
+disagree with the ladder above it by matching English differently.
+
 ## Absorption: the gain that is not the agent's
 
 The reading neither `evolve` nor `coevolve` could make.

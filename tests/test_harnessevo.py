@@ -129,6 +129,51 @@ class FingerprintTest(unittest.TestCase):
         self.assertIn("require_before_answer run_check", named["to"])
 
 
+class DimensionsTest(unittest.TestCase):
+    """Every change names the row it belongs to, and every fingerprint says
+    which rows the episodes recorded at all.
+
+    Both exist so a reader — the page included — never has to match English
+    to know what moved or whether anything wrote it down. The second is the
+    one that matters: an unrecorded dimension is *unknown*, and reading it
+    as "held constant" is the mistake this whole section exists to stop.
+    """
+
+    def test_every_change_carries_a_dimension_from_the_closed_vocabulary(self):
+        a = he.fingerprint([_traj(_with(_trace("g0", "t1", "r1", True, check=True),
+                                        temperature=0.2, tools=["grep"], budget={"max_steps": 6},
+                                        declared_model="m@g0"))])
+        b = he.fingerprint([_traj(_with(_trace("g1", "t1", "r1", True, check=True),
+                                        temperature=0.9, tools=["grep", "web"], budget={"max_steps": 9},
+                                        declared_model="m@g1"))])
+        move = he.harness_moved(a, b)
+        rows = (move["changes"] or []) + (move["identity"]["changes"] or [])
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertIn(row["dimension"], he.DIMENSIONS,
+                          f"{row['what']!r} names a dimension outside the vocabulary")
+        got = {row["dimension"] for row in rows}
+        self.assertEqual(got, {"decoding", "tools_offered", "caps", "identity"},
+                         "a dimension that moved and did not say so")
+
+    def test_the_fingerprint_says_which_dimensions_were_recorded(self):
+        fp = he.fingerprint([_traj(_with(_trace("g0", "t1", "r1", True, check=True),
+                                         temperature=0.2, tools=["grep"]))])
+        self.assertEqual(sorted(fp["dimensions"]), sorted(he.DIMENSIONS))
+        self.assertIs(fp["dimensions"]["caps"], False, "no budget was recorded and caps does not say so")
+        self.assertIs(fp["dimensions"]["tools_offered"], True)
+        with_caps = he.fingerprint([_traj(_with(_trace("g0", "t1", "r1", True, check=True),
+                                                tools=["grep"], budget={"max_steps": 6}))])
+        self.assertIs(with_caps["dimensions"]["caps"], True)
+
+    def test_an_unreadable_generation_records_no_dimension_rather_than_all_of_them(self):
+        fp = he.fingerprint([])
+        self.assertFalse(fp["measurable"])
+        self.assertEqual(set(fp["dimensions"]), set(he.DIMENSIONS))
+        self.assertEqual([k for k, v in fp["dimensions"].items() if v], [],
+                         "a generation with no episodes claimed a dimension was recorded")
+
+
 class MovedTest(unittest.TestCase):
     """`moved` is None, not False, when a side cannot be read."""
 
