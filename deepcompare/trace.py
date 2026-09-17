@@ -33,6 +33,19 @@ EFFECTS = ("read", "write")
 #: `deepcompare.harness.agent` reads these; `deepcompare.scaffold` proposes
 #: them.
 BUDGET_FLAGS = ("dedupe_tool_calls", "require_read_before_write")
+#: what the *harness* did to a step, as opposed to what the agent did.
+#: These are the loop's scaffold settings acting (`deepcompare.scaffold`),
+#: and they are a field rather than a prose ``note`` because a reader that
+#: has to match on English to find them cannot be trusted to have found
+#: them all.  Closed, for the same reason `TERMINATIONS` is.
+#:
+#: ``cache_hit``    an identical read served from the harness cache
+#:                  (``dedupe_tool_calls``); the call was not re-executed
+#: ``answer_gate``  an answer held back until a required tool was called
+#:                  (``require_before_answer``); pushed back once
+#: ``write_gate``   a first write refused until something had been read
+#:                  (``require_read_before_write``); the call did not run
+SCAFFOLD_ACTIONS = ("cache_hit", "answer_gate", "write_gate")
 BUDGET_NAMES = ("require_before_answer",)
 
 
@@ -237,6 +250,12 @@ class Step:
     reward: Optional[float] = None
     value: Optional[float] = None
     advantage: Optional[float] = None
+    #: what the harness did to this step, from :data:`SCAFFOLD_ACTIONS`;
+    #: None means the harness did nothing and the step is the agent's
+    #: alone.  It is deliberately separate from ``note``, which is prose:
+    #: a page that had to match on English to find a held write would
+    #: silently stop finding them the day the sentence was reworded.
+    scaffold: Optional[str] = None
 
     @classmethod
     def from_dict(cls, d: dict, position: int) -> "Step":
@@ -305,6 +324,12 @@ class Step:
                 raise ValueError(f"{where}: span must be an object with id and agent (and an optional parent)")
             span = {"id": str(span["id"]), "agent": str(span["agent"]),
                     "parent": (str(span["parent"]) if span.get("parent") is not None else None)}
+        scaffold = d.get("scaffold")
+        if scaffold is not None and scaffold not in SCAFFOLD_ACTIONS:
+            raise ValueError(
+                f"{where}: invalid scaffold {scaffold!r}; must be one of "
+                f"{', '.join(SCAFFOLD_ACTIONS)} or null"
+            )
         signal: dict = {}
         for key in ("reward", "value", "advantage"):
             val = d.get(key)
@@ -329,10 +354,11 @@ class Step:
             reward=signal["reward"],
             value=signal["value"],
             advantage=signal["advantage"],
+            scaffold=scaffold,
         )
 
     def to_dict(self) -> dict:
-        return {
+        out = {
             "index": self.index,
             "type": self.type,
             "name": self.name,
@@ -351,6 +377,15 @@ class Step:
             "value": self.value,
             "advantage": self.advantage,
         }
+        # written only when the harness actually did something. The other
+        # optional fields have been written as null since the schema began
+        # and stay that way; adding a fifth null to every step of every
+        # stored trace would have changed the bytes of every artifact in the
+        # repository to say nothing, and "absent" and "null" mean the same
+        # thing here — the harness did not act on this step.
+        if self.scaffold is not None:
+            out["scaffold"] = self.scaffold
+        return out
 
 
 @dataclass

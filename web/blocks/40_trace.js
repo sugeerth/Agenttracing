@@ -4,7 +4,10 @@
  * an execution: the steps in the order they happened, along the clock
  * they happened on, with what the engine already knows about each of
  * them drawn on top — the phases the impact section clustered, the
- * decisive step the diagnosis named, the divergence rows, the rewards
+ * decisive step the diagnosis named, the harness's own interventions
+ * (a cached read, a held answer, a refused write — `trace.SCAFFOLD_ACTIONS`,
+ * read from the step's field and never from the prose beside it), the
+ * divergence rows, the rewards
  * the environment paid, the evidence, the errors, the answer — and three
  * tracks underneath that accumulate as the run proceeds: the tokens
  * spent, the reward earned, the sources read.
@@ -42,6 +45,17 @@
   var KINDS = ["plan", "reason", "search", "retrieve", "read", "tool_call", "answer"];
   //: the largest number of step rectangles drawn one-per-step; past it the
   //: strip bins adjacent steps and the status line says how many to a bin
+  /* `trace.SCAFFOLD_ACTIONS`: what the harness did to a step, as opposed
+   * to what the agent did. A step carrying one of these is the loop's own
+   * scaffold setting acting — the run would have gone differently under a
+   * different harness, which is exactly what a reader comparing two runs
+   * needs to see rather than infer. */
+  var SCAFFOLD = {
+    cache_hit: { glyph: "⟳", label: "served from the harness cache, not re-executed" },
+    answer_gate: { glyph: "⊣", label: "answer held back until the required tool was called" },
+    write_gate: { glyph: "⊘", label: "first write refused until something had been read" },
+  };
+
   var STEP_CAP = 1200;
   //: a gap longer than this many seconds with no step in it is folded
   var QUIET_S = 2.0;
@@ -248,6 +262,12 @@
         cum: tokens, rewardCum: reward, sourcesCum: sources, evidenceCum: evidence,
         fault: marks.fault[index] || null, decisive: marks.decisive === index,
         divergence: marks.divergence[index] || null, milestone: marks.milestone[index] || null,
+        // what the *harness* did to this step, not the agent: a cached
+        // read, a held answer, a refused write. Read from the trace's own
+        // `scaffold` field and never from the prose note beside it — a
+        // reading that matched on English would stop finding these the day
+        // the sentence was reworded.
+        scaffold: SCAFFOLD[s.scaffold] ? s.scaffold : null,
       });
       t += dur;
     });
@@ -576,6 +596,8 @@
       if (s.fault) marks.push(["▲", "var(--bad)", s.fault]);
       if (s.divergence) marks.push(["┃", "var(--warn)", "divergence " + (s.divergence.kind || "")]);
       if (s.milestone) marks.push(["●", "var(--good)", s.milestone]);
+      if (s.scaffold) marks.push([SCAFFOLD[s.scaffold].glyph, "var(--warn)",
+                                  "the harness: " + SCAFFOLD[s.scaffold].label]);
       marks.forEach(function (mk, k) {
         svg.append("text").attr("class", "trc-mark").attr("data-mark", mk[2])
           .attr("x", pos[0] + pos[1] / 2).attr("y", phaseH + 10 + k * 0).attr("text-anchor", "middle")
@@ -623,6 +645,7 @@
         isNum(s.reward) ? { mono: true, text: "reward " + num(s.reward, 2) + " · running " + num(s.rewardCum, 2) } : null,
         s.error ? { text: "errored" } : null,
         s.decisive ? { text: "the decisive step" } : null,
+        s.scaffold ? { text: "the harness: " + SCAFFOLD[s.scaffold].label } : null,
         s.fault ? { text: s.fault } : null,
         s.model ? { mono: true, text: "model " + s.model } : null,
       ]);
@@ -855,9 +878,15 @@
         if (!m.steps.some(function (s) { return s.kind === k; })) return;
         leg.appendChild(H("span", {}, [H("i", { style: "background:" + kindColour(k) }), H("span", { text: k })]));
       });
-      ["◆ decisive", "▲ fault", "┃ divergence", "● milestone", "tick = reward", "hatched = estimated tokens"].forEach(function (t) {
-        leg.appendChild(H("span", { text: t }));
+      var legend = ["◆ decisive", "▲ fault", "┃ divergence", "● milestone", "tick = reward", "hatched = estimated tokens"];
+      // only the interventions this run actually carries: a legend that
+      // advertises a glyph the strip never draws is a legend that lies
+      Object.keys(SCAFFOLD).forEach(function (k) {
+        if (m.steps.some(function (s) { return s.scaffold === k; })) {
+          legend.push(SCAFFOLD[k].glyph + " the harness (" + k.replace(/_/g, " ") + ")");
+        }
       });
+      legend.forEach(function (t) { leg.appendChild(H("span", { text: t })); });
       root.appendChild(leg);
       root.appendChild(stepTable(H, m, cutoff));
 
@@ -930,6 +959,7 @@
       if (s.fault) flags.push(s.fault);
       if (s.divergence) flags.push("a divergence row: " + trunc(s.divergence.summary || "", 160));
       if (s.milestone) flags.push("milestone " + s.milestone);
+      if (s.scaffold) flags.push("the harness, not the agent: " + SCAFFOLD[s.scaffold].label);
       if (s.evidence) flags.push("carries a recorded evidence signal");
       if (flags.length) rows.push(["marked", flags.join("; ")]);
       var table = H("table", { class: "trc-kv" });

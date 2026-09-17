@@ -294,6 +294,25 @@ than quietly dropped — which is not true of a count nobody sees. An agent
 with nothing on either list is left out: "no scaffold recommendation" is
 not a finding about the actuator.
 
+### What the harness did, marked as the harness's
+
+The settings are visible in `budget`. What they *do* happens to individual
+steps, and until the `scaffold` field existed nothing said so: a reader
+comparing two runs saw a repeated call that cost nothing, an extra
+reasoning turn and an errored write, with no way to tell that the harness
+and not the agent produced all three.
+
+`Step.scaffold` carries `cache_hit`, `answer_gate` or `write_gate`
+(`trace.SCAFFOLD_ACTIONS`, closed). The Trace view draws a glyph for each,
+says *the harness, not the agent* on the step's detail, and lists in its
+legend only the kinds that run actually carries.
+
+It is a field and not the prose note beside it for one reason: a page that
+matched on English to find these would have stopped finding them the day
+someone reworded the sentence, and would have gone on drawing a clean
+strip. The same argument as everywhere else here — a reading that cannot
+be checked is a reading that will quietly go wrong.
+
 ### The write gate protects the state, and says that is all it does
 
 A held write stays on the trace as an **errored write**, and

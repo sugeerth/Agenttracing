@@ -5,6 +5,40 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The harness's own steps, marked as the harness's (step field `scaffold`)
+
+**Three of the loop's settings act on individual steps** — a read served
+from the cache, an answer held back, a first write refused — and nothing
+on the page said so. A reader comparing two runs saw a repeated call that
+cost nothing, an extra reasoning turn and an errored write, with no way to
+tell that the harness rather than the agent had produced all three. The
+settings were visible in `budget`; what they *did* was not.
+
+**A field, not a prose note.** `Step.scaffold` takes a value from
+`trace.SCAFFOLD_ACTIONS` — `cache_hit`, `answer_gate`, `write_gate` —
+closed for the same reason `TERMINATIONS` is. The prose note stays beside
+it, but a page that had to match on English to find the harness's own
+interventions would have quietly stopped finding them the day the sentence
+was reworded, and would have gone on rendering a clean strip.
+
+**The Trace view marks them** (`40_trace.js`): a glyph on the strip, the
+reason in the hover, and *the harness, not the agent* on the step's
+detail. The legend lists only the kinds the run actually carries, because
+a legend that advertises a glyph the strip never draws is a legend that
+lies.
+
+**Absent, not null.** Every other optional step field has been written as
+null since the schema began and stays that way, but a fifth null on every
+step of every stored trace would have changed the bytes of every artifact
+in the repository to say nothing — which is how this was found, two demo
+generators failing their byte-for-byte reproduction. `scaffold` is written
+only when the harness acted; absent and null mean the same thing here.
+
+The fixture for this is worth a line. Its first version required the same
+tool before an answer that cleared the write gate, so one read satisfied
+both and the answer gate never fired — two of three gates tested, silently.
+The test now refuses to run unless all three trip.
+
 ## The fourth gate, and the reading the eval is missing (no section change)
 
 **`require_read_before_write` closes the architecture class.** `safety`,

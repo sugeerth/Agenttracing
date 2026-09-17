@@ -196,6 +196,7 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
                 recorder.reason(
                     f"the harness requires {require_before_answer!r} before an answer; "
                     f"this turn answered without calling it",
+                    scaffold="answer_gate",
                     note="scaffold: verification gate, pushed back once")
                 messages.append({"role": "assistant", "content": response.text})
                 messages.append({"role": "user", "content": (
@@ -261,7 +262,7 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
                     held_write = True
                     result_text = (f"error: this harness requires a read before a write; "
                                    f"{call.name} was not executed. Look at the state first, then act.")
-                    recorder.tool(call.name, args, result_text, error=True,
+                    recorder.tool(call.name, args, result_text, error=True, scaffold="write_gate",
                                   note="scaffold: read-before-write gate, the call was not executed")
                 elif cacheable and key in seen_calls:
                     # the engine's own recommendation for `result_cache`:
@@ -270,7 +271,7 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
                     # with a note saying it was served from the cache, so the
                     # repeat is visible rather than hidden.
                     result_text = seen_calls[key]
-                    recorder.tool(call.name, args, result_text, effect=tool.effect,
+                    recorder.tool(call.name, args, result_text, effect=tool.effect, scaffold="cache_hit",
                                   note="scaffold: served from the harness cache, not re-executed")
                     read_done = True
                 else:

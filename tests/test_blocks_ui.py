@@ -11121,6 +11121,140 @@ class DataViewTest(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
                      "playwright + chromium required for browser tests")
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class ScaffoldMarksTest(unittest.TestCase):
+    """What the *harness* did to a step, drawn as such.
+
+    Three of the loop's scaffold settings act on individual steps — a read
+    served from the cache, an answer held back, a first write refused — and
+    until now nothing on the page said so. A reader comparing two runs saw
+    a repeated call that cost nothing, an extra reasoning turn and an
+    errored write, with no way to tell that the harness, not the agent, had
+    produced all three.
+
+    The mark is read from the step's own `scaffold` field
+    (`trace.SCAFFOLD_ACTIONS`), never from the prose note beside it: a page
+    that matched on English would quietly stop finding these the day the
+    sentence was reworded, and would go on rendering a clean strip.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        from deepcompare.harness import ScriptedProvider, Tool, run_task
+        from deepcompare.report import compare, render_html
+        from deepcompare.trace import Trajectory
+
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+        task = {"id": "t_gated", "prompt": "What refund applies to BK1?", "expected": "$120.00"}
+        look = Tool("look", lambda **kw: {"refund": "$120.00"}, "look it up",
+                    {"type": "object", "properties": {}}, effect="read")
+        check = Tool("check", lambda **kw: {"ok": True}, "check the work",
+                     {"type": "object", "properties": {}}, effect="read")
+        ship = Tool("ship", lambda **kw: "shipped", "change state",
+                    {"type": "object", "properties": {}}, effect="write")
+        tools = [ship, look, check]
+        # One run that trips all three. The answer gate requires `check`
+        # rather than `look` on purpose: `look` is what clears the write
+        # gate, so requiring it would have the one read satisfy both and the
+        # answer gate would never fire — which is how the first version of
+        # this fixture silently tested two of three.
+        script = [{"text": "", "tool_calls": [{"name": "ship", "arguments": {}}]},
+                  {"text": "", "tool_calls": [{"name": "look", "arguments": {}}]},
+                  {"text": "", "tool_calls": [{"name": "look", "arguments": {}}]},
+                  {"text": "the refund is $120.00"},
+                  {"text": "", "tool_calls": [{"name": "check", "arguments": {}}]},
+                  {"text": "the refund is $120.00"}]
+        gated = run_task(ScriptedProvider(list(script)), task, tools, agent="gated", out_dir=None,
+                         budget={"max_steps": 10, "dedupe_tool_calls": True,
+                                 "require_read_before_write": True, "require_before_answer": "check"})
+        plain = run_task(ScriptedProvider(list(script)), task, tools, agent="plain", out_dir=None,
+                         budget={"max_steps": 10})
+        cls.gated, cls.plain = gated, plain
+        cls.marks = [s["scaffold"] for s in gated["steps"] if s.get("scaffold")]
+        if sorted(set(cls.marks)) != ["answer_gate", "cache_hit", "write_gate"]:
+            raise unittest.SkipTest(f"the fixture did not trip all three gates: {cls.marks}")
+        cls.report = out / "report.html"
+        render_html([compare(Trajectory.from_dict(gated), Trajectory.from_dict(plain))], {},
+                    ROOT / "web" / "blocks.html", cls.report)
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _open(self):
+        ctx = self.browser.new_context(viewport={"width": 1400, "height": 1100})
+        page = ctx.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.report}#view=trace")
+        page.wait_for_timeout(1500)
+        blk = page.locator('.block[data-block="tr-timeline"]')
+        if blk.count() and "collapsed" in (blk.first.get_attribute("class") or ""):
+            blk.first.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(600)
+        return ctx, page, errors
+
+    def test_the_harness_only_marks_a_step_it_actually_acted_on(self):
+        """The plain run uses the same script and the same tools and gets no
+        marks at all — so a mark means the harness acted, not that the step
+        looked unusual."""
+        self.assertEqual([s.get("scaffold") for s in self.plain["steps"] if s.get("scaffold")], [])
+        self.assertEqual(len(self.marks), 3)
+
+    def test_every_intervention_is_a_mark_on_the_strip(self):
+        ctx, page, errors = self._open()
+        drawn = page.evaluate("""() => Array.from(document.querySelectorAll('[data-block="tr-timeline"] [data-mark]'))
+            .map(e => e.getAttribute('data-mark')).filter(m => m.indexOf('the harness') === 0)""")
+        self.assertEqual(len(drawn), len(self.marks),
+                         f"{len(self.marks)} interventions on the trace, {len(drawn)} drawn")
+        self.assertEqual(errors, [])
+        ctx.close()
+
+    def test_the_legend_names_only_the_kinds_this_run_carries(self):
+        """A legend that advertises a glyph the strip never draws is a
+        legend that lies."""
+        ctx, page, errors = self._open()
+        legend = page.locator('[data-block="tr-timeline"] .trc-legend').first.text_content()
+        for kind in sorted(set(self.marks)):
+            self.assertIn(kind.replace("_", " "), legend)
+        absent = {"cache_hit", "answer_gate", "write_gate"} - set(self.marks)
+        for kind in absent:
+            self.assertNotIn(kind.replace("_", " "), legend)
+        self.assertEqual(errors, [])
+        ctx.close()
+
+    def test_a_marked_step_says_it_was_the_harness_and_not_the_agent(self):
+        ctx, page, errors = self._open()
+        index = [s["index"] for s in self.gated["steps"] if s.get("scaffold") == "cache_hit"][0]
+        row = page.locator(f'[data-block="tr-timeline"] [data-step-row="{index}"]')
+        if not row.count():
+            row = page.locator(f'[data-block="tr-timeline"] [data-step="{index}"]')
+        self.assertTrue(row.count(), "no way to open the cached step")
+        row.first.click()
+        page.wait_for_timeout(500)
+        body = page.locator('.block[data-block="tr-step"]').text_content()
+        self.assertIn("the harness, not the agent", body)
+        self.assertIn("not re-executed", body)
+        self.assertEqual(errors, [])
+        ctx.close()
+
 class TraceViewTest(unittest.TestCase):
     """The Trace view (40_trace.js): one run as an execution rather than as
     a set of numbers — the steps in the order and at the pace the trace
