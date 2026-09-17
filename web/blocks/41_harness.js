@@ -76,7 +76,12 @@
       ".hn-table{border-collapse:collapse;font-size:var(--fs-xs);font-variant-numeric:tabular-nums;margin-top:6px}",
       ".hn-table th,.hn-table td{padding:2px 8px;border-bottom:1px solid var(--rule);text-align:left;white-space:nowrap}",
       ".hn-table th{color:var(--ink-2);font-weight:600}.hn-table td.num,.hn-table th.num{text-align:right;font-family:var(--mono)}",
-    ]);
+      // .join("") and not the array: an array reaches `style.once` as its
+      // comma-joined string, which turns every `}` into `},` and makes the
+      // CSS parser read the whole sheet as one broken selector list. Five
+      // rules of thirty survived that, and the ladder rendered as jammed
+      // inline text while every content test went on passing.
+    ].join(""));
   }
 
   // ----------------------------------------------------------------- model

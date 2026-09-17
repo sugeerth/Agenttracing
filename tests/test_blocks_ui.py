@@ -3652,6 +3652,12 @@ class LoopBlockTest(unittest.TestCase):
                     self.assertIn(hyp["kind"], text)
             self.assertEqual(fold.locator("li").count(), can + cannot)
             self.assertEqual(fold.locator("li.can").count(), can)
+            # the fold nests a list inside a ledger row, and `.lp-steps li`
+            # as a descendant selector turned each of these into the row's
+            # 6.5em/1fr grid — every label wrapped into a column three words
+            # wide. The rule is scoped with `>`; this reads that back.
+            self.assertEqual(fold.locator("li").first.evaluate("el => getComputedStyle(el).display"),
+                             "list-item", "a nested row picked up the ledger's grid")
         # a chip for each list on the comparison row itself
         for it in iters:
             row = block.locator(f'.lp-steps li[data-iteration="{it["n"]}"]')
@@ -11638,6 +11644,47 @@ class HarnessBlocksTest(unittest.TestCase):
         page.goto(f"file://{self.dir / 'report.html'}#view=evolution")
         page.wait_for_timeout(1600)
         return context, page, errors
+
+    def test_the_blocks_css_actually_parses_on_the_page(self):
+        """A block's CSS can reach the page as text and still not apply.
+
+        `L.style.once(id, [...])` handed the array itself reaches the page
+        as its *comma-joined* string, so every `}` becomes `},` and the
+        parser reads the whole sheet as one broken selector list. This block
+        shipped that way: 5 of its 32 rules survived, and the ladder rendered
+        with every element and every word in place — the grid, the chips and
+        the gaps all gone, as jammed inline text. Every content test above
+        passed throughout, which is why this one asserts on the *parsed*
+        sheet and on a computed layout value, not on the stylesheet's text.
+
+        It lives here rather than on the batch page on purpose: a block's
+        style is injected when the block renders, and only this page renders
+        these blocks.
+        """
+        context, page, errors = self._open()
+        sheets = page.evaluate(r"""() => Array.from(document.querySelectorAll('style')).map((el, i) => {
+            const text = el.textContent || '';
+            let parsed = null;
+            try { parsed = el.sheet ? el.sheet.cssRules.length : null; } catch (e) { parsed = -1; }
+            return {i, parsed, braces: (text.match(/}/g) || []).length,
+                    comma: /}\s*,/.test(text), head: text.slice(0, 70)};
+        })""")
+        self.assertTrue(sheets)
+        for sheet in sheets:
+            self.assertFalse(sheet["comma"],
+                             f"stylesheet {sheet['i']} has `}}` followed by `,` — an array reached "
+                             f"style.once comma-joined: {sheet['head']}")
+            if sheet["braces"] > 4:
+                self.assertGreaterEqual(
+                    sheet["parsed"], sheet["braces"] // 2,
+                    f"stylesheet {sheet['i']} declares {sheet['braces']} rule ends and the browser parsed "
+                    f"only {sheet['parsed']}: {sheet['head']}")
+        # and the layout the rules are for, read back from the page
+        row = page.locator('#stacks [data-block="hn-ladder"] .hn-row').first
+        self.assertEqual(row.evaluate("el => getComputedStyle(el).display"), "grid",
+                         "the ladder row is not a grid: its rule did not apply")
+        self.assertEqual(errors, [])
+        context.close()
 
     def test_both_blocks_render_in_the_lanes_order_with_the_console_clean(self):
         context, page, errors = self._open()

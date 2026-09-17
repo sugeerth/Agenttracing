@@ -520,9 +520,11 @@ def reading(proposed: list, unactionable: list, skipped: list) -> str:
                     + join_names(sorted({p["knob"] for p in proposed})) + ")")
     if unactionable:
         classes = sorted({u["effort"] for u in unactionable})
-        bits.append(plural(len(unactionable), "scaffold recommendation") + " cannot: "
-                    + join_names(classes) + (" names" if len(classes) == 1 else " name")
-                    + " changes this harness has no knob for")
+        # "control-flow name changes this harness has no knob for" read as a
+        # noun phrase and meant nothing; agreeing the verb only made it
+        # "names changes". The sentence the reading wants is the plain one.
+        bits.append(plural(len(unactionable), "scaffold recommendation") + " cannot: no knob reaches "
+                    + join_names(classes, "or"))
     # only the prompt-shaped ones are "left to the prompt loop" — the other
     # skipped rows are investigations, which are left to a person.  Saying
     # "0 prompt-shaped findings is left to the prompt loop" claimed a

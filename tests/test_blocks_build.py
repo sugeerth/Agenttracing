@@ -104,6 +104,36 @@ class TestBuild(unittest.TestCase):
         closes = self.page.count("</script>")
         self.assertEqual(opens, closes)
 
+    def test_every_style_block_is_joined_before_it_is_injected(self):
+        """`L.style.once(id, [...])` with the array itself reaches the page
+        as its *comma-joined* string, so every `}` becomes `},` and the CSS
+        parser reads the whole sheet as one broken selector list.
+
+        This is worth a test rather than a habit because of how it fails.
+        Five of `41_harness.js`'s thirty rules survived it; the block still
+        rendered, still had every element and every word in place, and every
+        content test went on passing — while the ladder came out as jammed
+        inline text. Nothing that asserts on text can see it, so this asserts
+        on the call.
+        """
+        bad = []
+        for path in sorted(BLOCKS.glob("*.js")):
+            text = path.read_text(encoding="utf-8")
+            for match in re.finditer(r'style\.once\(\s*"([a-z0-9_-]+)"\s*,\s*\[', text):
+                depth, end = 0, None
+                for i in range(match.end() - 1, len(text)):
+                    if text[i] == "[":
+                        depth += 1
+                    elif text[i] == "]":
+                        depth -= 1
+                        if depth == 0:
+                            end = i
+                            break
+                self.assertIsNotNone(end, f"{path.name}: unbalanced style array")
+                if not text[end:end + 12].lstrip("]").lstrip().startswith(".join"):
+                    bad.append(f"{path.name}: style.once(\"{match.group(1)}\", [...]) without .join(\"\")")
+        self.assertEqual(bad, [], "an array reaches style.once comma-joined and the CSS does not parse")
+
     def test_registered_ids_are_unique(self):
         ids = re.findall(r"id:\s*[\"']([a-z0-9-]+)[\"']", self.page)
         registered = [i for i in ids if i]

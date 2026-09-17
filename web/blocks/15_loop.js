@@ -19,7 +19,7 @@
   if (!AgentDiff) return;
   var d3 = global.d3;
   var L = AgentDiff.lib;
-  var isNum = L.fmt.isNum, pct = L.fmt.pct;
+  var isNum = L.fmt.isNum, pct = L.fmt.pct, plural = L.fmt.plural;
 
   function ensureStyle() {
     L.style.once("loop", [
@@ -72,7 +72,11 @@
       ".lp-table th,.lp-table td{text-align:left;padding:3px 10px 3px 0;border-top:1px solid var(--rule);color:var(--ink-2)}",
       ".lp-table th{font-weight:500;color:var(--ink-3);border-top:0}",
       ".lp-steps{list-style:none;margin:8px 0 0;padding:0;font-size:var(--fs-s)}",
-      ".lp-steps li{padding:7px 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:6.5em 1fr;gap:10px;align-items:start}",
+      // `>` and not a descendant selector: the scaffold fold nests its own
+      // list inside a ledger row, and a bare `.lp-steps li` turned every one
+      // of those into a 6.5em/1fr grid, wrapping each label into a column
+      // three words wide
+      ".lp-steps > li{padding:7px 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:6.5em 1fr;gap:10px;align-items:start}",
       ".lp-steps .n{font-family:var(--mono);font-size:var(--fs-xs);color:var(--ink-3)}.lp-steps .n b{display:block;color:var(--ink)}",
       ".lp-steps .stats{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:3px}",
       ".lp-steps .chip{font-family:var(--mono);font-size:var(--fs-xs);color:var(--ink-2);background:var(--surface-2);border-radius:9px;padding:1px 7px;font-variant-numeric:tabular-nums}",
@@ -455,7 +459,9 @@
         var ties = keys.filter(function (f) { return fams[f].tie; }).length;
         stats.appendChild(H("span", { class: "chip", text: clear + "/" + keys.length + " clear" + (ties ? " · " + ties + " tie" + (ties === 1 ? "" : "s") : "") }));
         if (it.paired && isNum(it.paired.diff)) stats.appendChild(H("span", { class: "chip", text: "Δ " + signed(it.paired.diff) + (it.paired.ci95 ? " [" + signed(it.paired.ci95[0]) + ", " + signed(it.paired.ci95[1]) + "]" : "") + " p " + pfmt(it.paired.sign_test_p) }));
-        if (it.suggestions_added) stats.appendChild(H("span", { class: "chip", text: it.suggestions_added + " hypothesis" + (it.suggestions_added === 1 ? "" : "es") + " queued" }));
+        // `"hypothesis" + "es"` is "hypothesises"; the irregular plural is
+        // given, which is what `plural`'s third argument is for
+        if (it.suggestions_added) stats.appendChild(H("span", { class: "chip", text: plural(it.suggestions_added, "hypothesis", "hypotheses") + " queued" }));
         // the scaffold actuator's two lists.  The second is the longer one
         // and is the finding: a recommendation no knob reaches is not a
         // silence, it is a counted refusal with its reason.
