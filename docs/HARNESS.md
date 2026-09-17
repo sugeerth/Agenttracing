@@ -280,6 +280,37 @@ Note what stayed out. `too_many_errors` is deliberately **not** in
 when to stop counting them was the loop's. It raises the tool-error cap
 and never the step cap.
 
+### The claim about the whole vocabulary, checked rather than written
+
+The table above — nineteen categories, eleven of them the scaffold — was
+prose. Prose goes out of date and nothing notices.
+
+`scaffold.reach()` is that table computed, and computed *from the rules
+themselves*: which knob reaches which category is derived from the same
+tuples the rules dispatch on, so the map cannot drift from what the
+actuator will really propose. Two tests hold it there — every category it
+calls reachable must really produce a proposal, and every one it calls
+unreachable must really end in `unactionable`.
+
+On this harness it reads:
+
+> Of 19 categories the engine can recommend, 8 can be expressed in a knob
+> this harness has, 4 are prompt-shaped and go to the prompt loop, 4 are
+> investigations rather than changes, and **3 name the scaffold with
+> nothing here that reaches them.** That last number is the honest one: it
+> is what this harness cannot try, however the findings fall on any
+> particular batch.
+
+The three are `efficiency`, `parallel_reads` and `prompt_cache`.
+
+`hn-reach` draws it: one cell per category, grouped by where the fix
+lives, **equal area each**, so a class's area is its share of the
+vocabulary rather than its importance. The three that nothing reaches are
+the only outlined cells, because they are the finding. A category this
+loop actually met carries a dot, and that tally is `scaffold.seen_in`'s —
+the page does no arithmetic, so a count it computed would be a number with
+no reading behind it and nothing to check it against.
+
 ### The refusals are on the page, not only in the JSON
 
 The loop block's ledger gains one fold per comparison: *the scaffold — N

@@ -35,7 +35,7 @@ from ..feedback import feedback_signal
 from ..planner import _tool_name
 from ..planner import (TIE_RUNS, add_candidates, add_scaffold_candidates, apply_decision, decide_change,
                        decide_prompt, new_state, plan, summarise)
-from ..scaffold import apply_change as apply_scaffold_change, describe as describe_scaffold, hypotheses
+from ..scaffold import apply_change as apply_scaffold_change, describe as describe_scaffold, hypotheses, reach as scaffold_reach, seen_in as scaffold_seen
 from ..report import render_html
 from ..router import family_of
 from ..statistics import wilson_interval
@@ -481,6 +481,11 @@ class Loop:
                            "tasks": len(self.tasks), "agents": self.state["agents"],
                            "prompt_tunable": sorted(self.state["prompts"]), "base_prompt": self.base_prompt},
                 "state": self.state, "summary": summarise(self.state),
+                # what this harness can act on at all, over the engine's whole
+                # recommendation vocabulary rather than over whatever this
+                # batch turned up.  Written once because it is a property of
+                # the harness, not of a comparison.
+                "reach": dict(scaffold_reach(), seen=scaffold_seen(self.state.get("iterations"))),
                 "pools": {a: [list(e) for e in v] for a, v in self.pool.items()}, "offsets": self.offset,
                 "note": ("every decision is a rule over the engine's numbers (planner.py); no model is in the "
                          "control path. A kept prompt change is a paired result over the runs listed, not a proof; "

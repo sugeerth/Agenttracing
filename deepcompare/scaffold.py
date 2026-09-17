@@ -509,6 +509,93 @@ def _recovery_rule(budget: dict, keep, from_tasks: list, category: str,
     return None
 
 
+#: which knob each rule above can express a finding in.  Derived from the
+#: rule constants themselves rather than written out again, so the map a
+#: reader is shown cannot drift from the rules a hypothesis goes through.
+def _rule_knobs() -> dict:
+    out: dict = {}
+    for category in _CACHE_CATEGORIES:
+        out[category] = "budget: dedupe_tool_calls"
+    for category in _GATE_CATEGORIES:
+        out[category] = "budget: require_before_answer"
+    for category in _SAFETY_CATEGORIES:
+        out[category] = "budget: require_read_before_write"
+    for category in _RECOVERY_CATEGORIES:
+        out[category] = "budget: max_tool_errors"
+    return out
+
+
+def reach() -> dict:
+    """Every category the engine can recommend, and whether this harness
+    can act on it at all.
+
+    The module's central claim is that a hypothesis the runner cannot
+    express is not a hypothesis. That claim is about *the whole
+    vocabulary*, not about whatever a particular batch happened to turn
+    up, and until now it could only be read as a table in the docs — which
+    is to say it could go out of date without anything noticing.
+
+    Four verdicts, and the third is the one that matters:
+
+    ``knob``          a rule here can express it, and in which knob
+    ``prompt``        prompt-shaped; the loop already tests these
+    ``no knob``       the scaffold, and nothing this harness varies reaches it
+    ``investigation`` not a change at all until someone looks
+
+    Returns ``{"rows", "counts", "reading"}``; the rows are sorted by
+    effort class then category so the order is the vocabulary's and not
+    a dict's.
+    """
+    knobs = _rule_knobs()
+    rows, counts = [], {"knob": 0, "prompt": 0, "no knob": 0, "investigation": 0}
+    for category, (effort, detail) in EFFORT.items():
+        where = WHERE.get(effort)
+        if where == "reasoning":
+            verdict, knob = "prompt", None
+        elif where is None:
+            verdict, knob = "investigation", None
+        elif category in knobs:
+            verdict, knob = "knob", knobs[category]
+        elif effort in _TOOL_CLASSES:
+            verdict, knob = "knob", "tools: withdraw a tool"
+        else:
+            verdict, knob = "no knob", None
+        counts[verdict] += 1
+        rows.append({"category": category, "effort": effort, "detail": detail,
+                     "verdict": verdict, "knob": knob})
+    rows.sort(key=lambda r: (r["effort"], r["category"]))
+    total = len(rows)
+    return {"version": VERSION, "rows": rows, "counts": counts, "total": total,
+             "knobs": dict(KNOBS), "budget_knobs": dict(BUDGET_KNOBS),
+             "reading": (
+                 f"Of {plural(total, 'category', 'categories')} the engine can recommend, "
+                 f"{counts['knob']} can be expressed in a knob this harness has, {counts['prompt']} are "
+                 f"prompt-shaped and go to the prompt loop, {counts['investigation']} are investigations rather "
+                 f"than changes, and {counts['no knob']} name the scaffold with nothing here that reaches them. "
+                 f"That last number is the honest one: it is what this harness cannot try, however the findings "
+                 f"fall on any particular batch.")}
+
+
+def seen_in(iterations) -> dict:
+    """``{category: {"proposed", "unactionable"}}`` over a loop's own
+    comparisons.
+
+    The tally lives here and not on the page because the page does not do
+    arithmetic: a count it computed would be a number with no reading
+    behind it, and nothing to check it against.
+    """
+    out: dict = {}
+    for it in iterations or []:
+        for side in ((it or {}).get("scaffold") or {}).values():
+            for key in ("proposed", "unactionable"):
+                for row in (side or {}).get(key) or []:
+                    category = str((row or {}).get("category") or "")
+                    if not category:
+                        continue
+                    out.setdefault(category, {"proposed": 0, "unactionable": 0})[key] += 1
+    return dict(sorted(out.items()))
+
+
 def reading(proposed: list, unactionable: list, skipped: list) -> str:
     """One sentence on what the engine asked for and what could be tried."""
     if not proposed and not unactionable:
@@ -578,6 +665,6 @@ def describe(change: dict) -> str:
     return join_names(bits) or "no change"
 
 
-__all__ = ["VERSION", "WHERE", "KNOBS", "BUDGET_KNOBS", "MIN_CALLS", "CAP_SHARE",
-           "CAP_STEP", "ERROR_SHARE", "DEFAULT_TOOL_ERRORS",
+__all__ = ["VERSION", "WHERE", "KNOBS", "BUDGET_KNOBS", "MIN_CALLS", "CAP_SHARE", "reach",
+           "CAP_STEP", "ERROR_SHARE", "DEFAULT_TOOL_ERRORS", "seen_in",
            "hypotheses", "reading", "apply_change", "describe"]

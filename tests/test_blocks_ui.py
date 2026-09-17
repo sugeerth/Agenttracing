@@ -11968,3 +11968,154 @@ class HarnessBlocksTest(unittest.TestCase):
                 self.assertGreater(page.locator(f'#stacks [data-block="{bid}"]').count(), 0, f"{bid} at {width}")
             self.assertEqual(errors, [], str(width))
             context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class HarnessReachTest(unittest.TestCase):
+    """`hn-reach` (42_reach.js): what this harness can act on, over the
+    engine's whole recommendation vocabulary.
+
+    The actuator's claim — a hypothesis the runner cannot express is not a
+    hypothesis — is about every category `triage.EFFORT` can produce, not
+    about whichever findings a batch turned up. The block draws all of them
+    as equal-area cells grouped by where the fix lives, so a class's area is
+    its share of the vocabulary, and outlines the ones nothing reaches.
+
+    Every value is `scaffold.reach()`'s, including the sentence: the page
+    does no arithmetic, so even the per-category tally of what this loop
+    met comes from `scaffold.seen_in`.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        sys.path.insert(0, str(ROOT / "tests"))
+        from helpers_loop import run_demo_loop
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "loop"
+        cls.ledger = run_demo_loop(out, template=ROOT / "web" / "blocks.html")
+        cls.reach = cls.ledger["reach"]
+        cls.page = out / "report.html"
+        if not cls.page.is_file():
+            raise unittest.SkipTest("the loop wrote no page")
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _open(self, width=1440):
+        ctx = self.browser.new_context(viewport={"width": width, "height": 1100})
+        page = ctx.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.type + ": " + m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.page}#view=batch")
+        page.wait_for_timeout(1500)
+        blk = page.locator('.block[data-block="hn-reach"]')
+        if blk.count() and "collapsed" in (blk.first.get_attribute("class") or ""):
+            blk.first.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(900)
+        return ctx, page, errors, blk
+
+    def test_the_engine_places_every_category_and_the_block_draws_every_one(self):
+        self.assertEqual(len(self.reach["rows"]), self.reach["total"])
+        ctx, page, errors, blk = self._open()
+        drawn = page.evaluate("""() => Array.from(document.querySelectorAll('[data-block="hn-reach"] .rch-cell'))
+            .map(e => e.getAttribute('data-category'))""")
+        self.assertEqual(sorted(drawn), sorted(r["category"] for r in self.reach["rows"]))
+        self.assertEqual(errors, [])
+        ctx.close()
+
+    def test_the_cells_nothing_reaches_are_the_outlined_ones(self):
+        """The finding is drawn as the only outlined kind, so the eye lands
+        on what this harness cannot try."""
+        ctx, page, errors, blk = self._open()
+        outlined = page.evaluate("""() => Array.from(document.querySelectorAll('[data-block="hn-reach"] .rch-cell.out'))
+            .map(e => e.getAttribute('data-category')).sort()""")
+        want = sorted(r["category"] for r in self.reach["rows"] if r["verdict"] == "no knob")
+        self.assertEqual(outlined, want)
+        self.assertEqual(len(outlined), self.reach["counts"]["no knob"])
+        self.assertEqual(errors, [])
+        ctx.close()
+
+    def test_the_sentence_and_the_counts_are_the_engines(self):
+        ctx, page, errors, blk = self._open()
+        self.assertIn(self.reach["reading"], blk.first.text_content())
+        legend = blk.first.locator(".rch-legend").text_content()
+        for verdict, n in self.reach["counts"].items():
+            if n:
+                self.assertIn("· " + str(n), legend, f"{verdict} count missing from the legend")
+        self.assertEqual(errors, [])
+        ctx.close()
+
+    def test_the_table_carries_every_row_with_the_knob_that_reaches_it(self):
+        ctx, page, errors, blk = self._open()
+        blk.first.locator("details").first.click()
+        page.wait_for_timeout(300)
+        rows = page.evaluate("""() => Array.from(document.querySelectorAll('[data-block="hn-reach"] .rch-tbl tr[data-category]'))
+            .map(r => [r.getAttribute('data-category'), r.children[3].textContent.trim()])""")
+        want = [[r["category"], r["knob"] or "—"] for r in self.reach["rows"]]
+        self.assertEqual(rows, want)
+        self.assertEqual(errors, [])
+        ctx.close()
+
+    def test_a_category_this_loop_met_is_marked_and_the_tally_is_the_engines(self):
+        """The page does no arithmetic: the counts come from
+        `scaffold.seen_in`, computed over the loop's own comparisons."""
+        seen = self.reach.get("seen") or {}
+        if not seen:
+            self.skipTest("the demo loop produced no scaffold findings to mark")
+        ctx, page, errors, blk = self._open()
+        blk.first.locator("details").first.click()
+        page.wait_for_timeout(300)
+        for category, tally in seen.items():
+            cell = page.locator(f'[data-block="hn-reach"] .rch-cell[data-category="{category}"]')
+            self.assertEqual(cell.locator("circle").count(), 1, f"{category} was met and carries no mark")
+            row = page.locator(f'[data-block="hn-reach"] .rch-tbl tr[data-category="{category}"]')
+            text = row.text_content()
+            self.assertIn(f"{tally['proposed']} proposed", text)
+            self.assertIn(f"{tally['unactionable']} refused", text)
+        unmet = [r["category"] for r in self.reach["rows"] if r["category"] not in seen]
+        for category in unmet[:4]:
+            cell = page.locator(f'[data-block="hn-reach"] .rch-cell[data-category="{category}"]')
+            self.assertEqual(cell.locator("circle").count(), 0, f"{category} was never met and is marked")
+        self.assertEqual(errors, [])
+        ctx.close()
+
+    def test_it_fits_a_phone_with_nothing_under_eleven_pixels(self):
+        """The page's floor is 11px for prose. Chart labels inside an `svg`
+        are exempt here as everywhere else on the page — the axis text of
+        every other block is 10.5px — so the walk skips them rather than
+        holding this block to a rule nothing else keeps."""
+        for width in (390, 360):
+            ctx, page, errors, blk = self._open(width)
+            self.assertGreater(blk.count(), 0, str(width))
+            tiny = page.evaluate(r"""() => {
+              const card = document.querySelector('[data-block="hn-reach"]');
+              const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
+              const out = []; let node;
+              while ((node = walker.nextNode())) {
+                if (!node.textContent.trim()) continue;
+                const el = node.parentElement; if (!el || el.closest('svg')) continue;
+                if (parseFloat(getComputedStyle(el).fontSize) < 11) out.push(node.textContent.trim().slice(0, 40));
+              }
+              return out;
+            }""")
+            self.assertEqual(tiny, [], str(width))
+            # and the chart itself must not spill out of a phone
+            box = blk.first.locator(".rch-chart svg").bounding_box()
+            self.assertLessEqual(round(box["x"] + box["width"]), width + 1, str(width))
+            self.assertEqual(errors, [], str(width))
+            ctx.close()

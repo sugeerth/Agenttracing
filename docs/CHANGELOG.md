@@ -5,6 +5,38 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## What this harness can act on, as a picture (`aggregate.loop.reach`)
+
+**The module's claim was prose.** A hypothesis the runner cannot express
+is not a hypothesis — and that is a claim about every category
+`triage.EFFORT` can produce, not about whichever findings a batch turned
+up. It could only be read as a table in `docs/HARNESS.md`, which is to say
+it could go out of date with nothing noticing.
+
+`scaffold.reach()` computes it, and computes it **from the rules
+themselves**: which knob reaches which category is derived from the same
+tuples the rules dispatch on, so the map cannot drift from what the
+actuator will really propose. Two tests hold it there — every category it
+calls reachable must really produce a proposal, and every one it calls
+unreachable must really end in `unactionable`. On this harness: 19
+categories, 8 reachable by a knob, 4 prompt-shaped, 4 investigations, and
+3 (`efficiency`, `parallel_reads`, `prompt_cache`) that name the scaffold
+with nothing here that reaches them.
+
+**`hn-reach` (`web/blocks/42_reach.js`)** draws all nineteen as equal-area
+cells grouped by where the fix lives, so a class's area is its share of the
+vocabulary rather than its importance. The three nothing reaches are the
+only outlined cells, because they are the finding. A category this loop met
+carries a dot, and that tally is `scaffold.seen_in`'s — the page does no
+arithmetic, so a count it computed would be a number with no reading
+behind it and nothing to check it against.
+
+Two defects found by looking at it rather than by testing it: the block
+took `(ctx, root, H)` where the API is `(el, ctx)` with `H = ctx.h`, and
+`layout.responsive` calls back with no arguments, so a width parameter
+arrived undefined and reached the viewBox as `NaN`. Both were invisible
+until the page was opened.
+
 ## The harness's own steps, marked as the harness's (step field `scaffold`)
 
 **Three of the loop's settings act on individual steps** — a read served

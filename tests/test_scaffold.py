@@ -209,6 +209,80 @@ class HypothesesTest(unittest.TestCase):
 
 
 
+class ReachTest(unittest.TestCase):
+    """The claim about the whole vocabulary, checked rather than written.
+
+    The module's central claim — a hypothesis the runner cannot express is
+    not a hypothesis — is about every category the engine can recommend,
+    not about whatever a batch happened to turn up. Until `reach()` it
+    could only be read as a table in the docs, which is to say it could go
+    out of date with nothing noticing.
+
+    These tests exist so the map cannot drift from the rules: every
+    category `reach()` calls reachable must really be proposable, and every
+    one it calls unreachable must really end in `unactionable`.
+    """
+
+    def test_every_category_the_engine_can_recommend_is_placed_exactly_once(self):
+        got = S.reach()
+        self.assertEqual(len(got["rows"]), len(EFFORT))
+        self.assertEqual(sorted(r["category"] for r in got["rows"]), sorted(EFFORT))
+        self.assertEqual(sum(got["counts"].values()), len(EFFORT))
+        self.assertEqual([r["category"] for r in got["rows"]],
+                         [r["category"] for r in sorted(got["rows"], key=lambda r: (r["effort"], r["category"]))],
+                         "the order is the vocabulary's, not a dict's")
+
+    def test_a_category_called_reachable_really_is_proposable(self):
+        """The anti-drift half that matters. A map saying `safety` is
+        reachable while no rule proposes for it would be a claim about this
+        harness that this harness does not honour."""
+        tools = [{"name": "grep", "effect": "read"}, {"name": "web", "effect": "read"},
+                 {"name": "run_check", "effect": "read"}, {"name": "ship", "effect": "write"}]
+        for row in S.reach()["rows"]:
+            if row["verdict"] != "knob":
+                continue
+            with self.subTest(category=row["category"]):
+                # each rule's evidence, given so the guard can clear: a tool
+                # quoted for the tool-schema and gate rules, a termination
+                # for recovery
+                action = _action(row["category"], details=['at "web"', 'missing "run_check"'])
+                got = S.hypotheses(_agg([action]), "a", tools=tools, budget={},
+                                   terminations={"too_many_errors": 6, "agent_stop": 4},
+                                   calls={"web": 9, "run_check": 5})
+                kinds = [p["kind"] for p in got["proposed"]]
+                self.assertTrue(kinds, f"{row['category']} is mapped to {row['knob']} and proposed nothing")
+                self.assertIn(row["knob"].split(": ")[0], [p["knob"] for p in got["proposed"]])
+
+    def test_a_category_called_unreachable_really_reaches_no_knob(self):
+        tools = [{"name": "grep", "effect": "read"}, {"name": "ship", "effect": "write"}]
+        for row in S.reach()["rows"]:
+            if row["verdict"] != "no knob":
+                continue
+            with self.subTest(category=row["category"]):
+                got = S.hypotheses(_agg([_action(row["category"], details=['at "grep"'])]), "a",
+                                   tools=tools, budget={}, calls={"grep": 9})
+                self.assertEqual(got["proposed"], [],
+                                 f"{row['category']} is mapped as unreachable and proposed something")
+                self.assertIn("varies only", got["unactionable"][0]["reason"])
+
+    def test_prompt_and_investigation_are_skipped_not_refused(self):
+        for row in S.reach()["rows"]:
+            if row["verdict"] not in ("prompt", "investigation"):
+                continue
+            with self.subTest(category=row["category"]):
+                got = S.hypotheses(_agg([_action(row["category"])]), "a", tools=TOOLS)
+                self.assertEqual((got["proposed"], got["unactionable"]), ([], []))
+                self.assertEqual(len(got["skipped"]), 1)
+
+    def test_the_reading_counts_what_the_rows_say(self):
+        got = S.reach()
+        for verdict, n in got["counts"].items():
+            self.assertEqual(n, len([r for r in got["rows"] if r["verdict"] == verdict]))
+        self.assertIn(f"Of {len(EFFORT)} categories", got["reading"])
+        self.assertIn(f"{got['counts']['no knob']} name the scaffold", got["reading"])
+        self.assertNotIn("categorys", got["reading"])
+
+
 class BudgetKnobTest(unittest.TestCase):
     """The three settings the loop grew, and the guards that decide when a
     recommendation reaches one.
