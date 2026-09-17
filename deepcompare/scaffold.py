@@ -43,17 +43,22 @@ triage actions the engine already produced and returns two lists:
     reason no knob reaches it. This list is not a failure of the module;
     it is the finding, and it is still the longer of the two.
 
-Four settings inside ``budget`` are read by the loop
+Five settings inside ``budget`` are read by the loop
 (:data:`BUDGET_KNOBS`), and each was added to answer a recommendation
 class this module had to refuse:
 
-===========================  ======================================
-``max_steps``                the harness stopping runs (terminations)
-``max_tool_errors``          ``recovery`` (control-flow)
-``dedupe_tool_calls``        ``result_cache`` (infrastructure)
-``require_before_answer``    ``verification``, ``calibration``
-                             (architecture)
-===========================  ======================================
+=============================  ====================================
+``max_steps``                  the harness stopping runs (terminations)
+``max_tool_errors``            ``recovery`` (control-flow)
+``dedupe_tool_calls``          ``result_cache`` (infrastructure)
+``require_before_answer``      ``verification``, ``calibration``
+                               (architecture)
+``require_read_before_write``  ``safety`` (architecture)
+=============================  ====================================
+
+With the last of them the whole ``architecture`` class is reachable.
+Most of its findings are still unactionable — but with the sentence
+their own guard wrote.
 
 Each rule is guarded by what the traces actually say, and a guard that
 does not clear puts the finding in ``unactionable`` with the specific
@@ -107,6 +112,7 @@ BUDGET_KNOBS: dict = {
     "max_tool_errors": "how many failed tool calls end the run",
     "dedupe_tool_calls": "identical read-only calls served from a harness cache",
     "require_before_answer": "a tool the run must call before it may answer",
+    "require_read_before_write": "the first write is refused until something has been read",
 }
 
 #: effort classes whose findings point at the tool table
@@ -125,6 +131,8 @@ _CACHE_CATEGORIES = ("result_cache",)
 _GATE_CATEGORIES = ("verification", "calibration")
 #: categories about error handling around a tool call
 _RECOVERY_CATEGORIES = ("recovery",)
+#: categories whose fix is "read the state before you change it"
+_SAFETY_CATEGORIES = ("safety",)
 #: a tool named in a finding is only withdrawn when the agent leaned on it
 MIN_CALLS = 3
 #: raise the cap by this much of itself when runs are hitting it
@@ -287,6 +295,15 @@ def hypotheses(aggregate: dict, agent: str, *, tools=(), budget=None,
                 unactionable.append({**row, "reason": reason})
             continue
 
+        # "read before you write" is a gate the loop can enforce, but only
+        # where the experiment that follows could see it
+        if category in _SAFETY_CATEGORIES:
+            reason = not_enforced if not enforces_budget else _safety_rule(
+                budget, effects, action, keep, from_tasks, category, effort)
+            if reason:
+                unactionable.append({**row, "reason": reason})
+            continue
+
         # error handling around a tool call: the loop owns exactly one
         # number here, and it only matters if it is what ended the runs
         if category in _RECOVERY_CATEGORIES:
@@ -405,6 +422,59 @@ def _gate_rule(budget: dict, effects: dict, action: dict, keep,
     return None
 
 
+def _safety_rule(budget: dict, effects: dict, action: dict, keep,
+                 from_tasks: list, category: str, effort: str) -> Optional[str]:
+    """``require_read_before_write``: the first write is refused until
+    something has been read.
+
+    Four guards, and the fourth is the one worth reading.
+
+    A gate needs something to gate (a write-declared tool) and something
+    that can satisfy it (a read-declared tool): a gate the agent could
+    never clear would refuse one write and buy nothing.
+
+    And then the honest one. This loop decides every hypothesis by the
+    outcome its grader measures. A gate that stops a state change buys
+    safety, which the grader may not read at all — so when the finding
+    sits only on runs that *passed*, the experiment cannot see the
+    change, and would revert it for showing no difference. That is not a
+    reason to pretend it is untestable here; it is a reason to say which
+    reading is missing. The gap is in the eval, and naming it is more
+    use than turning a knob whose effect nothing would score.
+    """
+    if budget.get("require_read_before_write"):
+        return ("the harness already refuses a write before a read, so this finding is about writes the "
+                "gate has already let through")
+    writes = sorted(n for n, e in (effects or {}).items() if e and str(e).startswith("write"))
+    if not writes:
+        return ("a read-before-write gate is a knob this harness has, but no tool on offer declares a write "
+                "effect, so there is nothing for it to hold back")
+    if not _read_only(effects):
+        return ("a read-before-write gate is a knob this harness has, but no tool on offer declares a read "
+                "effect, so the agent could never clear the gate and it would refuse one write and buy "
+                "nothing")
+    passing = {str(t) for t in (action.get("on_passing_runs") or [])}
+    if from_tasks and passing >= set(from_tasks):
+        return ("a read-before-write gate is a knob this harness has, but every task this finding names also "
+                "passed: the gate protects the state and this loop decides by the outcome the grader "
+                "measures, so the experiment would see no difference and revert it. The missing reading is "
+                "the eval's, not the harness's")
+    keep({
+        "kind": "require_read_before_write", "knob": "budget",
+        "change": {"budget": {"require_read_before_write": True}},
+        "category": category, "effort": effort, "source": "triage",
+        "from_tasks": from_tasks,
+        "why": (f"{action.get('title')} — an {effort} finding over {plural(len(from_tasks), 'task')}. "
+                f"The loop can refuse the first write until something has been read, so the hypothesis is "
+                f"testable: gate {join_names(writes)} and see whether the outcome moves. The refusal happens "
+                f"once and then the gate is spent, and the held call stays on the trace as an errored write "
+                f"— the agent did attempt it. Note what this does not do: it protects the state, it does not "
+                f"teach the agent to look first, and writes_before_any_read will go on reporting the "
+                f"attempt. A win here is the scaffold's, and it is the kind that does not travel."),
+    })
+    return None
+
+
 def _recovery_rule(budget: dict, keep, from_tasks: list, category: str,
                    effort: str, total: int, errored: int) -> Optional[str]:
     """``max_tool_errors``: how many failed calls end the run.
@@ -498,6 +568,9 @@ def describe(change: dict) -> str:
                         if v else "stop caching identical calls")
         elif k == "require_before_answer":
             bits.append(f"require {v} before an answer" if v else "drop the answer gate")
+        elif k == "require_read_before_write":
+            bits.append("refuse the first write until something has been read"
+                        if v else "stop gating the first write")
         else:
             bits.append(f"set {k} to {v}")
     return join_names(bits) or "no change"

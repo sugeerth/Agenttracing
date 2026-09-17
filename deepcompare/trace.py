@@ -32,7 +32,7 @@ EFFECTS = ("read", "write")
 #: a budget that accepts any string for any key stops being a contract.
 #: `deepcompare.harness.agent` reads these; `deepcompare.scaffold` proposes
 #: them.
-BUDGET_FLAGS = ("dedupe_tool_calls",)
+BUDGET_FLAGS = ("dedupe_tool_calls", "require_read_before_write")
 BUDGET_NAMES = ("require_before_answer",)
 
 

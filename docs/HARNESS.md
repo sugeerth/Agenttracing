@@ -213,6 +213,12 @@ settings a run obeyed are **on its trace** and inside its fingerprint:
 | `max_tool_errors` | `recovery` (control-flow) | how many failed calls end the run; it was hardcoded at three, a setting nothing could vary and no trace recorded |
 | `dedupe_tool_calls` | `result_cache` (infrastructure) | serves an identical repeat from a harness cache — literally the engine's own fix, *same call, same result, paid for twice* |
 | `require_before_answer` | `verification`, `calibration` (architecture) | holds an answer back until a named tool has been called |
+| `require_read_before_write` | `safety` (architecture) | refuses the first write until something has been read |
+
+With the fourth, the whole `architecture` class is reachable: `safety`,
+`verification` and `calibration` are all of it, and each now has a rule.
+Most of their findings are still unactionable — but with the sentence
+their own guard wrote, never the one that says the class has no knob.
 
 Three details are the difference between a knob and a shortcut.
 
@@ -228,9 +234,11 @@ re-executed"`. The agent did make the call; what changed is only what the
 harness paid for it, and a reading that lost the repeat would lose the
 finding that motivated the change.
 
-**The gate pushes back once.** It states the reason, and then the second
-answer stands however it comes — including wrong. A harness that refuses
-until it gets what it wants is not measuring an agent, it is writing one.
+**The gates push back once.** Each states the reason, and then gets out of
+the way — the second answer stands however it comes, including wrong, and
+the second write goes through whether or not anything was read. A harness
+that refuses until it gets what it wants is not measuring an agent, it is
+writing one.
 
 The push-back spends a provider turn, out of the same `max_steps` both
 sides of the experiment run under. So a run that would have answered on
@@ -285,6 +293,33 @@ is that a hypothesis the runner cannot express should be counted rather
 than quietly dropped — which is not true of a count nobody sees. An agent
 with nothing on either list is left out: "no scaffold recommendation" is
 not a finding about the actuator.
+
+### The write gate protects the state, and says that is all it does
+
+A held write stays on the trace as an **errored write**, and
+`process.side_effects` goes on counting it in `writes_before_any_read`.
+That is deliberate, and it is the part worth stating plainly: the agent
+did attempt a blind write, and the gate did not teach it to look first.
+It stopped the state change. Those are two different claims, and a gate
+that quietly removed the attempt from the record would be answering the
+finding by editing the evidence for it.
+
+Which raises the guard that matters most on this rule. The loop decides
+every hypothesis by the outcome its grader measures, and a gate that
+protects state buys nothing the grader reads. So when a `safety` finding
+sits **only on runs that passed**, the experiment cannot see the change
+and would revert it for showing no difference — and the module says so
+rather than proposing it:
+
+> a read-before-write gate is a knob this harness has, but every task this
+> finding names also passed: the gate protects the state and this loop
+> decides by the outcome the grader measures, so the experiment would see
+> no difference and revert it. **The missing reading is the eval's, not the
+> harness's.**
+
+That is the more useful finding. Turning a knob whose effect nothing would
+score is not a test; naming the reading the eval is missing is something
+`coevolve` can act on.
 
 ### An agent that runs its own loop gets no budget hypothesis
 

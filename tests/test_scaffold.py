@@ -56,6 +56,7 @@ def _agg(actions):
 
 TOOLS = [{"name": "grep"}, {"name": "web"}, {"name": "run_check"}]
 READ_TOOLS = [{"name": "grep", "effect": "read"}, {"name": "web", "effect": "read"}]
+WRITE_TOOLS = READ_TOOLS + [{"name": "ship", "effect": "write"}]
 
 
 class VocabularyTest(unittest.TestCase):
@@ -120,13 +121,26 @@ class HypothesesTest(unittest.TestCase):
     def test_a_scaffold_finding_with_no_knob_is_counted_not_dropped(self):
         """The list that is the finding: the engine asks for a change and
         this harness has nowhere to put it."""
-        got = S.hypotheses(_agg([_action("safety"), _action("parallel_reads"), _action("prompt_cache")]),
+        got = S.hypotheses(_agg([_action("efficiency"), _action("parallel_reads"), _action("prompt_cache")]),
                            "a", tools=TOOLS)
         self.assertEqual(got["proposed"], [])
         self.assertEqual(len(got["unactionable"]), 3)
         for row in got["unactionable"]:
             self.assertIn("varies only", row["reason"])
-            self.assertIn(row["effort"], ("architecture", "infrastructure", "control-flow"))
+            self.assertIn(row["effort"], ("infrastructure", "control-flow"))
+
+    def test_the_generic_refusal_no_longer_reaches_any_architecture_finding(self):
+        """`safety`, `verification` and `calibration` are the whole of the
+        architecture class, and each now has a rule with its own guard. A
+        finding there may still be unactionable — usually is — but it gets
+        the sentence its own guard wrote, never the one that says this
+        harness has no knob for the class at all."""
+        architecture = [c for c, v in EFFORT.items() if v[0] == "architecture"]
+        self.assertEqual(sorted(architecture), ["calibration", "safety", "verification"])
+        got = S.hypotheses(_agg([_action(c) for c in architecture]), "a", tools=TOOLS)
+        self.assertEqual(len(got["unactionable"]), len(architecture))
+        for row in got["unactionable"]:
+            self.assertNotIn("varies only", row["reason"])
 
     def test_a_knob_that_exists_but_has_no_evidence_gives_its_own_reason(self):
         """The three categories the loop grew knobs for do not fall back to
@@ -256,6 +270,52 @@ class BudgetKnobTest(unittest.TestCase):
         self.assertEqual(got["proposed"], [])
         self.assertIn("already requires 'run_check'", got["unactionable"][0]["reason"])
 
+    def test_a_safety_finding_becomes_the_read_before_write_gate(self):
+        got = S.hypotheses(_agg([_action("safety", tasks=("t1", "t2"))]), "a", tools=WRITE_TOOLS)
+        self.assertEqual(len(got["proposed"]), 1)
+        prop = got["proposed"][0]
+        self.assertEqual(prop["kind"], "require_read_before_write")
+        self.assertEqual(prop["change"], {"budget": {"require_read_before_write": True}})
+        self.assertIn("it protects the state, it does not teach the agent to look first", prop["why"])
+        self.assertIn("writes_before_any_read will go on reporting the attempt", prop["why"])
+
+    def test_a_gate_with_nothing_to_hold_or_nothing_to_clear_it_is_not_offered(self):
+        """Both halves have to exist. Without a write there is nothing to
+        hold back; without a read the agent could never clear the gate, so
+        it would refuse one write and buy nothing."""
+        no_write = S.hypotheses(_agg([_action("safety")]), "a", tools=READ_TOOLS)
+        self.assertEqual(no_write["proposed"], [])
+        self.assertIn("no tool on offer declares a write effect", no_write["unactionable"][0]["reason"])
+        no_read = S.hypotheses(_agg([_action("safety")]), "a",
+                               tools=[{"name": "ship", "effect": "write"}])
+        self.assertEqual(no_read["proposed"], [])
+        self.assertIn("could never clear the gate", no_read["unactionable"][0]["reason"])
+
+    def test_a_gate_the_experiment_could_not_see_names_the_eval_gap_instead(self):
+        """The guard worth reading. This loop decides by the outcome its
+        grader measures, and a gate that protects state buys nothing the
+        grader reads — so on a finding confined to runs that passed, the
+        experiment would see no difference and revert it. The honest answer
+        is to say which reading is missing rather than turn a knob nothing
+        would score."""
+        action = _action("safety", tasks=("t1", "t2"))
+        action["on_passing_runs"] = ["t1", "t2"]
+        got = S.hypotheses(_agg([action]), "a", tools=WRITE_TOOLS)
+        self.assertEqual(got["proposed"], [])
+        reason = got["unactionable"][0]["reason"]
+        self.assertIn("every task this finding names also passed", reason)
+        self.assertIn("The missing reading is the eval's, not the harness's", reason)
+        # one failing task among them and it is testable again
+        action["on_passing_runs"] = ["t1"]
+        self.assertEqual([p["kind"] for p in S.hypotheses(_agg([action]), "a", tools=WRITE_TOOLS)["proposed"]],
+                         ["require_read_before_write"])
+
+    def test_a_write_gate_already_in_force_is_not_proposed_again(self):
+        got = S.hypotheses(_agg([_action("safety")]), "a", tools=WRITE_TOOLS,
+                           budget={"require_read_before_write": True})
+        self.assertEqual(got["proposed"], [])
+        self.assertIn("already refuses a write before a read", got["unactionable"][0]["reason"])
+
     def test_runs_that_died_on_the_tool_error_cap_are_a_recovery_hypothesis(self):
         got = S.hypotheses(_agg([_action("recovery")]), "a", tools=TOOLS,
                            budget={"max_tool_errors": 2},
@@ -324,6 +384,7 @@ class BudgetKnobTest(unittest.TestCase):
             (_agg([_action("result_cache")]), READ_TOOLS, {}, None),
             (_agg([_action("verification", details=['missing "run_check"'])]), TOOLS, {}, None),
             (_agg([_action("recovery")]), TOOLS, {}, {"too_many_errors": 5, "agent_stop": 5}),
+            (_agg([_action("safety")]), READ_TOOLS + [{"name": "ship", "effect": "write"}], {}, None),
             (_agg([]), TOOLS, {"max_steps": 20}, {"budget_exhausted": 5, "agent_stop": 5}),
         ]
         seen = set()

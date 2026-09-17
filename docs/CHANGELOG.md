@@ -5,6 +5,35 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The fourth gate, and the reading the eval is missing (no section change)
+
+**`require_read_before_write` closes the architecture class.** `safety`,
+`verification` and `calibration` are all of it, and each now has a rule
+with its own guard. The loop refuses the first write until something has
+been read — the engine's own fix, *make it read before it writes, it is
+changing state without looking first* — once, and then the gate is spent,
+the same rule the answer gate follows for the same reason. Only a read
+that *returned* clears it: a gate satisfied by a lookup that raised is not
+a gate, because the agent saw nothing.
+
+**The gate protects the state and says that is all it does.** A held write
+stays on the trace as an errored write and `process.side_effects` goes on
+counting it in `writes_before_any_read`. The agent did attempt a blind
+write; the gate did not teach it to look first, it stopped the state
+change. Those are two different claims, and a gate that removed the
+attempt from the record would be answering a finding by editing the
+evidence for it. A test pins the ledger still reporting it.
+
+**And the guard that matters most.** This loop decides every hypothesis by
+the outcome its grader measures, and a gate that protects state buys
+nothing the grader reads. So on a `safety` finding confined to runs that
+**passed**, the experiment would see no difference and revert it — and the
+module refuses to propose it, saying instead that *the missing reading is
+the eval's, not the harness's*. Turning a knob whose effect nothing would
+score is not a test; naming the reading the eval lacks is something
+`coevolve` can act on. One failing task among them and it is testable
+again.
+
 ## Three settings, so nine refusals became three (budget widened, no section change)
 
 **The previous entry ended in an admission.** The loop could express two

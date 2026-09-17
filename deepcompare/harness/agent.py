@@ -111,6 +111,7 @@ def run_task(provider: Provider, task: dict, tools: Optional[list] = None, *,
     if budget.get("max_tool_errors") is not None:
         max_tool_errors = int(budget["max_tool_errors"])
     dedupe = bool(budget.get("dedupe_tool_calls"))
+    gate_writes = bool(budget.get("require_read_before_write"))
     require_before_answer = budget.get("require_before_answer") or None
     if require_before_answer is not None:
         require_before_answer = str(require_before_answer)
@@ -137,24 +138,26 @@ def run_task(provider: Provider, task: dict, tools: Optional[list] = None, *,
     with recorder:
         _drive(recorder, provider, messages, tools, task, grade, max_steps,
                max_tool_errors=max_tool_errors, dedupe=dedupe,
-               require_before_answer=require_before_answer)
+               require_before_answer=require_before_answer, gate_writes=gate_writes)
     return recorder.to_dict()
 
 
 def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
            task: dict, grade: Callable, max_steps: int, *,
            max_tool_errors: int = 3, dedupe: bool = False,
-           require_before_answer: Optional[str] = None) -> bool:
+           require_before_answer: Optional[str] = None,
+           gate_writes: bool = False) -> bool:
     """The loop itself, shared by a fresh run and a counterfactual replay:
     prompt, act, observe, until the answer or the budget.  ``messages`` is
     continued in place (a replay hands in a rebuilt prefix).  Returns
     whether the run answered; every other outcome is a declared
     termination on the recorder.
 
-    ``max_tool_errors``, ``dedupe`` and ``require_before_answer`` are the
-    loop's scaffold knobs, read from ``budget`` by :func:`run_task` so
-    that the settings a run obeyed are recorded on its trace and read back
-    by :func:`deepcompare.harnessevo.fingerprint`."""
+    ``max_tool_errors``, ``dedupe``, ``require_before_answer`` and
+    ``gate_writes`` are the loop's scaffold knobs, read from ``budget`` by
+    :func:`run_task` so that the settings a run obeyed are recorded on its
+    trace and read back by
+    :func:`deepcompare.harnessevo.fingerprint`."""
     by_name = {t.name: t for t in tools}
     declarations = [t.declaration() for t in tools]
     tool_errors = 0
@@ -164,6 +167,10 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
     #: whether the required tool has been called, for `require_before_answer`
     required_done = require_before_answer is None
     pushed_back = False
+    #: whether anything declaring a read has run, for `gate_writes`, and
+    #: whether the gate has already spent its one refusal
+    read_done = False
+    held_write = False
     for _turn in range(max_steps):
         try:
             response: ProviderResponse = provider.complete(messages, declarations)
@@ -233,9 +240,30 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
                 # write from a cache means the write silently did not happen
                 # the second time.  An undeclared effect is undeclared, not
                 # read-only, so it is executed.
-                cacheable = dedupe and str(tool.effect or "").startswith("read")
+                effect = str(tool.effect or "")
+                cacheable = dedupe and effect.startswith("read")
                 key = (call.name, json.dumps(args, sort_keys=True, default=str))
-                if cacheable and key in seen_calls:
+                if gate_writes and effect.startswith("write") and not read_done and not held_write:
+                    # the engine's own fix for `safety`: read before you
+                    # write.  The call is refused *once* and then the gate
+                    # is spent, for the same reason the answer gate is —
+                    # a harness that keeps refusing is writing the agent.
+                    #
+                    # The step is recorded because the agent did make the
+                    # call, and with `error` because it did not succeed.
+                    # It still reads as a write in `process.write_ledger`,
+                    # and it should: the agent did attempt a blind write,
+                    # and `writes_before_any_read` will go on saying so.
+                    # This gate protects the *state*; it does not teach the
+                    # agent to look first and does not launder the attempt
+                    # out of the record.  Those are two different claims
+                    # and the trace keeps them apart.
+                    held_write = True
+                    result_text = (f"error: this harness requires a read before a write; "
+                                   f"{call.name} was not executed. Look at the state first, then act.")
+                    recorder.tool(call.name, args, result_text, error=True,
+                                  note="scaffold: read-before-write gate, the call was not executed")
+                elif cacheable and key in seen_calls:
                     # the engine's own recommendation for `result_cache`:
                     # memoise identical tool calls at the harness layer. The
                     # step is still recorded — the agent did make the call —
@@ -244,11 +272,17 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
                     result_text = seen_calls[key]
                     recorder.tool(call.name, args, result_text, effect=tool.effect,
                                   note="scaffold: served from the harness cache, not re-executed")
+                    read_done = True
                 else:
                     try:
                         result = recorder.tool(call.name, args,
                                                call=tool.fn, effect=tool.effect)
                         result_text = _render_result(result)
+                        # only a read that returned counts as having looked:
+                        # a read that raised showed the agent nothing, and a
+                        # gate satisfied by a failed lookup is not a gate
+                        if effect.startswith("read"):
+                            read_done = True
                         if cacheable:
                             seen_calls[key] = result_text
                     except Exception as exc:

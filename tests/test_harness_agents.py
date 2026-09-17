@@ -152,6 +152,93 @@ class TestScaffoldKnobs(unittest.TestCase):
         self.assertTrue(trace["outcome"]["success"])
         self.assertEqual([s.get("note") for s in trace["steps"] if s["type"] == "reason"], [])
 
+    def test_the_first_write_is_refused_until_something_has_been_read(self):
+        """The engine's own fix for `safety`: read before you write. The
+        call is refused once, the state is not changed, and the agent is
+        told why."""
+        wrote = []
+        write = Tool("ship", lambda **kw: wrote.append(kw) or "shipped", "change state",
+                     {"type": "object", "properties": {}}, effect="write")
+        read, reads = self._counting_tool()
+        script = [{"text": "", "tool_calls": [{"name": "ship", "arguments": {}}]},
+                  {"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
+                  {"text": "", "tool_calls": [{"name": "ship", "arguments": {}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [write, read], out_dir=None,
+                         budget={"max_steps": 8, "require_read_before_write": True})
+        self.assertEqual(len(wrote), 1, "the blind write was executed, or the gate never lifted")
+        self.assertEqual(reads, ["BK1"])
+        held = [s for s in trace["steps"] if "read-before-write" in (s.get("note") or "")]
+        self.assertEqual(len(held), 1)
+        self.assertTrue(held[0]["error"])
+        self.assertIn("requires a read before a write", held[0]["output"])
+        self.assertTrue(trace["outcome"]["success"])
+
+    def test_the_gate_does_not_launder_the_attempt_out_of_the_record(self):
+        """It protects the state; it does not teach the agent to look
+        first. The held call stays a write in the process ledger, so
+        `writes_before_any_read` goes on reporting the attempt — two
+        different claims, kept apart."""
+        from deepcompare.process import side_effects
+        from deepcompare.trace import Trajectory
+
+        write = Tool("ship", lambda **kw: "shipped", "change state",
+                     {"type": "object", "properties": {}}, effect="write")
+        read, _ = self._counting_tool()
+        script = [{"text": "", "tool_calls": [{"name": "ship", "arguments": {}}]},
+                  {"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [write, read], out_dir=None,
+                         budget={"max_steps": 8, "require_read_before_write": True})
+        ledger = side_effects(Trajectory.from_dict(trace))
+        self.assertEqual(ledger["writes_before_any_read"], 1,
+                         "the gate quietly removed the agent's blind write from the record")
+
+    def test_a_failed_read_does_not_clear_the_gate(self):
+        """A gate satisfied by a lookup that raised is not a gate: the
+        agent saw nothing, so it has not looked."""
+        wrote = []
+        write = Tool("ship", lambda **kw: wrote.append(kw) or "shipped", "change state",
+                     {"type": "object", "properties": {}}, effect="write")
+
+        def boom(**_kw):
+            raise RuntimeError("no")
+        read = Tool("peek", boom, "look", {"type": "object", "properties": {}}, effect="read")
+        script = [{"text": "", "tool_calls": [{"name": "peek", "arguments": {}}]},
+                  {"text": "", "tool_calls": [{"name": "ship", "arguments": {}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [write, read], out_dir=None,
+                         budget={"max_steps": 8, "require_read_before_write": True})
+        self.assertEqual(wrote, [], "a read that raised cleared the gate")
+        self.assertEqual(len([s for s in trace["steps"]
+                              if "read-before-write" in (s.get("note") or "")]), 1)
+
+    def test_the_write_gate_is_spent_after_one_refusal(self):
+        """Once, and then it gets out of the way — the same rule the answer
+        gate follows, for the same reason."""
+        wrote = []
+        write = Tool("ship", lambda **kw: wrote.append(kw) or "shipped", "change state",
+                     {"type": "object", "properties": {}}, effect="write")
+        read, _ = self._counting_tool()
+        script = [{"text": "", "tool_calls": [{"name": "ship", "arguments": {}}]},
+                  {"text": "", "tool_calls": [{"name": "ship", "arguments": {"n": 2}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [write, read], out_dir=None,
+                         budget={"max_steps": 8, "require_read_before_write": True})
+        self.assertEqual(len(wrote), 1, "the gate refused more than once, or never")
+        self.assertTrue(trace["outcome"]["success"])
+
+    def test_an_unset_write_gate_changes_nothing(self):
+        wrote = []
+        write = Tool("ship", lambda **kw: wrote.append(kw) or "shipped", "change state",
+                     {"type": "object", "properties": {}}, effect="write")
+        script = [{"text": "", "tool_calls": [{"name": "ship", "arguments": {}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [write], out_dir=None,
+                         budget={"max_steps": 8})
+        self.assertEqual(len(wrote), 1)
+        self.assertEqual([s.get("note") for s in trace["steps"] if s["type"] == "tool_call"], [None])
+
     def test_every_knob_the_loop_reads_is_recorded_on_the_trace(self):
         """The invariant that decides what may become a knob at all: a
         setting whose effect no trace records could never be judged, so the
@@ -160,7 +247,7 @@ class TestScaffoldKnobs(unittest.TestCase):
 
         tool, _ = self._counting_tool()
         budget = {"max_steps": 6, "max_tool_errors": 4, "dedupe_tool_calls": True,
-                  "require_before_answer": "get_refund"}
+                  "require_before_answer": "get_refund", "require_read_before_write": True}
         script = [{"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
                   {"text": "the refund is $120.00"}]
         trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None, budget=dict(budget))
