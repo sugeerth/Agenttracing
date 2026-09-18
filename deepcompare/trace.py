@@ -250,6 +250,13 @@ class Step:
     reward: Optional[float] = None
     value: Optional[float] = None
     advantage: Optional[float] = None
+    #: how many of this step's *input* tokens the provider served from its
+    #: own prompt cache, when it said so.
+    #:
+    #: ``None`` means unrecorded, which is not zero: a provider cache that
+    #: is working and a provider that does not report one look identical
+    #: without it, and `tokens` then counts re-sent context at full price.
+    cached_tokens: Optional[int] = None
     #: seconds from the run's start to the moment this step *began*.
     #:
     #: Without it a reader has only ``latency_s``, and the only way to place
@@ -333,6 +340,10 @@ class Step:
                 raise ValueError(f"{where}: span must be an object with id and agent (and an optional parent)")
             span = {"id": str(span["id"]), "agent": str(span["agent"]),
                     "parent": (str(span["parent"]) if span.get("parent") is not None else None)}
+        cached = d.get("cached_tokens")
+        if cached is not None:
+            if not isinstance(cached, int) or isinstance(cached, bool) or cached < 0:
+                raise ValueError(f"{where}: cached_tokens must be a non-negative integer or null")
         started = d.get("started_s")
         if started is not None:
             if not isinstance(started, (int, float)) or isinstance(started, bool) or float(started) < 0:
@@ -369,6 +380,7 @@ class Step:
             value=signal["value"],
             advantage=signal["advantage"],
             started_s=started,
+            cached_tokens=cached,
             scaffold=scaffold,
         )
 
@@ -403,6 +415,8 @@ class Step:
         # rewrite every artifact here to say nothing
         if self.started_s is not None:
             out["started_s"] = self.started_s
+        if self.cached_tokens is not None:
+            out["cached_tokens"] = self.cached_tokens
         if self.scaffold is not None:
             out["scaffold"] = self.scaffold
         return out

@@ -5,6 +5,37 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## What was re-sent, and what was actually paid for (step field `cached_tokens`)
+
+**Providers say how much of a prompt they served from their own cache, and
+this harness dropped it.** `tokens.total` therefore counted re-sent context
+at full price, and a cache that was working looked exactly like a provider
+that had none.
+
+`Step.cached_tokens` carries it; `budget.tokens.cached` sums it over the
+steps that reported one, with `cached_steps` saying how many did. Both
+shapes are read — OpenAI puts it under `prompt_tokens_details`, *inside*
+the prompt count; the Anthropic API reports it beside an input count that
+*excludes* it — and the two parses are now functions (`openai_usage`,
+`anthropic_usage`) so they are tested against real body shapes rather than
+by matching the source, which is what the first version of that test did.
+
+`cached` stays `null` until a step reports one, never `0`, for the same
+reason `timeline.overlap_s` does: nothing here can tell a working cache
+from a provider that never mentions caching, and a zero would claim it
+could. A *reported* zero is kept — that is a provider saying the cache
+missed, which is information.
+
+**The last two refusals now say something about themselves.** "This
+harness varies only budget and tools" was true of all nineteen categories
+and told a reader nothing about which door was shut. `prompt_cache` and
+`efficiency` are the two that reach no knob, and each now explains why it
+is one of the two: the loop already sends a stable prefix and whether the
+provider caches it is the provider's to decide — but it can now be
+*measured*; and the loop can already cap a run, cache a repeat and overlap
+reads, so what is left under efficiency is an agent gathering more than it
+needs, which no setting makes it stop.
+
 ## The knob that needed the clock first (`parallel_tool_calls`)
 
 **`parallel_reads` was the last plausible refusal, and the reason it was

@@ -499,6 +499,7 @@ class Recorder:
              reward: Optional[float] = None, value: Optional[float] = None,
              advantage: Optional[float] = None,
              started_s: Optional[float] = None,
+             cached_tokens: Optional[int] = None,
              scaffold: Optional[str] = None) -> RecordedStep:
         """Record one step; every other method here is sugar over this one.
 
@@ -589,6 +590,11 @@ class Recorder:
             # number it qualifies so an estimate cannot read as a measurement.
             "tokens_basis": "measured" if tokens is not None else "estimated",
         }
+        if cached_tokens is not None:
+            _check(isinstance(cached_tokens, int) and not isinstance(cached_tokens, bool) and cached_tokens >= 0,
+                   "cached_tokens must be a non-negative integer of input tokens the provider served from its "
+                   "own cache, or None — None means the provider did not say, which is not zero")
+            data["cached_tokens"] = int(cached_tokens)
         if started_s is not None:
             _check(isinstance(started_s, (int, float)) and not isinstance(started_s, bool) and started_s >= 0,
                    "started_s must be a non-negative number of seconds from the run's start, or None")

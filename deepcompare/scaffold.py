@@ -136,6 +136,23 @@ _RECOVERY_CATEGORIES = ("recovery",)
 _SAFETY_CATEGORIES = ("safety",)
 #: categories whose fix is "issue the independent reads at once"
 _PARALLEL_CATEGORIES = ("parallel_reads",)
+#: The last two, and the reason each is refused. A category with no knob
+#: still deserves a sentence about *itself*: "this harness varies only
+#: budget and tools" is true of every one of them and tells a reader
+#: nothing about which door is shut.
+_NO_KNOB_REASONS: dict = {
+    "prompt_cache": (
+        "a stable prompt prefix is what the provider's cache wants, and this loop already sends one — the system "
+        "prompt and tool declarations lead every turn unchanged. Whether the provider caches it is the provider's "
+        "to decide, not a setting here. What this harness can now do is *measure* it: a step records "
+        "cached_tokens when the provider says how much of the input it served from its own cache, so this "
+        "finding can be checked against what was actually paid for"),
+    "efficiency": (
+        "the loop can already cap a run (max_steps), serve an identical repeat from a cache (dedupe_tool_calls) "
+        "and overlap independent reads (parallel_tool_calls) — those are the efficiency findings that are the "
+        "harness's. What is left here is the agent gathering more once its evidence is sufficient, and no "
+        "setting makes an agent stop: that one is prompt-shaped and belongs to the prompt loop"),
+}
 #: reads in flight at once when the rule proposes it, capped so the
 #: hypothesis is a schedule change and not a load test
 MAX_PARALLEL = 8
@@ -328,7 +345,7 @@ def hypotheses(aggregate: dict, agent: str, *, tools=(), budget=None,
                 unactionable.append({**row, "reason": reason})
             continue
 
-        unactionable.append({**row, "reason": (
+        unactionable.append({**row, "reason": _NO_KNOB_REASONS.get(category) or (
             f"{effort} is the scaffold, but this harness varies only "
             + join_names(sorted(KNOBS)) + f", and no {effort} change is expressible in either")})
 

@@ -48,7 +48,7 @@ def _tokens(step: Any) -> Optional[int]:
 
 def _empty_tokens() -> dict:
     return {"total": 0, "by_kind": {k: 0 for k in KINDS}, "by_tool": {}, "measured": 0, "estimated": 0, "unknown": 0,
-            "unknown_steps": 0, "basis": TOKENS_BASIS}
+            "unknown_steps": 0, "cached": None, "cached_steps": 0, "basis": TOKENS_BASIS}
 
 
 def _empty_run(reason: str, name: str, synthetic: bool = False) -> dict:
@@ -92,6 +92,13 @@ def budget_run(run: Any) -> dict:
                 tokens["estimated"] += t
             else:
                 tokens["unknown"] += t
+        # input the provider served from its own cache, where it said so.
+        # `None` until a step reports one, because nothing here can tell a
+        # working cache from a provider that does not mention caching, and
+        # a zero would claim it could.
+        if isinstance(st.cached_tokens, int) and st.cached_tokens >= 0:
+            tokens["cached"] = (tokens["cached"] or 0) + st.cached_tokens
+            tokens["cached_steps"] += 1
         tokens["total"] += t
         if st.type in KINDS:
             tokens["by_kind"][st.type] += t
@@ -167,6 +174,9 @@ def _run_narrative(name: str, n_steps: int, p: dict) -> str:
     basis = [f"{num(v)} {label}" for label, v in (("measured", tk["measured"]), ("estimated", tk["estimated"]),
                                                    ("unlabelled", tk["unknown"])) if v]
     parts.append(join_names(basis) if basis else "no step labelled its count")
+    if tk.get("cached") is not None:
+        parts.append(f"{num(tk['cached'])} of the input came from the provider's cache over "
+                     + plural(tk["cached_steps"], "step") + " that said so, and was not paid for")
     if p["top"]:
         t = p["top"][0]
         parts.append(f"the heaviest step was {t['index']} ({t['name'] or t['kind']}, {num(t['tokens'])} tokens, {pct(t['share'])})")

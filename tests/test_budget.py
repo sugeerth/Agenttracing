@@ -201,3 +201,90 @@ class AggregateTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CachedInputTest(unittest.TestCase):
+    """What was re-sent, and what was actually paid for.
+
+    Providers report how much of a prompt they served from their own cache
+    and this harness dropped it, so `tokens.total` counted re-sent context
+    at full price and a cache that was working looked exactly like a
+    provider that had none. `Step.cached_tokens` carries it.
+
+    `cached` is `None` until a step reports one — never `0` — for the same
+    reason `timeline.overlap_s` is: nothing here can tell a working cache
+    from a provider that does not mention caching, and a zero would claim
+    it could.
+    """
+
+    @staticmethod
+    def _traj(rows):
+        steps = []
+        for i, row in enumerate(rows):
+            step = {"index": i, "type": "reason", "name": "think", "input": "x", "output": "y",
+                    "tokens": row["tokens"], "tokens_basis": "measured", "latency_s": 0.1}
+            if "cached_tokens" in row:
+                step["cached_tokens"] = row["cached_tokens"]
+            steps.append(step)
+        steps[-1].update(type="answer", name="final")
+        return Trajectory.from_dict({
+            "trace_id": "x", "agent": {"name": "a"}, "task": {"id": "t", "prompt": "p"},
+            "totals": {"latency_s": 0.1 * len(rows)},
+            "outcome": {"answer": "done", "success": True, "termination": "agent_stop"},
+            "steps": steps})
+
+    def test_a_provider_that_says_nothing_leaves_cached_unknown_not_zero(self):
+        tk = budget_run(self._traj([{"tokens": 100}, {"tokens": 50}]))["tokens"]
+        self.assertIsNone(tk["cached"], "a silent provider was read as a cache that saved nothing")
+        self.assertEqual(tk["cached_steps"], 0)
+        self.assertEqual(tk["total"], 150)
+
+    def test_the_cached_input_is_summed_over_the_steps_that_reported_it(self):
+        p = budget_run(self._traj([{"tokens": 400, "cached_tokens": 300},
+                                   {"tokens": 420, "cached_tokens": 380},
+                                   {"tokens": 30}]))
+        tk = p["tokens"]
+        self.assertEqual(tk["cached"], 680)
+        self.assertEqual(tk["cached_steps"], 2, "the step that said nothing was counted as reporting zero")
+        self.assertEqual(tk["total"], 850)
+        self.assertIn("680 of the input came from the provider's cache", p["narrative"])
+        self.assertIn("2 steps that said so", p["narrative"])
+
+    def test_a_reported_zero_is_a_measurement_and_is_kept(self):
+        """Zero cached tokens is a provider saying the cache missed. That
+        is information, and it is not the same as saying nothing."""
+        tk = budget_run(self._traj([{"tokens": 100, "cached_tokens": 0}]))["tokens"]
+        self.assertEqual(tk["cached"], 0)
+        self.assertEqual(tk["cached_steps"], 1)
+
+    def test_a_negative_or_fractional_count_is_refused(self):
+        for bad in (-1, 2.5):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self._traj([{"tokens": 10, "cached_tokens": bad}])
+
+    def test_an_unreported_count_is_absent_from_the_trace_not_null(self):
+        for step in self._traj([{"tokens": 10}]).to_dict()["steps"]:
+            self.assertNotIn("cached_tokens", step)
+
+    def test_both_provider_shapes_are_read(self):
+        """OpenAI puts the cache read under `prompt_tokens_details`, inside
+        the prompt count; the Anthropic API reports it beside an input
+        count that excludes it. Both reach a step as one field, and a
+        provider that says nothing about caching yields no key at all."""
+        from deepcompare.harness.providers import anthropic_usage, openai_usage
+
+        self.assertEqual(
+            openai_usage({"prompt_tokens": 400, "completion_tokens": 20,
+                          "prompt_tokens_details": {"cached_tokens": 300}}),
+            {"input_tokens": 400, "output_tokens": 20, "cached_input_tokens": 300})
+        self.assertEqual(
+            anthropic_usage({"input_tokens": 100, "output_tokens": 20, "cache_read_input_tokens": 300}),
+            {"input_tokens": 100, "output_tokens": 20, "cached_input_tokens": 300})
+        for parse, quiet in ((openai_usage, {"prompt_tokens": 9, "completion_tokens": 1}),
+                             (anthropic_usage, {"input_tokens": 9, "output_tokens": 1})):
+            got = parse(quiet)
+            self.assertNotIn("cached_input_tokens", got, "a silent provider produced a cache figure")
+            self.assertEqual(got["input_tokens"], 9)
+        self.assertEqual(openai_usage(None), {})
+        self.assertEqual(anthropic_usage({"input_tokens": "lots"}), {},
+                         "a non-integer count reached the trace as a measurement")

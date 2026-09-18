@@ -120,12 +120,21 @@ class HypothesesTest(unittest.TestCase):
 
     def test_a_scaffold_finding_with_no_knob_is_counted_not_dropped(self):
         """The list that is the finding: the engine asks for a change and
-        this harness has nowhere to put it."""
+        this harness has nowhere to put it.
+
+        Every one of the nineteen categories now gets a sentence about
+        *itself*. "This harness varies only budget and tools" was true of
+        all of them and told a reader nothing about which door was shut, so
+        the last two that reach no knob say why they are the ones left.
+        """
         got = S.hypotheses(_agg([_action("efficiency"), _action("prompt_cache")]), "a", tools=TOOLS)
         self.assertEqual(got["proposed"], [])
         self.assertEqual(len(got["unactionable"]), 2)
+        reasons = {row["category"]: row["reason"] for row in got["unactionable"]}
+        self.assertIn("no setting makes an agent stop", reasons["efficiency"])
+        self.assertIn("is the provider's to decide", reasons["prompt_cache"])
         for row in got["unactionable"]:
-            self.assertIn("varies only", row["reason"])
+            self.assertNotIn("varies only", row["reason"], "the generic refusal reached a category of its own")
             self.assertIn(row["effort"], ("infrastructure", "control-flow"))
 
     def test_the_generic_refusal_no_longer_reaches_any_architecture_finding(self):
@@ -262,7 +271,9 @@ class ReachTest(unittest.TestCase):
                                    tools=tools, budget={}, calls={"grep": 9})
                 self.assertEqual(got["proposed"], [],
                                  f"{row['category']} is mapped as unreachable and proposed something")
-                self.assertIn("varies only", got["unactionable"][0]["reason"])
+                self.assertEqual(len(got["unactionable"]), 1)
+                self.assertTrue(got["unactionable"][0]["reason"].strip(),
+                                f"{row['category']} is unreachable and says nothing about why")
 
     def test_prompt_and_investigation_are_skipped_not_refused(self):
         for row in S.reach()["rows"]:

@@ -232,12 +232,46 @@ class OpenAICompatProvider(Provider):
         return ProviderResponse(
             text=str(message.get("content") or ""),
             tool_calls=calls,
-            usage={k: v for k, v in (
-                ("input_tokens", usage.get("prompt_tokens")),
-                ("output_tokens", usage.get("completion_tokens")),
-            ) if isinstance(v, int)},
+            usage=openai_usage(usage),
             latency_s=elapsed, model=str(body.get("model") or self.model),
             raw=body, stop_reason=choices[0].get("finish_reason"))
+
+
+def _ints(pairs) -> dict:
+    """Only the counts the body actually carried.  A missing count stays
+    missing rather than becoming a zero that reads as a measurement."""
+    return {k: v for k, v in pairs if isinstance(v, int) and not isinstance(v, bool)}
+
+
+def openai_usage(usage: Optional[dict]) -> dict:
+    """Token counts from an OpenAI-shaped ``usage`` block.
+
+    ``cached_tokens`` sits under ``prompt_tokens_details`` here and is
+    *included* in ``prompt_tokens``.  Dropped, the budget counts re-sent
+    context at full price and a working cache is invisible.
+    """
+    usage = usage or {}
+    details = usage.get("prompt_tokens_details") or {}
+    return _ints((
+        ("input_tokens", usage.get("prompt_tokens")),
+        ("output_tokens", usage.get("completion_tokens")),
+        ("cached_input_tokens", details.get("cached_tokens")),
+    ))
+
+
+def anthropic_usage(usage: Optional[dict]) -> dict:
+    """Token counts from an Anthropic-shaped ``usage`` block.
+
+    This API reports the cache read *beside* the input count rather than
+    inside it, so the tokens actually sent are the sum and the cached part
+    has to travel to say what was saved.
+    """
+    usage = usage or {}
+    return _ints((
+        ("input_tokens", usage.get("input_tokens")),
+        ("output_tokens", usage.get("output_tokens")),
+        ("cached_input_tokens", usage.get("cache_read_input_tokens")),
+    ))
 
 
 # ---------------------------------------------------------------------------
@@ -337,10 +371,7 @@ class AnthropicProvider(Provider):
         usage = body.get("usage") or {}
         return ProviderResponse(
             text="".join(text_parts), tool_calls=calls,
-            usage={k: v for k, v in (
-                ("input_tokens", usage.get("input_tokens")),
-                ("output_tokens", usage.get("output_tokens")),
-            ) if isinstance(v, int)},
+            usage=anthropic_usage(usage),
             latency_s=elapsed, model=str(body.get("model") or self.model),
             raw=body, stop_reason=body.get("stop_reason"))
 
