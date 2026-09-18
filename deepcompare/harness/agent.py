@@ -113,6 +113,11 @@ def run_task(provider: Provider, task: dict, tools: Optional[list] = None, *,
         max_tool_errors = int(budget["max_tool_errors"])
     dedupe = bool(budget.get("dedupe_tool_calls"))
     gate_writes = bool(budget.get("require_read_before_write"))
+    # a number, not a flag: the operator sets how many reads may be in
+    # flight at once, and under two is off. A bool would have been a
+    # second shape for a setting the schema already types as a limit.
+    parallel = budget.get("parallel_tool_calls")
+    parallel = int(parallel) if isinstance(parallel, (int, float)) and not isinstance(parallel, bool) else 0
     require_before_answer = budget.get("require_before_answer") or None
     if require_before_answer is not None:
         require_before_answer = str(require_before_answer)
@@ -139,15 +144,68 @@ def run_task(provider: Provider, task: dict, tools: Optional[list] = None, *,
     with recorder:
         _drive(recorder, provider, messages, tools, task, grade, max_steps,
                max_tool_errors=max_tool_errors, dedupe=dedupe,
-               require_before_answer=require_before_answer, gate_writes=gate_writes)
+               require_before_answer=require_before_answer, gate_writes=gate_writes,
+               parallel=parallel)
     return recorder.to_dict()
+
+
+def _parallel_batch(calls, by_name, parallel: int, dedupe: bool, seen_calls: dict):
+    """The turn's calls, when the whole turn may be issued at once.
+
+    Returns ``[]`` unless every call resolves to a tool that *declares* a
+    read, there are at least two of them, and none would be served from
+    the cache. An undeclared effect is undeclared, not read-only: the
+    whole point of running these together is that they do not affect one
+    another, and that is a claim only a declaration can support.
+    """
+    if parallel < 2 or len(calls or []) < 2:
+        return []
+    batch = []
+    for call in calls:
+        tool = by_name.get(call.name)
+        if tool is None or not str(tool.effect or "").startswith("read"):
+            return []
+        args = call.arguments
+        if isinstance(args, dict) and set(args) == {"_raw"}:
+            args = str(args["_raw"])
+        if dedupe and (call.name, json.dumps(args, sort_keys=True, default=str)) in seen_calls:
+            return []
+        batch.append((call, args, tool))
+    return batch
+
+
+def _run_parallel(batch, began, parallel: int):
+    """Run the batch at once; return each call's real start and duration.
+
+    Timed individually rather than as a block: the overlap is the finding,
+    and a block time would hide it behind one number.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    out = [None] * len(batch)
+
+    def one(i):
+        call, args, tool = batch[i]
+        started = began()
+        t0 = time.monotonic()
+        try:
+            value, exc = (tool.fn(**args) if isinstance(args, dict) else tool.fn(args)), None
+        except Exception as err:      # the failure is the evidence; it is recorded, not swallowed
+            value, exc = None, err
+        out[i] = (call, args, tool, started, round(max(0.0, time.monotonic() - t0), 6), value, exc)
+
+    with ThreadPoolExecutor(max_workers=min(parallel, len(batch))) as pool:
+        list(pool.map(one, range(len(batch))))
+    # returned in the order the model asked, never in the order they landed:
+    # a reshuffled trace would be a different run from the one that happened
+    return out
 
 
 def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
            task: dict, grade: Callable, max_steps: int, *,
            max_tool_errors: int = 3, dedupe: bool = False,
            require_before_answer: Optional[str] = None,
-           gate_writes: bool = False) -> bool:
+           gate_writes: bool = False, parallel: int = 0) -> bool:
     """The loop itself, shared by a fresh run and a counterfactual replay:
     prompt, act, observe, until the answer or the budget.  ``messages`` is
     continued in place (a replay hands in a rebuilt prefix).  Returns
@@ -167,6 +225,11 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
     origin = time.monotonic()
 
     def began():
+        """Seconds from the run's start, for the paths that measure their
+        own duration too.  Everywhere else the recorder owns both numbers
+        and is left to: a start from this clock beside a duration measured
+        from the recorder's own mark describes no single interval, and the
+        difference shows up as a phantom overlap in `timing.timeline`."""
         return round(max(0.0, time.monotonic() - origin), 6)
 
     tool_errors = 0
@@ -206,7 +269,7 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
                 recorder.reason(
                     f"the harness requires {require_before_answer!r} before an answer; "
                     f"this turn answered without calling it",
-                    scaffold="answer_gate", started_s=turn_at,
+                    scaffold="answer_gate",
                     note="scaffold: verification gate, pushed back once")
                 messages.append({"role": "assistant", "content": response.text})
                 messages.append({"role": "user", "content": (
@@ -231,13 +294,59 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
                             latency_s=response.latency_s, started_s=turn_at)
         messages.append({"role": "assistant", "content": response.text,
                          "tool_calls": [c.as_dict() for c in response.tool_calls]})
+
+        # The engine's own fix for `parallel_reads`: issue independent
+        # read-only calls at once instead of one after another.
+        #
+        # Only when *every* call in the turn is a declared read. A write in
+        # the batch sends the whole turn down the sequential path, because
+        # the order of writes is part of what the run did and reordering
+        # them would be the harness changing the agent's behaviour rather
+        # than its schedule. A cache hit does the same, for simplicity
+        # rather than principle — the repeat is already free.
+        #
+        # The calls run outside the recorder and are recorded afterwards in
+        # the order the model made them, each with the start and duration
+        # actually measured. Two things follow, and both matter: the
+        # recorded order stays the model's, so nothing downstream sees a
+        # reshuffled trace; and the *timings overlap*, which is exactly what
+        # `timing.timeline` now reads. Before `started_s` this change could
+        # not have been represented at all — a running sum would have drawn
+        # the concurrent run as the slow one.
+        batch = _parallel_batch(response.tool_calls, by_name, parallel, dedupe, seen_calls)
+        if batch:
+            results = _run_parallel(batch, began, parallel)
+            for call, args, tool, started, dur, value, exc in results:
+                if exc is None:
+                    result_text = _render_result(value)
+                    if dedupe:
+                        seen_calls[(call.name, json.dumps(args, sort_keys=True, default=str))] = result_text
+                    recorder.tool(call.name, args, result_text, effect=tool.effect,
+                                  started_s=started, latency_s=dur,
+                                  note="scaffold: issued concurrently with the other reads of this turn")
+                else:
+                    result_text = f"error: {exc.__class__.__name__}: {exc}"
+                    recorder.tool(call.name, args, result_text, effect=tool.effect, error=True,
+                                  started_s=started, latency_s=dur,
+                                  note="scaffold: issued concurrently with the other reads of this turn")
+                    tool_errors += 1
+                read_done = True
+                if require_before_answer is not None and call.name == require_before_answer:
+                    required_done = True
+                messages.append({"role": "tool", "tool_call_id": call.id,
+                                 "name": call.name, "content": result_text})
+            if tool_errors >= max_tool_errors:
+                recorder.terminate("too_many_errors")
+                break
+            continue
+
         for call in response.tool_calls:
             tool = by_name.get(call.name)
             if tool is None:
                 # undeclared call: recorded exactly as made — it is a
                 # finding for the grounding check, not something to hide
                 recorder.tool(call.name, call.arguments,
-                              f"error: no such tool {call.name!r}", error=True, started_s=began())
+                              f"error: no such tool {call.name!r}", error=True)
                 result_text = f"error: no such tool {call.name!r}"
                 tool_errors += 1
             else:
@@ -273,7 +382,6 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
                     result_text = (f"error: this harness requires a read before a write; "
                                    f"{call.name} was not executed. Look at the state first, then act.")
                     recorder.tool(call.name, args, result_text, error=True, scaffold="write_gate",
-                                  started_s=began(),
                                   note="scaffold: read-before-write gate, the call was not executed")
                 elif cacheable and key in seen_calls:
                     # the engine's own recommendation for `result_cache`:
@@ -283,12 +391,11 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
                     # repeat is visible rather than hidden.
                     result_text = seen_calls[key]
                     recorder.tool(call.name, args, result_text, effect=tool.effect, scaffold="cache_hit",
-                                  started_s=began(),
                                   note="scaffold: served from the harness cache, not re-executed")
                     read_done = True
                 else:
                     try:
-                        result = recorder.tool(call.name, args, started_s=began(),
+                        result = recorder.tool(call.name, args,
                                                call=tool.fn, effect=tool.effect)
                         result_text = _render_result(result)
                         # only a read that returned counts as having looked:

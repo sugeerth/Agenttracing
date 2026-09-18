@@ -5,6 +5,51 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The knob that needed the clock first (`parallel_tool_calls`)
+
+**`parallel_reads` was the last plausible refusal, and the reason it was
+refused is the argument of this whole section in miniature.** The loop
+could always have issued independent reads together. What it could not do
+was let anything *judge* the change: a timeline reconstructed by summing
+durations draws a concurrent run and a sequential one identically, so the
+paired experiment would have compared two pictures of the same length and
+found no difference. A knob whose effect no trace records could never be
+judged — this was the case in point, and `started_s` is what unblocked it.
+
+On a three-read turn of a quarter-second each: **0.75s wall → 0.26s**, the
+durations still summing to 0.75s, the span 0.25s, and `overlap_s` reading
+0.50s. Under a running sum both runs would have drawn as 0.75s.
+
+Three guards, each of them the thing that keeps it a schedule change
+rather than a behaviour change:
+
+- **only declared reads.** The claim is that these calls do not affect one
+  another, and an undeclared effect supports no such claim.
+- **a turn containing a write goes sequentially**, whole. The order of
+  writes is part of what the run did.
+- **the steps are recorded in the order the agent asked for them**, never
+  the order they landed, with the times they really took. A reshuffled
+  trace is a different run from the one that happened.
+
+`reach()` now reads 9 of 19 categories reachable and **2** unreachable —
+`efficiency` and `prompt_cache`.
+
+Two things this cost. The knob is a *number* (reads in flight, under two
+is off) rather than a flag, because the closed budget vocabulary refused
+the bool/int union I first wrote — the check doing its job. And I had
+broken my own rule in my own code: the loop passed a start from one clock
+while letting the recorder measure the duration from its own mark, which
+manufactured a 0.1 ms phantom overlap on a strictly sequential run. Both
+numbers now come from one clock or neither does.
+
+**A browser test was passing on layout, not on marks.** Its fixture ran on
+an instant scripted provider, so every step lasted a tenth of a
+millisecond, the strip drew them on top of each other, and a click landed
+on whichever rect was in front. It now uses real latencies — and for the
+cached call, which takes no time and is a hairline on a clock-scaled strip
+by design, it switches to the even-spacing scale, which is the affordance
+a reader would use.
+
 ## Every timeline here was assuming the run was sequential (step field `started_s`)
 
 **The assumption nothing stated.** A trace recorded `latency_s` and

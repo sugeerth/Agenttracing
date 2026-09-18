@@ -121,10 +121,9 @@ class HypothesesTest(unittest.TestCase):
     def test_a_scaffold_finding_with_no_knob_is_counted_not_dropped(self):
         """The list that is the finding: the engine asks for a change and
         this harness has nowhere to put it."""
-        got = S.hypotheses(_agg([_action("efficiency"), _action("parallel_reads"), _action("prompt_cache")]),
-                           "a", tools=TOOLS)
+        got = S.hypotheses(_agg([_action("efficiency"), _action("prompt_cache")]), "a", tools=TOOLS)
         self.assertEqual(got["proposed"], [])
-        self.assertEqual(len(got["unactionable"]), 3)
+        self.assertEqual(len(got["unactionable"]), 2)
         for row in got["unactionable"]:
             self.assertIn("varies only", row["reason"])
             self.assertIn(row["effort"], ("infrastructure", "control-flow"))
@@ -452,13 +451,15 @@ class BudgetKnobTest(unittest.TestCase):
         it is written down. One list, three modules."""
         from deepcompare.trace import BUDGET_FLAGS, BUDGET_NAMES, budget_value_ok
 
-        self.assertEqual(set(BUDGET_FLAGS) | set(BUDGET_NAMES) | {"max_steps", "max_tool_errors"},
+        self.assertEqual(set(BUDGET_FLAGS) | set(BUDGET_NAMES)
+                         | {"max_steps", "max_tool_errors", "parallel_tool_calls"},
                          set(S.BUDGET_KNOBS), "a knob the trace schema and the actuator disagree about")
         cases = [
             (_agg([_action("result_cache")]), READ_TOOLS, {}, None),
             (_agg([_action("verification", details=['missing "run_check"'])]), TOOLS, {}, None),
             (_agg([_action("recovery")]), TOOLS, {}, {"too_many_errors": 5, "agent_stop": 5}),
             (_agg([_action("safety")]), READ_TOOLS + [{"name": "ship", "effect": "write"}], {}, None),
+            (_agg([_action("parallel_reads")]), READ_TOOLS, {}, None),
             (_agg([]), TOOLS, {"max_steps": 20}, {"budget_exhausted": 5, "agent_stop": 5}),
         ]
         seen = set()

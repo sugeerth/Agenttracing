@@ -244,6 +244,29 @@ settings a run obeyed are **on its trace** and inside its fingerprint:
 | `dedupe_tool_calls` | `result_cache` (infrastructure) | serves an identical repeat from a harness cache — literally the engine's own fix, *same call, same result, paid for twice* |
 | `require_before_answer` | `verification`, `calibration` (architecture) | holds an answer back until a named tool has been called |
 | `require_read_before_write` | `safety` (architecture) | refuses the first write until something has been read |
+| `parallel_tool_calls` | `parallel_reads` (control-flow) | issues a turn's declared reads at once instead of one after another |
+
+The fifth could not have existed a commit earlier, and the reason is the
+whole argument of this file in miniature. The loop could always have run
+independent reads together; what it could not do was let anyone *judge*
+the change. A timeline reconstructed by summing durations draws a
+concurrent run and a sequential one identically, so the paired experiment
+would have compared two pictures of the same length and found nothing.
+`Step.started_s` made the clock readable, and the knob became testable the
+same day. A knob whose effect no trace records could never be judged —
+this was the case in point.
+
+Only calls whose tool *declares* a read go out together: the claim being
+made is that they do not affect one another, and an undeclared effect
+supports no such claim. A turn containing a write goes sequentially
+regardless, because the order of writes is part of what the run did and
+reordering them would be the harness changing the agent's behaviour rather
+than its schedule. The steps are recorded in the order the agent asked for
+them, never in the order they landed, with the times they really took — so
+`timing.timeline` reads the overlap instead of the picture flattening it.
+
+Judge it on `overlap_s` and the wall clock, not on tokens: it buys latency
+and nothing else.
 
 With the fourth, the whole `architecture` class is reachable: `safety`,
 `verification` and `calibration` are all of it, and each now has a rule.

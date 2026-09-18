@@ -13,6 +13,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import tempfile
 import unittest
 from pathlib import Path
@@ -239,6 +240,126 @@ class TestScaffoldKnobs(unittest.TestCase):
         self.assertEqual(len(wrote), 1)
         self.assertEqual([s.get("note") for s in trace["steps"] if s["type"] == "tool_call"], [None])
 
+    @staticmethod
+    def _slow_read(name, secs=0.2, calls=None):
+        calls = calls if calls is not None else []
+
+        def fn(**kw):
+            time.sleep(secs)
+            calls.append(name)
+            return {"from": name}
+        return Tool(name, fn, "look it up", {"type": "object", "properties": {}}, effect="read"), calls
+
+    def test_independent_reads_go_out_at_once_and_the_overlap_is_measured(self):
+        """The knob that could not exist until the trace could say when a
+        step began: a timeline reconstructed by summing durations draws a
+        concurrent run and a sequential one identically, so nothing could
+        have judged the change."""
+        from deepcompare.timing import timeline
+        from deepcompare.trace import Trajectory
+
+        script = [{"text": "", "tool_calls": [{"name": n, "arguments": {}} for n in ("a", "b", "c")]},
+                  {"text": "the refund is $120.00"}]
+
+        def go(budget):
+            tools = [self._slow_read(n)[0] for n in ("a", "b", "c")]
+            start = time.monotonic()
+            trace = run_task(ScriptedProvider(list(script)), TASK, tools, out_dir=None, budget=budget)
+            return trace, time.monotonic() - start
+
+        seq, seq_wall = go({"max_steps": 5})
+        par, par_wall = go({"max_steps": 5, "parallel_tool_calls": 3})
+        seq_tl = timeline(Trajectory.from_dict(seq))
+        par_tl = timeline(Trajectory.from_dict(par))
+        self.assertEqual(seq_tl["overlap_s"], 0.0)
+        self.assertGreater(par_tl["overlap_s"], 0.2, "the reads did not overlap")
+        self.assertLess(par_tl["span_s"], seq_tl["span_s"] / 2, "the concurrent run was not shorter")
+        self.assertLess(par_wall, seq_wall, "wall clock did not move")
+        # the durations still sum to about the same: this buys latency, not work
+        self.assertAlmostEqual(par_tl["sum_s"], seq_tl["sum_s"], delta=0.12)
+
+    def test_the_steps_stay_in_the_order_the_agent_asked_for_them(self):
+        """Recorded in call order, never in the order they landed: a
+        reshuffled trace is a different run from the one that happened."""
+        script = [{"text": "", "tool_calls": [{"name": n, "arguments": {}} for n in ("a", "b", "c")]},
+                  {"text": "the refund is $120.00"}]
+        # `c` returns first, `a` last — if landing order leaked into the
+        # trace the recorded names would come back reversed
+        tools = [self._slow_read("a", 0.30)[0], self._slow_read("b", 0.20)[0], self._slow_read("c", 0.05)[0]]
+        trace = run_task(ScriptedProvider(list(script)), TASK, tools, out_dir=None,
+                         budget={"max_steps": 5, "parallel_tool_calls": 3})
+        names = [s["name"] for s in trace["steps"] if s["type"] == "tool_call"]
+        self.assertEqual(names, ["a", "b", "c"])
+        indices = [s["index"] for s in trace["steps"]]
+        self.assertEqual(indices, sorted(indices))
+
+    def test_a_turn_containing_a_write_goes_sequentially(self):
+        """The order of writes is part of what the run did; reordering them
+        would be the harness changing the agent's behaviour, not its
+        schedule."""
+        from deepcompare.timing import timeline
+        from deepcompare.trace import Trajectory
+
+        read, _ = self._slow_read("a", 0.2)
+        write = Tool("ship", lambda **kw: time.sleep(0.2) or "shipped", "change state",
+                     {"type": "object", "properties": {}}, effect="write")
+        script = [{"text": "", "tool_calls": [{"name": "a", "arguments": {}},
+                                              {"name": "ship", "arguments": {}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [read, write], out_dir=None,
+                         budget={"max_steps": 5, "parallel_tool_calls": 4})
+        self.assertEqual(timeline(Trajectory.from_dict(trace))["overlap_s"], 0.0)
+        notes = [s.get("note") for s in trace["steps"] if s["type"] == "tool_call"]
+        self.assertTrue(all(not n or "concurrently" not in n for n in notes))
+
+    def test_an_undeclared_effect_is_never_issued_alongside_anything(self):
+        """The claim being made is that these calls do not affect one
+        another, and an undeclared effect supports no such claim."""
+        from deepcompare.timing import timeline
+        from deepcompare.trace import Trajectory
+
+        read, _ = self._slow_read("a", 0.2)
+        plain = Tool("b", lambda **kw: time.sleep(0.2) or "ok", "no declared effect",
+                     {"type": "object", "properties": {}})
+        script = [{"text": "", "tool_calls": [{"name": "a", "arguments": {}}, {"name": "b", "arguments": {}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [read, plain], out_dir=None,
+                         budget={"max_steps": 5, "parallel_tool_calls": 4})
+        self.assertEqual(timeline(Trajectory.from_dict(trace))["overlap_s"], 0.0)
+
+    def test_a_failing_read_in_the_batch_is_recorded_as_the_error_it_was(self):
+        from deepcompare.timing import timeline
+        from deepcompare.trace import Trajectory
+
+        good, _ = self._slow_read("a", 0.15)
+        def boom(**kw):
+            time.sleep(0.15)
+            raise RuntimeError("no")
+        bad = Tool("b", boom, "fails", {"type": "object", "properties": {}}, effect="read")
+        script = [{"text": "", "tool_calls": [{"name": "a", "arguments": {}}, {"name": "b", "arguments": {}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [good, bad], out_dir=None,
+                         budget={"max_steps": 5, "parallel_tool_calls": 4, "max_tool_errors": 3})
+        tools = [s for s in trace["steps"] if s["type"] == "tool_call"]
+        self.assertEqual([s["name"] for s in tools], ["a", "b"])
+        self.assertTrue(tools[1]["error"])
+        self.assertIn("RuntimeError", tools[1]["output"])
+        self.assertGreater(timeline(Trajectory.from_dict(trace))["overlap_s"], 0.05,
+                           "a failing call still ran alongside the others")
+
+    def test_a_single_call_and_a_width_under_two_stay_sequential(self):
+        from deepcompare.timing import timeline
+        from deepcompare.trace import Trajectory
+
+        tools = [self._slow_read(n, 0.15)[0] for n in ("a", "b")]
+        for budget, why in (({"max_steps": 5, "parallel_tool_calls": 1}, "width 1"),
+                            ({"max_steps": 5}, "unset")):
+            with self.subTest(why):
+                script = [{"text": "", "tool_calls": [{"name": n, "arguments": {}} for n in ("a", "b")]},
+                          {"text": "the refund is $120.00"}]
+                trace = run_task(ScriptedProvider(list(script)), TASK, tools, out_dir=None, budget=budget)
+                self.assertEqual(timeline(Trajectory.from_dict(trace))["overlap_s"], 0.0, why)
+
     def test_every_knob_the_loop_reads_is_recorded_on_the_trace(self):
         """The invariant that decides what may become a knob at all: a
         setting whose effect no trace records could never be judged, so the
@@ -247,7 +368,8 @@ class TestScaffoldKnobs(unittest.TestCase):
 
         tool, _ = self._counting_tool()
         budget = {"max_steps": 6, "max_tool_errors": 4, "dedupe_tool_calls": True,
-                  "require_before_answer": "get_refund", "require_read_before_write": True}
+                  "require_before_answer": "get_refund", "require_read_before_write": True,
+                  "parallel_tool_calls": 3}
         script = [{"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
                   {"text": "the refund is $120.00"}]
         trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None, budget=dict(budget))

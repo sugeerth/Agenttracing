@@ -11191,11 +11191,16 @@ class ScaffoldMarksTest(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         out = Path(cls.tmp.name)
         task = {"id": "t_gated", "prompt": "What refund applies to BK1?", "expected": "$120.00"}
-        look = Tool("look", lambda **kw: {"refund": "$120.00"}, "look it up",
+        def slow(value):
+            def fn(**kw):
+                time.sleep(0.12)
+                return value
+            return fn
+        look = Tool("look", slow({"refund": "$120.00"}), "look it up",
                     {"type": "object", "properties": {}}, effect="read")
-        check = Tool("check", lambda **kw: {"ok": True}, "check the work",
+        check = Tool("check", slow({"ok": True}), "check the work",
                      {"type": "object", "properties": {}}, effect="read")
-        ship = Tool("ship", lambda **kw: "shipped", "change state",
+        ship = Tool("ship", slow("shipped"), "change state",
                     {"type": "object", "properties": {}}, effect="write")
         tools = [ship, look, check]
         # One run that trips all three. The answer gate requires `check`
@@ -11203,12 +11208,17 @@ class ScaffoldMarksTest(unittest.TestCase):
         # gate, so requiring it would have the one read satisfy both and the
         # answer gate would never fire — which is how the first version of
         # this fixture silently tested two of three.
-        script = [{"text": "", "tool_calls": [{"name": "ship", "arguments": {}}]},
-                  {"text": "", "tool_calls": [{"name": "look", "arguments": {}}]},
-                  {"text": "", "tool_calls": [{"name": "look", "arguments": {}}]},
-                  {"text": "the refund is $120.00"},
-                  {"text": "", "tool_calls": [{"name": "check", "arguments": {}}]},
-                  {"text": "the refund is $120.00"}]
+        # Latencies on purpose. With an instant scripted provider every
+        # step lasts a tenth of a millisecond, the strip draws them all on
+        # top of one another, and a click lands on whichever rect happens
+        # to be in front — which is how this test came to depend on the
+        # layout rather than on the marks.
+        script = [{"text": "", "tool_calls": [{"name": "ship", "arguments": {}}], "latency_s": 0.4},
+                  {"text": "", "tool_calls": [{"name": "look", "arguments": {}}], "latency_s": 0.4},
+                  {"text": "", "tool_calls": [{"name": "look", "arguments": {}}], "latency_s": 0.4},
+                  {"text": "the refund is $120.00", "latency_s": 0.4},
+                  {"text": "", "tool_calls": [{"name": "check", "arguments": {}}], "latency_s": 0.4},
+                  {"text": "the refund is $120.00", "latency_s": 0.4}]
         gated = run_task(ScriptedProvider(list(script)), task, tools, agent="gated", out_dir=None,
                          budget={"max_steps": 10, "dedupe_tool_calls": True,
                                  "require_read_before_write": True, "require_before_answer": "check"})
@@ -11280,9 +11290,15 @@ class ScaffoldMarksTest(unittest.TestCase):
     def test_a_marked_step_says_it_was_the_harness_and_not_the_agent(self):
         ctx, page, errors = self._open()
         index = [s["index"] for s in self.gated["steps"] if s.get("scaffold") == "cache_hit"][0]
-        row = page.locator(f'[data-block="tr-timeline"] [data-step-row="{index}"]')
-        if not row.count():
-            row = page.locator(f'[data-block="tr-timeline"] [data-step="{index}"]')
+        # on the clock the cached call is a hairline — it took no time, which
+        # is the whole point of it — and its neighbour covers it. The block
+        # has the even-spacing scale for exactly this, so the test uses the
+        # affordance a reader would rather than forcing a click through.
+        steps_btn = page.locator('[data-block="tr-timeline"] button:text-is("steps")')
+        self.assertTrue(steps_btn.count(), "the timeline has no even-spacing scale to fall back to")
+        steps_btn.first.click()
+        page.wait_for_timeout(500)
+        row = page.locator(f'[data-block="tr-timeline"] [data-step="{index}"]')
         self.assertTrue(row.count(), "no way to open the cached step")
         row.first.click()
         page.wait_for_timeout(500)

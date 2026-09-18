@@ -113,6 +113,7 @@ BUDGET_KNOBS: dict = {
     "dedupe_tool_calls": "identical read-only calls served from a harness cache",
     "require_before_answer": "a tool the run must call before it may answer",
     "require_read_before_write": "the first write is refused until something has been read",
+    "parallel_tool_calls": "how many declared reads may be in flight at once (under two is off)",
 }
 
 #: effort classes whose findings point at the tool table
@@ -133,6 +134,11 @@ _GATE_CATEGORIES = ("verification", "calibration")
 _RECOVERY_CATEGORIES = ("recovery",)
 #: categories whose fix is "read the state before you change it"
 _SAFETY_CATEGORIES = ("safety",)
+#: categories whose fix is "issue the independent reads at once"
+_PARALLEL_CATEGORIES = ("parallel_reads",)
+#: reads in flight at once when the rule proposes it, capped so the
+#: hypothesis is a schedule change and not a load test
+MAX_PARALLEL = 8
 #: a tool named in a finding is only withdrawn when the agent leaned on it
 MIN_CALLS = 3
 #: raise the cap by this much of itself when runs are hitting it
@@ -295,6 +301,15 @@ def hypotheses(aggregate: dict, agent: str, *, tools=(), budget=None,
                 unactionable.append({**row, "reason": reason})
             continue
 
+        # "issue the independent reads at once" — expressible only since
+        # the trace could say when a step began; see `_parallel_rule`
+        if category in _PARALLEL_CATEGORIES:
+            reason = not_enforced if not enforces_budget else _parallel_rule(
+                budget, effects, action, keep, from_tasks, category, effort)
+            if reason:
+                unactionable.append({**row, "reason": reason})
+            continue
+
         # "read before you write" is a gate the loop can enforce, but only
         # where the experiment that follows could see it
         if category in _SAFETY_CATEGORIES:
@@ -422,6 +437,49 @@ def _gate_rule(budget: dict, effects: dict, action: dict, keep,
     return None
 
 
+def _parallel_rule(budget: dict, effects: dict, action: dict, keep,
+                   from_tasks: list, category: str, effort: str) -> Optional[str]:
+    """``parallel_tool_calls``: issue the turn's independent reads at once.
+
+    This one was unactionable until the trace could say when a step
+    *began*. Not because the loop could not do it — it always could — but
+    because nothing could have measured it: a timeline reconstructed by
+    summing durations draws a concurrent run and a sequential one
+    identically, so the experiment would have compared two pictures of the
+    same length and found no difference. A knob whose effect no trace
+    records could never be judged, and this was the case in point.
+
+    The guard is the declaration. Only calls whose tool declares a read go
+    out together, because the claim being made is that they do not affect
+    one another, and an undeclared effect supports no such claim. Fewer
+    than two read-declared tools on offer and there is nothing to overlap.
+    """
+    if isinstance(budget.get("parallel_tool_calls"), (int, float)) and budget["parallel_tool_calls"] >= 2:
+        return (f"the harness already issues up to {int(budget['parallel_tool_calls'])} declared reads at once, so "
+                f"this finding is about calls the schedule cannot overlap")
+    readable = _read_only(effects)
+    if len(readable) < 2:
+        return ("issuing the reads at once is a knob this harness has, but "
+                + ("no tool" if not readable else "only one tool") + " on offer declares a read effect, and a call "
+                "whose effect is undeclared cannot be claimed not to affect the others")
+    width = min(MAX_PARALLEL, len(readable))
+    keep({
+        "kind": "parallel_tool_calls", "knob": "budget",
+        "change": {"budget": {"parallel_tool_calls": width}},
+        "category": category, "effort": effort, "source": "triage",
+        "from_tasks": from_tasks,
+        "why": (f"{action.get('title')} — a {effort} finding over {plural(len(from_tasks), 'task')}. "
+                f"The loop can issue a turn's declared reads together, so the hypothesis is testable: allow "
+                f"{plural(width, 'read')} in flight at once over the {plural(len(readable), 'read-declared tool')} "
+                f"on offer ({join_names(readable)}). A turn containing a write goes sequentially regardless — the "
+                f"order of writes is part of what the run did — and the steps are still recorded in the order the "
+                f"agent asked for them, with the times they really took, so the overlap is visible rather than "
+                f"flattened. Judge it on timing.timeline.overlap_s and the wall clock, not on the token count: "
+                f"this buys latency and nothing else, and it is the scaffold's win."),
+    })
+    return None
+
+
 def _safety_rule(budget: dict, effects: dict, action: dict, keep,
                  from_tasks: list, category: str, effort: str) -> Optional[str]:
     """``require_read_before_write``: the first write is refused until
@@ -522,6 +580,8 @@ def _rule_knobs() -> dict:
         out[category] = "budget: require_read_before_write"
     for category in _RECOVERY_CATEGORIES:
         out[category] = "budget: max_tool_errors"
+    for category in _PARALLEL_CATEGORIES:
+        out[category] = "budget: parallel_tool_calls"
     return out
 
 
@@ -657,6 +717,9 @@ def describe(change: dict) -> str:
                         if v else "stop caching identical calls")
         elif k == "require_before_answer":
             bits.append(f"require {v} before an answer" if v else "drop the answer gate")
+        elif k == "parallel_tool_calls":
+            bits.append(f"issue up to {int(v)} declared reads at once" if v and v >= 2
+                        else "stop issuing reads together")
         elif k == "require_read_before_write":
             bits.append("refuse the first write until something has been read"
                         if v else "stop gating the first write")
