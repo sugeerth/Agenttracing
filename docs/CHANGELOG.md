@@ -5,6 +5,25 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## A card that promised every field, and had stopped showing them all
+
+`tr-step` says *"every field is as the trace recorded it"*. That is a
+promise, and it goes stale in silence: the block enumerates its rows by
+hand, so the three fields added to the schema in this session — the
+input/output split and the input served from the provider's cache — never
+appeared, while the card went on claiming completeness. A reader had no
+way to tell a field the trace lacked from a field the block forgot.
+
+All three now have rows, and each says *absent* rather than showing a
+zero: "the provider did not split this step's count", "not reported —
+which is not the same as none". The latency row says whether "into the
+run" was read from the trace or summed from the steps before it, which is
+the same distinction the strip already makes.
+
+`StepFieldsTest` checks the promise rather than the wording: every
+optional per-step field the recorder can write must have a row. Dropping
+one from the block was verified to make it fail.
+
 ## What was re-sent, and what was actually paid for (step field `cached_tokens`)
 
 **Providers say how much of a prompt they served from their own cache, and

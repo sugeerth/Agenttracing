@@ -12420,3 +12420,124 @@ class RecordedClockTest(unittest.TestCase):
                                msg=f"step 1 sits at {middle:.2f} of the run; recorded says 0.50, summed says 0.80")
         self.assertEqual(errors, [])
         ctx.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class StepFieldsTest(unittest.TestCase):
+    """`tr-step` says "every field is as the trace recorded it". That is a
+    promise, and it goes stale silently.
+
+    Three fields were added to the schema in this session — the input and
+    output split, and the input the provider served from its own cache —
+    and the block enumerates its rows by hand, so it went on claiming
+    completeness while showing none of them. A reader would have had no
+    way to tell the difference between a field the trace lacked and a field
+    the block forgot.
+
+    So this checks the *promise*: every optional per-step field the
+    recorder can write is either shown or explicitly said to be absent.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        from deepcompare.harness import ScriptedProvider, run_task
+        from deepcompare.report import compare, render_html
+        from deepcompare.trace import Trajectory
+
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        cls.tmp = tempfile.TemporaryDirectory()
+
+        class Rich(ScriptedProvider):
+            def complete(self, messages, tools):
+                r = super().complete(messages, tools)
+                r.usage.update({"input_tokens": 400, "output_tokens": 20, "cached_input_tokens": 300})
+                return r
+
+        task = {"id": "t_fields", "prompt": "what is it?", "expected": "done"}
+        script = [{"text": "done", "latency_s": 0.3}]
+        cls.rich = run_task(Rich(list(script)), task, [], agent="rich", out_dir=None, budget={"max_steps": 3})
+        cls.plain = run_task(ScriptedProvider(list(script)), task, [], agent="plain", out_dir=None,
+                             budget={"max_steps": 3})
+        cls.report = Path(cls.tmp.name) / "report.html"
+        render_html([compare(Trajectory.from_dict(cls.rich), Trajectory.from_dict(cls.plain))], {},
+                    ROOT / "web" / "blocks.html", cls.report)
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _detail(self, side):
+        ctx = self.browser.new_context(viewport={"width": 1400, "height": 1100})
+        page = ctx.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.report}#view=trace")
+        page.wait_for_timeout(1500)
+        for bid in ("tr-timeline", "tr-step"):
+            blk = page.locator(f'.block[data-block="{bid}"]')
+            if blk.count() and "collapsed" in (blk.first.get_attribute("class") or ""):
+                blk.first.locator(".block-actions .icon-btn").nth(1).click()
+                page.wait_for_timeout(500)
+        btn = page.locator(f'[data-block="tr-timeline"] button:text-is("{side}")')
+        if btn.count():
+            btn.first.click()
+            page.wait_for_timeout(600)
+        page.locator('[data-block="tr-timeline"] .trc-step[data-step]').first.click()
+        page.wait_for_timeout(600)
+        return ctx, page, errors, page.locator('.block[data-block="tr-step"]').text_content()
+
+    def test_a_step_that_carries_the_new_counts_shows_all_of_them(self):
+        ctx, page, errors, text = self._detail("rich")
+        step = self.rich["steps"][0]
+        self.assertEqual((step["input_tokens"], step["output_tokens"], step["cached_tokens"]), (400, 20, 300))
+        self.assertIn("400 in · 20 out", text)
+        self.assertIn("300 of the input", text)
+        self.assertIn("not paid for", text)
+        self.assertEqual(errors, [])
+        ctx.close()
+
+    def test_a_step_without_them_says_absent_rather_than_showing_a_zero(self):
+        """The distinction the whole schema turns on: a provider that said
+        nothing is not a provider that reported none."""
+        ctx, page, errors, text = self._detail("plain")
+        step = self.plain["steps"][0]
+        self.assertNotIn("cached_tokens", step)
+        self.assertIn("did not split this step's count", text)
+        self.assertIn("not the same as none", text)
+        self.assertNotIn("0 in · 0 out", text)
+        self.assertEqual(errors, [])
+        ctx.close()
+
+    def test_the_detail_says_whether_the_position_is_read_or_summed(self):
+        ctx, page, errors, text = self._detail("rich")
+        self.assertIn("into the run (as the trace records it)", text)
+        self.assertEqual(errors, [])
+        ctx.close()
+
+    def test_every_optional_step_field_the_recorder_writes_reaches_the_detail(self):
+        """The promise, checked rather than trusted: a field added to the
+        schema and not to this block would leave the card claiming to show
+        everything while quietly showing less."""
+        ctx, page, errors, text = self._detail("rich")
+        lowered = text.lower()
+        for field, needle in (("tokens", "tokens"), ("input_tokens", "in ·"), ("output_tokens", "out"),
+                              ("cached_tokens", "cache"), ("started_s", "into the run"),
+                              ("latency_s", "latency"), ("effect", "effect"), ("error", "error"),
+                              ("model", "model"), ("reward", "reward")):
+            self.assertIn(needle.lower(), lowered, f"{field} has no row in the step detail")
+        self.assertIn("every field is as the trace recorded", lowered)
+        self.assertEqual(errors, [])
+        ctx.close()

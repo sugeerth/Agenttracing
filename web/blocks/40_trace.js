@@ -267,6 +267,12 @@
       out.push({
         index: index, kind: s.type || "step", name: s.name || s.type || "step",
         tokens: isNum(s.tokens) ? s.tokens : null, basis: s.tokens_basis || null,
+        // the counts the trace carries, kept apart from the total: context
+        // re-sent and text generated cost differently, and an input the
+        // provider served from its own cache was not paid for at all
+        inTokens: isNum(s.input_tokens) ? s.input_tokens : null,
+        outTokens: isNum(s.output_tokens) ? s.output_tokens : null,
+        cachedTokens: isNum(s.cached_tokens) ? s.cached_tokens : null,
         latency: dur, t0: basis === "recorded" ? s.started_s - zero : t,
         t1: (basis === "recorded" ? s.started_s - zero : t) + dur, clock: basis,
         error: !!s.error, effect: s.effect || null, quality: s.quality || null,
@@ -969,7 +975,14 @@
       var rows = [
         ["kind", s.kind + (s.span ? " · acting agent " + s.span : "")],
         ["tokens", isNum(s.tokens) ? int(s.tokens) + " (" + (s.basis || "basis not recorded") + "), " + int(s.cum) + " so far" : "not recorded"],
-        ["latency", secs(s.latency) + " · " + secs(s.t0) + " into the run"],
+        ["in / out", isNum(s.inTokens) || isNum(s.outTokens)
+          ? int(s.inTokens || 0) + " in · " + int(s.outTokens || 0) + " out"
+          : "the provider did not split this step's count"],
+        ["from cache", isNum(s.cachedTokens)
+          ? int(s.cachedTokens) + " of the input, served from the provider's cache and not paid for"
+          : "not reported — which is not the same as none"],
+        ["latency", secs(s.latency) + " · " + secs(s.t0) + " into the run"
+          + (s.clock === "recorded" ? " (as the trace records it)" : " (summed from the steps before it)")],
         ["model", s.model ? s.model + " (as the step records it)" : "not recorded on the step"],
         ["reward", isNum(s.reward) ? num(s.reward, 2) + " · running " + num(s.rewardCum, 2) + (s.why ? " — " + s.why : "") : "none recorded"],
         ["value", isNum(s.value) ? num(s.value, 2) + (isNum(s.advantage) ? " · advantage " + num(s.advantage, 2) : "") : "no critic estimate"],
