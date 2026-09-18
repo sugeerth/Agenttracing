@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional, Union
@@ -160,6 +161,14 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
     :func:`deepcompare.harnessevo.fingerprint`."""
     by_name = {t.name: t for t in tools}
     declarations = [t.declaration() for t in tools]
+    #: the run's own zero. Every step records when it began against it, so
+    #: the timeline is read rather than reconstructed by summing durations
+    #: — a sum that would assert this loop never overlapped anything.
+    origin = time.monotonic()
+
+    def began():
+        return round(max(0.0, time.monotonic() - origin), 6)
+
     tool_errors = 0
     answered = False
     #: identical (tool, arguments) already executed, for `dedupe`
@@ -172,10 +181,11 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
     read_done = False
     held_write = False
     for _turn in range(max_steps):
+        turn_at = began()
         try:
             response: ProviderResponse = provider.complete(messages, declarations)
         except ProviderError as exc:
-            recorder.reason(f"provider failure: {exc}", error=True,
+            recorder.reason(f"provider failure: {exc}", error=True, started_s=turn_at,
                             note="the model endpoint failed; harness fault")
             recorder.terminate("infrastructure_error")
             break
@@ -196,7 +206,7 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
                 recorder.reason(
                     f"the harness requires {require_before_answer!r} before an answer; "
                     f"this turn answered without calling it",
-                    scaffold="answer_gate",
+                    scaffold="answer_gate", started_s=turn_at,
                     note="scaffold: verification gate, pushed back once")
                 messages.append({"role": "assistant", "content": response.text})
                 messages.append({"role": "user", "content": (
@@ -209,7 +219,7 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
                     f"grader returned None for task {task.get('id')!r}; a "
                     "verdict must be True or False")
             recorder.answer(answer, success=bool(verdict), tokens=tokens,
-                            latency_s=response.latency_s,
+                            latency_s=response.latency_s, started_s=turn_at,
                             model={"name": response.model} if response.model else None)
             answered = True
             break
@@ -218,7 +228,7 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
         # reasoning, recorded before the calls it motivates
         if response.text.strip():
             recorder.reason(response.text.strip(), tokens=tokens,
-                            latency_s=response.latency_s)
+                            latency_s=response.latency_s, started_s=turn_at)
         messages.append({"role": "assistant", "content": response.text,
                          "tool_calls": [c.as_dict() for c in response.tool_calls]})
         for call in response.tool_calls:
@@ -227,7 +237,7 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
                 # undeclared call: recorded exactly as made — it is a
                 # finding for the grounding check, not something to hide
                 recorder.tool(call.name, call.arguments,
-                              f"error: no such tool {call.name!r}", error=True)
+                              f"error: no such tool {call.name!r}", error=True, started_s=began())
                 result_text = f"error: no such tool {call.name!r}"
                 tool_errors += 1
             else:
@@ -263,6 +273,7 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
                     result_text = (f"error: this harness requires a read before a write; "
                                    f"{call.name} was not executed. Look at the state first, then act.")
                     recorder.tool(call.name, args, result_text, error=True, scaffold="write_gate",
+                                  started_s=began(),
                                   note="scaffold: read-before-write gate, the call was not executed")
                 elif cacheable and key in seen_calls:
                     # the engine's own recommendation for `result_cache`:
@@ -272,11 +283,12 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
                     # repeat is visible rather than hidden.
                     result_text = seen_calls[key]
                     recorder.tool(call.name, args, result_text, effect=tool.effect, scaffold="cache_hit",
+                                  started_s=began(),
                                   note="scaffold: served from the harness cache, not re-executed")
                     read_done = True
                 else:
                     try:
-                        result = recorder.tool(call.name, args,
+                        result = recorder.tool(call.name, args, started_s=began(),
                                                call=tool.fn, effect=tool.effect)
                         result_text = _render_result(result)
                         # only a read that returned counts as having looked:

@@ -33944,8 +33944,27 @@ THIS SOFTWARE.
 
   /* The steps of one run, each with what the engine recorded for it and
    * the running sums the tracks draw. `steps` are SCHEMA steps. */
+  /* Where a step sits on the clock.
+   *
+   * `started_s` is what the trace says; the running sum is what a reader
+   * is left to assume when it is absent — and that assumption is that the
+   * run was strictly sequential. All or nothing: a strip with some steps
+   * on a recorded clock and some on a running sum would be two pictures
+   * drawn over each other, and would not say which was which.
+   */
+  function clockBasis(steps) {
+    var n = (steps || []).length;
+    if (!n) return "reconstructed";
+    var got = 0;
+    (steps || []).forEach(function (s) { if (isNum(s.started_s)) got += 1; });
+    return got === n ? "recorded" : "reconstructed";
+  }
+
   function buildSteps(steps, rewards, fetches, marks) {
     var out = [], tokens = 0, reward = 0, sources = 0, t = 0, evidence = 0, seen = {};
+    var basis = clockBasis(steps);
+    var zero = basis === "recorded" && (steps || []).length
+      ? Math.min.apply(null, (steps || []).map(function (s) { return s.started_s; })) : 0;
     (steps || []).forEach(function (s, i) {
       var index = isNum(s.index) ? s.index : i;
       var dur = isNum(s.latency_s) ? s.latency_s : 0;
@@ -33964,7 +33983,8 @@ THIS SOFTWARE.
       out.push({
         index: index, kind: s.type || "step", name: s.name || s.type || "step",
         tokens: isNum(s.tokens) ? s.tokens : null, basis: s.tokens_basis || null,
-        latency: dur, t0: t, t1: t + dur,
+        latency: dur, t0: basis === "recorded" ? s.started_s - zero : t,
+        t1: (basis === "recorded" ? s.started_s - zero : t) + dur, clock: basis,
         error: !!s.error, effect: s.effect || null, quality: s.quality || null,
         reward: r, value: isNum(s.value) ? s.value : (rw && isNum(rw.value) ? rw.value : null),
         advantage: isNum(s.advantage) ? s.advantage : null,
@@ -34037,7 +34057,7 @@ THIS SOFTWARE.
       var steps = buildSteps(rec.steps, { by: {} }, fetchesOf(rec), marks);
       return {
         kind: "record", key: st.run, name: rec.agent || rec.key || st.run, task: rec.task || null,
-        steps: tiled(steps), phases: [], marks: marks, tiled: TILE > 1 ? TILE : null,
+        steps: tiled(steps), clock: clockBasis(rec.steps), phases: [], marks: marks, tiled: TILE > 1 ? TILE : null,
         source: rec.steps_source || "the bundle's record",
         success: rec.success, synthetic: !!rec.synthetic, budget: rec.budget || null, fetchesSec: rec.fetches || null,
         termination: null, stoppedBy: null, totalS: steps.length ? steps[steps.length - 1].t1 : 0,
@@ -34052,7 +34072,7 @@ THIS SOFTWARE.
     return {
       kind: "side", side: side, key: null, name: sideName(report, side),
       task: (report.task && report.task.id) || null,
-      steps: tiled(steps2), phases: TILE > 1 ? [] : phasesOf(report, side, steps2), marks: marks2, tiled: TILE > 1 ? TILE : null,
+      steps: tiled(steps2), clock: clockBasis(holder.steps), phases: TILE > 1 ? [] : phasesOf(report, side, steps2), marks: marks2, tiled: TILE > 1 ? TILE : null,
       source: "the pair report", success: holder.outcome && holder.outcome.success,
       synthetic: !!(holder.harness && String(holder.harness.note || "").toUpperCase().indexOf("SYNTHETIC") === 0),
       budget: report.budget && report.budget[side], fetchesSec: report.fetches && report.fetches[side],
@@ -34584,9 +34604,16 @@ THIS SOFTWARE.
       root.appendChild(H("p", { class: "trc-note", text:
         (st.x === "time"
           ? (folds.length ? plural(folds.length, "quiet stretch") + " folded (a gap over " + QUIET_S + "s, drawn at 6 + 6·log₂(1 + seconds))."
-             : "No idle stretch to fold: every step of this run begins where the last one ended.")
+             : m.clock === "recorded"
+               ? "No idle stretch to fold: no gap between one step ending and the next beginning."
+               : "No idle stretch to fold: every step of this run begins where the last one ended — which is the "
+                 + "assumption, not a reading.")
           : "Steps are evenly spaced; switch to the clock to see where the time went.") +
         (bins.per > 1 ? " Past " + STEP_CAP + " steps the strip bins " + bins.per + " to a rectangle." : "") +
+        (m.clock === "recorded"
+          ? " Each step is placed where the trace says it began, so the clock is read rather than assumed."
+          : " No step records when it began, so each is placed by summing the durations before it — which reads "
+            + "the run as strictly sequential. Nothing in the trace says it was.") +
         " Every number is the engine's: tokens and their basis, latency, reward, and the marks the diagnosis and impact sections placed." }));
 
       var leg = H("div", { class: "trc-legend" });

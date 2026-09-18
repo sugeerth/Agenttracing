@@ -36,12 +36,77 @@ WASTE_LABEL = {
 _secs = partial(secs, whole_above=None)
 
 
+def timeline(traj: Trajectory) -> dict:
+    """Is this run's clock *read* or *assumed*?
+
+    A trace that records only ``latency_s`` leaves one way to place a step
+    on a clock: sum the durations before it.  That reconstruction is not a
+    neutral convenience — it asserts the run was sequential, and for a loop
+    that executes independent calls concurrently it is simply wrong, with
+    nothing in the record to say so.  Every timeline this repository draws
+    made that assumption silently until ``Step.started_s`` existed.
+
+    So the basis is stated, and when the starts *are* recorded two things
+    become measurable that were not:
+
+    ``span_s``    first start to last end — the run's real wall-clock
+    ``overlap_s`` the sum of the durations minus the span, when positive:
+                  seconds two or more steps were running at once
+
+    ``overlap_s`` is ``0.0`` on a sequential run and ``None`` when the
+    starts are not recorded — not zero, because a run whose concurrency
+    nothing wrote down is not a run that had none.
+    """
+    steps = traj.steps
+    if not steps:
+        return {"measurable": False, "reason": "the run has no steps", "basis": None,
+                "span_s": None, "sum_s": None, "overlap_s": None, "concurrent_steps": None,
+                "recorded_starts": 0, "steps": 0, "reading": "No step to place on a clock."}
+    starts = [s.started_s for s in steps]
+    got = [v for v in starts if isinstance(v, (int, float))]
+    lats = [float(s.latency_s) if isinstance(s.latency_s, (int, float)) and s.latency_s > 0 else 0.0 for s in steps]
+    total = round(sum(lats), 4)
+    if len(got) != len(steps):
+        # all or nothing: mixing a recorded start with a reconstructed one
+        # would put some steps on a clock and some on an assumption, and the
+        # picture would not say which was which
+        return {
+            "measurable": False,
+            "reason": ("no step records when it began" if not got else
+                       f"only {len(got)} of {len(steps)} steps record when they began"),
+            "basis": "reconstructed", "span_s": None, "sum_s": total, "overlap_s": None,
+            "concurrent_steps": None, "recorded_starts": len(got), "steps": len(steps),
+            "reading": ("This run's clock is reconstructed: each step is placed by summing the durations "
+                        "before it, which reads the run as strictly sequential. Nothing here says it was. "
+                        "One field per step — when it began — turns that assumption into a measurement."),
+        }
+    ends = [float(s) + lat for s, lat in zip(got, lats)]
+    span = round(max(ends) - min(got), 4)
+    overlap = round(max(0.0, total - span), 4)
+    # a step that began before an earlier one ended
+    order = sorted(zip(got, ends))
+    concurrent, reach = 0, None
+    for begin, end in order:
+        if reach is not None and begin < reach - 1e-9:
+            concurrent += 1
+        reach = end if reach is None else max(reach, end)
+    reading = (f"This run's clock is recorded: every step says when it began, so the timeline is read rather "
+               f"than assumed. {_secs(total)} of step time over a {_secs(span)} run")
+    reading += ("; nothing overlapped, so the run really was sequential." if not overlap else
+                f", so {_secs(overlap)} had two or more steps running at once "
+                f"({concurrent} of {len(steps)} began before an earlier one ended).")
+    return {"measurable": True, "reason": None, "basis": "recorded", "span_s": span, "sum_s": total,
+            "overlap_s": overlap, "concurrent_steps": concurrent, "recorded_starts": len(got),
+            "steps": len(steps), "reading": reading}
+
+
 def time_attribution(traj: Trajectory, reading: Optional[dict] = None) -> dict:
     steps = traj.steps
     lats = [s.latency_s if isinstance(s.latency_s, (int, float)) and s.latency_s >= 0 else None for s in steps]
     measured = [v for v in lats if v]
     if not measured:
         return unmeasurable("no step recorded a latency — unmeasurable, not fast",
+                            timeline=timeline(traj),
                             total_s=float(traj.totals.latency_s or 0.0), steps=[], by_category={}, by_tool={},
                             wasted_s=0.0, wasted_share=None, slowest=[], rationale=f"{traj.agent.name}: no step latency was recorded, so where its time went cannot be attributed.")
     total = sum(measured)
@@ -127,6 +192,7 @@ def time_attribution(traj: Trajectory, reading: Optional[dict] = None) -> dict:
         "slowest": [{"index": r["index"], "name": r["name"], "type": r["type"], "latency_s": r["latency_s"], "share": r["share"], "wasted": r["wasted"]} for r in slowest],
         "tokens_per_s": round(tokens / total, 2) if total and tokens else None,
         "rationale": sentence,
+        "timeline": timeline(traj),
         "basis": "step latencies as recorded; wasted = the reading's roles (no information, repeat, dead end, error) and steps after the answer's basis was complete",
     }
 

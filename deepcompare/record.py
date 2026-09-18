@@ -433,6 +433,9 @@ class Recorder:
         #: ``__enter__`` so setup done between constructing the recorder and
         #: entering the block is not billed to the agent's first step.
         self._mark = time.monotonic()
+        #: the run's own zero, which every step's ``started_s`` is measured
+        #: from.  Reset alongside ``_mark`` for the same reason.
+        self._origin = self._mark
 
     # ------------------------------------------------------------------
     # construction-time validation
@@ -495,6 +498,7 @@ class Recorder:
              model: Optional[dict] = None, span: Optional[dict] = None,
              reward: Optional[float] = None, value: Optional[float] = None,
              advantage: Optional[float] = None,
+             started_s: Optional[float] = None,
              scaffold: Optional[str] = None) -> RecordedStep:
         """Record one step; every other method here is sugar over this one.
 
@@ -511,6 +515,17 @@ class Recorder:
         reward, the policy's value estimate, its advantage); written only
         when given, so a trace without them is read as *shaped* by
         :mod:`deepcompare.rl` rather than as a run that earned nothing.
+
+        ``started_s`` is when this step began, in seconds from the run's
+        start.  Given, it is the caller's measurement.  Omitted, it is
+        recorded from this recorder's own clock **only when the recorder
+        also timed the step** — that is, when ``latency_s`` was not given
+        either.  A caller who supplies a duration is keeping its own clock
+        or writing a fixture, and pairing a wall-clock start with a
+        duration from somewhere else would describe no real run: the
+        timeline would be part measured and part invented with nothing
+        saying which. A harness that knows when it issued a call should
+        pass both.
 
         ``scaffold`` says what the *harness* did to this step, from
         :data:`deepcompare.trace.SCAFFOLD_ACTIONS` — a cached read, a held
@@ -544,6 +559,12 @@ class Recorder:
                    f"{key} must be a number or None")
 
         now = time.monotonic()
+        # the step *began* at the previous boundary, not now: `step` is
+        # called once the caller's work is done, and `elapsed` is measured
+        # back to that boundary.  Recording the start turns "where on the
+        # clock did this happen" from a running sum — which asserts the run
+        # was sequential — into something the trace says.
+        began = self._mark
         elapsed = max(0.0, now - self._mark)
         self._mark = now
 
@@ -568,6 +589,13 @@ class Recorder:
             # number it qualifies so an estimate cannot read as a measurement.
             "tokens_basis": "measured" if tokens is not None else "estimated",
         }
+        if started_s is not None:
+            _check(isinstance(started_s, (int, float)) and not isinstance(started_s, bool) and started_s >= 0,
+                   "started_s must be a non-negative number of seconds from the run's start, or None")
+            data["started_s"] = round(float(started_s), 6)
+        elif latency_s is None:
+            # the recorder timed this step, so its clock owns both numbers
+            data["started_s"] = round(max(0.0, began - self._origin), 6)
         if tokens is not None:
             data["tokens"] = int(tokens)
         # only when the harness acted; see `Step.to_dict` for why this one
@@ -911,7 +939,7 @@ class Recorder:
     # ------------------------------------------------------------------
 
     def __enter__(self) -> "Recorder":
-        self._mark = time.monotonic()
+        self._mark = self._origin = time.monotonic()
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:

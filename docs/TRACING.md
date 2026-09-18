@@ -171,6 +171,26 @@ move the lineage's "claimed without called" check already makes.
 `latency_s` conflates queueing, network, and compute. Split it, and the
 timing analysis stops blaming the agent for the platform.
 
+**Half of this one is now closed.** `latency_s` said how long a step took
+and nothing said *when it began*, so every timeline here placed a step by
+summing the durations before it — an assumption that the run was strictly
+sequential, made silently by every strip, band and phase in the page. For
+a loop that runs independent calls concurrently it is wrong, and nothing
+in the record said so.
+
+`Step.started_s` (optional) makes the clock read rather than assumed. The
+`Recorder` stamps it from its own clock only when it also timed the step;
+given a duration from elsewhere it does not, because a wall-clock start
+paired with a borrowed duration describes no real run. A harness that
+knows when it issued a call passes both, and this one does. `timing.timeline` then reports `basis`, the run's
+real `span_s`, and `overlap_s` — the durations' sum minus the span, which
+is the seconds two or more steps were running at once. Where the starts
+are absent it says `reconstructed` and `overlap_s: null`, never `0.0`,
+because a run whose concurrency nothing recorded is not one that had none.
+
+What is still open here is the *split*: a recorded start tells you when
+the wait began, not how much of it was queue, network or compute.
+
 ### 8. Money, per step
 
 `cost_usd` exists on totals only. Per step, split input/output/cache, it

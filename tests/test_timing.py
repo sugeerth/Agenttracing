@@ -73,3 +73,117 @@ class TimeAttributionTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TimelineBasisTest(unittest.TestCase):
+    """Is a run's clock read, or assumed?
+
+    A trace that records only `latency_s` leaves one way to place a step on
+    a clock: sum the durations before it. That is not a neutral
+    convenience — it asserts the run was sequential, and for a loop that
+    executes independent calls concurrently it is simply wrong with nothing
+    in the record to say so. Every timeline this repository draws made that
+    assumption silently until `Step.started_s` existed.
+
+    So the basis is stated, and `overlap_s` is `None` rather than `0.0`
+    when the starts are unrecorded: a run whose concurrency nothing wrote
+    down is not a run that had none.
+    """
+
+    @staticmethod
+    def _traj(rows):
+        steps = []
+        for i, row in enumerate(rows):
+            step = {"index": i, "type": row.get("type", "tool_call"), "name": row.get("name", "t"),
+                    "input": "", "output": "", "tokens": 1, "latency_s": row["latency_s"]}
+            if "started_s" in row:
+                step["started_s"] = row["started_s"]
+            steps.append(step)
+        steps[-1]["type"] = "answer"
+        return Trajectory.from_dict({
+            "trace_id": "x", "agent": {"name": "a"}, "task": {"id": "t", "prompt": "p"},
+            "totals": {"latency_s": sum(r["latency_s"] for r in rows)},
+            "outcome": {"answer": "done", "success": True, "termination": "agent_stop"},
+            "steps": steps})
+
+    def test_a_run_with_no_recorded_starts_says_its_clock_is_assumed(self):
+        t = self._traj([{"latency_s": 1.0}, {"latency_s": 2.0}, {"latency_s": 0.5}])
+        tl = time_attribution(t)["timeline"]
+        self.assertFalse(tl["measurable"])
+        self.assertEqual(tl["basis"], "reconstructed")
+        self.assertEqual(tl["recorded_starts"], 0)
+        self.assertIsNone(tl["overlap_s"], "a run whose concurrency nothing recorded is not one that had none")
+        self.assertIn("reads the run as strictly sequential", tl["reading"])
+        self.assertIn("Nothing here says it was", tl["reading"])
+
+    def test_a_sequential_run_with_recorded_starts_reads_as_recorded_and_zero_overlap(self):
+        t = self._traj([{"latency_s": 1.0, "started_s": 0.0},
+                        {"latency_s": 2.0, "started_s": 1.0},
+                        {"latency_s": 0.5, "started_s": 3.0}])
+        tl = time_attribution(t)["timeline"]
+        self.assertTrue(tl["measurable"])
+        self.assertEqual(tl["basis"], "recorded")
+        self.assertEqual(tl["span_s"], 3.5)
+        self.assertEqual(tl["sum_s"], 3.5)
+        self.assertEqual(tl["overlap_s"], 0.0)
+        self.assertEqual(tl["concurrent_steps"], 0)
+        self.assertIn("really was sequential", tl["reading"])
+
+    def test_a_concurrent_run_is_measurable_where_a_running_sum_would_have_lied(self):
+        """Two calls that overlap: the sum of the durations is 3.0s and the
+        run took 2.0s. A reconstructed clock would have drawn it as 3.0s
+        and placed the third step a second late."""
+        t = self._traj([{"latency_s": 1.0, "started_s": 0.0},
+                        {"latency_s": 1.0, "started_s": 0.5},
+                        {"latency_s": 1.0, "started_s": 1.0}])
+        tl = time_attribution(t)["timeline"]
+        self.assertTrue(tl["measurable"])
+        self.assertEqual(tl["sum_s"], 3.0)
+        self.assertEqual(tl["span_s"], 2.0)
+        self.assertEqual(tl["overlap_s"], 1.0)
+        self.assertEqual(tl["concurrent_steps"], 2)
+        self.assertIn("two or more steps running at once", tl["reading"])
+
+    def test_a_partly_recorded_run_is_reconstructed_rather_than_mixed(self):
+        """All or nothing: placing some steps on a clock and some on a
+        running sum is two pictures drawn over each other, and the result
+        would not say which was which."""
+        t = self._traj([{"latency_s": 1.0, "started_s": 0.0},
+                        {"latency_s": 2.0},
+                        {"latency_s": 0.5, "started_s": 3.0}])
+        tl = time_attribution(t)["timeline"]
+        self.assertFalse(tl["measurable"])
+        self.assertEqual(tl["basis"], "reconstructed")
+        self.assertEqual(tl["recorded_starts"], 2)
+        self.assertIn("only 2 of 3 steps", tl["reason"])
+
+    def test_the_recorder_records_when_each_step_began(self):
+        import time as _time
+
+        from deepcompare.record import Recorder
+        with Recorder(task="t", prompt="p", agent="a", model="m", expected="x", out_dir=None) as run:
+            run.reason("first")
+            _time.sleep(0.02)
+            run.reason("second")
+            run.answer("x", success=True)
+        data = run.to_dict()
+        starts = [s.get("started_s") for s in data["steps"]]
+        self.assertTrue(all(isinstance(v, (int, float)) for v in starts), starts)
+        self.assertEqual(starts, sorted(starts), "a step began before the one before it")
+        self.assertAlmostEqual(starts[0], 0.0, places=3)
+        tl = time_attribution(Trajectory.from_dict(data))["timeline"]
+        self.assertEqual(tl["basis"], "recorded")
+        self.assertEqual(tl["overlap_s"], 0.0)
+
+    def test_an_unrecorded_start_is_absent_and_not_null(self):
+        """Adding a null to every step of every stored trace would rewrite
+        every artifact here to say nothing."""
+        t = self._traj([{"latency_s": 1.0}, {"latency_s": 1.0}])
+        for step in t.to_dict()["steps"]:
+            self.assertNotIn("started_s", step)
+        with_start = self._traj([{"latency_s": 1.0, "started_s": 0.25}, {"latency_s": 1.0, "started_s": 1.25}])
+        self.assertEqual([s["started_s"] for s in with_start.to_dict()["steps"]], [0.25, 1.25])
+
+    def test_a_negative_start_is_refused(self):
+        with self.assertRaises(ValueError):
+            self._traj([{"latency_s": 1.0, "started_s": -1.0}, {"latency_s": 1.0, "started_s": 0.0}])

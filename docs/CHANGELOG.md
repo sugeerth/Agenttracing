@@ -5,6 +5,53 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Every timeline here was assuming the run was sequential (step field `started_s`)
+
+**The assumption nothing stated.** A trace recorded `latency_s` and
+nothing else about the clock, so there was exactly one way to place a step
+on a timeline: sum the durations before it. Every strip, band and phase
+this repository draws did that. It is not a neutral convenience — it
+asserts the run was strictly sequential — and for a loop that executes
+independent calls concurrently, which is what the engine's own
+`parallel_reads` recommendation asks for, the reconstruction is simply
+wrong and the picture says nothing about it.
+
+`Step.started_s` is seconds from the run's start to the moment the step
+began. `Recorder` writes it — it already knows the boundary; the step's
+start is the previous mark, not the moment `step()` is called. Absent
+means unrecorded, and absent rather than null for the same reason
+`scaffold` is.
+
+**`timing.timeline` states the basis**, and where the starts are recorded
+two things become measurable that were not: `span_s`, first start to last
+end, and `overlap_s`, the durations' sum minus the span — the seconds two
+or more steps were running at once. `overlap_s` is `null` when the starts
+are unrecorded, never `0.0`: a run whose concurrency nothing wrote down is
+not a run that had none.
+
+**Recorded only where one clock owns both numbers.** Given `latency_s`, the
+recorder does not stamp its own wall-clock start beside it: a caller that
+supplies a duration is keeping its own clock or writing a fixture, and
+pairing the two would describe no real run. `step(started_s=…)` is there
+for a caller that knows, and `harness/agent.py` passes it around every
+provider call and every tool call, so a real run keeps a read clock. This
+was found by the demo generators — which drive the `Recorder` with
+*invented* latencies — failing their byte-for-byte reproduction; an
+auto-stamped start there would have been fiction and non-deterministic
+fiction at that.
+
+**All or nothing.** A run with starts on some steps and not others is read
+as reconstructed, because a strip with some steps on a clock and some on a
+running sum is two pictures drawn over each other and would not say which
+was which. The Trace view says which basis it used either way — silence
+would leave the assumption in place.
+
+The positional browser test is worth a line. Its first fixture was three
+one-second steps, which give the *same* relative spacing under both bases
+— 0.5 either way — so it could not fail. The durations now differ on
+purpose: read, the middle step sits at 0.50 of the strip; summed, at 0.80.
+Forcing the block back to a running sum was checked to make it fail.
+
 ## Where the harness moved, and what nothing recorded (`dimension`, `dimensions`)
 
 **The ladder could not say where.** It gives a verdict per step;

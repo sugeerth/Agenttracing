@@ -250,6 +250,15 @@ class Step:
     reward: Optional[float] = None
     value: Optional[float] = None
     advantage: Optional[float] = None
+    #: seconds from the run's start to the moment this step *began*.
+    #:
+    #: Without it a reader has only ``latency_s``, and the only way to place
+    #: a step on a clock is to sum the durations before it — which silently
+    #: asserts the run was sequential.  For a loop that executes independent
+    #: calls concurrently that reconstruction is simply wrong, and nothing in
+    #: the record would say so.  ``None`` means unrecorded: the reader falls
+    #: back to the running sum and must say that is what it did.
+    started_s: Optional[float] = None
     #: what the harness did to this step, from :data:`SCAFFOLD_ACTIONS`;
     #: None means the harness did nothing and the step is the agent's
     #: alone.  It is deliberately separate from ``note``, which is prose:
@@ -324,6 +333,11 @@ class Step:
                 raise ValueError(f"{where}: span must be an object with id and agent (and an optional parent)")
             span = {"id": str(span["id"]), "agent": str(span["agent"]),
                     "parent": (str(span["parent"]) if span.get("parent") is not None else None)}
+        started = d.get("started_s")
+        if started is not None:
+            if not isinstance(started, (int, float)) or isinstance(started, bool) or float(started) < 0:
+                raise ValueError(f"{where}: started_s must be a non-negative number of seconds or null")
+            started = float(started)
         scaffold = d.get("scaffold")
         if scaffold is not None and scaffold not in SCAFFOLD_ACTIONS:
             raise ValueError(
@@ -354,6 +368,7 @@ class Step:
             reward=signal["reward"],
             value=signal["value"],
             advantage=signal["advantage"],
+            started_s=started,
             scaffold=scaffold,
         )
 
@@ -383,6 +398,11 @@ class Step:
         # stored trace would have changed the bytes of every artifact in the
         # repository to say nothing, and "absent" and "null" mean the same
         # thing here — the harness did not act on this step.
+        # absent rather than null when unrecorded, for the same reason
+        # `scaffold` is: a new null on every step of every stored trace would
+        # rewrite every artifact here to say nothing
+        if self.started_s is not None:
+            out["started_s"] = self.started_s
         if self.scaffold is not None:
             out["scaffold"] = self.scaffold
         return out

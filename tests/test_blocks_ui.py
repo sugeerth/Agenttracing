@@ -12274,3 +12274,133 @@ class HarnessDriftTest(unittest.TestCase):
             self.assertEqual(tiny, [], str(width))
             self.assertEqual(errors, [], str(width))
             ctx.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class RecordedClockTest(unittest.TestCase):
+    """The strip places a step where the trace says it began.
+
+    Until `Step.started_s` existed, every timeline here summed the
+    durations before a step to place it — which reads the run as strictly
+    sequential and, for a loop that runs independent calls concurrently, is
+    simply wrong. The picture said nothing about which it was doing.
+
+    The fixture is a run whose steps overlap: three one-second steps
+    starting at 0.0, 0.5 and 1.0. Summed, that is a three-second run with
+    the last step starting at two seconds. Read, it is a two-second run
+    with the last starting at one. The two are told apart on the page, not
+    just in the section.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        from deepcompare.report import compare, render_html
+        from deepcompare.trace import Trajectory
+
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+
+        def traj(name, rows):
+            steps = []
+            for i, row in enumerate(rows):
+                step = {"index": i, "type": row.get("type", "tool_call"), "name": row.get("name", "look"),
+                        "input": "q", "output": "r", "tokens": 10, "latency_s": row["latency_s"]}
+                if "started_s" in row:
+                    step["started_s"] = row["started_s"]
+                steps.append(step)
+            steps[-1].update(type="answer", name="final", output="the answer is 42")
+            return Trajectory.from_dict({
+                "trace_id": f"t_clock__{name}", "agent": {"name": name},
+                "task": {"id": "t_clock", "prompt": "what is it?", "expected": "42"},
+                "totals": {"latency_s": sum(r["latency_s"] for r in rows)},
+                "outcome": {"answer": "the answer is 42", "success": True, "termination": "agent_stop"},
+                "steps": steps})
+
+        # Deliberately *unequal* durations. Three equal ones give the same
+        # relative spacing under both bases — 0.5 either way — so a test
+        # built on them cannot fail and proves nothing. These give 0.50
+        # read and 0.80 summed.
+        cls.rows = [{"latency_s": 2.0, "started_s": 0.0},
+                    {"latency_s": 0.5, "started_s": 0.5},
+                    {"latency_s": 1.0, "started_s": 1.0}]
+        cls.overlapped = traj("recorded", cls.rows)
+        cls.plain = traj("assumed", [{"latency_s": r["latency_s"]} for r in cls.rows])
+        cls.report = out / "report.html"
+        render_html([compare(cls.overlapped, cls.plain)], {}, ROOT / "web" / "blocks.html", cls.report)
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def _open(self, side=None):
+        ctx = self.browser.new_context(viewport={"width": 1400, "height": 1100})
+        page = ctx.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.goto(f"file://{self.report}#view=trace")
+        page.wait_for_timeout(1500)
+        blk = page.locator('.block[data-block="tr-timeline"]')
+        if blk.count() and "collapsed" in (blk.first.get_attribute("class") or ""):
+            blk.first.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(700)
+        if side:
+            btn = blk.first.locator(f'button:text-is("{side}")')
+            if btn.count():
+                btn.first.click()
+                page.wait_for_timeout(700)
+        return ctx, page, errors, blk
+
+    def test_the_side_with_recorded_starts_says_the_clock_is_read(self):
+        ctx, page, errors, blk = self._open("recorded")
+        text = blk.first.text_content()
+        self.assertIn("placed where the trace says it began", text)
+        self.assertNotIn("summing the durations before it", text)
+        self.assertEqual(errors, [])
+        ctx.close()
+
+    def test_the_side_without_them_says_the_clock_is_assumed(self):
+        """Not silence: a picture that assumes a run was sequential has to
+        say that is what it did."""
+        ctx, page, errors, blk = self._open("assumed")
+        text = blk.first.text_content()
+        self.assertIn("summing the durations before it", text)
+        self.assertIn("reads the run as strictly sequential", text)
+        self.assertEqual(errors, [])
+        ctx.close()
+
+    def test_the_overlap_is_drawn_and_not_flattened_into_a_longer_run(self):
+        """Steps of 2.0s, 0.5s and 1.0s beginning at 0.0, 0.5 and 1.0 span
+        two seconds; their durations sum to three and a half. Read, the
+        middle step begins halfway along the strip. Summed, it would begin
+        at 0.80 — so the positions are the assertion, and the fixture's
+        durations differ on purpose so that the two answers differ."""
+        ctx, page, errors, blk = self._open("recorded")
+        boxes = page.evaluate("""() => Array.from(document.querySelectorAll('[data-block="tr-timeline"] .trc-step[data-step]'))
+            .map(e => { const b = e.getBoundingClientRect();
+                        return [Number(e.getAttribute('data-step')), b.left, b.width]; })
+            .sort((p, q) => p[0] - q[0])""")
+        self.assertEqual(len(boxes), len(self.rows),
+                         f"the strip drew {len(boxes)} steps for a {len(self.rows)}-step run")
+        lefts = [b[1] for b in boxes]
+        span = (lefts[-1] - lefts[0]) or 1
+        # the last step begins at 1.0 of a 2.0s span: halfway. Under a
+        # running sum it would begin at 2.0 of 3.0 — two-thirds.
+        middle = (lefts[1] - lefts[0]) / span
+        self.assertAlmostEqual(middle, 0.5, delta=0.08,
+                               msg=f"step 1 sits at {middle:.2f} of the run; recorded says 0.50, summed says 0.80")
+        self.assertEqual(errors, [])
+        ctx.close()
