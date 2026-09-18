@@ -64,7 +64,10 @@ class RunTest(unittest.TestCase):
         self.assertEqual(tk["by_tool"], {"open_page": 184, "select_result": 154, "web_search": 183})
         # the demo traces carry no tokens_basis: every token is unknown, none is invented as measured
         self.assertEqual((tk["measured"], tk["estimated"], tk["unknown"]), (0, 0, tk["total"]))
-        self.assertEqual(b["io"], {"measurable": True, "reason": None, "input_tokens": 625, "output_tokens": 215, "source": "totals"})
+        # the demo steps carry no input/output split, so the whole-run
+        # figure is the fallback and says which it is
+        self.assertEqual(b["io"], {"measurable": True, "reason": None, "input_tokens": 625, "output_tokens": 215,
+                                   "steps": 0, "of_steps": len(self.atlas.steps), "source": "totals"})
         self.assertEqual(b["cost_usd"]["value"], 0.0051)
         self.assertEqual([row[4] for row in b["burn"]][-1], tk["total"])
         self.assertFalse(b["burn_capped"])
@@ -218,20 +221,47 @@ class CachedInputTest(unittest.TestCase):
     """
 
     @staticmethod
-    def _traj(rows):
+    def _traj(rows, totals=None):
         steps = []
         for i, row in enumerate(rows):
             step = {"index": i, "type": "reason", "name": "think", "input": "x", "output": "y",
                     "tokens": row["tokens"], "tokens_basis": "measured", "latency_s": 0.1}
-            if "cached_tokens" in row:
-                step["cached_tokens"] = row["cached_tokens"]
+            for key in ("cached_tokens", "input_tokens", "output_tokens"):
+                if key in row:
+                    step[key] = row[key]
             steps.append(step)
         steps[-1].update(type="answer", name="final")
         return Trajectory.from_dict({
             "trace_id": "x", "agent": {"name": "a"}, "task": {"id": "t", "prompt": "p"},
-            "totals": {"latency_s": 0.1 * len(rows)},
+            "totals": dict({"latency_s": 0.1 * len(rows)}, **(totals or {})),
             "outcome": {"answer": "done", "success": True, "termination": "agent_stop"},
             "steps": steps})
+
+    def test_the_split_is_read_from_the_steps_and_the_source_is_named(self):
+        """A per-step count says *where* the context went; a whole-run
+        figure cannot. Both are reported with their source rather than the
+        reader having to guess which they got."""
+        p = budget_run(self._traj([{"tokens": 420, "input_tokens": 400, "output_tokens": 20},
+                                   {"tokens": 60, "input_tokens": 50, "output_tokens": 10},
+                                   {"tokens": 5}]))
+        io = p["io"]
+        self.assertTrue(io["measurable"])
+        self.assertEqual(io["source"], "steps")
+        self.assertEqual((io["input_tokens"], io["output_tokens"]), (450, 30))
+        self.assertEqual((io["steps"], io["of_steps"]), (2, 3), "the step with no split was counted as splitting")
+        self.assertIn("450 in and 30 out, over 2 steps that split them", p["narrative"])
+
+    def test_the_totals_are_the_fallback_and_say_so(self):
+        p = budget_run(self._traj([{"tokens": 100}], totals={"input_tokens": 90, "output_tokens": 10}))
+        self.assertEqual(p["io"]["source"], "totals")
+        self.assertEqual((p["io"]["input_tokens"], p["io"]["output_tokens"]), (90, 10))
+        self.assertNotIn("that split them", p["narrative"], "a whole-run figure was reported as per-step")
+
+    def test_neither_is_unmeasurable_rather_than_zero(self):
+        p = budget_run(self._traj([{"tokens": 100}]))
+        self.assertFalse(p["io"]["measurable"])
+        self.assertIsNone(p["io"]["input_tokens"])
+        self.assertIn("unrecorded is not zero", p["io"]["reason"])
 
     def test_a_provider_that_says_nothing_leaves_cached_unknown_not_zero(self):
         tk = budget_run(self._traj([{"tokens": 100}, {"tokens": 50}]))["tokens"]

@@ -26,6 +26,17 @@ from a provider that never mentions caching, and a zero would claim it
 could. A *reported* zero is kept — that is a provider saying the cache
 missed, which is information.
 
+**And the split, not just the sum.** `Step.tokens` was one number, so
+nothing could say how much of a step was context *re-sent* versus text
+*generated* — two quantities that cost differently and are moved by
+entirely different fixes. `input_tokens` and `output_tokens` carry it where
+the provider gives both, `tokens` stays the total it has always been, and
+`budget.io` now reads the steps when they have it rather than only the
+whole-run totals, naming which source it used and how many steps split
+their counts. The three together make the reading say what a run actually
+spent: *420 tokens — 400 in and 20 out, 300 of the input from the
+provider's cache and not paid for.*
+
 **The last two refusals now say something about themselves.** "This
 harness varies only budget and tools" was true of all nineteen categories
 and told a reader nothing about which door was shut. `prompt_cache` and

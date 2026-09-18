@@ -250,6 +250,13 @@ class Step:
     reward: Optional[float] = None
     value: Optional[float] = None
     advantage: Optional[float] = None
+    #: this step's prompt and completion counts, when the provider gave
+    #: both.  ``tokens`` stays the total it has always been; these say how
+    #: it divided, which is the difference between context re-sent and text
+    #: generated — two quantities that cost differently and are moved by
+    #: different fixes.  ``None`` means the provider did not split it.
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
     #: how many of this step's *input* tokens the provider served from its
     #: own prompt cache, when it said so.
     #:
@@ -340,10 +347,13 @@ class Step:
                 raise ValueError(f"{where}: span must be an object with id and agent (and an optional parent)")
             span = {"id": str(span["id"]), "agent": str(span["agent"]),
                     "parent": (str(span["parent"]) if span.get("parent") is not None else None)}
-        cached = d.get("cached_tokens")
-        if cached is not None:
-            if not isinstance(cached, int) or isinstance(cached, bool) or cached < 0:
-                raise ValueError(f"{where}: cached_tokens must be a non-negative integer or null")
+        split = {}
+        for key in ("input_tokens", "output_tokens", "cached_tokens"):
+            val = d.get(key)
+            if val is not None and (not isinstance(val, int) or isinstance(val, bool) or val < 0):
+                raise ValueError(f"{where}: {key} must be a non-negative integer or null")
+            split[key] = val
+        cached = split["cached_tokens"]
         started = d.get("started_s")
         if started is not None:
             if not isinstance(started, (int, float)) or isinstance(started, bool) or float(started) < 0:
@@ -380,6 +390,8 @@ class Step:
             value=signal["value"],
             advantage=signal["advantage"],
             started_s=started,
+            input_tokens=split["input_tokens"],
+            output_tokens=split["output_tokens"],
             cached_tokens=cached,
             scaffold=scaffold,
         )
@@ -415,8 +427,10 @@ class Step:
         # rewrite every artifact here to say nothing
         if self.started_s is not None:
             out["started_s"] = self.started_s
-        if self.cached_tokens is not None:
-            out["cached_tokens"] = self.cached_tokens
+        for key in ("input_tokens", "output_tokens", "cached_tokens"):
+            val = getattr(self, key)
+            if val is not None:
+                out[key] = val
         if self.scaffold is not None:
             out["scaffold"] = self.scaffold
         return out

@@ -257,8 +257,13 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
         # how much of the input the provider served from its own cache, when
         # it said so.  None stays None: a working cache and a provider that
         # does not report one must not look the same.
-        cached = response.usage.get("cached_input_tokens")
-        cached = int(cached) if isinstance(cached, int) and not isinstance(cached, bool) else None
+        def _count(key):
+            v = response.usage.get(key)
+            return int(v) if isinstance(v, int) and not isinstance(v, bool) else None
+        cached = _count("cached_input_tokens")
+        # the split, not just the sum: context re-sent and text generated
+        # cost differently and are moved by different fixes
+        split = {"input_tokens": _count("input_tokens"), "output_tokens": _count("output_tokens")}
 
         if not response.tool_calls:
             answer = response.text.strip()
@@ -286,7 +291,7 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
                 raise ValueError(
                     f"grader returned None for task {task.get('id')!r}; a "
                     "verdict must be True or False")
-            recorder.answer(answer, success=bool(verdict), tokens=tokens, cached_tokens=cached,
+            recorder.answer(answer, success=bool(verdict), tokens=tokens, cached_tokens=cached, **split,
                             latency_s=response.latency_s, started_s=turn_at,
                             model={"name": response.model} if response.model else None)
             answered = True
@@ -295,7 +300,7 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
         # a turn that both talks and acts: the prose is the agent's
         # reasoning, recorded before the calls it motivates
         if response.text.strip():
-            recorder.reason(response.text.strip(), tokens=tokens, cached_tokens=cached,
+            recorder.reason(response.text.strip(), tokens=tokens, cached_tokens=cached, **split,
                             latency_s=response.latency_s, started_s=turn_at)
         messages.append({"role": "assistant", "content": response.text,
                          "tool_calls": [c.as_dict() for c in response.tool_calls]})

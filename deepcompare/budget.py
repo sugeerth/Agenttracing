@@ -115,10 +115,24 @@ def budget_run(run: Any) -> dict:
     top_rows = [{"index": st.index, "kind": st.type, "name": st.name or "", "tokens": t,
                  "share": rounded(t / total) if total else 0.0} for st, t in top]
     totals = view.totals
-    io = (measurable({"input_tokens": int(totals.input_tokens), "output_tokens": int(totals.output_tokens), "source": "totals"})
-          if (totals.input_tokens or totals.output_tokens) else
-          unmeasurable("totals carry no input/output token count (absent or 0; unrecorded is not zero)",
-                       input_tokens=None, output_tokens=None, source=None))
+    # The steps first, when they carry the split: a per-step count says
+    # *where* the context went, which a whole-run figure cannot, and the
+    # two can disagree — the totals are what the runner wrote down at the
+    # end, the steps are what it wrote down as it went. The source is named
+    # either way rather than the reader having to guess which they got.
+    split_steps = [st for st in view.steps
+                   if isinstance(st.input_tokens, int) or isinstance(st.output_tokens, int)]
+    if split_steps:
+        io = measurable({"input_tokens": sum(int(st.input_tokens or 0) for st in split_steps),
+                         "output_tokens": sum(int(st.output_tokens or 0) for st in split_steps),
+                         "steps": len(split_steps), "of_steps": len(view.steps), "source": "steps"})
+    elif totals.input_tokens or totals.output_tokens:
+        io = measurable({"input_tokens": int(totals.input_tokens), "output_tokens": int(totals.output_tokens),
+                         "steps": 0, "of_steps": len(view.steps), "source": "totals"})
+    else:
+        io = unmeasurable("neither the steps nor the totals carry an input/output split (absent or 0; unrecorded "
+                          "is not zero)", input_tokens=None, output_tokens=None, steps=0,
+                          of_steps=len(view.steps), source=None)
     cost = (measurable({"value": float(totals.cost_usd), "source": "totals"}) if finite(totals.cost_usd) and totals.cost_usd > 0
             else unmeasurable("totals carry no cost (absent or 0; unrecorded is not free)", value=None, source=None))
     waste = _waste(rows)
@@ -174,6 +188,10 @@ def _run_narrative(name: str, n_steps: int, p: dict) -> str:
     basis = [f"{num(v)} {label}" for label, v in (("measured", tk["measured"]), ("estimated", tk["estimated"]),
                                                    ("unlabelled", tk["unknown"])) if v]
     parts.append(join_names(basis) if basis else "no step labelled its count")
+    io = p.get("io") or {}
+    if io.get("measurable") and io.get("source") == "steps" and (io["input_tokens"] or io["output_tokens"]):
+        parts.append(f"{num(io['input_tokens'])} in and {num(io['output_tokens'])} out, over "
+                     + plural(io.get("steps") or 0, "step") + " that split them")
     if tk.get("cached") is not None:
         parts.append(f"{num(tk['cached'])} of the input came from the provider's cache over "
                      + plural(tk["cached_steps"], "step") + " that said so, and was not paid for")

@@ -197,6 +197,16 @@ the wait began, not how much of it was queue, network or compute.
 makes the budget view a cost view, and "the fix saves $X" a measured
 claim rather than a token-count proxy.
 
+**The tokens half is now closed; the money half is not.** A step carries
+`input_tokens`, `output_tokens` and `cached_tokens` where the provider
+reports them, so the reading can say *400 in, 20 out, 300 of the input
+served from cache and not paid for* rather than one undifferentiated
+count. What is still missing is the price: a cost per step needs a rate
+card, that rate card lives outside the trace, and this engine will not
+invent one. Either the provider reports a cost per call, or `cost_usd`
+stays a whole-run figure and the token split is the honest proxy — named
+as a proxy.
+
 ## What would make it the best, beyond fields
 
 Three properties matter more than any single field.
