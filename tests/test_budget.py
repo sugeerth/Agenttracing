@@ -318,3 +318,91 @@ class CachedInputTest(unittest.TestCase):
         self.assertEqual(openai_usage(None), {})
         self.assertEqual(anthropic_usage({"input_tokens": "lots"}), {},
                          "a non-integer count reached the trace as a measurement")
+
+
+class TokenIntegrityTest(unittest.TestCase):
+    """A trace can say things that cannot both be true.
+
+    These came out of attacking the three token fields rather than
+    exercising them: a step whose input and output do not add up to the
+    total it reports, and a step claiming more input served from the cache
+    than it ever sent. Both were accepted silently, and the reading printed
+    "100 tokens ... 4,000 in and 20 out" in one sentence — an impossibility
+    stated as a fact.
+
+    The trace is not refused. The counts are recorded and are reported as
+    recorded; what changes is that the contradiction travels with them.
+    Neither figure is preferred, because the trace is wrong and nothing
+    here can say which half of it is.
+    """
+
+    @staticmethod
+    def _traj(rows):
+        steps = []
+        for i, row in enumerate(rows):
+            step = {"index": i, "type": "reason", "name": "think", "input": "x", "output": "y",
+                    "tokens": row.get("tokens", 10), "tokens_basis": "measured", "latency_s": 0.1}
+            for key in ("input_tokens", "output_tokens", "cached_tokens"):
+                if key in row:
+                    step[key] = row[key]
+            steps.append(step)
+        steps[-1].update(type="answer", name="final")
+        return Trajectory.from_dict({
+            "trace_id": "x", "agent": {"name": "a"}, "task": {"id": "t", "prompt": "p"},
+            "totals": {"latency_s": 0.1 * len(rows)},
+            "outcome": {"answer": "done", "success": True, "termination": "agent_stop"},
+            "steps": steps})
+
+    def test_a_split_that_does_not_add_up_is_flagged_and_said(self):
+        p = budget_run(self._traj([{"tokens": 100, "input_tokens": 4000, "output_tokens": 20}]))
+        it = p["tokens"]["integrity"]
+        self.assertFalse(it["ok"])
+        self.assertEqual([c["name"] for c in it["checks"]], ["split_disagrees_with_total"])
+        self.assertEqual(it["checks"][0]["steps"], [0])
+        self.assertIn("does not add up to the total", p["narrative"])
+        # still reported: the counts are what the trace says, and hiding
+        # them would lose the evidence for the contradiction
+        self.assertEqual((p["io"]["input_tokens"], p["io"]["output_tokens"]), (4000, 20))
+
+    def test_more_cache_than_was_ever_sent_is_flagged_and_said(self):
+        p = budget_run(self._traj([{"tokens": 100, "input_tokens": 50, "output_tokens": 50,
+                                    "cached_tokens": 99999}]))
+        it = p["tokens"]["integrity"]
+        self.assertFalse(it["ok"])
+        self.assertEqual([c["name"] for c in it["checks"]], ["cached_exceeds_input"])
+        self.assertIn("which cannot be true", p["narrative"])
+        self.assertEqual(p["tokens"]["cached"], 99999)
+
+    def test_a_consistent_run_is_not_flagged_and_reads_plainly(self):
+        p = budget_run(self._traj([{"tokens": 420, "input_tokens": 400, "output_tokens": 20,
+                                    "cached_tokens": 300}]))
+        self.assertTrue(p["tokens"]["integrity"]["ok"])
+        self.assertEqual(p["tokens"]["integrity"]["checks"], [])
+        self.assertIn("400 in and 20 out", p["narrative"])
+        self.assertNotIn("contradicts itself", p["narrative"])
+        self.assertNotIn("cannot be true", p["narrative"])
+
+    def test_a_count_the_trace_never_gave_is_not_a_contradiction(self):
+        """Absent is not wrong. A step with a cache figure and no input
+        count cannot be checked against anything, and must not be flagged
+        for it — that would turn "unrecorded" into "impossible"."""
+        for rows in ([{"tokens": 100, "cached_tokens": 40}],
+                     [{"tokens": 100, "input_tokens": 90}],
+                     [{"tokens": 100}]):
+            with self.subTest(rows=rows):
+                self.assertTrue(budget_run(self._traj(rows))["tokens"]["integrity"]["ok"])
+
+    def test_every_offending_step_is_named_once_per_kind(self):
+        p = budget_run(self._traj([{"tokens": 1, "input_tokens": 5, "output_tokens": 5},
+                                   {"tokens": 10, "input_tokens": 5, "output_tokens": 5},
+                                   {"tokens": 2, "input_tokens": 5, "output_tokens": 5}]))
+        checks = p["tokens"]["integrity"]["checks"]
+        self.assertEqual(len(checks), 1, "one row per kind, not per step")
+        self.assertEqual(checks[0]["steps"], [0, 2], "the consistent step was named as offending")
+
+    def test_a_cache_figure_equal_to_the_input_is_allowed(self):
+        """Every input token served from cache is a cache that hit
+        completely. Unusual, not impossible."""
+        p = budget_run(self._traj([{"tokens": 100, "input_tokens": 90, "output_tokens": 10,
+                                    "cached_tokens": 90}]))
+        self.assertTrue(p["tokens"]["integrity"]["ok"])

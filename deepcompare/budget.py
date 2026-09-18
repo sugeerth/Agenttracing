@@ -46,9 +46,21 @@ def _tokens(step: Any) -> Optional[int]:
     return int(step.tokens) if finite(step.tokens) and step.tokens >= 0 else None
 
 
+def _flag(tokens: dict, name: str, index: int, note: str) -> None:
+    """Record a self-contradiction in a step's own counts."""
+    checks = tokens["integrity"]["checks"]
+    for row in checks:
+        if row["name"] == name:
+            row["steps"].append(index)
+            return
+    checks.append({"name": name, "steps": [index], "note": note})
+    tokens["integrity"]["ok"] = False
+
+
 def _empty_tokens() -> dict:
     return {"total": 0, "by_kind": {k: 0 for k in KINDS}, "by_tool": {}, "measured": 0, "estimated": 0, "unknown": 0,
-            "unknown_steps": 0, "cached": None, "cached_steps": 0, "basis": TOKENS_BASIS}
+            "unknown_steps": 0, "cached": None, "cached_steps": 0,
+            "integrity": {"ok": True, "checks": []}, "basis": TOKENS_BASIS}
 
 
 def _empty_run(reason: str, name: str, synthetic: bool = False) -> dict:
@@ -99,6 +111,21 @@ def budget_run(run: Any) -> dict:
         if isinstance(st.cached_tokens, int) and st.cached_tokens >= 0:
             tokens["cached"] = (tokens["cached"] or 0) + st.cached_tokens
             tokens["cached_steps"] += 1
+        # Two things a trace can say that cannot both be true. The counts
+        # are recorded, so they are reported — but a reading that prints
+        # "100 tokens ... 4,000 in and 20 out" in one sentence has stated
+        # an impossibility as a fact, and the point of the check is that
+        # the contradiction travels with the numbers instead of being
+        # smoothed over. Neither figure is preferred: the trace is wrong
+        # and nothing here can say which half.
+        have_split = isinstance(st.input_tokens, int) and isinstance(st.output_tokens, int)
+        if have_split and isinstance(st.tokens, int) and st.input_tokens + st.output_tokens != st.tokens:
+            _flag(tokens, "split_disagrees_with_total", st.index,
+                  "a step's input and output counts do not add up to the total it reports")
+        if (isinstance(st.cached_tokens, int) and isinstance(st.input_tokens, int)
+                and st.cached_tokens > st.input_tokens):
+            _flag(tokens, "cached_exceeds_input", st.index,
+                  "a step reports more input served from the cache than input sent")
         tokens["total"] += t
         if st.type in KINDS:
             tokens["by_kind"][st.type] += t
@@ -189,12 +216,17 @@ def _run_narrative(name: str, n_steps: int, p: dict) -> str:
                                                    ("unlabelled", tk["unknown"])) if v]
     parts.append(join_names(basis) if basis else "no step labelled its count")
     io = p.get("io") or {}
+    bad = {row["name"] for row in ((tk.get("integrity") or {}).get("checks") or [])}
     if io.get("measurable") and io.get("source") == "steps" and (io["input_tokens"] or io["output_tokens"]):
         parts.append(f"{num(io['input_tokens'])} in and {num(io['output_tokens'])} out, over "
-                     + plural(io.get("steps") or 0, "step") + " that split them")
+                     + plural(io.get("steps") or 0, "step") + " that split them"
+                     + (" — which does not add up to the total those steps report, so the trace contradicts "
+                        "itself and neither figure can be preferred" if "split_disagrees_with_total" in bad else ""))
     if tk.get("cached") is not None:
         parts.append(f"{num(tk['cached'])} of the input came from the provider's cache over "
-                     + plural(tk["cached_steps"], "step") + " that said so, and was not paid for")
+                     + plural(tk["cached_steps"], "step") + " that said so, and was not paid for"
+                     + (" — though a step reports more served from the cache than it sent, which cannot be true"
+                        if "cached_exceeds_input" in bad else ""))
     if p["top"]:
         t = p["top"][0]
         parts.append(f"the heaviest step was {t['index']} ({t['name'] or t['kind']}, {num(t['tokens'])} tokens, {pct(t['share'])})")

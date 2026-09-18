@@ -5,6 +5,41 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Attacking the token fields, and what they let a trace claim
+
+Eight adversarial probes against everything added this session, written to
+make each reading *lie* rather than to exercise it. Six held. Two did not,
+and both were in fields introduced a few commits earlier.
+
+**A trace could state an impossibility and the reading would repeat it.**
+Given `tokens: 100` beside `input_tokens: 4000, output_tokens: 20`, the
+narrative read *"a spent 100 tokens over 1 step … 4,000 in and 20 out"* —
+self-contradictory inside one sentence. And `cached_tokens: 99999` against
+`input_tokens: 50` produced *"99999 of the input came from the provider's
+cache"*: more served from cache than was ever sent.
+
+`budget.tokens.integrity` names them — `split_disagrees_with_total`,
+`cached_exceeds_input` — with the offending step indices, and the
+narrative carries the contradiction beside the figures. The trace is *not*
+refused and the counts are *not* hidden: they are what the trace says, and
+they are the evidence for the contradiction. Neither half is preferred,
+because the trace is wrong and nothing here can say which half of it is.
+
+Absent stays absent. A cache figure with no input count beside it cannot
+be checked against anything and is not flagged for it — that would turn
+"unrecorded" into "impossible", which is the same collapse the rest of
+this section exists to prevent. A cache figure *equal* to the input is
+allowed: a cache that hit completely is unusual, not impossible.
+
+The six that held, recorded because a negative result is a result: an
+unknown category falls through to `investigation` rather than being
+proposed for; a finding quoting `read_file` does not withdraw `read`; a
+reordered tool list gives the same fingerprint digest; identical caps do
+not read as moved; steps recorded out of chronological order give the
+right span and overlap, since the reading sorts rather than assuming index
+order is time order; and every step beginning at the same instant reads as
+n−1 overlapping, which is correct.
+
 ## Two clocks for one run, found by testing the closure
 
 Writing the end-to-end test for the five new knobs — each proposed as
