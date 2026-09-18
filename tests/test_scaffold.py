@@ -420,10 +420,54 @@ class BudgetKnobTest(unittest.TestCase):
                          {"budget": {"max_tool_errors": S.DEFAULT_TOOL_ERRORS + 2}})
 
     def test_a_recovery_finding_on_runs_that_all_answered_moves_nothing(self):
+        """Nothing errored and nothing was stopped: neither of the loop's two
+        numbers would have changed what was measured."""
+        got = S.hypotheses(_agg([_action("recovery")]), "a", tools=TOOLS,
+                           budget={"max_tool_errors": 3}, terminations={"agent_stop": 10},
+                           tool_errors=0)
+        self.assertEqual(got["proposed"], [])
+        self.assertIn("neither number the loop owns would have changed what was measured",
+                      got["unactionable"][0]["reason"])
+
+    def test_an_unread_tool_error_count_is_said_to_be_unread(self):
+        """The commonest way a reading lies: a count nobody took, rendered as
+        a zero. Without `tool_errors` the rule proposes nothing *and* says
+        why it has nothing, rather than reporting a clean run."""
         got = S.hypotheses(_agg([_action("recovery")]), "a", tools=TOOLS,
                            budget={"max_tool_errors": 3}, terminations={"agent_stop": 10})
         self.assertEqual(got["proposed"], [])
-        self.assertIn("changes nothing that was measured", got["unactionable"][0]["reason"])
+        reason = got["unactionable"][0]["reason"]
+        self.assertIn("no tool-call error count was read", reason)
+        self.assertIn("absent reading, not a clean run", reason)
+
+    def test_calls_that_errored_on_runs_that_survived_are_a_retry_hypothesis(self):
+        """The other half of `recovery`, and the commoner one: the calls
+        failed, the agent was handed each error back, and the runs finished
+        anyway. The cap is not the number in question — the retry is."""
+        got = S.hypotheses(_agg([_action("recovery")]), "a", tools=TOOLS,
+                           budget={"max_tool_errors": 3}, terminations={"agent_stop": 10},
+                           tool_errors=7)
+        self.assertEqual(len(got["proposed"]), 1)
+        prop = got["proposed"][0]
+        self.assertEqual(prop["kind"], "raise_cap:max_tool_retries")
+        self.assertEqual(prop["change"], {"budget": {"max_tool_retries": 1}})
+        self.assertIn("the runs went on anyway", prop["why"])
+        self.assertIn("records its attempt number", prop["why"])
+
+    def test_the_retry_hypothesis_raises_a_retry_count_the_budget_already_names(self):
+        got = S.hypotheses(_agg([_action("recovery")]), "a", tools=TOOLS,
+                           budget={"max_tool_retries": 2}, terminations={"agent_stop": 10},
+                           tool_errors=7)
+        self.assertEqual(got["proposed"][0]["change"], {"budget": {"max_tool_retries": 3}})
+
+    def test_runs_dying_on_the_cap_take_the_cap_and_not_the_retry(self):
+        """Both facts can be true at once — calls errored *and* the cap ended
+        the runs. The cap wins: it is the thing that stopped them, and only
+        one recovery hypothesis is kept per reading anyway."""
+        got = S.hypotheses(_agg([_action("recovery")]), "a", tools=TOOLS,
+                           budget={"max_tool_errors": 2}, terminations={"too_many_errors": 4, "agent_stop": 6},
+                           tool_errors=9)
+        self.assertEqual([p["kind"] for p in got["proposed"]], ["raise_cap:max_tool_errors"])
 
     def test_the_tool_error_cap_is_not_a_harness_stop(self):
         """`too_many_errors` is deliberately outside `_HARNESS_STOPS`: the
@@ -463,19 +507,20 @@ class BudgetKnobTest(unittest.TestCase):
         from deepcompare.trace import BUDGET_FLAGS, BUDGET_NAMES, budget_value_ok
 
         self.assertEqual(set(BUDGET_FLAGS) | set(BUDGET_NAMES)
-                         | {"max_steps", "max_tool_errors", "parallel_tool_calls"},
+                         | {"max_steps", "max_tool_errors", "max_tool_retries", "parallel_tool_calls"},
                          set(S.BUDGET_KNOBS), "a knob the trace schema and the actuator disagree about")
         cases = [
-            (_agg([_action("result_cache")]), READ_TOOLS, {}, None),
-            (_agg([_action("verification", details=['missing "run_check"'])]), TOOLS, {}, None),
-            (_agg([_action("recovery")]), TOOLS, {}, {"too_many_errors": 5, "agent_stop": 5}),
-            (_agg([_action("safety")]), READ_TOOLS + [{"name": "ship", "effect": "write"}], {}, None),
-            (_agg([_action("parallel_reads")]), READ_TOOLS, {}, None),
-            (_agg([]), TOOLS, {"max_steps": 20}, {"budget_exhausted": 5, "agent_stop": 5}),
+            (_agg([_action("result_cache")]), READ_TOOLS, {}, None, None),
+            (_agg([_action("verification", details=['missing "run_check"'])]), TOOLS, {}, None, None),
+            (_agg([_action("recovery")]), TOOLS, {}, {"too_many_errors": 5, "agent_stop": 5}, None),
+            (_agg([_action("recovery")]), TOOLS, {}, {"agent_stop": 10}, 6),
+            (_agg([_action("safety")]), READ_TOOLS + [{"name": "ship", "effect": "write"}], {}, None, None),
+            (_agg([_action("parallel_reads")]), READ_TOOLS, {}, None, None),
+            (_agg([]), TOOLS, {"max_steps": 20}, {"budget_exhausted": 5, "agent_stop": 5}, None),
         ]
         seen = set()
-        for aggregate, tools, budget, terms in cases:
-            got = S.hypotheses(aggregate, "a", tools=tools, budget=budget, terminations=terms)
+        for aggregate, tools, budget, terms, errs in cases:
+            got = S.hypotheses(aggregate, "a", tools=tools, budget=budget, terminations=terms, tool_errors=errs)
             self.assertTrue(got["proposed"])
             for prop in got["proposed"]:
                 after = S.apply_change({"tools": [t["name"] for t in tools], "budget": dict(budget)},

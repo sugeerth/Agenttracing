@@ -198,7 +198,7 @@ class TestDomains(unittest.TestCase):
     def test_existing_golden_files_still_load_unchanged(self):
         golden = load_golden(ROOT / "demo" / "golden" / "tasks.json")
         self.assertEqual(golden["domains"], {})
-        self.assertEqual(len(golden["tasks"]), 8)
+        self.assertEqual(len(golden["tasks"]), 9)
         self.assertEqual(golden["policy"]["forbidden_tools"], ["shell", "delete_file", "send_email"])
 
 
@@ -216,7 +216,12 @@ class TestFrameworksCommand(unittest.TestCase):
         self.assertEqual(len(lines), len(list(traces.glob("*.json"))))
         for line in lines:
             self.assertIn("framework=unknown", line)
-            self.assertIn("domain=research", line)
+            # t09 is a one-tool metrics query and matches no shipped domain
+            # pack. "unknown" is the honest reading of it: the classifier
+            # names a domain from the tools it recognises and does not guess
+            # when it recognises none.
+            expect = "domain=unknown" if "t09_region_error_rate" in line else "domain=research"
+            self.assertIn(expect, line)
 
     def test_long_horizon_runs_read_as_coding(self):
         result = self.run_cli(str(ROOT / "demo" / "horizon" / "long"), "--json")

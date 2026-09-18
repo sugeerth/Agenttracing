@@ -3,8 +3,10 @@
 The third level of grain: a run is read as the fetches it made — the
 ``search``, ``retrieve``, ``read`` and ``tool_call`` steps — each with its
 query, what it returned (characters, tokens, latency, an error), whether
-it repeated an earlier fetch with the same name and input, and whether
-what it returned was *used*. Used is a recorded signal or nothing: a step
+it repeated an earlier fetch with the same name and input or was a
+*retry* the harness re-ran (``attempt > 1`` on the step; where the trace
+numbers no attempts the two cannot be told apart and ``retry_basis`` says
+so), and whether what it returned was *used*. Used is a recorded signal or nothing: a step
 that carries ``reward > 0`` or a ``quality`` label of ``good`` was used, a
 recorded reward of zero or less or a label of ``bad`` was not, and a step
 with neither carries ``null`` and says so — the reading never infers use
@@ -91,21 +93,57 @@ def _key(text: Any) -> str:
     return " ".join(str("" if text is None else text).split())
 
 
-def repeat_index(steps: list) -> dict:
-    """``{index: earlier index}`` for every fetch step that repeats an
-    earlier fetch with the same name and (whitespace-normalised) input;
-    the earliest such fetch is the one named."""
+def attempt_of(step: Step) -> Optional[int]:
+    """The step's recorded attempt number, or None where the trace does not
+    number it. Only the harness writes this: it says *I re-ran this call*,
+    which is a different fact from the agent asking for the same thing
+    twice, and nothing here infers one from the other."""
+    n = getattr(step, "attempt", None)
+    return n if isinstance(n, int) and not isinstance(n, bool) and n > 0 else None
+
+
+def again_index(steps: list) -> tuple:
+    """``(repeats, retries)``, each ``{index: earlier index}``, over the
+    fetch steps. A step whose recorded attempt is greater than one is a
+    **retry** — the harness re-executed that call after it failed — and
+    names the previous attempt; any other fetch with the same name and
+    (whitespace-normalised) input as an earlier one is a **repeat** and
+    names the earliest. Where no step numbers its attempts the two cannot
+    be told apart and everything falls to repeats, which is what the
+    sections' ``retry_basis`` says out loud."""
     first: dict = {}
-    out: dict = {}
+    prev: dict = {}
+    repeats: dict = {}
+    retries: dict = {}
     for st in steps:
         if st.type not in FETCH_KINDS:
             continue
         key = (st.name or "", _key(st.input))
-        if key in first:
-            out[st.index] = first[key]
-        else:
-            first[key] = st.index
-    return out
+        attempt = attempt_of(st)
+        if attempt is not None and attempt > 1:
+            if key in prev:
+                retries[st.index] = prev[key]
+        elif key in first:
+            repeats[st.index] = first[key]
+        first.setdefault(key, st.index)
+        prev[key] = st.index
+    return repeats, retries
+
+
+def repeat_index(steps: list) -> dict:
+    """``{index: earlier index}`` for every fetch step that repeats an
+    earlier fetch with the same name and (whitespace-normalised) input;
+    the earliest such fetch is the one named. Steps the harness numbered a
+    retry are not repeats — see :func:`retry_index`."""
+    return again_index(steps)[0]
+
+
+def retry_index(steps: list) -> dict:
+    """``{index: the previous attempt's index}`` for every fetch step the
+    harness numbered ``attempt > 1``. A retry with no earlier step of the
+    same name and input is absent here but still counted a retry: the
+    number is the record, this map is only the link back."""
+    return again_index(steps)[1]
 
 
 def used_signal(step: Step) -> tuple:
@@ -142,7 +180,7 @@ def fetches_run(run: Any) -> dict:
         return unmeasurable("the run has no steps", records=[], counts=_empty_counts(),
                             volume={"output_chars": 0, "tokens": 0}, sources=[], map={"nodes": [], "edges": []},
                             synthetic=view.synthetic, narrative=f"{view.name}: no steps recorded, so nothing was fetched.")
-    repeats = repeat_index(steps)
+    repeats, retries = again_index(steps)
     records: list = []
     for st in steps:
         if st.type not in FETCH_KINDS:
@@ -157,6 +195,7 @@ def fetches_run(run: Any) -> dict:
             "tokens": _tokens(st), "tokens_basis": st.tokens_basis,
             "latency_s": round(float(st.latency_s), 4) if finite(st.latency_s) and st.latency_s > 0 else None,
             "error": st.error, "effect": st.effect, "repeat_of": repeats.get(st.index),
+            "attempt": attempt_of(st), "retry_of": retries.get(st.index),
             "used": used, "used_basis": basis, "span": span_agent,
         })
     counts = _counts(records)
@@ -170,14 +209,15 @@ def fetches_run(run: Any) -> dict:
         s["output_chars"] += r["output_chars"]
     sources = sorted(by_source.values(), key=lambda s: (-s["calls"], s["name"]))
     payload = {"records": records, "counts": counts, "volume": volume, "sources": sources,
-               "map": _map(records, steps), "synthetic": view.synthetic}
+               "map": _map(records, steps), "synthetic": view.synthetic,
+               "retry_basis": _retry_basis(counts)}
     payload["narrative"] = _run_narrative(view.name, payload)
     return measurable(payload)
 
 
 def _empty_counts() -> dict:
     return {"by_kind": {k: 0 for k in FETCH_KINDS}, "by_tool": {}, "total": 0, "errors": 0, "repeats": 0,
-            "used": 0, "unused": 0, "unknown_use": 0}
+            "retries": 0, "attempts_numbered": 0, "used": 0, "unused": 0, "unknown_use": 0}
 
 
 def _counts(records: list) -> dict:
@@ -189,9 +229,30 @@ def _counts(records: list) -> dict:
     return {"by_kind": by_kind, "by_tool": dict(sorted(by_tool.items())), "total": len(records),
             "errors": sum(1 for r in records if r["error"] is True),
             "repeats": sum(1 for r in records if r["repeat_of"] is not None),
+            "retries": sum(1 for r in records if (r["attempt"] or 1) > 1),
+            "attempts_numbered": sum(1 for r in records if r["attempt"] is not None),
             "used": sum(1 for r in records if r["used"] is True),
             "unused": sum(1 for r in records if r["used"] is False),
             "unknown_use": sum(1 for r in records if r["used"] is None)}
+
+
+def _retry_basis(counts: dict) -> str:
+    """Why the retry count is what it is — including, when it is zero for
+    lack of a record rather than for lack of retries, that it is not a
+    measurement."""
+    numbered, total = counts["attempts_numbered"], counts["total"]
+    if not total:
+        return "no fetch to number"
+    if not numbered:
+        return ("no fetch numbers its attempt, so a harness retry and the agent asking for the same thing twice "
+                "cannot be told apart here; every same-input fetch is counted a repeat and retries reads 0 for "
+                "want of a record, not for want of retries")
+    if numbered < total:
+        return (f"{numbered} of {total} fetches number their attempt; among those, attempt > 1 is a retry the "
+                "harness ran and is not counted a repeat. The rest carry no number, so a retry among them is "
+                "indistinguishable from a repeat")
+    return ("every fetch numbers its attempt, so retries (attempt > 1, re-run by the harness) are separated from "
+            "repeats (the agent fetching the same name and input again)")
 
 
 def _label(text: str, n: int = 60) -> str:
@@ -238,9 +299,12 @@ def _run_narrative(name: str, p: dict) -> str:
     parts = [f"{name} made {plural(c['total'], 'fetch', 'fetches')} ({join_names(kinds)}) through "
              + join_names(f"{t} ×{n}" for t, n in tools)
              + f", {num(p['volume']['output_chars'])} characters back"]
-    if c["errors"] or c["repeats"]:
+    if c["errors"] or c["repeats"] or c["retries"]:
         parts.append(join_names(x for x in [f"{plural(c['errors'], 'error')}" if c["errors"] else "",
-                                            f"{plural(c['repeats'], 'repeat')} of an earlier fetch" if c["repeats"] else ""] if x))
+                                            f"{plural(c['repeats'], 'repeat')} of an earlier fetch" if c["repeats"] else "",
+                                            f"{plural(c['retries'], 'retry', 'retries')} the harness re-ran" if c["retries"] else ""] if x))
+    elif not c["attempts_numbered"]:
+        parts.append("no fetch numbers its attempt, so a retry here would read as a repeat")
     if c["used"] or c["unused"]:
         parts.append(f"{c['used']} recorded as used and {c['unused']} as not"
                      + (f", {c['unknown_use']} with no use signal" if c["unknown_use"] else ""))
@@ -257,7 +321,8 @@ def _delta(a: dict, b: dict) -> dict:
     return {"total": ca["total"] - cb["total"],
             "by_kind": {k: ca["by_kind"][k] - cb["by_kind"][k] for k in FETCH_KINDS},
             "by_tool": {t: ca["by_tool"].get(t, 0) - cb["by_tool"].get(t, 0) for t in tools},
-            "errors": ca["errors"] - cb["errors"], "repeats": ca["repeats"] - cb["repeats"]}
+            "errors": ca["errors"] - cb["errors"], "repeats": ca["repeats"] - cb["repeats"],
+            "retries": ca["retries"] - cb["retries"]}
 
 
 def fetches_pair(report: dict, a: Any = None, b: Any = None) -> dict:
@@ -273,7 +338,8 @@ def fetches_pair(report: dict, a: Any = None, b: Any = None) -> dict:
     delta = _delta(fa, fb)
     ca, cb = fa["counts"], fb["counts"]
     sentence = (f"{name_a} made {plural(ca['total'], 'fetch', 'fetches')} against {name_b}'s {cb['total']}"
-                f" ({ca['errors']} and {cb['errors']} errored, {ca['repeats']} and {cb['repeats']} repeated)")
+                f" ({ca['errors']} and {cb['errors']} errored, {ca['repeats']} and {cb['repeats']} repeated"
+                + (f", {ca['retries']} and {cb['retries']} were retries" if ca["retries"] or cb["retries"] else "") + ")")
     widest = max(delta["by_tool"].items(), key=lambda kv: (abs(kv[1]), kv[0]), default=None)
     if widest and widest[1]:
         more = name_a if widest[1] > 0 else name_b
@@ -297,10 +363,12 @@ def fetches_aggregate(trajectories: list) -> dict:
         c = f["counts"]
         rows.append({"agent": traj.agent.name, "task": traj.task.id, "run": traj.run_id, "measurable": f["measurable"],
                      "fetches": c["total"], "by_kind": c["by_kind"], "by_tool": c["by_tool"], "errors": c["errors"], "repeats": c["repeats"],
+                     "retries": c["retries"], "attempts_numbered": c["attempts_numbered"],
                      "used": c["used"], "unused": c["unused"], "unknown_use": c["unknown_use"],
                      "output_chars": f["volume"]["output_chars"], "synthetic": f["synthetic"]})
         ag = agents.setdefault(traj.agent.name, {"runs": 0, "fetches": 0, "by_kind": {k: 0 for k in FETCH_KINDS}, "by_tool": {},
-                                                  "errors": 0, "repeats": 0, "used": 0, "unused": 0, "unknown_use": 0,
+                                                  "errors": 0, "repeats": 0, "retries": 0, "attempts_numbered": 0,
+                                                  "used": 0, "unused": 0, "unknown_use": 0,
                                                   "used_share": None, "output_chars": 0, "synthetic": False})
         ag["runs"] += 1
         ag["fetches"] += c["total"]
@@ -308,7 +376,7 @@ def fetches_aggregate(trajectories: list) -> dict:
             ag["by_kind"][k] += c["by_kind"][k]
         for t, n in c["by_tool"].items():
             ag["by_tool"][t] = ag["by_tool"].get(t, 0) + n
-        for k in ("errors", "repeats", "used", "unused", "unknown_use"):
+        for k in ("errors", "repeats", "retries", "attempts_numbered", "used", "unused", "unknown_use"):
             ag[k] += c[k]
         ag["output_chars"] += f["volume"]["output_chars"]
         ag["synthetic"] = ag["synthetic"] or f["synthetic"]
@@ -331,8 +399,9 @@ def _aggregate_narrative(p: dict) -> str:
     for name, ag in p["agents"].items():
         share = f"{pct(ag['used_share'])} of the {ag['used'] + ag['unused']} with a use signal used" if ag["used_share"] is not None \
             else "no fetch carries a use signal"
+        retried = f", {plural(ag['retries'], 'retry', 'retries')}" if ag["retries"] else ""
         bits.append(f"{name} made {plural(ag['fetches'], 'fetch', 'fetches')} over {plural(ag['runs'], 'run')} "
-                    f"({plural(ag['errors'], 'error')}, {plural(ag['repeats'], 'repeat')}; {share})")
+                    f"({plural(ag['errors'], 'error')}, {plural(ag['repeats'], 'repeat')}{retried}; {share})")
     top = p["heaviest_runs"][0] if p["heaviest_runs"] else None
     sentence = "; ".join(bits)
     if top:
@@ -353,4 +422,4 @@ def _aggregate_section(agg: dict, ctx: "_sections.AggregateContext") -> dict:
 
 
 __all__ = ["VERSION", "FETCH_KINDS", "QUERY_CHARS", "HEAVIEST", "RunView", "synthetic_of", "repeat_index",
-           "used_signal", "fetches_run", "fetches_pair", "fetches_aggregate"]
+           "retry_index", "again_index", "attempt_of", "used_signal", "fetches_run", "fetches_pair", "fetches_aggregate"]

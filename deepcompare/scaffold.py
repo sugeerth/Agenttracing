@@ -49,7 +49,10 @@ class this module had to refuse:
 
 =============================  ====================================
 ``max_steps``                  the harness stopping runs (terminations)
-``max_tool_errors``            ``recovery`` (control-flow)
+``max_tool_errors``            ``recovery`` (control-flow), where the
+                               cap ended the runs
+``max_tool_retries``           ``recovery`` (control-flow), where it did
+                               not — the calls errored and the runs lived
 ``dedupe_tool_calls``          ``result_cache`` (infrastructure)
 ``require_before_answer``      ``verification``, ``calibration``
                                (architecture)
@@ -110,6 +113,7 @@ KNOBS: dict = {
 BUDGET_KNOBS: dict = {
     "max_steps": "how many provider turns a run may take",
     "max_tool_errors": "how many failed tool calls end the run",
+    "max_tool_retries": "how many times the harness re-runs a failed call before handing the error back",
     "dedupe_tool_calls": "identical read-only calls served from a harness cache",
     "require_before_answer": "a tool the run must call before it may answer",
     "require_read_before_write": "the first write is refused until something has been read",
@@ -167,6 +171,9 @@ ERROR_SHARE = 0.2
 #: the loop's tool-error cap when a budget does not name one, kept in step
 #: with `deepcompare.harness.agent.run_task`
 DEFAULT_TOOL_ERRORS = 3
+#: errored tool calls the runs must have survived before the rule proposes
+#: retrying them.  One error is an incident; this is asking for a pattern.
+MIN_TOOL_ERRORS = 2
 
 
 def _tool_names(text: str, offered) -> list:
@@ -217,14 +224,17 @@ def _for_agent(action: dict, agent: str) -> bool:
 
 def hypotheses(aggregate: dict, agent: str, *, tools=(), budget=None,
                terminations: Optional[dict] = None, calls: Optional[dict] = None,
-               enforces_budget: bool = True) -> dict:
+               tool_errors: Optional[int] = None, enforces_budget: bool = True) -> dict:
     """Scaffold hypotheses for one agent, from the engine's own findings.
 
     ``tools`` is the tool table the agent is being offered and ``budget``
     the limits in force — the two things a variant can differ in.
-    ``terminations`` is ``{termination: runs}`` over this agent's episodes
-    and ``calls`` ``{tool: n}``; both are read from the traces by the
-    caller because an aggregate does not carry them per agent.
+    ``terminations`` is ``{termination: runs}`` over this agent's episodes,
+    ``calls`` ``{tool: n}`` and ``tool_errors`` how many of those calls came
+    back an error; all three are read from the traces by the caller because
+    an aggregate does not carry them per agent. ``tool_errors`` is ``None``
+    when the caller did not read it, which is not the same as zero and the
+    recovery rule says which it had.
 
     ``enforces_budget`` is false for an agent that runs its own loop (an
     external adapter). The harness stamps the budget on such a trace but
@@ -340,7 +350,7 @@ def hypotheses(aggregate: dict, agent: str, *, tools=(), budget=None,
         # number here, and it only matters if it is what ended the runs
         if category in _RECOVERY_CATEGORIES:
             reason = not_enforced if not enforces_budget else _recovery_rule(
-                budget, keep, from_tasks, category, effort, total, errored)
+                budget, keep, from_tasks, category, effort, total, errored, tool_errors)
             if reason:
                 unactionable.append({**row, "reason": reason})
             continue
@@ -551,35 +561,71 @@ def _safety_rule(budget: dict, effects: dict, action: dict, keep,
 
 
 def _recovery_rule(budget: dict, keep, from_tasks: list, category: str,
-                   effort: str, total: int, errored: int) -> Optional[str]:
-    """``max_tool_errors``: how many failed calls end the run.
+                   effort: str, total: int, errored: int,
+                   tool_errors: Optional[int] = None) -> Optional[str]:
+    """Error handling around a tool call, which the loop owns in two
+    numbers and the rule picks between by what the traces say happened.
 
-    The loop owns this number and nothing else about error handling, so
-    the rule only fires when the number is what ended the runs.  A
-    recovery finding on runs that all reached an answer is real and is
-    still unactionable here: raising or lowering a cap no run reached
-    changes nothing that was measured.
+    ``max_tool_errors`` is how many failures end the run, and it is only
+    worth moving when it is what ended them — raising a cap no run reached
+    changes nothing that was measured.  ``max_tool_retries`` is the other
+    case, and the commoner one: the calls failed, the harness handed each
+    error straight back to the agent, and the runs went on to finish
+    anyway.  There the question is not when to stop counting but whether
+    the call should have been run again at all.
     """
     if not total:
         return ("error handling is the scaffold, but no terminations were read for this agent, so there is "
                 "no evidence the tool-error cap is what ended anything")
-    if not errored or errored / total < ERROR_SHARE:
-        return (f"error handling is the scaffold, and the one number the loop owns is the tool-error cap — "
-                f"but {errored} of {plural(total, 'run')} ended on it, under the "
-                f"{pct(ERROR_SHARE)} this rule needs, so moving it changes nothing that was measured")
-    cap = budget.get("max_tool_errors")
-    cap = int(cap) if isinstance(cap, (int, float)) else DEFAULT_TOOL_ERRORS
-    nxt = int(cap + max(1, round(cap * CAP_STEP)))
+    if errored and errored / total >= ERROR_SHARE:
+        cap = budget.get("max_tool_errors")
+        cap = int(cap) if isinstance(cap, (int, float)) and not isinstance(cap, bool) else DEFAULT_TOOL_ERRORS
+        nxt = int(cap + max(1, round(cap * CAP_STEP)))
+        keep({
+            "kind": "raise_cap:max_tool_errors", "knob": "budget",
+            "change": {"budget": {"max_tool_errors": nxt}},
+            "category": category, "effort": effort, "source": "triage+terminations",
+            "from_tasks": from_tasks,
+            "why": (f"{errored} of {plural(total, 'run')} ended on the harness's tool-error cap, not on an answer. "
+                    f"The errors were the agent's; the decision to stop counting at {cap} was the loop's. Raise "
+                    f"max_tool_errors {cap} → {nxt} and see whether those runs were one call from recovering or "
+                    f"going in circles — the second is as useful an answer as the first, and it is the one this "
+                    f"cap currently assumes without checking."),
+        })
+        return None
+
+    # the runs survived their tool errors, so the cap is not the number in
+    # question.  The other one is: a failed call was handed back to the
+    # agent as an error message, which costs it a turn and puts the failure
+    # in its context, when the harness could simply have run it again.
+    if tool_errors is None:
+        return (f"error handling is the scaffold, and {errored} of {plural(total, 'run')} ended on the tool-error "
+                f"cap — under the {pct(ERROR_SHARE)} this rule needs to move it. The other knob is "
+                f"max_tool_retries, but no tool-call error count was read for this agent, so there is no "
+                f"evidence there was anything to re-run. That is an absent reading, not a clean run")
+    if tool_errors < MIN_TOOL_ERRORS:
+        return (f"error handling is the scaffold, but {errored} of {plural(total, 'run')} ended on the tool-error "
+                f"cap (under the {pct(ERROR_SHARE)} needed to raise it) and only "
+                f"{plural(tool_errors, 'tool call')} errored at all (under the {MIN_TOOL_ERRORS} this rule needs "
+                f"to propose retrying them), so neither number the loop owns would have changed what was measured")
+    now = budget.get("max_tool_retries")
+    now = int(now) if isinstance(now, (int, float)) and not isinstance(now, bool) and now > 0 else 0
+    nxt = now + 1
     keep({
-        "kind": "raise_cap:max_tool_errors", "knob": "budget",
-        "change": {"budget": {"max_tool_errors": nxt}},
+        "kind": "raise_cap:max_tool_retries", "knob": "budget",
+        "change": {"budget": {"max_tool_retries": nxt}},
         "category": category, "effort": effort, "source": "triage+terminations",
         "from_tasks": from_tasks,
-        "why": (f"{errored} of {plural(total, 'run')} ended on the harness's tool-error cap, not on an answer. "
-                f"The errors were the agent's; the decision to stop counting at {cap} was the loop's. Raise "
-                f"max_tool_errors {cap} → {nxt} and see whether those runs were one call from recovering or "
-                f"going in circles — the second is as useful an answer as the first, and it is the one this "
-                f"cap currently assumes without checking."),
+        "why": (f"{plural(tool_errors, 'tool call')} errored and the runs went on anyway — only {errored} of "
+                f"{plural(total, 'run')} ended on the error cap, so the cap is not the number in question. "
+                f"Every one of those failures was handed back to the agent as an error message: it costs a turn "
+                f"to read, and it stays in the context for the rest of the run. Set max_tool_retries "
+                f"{now} → {nxt} and the harness re-runs the call itself before giving up on it. The experiment "
+                f"is honest either way: if the failures were transient the runs get their answer a turn sooner, "
+                f"and if they were not, the same error arrives having cost the platform {nxt} call(s) and the "
+                f"agent nothing — which is the more useful thing to learn about a tool that keeps failing. "
+                f"A retried step records its attempt number, so the next reading can tell a retry from the "
+                f"agent asking for the same thing twice; today's cannot."),
     })
     return None
 
@@ -596,7 +642,7 @@ def _rule_knobs() -> dict:
     for category in _SAFETY_CATEGORIES:
         out[category] = "budget: require_read_before_write"
     for category in _RECOVERY_CATEGORIES:
-        out[category] = "budget: max_tool_errors"
+        out[category] = "budget: max_tool_errors or max_tool_retries"
     for category in _PARALLEL_CATEGORIES:
         out[category] = "budget: parallel_tool_calls"
     return out

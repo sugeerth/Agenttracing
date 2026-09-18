@@ -232,21 +232,22 @@ scaffold categories sat behind it, not because they were unmeasurable but
 because the loop had exactly one number — `max_steps` — and a retry
 policy or a verification step is not a step cap.
 
-### Three settings, chosen by what a trace can carry
+### Six settings, chosen by what a trace can carry
 
-So the loop grew three more, each answering a class it had been refusing,
+So the loop grew six more, each answering a class it had been refusing,
 and each read from `budget` rather than from a call signature so the
 settings a run obeyed are **on its trace** and inside its fingerprint:
 
 | setting | the class it answers | what the loop does |
 |---|---|---|
 | `max_tool_errors` | `recovery` (control-flow) | how many failed calls end the run; it was hardcoded at three, a setting nothing could vary and no trace recorded |
+| `max_tool_retries` | `recovery` (control-flow) | re-runs a failed call this many times before the error goes back to the agent; each try is its own step carrying `attempt`, so a retry is never read as the agent asking twice |
 | `dedupe_tool_calls` | `result_cache` (infrastructure) | serves an identical repeat from a harness cache — literally the engine's own fix, *same call, same result, paid for twice* |
 | `require_before_answer` | `verification`, `calibration` (architecture) | holds an answer back until a named tool has been called |
 | `require_read_before_write` | `safety` (architecture) | refuses the first write until something has been read |
 | `parallel_tool_calls` | `parallel_reads` (control-flow) | issues a turn's declared reads at once instead of one after another |
 
-The fifth could not have existed a commit earlier, and the reason is the
+`parallel_tool_calls` could not have existed a commit earlier, and the reason is the
 whole argument of this file in miniature. The loop could always have run
 independent reads together; what it could not do was let anyone *judge*
 the change. A timeline reconstructed by summing durations draws a

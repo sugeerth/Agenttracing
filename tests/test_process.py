@@ -38,7 +38,7 @@ def build(steps, **kwargs):
         item = {"index": i, "type": step.get("type", "tool_call"),
                 "name": step.get("name", "tool"), "input": step.get("input", ""),
                 "output": step.get("output", ""), "tokens": 1, "latency_s": 0.1}
-        for key in ("quality", "note", "error", "effect"):
+        for key in ("quality", "note", "error", "effect", "attempt"):
             if key in step:
                 item[key] = step[key]
         body.append(item)
@@ -164,6 +164,18 @@ class TestRepeatsAndLoops(unittest.TestCase):
     def test_three_of_the_same_call_is_looping_even_without_a_block(self):
         run = build([{"name": "a", "input": "a()"}] * 3)
         self.assertTrue(loops(run.steps)["looping"])
+
+    def test_the_harness_s_own_retries_are_not_the_agent_looping(self):
+        """The same three calls as above — but the trace says the harness
+        re-ran them. A run that never looped must not read as looping
+        because its tool was flaky."""
+        run = build([{"name": "a", "input": "a()", "attempt": 1, "output": "Error: timeout"},
+                     {"name": "a", "input": "a()", "attempt": 2, "output": "Error: timeout"},
+                     {"name": "a", "input": "a()", "attempt": 3, "output": "ok"}])
+        report = loops(run.steps)
+        self.assertFalse(report["looping"])
+        self.assertEqual(report["max_call_multiplicity"], 1)
+        self.assertEqual(report["longest_repeated_block"]["repeats"], 0)
 
     def test_a_varied_run_is_not_looping(self):
         run = build([{"name": n, "input": f"{n}()"} for n in ("a", "b", "c", "d")])

@@ -152,7 +152,7 @@ FAMILIES: dict[str, tuple[str, str]] = {
     "budget_tokens": ("gauge", "tokens of the run counted under the basis the trace labelled them with (measured, estimated, or unknown when the step carried no label); a sum over the run's steps as recorded, never re-estimated; a count, so it carries no interval"),
     "budget_by_kind": ("gauge", "tokens the agent spent on steps of the kind (plan, reason, search, retrieve, read, tool_call, answer), summed over its runs; a count, no interval"),
     "budget_by_tool": ("gauge", "tokens the agent spent on fetch steps of the tool, summed over its runs; a count, no interval"),
-    "budget_waste": ("gauge", f"tokens of the run the reading marks as wasted, by what: after_last_evidence (steps after the last step carrying a recorded reward > 0 or a quality label good, before the answer; absent when the run recorded no evidence signal), in_errored_calls, in_repeats (fetches repeating an earlier name and input); read from the pair reports' sides, {_TOOLS}; a count over recorded steps, no interval"),
+    "budget_waste": ("gauge", f"tokens of the run the reading marks as wasted, by what: after_last_evidence (steps after the last step carrying a recorded reward > 0 or a quality label good, before the answer; absent when the run recorded no evidence signal), in_errored_calls, in_repeats (fetches repeating an earlier name and input), in_retries (fetches the harness re-ran, attempt > 1; 0 where the trace numbers no attempts, which is not a measurement); read from the pair reports' sides, {_TOOLS}; a count over recorded steps, no interval"),
     "budget_cost_usd": ("gauge", "cost of the run in USD as its totals recorded it; present only where a cost was recorded — unrecorded is not free and is no sample; a recorded sum, no interval"),
     "budget_cap": ("gauge", "the token cap the analysis was given (--token-cap); a constant of the analysis, not a measurement; absent when none was given"),
     "budget_over_cap": ("gauge", "tokens of a run the analysis listed over its cap; one sample per run over it; a count, no interval"),
@@ -160,6 +160,8 @@ FAMILIES: dict[str, tuple[str, str]] = {
     "fetches": ("gauge", "fetches the run made of the kind (search, retrieve, read, tool_call); a count of steps, no interval"),
     "fetches_errors": ("gauge", "fetches of the run that returned an error; a count, no interval"),
     "fetches_repeats": ("gauge", "fetches of the run that repeated an earlier fetch with the same name and input; a count, no interval"),
+    "fetches_retries": ("gauge", "fetches of the run the harness re-ran after a failure (the step numbers its attempt and the number is above one); "
+                                 "0 where the trace numbers no attempts, which is an absent record and not a measured absence; a count, no interval"),
     "fetches_used": ("gauge", "fetches of the run by use: used (a recorded reward > 0 or a quality label good), unused (a recorded reward of zero or less, or a label bad), unknown (no signal recorded — never inferred from the answer's text); a count, no interval"),
     # a fleet
     "fleet_rank": ("gauge", "the agent's rank in the fleet by composite score, 1 = best; depends on the scoring weights in fleet.json"),
@@ -782,7 +784,7 @@ def collect_batch(loaded: dict) -> _Collector:
 
 # ---------------------------------------------------------------- the budget and the fetches
 
-_WASTES = ("after_last_evidence", "in_errored_calls", "in_repeats")
+_WASTES = ("after_last_evidence", "in_errored_calls", "in_repeats", "in_retries")
 _USES = (("used", "used"), ("unused", "unused"), ("unknown_use", "unknown"))
 
 
@@ -879,7 +881,8 @@ def _collect_fetches(c: _Collector, aggregate: dict, reports: list) -> None:
     if section and section.get("measurable") and isinstance(section.get("runs"), list):
         for r in section["runs"]:
             rows.append({"agent": str(r.get("agent")), "task": str(r.get("task")), "run": str(r.get("run")), "by_kind": r.get("by_kind") or {},
-                         "errors": r.get("errors"), "repeats": r.get("repeats"), "synthetic": bool(r.get("synthetic")),
+                         "errors": r.get("errors"), "repeats": r.get("repeats"), "retries": r.get("retries") or 0,
+                         "synthetic": bool(r.get("synthetic")),
                          **{k: r.get(k) for k, _label in _USES}})
     else:
         for name, task, run, side, report in _sides(reports):
@@ -888,7 +891,8 @@ def _collect_fetches(c: _Collector, aggregate: dict, reports: list) -> None:
                 continue
             counts = f.get("counts") or {}
             rows.append({"agent": name, "task": task, "run": run, "by_kind": counts.get("by_kind") or {}, "errors": counts.get("errors"),
-                         "repeats": counts.get("repeats"), "synthetic": bool(f.get("synthetic")), **{k: counts.get(k) for k, _label in _USES}})
+                         "repeats": counts.get("repeats"), "retries": counts.get("retries") or 0,
+                         "synthetic": bool(f.get("synthetic")), **{k: counts.get(k) for k, _label in _USES}})
         if rows:
             c.note("no fetches ledger in the aggregate: fetch families read from the pair reports' sides")
     if not rows:
@@ -900,6 +904,7 @@ def _collect_fetches(c: _Collector, aggregate: dict, reports: list) -> None:
             c.add("fetches", dict(base, kind=kind), r["by_kind"][kind])
         c.add("fetches_errors", base, r["errors"])
         c.add("fetches_repeats", base, r["repeats"])
+        c.add("fetches_retries", base, r["retries"])
         for key, label in _USES:
             c.add("fetches_used", dict(base, use=label), r[key])
 

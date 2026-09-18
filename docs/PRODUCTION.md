@@ -136,7 +136,7 @@ Measured on this machine (single core, CPython 3.11), reproduce with
 
 | command | corpus | wall clock | peak RSS | output |
 |---|---|---|---|---|
-| `batch` | 16 traces / 8 pairs | 0.48 s | 59 MB | 6.2 MB (page 4.1 MB) |
+| `batch` | 18 traces / 9 pairs | 0.48 s | 59 MB | 6.2 MB (page 4.1 MB) |
 | `runs` | 96 traces, 2 policies | 14.4 s | 100 MB | 14.0 MB (page 6.5 MB) |
 | `coevolve` | 210 traces, 7 generations | 10.6 s | 108 MB | 13.7 MB (page 6.4 MB) |
 | `evolve --against` | 420 traces, 2 lineages | 20.0 s | 122 MB | 14.8 MB (page 6.8 MB) |
@@ -150,7 +150,7 @@ wants to be quick takes `--samples 500` and says so. Memory is flat at
 about 120 MB because the engine streams traces per task rather than
 holding the corpus.
 
-Storage: the shipped corpus is **507 bytes per step** on disk (11,569
+Storage: the shipped corpus is **508 bytes per step** on disk (11,579
 steps in 5.9 MB), with input and output text included. An agent that
 runs 10,000 episodes a day at 30 steps each writes about **150 MB a
 day** raw. Gzip takes roughly a fifth of that.

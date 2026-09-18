@@ -68,7 +68,7 @@ class ServeTest(unittest.TestCase):
         status, rows = self.json("/api/v1/runs?agent=bolt-v3&sort=tokens&limit=2")
         self.assertEqual(status, 200)
         self.assertEqual(rows["n"], 2)
-        self.assertEqual(rows["of"], 16)
+        self.assertEqual(rows["of"], 18)
         self.assertTrue(all(r["agent"] == "bolt-v3" for r in rows["runs"]))
         status, rows = self.json("/api/v1/runs?success=false")
         self.assertEqual(rows["n"], 4)

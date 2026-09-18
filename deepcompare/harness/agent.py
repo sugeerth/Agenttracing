@@ -118,6 +118,11 @@ def run_task(provider: Provider, task: dict, tools: Optional[list] = None, *,
     # second shape for a setting the schema already types as a limit.
     parallel = budget.get("parallel_tool_calls")
     parallel = int(parallel) if isinstance(parallel, (int, float)) and not isinstance(parallel, bool) else 0
+    #: how many times the harness re-executes a tool call that raised,
+    #: before handing the failure back to the agent. 0 is today's
+    #: behaviour: the failure goes straight to the model.
+    retries = budget.get("max_tool_retries")
+    retries = int(retries) if isinstance(retries, (int, float)) and not isinstance(retries, bool) else 0
     require_before_answer = budget.get("require_before_answer") or None
     if require_before_answer is not None:
         require_before_answer = str(require_before_answer)
@@ -145,7 +150,7 @@ def run_task(provider: Provider, task: dict, tools: Optional[list] = None, *,
         _drive(recorder, provider, messages, tools, task, grade, max_steps,
                max_tool_errors=max_tool_errors, dedupe=dedupe,
                require_before_answer=require_before_answer, gate_writes=gate_writes,
-               parallel=parallel)
+               parallel=parallel, retries=retries)
     return recorder.to_dict()
 
 
@@ -205,7 +210,7 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
            task: dict, grade: Callable, max_steps: int, *,
            max_tool_errors: int = 3, dedupe: bool = False,
            require_before_answer: Optional[str] = None,
-           gate_writes: bool = False, parallel: int = 0) -> bool:
+           gate_writes: bool = False, parallel: int = 0, retries: int = 0) -> bool:
     """The loop itself, shared by a fresh run and a counterfactual replay:
     prompt, act, observe, until the answer or the budget.  ``messages`` is
     continued in place (a replay hands in a rebuilt prefix).  Returns
@@ -406,20 +411,34 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
                                   note="scaffold: served from the harness cache, not re-executed")
                     read_done = True
                 else:
-                    try:
-                        result = recorder.tool(call.name, args,
-                                               call=tool.fn, effect=tool.effect)
-                        result_text = _render_result(result)
-                        # only a read that returned counts as having looked:
-                        # a read that raised showed the agent nothing, and a
-                        # gate satisfied by a failed lookup is not a gate
-                        if effect.startswith("read"):
-                            read_done = True
-                        if cacheable:
-                            seen_calls[key] = result_text
-                    except Exception as exc:
-                        result_text = f"error: {exc.__class__.__name__}: {exc}"
-                        tool_errors += 1
+                    # The harness's own retries, numbered on the trace.
+                    # Without `attempt` these steps are indistinguishable
+                    # from the agent repeating itself — same tool, same
+                    # arguments, one after the other — and every repeat
+                    # rate counts them. One is a flaky environment, the
+                    # other is an agent going in circles.
+                    for attempt in range(1, max(1, retries + 1) + 1):
+                        stamp = attempt if retries else None
+                        try:
+                            result = recorder.tool(call.name, args, attempt=stamp,
+                                                   call=tool.fn, effect=tool.effect)
+                            result_text = _render_result(result)
+                            # only a read that returned counts as having
+                            # looked: a read that raised showed the agent
+                            # nothing, and a gate satisfied by a failed
+                            # lookup is not a gate
+                            if effect.startswith("read"):
+                                read_done = True
+                            if cacheable:
+                                seen_calls[key] = result_text
+                            break
+                        except Exception as exc:
+                            result_text = f"error: {exc.__class__.__name__}: {exc}"
+                            if attempt > retries:
+                                # out of tries: the failure goes to the
+                                # agent, and counts against its error cap
+                                tool_errors += 1
+                                break
                 if require_before_answer is not None and call.name == require_before_answer:
                     required_done = True
             messages.append({"role": "tool", "tool_call_id": call.id,

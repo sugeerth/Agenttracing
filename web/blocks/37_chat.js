@@ -754,10 +754,12 @@
         if (!first) first = row;
         var c = f.counts || {}, w = b && b.waste ? b.waste : null;
         text.push(sideName(row) + ": of " + count(c.total) + " fetches, " + count(c.repeats) + " repeated an earlier one, " + count(c.errors) + " errored, " + count(c.unused) + " recorded as not used and " + count(c.unknown_use) + " with no use signal (" + count(c.used) + " used)" + (w ? "; in tokens, " + tok(w.in_repeats) + " in repeats, " + tok(w.in_errored_calls) + " in errored calls and " + tok(w.after_last_evidence) + " after the last evidence" : "") + ".");
+        if (c.retries) text.push(count(c.retries) + " of those were retries the harness re-ran, not the agent asking twice" + (w && isNum(w.in_retries) ? ", costing " + tok(w.in_retries) + " tokens" : "") + ".");
+        else if (f.retry_basis) text.push(f.retry_basis + ".");
         src.push(rec.source.replace("<section>", "fetches") + ".counts", rec.source.replace("<section>", "budget") + ".waste");
       });
       if (!text.length && d.fetchesAgg) {
-        text.push(Object.keys(d.fetchesAgg.agents).map(function (n) { var a = d.fetchesAgg.agents[n]; return n + ": " + count(a.fetches) + " fetches over " + plural(count(a.runs), "run") + ", " + count(a.repeats) + " repeats, " + count(a.errors) + " errors, " + count(a.unused) + " not used, " + count(a.unknown_use) + " with no use signal"; }).join("; ") + ".");
+        text.push(Object.keys(d.fetchesAgg.agents).map(function (n) { var a = d.fetchesAgg.agents[n]; return n + ": " + count(a.fetches) + " fetches over " + plural(count(a.runs), "run") + ", " + count(a.repeats) + " repeats" + (a.retries ? ", " + count(a.retries) + " retries the harness re-ran" : "") + ", " + count(a.errors) + " errors, " + count(a.unused) + " not used, " + count(a.unknown_use) + " with no use signal"; }).join("; ") + ".");
         src.push("aggregate.fetches.agents");
       }
       if (!text.length) return cannot("no run on this page carries a fetches reading", d, ctx);

@@ -261,7 +261,7 @@ class ReportWiringTest(unittest.TestCase):
                 cmd += ["--policy", str(policy_file)]
             subprocess.run(cmd, cwd=str(ROOT), check=True, capture_output=True)
             reports = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(Path(tmp).glob("report_*.json"))]
-        self.assertEqual(len(reports), 8)
+        self.assertEqual(len(reports), 9)
         for rep in reports:
             t = rep["trust"]
             self.assertTrue(t["policy_applied"], rep["task"]["id"])

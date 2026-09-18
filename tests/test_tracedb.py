@@ -33,15 +33,15 @@ class StoreTest(unittest.TestCase):
     def test_import_is_idempotent_and_round_trips_the_trajectories(self):
         first = self.db.add_directory(DEMO, source="demo")
         again = self.db.add_directory(DEMO, source="demo")
-        self.assertEqual(first["added"], 16)
-        self.assertEqual(again["added"], 16)
-        self.assertEqual(self.db.count(), 16, "re-importing replaces, never duplicates")
+        self.assertEqual(first["added"], 18)
+        self.assertEqual(again["added"], 18)
+        self.assertEqual(self.db.count(), 18, "re-importing replaces, never duplicates")
         from_dir = sorted((json.loads(p.read_text(encoding="utf-8")) for p in DEMO.glob("*.json")), key=lambda d: d["trace_id"])
         from_db = sorted((self.db.get(r["trace_id"]) for r in self.db.query()), key=lambda d: d["trace_id"])
         self.assertEqual([d["trace_id"] for d in from_dir], [d["trace_id"] for d in from_db])
         for a, b in zip(from_dir, from_db):
             self.assertEqual(Trajectory.from_dict(a).to_dict(), Trajectory.from_dict(b).to_dict())
-        self.assertEqual(len(self.db.trajectories(agent="bolt-v3")), 8)
+        self.assertEqual(len(self.db.trajectories(agent="bolt-v3")), 9)
 
     def test_columns_index_the_json_and_filters_compose(self):
         self.db.add_directory(DEMO)
@@ -57,7 +57,7 @@ class StoreTest(unittest.TestCase):
         self.assertAlmostEqual(one["cost_usd"], raw["totals"]["cost_usd"])
         self.assertEqual(one["family"], "t05_flight_duration")
         self.assertEqual(self.db.count(family="t05_flight_duration"), 2)
-        self.assertEqual(self.db.count(source="import"), 16)
+        self.assertEqual(self.db.count(source="import"), 18)
 
     def test_runs_keep_their_run_ids_and_pairs_group_them(self):
         self.db.add_directory(RUNS)
@@ -78,10 +78,10 @@ class StoreTest(unittest.TestCase):
     def test_summary_counts_what_is_there(self):
         self.db.add_directory(DEMO, source="demo")
         s = self.db.summary()
-        self.assertEqual(s["traces"], 16)
-        self.assertEqual(s["by"]["agent"], {"atlas-v2": 8, "bolt-v3": 8})
-        self.assertEqual(s["by"]["source"], {"demo": 16})
-        self.assertEqual(s["success_by_agent"]["bolt-v3"]["successes"], 5)
+        self.assertEqual(s["traces"], 18)
+        self.assertEqual(s["by"]["agent"], {"atlas-v2": 9, "bolt-v3": 9})
+        self.assertEqual(s["by"]["source"], {"demo": 18})
+        self.assertEqual(s["success_by_agent"]["bolt-v3"]["successes"], 6)
         self.assertEqual(s["schema_version"], 1)
 
     def test_an_invalid_trace_is_refused_not_stored(self):
@@ -107,7 +107,7 @@ class StoreTest(unittest.TestCase):
         self.db.add_directory(DEMO)
         self.assertTrue(self.db.remove("t05_flight_duration__bolt-v3"))
         self.assertFalse(self.db.remove("t05_flight_duration__bolt-v3"))
-        self.assertEqual(self.db.count(), 15)
+        self.assertEqual(self.db.count(), 17)
         self.assertEqual(self.db.conn.execute("SELECT COUNT(*) FROM steps WHERE trace_id = ?", ("t05_flight_duration__bolt-v3",)).fetchone()[0], 0)
 
 

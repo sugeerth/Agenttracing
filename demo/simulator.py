@@ -88,7 +88,7 @@ class TrajectoryBuilder:
         traj = t.build()
     """
 
-    def __init__(self, agent: dict, task: dict):
+    def __init__(self, agent: dict, task: dict, budget: dict | None = None):
         self.agent = {
             "name": agent["name"],
             "model": agent["model"],
@@ -104,6 +104,11 @@ class TrajectoryBuilder:
             "prompt": task["prompt"],
             "expected": task.get("expected"),
         }
+        #: the settings the loop that ran this agent obeyed, written under
+        #: ``budget`` when given.  A trace whose steps are numbered
+        #: ``attempt`` should say which setting did the re-running, or the
+        #: reader has to take the numbering on faith.
+        self.budget = dict(budget) if isinstance(budget, dict) else None
         self.trace_id = f"{self.task['id']}__{self.agent['name']}"
         # Constant seed derived from the trace id -> stable across runs.
         self._rng = random.Random(zlib.crc32(self.trace_id.encode("utf-8")))
@@ -123,6 +128,8 @@ class TrajectoryBuilder:
         output: str,
         quality: str | None = "good",
         note: str | None = None,
+        error: bool | None = None,
+        attempt: int | None = None,
     ) -> "TrajectoryBuilder":
         if type not in STEP_TYPES:
             raise ValueError(f"unknown step type: {type!r}")
@@ -156,6 +163,15 @@ class TrajectoryBuilder:
             "quality": quality,
             "note": note,
         }
+        if error is not None:
+            step["error"] = bool(error)
+        if attempt is not None:
+            # written only where the *harness* re-executed the call: an
+            # unnumbered step is a first try, and numbering every step 1
+            # would cost every trace bytes to say nothing happened
+            if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 1:
+                raise ValueError(f"attempt must be a positive integer, got {attempt!r}")
+            step["attempt"] = attempt
         if type in _AGENT_AUTHORS_OUTPUT:
             # the model step's telemetry: the declared model and the temperature
             step["model"] = {"name": self.agent["model"], "temperature": TEMPERATURE}
@@ -226,6 +242,8 @@ class TrajectoryBuilder:
             },
             "steps": self.steps,
         }
+        if self.budget is not None:
+            traj["budget"] = dict(self.budget)
         validate_trajectory(traj)
         return traj
 
@@ -257,6 +275,10 @@ def validate_trajectory(traj: dict) -> None:
             raise ValueError(f"step {i} has index {s['index']}")
         if s["type"] not in STEP_TYPES:
             raise ValueError(f"step {i} has unknown type {s['type']!r}")
+        if "attempt" in s and (not isinstance(s["attempt"], int) or isinstance(s["attempt"], bool) or s["attempt"] < 1):
+            raise ValueError(f"step {i} has attempt {s['attempt']!r}: it must be a positive integer (1 is the first try)")
+        if "error" in s and not isinstance(s["error"], bool):
+            raise ValueError(f"step {i} has error {s['error']!r}: it must be true or false")
     if traj["steps"][-1]["type"] != "answer":
         raise ValueError("last step must be type 'answer'")
 

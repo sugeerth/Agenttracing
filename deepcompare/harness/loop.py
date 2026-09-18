@@ -297,6 +297,16 @@ class Loop:
                     out[step.name] = out.get(step.name, 0) + 1
         return out
 
+    @staticmethod
+    def _tool_errors(analysed: dict, agent: str) -> int:
+        """How many of this agent's tool calls came back an error, over its
+        episodes. The terminations say whether the *runs* died of them; this
+        says whether there was anything to retry at all, and the two are
+        different questions — most errored calls never end a run, they just
+        cost the agent a turn to read."""
+        return sum(1 for traj in _episodes(analysed, agent) for step in traj.steps
+                   if step.type in ("tool_call", "search", "retrieve", "read") and step.error is True)
+
     def _routing_slim(self, analysed: dict) -> dict:
         rt = analysed["aggregate"].get("routing") or {}
         fams = {}
@@ -367,6 +377,7 @@ class Loop:
                                budget=(slot.get("current") or {}).get("budget") or self.budget,
                                terminations=self._terminations(analysed, agent),
                                calls=self._calls(analysed, agent),
+                               tool_errors=self._tool_errors(analysed, agent),
                                # an external agent runs its own loop: the
                                # budget is stamped on its trace and nothing
                                # obeys it, so a budget hypothesis there would

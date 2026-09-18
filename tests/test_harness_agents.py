@@ -80,6 +80,51 @@ class TestScaffoldKnobs(unittest.TestCase):
                           budget={"max_steps": 8, "max_tool_errors": 5})
         self.assertEqual(len([s for s in looser["steps"] if s["type"] == "tool_call"]), 5)
 
+    def test_max_tool_retries_re_runs_the_call_and_numbers_every_try(self):
+        """The other half of `recovery`: a call that fails twice and works
+        on the third try. Without the knob the first error goes back to the
+        agent as text and costs it a turn; with it the harness re-runs the
+        call itself, and every try is its own step carrying its attempt so
+        the reading can tell the retries from the agent asking twice."""
+        tries = []
+
+        def flaky(**_kw):
+            tries.append(1)
+            if len(tries) < 3:
+                raise RuntimeError("transient")
+            return {"ok": True}
+        tool = Tool("flaky", flaky, "fails twice", {"type": "object", "properties": {}})
+        script = [{"text": "", "tool_calls": [{"name": "flaky", "arguments": {}}]},
+                  {"text": "done"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                         budget={"max_steps": 6, "max_tool_retries": 3})
+        calls = [s for s in trace["steps"] if s["type"] == "tool_call"]
+        self.assertEqual(len(tries), 3, "the harness re-ran the call itself")
+        self.assertEqual([s.get("attempt") for s in calls], [1, 2, 3])
+        self.assertEqual([bool(s.get("error")) for s in calls], [True, True, False])
+        self.assertEqual(trace["budget"]["max_tool_retries"], 3)
+        self.assertEqual(trace["outcome"]["termination"], "agent_stop")
+
+    def test_without_the_knob_the_error_goes_back_to_the_agent_unnumbered(self):
+        """The default, unchanged: one try, the error handed back as text.
+        The step carries no attempt — an unnumbered step is a first try, and
+        writing 1 on every step of every trace to say "no retry happened"
+        would cost every stored trace bytes to say nothing."""
+        tries = []
+
+        def flaky(**_kw):
+            tries.append(1)
+            raise RuntimeError("transient")
+        tool = Tool("flaky", flaky, "always fails", {"type": "object", "properties": {}})
+        script = [{"text": "", "tool_calls": [{"name": "flaky", "arguments": {}}]},
+                  {"text": "done"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                         budget={"max_steps": 6})
+        calls = [s for s in trace["steps"] if s["type"] == "tool_call"]
+        self.assertEqual(len(tries), 1)
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("attempt", calls[0])
+
     def test_dedupe_serves_the_repeat_from_the_cache_and_still_records_it(self):
         """The engine's own words for `result_cache`: same call, same
         result, paid for twice.  The step stays on the trace — the agent
@@ -367,7 +412,7 @@ class TestScaffoldKnobs(unittest.TestCase):
         from deepcompare import scaffold
 
         tool, _ = self._counting_tool()
-        budget = {"max_steps": 6, "max_tool_errors": 4, "dedupe_tool_calls": True,
+        budget = {"max_steps": 6, "max_tool_errors": 4, "max_tool_retries": 2, "dedupe_tool_calls": True,
                   "require_before_answer": "get_refund", "require_read_before_write": True,
                   "parallel_tool_calls": 3}
         script = [{"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},

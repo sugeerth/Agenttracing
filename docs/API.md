@@ -115,7 +115,7 @@ directory clears `members/`, `runs/` and `traces/` first.
 - *runs* (level 2): one row per run, `key: "<member>/<task>/<agent>/<run>"`,
   `{member, task, agent, run_id, success, steps, tool_calls, tools {name:
   n}, tokens, tokens_measured_share, cost_usd, seconds, fetches, errors,
-  repeats, return, lineage_gen, synthetic, detail, basis}`. `basis` names
+  repeats, retries, return, lineage_gen, synthetic, detail, basis}`. `basis` names
   the sources that filled the row (`scorecard`, `budget`, `fetches`,
   `evolution`, `report`, `trace`); `detail` is true when a report — or,
   with `--traces`, a trace — carries the run's steps, so level 3 is whole.

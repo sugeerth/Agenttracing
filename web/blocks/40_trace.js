@@ -992,7 +992,8 @@
       if (s.fetch) {
         rows.push(["fetch", (s.fetch.kind || "") + " " + (s.fetch.name || "") + " · " + int(s.fetch.output_chars) + " chars back" +
           (s.fetch.used === true ? " · use recorded" : s.fetch.used === false ? " · recorded as not used" : " · use not recorded") +
-          (isNum(s.fetch.repeat_of) ? " · repeats step " + s.fetch.repeat_of : "")]);
+          (isNum(s.fetch.repeat_of) ? " · repeats step " + s.fetch.repeat_of : "") +
+          (isNum(s.fetch.attempt) && s.fetch.attempt > 1 ? " · attempt " + s.fetch.attempt + ", re-run by the harness" + (isNum(s.fetch.retry_of) ? " after step " + s.fetch.retry_of : "") : "")]);
       }
       var flags = [];
       if (s.decisive) flags.push("the decisive step of the diagnosis");

@@ -2,7 +2,9 @@
 next prompt about it.
 
 The statistics settle who won; this reads *how*: per tool and per run,
-the calls, the distinct inputs and the repeats, the longest run of
+the calls, the distinct inputs and the repeats, the retries the harness
+re-ran (a step numbered ``attempt > 1``, counted apart from the repeats
+because it is not the agent asking twice), the longest run of
 identical calls, errors, wasted calls and seconds, the latency, which
 sub-agents touched the tool, where it first and last appeared, whether
 it sat on the fault's path or at the decisive step, whether its results
@@ -31,6 +33,18 @@ EXTERNAL = re.compile(r"(web|http|fetch|curl|browser|open_page|search|send_|emai
 VERIFY = re.compile(r"(test|verify|check|lint|validate|assert|build|compile)", re.I)
 HYPOTHESIS = "suggested — a hypothesis until a replay flips the outcome"
 MAX_SUGGESTIONS = 8
+
+
+def _attempt(step: dict) -> int:
+    """The step's recorded attempt, or 1 where the trace does not number it.
+
+    Unnumbered reads as a first try on purpose: it is what every trace
+    written before the field existed means, and the alternative — treating
+    an absent number as evidence of a retry — would invent retries out of
+    silence.
+    """
+    n = step.get("attempt")
+    return n if isinstance(n, int) and not isinstance(n, bool) and n > 0 else 1
 
 
 def _norm(text: Any) -> str:
@@ -67,7 +81,7 @@ def profile_run(report: dict, side: str) -> dict:
         name = str(s.get("name") or "?")
         idx = s.get("index", i)
         t = tools.setdefault(name, {
-            "name": name, "calls": 0, "inputs": {}, "repeats": 0, "max_identical_run": 1, "identical_run_at": None,
+            "name": name, "calls": 0, "inputs": {}, "repeats": 0, "retries": 0, "max_identical_run": 1, "identical_run_at": None,
             "errors": 0, "wasted_calls": 0, "wasted_s": 0.0, "seconds": 0.0, "latencies": [], "agents": {},
             "first_step": idx, "last_step": idx, "fault_calls": 0, "decisive": False, "fed_answer": 0,
             "effects": {}, "external": bool(EXTERNAL.search(name)), "samples": {"inputs": [], "outputs": []},
@@ -75,18 +89,27 @@ def profile_run(report: dict, side: str) -> dict:
         })
         key = _norm(s.get("input"))
         t["calls"] += 1
-        if key in t["inputs"]:
+        # a step the harness numbered `attempt > 1` is its own retry, not the
+        # agent asking again.  It is counted as a retry and kept out of both
+        # the repeat count and the identical-run detector, because a reading
+        # that reported "repeated `x` 3× in a row" over three tries of one
+        # failed call would accuse the agent of the harness's decision.
+        retry = _attempt(s) > 1
+        if retry:
+            t["retries"] += 1
+        elif key in t["inputs"]:
             t["repeats"] += 1
         t["inputs"][key] = t["inputs"].get(key, 0) + 1
-        last_key, run_len, run_from = last_by_tool.get(name, (None, 0, idx))
-        if key == last_key:
-            run_len += 1
-        else:
-            run_len, run_from = 1, idx
-        last_by_tool[name] = (key, run_len, run_from)
-        if run_len > t["max_identical_run"]:
-            t["max_identical_run"] = run_len
-            t["identical_run_at"] = {"from": run_from, "to": idx, "input": _short(key, 80)}
+        if not retry:
+            last_key, run_len, run_from = last_by_tool.get(name, (None, 0, idx))
+            if key == last_key:
+                run_len += 1
+            else:
+                run_len, run_from = 1, idx
+            last_by_tool[name] = (key, run_len, run_from)
+            if run_len > t["max_identical_run"]:
+                t["max_identical_run"] = run_len
+                t["identical_run_at"] = {"from": run_from, "to": idx, "input": _short(key, 80)}
         row = timing.get(idx) or {}
         lat = row.get("latency_s") if isinstance(row.get("latency_s"), (int, float)) else (s.get("latency_s") if isinstance(s.get("latency_s"), (int, float)) else 0.0)
         t["seconds"] += float(lat or 0.0)
@@ -127,7 +150,8 @@ def profile_run(report: dict, side: str) -> dict:
     writes = [t for t in tools.values() if t["effects"].get("write")]
     totals = {
         "tool_calls": sum(t["calls"] for t in tools.values()), "distinct_tools": len(tools),
-        "repeats": sum(t["repeats"] for t in tools.values()), "errors": sum(t["errors"] for t in tools.values()),
+        "repeats": sum(t["repeats"] for t in tools.values()), "retries": sum(t["retries"] for t in tools.values()),
+        "errors": sum(t["errors"] for t in tools.values()),
         "wasted_calls": sum(t["wasted_calls"] for t in tools.values()),
         "external_calls": sum(t["calls"] for t in tools.values() if t["external"]),
         "agents_touching": len({a for t in tools.values() for a in t["agents"]}),

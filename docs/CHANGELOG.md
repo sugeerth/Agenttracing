@@ -5,6 +5,63 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## A retry is not a repeat, and the trace now says which
+
+`docs/TRACING.md` gap 4 named a conflation this engine had shipped from
+the start: `fetches` called every same-input call a **repeat**, and a
+harness retry of a failed call looks exactly like the agent asking twice.
+The two want opposite fixes. A repeat is the agent's behaviour and argues
+for a cache or a prompt; a retry is the platform's cost and argues for
+backing off, or for a tool that works.
+
+**The producer.** `Step.attempt` (optional, 1-based, absent rather than
+null when there was only one try) is written only when the *harness*
+re-executed a call. `max_tool_retries` is the budget knob that makes it
+do so — the seventh setting `deepcompare.harness.agent` reads — and each
+try is its own step, so the tokens and seconds of a retry are recorded
+rather than folded into one call that looks slow.
+
+**The readings.** `fetches` splits `retries` from `repeats` on the
+recorded number and never on inference, and carries `retry_basis` saying
+how much of the run numbered anything: a retry count of 0 on a trace that
+numbers nothing is an absent record, not a measured absence, and the
+reading says which it is. `budget.waste` gains `in_retries` beside
+`in_repeats` for the same reason. `toolprofile` keeps retries out of both
+its repeat count *and* its identical-run detector — three tries of one
+failed call used to read as "repeated `x` 3× in a row", which accused the
+agent of the harness's own decision — and `process.loops` leaves them out
+of the loop detector, where a multiplicity of three used to turn `looping`
+true on a run that never looped. `process.repeats` needed no change: it
+already refused to count a call that followed an errored identical one,
+which is the same judgement made without the evidence.
+
+**The actuator.** `recovery` findings had exactly one knob, `max_tool_errors`,
+and it only moves anything on runs that *ended* on the cap. Findings on
+runs that survived their tool errors — the commoner case — were
+unactionable. `scaffold._recovery_rule` now picks between the two: the cap
+where it ended the runs, `max_tool_retries` where the calls failed and the
+runs went on anyway. The guard is the loop's own reading of how many calls
+errored, and where the caller read no such count the refusal says that,
+rather than reporting a clean run.
+
+**The corpus demonstrates it.** A field nothing in the shipped demo
+exercises is a field no reader ever sees work, so the demo grew a ninth
+task, `t09_region_error_rate`. Both agents reach the same right answer and
+both traces contain the same call twice — that is the whole point. The
+harness re-ran it for `atlas-v2` and numbered every try (`attempt` 1, 2, 3,
+`max_tool_retries: 2` on the trace's budget); `bolt-v3`'s loop had the knob
+off, so the failure went back to the agent, which read it, spent a turn
+reasoning about it and called the tool again itself — a repeat, unnumbered,
+because nothing re-ran it. The pair reads *"3 fetches against 2 (2 and 1
+errored, 0 and 1 repeated, 2 and 0 were retries)"*. Before this change both
+runs read as one repeat each. `demo/simulator.py` gained `error`, `attempt`
+and a trajectory `budget` to author it; the other sixteen traces are
+byte-identical, and the fleet roster keeps to the eight research tasks.
+
+What is still open in gap 4 is the *reason*: `attempt: 2` does not say
+whether the first try hit a rate limit, a timeout or a broken tool, and
+those three want different fixes.
+
 ## Attacking the token fields, and what they let a trace claim
 
 Eight adversarial probes against everything added this session, written to

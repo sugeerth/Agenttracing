@@ -65,6 +65,60 @@ class RunTest(unittest.TestCase):
         self.assertEqual(f["counts"]["repeats"], 1)
         self.assertEqual(f["counts"]["errors"], 1)
 
+    def test_the_shipped_corpus_carries_both_and_the_pair_tells_them_apart(self):
+        """t09 exists for this: two runs, the same call made twice in each,
+        and the only thing separating a flaky platform from an agent going
+        in circles is what the trace numbered."""
+        a = fetches_run(Trajectory.from_json(DEMO / "t09_region_error_rate__atlas-v2.json"))
+        b = fetches_run(Trajectory.from_json(DEMO / "t09_region_error_rate__bolt-v3.json"))
+        self.assertEqual((a["counts"]["retries"], a["counts"]["repeats"]), (2, 0))
+        self.assertEqual((b["counts"]["retries"], b["counts"]["repeats"]), (0, 1))
+        self.assertEqual([r["attempt"] for r in a["records"]], [1, 2, 3])
+        self.assertEqual([r["attempt"] for r in b["records"]], [None, None])
+        self.assertIn("every fetch numbers its attempt", a["retry_basis"])
+        self.assertIn("cannot be told apart", b["retry_basis"])
+
+    def test_a_retry_the_harness_re_ran_is_not_the_agent_asking_twice(self):
+        """The conflation `docs/TRACING.md` gap 4 named. Three tries of one
+        failed call and then the agent asking for the same thing again is
+        two different events, and the step's recorded `attempt` is what
+        separates them — never an inference from the error."""
+        t = trace([step(0, "tool_call", "fetch", tokens=5, input="q", attempt=1, error=True),
+                   step(1, "tool_call", "fetch", tokens=5, input="q", attempt=2, error=True),
+                   step(2, "tool_call", "fetch", tokens=5, input="q", attempt=3),
+                   step(3, "tool_call", "fetch", tokens=5, input="q"),
+                   step(4, "answer", tokens=1)])
+        f = fetches_run(t)
+        self.assertEqual([r["attempt"] for r in f["records"]], [1, 2, 3, None])
+        self.assertEqual([r["retry_of"] for r in f["records"]], [None, 0, 1, None])
+        self.assertEqual([r["repeat_of"] for r in f["records"]], [None, None, None, 0])
+        c = f["counts"]
+        self.assertEqual((c["retries"], c["repeats"], c["attempts_numbered"]), (2, 1, 3))
+        self.assertIn("2 retries the harness re-ran", f["narrative"])
+
+    def test_a_retry_count_of_zero_says_whether_it_was_measured(self):
+        """The failure this whole file exists to prevent, in one field: a
+        trace that numbers no attempts cannot tell a retry from a repeat,
+        and `retries: 0` there is an absent record rather than a clean run.
+        The basis says so, and the narrative says it too."""
+        t = trace([step(0, "tool_call", "fetch", tokens=5, input="q", error=True),
+                   step(1, "tool_call", "fetch", tokens=5, input="q"),
+                   step(2, "answer", tokens=1)])
+        f = fetches_run(t)
+        self.assertEqual((f["counts"]["retries"], f["counts"]["attempts_numbered"]), (0, 0))
+        self.assertEqual(f["counts"]["repeats"], 1)
+        self.assertIn("cannot be told apart", f["retry_basis"])
+        self.assertIn("not for want of retries", f["retry_basis"])
+
+    def test_every_fetch_numbering_its_attempt_says_the_split_is_complete(self):
+        t = trace([step(0, "tool_call", "fetch", attempt=1),
+                   step(1, "tool_call", "fetch", input="other", attempt=1),
+                   step(2, "answer")])
+        f = fetches_run(t)
+        self.assertIn("every fetch numbers its attempt", f["retry_basis"])
+        self.assertIn("no fetch numbers its attempt, so a retry here would read as a repeat",
+                      fetches_run(trace([step(0, "tool_call", "fetch"), step(1, "answer")]))["narrative"])
+
     def test_use_is_a_recorded_signal_or_null(self):
         t = trace([step(0, "search", "s", reward=1.0), step(1, "search", "s", input="other", reward=-0.1),
                    step(2, "read", "r", quality="bad"), step(3, "read", "r", input="x", quality="weak"),

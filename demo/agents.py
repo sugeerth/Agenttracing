@@ -1,12 +1,18 @@
 """Two scripted agent personas producing hand-authored trajectories.
 
 - atlas-v2 (model sim-planner-2, a scripted simulation): efficient, plans first, picks
-  authoritative sources. Succeeds on 7/8 tasks; its one failure (t07)
+  authoritative sources. Succeeds on 8/9 tasks; its one failure (t07)
   originates in tool execution (a bad regex extraction over a CI log).
 - bolt-v3 (model sim-sprinter-3, a scripted simulation): starts identically on most tasks, then diverges:
   three retrieval divergences (t01 fail, t06 fail, t02 late recovery), one
   tool-selection divergence (t05 fail), one over-searching divergence
-  (t03, still succeeds). Succeeds on 5/8 tasks.
+  (t03, still succeeds). Succeeds on 6/9 tasks.
+
+t09 is the odd one out and is there on purpose: both agents reach the same
+correct answer, and the two runs differ only in *who* repeated a call. The
+harness re-ran it for atlas-v2 and numbered every try; bolt-v3 was handed
+the failure and asked again itself, spending a turn. Without `attempt` the
+two are the same record.
 
 Each agent records the instructions it was given (``agent.system_prompt``,
 invented for the persona) and each plan, reason and answer step the model
@@ -67,10 +73,10 @@ class Both:
         return call
 
 
-def _pair(task_id: str):
+def _pair(task_id: str, budget_a: dict | None = None, budget_b: dict | None = None):
     task = TASKS_BY_ID[task_id]
-    a = TrajectoryBuilder(AGENT_A, task)
-    b = TrajectoryBuilder(AGENT_B, task)
+    a = TrajectoryBuilder(AGENT_A, task, budget=budget_a)
+    b = TrajectoryBuilder(AGENT_B, task, budget=budget_b)
     return a, b, Both(a, b)
 
 
@@ -796,6 +802,108 @@ def t08_changelog_diff():
     return a.build(), b.build()
 
 
+
+# ---------------------------------------------------------------------------
+# t09 — Region error rate. No divergence of judgement at all: both agents
+# want the same figure from the same flaky service, and both traces contain
+# the same call twice. The difference is *who* made the second call.
+#
+# A ran under a loop with `max_tool_retries: 2`, so the harness re-executed
+# the failed call itself and numbered every try; A never saw the failure and
+# spent no turn on it. B ran with the knob off, so the error text went back
+# to B, which read it, reasoned about it and called the tool again — a turn
+# spent, the failure in its context for the rest of the run, and the second
+# call unnumbered because nothing re-ran it.
+#
+# Read without `attempt` the two traces are the same shape and the same
+# "repeat", which is what every reading here said before the field existed.
+# ---------------------------------------------------------------------------
+def t09_region_error_rate():
+    a, b, ab = _pair("t09_region_error_rate",
+                     budget_a={"max_steps": 8, "max_tool_errors": 3, "max_tool_retries": 2},
+                     budget_b={"max_steps": 8, "max_tool_errors": 3, "max_tool_retries": 0})
+
+    ab.plan(
+        "1) Query the metrics service for last week's 5xx rate per region. "
+        "2) Take the highest. 3) Report the region and the rate.",
+        output="Plan set. Querying the metrics service.",
+    )
+
+    # -- A: the harness re-ran the call, and said so on every try --
+    a.tool_call(
+        "metrics_query",
+        "metrics.query(metric='http_5xx_rate', window='7d', group_by='region')",
+        "error: UpstreamTimeout: metrics-gateway did not respond within 5s",
+        quality=None,
+        error=True,
+        attempt=1,
+        note="The gateway timed out. The agent was not told: the loop's "
+             "max_tool_retries is 2, so the harness re-ran the call itself.",
+    )
+    a.tool_call(
+        "metrics_query",
+        "metrics.query(metric='http_5xx_rate', window='7d', group_by='region')",
+        "error: UpstreamTimeout: metrics-gateway did not respond within 5s",
+        quality=None,
+        error=True,
+        attempt=2,
+        note="Second try, same timeout. One try left before the failure "
+             "would have gone back to the agent.",
+    )
+    a.tool_call(
+        "metrics_query",
+        "metrics.query(metric='http_5xx_rate', window='7d', group_by='region')",
+        "eu-west-1 2.41% | us-east-1 1.08% | ap-south-1 0.77% | "
+        "us-west-2 0.52%  (window: 2025-05-05..2025-05-11)",
+        attempt=3,
+        note="Third try returned. Three steps, one call: the tokens and the "
+             "seconds are the platform's, not the agent's, and the numbering "
+             "is what lets a reading say so.",
+    )
+    a.answer(
+        "eu-west-1 had the highest 5xx rate last week at 2.4% (metrics "
+        "service, 7-day window ending 2025-05-11); the next highest was "
+        "us-east-1 at 1.1%.",
+        success=True,
+    )
+
+    # -- B: the same call twice, asked for twice --
+    b.tool_call(
+        "metrics_query",
+        "metrics.query(metric='http_5xx_rate', window='7d', group_by='region')",
+        "error: UpstreamTimeout: metrics-gateway did not respond within 5s",
+        quality=None,
+        error=True,
+        note="No retry knob in this loop, so the error text went back to the "
+             "agent as the tool's result. Nothing re-ran it, so nothing "
+             "numbers it: an unnumbered step is a first try.",
+    )
+    b.reason(
+        "The metrics query timed out.",
+        "The gateway timed out rather than refusing the query, so the query "
+        "itself is probably fine. I will issue it once more before falling "
+        "back to the per-region dashboards.",
+        quality="weak",
+        note="A turn spent reading a failure the other run never saw. This "
+             "step is the cost the retry knob removes.",
+    )
+    b.tool_call(
+        "metrics_query",
+        "metrics.query(metric='http_5xx_rate', window='7d', group_by='region')",
+        "eu-west-1 2.41% | us-east-1 1.08% | ap-south-1 0.77% | "
+        "us-west-2 0.52%  (window: 2025-05-05..2025-05-11)",
+        note="The agent's own second call: same name, same input, no attempt "
+             "number. This is a repeat, and the reading must not count it as "
+             "a retry — nor the three steps above as repeats.",
+    )
+    b.answer(
+        "eu-west-1, at 2.4% — the highest 5xx rate of the four regions last "
+        "week (metrics service, 7-day window ending 2025-05-11).",
+        success=True,
+    )
+    return a.build(), b.build()
+
+
 _TASK_BUILDERS = [
     t01_acme_revenue,
     t02_cve_libfoo,
@@ -805,11 +913,12 @@ _TASK_BUILDERS = [
     t06_bls_unemployment,
     t07_build_failure,
     t08_changelog_diff,
+    t09_region_error_rate,
 ]
 
 
 def build_all() -> list[dict]:
-    """Build all 16 trajectories (8 tasks x 2 agents), a-then-b per task."""
+    """Build all 18 trajectories (9 tasks x 2 agents), a-then-b per task."""
     trajectories = []
     for builder_fn in _TASK_BUILDERS:
         traj_a, traj_b = builder_fn()

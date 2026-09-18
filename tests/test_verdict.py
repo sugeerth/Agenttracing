@@ -154,7 +154,7 @@ class TestOneCommandDemo(unittest.TestCase):
             # the blocks page, not the legacy viewer: it registers blocks
             self.assertIn("AgentDiff.block(", html)
             self.assertIn('"verdict_card"', html)
-            self.assertEqual(len(list(Path(tmp).glob("report_*.json"))), 8)
+            self.assertEqual(len(list(Path(tmp).glob("report_*.json"))), 9)
 
     def test_compare_html_and_explain_html_write_pages(self):
         with tempfile.TemporaryDirectory() as tmp:

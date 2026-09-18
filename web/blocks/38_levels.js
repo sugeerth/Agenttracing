@@ -90,7 +90,7 @@
     ".lv-table th{font-family:var(--mono);font-weight:500;color:var(--ink-3);text-align:left;padding:2px 10px 5px 0;border-bottom:1px solid var(--rule);white-space:nowrap}",
     ".lv-table td{padding:3px 10px 3px 0;color:var(--ink-2);white-space:nowrap;vertical-align:middle}.lv-table td.num,.lv-table th.num{text-align:right;font-family:var(--mono)}",
     ".lv-table td.wrap{white-space:normal;min-width:14em;max-width:36em;overflow-wrap:anywhere}",
-    ".lv-table td.bad{color:var(--bad)}.lv-table td.good{color:var(--good)}.lv-table td.dim{color:var(--ink-3)}.lv-table td b{color:var(--ink);font-weight:600}",
+    ".lv-table td.bad{color:var(--bad)}.lv-table td.good{color:var(--good)}.lv-table td.warn{color:var(--warn)}.lv-table td.dim{color:var(--ink-3)}.lv-table td b{color:var(--ink);font-weight:600}",
     ".lv-table tr.sel td{background:var(--surface-2)}",
     ".lv-agent{font:inherit;font-size:var(--fs-xs);border:0;background:none;color:var(--ink);font-weight:600;padding:0;cursor:pointer;text-align:left}.lv-agent:hover{text-decoration:underline}",
     ".lv-evo{font-family:var(--mono);color:var(--accent);margin-left:5px}",
@@ -305,7 +305,7 @@
     });
     (((agg.fetches || {}).runs) || []).forEach(function (fr) {
       var r = row(String(fr.task), String(fr.agent), String(fr.run));
-      set(r, "fetches", { fetches: fr.fetches, errors: fr.errors, repeats: fr.repeats, tools: fr.by_tool && typeof fr.by_tool === "object" ? fr.by_tool : null, synthetic: !!fr.synthetic });
+      set(r, "fetches", { fetches: fr.fetches, errors: fr.errors, repeats: fr.repeats, retries: fr.retries, attempts_numbered: fr.attempts_numbered, tools: fr.by_tool && typeof fr.by_tool === "object" ? fr.by_tool : null, synthetic: !!fr.synthetic });
     });
     reports.forEach(function (report) {
       var task = String(((report || {}).task || {}).id || ""); if (!task) return;
@@ -321,7 +321,8 @@
         set(r, "report", { success: block.outcome && typeof block.outcome.success === "boolean" ? block.outcome.success : null, steps: block.steps.length, tool_calls: calls, tools: tools,
           tokens: total, tokens_measured_share: b && total > 0 ? b.tokens.measured / total : null, cost_usd: b && b.cost_usd && b.cost_usd.measurable ? b.cost_usd.value : null,
           seconds: b && b.per_second && b.per_second.measurable ? b.per_second.seconds : null, fetches: f ? f.counts.total : null, errors: f ? f.counts.errors : null,
-          repeats: f ? f.counts.repeats : null, synthetic: synthetic(block.harness), detail: !!(b && f) });
+          repeats: f ? f.counts.repeats : null, retries: f ? f.counts.retries : null, attempts_numbered: f ? f.counts.attempts_numbered : null,
+          synthetic: synthetic(block.harness), detail: !!(b && f) });
         details[r.key] = Object.assign(details[r.key] || {}, { block: block, budget: b, fetches: f, report: report, side: side, task: task });
       });
     });
@@ -696,7 +697,7 @@
         var st = state(), sel = st.run === r.key || (st.run === null && r.key === m.defaultRun);
         var mark = r.success === true ? "✓" : r.success === false ? "✗" : "?";
         var row = H("div", { class: "lv-row" + (sel ? " sel" : "") + (i === cursor ? " cur" : ""), role: "button", tabindex: 0, "data-key": r.key, "data-i": i, "aria-current": sel ? "true" : null,
-          title: r.key + " · " + (r.success === true ? "succeeded" : r.success === false ? "failed" : "outcome unrecorded") + " · " + plural(r.steps, "step") + " · " + tok(r.tokens) + " tokens" + (isNum(r.tokens_measured_share) ? " (" + pct(r.tokens_measured_share) + " measured)" : "") + " · cost " + usd(r.cost_usd) + " · " + secs(r.seconds) + " · " + plural(r.fetches, "fetch") + " · " + plural(r.errors, "error") + " · " + plural(r.repeats, "repeat") + (isNum(r["return"]) ? " · return " + num(r["return"], 2) : "") + " · from " + (r.basis || []).join(", ") + (r.detail ? " · steps in the output" : " · steps not in the output"),
+          title: r.key + " · " + (r.success === true ? "succeeded" : r.success === false ? "failed" : "outcome unrecorded") + " · " + plural(r.steps, "step") + " · " + tok(r.tokens) + " tokens" + (isNum(r.tokens_measured_share) ? " (" + pct(r.tokens_measured_share) + " measured)" : "") + " · cost " + usd(r.cost_usd) + " · " + secs(r.seconds) + " · " + plural(r.fetches, "fetch") + " · " + plural(r.errors, "error") + " · " + plural(r.repeats, "repeat") + (r.retries ? " · " + plural(r.retries, "retry", "retries") + " re-run by the harness" : "") + (isNum(r["return"]) ? " · return " + num(r["return"], 2) : "") + " · from " + (r.basis || []).join(", ") + (r.detail ? " · steps in the output" : " · steps not in the output"),
           onclick: function () { cursor = i; openRun(r.key); },
           onkeydown: function (evt) { if (evt.key === "Enter" || evt.key === " ") { evt.preventDefault(); cursor = i; openRun(r.key); } } }, [
           H("span", { class: "lv-mark " + (r.success === true ? "ok" : r.success === false ? "ko" : "na"), text: mark, "aria-label": r.success === true ? "succeeded" : r.success === false ? "failed" : "outcome unrecorded" }),
@@ -993,7 +994,8 @@
     var kinds = {}; edges.forEach(function (e) { kinds[e.kind] = (kinds[e.kind] || 0) + 1; });
     var label = "search map of " + rec.key + ": " + plural(counts.total || nodesAll.length - 1, "fetch") + " left to right — " + cols[0].length + " searches, " + cols[1].length + " results and tool calls, " + cols[2].length + " reads, then the answer; node size ∝ √output chars ("
       + tok((f.volume || {}).output_chars) + " chars in all); edges: " + (kinds.yields || 0) + " yields, " + (kinds.reads || 0) + " reads, " + (kinds.reaches || 0) + " reaches the answer (recorded use only); " + (counts.used || 0) + " fetches used, " + (counts.unused || 0) + " not used, " + unknownUse + " of unknown use drawn without an edge; "
-      + (counts.errors || 0) + " errored, " + (counts.repeats || 0) + " repeats" + (capped ? "; " + capped + " nodes past the cap of " + MAP_CAP + " not drawn" : "");
+      + (counts.errors || 0) + " errored, " + (counts.repeats || 0) + " repeats"
+      + (counts.retries ? ", " + counts.retries + " retries the harness re-ran" : !counts.attempts_numbered ? " (no step numbers its attempt, so a retry here would read as a repeat)" : "") + (capped ? "; " + capped + " nodes past the cap of " + MAP_CAP + " not drawn" : "");
     var svg = d3.select(L.svg({ viewBox: "0 0 " + W + " " + Hh, "aria-label": label, class: "lv-map", role: "application", "data-nodes": nodesAll.length, "data-edges": edges.length, "data-unknown": unknownUse }));
     live.forEach(function (ci) { svg.append("text").attr("class", "lab dim").attr("x", x(ci)).attr("y", 12).attr("text-anchor", "middle").text(COLS[ci][1]); });
     var link = d3.linkHorizontal().x(function (d) { return d[0]; }).y(function (d) { return d[1]; });
@@ -1008,7 +1010,8 @@
       var r = byIdx[n.index] || {};
       if (n.kind === "answer") return [{ b: true, text: "answer" + (rec.success === true ? " ✓ succeeded" : rec.success === false ? " ✗ failed" : "") }, { text: n.label }, { mono: true, text: (n.size || 0) + " chars" }];
       return [{ b: true, text: "#" + n.index + " " + (r.kind || n.kind) + " · " + (r.name || "") }, { text: r.query || n.label }, { mono: true, text: tok(r.output_chars) + " chars out · " + tok(r.tokens) + " tokens" + (r.tokens_basis ? " (" + r.tokens_basis + ")" : "") + (isNum(r.latency_s) ? " · " + secs(r.latency_s) : "") },
-        r.error ? { text: "errored" } : null, isNum(r.repeat_of) ? { text: "repeats #" + r.repeat_of } : null, { text: r.used === true ? "used (" + r.used_basis + ")" : r.used === false ? "not used (" + r.used_basis + ")" : "use unknown: " + (r.used_basis || "no signal recorded") }];
+        r.error ? { text: "errored" } : null, isNum(r.repeat_of) ? { text: "repeats #" + r.repeat_of } : null,
+        isNum(r.attempt) && r.attempt > 1 ? { text: "attempt " + r.attempt + ", re-run by the harness" + (isNum(r.retry_of) ? " after #" + r.retry_of : "") } : null, { text: r.used === true ? "used (" + r.used_basis + ")" : r.used === false ? "not used (" + r.used_basis + ")" : "use unknown: " + (r.used_basis || "no signal recorded") }];
     }
     function words(n) { return lines(n).filter(Boolean).map(function (l) { return l.text; }).join(" · "); }
     var ng = svg.append("g").attr("class", "lv-nodes");
@@ -1020,6 +1023,7 @@
       g.append("circle").attr("r", rScale(n.size || 0)).attr("fill", fill).attr("fill-opacity", isAns || r.used !== false ? 1 : 0.35)
         .attr("stroke", r.error ? "var(--bad)" : r.used === null || r.used === undefined ? (isAns ? null : "var(--ink-3)") : null).attr("stroke-width", r.error ? 1.6 : 1).attr("stroke-dasharray", !isAns && !r.error && (r.used === null || r.used === undefined) ? "2 2" : null);
       if (isNum(r.repeat_of)) g.append("circle").attr("r", rScale(n.size || 0) + 2.5).attr("fill", "none").attr("stroke", "var(--ink-3)").attr("stroke-dasharray", "1 2");
+      if (isNum(r.attempt) && r.attempt > 1) g.append("circle").attr("class", "lv-retry").attr("r", rScale(n.size || 0) + 2.5).attr("fill", "none").attr("stroke", "var(--warn)").attr("stroke-dasharray", "3 2");
       if (!narrow || isAns || n.kind === "query") g.append("text").attr("class", "lab mono" + (isAns ? " strong" : " dim")).attr("x", isAns ? 0 : rScale(n.size || 0) + 4).attr("y", isAns ? -rScale(n.size || 0) - 5 : 4).attr("text-anchor", isAns ? "middle" : "start").text(isAns ? "answer" : "#" + n.index);
       g.on("mousemove", function (evt) { tip.show(evt, lines(n)); }).on("mouseleave", function () { tip.hide(); })
         .on("focus", function () { if (status) status.textContent = words(n); }).on("click", function () { if (status) status.textContent = words(n); });
@@ -1027,7 +1031,8 @@
     host.appendChild(svg.node());
     host.appendChild(H("div", { class: "lv-bar" }, [
       H("span", { class: "lv-chipline" }, [H("i", { style: { background: "var(--accent)" } }), "search"]), H("span", { class: "lv-chipline" }, [H("i", { style: { background: "var(--ink-2)" } }), "result · tool call"]), H("span", { class: "lv-chipline" }, [H("i", { style: { background: "var(--ink)" } }), "read"]),
-      H("span", { class: "lv-chipline" }, [H("i", { style: { background: "var(--good)" } }), "answer (outcome colour) · reaches edge = use recorded"]), H("span", { text: "faded = recorded as not used · dashed = use unknown (" + unknownUse + ") · red ring = errored · dotted ring = repeat" }),
+      H("span", { class: "lv-chipline" }, [H("i", { style: { background: "var(--good)" } }), "answer (outcome colour) · reaches edge = use recorded"]), H("span", { text: "faded = recorded as not used · dashed = use unknown (" + unknownUse + ") · red ring = errored · dotted ring = repeat (the agent asked twice) · amber ring = retry (the harness re-ran it)" }),
+      H("span", { class: "dim", text: (f.retry_basis || "") }),
     ]));
     return { nodes: nodesAll.length, edges: edges.length, unknown: unknownUse, capped: capped };
   }
@@ -1036,11 +1041,12 @@
     var recs = ((rec.fetches || {}).records) || [];
     var shown = recs.slice(0, TABLE_CAP);
     var table = H("table", { class: "lv-table lv-fetches" }, [
-      H("thead", null, H("tr", null, ["#", "kind", "tool", "query", "out chars", "tokens", "basis", "latency", "error", "repeat of", "used"].map(function (t, i) { return H("th", { class: i >= 4 && i <= 7 ? "num" : "", text: t }); }))),
+      H("thead", null, H("tr", null, ["#", "kind", "tool", "query", "out chars", "tokens", "basis", "latency", "error", "repeat of", "attempt", "used"].map(function (t, i) { return H("th", { class: i >= 4 && i <= 7 ? "num" : "", text: t }); }))),
       H("tbody", null, shown.map(function (r) {
         return H("tr", null, [H("td", { class: "num", text: r.index }), H("td", { text: r.kind }), H("td", { text: r.name }), H("td", { class: "wrap", text: r.query, title: r.query_chars > (r.query || "").length ? "truncated: " + r.query_chars + " chars" : null }),
           H("td", { class: "num", text: tok(r.output_chars) }), H("td", { class: "num", text: tok(r.tokens) }), H("td", { class: "dim", text: r.tokens_basis || "unknown" }), H("td", { class: "num", text: isNum(r.latency_s) ? secs(r.latency_s) : "—" }),
           H("td", { class: r.error ? "bad" : "dim", text: r.error ? "yes" : r.error === false ? "no" : "—" }), H("td", { class: isNum(r.repeat_of) ? "" : "dim", text: isNum(r.repeat_of) ? "#" + r.repeat_of : "—" }),
+          H("td", { class: isNum(r.attempt) && r.attempt > 1 ? "warn" : "dim", text: !isNum(r.attempt) ? "—" : r.attempt > 1 ? r.attempt + (isNum(r.retry_of) ? " (re-run of #" + r.retry_of + ")" : " (re-run)") : "1" }),
           H("td", { class: r.used === true ? "good" : r.used === false ? "bad" : "dim", text: r.used === true ? "yes" : r.used === false ? "no" : "unknown", title: r.used_basis || "" })]);
       })),
     ]);
@@ -1087,6 +1093,7 @@
       H("span", null, [H("b", { text: tok(r.steps) }), " steps"]), H("span", null, [H("b", { text: tok(r.tokens) }), " tokens", isNum(r.tokens_measured_share) ? " (" + pct(r.tokens_measured_share) + " measured)" : " (basis unrecorded)"]),
       H("span", null, [H("b", { text: usd(r.cost_usd) }), isNum(r.cost_usd) ? " cost" : " cost (not recorded)"]), H("span", null, [H("b", { text: secs(r.seconds) }), " wall-clock"]),
       H("span", null, [H("b", { text: tok(r.fetches) }), " fetches"]), H("span", null, [H("b", { text: tok(r.errors) }), " errors"]), H("span", null, [H("b", { text: tok(r.repeats) }), " repeats"]),
+      r.retries ? H("span", null, [H("b", { text: tok(r.retries) }), " retries (harness re-ran)"]) : null,
       isNum(r["return"]) ? H("span", null, [H("b", { text: num(r["return"], 2) }), " return"]) : null, r.lineage_gen ? H("span", null, [H("b", { text: r.lineage_gen }), " generation"]) : null,
       r.synthetic ? H("span", { class: "lv-syn", text: "SYNTHETIC" }) : null, H("span", { text: "from " + (r.basis || []).join(", ") }),
       // where the steps come from: the output itself, a trace the bundle attached (`--traces`), or nowhere

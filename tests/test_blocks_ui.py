@@ -10424,6 +10424,57 @@ class LevelsViewTest(unittest.TestCase):
         self.assertEqual(errors, [])
         context.close()
 
+    def test_level_three_tells_a_harness_retry_from_the_agent_asking_twice(self):
+        """t09's pair makes the same call twice in each run for two different
+        reasons. The engine separates them on the recorded `attempt`; this is
+        the check that the *page* passes that on instead of printing one
+        "repeats" count over both — the divergence this view has quietly had
+        before."""
+        context, page, errors = self._open()
+        keys = sorted(r["key"] for r in self.rows if "t09_region_error_rate" in r["key"])
+        self.assertEqual(len(keys), 2, keys)
+        seen = {}
+        for key in keys:
+            rec = self._record(key)
+            if not rec.get("measurable"):
+                raise unittest.SkipTest(f"{key}: no steps in the output")
+            counts = rec["fetches"]["counts"]
+            page.evaluate(f"() => AgentDiff.levels.select({{run: {json.dumps(key)}}})")
+            page.wait_for_timeout(500)
+            run = page.locator(".lv-run")
+            self.assertEqual(run.get_attribute("data-run"), key)
+            label = run.locator("svg.lv-map").get_attribute("aria-label")
+            # text_content, not inner_text: the table sits in a fold whose
+            # cells may not be laid out, and innerText of an unrendered node
+            # is the empty string
+            cells = [t.strip() for t in run.locator(".lv-fetches tbody tr td:nth-child(11)").all_text_contents()]
+            self.assertEqual(len(cells), len(rec["fetches"]["records"]))
+            for cell, r in zip(cells, rec["fetches"]["records"]):
+                if r["attempt"] is None:
+                    self.assertEqual(cell, "—")
+                elif r["attempt"] > 1:
+                    self.assertIn(str(r["attempt"]), cell)
+                    self.assertIn("re-run", cell)
+                else:
+                    self.assertEqual(cell, "1")
+            nums = run.locator(".lv-nums").inner_text()
+            if counts["retries"]:
+                self.assertIn(f"{counts['retries']} retries the harness re-ran", label)
+                self.assertIn(f"{counts['retries']} retries (harness re-ran)", nums)
+                self.assertEqual(run.locator(".lv-map .lv-retry").count(), counts["retries"])
+            else:
+                # a zero here is an absent record, and the page says so
+                self.assertIn("no step numbers its attempt", label)
+                self.assertNotIn("retries (harness re-ran)", nums)
+                self.assertEqual(run.locator(".lv-map .lv-retry").count(), 0)
+            self.assertIn(f"{counts['repeats']} repeats", label)
+            seen[key] = (counts["retries"], counts["repeats"])
+        # the demonstration itself: one run's second call was the harness's,
+        # the other's was the agent's, and the page does not call both a repeat
+        self.assertEqual(sorted(seen.values()), [(0, 1), (2, 0)], seen)
+        self.assertEqual(errors, [])
+        context.close()
+
     def test_the_heaviest_run_of_all_has_no_steps_in_the_output_and_says_why(self):
         context, page, errors = self._open()
         heaviest = self.overview["heaviest_runs"][0]

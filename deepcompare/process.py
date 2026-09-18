@@ -272,12 +272,20 @@ def loops(steps: list) -> dict:
 
     A single repeated call is a retry; the same *sequence* of calls going
     round again is a loop, and MAST's Step Repetition mode (1.3) is defined
-    on exactly that. Reported as the longest back-to-back repeat found,
+    on exactly that.  Where the trace numbers the attempts, the retries the
+    harness ran are left out of the reading entirely: they are the same call
+    once, and counting them would make a flaky tool look like a stuck agent. Reported as the longest back-to-back repeat found,
     with its period, so "A,B,A,B,A,B" reads as period 2 repeated 3 times
     rather than as six unremarkable steps.
     """
-    signatures = [_signature(s) for s in steps if s.type in TOOLISH_TYPES]
-    indices = [s.index for s in steps if s.type in TOOLISH_TYPES]
+    # A step the harness numbered `attempt > 1` is its own retry of the
+    # call above it, not the agent going round again.  Three tries of one
+    # failed call would otherwise read as a multiplicity of three and turn
+    # `looping` true on a run that never looped — the loop detector
+    # accusing the agent of the loop's own decision.
+    live = [s for s in steps if s.type in TOOLISH_TYPES and (getattr(s, "attempt", None) or 1) == 1]
+    signatures = [_signature(s) for s in live]
+    indices = [s.index for s in live]
     best = {"period": 0, "repeats": 0, "starts_at": None, "length": 0}
     n = len(signatures)
     for period in range(1, n // 2 + 1):

@@ -62,6 +62,19 @@ class ProfileTest(unittest.TestCase):
         self.assertEqual(b["tools"]["web_search"]["fed_answer"], 0)
         self.assertEqual(b["tools"]["open_page"]["fed_answer"], 1)
 
+    def test_three_tries_of_one_call_are_not_the_agent_going_in_circles(self):
+        """The same three identical calls as above, with the harness saying
+        it re-ran them. Left uncorrected the profile reads "repeated `pytest
+        -q` 3× in a row" — the loop's own decision, charged to the agent."""
+        a = [step(0, "tool_call", "run_tests", "pytest -q", "1 failed", error=True, attempt=1),
+             step(1, "tool_call", "run_tests", "pytest -q", "1 failed", error=True, attempt=2),
+             step(2, "tool_call", "run_tests", "pytest -q", "ok", attempt=3),
+             step(3, "answer", "final", "x", "x")]
+        rt = profile_run(report(a, [step(0, "answer", "final", "x", "x")]), "a")["tools"]["run_tests"]
+        self.assertEqual((rt["calls"], rt["repeats"], rt["retries"]), (3, 0, 2))
+        self.assertEqual(rt["max_identical_run"], 1)
+        self.assertIsNone(rt["identical_run_at"])
+
     def test_no_tools_is_measurable_false(self):
         r = report([step(0, "reason", "reason", "x"), step(1, "answer", "final", "x", "x")], [step(0, "answer", "final", "x", "x")])
         self.assertFalse(profile_run(r, "a")["measurable"])

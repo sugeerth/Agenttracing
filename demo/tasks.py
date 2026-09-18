@@ -1,8 +1,11 @@
 """Task definitions for the DeepCompare demo.
 
-Eight research-style tasks, each with a stable id, the prompt given to both
+Nine research-style tasks, each with a stable id, the prompt given to both
 agents, and the gold expected answer (used by the comparison engine to judge
-outcomes).
+outcomes).  The ninth exists for a different reason from the other eight:
+its two runs make the same call twice for two different reasons — one
+harness re-ran it, the other handed the failure to the agent — which is the
+distinction `Step.attempt` exists to record.
 """
 
 TASKS = [
@@ -88,6 +91,14 @@ TASKS = [
             "300 seconds; purge() was removed in favor of clear(); Python "
             "3.8/3.9 support dropped (requires >=3.10)."
         ),
+    },
+    {
+        "id": "t09_region_error_rate",
+        "prompt": (
+            "Using the metrics service, report last week's 5xx error rate for "
+            "the region with the highest one, and say which region it is."
+        ),
+        "expected": "eu-west-1 at 2.4%",
     },
 ]
 

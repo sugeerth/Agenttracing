@@ -210,7 +210,7 @@ def _blank_row(label: str, task: str, agent: str, run: str) -> dict:
     return {"key": f"{label}/{task}/{agent}/{run}", "member": label, "task": task, "agent": agent, "run_id": run,
             "success": None, "steps": None, "tool_calls": None, "tools": {}, "tokens": None,
             "tokens_measured_share": None, "cost_usd": None, "seconds": None, "fetches": None, "errors": None,
-            "repeats": None, "return": None, "lineage_gen": None, "synthetic": False, "detail": False, "basis": []}
+            "repeats": None, "retries": None, "return": None, "lineage_gen": None, "synthetic": False, "detail": False, "basis": []}
 
 
 def _set(row: dict, source: str, **fields: Any) -> None:
@@ -364,6 +364,7 @@ def _member_rows(m: dict, label: str) -> tuple:
     for fr in ((agg.get("fetches") or {}).get("runs") or []):
         r = row(str(fr["task"]), str(fr["agent"]), str(fr["run"]))
         _set(r, "fetches", fetches=fr.get("fetches"), errors=fr.get("errors"), repeats=fr.get("repeats"),
+             retries=fr.get("retries"),
              tools=fr.get("by_tool") if isinstance(fr.get("by_tool"), dict) else None, synthetic=bool(fr.get("synthetic")))
     # the reports: the steps themselves, so the whole third level
     for report in m["reports"]:
@@ -392,7 +393,8 @@ def _member_rows(m: dict, label: str) -> tuple:
                  tool_calls=sum(1 for st in traj.steps if st.type == "tool_call"), tools=dict(sorted(tools.items())),
                  tokens=b["tokens"]["total"], tokens_measured_share=rounded(b["tokens"]["measured"] / b["tokens"]["total"]) if b["tokens"]["total"] else None,
                  cost_usd=b["cost_usd"]["value"], seconds=seconds, fetches=f["counts"]["total"], errors=f["counts"]["errors"],
-                 repeats=f["counts"]["repeats"], synthetic=synthetic_of(getattr(traj, "harness", None)), detail=True)
+                 repeats=f["counts"]["repeats"], retries=f["counts"]["retries"],
+                 synthetic=synthetic_of(getattr(traj, "harness", None)), detail=True)
             details[(task, traj.agent.name, traj.run_id)] = {
                 "steps": _step_rows(traj), "budget": b, "fetches": f, "data": d, "timeline": timeline, "reward_basis": reward_basis,
                 "trace_id": traj.trace_id, "trace_path": None, "report": f"report_{_UNSAFE.sub('_', task)}.json", "side": side}
@@ -498,7 +500,7 @@ def _complete(row: dict, detail: Optional[dict], entry: dict, rel: str) -> dict:
           tool_calls=sum(1 for st in traj.steps if st.type == "tool_call"), tools=dict(sorted(tools.items())),
           tokens=b["tokens"]["total"], tokens_measured_share=rounded(b["tokens"]["measured"] / b["tokens"]["total"]) if b["tokens"]["total"] else None,
           cost_usd=b["cost_usd"]["value"], seconds=seconds, fetches=f["counts"]["total"], errors=f["counts"]["errors"],
-          repeats=f["counts"]["repeats"])
+          repeats=f["counts"]["repeats"], retries=f["counts"]["retries"])
     row["synthetic"] = bool(row["synthetic"] or synthetic_of(getattr(traj, "harness", None)))
     row["detail"] = True
     return {"steps": _step_rows(traj), "budget": b, "fetches": f, "data": d, "timeline": timeline, "reward_basis": reward_basis,

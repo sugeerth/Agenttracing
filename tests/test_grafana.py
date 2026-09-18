@@ -178,8 +178,8 @@ class TrainExportTest(unittest.TestCase):
         self.assertEqual(self.collected["notes"], [])
 
     def test_sample_and_family_counts_are_pinned(self):
-        self.assertEqual(len(self.collected["samples"]), 2357)
-        self.assertEqual(len({m for m, _l, _v in self.collected["samples"]}), 72)
+        self.assertEqual(len(self.collected["samples"]), 2465)
+        self.assertEqual(len({m for m, _l, _v in self.collected["samples"]}), 73)
 
     def test_where_the_tokens_went_and_what_was_fetched_are_exported_as_counts(self):
         s = self.samples
@@ -208,7 +208,7 @@ class TrainExportTest(unittest.TestCase):
             self.assertEqual(sum(_find(s, "fetches_used", agent=name, use="unknown")), agg["fetches"]["agents"][name]["unknown_use"])
         self.assertEqual(_one(s, "budget_by_kind", agent="policy-v1", kind="read"), 71224)
         # the waste is read per run from the pair reports' sides: one representative pair per task
-        self.assertEqual(len(_find(s, "budget_waste")), 6 * 2 * 3)
+        self.assertEqual(len(_find(s, "budget_waste")), 6 * 2 * 4)
         self.assertEqual([_one(s, "budget_waste", agent="policy-v1", task="rl01_ledger_reconcile", run="r1", what=w)
                           for w in ("after_last_evidence", "in_errored_calls", "in_repeats")], [533, 37, 390])
         self.assertEqual(len(_find(s, "fetches", kind="search")), 96)
@@ -282,12 +282,12 @@ class TrainExportTest(unittest.TestCase):
 
     def test_json_and_csv_carry_the_same_samples(self):
         payload = render_json(self.collected)
-        self.assertEqual(len(payload["samples"]), 2357)
-        self.assertEqual(sum(len(v) for v in payload["series"].values()), 2357)
+        self.assertEqual(len(payload["samples"]), 2465)
+        self.assertEqual(sum(len(v) for v in payload["series"].values()), 2465)
         self.assertTrue(set(payload["families"]) <= {PREFIX + n for n in FAMILIES})
         self.assertEqual(set(payload["families"]), set(payload["series"]))
         rows = render_csv(self.collected["samples"]).splitlines()
-        self.assertEqual(len(rows), 2358)
+        self.assertEqual(len(rows), 2466)
         self.assertTrue(rows[0].startswith("metric,value,agent,"))
 
     def test_two_exports_are_the_same_bytes(self):
@@ -308,8 +308,8 @@ class TrainExportTest(unittest.TestCase):
 class BatchExportTest(unittest.TestCase):
     def test_a_batch_without_rl_says_so_and_still_exports(self):
         collected = collect(_output("batch"))
-        self.assertEqual(len(collected["samples"]), 722)
-        self.assertEqual(len({m for m, _l, _v in collected["samples"]}), 51)
+        self.assertEqual(len(collected["samples"]), 846)
+        self.assertEqual(len({m for m, _l, _v in collected["samples"]}), 52)
         self.assertIn("no rl section: return, IQM and improvement families omitted", collected["notes"])
         self.assertIn("no budget ledger in the aggregate: token families read from the pair reports' sides", collected["notes"])
         self.assertIn("no fetches ledger in the aggregate: fetch families read from the pair reports' sides", collected["notes"])
@@ -318,7 +318,7 @@ class BatchExportTest(unittest.TestCase):
         self.assertEqual(_one(s, "runs", agent="atlas-v2", task="t01_acme_revenue"), 1)
         self.assertEqual(_one(s, "runs_per_task_min", level="insufficient"), 1)
         # the batch demo records a cost on every run and measured every token
-        self.assertEqual(len(_find(s, "budget_cost_usd")), 16)
+        self.assertEqual(len(_find(s, "budget_cost_usd")), 18)
         self.assertEqual(_one(s, "budget_cost_usd", agent="atlas-v2", task="t01_acme_revenue", run="r1"), 0.0051)
         # the batch demo's steps carry counts but no tokens_basis, so every token is counted under unknown, never measured
         self.assertEqual(_one(s, "budget_tokens", agent="atlas-v2", task="t01_acme_revenue", run="r1", basis="unknown"), 840)

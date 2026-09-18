@@ -139,7 +139,7 @@ artifacts, and one row per step:
 ## The demo, with the numbers
 
 `agentdiff batch demo/traces` — two agents, `atlas-v2` and `bolt-v3`, on
-eight tasks. On `t01_acme_revenue`:
+nine tasks. On `t01_acme_revenue`:
 
 **What both were told.** The same 110-character prompt — *Find ACME
 Corp's total revenue for fiscal year 2025. Report a single dollar

@@ -9,7 +9,7 @@ the timeline in the timescape's shape; a lineage's episodes become rows
 with their generation and SYNTHETIC label; with ``--traces`` every
 record whose steps the output did not keep is completed from its trace
 (matched by trace id, else by task, agent and run), the trace copied
-into the bundle, and the demo's 322 runs all hold level 3, while
+into the bundle, and the demo's 324 runs all hold level 3, while
 without it every byte is as before; the key round-trips, stays
 printable ASCII on one line under its size cap, truncates by counting
 and refuses a malformed text with a reason; the commands' exit codes;
@@ -85,7 +85,7 @@ class MemberTest(unittest.TestCase):
         m = bundle.read_member(batch_output())
         self.assertEqual(m["kind"], "batch")
         self.assertEqual(m["agents"], ["atlas-v2", "bolt-v3"])
-        self.assertEqual(len(m["tasks"]), 8)
+        self.assertEqual(len(m["tasks"]), 9)
         self.assertIsNone(m["lineage"])
         self.assertIn("budget", m["sections"])
         self.assertIn("fetches", m["sections"])
@@ -129,7 +129,7 @@ class BuildTest(unittest.TestCase):
             bundle.write_bundle([bundle.read_member(batch_output())], out, DEFAULT_TEMPLATE, name="demo")
             (out / "traces" / "old").mkdir(parents=True)
             (out / "traces" / "old" / "stale.json").write_text("{}", encoding="utf-8")
-            self.assertEqual(len(list((out / "runs").glob("*.json"))), 16)
+            self.assertEqual(len(list((out / "runs").glob("*.json"))), 18)
             info = bundle.write_bundle([bundle.read_member(small_src)], out, DEFAULT_TEMPLATE, name="demo")
             check = bundle.verify(out)
             self.assertTrue(check["match"], check)
@@ -148,9 +148,9 @@ class BuildTest(unittest.TestCase):
         self.assertEqual(manifest["locators"], ["file:///tmp/demo"])
         self.assertEqual([m["kind"] for m in manifest["members"]], ["batch"])
         self.assertTrue((root / "members" / "0" / "aggregate.json").is_file())
-        self.assertEqual(len(list((root / "members" / "0").glob("report_*.json"))), 8)
+        self.assertEqual(len(list((root / "members" / "0").glob("report_*.json"))), 9)
         self.assertEqual((root / "members" / "0" / "aggregate.json").read_bytes(), (batch_output() / "aggregate.json").read_bytes())
-        self.assertEqual(len(list((root / "runs").glob("*.json"))), 16)
+        self.assertEqual(len(list((root / "runs").glob("*.json"))), 18)
         self.assertEqual((root / "KEY.txt").read_text(encoding="utf-8").strip(), manifest["key"])
         text = (root / "bundle.json").read_text(encoding="utf-8")
         for word in ("generated_at", "timestamp", "created"):
@@ -162,7 +162,7 @@ class BuildTest(unittest.TestCase):
     def test_level_2_rows_and_level_3_records_of_the_demo(self):
         root = demo_bundle()
         b = bundle.Bundle(root)
-        self.assertEqual(len(b.rows), 16)
+        self.assertEqual(len(b.rows), 18)
         row = next(r for r in b.rows if r["key"] == "batch/t01_acme_revenue/atlas-v2/r1")
         self.assertEqual((row["success"], row["steps"], row["tokens"], row["fetches"], row["tool_calls"]), (True, 5, 840, 3, 0))
         self.assertEqual(row["tools"], {"open_page": 1, "select_result": 1, "web_search": 1})
@@ -208,17 +208,17 @@ class BuildTest(unittest.TestCase):
         names = [a["name"] for a in o["agents"]]
         self.assertEqual(names, ["atlas-v2", "bolt-v3"])
         atlas = o["agents"][0]
-        self.assertEqual(atlas["success_rate"]["n"], 8)
+        self.assertEqual(atlas["success_rate"]["n"], 9)
         self.assertLess(atlas["success_rate"]["lo"], atlas["success_rate"]["rate"])
         self.assertGreater(atlas["success_rate"]["hi"], atlas["success_rate"]["rate"])
-        self.assertEqual(atlas["tokens_runs"], 8)
+        self.assertEqual(atlas["tokens_runs"], 9)
         self.assertFalse(atlas["self_evolving"])
         self.assertEqual(o["lineages"], [])
-        self.assertEqual(o["totals"]["runs"], 16)
+        self.assertEqual(o["totals"]["runs"], 18)
         self.assertEqual(o["totals"]["synthetic_share"], 0.0)
         self.assertIn("budget", o["sections"])
         self.assertEqual(o["cap"]["source"], "none given")
-        self.assertIn("2 agents over 8 tasks and 16 runs", o["reading"])
+        self.assertIn("2 agents over 9 tasks and 18 runs", o["reading"])
 
     def test_a_lineage_member_gives_rows_per_generation_with_synthetic_through(self):
         info = bundle.build([fake_evolve_member()], token_cap=400)
@@ -287,7 +287,7 @@ class TracesTest(unittest.TestCase):
 
     def test_load_traces_reads_every_demo_layout_and_passes_over_what_is_not_a_trace(self):
         entries, notes = bundle.load_traces([BATCH])
-        self.assertEqual((len(entries), notes), (16, []))
+        self.assertEqual((len(entries), notes), (18, []))
         self.assertTrue(all(e["trajectory"].run_id == "r1" and e["root"] == BATCH for e in entries))
         entries, _ = bundle.load_traces([TRAIN])
         self.assertEqual(len(entries), 96)
@@ -368,25 +368,25 @@ class TracesTest(unittest.TestCase):
         members = [bundle.read_member(batch_output())]
         with tempfile.TemporaryDirectory() as one:
             info = bundle.write_bundle(members, one, DEFAULT_TEMPLATE, name="demo", locators=["file:///tmp/demo"], traces=[BATCH])
-            self.assertEqual((info["traces"]["read"], info["traces"]["completed"], info["traces"]["files"]), (16, 0, []))
+            self.assertEqual((info["traces"]["read"], info["traces"]["completed"], info["traces"]["files"]), (18, 0, []))
             self.assertEqual(_files(Path(one)), _files(demo_bundle()))
 
-    def test_the_demo_bundle_with_traces_has_level_3_for_all_322_runs(self):
+    def test_the_demo_bundle_with_traces_has_level_3_for_all_324_runs(self):
         root = full_bundle()
         b = bundle.Bundle(root)
         outputs = demo_outputs()
         self.assertEqual(b.id, bundle.digest([bundle.read_member(outputs[k]) for k in ("batch", "runs", "coevolve")]))
-        self.assertEqual([m["runs"] for m in b.members], [16, 96, 210])
-        self.assertEqual(len(b.rows), 322)
+        self.assertEqual([m["runs"] for m in b.members], [18, 96, 210])
+        self.assertEqual(len(b.rows), 324)
         records = {key: b.run(key) for key in b.run_index}
-        self.assertEqual(len(records), 322)
+        self.assertEqual(len(records), 324)
         self.assertTrue(all(r["measurable"] and r["steps"] for r in records.values()))
         self.assertEqual(sum(1 for r in records.values() if r.get("steps_source")), 282)
-        self.assertEqual(sum(1 for r in records.values() if r.get("report")), 40, "the reports' 8 + 6 + 6 pairs")
+        self.assertEqual(sum(1 for r in records.values() if r.get("report")), 42, "the reports' 9 + 6 + 6 pairs")
         self.assertTrue(all(r["detail"] for r in b.rows))
         self.assertEqual(sum(1 for r in b.rows if "trace" in r["basis"]), 282)
         t = b.overview["totals"]
-        self.assertEqual((t["runs"], t["tokens_runs"], t["fetches_runs"], t["cost_runs"]), (322, 322, 322, 16))
+        self.assertEqual((t["runs"], t["tokens_runs"], t["fetches_runs"], t["cost_runs"]), (324, 324, 324, 18))
         self.assertTrue(all(a["tokens_runs"] == a["runs"] == a["fetches_runs"] for a in b.overview["agents"]))
         self.assertEqual(len(list((root / "traces").rglob("*.json"))), 282)
         self.assertTrue((root / "traces" / "coevolve" / "g0" / "traces" / "rl01_ledger_reconcile__ledger-agent@g0__r1.json").is_file())
@@ -489,10 +489,10 @@ class KeyTest(unittest.TestCase):
         self.assertEqual(payload["id"], b.id)
         self.assertEqual(payload["name"], "demo")
         self.assertEqual([a["name"] for a in payload["agents"]], ["atlas-v2", "bolt-v3"])
-        self.assertEqual(payload["agents"][0]["success_rate"], {"rate": 0.875, "lo": 0.5291, "hi": 0.9776})
+        self.assertEqual(payload["agents"][0]["success_rate"], {"rate": 0.8889, "lo": 0.565, "hi": 0.9801})
         self.assertEqual(payload["truncated"], 0)
         self.assertEqual(payload["locators"], ["file:///tmp/demo"])
-        self.assertEqual(payload["totals"]["runs"], 16)
+        self.assertEqual(payload["totals"]["runs"], 18)
         self.assertEqual(bundle.decode_key("  " + key + "\n"), payload)
 
     def test_many_agents_are_counted_not_named_and_the_key_stays_under_the_cap(self):
@@ -559,7 +559,7 @@ class CommandTest(unittest.TestCase):
             self.assertEqual(code, 0, err)
             self.assertIn("Bundle batch: sha256:", out)
             self.assertIn("batch     ", out)
-            self.assertIn("Level 1: 2 agent(s), 8 task(s), 16 run(s)", out)
+            self.assertIn("Level 1: 2 agent(s), 9 task(s), 18 run(s)", out)
             self.assertIn("agentdiff1:", out)
             self.assertNotIn("Traces:", out)
             manifest = json.loads((Path(tmp) / "bundle.json").read_text(encoding="utf-8"))
@@ -576,8 +576,8 @@ class CommandTest(unittest.TestCase):
             args = parser().parse_args(["bundle", str(batch_output()), "-o", tmp, "--traces", str(BATCH)])
             code, out, err = _run(bundle_cmd, args)
             self.assertEqual(code, 0, err)
-            self.assertIn("Traces: 16 read under 1 dir(s); 0 record(s) completed from 0 file(s)", out)
-            self.assertIn("16 of 16 record(s) hold their steps", out)
+            self.assertIn("Traces: 18 read under 1 dir(s); 0 record(s) completed from 0 file(s)", out)
+            self.assertIn("18 of 18 record(s) hold their steps", out)
 
     def test_key_decodes_verifies_and_re_derives(self):
         root = demo_bundle()
@@ -585,7 +585,7 @@ class CommandTest(unittest.TestCase):
         code, out, err = _run(key_cmd, _key_parser().parse_args(["key", key]))
         self.assertEqual(code, 0, err)
         self.assertIn("atlas-v2", out)
-        self.assertIn("totals: 16 run(s)", out)
+        self.assertIn("totals: 18 run(s)", out)
         code, out, _ = _run(key_cmd, _key_parser().parse_args(["key", key, "--bundle", str(root)]))
         self.assertEqual(code, 0)
         self.assertIn("match:", out)

@@ -250,6 +250,17 @@ class Step:
     reward: Optional[float] = None
     value: Optional[float] = None
     advantage: Optional[float] = None
+    #: which try this is at the same call, 1-based, when the *harness*
+    #: re-executed it rather than handing the failure back to the agent.
+    #:
+    #: Without it a retry and a genuine repeat are the same two steps:
+    #: same tool, same arguments, one after the other. They are not the
+    #: same behaviour — one is the agent going in circles, the other is
+    #: the environment being flaky — and counting them together inflates
+    #: every repeat rate. ``None`` means unrecorded, so a harness that
+    #: retries silently is read as an agent repeating itself, which is
+    #: what the reading has to say rather than guess around.
+    attempt: Optional[int] = None
     #: this step's prompt and completion counts, when the provider gave
     #: both.  ``tokens`` stays the total it has always been; these say how
     #: it divided, which is the difference between context re-sent and text
@@ -347,6 +358,9 @@ class Step:
                 raise ValueError(f"{where}: span must be an object with id and agent (and an optional parent)")
             span = {"id": str(span["id"]), "agent": str(span["agent"]),
                     "parent": (str(span["parent"]) if span.get("parent") is not None else None)}
+        attempt = d.get("attempt")
+        if attempt is not None and (not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 1):
+            raise ValueError(f"{where}: attempt must be a positive integer (1 is the first try) or null")
         split = {}
         for key in ("input_tokens", "output_tokens", "cached_tokens"):
             val = d.get(key)
@@ -390,6 +404,7 @@ class Step:
             value=signal["value"],
             advantage=signal["advantage"],
             started_s=started,
+            attempt=attempt,
             input_tokens=split["input_tokens"],
             output_tokens=split["output_tokens"],
             cached_tokens=cached,
@@ -427,7 +442,7 @@ class Step:
         # rewrite every artifact here to say nothing
         if self.started_s is not None:
             out["started_s"] = self.started_s
-        for key in ("input_tokens", "output_tokens", "cached_tokens"):
+        for key in ("attempt", "input_tokens", "output_tokens", "cached_tokens"):
             val = getattr(self, key)
             if val is not None:
                 out[key] = val

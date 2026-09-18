@@ -499,6 +499,7 @@ class Recorder:
              reward: Optional[float] = None, value: Optional[float] = None,
              advantage: Optional[float] = None,
              started_s: Optional[float] = None,
+             attempt: Optional[int] = None,
              input_tokens: Optional[int] = None, output_tokens: Optional[int] = None,
              cached_tokens: Optional[int] = None,
              scaffold: Optional[str] = None) -> RecordedStep:
@@ -591,6 +592,11 @@ class Recorder:
             # number it qualifies so an estimate cannot read as a measurement.
             "tokens_basis": "measured" if tokens is not None else "estimated",
         }
+        if attempt is not None:
+            _check(isinstance(attempt, int) and not isinstance(attempt, bool) and attempt >= 1,
+                   "attempt must be a positive integer — 1 is the first try — or None; it says the *harness* "
+                   "re-executed this call, which is not the same as the agent repeating itself")
+            data["attempt"] = int(attempt)
         for _key, _val in (("input_tokens", input_tokens), ("output_tokens", output_tokens)):
             if _val is None:
                 continue

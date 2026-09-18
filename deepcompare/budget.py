@@ -27,7 +27,7 @@ from typing import Any, Optional
 from . import sections as _sections
 from ._stats import finite, mean, rounded
 from ._text import join_names, num, pct, plural, run_name, signed
-from .fetches import FETCH_KINDS, RunView, repeat_index, used_signal
+from .fetches import FETCH_KINDS, RunView, again_index, used_signal
 from .section import measurable, unmeasurable
 
 VERSION = 1
@@ -68,7 +68,8 @@ def _empty_run(reason: str, name: str, synthetic: bool = False) -> dict:
                         io=unmeasurable("the run cannot be read", input_tokens=None, output_tokens=None, source=None),
                         cost_usd=unmeasurable("the run cannot be read", value=None, source=None),
                         burn=[], burn_capped=False, burn_note=None, top=[],
-                        waste={"after_last_evidence": None, "in_errored_calls": 0, "in_repeats": 0, "basis": "the run cannot be read"},
+                        waste={"after_last_evidence": None, "in_errored_calls": 0, "in_repeats": 0, "in_retries": 0,
+                               "basis": "the run cannot be read"},
                         per_second=unmeasurable("the run cannot be read", value=None, seconds=None),
                         synthetic=synthetic, narrative=f"{name}: {reason}, so where its tokens went cannot be read.")
 
@@ -177,7 +178,7 @@ def budget_run(run: Any) -> dict:
 
 def _waste(rows: list) -> dict:
     steps = [st for st, _ in rows]
-    repeats = repeat_index(steps)
+    repeats, retries = again_index(steps)
     signalled = False
     last_evidence: Optional[int] = None
     for pos, (st, _) in enumerate(rows):
@@ -200,8 +201,11 @@ def _waste(rows: list) -> dict:
     return {"after_last_evidence": after,
             "in_errored_calls": sum(t for st, t in rows if st.error is True),
             "in_repeats": sum(t for st, t in rows if st.index in repeats),
+            "in_retries": sum(t for st, t in rows if st.index in retries),
             "basis": f"after_last_evidence: {basis_after}; in_errored_calls: steps with error true; "
-                     "in_repeats: fetches repeating an earlier (name, input)"}
+                     "in_repeats: fetches repeating an earlier (name, input), the agent asking twice; "
+                     "in_retries: fetches the harness re-ran (attempt > 1), which is the platform's cost and "
+                     "not the agent's — 0 where the trace numbers no attempts, which is not a measurement"}
 
 
 def _run_narrative(name: str, n_steps: int, p: dict) -> str:
@@ -233,6 +237,8 @@ def _run_narrative(name: str, n_steps: int, p: dict) -> str:
     w = p["waste"]
     wastes = [f"{num(w['after_last_evidence'])} after the last evidence" if w["after_last_evidence"] is not None else "no evidence signal recorded",
               f"{num(w['in_errored_calls'])} in errored calls", f"{num(w['in_repeats'])} in repeats"]
+    if w.get("in_retries"):
+        wastes.append(f"{num(w['in_retries'])} in retries the harness re-ran")
     parts.append(join_names(wastes))
     if p["per_second"]["measurable"]:
         parts.append(f"{num(p['per_second']['value'])} tokens per recorded second")

@@ -37,25 +37,27 @@ environment's reward, the policy's value and advantage, and — when the
 serving stack returns them — the model's own token confidence, entropy
 and an interval over it, plus sparse-autoencoder features that fired.
 
-Coverage over the shipped corpus (322 traces, 11,569 steps, 5.9 MB,
-**507 bytes per step**; `python3 -c` over `demo/`):
+Coverage over the shipped corpus (324 traces, 11,579 steps, 5.9 MB,
+**508 bytes per step**; `python3 -c` over `demo/traces`, `demo/rl/train`
+and `demo/evolve/lineage` — the three corpora the bundle packs):
 
 | field | steps carrying it | what it unlocks |
 |---|---|---|
 | `tokens`, `latency_s`, `input` | 100 % | the budget, the burn-down, the timing |
-| `tokens_basis` | 99.1 % | measured vs estimated, never re-estimated |
-| `output` | 77.6 % | provenance, the corpus, the search map |
-| `reward` | 99.1 % | the training ground, the reward audit |
+| `tokens_basis` | 99.0 % | measured vs estimated, never re-estimated |
+| `output` | 77.7 % | provenance, the corpus, the search map |
+| `reward` | 99.0 % | the training ground, the reward audit |
 | `model` (telemetry) | 25.4 % | uncertainty, "did it know it was wrong" |
 | `effect` (read/write) | 23.5 % | the permission and integrity checks |
 | `value` | 22.3 % | critic calibration |
 | `span` (sub-agent) | 16.8 % | the horizon, the lanes |
-| `error` | 3.8 % | the failure attribution |
-| `quality` | 0.9 % | an annotation, never a measurement |
+| `error` | 3.9 % | the failure attribution |
+| `quality` | 1.0 % | an annotation, never a measurement |
+| `attempt` | 0.03 % | a harness retry told from an agent's repeat (absent means one try, by design) |
 
 One row of that table was wrong when this file was first written, in the
 way this file exists to warn about. `reward` was given as 76.7 %, which is
-the share of steps carrying a **non-zero** reward; 99.1 % carry the field.
+the share of steps carrying a **non-zero** reward; 99.0 % carry the field.
 The 2,586 steps in between recorded `reward: 0` — the environment was
 asked and paid nothing, which is a measurement and not an absence. Reading
 them as unrecorded is the same mistake as rendering a confident zero where
@@ -136,10 +138,36 @@ mis-states both cost and behaviour — cache reads are often an order of
 magnitude cheaper, so a token count without a cache split is not a
 budget, and a retry counted as a fresh call inflates every rate.
 
-*Unlocks:* honest cost; retries separated from genuine repeats (the
-`fetches` section currently calls both "repeats"); flakiness attributed
-to infrastructure rather than the agent.
-*Costs:* three integers a step.
+**Both integers are now recorded; the reason is not.** `cached_tokens`
+closed the cache half (see gap 8). The attempt half closed with
+`Step.attempt`: the loop's `max_tool_retries` re-runs a failed call
+rather than handing the error back to the agent, and each try is its own
+step numbered from one. `fetches` reads the number rather than guessing
+at it — a step with `attempt > 1` is a **retry**, anything else repeating
+an earlier name and input is a **repeat** — and `budget.waste` splits
+`in_retries` from `in_repeats`, because tokens burnt re-running a flaky
+call are the platform's cost and tokens burnt asking twice are the
+agent's behaviour. The two used to be one number, and the number was
+called "repeats".
+
+What that bought is a hypothesis the actuator could not previously make:
+`recovery` findings on runs that *survived* their tool errors used to be
+unactionable — the only knob was the cap that ended runs, and these runs
+did not end on it. The rule now proposes `max_tool_retries` instead, and
+the experiment is decidable either way.
+
+The honest limit is that the count is only ever as good as the record.
+Where no step numbers its attempts, retries read 0 — an absent record,
+not a measured absence — so every reading that reports the split also
+reports `retry_basis`, which says how many of the run's fetches numbered
+anything at all.
+
+*Still open:* **why** a retry happened. `attempt: 2` does not say whether
+the first try hit a 429, a timeout or a genuine tool error, and those
+three want different fixes — back off, raise a timeout, fix the tool.
+A retry *cause* on the step would attribute flakiness to infrastructure
+rather than to the agent, which is the last thing this gap promised.
+*Costs:* one short enum a step, on the steps that have one.
 
 ### 5. Retrieval at chunk granularity
 

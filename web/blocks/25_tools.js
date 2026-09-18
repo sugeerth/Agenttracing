@@ -148,6 +148,9 @@
     t.appendChild(dossierRow(h, "calls", g("a", "calls"), g("b", "calls")));
     t.appendChild(dossierRow(h, "distinct inputs", g("a", "distinct_inputs"), g("b", "distinct_inputs")));
     t.appendChild(dossierRow(h, "repeats", g("a", "repeats"), g("b", "repeats"), { a: row.a && row.a.repeats ? "bad" : "", b: row.b && row.b.repeats ? "bad" : "" }));
+    if ((row.a && row.a.retries) || (row.b && row.b.retries)) {
+      t.appendChild(dossierRow(h, "retries (harness re-ran)", g("a", "retries"), g("b", "retries")));
+    }
     t.appendChild(dossierRow(h, "longest identical run", g("a", "max_identical_run"), g("b", "max_identical_run")));
     t.appendChild(dossierRow(h, "errors", g("a", "errors"), g("b", "errors"), { a: row.a && row.a.errors ? "bad" : "", b: row.b && row.b.errors ? "bad" : "" }));
     t.appendChild(dossierRow(h, "wasted", g("a", "wasted_calls"), g("b", "wasted_calls")));
@@ -219,7 +222,7 @@
           });
           return td;
         };
-        tr.appendChild(cell(function (t) { return t.repeats + " · " + t.max_identical_run + "×"; }, function (t) { return t.max_identical_run >= 3 ? "bad" : t.repeats ? "warn" : ""; }));
+        tr.appendChild(cell(function (t) { return t.repeats + " · " + t.max_identical_run + "×" + (t.retries ? " · " + t.retries + " re-run" : ""); }, function (t) { return t.max_identical_run >= 3 ? "bad" : t.repeats ? "warn" : ""; }));
         tr.appendChild(cell(function (t) { return String(t.errors); }, function (t) { return t.errors ? "bad" : ""; }));
         tr.appendChild(cell(function (t) { return t.wasted_calls + " (" + secs(t.wasted_s) + ")"; }, function (t) { return t.wasted_share >= 0.6 ? "warn" : ""; }));
         tr.appendChild(cell(function (t) { return secs(t.mean_s); }));

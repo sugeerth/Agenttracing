@@ -105,6 +105,23 @@ class RunTest(unittest.TestCase):
         self.assertIsNone(no_signal["after_last_evidence"])
         self.assertIn("no evidence signal recorded", no_signal["basis"])
 
+    def test_tokens_burnt_on_a_retry_are_the_platform_s_and_not_the_agent_s(self):
+        """Same input twice, and only the trace's `attempt` says which of the
+        two spent the tokens: a call the harness re-ran, or the agent asking
+        again. `in_repeats` used to carry both."""
+        t = trace([step(0, "tool_call", "f", tokens=10, input="q", attempt=1, error=True),
+                   step(1, "tool_call", "f", tokens=11, input="q", attempt=2),
+                   step(2, "tool_call", "f", tokens=12, input="q"),
+                   step(3, "answer", tokens=6)])
+        w = budget_run(t)["waste"]
+        self.assertEqual((w["in_retries"], w["in_repeats"]), (11, 12))
+        self.assertIn("the platform's cost and not the agent's", w["basis"])
+        blind = budget_run(trace([step(0, "tool_call", "f", tokens=10, input="q", error=True),
+                                  step(1, "tool_call", "f", tokens=11, input="q"),
+                                  step(2, "answer", tokens=6)]))["waste"]
+        self.assertEqual((blind["in_retries"], blind["in_repeats"]), (0, 11))
+        self.assertIn("which is not a measurement", blind["basis"])
+
     def test_the_burn_is_capped_with_a_note_and_the_total_is_not(self):
         n = BURN_CAP + 5
         steps = [step(i, "reason", tokens=1) for i in range(n - 1)] + [step(n - 1, "answer", tokens=1)]

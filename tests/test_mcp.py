@@ -101,7 +101,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(json.loads(r["content"][0]["text"]), r["structuredContent"])
         rows = self.call("runs", agent="atlas-v2", sort="tokens", limit=3)["result"]["structuredContent"]
         self.assertEqual(rows["n"], 3)
-        self.assertEqual(rows["of"], 16)
+        self.assertEqual(rows["of"], 18)
         self.assertTrue(all(r["agent"] == "atlas-v2" for r in rows["runs"]))
         self.assertGreaterEqual(rows["runs"][0]["tokens"], rows["runs"][1]["tokens"])
         failed = self.call("runs", success=False)["result"]["structuredContent"]

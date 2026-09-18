@@ -33,6 +33,13 @@ for _p in (str(_REPO), str(_REPO / "demo"), str(_HERE)):
         sys.path.insert(0, _p)
 
 from tasks import TASKS  # noqa: E402  (demo/tasks.py)
+
+# The roster runs the eight research tasks. `t09_region_error_rate` is not
+# one of them: it exists in the pair corpus to demonstrate a *harness*
+# property — the same call made twice for two different reasons, one of
+# which the loop's retry knob caused — and thirty-three personas repeating
+# that demonstration would add nothing a reader could not see in the pair.
+FLEET_TASKS = [t for t in TASKS if t["id"] != "t09_region_error_rate"]
 from simulator import TrajectoryBuilder, write_trajectory  # noqa: E402
 import agents as flagship_agents  # noqa: E402  (demo/agents.py)
 from personas import Persona  # noqa: E402
@@ -1129,7 +1136,7 @@ def generate() -> list[dict]:
     flagship_by_key = {(t["task"]["id"], t["agent"]["name"]): t
                        for t in FLAGSHIP_TRACES}
     for p in ROSTER:
-        for task in TASKS:
+        for task in FLEET_TASKS:
             if p.scripted:
                 traces.append(flagship_by_key[(task["id"], p.name)])
             else:
