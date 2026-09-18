@@ -5,6 +5,22 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The front door said 1,800 tests (README)
+
+The README's layout line claimed "1,800+ tests". There are 2,116 engine
+tests and 337 browser ones, counted rather than remembered, and the line
+says both. Its capability table described the harness *reading* — which
+artifacts are the scaffold, and whether a gain was absorbed — but nothing
+of what came after it: the fingerprint read per dimension with the
+unrecorded ones drawn as unknown, the three attribution verdicts and why a
+rename cannot be told from a real model change, and the map of which of
+the nineteen recommendation categories this harness has a knob for.
+
+Folded into the existing row rather than added as a new one, because the
+README has a 200-line ceiling and a test that enforces it — "a product
+page not a lab notebook". Raising the ceiling to fit more prose would have
+been the wrong way to pass that test.
+
 ## A card that promised every field, and had stopped showing them all
 
 `tr-step` says *"every field is as the trace recorded it"*. That is a
