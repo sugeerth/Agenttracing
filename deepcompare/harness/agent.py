@@ -219,18 +219,20 @@ def _drive(recorder: Recorder, provider: Provider, messages: list, tools: list,
     :func:`deepcompare.harnessevo.fingerprint`."""
     by_name = {t.name: t for t in tools}
     declarations = [t.declaration() for t in tools]
-    #: the run's own zero. Every step records when it began against it, so
-    #: the timeline is read rather than reconstructed by summing durations
-    #: — a sum that would assert this loop never overlapped anything.
-    origin = time.monotonic()
-
     def began():
-        """Seconds from the run's start, for the paths that measure their
+        """Seconds from the run's zero, for the paths that measure their
         own duration too.  Everywhere else the recorder owns both numbers
-        and is left to: a start from this clock beside a duration measured
-        from the recorder's own mark describes no single interval, and the
-        difference shows up as a phantom overlap in `timing.timeline`."""
-        return round(max(0.0, time.monotonic() - origin), 6)
+        and is left to: a start from one clock beside a duration measured
+        from another describes no single interval.
+
+        Taken from the *recorder's* zero and never from a
+        `time.monotonic()` of our own.  `_drive` used to keep its own
+        origin, set after `Recorder.__enter__`, so the starts it stamped
+        sat a few milliseconds earlier than the ones the recorder derived —
+        two clocks for one run, and `timing.timeline` read the difference
+        as steps running at once on a run that never overlapped anything.
+        """
+        return round(recorder.elapsed_s(), 6)
 
     tool_errors = 0
     answered = False

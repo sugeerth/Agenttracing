@@ -5,6 +5,41 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Two clocks for one run, found by testing the closure
+
+Writing the end-to-end test for the five new knobs — each proposed as
+JSON, written to `loop.json`, read back and handed to the runner — turned
+up a bug I had put in myself two commits earlier.
+
+**`_drive` kept its own origin.** It called `time.monotonic()` at the top
+of the loop, while the recorder's zero is set in `Recorder.__enter__`,
+a few milliseconds earlier. So the starts the loop stamped sat before the
+ones the recorder derived: two clocks for one run, and `timing.timeline`
+read the difference as steps running at once on a strictly sequential
+loop. `Recorder.elapsed_s()` is now the single zero, and `_drive` takes
+its offsets from there.
+
+**Then the same class of defect in the fixtures.** A provider stand-in
+that declares `latency_s` and returns instantly writes a step whose span
+covers the moment the next step began — a trace that contradicts itself.
+`ScriptedProvider` and the loop helper now wait for the latency they
+declare, because a stand-in that claims a duration should take it.
+
+**And the caveat that follows, stated in `timing.timeline` rather than
+left implicit.** The overlap is read from the trace's own numbers, so it
+measures what the trace *says*. A provider reporting a latency longer than
+its call took would produce the same reading, and nothing here can tell
+that from real concurrency. The reading is correct about the trace; the
+trace is wrong. That is the same reason `basis` is stated at all — a
+number is only as good as the record under it.
+
+The new tests: every knob round-trips through the ledger and reaches the
+runner with the baseline untouched (three of the five are not numbers, so
+this is where a value that only *nearly* survives would show), and the
+parallel knob is inert on a demo whose turns make one call each — a knob
+that produced an overlap there would be reordering a run with no
+concurrency in it.
+
 ## The front door said 1,800 tests (README)
 
 The README's layout line claimed "1,800+ tests". There are 2,116 engine

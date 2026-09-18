@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +21,8 @@ FACTS = {"BK1": "$120.00", "BK2": "$45.00", "BK3": "$300.00", "BK4": "$12.00"}
 TASKS = [{"id": f"refund-{k}", "prompt": f"What refund applies to booking {k}?", "expected": v}
          for k, v in FACTS.items()]
 GROUNDING = "must come from an observation in this run"
+#: what every scripted turn claims to take, and really takes
+LATENCY_S = 0.01
 
 
 def _lookup(reference: str):
@@ -50,17 +53,23 @@ class FakeRefundProvider(Provider):
         ref = messages[1]["content"].split("booking ")[1].rstrip("?")
         careful = self.heeds in system and system != DEFAULT_SYSTEM
         self.turn += 1
+        # A stand-in that declares a latency waits for it. Declaring 0.01s
+        # and returning instantly writes a trace that contradicts itself —
+        # the step's span covers the moment the next step began — and
+        # `timing.timeline` reads that as concurrency on a run that never
+        # overlapped anything.
+        time.sleep(LATENCY_S)
         usage = {"input_tokens": 40, "output_tokens": 10}
         if self.turn == 1 and not (self.good or careful):
-            return ProviderResponse(text=f"The refund for {ref} is $99.00.", usage=usage, model=self.model, latency_s=0.01)
+            return ProviderResponse(text=f"The refund for {ref} is $99.00.", usage=usage, model=self.model, latency_s=LATENCY_S)
         if self.turn == 1:
-            return ProviderResponse(text="Looking it up.", usage=usage, model=self.model, latency_s=0.01,
+            return ProviderResponse(text="Looking it up.", usage=usage, model=self.model, latency_s=LATENCY_S,
                                     tool_calls=[ToolCall(id="c1", name="get_refund", arguments={"reference": ref})])
         try:
             refund = json.loads(messages[-1]["content"])["refund"]
         except (ValueError, KeyError, TypeError):
             refund = messages[-1]["content"]
-        return ProviderResponse(text=f"The refund for {ref} is {refund}.", usage=usage, model=self.model, latency_s=0.01)
+        return ProviderResponse(text=f"The refund for {ref} is {refund}.", usage=usage, model=self.model, latency_s=LATENCY_S)
 
 
 def factory(spec: str) -> Provider:

@@ -184,6 +184,43 @@ class TimelineBasisTest(unittest.TestCase):
         with_start = self._traj([{"latency_s": 1.0, "started_s": 0.25}, {"latency_s": 1.0, "started_s": 1.25}])
         self.assertEqual([s["started_s"] for s in with_start.to_dict()["steps"]], [0.25, 1.25])
 
+    def test_an_inconsistent_trace_reads_as_concurrency_and_that_is_stated(self):
+        """The caveat, pinned. A step whose declared duration covers the
+        moment the next one began overlaps *by the trace's own numbers*,
+        and this reads it as such. The reading is right about the trace;
+        the trace is wrong, and nothing here can tell the two apart — which
+        is why the basis is stated rather than the number standing alone.
+
+        This is not hypothetical: a provider stand-in declaring a latency
+        it did not wait for produced exactly this, and every harness run
+        through it reported milliseconds of concurrency on a strictly
+        sequential loop.
+        """
+        t = self._traj([{"latency_s": 0.010, "started_s": 0.000004},
+                        {"latency_s": 0.00008, "started_s": 0.000022},
+                        {"latency_s": 0.010, "started_s": 0.000085}])
+        tl = time_attribution(t)["timeline"]
+        self.assertTrue(tl["measurable"])
+        self.assertGreater(tl["overlap_s"], 0.0)
+        self.assertIn("two or more steps running at once", tl["reading"])
+        self.assertIn("recorded", tl["basis"])
+
+    def test_a_scripted_provider_waits_for_the_latency_it_declares(self):
+        """The fix at its source: a stand-in that claims a duration takes
+        it, so the trace it writes does not contradict itself."""
+        import time as _time
+
+        from deepcompare.harness.providers import ScriptedProvider
+        p = ScriptedProvider([{"text": "done", "latency_s": 0.05}])
+        start = _time.monotonic()
+        r = p.complete([{"role": "user", "content": "x"}], [])
+        self.assertGreaterEqual(_time.monotonic() - start, 0.045)
+        self.assertEqual(r.latency_s, 0.05)
+        quick = ScriptedProvider([{"text": "done"}])
+        start = _time.monotonic()
+        quick.complete([{"role": "user", "content": "x"}], [])
+        self.assertLess(_time.monotonic() - start, 0.02, "a turn that declares nothing must not wait")
+
     def test_a_negative_start_is_refused(self):
         with self.assertRaises(ValueError):
             self._traj([{"latency_s": 1.0, "started_s": -1.0}, {"latency_s": 1.0, "started_s": 0.0}])

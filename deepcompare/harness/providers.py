@@ -477,9 +477,19 @@ class ScriptedProvider(Provider):
                           name=str(c["name"]),
                           arguments=_parse_arguments(c.get("arguments")))
                  for i, c in enumerate(turn.get("tool_calls") or [])]
+        # A turn that *declares* a latency waits for it. Without the wait
+        # the response claims a duration the call did not take, and a
+        # harness that records both a real start and a declared duration
+        # then writes a trace that contradicts itself: step N's span covers
+        # the moment step N+1 began, and `timing.timeline` reads the
+        # difference as concurrency on a run that never overlapped
+        # anything. A stand-in that claims a duration should take it.
+        declared = turn.get("latency_s")
+        if isinstance(declared, (int, float)) and not isinstance(declared, bool) and declared > 0:
+            time.sleep(float(declared))
         return ProviderResponse(text=str(turn.get("text") or ""), tool_calls=calls,
                                 usage=dict(turn.get("usage") or {}),
-                                latency_s=turn.get("latency_s"), model=self.model,
+                                latency_s=declared, model=self.model,
                                 raw=turn, stop_reason=turn.get("stop_reason"))
 
 

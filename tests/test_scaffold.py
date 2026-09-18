@@ -661,6 +661,103 @@ class LoopIntegrationTest(unittest.TestCase):
             self.assertEqual(caps.get(agent), {12}, "the baseline ran under the scaffold in force")
             self.assertEqual(caps.get(f"{agent}+s1"), {30}, "the variant ran under the changed scaffold")
 
+    def test_every_new_knob_survives_the_ledger_and_reaches_the_runner(self):
+        """The closure, for each knob rather than for the one that existed
+        when this test was written.
+
+        A knob is proposed as JSON, written to `loop.json`, read back, and
+        handed to the runner. Three of the five are not numbers — a flag
+        and a tool name among them — so this is where a value that only
+        round-trips *nearly* would show up: the variant's own traces are
+        read off disk and compared with the baseline's.
+        """
+        import json as _json
+        import tempfile
+        try:
+            from helpers_loop import TASKS, factory, tools as loop_tools
+        except ImportError:
+            self.skipTest("the loop helper is not importable")
+        from deepcompare.harness.loop import Loop
+
+        knobs = [
+            ("raise_cap:max_tool_errors", {"budget": {"max_tool_errors": 5}}, "max_tool_errors", 5),
+            ("dedupe_tool_calls", {"budget": {"dedupe_tool_calls": True}}, "dedupe_tool_calls", True),
+            ("require_before_answer:get_refund",
+             {"budget": {"require_before_answer": "get_refund"}}, "require_before_answer", "get_refund"),
+            ("require_read_before_write", {"budget": {"require_read_before_write": True}},
+             "require_read_before_write", True),
+            ("parallel_tool_calls", {"budget": {"parallel_tool_calls": 4}}, "parallel_tool_calls", 4),
+        ]
+        for kind, change, key, want in knobs:
+            with self.subTest(knob=key), tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "loop"
+                loop = Loop(TASKS, {"steady": "steady", "sloppy": "sloppy"}, out_dir=out,
+                            provider_factory=factory, tools=loop_tools(), runs=1, max_iterations=2,
+                            budget={"max_steps": 12})
+                agent = "steady"
+                cand = {"kind": kind, "knob": "budget", "change": change, "why": "w",
+                        "source": "triage", "from_tasks": []}
+                P.add_scaffold_candidates(loop.state, agent, [cand], source="triage")
+                # through the ledger and back, which is where a value that
+                # only nearly round-trips would be lost
+                loop.state = _json.loads(_json.dumps(loop.state))
+                it = loop._test_scaffold({"agent": agent, "candidate": cand, "variant": "s1",
+                                          "tasks": [t["id"] for t in TASKS][:1], "runs": 1,
+                                          "why": "a hand-built scaffold experiment"}, 1)
+                self.assertEqual(it["action"], "test-scaffold")
+                self.assertEqual(it["decision"]["family"], "scaffold")
+                self.assertIs(it["decision"]["transfers"], False)
+                seen = {}
+                for path in sorted((out / "iter-01" / "traces").glob("*.json")):
+                    if path.name == "RUN_MANIFEST.json":
+                        continue
+                    data = _json.loads(path.read_text(encoding="utf-8"))
+                    seen.setdefault(data["agent"]["name"], []).append((data.get("budget") or {}).get(key))
+                self.assertTrue(seen.get(f"{agent}+s1"), "the variant wrote no traces")
+                self.assertEqual(set(seen[f"{agent}+s1"]), {want},
+                                 f"{key} did not reach the variant's runs as {want!r}")
+                self.assertEqual(set(seen[agent]), {None},
+                                 f"{key} leaked into the baseline, so the pair is not a comparison")
+                _json.dumps(loop.ledger())
+
+    def test_the_parallel_knob_is_inert_when_a_turn_makes_one_call(self):
+        """Honest about what the demo can show. Its agent issues a single
+        tool call per turn, so there is nothing to overlap: the setting is
+        on the variant's traces and the measured overlap is zero. A knob
+        that quietly produced an overlap here would be reordering a run
+        that had no concurrency in it."""
+        import json as _json
+        import tempfile
+        try:
+            from helpers_loop import TASKS, factory, tools as loop_tools
+        except ImportError:
+            self.skipTest("the loop helper is not importable")
+        from deepcompare.harness.loop import Loop
+        from deepcompare.timing import timeline
+        from deepcompare.trace import Trajectory
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "loop"
+            loop = Loop(TASKS, {"steady": "steady", "sloppy": "sloppy"}, out_dir=out,
+                        provider_factory=factory, tools=loop_tools(), runs=1, max_iterations=2,
+                        budget={"max_steps": 12})
+            cand = {"kind": "parallel_tool_calls", "knob": "budget",
+                    "change": {"budget": {"parallel_tool_calls": 4}}, "why": "w",
+                    "source": "triage", "from_tasks": []}
+            P.add_scaffold_candidates(loop.state, "steady", [cand], source="triage")
+            loop._test_scaffold({"agent": "steady", "candidate": cand, "variant": "s1",
+                                 "tasks": [t["id"] for t in TASKS][:1], "runs": 1, "why": "w"}, 1)
+            overlaps, calls_per_turn = [], []
+            for path in sorted((out / "iter-01" / "traces").glob("*steady+s1*.json")):
+                data = _json.loads(path.read_text(encoding="utf-8"))
+                tl = timeline(Trajectory.from_dict(data))
+                overlaps.append(tl["overlap_s"])
+                calls_per_turn.append(len([s for s in data["steps"] if s["type"] == "tool_call"]))
+        self.assertTrue(overlaps, "the variant wrote no traces")
+        self.assertEqual(set(overlaps), {0.0},
+                         "a run whose turns make one call each reported steps running at once")
+        self.assertTrue(all(n <= 1 for n in calls_per_turn), calls_per_turn)
+
     def test_a_compare_iteration_reports_what_it_could_not_act_on(self):
         import tempfile
         try:

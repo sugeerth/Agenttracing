@@ -56,6 +56,16 @@ def timeline(traj: Trajectory) -> dict:
     ``overlap_s`` is ``0.0`` on a sequential run and ``None`` when the
     starts are not recorded — not zero, because a run whose concurrency
     nothing wrote down is not a run that had none.
+
+    One caveat, and it is not a small one: this is read from the trace's
+    own numbers, so it measures what the trace *says* rather than what the
+    world did.  A recorder that stamps a real start beside a duration it
+    took from somewhere else — a provider reporting a latency longer than
+    the call took, a fixture declaring one it did not wait for — writes
+    steps whose spans overlap, and this reads that as concurrency.  The
+    reading is correct about the trace; the trace is wrong.  Nothing here
+    can tell the two apart, which is the same reason `basis` is stated at
+    all: a number is only as good as the record under it.
     """
     steps = traj.steps
     if not steps:

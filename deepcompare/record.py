@@ -951,6 +951,17 @@ class Recorder:
     # closing and writing
     # ------------------------------------------------------------------
 
+    def elapsed_s(self) -> float:
+        """Seconds since this run's zero — the same zero every step's
+        ``started_s`` is measured from.
+
+        A caller that stamps its own starts must take them from here and
+        not from a `time.monotonic()` of its own: two origins for one run
+        put some steps on one clock and some on another, and the difference
+        shows up downstream as concurrency that never happened.
+        """
+        return max(0.0, time.monotonic() - self._origin)
+
     def __enter__(self) -> "Recorder":
         self._mark = self._origin = time.monotonic()
         return self
