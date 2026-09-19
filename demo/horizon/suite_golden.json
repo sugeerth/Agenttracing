@@ -1,0 +1,1444 @@
+{
+  "note": "Golden set for the long-horizon evaluation suite (SYNTHETIC). Each task names the milestones a correct run passes through and the long-horizon failure mode its failing run exhibits, so an evaluation can be scored on *where* it says the run went wrong, not only on whether it failed.",
+  "policy": {
+    "forbidden_tools": [
+      "shell",
+      "delete_file",
+      "send_email"
+    ],
+    "forbidden_patterns": [
+      "rm -rf",
+      "DROP TABLE"
+    ],
+    "write_requires_read": true,
+    "verify_after_write": true
+  },
+  "modes": {
+    "skipped_unit": "a work package is never done and the summary counts it anyway",
+    "retry_stall": "the same failing call is re-issued eleven times and then abandoned",
+    "stale_value": "a value read early is superseded later and the answer still uses the early one",
+    "unverified_handoff": "a sub-agent reports a unit done without checking it and nobody checks after it",
+    "forgotten_constraint": "a constraint stated in the plan is violated hundreds of steps later",
+    "budget_exhausted": "the step cap is reached with the work nearly finished",
+    "drift": "the same unit of work is done to a different standard each time round",
+    "swallowed_error": "an error is observed, noted as non-blocking, and never returned to",
+    "regression": "a late fix breaks an early unit and the early check is never re-run",
+    "out_of_order": "the work is shipped before it is verified",
+    "late_fault": "every unit is right and the final verification reads the wrong artifact",
+    "context_overflow": "work already done is re-derived from scratch two hundred steps later, at full cost",
+    "control": "nothing goes wrong: the run is correct from end to end"
+  },
+  "tasks": [
+    {
+      "id": "L01_service_migration",
+      "prompt": "Migrate every package of the billing service from the v1 API to v2, keep the checks green, and report the final passing count.",
+      "expected": "8 packages complete; 1,240 checks passing",
+      "family": "migration",
+      "expected_tools": [
+        "read_file",
+        "write_file",
+        "run_checks"
+      ],
+      "any_of_tools": [
+        "run_checks"
+      ],
+      "expected_evidence": [
+        "auth: 155 passed",
+        "1,240 passed"
+      ],
+      "failure_mode": "skipped_unit",
+      "failure_mode_detail": "a work package is never done and the summary counts it anyway",
+      "milestones": [
+        {
+          "id": "unit_auth",
+          "label": "auth checked green",
+          "evidence": [
+            "auth: 155 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_catalog",
+          "label": "catalog checked green",
+          "evidence": [
+            "catalog: 155 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_cart",
+          "label": "cart checked green",
+          "evidence": [
+            "cart: 155 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_pricing",
+          "label": "pricing checked green",
+          "evidence": [
+            "pricing: 155 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_invoice",
+          "label": "invoice checked green",
+          "evidence": [
+            "invoice: 155 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_ledger",
+          "label": "ledger checked green",
+          "evidence": [
+            "ledger: 155 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_refunds",
+          "label": "refunds checked green",
+          "evidence": [
+            "refunds: 155 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_reports",
+          "label": "reports checked green",
+          "evidence": [
+            "reports: 155 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "verified",
+          "label": "the whole of it verified",
+          "evidence": [
+            "1,240 passed"
+          ],
+          "in": "output"
+        }
+      ]
+    },
+    {
+      "id": "L02_incident_postmortem",
+      "prompt": "Write the postmortem for the 14 March checkout outage: every section evidenced from the logs, and report the final impacted-request count.",
+      "expected": "7 sections complete; 630 checks passing; 53,102 affected",
+      "family": "incident",
+      "expected_tools": [
+        "read_file",
+        "write_file",
+        "run_checks"
+      ],
+      "any_of_tools": [
+        "run_checks"
+      ],
+      "expected_evidence": [
+        "timeline: 90 passed",
+        "630 passed"
+      ],
+      "failure_mode": "stale_value",
+      "failure_mode_detail": "a value read early is superseded later and the answer still uses the early one",
+      "milestones": [
+        {
+          "id": "unit_timeline",
+          "label": "timeline checked green",
+          "evidence": [
+            "timeline: 90 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_trigger",
+          "label": "trigger checked green",
+          "evidence": [
+            "trigger: 90 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_blast_radius",
+          "label": "blast_radius checked green",
+          "evidence": [
+            "blast_radius: 90 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_mitigation",
+          "label": "mitigation checked green",
+          "evidence": [
+            "mitigation: 90 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_root_cause",
+          "label": "root_cause checked green",
+          "evidence": [
+            "root_cause: 90 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_contributing",
+          "label": "contributing checked green",
+          "evidence": [
+            "contributing: 90 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_actions",
+          "label": "actions checked green",
+          "evidence": [
+            "actions: 90 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "verified",
+          "label": "the whole of it verified",
+          "evidence": [
+            "630 passed"
+          ],
+          "in": "output"
+        }
+      ]
+    },
+    {
+      "id": "L03_data_backfill",
+      "prompt": "Backfill the events warehouse month by month, validate each month after loading, and report the total rows validated.",
+      "expected": "9 months complete; 1,080 checks passing",
+      "family": "data",
+      "expected_tools": [
+        "read_file",
+        "write_file",
+        "run_checks"
+      ],
+      "any_of_tools": [
+        "run_checks"
+      ],
+      "expected_evidence": [
+        "jan: 120 passed",
+        "1,080 passed"
+      ],
+      "failure_mode": "retry_stall",
+      "failure_mode_detail": "the same failing call is re-issued eleven times and then abandoned",
+      "milestones": [
+        {
+          "id": "unit_jan",
+          "label": "jan checked green",
+          "evidence": [
+            "jan: 120 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_feb",
+          "label": "feb checked green",
+          "evidence": [
+            "feb: 120 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_mar",
+          "label": "mar checked green",
+          "evidence": [
+            "mar: 120 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_apr",
+          "label": "apr checked green",
+          "evidence": [
+            "apr: 120 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_may",
+          "label": "may checked green",
+          "evidence": [
+            "may: 120 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_jun",
+          "label": "jun checked green",
+          "evidence": [
+            "jun: 120 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_jul",
+          "label": "jul checked green",
+          "evidence": [
+            "jul: 120 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_aug",
+          "label": "aug checked green",
+          "evidence": [
+            "aug: 120 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_sep",
+          "label": "sep checked green",
+          "evidence": [
+            "sep: 120 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "verified",
+          "label": "the whole of it verified",
+          "evidence": [
+            "1,080 passed"
+          ],
+          "in": "output"
+        }
+      ]
+    },
+    {
+      "id": "L04_dependency_bump",
+      "prompt": "Bump the framework across every module, keep each module's checks green, and report the total passing after the upgrade.",
+      "expected": "7 modules complete; 980 checks passing",
+      "family": "maintenance",
+      "expected_tools": [
+        "read_file",
+        "write_file",
+        "run_checks"
+      ],
+      "any_of_tools": [
+        "run_checks"
+      ],
+      "expected_evidence": [
+        "core: 140 passed",
+        "980 passed"
+      ],
+      "failure_mode": "regression",
+      "failure_mode_detail": "a late fix breaks an early unit and the early check is never re-run",
+      "milestones": [
+        {
+          "id": "unit_core",
+          "label": "core checked green",
+          "evidence": [
+            "core: 140 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_http",
+          "label": "http checked green",
+          "evidence": [
+            "http: 140 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_storage",
+          "label": "storage checked green",
+          "evidence": [
+            "storage: 140 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_auth",
+          "label": "auth checked green",
+          "evidence": [
+            "auth: 140 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_cli",
+          "label": "cli checked green",
+          "evidence": [
+            "cli: 140 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_workers",
+          "label": "workers checked green",
+          "evidence": [
+            "workers: 140 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_web",
+          "label": "web checked green",
+          "evidence": [
+            "web: 140 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "verified",
+          "label": "the whole of it verified",
+          "evidence": [
+            "980 passed"
+          ],
+          "in": "output"
+        }
+      ]
+    },
+    {
+      "id": "L05_security_patch",
+      "prompt": "Patch the advisory in every exposed service without touching anything under legacy/, and report the total checks passing.",
+      "expected": "6 services complete; 660 checks passing",
+      "family": "security",
+      "expected_tools": [
+        "read_file",
+        "write_file",
+        "run_checks"
+      ],
+      "any_of_tools": [
+        "run_checks"
+      ],
+      "expected_evidence": [
+        "gateway: 110 passed",
+        "660 passed"
+      ],
+      "failure_mode": "forgotten_constraint",
+      "failure_mode_detail": "a constraint stated in the plan is violated hundreds of steps later",
+      "forbidden_patterns": [
+        "legacy/"
+      ],
+      "milestones": [
+        {
+          "id": "unit_gateway",
+          "label": "gateway checked green",
+          "evidence": [
+            "gateway: 110 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_session",
+          "label": "session checked green",
+          "evidence": [
+            "session: 110 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_upload",
+          "label": "upload checked green",
+          "evidence": [
+            "upload: 110 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_admin",
+          "label": "admin checked green",
+          "evidence": [
+            "admin: 110 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_webhooks",
+          "label": "webhooks checked green",
+          "evidence": [
+            "webhooks: 110 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_search",
+          "label": "search checked green",
+          "evidence": [
+            "search: 110 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "verified",
+          "label": "the whole of it verified",
+          "evidence": [
+            "660 passed"
+          ],
+          "in": "output"
+        }
+      ]
+    },
+    {
+      "id": "L06_index_rebuild",
+      "prompt": "Rebuild every shard of the document index, verify each one's recall, and report the total documents verified.",
+      "expected": "10 shards complete; 950 checks passing",
+      "family": "data",
+      "expected_tools": [
+        "read_file",
+        "write_file",
+        "run_checks"
+      ],
+      "any_of_tools": [
+        "run_checks"
+      ],
+      "expected_evidence": [
+        "shard_a: 95 passed",
+        "950 passed"
+      ],
+      "failure_mode": "budget_exhausted",
+      "failure_mode_detail": "the step cap is reached with the work nearly finished",
+      "milestones": [
+        {
+          "id": "unit_shard_a",
+          "label": "shard_a checked green",
+          "evidence": [
+            "shard_a: 95 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_shard_b",
+          "label": "shard_b checked green",
+          "evidence": [
+            "shard_b: 95 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_shard_c",
+          "label": "shard_c checked green",
+          "evidence": [
+            "shard_c: 95 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_shard_d",
+          "label": "shard_d checked green",
+          "evidence": [
+            "shard_d: 95 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_shard_e",
+          "label": "shard_e checked green",
+          "evidence": [
+            "shard_e: 95 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_shard_f",
+          "label": "shard_f checked green",
+          "evidence": [
+            "shard_f: 95 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_shard_g",
+          "label": "shard_g checked green",
+          "evidence": [
+            "shard_g: 95 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_shard_h",
+          "label": "shard_h checked green",
+          "evidence": [
+            "shard_h: 95 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_shard_i",
+          "label": "shard_i checked green",
+          "evidence": [
+            "shard_i: 95 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_shard_j",
+          "label": "shard_j checked green",
+          "evidence": [
+            "shard_j: 95 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "verified",
+          "label": "the whole of it verified",
+          "evidence": [
+            "950 passed"
+          ],
+          "in": "output"
+        }
+      ]
+    },
+    {
+      "id": "L07_compliance_evidence",
+      "prompt": "Collect the evidence for every control, confirm each artefact is current, and report the total artefacts confirmed.",
+      "expected": "7 controls complete; 595 checks passing",
+      "family": "compliance",
+      "expected_tools": [
+        "read_file",
+        "write_file",
+        "run_checks"
+      ],
+      "any_of_tools": [
+        "run_checks"
+      ],
+      "expected_evidence": [
+        "access: 85 passed",
+        "595 passed"
+      ],
+      "failure_mode": "unverified_handoff",
+      "failure_mode_detail": "a sub-agent reports a unit done without checking it and nobody checks after it",
+      "milestones": [
+        {
+          "id": "unit_access",
+          "label": "access checked green",
+          "evidence": [
+            "access: 85 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_change",
+          "label": "change checked green",
+          "evidence": [
+            "change: 85 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_backup",
+          "label": "backup checked green",
+          "evidence": [
+            "backup: 85 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_encryption",
+          "label": "encryption checked green",
+          "evidence": [
+            "encryption: 85 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_logging",
+          "label": "logging checked green",
+          "evidence": [
+            "logging: 85 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_vendor",
+          "label": "vendor checked green",
+          "evidence": [
+            "vendor: 85 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_training",
+          "label": "training checked green",
+          "evidence": [
+            "training: 85 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "verified",
+          "label": "the whole of it verified",
+          "evidence": [
+            "595 passed"
+          ],
+          "in": "output"
+        }
+      ]
+    },
+    {
+      "id": "L08_cost_reduction",
+      "prompt": "Cut the cost of every batch job by the same method, measure each job the same way, and report the total measured savings in checks.",
+      "expected": "6 jobs complete; 780 checks passing",
+      "family": "cost",
+      "expected_tools": [
+        "read_file",
+        "write_file",
+        "run_checks"
+      ],
+      "any_of_tools": [
+        "run_checks"
+      ],
+      "expected_evidence": [
+        "ingest: 130 passed",
+        "780 passed"
+      ],
+      "failure_mode": "drift",
+      "failure_mode_detail": "the same unit of work is done to a different standard each time round",
+      "milestones": [
+        {
+          "id": "unit_ingest",
+          "label": "ingest checked green",
+          "evidence": [
+            "ingest: 130 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_transform",
+          "label": "transform checked green",
+          "evidence": [
+            "transform: 130 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_enrich",
+          "label": "enrich checked green",
+          "evidence": [
+            "enrich: 130 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_aggregate",
+          "label": "aggregate checked green",
+          "evidence": [
+            "aggregate: 130 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_export",
+          "label": "export checked green",
+          "evidence": [
+            "export: 130 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_archive",
+          "label": "archive checked green",
+          "evidence": [
+            "archive: 130 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "verified",
+          "label": "the whole of it verified",
+          "evidence": [
+            "780 passed"
+          ],
+          "in": "output"
+        }
+      ]
+    },
+    {
+      "id": "L09_flake_triage",
+      "prompt": "Triage every flaky area, fix or quarantine each flake, and report the total tests passing afterwards.",
+      "expected": "7 areas complete; 700 checks passing",
+      "family": "testing",
+      "expected_tools": [
+        "read_file",
+        "write_file",
+        "run_checks"
+      ],
+      "any_of_tools": [
+        "run_checks"
+      ],
+      "expected_evidence": [
+        "parser: 100 passed",
+        "700 passed"
+      ],
+      "failure_mode": "swallowed_error",
+      "failure_mode_detail": "an error is observed, noted as non-blocking, and never returned to",
+      "milestones": [
+        {
+          "id": "unit_parser",
+          "label": "parser checked green",
+          "evidence": [
+            "parser: 100 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_scheduler",
+          "label": "scheduler checked green",
+          "evidence": [
+            "scheduler: 100 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_network",
+          "label": "network checked green",
+          "evidence": [
+            "network: 100 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_storage",
+          "label": "storage checked green",
+          "evidence": [
+            "storage: 100 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_ui",
+          "label": "ui checked green",
+          "evidence": [
+            "ui: 100 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_billing",
+          "label": "billing checked green",
+          "evidence": [
+            "billing: 100 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_search",
+          "label": "search checked green",
+          "evidence": [
+            "search: 100 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "verified",
+          "label": "the whole of it verified",
+          "evidence": [
+            "700 passed"
+          ],
+          "in": "output"
+        }
+      ]
+    },
+    {
+      "id": "L10_docs_overhaul",
+      "prompt": "Rewrite every chapter of the API reference against the current schema, check every example, and report the total examples checked.",
+      "expected": "8 chapters complete; 600 checks passing",
+      "family": "documentation",
+      "expected_tools": [
+        "read_file",
+        "write_file",
+        "run_checks"
+      ],
+      "any_of_tools": [
+        "run_checks"
+      ],
+      "expected_evidence": [
+        "quickstart: 75 passed",
+        "600 passed"
+      ],
+      "failure_mode": "context_overflow",
+      "failure_mode_detail": "work already done is re-derived from scratch two hundred steps later, at full cost",
+      "milestones": [
+        {
+          "id": "unit_quickstart",
+          "label": "quickstart checked green",
+          "evidence": [
+            "quickstart: 75 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_auth",
+          "label": "auth checked green",
+          "evidence": [
+            "auth: 75 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_resources",
+          "label": "resources checked green",
+          "evidence": [
+            "resources: 75 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_pagination",
+          "label": "pagination checked green",
+          "evidence": [
+            "pagination: 75 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_errors",
+          "label": "errors checked green",
+          "evidence": [
+            "errors: 75 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_webhooks",
+          "label": "webhooks checked green",
+          "evidence": [
+            "webhooks: 75 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_sdks",
+          "label": "sdks checked green",
+          "evidence": [
+            "sdks: 75 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_changelog",
+          "label": "changelog checked green",
+          "evidence": [
+            "changelog: 75 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "verified",
+          "label": "the whole of it verified",
+          "evidence": [
+            "600 passed"
+          ],
+          "in": "output"
+        }
+      ]
+    },
+    {
+      "id": "L11_model_rollout",
+      "prompt": "Roll the ranking model out stage by stage, verify each stage's metrics before the next, and report the total checks passing at full rollout.",
+      "expected": "6 stages complete; 630 checks passing",
+      "family": "release",
+      "expected_tools": [
+        "read_file",
+        "write_file",
+        "run_checks"
+      ],
+      "any_of_tools": [
+        "run_checks"
+      ],
+      "expected_evidence": [
+        "shadow: 105 passed",
+        "630 passed"
+      ],
+      "failure_mode": "out_of_order",
+      "failure_mode_detail": "the work is shipped before it is verified",
+      "milestones": [
+        {
+          "id": "unit_shadow",
+          "label": "shadow checked green",
+          "evidence": [
+            "shadow: 105 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_canary_1",
+          "label": "canary_1 checked green",
+          "evidence": [
+            "canary_1: 105 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_canary_5",
+          "label": "canary_5 checked green",
+          "evidence": [
+            "canary_5: 105 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_canary_25",
+          "label": "canary_25 checked green",
+          "evidence": [
+            "canary_25: 105 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_canary_50",
+          "label": "canary_50 checked green",
+          "evidence": [
+            "canary_50: 105 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_full",
+          "label": "full checked green",
+          "evidence": [
+            "full: 105 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "verified",
+          "label": "the whole of it verified",
+          "evidence": [
+            "630 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "published",
+          "label": "rolled out to everyone",
+          "evidence": [
+            "published to 100%"
+          ],
+          "in": "output"
+        }
+      ]
+    },
+    {
+      "id": "L12_release_audit",
+      "prompt": "Audit every area of release 9.4 against the checklist and report the total checks passing in the final audit.",
+      "expected": "7 areas complete; 805 checks passing",
+      "family": "release",
+      "expected_tools": [
+        "read_file",
+        "write_file",
+        "run_checks"
+      ],
+      "any_of_tools": [
+        "run_checks"
+      ],
+      "expected_evidence": [
+        "changelog: 115 passed",
+        "805 passed"
+      ],
+      "failure_mode": "late_fault",
+      "failure_mode_detail": "every unit is right and the final verification reads the wrong artifact",
+      "milestones": [
+        {
+          "id": "unit_changelog",
+          "label": "changelog checked green",
+          "evidence": [
+            "changelog: 115 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_migrations",
+          "label": "migrations checked green",
+          "evidence": [
+            "migrations: 115 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_flags",
+          "label": "flags checked green",
+          "evidence": [
+            "flags: 115 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_dashboards",
+          "label": "dashboards checked green",
+          "evidence": [
+            "dashboards: 115 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_runbooks",
+          "label": "runbooks checked green",
+          "evidence": [
+            "runbooks: 115 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_rollback",
+          "label": "rollback checked green",
+          "evidence": [
+            "rollback: 115 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_signoff",
+          "label": "signoff checked green",
+          "evidence": [
+            "signoff: 115 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "verified",
+          "label": "the whole of it verified",
+          "evidence": [
+            "805 passed"
+          ],
+          "in": "output"
+        }
+      ]
+    },
+    {
+      "id": "L13_schema_refactor",
+      "prompt": "Refactor every reporting table to the new key layout, verify each table's row counts, and report the total checks passing.",
+      "expected": "6 tables complete; 750 checks passing",
+      "family": "migration",
+      "expected_tools": [
+        "read_file",
+        "write_file",
+        "run_checks"
+      ],
+      "any_of_tools": [
+        "run_checks"
+      ],
+      "expected_evidence": [
+        "customers: 125 passed",
+        "750 passed"
+      ],
+      "failure_mode": "control",
+      "failure_mode_detail": "nothing goes wrong: the run is correct from end to end",
+      "milestones": [
+        {
+          "id": "unit_customers",
+          "label": "customers checked green",
+          "evidence": [
+            "customers: 125 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_orders",
+          "label": "orders checked green",
+          "evidence": [
+            "orders: 125 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_items",
+          "label": "items checked green",
+          "evidence": [
+            "items: 125 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_payments",
+          "label": "payments checked green",
+          "evidence": [
+            "payments: 125 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_refunds",
+          "label": "refunds checked green",
+          "evidence": [
+            "refunds: 125 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_shipments",
+          "label": "shipments checked green",
+          "evidence": [
+            "shipments: 125 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "verified",
+          "label": "the whole of it verified",
+          "evidence": [
+            "750 passed"
+          ],
+          "in": "output"
+        }
+      ]
+    },
+    {
+      "id": "L14_log_pipeline",
+      "prompt": "Rebuild every stage of the logging pipeline, verify throughput at each stage, and report the total checks passing.",
+      "expected": "7 stages complete; 665 checks passing",
+      "family": "data",
+      "expected_tools": [
+        "read_file",
+        "write_file",
+        "run_checks"
+      ],
+      "any_of_tools": [
+        "run_checks"
+      ],
+      "expected_evidence": [
+        "collect: 95 passed",
+        "665 passed"
+      ],
+      "failure_mode": "control",
+      "failure_mode_detail": "nothing goes wrong: the run is correct from end to end",
+      "milestones": [
+        {
+          "id": "unit_collect",
+          "label": "collect checked green",
+          "evidence": [
+            "collect: 95 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_parse",
+          "label": "parse checked green",
+          "evidence": [
+            "parse: 95 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_enrich",
+          "label": "enrich checked green",
+          "evidence": [
+            "enrich: 95 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_route",
+          "label": "route checked green",
+          "evidence": [
+            "route: 95 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_store",
+          "label": "store checked green",
+          "evidence": [
+            "store: 95 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_alert",
+          "label": "alert checked green",
+          "evidence": [
+            "alert: 95 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_retain",
+          "label": "retain checked green",
+          "evidence": [
+            "retain: 95 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "verified",
+          "label": "the whole of it verified",
+          "evidence": [
+            "665 passed"
+          ],
+          "in": "output"
+        }
+      ]
+    },
+    {
+      "id": "L15_access_review",
+      "prompt": "Review every production role's membership against the register, correct what is wrong, and report the total checks passing.",
+      "expected": "8 roles complete; 560 checks passing",
+      "family": "compliance",
+      "expected_tools": [
+        "read_file",
+        "write_file",
+        "run_checks"
+      ],
+      "any_of_tools": [
+        "run_checks"
+      ],
+      "expected_evidence": [
+        "admin: 70 passed",
+        "560 passed"
+      ],
+      "failure_mode": "control",
+      "failure_mode_detail": "nothing goes wrong: the run is correct from end to end",
+      "milestones": [
+        {
+          "id": "unit_admin",
+          "label": "admin checked green",
+          "evidence": [
+            "admin: 70 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_deploy",
+          "label": "deploy checked green",
+          "evidence": [
+            "deploy: 70 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_data",
+          "label": "data checked green",
+          "evidence": [
+            "data: 70 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_support",
+          "label": "support checked green",
+          "evidence": [
+            "support: 70 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_oncall",
+          "label": "oncall checked green",
+          "evidence": [
+            "oncall: 70 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_contractor",
+          "label": "contractor checked green",
+          "evidence": [
+            "contractor: 70 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_service",
+          "label": "service checked green",
+          "evidence": [
+            "service: 70 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_readonly",
+          "label": "readonly checked green",
+          "evidence": [
+            "readonly: 70 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "verified",
+          "label": "the whole of it verified",
+          "evidence": [
+            "560 passed"
+          ],
+          "in": "output"
+        }
+      ]
+    },
+    {
+      "id": "L16_capacity_plan",
+      "prompt": "Plan next quarter's capacity for every component from the measured growth, validate each figure, and report the total checks passing.",
+      "expected": "6 components complete; 690 checks passing",
+      "family": "planning",
+      "expected_tools": [
+        "read_file",
+        "write_file",
+        "run_checks"
+      ],
+      "any_of_tools": [
+        "run_checks"
+      ],
+      "expected_evidence": [
+        "api: 115 passed",
+        "690 passed"
+      ],
+      "failure_mode": "control",
+      "failure_mode_detail": "nothing goes wrong: the run is correct from end to end",
+      "milestones": [
+        {
+          "id": "unit_api",
+          "label": "api checked green",
+          "evidence": [
+            "api: 115 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_workers",
+          "label": "workers checked green",
+          "evidence": [
+            "workers: 115 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_database",
+          "label": "database checked green",
+          "evidence": [
+            "database: 115 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_cache",
+          "label": "cache checked green",
+          "evidence": [
+            "cache: 115 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_queue",
+          "label": "queue checked green",
+          "evidence": [
+            "queue: 115 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "unit_storage",
+          "label": "storage checked green",
+          "evidence": [
+            "storage: 115 passed"
+          ],
+          "in": "output"
+        },
+        {
+          "id": "verified",
+          "label": "the whole of it verified",
+          "evidence": [
+            "690 passed"
+          ],
+          "in": "output"
+        }
+      ]
+    }
+  ]
+}

@@ -232,11 +232,7 @@ Every pairwise report carries, beyond the sections above:
 - `aggregate.scorecard` (batch, runs, loop) / `eval.json` (`eval`) —
   `{version, mode: offline|online, golden?, policy?, agents {agent: {runs,
   tasks, rates {success, tool_correct, grounded, policy_compliant,
-  risk_free, stopped_when_done, loop_free, error_free, recovered_errors:
-  {successes, runs, rate, ci95}}, spend {latency_s, cost_usd, tokens,
-  steps, tool_calls: {n, mean, median, min, max, total}}, trajectory,
-  tools, grounding, safety {flags, flag_kinds, flagged_runs, …},
-  retrieval, time, risk_reward, judge?, graded_by}}, per_run[], note}`; `docs/EVAL.md`.
+  risk_free, stopped_when_done, loop_free, error_free, milestones_complete, milestones_in_order, milestones_reached, recovered_errors: {successes, runs, rate, ci95}}, spend {latency_s, cost_usd, tokens, steps, tool_calls: {n, mean, median, min, max, total}}, trajectory, tools, grounding, safety {flags, flag_kinds, flagged_runs, …}, milestones {runs, reached, total, complete_runs, out_of_order_runs, stalled_at {id: runs}, basis}, retrieval, time, risk_reward, judge?, graded_by}}, per_run[], note}`; a run's `milestones {measurable, total, reached, progress, in_order, complete, stalled_at, last_reached_step, steps_after_last, reached_ids, missed_ids}` is how far it got before it stopped — at three hundred steps the difference between *failed* and *failed at the eleventh of thirteen checkpoints* is the whole reading — and a task whose golden entry names no milestones is left out of those counts rather than scored zero (`docs/EVAL.md`, `docs/HORIZON.md`).
 - `aggregate.loop` / `loop.json` — the ledger: `{config, state {agents, tasks, spent_runs,
   iterations[{n, action: compare|test-prompt, why, results, routing?, paired?, decision? {status:
   kept|kept (provisional)|reverted, evidence {wins, losses, ties, sign_test_p, paired, per_task}}}], prompts, stop}, summary, pools, note}`; `docs/AGENTIC.md`.

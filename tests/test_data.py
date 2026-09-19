@@ -455,8 +455,15 @@ class DemoLineageTest(unittest.TestCase):
         self.assertEqual(s["change"]["protected_touched"], ["config.checks", "tools.run_check"])
         self.assertEqual((s["behaviour"]["tools_before"].get("run_check"), s["behaviour"]["tools_after"].get("run_check")), (237, None))
         self.assertEqual((s["behaviour"]["sources_before"], s["behaviour"]["sources_after"]), (164, 148))
-        self.assertEqual((s["behaviour"]["grounded_before"], s["behaviour"]["grounded_after"]), (1.0, 1.0))
-        self.assertEqual(s["behaviour"]["grounded_runs"], {"before": 5, "after": 5})
+        # half, not all: five of g2's ten runs answer "411 passing" and no
+        # observation in those traces ever produced the figure. The reading
+        # only began to see it when the claim extractor stopped needing a
+        # word from a curated unit list next to the number — before that the
+        # unsourced count was not a claim at all, and the share read 1.0
+        self.assertEqual((s["behaviour"]["grounded_before"], s["behaviour"]["grounded_after"]), (0.5, 0.5))
+        # and twice as many runs are measurable now that those answers carry
+        # a claim to check at all
+        self.assertEqual(s["behaviour"]["grounded_runs"], {"before": 10, "after": 10})
         self.assertEqual(s["effect"]["verdict"], "gamed")
         self.assertEqual([f["metric"] for f in s["eval"]["flags"]], ["verified_rate", "frugal_pass_rate"])
         self.assertEqual(s["eval"]["learned"], ["frugal_pass_rate", "verified_rate"])
@@ -470,7 +477,7 @@ class DemoLineageTest(unittest.TestCase):
         self.assertEqual([x["eval"]["eval_gen"] for x in d["steps"]], [None, None, "e1", "e2", "e3", "e4"])
         self.assertEqual([x["effect"]["verdict"] for x in d["steps"]], ["traded", "flat", "gamed", "improved", "forgot", "traded"])
         self.assertEqual([x["behaviour"]["sources_after"] for x in d["steps"]], [130, 164, 148, 142, 141, 140])
-        self.assertEqual(d["steps"][5]["behaviour"]["grounded_after"], 0.8)
+        self.assertEqual(d["steps"][5]["behaviour"]["grounded_after"], 0.4)
 
 
 # ------------------------------------------------------------ the brief

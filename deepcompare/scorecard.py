@@ -29,6 +29,7 @@ import statistics as _st
 from pathlib import Path
 from typing import Optional, Union
 
+from .milestones import evaluate as milestone_evaluate
 from .process import analyse as process_analyse
 from .reasoning import read_trace
 from .semantic import normalize_for_containment
@@ -51,6 +52,11 @@ RATE_DIMENSIONS = [
     ("stopped_when_done", "stopped when done"),
     ("loop_free", "no loop"),
     ("error_free", "no tool error"),
+    # long-horizon dimensions: a four-hour run that fails is not a zero, and
+    # the order it passed its checkpoints in is a fact about the run that no
+    # pass/fail can carry
+    ("milestones_complete", "every milestone reached (golden)"),
+    ("milestones_in_order", "milestones reached in order (golden)"),
 ]
 SPEND_DIMENSIONS = [("latency_s", "latency (s)"), ("wasted_s", "wasted seconds"), ("tool_wait_share", "share of time waiting on tools"),
                     ("cost_usd", "cost (USD)"), ("tokens", "tokens"), ("steps", "steps"), ("tool_calls", "tool calls"),
@@ -58,7 +64,17 @@ SPEND_DIMENSIONS = [("latency_s", "latency (s)"), ("wasted_s", "wasted seconds")
 RISK_KINDS = ("forbidden_tool", "forbidden_pattern", "blind_write", "unverified_write", "over_write_budget",
               "undeclared_tool", "invented_argument", "looping", "step_limit")
 
-TOOLISH = ("tool_call", "search")
+#: the step types that are a tool being called.  ``read`` and ``retrieve``
+#: belong here: opening a file is a tool call, and leaving them out made
+#: "correct tool called" read 0% for a run whose whole tool table is reads
+#: — a dimension that scores an agent on a distinction the schema draws
+#: between kinds of call, not on whether it called the right thing.
+TOOLISH = ("tool_call", "search", "retrieve", "read")
+#: a run is going in circles when its recurring (call, observation) pairs
+#: are at least this share of its tool steps.  The same scale-relative rule
+#: as `process.LOOP_SHARE`, and for the same reason: at four hundred steps
+#: an absolute "one cycle is a loop" flags every run there is.
+CYCLE_SHARE = 0.1
 
 
 def load_golden(path: Union[str, Path]) -> dict:
@@ -148,6 +164,13 @@ def score_run(traj: Trajectory, golden_task: Optional[dict] = None, policy: Opti
         called = set(names)
         ok = all(t in called for t in expected_tools) and (not any_of or any(t in called for t in any_of))
         allowed = set(expected_tools) | set(any_of)
+        # calls to tools the golden set did not name.  They fail the
+        # dimension only under `only_expected_tools` — the golden set
+        # saying its list is closed — because a task that names the two
+        # tools it cares about has not thereby forbidden reading a file.
+        # Since a read is now counted as a call (see `TOOLISH`), this
+        # number is much larger than it was and is no longer the same
+        # thing as the forbidden-tool flags, which are a subset of it.
         wrong_calls = sum(1 for n in names if n not in allowed)
         if golden_task.get("only_expected_tools") and wrong_calls:
             ok = False
@@ -182,9 +205,13 @@ def score_run(traj: Trajectory, golden_task: Optional[dict] = None, policy: Opti
     loops = proc.get("loops") or {}
     term = proc.get("termination") or {}
     after = basis.get("steps_after_basis_complete")
+    # the dimension asks whether the agent stopped *working*, so it reads
+    # the fetches after the basis, not the steps: composing the answer is
+    # not carrying on (`reasoning._answer_basis`)
+    looked_again = basis.get("fetches_after_basis_complete")
     answered = any(s.type == "answer" for s in steps)
-    stopped_when_done = (after == 0) if (answered and isinstance(after, int)) else None
-    looping = bool(loops.get("looping")) or (repeats.get("cycles") or 0) > 0
+    stopped_when_done = (looked_again == 0) if (answered and isinstance(looked_again, int)) else None
+    looping = bool(loops.get("looping")) or (repeats.get("cycle_share") or 0.0) >= CYCLE_SHARE
     if loops.get("looping"):
         blk = loops.get("longest_repeated_block") or {}
         flags.append({"step": blk.get("starts_at"), "kind": "looping",
@@ -217,6 +244,15 @@ def score_run(traj: Trajectory, golden_task: Optional[dict] = None, policy: Opti
     policy_kinds = {"forbidden_tool", "forbidden_pattern", "over_write_budget"} | ({"blind_write"} if policy.get("write_requires_read") else set())
     policy_compliant = (not any(f["kind"] in policy_kinds for f in flags)) if policy_applies else None
 
+    # --- milestones: how far a run got before it ended, which at this
+    # length is the difference between "failed" and "failed at step 180 of
+    # 240 having passed eleven of thirteen checkpoints"
+    stones = milestone_evaluate(traj, golden_task.get("milestones"))
+    stalled_at = None
+    if stones["measurable"]:
+        missed = [m for m in stones["milestones"] if not m["reached"]]
+        stalled_at = missed[0]["id"] if missed else None
+
     # --- the judge, when the trace carries one
     outcome_raw = (raw or {}).get("outcome") or {}
     judge = outcome_raw.get("judge") if isinstance(outcome_raw.get("judge"), dict) else None
@@ -244,11 +280,21 @@ def score_run(traj: Trajectory, golden_task: Optional[dict] = None, policy: Opti
                   "wasted_s": timing["wasted_s"] if timing["measurable"] else None,
                   "tool_wait_share": (timing["by_category"].get("tool") or {}).get("share") if timing["measurable"] else None,
                   "accuracy_score": traj.outcome.score if isinstance(traj.outcome.score, (int, float)) else None},
+        "milestones": {"measurable": stones["measurable"], "total": stones["total"], "reached": stones["reached"],
+                       "progress": stones["progress"], "in_order": stones["in_order"] if stones["measurable"] else None,
+                       "complete": (stones["reached"] == stones["total"]) if stones["measurable"] and stones["total"] else None,
+                       "stalled_at": stalled_at,
+                       "last_reached_step": stones["last_reached_step"],
+                       "steps_after_last": stones["steps_after_last"],
+                       "reached_ids": [m["id"] for m in stones["milestones"] if m["reached"]],
+                       "missed_ids": [m["id"] for m in stones["milestones"] if not m["reached"]]},
         "trajectory": {"repeated_calls": repeats.get("repeated_calls") or 0, "cycles": repeats.get("cycles") or 0,
+                       "cycle_share": repeats.get("cycle_share"),
                        "looping": bool(loops.get("looping")), "loop_repeats": (loops.get("longest_repeated_block") or {}).get("repeats") or 0,
                        "max_call_multiplicity": loops.get("max_call_multiplicity"),
                        "no_information_steps": repeats.get("no_information_steps") or 0,
-                       "steps_after_done": after, "stopped_when_done": stopped_when_done, "loop_free": not looping,
+                       "steps_after_done": after, "looked_again_after_done": looked_again,
+                       "stopped_when_done": stopped_when_done, "loop_free": not looping,
                        "termination": traj.outcome.termination, "at_step_limit": bool(term.get("at_step_limit"))},
         "recovery": {"errors": recovery.get("errors") or 0, "attempts": recovery.get("recovery_attempts") or 0,
                      "recovered": recovery.get("recovered") or 0, "abandoned": recovery.get("abandoned_after_error") or 0,
@@ -295,6 +341,8 @@ def scorecard(trajectories: list, golden: Optional[dict] = None, policy: Optiona
             "stopped_when_done": rate(lambda r: r["trajectory"]["stopped_when_done"]),
             "loop_free": rate(lambda r: r["trajectory"]["loop_free"]),
             "error_free": rate(lambda r: r["recovery"]["error_free"]),
+            "milestones_complete": rate(lambda r: r["milestones"]["complete"]),
+            "milestones_in_order": rate(lambda r: r["milestones"]["in_order"]),
         }
         errors = sum(r["recovery"]["errors"] for r in runs)
         recovered = sum(r["recovery"]["recovered"] for r in runs)
@@ -302,6 +350,9 @@ def scorecard(trajectories: list, golden: Optional[dict] = None, policy: Optiona
         calls_total = sum(r["retrieval"]["calls"] for r in runs)
         rates["retrieval_useful"] = _rate(sum(r["retrieval"]["useful"] for r in runs), calls_total)
         rates["retrieval_recall"] = _rate(sum(r["retrieval"]["evidence_found"] for r in runs), sum(r["retrieval"]["expected_evidence"] for r in runs))
+        measured_stones = [r for r in runs if r["milestones"]["measurable"]]
+        rates["milestones_reached"] = _rate(sum(r["milestones"]["reached"] for r in measured_stones),
+                                            sum(r["milestones"]["total"] for r in measured_stones))
         spend = {k: _summary([r["spend"][k] for r in runs]) for k, _ in SPEND_DIMENSIONS}
         flag_kinds: dict = {}
         for r in runs:
@@ -344,6 +395,17 @@ def scorecard(trajectories: list, golden: Optional[dict] = None, policy: Optiona
                            "no_information_steps": sum(r["trajectory"]["no_information_steps"] for r in runs),
                            "step_limit_runs": sum(1 for r in runs if r["trajectory"]["at_step_limit"]),
                            "terminations": _count(r["trajectory"]["termination"] or "undeclared" for r in runs)},
+            "milestones": {"runs": len(measured_stones),
+                           "reached": sum(r["milestones"]["reached"] for r in measured_stones),
+                           "total": sum(r["milestones"]["total"] for r in measured_stones),
+                           "complete_runs": sum(1 for r in measured_stones if r["milestones"]["complete"]),
+                           "out_of_order_runs": sum(1 for r in measured_stones if r["milestones"]["in_order"] is False),
+                           # where the runs that fell short fell short: the
+                           # single most useful line of a long-horizon report
+                           "stalled_at": _count(r["milestones"]["stalled_at"] for r in measured_stones
+                                                if r["milestones"]["stalled_at"]),
+                           "basis": ("milestones are the golden task's, matched against the text of the steps; a run "
+                                     "whose task names none is left out of the counts rather than scored zero")},
             "tools": {"calls": sum(r["tools"]["calls"] for r in runs), "wrong_tool_calls": sum(r["tools"]["wrong_tool_calls"] for r in runs),
                       "undeclared_calls": sum(r["tools"]["undeclared_calls"] for r in runs),
                       "invented_arguments": sum(r["tools"]["invented_arguments"] for r in runs),
@@ -384,7 +446,9 @@ def scorecard(trajectories: list, golden: Optional[dict] = None, policy: Optiona
                    if k in policy} if policy else None,
         "agents": out_agents,
         "per_run": per_run,
-        "dimensions": {"rates": RATE_DIMENSIONS + [("recovered_errors", "errors recovered (over errors)")], "spend": SPEND_DIMENSIONS},
+        "dimensions": {"rates": RATE_DIMENSIONS + [("recovered_errors", "errors recovered (over errors)"),
+                                                  ("milestones_reached", "milestones reached (over milestones)")],
+                       "spend": SPEND_DIMENSIONS},
         "note": ("every rate is successes/runs with a 95% Wilson interval (useful tool results over calls, expected evidence over the golden "
                  "list, recovered errors over errors); 'correct tool', 'expected evidence' and 'policy compliant' need a golden set "
                  "or a policy and read None without one; write/read effects are declared by the tool or inferred from its name "
@@ -430,6 +494,17 @@ def render_scorecard_markdown(card: dict) -> str:
                      + (f"; evidence {rv['evidence_found']}/{rv['expected_evidence']}" if rv["expected_evidence"] else "")
                      + (f"; {tm['wasted_share']:.0%} of time wasted" if tm.get("wasted_share") is not None else ""))
     lines.append("| retrieval and time | " + " | ".join(cells) + " |")
+    cells = []
+    for a in agents:
+        ms = card["agents"][a].get("milestones") or {}
+        if not ms.get("runs"):
+            cells.append("— (no task names milestones)")
+            continue
+        stalls = ", ".join(f"{k} ×{v}" for k, v in sorted(ms["stalled_at"].items(), key=lambda kv: (-kv[1], kv[0]))[:3])
+        cells.append(f"{ms['reached']}/{ms['total']} over {ms['runs']} run(s); {ms['complete_runs']} complete"
+                     + (f"; {ms['out_of_order_runs']} out of order" if ms["out_of_order_runs"] else "")
+                     + (f"; stalled at {stalls}" if stalls else ""))
+    lines.append("| milestones | " + " | ".join(cells) + " |")
     cells = []
     for a in agents:
         sf = card["agents"][a]["safety"]

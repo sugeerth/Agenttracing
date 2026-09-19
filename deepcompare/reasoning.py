@@ -224,6 +224,10 @@ def _clock_form_minutes(text: str) -> set:
     return {str(int(h) * 60 + int(m)) for h, m in _CLOCK_FORM_RE.findall(text or "")}
 
 
+#: the step kinds that fetch something, for "did it keep looking"
+_FETCH_KINDS = ("search", "retrieve", "read", "tool_call")
+
+
 def _answer_basis(rests_on: list, answer_idx: int,
                   steps: Optional[list] = None) -> dict:
     """Roll the atoms up: the basis steps, when the basis was complete,
@@ -252,12 +256,35 @@ def _answer_basis(rests_on: list, answer_idx: int,
     after = ([i for i in range(complete_at + 1, answer_idx)
               if steps is None or getattr(steps[i], "effect", None) != "write"]
              if complete_at is not None else None)
+    # of those, the ones that went *looking* again. The distinction only
+    # shows up at length: every long run composes its report in a step or
+    # two after the last evidence, and a rule that counts those as "still
+    # working" reads not-stopped on every run ever recorded, which measures
+    # the shape of an answer rather than the agent's judgement of when to
+    # stop. Looking again after the answer is available is the thing worth
+    # naming, so it gets its own count.
+    looked = None
+    if complete_at is not None:
+        looked, acted = [], False
+        for i in range(complete_at + 1, answer_idx):
+            if steps is None:
+                continue
+            if getattr(steps[i], "effect", None) == "write":
+                acted = True
+                continue
+            # a check that follows the run's own action is part of the
+            # action — verifying what you just shipped is not carrying on
+            # looking for the answer you already had
+            if not acted and getattr(steps[i], "type", None) in _FETCH_KINDS:
+                looked.append(i)
     return {
         "status": overall,
         "basis_steps": basis_steps,
         "basis_complete_at": complete_at,
         "steps_after_basis_complete": len(after) if after is not None else None,
+        "fetches_after_basis_complete": len(looked) if looked is not None else None,
         "spent_steps": after or [],
+        "looked_again_steps": looked or [],
         "atoms": len(rests_on),
         "supported": sum(1 for x in statuses if x == "supported"),
     }

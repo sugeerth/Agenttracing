@@ -81,7 +81,9 @@
   function color(agents, a) { return a === agents[0] ? "var(--sc-a)" : "var(--sc-b)"; }
   var SHORT = { "correct tool called": "correct tool", "useful tool results (over calls)": "useful tool results", "expected evidence retrieved (golden)": "expected evidence",
                 "errors recovered (over errors)": "errors recovered", "latency (s)": "latency", "wasted seconds": "wasted time", "share of time waiting on tools": "waiting on tools",
-                "cost (USD)": "cost", "accuracy score (outcome.score)": "accuracy score" };
+                "cost (USD)": "cost", "accuracy score (outcome.score)": "accuracy score",
+                "every milestone reached (golden)": "every milestone", "milestones reached in order (golden)": "milestones in order",
+                "milestones reached (over milestones)": "milestones reached" };
   function shortLabel(l) { return SHORT[l] || l; }
 
   function tooltip(root) { return L.svg.tip(root, { class: "sc-tip", width: 200 }); }
@@ -106,7 +108,7 @@
       var measurable = rows.some(function (x) { return x.r && x.r.runs; });
       if (!measurable) {
         // said once, in one line, instead of an empty row each
-        na.push(H("span", { class: "sc-strip na", "data-dim": key, text: label + " (" + (key === "tool_correct" ? "needs a golden set" : key === "policy_compliant" ? "needs a policy" : key === "recovered_errors" ? "no tool error" : key === "retrieval_recall" ? "needs expected_evidence" : "not measurable") + ")" }));
+        na.push(H("span", { class: "sc-strip na", "data-dim": key, text: label + " (" + (key === "tool_correct" ? "needs a golden set" : key === "policy_compliant" ? "needs a policy" : key === "recovered_errors" ? "no tool error" : key === "retrieval_recall" ? "needs expected_evidence" : key.indexOf("milestone") === 0 ? "needs milestones in the golden set" : "not measurable") + ")" }));
         return;
       }
       grid.appendChild(H("span", { class: "lab", text: label }));
@@ -224,6 +226,10 @@
       ["undeclared calls · invented arguments", function (a) { return a.tools.undeclared_calls + " · " + a.tools.invented_arguments; }],
       ["answer values · grounded · unsourced", function (a) { return a.grounding.values + " · " + a.grounding.supported + " · " + a.grounding.unsourced_values; }],
       ["repeated calls · cycles · looping runs", function (a) { return a.trajectory.repeated_calls + " · " + a.trajectory.cycles + " · " + a.trajectory.looping_runs; }],
+      ["milestones reached · runs complete", function (a) { var m = a.milestones || {}; return m.runs ? (m.reached + "/" + m.total + " · " + m.complete_runs + "/" + m.runs) : "—"; }],
+      ["where the short runs stalled", function (a) { var m = a.milestones || {}, st = m.stalled_at || {};
+        var keys = Object.keys(st).sort(function (x, y) { return st[y] - st[x] || (x < y ? -1 : 1); });
+        return keys.length ? keys.slice(0, 3).map(function (k) { return k + " ×" + st[k]; }).join(", ") : "—"; }],
       ["steps after the answer was in hand", function (a) { return String(a.trajectory.steps_after_done); }],
       ["no-information steps", function (a) { return String(a.trajectory.no_information_steps); }],
       ["tool errors · recovered", function (a) { return a.tools.errors + " · " + a.rates.recovered_errors.successes; }],

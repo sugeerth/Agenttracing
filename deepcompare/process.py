@@ -60,7 +60,18 @@ _ERROR_MARKERS = (
     "invalid", "denied", "unauthorized", "forbidden", "timeout", "timed out",
     "no such", "cannot", "unable to", "does not exist", "rate limit",
 )
-_ERROR_CODE = re.compile(r"\b(4\d{2}|5\d{2})\b")
+#: an HTTP status only counts as an error when it is written as one.  A
+#: bare number in the 400–599 range is not evidence of anything: at long
+#: horizon a run's own totals live there, and "560 passed" was being read
+#: as a failure — an inferred error on the one step that said everything
+#: worked.  The code has to be next to something that makes it a status.
+_ERROR_CODE = re.compile(
+    r"(?:\bhttp[/ ]?|\bstatus(?:\s+code)?\s*[:=]?\s*|\bcode\s*[:=]?\s*|\breturned\s+|\bresponded\s+(?:with\s+)?)"
+    r"(4\d{2}|5\d{2})\b"
+    r"|\b(4\d{2}|5\d{2})\s+(?:internal|bad\s+request|bad\s+gateway|not\s+found|forbidden|unauthorized|"
+    r"service\s+unavailable|gateway\s+timeout|too\s+many|error)\b",
+    re.IGNORECASE,
+)
 
 #: a run that spent at least this share of its step budget is close enough to
 #: the ceiling that finishing may have been luck rather than judgement.
@@ -257,14 +268,34 @@ def repeats(trajectory: Trajectory) -> dict:
             else:
                 seen_outputs[digest] = step.index
 
+    toolish = sum(1 for st in trajectory.steps if st.type in TOOLISH_TYPES)
     return {
         "repeated_calls": len(repeated),
         "repeated_steps": repeated,
         "cycles": len(cycles),
+        # the same share rule as `loops`: a recurring (call, observation)
+        # pair is evidence of going in circles only against the size of the
+        # run it recurs in.  Two in twelve steps is a circle; two in four
+        # hundred is a file read twice.
+        "cycle_share": round(len(cycles) / toolish, 4) if toolish else 0.0,
+        "tool_steps": toolish,
         "cycle_steps": cycles,
         "no_information_steps": len(no_information),
         "no_information_detail": no_information,
     }
+
+
+#: a repeated block is a loop when it goes round at least this many times
+LOOP_TURNS = 3
+#: …or when it covers at least this many steps, however few times it turned
+LOOP_SPAN = 6
+#: one call made three or more times is a loop only when those calls are at
+#: least this share of the run's tool steps.  The threshold is a share and
+#: not a count because the alternative does not survive a long run: three
+#: identical calls out of twelve is an agent stuck, three out of four
+#: hundred is a coincidence, and a fixed "three or more" calls both of them
+#: looping — which is how every long run ends up flagged.
+LOOP_SHARE = 0.1
 
 
 def loops(steps: list) -> dict:
@@ -272,11 +303,17 @@ def loops(steps: list) -> dict:
 
     A single repeated call is a retry; the same *sequence* of calls going
     round again is a loop, and MAST's Step Repetition mode (1.3) is defined
-    on exactly that.  Where the trace numbers the attempts, the retries the
-    harness ran are left out of the reading entirely: they are the same call
-    once, and counting them would make a flaky tool look like a stuck agent. Reported as the longest back-to-back repeat found,
+    on exactly that.  Reported as the longest back-to-back repeat found,
     with its period, so "A,B,A,B,A,B" reads as period 2 repeated 3 times
     rather than as six unremarkable steps.
+
+    Where the trace numbers the attempts, the retries the harness ran are
+    left out of the reading entirely: they are the same call once, and
+    counting them would make a flaky tool look like a stuck agent.
+
+    The **verdict** is scale-relative (`LOOP_TURNS`, `LOOP_SPAN`,
+    `LOOP_SHARE`) and the counts under it are not: a reader gets the raw
+    repetition and the rule that judged it, and `basis` says which.
     """
     # A step the harness numbered `attempt > 1` is its own retry of the
     # call above it, not the agent going round again.  Three tries of one
@@ -305,12 +342,31 @@ def loops(steps: list) -> dict:
     for signature in signatures:
         multiplicity[signature] = multiplicity.get(signature, 0) + 1
     top = max(multiplicity.values()) if multiplicity else 0
+    share = round(top / n, 4) if n else 0.0
+    block_loop = best["repeats"] >= LOOP_TURNS or best["length"] >= LOOP_SPAN
+    call_loop = top >= 3 and share >= LOOP_SHARE
+    if block_loop:
+        why = (f"a block of {best['period']} step(s) went round {best['repeats']} time(s), "
+               f"{best['length']} of {n} tool step(s)")
+    elif call_loop:
+        why = f"one call made {top} time(s), {round(share * 100)}% of {n} tool step(s)"
+    elif best["repeats"] >= 2 or top >= 3:
+        why = (f"repetition below the rule: the longest block turned {best['repeats']} time(s) over "
+               f"{best['length']} step(s) and the commonest call is {round(share * 100)}% of {n} tool step(s)")
+    else:
+        why = f"no block repeats and no call is made more than {top} time(s) over {n} tool step(s)"
     return {
         "longest_repeated_block": best,
         "max_call_multiplicity": top,
-        # Two independent readings of "stuck": a block that recurs, or one
-        # call made three or more times.  Either alone is enough.
-        "looping": best["repeats"] >= 2 or top >= 3,
+        "call_multiplicity_share": share,
+        "tool_steps": n,
+        # Two independent readings of "stuck": a block that goes round
+        # enough times (or far enough) to be a circuit rather than a
+        # stutter, or one call made three or more times *and* making up a
+        # tenth of the run.  Either alone is enough.
+        "looping": bool(block_loop or call_loop),
+        "basis": (f"looping when a block turns {LOOP_TURNS}+ times or covers {LOOP_SPAN}+ steps, or when one call "
+                  f"is made 3+ times and is {round(LOOP_SHARE * 100)}%+ of the tool steps; here, " + why),
     }
 
 
@@ -435,16 +491,29 @@ def schema_validity(trajectory: Trajectory) -> dict:
     }
 
 
+#: how many tool steps after an error still count as dealing with it.  The
+#: window is what makes the reading survive a long run: with "the next tool
+#: step succeeded" as the rule, an error is recovered whenever the agent
+#: goes on to do something else, and in a three-hundred-step run it always
+#: does — every error reads as recovered and the dimension measures nothing.
+RECOVERY_WINDOW = 5
+
+
 def recovery(trajectory: Trajectory) -> dict:
     """What the agent did after something went wrong.
 
-    An error is only a failure if it is not recovered from.  For each error
-    observation, the next tool step either changes the call (an attempt) or
-    repeats it verbatim (not an attempt), and either succeeds or does not.
+    An error is only a failure if it is not recovered from, and recovery
+    means *the same work later succeeded* — a call to the same tool, within
+    `RECOVERY_WINDOW` tool steps, that returned.  Going on to unrelated work
+    is recorded as ``moved on``: it is what an agent does when it decides a
+    failure does not matter, and whether it was right is not something the
+    trace can say — but pretending it was a recovery is something the trace
+    should not say either.
+
     Errors with no following tool step are counted separately — abandoning
     after an error is a different behaviour from failing to fix it.
     """
-    errors, attempts, recovered, abandoned = [], 0, 0, 0
+    errors, attempts, recovered, abandoned, moved_on = [], 0, 0, 0, 0
     declared_basis = any(step.error is not None for step in trajectory.steps)
     tool_steps = [s for s in trajectory.steps if s.type in TOOLISH_TYPES]
 
@@ -454,21 +523,24 @@ def recovery(trajectory: Trajectory) -> dict:
             continue
         record = {"index": step.index, "name": step.name, "basis": basis}
         following = tool_steps[position + 1] if position + 1 < len(tool_steps) else None
-        if following is None:
+        window = tool_steps[position + 1: position + 1 + RECOVERY_WINDOW]
+        fixed = next((s for s in window if (s.name or "") == (step.name or "") and not is_error(s)[0]), None)
+        if following is not None and _signature(following) != _signature(step):
+            attempts += 1
+        if fixed is not None:
+            recovered += 1
+            record["outcome"] = "recovered"
+            record["recovered_at"] = fixed.index
+        elif following is None:
             abandoned += 1
             record["outcome"] = "abandoned"
+        elif (following.name or "") != (step.name or ""):
+            moved_on += 1
+            record["outcome"] = "moved on"
+        elif _signature(following) != _signature(step):
+            record["outcome"] = "retried, still failing"
         else:
-            changed = _signature(following) != _signature(step)
-            next_ok = not is_error(following)[0]
-            if changed:
-                attempts += 1
-            if changed and next_ok:
-                recovered += 1
-                record["outcome"] = "recovered"
-            elif changed:
-                record["outcome"] = "retried, still failing"
-            else:
-                record["outcome"] = "repeated the failing call"
+            record["outcome"] = "repeated the failing call"
         errors.append(record)
 
     return {
@@ -477,8 +549,14 @@ def recovery(trajectory: Trajectory) -> dict:
         "recovery_attempts": attempts,
         "recovered": recovered,
         "abandoned_after_error": abandoned,
+        "moved_on_after_error": moved_on,
         "recovery_rate": round(recovered / len(errors), 4) if errors else None,
+        "window": RECOVERY_WINDOW,
+        # `basis` says how the *errors* were found; `rule` says how recovery
+        # from them was judged.  Two different questions, two strings.
         "basis": "declared" if declared_basis else "inferred from observation text",
+        "rule": (f"recovered means the same tool returned within {RECOVERY_WINDOW} tool step(s); going on to "
+                 "other work is 'moved on', and an error with no tool step after it is 'abandoned'"),
     }
 
 

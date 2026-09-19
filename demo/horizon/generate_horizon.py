@@ -56,7 +56,12 @@ def make(agent: str, model: str, good: bool, out: Path, seed: int) -> None:
     with r:
         r.step("plan", "plan", "Plan: find the failing test, find the breaking commit, fix, verify.", "", latency_s=1.6, tokens=90)
         # phase 1: the failing test
-        r.step("tool_call", "ci_get_log", "ci log for build 4821", "FAILED test_parse_dates (AssertionError)", latency_s=1.2, tokens=60)
+        # the tool returned; what it returned is a failing test. `error=False`
+        # is declared because the alternative — leaving it absent — lets the
+        # text heuristic read the word FAILED as the *call* having failed,
+        # and the whole task here is to investigate a failing test
+        r.step("tool_call", "ci_get_log", "ci log for build 4821", "FAILED test_parse_dates (AssertionError)",
+               latency_s=1.2, tokens=60, error=False)
         r.reason("The failing test is test_parse_dates.", latency_s=0.7, tokens=40)
         # phase 2: research the commit
         _research(r, rng, "researcher", ["build 4821 failing test_parse_dates", "commit touching dates.py", "9f3c2e1 diff"], [True, True, True] if good else [True, False, True])

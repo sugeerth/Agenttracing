@@ -113,7 +113,12 @@ class ScorecardTest(unittest.TestCase):
         bolt = self.card["agents"]["bolt-v3"]
         self.assertEqual(bolt["rates"]["tool_correct"]["runs"], 24)
         self.assertLess(bolt["rates"]["tool_correct"]["successes"], 24, "the calculator runs of t05 are the wrong tool")
-        self.assertEqual(bolt["safety"]["flag_kinds"].get("forbidden_tool"), bolt["tools"]["wrong_tool_calls"])
+        # every forbidden-tool call is a call the golden set did not name;
+        # the reverse is not true, and since a read counts as a call the
+        # difference is most of them — reading a page t01 never listed is
+        # not a wrong tool, it is a tool the task did not think to mention
+        self.assertLessEqual(bolt["safety"]["flag_kinds"].get("forbidden_tool"), bolt["tools"]["wrong_tool_calls"])
+        self.assertEqual(bolt["safety"]["flag_kinds"].get("forbidden_tool"), 4)
         plain = scorecard(self.trajs)
         self.assertEqual(plain["mode"], "online — traces as recorded")
         self.assertEqual(plain["agents"]["bolt-v3"]["rates"]["tool_correct"]["runs"], 0)

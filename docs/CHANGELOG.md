@@ -5,6 +5,66 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Sixteen long tasks, and what the evaluation could not see in them
+
+A short task fails in its first few steps and the outcome says so. A run
+of three hundred steps is right for two hundred and eighty of them and
+wrong in one place, and the place is the finding. `demo/horizon/suite/`
+is sixteen long tasks and thirty-two runs — 7,636 steps — built to ask
+whether the evaluation can find the place: twelve tasks whose failing run
+carries one named long-horizon failure mode, and four controls where both
+runs are correct end to end, because a measurement that flags a long run
+*for being long* is worse than none.
+
+**The suite found more in the evaluation than in the agents.** Each of
+these was measured on it, not reasoned about:
+
+- **A read was not a tool call.** The scorecard counted `tool_call` and
+  `search` steps, so a run whose tools are mostly file reads scored 0% on
+  "correct tool called" while calling exactly the right ones.
+- **Every long run was looping.** `looping` fired on any block repeated
+  twice or any call made three times; in 545 steps something always
+  repeats, and the flagship long demo was flagged on its *correct* side.
+  The verdict is now scale-relative (`LOOP_TURNS`, `LOOP_SPAN`,
+  `LOOP_SHARE`), the counts under it unchanged, with `basis` saying which
+  rule fired. The same share rule now governs `cycles`.
+- **Every error was recovered.** Recovery meant "the next tool step
+  changed and succeeded", which in a long run means "the agent went on to
+  do anything at all" — the mode whose whole content is ignoring a failure
+  scored 100% recovered. Recovery now means *the same tool returned within
+  five tool steps* (`RECOVERY_WINDOW`), and carrying on elsewhere is its
+  own outcome, `moved on`.
+- **"560 passed" was an error.** The text heuristic read any bare 400–599
+  as an HTTP status, and at this length a run's own totals live there. The
+  step that said everything worked was read as a failure, and the phantom
+  error anchored the diagnosis. A status now has to be written as one.
+- **Grounding went dark.** A bare number was a claim only beside a word
+  from a curated list (`steps`, `files`, `commits`, `flights`…). Long
+  answers count packages, shards and chapters, so `answer grounded` read
+  *not measurable* on all thirty-two runs — the dimension that catches a
+  confident wrong summary, silent exactly where it was needed. A notable
+  number (separated, decimal or ≥ 100) beside any non-function word is now
+  a claim, with identifiers excluded (`T-9704 was` is a ticket). It found
+  unsourced claims in the shipped corpus that had been passing as grounded.
+- **"Stopped when done" said no, always.** Every long run composes its
+  report after its last evidence. The dimension now counts *fetches* after
+  the basis, and excludes checks that follow the run's own writes.
+
+**Milestones became a dimension.** `every milestone reached`,
+`milestones reached in order` and `milestones reached (over milestones)`
+join the card, and the agent block carries `stalled_at` — *where* the
+short runs stopped. It is the single most useful line in a long-horizon
+report: not "failed" but "seven of nine, stalled at `unit_ledger`".
+
+**The result, pinned in `tests/test_horizon_suite.py`.** Eleven of twelve
+modes are caught; twenty correct runs are clean on every dimension; and
+**seven of the twelve failures are graded a pass**, six of them caught by
+something other than the outcome. The one nothing catches — a late fix
+that breaks an early unit whose check never re-runs — is pinned as a miss,
+so the blindness cannot quietly become permanent. `docs/HORIZON.md` is the
+whole account, including what the diagnosis cannot reach: it needs a
+failing side, and seven of these twelve do not have one.
+
 ## A retry is not a repeat, and the trace now says which
 
 `docs/TRACING.md` gap 4 named a conflation this engine had shipped from

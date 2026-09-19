@@ -936,6 +936,7 @@
 
   var OUTCOMES = [
     { key: "recovered", label: "recovered", tone: "good" },
+    { key: "moved on", label: "moved on to other work", tone: "warn" },
     { key: "retried, still failing", label: "retried, still failing", tone: "warn" },
     { key: "repeated the failing call", label: "repeated the failing call", tone: "bad" },
     { key: "abandoned", label: "abandoned", tone: "bad" },
@@ -1034,11 +1035,13 @@
                             " changed the call" }),
             H("dt", { text: "Abandoned after error" }),
             H("dd", { text: F.int(rec.abandoned_after_error || 0) }),
+            H("dt", { text: "Moved on after error" }),
+            H("dd", { text: F.int(rec.moved_on_after_error || 0), title: rec.rule || "" }),
           ]));
 
           panel.appendChild(rows(steps.map(function (step) {
             var tone = step.outcome === "recovered" ? "good"
-              : (step.outcome === "retried, still failing" ? "warn" : "bad");
+              : (step.outcome === "retried, still failing" || step.outcome === "moved on" ? "warn" : "bad");
             var row = stepRow(step.index, step.name, step.outcome, tone);
             if (inferred(step.basis)) {
               row.appendChild(H("span", { class: "ig-mini", style: { display: "inline" },

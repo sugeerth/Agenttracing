@@ -300,12 +300,24 @@ class DemoTest(unittest.TestCase):
         self.assertIn("errors", hottest["why"])
         self.assertIn("comet-lh's hottest is", imp["narrative"])
         self.assertIn("in migrator-ledger", imp["narrative"])
-        # the decisive step of the failing side is marked where the diagnosis put it
-        dec = self.report["diagnosis"]["decisive_step"]["step"]
+        # the decisive step of the failing side is marked where the diagnosis
+        # put it — and when the diagnosis is contested (this pair has two
+        # plausible mechanisms: the stall and the short count it produced),
+        # every contender still lands inside a cluster the reader can open
+        step = self.report["diagnosis"]["decisive_step"]
         subj = self.report["diagnosis"]["subject"]
-        holder = next(c for c in imp[subj]["clusters"] if c["from"] <= dec <= c["to"])
-        self.assertTrue(holder["reasons"]["decisive"])
-        self.assertEqual(holder["marks"][0], {"step": dec, "kind": "decisive", "label": holder["marks"][0]["label"]})
+        dec = step["step"]
+        if isinstance(dec, int):
+            holder = next(c for c in imp[subj]["clusters"] if c["from"] <= dec <= c["to"])
+            self.assertTrue(holder["reasons"]["decisive"])
+            self.assertEqual(holder["marks"][0], {"step": dec, "kind": "decisive", "label": holder["marks"][0]["label"]})
+        else:
+            self.assertIn("contested", step["reason"])
+            candidates = [c["step"] for c in step["joint_candidates"] if isinstance(c.get("step"), int)]
+            self.assertTrue(candidates, "a contested diagnosis still names its contenders")
+            for cand in candidates:
+                self.assertTrue(any(c["from"] <= cand <= c["to"] for c in imp[subj]["clusters"]),
+                                f"contender {cand} is in no cluster")
 
     def test_the_section_is_deterministic(self):
         one = json.dumps(impact_pair(self.report), sort_keys=True)

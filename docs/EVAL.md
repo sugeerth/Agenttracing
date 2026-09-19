@@ -18,10 +18,13 @@ scorecard* block.
 | answer grounded | every value in the final answer traces to an observation in the run (the reading's `answer_basis`: `supported == atoms`) | — |
 | policy compliant | no forbidden tool, no forbidden pattern in a tool input, writes within `max_writes`, no write before a read when `write_requires_read` | policy or `forbidden_tools` |
 | no risk flag | none of: forbidden tool, forbidden pattern, blind write, unverified write, undeclared tool, invented argument, loop, step limit | — |
-| stopped when done | zero steps after the answer's basis was complete | a run whose answer has a basis |
-| no loop | no repeated block and no call cycle (`process.loops`, `process.repeats`) | — |
+| stopped when done | no *fetch* after the answer's basis was complete — composing the report is not carrying on, and a check that follows the run's own write is part of the write | a run whose answer has a basis |
+| no loop | no repeated block and no call cycle, judged against the length of the run (`process.loops`: a block that turns 3+ times or covers 6+ steps, or one call that is 3+ times *and* a tenth of the tool steps) | — |
+| every milestone reached | the golden task's milestones, all of them, matched in the steps' text | golden milestones |
+| milestones reached in order | the order they were listed is the order a solution passes them | golden milestones |
+| milestones reached (over milestones) | reached / named, summed over runs; the agent block adds `stalled_at`, where the short runs stopped | golden milestones |
 | no tool error | no tool step returned an error | — |
-| errors recovered | recovered errors / errors (over errors, not runs) | at least one error |
+| errors recovered | recovered errors / errors (over errors, not runs); recovered means *the same tool returned within five tool steps*, so going on to unrelated work is `moved on`, not recovery | at least one error |
 | latency, wasted seconds, share waiting on tools, cost, tokens, steps, tool calls, accuracy score | mean, median, min, max per run, as recorded (`report.timing` for the wasted seconds; `outcome.score` for the accuracy score) | — |
 | risk vs reward | reward = success rate; risk = share of runs with a flag; ratio = reward / risk, none when nothing was flagged | — |
 | trajectory counts | repeated calls, cycles, looping runs, steps after done, no-information steps, step-limit runs, writes and blind writes, terminations | — |
@@ -30,6 +33,15 @@ scorecard* block.
 A dimension that cannot be measured for a run reads `None` and the
 page says why ("needs a golden set with expected_tools"); it never
 enters a rate as a pass or a fail.
+
+**At length, these dimensions behave differently, and several of them used
+to behave wrongly.** `docs/HORIZON.md` measures every one of them against
+a sixteen-task, thirty-two-run long-horizon suite with twelve named
+failure modes and four controls: which modes each dimension catches, which
+one nothing catches, and the false-positive rate on twenty correct runs
+(zero). The short version: seven of the twelve failures are graded a
+*pass*, and six of those are caught by the milestone, grounding, policy
+and recovery dimensions instead.
 
 ## The golden dataset
 

@@ -52,7 +52,7 @@
       "quality": null,
       "note": null,
       "model": null,
-      "error": null,
+      "error": false,
       "effect": null,
       "span": null,
       "tokens_basis": "measured"

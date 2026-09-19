@@ -87,6 +87,41 @@ _UNIT_WORDS = (
 _NUMBER_RE = re.compile(
     r"\b(\d[\d,]*(?:\.\d+)?)\s+(?:" + "|".join(_UNIT_WORDS) + r")\b", re.IGNORECASE
 )
+#: a number followed by any word at all.  Claimed only when the number is
+#: *notable* (see `_notable`), because the curated `_UNIT_WORDS` list is a
+#: vocabulary and a vocabulary does not survive contact with a new domain:
+#: an agent that reports "8 packages complete; 1,240 checks passing" makes
+#: two numeric claims that no list written for flights and commits contains,
+#: and an evaluation whose grounding check silently reads *unmeasurable* on
+#: every long run is worse than one that reads wrong.
+#: The lookbehind keeps identifiers out: the 9704 of ``T-9704``, the 2 of
+#: ``v2.1`` and the 8123 of ``run/8123`` are parts of a name, not
+#: quantities, and claiming them made an answer that merely repeats a
+#: ticket number look like it had restated the expected figure.
+_ANY_UNIT_RE = re.compile(r"(?<![\w./-])(\d[\d,]*(?:\.\d+)?)\s+([a-z][a-z-]{2,})\b", re.IGNORECASE)
+#: words that are never a unit in any domain.  A *noun* list would be a
+#: vocabulary again — the thing this pass exists to get away from — but the
+#: closed class of function words is domain-independent: "9,000 was" is a
+#: sentence, "9,000 rows" is a measurement.
+_FUNCTION_WORDS = frozenset((
+    "was", "were", "is", "are", "be", "been", "being", "am", "has", "have", "had",
+    "will", "would", "shall", "should", "can", "could", "may", "might", "must", "did", "does", "do",
+    "and", "or", "but", "nor", "with", "without", "from", "for", "of", "in", "on", "at", "to", "by",
+    "the", "that", "this", "these", "those", "than", "then", "when", "while", "which", "who", "whom",
+    "its", "his", "her", "their", "our", "your", "not", "out", "into", "over", "under", "after", "before",
+))
+#: bare integers at or above this are claims whatever word follows them;
+#: below it the word has to be one of `_UNIT_WORDS`, so "step 3" and
+#: "attempt 2" stay out of the reading
+NOTABLE_NUMBER = 100
+
+
+def _notable(raw: str, value: float) -> bool:
+    """Whether a number stands on its own as a claim: written with a
+    thousands separator or a decimal point, or simply large.  A separator
+    is the writer saying *this is a quantity*, which is the signal the unit
+    word was standing in for."""
+    return ("," in raw) or ("." in raw) or abs(value) >= NOTABLE_NUMBER
 
 
 def _fmt_num(x: float) -> str:
@@ -118,12 +153,16 @@ def extract_from_text(text: str) -> list[tuple[str, str, str]]:
     """Extract (kind, value, normalized) claim tuples from one text.
 
     Deterministic, in left-to-right order per kind, kinds in CLAIM_KINDS
-    order.  Bare numbers are only claimed when adjacent to a unit-ish word.
+    order.  Bare numbers are claimed when they sit next to a unit-ish word
+    (`_UNIT_WORDS`) or when they are notable enough to stand alone next to
+    any word (`_notable`); a number already claimed as money, a percentage,
+    a duration, a version, a date or a CVE is not claimed twice.
     """
     found: list[tuple[str, str, str]] = []
     if not text:
         return found
 
+    typed_spans: list[tuple[int, int]] = []
     for m in _MONEY_RE.finditer(text):
         dollar, num, mult = m.group(1), m.group(2), m.group(3)
         if mult and mult.lower() in _MONEY_LETTER_MULTS and not dollar:
@@ -133,9 +172,11 @@ def extract_from_text(text: str) -> list[tuple[str, str, str]]:
         value = m.group(0).strip()
         x = _num(num) * (_MONEY_MULT[mult.lower()] if mult else 1.0)
         found.append(("money", value, _fmt_num(x)))
+        typed_spans.append(m.span())
 
     for m in _PERCENT_RE.finditer(text):
         found.append(("percent", m.group(0).strip(), f"{float(m.group(1)):g}"))
+        typed_spans.append(m.span())
 
     consumed: list[tuple[int, int]] = []
     for m in _DURATION_HM_RE.finditer(text):
@@ -149,9 +190,11 @@ def extract_from_text(text: str) -> list[tuple[str, str, str]]:
 
     for m in _VERSION_RE.finditer(text):
         found.append(("version", m.group(0).strip(), m.group(1)))
+        typed_spans.append(m.span())
 
     for m in _CVE_RE.finditer(text):
         found.append(("cve", m.group(0), m.group(0).upper()))
+        typed_spans.append(m.span())
 
     seen_domains: list[tuple[int, int]] = []
     for m in _FULL_URL_RE.finditer(text):
@@ -181,11 +224,28 @@ def extract_from_text(text: str) -> list[tuple[str, str, str]]:
         mo, y = _MONTHS[m.group(1).lower()], int(m.group(2))
         found.append(("date", m.group(0), f"{y:04d}-{mo:02d}"))
 
+    seen_numbers: list[tuple[int, int]] = []
     for m in _NUMBER_RE.finditer(text):
         x = _num(m.group(1))
         if x == int(x) and 1900 <= x <= 2100:
             continue  # year-like: too noisy to claim as a bare number
         found.append(("number", m.group(0).strip(), _fmt_num(x)))
+        seen_numbers.append(m.span())
+    for m in _ANY_UNIT_RE.finditer(text):
+        raw = m.group(1)
+        x = _num(raw)
+        if x == int(x) and 1900 <= x <= 2100:
+            continue
+        if not _notable(raw, x):
+            continue
+        if m.group(2).lower() in _FUNCTION_WORDS:
+            continue
+        # not the same claim twice, and not a slice of a money, percent,
+        # duration, version, date or CVE that a kind above already claimed
+        if any(not (m.end() <= s or e <= m.start()) for s, e in seen_numbers + consumed + date_spans + typed_spans):
+            continue
+        found.append(("number", m.group(0).strip(), _fmt_num(x)))
+        seen_numbers.append(m.span())
 
     return found
 

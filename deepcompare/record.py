@@ -1152,6 +1152,16 @@ class Recorder:
         }
 
     @property
+    def step_count(self) -> int:
+        """How many steps have been recorded so far.
+
+        A loop that enforces a step budget has to ask, and reaching into
+        ``_steps`` to find out makes the caller depend on the recorder's
+        storage rather than on this fact about the run.
+        """
+        return len(self._steps)
+
+    @property
     def path(self) -> Optional[Path]:
         """Where the trace was written, or None (not closed, or ``out_dir=None``)."""
         return self._path

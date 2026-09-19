@@ -22,3 +22,6 @@ deepcompare/page/
 
 # Output directories from the demo commands in the README.
 out_*/
+
+# The default output directory of `agentdiff eval` when no -o is given.
+eval/
