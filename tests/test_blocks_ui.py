@@ -4909,9 +4909,14 @@ class ImpactBlockTest(unittest.TestCase):
         # a stretch on the thread is as long as its seconds: dilate a fold that holds one of the root agent's, then compare two
         root = self._root(im, "a")
         root_ids = {c["id"] for c in im["a"]["clusters"] if c["lane"] == root}
-        fold = next(ids for ids, _ in self._thread_folds(im, "a") if root_ids & set(ids.split(",")))
-        block.locator(f'svg.im-band[data-side="a"] g.im-fold[data-ids="{fold}"]').dispatch_event("click")
-        page.wait_for_timeout(300)
+        # every fold that holds one, not just the first: which fold holds two
+        # of the root agent's stretches depends on where the clusters fell,
+        # and the property under test is the width law, not the packing
+        for ids, _ in self._thread_folds(im, "a"):
+            if root_ids & set(ids.split(",")):
+                block.locator(f'svg.im-band[data-side="a"] g.im-fold[data-ids="{ids}"]').dispatch_event("click")
+                page.wait_for_timeout(120)
+        page.wait_for_timeout(200)
         on_thread = page.evaluate("""s => [...document.querySelectorAll(s + ' path.im-cluster')].map(p => [p.dataset.id, p.getTotalLength()])""", band_sel)
         secs_of = {c["id"]: c["seconds"] for c in im["a"]["clusters"]}
         roots = sorted(((secs_of[i], w) for i, w in on_thread if i in root_ids), key=lambda p: p[0])
@@ -5023,8 +5028,15 @@ class LongTreeFoldTest(unittest.TestCase):
             self.assertEqual(page.locator(f"svg.d3c-tree g.d3c-tnode[data-kind='step'][data-side='{failed}'][data-step='{step}']").count(), 1, f"chain step {step}")
         dec = diag["decisive_step"]["step"]
         ringed = page.locator("svg.d3c-tree g.d3c-tnode[data-kind='step']").filter(has=page.locator(".d3c-ring"))
-        self.assertEqual(ringed.count(), 1)
-        self.assertEqual(ringed.first.get_attribute("data-step"), str(dec))
+        if isinstance(dec, int):
+            self.assertEqual(ringed.count(), 1)
+            self.assertEqual(ringed.first.get_attribute("data-step"), str(dec))
+        else:
+            # this pair's diagnosis is contested — two plausible mechanisms,
+            # neither leading — so there is no step to ring, and the tree
+            # must not invent one
+            self.assertIn("contested", diag["decisive_step"]["reason"])
+            self.assertEqual(ringed.count(), 0)
         self.assertGreater(page.locator("svg.d3c-tree path.d3c-tlink.fault").count(), 0)
         # every error step is in view too; the steps shown match the count chip
         for side in ("a", "b"):

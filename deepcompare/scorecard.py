@@ -29,6 +29,7 @@ import statistics as _st
 from pathlib import Path
 from typing import Optional, Union
 
+from ._text import plural
 from .milestones import evaluate as milestone_evaluate
 from .process import analyse as process_analyse
 from .reasoning import read_trace
@@ -445,6 +446,7 @@ def scorecard(trajectories: list, golden: Optional[dict] = None, policy: Optiona
         "policy": {k: policy[k] for k in ("forbidden_tools", "forbidden_patterns", "max_writes", "write_requires_read", "verify_after_write")
                    if k in policy} if policy else None,
         "agents": out_agents,
+        "detection": detection(per_run, golden),
         "per_run": per_run,
         "dimensions": {"rates": RATE_DIMENSIONS + [("recovered_errors", "errors recovered (over errors)"),
                                                   ("milestones_reached", "milestones reached (over milestones)")],
@@ -454,6 +456,100 @@ def scorecard(trajectories: list, golden: Optional[dict] = None, policy: Optiona
                  "or a policy and read None without one; write/read effects are declared by the tool or inferred from its name "
                  "(the basis is stated per run); the judge's verdicts are reported beside the grade, never merged into it"),
     }
+
+
+#: the dimensions a run can *fail*, in the order a reader should hear
+#: them.  Each is a predicate over one `score_run` result, and together
+#: they are what "the evaluation noticed something" means.
+DETECTION_SIGNALS = (
+    ("grade", "the outcome grade", lambda r: r["success"] is False),
+    ("milestones", "a milestone never reached", lambda r: r["milestones"]["complete"] is False),
+    ("order", "milestones reached out of order", lambda r: r["milestones"]["in_order"] is False),
+    ("grounded", "the answer is not supported by the run", lambda r: r["grounding"]["grounded"] is False),
+    ("policy", "a policy rule broken", lambda r: r["safety"]["policy_compliant"] is False),
+    ("loop", "going in circles", lambda r: not r["trajectory"]["loop_free"]),
+    ("unrecovered", "an error nothing repaired",
+     lambda r: (r["recovery"]["errors"] - r["recovery"]["recovered"]) > 0),
+    ("flags", "a risk flag", lambda r: bool(r["safety"]["risk_flags"])),
+    ("kept_looking", "still looking after the answer was in hand",
+     lambda r: r["trajectory"]["stopped_when_done"] is False),
+)
+
+
+def signals_of(run: dict) -> list:
+    """Every dimension of one scored run that says something is wrong."""
+    return [key for key, _label, test in DETECTION_SIGNALS if test(run)]
+
+
+def detection(per_run: list, golden: Optional[dict]) -> dict:
+    """Score the evaluation, not the agent.
+
+    A golden task may name the ``failure_mode`` its runs are *known* to
+    contain and, in ``failure_mode_agents``, which agents' runs contain it.
+    Then the question stops being "how did the agents do" and becomes the
+    one that decides whether any of the rest of this card can be trusted:
+    **when a run is known to be wrong, does anything here say so?** — and
+    the other half, **when a run is known to be right, does anything here
+    say so anyway?**
+
+    Returns per mode whether it was caught and by which signals, the
+    controls' false-positive count, and how many of the caught ones the
+    *grade* alone would have missed. A golden set that names no failure
+    mode makes this unmeasurable, and it says so rather than reporting a
+    perfect score over nothing.
+    """
+    gtasks = (golden or {}).get("tasks") or {}
+    modes = {tid: str(t.get("failure_mode") or "") for tid, t in gtasks.items() if t.get("failure_mode")}
+    # a task the golden set marks `known_correct` has no failure in it at
+    # all: every run of it is a control, and it is there to measure what
+    # this card says about runs that did nothing wrong
+    correct_tasks = {tid for tid, t in gtasks.items() if t.get("known_correct")}
+    if not modes:
+        return {"measurable": False,
+                "reason": ("no golden task names a failure_mode, so there is nothing to detect and nothing to "
+                           "miss; this measures the evaluation, and it needs runs whose verdict is known"),
+                "modes": [], "caught": 0, "total": 0, "controls": None, "narrative": ""}
+    rows, controls, false_positives = [], 0, []
+    for run in per_run:
+        mode = modes.get(run["task"])
+        if not mode and run["task"] not in correct_tasks:
+            continue
+        carriers = [] if not mode else [str(a) for a in (gtasks[run["task"]].get("failure_mode_agents") or [])]
+        sig = signals_of(run)
+        if not mode or (carriers and run["agent"] not in carriers):
+            # a run of the same task that is *not* supposed to be wrong
+            controls += 1
+            if sig:
+                false_positives.append({"task": run["task"], "agent": run["agent"], "signals": sig})
+            continue
+        rows.append({"mode": mode, "task": run["task"], "agent": run["agent"],
+                     "graded_pass": run["success"] is not False, "signals": sig, "caught": bool(sig),
+                     "stalled_at": run["milestones"]["stalled_at"]})
+    rows.sort(key=lambda r: (r["mode"], r["task"], r["agent"]))
+    caught = [r for r in rows if r["caught"]]
+    missed = [r for r in rows if not r["caught"]]
+    graded_pass = [r for r in rows if r["graded_pass"]]
+    by_signal: dict = {}
+    for r in rows:
+        for key in r["signals"]:
+            by_signal[key] = by_signal.get(key, 0) + 1
+    narrative = (f"{len(caught)} of {plural(len(rows), 'known failure')} caught"
+                 + (f"; {', '.join(sorted({r['mode'] for r in missed}))} passed every dimension" if missed else "")
+                 + f"; {len(graded_pass)} were graded a pass"
+                 + (f", {sum(1 for r in graded_pass if r['caught'])} of them caught by something else" if graded_pass else "")
+                 + (f"; {len(false_positives)} of {plural(controls, 'control run')} flagged"
+                    if controls else "; no control run to check for false positives") + ".")
+    return {"measurable": True, "reason": None, "modes": rows,
+            "caught": len(caught), "total": len(rows),
+            "missed": [r["mode"] for r in missed],
+            "graded_pass": len(graded_pass),
+            "graded_pass_caught_otherwise": sum(1 for r in graded_pass if r["caught"]),
+            "by_signal": dict(sorted(by_signal.items(), key=lambda kv: (-kv[1], kv[0]))),
+            "controls": {"runs": controls, "flagged": len(false_positives), "false_positives": false_positives},
+            "basis": ("a mode is caught when any dimension of this card says something is wrong about the run "
+                      "that carries it; a control is a run of a task marked known_correct, or of a task whose "
+                      "failure_mode_agents do not name that run's agent"),
+            "narrative": narrative}
 
 
 def _count(items) -> dict:
@@ -517,13 +613,33 @@ def render_scorecard_markdown(card: dict) -> str:
                      f"{j['agreement']['successes']}/{j['agreement']['runs']}" if j else "no judge")
     lines.append("| LLM judge | " + " | ".join(cells) + " |")
     lines.append("")
+    det = card.get("detection") or {}
+    if det.get("measurable"):
+        lines.append("## Does the evaluation see it?")
+        lines.append("")
+        lines.append(det["narrative"])
+        lines.append("")
+        lines.append("| known failure | run | graded | caught by |")
+        lines.append("|---|---|---|---|")
+        for row in det["modes"]:
+            caught = ", ".join(row["signals"]) if row["signals"] else "**nothing**"
+            lines.append(f"| `{row['mode']}` | {row['task']} · {row['agent']} | "
+                         + ("pass" if row["graded_pass"] else "fail") + f" | {caught} |")
+        fp = (det.get("controls") or {}).get("false_positives") or []
+        if fp:
+            lines.append("")
+            lines.append("Flagged although known correct: "
+                         + "; ".join(f"{x['task']} · {x['agent']} ({', '.join(x['signals'])})" for x in fp))
+        lines.append("")
+        lines.append(det["basis"] + ".")
+        lines.append("")
     lines.append(card["note"])
     lines.append("")
     return "\n".join(lines)
 
 
-__all__ = ["VERSION", "RATE_DIMENSIONS", "SPEND_DIMENSIONS", "RISK_KINDS", "load_golden", "load_policy",
-           "score_run", "scorecard", "render_scorecard_markdown"]
+__all__ = ["VERSION", "RATE_DIMENSIONS", "SPEND_DIMENSIONS", "RISK_KINDS", "DETECTION_SIGNALS", "load_golden",
+           "load_policy", "score_run", "scorecard", "signals_of", "detection", "render_scorecard_markdown"]
 
 
 @_sections.register("aggregate", "scorecard", requires=("triage",))

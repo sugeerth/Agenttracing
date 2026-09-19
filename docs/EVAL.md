@@ -34,6 +34,30 @@ A dimension that cannot be measured for a run reads `None` and the
 page says why ("needs a golden set with expected_tools"); it never
 enters a rate as a pass or a fail.
 
+## Does the evaluation see it?
+
+Every dimension above scores the agent. One block scores **the card
+itself**. A golden task may declare what is known about its runs:
+
+```json
+{"id": "L01_service_migration", "failure_mode": "skipped_unit",
+ "failure_mode_agents": ["drift-lh"], "milestones": [...]}
+{"id": "L13_schema_refactor", "known_correct": true}
+```
+
+With that, `eval` reports `detection` — for each known failure, whether
+*any* dimension said something was wrong and which; the modes nothing
+caught; how many were graded a pass regardless; and how many known-correct
+runs were flagged anyway. On the long-horizon suite it reads:
+
+> 11 of 12 known failures caught; regression passed every dimension; 7
+> were graded a pass, 6 of them caught by something else; 0 of 20 control
+> runs flagged.
+
+A card that cannot say this is a card you have to take on trust. A golden
+set that names no known failure makes the block unmeasurable, with the
+reason, rather than reporting a perfect score over nothing.
+
 **At length, these dimensions behave differently, and several of them used
 to behave wrongly.** `docs/HORIZON.md` measures every one of them against
 a sixteen-task, thirty-two-run long-horizon suite with twelve named

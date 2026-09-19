@@ -39,7 +39,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare.scorecard import score_run, scorecard  # noqa: E402
+from deepcompare.scorecard import detection, score_run, scorecard, signals_of  # noqa: E402
 from deepcompare.trace import Trajectory  # noqa: E402
 
 SUITE = ROOT / "demo" / "horizon" / "suite"
@@ -79,27 +79,10 @@ EXPECTED = {
 
 
 def _signals(run: dict) -> set:
-    """Every dimension of the scorecard that says something is wrong."""
-    out = set()
-    if run["success"] is False:
-        out.add("grade")
-    if run["milestones"]["complete"] is False:
-        out.add("milestones")
-    if run["milestones"]["in_order"] is False:
-        out.add("order")
-    if run["grounding"]["grounded"] is False:
-        out.add("grounded")
-    if run["safety"]["policy_compliant"] is False:
-        out.add("policy")
-    if not run["trajectory"]["loop_free"]:
-        out.add("loop")
-    if run["recovery"]["errors"] - run["recovery"]["recovered"] > 0:
-        out.add("unrecovered")
-    if run["safety"]["risk_flags"]:
-        out.add("flags")
-    if run["trajectory"]["stopped_when_done"] is False:
-        out.add("kept_looking")
-    return out
+    """Every dimension of the scorecard that says something is wrong —
+    the engine's own reading (`scorecard.signals_of`), so this file pins
+    what `agentdiff eval` reports rather than a copy of it."""
+    return set(signals_of(run))
 
 
 @unittest.skipUnless(SUITE.is_dir() and GOLDEN.is_file(), "the long-horizon suite is not generated")
@@ -187,10 +170,10 @@ class SuiteTest(unittest.TestCase):
     def test_milestones_name_where_each_run_stalled(self):
         stalls = {t.mode: self.runs[(t.id, FAILER)]["milestones"]["stalled_at"]
                   for t in self.gen.TASKS if t.mode != "control"}
-        self.assertEqual(stalls["skipped_unit"], "unit_ledger")
+        self.assertEqual(stalls["skipped_unit"], "unit_invoice")
         self.assertEqual(stalls["retry_stall"], "unit_jun")
         self.assertEqual(stalls["budget_exhausted"], "unit_shard_h")
-        self.assertEqual(stalls["unverified_handoff"], "unit_logging")
+        self.assertEqual(stalls["unverified_handoff"], "unit_encryption")
         self.assertEqual(stalls["late_fault"], "verified", "every unit green, the whole wrong")
         for mode in ("regression", "forgotten_constraint", "context_overflow", "out_of_order", "swallowed_error"):
             self.assertIsNone(stalls[mode], f"{mode} reaches every milestone")
@@ -205,12 +188,44 @@ class SuiteTest(unittest.TestCase):
         self.assertEqual(drift["rates"]["milestones_complete"]["successes"], 10)
         self.assertEqual(summit["milestones"]["reached"], summit["milestones"]["total"])
         self.assertLess(drift["milestones"]["reached"], drift["milestones"]["total"])
-        self.assertIn("unit_ledger", drift["milestones"]["stalled_at"])
+        self.assertIn("unit_invoice", drift["milestones"]["stalled_at"])
         self.assertEqual(drift["milestones"]["out_of_order_runs"], 1)
         # the long-run dimensions that used to be unreadable
         self.assertEqual(summit["rates"]["loop_free"]["successes"], 16, "no correct long run loops")
         self.assertEqual(summit["rates"]["tool_correct"]["successes"], 16, "a read is a tool call")
         self.assertEqual(summit["rates"]["grounded"]["runs"], 16, "every long answer is checkable")
+
+    def test_the_card_scores_itself_against_the_known_failures(self):
+        """`detection` is the catch matrix as the engine computes it: the
+        suite's whole argument, in the product rather than in a test."""
+        trajectories = [Trajectory.from_json(SUITE / f"{t.id}__{a}.json")
+                        for t in self.gen.TASKS for a in (FINISHER, FAILER)]
+        det = scorecard(trajectories, {"tasks": self.tasks, "policy": self.golden["policy"]})["detection"]
+        self.assertTrue(det["measurable"])
+        self.assertEqual((det["caught"], det["total"]), (11, 12))
+        self.assertEqual(det["missed"], ["regression"])
+        self.assertEqual(det["graded_pass"], 7)
+        self.assertEqual(det["graded_pass_caught_otherwise"], 6)
+        self.assertEqual(det["controls"], {"runs": 20, "flagged": 0, "false_positives": []})
+        self.assertIn("11 of 12 known failures caught", det["narrative"])
+        self.assertIn("0 of 20 control runs flagged", det["narrative"])
+        # which dimensions did the catching. `by_signal` is ordered by how
+        # many runs each caught, so the first entry is the busiest.
+        self.assertEqual(sorted(det["by_signal"]),
+                         ["flags", "grade", "grounded", "kept_looking", "loop", "milestones",
+                          "order", "policy", "unrecovered"])
+        self.assertEqual(next(iter(det["by_signal"])), "milestones",
+                         "the milestone line catches more of them than anything else")
+
+    def test_a_golden_set_without_known_failures_says_so_rather_than_scoring_zero(self):
+        trajectories = [Trajectory.from_json(SUITE / f"{t.id}__{a}.json")
+                        for t in self.gen.TASKS[:2] for a in (FINISHER, FAILER)]
+        bare = {tid: {k: v for k, v in task.items() if k not in ("failure_mode", "failure_mode_agents", "known_correct")}
+                for tid, task in self.tasks.items()}
+        det = scorecard(trajectories, {"tasks": bare})["detection"]
+        self.assertFalse(det["measurable"])
+        self.assertIn("nothing to detect and nothing to miss", det["reason"])
+        self.assertEqual((det["caught"], det["total"]), (0, 0))
 
     def test_the_markdown_card_carries_the_milestone_line(self):
         from deepcompare.scorecard import render_scorecard_markdown
@@ -220,6 +235,9 @@ class SuiteTest(unittest.TestCase):
         self.assertIn("| milestones |", text)
         self.assertIn("stalled at", text)
         self.assertIn("every milestone reached (golden)", text)
+        self.assertIn("## Does the evaluation see it?", text)
+        self.assertIn("| `regression` |", text)
+        self.assertIn("**nothing**", text, "the miss is printed, not omitted")
 
     # ------------------------------------------------------------ determinism
 

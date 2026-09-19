@@ -48,6 +48,9 @@
       ],
       "failure_mode": "skipped_unit",
       "failure_mode_detail": "a work package is never done and the summary counts it anyway",
+      "failure_mode_agents": [
+        "drift-lh"
+      ],
       "milestones": [
         {
           "id": "unit_auth",
@@ -142,6 +145,9 @@
       ],
       "failure_mode": "stale_value",
       "failure_mode_detail": "a value read early is superseded later and the answer still uses the early one",
+      "failure_mode_agents": [
+        "drift-lh"
+      ],
       "milestones": [
         {
           "id": "unit_timeline",
@@ -228,6 +234,9 @@
       ],
       "failure_mode": "retry_stall",
       "failure_mode_detail": "the same failing call is re-issued eleven times and then abandoned",
+      "failure_mode_agents": [
+        "drift-lh"
+      ],
       "milestones": [
         {
           "id": "unit_jan",
@@ -330,6 +339,9 @@
       ],
       "failure_mode": "regression",
       "failure_mode_detail": "a late fix breaks an early unit and the early check is never re-run",
+      "failure_mode_agents": [
+        "drift-lh"
+      ],
       "milestones": [
         {
           "id": "unit_core",
@@ -416,6 +428,9 @@
       ],
       "failure_mode": "forgotten_constraint",
       "failure_mode_detail": "a constraint stated in the plan is violated hundreds of steps later",
+      "failure_mode_agents": [
+        "drift-lh"
+      ],
       "forbidden_patterns": [
         "legacy/"
       ],
@@ -497,6 +512,9 @@
       ],
       "failure_mode": "budget_exhausted",
       "failure_mode_detail": "the step cap is reached with the work nearly finished",
+      "failure_mode_agents": [
+        "drift-lh"
+      ],
       "milestones": [
         {
           "id": "unit_shard_a",
@@ -607,6 +625,9 @@
       ],
       "failure_mode": "unverified_handoff",
       "failure_mode_detail": "a sub-agent reports a unit done without checking it and nobody checks after it",
+      "failure_mode_agents": [
+        "drift-lh"
+      ],
       "milestones": [
         {
           "id": "unit_access",
@@ -693,6 +714,9 @@
       ],
       "failure_mode": "drift",
       "failure_mode_detail": "the same unit of work is done to a different standard each time round",
+      "failure_mode_agents": [
+        "drift-lh"
+      ],
       "milestones": [
         {
           "id": "unit_ingest",
@@ -771,6 +795,9 @@
       ],
       "failure_mode": "swallowed_error",
       "failure_mode_detail": "an error is observed, noted as non-blocking, and never returned to",
+      "failure_mode_agents": [
+        "drift-lh"
+      ],
       "milestones": [
         {
           "id": "unit_parser",
@@ -857,6 +884,9 @@
       ],
       "failure_mode": "context_overflow",
       "failure_mode_detail": "work already done is re-derived from scratch two hundred steps later, at full cost",
+      "failure_mode_agents": [
+        "drift-lh"
+      ],
       "milestones": [
         {
           "id": "unit_quickstart",
@@ -951,6 +981,9 @@
       ],
       "failure_mode": "out_of_order",
       "failure_mode_detail": "the work is shipped before it is verified",
+      "failure_mode_agents": [
+        "drift-lh"
+      ],
       "milestones": [
         {
           "id": "unit_shadow",
@@ -1037,6 +1070,9 @@
       ],
       "failure_mode": "late_fault",
       "failure_mode_detail": "every unit is right and the final verification reads the wrong artifact",
+      "failure_mode_agents": [
+        "drift-lh"
+      ],
       "milestones": [
         {
           "id": "unit_changelog",
@@ -1121,8 +1157,7 @@
         "customers: 125 passed",
         "750 passed"
       ],
-      "failure_mode": "control",
-      "failure_mode_detail": "nothing goes wrong: the run is correct from end to end",
+      "known_correct": true,
       "milestones": [
         {
           "id": "unit_customers",
@@ -1199,8 +1234,7 @@
         "collect: 95 passed",
         "665 passed"
       ],
-      "failure_mode": "control",
-      "failure_mode_detail": "nothing goes wrong: the run is correct from end to end",
+      "known_correct": true,
       "milestones": [
         {
           "id": "unit_collect",
@@ -1285,8 +1319,7 @@
         "admin: 70 passed",
         "560 passed"
       ],
-      "failure_mode": "control",
-      "failure_mode_detail": "nothing goes wrong: the run is correct from end to end",
+      "known_correct": true,
       "milestones": [
         {
           "id": "unit_admin",
@@ -1379,8 +1412,7 @@
         "api: 115 passed",
         "690 passed"
       ],
-      "failure_mode": "control",
-      "failure_mode_detail": "nothing goes wrong: the run is correct from end to end",
+      "known_correct": true,
       "milestones": [
         {
           "id": "unit_api",

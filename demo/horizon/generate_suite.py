@@ -45,6 +45,7 @@ import json
 import random
 import sys
 from pathlib import Path
+from typing import Optional
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -89,8 +90,18 @@ TOOLS = [
 ]
 BUDGET = {"max_steps": 900, "max_tool_errors": 12, "max_tool_retries": 0}
 
-#: the step cap the `budget_exhausted` run really runs into
-CAPPED_BUDGET = {"max_steps": 240, "max_tool_errors": 12, "max_tool_retries": 0}
+#: roughly what one unit of work costs in steps, for sizing the cap the
+#: `budget_exhausted` run runs into
+STEPS_PER_UNIT = 30
+
+
+def capped_budget(task: "Task") -> dict:
+    """A step cap this task really reaches, with the work nearly done —
+    about seven tenths of the way through. An absolute cap is a cap only
+    for the tasks long enough to reach it, and then the mode is missing
+    from every short one without anything saying so."""
+    length = 12 + STEPS_PER_UNIT * len(task.units)
+    return {"max_steps": int(0.7 * length), "max_tool_errors": 12, "max_tool_retries": 0}
 
 
 class Task:
@@ -196,7 +207,7 @@ TASKS = [
        ["admin", "deploy", "data", "support", "oncall", "contractor", "service", "readonly"],
        "role", "review report", "control", 70, 1115,
        "Review every production role's membership against the register, correct what is wrong, and report the total checks passing."),
-    _t("L16_capacity_plan", "planning", "the next quarter's capacity",
+    _t("L16_capacity_plan", "planning", "the quarterly capacity plan",
        ["api", "workers", "database", "cache", "queue", "storage"],
        "component", "capacity plan", "control", 115, 1116,
        "Plan next quarter's capacity for every component from the measured growth, validate each figure, and report the total checks passing."),
@@ -205,6 +216,30 @@ TASKS_BY_ID = {t.id: t for t in TASKS}
 
 
 # ----------------------------------------------------------------- authoring
+
+#: where in the run each mode fires, as a position among the units. A
+#: fraction rather than an index: the same failure has to be the same
+#: failure in a six-unit task and a twelve-unit one, and a hardcoded
+#: `k == 5` quietly becomes "the last unit" when the task is shorter.
+_FIRES_AT = {
+    "skipped_unit": 0.6,
+    "retry_stall": 0.6,
+    "unverified_handoff": 0.5,
+    "swallowed_error": 0.4,
+    "context_overflow": 0.45,
+}
+
+
+def fires_at(task: "Task", mode: str) -> int:
+    """The unit index a mode fires at, never the first and never the last:
+    a failure in the first unit is a short-horizon failure, and one in the
+    last is indistinguishable from stopping early."""
+    frac = _FIRES_AT.get(mode)
+    n = len(task.units)
+    if frac is None:
+        return n - 1
+    return max(1, min(n - 2, int(round(frac * (n - 1)))))
+
 
 def _ok(r, *args, **kwargs):
     """A step that returned, with ``error=False`` *declared*.
@@ -244,8 +279,8 @@ def _plan(r, task, *, good):
 def _unit_body(r, rng, task, unit, k, *, good, mode, state):
     """One unit of work as a sub-agent: read what is there, look up what it
     should become, write it, lint it, check it."""
-    stall = (not good) and mode == "retry_stall" and k == 5
-    skip = (not good) and mode == "skipped_unit" and k == 5
+    stall = (not good) and mode == "retry_stall" and k == fires_at(task, mode)
+    skip = (not good) and mode == "skipped_unit" and k == fires_at(task, mode)
     if skip:
         # the unit is never opened. The only trace of it is the checkpoint
         # below, which says it was done.
@@ -305,7 +340,7 @@ def _unit_body(r, rng, task, unit, k, *, good, mode, state):
             return False
 
         # the ordinary shape: one or two rounds, then green
-        if (not good) and mode == "unverified_handoff" and k == 4:
+        if (not good) and mode == "unverified_handoff" and k == fires_at(task, mode):
             # the worker never runs the checks and says it is done anyway;
             # nothing downstream looks, so the claim is the only evidence
             r.reason(f"worker-{unit}: {task.unit_word} {unit} complete, {passed} checks passing "
@@ -326,7 +361,7 @@ def _unit_body(r, rng, task, unit, k, *, good, mode, state):
                        latency_s=0.3, tokens=30)
 
         # an error observed and waved through
-        if (not good) and mode == "swallowed_error" and k == 3:
+        if (not good) and mode == "swallowed_error" and k == fires_at(task, mode):
             _ok(r, "tool_call", "run_checks", f"run_checks(scope='{unit}', suite='integration')",
                    "1 error: fixture 'billing_account' not found", latency_s=2.2, tokens=35, error=True)
             r.reason(f"worker-{unit}: the integration fixture is missing; treating it as environmental and moving on",
@@ -341,7 +376,7 @@ def _unit_body(r, rng, task, unit, k, *, good, mode, state):
 def _review(r, rng, task, unit, k, *, good, mode, state):
     """The reviewer reads the unit back. The `unverified_handoff` run skips
     this for one unit and believes the worker's own report."""
-    if (not good) and mode == "unverified_handoff" and k == 4:
+    if (not good) and mode == "unverified_handoff" and k == fires_at(task, mode):
         r.reason(f"orchestrator: worker-{unit} reports {unit} done; accepting without review",
                  latency_s=0.6, tokens=50, quality="bad",
                  note="SYNTHETIC failure: the only evidence for this unit is the sub-agent's own claim")
@@ -433,7 +468,7 @@ def build(task: Task, agent: str, model: str, good: bool, out: Path) -> Path:
     mode = "control" if good else task.mode
     rng = random.Random(task.seed + (0 if good else 1))
     state = {"baseline": task.baseline, "revised": task.revised, "units_done": 0}
-    budget = dict(CAPPED_BUDGET if mode == "budget_exhausted" else BUDGET)
+    budget = capped_budget(task) if mode == "budget_exhausted" else dict(BUDGET)
     r = Recorder(task=task.id, prompt=task.prompt, agent=agent, model=model, version="synthetic",
                  expected=task.expected, out_dir=out, trace_id=f"{task.id}__{agent}",
                  tools=[dict(t) for t in TOOLS], budget=budget)
@@ -452,16 +487,16 @@ def build(task: Task, agent: str, model: str, good: bool, out: Path) -> Path:
             did = _unit_body(r, rng, task, unit, k, good=good, mode=mode, state=state)
             state["units_done"] += 1 if did else 0
             _review(r, rng, task, unit, k, good=good, mode=mode, state=state)
-            if mode == "skipped_unit" and k == 5:
+            if mode == "skipped_unit" and k == fires_at(task, mode):
                 # the checkpoint that makes the skip invisible downstream
                 r.reason(f"Decide: {task.unit_word} {unit} complete, {task.checks_per_unit} checks passing; "
                          f"{len(task.units) - k - 1} to go", latency_s=0.7, tokens=60, quality="bad")
             else:
                 r.reason(f"Decide: {task.unit_word} {unit} done; {len(task.units) - k - 1} to go",
                          latency_s=rng.uniform(0.5, 1.0), tokens=rng.randint(40, 70))
-            if task.mode == "stale_value" and k == len(task.units) - 3:
+            if task.mode == "stale_value" and k == max(1, len(task.units) - 3):
                 _revision(r, task, good=good, mode=mode, state=state)
-            if mode == "context_overflow" and k == 4:
+            if mode == "context_overflow" and k == fires_at(task, mode):
                 _reinventory(r, rng, task, state=state)
             if mode == "regression" and k == len(task.units) - 1:
                 # the late fix that breaks the first unit, never re-checked
@@ -484,7 +519,11 @@ def build(task: Task, agent: str, model: str, good: bool, out: Path) -> Path:
             # here in its place: after the verification that gates it, and
             # with the smoke check that closes it — a write nobody looks at
             # afterwards is a risk flag, and rightly
-            _ok(r, "tool_call", "publish", f"publish(target='{task.subject}', stage='full')",
+            # the stage is the last unit's name, which the plan listed: an
+            # argument the run read somewhere beats one it made up, and a
+            # made-up one is a risk flag — correctly, which is why the
+            # control must not have one
+            _ok(r, "tool_call", "publish", f"publish(target='{task.subject}', stage='{task.units[-1]}')",
                    "published to 100% of traffic", effect="write", latency_s=2.0, tokens=40)
             _ok(r, "tool_call", "run_checks", "run_checks(scope='smoke')", "smoke: 12 passed",
                    latency_s=4.0, tokens=35)
@@ -547,8 +586,16 @@ def golden_task(task: Task) -> dict:
         # rate says *how far* the retrieval got rather than whether it began
         "expected_evidence": [f"{task.units[0]}: {task.checks_per_unit} passed",
                               f"{task.total_checks:,} passed"],
-        "failure_mode": task.mode,
-        "failure_mode_detail": MODES[task.mode],
+        # A control task carries no failure at all and says so: every run of
+        # it is a control. Elsewhere the failing agent is named, so the other
+        # run of the same task is a control too — `scorecard.detection`
+        # measures the evaluation against both halves: what it misses, and
+        # what it flags that was never wrong.
+        **({"known_correct": True} if task.mode == "control" else {
+            "failure_mode": task.mode,
+            "failure_mode_detail": MODES[task.mode],
+            "failure_mode_agents": [FAILER[0]],
+        }),
         # A constraint stated in the prompt is not a rule the evaluation can
         # check until someone writes it into the golden set. This is that
         # someone; `docs/HORIZON.md` says what happens without it.
@@ -579,34 +626,152 @@ GOLDEN_POLICY = {
 }
 
 
-def golden() -> dict:
+def golden(tasks: Optional[list] = None) -> dict:
+    tasks = TASKS if tasks is None else tasks
     return {
         "note": ("Golden set for the long-horizon evaluation suite (SYNTHETIC). Each task names the milestones a "
                  "correct run passes through and the long-horizon failure mode its failing run exhibits, so an "
                  "evaluation can be scored on *where* it says the run went wrong, not only on whether it failed."),
         "policy": dict(GOLDEN_POLICY),
         "modes": dict(MODES),
-        "tasks": [golden_task(t) for t in TASKS],
+        "tasks": [golden_task(t) for t in tasks],
     }
 
 
-def main() -> int:
-    out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parent / "suite"
+# ------------------------------------------------------------------ at scale
+
+#: the domains the procedural suite draws from: (family, subject, unit word,
+#: artifact, the pool of unit names, checks per unit).  Sixteen hand-written
+#: tasks prove the machinery; a detection rate over twelve of them is twelve
+#: samples, one per mode, which is an anecdote with a percentage sign on it.
+DOMAINS = [
+    ("migration", "the billing service", "package", "migration report",
+     ["auth", "catalog", "cart", "pricing", "invoice", "ledger", "refunds", "reports", "tax", "dunning", "payouts", "receipts"], 155),
+    ("data", "the events warehouse", "month", "backfill report",
+     ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 120),
+    ("maintenance", "the platform monorepo", "module", "upgrade report",
+     ["core", "http", "storage", "auth", "cli", "workers", "web", "jobs", "metrics", "search", "mail", "admin"], 140),
+    ("security", "the exposed services", "service", "patch report",
+     ["gateway", "session", "upload", "admin", "webhooks", "search", "media", "exports", "sso", "billing", "notify", "audit"], 110),
+    ("compliance", "the control set", "control", "evidence pack",
+     ["access", "change", "backup", "encryption", "logging", "vendor", "training", "incident", "capacity", "disposal", "review", "policy"], 85),
+    ("release", "release 9.4", "area", "audit report",
+     ["changelog", "migrations", "flags", "dashboards", "runbooks", "rollback", "signoff", "alerts", "docs", "perf", "quota", "licences"], 115),
+    ("documentation", "the API reference", "chapter", "docs report",
+     ["quickstart", "auth", "resources", "pagination", "errors", "webhooks", "sdks", "changelog", "limits", "events", "search", "billing"], 75),
+    ("planning", "the capacity plan", "component", "capacity plan",
+     ["api", "workers", "database", "cache", "queue", "storage", "cdn", "search", "stream", "batch", "ml", "egress"], 130),
+]
+#: how many units a generated task has.  Three sizes, because a failure
+#: mode that only shows up at one length is a property of that length.
+SIZES = (6, 8, 10)
+
+
+def scale_tasks(pairs: int, seed: int = 20260919) -> list:
+    """`pairs` procedurally generated long tasks, every mode over every
+    size and domain in turn, with the control tasks interleaved.
+
+    Deterministic from ``seed``: the same call gives the same corpus, so a
+    detection rate measured on it can be compared with another engine's.
+    """
+    modes = sorted(MODES)          # the twelve, plus "control"
+    rng = random.Random(seed)
+    out: list = []
+    for i in range(pairs):
+        mode = modes[i % len(modes)]
+        family, subject, word, artifact, pool, checks = DOMAINS[(i // len(modes)) % len(DOMAINS)]
+        size = SIZES[(i // (len(modes) * len(DOMAINS))) % len(SIZES)]
+        units = list(pool[:size])
+        tid = f"s{i:04d}_{mode}_{family}"
+        prompt = (f"Work through every {word} of {subject}, check each one before moving on, "
+                  f"and report the total checks passing.")
+        out.append(Task(tid, family, subject, units, word, artifact, mode,
+                        checks + rng.randint(-5, 5), seed + i * 7, prompt))
+    return out
+
+
+#: what each mode must leave on the trace it is generated into.  The
+#: generator checks its own ground truth: a procedural corpus whose labels
+#: drifted from its contents measures nothing, and measures it convincingly.
+def manifests(trace: dict, mode: str, task: "Task") -> Optional[str]:
+    """None when the failing run really carries ``mode``, else what is
+    missing."""
+    steps = trace.get("steps") or []
+    text = "\n".join(f"{s.get('input') or ''} {s.get('output') or ''}" for s in steps)
+    checks = [s for s in steps if s.get("name") == "run_checks"]
+    unit = task.units[fires_at(task, mode)]
+    if mode == "control":
+        return None if trace["outcome"]["success"] else "a control run that did not succeed"
+    if mode == "skipped_unit":
+        return None if not any(f"{unit}:" in (s.get("output") or "") for s in checks) else f"{unit} was checked after all"
+    if mode == "retry_stall":
+        same = [s for s in checks if f"scope='{unit}'" in (s.get("input") or "")]
+        return None if len(same) >= 11 else f"only {len(same)} attempts at {unit}"
+    if mode == "stale_value":
+        return None if f"{task.baseline:,}" in (steps[-1].get("output") or "") else "the answer does not quote the stale figure"
+    if mode == "unverified_handoff":
+        return None if not any(f"scope='{unit}'" in (s.get("input") or "") for s in checks) else f"{unit} was checked"
+    if mode == "forgotten_constraint":
+        return None if "legacy/" in text else "nothing was written under legacy/"
+    if mode == "budget_exhausted":
+        return None if trace["outcome"]["termination"] == "max_steps" else "the run did not reach the cap"
+    if mode == "drift":
+        return None if "depth" in text else "no varying check depth"
+    if mode == "swallowed_error":
+        return None if "non-blocking" in text or "environmental" in text else "no swallowed error"
+    if mode == "regression":
+        return None if "src/shared/client.py" in text else "no late shared edit"
+    if mode == "out_of_order":
+        idx = next((i for i, s in enumerate(steps) if s.get("name") == "publish"), None)
+        last = max((i for i, s in enumerate(steps) if s.get("name") == "run_checks"), default=-1)
+        return None if idx is not None and idx < last else "the publish did not precede the verification"
+    if mode == "late_fault":
+        return None if "_prev.json" in text else "the verifier did not read the wrong artefact"
+    if mode == "context_overflow":
+        return None if "rebuilding it" in text else "the inventory was not rebuilt"
+    return f"unknown mode {mode}"
+
+
+def write_suite(tasks: list, out: Path, *, quiet: bool = False) -> dict:
+    """Both runs of every task, with each failing run checked against the
+    mode it is supposed to carry."""
     out.mkdir(parents=True, exist_ok=True)
     steps = 0
-    for task in TASKS:
+    for task in tasks:
         for (agent, model), good in ((FINISHER, True), (FAILER, False)):
             path = build(task, agent, model, good, out)
-            n = len(json.loads(path.read_text(encoding="utf-8"))["steps"])
-            steps += n
-            try:
-                shown = path.relative_to(ROOT)
-            except ValueError:   # written outside the repo (a test's tmpdir)
-                shown = path
-            print(f"wrote {shown}  mode={'control' if good else task.mode:<21} steps={n}")
-    gold = Path(__file__).resolve().parent / "suite_golden.json"
-    gold.write_text(json.dumps(golden(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"{len(TASKS) * 2} traces, {steps:,} steps written to {out}; golden set {gold.relative_to(ROOT)}")
+            data = json.loads(path.read_text(encoding="utf-8"))
+            steps += len(data["steps"])
+            if not good:
+                missing = manifests(data, task.mode, task)
+                if missing:
+                    raise SystemExit(f"{task.id}: the {task.mode} run does not carry its mode — {missing}")
+            if not quiet:
+                try:
+                    shown = path.relative_to(ROOT)
+                except ValueError:   # written outside the repo (a test's tmpdir)
+                    shown = path
+                print(f"wrote {shown}  mode={'control' if good else task.mode:<21} steps={len(data['steps'])}")
+    return {"traces": len(tasks) * 2, "steps": steps}
+
+
+def main() -> int:
+    args = [a for a in sys.argv[1:]]
+    pairs = None
+    if "--scale" in args:
+        i = args.index("--scale")
+        pairs = int(args[i + 1])
+        del args[i:i + 2]
+    out = Path(args[0]) if args else Path(__file__).resolve().parent / "suite"
+    tasks = scale_tasks(pairs) if pairs else TASKS
+    totals = write_suite(tasks, out, quiet=bool(pairs))
+    gold = (out / "golden.json") if pairs else (Path(__file__).resolve().parent / "suite_golden.json")
+    gold.write_text(json.dumps(golden(tasks), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    try:
+        shown = gold.relative_to(ROOT)
+    except ValueError:
+        shown = gold
+    print(f"{totals['traces']} traces, {totals['steps']:,} steps written to {out}; golden set {shown}")
     return 0
 
 

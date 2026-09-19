@@ -4885,7 +4885,7 @@
     }
   ],
   "budget": {
-    "max_steps": 240,
+    "max_steps": 218,
     "max_tool_errors": 12,
     "max_tool_retries": 0
   },

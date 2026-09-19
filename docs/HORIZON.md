@@ -45,19 +45,23 @@ zero.
 
 ## What the evaluation catches
 
-`agentdiff eval demo/horizon/suite --golden demo/horizon/suite_golden.json`,
-read per run. Every row is a signal the scorecard produces, not a
-judgement added here.
+`agentdiff eval demo/horizon/suite --golden demo/horizon/suite_golden.json`
+prints this table itself, under *Does the evaluation see it?*: the golden
+set names the failure each task's `drift-lh` run is known to carry
+(`failure_mode`, `failure_mode_agents`) and marks the control tasks
+`known_correct`, and `scorecard.detection` reports what the rest of the
+card managed to say about them. Every row below is a signal the card
+produces, not a judgement added here.
 
 | mode | graded | what the evaluation says |
 |---|---|---|
-| `skipped_unit` | **pass** | milestones 7/9, stalled at `unit_ledger`; answer **unsupported**; the final check fails and is never repaired |
+| `skipped_unit` | **pass** | milestones 7/9, stalled at `unit_invoice`; answer **unsupported**; the final check fails and is never repaired |
 | `stale_value` | fail | answer **contradicted** — the superseded figure is in the run's own evidence |
 | `retry_stall` | fail | milestones 8/10, stalled at `unit_jun`; risk flag `looping`; 12 unrecovered errors |
 | `regression` | **pass** | — nothing — |
 | `forgotten_constraint` | **pass** | policy violated (`legacy/`), risk flag `forbidden_pattern` |
 | `budget_exhausted` | fail | milestones 7/11, stalled at `unit_shard_h`; risk flag `step_limit` |
-| `unverified_handoff` | **pass** | milestones 7/8, stalled at `unit_logging` |
+| `unverified_handoff` | **pass** | milestones 7/8, stalled at `unit_encryption` |
 | `drift` | fail | milestones 3/7, stalled at `unit_ingest`; risk flag `invented_argument` (the check depth it made up) |
 | `swallowed_error` | **pass** | 1 unrecovered error; risk flag `invented_argument` |
 | `context_overflow` | **pass** | looping (the inventory, rebuilt) |
@@ -86,6 +90,59 @@ would need a measure this repository does not have: **evidence staleness**
 it depended on. The trace carries what is needed (the write, the step it
 touched, the milestone's own step), so it is buildable; it is named here
 rather than claimed.
+
+## At scale: 200 pairs
+
+Sixteen tasks is one sample per failure mode. A mode "caught" once may
+have been caught by an accident of that task's length, and at n=1 nothing
+tells the difference. So the generator also runs procedurally:
+
+```
+python demo/horizon/generate_suite.py --scale 200 out/corpus
+agentdiff eval out/corpus --golden out/corpus/golden.json
+```
+
+**200 tasks, 400 runs, 91,809 steps** across every mode, eight domains and
+three lengths, written in about four seconds and scored in about five.
+The corpus is not shipped — it is regenerated from its seed, which makes
+it reproducible and comparable rather than a fixture to maintain. Every
+generated failing run is checked *inside the generator* against the mode
+it is labelled with (`manifests`): a procedural corpus whose labels have
+drifted from its contents measures nothing, and measures it convincingly.
+
+> 159 of 184 known failures caught; context_overflow, regression passed
+> every dimension; 107 were graded a pass, 82 of them caught by something
+> else; 0 of 216 control runs flagged.
+
+| mode | caught | mode | caught |
+|---|---|---|---|
+| `budget_exhausted` | 16/16 | `out_of_order` | 15/15 |
+| `drift` | 16/16 | `retry_stall` | 15/15 |
+| `forgotten_constraint` | 16/16 | `skipped_unit` | 15/15 |
+| `late_fault` | 15/15 | `stale_value` | 15/15 |
+| `swallowed_error` | 15/15 | `unverified_handoff` | 15/15 |
+| **`context_overflow`** | **6/16** | **`regression`** | **0/15** |
+
+The **milestone line catches more of them than anything else** — 92 of the
+184, ahead of the grade's 77 — and the 107 failures that were graded a
+pass are the reason why.
+
+### What only the scale run could show
+
+`context_overflow` reads as caught in the sixteen-task suite and is caught
+**six times in sixteen** here. The re-derived inventory is 8–12% of a
+run's tool steps, and the loop rule fires at 10%: it is detected in the
+shorter tasks and missed in the longer ones, for no reason that has
+anything to do with the failure. Over the corpus the separation is
+otherwise clean — the 216 correct runs top out at 6.6% of their tool steps
+recurring, and every `context_overflow` run is at or above 8.1% — so a
+threshold at 7% would catch all sixteen and flag none of the controls.
+
+It is not adopted. A number chosen because it separates the classes in a
+synthetic corpus is fitted to that corpus, and the next corpus is what it
+would be wrong about. The measurement is reported here instead, which is
+what a reader needs to pick their own: the rule is `process.LOOP_SHARE`,
+it is 0.1, and this is the distribution it is cutting.
 
 ## What the long runs broke, and what was fixed
 
@@ -200,6 +257,16 @@ the *checker's* output (`"ledger: 155 passed"`), and the same run scores
 4. Declare `error` on every tool step, including the successes. Three of
    the defects above only bit runs that left it absent.
 
-Every number in this file comes from `demo/horizon/suite/` and can be
-recomputed with the one command above; `tests/test_horizon_suite.py`
-pins the catch matrix, including the miss.
+Every number in this file comes from `demo/horizon/suite/` or from the
+200-pair corpus the generator writes on demand, and can be recomputed with
+the commands above; `tests/test_horizon_suite.py`
+pins the catch matrix, including the miss, and
+`tests/test_horizon_scale.py` pins it again over the 200 generated pairs,
+where both blind spots are pinned *as blind spots* so they cannot quietly
+become permanent.
+
+The same block works on your own golden set: mark the runs whose verdict
+you already know — the incident you have a postmortem for, the run you
+know was fine — and the card will tell you whether it can see what you
+can. That is the only way to find out what an evaluation is blind to
+before it is the thing you were relying on.

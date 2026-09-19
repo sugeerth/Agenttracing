@@ -54,14 +54,51 @@ these was measured on it, not reasoned about:
 `milestones reached in order` and `milestones reached (over milestones)`
 join the card, and the agent block carries `stalled_at` — *where* the
 short runs stopped. It is the single most useful line in a long-horizon
-report: not "failed" but "seven of nine, stalled at `unit_ledger`".
+report: not "failed" but "seven of nine, stalled at `unit_invoice`".
+
+**The card now scores itself.** A golden task may declare what is known
+about its runs — `failure_mode` with `failure_mode_agents`, or
+`known_correct` — and `eval` reports a `detection` block: which known
+failures any dimension caught and which caught them, which nothing caught,
+how many were graded a pass anyway, and how many known-correct runs were
+flagged regardless. On this suite it reads *"11 of 12 known failures
+caught; regression passed every dimension; 7 were graded a pass, 6 of them
+caught by something else; 0 of 20 control runs flagged."* A golden set
+that names no known failure makes the block unmeasurable with its reason,
+rather than reporting a perfect score over nothing. It works on any golden
+set: mark the runs whose verdict you already know, and the card tells you
+whether it can see what you can.
+
+**And then at scale.** Sixteen tasks is one sample per mode, which is an
+anecdote with a percentage sign on it. The generator also runs
+procedurally — `generate_suite.py --scale 200` writes **200 tasks, 400
+runs, 91,809 steps** across every mode, eight domains and three lengths in
+about four seconds, scored in about five, checked inside the generator
+against the mode each failing run is labelled with, and thrown away
+afterwards (it is reproducible from its seed, so it is a measurement
+rather than a fixture). There: **159 of 184 known failures caught, 0 of
+216 known-correct runs flagged, 107 of the failures graded a pass and 82
+of those caught by something else.** The milestone line catches more of
+them than anything else — 92, against the grade's 77.
+
+Scale showed something sixteen tasks could not. `context_overflow` reads
+as caught at n=1 and is caught **6 of 16** here: the re-derived inventory
+is 8–12% of a run's tool steps and the loop rule fires at 10%, so it is
+detected in the short tasks and missed in the long ones for reasons that
+have nothing to do with the failure. The corpus separates cleanly at 7%
+(216 correct runs top out at 6.6%; every overflow run is at or above
+8.1%) and that threshold is deliberately *not* adopted: a number chosen
+because it separates the classes in a synthetic corpus is fitted to that
+corpus. The distribution is published instead.
 
 **The result, pinned in `tests/test_horizon_suite.py`.** Eleven of twelve
 modes are caught; twenty correct runs are clean on every dimension; and
 **seven of the twelve failures are graded a pass**, six of them caught by
 something other than the outcome. The one nothing catches — a late fix
 that breaks an early unit whose check never re-runs — is pinned as a miss,
-so the blindness cannot quietly become permanent. `docs/HORIZON.md` is the
+so the blindness cannot quietly become permanent, and
+`tests/test_horizon_scale.py` pins both blind spots again over the 200
+generated pairs. `docs/HORIZON.md` is the
 whole account, including what the diagnosis cannot reach: it needs a
 failing side, and seven of these twelve do not have one.
 
