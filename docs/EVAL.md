@@ -58,6 +58,11 @@ A card that cannot say this is a card you have to take on trust. A golden
 set that names no known failure makes the block unmeasurable, with the
 reason, rather than reporting a perfect score over nothing.
 
+The page draws the same table in the *Evaluation scorecard* block, and
+prints the modes nothing caught as **caught by nothing** rather than
+omitting them: a card that quietly leaves out its blind spot reads as a
+clean bill of health.
+
 **At length, these dimensions behave differently, and several of them used
 to behave wrongly.** `docs/HORIZON.md` measures every one of them against
 a sixteen-task, thirty-two-run long-horizon suite with twelve named

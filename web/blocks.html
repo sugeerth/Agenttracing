@@ -11606,6 +11606,7 @@ THIS SOFTWARE.
       ".sc-tip b{color:var(--ink);font-variant-numeric:tabular-nums}.sc-tip .row{display:flex;gap:8px;align-items:center;margin-top:2px}.sc-tip .row i{display:inline-block;width:9px;height:9px;border-radius:50%}",
       ".sc-details{margin-top:10px;font-size:var(--fs-xs)}.sc-details summary{cursor:pointer;color:var(--ink-2)}",
       ".sc-note{font-size:var(--fs-xs);color:var(--ink-3);margin-top:8px;max-width:90ch}",
+      ".sc-detect td.bad{color:var(--bad);font-weight:600}.sc-detect td.warn{color:var(--warn)}.sc-detect code{font-family:var(--mono);font-size:var(--fs-xs)}",
     ].join(""));
   }
 
@@ -11807,6 +11808,42 @@ THIS SOFTWARE.
     return wrap;
   }
 
+  // --------------------------------------------- does the evaluation see it?
+  // The card scored against runs whose verdict is already known. It is the
+  // only section here that measures the *measurement*, so it says plainly
+  // what nothing caught rather than leaving the reader to notice the gap.
+  function detectionSection(H, card) {
+    var det = card.detection;
+    if (!det) return null;
+    var sec = H("section", { class: "sc-sec", "data-sec": "detection" });
+    sec.appendChild(H("h4", { text: "Does the evaluation see it?" }));
+    if (!det.measurable) {
+      sec.appendChild(H("p", { class: "sc-note", "data-role": "why", text: det.reason }));
+      return sec;
+    }
+    sec.appendChild(H("p", { class: "sub", "data-role": "narrative", text: det.narrative }));
+    var t = H("table", { class: "sc-table sc-detect" });
+    t.appendChild(H("tr", null, ["known failure", "run", "graded", "caught by"].map(function (h) { return H("th", { text: h }); })));
+    det.modes.forEach(function (row) {
+      var caught = row.signals && row.signals.length;
+      t.appendChild(H("tr", { "data-mode": row.mode, "data-caught": caught ? "true" : "false" }, [
+        H("td", null, [H("code", { text: row.mode })]),
+        H("td", { class: "dim", text: row.task + " · " + row.agent }),
+        H("td", { class: row.graded_pass ? "warn" : "", text: row.graded_pass ? "pass" : "fail" }),
+        H("td", { class: caught ? "" : "bad" }, caught ? [H("span", { text: row.signals.join(", ") })] : [H("b", { text: "nothing" })]),
+      ]));
+    });
+    sec.appendChild(H("div", { class: "scroll-x" }, [t]));
+    var fp = (det.controls || {}).false_positives || [];
+    sec.appendChild(H("p", { class: "sc-note", "data-role": "controls",
+      text: fp.length
+        ? fp.length + " run(s) known to be correct were flagged anyway: "
+          + fp.map(function (x) { return x.task + " · " + x.agent + " (" + x.signals.join(", ") + ")"; }).join("; ")
+        : "no run known to be correct was flagged (" + ((det.controls || {}).runs || 0) + " checked)." }));
+    sec.appendChild(H("p", { class: "sc-note", text: det.basis + "." }));
+    return sec;
+  }
+
   function tableView(H, card, agents) {
     var det = H("div", { class: "sc-tableview" });
     var t = H("table", { class: "sc-table" });
@@ -11871,6 +11908,9 @@ THIS SOFTWARE.
       sec.appendChild(H("p", { class: "sub", text: "reward = success rate · risk = share of runs with a flag · ratio = reward / risk (none when nothing was flagged)" }));
       sec.appendChild(riskReward(H, card, agents, tip));
       root.appendChild(sec);
+
+      var detect = detectionSection(H, card);
+      if (detect) root.appendChild(detect);
 
       // the judge, one line per agent; the 2×2, the counts and every number fold away
       var judgeLine = H("p", { class: "sc-judgeline", "data-sec": "judge-line" });

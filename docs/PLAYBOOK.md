@@ -40,8 +40,18 @@ The scorecard (`eval`, `docs/EVAL.md`) reports, per agent, each with a
   unverified writes, risk flags, compliance, risk against reward;
 - **trajectory quality** — loops, repeats, stopping when done, recovery
   after errors, terminations;
+- **progress** — the golden milestones reached, in order or not, and
+  where the runs that fell short stalled: at three hundred steps the
+  difference between *failed* and *failed at the eleventh of thirteen
+  checkpoints* is the reading (`docs/HORIZON.md`);
 - **spend** — latency, wasted seconds, share of time waiting on tools,
-  cost, tokens, steps, tool calls.
+  cost, tokens, steps, tool calls;
+- **and the card against itself** — mark the runs whose verdict you
+  already know (`failure_mode`, `known_correct`) and *Does the evaluation
+  see it?* reports which known failures any of the above caught, which
+  nothing caught, and how many known-correct runs were flagged anyway.
+  On the long-horizon suite that is 11 of 12, one blind spot, and none of
+  20. It is the only section that measures the measurement.
 
 Nothing is folded into one score. A composite hides the trade-off a
 router or an engineer needs to see (an agent that is right more often

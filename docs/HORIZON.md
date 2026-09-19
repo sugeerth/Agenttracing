@@ -46,7 +46,8 @@ zero.
 ## What the evaluation catches
 
 `agentdiff eval demo/horizon/suite --golden demo/horizon/suite_golden.json`
-prints this table itself, under *Does the evaluation see it?*: the golden
+prints this table itself, under *Does the evaluation see it?* — as does
+the page, in the Evaluation scorecard block: the golden
 set names the failure each task's `drift-lh` run is known to carry
 (`failure_mode`, `failure_mode_agents`) and marks the control tasks
 `known_correct`, and `scorecard.detection` reports what the rest of the

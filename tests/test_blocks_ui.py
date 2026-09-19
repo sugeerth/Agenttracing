@@ -3806,6 +3806,93 @@ class ScorecardBlockTest(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
                      "playwright + chromium required for browser tests")
+class DetectionSectionTest(unittest.TestCase):
+    """*Does the evaluation see it?* — the one section of the scorecard that
+    measures the measurement.
+
+    Built over the long-horizon suite, whose golden set says which failure
+    each run is known to carry and which runs are known to be correct. The
+    page has to print what nothing caught as plainly as what was caught:
+    a card that quietly omits its blind spot is worse than one without the
+    section at all, because it reads as a clean bill of health.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        suite = ROOT / "demo" / "horizon" / "suite"
+        golden = ROOT / "demo" / "horizon" / "suite_golden.json"
+        if not suite.is_dir() or not golden.is_file():
+            raise unittest.SkipTest("the long-horizon suite is not generated")
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
+        done = subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(suite), "-o", str(out),
+                               "--golden", str(golden), "--template", str(ROOT / "web" / "blocks.html")],
+                              cwd=str(ROOT), capture_output=True)
+        if done.returncode != 0 or not (out / "report.html").is_file():
+            raise unittest.SkipTest("batch over the suite did not write a page: "
+                                    + done.stderr.decode("utf-8", "replace")[-300:])
+        cls.page_path = out / "report.html"
+        cls.det = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))["scorecard"]["detection"]
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def test_the_page_prints_the_catch_matrix_and_names_what_nothing_caught(self):
+        context = self.browser.new_context(viewport={"width": 1280, "height": 900})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"file://{self.page_path}#view=batch")
+        page.wait_for_timeout(700)
+        block = page.locator('.block[data-block="scorecard"]')
+        self.assertEqual(block.count(), 1)
+        if "collapsed" in (block.get_attribute("class") or ""):
+            block.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(300)
+            block = page.locator('.block[data-block="scorecard"]')
+        sec = block.locator('[data-sec="detection"]')
+        self.assertEqual(sec.count(), 1)
+        self.assertTrue(self.det["measurable"])
+        self.assertEqual(sec.locator('[data-role="narrative"]').inner_text(), self.det["narrative"])
+        rows = sec.locator("table.sc-detect tbody tr, table.sc-detect tr[data-mode]")
+        self.assertEqual(rows.count(), len(self.det["modes"]))
+        # every mode the engine says nothing caught is printed as caught by
+        # nothing, in the page's own words
+        missed = sorted(set(self.det["missed"]))
+        self.assertTrue(missed, "this suite has a blind spot; without one the test is vacuous")
+        for mode in missed:
+            row = sec.locator(f'table.sc-detect tr[data-mode="{mode}"]')
+            self.assertEqual(row.get_attribute("data-caught"), "false", mode)
+            self.assertIn("nothing", row.inner_text())
+        caught = [r for r in self.det["modes"] if r["caught"]]
+        for row in caught[:4]:
+            cells = sec.locator(f'table.sc-detect tr[data-mode="{row["mode"]}"]').inner_text()
+            for signal in row["signals"]:
+                self.assertIn(signal, cells, row["mode"])
+        # and the other half: the runs known to be correct
+        controls = sec.locator('[data-role="controls"]').inner_text()
+        if self.det["controls"]["flagged"]:
+            self.assertIn("flagged anyway", controls)
+        else:
+            self.assertIn(f"({self.det['controls']['runs']} checked)", controls)
+        self.assertEqual(errors, [])
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
 class DebugSessionBlockTest(unittest.TestCase):
     """The Debug session block: an aligned A/B strip with one cell per
     step and a gap per one-sided row, per-run aggregates counted from the
