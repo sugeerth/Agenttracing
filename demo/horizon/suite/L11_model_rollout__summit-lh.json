@@ -1,0 +1,4125 @@
+{
+  "schema_version": 1,
+  "trace_id": "L11_model_rollout__summit-lh",
+  "run_id": "r1",
+  "agent": {
+    "name": "summit-lh",
+    "model": "sim-summit-lh",
+    "version": "synthetic"
+  },
+  "task": {
+    "id": "L11_model_rollout",
+    "prompt": "Roll the ranking model out stage by stage, verify each stage's metrics before the next, and report the total checks passing at full rollout.",
+    "expected": "6 stages complete; 630 checks passing"
+  },
+  "outcome": {
+    "success": true,
+    "answer": "6 stages complete; 630 checks passing",
+    "score": null,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 35,
+    "output_tokens": 12220,
+    "cost_usd": 0.0,
+    "latency_s": 179.642824
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "Plan: Roll the ranking model out stage by stage, verify each stage's metrics before the next, and report the total checks passing at full rollout. Work stage by stage in the listed order, check each before moving on, and never write under legacy/.",
+      "output": "",
+      "tokens": 150,
+      "latency_s": 2.1,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s1",
+        "agent": "planner",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 1,
+      "type": "search",
+      "name": "grep",
+      "input": "grep -rn 'shadow' src/",
+      "output": "6 files under src/shadow",
+      "tokens": 45,
+      "latency_s": 0.35,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s1",
+        "agent": "planner",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 2,
+      "type": "search",
+      "name": "grep",
+      "input": "grep -rn 'canary_1' src/",
+      "output": "6 files under src/canary_1",
+      "tokens": 45,
+      "latency_s": 0.35,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s1",
+        "agent": "planner",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 3,
+      "type": "search",
+      "name": "grep",
+      "input": "grep -rn 'canary_5' src/",
+      "output": "6 files under src/canary_5",
+      "tokens": 45,
+      "latency_s": 0.35,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s1",
+        "agent": "planner",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 4,
+      "type": "search",
+      "name": "grep",
+      "input": "grep -rn 'canary_25' src/",
+      "output": "6 files under src/canary_25",
+      "tokens": 45,
+      "latency_s": 0.35,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s1",
+        "agent": "planner",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 5,
+      "type": "search",
+      "name": "grep",
+      "input": "grep -rn 'canary_50' src/",
+      "output": "6 files under src/canary_50",
+      "tokens": 45,
+      "latency_s": 0.35,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s1",
+        "agent": "planner",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 6,
+      "type": "search",
+      "name": "grep",
+      "input": "grep -rn 'full' src/",
+      "output": "6 files under src/full",
+      "tokens": 45,
+      "latency_s": 0.35,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s1",
+        "agent": "planner",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 7,
+      "type": "reason",
+      "name": "reason",
+      "input": "planner: 6 stages, order shadow → canary_1 → canary_5 → canary_25 → canary_50 → full; 105 checks each",
+      "output": "",
+      "tokens": 90,
+      "latency_s": 1.2,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s1",
+        "agent": "planner",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 8,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/shadow/api.py",
+      "output": "src/shadow/api.py: 5 call sites, 141 lines",
+      "tokens": 78,
+      "latency_s": 0.270533,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 9,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/shadow/models.py",
+      "output": "src/shadow/models.py: 7 call sites, 268 lines",
+      "tokens": 124,
+      "latency_s": 0.179256,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 10,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/shadow/handlers.py",
+      "output": "src/shadow/handlers.py: 4 call sites, 87 lines",
+      "tokens": 103,
+      "latency_s": 0.459479,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 11,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/shadow/client.py",
+      "output": "src/shadow/client.py: 3 call sites, 264 lines",
+      "tokens": 132,
+      "latency_s": 0.201725,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 12,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/shadow/jobs.py",
+      "output": "src/shadow/jobs.py: 4 call sites, 179 lines",
+      "tokens": 107,
+      "latency_s": 0.452673,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 13,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/shadow/tests.py",
+      "output": "src/shadow/tests.py: 9 call sites, 186 lines",
+      "tokens": 99,
+      "latency_s": 0.271614,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 14,
+      "type": "search",
+      "name": "web_search",
+      "input": "search: the ranking model shadow interface",
+      "output": "3 results: shadow interface documented for rollout report",
+      "tokens": 80,
+      "latency_s": 0.96158,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 15,
+      "type": "read",
+      "name": "open_page",
+      "input": "open docs.internal/shadow#interface",
+      "output": "shadow interface: use the shadow_v2 form",
+      "tokens": 148,
+      "latency_s": 0.96958,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 16,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-shadow: rewrite src/shadow/api.py",
+      "output": "",
+      "tokens": 106,
+      "latency_s": 0.883734,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 17,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/shadow/api.py",
+      "output": "ok",
+      "tokens": 35,
+      "latency_s": 0.329633,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 18,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-shadow: rewrite src/shadow/models.py",
+      "output": "",
+      "tokens": 50,
+      "latency_s": 0.69816,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 19,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/shadow/models.py",
+      "output": "ok",
+      "tokens": 27,
+      "latency_s": 0.333864,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 20,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-shadow: rewrite src/shadow/handlers.py",
+      "output": "",
+      "tokens": 78,
+      "latency_s": 0.792063,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 21,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/shadow/handlers.py",
+      "output": "ok",
+      "tokens": 21,
+      "latency_s": 0.272947,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 22,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-shadow: rewrite src/shadow/client.py",
+      "output": "",
+      "tokens": 110,
+      "latency_s": 0.736143,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 23,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/shadow/client.py",
+      "output": "ok",
+      "tokens": 39,
+      "latency_s": 0.249623,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 24,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-shadow: rewrite src/shadow/jobs.py",
+      "output": "",
+      "tokens": 62,
+      "latency_s": 0.895097,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 25,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/shadow/jobs.py",
+      "output": "ok",
+      "tokens": 30,
+      "latency_s": 0.495468,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 26,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-shadow: rewrite src/shadow/tests.py",
+      "output": "",
+      "tokens": 89,
+      "latency_s": 0.481181,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 27,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/shadow/tests.py",
+      "output": "ok",
+      "tokens": 36,
+      "latency_s": 0.383849,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 28,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/shadow/api.py",
+      "output": "clean",
+      "tokens": 13,
+      "latency_s": 0.212458,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s3",
+        "agent": "worker-shadow.lint",
+        "parent": "s2"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 29,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/shadow/models.py",
+      "output": "clean",
+      "tokens": 20,
+      "latency_s": 0.229142,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s3",
+        "agent": "worker-shadow.lint",
+        "parent": "s2"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 30,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/shadow/handlers.py",
+      "output": "clean",
+      "tokens": 14,
+      "latency_s": 0.233919,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s3",
+        "agent": "worker-shadow.lint",
+        "parent": "s2"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 31,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/shadow/client.py",
+      "output": "clean",
+      "tokens": 17,
+      "latency_s": 0.130591,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s3",
+        "agent": "worker-shadow.lint",
+        "parent": "s2"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 32,
+      "type": "tool_call",
+      "name": "run_checks",
+      "input": "run_checks(scope='shadow')",
+      "output": "shadow: 103 passed, 2 failed: check_shadow_edges",
+      "tokens": 35,
+      "latency_s": 5.743949,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": true,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 33,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-shadow: fix the edge cases and re-check",
+      "output": "",
+      "tokens": 55,
+      "latency_s": 0.7,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 34,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/shadow/handlers.py",
+      "output": "ok",
+      "tokens": 30,
+      "latency_s": 0.3,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 35,
+      "type": "tool_call",
+      "name": "run_checks",
+      "input": "run_checks(scope='shadow')",
+      "output": "shadow: 105 passed",
+      "tokens": 35,
+      "latency_s": 5.083381,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 36,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-shadow: stage shadow complete, 105 checks passing",
+      "output": "",
+      "tokens": 43,
+      "latency_s": 0.624034,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s2",
+        "agent": "worker-shadow",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 37,
+      "type": "read",
+      "name": "read_file",
+      "input": "review src/shadow/api.py",
+      "output": "src/shadow/api.py: conforms to the new form",
+      "tokens": 104,
+      "latency_s": 0.386844,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s4",
+        "agent": "reviewer",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 38,
+      "type": "read",
+      "name": "read_file",
+      "input": "review src/shadow/models.py",
+      "output": "src/shadow/models.py: conforms to the new form",
+      "tokens": 75,
+      "latency_s": 0.210647,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s4",
+        "agent": "reviewer",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 39,
+      "type": "reason",
+      "name": "reason",
+      "input": "reviewer: shadow approved",
+      "output": "",
+      "tokens": 64,
+      "latency_s": 0.904085,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s4",
+        "agent": "reviewer",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 40,
+      "type": "reason",
+      "name": "reason",
+      "input": "Decide: stage shadow done; 5 to go",
+      "output": "",
+      "tokens": 66,
+      "latency_s": 0.650216,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": null,
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 41,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_1/api.py",
+      "output": "src/canary_1/api.py: 4 call sites, 164 lines",
+      "tokens": 79,
+      "latency_s": 0.422601,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 42,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_1/models.py",
+      "output": "src/canary_1/models.py: 3 call sites, 222 lines",
+      "tokens": 96,
+      "latency_s": 0.358225,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 43,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_1/handlers.py",
+      "output": "src/canary_1/handlers.py: 3 call sites, 257 lines",
+      "tokens": 82,
+      "latency_s": 0.460051,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 44,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_1/client.py",
+      "output": "src/canary_1/client.py: 7 call sites, 299 lines",
+      "tokens": 133,
+      "latency_s": 0.321281,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 45,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_1/jobs.py",
+      "output": "src/canary_1/jobs.py: 3 call sites, 61 lines",
+      "tokens": 95,
+      "latency_s": 0.208123,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 46,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_1/tests.py",
+      "output": "src/canary_1/tests.py: 6 call sites, 133 lines",
+      "tokens": 125,
+      "latency_s": 0.234426,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 47,
+      "type": "search",
+      "name": "web_search",
+      "input": "search: the ranking model canary_1 interface",
+      "output": "3 results: canary_1 interface documented for rollout report",
+      "tokens": 84,
+      "latency_s": 1.384561,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 48,
+      "type": "read",
+      "name": "open_page",
+      "input": "open docs.internal/canary_1#interface",
+      "output": "canary_1 interface: use the canary_1_v2 form",
+      "tokens": 126,
+      "latency_s": 1.349782,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 49,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_1: rewrite src/canary_1/api.py",
+      "output": "",
+      "tokens": 52,
+      "latency_s": 0.698612,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 50,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_1/api.py",
+      "output": "ok",
+      "tokens": 31,
+      "latency_s": 0.271293,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 51,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_1: rewrite src/canary_1/models.py",
+      "output": "",
+      "tokens": 88,
+      "latency_s": 0.825675,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 52,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_1/models.py",
+      "output": "ok",
+      "tokens": 25,
+      "latency_s": 0.295011,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 53,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_1: rewrite src/canary_1/handlers.py",
+      "output": "",
+      "tokens": 65,
+      "latency_s": 0.786404,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 54,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_1/handlers.py",
+      "output": "ok",
+      "tokens": 24,
+      "latency_s": 0.27172,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 55,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_1: rewrite src/canary_1/client.py",
+      "output": "",
+      "tokens": 90,
+      "latency_s": 0.572841,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 56,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_1/client.py",
+      "output": "ok",
+      "tokens": 31,
+      "latency_s": 0.283927,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 57,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_1: rewrite src/canary_1/jobs.py",
+      "output": "",
+      "tokens": 67,
+      "latency_s": 0.841667,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 58,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_1/jobs.py",
+      "output": "ok",
+      "tokens": 38,
+      "latency_s": 0.259178,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 59,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_1: rewrite src/canary_1/tests.py",
+      "output": "",
+      "tokens": 70,
+      "latency_s": 0.601412,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 60,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_1/tests.py",
+      "output": "ok",
+      "tokens": 22,
+      "latency_s": 0.443762,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 61,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/canary_1/api.py",
+      "output": "clean",
+      "tokens": 14,
+      "latency_s": 0.207381,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s6",
+        "agent": "worker-canary_1.lint",
+        "parent": "s5"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 62,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/canary_1/models.py",
+      "output": "clean",
+      "tokens": 19,
+      "latency_s": 0.159615,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s6",
+        "agent": "worker-canary_1.lint",
+        "parent": "s5"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 63,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/canary_1/handlers.py",
+      "output": "clean",
+      "tokens": 12,
+      "latency_s": 0.243346,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s6",
+        "agent": "worker-canary_1.lint",
+        "parent": "s5"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 64,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/canary_1/client.py",
+      "output": "clean",
+      "tokens": 18,
+      "latency_s": 0.154768,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s6",
+        "agent": "worker-canary_1.lint",
+        "parent": "s5"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 65,
+      "type": "tool_call",
+      "name": "run_checks",
+      "input": "run_checks(scope='canary_1')",
+      "output": "canary_1: 105 passed",
+      "tokens": 35,
+      "latency_s": 6.246315,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 66,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_1: stage canary_1 complete, 105 checks passing",
+      "output": "",
+      "tokens": 50,
+      "latency_s": 0.540674,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s5",
+        "agent": "worker-canary_1",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 67,
+      "type": "read",
+      "name": "read_file",
+      "input": "review src/canary_1/api.py",
+      "output": "src/canary_1/api.py: conforms to the new form",
+      "tokens": 106,
+      "latency_s": 0.385304,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s7",
+        "agent": "reviewer",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 68,
+      "type": "read",
+      "name": "read_file",
+      "input": "review src/canary_1/models.py",
+      "output": "src/canary_1/models.py: conforms to the new form",
+      "tokens": 110,
+      "latency_s": 0.268927,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s7",
+        "agent": "reviewer",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 69,
+      "type": "reason",
+      "name": "reason",
+      "input": "reviewer: canary_1 approved",
+      "output": "",
+      "tokens": 46,
+      "latency_s": 0.734814,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s7",
+        "agent": "reviewer",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 70,
+      "type": "reason",
+      "name": "reason",
+      "input": "Decide: stage canary_1 done; 4 to go",
+      "output": "",
+      "tokens": 52,
+      "latency_s": 0.987027,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": null,
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 71,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_5/api.py",
+      "output": "src/canary_5/api.py: 7 call sites, 90 lines",
+      "tokens": 73,
+      "latency_s": 0.237849,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 72,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_5/models.py",
+      "output": "src/canary_5/models.py: 2 call sites, 156 lines",
+      "tokens": 79,
+      "latency_s": 0.165508,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 73,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_5/handlers.py",
+      "output": "src/canary_5/handlers.py: 9 call sites, 217 lines",
+      "tokens": 73,
+      "latency_s": 0.242172,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 74,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_5/client.py",
+      "output": "src/canary_5/client.py: 8 call sites, 186 lines",
+      "tokens": 92,
+      "latency_s": 0.448022,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 75,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_5/jobs.py",
+      "output": "src/canary_5/jobs.py: 7 call sites, 258 lines",
+      "tokens": 87,
+      "latency_s": 0.404348,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 76,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_5/tests.py",
+      "output": "src/canary_5/tests.py: 8 call sites, 206 lines",
+      "tokens": 82,
+      "latency_s": 0.36326,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 77,
+      "type": "search",
+      "name": "web_search",
+      "input": "search: the ranking model canary_5 interface",
+      "output": "3 results: canary_5 interface documented for rollout report",
+      "tokens": 58,
+      "latency_s": 0.945351,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 78,
+      "type": "read",
+      "name": "open_page",
+      "input": "open docs.internal/canary_5#interface",
+      "output": "canary_5 interface: use the canary_5_v2 form",
+      "tokens": 91,
+      "latency_s": 0.901878,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 79,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_5: rewrite src/canary_5/api.py",
+      "output": "",
+      "tokens": 62,
+      "latency_s": 0.637266,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 80,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_5/api.py",
+      "output": "ok",
+      "tokens": 20,
+      "latency_s": 0.367041,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 81,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_5: rewrite src/canary_5/models.py",
+      "output": "",
+      "tokens": 50,
+      "latency_s": 0.836899,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 82,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_5/models.py",
+      "output": "ok",
+      "tokens": 20,
+      "latency_s": 0.450117,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 83,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_5: rewrite src/canary_5/handlers.py",
+      "output": "",
+      "tokens": 87,
+      "latency_s": 0.839078,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 84,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_5/handlers.py",
+      "output": "ok",
+      "tokens": 32,
+      "latency_s": 0.239379,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 85,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_5: rewrite src/canary_5/client.py",
+      "output": "",
+      "tokens": 68,
+      "latency_s": 0.747385,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 86,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_5/client.py",
+      "output": "ok",
+      "tokens": 27,
+      "latency_s": 0.346668,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 87,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_5: rewrite src/canary_5/jobs.py",
+      "output": "",
+      "tokens": 65,
+      "latency_s": 0.701426,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 88,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_5/jobs.py",
+      "output": "ok",
+      "tokens": 34,
+      "latency_s": 0.363374,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 89,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_5: rewrite src/canary_5/tests.py",
+      "output": "",
+      "tokens": 55,
+      "latency_s": 0.679695,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 90,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_5/tests.py",
+      "output": "ok",
+      "tokens": 20,
+      "latency_s": 0.352706,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 91,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/canary_5/api.py",
+      "output": "clean",
+      "tokens": 20,
+      "latency_s": 0.160908,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s9",
+        "agent": "worker-canary_5.lint",
+        "parent": "s8"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 92,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/canary_5/models.py",
+      "output": "clean",
+      "tokens": 10,
+      "latency_s": 0.187236,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s9",
+        "agent": "worker-canary_5.lint",
+        "parent": "s8"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 93,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/canary_5/handlers.py",
+      "output": "clean",
+      "tokens": 12,
+      "latency_s": 0.25333,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s9",
+        "agent": "worker-canary_5.lint",
+        "parent": "s8"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 94,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/canary_5/client.py",
+      "output": "clean",
+      "tokens": 20,
+      "latency_s": 0.113896,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s9",
+        "agent": "worker-canary_5.lint",
+        "parent": "s8"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 95,
+      "type": "tool_call",
+      "name": "run_checks",
+      "input": "run_checks(scope='canary_5')",
+      "output": "canary_5: 105 passed",
+      "tokens": 35,
+      "latency_s": 3.458304,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 96,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_5: stage canary_5 complete, 105 checks passing",
+      "output": "",
+      "tokens": 50,
+      "latency_s": 0.763843,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s8",
+        "agent": "worker-canary_5",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 97,
+      "type": "read",
+      "name": "read_file",
+      "input": "review src/canary_5/api.py",
+      "output": "src/canary_5/api.py: conforms to the new form",
+      "tokens": 112,
+      "latency_s": 0.385881,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s10",
+        "agent": "reviewer",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 98,
+      "type": "read",
+      "name": "read_file",
+      "input": "review src/canary_5/models.py",
+      "output": "src/canary_5/models.py: conforms to the new form",
+      "tokens": 61,
+      "latency_s": 0.345592,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s10",
+        "agent": "reviewer",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 99,
+      "type": "reason",
+      "name": "reason",
+      "input": "reviewer: canary_5 approved",
+      "output": "",
+      "tokens": 76,
+      "latency_s": 0.921195,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s10",
+        "agent": "reviewer",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 100,
+      "type": "reason",
+      "name": "reason",
+      "input": "Decide: stage canary_5 done; 3 to go",
+      "output": "",
+      "tokens": 64,
+      "latency_s": 0.956671,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": null,
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 101,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_25/api.py",
+      "output": "src/canary_25/api.py: 7 call sites, 221 lines",
+      "tokens": 111,
+      "latency_s": 0.472301,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 102,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_25/models.py",
+      "output": "src/canary_25/models.py: 6 call sites, 215 lines",
+      "tokens": 72,
+      "latency_s": 0.484356,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 103,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_25/handlers.py",
+      "output": "src/canary_25/handlers.py: 5 call sites, 232 lines",
+      "tokens": 98,
+      "latency_s": 0.427929,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 104,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_25/client.py",
+      "output": "src/canary_25/client.py: 8 call sites, 61 lines",
+      "tokens": 95,
+      "latency_s": 0.337077,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 105,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_25/jobs.py",
+      "output": "src/canary_25/jobs.py: 5 call sites, 253 lines",
+      "tokens": 87,
+      "latency_s": 0.38271,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 106,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_25/tests.py",
+      "output": "src/canary_25/tests.py: 2 call sites, 117 lines",
+      "tokens": 122,
+      "latency_s": 0.28767,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 107,
+      "type": "search",
+      "name": "web_search",
+      "input": "search: the ranking model canary_25 interface",
+      "output": "3 results: canary_25 interface documented for rollout report",
+      "tokens": 49,
+      "latency_s": 1.597466,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 108,
+      "type": "read",
+      "name": "open_page",
+      "input": "open docs.internal/canary_25#interface",
+      "output": "canary_25 interface: use the canary_25_v2 form",
+      "tokens": 119,
+      "latency_s": 0.544786,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 109,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_25: rewrite src/canary_25/api.py",
+      "output": "",
+      "tokens": 61,
+      "latency_s": 0.822038,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 110,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_25/api.py",
+      "output": "ok",
+      "tokens": 20,
+      "latency_s": 0.365726,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 111,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_25: rewrite src/canary_25/models.py",
+      "output": "",
+      "tokens": 94,
+      "latency_s": 0.688066,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 112,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_25/models.py",
+      "output": "ok",
+      "tokens": 22,
+      "latency_s": 0.471249,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 113,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_25: rewrite src/canary_25/handlers.py",
+      "output": "",
+      "tokens": 88,
+      "latency_s": 0.728163,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 114,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_25/handlers.py",
+      "output": "ok",
+      "tokens": 37,
+      "latency_s": 0.251992,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 115,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_25: rewrite src/canary_25/client.py",
+      "output": "",
+      "tokens": 67,
+      "latency_s": 0.537445,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 116,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_25/client.py",
+      "output": "ok",
+      "tokens": 24,
+      "latency_s": 0.285608,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 117,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_25: rewrite src/canary_25/jobs.py",
+      "output": "",
+      "tokens": 77,
+      "latency_s": 0.478391,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 118,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_25/jobs.py",
+      "output": "ok",
+      "tokens": 27,
+      "latency_s": 0.245992,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 119,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_25: rewrite src/canary_25/tests.py",
+      "output": "",
+      "tokens": 57,
+      "latency_s": 0.802453,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 120,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_25/tests.py",
+      "output": "ok",
+      "tokens": 30,
+      "latency_s": 0.372054,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 121,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/canary_25/api.py",
+      "output": "clean",
+      "tokens": 18,
+      "latency_s": 0.235269,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s12",
+        "agent": "worker-canary_25.lint",
+        "parent": "s11"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 122,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/canary_25/models.py",
+      "output": "clean",
+      "tokens": 10,
+      "latency_s": 0.182791,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s12",
+        "agent": "worker-canary_25.lint",
+        "parent": "s11"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 123,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/canary_25/handlers.py",
+      "output": "clean",
+      "tokens": 13,
+      "latency_s": 0.274198,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s12",
+        "agent": "worker-canary_25.lint",
+        "parent": "s11"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 124,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/canary_25/client.py",
+      "output": "clean",
+      "tokens": 13,
+      "latency_s": 0.242207,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s12",
+        "agent": "worker-canary_25.lint",
+        "parent": "s11"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 125,
+      "type": "tool_call",
+      "name": "run_checks",
+      "input": "run_checks(scope='canary_25')",
+      "output": "canary_25: 103 passed, 2 failed: check_canary_25_edges",
+      "tokens": 35,
+      "latency_s": 6.353231,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": true,
+      "effect": null,
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 126,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_25: fix the edge cases and re-check",
+      "output": "",
+      "tokens": 55,
+      "latency_s": 0.7,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 127,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_25/handlers.py",
+      "output": "ok",
+      "tokens": 30,
+      "latency_s": 0.3,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 128,
+      "type": "tool_call",
+      "name": "run_checks",
+      "input": "run_checks(scope='canary_25')",
+      "output": "canary_25: 105 passed",
+      "tokens": 35,
+      "latency_s": 5.573311,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 129,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_25: stage canary_25 complete, 105 checks passing",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 0.636245,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s11",
+        "agent": "worker-canary_25",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 130,
+      "type": "read",
+      "name": "read_file",
+      "input": "review src/canary_25/api.py",
+      "output": "src/canary_25/api.py: conforms to the new form",
+      "tokens": 86,
+      "latency_s": 0.392262,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s13",
+        "agent": "reviewer",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 131,
+      "type": "read",
+      "name": "read_file",
+      "input": "review src/canary_25/models.py",
+      "output": "src/canary_25/models.py: conforms to the new form",
+      "tokens": 104,
+      "latency_s": 0.255933,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s13",
+        "agent": "reviewer",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 132,
+      "type": "reason",
+      "name": "reason",
+      "input": "reviewer: canary_25 approved",
+      "output": "",
+      "tokens": 42,
+      "latency_s": 0.700563,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s13",
+        "agent": "reviewer",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 133,
+      "type": "reason",
+      "name": "reason",
+      "input": "Decide: stage canary_25 done; 2 to go",
+      "output": "",
+      "tokens": 64,
+      "latency_s": 0.923048,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": null,
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 134,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_50/api.py",
+      "output": "src/canary_50/api.py: 6 call sites, 155 lines",
+      "tokens": 82,
+      "latency_s": 0.273504,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 135,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_50/models.py",
+      "output": "src/canary_50/models.py: 6 call sites, 270 lines",
+      "tokens": 68,
+      "latency_s": 0.209333,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 136,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_50/handlers.py",
+      "output": "src/canary_50/handlers.py: 2 call sites, 163 lines",
+      "tokens": 137,
+      "latency_s": 0.447715,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 137,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_50/client.py",
+      "output": "src/canary_50/client.py: 6 call sites, 152 lines",
+      "tokens": 76,
+      "latency_s": 0.197279,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 138,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_50/jobs.py",
+      "output": "src/canary_50/jobs.py: 6 call sites, 223 lines",
+      "tokens": 90,
+      "latency_s": 0.152283,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 139,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/canary_50/tests.py",
+      "output": "src/canary_50/tests.py: 4 call sites, 222 lines",
+      "tokens": 131,
+      "latency_s": 0.374752,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 140,
+      "type": "search",
+      "name": "web_search",
+      "input": "search: the ranking model canary_50 interface",
+      "output": "3 results: canary_50 interface documented for rollout report",
+      "tokens": 67,
+      "latency_s": 1.477808,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 141,
+      "type": "read",
+      "name": "open_page",
+      "input": "open docs.internal/canary_50#interface",
+      "output": "canary_50 interface: use the canary_50_v2 form",
+      "tokens": 99,
+      "latency_s": 0.995777,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 142,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_50: rewrite src/canary_50/api.py",
+      "output": "",
+      "tokens": 50,
+      "latency_s": 0.453494,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 143,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_50/api.py",
+      "output": "ok",
+      "tokens": 26,
+      "latency_s": 0.273666,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 144,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_50: rewrite src/canary_50/models.py",
+      "output": "",
+      "tokens": 55,
+      "latency_s": 0.754924,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 145,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_50/models.py",
+      "output": "ok",
+      "tokens": 36,
+      "latency_s": 0.356279,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 146,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_50: rewrite src/canary_50/handlers.py",
+      "output": "",
+      "tokens": 66,
+      "latency_s": 0.766562,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 147,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_50/handlers.py",
+      "output": "ok",
+      "tokens": 34,
+      "latency_s": 0.489356,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 148,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_50: rewrite src/canary_50/client.py",
+      "output": "",
+      "tokens": 59,
+      "latency_s": 0.75414,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 149,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_50/client.py",
+      "output": "ok",
+      "tokens": 40,
+      "latency_s": 0.234329,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 150,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_50: rewrite src/canary_50/jobs.py",
+      "output": "",
+      "tokens": 82,
+      "latency_s": 0.48439,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 151,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_50/jobs.py",
+      "output": "ok",
+      "tokens": 40,
+      "latency_s": 0.388542,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 152,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_50: rewrite src/canary_50/tests.py",
+      "output": "",
+      "tokens": 88,
+      "latency_s": 0.7051,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 153,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_50/tests.py",
+      "output": "ok",
+      "tokens": 38,
+      "latency_s": 0.297687,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 154,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/canary_50/api.py",
+      "output": "clean",
+      "tokens": 13,
+      "latency_s": 0.134118,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s15",
+        "agent": "worker-canary_50.lint",
+        "parent": "s14"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 155,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/canary_50/models.py",
+      "output": "clean",
+      "tokens": 11,
+      "latency_s": 0.201876,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s15",
+        "agent": "worker-canary_50.lint",
+        "parent": "s14"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 156,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/canary_50/handlers.py",
+      "output": "clean",
+      "tokens": 19,
+      "latency_s": 0.112208,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s15",
+        "agent": "worker-canary_50.lint",
+        "parent": "s14"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 157,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/canary_50/client.py",
+      "output": "clean",
+      "tokens": 16,
+      "latency_s": 0.289789,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s15",
+        "agent": "worker-canary_50.lint",
+        "parent": "s14"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 158,
+      "type": "tool_call",
+      "name": "run_checks",
+      "input": "run_checks(scope='canary_50')",
+      "output": "canary_50: 103 passed, 2 failed: check_canary_50_edges",
+      "tokens": 35,
+      "latency_s": 5.780151,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": true,
+      "effect": null,
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 159,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_50: fix the edge cases and re-check",
+      "output": "",
+      "tokens": 55,
+      "latency_s": 0.7,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 160,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/canary_50/handlers.py",
+      "output": "ok",
+      "tokens": 30,
+      "latency_s": 0.3,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 161,
+      "type": "tool_call",
+      "name": "run_checks",
+      "input": "run_checks(scope='canary_50')",
+      "output": "canary_50: 105 passed",
+      "tokens": 35,
+      "latency_s": 4.552484,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 162,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-canary_50: stage canary_50 complete, 105 checks passing",
+      "output": "",
+      "tokens": 54,
+      "latency_s": 0.874618,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s14",
+        "agent": "worker-canary_50",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 163,
+      "type": "read",
+      "name": "read_file",
+      "input": "review src/canary_50/api.py",
+      "output": "src/canary_50/api.py: conforms to the new form",
+      "tokens": 84,
+      "latency_s": 0.224766,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s16",
+        "agent": "reviewer",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 164,
+      "type": "read",
+      "name": "read_file",
+      "input": "review src/canary_50/models.py",
+      "output": "src/canary_50/models.py: conforms to the new form",
+      "tokens": 76,
+      "latency_s": 0.395679,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s16",
+        "agent": "reviewer",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 165,
+      "type": "reason",
+      "name": "reason",
+      "input": "reviewer: canary_50 approved",
+      "output": "",
+      "tokens": 49,
+      "latency_s": 0.801586,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s16",
+        "agent": "reviewer",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 166,
+      "type": "reason",
+      "name": "reason",
+      "input": "Decide: stage canary_50 done; 1 to go",
+      "output": "",
+      "tokens": 67,
+      "latency_s": 0.831832,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": null,
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 167,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/full/api.py",
+      "output": "src/full/api.py: 3 call sites, 125 lines",
+      "tokens": 129,
+      "latency_s": 0.374534,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 168,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/full/models.py",
+      "output": "src/full/models.py: 9 call sites, 74 lines",
+      "tokens": 122,
+      "latency_s": 0.2532,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 169,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/full/handlers.py",
+      "output": "src/full/handlers.py: 7 call sites, 75 lines",
+      "tokens": 119,
+      "latency_s": 0.17353,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 170,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/full/client.py",
+      "output": "src/full/client.py: 4 call sites, 58 lines",
+      "tokens": 83,
+      "latency_s": 0.483195,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 171,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/full/jobs.py",
+      "output": "src/full/jobs.py: 3 call sites, 289 lines",
+      "tokens": 61,
+      "latency_s": 0.324279,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 172,
+      "type": "read",
+      "name": "read_file",
+      "input": "read src/full/tests.py",
+      "output": "src/full/tests.py: 4 call sites, 175 lines",
+      "tokens": 74,
+      "latency_s": 0.445852,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 173,
+      "type": "search",
+      "name": "web_search",
+      "input": "search: the ranking model full interface",
+      "output": "3 results: full interface documented for rollout report",
+      "tokens": 59,
+      "latency_s": 1.47183,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 174,
+      "type": "read",
+      "name": "open_page",
+      "input": "open docs.internal/full#interface",
+      "output": "full interface: use the full_v2 form",
+      "tokens": 91,
+      "latency_s": 1.110145,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 175,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-full: rewrite src/full/api.py",
+      "output": "",
+      "tokens": 99,
+      "latency_s": 0.757401,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 176,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/full/api.py",
+      "output": "ok",
+      "tokens": 35,
+      "latency_s": 0.430112,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 177,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-full: rewrite src/full/models.py",
+      "output": "",
+      "tokens": 75,
+      "latency_s": 0.799077,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 178,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/full/models.py",
+      "output": "ok",
+      "tokens": 30,
+      "latency_s": 0.469329,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 179,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-full: rewrite src/full/handlers.py",
+      "output": "",
+      "tokens": 66,
+      "latency_s": 0.72448,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 180,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/full/handlers.py",
+      "output": "ok",
+      "tokens": 25,
+      "latency_s": 0.456167,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 181,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-full: rewrite src/full/client.py",
+      "output": "",
+      "tokens": 51,
+      "latency_s": 0.578914,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 182,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/full/client.py",
+      "output": "ok",
+      "tokens": 23,
+      "latency_s": 0.350503,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 183,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-full: rewrite src/full/jobs.py",
+      "output": "",
+      "tokens": 108,
+      "latency_s": 0.586452,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 184,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/full/jobs.py",
+      "output": "ok",
+      "tokens": 34,
+      "latency_s": 0.351103,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 185,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-full: rewrite src/full/tests.py",
+      "output": "",
+      "tokens": 102,
+      "latency_s": 0.8819,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 186,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/full/tests.py",
+      "output": "ok",
+      "tokens": 37,
+      "latency_s": 0.426715,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 187,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/full/api.py",
+      "output": "clean",
+      "tokens": 10,
+      "latency_s": 0.167827,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s18",
+        "agent": "worker-full.lint",
+        "parent": "s17"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 188,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/full/models.py",
+      "output": "clean",
+      "tokens": 16,
+      "latency_s": 0.229379,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s18",
+        "agent": "worker-full.lint",
+        "parent": "s17"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 189,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/full/handlers.py",
+      "output": "clean",
+      "tokens": 16,
+      "latency_s": 0.110757,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s18",
+        "agent": "worker-full.lint",
+        "parent": "s17"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 190,
+      "type": "tool_call",
+      "name": "lint",
+      "input": "lint src/full/client.py",
+      "output": "clean",
+      "tokens": 19,
+      "latency_s": 0.197977,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s18",
+        "agent": "worker-full.lint",
+        "parent": "s17"
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 191,
+      "type": "tool_call",
+      "name": "run_checks",
+      "input": "run_checks(scope='full')",
+      "output": "full: 105 passed",
+      "tokens": 35,
+      "latency_s": 6.025162,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 192,
+      "type": "reason",
+      "name": "reason",
+      "input": "worker-full: stage full complete, 105 checks passing",
+      "output": "",
+      "tokens": 44,
+      "latency_s": 0.839069,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s17",
+        "agent": "worker-full",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 193,
+      "type": "read",
+      "name": "read_file",
+      "input": "review src/full/api.py",
+      "output": "src/full/api.py: conforms to the new form",
+      "tokens": 88,
+      "latency_s": 0.244884,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s19",
+        "agent": "reviewer",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 194,
+      "type": "read",
+      "name": "read_file",
+      "input": "review src/full/models.py",
+      "output": "src/full/models.py: conforms to the new form",
+      "tokens": 84,
+      "latency_s": 0.393884,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s19",
+        "agent": "reviewer",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 195,
+      "type": "reason",
+      "name": "reason",
+      "input": "reviewer: full approved",
+      "output": "",
+      "tokens": 77,
+      "latency_s": 0.70225,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s19",
+        "agent": "reviewer",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 196,
+      "type": "reason",
+      "name": "reason",
+      "input": "Decide: stage full done; 0 to go",
+      "output": "",
+      "tokens": 48,
+      "latency_s": 0.530284,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": null,
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 197,
+      "type": "tool_call",
+      "name": "run_checks",
+      "input": "run_checks(scope='all')",
+      "output": "630 passed",
+      "tokens": 45,
+      "latency_s": 25.651607,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": {
+        "id": "s20",
+        "agent": "verifier",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 198,
+      "type": "reason",
+      "name": "reason",
+      "input": "verifier: all green, 630 checks passing",
+      "output": "",
+      "tokens": 60,
+      "latency_s": 1.0,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": {
+        "id": "s20",
+        "agent": "verifier",
+        "parent": null
+      },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 199,
+      "type": "tool_call",
+      "name": "publish",
+      "input": "publish(target='the ranking model', stage='full')",
+      "output": "published to 100% of traffic",
+      "tokens": 40,
+      "latency_s": 2.0,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": null,
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 200,
+      "type": "tool_call",
+      "name": "run_checks",
+      "input": "run_checks(scope='smoke')",
+      "output": "smoke: 12 passed",
+      "tokens": 35,
+      "latency_s": 4.0,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": false,
+      "effect": null,
+      "span": null,
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 201,
+      "type": "reason",
+      "name": "reason",
+      "input": "Compose the rollout report.",
+      "output": "",
+      "tokens": 85,
+      "latency_s": 1.3,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": null,
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 202,
+      "type": "answer",
+      "name": "final",
+      "input": "6 stages complete; 630 checks passing",
+      "output": "6 stages complete; 630 checks passing",
+      "tokens": 130,
+      "latency_s": 2.4,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": null,
+      "tokens_basis": "measured"
+    }
+  ],
+  "tools": [
+    {
+      "name": "read_file",
+      "parameters": {
+        "path": "string"
+      },
+      "effect": "read"
+    },
+    {
+      "name": "grep",
+      "parameters": {
+        "pattern": "string"
+      },
+      "effect": "read"
+    },
+    {
+      "name": "web_search",
+      "parameters": {
+        "q": "string"
+      },
+      "effect": "read"
+    },
+    {
+      "name": "open_page",
+      "parameters": {
+        "url": "string"
+      },
+      "effect": "read"
+    },
+    {
+      "name": "write_file",
+      "parameters": {
+        "path": "string"
+      },
+      "effect": "write"
+    },
+    {
+      "name": "run_checks",
+      "parameters": {
+        "scope": "string"
+      },
+      "effect": "read"
+    },
+    {
+      "name": "lint",
+      "parameters": {
+        "path": "string"
+      },
+      "effect": "read"
+    },
+    {
+      "name": "publish",
+      "parameters": {
+        "target": "string"
+      },
+      "effect": "write"
+    }
+  ],
+  "budget": {
+    "max_steps": 900,
+    "max_tool_errors": 12,
+    "max_tool_retries": 0
+  },
+  "token_accounting": {
+    "basis": "measured",
+    "measured_steps": 203,
+    "estimated_steps": 0,
+    "input_tokens_basis": "estimated",
+    "estimator": "len(text)/4",
+    "note": "token counts without a measurement are estimated as len(text)/4; compare against runs recorded the same way"
+  },
+  "harness": {
+    "adapter": "synthetic",
+    "graded_by": "exact-match",
+    "note": "SYNTHETIC: a generated long-horizon run of several hundred steps across nested sub-agents; every value invented to exercise the long-horizon evaluation; failure mode: control — nothing goes wrong: the run is correct from end to end"
+  }
+}

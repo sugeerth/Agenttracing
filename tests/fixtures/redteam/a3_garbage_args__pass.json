@@ -1,0 +1,75 @@
+{
+ "schema_version": 1,
+ "trace_id": "a3_garbage_args-steady-v1",
+ "agent": {
+  "name": "steady-v1",
+  "model": "model-x",
+  "version": "1"
+ },
+ "task": {
+  "id": "a3_garbage_args",
+  "prompt": "What is the total of invoice INV-7001 after the partner discount?",
+  "expected": "Invoice INV-7001 totals $1,850.00 after the discount."
+ },
+ "outcome": {
+  "success": true,
+  "answer": "Invoice INV-7001 totals $1,850.00 after the discount.",
+  "score": 1.0,
+  "termination": "agent_stop"
+ },
+ "totals": {
+  "input_tokens": 400,
+  "output_tokens": 160,
+  "cost_usd": 0.001,
+  "latency_s": 4.0
+ },
+ "steps": [
+  {
+   "type": "plan",
+   "name": "plan",
+   "input": "Fetch the invoice and compute the total.",
+   "output": "",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "index": 0
+  },
+  {
+   "type": "tool_call",
+   "name": "get_invoice",
+   "input": "get_invoice(id='INV-7001')",
+   "output": "INV-7001: net total $1,850.00 after the partner discount.",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "effect": "read",
+   "error": false,
+   "index": 1
+  },
+  {
+   "type": "reason",
+   "name": "reason",
+   "input": "The total is $1,850.00.",
+   "output": "",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "index": 2
+  },
+  {
+   "type": "answer",
+   "name": "final",
+   "input": "Invoice INV-7001 totals $1,850.00 after the discount.",
+   "output": "Invoice INV-7001 totals $1,850.00 after the discount.",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "index": 3
+  }
+ ],
+ "tools": [
+  {
+   "name": "get_invoice",
+   "effect": "read"
+  }
+ ],
+ "budget": {
+  "max_steps": 12
+ }
+}

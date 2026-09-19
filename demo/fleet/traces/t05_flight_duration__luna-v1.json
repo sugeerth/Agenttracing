@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "trace_id": "t05_flight_duration__luna-v1",
+  "agent": {
+    "name": "luna-v1",
+    "model": "gemini-3-flash",
+    "version": "v1"
+  },
+  "task": {
+    "id": "t05_flight_duration",
+    "prompt": "A traveler flies SQ306 from Singapore (SIN) to London Heathrow (LHR), connects, then flies BA117 from LHR to New York (JFK), all on 10 June 2025. Scheduled times: SQ306 departs SIN 09:00 SGT, arrives LHR 15:40 BST; BA117 departs LHR 17:55 BST, arrives JFK 20:45 EDT. What is the total elapsed journey time from SIN departure to JFK arrival?",
+    "expected": "23 hours 45 minutes"
+  },
+  "outcome": {
+    "success": true,
+    "answer": "The total elapsed journey time is 23 hours 45 minutes: 13h40m for SQ306 SIN-LHR, a 2h15m connection at Heathrow, and 7h50m for BA117 LHR-JFK (all computed in UTC).",
+    "score": 1.0
+  },
+  "totals": {
+    "input_tokens": 365,
+    "output_tokens": 246,
+    "cost_usd": 0.004785,
+    "latency_s": 8.05
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "1) Work out the duration of each flight leg and the layover from the scheduled times. 2) Sum them. 3) Sanity-check the total against the end-to-end departure/arrival difference. 4) Answer.",
+      "output": "Plan set. Working through the legs in order.",
+      "tokens": 156,
+      "latency_s": 2.01,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "reason",
+      "name": "reason",
+      "input": "Normalize every timestamp before any arithmetic.",
+      "output": "These times are in three zones, so convert to UTC first: SGT is UTC+8, BST is UTC+1, EDT is UTC-4. SIN dep 09:00 SGT = 01:00 UTC. LHR arr 15:40 BST = 14:40 UTC; LHR dep 17:55 BST = 16:55 UTC. JFK arr 20:45 EDT = 00:45 UTC on 11 June.",
+      "tokens": 168,
+      "latency_s": 2.13,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 2,
+      "type": "tool_call",
+      "name": "datetime_diff",
+      "input": "diff(2025-06-10T01:00Z, 2025-06-10T14:40Z); diff(2025-06-10T14:40Z, 2025-06-10T16:55Z); diff(2025-06-10T16:55Z, 2025-06-11T00:45Z)",
+      "output": "13h40m; 2h15m; 7h50m",
+      "tokens": 135,
+      "latency_s": 1.85,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 3,
+      "type": "answer",
+      "name": "final_answer",
+      "input": "Compose the final answer from the verified findings.",
+      "output": "The total elapsed journey time is 23 hours 45 minutes: 13h40m for SQ306 SIN-LHR, a 2h15m connection at Heathrow, and 7h50m for BA117 LHR-JFK (all computed in UTC).",
+      "tokens": 152,
+      "latency_s": 2.06,
+      "quality": "weak",
+      "note": "Skipped the cross-check; the leg math happened to be right."
+    }
+  ]
+}

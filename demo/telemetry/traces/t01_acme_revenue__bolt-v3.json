@@ -1,0 +1,573 @@
+{
+  "schema_version": 1,
+  "trace_id": "t01_acme_revenue__bolt-v3",
+  "agent": {
+    "name": "bolt-v3",
+    "model": "sim-sprinter-3",
+    "version": "v3"
+  },
+  "task": {
+    "id": "t01_acme_revenue",
+    "prompt": "Find ACME Corp's total revenue for fiscal year 2025. Report a single dollar figure and say where it came from.",
+    "expected": "$4.82 billion"
+  },
+  "outcome": {
+    "success": false,
+    "answer": "ACME Corp's total revenue for fiscal year 2025 was approximately $4.5 billion, as reported by financeblog.net and corroborated by moneymirror.com.",
+    "score": 0.0
+  },
+  "totals": {
+    "input_tokens": 1156,
+    "output_tokens": 366,
+    "cost_usd": 0.008958,
+    "latency_s": 18.4
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "1) Search for ACME Corp's FY2025 annual results. 2) Open the investor-relations press release or 10-K. 3) Extract total revenue from the full-year highlights. 4) Report the figure with its source.",
+      "output": "Plan set. Starting with a targeted search of investor sources.",
+      "tokens": 162,
+      "latency_s": 2.09,
+      "quality": "good",
+      "note": null,
+      "model": {
+        "confidence": 0.8542,
+        "min_token_confidence": 0.6299,
+        "entropy": 0.4553,
+        "tokens_scored": 89,
+        "temperature": 0.7,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.7794,
+          "high": 0.929,
+          "n": 89,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 1040,
+              "activation": 4.89,
+              "max_activation": 12.0,
+              "label": "task framing / enumerating sub-goals (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 2211,
+              "activation": 3.074,
+              "max_activation": 12.0,
+              "label": "instruction following (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 1,
+      "type": "search",
+      "name": "web_search",
+      "input": "ACME Corp FY2025 annual results total revenue investor relations",
+      "output": "[1] ir.acmecorp.com — \"ACME Corp Reports Fourth Quarter and Full Year Fiscal 2025 Results\" | [2] marketpulse.io — \"ACME beats estimates as cloud unit accelerates\" | [3] financeblog.net — \"What ACME's monster 2025 really means for shareholders\" | [4] wikipedia.org — ACME Corp",
+      "tokens": 183,
+      "latency_s": 2.63,
+      "quality": "good",
+      "note": null,
+      "model": {
+        "confidence": 0.855,
+        "min_token_confidence": 0.7002,
+        "entropy": 0.3725,
+        "tokens_scored": 100,
+        "temperature": 0.7,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.7663,
+          "high": 0.9437,
+          "n": 100,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 4470,
+              "activation": 5.849,
+              "max_activation": 12.0,
+              "label": "named-entity retrieval (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 3312,
+              "activation": 5.365,
+              "max_activation": 12.0,
+              "label": "web lookup intent (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 2,
+      "type": "retrieve",
+      "name": "select_result",
+      "input": "Open result [3]: financeblog.net — the write-up looks like a handy summary of the 2025 numbers.",
+      "output": "Selected https://financeblog.net/acme-monster-2025 (third-party commentary blog, no primary citation visible).",
+      "tokens": 150,
+      "latency_s": 1.21,
+      "quality": "bad",
+      "note": "Divergence: picked a commentary blog over the official investor-relations release that was result [1].",
+      "model": {
+        "confidence": 0.8774,
+        "min_token_confidence": 0.6924,
+        "entropy": 0.3741,
+        "tokens_scored": 82,
+        "temperature": 0.7,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.8036,
+          "high": 0.9512,
+          "n": 82,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 12480,
+              "activation": 10.529,
+              "max_activation": 12.0,
+              "label": "unit / time-zone confusion (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 5183,
+              "activation": 6.938,
+              "max_activation": 12.0,
+              "label": "quoting a source (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 4470,
+              "activation": 6.112,
+              "max_activation": 12.0,
+              "label": "named-entity retrieval (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 3,
+      "type": "read",
+      "name": "open_page",
+      "input": "https://financeblog.net/acme-monster-2025",
+      "output": "financeblog.net: \"ACME had a monster year. By my back-of-envelope math they pulled in about $4.5B in 2025, give or take, mostly on the cloud unit. Margins? Who knows — the filing is a maze.\"",
+      "tokens": 156,
+      "latency_s": 1.87,
+      "quality": "weak",
+      "note": null,
+      "model": {
+        "confidence": 0.8261,
+        "min_token_confidence": 0.667,
+        "entropy": 0.415,
+        "tokens_scored": 85,
+        "temperature": 0.7,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.728,
+          "high": 0.9242,
+          "n": 85,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 11711,
+              "activation": 10.639,
+              "max_activation": 12.0,
+              "label": "unverified assumption (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 5183,
+              "activation": 6.124,
+              "max_activation": 12.0,
+              "label": "quoting a source (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 6021,
+              "activation": 6.107,
+              "max_activation": 12.0,
+              "label": "table / number extraction (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 4,
+      "type": "reason",
+      "name": "reason",
+      "input": "Is the blog's revenue figure reliable enough to report?",
+      "output": "The blog says 'about $4.5B, give or take' — approximate. I should corroborate the number with another source before answering.",
+      "tokens": 143,
+      "latency_s": 1.59,
+      "quality": "weak",
+      "note": null,
+      "model": {
+        "confidence": 0.8254,
+        "min_token_confidence": 0.6585,
+        "entropy": 0.5227,
+        "tokens_scored": 78,
+        "temperature": 0.7,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.7348,
+          "high": 0.916,
+          "n": 78,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 11711,
+              "activation": 9.962,
+              "max_activation": 12.0,
+              "label": "unverified assumption (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 8110,
+              "activation": 5.919,
+              "max_activation": 12.0,
+              "label": "self-check / verification (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 9045,
+              "activation": 2.834,
+              "max_activation": 12.0,
+              "label": "hedging language (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 5,
+      "type": "search",
+      "name": "web_search",
+      "input": "ACME Corp 2025 revenue \"$4.5 billion\"",
+      "output": "[1] moneymirror.com — \"ACME's 2025 revenue came in around $4.5 billion, analysts say\" | [2] stocknewsdaily.net — \"ACME posts ~$4.5B year\" | [3] financeblog.net — original post",
+      "tokens": 151,
+      "latency_s": 2.41,
+      "quality": "weak",
+      "note": null,
+      "model": {
+        "confidence": 0.8281,
+        "min_token_confidence": 0.5747,
+        "entropy": 0.4834,
+        "tokens_scored": 83,
+        "temperature": 0.7,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.739,
+          "high": 0.9172,
+          "n": 83,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 11711,
+              "activation": 10.548,
+              "max_activation": 12.0,
+              "label": "unverified assumption (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 4470,
+              "activation": 7.716,
+              "max_activation": 12.0,
+              "label": "named-entity retrieval (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 3312,
+              "activation": 6.571,
+              "max_activation": 12.0,
+              "label": "web lookup intent (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 6,
+      "type": "retrieve",
+      "name": "select_result",
+      "input": "Open result [1]: moneymirror.com — an independent outlet repeating the figure would confirm it.",
+      "output": "Selected https://moneymirror.com/acme-2025-revenue (aggregator; article body links back to financeblog.net as its source).",
+      "tokens": 152,
+      "latency_s": 1.06,
+      "quality": "bad",
+      "note": "Circular corroboration: the aggregator cites the same blog, so this does not independently confirm $4.5B.",
+      "model": {
+        "confidence": 0.8522,
+        "min_token_confidence": 0.6831,
+        "entropy": 0.3557,
+        "tokens_scored": 83,
+        "temperature": 0.7,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.7658,
+          "high": 0.9386,
+          "n": 83,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 12480,
+              "activation": 10.768,
+              "max_activation": 12.0,
+              "label": "unit / time-zone confusion (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 4470,
+              "activation": 6.837,
+              "max_activation": 12.0,
+              "label": "named-entity retrieval (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 5183,
+              "activation": 6.465,
+              "max_activation": 12.0,
+              "label": "quoting a source (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 7,
+      "type": "read",
+      "name": "open_page",
+      "input": "https://moneymirror.com/acme-2025-revenue",
+      "output": "moneymirror.com: \"ACME's 2025 revenue came in around $4.5 billion, analysts say, capping a strong year for the cloud division. (h/t financeblog.net)\"",
+      "tokens": 145,
+      "latency_s": 1.93,
+      "quality": "bad",
+      "note": null,
+      "model": {
+        "confidence": 0.857,
+        "min_token_confidence": 0.6601,
+        "entropy": 0.3609,
+        "tokens_scored": 79,
+        "temperature": 0.7,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.7756,
+          "high": 0.9384,
+          "n": 79,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 12480,
+              "activation": 7.564,
+              "max_activation": 12.0,
+              "label": "unit / time-zone confusion (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 5183,
+              "activation": 7.515,
+              "max_activation": 12.0,
+              "label": "quoting a source (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 6021,
+              "activation": 3.725,
+              "max_activation": 12.0,
+              "label": "table / number extraction (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 8,
+      "type": "reason",
+      "name": "reason",
+      "input": "Do two sources agreeing settle the figure?",
+      "output": "Two sources now report roughly $4.5 billion for 2025. That is consistent, so I will report it.",
+      "tokens": 132,
+      "latency_s": 1.56,
+      "quality": "bad",
+      "note": "Both sources trace to the same blog; the official release (never opened) states $4.82 billion.",
+      "model": {
+        "confidence": 0.8668,
+        "min_token_confidence": 0.654,
+        "entropy": 0.3893,
+        "tokens_scored": 72,
+        "temperature": 0.7,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.7872,
+          "high": 0.9464,
+          "n": 72,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 12480,
+              "activation": 7.844,
+              "max_activation": 12.0,
+              "label": "unit / time-zone confusion (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 8110,
+              "activation": 5.965,
+              "max_activation": 12.0,
+              "label": "self-check / verification (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 9045,
+              "activation": 2.251,
+              "max_activation": 12.0,
+              "label": "hedging language (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 9,
+      "type": "answer",
+      "name": "final_answer",
+      "input": "Compose the final answer from the verified findings.",
+      "output": "ACME Corp's total revenue for fiscal year 2025 was approximately $4.5 billion, as reported by financeblog.net and corroborated by moneymirror.com.",
+      "tokens": 148,
+      "latency_s": 2.05,
+      "quality": "good",
+      "note": null,
+      "model": {
+        "confidence": 0.866,
+        "min_token_confidence": 0.6289,
+        "entropy": 0.3456,
+        "tokens_scored": 81,
+        "temperature": 0.7,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.7935,
+          "high": 0.9385,
+          "n": 81,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 9902,
+              "activation": 5.125,
+              "max_activation": 12.0,
+              "label": "final answer commitment (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 2211,
+              "activation": 4.288,
+              "max_activation": 12.0,
+              "label": "instruction following (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "trace_id": "mc02_sla_credits-steady-v1",
+  "agent": {
+    "name": "steady-v1",
+    "model": "claude-sonnet-5",
+    "version": "v1"
+  },
+  "task": {
+    "id": "mc02_sla_credits",
+    "prompt": "How much SLA credit is owed for the March outage?",
+    "expected": "The March outage owes $2,300.00 in SLA credits."
+  },
+  "outcome": {
+    "success": true,
+    "answer": "The March outage owes $2,300.00 in SLA credits.",
+    "score": 1.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 480,
+    "output_tokens": 160,
+    "cost_usd": 0.00192,
+    "latency_s": 4.4
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "Query the credits API for the March outage.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "get_credits",
+      "input": "get_credits(period='march')",
+      "output": "March outage credits owed: $2,300.00.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 2,
+      "type": "reason",
+      "name": "reason",
+      "input": "The API reports $2,300.00 owed for March.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 3,
+      "type": "answer",
+      "name": "final",
+      "input": "The March outage owes $2,300.00 in SLA credits.",
+      "output": "The March outage owes $2,300.00 in SLA credits.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_credits",
+      "effect": "read"
+    }
+  ],
+  "budget": {
+    "max_steps": 12
+  }
+}

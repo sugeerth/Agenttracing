@@ -1,0 +1,492 @@
+{
+  "schema_version": 1,
+  "trace_id": "t03_saas_pricing__bolt-v3",
+  "agent": {
+    "name": "bolt-v3",
+    "model": "sim-sprinter-3",
+    "version": "v3"
+  },
+  "task": {
+    "id": "t03_saas_pricing",
+    "prompt": "Compare DataHub Cloud's Pro and Team plans for a 25-seat team billed annually. Which plan is cheaper per year, and by how much?",
+    "expected": "Team ($11,700/yr for 25 seats) is cheaper than Pro ($14,700/yr) by $3,000 per year."
+  },
+  "outcome": {
+    "success": true,
+    "answer": "Billed annually for 25 seats, the Team plan costs $11,700/year (25 x $39 x 12) versus $14,700/year for Pro (25 x $49 x 12), so Team is cheaper by $3,000 per year. Pro's extra cost covers SSO, audit logs, and 90-day version history.",
+    "score": 1.0
+  },
+  "totals": {
+    "input_tokens": 1053,
+    "output_tokens": 298,
+    "cost_usd": 0.007629,
+    "latency_s": 17.91
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "1) Get per-seat prices for DataHub Cloud's Pro and Team plans from the official pricing page. 2) Compute the 25-seat annual cost of each plan. 3) Compare and report the difference.",
+      "output": "Plan set. Locating the official pricing page.",
+      "tokens": 154,
+      "latency_s": 1.86,
+      "quality": "good",
+      "note": null,
+      "model": {
+        "confidence": 0.8896,
+        "min_token_confidence": 0.6663,
+        "entropy": 0.2951,
+        "tokens_scored": 84,
+        "temperature": 0.7,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.8159,
+          "high": 0.9633,
+          "n": 84,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 1040,
+              "activation": 3.732,
+              "max_activation": 12.0,
+              "label": "task framing / enumerating sub-goals (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 2211,
+              "activation": 3.412,
+              "max_activation": 12.0,
+              "label": "instruction following (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 1,
+      "type": "search",
+      "name": "web_search",
+      "input": "DataHub Cloud pricing Pro Team plan per seat annual billing",
+      "output": "[1] datahubcloud.com/pricing — Plans & Pricing | [2] saasradar.com — \"DataHub Cloud plans compared (2025)\" | [3] reddit.com — r/dataeng: \"Is DataHub Cloud Pro worth it?\"",
+      "tokens": 155,
+      "latency_s": 2.5,
+      "quality": "good",
+      "note": null,
+      "model": {
+        "confidence": 0.9022,
+        "min_token_confidence": 0.7213,
+        "entropy": 0.2378,
+        "tokens_scored": 85,
+        "temperature": 0.7,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.8294,
+          "high": 0.975,
+          "n": 85,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 4470,
+              "activation": 4.943,
+              "max_activation": 12.0,
+              "label": "named-entity retrieval (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 3312,
+              "activation": 2.514,
+              "max_activation": 12.0,
+              "label": "web lookup intent (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 2,
+      "type": "search",
+      "name": "web_search",
+      "input": "DataHub Cloud Team plan price per user 2025",
+      "output": "[1] datahubcloud.com/pricing — Plans & Pricing | [2] saasradar.com — \"DataHub Cloud plans compared (2025)\" | [3] getapp-style listing — DataHub Cloud pricing overview",
+      "tokens": 151,
+      "latency_s": 2.47,
+      "quality": "weak",
+      "note": "Divergence: redundant follow-up query — the official pricing page was already result [1] of the first search.",
+      "model": {
+        "confidence": 0.8844,
+        "min_token_confidence": 0.6672,
+        "entropy": 0.3854,
+        "tokens_scored": 83,
+        "temperature": 0.7,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.8222,
+          "high": 0.9466,
+          "n": 83,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 11711,
+              "activation": 8.737,
+              "max_activation": 12.0,
+              "label": "unverified assumption (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 4470,
+              "activation": 5.336,
+              "max_activation": 12.0,
+              "label": "named-entity retrieval (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 3312,
+              "activation": 4.802,
+              "max_activation": 12.0,
+              "label": "web lookup intent (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 3,
+      "type": "search",
+      "name": "web_search",
+      "input": "DataHub Cloud Pro plan annual billing discount",
+      "output": "[1] datahubcloud.com/pricing — Plans & Pricing | [2] datahubcloud.com/blog — \"Annual billing now saves 17%\" | [3] saasradar.com — plans compared",
+      "tokens": 146,
+      "latency_s": 2.46,
+      "quality": "weak",
+      "note": "Second redundant query; still landing on the same page.",
+      "model": {
+        "confidence": 0.8533,
+        "min_token_confidence": 0.619,
+        "entropy": 0.4298,
+        "tokens_scored": 80,
+        "temperature": 0.7,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.763,
+          "high": 0.9436,
+          "n": 80,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 4470,
+              "activation": 7.304,
+              "max_activation": 12.0,
+              "label": "named-entity retrieval (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 3312,
+              "activation": 6.306,
+              "max_activation": 12.0,
+              "label": "web lookup intent (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 11711,
+              "activation": 6.182,
+              "max_activation": 12.0,
+              "label": "unverified assumption (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 4,
+      "type": "retrieve",
+      "name": "select_result",
+      "input": "Open result [1]: datahubcloud.com/pricing — the vendor's own pricing page has the canonical numbers.",
+      "output": "Selected https://datahubcloud.com/pricing (official pricing page).",
+      "tokens": 139,
+      "latency_s": 1.14,
+      "quality": "good",
+      "note": null,
+      "model": {
+        "confidence": 0.888,
+        "min_token_confidence": 0.7496,
+        "entropy": 0.335,
+        "tokens_scored": 76,
+        "temperature": 0.7,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.8119,
+          "high": 0.9641,
+          "n": 76,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 5183,
+              "activation": 6.949,
+              "max_activation": 12.0,
+              "label": "quoting a source (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 4470,
+              "activation": 5.607,
+              "max_activation": 12.0,
+              "label": "named-entity retrieval (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 5,
+      "type": "read",
+      "name": "open_page",
+      "input": "https://datahubcloud.com/pricing",
+      "output": "DataHub Cloud — Plans & Pricing. Team: $39 per user/month billed annually ($47 billed monthly). Pro: $49 per user/month billed annually ($59 billed monthly); adds SSO/SAML, audit logs, 90-day version history, priority support. Enterprise: contact sales.",
+      "tokens": 169,
+      "latency_s": 1.76,
+      "quality": "good",
+      "note": null,
+      "model": {
+        "confidence": 0.857,
+        "min_token_confidence": 0.6828,
+        "entropy": 0.3867,
+        "tokens_scored": 92,
+        "temperature": 0.7,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.7787,
+          "high": 0.9353,
+          "n": 92,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 5183,
+              "activation": 5.657,
+              "max_activation": 12.0,
+              "label": "quoting a source (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 6021,
+              "activation": 4.931,
+              "max_activation": 12.0,
+              "label": "table / number extraction (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 6,
+      "type": "read",
+      "name": "open_page",
+      "input": "https://saasradar.com/datahub-cloud-plans-compared-2025",
+      "output": "saasradar.com: \"DataHub Cloud's Team tier runs $39/user/mo on annual terms versus $49 for Pro. For most sub-50-seat teams the delta is SSO and audit logs.\"",
+      "tokens": 151,
+      "latency_s": 2.06,
+      "quality": "weak",
+      "note": "Confirmation read adds latency but no new information.",
+      "model": {
+        "confidence": 0.8422,
+        "min_token_confidence": 0.6774,
+        "entropy": 0.4388,
+        "tokens_scored": 83,
+        "temperature": 0.7,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.7645,
+          "high": 0.9199,
+          "n": 83,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 11711,
+              "activation": 10.826,
+              "max_activation": 12.0,
+              "label": "unverified assumption (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 6021,
+              "activation": 5.619,
+              "max_activation": 12.0,
+              "label": "table / number extraction (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 5183,
+              "activation": 5.37,
+              "max_activation": 12.0,
+              "label": "quoting a source (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 7,
+      "type": "tool_call",
+      "name": "calculator",
+      "input": "25 * 39 * 12 ; 25 * 49 * 12 ; 25 * 49 * 12 - 25 * 39 * 12",
+      "output": "11700 ; 14700 ; 3000",
+      "tokens": 117,
+      "latency_s": 1.32,
+      "quality": "good",
+      "note": null,
+      "model": {
+        "confidence": 0.9002,
+        "min_token_confidence": 0.7481,
+        "entropy": 0.3061,
+        "tokens_scored": 64,
+        "temperature": 0.7,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.8396,
+          "high": 0.9608,
+          "n": 64,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 7332,
+              "activation": 6.686,
+              "max_activation": 12.0,
+              "label": "arithmetic on units (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 6021,
+              "activation": 4.743,
+              "max_activation": 12.0,
+              "label": "table / number extraction (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 8,
+      "type": "answer",
+      "name": "final_answer",
+      "input": "Compose the final answer from the verified findings.",
+      "output": "Billed annually for 25 seats, the Team plan costs $11,700/year (25 x $39 x 12) versus $14,700/year for Pro (25 x $49 x 12), so Team is cheaper by $3,000 per year. Pro's extra cost covers SSO, audit logs, and 90-day version history.",
+      "tokens": 169,
+      "latency_s": 2.34,
+      "quality": "good",
+      "note": null,
+      "model": {
+        "confidence": 0.8958,
+        "min_token_confidence": 0.7529,
+        "entropy": 0.3132,
+        "tokens_scored": 92,
+        "temperature": 0.7,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.8316,
+          "high": 0.96,
+          "n": 92,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 9902,
+              "activation": 3.202,
+              "max_activation": 12.0,
+              "label": "final answer commitment (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 2211,
+              "activation": 2.746,
+              "max_activation": 12.0,
+              "label": "instruction following (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    }
+  ]
+}
