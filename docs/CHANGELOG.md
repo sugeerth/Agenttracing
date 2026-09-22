@@ -5,6 +5,60 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The last two blind spots: one measure, one corpus defect
+
+The long-horizon suite shipped with two failure modes nothing caught, and
+they are pinned here because closing them took two opposite kinds of work.
+
+**`context_overflow` — a measure, not a fitted threshold.** Work
+re-derived from scratch two hundred steps later landed at 8–12% of a
+run's tool steps, while the loop rule fires at 10%: caught in the shorter
+tasks, missed in the longer ones, for a reason that has nothing to do
+with the failure. Moving the constant would have fitted it to a synthetic
+corpus. `process.repeats` instead reports the **longest contiguous
+stretch of steps that repeat an earlier (call, observation) pair** —
+`redundant_stretches`, `longest_redundant_stretch`, `redundant_steps`,
+`redundant_basis`, with `REDUNDANT_STRETCH = 3` as the minimum run
+length. It is a shape, not a magnitude, so nothing is fitted: over 400
+generated runs every one of the 216 known-correct runs has a longest
+stretch of 0, and every `context_overflow` run has 6 or more. The
+scorecard carries it as `trajectory.redundant_stretch` /
+`redundant_steps` / `redundant_at` per run, `redundant_runs` and
+`redundant_steps` per agent, a tenth detection signal (`redundant`), and
+a page row — *runs that re-did work · steps*.
+
+**`regression` — the corpus was lying.** It was caught 0 of 15 times
+because the generated run made its breaking edit and *then* ran the whole
+check suite, which reported "980 passed". A run labelled "the early check
+is never re-run" contained, in its own evidence, a later check that
+passed; there was nothing there to catch. The generator now lands the
+edit after the final verification, and its `manifests` self-check refuses
+to emit a `regression` run with any check following the edit, so the
+label and the contents cannot drift apart again. With the corpus telling
+the truth, the existing `unverified_write` flag catches all 15. No
+detector was added — a synthetic corpus is an instrument, and one that
+disagrees with its own labels measures nothing, convincingly.
+
+**Where this leaves the numbers.** On the sixteen-task suite: *12 of 12
+known failures caught; 7 were graded a pass, 7 of them caught by
+something else; 0 of 20 control runs flagged.* Over 200 generated pairs
+(400 runs, 91,809 steps): *184 of 184 known failures caught; 107 were
+graded a pass, 107 of them caught by something else; 0 of 216 control
+runs flagged.*
+
+Both halves of each sentence are load-bearing. A card that flagged
+everything would also read 184 of 184, and the control line is the only
+thing that distinguishes the two. And the catch is spread — risk flags
+and milestones lead at 92 of 184 each, the grade at 77, then unrecovered
+errors 61, redundant stretch 31, grounding 30, loop share 21, policy 16,
+order and kept-looking 15 apiece. **No dimension catches more than half.**
+If one ever did, it would be a detector that had learned the generator
+rather than the failure, and `tests/test_horizon_scale.py` now asserts
+that none does, alongside the per-mode rates, the 0-of-216 controls, and
+that every known failure is caught by something. 184 of 184 is a floor
+over *the twelve modes this corpus contains*, not a claim about
+long-horizon failure in general.
+
 ## Sixteen long tasks, and what the evaluation could not see in them
 
 A short task fails in its first few steps and the outcome says so. A run

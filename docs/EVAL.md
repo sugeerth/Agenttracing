@@ -50,9 +50,11 @@ With that, `eval` reports `detection` — for each known failure, whether
 caught; how many were graded a pass regardless; and how many known-correct
 runs were flagged anyway. On the long-horizon suite it reads:
 
-> 11 of 12 known failures caught; regression passed every dimension; 7
-> were graded a pass, 6 of them caught by something else; 0 of 20 control
-> runs flagged.
+> 12 of 12 known failures caught; 7 were graded a pass, 7 of them caught
+> by something else; 0 of 20 control runs flagged.
+
+Read both halves or neither: a card that flagged everything would also
+report 12 of 12, and the control line is what tells the two apart.
 
 A card that cannot say this is a card you have to take on trust. A golden
 set that names no known failure makes the block unmeasurable, with the
@@ -66,11 +68,13 @@ clean bill of health.
 **At length, these dimensions behave differently, and several of them used
 to behave wrongly.** `docs/HORIZON.md` measures every one of them against
 a sixteen-task, thirty-two-run long-horizon suite with twelve named
-failure modes and four controls: which modes each dimension catches, which
-one nothing catches, and the false-positive rate on twenty correct runs
-(zero). The short version: seven of the twelve failures are graded a
-*pass*, and six of those are caught by the milestone, grounding, policy
-and recovery dimensions instead.
+failure modes and four controls — and again over 200 generated pairs
+(400 runs, ~92,000 steps): which modes each dimension catches, and the
+false-positive rate on the runs known to be correct (zero, both times).
+The short version: seven of the twelve failures are graded a *pass*, and
+all seven are caught by the milestone, grounding, policy, recovery and
+redundancy dimensions instead. **No single dimension catches more than
+half**, which is the case for reading a card rather than a number.
 
 ## The golden dataset
 

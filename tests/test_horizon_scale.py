@@ -15,24 +15,26 @@ written to a temporary directory and never shipped; it is deterministic
 from its seed, so the numbers below are reproducible and comparable
 between engines.
 
-Two of the numbers pinned here are *failures of the evaluation*, and they
-are pinned as such:
+Every mode is caught in every one of its 184 runs, and the number that
+matters more is the one underneath it: **0 of 216 runs known to be
+correct is flagged**. A detector that fires on everything would also read
+184 of 184 here, and the control line is the only thing that tells the two
+apart. Read the two together or neither means anything.
 
-- `regression` — a late fix that breaks an early unit — is caught 0 of 15
-  times. It is the blind spot `docs/HORIZON.md` names.
-- `context_overflow` is caught 6 of 16 times, because it lands at 8–12%
-  of a run's tool steps while the loop rule needs 10%: it is detected in
-  the shorter tasks and missed in the longer ones. A threshold fitted to
-  this corpus would "fix" it, which is why there isn't one.
+184/184 is a floor over *the twelve modes this corpus contains*, not a
+claim about long-horizon failure in general — the modes it does not
+contain are not measured by it, and `docs/HORIZON.md` says which two were
+missed until recently and what closing them cost.
 
-If a change makes these better, the test fails and the fix is to update
-the numbers and the document together. That is the point of writing them
-down.
+If a change moves any of these numbers, the test fails and the fix is to
+update the numbers and the document together. That is the point of
+writing them down.
 """
 
 from __future__ import annotations
 
 import importlib.util
+import itertools
 import json
 import subprocess
 import sys
@@ -52,12 +54,12 @@ PAIRS = 200
 #: caught / known, per mode, over the generated corpus.
 EXPECTED = {
     "budget_exhausted": (16, 16),
-    "context_overflow": (6, 16),      # the threshold's edge; see the docstring
+    "context_overflow": (16, 16),
     "drift": (16, 16),
     "forgotten_constraint": (16, 16),
     "late_fault": (15, 15),
     "out_of_order": (15, 15),
-    "regression": (0, 15),            # the blind spot, pinned as a blind spot
+    "regression": (15, 15),
     "retry_stall": (15, 15),
     "skipped_unit": (15, 15),
     "stale_value": (15, 15),
@@ -109,7 +111,7 @@ class HorizonScaleTest(unittest.TestCase):
             got[1] += 1
             got[0] += 1 if row["caught"] else 0
         self.assertEqual({k: tuple(v) for k, v in sorted(per.items())}, EXPECTED)
-        self.assertEqual((self.det["caught"], self.det["total"]), (159, 184))
+        self.assertEqual((self.det["caught"], self.det["total"]), (184, 184))
 
     def test_no_run_known_to_be_correct_is_flagged(self):
         """216 runs that did nothing wrong — the controls of the control
@@ -120,20 +122,57 @@ class HorizonScaleTest(unittest.TestCase):
         self.assertEqual(controls["flagged"], 0, controls["false_positives"])
 
     def test_the_grade_alone_would_miss_more_than_half_of_them_at_scale(self):
+        """107 of the 184 known failures — more than half — are graded a
+        pass. All 107 are caught by some other dimension, which is the
+        whole argument for the rest of the card existing."""
         self.assertEqual(self.det["graded_pass"], 107)
-        self.assertEqual(self.det["graded_pass_caught_otherwise"], 82)
-        # the dimension that catches most of them, and by how far
+        self.assertEqual(self.det["graded_pass_caught_otherwise"], 107)
         signals = self.det["by_signal"]
-        self.assertEqual(next(iter(signals)), "milestones")
         self.assertGreater(signals["milestones"], signals["grade"])
+        self.assertGreater(signals["flags"], signals["grade"])
 
-    def test_the_blind_spots_are_still_blind_and_named(self):
-        """When this fails because something improved, update `EXPECTED`,
-        `docs/HORIZON.md` and this list together."""
-        self.assertEqual(sorted(set(self.det["missed"])), ["context_overflow", "regression"])
-        rows = {r["task"]: r for r in self.det["modes"]}
+    def test_nothing_is_missed_and_nothing_catches_it_alone(self):
+        """Both of this corpus's former blind spots close here, and the
+        assertion that matters is the second one: no single dimension
+        accounts for the 184. If one ever did, it would be a detector that
+        had learned the generator rather than the failure — so this pins
+        that the catch is spread, and `test_no_run_known_to_be_correct_is_flagged`
+        pins that the spread is not just noise."""
+        self.assertEqual(sorted(set(self.det["missed"])), [])
         for row in self.det["modes"]:
-            if row["mode"] == "regression":
-                self.assertEqual(row["signals"], [], row["task"])
-        self.assertTrue(any(rows[t]["caught"] for t, r in rows.items() if r["mode"] == "context_overflow"),
-                        "context_overflow is partly caught, not wholly missed")
+            self.assertTrue(row["signals"], f"{row['task']} ({row['mode']}) caught by nothing")
+        by_signal: dict = {}
+        for row in self.det["modes"]:
+            for signal in row["signals"]:
+                by_signal.setdefault(signal, set()).add(row["task"])
+        self.assertLessEqual(max(len(v) for v in by_signal.values()), self.det["total"] // 2,
+                             "one dimension catching most of them would be a corpus artefact, not a result")
+        pair = max(len(a | b) for a, b in itertools.combinations(by_signal.values(), 2))
+        self.assertEqual(pair, 138)
+        self.assertLess(pair, self.det["total"], "no two dimensions between them reach all of it")
+        # the two that used to get away, now caught in every run they appear in
+        for mode in ("regression", "context_overflow"):
+            rows = [r for r in self.det["modes"] if r["mode"] == mode]
+            self.assertTrue(rows and all(r["caught"] for r in rows), mode)
+
+    def test_the_redundancy_measure_is_a_shape_not_a_fitted_threshold(self):
+        """The stretch of contiguous re-done steps separates the classes
+        outright — and the assertion that matters is the last one: nothing
+        in the corpus lands anywhere near `REDUNDANT_STRETCH`. A constant
+        that sat between the classes would be fitted to this corpus; this
+        one is a floor on what counts as a stretch at all."""
+        from deepcompare.process import REDUNDANT_STRETCH
+        tasks = {t["id"]: t for t in self.golden["tasks"]}
+        by_mode: dict = {}
+        for r in self.card["per_run"]:
+            task = tasks[r["task"]]
+            failing = r["agent"] in (task.get("failure_mode_agents") or [])
+            mode = task.get("failure_mode") if failing else "correct"
+            by_mode.setdefault(mode, []).append(r["trajectory"]["redundant_stretch"])
+        self.assertEqual(max(by_mode["correct"]), 0, "a correct run re-does nothing")
+        self.assertEqual((min(by_mode["context_overflow"]), max(by_mode["context_overflow"])), (6, 8))
+        self.assertEqual(sorted({v for vs in by_mode.values() for v in vs}), [0, 6, 8, 10])
+        for mode, values in by_mode.items():
+            if mode not in ("context_overflow", "retry_stall"):
+                self.assertEqual(max(values), 0, mode)
+        self.assertEqual(REDUNDANT_STRETCH, 3)

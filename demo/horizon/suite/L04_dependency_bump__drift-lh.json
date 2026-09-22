@@ -4619,38 +4619,6 @@
     },
     {
       "index": 231,
-      "type": "reason",
-      "name": "reason",
-      "input": "orchestrator: the web change needs the shared client widened; editing it",
-      "output": "",
-      "tokens": 65,
-      "latency_s": 0.8,
-      "quality": null,
-      "note": null,
-      "model": null,
-      "error": null,
-      "effect": null,
-      "span": null,
-      "tokens_basis": "measured"
-    },
-    {
-      "index": 232,
-      "type": "tool_call",
-      "name": "write_file",
-      "input": "write src/shared/client.py",
-      "output": "ok",
-      "tokens": 30,
-      "latency_s": 0.3,
-      "quality": "bad",
-      "note": "SYNTHETIC failure: this breaks core, whose checks are never re-run",
-      "model": null,
-      "error": false,
-      "effect": "write",
-      "span": null,
-      "tokens_basis": "measured"
-    },
-    {
-      "index": 233,
       "type": "tool_call",
       "name": "run_checks",
       "input": "run_checks(scope='all')",
@@ -4670,7 +4638,7 @@
       "tokens_basis": "measured"
     },
     {
-      "index": 234,
+      "index": 232,
       "type": "reason",
       "name": "reason",
       "input": "verifier: all green, 980 checks passing",
@@ -4687,6 +4655,38 @@
         "agent": "verifier",
         "parent": null
       },
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 233,
+      "type": "reason",
+      "name": "reason",
+      "input": "orchestrator: review nit on core — widen the client signature; it is a one-liner",
+      "output": "",
+      "tokens": 65,
+      "latency_s": 0.8,
+      "quality": "bad",
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": null,
+      "span": null,
+      "tokens_basis": "measured"
+    },
+    {
+      "index": 234,
+      "type": "tool_call",
+      "name": "write_file",
+      "input": "write src/core/client.py",
+      "output": "ok",
+      "tokens": 30,
+      "latency_s": 0.3,
+      "quality": "bad",
+      "note": "SYNTHETIC failure: core was verified before this edit and nothing checks it after",
+      "model": null,
+      "error": false,
+      "effect": "write",
+      "span": null,
       "tokens_basis": "measured"
     },
     {

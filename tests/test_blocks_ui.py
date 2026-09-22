@@ -3815,6 +3815,10 @@ class DetectionSectionTest(unittest.TestCase):
     page has to print what nothing caught as plainly as what was caught:
     a card that quietly omits its blind spot is worse than one without the
     section at all, because it reads as a clean bill of health.
+
+    The suite currently misses nothing, so the branch that prints "nothing"
+    is pinned by doctoring the loaded card and re-rendering — the page must
+    be able to say it, whether or not today's corpus makes it say it.
     """
 
     tmp = None
@@ -3868,25 +3872,33 @@ class DetectionSectionTest(unittest.TestCase):
         self.assertEqual(sec.locator('[data-role="narrative"]').inner_text(), self.det["narrative"])
         rows = sec.locator("table.sc-detect tbody tr, table.sc-detect tr[data-mode]")
         self.assertEqual(rows.count(), len(self.det["modes"]))
-        # every mode the engine says nothing caught is printed as caught by
-        # nothing, in the page's own words
-        missed = sorted(set(self.det["missed"]))
-        self.assertTrue(missed, "this suite has a blind spot; without one the test is vacuous")
-        for mode in missed:
-            row = sec.locator(f'table.sc-detect tr[data-mode="{mode}"]')
-            self.assertEqual(row.get_attribute("data-caught"), "false", mode)
-            self.assertIn("nothing", row.inner_text())
-        caught = [r for r in self.det["modes"] if r["caught"]]
-        for row in caught[:4]:
-            cells = sec.locator(f'table.sc-detect tr[data-mode="{row["mode"]}"]').inner_text()
+        # every row reads exactly what the engine says about it — caught or
+        # not, and by what
+        self.assertEqual(sorted(set(self.det["missed"])), [], "the suite's blind spots are closed")
+        for row in self.det["modes"]:
+            cells = sec.locator(f'table.sc-detect tr[data-mode="{row["mode"]}"]')
+            self.assertEqual(cells.get_attribute("data-caught"),
+                             "true" if row["caught"] else "false", row["mode"])
             for signal in row["signals"]:
-                self.assertIn(signal, cells, row["mode"])
+                self.assertIn(signal, cells.inner_text(), row["mode"])
         # and the other half: the runs known to be correct
         controls = sec.locator('[data-role="controls"]').inner_text()
         if self.det["controls"]["flagged"]:
             self.assertIn("flagged anyway", controls)
         else:
             self.assertIn(f"({self.det['controls']['runs']} checked)", controls)
+        # and the branch no corpus exercises today: a mode nothing caught is
+        # printed as caught by nothing, in the page's own words
+        blinded = self.det["modes"][0]["mode"]
+        page.evaluate("""(mode) => {
+            const det = AgentDiff._internals.State.data.aggregate.scorecard.detection;
+            det.modes.forEach(r => { if (r.mode === mode) r.signals = []; });
+            AgentDiff._internals.renderAll();
+        }""", blinded)
+        page.wait_for_timeout(300)
+        row = page.locator(f'.block[data-block="scorecard"] table.sc-detect tr[data-mode="{blinded}"]')
+        self.assertEqual(row.get_attribute("data-caught"), "false")
+        self.assertIn("nothing", row.inner_text())
         self.assertEqual(errors, [])
         context.close()
 

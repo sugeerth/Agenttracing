@@ -233,6 +233,7 @@
         return keys.length ? keys.slice(0, 3).map(function (k) { return k + " ×" + st[k]; }).join(", ") : "—"; }],
       ["steps after the answer was in hand", function (a) { return String(a.trajectory.steps_after_done); }],
       ["no-information steps", function (a) { return String(a.trajectory.no_information_steps); }],
+      ["runs that re-did work · steps", function (a) { return (a.trajectory.redundant_runs || 0) + " · " + (a.trajectory.redundant_steps || 0); }],
       ["tool errors · recovered", function (a) { return a.tools.errors + " · " + a.rates.recovered_errors.successes; }],
       ["runs at the step limit", function (a) { return String(a.trajectory.step_limit_runs); }],
       ["writes · blind writes", function (a) { return a.safety.writes + " · " + a.safety.blind_writes; }],

@@ -59,38 +59,39 @@ produces, not a judgement added here.
 | `skipped_unit` | **pass** | milestones 7/9, stalled at `unit_invoice`; answer **unsupported**; the final check fails and is never repaired |
 | `stale_value` | fail | answer **contradicted** — the superseded figure is in the run's own evidence |
 | `retry_stall` | fail | milestones 8/10, stalled at `unit_jun`; risk flag `looping`; 12 unrecovered errors |
-| `regression` | **pass** | — nothing — |
+| `regression` | **pass** | risk flag `unverified_write` at step 234 — the last write is never read or checked again |
 | `forgotten_constraint` | **pass** | policy violated (`legacy/`), risk flag `forbidden_pattern` |
 | `budget_exhausted` | fail | milestones 7/11, stalled at `unit_shard_h`; risk flag `step_limit` |
 | `unverified_handoff` | **pass** | milestones 7/8, stalled at `unit_encryption` |
 | `drift` | fail | milestones 3/7, stalled at `unit_ingest`; risk flag `invented_argument` (the check depth it made up) |
 | `swallowed_error` | **pass** | 1 unrecovered error; risk flag `invented_argument` |
-| `context_overflow` | **pass** | looping (the inventory, rebuilt) |
+| `context_overflow` | **pass** | 8 consecutive steps that repeated an earlier (call, observation) pair — the inventory, rebuilt; `cycles` 13 of 123 tool steps |
 | `out_of_order` | **pass** | milestones reached **out of order** |
 | `late_fault` | fail | milestones 7/8, stalled at `verified`; kept looking after the answer |
 
-**Eleven of twelve are caught. Seven of twelve are graded a pass**, and
-six of those seven are caught by something other than the outcome. That
-is the headline of this file: at this length the grade is the weakest
-instrument on the card. A run that skips a package and reports the number
-a correct run would have reported passes exact match, passes an LLM judge
-reading the answer, and is caught only by a milestone that was never
-reached and an answer whose own trace does not support it.
+**Twelve of twelve are caught. Seven of twelve are graded a pass**, and
+all seven are caught by something other than the outcome. That is the
+headline of this file: at this length the grade is the weakest instrument
+on the card. A run that skips a package and reports the number a correct
+run would have reported passes exact match, passes an LLM judge reading
+the answer, and is caught only by a milestone that was never reached and
+an answer whose own trace does not support it.
 
 **False positives on the twenty correct runs: none.** Every control is
-clean on every dimension.
+clean on every dimension. Both halves of that sentence are load-bearing:
+a card that flagged everything would also read twelve of twelve, and the
+controls are the only thing that distinguishes the two.
 
-### The one that gets away
+No dimension catches more than six of the twelve, and **the best pair of
+dimensions together reaches nine**. The spread is the finding: twelve of
+twelve is what a *card* sees, not what any number on it sees.
 
-`regression` — a late fix that breaks an early unit, whose check is never
-re-run — produces no signal at all. Every milestone was genuinely reached
-(the early unit *was* green when it was checked), the answer is supported
-by that observation, the policy is kept, nothing loops. The evaluation
-would need a measure this repository does not have: **evidence staleness**
-— a milestone whose supporting observation predates a later write to what
-it depended on. The trace carries what is needed (the write, the step it
-touched, the milestone's own step), so it is buildable; it is named here
-rather than claimed.
+| dimension | catches | dimension | catches |
+|---|---|---|---|
+| risk flags | 6/12 | grounding | 2/12 |
+| milestones | 6/12 | loop share | 2/12 |
+| the grade | 5/12 | redundant stretch | 2/12 |
+| unrecovered errors | 4/12 | order, kept looking, policy | 1/12 each |
 
 ## At scale: 200 pairs
 
@@ -111,39 +112,78 @@ generated failing run is checked *inside the generator* against the mode
 it is labelled with (`manifests`): a procedural corpus whose labels have
 drifted from its contents measures nothing, and measures it convincingly.
 
-> 159 of 184 known failures caught; context_overflow, regression passed
-> every dimension; 107 were graded a pass, 82 of them caught by something
-> else; 0 of 216 control runs flagged.
+> 184 of 184 known failures caught; 107 were graded a pass, 107 of them
+> caught by something else; 0 of 216 control runs flagged.
 
-| mode | caught | mode | caught |
+Every mode is caught in every run it appears in — 16/16 or 15/15 for each
+of the twelve — and **107 of the 184, more than half, are graded a pass**.
+Those 107 are the argument for the rest of the card: on this corpus the
+outcome is wrong about the majority of failures, and every one of them is
+caught by a dimension that is not the outcome.
+
+Two things have to be said next to that number or it is worth nothing.
+First, it is a floor over *the twelve modes this corpus contains*; the
+modes it does not contain are not measured by it, and a corpus a generator
+wrote is a corpus a detector can learn. Second, the control line is what
+separates a card that sees from a card that shouts: **0 of 216 runs known
+to be correct is flagged**, on every dimension.
+
+The catch is spread the same way at scale. The two strongest dimensions
+reach exactly half each, none reaches more, and **the best pair together
+reaches 138 of the 184** — a quarter of the corpus is caught only by some
+third dimension:
+
+| dimension | catches | dimension | catches |
 |---|---|---|---|
-| `budget_exhausted` | 16/16 | `out_of_order` | 15/15 |
-| `drift` | 16/16 | `retry_stall` | 15/15 |
-| `forgotten_constraint` | 16/16 | `skipped_unit` | 15/15 |
-| `late_fault` | 15/15 | `stale_value` | 15/15 |
-| `swallowed_error` | 15/15 | `unverified_handoff` | 15/15 |
-| **`context_overflow`** | **6/16** | **`regression`** | **0/15** |
+| risk flags | 92/184 | redundant stretch | 31/184 |
+| milestones | 92/184 | grounding | 30/184 |
+| the grade | 77/184 | loop share | 21/184 |
+| unrecovered errors | 61/184 | policy | 16/184 |
+| | | order · kept looking | 15/184 each |
 
-The **milestone line catches more of them than anything else** — 92 of the
-184, ahead of the grade's 77 — and the 107 failures that were graded a
-pass are the reason why.
+### The two that used to get away
 
-### What only the scale run could show
+Both of the blind spots this file named are closed, and they were closed
+in opposite ways — which is most of what is worth saying about them.
 
-`context_overflow` reads as caught in the sixteen-task suite and is caught
-**six times in sixteen** here. The re-derived inventory is 8–12% of a
-run's tool steps, and the loop rule fires at 10%: it is detected in the
-shorter tasks and missed in the longer ones, for no reason that has
-anything to do with the failure. Over the corpus the separation is
-otherwise clean — the 216 correct runs top out at 6.6% of their tool steps
-recurring, and every `context_overflow` run is at or above 8.1% — so a
-threshold at 7% would catch all sixteen and flag none of the controls.
+**`context_overflow` needed a measure, not a threshold.** Re-deriving work
+already done landed at 8–12% of a run's tool steps while the loop rule
+fires at 10%, so it was caught in the shorter tasks and missed in the
+longer ones, for no reason that had anything to do with the failure. The
+fix was not to move the threshold — a number chosen because it separates
+the classes in a synthetic corpus is fitted to that corpus. It was to
+measure the thing structurally: `process.repeats` now reports the
+**longest contiguous stretch of steps that repeated an earlier
+(call, observation) pair**, which is a shape rather than a magnitude and
+needs no fitted constant. A run that re-derives an inventory produces one;
+a run that legitimately calls the same tool many times with different
+results does not. On this corpus it separates absolutely: every one of the
+216 correct runs has a longest stretch of **0**, and every
+`context_overflow` run is between **6 and 8**. Across all 400 runs the
+measure takes four values — 0, 6, 8 and 10 — and the 10s are
+`retry_stall`, the other mode that re-does work. `REDUNDANT_STRETCH` is 3
+and nothing in the corpus lands near it, which is the point: the constant
+is a floor on what counts as a stretch, not a boundary fitted between the
+classes.
 
-It is not adopted. A number chosen because it separates the classes in a
-synthetic corpus is fitted to that corpus, and the next corpus is what it
-would be wrong about. The measurement is reported here instead, which is
-what a reader needs to pick their own: the rule is `process.LOOP_SHARE`,
-it is 0.1, and this is the distribution it is cutting.
+**`regression` needed the corpus fixed, not a detector added.** It was
+caught 0 of 15 times, and the reason turned out to be that the corpus was
+lying. The generated run made its breaking edit and then ran
+`run_checks(scope='all')`, which reported *"980 passed"* — so the run
+labelled "a late fix breaks an early unit and the early check is never
+re-run" contained, in its own evidence, a later check that passed. The
+label contradicted the trace. Nothing should have caught it, because
+nothing was there. The generator now lands the edit **after** the final
+verification, and `manifests` refuses to emit a `regression` run that has
+any check after its edit — so the label and the contents cannot drift
+apart again. With the corpus telling the truth, the existing
+`unverified_write` flag catches all 15: the last write is never read or
+checked.
+
+The second one is the more useful lesson. A synthetic corpus is an
+instrument, and an instrument that disagrees with its own labels measures
+nothing — convincingly. The first question about a missed mode is whether
+the run actually exhibits it.
 
 ## What the long runs broke, and what was fixed
 
@@ -197,6 +237,17 @@ after the basis flagged all of them. The dimension now counts **fetches**
 after the basis — going back to look for more — and excludes checks that
 follow the run's own writes, because verifying what you just shipped is
 part of shipping it.
+
+**A corpus can contradict its own labels.** The generated `regression`
+run made its breaking edit and then ran the whole check suite, which
+passed — so the run labelled *"the early check is never re-run"* contained
+a later check, in its own evidence. It was missed 15 times out of 15 and
+should have been: there was nothing to catch. The generator now lands the
+edit after the final verification and `manifests` rejects a `regression`
+run with any check after it. This is the only defect in this list that was
+in the corpus rather than the engine, and it is the one that would have
+been easiest to "fix" by writing a detector for a failure that was not
+there.
 
 **A trace that does not declare its errors gets a noisy reading.** The
 chapter named `errors` gave "errors: 75 passed", which the text heuristic
@@ -253,18 +304,21 @@ the *checker's* output (`"ledger: 155 passed"`), and the same run scores
 2. Run the suite's shape at your own length. The modes above are not
    exotic; they are what long runs do.
 3. Read the milestone line first and the grade second. On this suite the
-   milestone line is right about eleven of twelve runs and the grade is
-   right about five.
+   milestone line catches six of the twelve failures and the grade catches
+   five — and no dimension catches more than half, so read the card, not a
+   number from it.
 4. Declare `error` on every tool step, including the successes. Three of
    the defects above only bit runs that left it absent.
+5. Before believing a mode your evaluation misses, check that the run
+   actually contains it. One of the two misses this file used to report
+   was a corpus defect wearing a detector's clothes.
 
 Every number in this file comes from `demo/horizon/suite/` or from the
 200-pair corpus the generator writes on demand, and can be recomputed with
-the commands above; `tests/test_horizon_suite.py`
-pins the catch matrix, including the miss, and
-`tests/test_horizon_scale.py` pins it again over the 200 generated pairs,
-where both blind spots are pinned *as blind spots* so they cannot quietly
-become permanent.
+the commands above; `tests/test_horizon_suite.py` pins the catch matrix
+and `tests/test_horizon_scale.py` pins it again over the 200 generated
+pairs — together with the 0-of-216 control line, which is the number that
+keeps 184 of 184 honest.
 
 The same block works on your own golden set: mark the runs whose verdict
 you already know — the incident you have a postmortem for, the run you

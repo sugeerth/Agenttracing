@@ -223,6 +223,12 @@ def repeats(trajectory: Trajectory) -> dict:
 
     Three different pathologies that all look like "the agent is stuck":
 
+    * a **redundant stretch** is a run of consecutive tool steps whose
+      every (call, observation) pair had already been seen: work the run
+      had already done, done again, returning nothing it did not have.
+      Contiguity is what makes this a *shape* rather than a magnitude —
+      scattered repeats are ordinary (a file read twice, a check re-run
+      after a fix), a block of them is the run re-deriving something;
     * a **repeat** is the same call made twice;
     * a **cycle** is the same (call, observation) pair recurring, which is
       the shape of a loop rather than a retry;
@@ -237,6 +243,13 @@ def repeats(trajectory: Trajectory) -> dict:
     seen_pairs: dict[str, int] = {}
     seen_outputs: dict[str, int] = {}
     repeated, cycles, no_information = [], [], []
+    stretches: list[dict] = []
+    run_so_far: list[int] = []
+
+    def close_run() -> None:
+        if len(run_so_far) >= REDUNDANT_STRETCH:
+            stretches.append({"from": run_so_far[0], "to": run_so_far[-1], "steps": len(run_so_far)})
+        run_so_far.clear()
 
     for step in trajectory.steps:
         if step.type not in TOOLISH_TYPES:
@@ -257,8 +270,10 @@ def repeats(trajectory: Trajectory) -> dict:
             cycles.append({"index": step.index, "name": step.name,
                            "period": step.index - seen_pairs[pair],
                            "first_seen": seen_pairs[pair]})
+            run_so_far.append(step.index)
         else:
             seen_pairs[pair] = step.index
+            close_run()
 
         if step.output.strip() and not errored:
             digest = _digest(step.output)
@@ -268,8 +283,16 @@ def repeats(trajectory: Trajectory) -> dict:
             else:
                 seen_outputs[digest] = step.index
 
+    close_run()
     toolish = sum(1 for st in trajectory.steps if st.type in TOOLISH_TYPES)
+    longest = max((x["steps"] for x in stretches), default=0)
     return {
+        "redundant_stretches": stretches,
+        "longest_redundant_stretch": longest,
+        "redundant_steps": sum(x["steps"] for x in stretches),
+        "redundant_basis": (f"a stretch is {REDUNDANT_STRETCH}+ consecutive tool steps whose every (call, "
+                            "observation) pair had been seen earlier in the run: the agent doing again what it "
+                            "had already done. Scattered repeats are not counted — those are a file read twice"),
         "repeated_calls": len(repeated),
         "repeated_steps": repeated,
         "cycles": len(cycles),
@@ -490,6 +513,12 @@ def schema_validity(trajectory: Trajectory) -> dict:
         "note": None,
     }
 
+
+#: how many consecutive tool steps must return work the run already had
+#: before the stretch is reported as redundant.  A shape, not a magnitude:
+#: the measure asks whether a *block* of the run produced nothing new, so
+#: it does not need a threshold fitted to how long the run is.
+REDUNDANT_STRETCH = 3
 
 #: how many tool steps after an error still count as dealing with it.  The
 #: window is what makes the reading survive a long run: with "the next tool

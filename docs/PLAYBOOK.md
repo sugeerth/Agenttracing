@@ -50,8 +50,10 @@ The scorecard (`eval`, `docs/EVAL.md`) reports, per agent, each with a
   already know (`failure_mode`, `known_correct`) and *Does the evaluation
   see it?* reports which known failures any of the above caught, which
   nothing caught, and how many known-correct runs were flagged anyway.
-  On the long-horizon suite that is 11 of 12, one blind spot, and none of
-  20. It is the only section that measures the measurement.
+  On the long-horizon suite that is 12 of 12 and none of 20; over 200
+  generated pairs, 184 of 184 and none of 216. It is the only section
+  that measures the measurement — and the second number is what keeps the
+  first one meaningful.
 
 Nothing is folded into one score. A composite hides the trade-off a
 router or an engineer needs to see (an agent that is right more often

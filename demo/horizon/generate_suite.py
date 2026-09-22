@@ -498,14 +498,6 @@ def build(task: Task, agent: str, model: str, good: bool, out: Path) -> Path:
                 _revision(r, task, good=good, mode=mode, state=state)
             if mode == "context_overflow" and k == fires_at(task, mode):
                 _reinventory(r, rng, task, state=state)
-            if mode == "regression" and k == len(task.units) - 1:
-                # the late fix that breaks the first unit, never re-checked
-                first = task.units[0]
-                r.reason(f"orchestrator: the {unit} change needs the shared client widened; editing it",
-                         latency_s=0.8, tokens=65)
-                _ok(r, "tool_call", "write_file", "write src/shared/client.py", "ok", effect="write",
-                       latency_s=0.3, tokens=30, quality="bad",
-                       note=f"SYNTHETIC failure: this breaks {first}, whose checks are never re-run")
             if mode == "out_of_order" and k == len(task.units) - 2:
                 # shipped before the verification that was supposed to gate it
                 _ok(r, "tool_call", "publish", f"publish(target='{task.subject}', stage='{unit}')",
@@ -514,6 +506,18 @@ def build(task: Task, agent: str, model: str, good: bool, out: Path) -> Path:
                 r.reason(f"orchestrator: {unit} published; verification still to come",
                          latency_s=0.7, tokens=55, quality="bad")
         reported = _verify(r, rng, task, good=good, mode=mode, state=state)
+        if mode == "regression":
+            # the one last tweak after the green build. Everything this run
+            # reports was true when it was measured and nothing has measured
+            # it since: the fix lands *after* the verification and nothing
+            # runs again, which is the only shape in which "never re-checked"
+            # is a fact about the trace rather than a label on it.
+            first = task.units[0]
+            r.reason(f"orchestrator: review nit on {first} — widen the client signature; it is a one-liner",
+                     latency_s=0.8, tokens=65, quality="bad")
+            _ok(r, "tool_call", "write_file", f"write src/{first}/client.py", "ok", effect="write",
+                latency_s=0.3, tokens=30, quality="bad",
+                note=f"SYNTHETIC failure: {first} was verified before this edit and nothing checks it after")
         if task.mode == "out_of_order" and good:
             # the same publish the failing run did two hundred steps early,
             # here in its place: after the verification that gates it, and
@@ -720,7 +724,18 @@ def manifests(trace: dict, mode: str, task: "Task") -> Optional[str]:
     if mode == "swallowed_error":
         return None if "non-blocking" in text or "environmental" in text else "no swallowed error"
     if mode == "regression":
-        return None if "src/shared/client.py" in text else "no late shared edit"
+        first = task.units[0]
+        target = f"src/{first}/client.py"
+        writes = [i for i, s in enumerate(steps) if target in (s.get("input") or "")]
+        if not writes:
+            return f"no late edit to {target}"
+        after = [s for s in steps[writes[-1] + 1:] if s.get("name") == "run_checks"]
+        # the defect this check exists to catch: the first version of this
+        # mode ran the whole suite green *after* the edit, so the trace said
+        # plainly that nothing had broken — a run labelled with a failure its
+        # own evidence denies, which no evaluation could have caught because
+        # there was nothing there to catch
+        return None if not after else f"{len(after)} check(s) run after the edit: nothing is left unverified"
     if mode == "out_of_order":
         idx = next((i for i, s in enumerate(steps) if s.get("name") == "publish"), None)
         last = max((i for i, s in enumerate(steps) if s.get("name") == "run_checks"), default=-1)

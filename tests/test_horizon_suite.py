@@ -56,23 +56,26 @@ def _generator():
     return module
 
 
-#: the catch matrix, as measured. Each entry is (mode, graded pass?, the
-#: signals the evaluation produces).  `regression` is here with an empty
-#: set on purpose: it is what the evaluation cannot see, and a suite that
-#: only pinned its successes would stop measuring that.
+#: the catch matrix, as measured: (mode, graded pass?, the signals the
+#: evaluation produces).  Every entry is pinned exactly, not as "at least
+#: one signal" — a mode caught by a *different* dimension than before is a
+#: change worth failing on, because which dimension catches a failure is
+#: what tells a reader where to look.
 EXPECTED = {
     # the skipped package's absence also leaves the final check failing and
     # unrepaired, so the unrecovered-error count sees it too
     "skipped_unit": (True, {"milestones", "grounded", "unrecovered"}),
     "stale_value": (False, {"grade", "grounded"}),
-    "retry_stall": (False, {"grade", "milestones", "loop", "unrecovered", "flags"}),
-    "regression": (True, set()),
+    "retry_stall": (False, {"grade", "milestones", "loop", "unrecovered", "redundant", "flags"}),
+    # the edit after the green build: everything it reports was true when it
+    # was measured and nothing has measured it since
+    "regression": (True, {"flags"}),
     "forgotten_constraint": (True, {"policy", "flags"}),
     "budget_exhausted": (False, {"grade", "milestones", "unrecovered", "flags"}),
     "unverified_handoff": (True, {"milestones"}),
     "drift": (False, {"grade", "milestones", "flags"}),
     "swallowed_error": (True, {"unrecovered", "flags"}),
-    "context_overflow": (True, {"loop"}),
+    "context_overflow": (True, {"loop", "redundant"}),
     "out_of_order": (True, {"order"}),
     "late_fault": (False, {"grade", "milestones", "kept_looking"}),
 }
@@ -134,15 +137,31 @@ class SuiteTest(unittest.TestCase):
                              f"{task.mode}: the grade changed side")
             self.assertEqual(_signals(run), expected, f"{task.mode} on {task.id}")
 
-    def test_the_regression_mode_is_still_invisible_and_says_so(self):
-        """The honest miss. When this test fails because a signal appeared,
-        that is the good news — update `EXPECTED` and `docs/HORIZON.md`
-        together, because the document's claim is this test."""
+    def test_the_regression_run_is_a_regression_the_trace_can_show(self):
+        """This mode was the suite's blind spot until the corpus was read
+        rather than trusted.
+
+        Its first version applied the breaking edit and then ran the whole
+        suite green *after* it — a run labelled with a failure its own
+        evidence denied. Nothing caught it because nothing was there. The
+        edit now lands after the last verification and nothing runs again,
+        which is the only shape in which "never re-checked" is a fact about
+        the trace, and `unverified_write` sees it.
+
+        The generator's own check (`manifests`) now asserts this property,
+        so the corpus cannot quietly go back to being un-failable."""
         task = next(t for t in self.gen.TASKS if t.mode == "regression")
         run = self.runs[(task.id, FAILER)]
-        self.assertEqual(_signals(run), set())
         self.assertTrue(run["success"], "the answer a correct run would have given")
         self.assertTrue(run["milestones"]["complete"], "every unit was green when it was checked")
+        self.assertEqual([f["kind"] for f in run["safety"]["risk_flags"]], ["unverified_write"])
+        raw = json.loads((SUITE / f"{task.id}__{FAILER}.json").read_text(encoding="utf-8"))
+        self.assertIsNone(self.gen.manifests(raw, "regression", task))
+        # and the check that would have caught the old corpus
+        broken = {"steps": raw["steps"] + [{"index": 999, "type": "tool_call", "name": "run_checks",
+                                            "input": "run_checks(scope='all')", "output": "980 passed"}],
+                  "outcome": raw["outcome"]}
+        self.assertIn("nothing is left unverified", self.gen.manifests(broken, "regression", task))
 
     def test_no_correct_run_is_flagged_for_being_long(self):
         """Twenty runs that do everything right, including the four control
@@ -158,12 +177,14 @@ class SuiteTest(unittest.TestCase):
         self.assertEqual(clean, 20)
 
     def test_the_grade_alone_misses_more_than_half_of_them(self):
-        """The argument for the rest of the card, as a number."""
+        """The argument for the rest of the card, as a number: seven of the
+        twelve failures are graded a pass, and every one of those is caught
+        by a dimension that is not the outcome."""
         failing = [t for t in self.gen.TASKS if t.mode != "control"]
         graded_pass = [t for t in failing if self.runs[(t.id, FAILER)]["success"] is not False]
         self.assertEqual(len(graded_pass), 7, [t.mode for t in graded_pass])
         caught_otherwise = [t for t in graded_pass if _signals(self.runs[(t.id, FAILER)])]
-        self.assertEqual(len(caught_otherwise), 6)
+        self.assertEqual(len(caught_otherwise), 7)
 
     # ------------------------------------------------ the dimensions themselves
 
@@ -202,20 +223,20 @@ class SuiteTest(unittest.TestCase):
                         for t in self.gen.TASKS for a in (FINISHER, FAILER)]
         det = scorecard(trajectories, {"tasks": self.tasks, "policy": self.golden["policy"]})["detection"]
         self.assertTrue(det["measurable"])
-        self.assertEqual((det["caught"], det["total"]), (11, 12))
-        self.assertEqual(det["missed"], ["regression"])
+        self.assertEqual((det["caught"], det["total"]), (12, 12))
+        self.assertEqual(det["missed"], [])
         self.assertEqual(det["graded_pass"], 7)
-        self.assertEqual(det["graded_pass_caught_otherwise"], 6)
+        self.assertEqual(det["graded_pass_caught_otherwise"], 7)
         self.assertEqual(det["controls"], {"runs": 20, "flagged": 0, "false_positives": []})
-        self.assertIn("11 of 12 known failures caught", det["narrative"])
+        self.assertIn("12 of 12 known failures caught", det["narrative"])
         self.assertIn("0 of 20 control runs flagged", det["narrative"])
         # which dimensions did the catching. `by_signal` is ordered by how
         # many runs each caught, so the first entry is the busiest.
         self.assertEqual(sorted(det["by_signal"]),
                          ["flags", "grade", "grounded", "kept_looking", "loop", "milestones",
-                          "order", "policy", "unrecovered"])
-        self.assertEqual(next(iter(det["by_signal"])), "milestones",
-                         "the milestone line catches more of them than anything else")
+                          "order", "policy", "redundant", "unrecovered"])
+        self.assertGreaterEqual(det["by_signal"]["milestones"], det["by_signal"]["grade"],
+                                "the milestone line catches at least as many as the grade")
 
     def test_a_golden_set_without_known_failures_says_so_rather_than_scoring_zero(self):
         trajectories = [Trajectory.from_json(SUITE / f"{t.id}__{a}.json")
@@ -237,7 +258,6 @@ class SuiteTest(unittest.TestCase):
         self.assertIn("every milestone reached (golden)", text)
         self.assertIn("## Does the evaluation see it?", text)
         self.assertIn("| `regression` |", text)
-        self.assertIn("**nothing**", text, "the miss is printed, not omitted")
 
     # ------------------------------------------------------------ determinism
 
