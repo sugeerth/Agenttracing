@@ -29,7 +29,9 @@ The scorecard (`eval`, `docs/EVAL.md`) reports, per agent, each with a
 
 - **accuracy** — task success (exact match or judge), the mean
   `outcome.score` when the grader gives one, and the judge's verdicts
-  beside the grade with their agreement;
+  beside the grade with their agreement — and, against known failures,
+  what *only* the judge caught and what it said about the runs known to
+  be correct;
 - **tool selection** — correct tool called, wrong-tool calls, undeclared
   tools, invented arguments (needs a golden set for the first);
 - **retrieval quality** — useful tool results (calls whose result fed the

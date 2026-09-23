@@ -21,8 +21,13 @@ def register(subparsers) -> None:
                       "outcome.success only with --apply")
     parser.add_argument("target", help="a trace file, a directory of traces, or a report_*.json")
     parser.add_argument("--provider", required=True, metavar="NAME=KIND:MODEL")
-    parser.add_argument("--rubric", default=None, help="the judging instruction (default: strict correctness, JSON verdict)")
+    parser.add_argument("--rubric", default=None,
+                        help="a name from RUBRICS (strict, long-run) or the judging instruction itself "
+                             "(default: strict correctness, JSON verdict)")
     parser.add_argument("--with-steps", action="store_true", help="show the judge the steps, not only the answer")
+    parser.add_argument("--steps-cap", type=int, default=None, metavar="N",
+                        help="how many steps to show with --with-steps (default 40); a longer run is shown as "
+                             "its opening and closing with the gap named, never silently cut")
     parser.add_argument("--apply", action="store_true", help="replace outcome.success/score with the judge's verdict (marked graded_by: model)")
     parser.add_argument("--db", default=None, help="also update the judged traces in this trace database")
     provider_option_args(parser)
@@ -33,7 +38,7 @@ def run(args: argparse.Namespace) -> int:
     """A second model judges each trace's final answer."""
     import json
     from ..harness import provider_from_spec
-    from ..harness.judge import DEFAULT_RUBRIC, judge_many
+    from ..harness.judge import STEP_EXCERPT, judge_many
     target = Path(args.target)
     if target.is_dir():
         paths = sorted(p for p in target.glob("*.json")
@@ -58,8 +63,9 @@ def run(args: argparse.Namespace) -> int:
     options = provider_options(args)
     kind = spec.split(":", 1)[0].strip().lower()
     factory = lambda: provider_from_spec(spec, **({} if kind == "scripted" else options))  # noqa: E731
-    rubric = args.rubric or DEFAULT_RUBRIC
-    counts = judge_many([t[1] for t in traces], factory, rubric=rubric, with_steps=args.with_steps, apply=args.apply)
+    counts = judge_many([t[1] for t in traces], factory, rubric=args.rubric,
+                        with_steps=args.with_steps, apply=args.apply,
+                        cap=args.steps_cap if args.steps_cap and args.steps_cap > 0 else STEP_EXCERPT)
     written = set()
     for path, data, report in traces:
         if path in written:

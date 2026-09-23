@@ -39,6 +39,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from deepcompare.harness.judge import STEP_EXCERPT  # noqa: E402
 from deepcompare.scorecard import detection, score_run, scorecard, signals_of  # noqa: E402
 from deepcompare.trace import Trajectory  # noqa: E402
 
@@ -272,6 +273,164 @@ class SuiteTest(unittest.TestCase):
                 shipped = SUITE / path.name
                 self.assertTrue(shipped.is_file(), path.name)
                 self.assertEqual(path.read_bytes(), shipped.read_bytes(), f"{path.name} is not reproducible")
+
+
+class JudgeBesideTheCardTest(unittest.TestCase):
+    """An LLM judge on the long-horizon suite: scored like every other
+    dimension, and kept out of every number the engine computes.
+
+    The verdicts here come from a **stand-in**, not a model — no network
+    is touched and nothing below is a finding about how any model judges.
+    What is pinned is the wiring and the invariant: whatever the judge
+    says, `caught`, `missed`, `by_signal` and `controls` do not move. Every
+    other number on this card is reproducible from the traces alone, and
+    one sampled verdict folded into them would end that quietly.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.golden = json.loads((ROOT / "demo" / "horizon" / "suite_golden.json").read_text(encoding="utf-8"))
+        cls.tasks = {t["id"]: t for t in cls.golden["tasks"]}
+        cls.paths = sorted(SUITE.glob("*.json"))
+        cls.trajectories = [Trajectory.from_json(p) for p in cls.paths]
+
+    def card(self, verdict=None, **judge):
+        """The card over the suite, optionally with a stand-in verdict on
+        every run. `verdict` is what the stand-in says: True, False, or a
+        callable taking the raw trace."""
+        raws = {}
+        for path in self.paths:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if verdict is not None:
+                said = verdict(raw) if callable(verdict) else verdict
+                raw.setdefault("outcome", {})["judge"] = dict(
+                    {"model": "stand-in", "success": said, "score": None, "rationale": "stand-in",
+                     "rubric_name": "long-run", "with_steps": True, "steps_shown": 40,
+                     "steps_total": len(raw.get("steps") or []), "prior": {"success": raw["outcome"].get("success")},
+                     "agrees_with_prior": None, "applied": False}, **judge)
+            raws[raw["trace_id"]] = raw
+        return scorecard(self.trajectories, {"tasks": self.tasks, "policy": self.golden["policy"]}, raws=raws)
+
+    def test_without_a_judge_the_block_says_so_rather_than_scoring_zero(self):
+        judge = self.card()["detection"]["judge"]
+        self.assertFalse(judge["measurable"])
+        self.assertIn("agentdiff judge", judge["reason"])
+        self.assertEqual((judge["judged"], judge["of"]), (0, 12))
+
+    def test_the_judge_cannot_move_a_number_the_engine_computed(self):
+        """The one that matters. A judge saying everything is wrong and a
+        judge saying everything is right leave the card identical."""
+        plain = self.card()["detection"]
+        keys = ("caught", "total", "missed", "graded_pass", "graded_pass_caught_otherwise",
+                "by_signal", "controls", "narrative")
+        for said in (True, False):
+            det = self.card(said)
+            self.assertEqual({k: det["detection"][k] for k in keys}, {k: plain[k] for k in keys},
+                             f"a judge that says {said} to everything moved a computed number")
+
+    def test_a_judge_that_calls_everything_wrong_is_visible_as_such(self):
+        """It catches all twelve — and calls all twenty correct runs wrong.
+        Without the second number the first one reads like an instrument."""
+        judge = self.card(False)["detection"]["judge"]
+        self.assertTrue(judge["measurable"])
+        self.assertEqual((judge["judged"], judge["of"]), (12, 12))
+        self.assertEqual((judge["caught"], judge["missed"]), (12, 0))
+        self.assertEqual(judge["controls_called_wrong"], 20)
+        self.assertEqual(judge["only_the_judge"], [], "this card already catches all twelve")
+        self.assertIn("20 of 20 control runs called wrong", judge["narrative"])
+
+    def test_a_judge_that_passes_everything_catches_nothing_and_says_so(self):
+        judge = self.card(True)["detection"]["judge"]
+        self.assertEqual((judge["caught"], judge["missed"]), (0, 12))
+        self.assertEqual(judge["controls_called_wrong"], 0)
+
+    def test_a_run_the_judge_never_read_is_neither_caught_nor_missed(self):
+        """Absent is not a pass. A judge that errored on half the corpus
+        must not be reported as having approved it."""
+        first = self.tasks and sorted(self.tasks)[0]
+        judge = self.card(lambda raw: False if raw["task"]["id"] != first else None)["detection"]["judge"]
+        self.assertEqual(judge["judged"], 11)
+        self.assertEqual(judge["of"], 12)
+        self.assertEqual(judge["caught"], 11)
+
+    def test_a_verdict_over_an_excerpt_is_reported_as_one(self):
+        judge = self.card(False)["detection"]["judge"]
+        self.assertEqual(judge["on_an_excerpt"], 12, "every run in this suite is longer than the judge's cap")
+        self.assertEqual(judge["rubrics"], ["long-run"])
+        self.assertIn("about the part it was shown", judge["basis"])
+
+    def test_only_the_judge_names_what_nothing_else_caught(self):
+        """Constructed rather than measured: this suite has no uncaught
+        mode left, and the field exists for the corpus that does."""
+        rows = [{"task": "T1", "agent": "a", "success": True, "milestones": {"stalled_at": None, "complete": True,
+                 "in_order": True}, "grounding": {"grounded": True}, "safety": {"policy_compliant": True,
+                 "risk_flags": []}, "trajectory": {"loop_free": True, "redundant_stretch": 0,
+                 "stopped_when_done": True}, "recovery": {"errors": 0, "recovered": 0},
+                 "judge": {"success": False, "model": "stand-in", "rubric_name": "strict",
+                           "steps_shown": 5, "steps_total": 5}}]
+        det = detection(rows, {"tasks": {"T1": {"failure_mode": "quiet", "failure_mode_agents": ["a"]}}})
+        self.assertEqual((det["caught"], det["total"]), (0, 1), "nothing deterministic sees it")
+        self.assertEqual(det["judge"]["only_the_judge"], [{"mode": "quiet", "task": "T1", "agent": "a"}])
+        self.assertEqual(det["judge"]["also_caught_deterministically"], 0)
+
+
+class WhatTheJudgeCanSeeTest(unittest.TestCase):
+    """Whether the judge is shown the step where the run goes wrong.
+
+    No model is involved and none is needed: the suite marks the step it
+    injected each failure at, and the excerpt rule is arithmetic. So the
+    question *can a judge reading an excerpt of this run possibly see the
+    failure* has a deterministic answer, and it is the one worth knowing
+    before paying for a verdict.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        golden = {t["id"]: t for t in json.loads(
+            (ROOT / "demo" / "horizon" / "suite_golden.json").read_text(encoding="utf-8"))["tasks"]}
+        cls.runs = []
+        for path in sorted(SUITE.glob(f"*__{FAILER}.json")):
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            mode = golden.get(raw["task"]["id"], {}).get("failure_mode")
+            if not mode:
+                continue
+            steps = raw["steps"][:-1]          # the answer step is shown separately
+            cls.runs.append((mode, len(steps),
+                             [i for i, st in enumerate(steps) if "SYNTHETIC" in str(st.get("note") or "")]))
+
+    def covered(self, cap, head_only=False):
+        """How many of the twelve have their injected failure inside the
+        excerpt. `head_only` is the rule this repository used to apply."""
+        seen = 0
+        for _mode, total, marks in self.runs:
+            if total <= cap:
+                visible = set(range(total))
+            elif head_only:
+                visible = set(range(cap))
+            else:
+                head, tail = cap // 2, cap - cap // 2
+                visible = set(range(head)) | set(range(total - tail, total))
+            seen += any(m in visible for m in marks)
+        return seen
+
+    def test_the_old_head_only_cut_showed_the_judge_one_failure_in_twelve(self):
+        """Forty steps off the front of a 237-step run is the opening, and
+        eleven of these twelve failures happen after it."""
+        self.assertEqual(len(self.runs), 12)
+        self.assertEqual(self.covered(STEP_EXCERPT, head_only=True), 1)
+
+    def test_naming_the_gap_and_keeping_both_ends_shows_four(self):
+        """Better, and still a minority: the fix makes the excerpt honest,
+        it does not make it sufficient."""
+        self.assertEqual(self.covered(STEP_EXCERPT), 4)
+
+    def test_no_excerpt_short_of_the_whole_run_shows_every_failure(self):
+        """274 of a mean 237 steps — there is no excerpt that works at this
+        length. A judge either reads the run or is guessing about the part
+        it was not shown, and this is the number that says so."""
+        smallest = next(c for c in range(2, 400, 2) if self.covered(c) == len(self.runs))
+        self.assertEqual(smallest, 274)
+        self.assertGreater(smallest, sum(r[1] for r in self.runs) / len(self.runs))
 
 
 if __name__ == "__main__":

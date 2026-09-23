@@ -13,7 +13,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from deepcompare import Trajectory
-from deepcompare.harness.judge import DEFAULT_RUBRIC, judge_many, judge_trace
+from deepcompare.harness.judge import (DEFAULT_RUBRIC, LONG_RUN_RUBRIC, RUBRICS, STEP_EXCERPT,
+                                       judge_many, judge_trace, resolve_rubric)
 from deepcompare.harness.providers import ScriptedProvider
 from deepcompare.tracedb import TraceDB
 
@@ -103,5 +104,125 @@ class JudgeTest(unittest.TestCase):
                 self.assertIsNotNone(store.get("t05_flight_duration__bolt-v3")["outcome"]["judge"])
 
 
+    def test_the_cli_carries_the_rubric_name_and_the_cap_onto_the_verdict(self):
+        """The two things that decide what a verdict means — which question
+        was asked, and how much of the run was shown — have to survive the
+        command line, or a card cannot report them."""
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp) / "traces"; d.mkdir()
+            name = "L01_service_migration__drift-lh.json"
+            source = ROOT / "demo" / "horizon" / "suite" / name
+            if not source.is_file():
+                self.skipTest("the long-horizon suite is not generated")
+            (d / name).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+            script = Path(tmp) / "judge.json"
+            script.write_text(json.dumps([{"text": '{"success": false, "score": 0.2, "rationale": "scripted"}'}]),
+                              encoding="utf-8")
+            proc = subprocess.run([sys.executable, "-m", "deepcompare", "judge", str(d),
+                                   "--provider", f"j=scripted:{script}", "--with-steps",
+                                   "--rubric", "long-run", "--steps-cap", "60"],
+                                  cwd=str(ROOT), capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            block = json.loads((d / name).read_text(encoding="utf-8"))["outcome"]["judge"]
+            self.assertEqual(block["rubric_name"], "long-run")
+            self.assertEqual(block["rubric"], LONG_RUN_RUBRIC)
+            self.assertEqual(block["steps_shown"], 60)
+            self.assertGreater(block["steps_total"], 200)
+            self.assertIn("180 named as omitted", block["steps_basis"] or "")
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class JudgeAtLengthTest(unittest.TestCase):
+    """What the judge is *shown* of a long run, and whether the block says so.
+
+    A three-hundred-step run does not fit in a prompt. The question is not
+    whether to cut it — it is whether the cut is visible. A judge handed
+    the first forty steps of a three-hundred-step run is being shown the
+    part that went fine and asked about the part it cannot see, and a
+    verdict recorded without that fact reads like a verdict about the run.
+    """
+
+    @staticmethod
+    def long_trace(n=300):
+        steps = [{"index": i, "type": "tool_call", "name": f"call_{i}",
+                  "input": f"in {i}", "output": f"out {i}"} for i in range(n)]
+        steps.append({"index": n, "type": "answer", "name": "", "input": "", "output": "done"})
+        return {"task": {"id": "long", "prompt": "do the long thing"},
+                "agent": {"name": "a", "model": "m"},
+                "steps": steps, "outcome": {"success": True, "answer": "all done"}}
+
+    def sent(self, provider):
+        return provider.seen[0][1]["content"]
+
+    def recording_provider(self, text='{"success": true, "score": 1, "rationale": "ok"}'):
+        seen = []
+
+        def script(messages, tools):
+            seen.append(messages)
+            return {"text": text}
+        provider = ScriptedProvider(script, model="j")
+        provider.seen = seen
+        return provider
+
+    def test_a_long_run_is_shown_as_an_excerpt_that_names_what_it_omits(self):
+        provider = self.recording_provider()
+        block = judge_trace(self.long_trace(), provider, with_steps=True)
+        prompt = self.sent(provider)
+        self.assertIn("300 steps", block["steps_basis"])
+        self.assertEqual((block["steps_shown"], block["steps_total"]), (STEP_EXCERPT, 300))
+        # the gap is named in the prompt, with the indexes it covers
+        self.assertIn("260 steps omitted here (indexes 20-279)", prompt)
+        # and both ends are really there: the failure in a long run is late,
+        # so a head-only excerpt would be the wrong half
+        self.assertIn("call_0:", prompt)
+        self.assertIn("call_299:", prompt)
+        self.assertNotIn("call_150:", prompt)
+
+    def test_a_short_run_is_shown_whole_and_says_so(self):
+        provider = self.recording_provider()
+        block = judge_trace(self.long_trace(6), provider, with_steps=True)
+        self.assertEqual((block["steps_shown"], block["steps_total"]), (6, 6))
+        self.assertEqual(block["steps_basis"], "every step of the run")
+        self.assertNotIn("omitted", self.sent(provider))
+
+    def test_without_steps_the_block_says_the_verdict_is_about_the_answer(self):
+        block = judge_trace(self.long_trace(), self.recording_provider(), with_steps=False)
+        self.assertEqual((block["steps_shown"], block["steps_total"]), (0, 0))
+        self.assertIn("answer only", block["steps_basis"])
+
+    def test_the_cap_is_the_caller_s_to_raise(self):
+        provider = self.recording_provider()
+        block = judge_trace(self.long_trace(), provider, with_steps=True, cap=100)
+        self.assertEqual(block["steps_shown"], 100)
+        self.assertIn("200 steps omitted", self.sent(provider))
+
+
+class RubricTest(unittest.TestCase):
+    def test_a_rubric_can_be_named_and_the_name_is_recorded(self):
+        """Two cards are comparable when they asked the same question, so
+        the question travels with the verdict."""
+        provider = JudgeAtLengthTest().recording_provider()
+        block = judge_trace(JudgeAtLengthTest.long_trace(4), provider, rubric="long-run")
+        self.assertEqual(block["rubric_name"], "long-run")
+        self.assertEqual(block["rubric"], LONG_RUN_RUBRIC)
+        self.assertEqual(provider.seen[0][0]["content"], LONG_RUN_RUBRIC)
+
+    def test_the_default_is_named_not_called_custom(self):
+        self.assertEqual(resolve_rubric(None), (DEFAULT_RUBRIC, "strict"))
+        self.assertEqual(resolve_rubric(DEFAULT_RUBRIC)[1], "strict")
+        self.assertEqual(resolve_rubric("be lenient")[1], "custom")
+
+    def test_the_long_run_rubric_asks_after_the_work_not_the_prose(self):
+        """The rubric is the whole of what distinguishes this judge from
+        one that reads a summary, so it is pinned rather than assumed."""
+        self.assertIn("not whether its final answer reads well", LONG_RUN_RUBRIC)
+        self.assertIn("excerpt", LONG_RUN_RUBRIC)
+        for text in RUBRICS.values():
+            self.assertIn("Reply with JSON only", text)
+        # the judge never sees the golden set: a rubric that quoted the
+        # milestones would be handing it the answers
+        for text in RUBRICS.values():
+            self.assertNotIn("milestone", text.lower())

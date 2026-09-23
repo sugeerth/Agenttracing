@@ -73,9 +73,9 @@ produces, not a judgement added here.
 all seven are caught by something other than the outcome. That is the
 headline of this file: at this length the grade is the weakest instrument
 on the card. A run that skips a package and reports the number a correct
-run would have reported passes exact match, passes an LLM judge reading
-the answer, and is caught only by a milestone that was never reached and
-an answer whose own trace does not support it.
+run would have reported passes exact match, and is caught only by a
+milestone that was never reached and an answer whose own trace does not
+support it.
 
 **False positives on the twenty correct runs: none.** Every control is
 clean on every dimension. Both halves of that sentence are load-bearing:
@@ -184,6 +184,75 @@ The second one is the more useful lesson. A synthetic corpus is an
 instrument, and an instrument that disagrees with its own labels measures
 nothing — convincingly. The first question about a missed mode is whether
 the run actually exhibits it.
+
+## The LLM judge, and what it can actually see
+
+A judging model is the usual answer to "the grade is too blunt", so the
+card carries one — `agentdiff judge <traces> --provider NAME=KIND:MODEL
+[--with-steps] [--rubric long-run]` writes `outcome.judge`, and the
+scorecard scores it **beside** the rest rather than inside it:
+
+```
+Judge (<model>, long-run): the judge read 12 of 12 known failures and
+called N of them wrong; M that no other dimension caught; K of 20 control
+runs called wrong.
+```
+
+The judge is the one dimension whose verdict is sampled rather than
+computed, so it is kept out of `caught`, `missed` and `by_signal`: every
+other number on this card is reproducible from the traces alone, and one
+model call folded into them would end that without saying so. The figure
+worth reading is **`only_the_judge`** — the known failures that every
+deterministic dimension passed and the model did not. That is what a
+judge is being paid for, and an evaluation that merges the judge into its
+totals can never report it.
+
+`controls_called_wrong` is the other half and belongs in the same glance.
+A judge that calls everything wrong catches every failure; the twenty
+correct runs are what tells it apart from one that can see.
+
+### A long run does not fit in the prompt
+
+This is the part worth knowing before paying for any of it. `--with-steps`
+cannot show a 300-step run, so it shows an excerpt — and the question is
+whether the excerpt contains the step where the run goes wrong. The suite
+marks the step it injected each failure at, so this has an exact answer
+and no model is needed to get it:
+
+| what the judge is shown | failures visible in it |
+|---|---|
+| the first 40 steps (the rule this repo used to apply) | **1 of 12** |
+| the first 20 and last 20, gap named (the rule now) | **4 of 12** |
+| the first 40 and last 40 | 6 of 12 |
+| the first 100 and last 100 | 8 of 12 |
+| **the smallest excerpt that shows all twelve** | **274 steps** |
+
+The mean run here is 237 steps. **There is no excerpt of these runs that
+works**: to put every failure in front of the judge you have to show it
+more than the whole of an average run. A judge given `--with-steps` on a
+long trace is reading the opening and the ending and guessing about the
+middle — which, on this suite, is where eight of the twelve failures are.
+
+That is not an argument against judging. It is an argument for saying
+which part was judged, so the fix is in the record rather than in the
+prose: `steps_shown`, `steps_total` and `steps_basis` go onto every
+verdict, the prompt carries a literal `... 260 steps omitted here
+(indexes 20-279) ...` where the gap is, and the card reports how many of
+its verdicts are `on_an_excerpt`. Raise it with `--steps-cap N` and pay
+for the tokens, or read the verdict as what it is.
+
+`--rubric long-run` asks a different question of the model — whether
+every part of the task is accounted for by work that can be seen and
+checked by something other than the agent's own say-so, rather than
+whether the summary reads well. It is never shown the golden set: a
+rubric quoting the milestones would be handing the judge the answers.
+
+**What is not measured here.** No model was run against this suite — no
+API key is configured in the environment that produced these numbers, and
+a stand-in's verdicts would be a fact about the stand-in. Everything above
+is either arithmetic over the traces (the coverage table) or the shape of
+the machinery (the block, the invariant). What a given model says about
+these runs is an open number, and `detection.judge` is where it will land.
 
 ## What the long runs broke, and what was fixed
 

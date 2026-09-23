@@ -178,7 +178,7 @@ cost, speed, equality, fault kinds, and what would settle an open call. `db
 import` keeps every trace in one SQLite file with full-text search over steps
 and a checkpoint per step for running agents. `runs` adds output equality: do
 repeated runs say the same thing, and do the two agents. `judge` lets a second
-model grade answers no exact match can, recorded beside the grade and applied only on request.
+model grade answers no exact match can — beside the grade, scored against failures you know of.
 ## Why use it: the loop
 
 Mapping a failure is the first half. The second half is what the page

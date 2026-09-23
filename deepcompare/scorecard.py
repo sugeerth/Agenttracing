@@ -311,6 +311,11 @@ def score_run(traj: Trajectory, golden_task: Optional[dict] = None, policy: Opti
                    "risk_flags": flags, "risk_free": not flags},
         "judge": ({"success": judge.get("success"), "score": judge.get("score"), "model": judge.get("model"),
                    "agrees_with_grade": judge.get("agrees_with_prior"), "applied": judge.get("applied"),
+                   "rubric_name": judge.get("rubric_name"), "with_steps": judge.get("with_steps"),
+                   # how much of the run the verdict is actually about: a judge
+                   # shown 40 of 300 steps judged an excerpt, and a card that
+                   # does not carry that cannot say so
+                   "steps_shown": judge.get("steps_shown"), "steps_total": judge.get("steps_total"),
                    # the grade the judge is compared with: the exact match, even when the judge's
                    # verdict was applied as the outcome
                    "grade": ((judge.get("prior") or {}).get("success") if isinstance((judge.get("prior") or {}).get("success"), bool)
@@ -490,6 +495,63 @@ def signals_of(run: dict) -> list:
     return [key for key, _label, test in DETECTION_SIGNALS if test(run)]
 
 
+def _judge_said_no(judge: Optional[dict]) -> bool:
+    """The judging model called this run wrong.  ``None`` and a missing
+    verdict are both *not a no* — a run nobody judged has not been passed
+    by a judge, and counting it either way would be inventing evidence."""
+    return bool(judge) and judge.get("success") is False
+
+
+def _judge_detection(rows: list, controls: int, judged_controls: list) -> dict:
+    """The judging model scored the way every other dimension is scored —
+    and kept out of their totals.
+
+    A model's verdict cannot move a number this card computes: the rest of
+    the engine is deterministic and reproducible from the traces alone, and
+    one sampled call would put an end to that. So the judge is measured
+    here, beside `caught` and `missed`, and the interesting figure is not
+    its hit rate but `only_the_judge`: the known failures that every
+    deterministic dimension passed and the model did not. That is the
+    number that says whether a judge is earning its cost, and it is the
+    one an eval that merges the judge into its totals can never report.
+
+    A run the judge never saw is counted as neither caught nor missed —
+    `judged` says how many of the known failures it actually read.
+    """
+    judged = [r for r in rows if r["judge"] and isinstance(r["judge"]["success"], bool)]
+    if not judged:
+        return {"measurable": False,
+                "reason": ("no run carries a judge verdict; `agentdiff judge <traces> --provider …` writes one, "
+                           "and it is scored here without being counted into the numbers above"),
+                "judged": 0, "of": len(rows)}
+    caught = [r for r in judged if _judge_said_no(r["judge"])]
+    only = [r for r in caught if not r["caught"]]
+    excerpts = [r for r in judged if (r["judge"].get("steps_total") or 0) > (r["judge"].get("steps_shown") or 0)]
+    rubrics = sorted({str(r["judge"].get("rubric_name") or "unnamed") for r in judged})
+    narrative = (f"the judge read {len(judged)} of {plural(len(rows), 'known failure')} and called "
+                 f"{len(caught)} of them wrong; {len(only)} that no other dimension caught; "
+                 + (f"{len(judged_controls)} of {plural(controls, 'control run')} called wrong"
+                    if controls else "no control run to check it against") + ".")
+    return {"measurable": True, "reason": None,
+            "judged": len(judged), "of": len(rows),
+            "caught": len(caught), "missed": len(judged) - len(caught),
+            "only_the_judge": [{"mode": r["mode"], "task": r["task"], "agent": r["agent"]} for r in only],
+            "also_caught_deterministically": len(caught) - len(only),
+            "controls_called_wrong": len(judged_controls),
+            # a sample, because a judge that calls everything wrong would
+            # otherwise write one row per control into every card
+            "controls_called_wrong_runs": judged_controls[:12],
+            "controls_called_wrong_capped": len(judged_controls) > 12,
+            "model": judged[0]["judge"].get("model"),
+            "rubrics": rubrics,
+            "on_an_excerpt": len(excerpts),
+            "basis": ("the judging model's verdict, scored against the runs whose failure is known, and kept out "
+                      "of `caught`, `missed` and `by_signal`: every other number on this card is reproducible "
+                      "from the traces alone and a sampled verdict is not. `on_an_excerpt` counts the runs too "
+                      "long to show the judge in full — those verdicts are about the part it was shown"),
+            "narrative": narrative}
+
+
 def detection(per_run: list, golden: Optional[dict]) -> dict:
     """Score the evaluation, not the agent.
 
@@ -517,8 +579,9 @@ def detection(per_run: list, golden: Optional[dict]) -> dict:
         return {"measurable": False,
                 "reason": ("no golden task names a failure_mode, so there is nothing to detect and nothing to "
                            "miss; this measures the evaluation, and it needs runs whose verdict is known"),
-                "modes": [], "caught": 0, "total": 0, "controls": None, "narrative": ""}
+                "modes": [], "caught": 0, "total": 0, "controls": None, "judge": None, "narrative": ""}
     rows, controls, false_positives = [], 0, []
+    judged_controls: list = []
     for run in per_run:
         mode = modes.get(run["task"])
         if not mode and run["task"] not in correct_tasks:
@@ -530,10 +593,16 @@ def detection(per_run: list, golden: Optional[dict]) -> dict:
             controls += 1
             if sig:
                 false_positives.append({"task": run["task"], "agent": run["agent"], "signals": sig})
+            if _judge_said_no(run["judge"]):
+                judged_controls.append({"task": run["task"], "agent": run["agent"]})
             continue
         rows.append({"mode": mode, "task": run["task"], "agent": run["agent"],
                      "graded_pass": run["success"] is not False, "signals": sig, "caught": bool(sig),
-                     "stalled_at": run["milestones"]["stalled_at"]})
+                     "stalled_at": run["milestones"]["stalled_at"],
+                     # beside, never inside: `signals` and everything counted
+                     # from it stay deterministic, and the judge is scored
+                     # against them in its own block
+                     "judge": run["judge"]})
     rows.sort(key=lambda r: (r["mode"], r["task"], r["agent"]))
     caught = [r for r in rows if r["caught"]]
     missed = [r for r in rows if not r["caught"]]
@@ -555,9 +624,11 @@ def detection(per_run: list, golden: Optional[dict]) -> dict:
             "graded_pass_caught_otherwise": sum(1 for r in graded_pass if r["caught"]),
             "by_signal": dict(sorted(by_signal.items(), key=lambda kv: (-kv[1], kv[0]))),
             "controls": {"runs": controls, "flagged": len(false_positives), "false_positives": false_positives},
+            "judge": _judge_detection(rows, controls, judged_controls),
             "basis": ("a mode is caught when any dimension of this card says something is wrong about the run "
                       "that carries it; a control is a run of a task marked known_correct, or of a task whose "
-                      "failure_mode_agents do not name that run's agent"),
+                      "failure_mode_agents do not name that run's agent. A judging model, when one ran, is "
+                      "scored in `judge` beside these numbers and is never counted into them"),
             "narrative": narrative}
 
 
@@ -639,6 +710,20 @@ def render_scorecard_markdown(card: dict) -> str:
             lines.append("")
             lines.append("Flagged although known correct: "
                          + "; ".join(f"{x['task']} · {x['agent']} ({', '.join(x['signals'])})" for x in fp))
+        judge = det.get("judge")
+        if judge:
+            lines.append("")
+            if not judge["measurable"]:
+                lines.append(f"No judging model: {judge['reason']}.")
+            else:
+                line = f"**Judge** ({judge['model']}, {'/'.join(judge['rubrics'])}): {judge['narrative']}"
+                if judge["only_the_judge"]:
+                    line += (" Only the judge: "
+                             + ", ".join(f"{x['mode']} ({x['task']})" for x in judge["only_the_judge"]) + ".")
+                if judge["on_an_excerpt"]:
+                    line += (f" {judge['on_an_excerpt']} of those verdicts are about an excerpt of the run, "
+                             "not the whole of it.")
+                lines.append(line)
         lines.append("")
         lines.append(det["basis"] + ".")
         lines.append("")

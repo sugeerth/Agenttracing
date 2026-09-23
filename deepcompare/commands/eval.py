@@ -30,6 +30,11 @@ def register(subparsers) -> None:
     parser.add_argument("--judge", default=None, metavar="NAME=KIND:MODEL",
                         help="grade every answer with a second model first (talks to a network unless scripted)")
     parser.add_argument("--with-steps", action="store_true", help="show the judge the steps, not only the answer")
+    parser.add_argument("--rubric", default=None,
+                        help="a name from RUBRICS (strict, long-run) or the judging instruction itself")
+    parser.add_argument("--steps-cap", type=int, default=None, metavar="N",
+                        help="how many steps to show with --with-steps (default 40); a longer run is shown as "
+                             "its opening and closing with the gap named, never silently cut")
     parser.add_argument("--write", action="store_true", help="write the judge's verdicts back into the trace files")
     parser.add_argument("-o", "--output", default="eval", help="output directory (default: eval)")
     provider_option_args(parser)
@@ -68,7 +73,7 @@ def run(args: argparse.Namespace) -> int:
     judged = None
     if args.judge:
         from ..harness import provider_from_spec
-        from ..harness.judge import judge_many
+        from ..harness.judge import STEP_EXCERPT, judge_many
         _name, spec = split_spec(args.judge)
         options = provider_options(args)
         kind = spec.split(":", 1)[0].strip().lower()
@@ -80,7 +85,8 @@ def run(args: argparse.Namespace) -> int:
                 raw = t.to_dict()
                 raws[t.trace_id] = raw
             targets.append(raw)
-        judged = judge_many(targets, factory, with_steps=args.with_steps, apply=False)
+        judged = judge_many(targets, factory, rubric=args.rubric, with_steps=args.with_steps, apply=False,
+                            cap=args.steps_cap if args.steps_cap and args.steps_cap > 0 else STEP_EXCERPT)
         if args.write and args.tracesdir:
             for path in sorted(Path(args.tracesdir).glob("*.json")):
                 data = raws.get(path.stem)

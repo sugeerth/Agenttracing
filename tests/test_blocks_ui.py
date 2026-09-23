@@ -3887,18 +3887,33 @@ class DetectionSectionTest(unittest.TestCase):
             self.assertIn("flagged anyway", controls)
         else:
             self.assertIn(f"({self.det['controls']['runs']} checked)", controls)
-        # and the branch no corpus exercises today: a mode nothing caught is
-        # printed as caught by nothing, in the page's own words
+        # the judging model, reported beside these numbers. This batch ran
+        # no judge, so the page has to say that rather than leave the line out
+        self.assertFalse(self.det["judge"]["measurable"])
+        self.assertIn("No judging model", sec.locator('[data-role="judge"]').inner_text())
+        # and the branches no corpus exercises today: a mode nothing caught,
+        # and a judge that did run. Both are doctored into the loaded card and
+        # re-rendered — the page must be able to say them whether or not
+        # today's data makes it.
         blinded = self.det["modes"][0]["mode"]
         page.evaluate("""(mode) => {
             const det = AgentDiff._internals.State.data.aggregate.scorecard.detection;
             det.modes.forEach(r => { if (r.mode === mode) r.signals = []; });
+            det.judge = {measurable: true, model: "stand-in", rubrics: ["long-run"],
+                         judged: 2, of: 2, caught: 1, missed: 1, on_an_excerpt: 1,
+                         only_the_judge: [{mode: mode, task: "T1", agent: "a"}],
+                         narrative: "the judge read 2 of 2 known failures and called 1 of them wrong."};
             AgentDiff._internals.renderAll();
         }""", blinded)
         page.wait_for_timeout(300)
         row = page.locator(f'.block[data-block="scorecard"] table.sc-detect tr[data-mode="{blinded}"]')
         self.assertEqual(row.get_attribute("data-caught"), "false")
         self.assertIn("nothing", row.inner_text())
+        judged = page.locator('.block[data-block="scorecard"] [data-role="judge"]').inner_text()
+        self.assertIn("stand-in", judged)
+        self.assertIn("called 1 of them wrong", judged)
+        self.assertIn(f"Only the judge: {blinded}", judged)
+        self.assertIn("about an excerpt", judged)
         self.assertEqual(errors, [])
         context.close()
 

@@ -5,6 +5,63 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The judge, scored beside the card, and what it can see of a long run
+
+A judging model is the usual answer to "the grade is too blunt", and this
+adds one to the part of the card that measures the measurement — without
+letting it move a number.
+
+**`detection.judge`.** When the golden set names known failures, the
+judge is scored the way every other dimension is: `judged` of `of` read,
+`caught`, `missed`, `only_the_judge[]` — the known failures every
+deterministic dimension passed and the model did not — and
+`controls_called_wrong`, the runs known to be correct that it called
+wrong. Those last two are the pair worth reading. `only_the_judge` is
+what a judge is being paid for; a judge that calls everything wrong
+catches every failure, and the control line is the only thing that tells
+it apart from one that can see.
+
+It sits **beside** `caught`, `missed` and `by_signal`, never inside them.
+Every other number on the card is computable from the traces alone, and
+one sampled verdict folded in would end that without saying so. Pinned:
+a stand-in that says everything is wrong and one that says everything is
+right leave the computed numbers identical. A run the judge never read is
+neither caught nor missed — absent is not a pass.
+
+**A long run does not fit in the prompt, and the excerpt was silent.**
+`--with-steps` sent the *first forty* steps of whatever it was given and
+recorded nothing about the cut, so a verdict over the opening of a
+three-hundred-step run was indistinguishable from a verdict over the run.
+It now sends the opening and the closing with the gap named in the text
+(`... 260 steps omitted here (indexes 20-279) ...`), records
+`steps_shown`, `steps_total` and `steps_basis` on the verdict, counts
+`on_an_excerpt` on the card, and takes `--steps-cap N`.
+
+**What that is worth, measured.** The long-horizon suite marks the step
+each failure was injected at, so whether an excerpt contains the failure
+is arithmetic, not opinion. Of the twelve modes: the old head-only cut
+showed the judge the failing step in **1 of 12**; keeping both ends shows
+**4 of 12**; and the smallest excerpt that shows all twelve is **274
+steps**, against a mean run of 237. There is no excerpt of these runs
+that works — a judge given `--with-steps` on a long trace is reading the
+opening and the ending and guessing about the middle, where eight of the
+twelve failures are. The fix makes the excerpt honest; it does not make
+it sufficient, and the card now says which.
+
+**`--rubric long-run`** asks the model whether every part of the task is
+accounted for by work that can be seen and checked by something other
+than the agent's own say-so, rather than whether the summary reads well.
+Rubrics are named (`RUBRICS`: `strict`, `long-run`, else `custom`) and the
+name travels onto the verdict, because two cards are comparable when they
+asked the same question. The judge is never shown the golden set — a
+rubric quoting the milestones would be handing it the answers.
+
+**Not measured here:** no model was run against the suite; no API key is
+configured in the environment these numbers came from, and a stand-in's
+verdicts would be a fact about the stand-in. The coverage table above is
+arithmetic over the traces; what a given model says about these runs is
+an open number, and `detection.judge` is where it lands.
+
 ## The last two blind spots: one measure, one corpus defect
 
 The long-horizon suite shipped with two failure modes nothing caught, and

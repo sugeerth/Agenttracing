@@ -28,7 +28,7 @@ scorecard* block.
 | latency, wasted seconds, share waiting on tools, cost, tokens, steps, tool calls, accuracy score | mean, median, min, max per run, as recorded (`report.timing` for the wasted seconds; `outcome.score` for the accuracy score) | — |
 | risk vs reward | reward = success rate; risk = share of runs with a flag; ratio = reward / risk, none when nothing was flagged | — |
 | trajectory counts | repeated calls, cycles, looping runs, steps after done, no-information steps, step-limit runs, writes and blind writes, terminations | — |
-| LLM judge | judged-solved rate with interval; agreement with the exact-match grade; the 2×2 of grade × judge | `--judge` |
+| LLM judge | judged-solved rate with interval; agreement with the exact-match grade; the 2×2 of grade × judge; and, against known failures, what only the judge caught and what it said about the correct runs | `--judge` |
 
 A dimension that cannot be measured for a run reads `None` and the
 page says why ("needs a golden set with expected_tools"); it never
@@ -123,12 +123,39 @@ answer); such traces say `graded_by: "model"` and the exact match, when
 there was one, stays the reference for agreement. A model judging its
 own run is flagged `self_judged`.
 
+**The judge is scored the way every other dimension is.** When the golden
+set names known failures, *Does the evaluation see it?* reports a `judge`
+line beside its own numbers: how many of the known failures the model read
+and called wrong, how many of those **no other dimension caught**
+(`only_the_judge` — the figure that says whether the judge is earning its
+cost), and how many of the runs *known to be correct* it called wrong.
+Read those two together. A judge that calls everything wrong catches every
+failure, and the control line is the only thing that tells it apart from
+one that can see.
+
+It is reported beside and never merged in: `caught`, `missed` and
+`by_signal` stay computable from the traces alone. A sampled verdict
+folded into them would make the card unreproducible without saying so.
+
+**On a long run the judge reads an excerpt, and the block says which.**
+`--with-steps` cannot fit three hundred steps in a prompt, so it sends the
+opening and the closing with a literal `... 260 steps omitted here
+(indexes 20-279) ...` where the gap is, and records `steps_shown`,
+`steps_total` and `steps_basis` on the verdict; the card counts the
+verdicts that were `on_an_excerpt`. `--steps-cap N` raises it. On the
+long-horizon suite a 40-step excerpt contains the step where the run goes
+wrong in **4 of 12** cases, and no excerpt shorter than 274 steps contains
+all twelve — see `docs/HORIZON.md`, which measures it. `--rubric long-run`
+asks the model about the work rather than the prose; the judge is never
+shown the golden set.
+
 ## Commands
 
 ```bash
 agentdiff eval demo/runs/traces --golden demo/golden/tasks.json -o eval/        # offline
 agentdiff eval --db traces.sqlite -o eval/                                       # online
 agentdiff eval traces/ --golden golden.json --judge j=anthropic:MODEL --with-steps
+agentdiff judge traces/ --provider j=openai:MODEL --with-steps --rubric long-run --steps-cap 200
 agentdiff runs traces/ -o out/ --golden golden.json        # the scorecard on the page
 agentdiff loop --tasks golden.json --golden golden.json --judge j=openai:MODEL …  # every iteration scored
 ```

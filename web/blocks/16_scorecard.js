@@ -303,6 +303,29 @@
         ? fp.length + " run(s) known to be correct were flagged anyway: "
           + fp.map(function (x) { return x.task + " · " + x.agent + " (" + x.signals.join(", ") + ")"; }).join("; ")
         : "no run known to be correct was flagged (" + ((det.controls || {}).runs || 0) + " checked)." }));
+    // the judging model, scored the same way and kept out of the numbers
+    // above: what it caught, what only it caught, and — the line that
+    // decides whether to believe any of it — what it said about the runs
+    // known to be correct
+    var j = det.judge;
+    if (j) {
+      var jp = H("p", { class: "sc-note", "data-role": "judge" });
+      if (!j.measurable) {
+        jp.appendChild(H("span", { class: "dim", text: "No judging model: " + j.reason }));
+      } else {
+        jp.appendChild(H("b", { text: "Judge (" + (j.model || "model") + ", " + (j.rubrics || []).join("/") + "): " }));
+        jp.appendChild(H("span", { text: j.narrative }));
+        if (j.only_the_judge && j.only_the_judge.length) {
+          jp.appendChild(H("span", { text: " Only the judge: "
+            + j.only_the_judge.map(function (x) { return x.mode + " (" + x.task + ")"; }).join(", ") + "." }));
+        }
+        if (j.on_an_excerpt) {
+          jp.appendChild(H("span", { class: "warn", text: " " + j.on_an_excerpt
+            + " of those verdicts are about an excerpt of the run, not the whole of it." }));
+        }
+      }
+      sec.appendChild(jp);
+    }
     sec.appendChild(H("p", { class: "sc-note", text: det.basis + "." }));
     return sec;
   }
