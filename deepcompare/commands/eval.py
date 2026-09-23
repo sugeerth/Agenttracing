@@ -32,6 +32,10 @@ def register(subparsers) -> None:
     parser.add_argument("--with-steps", action="store_true", help="show the judge the steps, not only the answer")
     parser.add_argument("--rubric", default=None,
                         help="a name from RUBRICS (strict, long-run) or the judging instruction itself")
+    parser.add_argument("--focus", action="store_true",
+                        help="with --with-steps, choose which steps to show by what the run itself flags "
+                             "instead of by position; uses the policy and each task's stated constraints, "
+                             "never its milestones or expected answer")
     parser.add_argument("--steps-cap", type=int, default=None, metavar="N",
                         help="how many steps to show with --with-steps (default 40); a longer run is shown as "
                              "its opening and closing with the gap named, never silently cut")
@@ -85,7 +89,13 @@ def run(args: argparse.Namespace) -> int:
                 raw = t.to_dict()
                 raws[t.trace_id] = raw
             targets.append(raw)
-        judged = judge_many(targets, factory, rubric=args.rubric, with_steps=args.with_steps, apply=False,
+        policy_for = None
+        if args.focus:
+            from ..excerpt import effective_policy
+            gtasks = (golden or {}).get("tasks") or {}
+            policy_for = (lambda raw: effective_policy(policy, gtasks.get((raw.get("task") or {}).get("id"))))
+        judged = judge_many(targets, factory, policy_for=policy_for, rubric=args.rubric,
+                            with_steps=args.with_steps, apply=False, focus=args.focus,
                             cap=args.steps_cap if args.steps_cap and args.steps_cap > 0 else STEP_EXCERPT)
         if args.write and args.tracesdir:
             for path in sorted(Path(args.tracesdir).glob("*.json")):

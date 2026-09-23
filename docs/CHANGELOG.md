@@ -5,6 +5,64 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Which part of a long run to show: by structure, not by position
+
+Choosing the excerpt by where the steps fall is close to choosing at
+random — the failure is at step 175 of 202, or 95 of 233, and position
+knows nothing about either. `deepcompare/excerpt.py` chooses by what the
+run itself flags instead: an error nothing repaired, a block of steps
+that produced nothing new, a write with no check after it, a call in a
+cycle, a step whose output the run already had, a policy breach. A
+quarter of the budget is held for the opening and a quarter for the
+ending, so a reader still sees the task taken up and the run concluded.
+
+`judge --focus` and `eval --judge --focus` use it, and every verdict
+records `steps_chosen_by` — `structure`, `position`, or `all` when the
+run fitted — with the card reporting `excerpts_chosen_by`. That field
+says what happened rather than what was asked for: a selector that cannot
+run falls back to the ends, and a block claiming `structure` for a prompt
+built by position would be a lie the card would then repeat.
+
+**Measured on the long-horizon suite**, by whether the excerpt contains
+the step each failure was injected at:
+
+| budget | by position | by structure |
+|---|---|---|
+| 20 steps | 4/12 | 6/12 |
+| 40 steps | 4/12 | 7/12 |
+| 60 steps | 5/12 | 7/12 |
+| 80 steps | 6/12 | 7/12 |
+| 120 steps | 6/12 | 8/12 |
+| 160 steps | 7/12 | 10/12 |
+
+Structure at 40 steps matches position at 160 — the same coverage for a
+quarter of the tokens. `retry_stall` is scored a miss on a technicality
+(the marked step is the one after the stall ends; both edges of the stall
+are in the excerpt) and the measure is left strict rather than adjusted.
+
+**What it cannot reach is the more useful half.** The five it misses at 40
+steps are `out_of_order`, `retry_stall`, `skipped_unit`, `stale_value`
+and `unverified_handoff` — four of them failures of *absence*, where
+nothing in what the run did can point at what it did not do. Those need
+the milestones, and the milestones are exactly what a judge must not be
+shown. The boundary is where a sampled reader stops being the right
+instrument and the golden set starts.
+
+**What the selector may know** is the trace and the policy, including a
+task's own `forbidden_tools` and `forbidden_patterns` — constraints the
+agent was told before it started, like the prompt. Never `milestones`,
+`expected` or `failure_mode`: a selector reading those would be shown the
+answer and then credited with finding it. One function,
+`excerpt.effective_policy`, makes the merge, and a test asserts nothing
+else crosses it.
+
+`excerpt.WEIGHTS` is a stated ordering, not a fitted one, written down to
+be argued with. Nothing was tuned against the table above. The one change
+that moved it was a bug fix: ten consecutive failing retries were being
+treated as ten places to look, so one stall ate the whole budget and the
+rest of the run went unseen. Clustering a region into one candidate took
+it from 6/12 to 7/12.
+
 ## The judge, scored beside the card, and what it can see of a long run
 
 A judging model is the usual answer to "the grade is too blunt", and this

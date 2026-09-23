@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -129,6 +130,95 @@ class JudgeTest(unittest.TestCase):
             self.assertEqual(block["steps_shown"], 60)
             self.assertGreater(block["steps_total"], 200)
             self.assertIn("180 named as omitted", block["steps_basis"] or "")
+
+
+@unittest.skipUnless((ROOT / "demo" / "horizon" / "suite").is_dir(), "the long-horizon suite is not generated")
+class FocusedJudgingTest(unittest.TestCase):
+    """`--focus`: the steps shown are chosen by what the run itself flags.
+
+    The engine already knows where a run stops behaving like one that is
+    going well, and it knows it without being told what the task was. That
+    reading is free and it is a far better guide to what to put in a prompt
+    than where the steps happen to fall.
+    """
+
+    SUITE = ROOT / "demo" / "horizon" / "suite"
+    GOLDEN = ROOT / "demo" / "horizon" / "suite_golden.json"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.golden = json.loads(cls.GOLDEN.read_text(encoding="utf-8"))
+        cls.tasks = {t["id"]: t for t in cls.golden["tasks"]}
+
+    def judged(self, name, **kwargs):
+        raw = json.loads((self.SUITE / f"{name}__drift-lh.json").read_text(encoding="utf-8"))
+        seen = []
+
+        def script(messages, tools):
+            seen.append(messages)
+            return {"text": '{"success": false, "score": 0.3, "rationale": "x"}'}
+        block = judge_trace(raw, ScriptedProvider(script, model="j"), with_steps=True, **kwargs)
+        return block, seen[0][1]["content"]
+
+    def policy_for(self, name):
+        from deepcompare.excerpt import effective_policy
+        return effective_policy(self.golden.get("policy"), self.tasks[name])
+
+    def test_the_forbidden_write_reaches_the_judge_and_would_not_have(self):
+        """`forgotten_constraint` breaks a rule at step 176 of 202. By
+        position that step is in neither end of the excerpt; by structure
+        it is the first thing shown."""
+        name = "L05_security_patch"
+        focused, prompt = self.judged(name, focus=True, policy=self.policy_for(name))
+        self.assertEqual(focused["steps_chosen_by"], "structure")
+        self.assertIn("write legacy/shim.py", prompt, "the step that breaks the rule")
+        self.assertIn("policy_breach", focused["steps_basis"])
+        _by_position, plain = self.judged(name)
+        self.assertNotIn("write legacy/shim.py", plain, "position puts it in neither end")
+
+    def test_the_verdict_records_how_its_excerpt_was_chosen(self):
+        name = "L03_data_backfill"
+        focused, _ = self.judged(name, focus=True)
+        positional, _ = self.judged(name)
+        whole, _ = self.judged(name, focus=True, cap=10_000)
+        self.assertEqual([focused["steps_chosen_by"], positional["steps_chosen_by"], whole["steps_chosen_by"]],
+                         ["structure", "position", "all"])
+        self.assertEqual(focused["steps_shown"], positional["steps_shown"], "the same budget, spent differently")
+
+    def test_every_gap_in_a_focused_excerpt_is_named(self):
+        """A gap the reader cannot see turns 'the agent did these things'
+        into 'the agent did these things among others', and those are
+        different claims to judge."""
+        _block, prompt = self.judged("L03_data_backfill", focus=True)
+        gaps = [line for line in prompt.splitlines() if "omitted here" in line]
+        self.assertGreater(len(gaps), 3)
+        shown = [line for line in prompt.splitlines() if line.startswith("[")]
+        self.assertEqual(len(shown), 40)
+
+    def test_the_judge_is_never_shown_the_golden_set(self):
+        """The rubric, the prompt and the selector between them must not
+        contain a milestone, the expected answer or the name of the mode.
+        A judge handed those is being graded on reading, not on judging."""
+        name = "L01_service_migration"
+        task = self.tasks[name]
+        _block, prompt = self.judged(name, focus=True, rubric="long-run", policy=self.policy_for(name))
+        for milestone in task["milestones"]:
+            for field in ("id", "label"):
+                if milestone.get(field):
+                    self.assertNotIn(str(milestone[field]), prompt, field)
+        self.assertNotIn(task["failure_mode"], prompt)
+        self.assertNotIn(str(task.get("failure_mode_detail") or "\x00"), prompt)
+
+    def test_a_selector_that_cannot_run_falls_back_rather_than_failing(self):
+        """A broken reading of the run is a reason to show the ends, not a
+        reason to refuse to judge."""
+        raw = json.loads((self.SUITE / "L03_data_backfill__drift-lh.json").read_text(encoding="utf-8"))
+        with mock.patch("deepcompare.excerpt.focus", side_effect=RuntimeError("no")):
+            block = judge_trace(raw, scripted('{"success": true, "score": 1, "rationale": "x"}'),
+                                with_steps=True, focus=True)
+        self.assertIsNone(block["error"])
+        self.assertEqual(block["steps_chosen_by"], "position")
+        self.assertIn("by position", block["steps_basis"])
 
 
 if __name__ == "__main__":

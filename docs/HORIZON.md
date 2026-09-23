@@ -241,6 +241,67 @@ verdict, the prompt carries a literal `... 260 steps omitted here
 its verdicts are `on_an_excerpt`. Raise it with `--steps-cap N` and pay
 for the tokens, or read the verdict as what it is.
 
+### Choosing the part by structure instead of by position
+
+Every number above is about excerpts chosen by *where the steps fall*,
+which on a long run is close to choosing at random: the failure is at
+step 175 of 202, or 95 of 233, and position knows nothing about either.
+
+The engine already knows better. It computes, with no knowledge of what
+the task was, exactly the places where a run stops behaving like one that
+is going well — an error nothing repaired, a block of steps that produced
+nothing new, a write with no check after it, a call made in a cycle, a
+step whose output the run already had. `--focus` spends the same budget
+on those (`deepcompare/excerpt.py`), keeping a quarter of it for the
+opening and a quarter for the ending so the judge still sees the task
+taken up and the run concluded.
+
+Measured the same way — does the excerpt contain the step the failure was
+injected at:
+
+| budget | chosen by position | chosen by structure |
+|---|---|---|
+| 20 steps | 4/12 | **6/12** |
+| 40 steps | 4/12 | **7/12** |
+| 60 steps | 5/12 | 7/12 |
+| 80 steps | 6/12 | 7/12 |
+| 120 steps | 6/12 | **8/12** |
+| 160 steps | 7/12 | **10/12** |
+
+**Structure at 40 steps matches position at 160** — the same coverage for
+a quarter of the tokens — and at every budget it is ahead. The one case
+it is unfairly marked down on is `retry_stall`, where the marked step is
+the one *after* the stall ends: both edges of the twenty-step stall are in
+the excerpt, and the strict measure still scores it a miss. It is left
+strict rather than adjusted to flatter the feature.
+
+**What it cannot reach, and why that is the interesting half.** The five
+it misses at 40 steps are `out_of_order`, `retry_stall`, `skipped_unit`,
+`stale_value` and `unverified_handoff`. Four of those are failures of
+**absence** — a unit never worked, a check never run, a value quietly
+superseded — and nothing in what the run *did* can point at what it did
+not do. Locating those needs the milestones, and the milestones are
+exactly what a judge must not be shown. So the boundary is not a limit of
+this selector; it is the line where a sampled reader stops being the
+right instrument and the golden set starts.
+
+**What the selector is allowed to know.** The trace, and the policy —
+including a task's own `forbidden_tools` and `forbidden_patterns`, which
+are constraints the agent was *told* before it started, like the prompt.
+Not `milestones`, not `expected`, not `failure_mode`: those are facts
+about how the run turned out, and a selector that read them would be
+shown the answer and then credited with finding it. The merge is one
+function, `excerpt.effective_policy`, and a test asserts nothing else
+crosses it.
+
+The weights in `excerpt.WEIGHTS` are a **stated ordering**, not a fitted
+one — an error the run never came back to is a better place to look than
+a step that merely repeats — and they are written down to be argued with.
+Nothing here was tuned against the table above; the one thing that moved
+it was a bug, in which ten consecutive failing retries were treated as
+ten places to look and one stall ate the whole budget. Clustering them
+into one event took it from 6/12 to 7/12.
+
 `--rubric long-run` asks a different question of the model — whether
 every part of the task is accounted for by work that can be seen and
 checked by something other than the agent's own say-so, rather than

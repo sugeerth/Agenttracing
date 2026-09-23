@@ -25,6 +25,12 @@ def register(subparsers) -> None:
                         help="a name from RUBRICS (strict, long-run) or the judging instruction itself "
                              "(default: strict correctness, JSON verdict)")
     parser.add_argument("--with-steps", action="store_true", help="show the judge the steps, not only the answer")
+    parser.add_argument("--focus", action="store_true",
+                        help="with --with-steps, choose which steps to show by what the run itself flags "
+                             "(errors nothing repaired, work re-done, a write nothing checked, a policy "
+                             "breach) instead of by position; never reads the golden set")
+    parser.add_argument("--policy", default=None,
+                        help="safety policy JSON; --focus uses its forbidden tools and patterns")
     parser.add_argument("--steps-cap", type=int, default=None, metavar="N",
                         help="how many steps to show with --with-steps (default 40); a longer run is shown as "
                              "its opening and closing with the gap named, never silently cut")
@@ -63,8 +69,12 @@ def run(args: argparse.Namespace) -> int:
     options = provider_options(args)
     kind = spec.split(":", 1)[0].strip().lower()
     factory = lambda: provider_from_spec(spec, **({} if kind == "scripted" else options))  # noqa: E731
+    policy = None
+    if args.policy:
+        from ..scorecard import load_policy
+        policy = load_policy(args.policy)
     counts = judge_many([t[1] for t in traces], factory, rubric=args.rubric,
-                        with_steps=args.with_steps, apply=args.apply,
+                        with_steps=args.with_steps, apply=args.apply, focus=args.focus, policy=policy,
                         cap=args.steps_cap if args.steps_cap and args.steps_cap > 0 else STEP_EXCERPT)
     written = set()
     for path, data, report in traces:

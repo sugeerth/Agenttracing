@@ -316,6 +316,7 @@ def score_run(traj: Trajectory, golden_task: Optional[dict] = None, policy: Opti
                    # shown 40 of 300 steps judged an excerpt, and a card that
                    # does not carry that cannot say so
                    "steps_shown": judge.get("steps_shown"), "steps_total": judge.get("steps_total"),
+                   "steps_chosen_by": judge.get("steps_chosen_by"),
                    # the grade the judge is compared with: the exact match, even when the judge's
                    # verdict was applied as the outcome
                    "grade": ((judge.get("prior") or {}).get("success") if isinstance((judge.get("prior") or {}).get("success"), bool)
@@ -527,6 +528,10 @@ def _judge_detection(rows: list, controls: int, judged_controls: list) -> dict:
     caught = [r for r in judged if _judge_said_no(r["judge"])]
     only = [r for r in caught if not r["caught"]]
     excerpts = [r for r in judged if (r["judge"].get("steps_total") or 0) > (r["judge"].get("steps_shown") or 0)]
+    chosen_by: dict = {}
+    for r in excerpts:
+        key = str(r["judge"].get("steps_chosen_by") or "position")
+        chosen_by[key] = chosen_by.get(key, 0) + 1
     rubrics = sorted({str(r["judge"].get("rubric_name") or "unnamed") for r in judged})
     narrative = (f"the judge read {len(judged)} of {plural(len(rows), 'known failure')} and called "
                  f"{len(caught)} of them wrong; {len(only)} that no other dimension caught; "
@@ -545,10 +550,15 @@ def _judge_detection(rows: list, controls: int, judged_controls: list) -> dict:
             "model": judged[0]["judge"].get("model"),
             "rubrics": rubrics,
             "on_an_excerpt": len(excerpts),
+            # how those excerpts were chosen: by where the steps fall in the
+            # run, or by what the run itself flags (`deepcompare.excerpt`)
+            "excerpts_chosen_by": dict(sorted(chosen_by.items())),
             "basis": ("the judging model's verdict, scored against the runs whose failure is known, and kept out "
                       "of `caught`, `missed` and `by_signal`: every other number on this card is reproducible "
                       "from the traces alone and a sampled verdict is not. `on_an_excerpt` counts the runs too "
-                      "long to show the judge in full — those verdicts are about the part it was shown"),
+                      "long to show the judge in full — those verdicts are about the part it was shown, and "
+                      "`excerpts_chosen_by` says whether that part was chosen by position or by what the run "
+                      "itself flags"),
             "narrative": narrative}
 
 
@@ -721,8 +731,9 @@ def render_scorecard_markdown(card: dict) -> str:
                     line += (" Only the judge: "
                              + ", ".join(f"{x['mode']} ({x['task']})" for x in judge["only_the_judge"]) + ".")
                 if judge["on_an_excerpt"]:
+                    how = ", ".join(f"{n} by {k}" for k, n in (judge.get("excerpts_chosen_by") or {}).items())
                     line += (f" {judge['on_an_excerpt']} of those verdicts are about an excerpt of the run, "
-                             "not the whole of it.")
+                             "not the whole of it" + (f" ({how})" if how else "") + ".")
                 lines.append(line)
         lines.append("")
         lines.append(det["basis"] + ".")

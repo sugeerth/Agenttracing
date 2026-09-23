@@ -320,8 +320,11 @@
             + j.only_the_judge.map(function (x) { return x.mode + " (" + x.task + ")"; }).join(", ") + "." }));
         }
         if (j.on_an_excerpt) {
+          var how = Object.keys(j.excerpts_chosen_by || {}).map(function (k) {
+            return j.excerpts_chosen_by[k] + " by " + k; }).join(", ");
           jp.appendChild(H("span", { class: "warn", text: " " + j.on_an_excerpt
-            + " of those verdicts are about an excerpt of the run, not the whole of it." }));
+            + " of those verdicts are about an excerpt of the run, not the whole of it"
+            + (how ? " (" + how + ")" : "") + "." }));
         }
       }
       sec.appendChild(jp);

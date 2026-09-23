@@ -83,32 +83,71 @@ def resolve_rubric(rubric: Optional[str]) -> tuple:
     return rubric, "custom"
 
 
-def _steps_block(steps: list, cap: int = STEP_EXCERPT) -> tuple:
+def _line(s: dict) -> str:
+    return (f"[{s.get('index')}] {s.get('type')} {s.get('name', '')}: "
+            f"{str(s.get('input', ''))[:200]} -> {str(s.get('output', ''))[:300]}")
+
+
+def _render(steps: list, keep) -> str:
+    """The kept steps in order, with every gap between them named.
+
+    A gap the reader cannot see is the difference between "the agent did
+    these things" and "the agent did these things among others", and those
+    are different claims to judge.
+    """
+    keep = sorted(keep)
+    body, previous = [], None
+    for at in keep:
+        if previous is not None and at > previous + 1:
+            gap = steps[previous + 1:at]
+            body.append(f"... {len(gap)} steps omitted here "
+                        f"(indexes {gap[0].get('index')}-{gap[-1].get('index')}) ...")
+        body.append(_line(steps[at]))
+        previous = at
+    return "\n".join(body)
+
+
+def _steps_block(steps: list, cap: int = STEP_EXCERPT, keep=None, basis: str = "") -> tuple:
     """The steps as the judge will see them: ``(text, shown, total, basis)``.
 
-    Under the cap this is the whole run.  Over it, the opening and the
-    closing with the gap named — the failure in a long run is usually late,
-    and a head-only excerpt puts the judge in front of the part that went
-    fine and asks it about the part it cannot see.
+    With ``keep`` — positions chosen by :func:`deepcompare.excerpt.focus` —
+    this renders those. Without it, the opening and the closing: the
+    failure in a long run is usually late, and a head-only excerpt puts the
+    judge in front of the part that went fine and asks it about the part it
+    cannot see.
     """
-    def line(s):
-        return (f"[{s.get('index')}] {s.get('type')} {s.get('name', '')}: "
-                f"{str(s.get('input', ''))[:200]} -> {str(s.get('output', ''))[:300]}")
-
     total = len(steps)
+    if keep is not None:
+        keep = [at for at in sorted(keep) if 0 <= at < total]
+        return _render(steps, keep), len(keep), total, basis
     if total <= cap:
-        return "\n".join(line(s) for s in steps), total, total, ("every step of the run" if total else "no steps")
+        return _render(steps, range(total)), total, total, ("every step of the run" if total else "no steps")
     head, tail = cap // 2, cap - cap // 2
-    dropped = steps[head:total - tail]
-    first, last = dropped[0].get("index"), dropped[-1].get("index")
-    body = ([line(s) for s in steps[:head]]
-            + [f"... {len(dropped)} steps omitted here (indexes {first}-{last}) ..."]
-            + [line(s) for s in steps[total - tail:]])
-    return ("\n".join(body), cap, total,
-            f"an excerpt: the first {head} and last {tail} of {total} steps, with {len(dropped)} named as omitted")
+    kept = list(range(head)) + list(range(total - tail, total))
+    return (_render(steps, kept), cap, total,
+            f"an excerpt by position: the first {head} and last {tail} of {total} steps, "
+            f"with {total - cap} named as omitted")
 
 
-def _prompt(trace: dict, rubric: str, with_steps: bool, cap: int = STEP_EXCERPT) -> tuple:
+def _focus_keep(trace: dict, cap: int, policy: Optional[dict]) -> tuple:
+    """``(keep, basis)`` from the engine's own reading of the run, or
+    ``(None, "")`` when it cannot be computed — a selector that raised
+    would be a worse outcome than an excerpt chosen by position."""
+    try:
+        from ..excerpt import focus
+        from ..trace import Trajectory
+        # the whole run is read, and only the steps before the answer are
+        # eligible to be shown — the answer goes in the prompt separately,
+        # and the count the basis states is then the count that appears
+        traj = Trajectory.from_dict(trace)
+        chosen = focus(traj, cap, policy, within=max(0, len(traj.steps) - 1))
+    except Exception:                      # noqa: BLE001 - fall back, never fail the judging
+        return None, ""
+    return chosen["keep"], "an excerpt by structure: " + chosen["basis"]
+
+
+def _prompt(trace: dict, rubric: str, with_steps: bool, cap: int = STEP_EXCERPT,
+            focus: bool = False, policy: Optional[dict] = None) -> tuple:
     """``(messages, shown, total, basis)`` — the prompt and, beside it,
     what of the run it actually contains."""
     task = trace.get("task") or {}
@@ -117,14 +156,24 @@ def _prompt(trace: dict, rubric: str, with_steps: bool, cap: int = STEP_EXCERPT)
     if task.get("expected"):
         parts.append(f"REFERENCE ANSWER (may be partial or phrased differently):\n{task['expected']}")
     shown = total = 0
-    basis = "the answer only; the steps were not shown"
+    basis, chosen_by = "the answer only; the steps were not shown", None
     if with_steps:
-        body, shown, total, basis = _steps_block((trace.get("steps") or [])[:-1], cap)
+        steps = (trace.get("steps") or [])[:-1]
+        keep = chosen_basis = None
+        if focus and len(steps) > cap:
+            keep, chosen_basis = _focus_keep(trace, cap, policy)
+            if keep is not None:
+                keep = [at for at in keep if at < len(steps)]
+        body, shown, total, basis = _steps_block(steps, cap, keep, chosen_basis or "")
+        # what actually happened, not what was asked for: a selector that
+        # could not run falls back, and a block that still said "structure"
+        # would be describing a prompt that was never built
+        chosen_by = "all" if shown >= total else "structure" if keep is not None else "position"
         if body:
             parts.append(f"STEPS THE AGENT TOOK ({basis}):\n" + body)
     parts.append(f"AGENT'S FINAL ANSWER:\n{outcome.get('answer', '')}")
     return ([{"role": "system", "content": rubric},
-             {"role": "user", "content": "\n\n".join(parts)}], shown, total, basis)
+             {"role": "user", "content": "\n\n".join(parts)}], shown, total, basis, chosen_by)
 
 
 def _parse(text: str) -> Optional[dict]:
@@ -146,11 +195,12 @@ def _parse(text: str) -> Optional[dict]:
 
 
 def judge_trace(trace: dict, provider: Provider, *, rubric: Optional[str] = None,
-                with_steps: bool = False, apply: bool = False, cap: int = STEP_EXCERPT) -> dict:
+                with_steps: bool = False, apply: bool = False, cap: int = STEP_EXCERPT,
+                focus: bool = False, policy: Optional[dict] = None) -> dict:
     """Judge one trace in place; returns the ``judge`` block written to
     ``trace["outcome"]["judge"]``."""
     rubric, rubric_name = resolve_rubric(rubric)
-    messages, shown, total, steps_basis = _prompt(trace, rubric, with_steps, cap)
+    messages, shown, total, steps_basis, chosen_by = _prompt(trace, rubric, with_steps, cap, focus, policy)
     try:
         response = provider.complete(messages, None)
         text = getattr(response, "text", "") or ""
@@ -170,6 +220,7 @@ def judge_trace(trace: dict, provider: Provider, *, rubric: Optional[str] = None
         "steps_shown": shown,
         "steps_total": total,
         "steps_basis": steps_basis,
+        "steps_chosen_by": chosen_by,
         "success": verdict["success"] if verdict else None,
         "score": verdict["score"] if verdict else None,
         "rationale": verdict["rationale"] if verdict else None,
@@ -194,12 +245,19 @@ def judge_trace(trace: dict, provider: Provider, *, rubric: Optional[str] = None
     return block
 
 
-def judge_many(traces: list, provider_factory: Callable[[], Provider], **kwargs) -> dict:
+def judge_many(traces: list, provider_factory: Callable[[], Provider],
+               policy_for: Optional[Callable[[dict], Optional[dict]]] = None, **kwargs) -> dict:
     """Judge a list of trace dicts (in place); a fresh provider per trace
-    so scripted judges replay cleanly. Returns counts."""
+    so scripted judges replay cleanly. Returns counts.
+
+    ``policy_for`` gives each trace its own rules — a task states its own
+    constraints, and ``--focus`` looks for breaches of the ones that
+    applied to *that* run rather than the ones that applied to some other.
+    """
     judged = agreed = disagreed = failed = 0
     for trace in traces:
-        block = judge_trace(trace, provider_factory(), **kwargs)
+        per = dict(kwargs, policy=policy_for(trace)) if policy_for else kwargs
+        block = judge_trace(trace, provider_factory(), **per)
         if block["error"]:
             failed += 1
             continue

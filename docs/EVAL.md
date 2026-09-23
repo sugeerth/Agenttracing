@@ -143,11 +143,23 @@ opening and the closing with a literal `... 260 steps omitted here
 (indexes 20-279) ...` where the gap is, and records `steps_shown`,
 `steps_total` and `steps_basis` on the verdict; the card counts the
 verdicts that were `on_an_excerpt`. `--steps-cap N` raises it. On the
-long-horizon suite a 40-step excerpt contains the step where the run goes
-wrong in **4 of 12** cases, and no excerpt shorter than 274 steps contains
-all twelve — see `docs/HORIZON.md`, which measures it. `--rubric long-run`
-asks the model about the work rather than the prose; the judge is never
-shown the golden set.
+long-horizon suite a 40-step excerpt chosen *by position* contains the
+step where the run goes wrong in **4 of 12** cases, and no positional
+excerpt shorter than 274 steps contains all twelve.
+
+**`--focus` spends the same budget better.** Instead of the ends of the
+run it shows what the run itself flags — an error nothing repaired, a
+block of steps that produced nothing new, a write with no check after it,
+a policy breach — keeping a quarter of the budget for the opening and a
+quarter for the ending. On the same suite that is **7 of 12 at 40 steps**,
+matching a positional excerpt four times the size; `docs/HORIZON.md` has
+the table and the five it cannot reach. The selector reads the trace and
+the policy — including a task's own stated constraints, which the agent
+was told before it started — and never `milestones`, `expected` or
+`failure_mode`, which are facts about how the run turned out.
+
+`--rubric long-run` asks the model about the work rather than the prose.
+The judge is never shown the golden set.
 
 ## Commands
 
@@ -155,7 +167,7 @@ shown the golden set.
 agentdiff eval demo/runs/traces --golden demo/golden/tasks.json -o eval/        # offline
 agentdiff eval --db traces.sqlite -o eval/                                       # online
 agentdiff eval traces/ --golden golden.json --judge j=anthropic:MODEL --with-steps
-agentdiff judge traces/ --provider j=openai:MODEL --with-steps --rubric long-run --steps-cap 200
+agentdiff judge traces/ --provider j=openai:MODEL --with-steps --focus --rubric long-run
 agentdiff runs traces/ -o out/ --golden golden.json        # the scorecard on the page
 agentdiff loop --tasks golden.json --golden golden.json --judge j=openai:MODEL …  # every iteration scored
 ```
