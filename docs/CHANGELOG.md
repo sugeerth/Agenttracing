@@ -5,6 +5,73 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Two thousand pairs: a million steps, streamed, and two retractions
+
+The excerpt measurement shipped at n=12 — one run per failure mode, from
+the sixteen-task suite. That is the anecdote-with-a-percentage-sign the
+scale corpus exists to prevent, so it is now measured where the detection
+numbers are measured: **1,846 known failures at 200 pairs**, and once,
+opt-in, at **2,000 pairs — 4,000 runs, 1,040,066 steps.**
+
+**The card takes an iterable.** Nothing past `score_run` touches a
+trajectory, only the row scored from it, so `scorecard()` streams: the
+memory a card needs is set by the number of runs, not their length. Four
+thousand three-hundred-step runs are about a gigabyte held at once and a
+few megabytes streamed, and the scale test now loads one trace at a time
+and measures detection and excerpt coverage on the way past. An evaluation
+that can only score what fits in memory stops being able to measure the
+runs worth measuring.
+
+**Detection is the engine, not the corpus.** At 2,000 pairs: 1,846 of
+1,846 known failures caught; 1,076 graded a pass, 1,076 caught by
+something else; 0 of 2,154 control runs flagged. The catch stays spread —
+milestones 923, risk flags 918, the grade 770 — with no dimension above
+half.
+
+**Excerpt coverage, over 1,846 failures instead of 12:**
+
+| budget | by position | by structure |
+|---|---|---|
+| 20 steps | 33.4% | 50.0% |
+| 40 steps | 33.4% | 58.6% |
+| 60 steps | 41.7% | 60.0% |
+| 80 steps | 50.1% | 62.7% |
+| 120 steps | 50.1% | 72.3% |
+| 160 steps | 64.5% | 84.0% |
+
+**The finding twelve runs could not show: per mode it is all or nothing,
+to the run.** Over 154 runs each, the structural excerpt finds the failure
+in every single run of `budget_exhausted`, `context_overflow`, `drift`,
+`forgotten_constraint`, `late_fault`, `regression` and `swallowed_error`,
+and in no run at all of `out_of_order`, `retry_stall`, `skipped_unit` and
+`stale_value`. `unverified_handoff` is the only mode with a rate — 4 of
+153. The question is not how often the selector works; it is which kinds
+of failure leave a mark in what the run did, and that has a categorical
+answer. The four it never reaches are failures of *absence*, which need
+the milestones — the one thing a judge must not be shown.
+
+**Two retractions, kept in the document rather than edited away.**
+
+- *"Structure at 40 steps matches position at 160"* — measured on twelve
+  runs, false at 1,846 (58.6% against 64.5%). One mode is eight points at
+  n=12. The direction survived the scale-up; that equality did not. What
+  holds is **structure at 20 matches position at 80** — a quarter of the
+  tokens.
+- *"Every `context_overflow` run has a redundant stretch of 6 to 8"* —
+  true of 400 runs, false of 4,000, where it reaches 10. The separation
+  from the correct runs (0 against 6-or-more) is the claim and holds at
+  both sizes; the upper bound was never load-bearing and should not have
+  been stated as if it were.
+
+**How much the cheap corpus can be trusted, in writing.** Every rate the
+200-pair run reports is within 3.7 points of the 2,000-pair rate, and the
+positional baseline within 3.0 — but the error is under a point where the
+measure saturates and around 3.5 in the middle of the curve, which is
+where a reader would want to read a difference off it. Sound to about half
+a mode; not to be read to the run. Pinned by
+`test_two_hundred_pairs_was_close_enough_and_says_by_how_much`, so the
+bound is a measurement rather than a reassurance.
+
 ## Which part of a long run to show: by structure, not by position
 
 Choosing the excerpt by where the steps fall is close to choosing at

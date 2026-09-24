@@ -144,16 +144,19 @@ opening and the closing with a literal `... 260 steps omitted here
 `steps_total` and `steps_basis` on the verdict; the card counts the
 verdicts that were `on_an_excerpt`. `--steps-cap N` raises it. On the
 long-horizon suite a 40-step excerpt chosen *by position* contains the
-step where the run goes wrong in **4 of 12** cases, and no positional
-excerpt shorter than 274 steps contains all twelve.
+step where the run goes wrong **33.4%** of the time over 1,846 known
+failures, and no positional excerpt shorter than 274 steps contains all
+twelve of the shipped suite's.
 
 **`--focus` spends the same budget better.** Instead of the ends of the
 run it shows what the run itself flags — an error nothing repaired, a
 block of steps that produced nothing new, a write with no check after it,
 a policy breach — keeping a quarter of the budget for the opening and a
-quarter for the ending. On the same suite that is **7 of 12 at 40 steps**,
-matching a positional excerpt four times the size; `docs/HORIZON.md` has
-the table and the five it cannot reach. The selector reads the trace and
+quarter for the ending. Over 1,846 known failures that is **58.6% at 40 steps against
+33.4%**, and structure at 20 steps matches position at 80 — a quarter of
+the tokens. Per mode it is all or nothing: seven modes found in every run,
+four in none. `docs/HORIZON.md` has the table and why those four cannot be
+reached. The selector reads the trace and
 the policy — including a task's own stated constraints, which the agent
 was told before it started — and never `milestones`, `expected` or
 `failure_mode`, which are facts about how the run turned out.

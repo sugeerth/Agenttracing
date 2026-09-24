@@ -26,13 +26,20 @@ Two things this deliberately does not do:
   better place to look than a step that merely repeats — and it is
   written here to be argued with, not tuned.
 
-The limits are measured rather than claimed: on the long-horizon suite a
-40-step window chosen by position contains the step where the run goes
-wrong in 4 of 12 cases and one chosen by structure in 7 of 12, and the
-five it cannot reach are the modes whose evidence is *absence* — a unit
-never worked, a value quietly superseded — which no amount of looking at
-what the run did can locate. Those need the milestones, and the milestones
-are the thing a judge must not be shown. See ``docs/HORIZON.md``.
+The limits are measured rather than claimed, over 1,846 known failures:
+a 40-step window chosen by position contains the step where the run goes
+wrong 33.4% of the time and one chosen by structure 58.6% of the time, and
+structure at 20 steps matches position at 80 — a quarter of the tokens.
+
+Per mode it is not a rate at all. Over 154 runs of each, the structural
+excerpt finds the failure in **every** run of seven modes and in **no**
+run of four: ``out_of_order``, ``retry_stall``, ``skipped_unit`` and
+``stale_value``, whose evidence is *absence* — a unit never worked, a
+check never run, a value quietly superseded. Nothing in what a run did
+can point at what it did not do. Those need the milestones, and the
+milestones are the thing a judge must not be shown. So the question this
+module answers is not *how often does it work* but *which kinds of failure
+leave a mark in what the run did*. See ``docs/HORIZON.md``.
 """
 
 from __future__ import annotations

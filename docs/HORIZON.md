@@ -93,7 +93,7 @@ twelve is what a *card* sees, not what any number on it sees.
 | the grade | 5/12 | redundant stretch | 2/12 |
 | unrecovered errors | 4/12 | order, kept looking, policy | 1/12 each |
 
-## At scale: 200 pairs
+## At scale: 200 pairs, and once at 2,000
 
 Sixteen tasks is one sample per failure mode. A mode "caught" once may
 have been caught by an accident of that task's length, and at n=1 nothing
@@ -105,7 +105,19 @@ agentdiff eval out/corpus --golden out/corpus/golden.json
 ```
 
 **200 tasks, 400 runs, 91,809 steps** across every mode, eight domains and
-three lengths, written in about four seconds and scored in about five.
+three lengths, written in about eight seconds and scored in about nine.
+The same command at `--scale 2000` writes **4,000 runs and 1,040,066
+steps** — half a gigabyte, a minute to generate and under three to score,
+which is the size everything in this file was checked against once
+(`AGENTDIFF_SCALE=2000 pytest tests/test_horizon_scale.py`, 23 tests).
+
+The card takes an **iterable** of trajectories, and that is what makes a
+million steps scoreable: nothing past `score_run` touches a trajectory,
+only the row scored from it, so the memory a card needs is set by the
+number of runs and not by their length. Four thousand three-hundred-step
+runs are about a gigabyte held all at once and a few megabytes streamed.
+An evaluation that can only score what fits in memory stops being able to
+measure the runs worth measuring.
 The corpus is not shipped — it is regenerated from its seed, which makes
 it reproducible and comparable rather than a fixture to maintain. Every
 generated failing run is checked *inside the generator* against the mode
@@ -114,6 +126,11 @@ drifted from its contents measures nothing, and measures it convincingly.
 
 > 184 of 184 known failures caught; 107 were graded a pass, 107 of them
 > caught by something else; 0 of 216 control runs flagged.
+
+and, on the ten-times-larger corpus:
+
+> 1,846 of 1,846 known failures caught; 1,076 were graded a pass, 1,076 of
+> them caught by something else; 0 of 2,154 control runs flagged.
 
 Every mode is caught in every run it appears in — 16/16 or 15/15 for each
 of the twelve — and **107 of the 184, more than half, are graded a pass**.
@@ -141,6 +158,31 @@ third dimension:
 | unrecovered errors | 61/184 | policy | 16/184 |
 | | | order · kept looking | 15/184 each |
 
+### What the ten-times-larger corpus settled
+
+Running it once, at 2,000 pairs, was worth it for three answers.
+
+**The detection numbers are the engine, not the corpus.** 1,846 of 1,846
+and 0 of 2,154 — the same result at ten times the size, with the catch
+still spread (milestones 923, risk flags 918, the grade 770, and no
+dimension above half).
+
+**The cheap corpus is a good estimate, to about half a mode.** Every rate
+the 200-pair run reports is within **3.7 points** of the rate the 2,000-pair
+run reports, and the positional baseline within 3.0. But the error is not
+uniform — under a point where the measure saturates, around 3.5 in the
+middle of the curve, which is exactly where a reader would want to read a
+difference off it. So the 200-pair table is sound to about half a mode and
+should not be read to the run. That is why it is the default and why this
+paragraph exists.
+
+**Two things it corrected.** `context_overflow`'s redundant stretch does
+not top out at 8 — at this size it reaches 10. And "structure at 40 steps
+matches position at 160", measured on twelve runs, is false: at 1,846 it is
+58.6% against 64.5%. Both are retracted in place below rather than quietly
+edited out, because a file that measures an evaluation should show what it
+got wrong about itself.
+
 ### The two that used to get away
 
 Both of the blind spots this file named are closed, and they were closed
@@ -158,13 +200,18 @@ measure the thing structurally: `process.repeats` now reports the
 needs no fitted constant. A run that re-derives an inventory produces one;
 a run that legitimately calls the same tool many times with different
 results does not. On this corpus it separates absolutely: every one of the
-216 correct runs has a longest stretch of **0**, and every
-`context_overflow` run is between **6 and 8**. Across all 400 runs the
-measure takes four values — 0, 6, 8 and 10 — and the 10s are
-`retry_stall`, the other mode that re-does work. `REDUNDANT_STRETCH` is 3
-and nothing in the corpus lands near it, which is the point: the constant
-is a floor on what counts as a stretch, not a boundary fitted between the
-classes.
+2,154 correct runs has a longest stretch of **0**, and every
+`context_overflow` run is **6 or more**. Across all 4,000 runs the measure
+takes four values — 0, 6, 8 and 10 — and `retry_stall`, the other mode
+that re-does work, is always 10. `REDUNDANT_STRETCH` is 3 and nothing in
+the corpus lands near it, which is the point: the constant is a floor on
+what counts as a stretch, not a boundary fitted between the classes.
+
+(An earlier version of this file said `context_overflow` runs 6 to 8. That
+was true of the 400 runs it had been measured on and is not true of 4,000,
+where the mode reaches 10. The separation from the correct runs — 0 against
+6-or-more — is the claim, and it holds at both sizes; the upper bound was
+never load-bearing and should not have been stated as if it were.)
 
 **`regression` needed the corpus fixed, not a detector added.** It was
 caught 0 of 15 times, and the reason turned out to be that the corpus was
@@ -227,6 +274,11 @@ and no model is needed to get it:
 | the first 100 and last 100 | 8 of 12 |
 | **the smallest excerpt that shows all twelve** | **274 steps** |
 
+(Twelve runs, one per mode — the shipped suite. Over 1,846 failures the
+same two rules read 33.4% and 33.4%; the numbers that carry weight are in
+the table further down, and this one is here because it is where the
+defect was found.)
+
 The mean run here is 237 steps. **There is no excerpt of these runs that
 works**: to put every failure in front of the judge you have to show it
 more than the whole of an average run. A judge given `--with-steps` on a
@@ -257,33 +309,56 @@ opening and a quarter for the ending so the judge still sees the task
 taken up and the run concluded.
 
 Measured the same way — does the excerpt contain the step the failure was
-injected at:
+injected at — over **1,846 known failures**, not the twelve in the shipped
+suite:
 
 | budget | chosen by position | chosen by structure |
 |---|---|---|
-| 20 steps | 4/12 | **6/12** |
-| 40 steps | 4/12 | **7/12** |
-| 60 steps | 5/12 | 7/12 |
-| 80 steps | 6/12 | 7/12 |
-| 120 steps | 6/12 | **8/12** |
-| 160 steps | 7/12 | **10/12** |
+| 20 steps | 33.4% | **50.0%** |
+| 40 steps | 33.4% | **58.6%** |
+| 60 steps | 41.7% | 60.0% |
+| 80 steps | 50.1% | 62.7% |
+| 120 steps | 50.1% | **72.3%** |
+| 160 steps | 64.5% | **84.0%** |
 
-**Structure at 40 steps matches position at 160** — the same coverage for
-a quarter of the tokens — and at every budget it is ahead. The one case
-it is unfairly marked down on is `retry_stall`, where the marked step is
-the one *after* the stall ends: both edges of the twenty-step stall are in
-the excerpt, and the strict measure still scores it a miss. It is left
-strict rather than adjusted to flatter the feature.
+**Structure at 20 steps matches position at 80** — the same sight of the
+failure for a quarter of the tokens — and structure is ahead at every
+budget, on every mode. The one case it is unfairly marked down on is
+`retry_stall`, where the marked step is the one *after* the stall ends:
+both edges of the twenty-step stall are in the excerpt, and the strict
+measure still scores it a miss. It is left strict rather than adjusted to
+flatter the feature.
 
-**What it cannot reach, and why that is the interesting half.** The five
-it misses at 40 steps are `out_of_order`, `retry_stall`, `skipped_unit`,
-`stale_value` and `unverified_handoff`. Four of those are failures of
-**absence** — a unit never worked, a check never run, a value quietly
-superseded — and nothing in what the run *did* can point at what it did
-not do. Locating those needs the milestones, and the milestones are
-exactly what a judge must not be shown. So the boundary is not a limit of
-this selector; it is the line where a sampled reader stops being the
-right instrument and the golden set starts.
+> An earlier version of this section measured the same thing on the
+> twelve-task suite and reported *"structure at 40 steps matches position
+> at 160"*. It does not: at 1,846 failures, position at 160 reaches 64.5%
+> and structure at 40 reaches 58.6%. The claim was an artefact of one
+> sample per mode — twelve runs, where a single mode is eight percentage
+> points. The direction survived the scale-up; that particular equality
+> did not.
+
+### The part twelve runs could not show
+
+Per mode, the structural excerpt is not a rate at all. Over 154 runs of
+each mode it is **all or nothing, to the run**:
+
+| always finds it (154/154) | never finds it (0/154) |
+|---|---|
+| `budget_exhausted`, `context_overflow`, `drift`, `forgotten_constraint`, `late_fault`, `regression`, `swallowed_error` | `out_of_order`, `retry_stall`, `skipped_unit`, `stale_value` |
+
+`unverified_handoff` is the only mode with a rate, and its rate is 4 of
+153. So the question is not *how often does this work* — it is **which
+kinds of failure leave a mark in what the run did**, and that has a
+categorical answer.
+
+**What it cannot reach, and why that is the interesting half.** The four
+it never reaches are failures of **absence** — a unit never worked, a
+check never run, a value quietly superseded, work shipped before the
+verification that was supposed to gate it. Nothing in what a run *did* can
+point at what it did not do. Locating those needs the milestones, and the
+milestones are exactly what a judge must not be shown. So the boundary is
+not a limit of this selector; it is the line where a sampled reader stops
+being the right instrument and the golden set starts.
 
 **What the selector is allowed to know.** The trace, and the policy —
 including a task's own `forbidden_tools` and `forbidden_patterns`, which
@@ -300,7 +375,9 @@ a step that merely repeats — and they are written down to be argued with.
 Nothing here was tuned against the table above; the one thing that moved
 it was a bug, in which ten consecutive failing retries were treated as
 ten places to look and one stall ate the whole budget. Clustering them
-into one event took it from 6/12 to 7/12.
+into one event took the twelve-task sample from 6 of 12 to 7 of 12 — and
+the scale measurement was run afterwards, on the fixed selector, so the
+percentages above were never a target.
 
 `--rubric long-run` asks a different question of the model — whether
 every part of the task is accounted for by work that can be seen and

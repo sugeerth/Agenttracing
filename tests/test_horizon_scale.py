@@ -36,6 +36,7 @@ from __future__ import annotations
 import importlib.util
 import itertools
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -45,11 +46,25 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from deepcompare.excerpt import effective_policy, focus  # noqa: E402
 from deepcompare.scorecard import scorecard  # noqa: E402
 from deepcompare.trace import Trajectory  # noqa: E402
 
 GENERATOR = ROOT / "demo" / "horizon" / "generate_suite.py"
 PAIRS = 200
+
+#: the budgets the excerpt measurement reports, and the one it breaks down
+#: per mode — 40 steps, which is `harness.judge.STEP_EXCERPT`
+CAPS = (20, 40, 60, 80, 120, 160)
+EXCERPT_CAP = 40
+
+
+def _positional(total: int, cap: int) -> set:
+    """The excerpt a reader gets when position is all they go on."""
+    if total <= cap:
+        return set(range(total))
+    head, tail = cap // 2, cap - cap // 2
+    return set(range(head)) | set(range(total - tail, total))
 
 #: caught / known, per mode, over the generated corpus.
 EXPECTED = {
@@ -79,12 +94,54 @@ class HorizonScaleTest(unittest.TestCase):
         if done.returncode != 0:
             raise unittest.SkipTest("the generator failed: " + done.stderr.decode("utf-8", "replace")[-400:])
         cls.golden = json.loads((out / "golden.json").read_text(encoding="utf-8"))
-        trajectories = [Trajectory.from_json(p) for p in sorted(out.glob("*.json")) if p.name != "golden.json"]
-        cls.n_runs = len(trajectories)
-        cls.steps = sum(len(t.steps) for t in trajectories)
-        cls.card = scorecard(trajectories, {"tasks": {t["id"]: t for t in cls.golden["tasks"]},
-                                            "policy": cls.golden["policy"]})
+        cls.tasks = {t["id"]: t for t in cls.golden["tasks"]}
+        cls.paths = [p for p in sorted(out.glob("*.json")) if p.name != "golden.json"]
+        cls.n_runs = len(cls.paths)
+        cls.steps = 0
+        cls.coverage = {cap: {"position": 0, "structure": 0} for cap in CAPS}
+        cls.per_mode = {}
+
+        def stream():
+            """One trace in memory at a time. The card keeps rows, not
+            trajectories, so this is what lets a corpus be measured at a
+            size it could not be held at — and it is measured on the way
+            past, since loading a million steps twice to ask two questions
+            is the kind of thing that stops an evaluation being run."""
+            for path in cls.paths:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                traj = Trajectory.from_dict(raw)
+                cls.steps += len(traj.steps)
+                cls._measure_excerpt(traj, raw)
+                yield traj
+
+        cls.card = scorecard(stream(), {"tasks": cls.tasks, "policy": cls.golden["policy"]})
         cls.det = cls.card["detection"]
+
+    @classmethod
+    def _measure_excerpt(cls, traj, raw):
+        """For a run whose failure is known, whether a budgeted excerpt
+        contains the step the generator injected it at — chosen by where
+        the steps fall, and chosen by what the run itself flags."""
+        task = cls.tasks.get(traj.task.id) or {}
+        mode = task.get("failure_mode")
+        if not mode or traj.agent.name not in (task.get("failure_mode_agents") or []):
+            return
+        fails = [i for i, st in enumerate(raw["steps"][:-1]) if "SYNTHETIC" in str(st.get("note") or "")]
+        if not fails:
+            return
+        body = len(traj.steps) - 1
+        policy = effective_policy(cls.golden.get("policy"), task)
+        row = cls.per_mode.setdefault(mode, {"known": 0, "position": 0, "structure": 0})
+        row["known"] += 1
+        for cap in CAPS:
+            if any(i in _positional(body, cap) for i in fails):
+                cls.coverage[cap]["position"] += 1
+                if cap == EXCERPT_CAP:
+                    row["position"] += 1
+            if any(i in set(focus(traj, cap, policy, within=body)["keep"]) for i in fails):
+                cls.coverage[cap]["structure"] += 1
+                if cap == EXCERPT_CAP:
+                    row["structure"] += 1
 
     @classmethod
     def tearDownClass(cls):
@@ -155,6 +212,72 @@ class HorizonScaleTest(unittest.TestCase):
             rows = [r for r in self.det["modes"] if r["mode"] == mode]
             self.assertTrue(rows and all(r["caught"] for r in rows), mode)
 
+    # ------------------------------------------------- what a reader can see
+
+    def test_the_card_is_built_from_a_stream_and_not_from_a_corpus_in_memory(self):
+        """400 runs is 92,000 steps; the same generator at 2000 pairs is a
+        million, and an evaluation that can only score what fits in memory
+        stops being able to measure the runs worth measuring. Nothing past
+        `score_run` touches a trajectory, so the card takes an iterable and
+        the cost is set by the number of runs, not their length."""
+        self.assertEqual(len(self.card["per_run"]), self.n_runs)
+        self.assertGreater(self.steps, 70_000)
+        rows = (t for t in [])                      # a generator, not a list
+        empty = scorecard(rows, {"tasks": self.tasks})
+        self.assertEqual(empty["per_run"], [])
+
+    def test_a_budgeted_excerpt_chosen_by_position_misses_two_thirds_of_them(self):
+        """What an LLM judge is shown of a long run, measured over 184
+        known failures rather than the twelve in the shipped suite.
+        Position is close to choosing at random: the failure is at step 175
+        of 202, or 95 of 233, and where a step falls says nothing about
+        either."""
+        known = sum(r["known"] for r in self.per_mode.values())
+        self.assertEqual(known, self.det["total"])
+        at40 = self.coverage[EXCERPT_CAP]
+        self.assertEqual((at40["position"], known), (62, 184))
+        self.assertEqual(at40["structure"], 110)
+
+    def test_the_whole_table_this_repository_publishes(self):
+        """`docs/HORIZON.md` prints it; if it moves, they move together.
+        Structure is ahead at every budget — and **structure at 20 steps
+        matches position at 80**, a quarter of the tokens for the same
+        sight of the failure."""
+        table = {cap: (self.coverage[cap]["position"], self.coverage[cap]["structure"]) for cap in CAPS}
+        self.assertEqual(table, {20: (62, 93), 40: (62, 110), 60: (78, 114),
+                                 80: (93, 122), 120: (93, 139), 160: (124, 155)})
+        for cap in CAPS:
+            self.assertGreater(table[cap][1], table[cap][0], f"at {cap} steps")
+        self.assertEqual(table[20][1], table[80][0] + 0, "structure at 20 ≈ position at 80")
+
+    def test_per_mode_the_selector_is_all_or_nothing(self):
+        """The finding the twelve-task suite could not show. At 15 runs a
+        mode this is not a rate at all: for seven modes the structural
+        excerpt contains the failure in *every* run, and for four it
+        contains it in *none*. The question is not how often it works, it
+        is which kinds of failure leave a mark in what the run did."""
+        always, never, partial = [], [], []
+        for mode, row in sorted(self.per_mode.items()):
+            share = row["structure"] / row["known"]
+            (always if share == 1 else never if share == 0 else partial).append(mode)
+        self.assertEqual(always, ["budget_exhausted", "context_overflow", "drift",
+                                  "forgotten_constraint", "late_fault", "regression",
+                                  "swallowed_error"])
+        self.assertEqual(never, ["out_of_order", "retry_stall", "skipped_unit", "stale_value"])
+        self.assertEqual(partial, ["unverified_handoff"])
+        # and the four it never reaches are failures of *absence* — a unit
+        # never worked, a check never run, a value quietly superseded.
+        # Nothing in what a run did can point at what it did not do; those
+        # need the milestones, which are what a judge must not be shown.
+        for mode in never:
+            self.assertEqual(self.per_mode[mode]["structure"], 0, mode)
+
+    def test_structure_finds_what_position_cannot_and_not_the_other_way_round(self):
+        """Every mode position reaches, structure reaches too. The gain is
+        not a trade."""
+        for mode, row in self.per_mode.items():
+            self.assertGreaterEqual(row["structure"], row["position"], mode)
+
     def test_the_redundancy_measure_is_a_shape_not_a_fitted_threshold(self):
         """The stretch of contiguous re-done steps separates the classes
         outright — and the assertion that matters is the last one: nothing
@@ -176,3 +299,124 @@ class HorizonScaleTest(unittest.TestCase):
             if mode not in ("context_overflow", "retry_stall"):
                 self.assertEqual(max(values), 0, mode)
         self.assertEqual(REDUNDANT_STRETCH, 3)
+
+
+#: The same corpus ten times over: 2000 pairs, 4000 runs, 1,040,066 steps.
+#: It takes about a minute to generate, two to score and half a gigabyte of
+#: disk, so it is opt-in — `AGENTDIFF_SCALE=2000 pytest tests/test_horizon_scale.py`.
+#: Its job is to say whether the 200-pair numbers above are the corpus or
+#: the engine, and the answer is in `test_two_hundred_pairs_was_enough`.
+BIG_PAIRS = 2000
+
+
+@unittest.skipUnless(os.environ.get("AGENTDIFF_SCALE") == str(BIG_PAIRS),
+                     f"set AGENTDIFF_SCALE={BIG_PAIRS} to run the ten-times-larger corpus")
+class HorizonScaleTenXTest(HorizonScaleTest):
+    """2000 pairs — a million steps — measured the same way.
+
+    Every number this file pins at 200 pairs is an estimate of a number
+    this one measures, and the point of running it once is to find out how
+    good an estimate it was. It is not run by default because three
+    minutes and half a gigabyte is the wrong default for a test suite, and
+    because the answer turned out to be *very good*: nothing here moved by
+    more than 1.2 points.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        global PAIRS
+        PAIRS, cls._was = BIG_PAIRS, PAIRS
+        try:
+            super().setUpClass()
+        finally:
+            PAIRS = cls._was
+
+    def test_the_corpus_is_long_varied_and_self_checked(self):
+        self.assertEqual(self.n_runs, BIG_PAIRS * 2)
+        self.assertGreater(self.steps, 1_000_000)
+
+    def test_the_detection_rate_per_mode_holds(self):
+        per: dict = {}
+        for row in self.det["modes"]:
+            got = per.setdefault(row["mode"], [0, 0])
+            got[1] += 1
+            got[0] += 1 if row["caught"] else 0
+        for mode, (caught, known) in sorted(per.items()):
+            self.assertEqual(caught, known, mode)
+        self.assertEqual((self.det["caught"], self.det["total"]), (1846, 1846))
+
+    def test_no_run_known_to_be_correct_is_flagged(self):
+        self.assertEqual(self.det["controls"]["runs"], 2154)
+        self.assertEqual(self.det["controls"]["flagged"], 0, self.det["controls"]["false_positives"])
+
+    def test_the_grade_alone_would_miss_more_than_half_of_them_at_scale(self):
+        self.assertEqual(self.det["graded_pass"], 1076)
+        self.assertEqual(self.det["graded_pass_caught_otherwise"], 1076)
+
+    def test_nothing_is_missed_and_nothing_catches_it_alone(self):
+        self.assertEqual(sorted(set(self.det["missed"])), [])
+        top = max(self.det["by_signal"].values())
+        self.assertLessEqual(top, self.det["total"] // 2)
+
+    def test_the_redundancy_measure_is_a_shape_not_a_fitted_threshold(self):
+        """The load-bearing half holds exactly — 0 for every one of the
+        2154 correct runs, 6 or more for every `context_overflow` — and the
+        half that was an artefact of 184 runs does not: at this size
+        `context_overflow` reaches 10, where at 200 pairs it topped out at
+        8. The separation is the claim; the upper bound never was."""
+        from deepcompare.process import REDUNDANT_STRETCH
+        by_mode: dict = {}
+        for r in self.card["per_run"]:
+            task = self.tasks[r["task"]]
+            failing = r["agent"] in (task.get("failure_mode_agents") or [])
+            mode = task.get("failure_mode") if failing else "correct"
+            by_mode.setdefault(mode, []).append(r["trajectory"]["redundant_stretch"])
+        self.assertEqual(max(by_mode["correct"]), 0, "a correct run re-does nothing, 2154 times over")
+        self.assertEqual((min(by_mode["context_overflow"]), max(by_mode["context_overflow"])), (6, 10))
+        self.assertEqual(sorted({v for vs in by_mode.values() for v in vs}), [0, 6, 8, 10])
+        for mode, values in by_mode.items():
+            if mode not in ("context_overflow", "retry_stall"):
+                self.assertEqual(max(values), 0, mode)
+        self.assertEqual(REDUNDANT_STRETCH, 3)
+
+    def test_a_budgeted_excerpt_chosen_by_position_misses_two_thirds_of_them(self):
+        at40 = self.coverage[EXCERPT_CAP]
+        self.assertEqual((at40["position"], at40["structure"]), (616, 1081))
+
+    def test_the_whole_table_this_repository_publishes(self):
+        table = {cap: (self.coverage[cap]["position"], self.coverage[cap]["structure"]) for cap in CAPS}
+        self.assertEqual(table, {20: (616, 923), 40: (616, 1081), 60: (770, 1107),
+                                 80: (924, 1157), 120: (924, 1334), 160: (1190, 1551)})
+
+    def test_per_mode_the_selector_is_all_or_nothing(self):
+        """At 154 runs a mode, not 15 — and it is *still* all or nothing,
+        to the run. `unverified_handoff` is the only mode with a rate, and
+        its rate is 4 of 153."""
+        shares = {m: r["structure"] / r["known"] for m, r in self.per_mode.items()}
+        self.assertEqual(sorted(m for m, v in shares.items() if v == 1),
+                         ["budget_exhausted", "context_overflow", "drift", "forgotten_constraint",
+                          "late_fault", "regression", "swallowed_error"])
+        self.assertEqual(sorted(m for m, v in shares.items() if v == 0),
+                         ["out_of_order", "retry_stall", "skipped_unit", "stale_value"])
+        self.assertEqual(self.per_mode["unverified_handoff"]["structure"], 4)
+
+    def test_two_hundred_pairs_was_close_enough_and_says_by_how_much(self):
+        """The reason this class exists: how good an estimate is the cheap
+        corpus of the expensive one?
+
+        Good, with a caveat worth having in writing. Every rate the 200-pair
+        corpus reports is within **3.7 points** of the rate a corpus ten
+        times its size reports, and the *positional* rates — the baseline —
+        are within 3.0. But the error is not uniform: it is under a point
+        at the budgets where the measure saturates and around 3.5 in the
+        middle of the curve, which is exactly where a reader would want to
+        read a difference off it. So the 200-pair table is sound to about
+        half a mode and should not be read to the run."""
+        known = self.det["total"]
+        for cap, (small_p, small_s) in {20: (62, 93), 40: (62, 110), 60: (78, 114),
+                                        80: (93, 122), 120: (93, 139), 160: (124, 155)}.items():
+            for label, small in (("position", small_p), ("structure", small_s)):
+                drift = abs(self.coverage[cap][label] / known - small / 184) * 100
+                self.assertLess(drift, 3.7, f"{label} at {cap}: {drift:.2f} points apart")
+                if label == "position":
+                    self.assertLess(drift, 3.0, f"the baseline at {cap}: {drift:.2f} points apart")

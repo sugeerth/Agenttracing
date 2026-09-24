@@ -101,10 +101,14 @@ class WhatItFindsTest(unittest.TestCase):
             by_structure = len(self.coverage(cap, True))
             self.assertGreater(by_structure, by_position, f"at {cap} steps")
 
-    def test_the_numbers_this_repository_publishes(self):
-        """`docs/HORIZON.md` prints this table; if it moves, they move
-        together. The right-hand column at 40 equals the left-hand one at
-        160 — the same coverage for a quarter of the tokens."""
+    def test_the_twelve_task_sample(self):
+        """One run per mode, from the shipped suite. Kept because it is
+        cheap and catches a gross regression in seconds — but it is an
+        anecdote, and it is labelled as one: at n=12 a single mode is eight
+        percentage points, which is how this file once published
+        "structure at 40 matches position at 160", a claim that did not
+        survive 1,846 failures. `tests/test_horizon_scale.py` has the
+        measurement `docs/HORIZON.md` prints."""
         measured = {cap: (len(self.coverage(cap, False)), len(self.coverage(cap, True)))
                     for cap in (20, 40, 60, 80, 120, 160)}
         self.assertEqual(measured, {20: (4, 6), 40: (4, 7), 60: (5, 7),

@@ -27,7 +27,7 @@ import json
 import re
 import statistics as _st
 from pathlib import Path
-from typing import Optional, Union
+from typing import Iterable, Optional, Union
 
 from ._text import plural
 from .milestones import evaluate as milestone_evaluate
@@ -326,11 +326,20 @@ def score_run(traj: Trajectory, golden_task: Optional[dict] = None, policy: Opti
 
 # --------------------------------------------------------------- per agent
 
-def scorecard(trajectories: list, golden: Optional[dict] = None, policy: Optional[dict] = None,
+def scorecard(trajectories: Iterable, golden: Optional[dict] = None, policy: Optional[dict] = None,
               raws: Optional[dict] = None) -> dict:
     """Per agent, every dimension over its runs. ``golden`` is
     :func:`load_golden`'s result (its policy applies when ``policy`` is
-    not given); ``raws`` maps ``trace_id`` → trace dict for judge blocks."""
+    not given); ``raws`` maps ``trace_id`` → trace dict for judge blocks.
+
+    ``trajectories`` may be any iterable, and a generator that loads one
+    trace at a time is the point: nothing past this line touches a
+    trajectory, only the row scored from it, so the memory a card needs is
+    set by the number of runs and not by their length. Four thousand
+    three-hundred-step runs are a gigabyte of trajectories and a few
+    megabytes of rows, and an evaluation that can only score what fits in
+    memory stops being able to measure the runs worth measuring.
+    """
     gtasks = (golden or {}).get("tasks") or {}
     policy = policy if policy is not None else (golden or {}).get("policy")
     raws = raws or {}
