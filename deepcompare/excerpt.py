@@ -28,23 +28,28 @@ Two things this deliberately does not do:
 
 The limits are measured rather than claimed, over 1,846 known failures:
 a 40-step window chosen by position contains the step where the run goes
-wrong 33.4% of the time and one chosen by structure 58.6% of the time, and
-structure at 20 steps matches position at 80 — a quarter of the tokens.
+wrong 33.4% of the time and one chosen by structure 75.0% of the time, and
+structure at 20 steps beats position at 160 — an eighth of the tokens.
 
 Per mode it is not a rate at all. Over 154 runs of each, the structural
-excerpt finds the failure in **every** run of seven modes and in **no**
-run of four: ``out_of_order``, ``retry_stall``, ``skipped_unit`` and
-``stale_value``, whose evidence is *absence* — a unit never worked, a
-check never run, a value quietly superseded. Nothing in what a run did
-can point at what it did not do. Those need the milestones, and the
-milestones are the thing a judge must not be shown. So the question this
-module answers is not *how often does it work* but *which kinds of failure
-leave a mark in what the run did*. See ``docs/HORIZON.md``.
+excerpt finds the failure in **every** run of nine modes and in **no** run
+of three, with nothing in between. The three are ``retry_stall`` (a
+scoring artefact: both edges of the stall are shown and the marked step is
+the one after it ends), ``skipped_unit`` (a run that never worked a unit
+keeps a regular rhythm with one fewer turn, and nothing inside it says how
+many turns there should have been) and ``stale_value`` (the superseding
+read is in the trace, but knowing it was *discarded* needs the answer).
+Three reasons, not one boundary — an earlier version of this docstring
+named four modes as unreachable in principle and two of them turned out to
+need only a mark nobody had written. So the question this module answers
+is not *how often does it work* but *which kinds of failure leave a mark
+in what the run did*. See ``docs/HORIZON.md``.
 """
 
 from __future__ import annotations
 
 import re
+from collections import Counter
 from typing import Optional
 
 from . import process
@@ -56,6 +61,8 @@ from .trace import Trajectory
 #: what the task was; a step that merely repeats is the weakest.
 WEIGHTS = {
     "unrecovered_error": 6,
+    "shipped_before_check": 6,
+    "skipped_beat": 5,
     "redundant_stretch": 5,
     "policy_breach": 5,
     "unverified_write": 4,
@@ -91,6 +98,96 @@ def effective_policy(policy: Optional[dict], golden_task: Optional[dict] = None)
         if extra:
             merged[key] = list(merged.get(key) or []) + list(extra)
     return merged or None
+
+
+#: a tool has to be used this many times before its spacing is a rhythm
+MIN_BEATS = 4
+#: a tool used at most this many times, with an effect, is a singular act
+#: rather than part of the run's ordinary work
+RARE = 2
+#: how much of the run must still be to come after that act for it to be
+#: worth looking at — the same scale-relative idea as `process.LOOP_SHARE`
+GATE_SHARE = 0.1
+
+
+def _beats(traj: Trajectory) -> dict:
+    """tool name -> the positions, among tool steps, where it was called."""
+    seen: dict = {}
+    for at, step in enumerate(s for s in traj.steps if s.type in process.TOOLISH_TYPES):
+        if step.name:
+            seen.setdefault(step.name, []).append(at)
+    return seen
+
+
+def _period(gaps: list) -> Optional[int]:
+    """The tool's own beat: the **largest** gap it falls into repeatedly.
+
+    Not the median and not the commonest. A tool called twice per unit of
+    work has two kinds of gap — a short one inside the unit and a long one
+    between units — and only the long one marks a new iteration starting.
+    The median lands between them, where nothing happens; the commonest is
+    usually the short one. It has to repeat, because a single long pause is
+    not a period.
+    """
+    counts = Counter(g for g in gaps if g >= 2)
+    repeated = [g for g, seen in counts.items() if seen >= 3]
+    return max(repeated) if repeated else None
+
+
+def _skipped_beats(traj: Trajectory) -> list:
+    """Gaps long enough to hold two of a tool's own periods: a turn of the
+    run's cycle that never closed.
+
+    This is what a missing stage looks like from outside. A run working
+    through eight units checks each one; the unit nobody checked leaves no
+    step behind to find, and the only trace of it is the beat that did not
+    come. Reported as the span, so a reader is shown the hole rather than
+    its two edges.
+    """
+    positions = [s.index for s in traj.steps if s.type in process.TOOLISH_TYPES]
+    out = []
+    for name, beats in sorted(_beats(traj).items()):
+        if len(beats) < MIN_BEATS:
+            continue
+        gaps = [b - a for a, b in zip(beats, beats[1:])]
+        period = _period(gaps)
+        if not period:
+            continue
+        for (a, b), gap in zip(zip(beats, beats[1:]), gaps):
+            if gap >= 2 * period - 1:
+                out.append({"from": positions[a], "to": positions[b],
+                            "at": positions[min(a + gap // 2, len(positions) - 1)],
+                            "tool": name, "period": period, "beats": round(gap / period, 1)})
+    return out
+
+
+def _late_gates(traj: Trajectory) -> list:
+    """A rare effectful call with a large share of the run still to come.
+
+    A tool the run reaches for once — publish, deploy, submit — is a
+    different kind of act from the one it uses fifty times, and the
+    question a trace can answer about it is how much of the run happened
+    *after* it. Verification that follows the point of no return is
+    verification of something already done.
+    """
+    steps = list(traj.steps)
+    total = len(steps)
+    names = Counter(s.name for s in steps if s.type in process.TOOLISH_TYPES and s.name)
+    out = []
+    for at, step in enumerate(steps):
+        if step.type not in process.TOOLISH_TYPES or names.get(step.name, 0) > RARE:
+            continue
+        if process.effect_of(step)[0] != "write":
+            continue
+        after = total - at - 1
+        if after / total < GATE_SHARE:
+            continue
+        checked = sum(1 for s in steps[at + 1:]
+                      if s.type in process.TOOLISH_TYPES and process.effect_of(s)[0] == "read")
+        if checked:
+            out.append({"index": step.index, "name": step.name, "after": after,
+                        "share": round(after / total, 4), "checks_after": checked})
+    return out
 
 
 def _policy_steps(traj: Trajectory, policy: Optional[dict]) -> list:
@@ -158,6 +255,16 @@ def notable_steps(traj: Trajectory, policy: Optional[dict] = None) -> list:
 
     for index, why in _policy_steps(traj, policy):
         mark(index, "policy_breach", why)
+
+    for hole in _skipped_beats(traj):
+        mark(hole["at"], "skipped_beat",
+             f"{hole['tool']} runs every {hole['period']} steps and then does not, for "
+             f"{hole['beats']} of its own turns")
+
+    for gate in _late_gates(traj):
+        mark(gate["index"], "shipped_before_check",
+             f"{gate['name']} is called once here, and {gate['share']:.0%} of the run — including "
+             f"{gate['checks_after']} checks — comes after it")
 
     return sorted(found.values(), key=lambda m: m["index"])
 
@@ -266,4 +373,5 @@ def focus(traj: Trajectory, cap: int, policy: Optional[dict] = None,
                       f"{len(keep)} of {total} steps: the first {ends} and last {ends}; the run flags nothing else")}
 
 
-__all__ = ["WEIGHTS", "CONTEXT", "ENDS", "effective_policy", "notable_steps", "focus"]
+__all__ = ["WEIGHTS", "CONTEXT", "ENDS", "MIN_BEATS", "RARE", "GATE_SHARE",
+           "effective_policy", "notable_steps", "focus"]

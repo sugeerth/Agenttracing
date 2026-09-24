@@ -111,18 +111,29 @@ class WhatItFindsTest(unittest.TestCase):
         measurement `docs/HORIZON.md` prints."""
         measured = {cap: (len(self.coverage(cap, False)), len(self.coverage(cap, True)))
                     for cap in (20, 40, 60, 80, 120, 160)}
-        self.assertEqual(measured, {20: (4, 6), 40: (4, 7), 60: (5, 7),
-                                    80: (6, 7), 120: (6, 8), 160: (7, 10)})
+        self.assertEqual(measured, {20: (4, 8), 40: (4, 9), 60: (5, 9),
+                                    80: (6, 9), 120: (6, 9), 160: (7, 10)})
 
     def test_what_it_cannot_reach_and_why(self):
-        """The five it misses are the point. Four of them are failures of
-        *absence* — a unit never worked, a check never run, a value quietly
-        superseded — and nothing in what the run *did* can point at what it
-        did not do. Those need the milestones, and the milestones are
-        exactly what a judge must not be shown."""
+        """Three, and each for its own reason — none of them "the trace
+        cannot say".
+
+        `retry_stall` is a scoring artefact: both edges of the stall are in
+        the excerpt and the marked step is the one after it ends.
+        `skipped_unit` is the hard one — a run that never worked a unit has
+        a perfectly regular rhythm with one fewer turn in it, and nothing
+        inside the run says how many turns there should have been; that
+        needs the plan or the milestones. `stale_value` is in the trace (the
+        superseding read is right there) but knowing it was *discarded*
+        needs the answer, which is why the card catches it through grounding
+        and the selector does not.
+
+        An earlier version of this list had five entries and called them all
+        failures of absence that no reading of the trace could locate. Two
+        of them — `out_of_order` and `unverified_handoff` — turned out to be
+        a limit of the mark vocabulary, not of the trace."""
         missed = sorted({r["mode"] for r in self.runs} - set(self.coverage(40, True)))
-        self.assertEqual(missed, ["out_of_order", "retry_stall", "skipped_unit",
-                                  "stale_value", "unverified_handoff"])
+        self.assertEqual(missed, ["retry_stall", "skipped_unit", "stale_value"])
 
     def test_the_stall_is_shown_even_where_the_strict_measure_says_missed(self):
         """`retry_stall` is in that list on a technicality worth stating:

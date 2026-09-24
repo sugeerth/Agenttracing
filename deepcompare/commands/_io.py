@@ -106,6 +106,31 @@ def load_traces(paths: Paths, warn: Optional[Warn] = None, *,
     return [t for _, t in iter_traces(paths, warn, run_ids=run_ids)]
 
 
+def outcomes_from(paths: Paths) -> dict:
+    """``{trace_id: {"outcome": ...}}`` for the traces under ``paths``.
+
+    What :func:`deepcompare.scorecard.score_run` reads out of a raw trace
+    is its ``outcome`` and nothing else — the judge's verdict and
+    ``graded_by``. Keeping only that costs a few kilobytes over a corpus
+    whose traces are half a gigabyte, and without it a card built by
+    `batch` cannot report a judging model that ran: the verdict is on the
+    trace, the engine can read it, and the reader is told "no judging
+    model". That gap is the whole reason this exists.
+    """
+    out: dict = {}
+    for path in trace_files(paths):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict) or "outcome" not in data:
+            continue
+        key = data.get("trace_id") or path.stem
+        out[key] = {"outcome": data["outcome"]}
+        out.setdefault(path.stem, out[key])
+    return out
+
+
 def template_from(args: argparse.Namespace) -> Path:
     """The page template: ``--template`` when given, else the blocks page."""
     template = getattr(args, "template", None)

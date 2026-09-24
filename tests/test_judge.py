@@ -209,6 +209,35 @@ class FocusedJudgingTest(unittest.TestCase):
         self.assertNotIn(task["failure_mode"], prompt)
         self.assertNotIn(str(task.get("failure_mode_detail") or "\x00"), prompt)
 
+    def test_a_judged_corpus_shows_its_judge_on_the_page(self):
+        """`batch` built the card without the raw traces, so a corpus that
+        had been judged reported *"No judging model"* — the verdict on the
+        trace, the engine able to read it, and the reader told there was
+        none. The card only needs each trace's `outcome`, which is a few
+        kilobytes over a corpus whose traces are half a gigabyte."""
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            traces = Path(tmp) / "traces"
+            traces.mkdir()
+            for path in sorted(self.SUITE.glob("*.json"))[:6]:
+                (traces / path.name).write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+            script = Path(tmp) / "j.json"
+            script.write_text(json.dumps([{"text": '{"success": false, "score": 0.2, "rationale": "s"}'}]),
+                              encoding="utf-8")
+            judged = subprocess.run([sys.executable, "-m", "deepcompare", "judge", str(traces),
+                                     "--provider", f"j=scripted:{script}"],
+                                    cwd=str(ROOT), capture_output=True, text=True)
+            self.assertEqual(judged.returncode, 0, judged.stderr)
+            out = Path(tmp) / "out"
+            done = subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(traces), "-o", str(out),
+                                   "--golden", str(self.GOLDEN)], cwd=str(ROOT), capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr[-400:])
+            card = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))["scorecard"]
+            agent = next(a for a in card["agents"].values() if a["judge"])
+            self.assertEqual(agent["judge"]["model"], "script")
+            self.assertTrue(card["detection"]["judge"]["measurable"],
+                            card["detection"]["judge"].get("reason"))
+
     def test_a_selector_that_cannot_run_falls_back_rather_than_failing(self):
         """A broken reading of the run is a reason to show the ends, not a
         reason to refuse to judge."""

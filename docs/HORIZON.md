@@ -168,13 +168,12 @@ still spread (milestones 923, risk flags 918, the grade 770, and no
 dimension above half).
 
 **The cheap corpus is a good estimate, to about half a mode.** Every rate
-the 200-pair run reports is within **3.7 points** of the rate the 2,000-pair
-run reports, and the positional baseline within 3.0. But the error is not
-uniform — under a point where the measure saturates, around 3.5 in the
-middle of the curve, which is exactly where a reader would want to read a
-difference off it. So the 200-pair table is sound to about half a mode and
-should not be read to the run. That is why it is the default and why this
-paragraph exists.
+the 200-pair run reports is within **3.0 points** of the rate the 2,000-pair
+run reports — under a point at five of the six budgets, and 3.0 at the
+sixth, which is the kind of place a reader would want to read a difference
+off it. So the 200-pair table is sound to about half a mode and should not
+be read to the run. That is why it is the default and why this paragraph
+exists.
 
 **Two things it corrected.** `context_overflow`'s redundant stretch does
 not top out at 8 — at this size it reaches 10. And "structure at 40 steps
@@ -314,15 +313,15 @@ suite:
 
 | budget | chosen by position | chosen by structure |
 |---|---|---|
-| 20 steps | 33.4% | **50.0%** |
-| 40 steps | 33.4% | **58.6%** |
-| 60 steps | 41.7% | 60.0% |
-| 80 steps | 50.1% | 62.7% |
-| 120 steps | 50.1% | **72.3%** |
+| 20 steps | 33.4% | **66.6%** |
+| 40 steps | 33.4% | **75.0%** |
+| 60 steps | 41.7% | 75.0% |
+| 80 steps | 50.1% | 75.2% |
+| 120 steps | 50.1% | **80.7%** |
 | 160 steps | 64.5% | **84.0%** |
 
-**Structure at 20 steps matches position at 80** — the same sight of the
-failure for a quarter of the tokens — and structure is ahead at every
+**Structure at 20 steps beats position at 160** — an eighth of the budget
+for a better sight of the failure — and structure is ahead at every
 budget, on every mode. The one case it is unfairly marked down on is
 `retry_stall`, where the marked step is the one *after* the stall ends:
 both edges of the twenty-step stall are in the excerpt, and the strict
@@ -340,25 +339,63 @@ flatter the feature.
 ### The part twelve runs could not show
 
 Per mode, the structural excerpt is not a rate at all. Over 154 runs of
-each mode it is **all or nothing, to the run**:
+each mode it is **all or nothing with no remainder** — nine modes at
+154/154, three at 0/154, and not one mode anywhere in between:
 
 | always finds it (154/154) | never finds it (0/154) |
 |---|---|
-| `budget_exhausted`, `context_overflow`, `drift`, `forgotten_constraint`, `late_fault`, `regression`, `swallowed_error` | `out_of_order`, `retry_stall`, `skipped_unit`, `stale_value` |
+| `budget_exhausted`, `context_overflow`, `drift`, `forgotten_constraint`, `late_fault`, `out_of_order`, `regression`, `swallowed_error`, `unverified_handoff` | `retry_stall`, `skipped_unit`, `stale_value` |
 
-`unverified_handoff` is the only mode with a rate, and its rate is 4 of
-153. So the question is not *how often does this work* — it is **which
-kinds of failure leave a mark in what the run did**, and that has a
-categorical answer.
+So the question is not *how often does this work* — it is **which kinds of
+failure leave a mark in what the run did**, and that has a categorical
+answer, to the run.
 
-**What it cannot reach, and why that is the interesting half.** The four
-it never reaches are failures of **absence** — a unit never worked, a
-check never run, a value quietly superseded, work shipped before the
-verification that was supposed to gate it. Nothing in what a run *did* can
-point at what it did not do. Locating those needs the milestones, and the
-milestones are exactly what a judge must not be shown. So the boundary is
-not a limit of this selector; it is the line where a sampled reader stops
-being the right instrument and the golden set starts.
+### The claim that was wrong, and what fixing it took
+
+> An earlier version of this section said four modes were unreachable:
+> *"failures of absence — nothing in what a run did can point at what it
+> did not do. Locating those needs the milestones."* Two of the four were
+> reachable. It was a limit of the mark vocabulary, not of the trace, and
+> the only reason it read as a fact about long-horizon evaluation is that
+> nobody had gone looking.
+
+What was missing were two readings, both of which the trace supports
+plainly once you ask for them:
+
+**`shipped_before_check`** — a tool the run reaches for *once*, declaring
+an effect, with a large share of the run still to come after it. A tool
+used once is a different kind of act from one used fifty times: publish,
+deploy, submit. The question the trace can answer about it is how much
+happened afterwards, and verification that follows the point of no return
+is verification of something already done. On `out_of_order` this fires on
+154 of 154 runs and lands **on the publish step itself** — median distance
+to the injected failure, zero.
+
+**`skipped_beat`** — a tool the run uses on a beat, with one gap long
+enough to hold two of them. This is what a missing stage looks like from
+outside: a run working through eight units checks each one, and the unit
+nobody checked leaves no step behind to find. The only trace of it is the
+beat that did not come. On `unverified_handoff`, 153 of 153.
+
+The period is **the largest gap the tool falls into repeatedly** — not the
+median and not the commonest. A tool called twice per unit has a short gap
+inside the unit and a long one between units; the median lands between
+them where nothing happens, and the commonest is the short one. Both of
+those wrong choices were tried first, and both put false positives on the
+control runs. The right one puts **none on 2,154 of them**.
+
+**What is still not reached, and why — each for its own reason.**
+`retry_stall` is a scoring artefact: both edges of the stall are in the
+excerpt and the marked step is the one *after* it ends. `skipped_unit` is
+the hard one — a run that never worked a unit has a perfectly regular
+rhythm with one fewer turn in it, and nothing inside the run says how many
+turns there should have been; that needs the plan or the milestones.
+`stale_value` is in the trace — the superseding read is right there — but
+knowing it was *discarded* needs the answer, which is why the card catches
+it through grounding and the selector does not.
+
+Those are three reasons, not one boundary. Having been wrong once about
+where the line is, this file no longer claims there is one.
 
 **What the selector is allowed to know.** The trace, and the policy —
 including a task's own `forbidden_tools` and `forbidden_patterns`, which

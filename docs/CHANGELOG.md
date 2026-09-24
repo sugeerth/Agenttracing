@@ -5,6 +5,71 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Two of the four "unreachable" modes were reachable
+
+The last entry said four failure modes could not be located from a trace:
+*"failures of absence — nothing in what a run did can point at what it did
+not do. Locating those needs the milestones."* Two of them were reachable.
+It was a limit of the mark vocabulary, not of the trace, and it read as a
+fact about long-horizon evaluation only because nobody had looked.
+
+**`shipped_before_check`** — a tool the run reaches for *once*, declaring
+an effect, with a large share of the run still to come after it
+(`GATE_SHARE`, the same scale-relative idea as `LOOP_SHARE`). A tool used
+once is a different kind of act from one used fifty times: publish,
+deploy, submit. What the trace can say about it is how much happened
+afterwards, and verification that follows the point of no return is
+verification of something already done. `out_of_order`: 154 of 154, and
+the mark lands **on the publish step itself** — median distance to the
+injected failure, zero.
+
+**`skipped_beat`** — a tool the run uses on a beat, with one gap long
+enough to hold two of them. This is what a missing stage looks like from
+outside: a run working through eight units checks each one, and the unit
+nobody checked leaves no step behind to find; the only trace of it is the
+beat that did not come. `unverified_handoff`: 153 of 153.
+
+The period is **the largest gap the tool falls into repeatedly** — not the
+median, not the commonest. A tool called twice per unit has a short gap
+inside the unit and a long one between units: the median lands between
+them where nothing happens, and the commonest is the short one. Both wrong
+choices were tried first and both put false positives on the control runs.
+The right one puts **none on 2,154 of them**.
+
+**Excerpt coverage, over 1,846 known failures:**
+
+| budget | by position | by structure | was |
+|---|---|---|---|
+| 20 steps | 33.4% | **66.6%** | 50.0% |
+| 40 steps | 33.4% | **75.0%** | 58.6% |
+| 120 steps | 50.1% | **80.7%** | 72.3% |
+| 160 steps | 64.5% | 84.0% | 84.0% |
+
+Structure at 20 steps now beats position at 160 — an eighth of the budget.
+And per mode it is all or nothing **with no remainder**: nine modes at
+154/154, three at 0/154, not one mode in between. Whether a failure leaves
+a mark in what the run did is a property of the kind of failure, not a
+chance of catching it.
+
+**What is still not reached, each for its own reason** — three reasons,
+not one boundary. `retry_stall` is a scoring artefact (both edges of the
+stall are in the excerpt; the marked step is the one after it ends).
+`skipped_unit` is the hard one: a run that never worked a unit has a
+regular rhythm with one fewer turn, and nothing inside the run says how
+many turns there should have been. `stale_value` is in the trace — the
+superseding read is right there — but knowing it was *discarded* needs the
+answer, which is why the card catches it through grounding and the
+selector does not. Having been wrong once about where the line is, the
+documentation no longer claims there is one.
+
+**A bug this found on the way.** `batch` built the scorecard without the
+raw traces, so a corpus that had been judged reported *"No judging
+model"* — the verdict on the trace, the engine able to read it, and the
+reader told there was none. The card reads only each trace's `outcome`, so
+`outcomes_from()` passes that and nothing else: a few kilobytes over a
+corpus whose traces are half a gigabyte. Pinned by
+`test_a_judged_corpus_shows_its_judge_on_the_page`.
+
 ## Two thousand pairs: a million steps, streamed, and two retractions
 
 The excerpt measurement shipped at n=12 — one run per failure mode, from

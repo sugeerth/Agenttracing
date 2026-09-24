@@ -18,7 +18,8 @@ from ..router import routing_table
 from ..scorecard import load_golden, load_policy, scorecard as build_scorecard
 from ..trace import Trajectory
 from ..triage import render_triage_text
-from ._io import load_traces, template_from, write_aggregate, write_page, write_report
+from ._io import (load_traces, outcomes_from, template_from, write_aggregate,
+                  write_page, write_report)
 from .paths import DEFAULT_TEMPLATE
 
 __all__ = ["register", "run"]
@@ -94,7 +95,8 @@ def run(args: argparse.Namespace) -> int:
     agg = build_aggregate(reports)
     agg["routing"] = routing_table(trajectories)
     try:
-        agg["scorecard"] = build_scorecard(trajectories, golden_set, policy)
+        agg["scorecard"] = build_scorecard(trajectories, golden_set, policy,
+                                           outcomes_from(traces_dir))
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

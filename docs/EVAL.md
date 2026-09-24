@@ -151,11 +151,12 @@ twelve of the shipped suite's.
 **`--focus` spends the same budget better.** Instead of the ends of the
 run it shows what the run itself flags — an error nothing repaired, a
 block of steps that produced nothing new, a write with no check after it,
-a policy breach — keeping a quarter of the budget for the opening and a
-quarter for the ending. Over 1,846 known failures that is **58.6% at 40 steps against
-33.4%**, and structure at 20 steps matches position at 80 — a quarter of
-the tokens. Per mode it is all or nothing: seven modes found in every run,
-four in none. `docs/HORIZON.md` has the table and why those four cannot be
+a policy breach, a beat its own rhythm skipped, an irreversible act with
+most of the run still to come — keeping a quarter of the budget for the opening and a
+quarter for the ending. Over 1,846 known failures that is **75.0% at 40 steps against
+33.4%**, and structure at 20 steps beats position at 160 — an eighth of
+the tokens. Per mode it is all or nothing with no remainder: nine modes
+found in every one of 154 runs, three in none, and no mode in between. `docs/HORIZON.md` has the table and why those four cannot be
 reached. The selector reads the trace and
 the policy — including a task's own stated constraints, which the agent
 was told before it started — and never `milestones`, `expected` or
