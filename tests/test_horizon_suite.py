@@ -40,7 +40,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from deepcompare.harness.judge import STEP_EXCERPT  # noqa: E402
-from deepcompare.scorecard import detection, score_run, scorecard, signals_of  # noqa: E402
+from deepcompare.scorecard import (UNRECOVERED_CAP, detection, score_run,  # noqa: E402
+                                   scorecard, signals_of)
 from deepcompare.trace import Trajectory  # noqa: E402
 
 SUITE = ROOT / "demo" / "horizon" / "suite"
@@ -431,6 +432,56 @@ class WhatTheJudgeCanSeeTest(unittest.TestCase):
         smallest = next(c for c in range(2, 400, 2) if self.covered(c) == len(self.runs))
         self.assertEqual(smallest, 274)
         self.assertGreater(smallest, sum(r[1] for r in self.runs) / len(self.runs))
+
+
+class WhereTheTroubleIsTest(unittest.TestCase):
+    """A run's row carries *where* its unrepaired errors are, not only how
+    many.
+
+    A count is the same figure whether a run fell over at step 12 or step
+    212, and those are not the same run: one never got going, the other
+    got most of the way and then broke. The positions are what the page
+    draws, so they have to be on the row."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rows = {}
+        for path in sorted(SUITE.glob("*.json")):
+            traj = Trajectory.from_json(path)
+            cls.rows[f"{traj.task.id}__{traj.agent.name}"] = score_run(traj)
+
+    def test_a_run_that_repaired_everything_lists_nothing(self):
+        for key, row in self.rows.items():
+            rec = row["recovery"]
+            if rec["errors"] == rec["recovered"]:
+                self.assertEqual(rec["unrecovered_at"], [], key)
+
+    def test_the_positions_are_real_steps_of_that_run_and_in_order(self):
+        for key, row in self.rows.items():
+            at = row["recovery"]["unrecovered_at"]
+            self.assertEqual(at, sorted(at), key)
+            self.assertLessEqual(len(at), UNRECOVERED_CAP, key)
+            for index in at:
+                self.assertLess(index, row["spend"]["steps"] + 1, key)
+
+    def test_the_count_and_the_positions_agree_unless_the_row_says_capped(self):
+        for key, row in self.rows.items():
+            rec = row["recovery"]
+            unrepaired = rec["errors"] - rec["recovered"]
+            if rec["unrecovered_capped"]:
+                self.assertEqual(len(rec["unrecovered_at"]), UNRECOVERED_CAP, key)
+                self.assertGreater(unrepaired, UNRECOVERED_CAP, key)
+            else:
+                self.assertEqual(len(rec["unrecovered_at"]), unrepaired, key)
+
+    def test_the_stall_shows_up_late_in_the_run_it_belongs_to(self):
+        """`retry_stall` is the run that breaks and keeps trying. Its
+        unrepaired errors are a block, and the block is in the last third
+        — which is the fact a count cannot carry."""
+        row = self.rows["L03_data_backfill__drift-lh"]
+        at = row["recovery"]["unrecovered_at"]
+        self.assertGreater(len(at), 5)
+        self.assertGreater(min(at) / row["spend"]["steps"], 0.5, "the stall is late in the run")
 
 
 if __name__ == "__main__":

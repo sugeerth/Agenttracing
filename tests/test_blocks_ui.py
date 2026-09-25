@@ -4104,6 +4104,223 @@ class GettingBetterBlockTest(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
                      "playwright + chromium required for browser tests")
+class EvidenceStripTest(unittest.TestCase):
+    """The corpus as strips: every mark is a recorded step index, drawn on
+    a shared axis.
+
+    The tests are about the two ways a chart like this lies — a mark that
+    is not in the data, and runs drawn to different scales so their
+    positions cannot be compared — plus the one it must not: silently
+    drawing nothing when the library is missing.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        suite = ROOT / "demo" / "horizon" / "suite"
+        golden = ROOT / "demo" / "horizon" / "suite_golden.json"
+        if not suite.is_dir():
+            raise unittest.SkipTest("the long-horizon suite is not generated")
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        done = subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(suite), "-o", str(out),
+                               "--golden", str(golden), "--template", str(ROOT / "web" / "blocks.html")],
+                              cwd=str(ROOT), capture_output=True)
+        if done.returncode != 0 or not (out / "report.html").is_file():
+            raise unittest.SkipTest("batch did not write a page")
+        cls.page_path = out / "report.html"
+        cls.card = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))["scorecard"]
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def block(self, page):
+        page.goto(f"file://{self.page_path}#view=batch")
+        page.wait_for_timeout(1400)
+        el = page.locator('.block[data-block="evidence-strip"]')
+        self.assertEqual(el.count(), 1)
+        el.first.scroll_into_view_if_needed()
+        page.wait_for_timeout(300)
+        if "collapsed" in (el.first.get_attribute("class") or ""):
+            el.first.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(900)
+            el = page.locator('.block[data-block="evidence-strip"]')
+        return el.first
+
+    def expected_marks(self):
+        n = 0
+        for r in self.card["per_run"]:
+            n += len([f for f in (r["safety"]["risk_flags"] or [])
+                      if isinstance(f.get("step"), (int, dict))])
+            n += len(r["recovery"].get("unrecovered_at") or [])
+            n += len(r["trajectory"].get("redundant_at") or [])
+            ms = r["milestones"]
+            if ms["measurable"] and ms["complete"] is False and isinstance(ms["last_reached_step"], int):
+                n += 1
+        return n
+
+    def test_one_strip_per_run_and_one_mark_per_recorded_position(self):
+        """A mark the data does not contain is the way a chart lies."""
+        context = self.browser.new_context(viewport={"width": 1440, "height": 1200})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        block = self.block(page)
+        self.assertEqual(block.locator("text.st-row-label").count(), len(self.card["per_run"]))
+        self.assertEqual(block.locator("rect.st-mark").count(), self.expected_marks())
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_every_run_is_drawn_to_the_same_scale(self):
+        """Runs on different scales cannot be compared by position, which
+        is the only thing this chart is for."""
+        context = self.browser.new_context(viewport={"width": 1440, "height": 1200})
+        page = context.new_page()
+        block = self.block(page)
+        # the run bars all start at the same x, and the longest run's bar
+        # is the widest — one domain across the chart
+        xs = block.evaluate("""el => Array.from(el.querySelectorAll('svg rect'))
+              .filter(r => r.getAttribute('fill') === 'var(--rule)')
+              .map(r => [Number(r.getAttribute('x')), Number(r.getAttribute('width'))])""")
+        self.assertEqual(len(xs), len(self.card["per_run"]))
+        self.assertEqual(len({round(x[0], 2) for x in xs}), 1, "every strip starts at the same x")
+        widest = max(x[1] for x in xs)
+        longest = max(r["spend"]["steps"] for r in self.card["per_run"])
+        shortest = min(r["spend"]["steps"] for r in self.card["per_run"])
+        narrowest = min(x[1] for x in xs)
+        self.assertAlmostEqual(narrowest / widest, shortest / longest, delta=0.02)
+
+    def test_a_mark_carries_its_run_its_step_and_what_fired(self):
+        context = self.browser.new_context(viewport={"width": 1440, "height": 1200})
+        page = context.new_page()
+        block = self.block(page)
+        labels = block.evaluate("""el => Array.from(el.querySelectorAll('rect.st-mark'))
+                                     .map(r => r.getAttribute('aria-label'))""")
+        self.assertTrue(labels)
+        for label in labels[:10]:
+            self.assertRegex(label, r"^.+ · .+, step \d+: .+$", label)
+        context.close()
+
+    def test_the_lede_says_how_many_marks_fall_late(self):
+        """The finding the chart exists for: a count cannot say where."""
+        context = self.browser.new_context(viewport={"width": 1440, "height": 1200})
+        page = context.new_page()
+        block = self.block(page)
+        lede = block.locator(".st-lede").inner_text()
+        marked = [r for r in self.card["per_run"]
+                  if (r["safety"]["risk_flags"] or []) or (r["recovery"].get("unrecovered_at") or [])
+                  or (r["trajectory"].get("redundant_at") or [])
+                  or (r["milestones"]["measurable"] and r["milestones"]["complete"] is False)]
+        self.assertIn(f"{len(marked)} of {len(self.card['per_run'])} run(s) carry a mark", lede)
+        self.assertIn("halfway point", lede)
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class DetectionMatrixTest(EvidenceStripTest):
+    """Modes down, dimensions across. Two facts the grid exists to make
+    visible, with opposite meanings: a full column would be a detector
+    that had learned the corpus, and a row with one filled cell is a
+    failure that stops being caught the day that dimension changes."""
+
+    def block(self, page):
+        page.goto(f"file://{self.page_path}#view=batch")
+        page.wait_for_timeout(1400)
+        el = page.locator('.block[data-block="detection-matrix"]')
+        self.assertEqual(el.count(), 1)
+        el.first.scroll_into_view_if_needed()
+        page.wait_for_timeout(300)
+        if "collapsed" in (el.first.get_attribute("class") or ""):
+            el.first.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(900)
+            el = page.locator('.block[data-block="detection-matrix"]')
+        return el.first
+
+    def modes(self):
+        by = {}
+        for row in self.card["detection"]["modes"]:
+            got = by.setdefault(row["mode"], set())
+            got.update(row["signals"] or [])
+        return by
+
+    def test_one_row_per_mode_and_a_cell_on_exactly_where_it_was_caught(self):
+        context = self.browser.new_context(viewport={"width": 1440, "height": 1200})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        block = self.block(page)
+        modes = self.modes()
+        rows = block.locator("tr[data-mode]")
+        self.assertEqual(rows.count(), len(modes))
+        on = block.locator('td[data-on="1"]').count()
+        self.assertEqual(on, sum(len(v) for v in modes.values()),
+                         "a cell the data does not contain is how a grid lies")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_mode_caught_by_one_thing_is_marked_fragile(self):
+        context = self.browser.new_context(viewport={"width": 1440, "height": 1200})
+        page = context.new_page()
+        block = self.block(page)
+        modes = self.modes()
+        lonely = sorted(m for m, v in modes.items() if len(v) == 1)
+        marked = block.evaluate("""el => Array.from(el.querySelectorAll('tr[data-fragile="true"]'))
+                                     .map(r => r.getAttribute('data-mode')).sort()""")
+        self.assertEqual(marked, lonely)
+        if lonely:
+            self.assertIn("caught by exactly one dimension", block.locator(".mx-lede").inner_text())
+        context.close()
+
+    def test_no_column_is_full_and_the_totals_say_so(self):
+        """A dimension that caught every mode would not be strong; it
+        would have learned the corpus."""
+        context = self.browser.new_context(viewport={"width": 1440, "height": 1200})
+        page = context.new_page()
+        block = self.block(page)
+        modes = self.modes()
+        totals = block.evaluate("""el => Array.from(
+            el.querySelectorAll('tr[data-role="totals"] td .mx-total')).map(s => Number(s.textContent))""")
+        self.assertTrue(totals)
+        self.assertLess(max(totals), len(modes), "no dimension catches every mode")
+        by_signal = self.card["detection"]["by_signal"]
+        best = max(len([1 for v in modes.values() if d in v]) for d in by_signal)
+        self.assertEqual(max(totals), best)
+        self.assertIn(f"No dimension catches more than {best} of {len(modes)}",
+                      block.locator(".mx-lede").inner_text())
+        context.close()
+
+    def test_the_control_line_is_on_the_grid_not_in_a_document(self):
+        context = self.browser.new_context(viewport={"width": 1440, "height": 1200})
+        page = context.new_page()
+        block = self.block(page)
+        note = block.locator(".mx-note").inner_text()
+        controls = self.card["detection"]["controls"]
+        self.assertIn(f"of {controls['runs']} run(s) known to be correct", note)
+        self.assertIn("would fill its column and catch nothing", note)
+        context.close()
+
+    # the strip's own assertions do not apply to this block
+    test_one_strip_per_run_and_one_mark_per_recorded_position = None
+    test_every_run_is_drawn_to_the_same_scale = None
+    test_a_mark_carries_its_run_its_step_and_what_fired = None
+    test_the_lede_says_how_many_marks_fall_late = None
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
 class DetectionSectionTest(unittest.TestCase):
     """*Does the evaluation see it?* — the one section of the scorecard that
     measures the measurement.

@@ -5,6 +5,47 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Two charts that say what a table could not
+
+Both exist for the same reason: a count throws away the one thing that
+distinguishes a long run from a short one, and a list per row hides the
+shape of the grid it sits in.
+
+**Where the trouble is** (`web/blocks/04_strip.js`). One strip per run,
+steps left to right on a shared scale, a mark wherever a dimension fired.
+"Twelve unrepaired errors" is the same figure whether a run fell over at
+step 12 or step 212, and those are not the same run — one never got
+going, the other got most of the way and then broke. On the long-horizon
+suite the shape is immediate: the sixteen correct runs are clean *along
+their whole length* rather than on average, and **8 of the 10 marked runs
+carry their mark past their own halfway point**, which is why an excerpt
+taken from the front of a run finds nothing.
+
+Every mark is a step index the engine already recorded, and one of them
+needed adding: `recovery.unrecovered_at` now carries *where* the errors
+nobody repaired are, capped at 24 with `unrecovered_capped` saying when
+the cap bit. Four engine tests pin that the positions are real steps of
+that run, in order, and that the count and the positions agree unless the
+row says it was capped.
+
+**What caught what** (`web/blocks/04_matrix.js`). Failure modes down,
+dimensions across, a filled cell where that dimension caught that mode.
+Drawn as a binary grid rather than a heatmap, because a colour ramp over
+a boolean is a lie about precision.
+
+It made a finding visible that the table-of-lists had hidden in plain
+sight: **three of the twelve modes are caught by exactly one dimension**
+— `out_of_order`, `regression` and `unverified_handoff` — and stop being
+caught the day that dimension changes. The grid marks those rows amber.
+The other half of its job is the opposite check: no column is full, and
+a full one would not be a strong dimension but a detector that had
+learned the corpus. The control line sits under the grid rather than in a
+document, because the two numbers are only meaningful together.
+
+Eight browser tests across the two, and they are about the two ways a
+chart lies: a mark or a cell the data does not contain, and runs drawn to
+scales that cannot be compared.
+
 ## A panel: one judge across many runs, and every claim checked against them
 
 The judges so far answer *did this run do X*. After forty runs that is

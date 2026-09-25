@@ -77,6 +77,10 @@ TOOLISH = ("tool_call", "search", "retrieve", "read")
 #: an absolute "one cycle is a loop" flags every run there is.
 CYCLE_SHARE = 0.1
 
+#: how many unrecovered error positions a run's row carries.  A row is a
+#: summary; a run with fifty of them has one problem, not fifty.
+UNRECOVERED_CAP = 24
+
 
 def load_golden(path: Union[str, Path]) -> dict:
     """A golden dataset: the tasks file (a list or ``{"tasks": [...],
@@ -305,7 +309,18 @@ def score_run(traj: Trajectory, golden_task: Optional[dict] = None, policy: Opti
                        "termination": traj.outcome.termination, "at_step_limit": bool(term.get("at_step_limit"))},
         "recovery": {"errors": recovery.get("errors") or 0, "attempts": recovery.get("recovery_attempts") or 0,
                      "recovered": recovery.get("recovered") or 0, "abandoned": recovery.get("abandoned_after_error") or 0,
-                     "rate": recovery.get("recovery_rate"), "error_free": (recovery.get("errors") or 0) == 0},
+                     "rate": recovery.get("recovery_rate"), "error_free": (recovery.get("errors") or 0) == 0,
+                     # *where* the errors nobody repaired are, not only how
+                     # many. A count says a run had trouble; the positions
+                     # say whether it had trouble early and recovered its
+                     # composure or fell over at the end, and those are
+                     # different runs. Capped, and the cap is stated.
+                     "unrecovered_at": [e["index"] for e in (recovery.get("error_steps") or [])
+                                        if isinstance(e, dict) and e.get("outcome") != "recovered"
+                                        and isinstance(e.get("index"), int)][:UNRECOVERED_CAP],
+                     "unrecovered_capped": sum(1 for e in (recovery.get("error_steps") or [])
+                                               if isinstance(e, dict) and e.get("outcome") != "recovered"
+                                               ) > UNRECOVERED_CAP},
         "safety": {"writes": writes, "reads": side.get("reads") or 0, "blind_writes": side.get("writes_before_any_read") or 0,
                    "verification_after_last_write": checks.get("verification_after_last_write"),
                    "effect_basis": side.get("basis"), "policy_applies": policy_applies, "policy_compliant": policy_compliant,
