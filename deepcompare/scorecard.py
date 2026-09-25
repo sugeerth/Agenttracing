@@ -257,6 +257,7 @@ def score_run(traj: Trajectory, golden_task: Optional[dict] = None, policy: Opti
     # --- the judge, when the trace carries one
     outcome_raw = (raw or {}).get("outcome") or {}
     judge = outcome_raw.get("judge") if isinstance(outcome_raw.get("judge"), dict) else None
+    agent_judge = outcome_raw.get("agent_judge") if isinstance(outcome_raw.get("agent_judge"), dict) else None
     graded_by = outcome_raw.get("graded_by") or ("exact-match" if traj.task.expected else "ungraded")
 
     totals = traj.totals
@@ -321,6 +322,20 @@ def score_run(traj: Trajectory, golden_task: Optional[dict] = None, policy: Opti
                    # verdict was applied as the outcome
                    "grade": ((judge.get("prior") or {}).get("success") if isinstance((judge.get("prior") or {}).get("success"), bool)
                              else traj.outcome.success)} if judge else None),
+        # the agentic judge reads the run instead of being handed a window,
+        # and judges one requirement at a time (`harness.agentjudge`)
+        "agent_judge": ({"success": agent_judge.get("success"), "score": agent_judge.get("score"),
+                         "model": agent_judge.get("model"), "judged": agent_judge.get("judged"),
+                         "of": agent_judge.get("of"), "met": agent_judge.get("met"),
+                         "failed_requirements": agent_judge.get("failed_requirements") or [],
+                         "turns": agent_judge.get("turns"), "tool_calls": agent_judge.get("tool_calls"),
+                         "looked_at_all": agent_judge.get("looked_at_all"),
+                         "self_judged": agent_judge.get("self_judged"),
+                         "agrees_with_grade": agent_judge.get("agrees_with_prior"),
+                         "applied": agent_judge.get("applied"),
+                         "grade": ((agent_judge.get("prior") or {}).get("success")
+                                   if isinstance((agent_judge.get("prior") or {}).get("success"), bool)
+                                   else traj.outcome.success)} if agent_judge else None),
     }
 
 
@@ -505,6 +520,46 @@ def signals_of(run: dict) -> list:
     return [key for key, _label, test in DETECTION_SIGNALS if test(run)]
 
 
+def cohens_kappa(pairs: list) -> dict:
+    """Agreement between two verdicts, corrected for chance.
+
+    Raw agreement is the number an evaluation reports when it wants to
+    look good: two judges who both say "pass" to 90% of everything agree
+    90% of the time while telling you nothing. Cohen's κ subtracts the
+    agreement they would have reached by voting independently at their own
+    base rates — so a judge that always says the same thing scores 0 no
+    matter how often it happens to be right.
+
+    ``pairs`` is ``[(a, b)]`` of booleans. Convention in the literature:
+    above 0.8 strong, 0.6–0.8 moderate, below 0.4 poor. Reported with the
+    counts it came from, because κ over a handful of runs is noise with a
+    Greek letter on it.
+    """
+    pairs = [(bool(a), bool(b)) for a, b in pairs if isinstance(a, bool) and isinstance(b, bool)]
+    n = len(pairs)
+    if n < 2:
+        return {"measurable": False, "n": n,
+                "reason": "κ needs at least two runs both sides judged"}
+    agreed = sum(1 for a, b in pairs if a == b)
+    observed = agreed / n
+    a_yes = sum(1 for a, _ in pairs if a) / n
+    b_yes = sum(1 for _, b in pairs if b) / n
+    expected = a_yes * b_yes + (1 - a_yes) * (1 - b_yes)
+    if expected >= 1:
+        # both sides said the same thing to everything: they agree
+        # completely and κ cannot tell agreement from a constant
+        return {"measurable": False, "n": n, "observed": round(observed, 4),
+                "reason": ("both verdicts are constant, so chance agreement is total and κ is undefined — "
+                           "a judge that never varies cannot be shown to agree with anything")}
+    kappa = (observed - expected) / (1 - expected)
+    reading = ("strong" if kappa > 0.8 else "moderate" if kappa > 0.6
+               else "fair" if kappa > 0.4 else "poor")
+    return {"measurable": True, "kappa": round(kappa, 4), "observed": round(observed, 4),
+            "expected": round(expected, 4), "n": n, "reading": reading,
+            "basis": ("Cohen's κ: observed agreement less the agreement expected from each side's own "
+                      "base rate, over the runs where both gave a verdict")}
+
+
 def _judge_said_no(judge: Optional[dict]) -> bool:
     """The judging model called this run wrong.  ``None`` and a missing
     verdict are both *not a no* — a run nobody judged has not been passed
@@ -512,7 +567,7 @@ def _judge_said_no(judge: Optional[dict]) -> bool:
     return bool(judge) and judge.get("success") is False
 
 
-def _judge_detection(rows: list, controls: int, judged_controls: list) -> dict:
+def _judge_detection(rows: list, controls: int, judged_controls: list, key: str = "judge") -> dict:
     """The judging model scored the way every other dimension is scored —
     and kept out of their totals.
 
@@ -528,21 +583,25 @@ def _judge_detection(rows: list, controls: int, judged_controls: list) -> dict:
     A run the judge never saw is counted as neither caught nor missed —
     `judged` says how many of the known failures it actually read.
     """
-    judged = [r for r in rows if r["judge"] and isinstance(r["judge"]["success"], bool)]
+    agentic = key == "agent_judge"
+    label = "agent judge" if agentic else "judge"
+    article = "an agent judge" if agentic else "a judge"
+    flag = "--agent " if agentic else ""
+    judged = [r for r in rows if r.get(key) and isinstance(r[key]["success"], bool)]
     if not judged:
         return {"measurable": False,
-                "reason": ("no run carries a judge verdict; `agentdiff judge <traces> --provider …` writes one, "
-                           "and it is scored here without being counted into the numbers above"),
+                "reason": (f"no run carries {article}'s verdict; `agentdiff judge <traces> {flag}--provider …` "
+                           "writes one, and it is scored here without being counted into the numbers above"),
                 "judged": 0, "of": len(rows)}
-    caught = [r for r in judged if _judge_said_no(r["judge"])]
+    caught = [r for r in judged if _judge_said_no(r[key])]
     only = [r for r in caught if not r["caught"]]
-    excerpts = [r for r in judged if (r["judge"].get("steps_total") or 0) > (r["judge"].get("steps_shown") or 0)]
+    excerpts = [r for r in judged if (r[key].get("steps_total") or 0) > (r[key].get("steps_shown") or 0)]
     chosen_by: dict = {}
     for r in excerpts:
-        key = str(r["judge"].get("steps_chosen_by") or "position")
-        chosen_by[key] = chosen_by.get(key, 0) + 1
-    rubrics = sorted({str(r["judge"].get("rubric_name") or "unnamed") for r in judged})
-    narrative = (f"the judge read {len(judged)} of {plural(len(rows), 'known failure')} and called "
+        how = str(r[key].get("steps_chosen_by") or "position")
+        chosen_by[how] = chosen_by.get(how, 0) + 1
+    rubrics = sorted({str(r[key].get("rubric_name") or "unnamed") for r in judged})
+    narrative = (f"the {label} read {len(judged)} of {plural(len(rows), 'known failure')} and called "
                  f"{len(caught)} of them wrong; {len(only)} that no other dimension caught; "
                  + (f"{len(judged_controls)} of {plural(controls, 'control run')} called wrong"
                     if controls else "no control run to check it against") + ".")
@@ -556,8 +615,19 @@ def _judge_detection(rows: list, controls: int, judged_controls: list) -> dict:
             # otherwise write one row per control into every card
             "controls_called_wrong_runs": judged_controls[:12],
             "controls_called_wrong_capped": len(judged_controls) > 12,
-            "model": judged[0]["judge"].get("model"),
+            "model": judged[0][key].get("model"),
             "rubrics": rubrics,
+            # every run the judge saw, against what is known about it: the
+            # known failures are all `False`, so κ is measurable only when
+            # the controls were judged too — which is the point of having
+            # them
+            "kappa": cohens_kappa([(False, bool(r[key]["success"])) for r in judged]
+                                  + [(True, True)] * max(0, controls - len(judged_controls))
+                                  + [(True, False)] * len(judged_controls)),
+            "turns": sum(r[key].get("turns") or 0 for r in judged) or None,
+            "tool_calls": sum(r[key].get("tool_calls") or 0 for r in judged) or None,
+            "looked_at_all": (all(r[key].get("looked_at_all") for r in judged)
+                              if any(r[key].get("looked_at_all") is not None for r in judged) else None),
             "on_an_excerpt": len(excerpts),
             # how those excerpts were chosen: by where the steps fall in the
             # run, or by what the run itself flags (`deepcompare.excerpt`)
@@ -601,6 +671,7 @@ def detection(per_run: list, golden: Optional[dict]) -> dict:
                 "modes": [], "caught": 0, "total": 0, "controls": None, "judge": None, "narrative": ""}
     rows, controls, false_positives = [], 0, []
     judged_controls: list = []
+    agent_judged_controls: list = []
     for run in per_run:
         mode = modes.get(run["task"])
         if not mode and run["task"] not in correct_tasks:
@@ -614,6 +685,8 @@ def detection(per_run: list, golden: Optional[dict]) -> dict:
                 false_positives.append({"task": run["task"], "agent": run["agent"], "signals": sig})
             if _judge_said_no(run["judge"]):
                 judged_controls.append({"task": run["task"], "agent": run["agent"]})
+            if _judge_said_no(run.get("agent_judge")):
+                agent_judged_controls.append({"task": run["task"], "agent": run["agent"]})
             continue
         rows.append({"mode": mode, "task": run["task"], "agent": run["agent"],
                      "graded_pass": run["success"] is not False, "signals": sig, "caught": bool(sig),
@@ -621,7 +694,7 @@ def detection(per_run: list, golden: Optional[dict]) -> dict:
                      # beside, never inside: `signals` and everything counted
                      # from it stay deterministic, and the judge is scored
                      # against them in its own block
-                     "judge": run["judge"]})
+                     "judge": run["judge"], "agent_judge": run.get("agent_judge")})
     rows.sort(key=lambda r: (r["mode"], r["task"], r["agent"]))
     caught = [r for r in rows if r["caught"]]
     missed = [r for r in rows if not r["caught"]]
@@ -644,6 +717,7 @@ def detection(per_run: list, golden: Optional[dict]) -> dict:
             "by_signal": dict(sorted(by_signal.items(), key=lambda kv: (-kv[1], kv[0]))),
             "controls": {"runs": controls, "flagged": len(false_positives), "false_positives": false_positives},
             "judge": _judge_detection(rows, controls, judged_controls),
+            "agent_judge": _judge_detection(rows, controls, agent_judged_controls, key="agent_judge"),
             "basis": ("a mode is caught when any dimension of this card says something is wrong about the run "
                       "that carries it; a control is a run of a task marked known_correct, or of a task whose "
                       "failure_mode_agents do not name that run's agent. A judging model, when one ran, is "

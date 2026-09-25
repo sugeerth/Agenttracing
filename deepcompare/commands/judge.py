@@ -25,6 +25,15 @@ def register(subparsers) -> None:
                         help="a name from RUBRICS (strict, long-run) or the judging instruction itself "
                              "(default: strict correctness, JSON verdict)")
     parser.add_argument("--with-steps", action="store_true", help="show the judge the steps, not only the answer")
+    parser.add_argument("--agent", action="store_true",
+                        help="Agent-as-a-Judge: instead of being shown an excerpt, the judge reads the run "
+                             "with tools (graph, locate, read, and the deterministic analysis as `flags`) "
+                             "and gives one verdict per golden milestone, each judged independently")
+    parser.add_argument("--golden", default=None,
+                        help="golden dataset; with --agent its milestones are the requirements judged "
+                             "(their labels only — never the evidence that settles them)")
+    parser.add_argument("--turns", type=int, default=None, metavar="N",
+                        help="with --agent, how many turns the judge gets per requirement (default 8)")
     parser.add_argument("--focus", action="store_true",
                         help="with --with-steps, choose which steps to show by what the run itself flags "
                              "(errors nothing repaired, work re-done, a write nothing checked, a policy "
@@ -73,6 +82,31 @@ def run(args: argparse.Namespace) -> int:
     if args.policy:
         from ..scorecard import load_policy
         policy = load_policy(args.policy)
+    if args.agent:
+        from ..harness.agentjudge import TURNS, judge_trace as agent_judge_trace
+        golden = None
+        if args.golden:
+            from ..scorecard import load_golden
+            golden = (load_golden(args.golden) or {}).get("tasks") or {}
+        judged = failed = 0
+        for path, data, _report in traces:
+            task_id = (data.get("task") or {}).get("id")
+            block = agent_judge_trace(data, factory, golden_task=(golden or {}).get(task_id),
+                                      policy=policy, turns=args.turns or TURNS,
+                                      apply=args.apply, out_dir=None)
+            judged += 1 if isinstance(block["success"], bool) else 0
+            failed += 1 if block["errors"] else 0
+            print(f"  {path.name} · {(data.get('agent') or {}).get('name')}: "
+                  f"{block['met']}/{block['of']} requirements met over {block['turns']} turns "
+                  f"and {block['tool_calls']} look-ups"
+                  + (f" ({len(block['errors'])} without a verdict)" if block["errors"] else ""))
+        for path, data, report in traces:
+            payload = report if report is not None else data
+            path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"{judged} judged, {failed} with an error; recorded as outcome.agent_judge"
+              + (" and applied to outcome.success" if args.apply else " only"))
+        return 0
+
     counts = judge_many([t[1] for t in traces], factory, rubric=args.rubric,
                         with_steps=args.with_steps, apply=args.apply, focus=args.focus, policy=policy,
                         cap=args.steps_cap if args.steps_cap and args.steps_cap > 0 else STEP_EXCERPT)

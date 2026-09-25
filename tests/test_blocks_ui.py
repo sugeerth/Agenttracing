@@ -3806,6 +3806,123 @@ class ScorecardBlockTest(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
                      "playwright + chromium required for browser tests")
+class DashboardBlockTest(unittest.TestCase):
+    """The dashboard: problems first, each with the field it came from.
+
+    A dashboard is the one block a reader trusts without checking, which
+    is exactly why this test is about *grounding* rather than layout:
+    every problem row has to name the value that fired, the tiles have to
+    carry their denominator, and the line saying what nothing caught has
+    to be on the page rather than in a document nobody opens.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        suite = ROOT / "demo" / "horizon" / "suite"
+        golden = ROOT / "demo" / "horizon" / "suite_golden.json"
+        if not suite.is_dir() or not golden.is_file():
+            raise unittest.SkipTest("the long-horizon suite is not generated")
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        done = subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(suite), "-o", str(out),
+                               "--golden", str(golden), "--template", str(ROOT / "web" / "blocks.html")],
+                              cwd=str(ROOT), capture_output=True)
+        if done.returncode != 0 or not (out / "report.html").is_file():
+            raise unittest.SkipTest("batch did not write a page: " + done.stderr.decode("utf-8", "replace")[-300:])
+        cls.page_path = out / "report.html"
+        cls.card = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))["scorecard"]
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def block(self, page):
+        page.goto(f"file://{self.page_path}#view=batch")
+        page.wait_for_timeout(900)
+        el = page.locator('.block[data-block="dashboard"]')
+        self.assertEqual(el.count(), 1, "the dashboard block is on the batch view")
+        if "collapsed" in (el.first.get_attribute("class") or ""):
+            el.first.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(500)
+            el = page.locator('.block[data-block="dashboard"]')
+        return el.first
+
+    def test_every_problem_names_where_it_came_from(self):
+        """Each line is a finding quoted from whatever found it, with the
+        field underneath. A line with no provenance is a sentence the page
+        made up, which is the one thing this block may not do."""
+        context = self.browser.new_context(viewport={"width": 1440, "height": 1100})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        block = self.block(page)
+        items = block.locator(".db-item")
+        self.assertGreater(items.count(), 0, "this suite has problems to show")
+        order = {"critical": 0, "major": 1, "minor": 2}
+        levels, texts = [], []
+        for i in range(items.count()):
+            item = items.nth(i)
+            field = item.get_attribute("data-field")
+            self.assertTrue(field, f"item {i} names no field")
+            text = item.inner_text()
+            self.assertIn(field, text, f"item {i} hides its provenance")
+            texts.append(text)
+            levels.append(order[item.get_attribute("data-sev")])
+        self.assertEqual(levels, sorted(levels), "worst first")
+        self.assertTrue(any("issues[].summary" in t for t in texts),
+                        "the findings the pair analysis already ranked and wrote are quoted, not paraphrased")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_counts_read_as_prose_and_carry_their_denominator(self):
+        """A bare count is the figure that makes a dashboard feel
+        authoritative and be wrong."""
+        context = self.browser.new_context(viewport={"width": 1440, "height": 1100})
+        page = context.new_page()
+        block = self.block(page)
+        stats = block.locator(".db-stats").inner_text()
+        det = self.card["detection"]
+        self.assertIn(f"{det['caught']} of {det['total']}", stats)
+        controls = det["controls"]
+        self.assertIn(f"{controls['flagged'] or 'none'} of {controls['runs']}", stats)
+        self.assertIn("runs scored", stats)
+        self.assertNotIn("\n\n", stats.strip(), "one line, not a grid of tiles")
+        context.close()
+
+    def test_it_says_what_nothing_caught_and_reports_the_judges_beside(self):
+        context = self.browser.new_context(viewport={"width": 1440, "height": 1100})
+        page = context.new_page()
+        block = self.block(page)
+        missed = block.locator('[data-role="missed"]').inner_text()
+        det = self.card["detection"]
+        if det["missed"]:
+            for mode in sorted(set(det["missed"])):
+                self.assertIn(mode, missed)
+        else:
+            self.assertIn("caught by something above", missed)
+        judges = block.locator(".db-judge")
+        self.assertEqual(judges.count(), 2, "both judges have a line, run or not")
+        text = block.inner_text()
+        self.assertIn("Neither is counted into the numbers above", text)
+        # and the wording holds up when neither has run
+        self.assertNotIn("an judge", text)
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
 class DetectionSectionTest(unittest.TestCase):
     """*Does the evaluation see it?* — the one section of the scorecard that
     measures the measurement.

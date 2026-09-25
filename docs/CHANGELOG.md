@@ -5,6 +5,75 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Agent as a judge, Cohen's κ, and a dashboard that shows its working
+
+Two things, and they are the same thing: the judge stops being handed a
+window, and the page stops asking to be believed.
+
+**Agent-as-a-Judge** (`deepcompare/harness/agentjudge.py`, `judge
+--agent`). The LLM judge's ceiling is not its reasoning, it is its input:
+the best excerpt this repository can build contains the failing step 75%
+of the time. So the judge gets tools instead — `graph()` for the shape of
+the run, `locate(term)` to find where a thing happened, `read(a, b)` for
+a range in full, and `flags()`, which hands over the deterministic
+reading. That fourth tool is the addition: the engine already knows where
+a run stops behaving like one that is going well and knows it without
+being told what the task was, so it is a retrieval tool for the judge
+rather than something kept for the card.
+
+Following the published ablation (graph, locate, read, retrieve, ask
+kept; search, planning, memory dropped), this judges **one requirement at
+a time with no memory between them** — the finding there was not that
+memory failed to help but that a wrong judgement carried forward starts a
+chain of them. The requirements are the milestone *labels*, never their
+evidence: the first is the task, the second is the mark scheme, and a
+test asserts nothing else from the golden task crosses.
+
+The judge runs through the ordinary `run_task` loop, so its own run is a
+SCHEMA trace and `looked_before_answering` is on the record. A judge that
+answers without looking is the failure the whole approach exists to
+avoid.
+
+**Cohen's κ.** Raw agreement is the number an evaluation reports when it
+wants to look good: two verdicts that both say "pass" to 90% of
+everything agree 90% of the time and have said nothing. κ subtracts the
+agreement they would reach voting independently at their own base rates.
+The stand-in shipped for the tests calls every run wrong — raw agreement
+37.5%, **κ 0.0, "poor"**, which is the correct answer and the reason the
+metric is here.
+
+Also recorded, from the bias literature: self-preference by **family**
+rather than string (`gpt-4o` judging `gpt-4o-mini` is self-judging),
+verbosity separated from correctness in the rubric itself, and
+`controls_called_wrong` beside every catch rate.
+
+**The dashboard** (`web/blocks/03_dashboard.js`). Problems first, then
+the summary — the order a reader actually arrives in, in the voice the
+rest of the page speaks. The first attempt was a wall of uppercase tiles
+and a dense table, and it was worse than what it summarised: *"seen on 13
+tasks, causing 3 failures, costing 13,896 extra tokens"* says something a
+number in a box cannot, and the engine had already written that sentence.
+
+So it quotes rather than paraphrases. `issues[].summary` — already
+collapsed, ranked and phrased by the pair analysis — leads, and the
+structural findings the per-run card adds are written in the same
+register, each with the field it came from set quietly underneath
+(`milestones.stalled_at`, a risk flag's own `detail`, `recovery.errors −
+recovered`). The counts run along one line as prose, none of them without
+its denominator: *32 runs scored · 5 of 32 graded a failure · 12 of 12
+known failures caught · none of 20 runs known to be right were flagged.*
+It prints what nothing caught, and both judges beside the numbers rather
+than inside them. Four browser tests pin those properties: every line
+names its field, the worst come first, the engine's own findings are
+quoted, and the counts carry their denominators.
+
+**Not measured:** no model has been run against this suite — there is no
+API key in the environment these numbers came from, and the stand-in's
+verdicts are a fact about the stand-in. The published figures for the
+method (92.07% / 90.44% against LLM-as-a-Judge's 70.76% / 60.38%, at 2.3%
+of human cost) are cited, not reproduced. What is measured here is the
+machinery: the tools, the boundary, and the guards.
+
 ## Two of the four "unreachable" modes were reachable
 
 The last entry said four failure modes could not be located from a trace:

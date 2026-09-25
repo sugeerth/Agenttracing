@@ -165,6 +165,80 @@ was told before it started — and never `milestones`, `expected` or
 `--rubric long-run` asks the model about the work rather than the prose.
 The judge is never shown the golden set.
 
+## Agent as a judge
+
+The LLM judge above has a ceiling no prompt moves. A three-hundred-step
+run does not fit in a prompt, so it is shown an excerpt, and the best
+excerpt anyone here has built contains the step where the run went wrong
+**75% of the time** (`docs/HORIZON.md`). The other quarter is a verdict
+about a part of the run that does not contain the failure.
+
+The way out is not a bigger window — it is to stop choosing one.
+`agentdiff judge <traces> --agent --provider NAME=KIND:MODEL --golden
+tasks.json` gives the judge **tools over the trace** and lets it look:
+
+| tool | what it answers |
+|---|---|
+| `graph()` | how long the run is, which tools it used, how often, when each first appeared |
+| `locate(term)` | the steps whose call, input or result mention a thing |
+| `read(start, end)` | a range of steps, in full |
+| `flags()` | **the deterministic reading** — every place `deepcompare.excerpt` marks, with its reason |
+
+The first three are the method as published. The fourth is this
+repository's addition: the engine already knows where a run stops
+behaving like one that is going well, and knows it *without being told
+what the task was*, so it can be handed to the judge as a retrieval tool
+rather than kept for the card.
+
+**It judges one requirement at a time, with no memory between them.**
+That is not a design preference — it is the paper's ablation, which found
+memory actively harmful because a wrong judgement carried forward starts
+a chain of them. Each requirement gets a fresh loop and a fresh provider.
+
+**The requirements are the spec, never the answer.** A golden milestone
+carries what had to happen *and* the string the world produced when it
+did. Only the first ever reaches the judge (`requirements_of`); a test
+asserts that nothing else from the golden task does.
+
+**The judge's own run is a trace.** It goes through the same
+`run_task` loop as any agent, so how many turns it took, which tools it
+used and *whether it looked at anything before answering* are recorded
+and reported. A judge that answers without looking is the failure this
+whole approach exists to avoid, and it is visible.
+
+### Reading a judge's verdict honestly
+
+The card reports both judges in `detection`, beside its own numbers and
+never inside them, with the guards the literature says to keep:
+
+- **Cohen's κ, not raw agreement.** A judge that calls everything wrong
+  agrees with a mostly-correct corpus some of the time and has told you
+  nothing; κ subtracts the agreement two verdicts would reach by voting
+  independently at their own base rates. Above 0.8 is strong, 0.6–0.8
+  moderate. On the stand-in shipped for testing — which calls every run
+  wrong — raw agreement reads 37.5% and **κ reads 0.0, "poor"**, which is
+  the correct answer.
+- **`controls_called_wrong`.** The runs known to be *right* that it
+  called wrong. Read it in the same glance as the catch rate or the catch
+  rate means nothing.
+- **`only_the_judge`.** The known failures every deterministic dimension
+  passed and the model did not — what a judge is actually being paid for.
+- **Self-preference by family, not by string.** A judge scores its own
+  family's work a reported 10–25% higher, and `gpt-4o` judging
+  `gpt-4o-mini` is the same family however different the two strings
+  look.
+- **Verbosity.** The rubric separates correctness from style in as many
+  words, because long answers score higher even when they are worse.
+
+Reported numbers for the method: 92.07% / 90.44% alignment with human
+consensus against LLM-as-a-Judge's 70.76% / 60.38% in grey-box and
+black-box settings, at 2.3% of the cost of human evaluation
+([Zhuge et al., 2024](https://arxiv.org/abs/2410.10934)). **Nothing in
+this repository reproduces those numbers** — no model has been run
+against this suite, and the stand-in used in the tests is a fact about
+the stand-in. What is measured here is the machinery: the tools, the
+boundary, and the guards.
+
 ## Commands
 
 ```bash
