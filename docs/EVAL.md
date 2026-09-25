@@ -1,4 +1,4 @@
-# Agent evaluation — the scorecard, golden sets, offline and online, the judge
+# Agent evaluation — the scorecard, golden sets, offline and online, the judges
 
 `agentdiff eval` scores every run of every agent on the dimensions an
 evaluation of agents needs, and every one of them is a count or an
@@ -238,6 +238,64 @@ this repository reproduces those numbers** — no model has been run
 against this suite, and the stand-in used in the tests is a fact about
 the stand-in. What is measured here is the machinery: the tools, the
 boundary, and the guards.
+
+## A panel: one judge, many runs, checked against them
+
+The judges above answer *did this run do X*. After forty runs that is the
+wrong question — forty independent verdicts are forty anecdotes, and the
+thing worth knowing is the pattern between them:
+
+- What is wrong with this **agent**, as opposed to this run?
+- Why does one side succeed where the other fails on the same task?
+- Is it one cause or five?
+
+`agentdiff panel <traces> --provider NAME=KIND:MODEL` gives a judge tools
+over the **corpus** and asks for a synthesis rather than a grade:
+`corpus()` for what is there, `runs(agent=…, task=…, failed=true)` to
+filter, `contrast(task)` for the two sides of a task with the first call
+they differ on, and `open(run)` / `locate` / `read` / `flags` to descend
+into any single run.
+
+### Every claim cites, and every citation is checked
+
+This is the part that makes a synthesis worth reading rather than worth
+believing. The panel returns each finding with `cites` — a run, a step
+index, and the fragment it says is there — and the engine then goes and
+looks. A run that does not exist, a step out of range, a quotation the
+step does not contain: the finding is **dropped from the synthesis**, and
+the claim and the reason are kept so a reader can see what was rejected.
+
+Nothing about that check involves a model. It is string containment
+against the recorded step, and it is the difference between a fluent
+paragraph and a finding. In the tests, a claim that reads
+
+> The orchestrator systematically re-verifies work it has already
+> checked, at real cost.
+
+— plausible, well written, about the right run — is dropped, because the
+text it quotes is not at the step it cites. One bad citation sinks the
+finding: a claim resting on two facts of which one is invented is not
+two-thirds true.
+
+```bash
+agentdiff panel traces/ --provider p=anthropic:MODEL --checkpoint panel.ckpt -o out/
+agentdiff panel traces/ --provider p=openai:MODEL --ask "Why does drift-lh fail where summit-lh does not?"
+```
+
+### It is a long task, and it is built as one
+
+Reading hundreds of runs takes tens of minutes to hours of turns, so the
+panel writes its findings after each one and resumes from them:
+`--checkpoint FILE` re-reads what is already answered and asks only what
+is left. An agent asked to read four hundred runs will be interrupted;
+losing an hour of reading to a network blip is a property of the harness,
+not of the model.
+
+The same three refusals as the single-trace judge: **no golden set** (it
+is asked what it finds, so handing it the answers would make the exercise
+a reading test — a test asserts no `failure_mode` or milestone evidence
+reaches the prompt), **no memory between questions**, and **it cannot
+move a number** — the synthesis sits beside the card.
 
 ## Commands
 

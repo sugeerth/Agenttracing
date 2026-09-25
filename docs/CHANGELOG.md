@@ -5,6 +5,49 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## A panel: one judge across many runs, and every claim checked against them
+
+The judges so far answer *did this run do X*. After forty runs that is
+the wrong question: forty independent verdicts are forty anecdotes, and
+what a reader wants is the pattern between them — what is wrong with the
+*agent* rather than the run, why one side succeeds where the other fails,
+whether it is one cause or five. Running the single-trace judge forty
+times cannot produce that, because the answer is not in any one trace.
+
+`agentdiff panel <traces> --provider …` (`harness/panel.py`) gives a
+judge tools over the **corpus**: `corpus()` for what is there,
+`runs(agent=…, task=…, failed=true)` to filter, `contrast(task)` for the
+two sides of a task with the first call they differ on, and
+`open(run)`/`locate`/`read`/`flags` to descend into any single run. It is
+asked for a synthesis, not a grade.
+
+**Every claim cites, and every citation is checked.** A finding carries
+`cites` — a run, a step index, the fragment it says is there — and
+`verify()` goes and looks. A run that does not exist, a step out of
+range, a quotation the step does not contain: the finding is **dropped
+from the synthesis**, with the claim and the reason kept so a reader can
+see what was rejected. No model is involved in that check; it is string
+containment against the recorded step.
+
+The test that matters uses a claim that is plausible, well written and
+about the right run — *"The orchestrator systematically re-verifies work
+it has already checked, at real cost"* — and drops it, because the text
+it quotes is not at the step it cites. One bad citation sinks the
+finding: a claim resting on two facts of which one is invented is not
+two-thirds true. Writing these tests caught me doing exactly this by
+hand: my first citation quoted *"taking the same result"* where the step
+says *"taking it as done"*, and the verifier was right to reject it.
+
+**It is a long task and is built as one.** `--checkpoint FILE` writes the
+findings after each one and resumes from them, asking only what is left.
+An agent reading four hundred runs will be interrupted; losing an hour of
+reading to a blip is a property of the harness, not of the model.
+
+The same three refusals as the single-trace judge, for the same reasons:
+no golden set (a test asserts no `failure_mode` or milestone evidence
+reaches the prompt), no memory between questions, and it cannot move a
+number — the synthesis sits beside the card. 26 tests.
+
 ## Two more in the dashboard's voice: what to change, and whether it is working
 
 The dashboard says what is wrong. These are the two questions a reader
