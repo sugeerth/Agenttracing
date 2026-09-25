@@ -5,6 +5,41 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Two more in the dashboard's voice: what to change, and whether it is working
+
+The dashboard says what is wrong. These are the two questions a reader
+asks next, in the same order and the same register — quoted from the
+engine, with the field named underneath, and the doubts at the same size
+as the gains.
+
+**What to change** (`web/blocks/03_actions_dash.js`).
+`aggregate.recommendations` already carries the finding, the tasks it
+rests on and an expected gain stated as a range rather than a promise
+("up to +31pt success (5/16 tasks), −1,187 wasted tokens"), so the block
+quotes it and ranks by severity. Two decisions worth naming: the
+suggested instruction is **folded away** — a rewritten prompt shown in
+the flow gets copied, shown behind a fold it gets read — and the closing
+line says plainly that every gain is a **ceiling, not a forecast**,
+because it is what this batch would have saved had the change been in
+place, measured on the runs that suggested it.
+
+**Is it getting better** (`web/blocks/03_progress_dash.js`). A
+self-improving lineage is the page a reader most wants to believe, so
+this is the one built hardest against. Each step quotes
+`evolution.steps[].reading` — the sentence with its interval and its
+passes already in it — and every flag is spelled out in words rather than
+left as a key (`noisy` → *accepted on a difference the interval cannot
+separate from none*). The lede refuses the usual framing: on the demo
+lineage it reads *"1 improved — and 2 step(s) gamed, forgot or regressed,
+which is the half a progress view is built to hide"*, with **4 of 6
+accepted on noise** in the same line of counts as the improvements. The
+reasons to doubt are a list beside the gains, not a footnote under them.
+
+Four browser tests across the two: findings are quoted rather than
+paraphrased, the worst come first, the suggested instruction starts
+folded, every step's verdict matches the engine's, and every flag carries
+its meaning.
+
 ## Agent as a judge, Cohen's κ, and a dashboard that shows its working
 
 Two things, and they are the same thing: the judge stops being handed a

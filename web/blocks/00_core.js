@@ -500,12 +500,18 @@
        * thread, the ledger of steps, every episode along constricted time,
        * the tasks across generations, one step in full, whether the
        * evolution is sound and how far it has drifted. Overview, then
-       * details on demand. A block absent from the data is simply absent. */
+       * details on demand. A block absent from the data is simply absent.
+       *
+       * `getting-better` sits directly after the lineage thread: the
+       * thread shows the shape, and the summary next to it says what the
+       * shape is worth — including the steps that were gamed, forgot or
+       * were accepted on noise, which is the reading a lineage view is
+       * most likely to leave to a block nobody scrolls to. */
       order: [
         "evc-curves", "evc-verdict", "evc-process", "evc-pair",
         "evc-race", "evc-mechanisms", "evc-divergence",
-        "evo-lineage", "evo-steps", "hn-ladder", "hn-drift", "hn-absorb", "evo-timescape", "evo-matrix",
-        "evo-step", "evo-integrity", "evo-drift",
+        "evo-lineage", "getting-better", "evo-steps", "hn-ladder", "hn-drift", "hn-absorb",
+        "evo-timescape", "evo-matrix", "evo-step", "evo-integrity", "evo-drift",
       ],
     },
     {

@@ -1284,12 +1284,18 @@ THIS SOFTWARE.
        * thread, the ledger of steps, every episode along constricted time,
        * the tasks across generations, one step in full, whether the
        * evolution is sound and how far it has drifted. Overview, then
-       * details on demand. A block absent from the data is simply absent. */
+       * details on demand. A block absent from the data is simply absent.
+       *
+       * `getting-better` sits directly after the lineage thread: the
+       * thread shows the shape, and the summary next to it says what the
+       * shape is worth — including the steps that were gamed, forgot or
+       * were accepted on noise, which is the reading a lineage view is
+       * most likely to leave to a block nobody scrolls to. */
       order: [
         "evc-curves", "evc-verdict", "evc-process", "evc-pair",
         "evc-race", "evc-mechanisms", "evc-divergence",
-        "evo-lineage", "evo-steps", "hn-ladder", "hn-drift", "hn-absorb", "evo-timescape", "evo-matrix",
-        "evo-step", "evo-integrity", "evo-drift",
+        "evo-lineage", "getting-better", "evo-steps", "hn-ladder", "hn-drift", "hn-absorb",
+        "evo-timescape", "evo-matrix", "evo-step", "evo-integrity", "evo-drift",
       ],
     },
     {
@@ -3989,6 +3995,154 @@ THIS SOFTWARE.
     },
   });
 
+})(typeof window !== "undefined" ? window : this);
+
+</script>
+<!-- 03_actions_dash.js -->
+<script>
+/* AgentDiff blocks — what to change, and what it would be worth.
+ *
+ * The dashboard next door says what is wrong. This one is the other half
+ * a reader came for: what to do about it, ranked by what the change would
+ * be worth, in the engine's own words.
+ *
+ * `aggregate.recommendations` has already done the work — it has the
+ * finding, the tasks it rests on, and an expected gain stated as a range
+ * rather than a promise ("up to +31pt success (5/16 tasks), −1,187 wasted
+ * tokens"). Paraphrasing that would only lose the denominator, so every
+ * line here is quoted and the field it came from is named underneath.
+ *
+ * The suggested prompt is folded away rather than shown. A rewritten
+ * instruction is a thing a reader should choose to open and then read
+ * carefully; putting it in the flow invites copying it without reading,
+ * which is how an evaluation's advice becomes an agent's next problem.
+ */
+(function (global) {
+  "use strict";
+
+  var AgentDiff = global.AgentDiff;
+  if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
+  var STYLE_ID = "agentdiff-actions-dash-css";
+
+  function ensureStyle() {
+    L.style.once(STYLE_ID, [
+      ".ad{display:flex;flex-direction:column;gap:14px}",
+      ".ad-lede{font-size:var(--fs-m);line-height:1.6;color:var(--ink);margin:0}",
+      ".ad-h{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);",
+      "font-weight:700;margin:0 0 8px}",
+      ".ad-list{list-style:none;margin:0;padding:0}",
+      ".ad-item{padding:10px 0 10px 12px;border-bottom:1px solid var(--rule);position:relative}",
+      ".ad-item:before{content:'';position:absolute;left:0;top:12px;bottom:12px;width:2px;",
+      "border-radius:2px;background:var(--rule)}",
+      ".ad-item[data-sev='critical']:before{background:var(--bad)}",
+      ".ad-item[data-sev='major']:before{background:var(--warn)}",
+      ".ad-say{font-size:var(--fs-s);line-height:1.55;color:var(--ink);margin:0}",
+      ".ad-say .sev{font-weight:700}",
+      ".ad-say .sev.critical{color:var(--bad)}.ad-say .sev.major{color:var(--warn)}",
+      ".ad-say .sev.minor{color:var(--ink-3)}",
+      ".ad-gain{display:block;margin-top:4px;font-size:var(--fs-s);color:var(--ink)}",
+      ".ad-gain b{color:var(--good)}",
+      ".ad-prov{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.5;margin:4px 0 0}",
+      ".ad-prov code{font-family:ui-monospace,monospace}",
+      ".ad-fold{margin-top:5px;font-size:var(--fs-xs)}",
+      ".ad-fold summary{cursor:pointer;color:var(--ink-2)}",
+      ".ad-fold pre{white-space:pre-wrap;margin:5px 0 0;padding:7px 9px;border:1px solid var(--rule);",
+      "border-radius:8px;background:var(--surface-2);font-size:var(--fs-xs);line-height:1.5;color:var(--ink-2)}",
+      ".ad-note{font-size:var(--fs-s);color:var(--ink-2);line-height:1.6;margin:0}",
+    ].join(""));
+  }
+
+  var ORDER = { critical: 0, major: 1, minor: 2 };
+
+  function render(el, ctx) {
+    ensureStyle();
+    var H = ctx.h;
+    var agg = ctx.aggregate || {};
+    var recs = (agg.recommendations || []).slice();
+    if (!recs.length) {
+      return ctx.empty(el, "Nothing to change: no recommendation survived the evidence this page has.");
+    }
+    recs.sort(function (a, b) {
+      return (ORDER[a.severity] === undefined ? 3 : ORDER[a.severity]) -
+             (ORDER[b.severity] === undefined ? 3 : ORDER[b.severity]);
+    });
+
+    var root = H("div", { class: "ad" });
+    el.appendChild(root);
+
+    var top = recs[0];
+    var lede = H("p", { class: "ad-lede" });
+    lede.appendChild(H("span", { text: recs.length + " change(s) worth making, worst first. Start with: " }));
+    lede.appendChild(H("b", { text: top.finding }));
+    root.appendChild(lede);
+
+    var sec = H("section");
+    sec.appendChild(H("div", { class: "ad-h", text: "What to change, and what it would be worth" }));
+    var list = H("ul", { class: "ad-list" });
+    recs.forEach(function (r) {
+      var li = H("li", { class: "ad-item", "data-sev": r.severity || "minor",
+                         "data-category": r.category || "" });
+      var say = H("p", { class: "ad-say" });
+      say.appendChild(H("span", { class: "sev " + (r.severity || "minor"),
+                                  text: (r.severity || "minor") + " · " }));
+      say.appendChild(H("span", { text: r.finding }));
+      if (r.expected_gain) {
+        var gain = H("span", { class: "ad-gain" });
+        gain.appendChild(H("span", { text: "Worth: " }));
+        gain.appendChild(H("b", { text: r.expected_gain }));
+        say.appendChild(gain);
+      }
+      li.appendChild(say);
+
+      var prov = H("p", { class: "ad-prov" });
+      var tasks = r.evidence_tasks || [];
+      prov.appendChild(H("span", { text: (r.agent ? r.agent + " · " : "") +
+        (r.category ? String(r.category).replace(/_/g, " ") + " · " : "") +
+        (tasks.length ? "evidence from " + tasks.length + " task(s): " +
+          tasks.slice(0, 3).join(", ") + (tasks.length > 3 ? ", …" : "") + " · " : "") +
+        "quoted from " }));
+      prov.appendChild(H("code", { text: "recommendations[].finding" }));
+      li.appendChild(prov);
+
+      if (r.suggested_prompt) {
+        var fold = H("details", { class: "ad-fold" });
+        fold.appendChild(H("summary", { text: "The instruction this suggests — read it before using it" }));
+        fold.appendChild(H("pre", { text: r.suggested_prompt }));
+        li.appendChild(fold);
+      }
+      list.appendChild(li);
+    });
+    sec.appendChild(list);
+    root.appendChild(sec);
+
+    var eff = agg.efficiency && agg.efficiency.narrative;
+    if (eff) {
+      var note = H("p", { class: "ad-note", "data-role": "efficiency" });
+      note.appendChild(H("b", { text: "And what is simply wasted: " }));
+      note.appendChild(H("span", { text: eff }));
+      root.appendChild(note);
+    }
+
+    root.appendChild(H("p", { class: "ad-note", "data-role": "caveat", text:
+      "Every gain above is a ceiling, not a forecast: it is what this batch would have saved had the change " +
+      "been in place, over the tasks named beside it. A change tested on the runs that suggested it is not " +
+      "yet a change that works." }));
+  }
+
+  AgentDiff.block({
+    id: "what-to-do",
+    storyTitle: "What to change",
+    title: "What to change",
+    question: "What should change about these agents, and what would it be worth?",
+    group: "other",
+    size: "wide",
+    relevance: function (ctx) {
+      var recs = ctx.aggregate && ctx.aggregate.recommendations;
+      return recs && recs.length ? 0.97 : 0;
+    },
+    render: render,
+  });
 })(typeof window !== "undefined" ? window : this);
 
 </script>
@@ -7533,6 +7687,193 @@ THIS SOFTWARE.
     relevance: function (ctx) {
       var card = ctx.aggregate && ctx.aggregate.scorecard;
       return card && card.per_run && card.per_run.length ? 0.99 : 0;
+    },
+    render: render,
+  });
+})(typeof window !== "undefined" ? window : this);
+
+</script>
+<!-- 03_progress_dash.js -->
+<script>
+/* AgentDiff blocks — is it getting better, and do we believe it.
+ *
+ * A self-improving agent is a lineage: g0 → g1 → … , each step a change
+ * someone made and a claim that it helped. The claim is the easy part.
+ * This block is the other half, in the dashboard's order — the verdict
+ * first, then every step that produced it, then the reasons to doubt it.
+ *
+ * `aggregate.evolution` has already written each step's sentence, with
+ * its interval and its passes ("traded: P(g1 > g0) 50% [36%, 64%],
+ * task-balanced IQM −1.22 → −0.06"), so the lines here are quoted. What
+ * this block adds is the *shape*: how many steps improved against how
+ * many were gamed, forgot or were accepted on noise, and the flags
+ * totalled across the lineage.
+ *
+ * The rule the rest of the page keeps applies hardest here, because a
+ * progress view is the one a reader most wants to believe: **the doubts
+ * are not a footnote.** `accepted_on_noise`, `overfit`, `gamed`,
+ * `protected` and `over_budget` sit in the same list as the gains, at the
+ * same size, because a lineage that improved four times and was gamed
+ * twice has not improved four times.
+ */
+(function (global) {
+  "use strict";
+
+  var AgentDiff = global.AgentDiff;
+  if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
+  var STYLE_ID = "agentdiff-progress-dash-css";
+
+  function ensureStyle() {
+    L.style.once(STYLE_ID, [
+      ".pg{display:flex;flex-direction:column;gap:14px}",
+      ".pg-lede{font-size:var(--fs-m);line-height:1.6;color:var(--ink);margin:0}",
+      ".pg-stats{font-size:var(--fs-s);line-height:1.6;color:var(--ink-2);margin:0}",
+      ".pg-stats b{color:var(--ink);font-variant-numeric:tabular-nums}",
+      ".pg-stats .sep{color:var(--ink-3);margin:0 7px}",
+      ".pg-stats .good{color:var(--good)}.pg-stats .bad{color:var(--bad)}.pg-stats .warn{color:var(--warn)}",
+      ".pg-h{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);",
+      "font-weight:700;margin:0 0 8px}",
+      ".pg-list{list-style:none;margin:0;padding:0}",
+      ".pg-step{padding:10px 0 10px 12px;border-bottom:1px solid var(--rule);position:relative}",
+      ".pg-step:before{content:'';position:absolute;left:0;top:12px;bottom:12px;width:2px;",
+      "border-radius:2px;background:var(--rule)}",
+      ".pg-step[data-verdict='improved']:before{background:var(--good)}",
+      ".pg-step[data-verdict='regressed']:before,.pg-step[data-verdict='gamed']:before,",
+      ".pg-step[data-verdict='forgot']:before{background:var(--bad)}",
+      ".pg-step[data-verdict='traded']:before{background:var(--warn)}",
+      ".pg-say{font-size:var(--fs-s);line-height:1.55;color:var(--ink);margin:0}",
+      ".pg-v{font-weight:700;text-transform:lowercase}",
+      ".pg-v.improved{color:var(--good)}",
+      ".pg-v.regressed,.pg-v.gamed,.pg-v.forgot{color:var(--bad)}",
+      ".pg-v.traded{color:var(--warn)}.pg-v.flat{color:var(--ink-3)}",
+      ".pg-flag{display:inline-block;margin:4px 4px 0 0;padding:0 7px;border-radius:999px;",
+      "border:1px solid var(--rule);background:var(--surface-2);font:600 var(--fs-xs)/18px inherit;",
+      "color:var(--warn)}",
+      ".pg-prov{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.5;margin:4px 0 0}",
+      ".pg-prov code{font-family:ui-monospace,monospace}",
+      ".pg-note{font-size:var(--fs-s);color:var(--ink-2);line-height:1.6;margin:0}",
+      ".pg-note b{color:var(--ink)}",
+      ".pg-doubt{border-left:2px solid var(--warn);padding-left:10px}",
+    ].join(""));
+  }
+
+  /* what a flag means, in the words the reader needs rather than the key */
+  var FLAGS = {
+    overfit: "gained on the tasks that triggered it and not on the rest",
+    noisy: "accepted on a difference the interval cannot separate from none",
+    protected: "touched a path the lineage declared off limits",
+    over_budget: "grew past the size the lineage set itself",
+    collapsed: "a task stopped being solved at all",
+    axes_disagree: "return and outcome moved in different directions",
+  };
+
+  function stat(H, line, label, value, tone) {
+    if (line.childNodes.length) line.appendChild(H("span", { class: "sep", text: "·" }));
+    line.appendChild(H("b", { class: tone || "", text: String(value) }));
+    line.appendChild(H("span", { text: " " + label }));
+  }
+
+  function render(el, ctx) {
+    ensureStyle();
+    var H = ctx.h;
+    var ev = (ctx.aggregate || {}).evolution;
+    if (!ev || !ev.measurable || !(ev.steps || []).length) {
+      return ctx.empty(el, ev && ev.reason
+        ? "No lineage to read: " + ev.reason
+        : "No lineage on this page: `agentdiff evolve <lineage>` reads an agent that changes over generations.");
+    }
+    var root = H("div", { class: "pg" });
+    el.appendChild(root);
+
+    var steps = ev.steps || [];
+    var tj = ev.trajectory || {};
+    var flags = tj.flags || {};
+    var gains = tj.improved || 0;
+    var doubts = (tj.gamed || 0) + (tj.forgot || 0) + (tj.regressed || 0);
+
+    var lede = H("p", { class: "pg-lede" });
+    lede.appendChild(H("span", { text: (ev.family ? ev.family + ": " : "") +
+      (ev.generations || []).length + " generation(s) over " + steps.length + " step(s). " }));
+    if (gains && !doubts) {
+      lede.appendChild(H("b", { text: gains + " improved, and nothing was gamed, forgotten or lost." }));
+    } else if (doubts) {
+      lede.appendChild(H("b", { text: gains + " improved — and " + doubts +
+        " step(s) gamed, forgot or regressed, which is the half a progress view is built to hide." }));
+    } else {
+      lede.appendChild(H("b", { text: "Nothing here improved on the axis the lineage is scored on." }));
+    }
+    root.appendChild(lede);
+
+    var stats = H("p", { class: "pg-stats" });
+    ["improved", "traded", "flat", "regressed", "gamed", "forgot"].forEach(function (k) {
+      if (tj[k]) {
+        stat(H, stats, k, tj[k],
+             k === "improved" ? "good" : (k === "traded" || k === "flat") ? "warn" : "bad");
+      }
+    });
+    if (tj.accepted_on_noise) {
+      stat(H, stats, "accepted on noise", tj.accepted_on_noise + " of " + steps.length, "warn");
+    }
+    root.appendChild(stats);
+
+    var sec = H("section");
+    sec.appendChild(H("div", { class: "pg-h", text: "Every step, in the words of the reading that scored it" }));
+    var list = H("ul", { class: "pg-list" });
+    steps.forEach(function (st) {
+      var verdict = st.verdict || "unmeasurable";
+      var li = H("li", { class: "pg-step", "data-verdict": verdict,
+                         "data-step": (st.from || "") + "→" + (st.to || "") });
+      var say = H("p", { class: "pg-say" });
+      say.appendChild(H("span", { class: "pg-v " + verdict, text: verdict + " · " }));
+      say.appendChild(H("span", { text: st.reading || ((st.from || "?") + " → " + (st.to || "?")) }));
+      li.appendChild(say);
+      (st.flags || []).forEach(function (f) {
+        li.appendChild(H("span", { class: "pg-flag", text: f + " — " + (FLAGS[f] || "see the step") }));
+      });
+      var prov = H("p", { class: "pg-prov" });
+      prov.appendChild(H("span", { text: (st.mechanism ? String(st.mechanism).replace(/_/g, " ") + " · " : "") +
+        "quoted from " }));
+      prov.appendChild(H("code", { text: "evolution.steps[].reading" }));
+      li.appendChild(prov);
+      list.appendChild(li);
+    });
+    sec.appendChild(list);
+    root.appendChild(sec);
+
+    // the doubts, at the same size as the gains
+    var keys = Object.keys(flags).filter(function (k) { return flags[k]; });
+    if (keys.length) {
+      var doubt = H("p", { class: "pg-note pg-doubt", "data-role": "doubts" });
+      doubt.appendChild(H("b", { text: "Reasons to hold this loosely: " }));
+      doubt.appendChild(H("span", { text: keys.map(function (k) {
+        return flags[k] + " step(s) " + (FLAGS[k] || k);
+      }).join("; ") + "." }));
+      root.appendChild(doubt);
+    }
+
+    var rec = ev.recommended;
+    if (rec && rec.id) {
+      var pick = H("p", { class: "pg-note", "data-role": "recommended" });
+      pick.appendChild(H("b", { text: "Ship " + rec.id + (rec.is_last ? " (the latest)" : "") + ". " }));
+      pick.appendChild(H("span", { text: rec.why || "" }));
+      root.appendChild(pick);
+    }
+    if (ev.advisory) {
+      root.appendChild(H("p", { class: "pg-note", "data-role": "advisory", text: ev.advisory }));
+    }
+  }
+
+  AgentDiff.block({
+    id: "getting-better",
+    storyTitle: "Is it getting better",
+    title: "Is it getting better",
+    question: "Did this agent improve across its generations, and how much of that should we believe?",
+    group: "evolution",
+    size: "wide",
+    relevance: function (ctx) {
+      var ev = ctx.aggregate && ctx.aggregate.evolution;
+      return ev && ev.measurable && (ev.steps || []).length ? 0.98 : 0;
     },
     render: render,
   });

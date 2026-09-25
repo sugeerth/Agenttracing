@@ -3923,6 +3923,187 @@ class DashboardBlockTest(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
                      "playwright + chromium required for browser tests")
+class WhatToChangeBlockTest(unittest.TestCase):
+    """The other half of the dashboard: what to do, and what it is worth.
+
+    The tests are about honesty rather than layout — a gain stated without
+    its denominator, or a suggested instruction presented as a conclusion
+    rather than something to read, is how an evaluation's advice becomes
+    the next problem.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        suite = ROOT / "demo" / "horizon" / "suite"
+        golden = ROOT / "demo" / "horizon" / "suite_golden.json"
+        if not suite.is_dir():
+            raise unittest.SkipTest("the long-horizon suite is not generated")
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        done = subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(suite), "-o", str(out),
+                               "--golden", str(golden), "--template", str(ROOT / "web" / "blocks.html")],
+                              cwd=str(ROOT), capture_output=True)
+        if done.returncode != 0 or not (out / "report.html").is_file():
+            raise unittest.SkipTest("batch did not write a page")
+        cls.page_path = out / "report.html"
+        cls.agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def block(self, page):
+        page.goto(f"file://{self.page_path}#view=batch")
+        page.wait_for_timeout(1200)
+        el = page.locator('.block[data-block="what-to-do"]')
+        self.assertEqual(el.count(), 1)
+        if "collapsed" in (el.first.get_attribute("class") or ""):
+            el.first.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(600)
+            el = page.locator('.block[data-block="what-to-do"]')
+        return el.first
+
+    def test_every_change_is_quoted_worst_first_and_says_what_it_is_worth(self):
+        context = self.browser.new_context(viewport={"width": 1440, "height": 1100})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        block = self.block(page)
+        items = block.locator(".ad-item")
+        recs = self.agg["recommendations"]
+        self.assertEqual(items.count(), len(recs))
+        order = {"critical": 0, "major": 1, "minor": 2}
+        levels = []
+        for i in range(items.count()):
+            item = items.nth(i)
+            levels.append(order.get(item.get_attribute("data-sev"), 3))
+            self.assertIn("recommendations[].finding", item.inner_text(), f"item {i} hides its provenance")
+        self.assertEqual(levels, sorted(levels), "worst first")
+        # the finding is the engine's sentence, not a paraphrase
+        self.assertIn(recs[0]["finding"][:60], block.inner_text())
+        if recs[0].get("expected_gain"):
+            self.assertIn(recs[0]["expected_gain"], block.inner_text())
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_suggested_instruction_is_folded_and_the_gain_is_called_a_ceiling(self):
+        """A rewritten prompt shown in the flow gets copied; shown behind a
+        fold it gets read. And a gain measured on the runs that suggested
+        it is a ceiling, which the block has to say."""
+        context = self.browser.new_context(viewport={"width": 1440, "height": 1100})
+        page = context.new_page()
+        block = self.block(page)
+        folds = block.locator(".ad-fold")
+        self.assertGreater(folds.count(), 0)
+        for i in range(folds.count()):
+            self.assertFalse(folds.nth(i).evaluate("d => d.open"), "the instruction starts folded")
+        self.assertIn("ceiling, not a forecast", block.locator('[data-role="caveat"]').inner_text())
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class GettingBetterBlockTest(unittest.TestCase):
+    """The progress view, and the reason it is the one most worth
+    distrusting: it is the block a reader most wants to believe."""
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        lineage = ROOT / "demo" / "evolve" / "lineage"
+        if not lineage.is_dir():
+            raise unittest.SkipTest("the demo lineage is not generated")
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "evolve"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        done = subprocess.run([sys.executable, "-m", "deepcompare", "evolve", str(lineage), "-o", str(out),
+                               "--template", str(ROOT / "web" / "blocks.html")],
+                              cwd=str(ROOT), capture_output=True)
+        if done.returncode != 0 or not (out / "report.html").is_file():
+            raise unittest.SkipTest("evolve did not write a page")
+        cls.page_path = out / "report.html"
+        cls.ev = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))["evolution"]
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def block(self, page):
+        page.goto(f"file://{self.page_path}#view=evolution")
+        page.wait_for_timeout(2500)
+        el = page.locator('.block[data-block="getting-better"]')
+        self.assertEqual(el.count(), 1)
+        el.first.scroll_into_view_if_needed()
+        page.wait_for_timeout(400)
+        if "collapsed" in (el.first.get_attribute("class") or ""):
+            el.first.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(900)
+            el = page.locator('.block[data-block="getting-better"]')
+        return el.first
+
+    def test_one_line_per_step_quoted_from_the_reading_that_scored_it(self):
+        context = self.browser.new_context(viewport={"width": 1440, "height": 1200})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        block = self.block(page)
+        steps = block.locator(".pg-step")
+        self.assertEqual(steps.count(), len(self.ev["steps"]))
+        for i, st in enumerate(self.ev["steps"]):
+            item = steps.nth(i)
+            self.assertEqual(item.get_attribute("data-verdict"), st["verdict"] or "unmeasurable")
+            self.assertIn("evolution.steps[].reading", item.inner_text())
+        self.assertIn(self.ev["steps"][0]["reading"][:50], block.inner_text())
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_doubts_are_in_the_list_and_not_in_a_footnote(self):
+        """A lineage that improved four times and was gamed twice has not
+        improved four times, and this is the block that has to say so."""
+        context = self.browser.new_context(viewport={"width": 1440, "height": 1200})
+        page = context.new_page()
+        block = self.block(page)
+        tj = self.ev["trajectory"]
+        flags = {k: v for k, v in (tj.get("flags") or {}).items() if v}
+        if flags:
+            doubts = block.locator('[data-role="doubts"]').inner_text()
+            for key, n in flags.items():
+                self.assertIn(str(n), doubts, key)
+            self.assertIn("hold this loosely", doubts)
+        lede = block.locator(".pg-lede").inner_text()
+        if (tj.get("gamed") or 0) + (tj.get("forgot") or 0) + (tj.get("regressed") or 0):
+            self.assertIn("built to hide", lede)
+        # each flagged step carries the flag in words, not as a key
+        flagged = block.locator(".pg-flag")
+        for i in range(min(flagged.count(), 5)):
+            self.assertIn(" — ", flagged.nth(i).inner_text(), "a flag without its meaning is a key")
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
 class DetectionSectionTest(unittest.TestCase):
     """*Does the evaluation see it?* — the one section of the scorecard that
     measures the measurement.
