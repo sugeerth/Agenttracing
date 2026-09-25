@@ -1,0 +1,1109 @@
+{
+  "task": {
+    "id": "t06_bls_unemployment",
+    "prompt": "According to the U.S. Bureau of Labor Statistics, what was the unemployment rate in December 2024?"
+  },
+  "a": {
+    "agent": {
+      "name": "atlas-v2",
+      "model": "claude-sonnet-5",
+      "version": "v2"
+    },
+    "outcome": {
+      "success": true,
+      "answer": "Per the BLS Employment Situation release of January 10, 2025, the U.S. unemployment rate in December 2024 was 4.1 percent.",
+      "score": 1.0
+    },
+    "totals": {
+      "input_tokens": 622,
+      "output_tokens": 189,
+      "cost_usd": 0.004701,
+      "latency_s": 9.22
+    },
+    "steps": [
+      {
+        "index": 0,
+        "type": "plan",
+        "name": "plan",
+        "input": "1) Find the BLS Employment Situation release covering December 2024. 2) Read the headline unemployment rate from bls.gov. 3) Answer with the official figure.",
+        "output": "Plan set. Searching for the official release.",
+        "tokens": 148,
+        "latency_s": 1.69,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9293,
+          "min_token_confidence": 0.7229,
+          "entropy": 0.2294,
+          "tokens_scored": 81,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 1,
+        "type": "search",
+        "name": "web_search",
+        "input": "BLS Employment Situation December 2024 unemployment rate",
+        "output": "[1] bls.gov/news.release/archives/empsit_01102025.htm — The Employment Situation — December 2024 | [2] bls.gov/cps — Labor Force Statistics (CPS) | [3] tradingecon.com — United States Unemployment Rate | [4] econwire.com — \"U.S. unemployment ticks up to 4.2%, Labor Department says\"",
+        "tokens": 182,
+        "latency_s": 2.49,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8957,
+          "min_token_confidence": 0.7175,
+          "entropy": 0.2937,
+          "tokens_scored": 100,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 2,
+        "type": "retrieve",
+        "name": "select_result",
+        "input": "Open result [1]: bls.gov — the Employment Situation news release for December 2024 is the official source.",
+        "output": "Selected https://www.bls.gov/news.release/archives/empsit_01102025.htm (official BLS news release, 2025-01-10).",
+        "tokens": 152,
+        "latency_s": 1.36,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.91,
+          "min_token_confidence": 0.6899,
+          "entropy": 0.3355,
+          "tokens_scored": 83,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 3,
+        "type": "read",
+        "name": "open_page",
+        "input": "https://www.bls.gov/news.release/archives/empsit_01102025.htm",
+        "output": "THE EMPLOYMENT SITUATION — DECEMBER 2024. Total nonfarm payroll employment increased by 256,000 in December, and the unemployment rate changed little at 4.1 percent, the U.S. Bureau of Labor Statistics reported today. The number of unemployed people, at 6.9 million, changed little over the month.",
+        "tokens": 187,
+        "latency_s": 1.9,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8808,
+          "min_token_confidence": 0.6733,
+          "entropy": 0.3556,
+          "tokens_scored": 102,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 4,
+        "type": "answer",
+        "name": "final_answer",
+        "input": "Compose the final answer from the verified findings.",
+        "output": "Per the BLS Employment Situation release of January 10, 2025, the U.S. unemployment rate in December 2024 was 4.1 percent.",
+        "tokens": 142,
+        "latency_s": 1.78,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.9344,
+          "min_token_confidence": 0.7859,
+          "entropy": 0.1677,
+          "tokens_scored": 78,
+          "temperature": 0.2,
+          "source": "synthetic-demo"
+        }
+      }
+    ]
+  },
+  "b": {
+    "agent": {
+      "name": "bolt-v3",
+      "model": "gpt-5",
+      "version": "v3"
+    },
+    "outcome": {
+      "success": false,
+      "answer": "The U.S. unemployment rate in December 2024 was 4.2 percent, according to Labor Department figures reported by econwire and the tradingecon tracker.",
+      "score": 0.0
+    },
+    "totals": {
+      "input_tokens": 1163,
+      "output_tokens": 357,
+      "cost_usd": 0.008844,
+      "latency_s": 17.99
+    },
+    "steps": [
+      {
+        "index": 0,
+        "type": "plan",
+        "name": "plan",
+        "input": "1) Find the BLS Employment Situation release covering December 2024. 2) Read the headline unemployment rate from bls.gov. 3) Answer with the official figure.",
+        "output": "Plan set. Searching for the official release.",
+        "tokens": 148,
+        "latency_s": 1.89,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8886,
+          "min_token_confidence": 0.6673,
+          "entropy": 0.3455,
+          "tokens_scored": 81,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 1,
+        "type": "search",
+        "name": "web_search",
+        "input": "BLS Employment Situation December 2024 unemployment rate",
+        "output": "[1] bls.gov/news.release/archives/empsit_01102025.htm — The Employment Situation — December 2024 | [2] bls.gov/cps — Labor Force Statistics (CPS) | [3] tradingecon.com — United States Unemployment Rate | [4] econwire.com — \"U.S. unemployment ticks up to 4.2%, Labor Department says\"",
+        "tokens": 182,
+        "latency_s": 2.45,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8533,
+          "min_token_confidence": 0.6519,
+          "entropy": 0.3328,
+          "tokens_scored": 100,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 2,
+        "type": "retrieve",
+        "name": "select_result",
+        "input": "Open result [4]: econwire.com — a news summary of the Labor Department figures should give the headline rate quickly.",
+        "output": "Selected https://econwire.com/us-unemployment-ticks-up (news article, dated 2024-12-06).",
+        "tokens": 149,
+        "latency_s": 1.39,
+        "quality": "bad",
+        "note": "Divergence: picked a news article dated December 6, which can only cover the November 2024 release, over the official BLS December release in result [1].",
+        "model": {
+          "confidence": 0.8798,
+          "min_token_confidence": 0.6966,
+          "entropy": 0.3476,
+          "tokens_scored": 81,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 3,
+        "type": "read",
+        "name": "open_page",
+        "input": "https://econwire.com/us-unemployment-ticks-up",
+        "output": "econwire.com (Dec 6, 2024): \"U.S. unemployment ticked up to 4.2% in November, the Labor Department said Friday, as payrolls rose a stronger-than-expected 227,000. Economists see the rate hovering near 4.2% into the new year.\"",
+        "tokens": 165,
+        "latency_s": 1.93,
+        "quality": "weak",
+        "note": null,
+        "model": {
+          "confidence": 0.8349,
+          "min_token_confidence": 0.6185,
+          "entropy": 0.378,
+          "tokens_scored": 90,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 4,
+        "type": "reason",
+        "name": "reason",
+        "input": "Does this article answer the question?",
+        "output": "The article is dated December 6 and reports the November rate (4.2%). I need the December figure — searching for something more recent.",
+        "tokens": 141,
+        "latency_s": 1.57,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.8432,
+          "min_token_confidence": 0.6104,
+          "entropy": 0.4203,
+          "tokens_scored": 77,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 5,
+        "type": "search",
+        "name": "web_search",
+        "input": "unemployment rate December 2024",
+        "output": "[1] tradingecon.com — United States Unemployment Rate | [2] econwire.com — \"U.S. unemployment ticks up to 4.2%\" | [3] usafacts-style explainer — What is the unemployment rate?",
+        "tokens": 150,
+        "latency_s": 2.36,
+        "quality": "weak",
+        "note": "Generic query; did not scope to bls.gov, so aggregators rank first.",
+        "model": {
+          "confidence": 0.8396,
+          "min_token_confidence": 0.6156,
+          "entropy": 0.4035,
+          "tokens_scored": 82,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 6,
+        "type": "retrieve",
+        "name": "select_result",
+        "input": "Open result [1]: tradingecon.com — the tracker chart should have the newest monthly value.",
+        "output": "Selected https://tradingecon.com/united-states/unemployment-rate (aggregator chart; no release citation or as-of date shown).",
+        "tokens": 151,
+        "latency_s": 1.11,
+        "quality": "bad",
+        "note": "Aggregator page is stale — it still shows the November value and does not label which month 'last' refers to.",
+        "model": {
+          "confidence": 0.8352,
+          "min_token_confidence": 0.6392,
+          "entropy": 0.4927,
+          "tokens_scored": 83,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 7,
+        "type": "read",
+        "name": "open_page",
+        "input": "https://tradingecon.com/united-states/unemployment-rate",
+        "output": "tradingecon.com: United States Unemployment Rate — Last: 4.2% | Previous: 4.1% | Forecast: 4.2%. The jobless rate has hovered around 4.2 percent in recent months.",
+        "tokens": 152,
+        "latency_s": 2.07,
+        "quality": "bad",
+        "note": null,
+        "model": {
+          "confidence": 0.8438,
+          "min_token_confidence": 0.6861,
+          "entropy": 0.3571,
+          "tokens_scored": 83,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 8,
+        "type": "reason",
+        "name": "reason",
+        "input": "Reconcile the sources.",
+        "output": "The news article says 4.2% and the tracker's latest value is also 4.2%. Two sources agree, so December 2024 must be 4.2%.",
+        "tokens": 134,
+        "latency_s": 1.37,
+        "quality": "bad",
+        "note": "Both sources reflect the November release; the BLS December figure (4.1%) was never opened.",
+        "model": {
+          "confidence": 0.8325,
+          "min_token_confidence": 0.6114,
+          "entropy": 0.3883,
+          "tokens_scored": 73,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      },
+      {
+        "index": 9,
+        "type": "answer",
+        "name": "final_answer",
+        "input": "Compose the final answer from the verified findings.",
+        "output": "The U.S. unemployment rate in December 2024 was 4.2 percent, according to Labor Department figures reported by econwire and the tradingecon tracker.",
+        "tokens": 148,
+        "latency_s": 1.85,
+        "quality": "good",
+        "note": null,
+        "model": {
+          "confidence": 0.916,
+          "min_token_confidence": 0.7587,
+          "entropy": 0.2844,
+          "tokens_scored": 81,
+          "temperature": 0.7,
+          "source": "synthetic-demo"
+        }
+      }
+    ]
+  },
+  "alignment": [
+    {
+      "a_index": 0,
+      "b_index": 0,
+      "op": "match",
+      "similarity": 1.0,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 0,
+          "latency_s": 0.2,
+          "cost_usd": 3e-06
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        },
+        "propagation": {
+          "a": 0.0,
+          "b": 0.0588
+        }
+      }
+    },
+    {
+      "a_index": 1,
+      "b_index": 1,
+      "op": "match",
+      "similarity": 1.0,
+      "tool_diff": {
+        "same_tool": true,
+        "identical": true
+      },
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 0,
+          "latency_s": -0.04,
+          "cost_usd": 4e-06
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        },
+        "propagation": {
+          "a": 0.0,
+          "b": 0.1053
+        }
+      }
+    },
+    {
+      "a_index": null,
+      "b_index": 2,
+      "op": "b_only",
+      "similarity": 0.0
+    },
+    {
+      "a_index": null,
+      "b_index": 3,
+      "op": "b_only",
+      "similarity": 0.0
+    },
+    {
+      "a_index": null,
+      "b_index": 4,
+      "op": "b_only",
+      "similarity": 0.0
+    },
+    {
+      "a_index": null,
+      "b_index": 5,
+      "op": "b_only",
+      "similarity": 0.0
+    },
+    {
+      "a_index": 2,
+      "b_index": 6,
+      "op": "drift",
+      "similarity": 0.5962,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 0.16
+        },
+        "delta": {
+          "tokens": -1,
+          "latency_s": -0.25,
+          "cost_usd": -2e-06
+        },
+        "quality": {
+          "a": "good",
+          "b": "bad",
+          "verdict": "b_degraded"
+        },
+        "propagation": {
+          "a": 0.0,
+          "b": 0.0385
+        }
+      }
+    },
+    {
+      "a_index": 3,
+      "b_index": 7,
+      "op": "drift",
+      "similarity": 0.5833,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 0.0625
+        },
+        "delta": {
+          "tokens": -35,
+          "latency_s": 0.17,
+          "cost_usd": -0.0002
+        },
+        "quality": {
+          "a": "good",
+          "b": "bad",
+          "verdict": "b_degraded"
+        },
+        "propagation": {
+          "a": 0.0,
+          "b": 0.1667
+        }
+      }
+    },
+    {
+      "a_index": null,
+      "b_index": 8,
+      "op": "b_only",
+      "similarity": 0.0
+    },
+    {
+      "a_index": 4,
+      "b_index": 9,
+      "op": "match",
+      "similarity": 1.0,
+      "eval": {
+        "similarity": {
+          "type_match": true,
+          "name_jaccard": 1.0,
+          "input_jaccard": 1.0
+        },
+        "delta": {
+          "tokens": 6,
+          "latency_s": 0.07,
+          "cost_usd": 3.8e-05
+        },
+        "quality": {
+          "a": "good",
+          "b": "good",
+          "verdict": "equal"
+        },
+        "propagation": {
+          "a": 0.0,
+          "b": 0.0
+        }
+      }
+    }
+  ],
+  "divergences": [
+    {
+      "rank": 1,
+      "a_index": 2,
+      "b_index": 2,
+      "kind": "retrieval",
+      "summary": "Agent B took 5 extra step(s) not mirrored by Agent A, starting where it selected the source \"select_result\" (annotated bad).",
+      "downstream": {
+        "extra_steps_b": 5,
+        "extra_tokens_b": 709,
+        "extra_latency_s_b": 8.61,
+        "caused_failure": true,
+        "failed_agent": "b"
+      }
+    }
+  ],
+  "attribution": {
+    "failed_agent": "b",
+    "root_cause_step": 2,
+    "chain": [
+      2,
+      3,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "category": "retrieval",
+    "explanation": "Agent B diverged at step 2 because it selected the wrong retrieval result (bad-quality: \"select_result\"). That propagated into the step where it read \"open_page\" (annotated weak) at step 3 (and steps 5, 6, 7, 8) and caused the final failure. The answer emitted at step 9 was wrong, so the failure is attributed to retrieval at step 2."
+  },
+  "answer_eval": {
+    "expected": "4.1 percent",
+    "diff_ab": [
+      [
+        "del",
+        "Per the BLS Employment Situation release of January 10, 2025, the"
+      ],
+      [
+        "ins",
+        "The"
+      ],
+      [
+        "eq",
+        " U.S. unemployment rate in December 2024 was 4."
+      ],
+      [
+        "del",
+        "1"
+      ],
+      [
+        "ins",
+        "2"
+      ],
+      [
+        "eq",
+        " percent"
+      ],
+      [
+        "ins",
+        ", according to Labor Department figures reported by econwire and the tradingecon tracker"
+      ],
+      [
+        "eq",
+        "."
+      ]
+    ],
+    "a_vs_expected": {
+      "coverage": 1.0,
+      "verdict": "match"
+    },
+    "b_vs_expected": {
+      "coverage": 0.5,
+      "verdict": "partial"
+    }
+  },
+  "metrics_delta": {
+    "steps": {
+      "a": 5,
+      "b": 10
+    },
+    "tokens": {
+      "a": 811,
+      "b": 1520
+    },
+    "cost_usd": {
+      "a": 0.004701,
+      "b": 0.008844
+    },
+    "latency_s": {
+      "a": 9.22,
+      "b": 17.99
+    },
+    "tool_calls": {
+      "a": 0,
+      "b": 0
+    },
+    "searches": {
+      "a": 1,
+      "b": 2
+    }
+  },
+  "success_analysis": {
+    "winner": "a",
+    "basis": "outcome",
+    "winning_decisions": [
+      {
+        "step_index": 2,
+        "agent": "atlas-v2",
+        "kind": "retrieval",
+        "decision": "Selected https://www.bls.gov/news.release/archives/empsit_01102025.htm (official BLS news…",
+        "counterpart": "selected \"econwire.com\" (bolt-v3)",
+        "why": "avoided a bad-quality step; counterpart note: \"Divergence: picked a news article dated December 6, which can only co…\"; the primary source held the correct figure",
+        "impact": {
+          "avoided_extra_steps": 5,
+          "avoided_tokens": 709,
+          "avoided_latency_s": 8.61,
+          "avoided_failure": true
+        }
+      }
+    ],
+    "narrative": "atlas-v2 won on outcome over bolt-v3. Key decision at step 2 (retrieval): \"Selected https://www.bls.gov/news.release/archives/empsit_01102025.htm (official BLS news…\" versus selected \"econwire.com\" (bolt-v3). Altogether its choices avoided 5 extra step(s), 709 tokens and 8.61s of latency, and the failure that followed."
+  },
+  "uncertainty": {
+    "available": true,
+    "a": {
+      "series": [
+        0.9293,
+        0.8957,
+        0.91,
+        0.8808,
+        0.9344
+      ],
+      "mean_confidence": 0.91,
+      "min_confidence": 0.8808,
+      "mean_entropy": 0.2764,
+      "min_token_confidence": 0.6733,
+      "steps_scored": 5
+    },
+    "b": {
+      "series": [
+        0.8886,
+        0.8533,
+        0.8798,
+        0.8349,
+        0.8432,
+        0.8396,
+        0.8352,
+        0.8438,
+        0.8325,
+        0.916
+      ],
+      "mean_confidence": 0.8567,
+      "min_confidence": 0.8325,
+      "mean_entropy": 0.375,
+      "min_token_confidence": 0.6104,
+      "steps_scored": 10
+    },
+    "signal": {
+      "failed_agent": "b",
+      "root_cause_step": 2,
+      "confidence_at_root": 0.8798,
+      "baseline_confidence": 0.8541,
+      "drop": -0.0257,
+      "verdict": "silent",
+      "lead_steps": 0,
+      "mitigation": "no confidence threshold would have caught this; the model was as sure here as anywhere — mitigate with an external verification step instead"
+    },
+    "calibration": {
+      "confident_when_wrong": true,
+      "confidence_at_wrong_step": 0.8798
+    },
+    "narrative": "atlas-v2 ran at 91% mean token confidence (low of 88%). bolt-v3 ran at 86% mean token confidence (low of 83%). The model gave no warning: bolt-v3 was 88% confident at the step that caused the failure — no lower than its own baseline of 85%. This failure class needs external verification, not a confidence threshold."
+  },
+  "semantic": {
+    "methods": [
+      "tfidf_cosine",
+      "claim_provenance"
+    ],
+    "rows": [
+      {
+        "row": 0,
+        "a_index": 0,
+        "b_index": 0,
+        "lexical": 1.0,
+        "semantic": 1.0
+      },
+      {
+        "row": 1,
+        "a_index": 1,
+        "b_index": 1,
+        "lexical": 1.0,
+        "semantic": 1.0
+      },
+      {
+        "row": 6,
+        "a_index": 2,
+        "b_index": 6,
+        "lexical": 0.5962,
+        "semantic": 0.2266
+      },
+      {
+        "row": 7,
+        "a_index": 3,
+        "b_index": 7,
+        "lexical": 0.5833,
+        "semantic": 0.1339
+      },
+      {
+        "row": 9,
+        "a_index": 4,
+        "b_index": 9,
+        "lexical": 1.0,
+        "semantic": 0.673
+      }
+    ],
+    "first_semantic_break": 6,
+    "claims": [
+      {
+        "id": "c1",
+        "kind": "url",
+        "value": "bls.gov",
+        "normalized": "bls.gov",
+        "matches_expected": null,
+        "a_steps": [
+          0,
+          1,
+          2
+        ],
+        "b_steps": [
+          0,
+          1
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 0,
+          "source": "bls.gov"
+        }
+      },
+      {
+        "id": "c2",
+        "kind": "date",
+        "value": "December 2024",
+        "normalized": "2024-12",
+        "matches_expected": null,
+        "a_steps": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        "b_steps": [
+          0,
+          1,
+          5,
+          8,
+          9
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 0,
+          "source": "bls.gov"
+        }
+      },
+      {
+        "id": "c3",
+        "kind": "percent",
+        "value": "4.2%",
+        "normalized": "4.2",
+        "matches_expected": false,
+        "a_steps": [
+          1
+        ],
+        "b_steps": [
+          1,
+          3,
+          4,
+          5,
+          7,
+          8,
+          9
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 1,
+          "source": "bls.gov"
+        }
+      },
+      {
+        "id": "c4",
+        "kind": "url",
+        "value": "tradingecon.com",
+        "normalized": "tradingecon.com",
+        "matches_expected": null,
+        "a_steps": [
+          1
+        ],
+        "b_steps": [
+          1,
+          5,
+          6,
+          7
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 1,
+          "source": "bls.gov"
+        }
+      },
+      {
+        "id": "c5",
+        "kind": "url",
+        "value": "econwire.com",
+        "normalized": "econwire.com",
+        "matches_expected": null,
+        "a_steps": [
+          1
+        ],
+        "b_steps": [
+          1,
+          2,
+          3,
+          5
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 1,
+          "source": "bls.gov"
+        }
+      },
+      {
+        "id": "c6",
+        "kind": "url",
+        "value": "www.bls.gov",
+        "normalized": "www.bls.gov",
+        "matches_expected": null,
+        "a_steps": [
+          2,
+          3
+        ],
+        "b_steps": [],
+        "origin": {
+          "agent": "a",
+          "step": 2,
+          "source": "www.bls.gov"
+        }
+      },
+      {
+        "id": "c7",
+        "kind": "date",
+        "value": "2025-01-10",
+        "normalized": "2025-01-10",
+        "matches_expected": null,
+        "a_steps": [
+          2,
+          4
+        ],
+        "b_steps": [],
+        "origin": {
+          "agent": "a",
+          "step": 2,
+          "source": "www.bls.gov"
+        }
+      },
+      {
+        "id": "c8",
+        "kind": "money",
+        "value": "6.9 million",
+        "normalized": "6.9e6",
+        "matches_expected": null,
+        "a_steps": [
+          3
+        ],
+        "b_steps": [],
+        "origin": {
+          "agent": "a",
+          "step": 3,
+          "source": "www.bls.gov"
+        }
+      },
+      {
+        "id": "c9",
+        "kind": "percent",
+        "value": "4.1 percent",
+        "normalized": "4.1",
+        "matches_expected": true,
+        "a_steps": [
+          3,
+          4
+        ],
+        "b_steps": [
+          7
+        ],
+        "origin": {
+          "agent": "a",
+          "step": 3,
+          "source": "www.bls.gov"
+        }
+      },
+      {
+        "id": "c10",
+        "kind": "date",
+        "value": "2024-12-06",
+        "normalized": "2024-12-06",
+        "matches_expected": null,
+        "a_steps": [],
+        "b_steps": [
+          2,
+          3
+        ],
+        "origin": {
+          "agent": "b",
+          "step": 2,
+          "source": "econwire.com"
+        }
+      }
+    ],
+    "conflicts": [
+      {
+        "kind": "percent",
+        "a_claim": "c9",
+        "b_claim": "c3",
+        "summary": "A carried 4.1 percent (from www.bls.gov); B carried 4.2% (from bls.gov); expected: 4.1 percent."
+      }
+    ],
+    "intents": {
+      "a": [
+        {
+          "step": 0,
+          "intent": "frame"
+        },
+        {
+          "step": 1,
+          "intent": "acquire"
+        },
+        {
+          "step": 2,
+          "intent": "decide"
+        },
+        {
+          "step": 3,
+          "intent": "acquire"
+        },
+        {
+          "step": 4,
+          "intent": "commit"
+        }
+      ],
+      "b": [
+        {
+          "step": 0,
+          "intent": "frame"
+        },
+        {
+          "step": 1,
+          "intent": "acquire"
+        },
+        {
+          "step": 2,
+          "intent": "decide"
+        },
+        {
+          "step": 3,
+          "intent": "acquire"
+        },
+        {
+          "step": 4,
+          "intent": "decide"
+        },
+        {
+          "step": 5,
+          "intent": "acquire"
+        },
+        {
+          "step": 6,
+          "intent": "decide"
+        },
+        {
+          "step": 7,
+          "intent": "acquire"
+        },
+        {
+          "step": 8,
+          "intent": "decide"
+        },
+        {
+          "step": 9,
+          "intent": "commit"
+        }
+      ],
+      "missing": {
+        "a": [],
+        "b": []
+      }
+    },
+    "grounding": {
+      "a": {
+        "claims_total": 3,
+        "claims_grounded": 3,
+        "score": 1.0,
+        "ungrounded": []
+      },
+      "b": {
+        "claims_total": 2,
+        "claims_grounded": 2,
+        "score": 1.0,
+        "ungrounded": []
+      }
+    },
+    "independence": [
+      {
+        "claim": "c2",
+        "agent": "a",
+        "sources": [
+          "bls.gov",
+          "www.bls.gov"
+        ],
+        "circular": true,
+        "evidence": "the corroborating source's text cites bls.gov itself: \"Open result [1]: bls.gov — the Employment Situation news release for December 20…\""
+      },
+      {
+        "claim": "c2",
+        "agent": "b",
+        "sources": [
+          "bls.gov",
+          "tradingecon.com"
+        ],
+        "circular": false,
+        "evidence": "no cross-citation between sources detected"
+      },
+      {
+        "claim": "c3",
+        "agent": "b",
+        "sources": [
+          "bls.gov",
+          "econwire.com",
+          "tradingecon.com"
+        ],
+        "circular": true,
+        "evidence": "the corroborating source's text cites econwire.com itself: \"…ed States Unemployment Rate | [2] econwire.com — \"U.S. unemployment ticks up to …\""
+      }
+    ],
+    "contradictions": [],
+    "narrative": "Meaning breaks from wording at alignment row 6 (lexical 0.60 vs semantic 0.23). Decisive claim conflict (percent): A carried 4.1 percent (from www.bls.gov); B carried 4.2% (from bls.gov); expected: 4.1 percent. atlas-v2's corroboration was circular (bls.gov echoed by www.bls.gov); bolt-v3's corroboration was circular (bls.gov echoed by econwire.com)."
+  },
+  "counterfactual": {
+    "premise": "had bolt-v3 made atlas-v2's decision at step 2",
+    "splice": {
+      "prefix_steps": [
+        0,
+        1
+      ],
+      "adopted_from": "a",
+      "adopted_steps": [
+        2,
+        3,
+        4
+      ]
+    },
+    "estimate": {
+      "outcome": "success",
+      "steps": 5,
+      "steps_delta": -5,
+      "tokens": 811,
+      "tokens_delta": -709,
+      "latency_s": 9.38,
+      "latency_delta_s": -8.61,
+      "cost_usd": 0.004708,
+      "cost_delta_usd": -0.004136
+    },
+    "confidence": "high",
+    "narrative": "Had bolt-v3 selected the source \"select_result\" at step 2 (as atlas-v2 did), the estimated run is 5 steps, 811 tokens, 9.38s — saving 5 steps, 709 tokens, 8.61s — and ends in success."
+  },
+  "shapley": {
+    "available": true,
+    "metric": "tokens",
+    "loser": "bolt-v3",
+    "winner": "atlas-v2",
+    "regions": 1,
+    "method": "exact",
+    "total_saving": 703.0,
+    "allocations": [
+      {
+        "region": 0,
+        "rank": 1,
+        "kind": "retrieval",
+        "summary": "Agent B took 5 extra step(s) not mirrored by Agent A, starting where it selected the source \"select_result\" (annotated bad).",
+        "alignment_rows": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "shapley": 703.0,
+        "share": 1.0,
+        "caused_failure": true
+      }
+    ],
+    "efficiency_check": 0.0,
+    "outcome_attributable": true,
+    "outcome_note": "exactly one divergence was causal, so the outcome is attributable to it",
+    "narrative": "Fixing every divergence would have saved 703 tokens. The largest single share is 100% (703), from the retrieval divergence at region 0."
+  }
+}

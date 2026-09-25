@@ -1,0 +1,684 @@
+"""The harness runs ANY agent, and the loop closes end to end.
+
+Bring-your-own-agent adapters (a Python callable, a shell command), the
+replay command that turns a hypothesized decisive step into a verified
+or refuted one, and the why command that narrates through a provider
+under the covenant that the model never alters a number.  Everything
+here runs offline through scripted providers and toy agents.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import time
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+FIXTURES = ROOT / "tests" / "fixtures" / "agents"
+sys.path.insert(0, str(FIXTURES))
+
+from deepcompare.harness import (  # noqa: E402
+    CommandAgent, PythonAgent, ScriptedProvider, Tool, agent_from_spec,
+    run_suite, run_task,
+)
+from deepcompare.harness.external import run_external  # noqa: E402
+from deepcompare.report import compare  # noqa: E402
+from deepcompare.trace import Trajectory  # noqa: E402
+
+TASK = {"id": "t_refund", "prompt": "What refund applies to booking BK1?",
+        "expected": "$120.00"}
+
+
+def refund_tool(amount="$120.00"):
+    def get_refund(reference: str):
+        return {"reference": reference, "refund": amount}
+    return Tool("get_refund", get_refund, "refund lookup",
+                {"type": "object", "properties": {"reference": {"type": "string"}},
+                 "required": ["reference"]}, effect="read")
+
+
+
+class TestScaffoldKnobs(unittest.TestCase):
+    """The three settings the loop grew so that the engine's scaffold
+    recommendations became testable rather than merely printable.
+
+    Each is read from ``budget``, which means each is recorded on the trace
+    and read back by `harnessevo.fingerprint`: a run under a turned knob is
+    a run under a different harness, and the reading that judges it knows.
+    """
+
+    @staticmethod
+    def _counting_tool(effect="read", calls=None):
+        calls = calls if calls is not None else []
+
+        def get_refund(reference: str):
+            calls.append(reference)
+            return {"reference": reference, "refund": "$120.00"}
+        return Tool("get_refund", get_refund, "refund lookup",
+                    {"type": "object", "properties": {"reference": {"type": "string"}}},
+                    effect=effect), calls
+
+    def test_max_tool_errors_is_the_loops_number_and_the_budget_sets_it(self):
+        """Hardcoded at three, it was a setting nothing could vary and no
+        trace recorded.  Now a run under a different cap says so."""
+        def boom(**_kw):
+            raise RuntimeError("no")
+        tool = Tool("boom", boom, "always fails", {"type": "object", "properties": {}})
+        script = [{"text": "", "tool_calls": [{"name": "boom", "arguments": {}}]} for _ in range(8)]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                         budget={"max_steps": 8, "max_tool_errors": 2})
+        self.assertEqual(trace["outcome"]["termination"], "too_many_errors")
+        self.assertEqual(trace["budget"]["max_tool_errors"], 2)
+        self.assertEqual(len([s for s in trace["steps"] if s["type"] == "tool_call"]), 2)
+
+        looser = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                          budget={"max_steps": 8, "max_tool_errors": 5})
+        self.assertEqual(len([s for s in looser["steps"] if s["type"] == "tool_call"]), 5)
+
+    def test_max_tool_retries_re_runs_the_call_and_numbers_every_try(self):
+        """The other half of `recovery`: a call that fails twice and works
+        on the third try. Without the knob the first error goes back to the
+        agent as text and costs it a turn; with it the harness re-runs the
+        call itself, and every try is its own step carrying its attempt so
+        the reading can tell the retries from the agent asking twice."""
+        tries = []
+
+        def flaky(**_kw):
+            tries.append(1)
+            if len(tries) < 3:
+                raise RuntimeError("transient")
+            return {"ok": True}
+        tool = Tool("flaky", flaky, "fails twice", {"type": "object", "properties": {}})
+        script = [{"text": "", "tool_calls": [{"name": "flaky", "arguments": {}}]},
+                  {"text": "done"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                         budget={"max_steps": 6, "max_tool_retries": 3})
+        calls = [s for s in trace["steps"] if s["type"] == "tool_call"]
+        self.assertEqual(len(tries), 3, "the harness re-ran the call itself")
+        self.assertEqual([s.get("attempt") for s in calls], [1, 2, 3])
+        self.assertEqual([bool(s.get("error")) for s in calls], [True, True, False])
+        self.assertEqual(trace["budget"]["max_tool_retries"], 3)
+        self.assertEqual(trace["outcome"]["termination"], "agent_stop")
+
+    def test_without_the_knob_the_error_goes_back_to_the_agent_unnumbered(self):
+        """The default, unchanged: one try, the error handed back as text.
+        The step carries no attempt — an unnumbered step is a first try, and
+        writing 1 on every step of every trace to say "no retry happened"
+        would cost every stored trace bytes to say nothing."""
+        tries = []
+
+        def flaky(**_kw):
+            tries.append(1)
+            raise RuntimeError("transient")
+        tool = Tool("flaky", flaky, "always fails", {"type": "object", "properties": {}})
+        script = [{"text": "", "tool_calls": [{"name": "flaky", "arguments": {}}]},
+                  {"text": "done"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                         budget={"max_steps": 6})
+        calls = [s for s in trace["steps"] if s["type"] == "tool_call"]
+        self.assertEqual(len(tries), 1)
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("attempt", calls[0])
+
+    def test_dedupe_serves_the_repeat_from_the_cache_and_still_records_it(self):
+        """The engine's own words for `result_cache`: same call, same
+        result, paid for twice.  The step stays on the trace — the agent
+        did make the call — with a note saying what served it."""
+        tool, calls = self._counting_tool()
+        script = [{"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
+                  {"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                         budget={"max_steps": 6, "dedupe_tool_calls": True})
+        self.assertTrue(trace["outcome"]["success"])
+        self.assertEqual(calls, ["BK1"], "the second identical call was executed anyway")
+        tools = [s for s in trace["steps"] if s["type"] == "tool_call"]
+        self.assertEqual(len(tools), 2, "the repeat must stay visible as a step")
+        self.assertIn("harness cache", tools[1]["note"])
+
+    def test_dedupe_never_caches_a_call_whose_effect_is_not_read(self):
+        """A write served from a cache is a write that silently did not
+        happen.  An undeclared effect is undeclared, not read-only."""
+        for effect in ("write", None):
+            with self.subTest(effect=effect):
+                tool, calls = self._counting_tool(effect=effect)
+                script = [{"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
+                          {"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
+                          {"text": "the refund is $120.00"}]
+                trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                                 budget={"max_steps": 6, "dedupe_tool_calls": True})
+                self.assertEqual(calls, ["BK1", "BK1"], "a non-read call was served from the cache")
+                notes = [s.get("note") for s in trace["steps"] if s["type"] == "tool_call"]
+                self.assertTrue(all(not n or "harness cache" not in n for n in notes))
+
+    def test_the_answer_gate_pushes_back_once_and_then_lets_the_answer_stand(self):
+        """A harness that refuses until it gets what it wants is writing the
+        agent, not measuring it.  One push-back, then the answer stands
+        however it comes — including wrong."""
+        tool, calls = self._counting_tool()
+        script = [{"text": "the refund is $120.00"},
+                  {"text": "still the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                         budget={"max_steps": 6, "require_before_answer": "get_refund"})
+        self.assertEqual(calls, [], "the gate must not call the tool on the agent's behalf")
+        self.assertEqual(trace["outcome"]["termination"], "agent_stop")
+        self.assertTrue(trace["outcome"]["success"], "the second answer stands on its own merits")
+        gate = [s for s in trace["steps"] if s["type"] == "reason" and "verification gate" in (s.get("note") or "")]
+        self.assertEqual(len(gate), 1, "the gate fires exactly once")
+        self.assertIn("get_refund", gate[0]["input"])
+
+    def test_the_push_back_spends_a_turn_out_of_the_same_cap(self):
+        """The gate costs a provider turn, and the variant runs under the
+        same step cap as the baseline. A run that would have answered on its
+        last turn does not. That is what the gate costs, and it is left to
+        be measured rather than quietly refunded — a change whose cost is
+        compensated for has not been measured."""
+        tool, _ = self._counting_tool()
+        script = [{"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                         budget={"max_steps": 1, "require_before_answer": "get_refund"})
+        self.assertEqual(trace["outcome"]["termination"], "max_steps")
+        self.assertFalse(trace["outcome"]["success"])
+        ungated = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                           budget={"max_steps": 1})
+        self.assertTrue(ungated["outcome"]["success"], "the same script answers without the gate")
+
+    def test_the_gate_lets_an_answer_through_once_the_tool_has_been_called(self):
+        tool, calls = self._counting_tool()
+        script = [{"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                         budget={"max_steps": 6, "require_before_answer": "get_refund"})
+        self.assertEqual(calls, ["BK1"])
+        self.assertTrue(trace["outcome"]["success"])
+        self.assertEqual([s.get("note") for s in trace["steps"] if s["type"] == "reason"], [])
+
+    def test_the_first_write_is_refused_until_something_has_been_read(self):
+        """The engine's own fix for `safety`: read before you write. The
+        call is refused once, the state is not changed, and the agent is
+        told why."""
+        wrote = []
+        write = Tool("ship", lambda **kw: wrote.append(kw) or "shipped", "change state",
+                     {"type": "object", "properties": {}}, effect="write")
+        read, reads = self._counting_tool()
+        script = [{"text": "", "tool_calls": [{"name": "ship", "arguments": {}}]},
+                  {"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
+                  {"text": "", "tool_calls": [{"name": "ship", "arguments": {}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [write, read], out_dir=None,
+                         budget={"max_steps": 8, "require_read_before_write": True})
+        self.assertEqual(len(wrote), 1, "the blind write was executed, or the gate never lifted")
+        self.assertEqual(reads, ["BK1"])
+        held = [s for s in trace["steps"] if "read-before-write" in (s.get("note") or "")]
+        self.assertEqual(len(held), 1)
+        self.assertTrue(held[0]["error"])
+        self.assertIn("requires a read before a write", held[0]["output"])
+        self.assertTrue(trace["outcome"]["success"])
+
+    def test_the_gate_does_not_launder_the_attempt_out_of_the_record(self):
+        """It protects the state; it does not teach the agent to look
+        first. The held call stays a write in the process ledger, so
+        `writes_before_any_read` goes on reporting the attempt — two
+        different claims, kept apart."""
+        from deepcompare.process import side_effects
+        from deepcompare.trace import Trajectory
+
+        write = Tool("ship", lambda **kw: "shipped", "change state",
+                     {"type": "object", "properties": {}}, effect="write")
+        read, _ = self._counting_tool()
+        script = [{"text": "", "tool_calls": [{"name": "ship", "arguments": {}}]},
+                  {"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [write, read], out_dir=None,
+                         budget={"max_steps": 8, "require_read_before_write": True})
+        ledger = side_effects(Trajectory.from_dict(trace))
+        self.assertEqual(ledger["writes_before_any_read"], 1,
+                         "the gate quietly removed the agent's blind write from the record")
+
+    def test_a_failed_read_does_not_clear_the_gate(self):
+        """A gate satisfied by a lookup that raised is not a gate: the
+        agent saw nothing, so it has not looked."""
+        wrote = []
+        write = Tool("ship", lambda **kw: wrote.append(kw) or "shipped", "change state",
+                     {"type": "object", "properties": {}}, effect="write")
+
+        def boom(**_kw):
+            raise RuntimeError("no")
+        read = Tool("peek", boom, "look", {"type": "object", "properties": {}}, effect="read")
+        script = [{"text": "", "tool_calls": [{"name": "peek", "arguments": {}}]},
+                  {"text": "", "tool_calls": [{"name": "ship", "arguments": {}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [write, read], out_dir=None,
+                         budget={"max_steps": 8, "require_read_before_write": True})
+        self.assertEqual(wrote, [], "a read that raised cleared the gate")
+        self.assertEqual(len([s for s in trace["steps"]
+                              if "read-before-write" in (s.get("note") or "")]), 1)
+
+    def test_the_write_gate_is_spent_after_one_refusal(self):
+        """Once, and then it gets out of the way — the same rule the answer
+        gate follows, for the same reason."""
+        wrote = []
+        write = Tool("ship", lambda **kw: wrote.append(kw) or "shipped", "change state",
+                     {"type": "object", "properties": {}}, effect="write")
+        read, _ = self._counting_tool()
+        script = [{"text": "", "tool_calls": [{"name": "ship", "arguments": {}}]},
+                  {"text": "", "tool_calls": [{"name": "ship", "arguments": {"n": 2}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [write, read], out_dir=None,
+                         budget={"max_steps": 8, "require_read_before_write": True})
+        self.assertEqual(len(wrote), 1, "the gate refused more than once, or never")
+        self.assertTrue(trace["outcome"]["success"])
+
+    def test_an_unset_write_gate_changes_nothing(self):
+        wrote = []
+        write = Tool("ship", lambda **kw: wrote.append(kw) or "shipped", "change state",
+                     {"type": "object", "properties": {}}, effect="write")
+        script = [{"text": "", "tool_calls": [{"name": "ship", "arguments": {}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [write], out_dir=None,
+                         budget={"max_steps": 8})
+        self.assertEqual(len(wrote), 1)
+        self.assertEqual([s.get("note") for s in trace["steps"] if s["type"] == "tool_call"], [None])
+
+    @staticmethod
+    def _slow_read(name, secs=0.2, calls=None):
+        calls = calls if calls is not None else []
+
+        def fn(**kw):
+            time.sleep(secs)
+            calls.append(name)
+            return {"from": name}
+        return Tool(name, fn, "look it up", {"type": "object", "properties": {}}, effect="read"), calls
+
+    def test_independent_reads_go_out_at_once_and_the_overlap_is_measured(self):
+        """The knob that could not exist until the trace could say when a
+        step began: a timeline reconstructed by summing durations draws a
+        concurrent run and a sequential one identically, so nothing could
+        have judged the change."""
+        from deepcompare.timing import timeline
+        from deepcompare.trace import Trajectory
+
+        script = [{"text": "", "tool_calls": [{"name": n, "arguments": {}} for n in ("a", "b", "c")]},
+                  {"text": "the refund is $120.00"}]
+
+        def go(budget):
+            tools = [self._slow_read(n)[0] for n in ("a", "b", "c")]
+            start = time.monotonic()
+            trace = run_task(ScriptedProvider(list(script)), TASK, tools, out_dir=None, budget=budget)
+            return trace, time.monotonic() - start
+
+        seq, seq_wall = go({"max_steps": 5})
+        par, par_wall = go({"max_steps": 5, "parallel_tool_calls": 3})
+        seq_tl = timeline(Trajectory.from_dict(seq))
+        par_tl = timeline(Trajectory.from_dict(par))
+        self.assertEqual(seq_tl["overlap_s"], 0.0)
+        self.assertGreater(par_tl["overlap_s"], 0.2, "the reads did not overlap")
+        self.assertLess(par_tl["span_s"], seq_tl["span_s"] / 2, "the concurrent run was not shorter")
+        self.assertLess(par_wall, seq_wall, "wall clock did not move")
+        # the durations still sum to about the same: this buys latency, not work
+        self.assertAlmostEqual(par_tl["sum_s"], seq_tl["sum_s"], delta=0.12)
+
+    def test_the_steps_stay_in_the_order_the_agent_asked_for_them(self):
+        """Recorded in call order, never in the order they landed: a
+        reshuffled trace is a different run from the one that happened."""
+        script = [{"text": "", "tool_calls": [{"name": n, "arguments": {}} for n in ("a", "b", "c")]},
+                  {"text": "the refund is $120.00"}]
+        # `c` returns first, `a` last — if landing order leaked into the
+        # trace the recorded names would come back reversed
+        tools = [self._slow_read("a", 0.30)[0], self._slow_read("b", 0.20)[0], self._slow_read("c", 0.05)[0]]
+        trace = run_task(ScriptedProvider(list(script)), TASK, tools, out_dir=None,
+                         budget={"max_steps": 5, "parallel_tool_calls": 3})
+        names = [s["name"] for s in trace["steps"] if s["type"] == "tool_call"]
+        self.assertEqual(names, ["a", "b", "c"])
+        indices = [s["index"] for s in trace["steps"]]
+        self.assertEqual(indices, sorted(indices))
+
+    def test_a_turn_containing_a_write_goes_sequentially(self):
+        """The order of writes is part of what the run did; reordering them
+        would be the harness changing the agent's behaviour, not its
+        schedule."""
+        from deepcompare.timing import timeline
+        from deepcompare.trace import Trajectory
+
+        read, _ = self._slow_read("a", 0.2)
+        write = Tool("ship", lambda **kw: time.sleep(0.2) or "shipped", "change state",
+                     {"type": "object", "properties": {}}, effect="write")
+        script = [{"text": "", "tool_calls": [{"name": "a", "arguments": {}},
+                                              {"name": "ship", "arguments": {}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [read, write], out_dir=None,
+                         budget={"max_steps": 5, "parallel_tool_calls": 4})
+        self.assertEqual(timeline(Trajectory.from_dict(trace))["overlap_s"], 0.0)
+        notes = [s.get("note") for s in trace["steps"] if s["type"] == "tool_call"]
+        self.assertTrue(all(not n or "concurrently" not in n for n in notes))
+
+    def test_an_undeclared_effect_is_never_issued_alongside_anything(self):
+        """The claim being made is that these calls do not affect one
+        another, and an undeclared effect supports no such claim."""
+        from deepcompare.timing import timeline
+        from deepcompare.trace import Trajectory
+
+        read, _ = self._slow_read("a", 0.2)
+        plain = Tool("b", lambda **kw: time.sleep(0.2) or "ok", "no declared effect",
+                     {"type": "object", "properties": {}})
+        script = [{"text": "", "tool_calls": [{"name": "a", "arguments": {}}, {"name": "b", "arguments": {}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [read, plain], out_dir=None,
+                         budget={"max_steps": 5, "parallel_tool_calls": 4})
+        self.assertEqual(timeline(Trajectory.from_dict(trace))["overlap_s"], 0.0)
+
+    def test_a_failing_read_in_the_batch_is_recorded_as_the_error_it_was(self):
+        from deepcompare.timing import timeline
+        from deepcompare.trace import Trajectory
+
+        good, _ = self._slow_read("a", 0.15)
+        def boom(**kw):
+            time.sleep(0.15)
+            raise RuntimeError("no")
+        bad = Tool("b", boom, "fails", {"type": "object", "properties": {}}, effect="read")
+        script = [{"text": "", "tool_calls": [{"name": "a", "arguments": {}}, {"name": "b", "arguments": {}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [good, bad], out_dir=None,
+                         budget={"max_steps": 5, "parallel_tool_calls": 4, "max_tool_errors": 3})
+        tools = [s for s in trace["steps"] if s["type"] == "tool_call"]
+        self.assertEqual([s["name"] for s in tools], ["a", "b"])
+        self.assertTrue(tools[1]["error"])
+        self.assertIn("RuntimeError", tools[1]["output"])
+        self.assertGreater(timeline(Trajectory.from_dict(trace))["overlap_s"], 0.05,
+                           "a failing call still ran alongside the others")
+
+    def test_a_single_call_and_a_width_under_two_stay_sequential(self):
+        from deepcompare.timing import timeline
+        from deepcompare.trace import Trajectory
+
+        tools = [self._slow_read(n, 0.15)[0] for n in ("a", "b")]
+        for budget, why in (({"max_steps": 5, "parallel_tool_calls": 1}, "width 1"),
+                            ({"max_steps": 5}, "unset")):
+            with self.subTest(why):
+                script = [{"text": "", "tool_calls": [{"name": n, "arguments": {}} for n in ("a", "b")]},
+                          {"text": "the refund is $120.00"}]
+                trace = run_task(ScriptedProvider(list(script)), TASK, tools, out_dir=None, budget=budget)
+                self.assertEqual(timeline(Trajectory.from_dict(trace))["overlap_s"], 0.0, why)
+
+    def test_every_knob_the_loop_reads_is_recorded_on_the_trace(self):
+        """The invariant that decides what may become a knob at all: a
+        setting whose effect no trace records could never be judged, so the
+        loop reads its settings from `budget` and nowhere else."""
+        from deepcompare import scaffold
+
+        tool, _ = self._counting_tool()
+        budget = {"max_steps": 6, "max_tool_errors": 4, "max_tool_retries": 2, "dedupe_tool_calls": True,
+                  "require_before_answer": "get_refund", "require_read_before_write": True,
+                  "parallel_tool_calls": 3}
+        script = [{"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None, budget=dict(budget))
+        self.assertEqual(trace["budget"], budget)
+        self.assertEqual(set(scaffold.BUDGET_KNOBS), set(budget),
+                         "a documented knob the loop does not read, or one it reads undocumented")
+
+    def test_an_unset_knob_changes_nothing_about_the_default_loop(self):
+        tool, calls = self._counting_tool()
+        script = [{"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
+                  {"text": "", "tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]},
+                  {"text": "the refund is $120.00"}]
+        trace = run_task(ScriptedProvider(list(script)), TASK, [tool], out_dir=None,
+                         budget={"max_steps": 6})
+        self.assertEqual(calls, ["BK1", "BK1"])
+        self.assertEqual(trace["budget"], {"max_steps": 6})
+        self.assertTrue(trace["outcome"]["success"])
+
+
+class TestPythonAgents(unittest.TestCase):
+    def test_a_message_list_becomes_a_graded_trace_with_declared_termination(self):
+        agent = PythonAgent("toy_agents:message_agent", "clerk")
+        trace = run_external(agent, TASK, [refund_tool()], out_dir=None)
+        self.assertTrue(trace["outcome"]["success"])
+        self.assertEqual(trace["outcome"]["termination"], "agent_stop")
+        self.assertEqual(trace["agent"]["name"], "clerk")
+        self.assertEqual(trace["trace_id"], "t_refund__clerk")
+        self.assertEqual([s["type"] for s in trace["steps"]][-1], "answer")
+        self.assertEqual(trace["harness"]["graded_by"], "harness")
+        Trajectory.from_dict(trace)
+
+    def test_a_trace_dict_is_graded_by_the_harness_not_the_agent(self):
+        agent = PythonAgent("toy_agents:trace_agent", "guesser")
+        trace = run_external(agent, TASK, [], out_dir=None)
+        self.assertFalse(trace["outcome"]["success"])
+        self.assertEqual(trace["outcome"]["termination"], "agent_stop")
+        self.assertEqual(trace["task"]["expected"], "$120.00")
+
+    def test_a_crash_is_an_infrastructure_error_not_a_failure_of_the_agent(self):
+        agent = PythonAgent("toy_agents:crashing_agent")
+        trace = run_external(agent, TASK, [], out_dir=None)
+        self.assertEqual(trace["outcome"]["termination"], "infrastructure_error")
+        self.assertFalse(trace["outcome"]["success"])
+        self.assertIn("fell over", trace["steps"][0]["input"])
+
+    def test_no_answer_is_declared_agent_error(self):
+        agent = PythonAgent("toy_agents:no_answer_agent")
+        trace = run_external(agent, TASK, [], out_dir=None)
+        self.assertEqual(trace["outcome"]["termination"], "agent_error")
+
+    def test_ungraded_tasks_are_refused_before_the_agent_runs(self):
+        agent = PythonAgent("toy_agents:crashing_agent")
+        with self.assertRaises(ValueError):
+            run_external(agent, {"id": "t", "prompt": "p"}, [], out_dir=None)
+
+    def test_spec_parsing(self):
+        self.assertIsInstance(agent_from_spec("python:toy_agents:message_agent"), PythonAgent)
+        self.assertIsInstance(agent_from_spec("cmd:./x --out {out_file}"), CommandAgent)
+        with self.assertRaises(ValueError):
+            agent_from_spec("magic:whatever")
+        with self.assertRaises(ValueError):
+            agent_from_spec("cmd:./x")   # no {out_file}
+
+
+class TestCommandAgent(unittest.TestCase):
+    def test_a_shell_script_is_an_agent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "agent.sh"
+            script.write_text(
+                "#!/bin/sh\n"
+                "# reads the task file, answers from a lookup table, writes messages\n"
+                "PROMPT=$(cat \"$1\")\n"
+                "cat > \"$2\" <<'EOF'\n"
+                "[{\"role\": \"user\", \"content\": \"refund?\"},\n"
+                " {\"role\": \"assistant\", \"content\": \"The refund for BK1 is $120.00.\"}]\n"
+                "EOF\n", encoding="utf-8")
+            os.chmod(script, 0o755)
+            agent = CommandAgent(f"sh {script} {{prompt_file}} {{out_file}}", "shelly")
+            trace = run_external(agent, TASK, [], out_dir=tmp)
+            self.assertTrue(trace["outcome"]["success"])
+            self.assertEqual(trace["agent"]["name"], "shelly")
+            self.assertTrue((Path(tmp) / "t_refund__shelly.json").is_file())
+
+    def test_a_failing_command_is_an_infrastructure_error(self):
+        agent = CommandAgent("sh -c 'exit 3' {out_file}", "broken")
+        trace = run_external(agent, TASK, [], out_dir=None)
+        self.assertEqual(trace["outcome"]["termination"], "infrastructure_error")
+
+
+class TestSuiteAndRuns(unittest.TestCase):
+    def test_external_agents_and_providers_share_one_suite_and_runs_reads_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            turns = Path(tmp) / "turns.json"
+            turns.write_text(json.dumps([{"text": "The refund for BK1 is $120.00."}]),
+                             encoding="utf-8")
+            from deepcompare.harness import provider_from_spec
+            manifest = run_suite(
+                {"scripted-good": f"scripted:{turns}"}, [TASK], [refund_tool()],
+                out_dir=tmp, runs=2, provider_factory=provider_from_spec,
+                agents={"guesser": PythonAgent("toy_agents:trace_agent", "guesser")})
+            self.assertEqual(sorted(manifest["agents"]), ["guesser", "scripted-good"])
+            self.assertEqual(len(manifest["traces"]), 4)
+            names = sorted(p.name for p in Path(tmp).glob("*.json") if p.name != "RUN_MANIFEST.json"
+                           and p.name != "turns.json")
+            self.assertEqual(names, ["t_refund__guesser__r1.json", "t_refund__guesser__r2.json",
+                                     "t_refund__scripted-good__r1.json",
+                                     "t_refund__scripted-good__r2.json"])
+            # trace id equals the file stem for both kinds
+            for name in names:
+                data = json.loads((Path(tmp) / name).read_text(encoding="utf-8"))
+                self.assertEqual(data["trace_id"], name[:-5])
+            out = Path(tmp) / "out"
+            proc = subprocess.run([sys.executable, "-m", "deepcompare", "runs", tmp, "-o", str(out)],
+                                  cwd=str(ROOT), capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("pass^", proc.stdout)
+
+    def test_the_cli_run_accepts_agents_and_provider_options(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks = Path(tmp) / "tasks.json"
+            tasks.write_text(json.dumps([TASK]), encoding="utf-8")
+            env = dict(os.environ, PYTHONPATH=str(FIXTURES))
+            proc = subprocess.run(
+                [sys.executable, "-m", "deepcompare", "run", "--tasks", str(tasks),
+                 "--agent", "clerk=python:toy_agents:message_agent",
+                 "--agent", "guesser=python:toy_agents:trace_agent",
+                 "-o", str(Path(tmp) / "traces"), "--temperature", "0.2",
+                 "--base-url", "http://localhost:1/v1", "--api-key-env", "MY_KEY"],
+                cwd=str(ROOT), capture_output=True, text=True, env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("2 trace(s)", proc.stdout)
+            self.assertIn("batch", proc.stdout)
+
+
+def _echo_turns(path: Path, answer: str) -> str:
+    path.write_text(json.dumps([{"text": answer}]), encoding="utf-8")
+    return str(path)
+
+
+class TestReplayCommand(unittest.TestCase):
+    """A pair whose failing run read a broken tool: replaying from the
+    decisive step with the passing run's observation borrowed flips the
+    outcome (verified); a model that ignores the correction does not
+    (refuted).  The report carries the counts and the ring's state."""
+
+    def _report(self, tmp: Path) -> Path:
+        def echo(messages, tools):
+            for m in reversed(messages):
+                if m["role"] == "tool" and "$" in m["content"]:
+                    import re
+                    found = re.search(r"\$[\d,]+\.\d\d", m["content"])
+                    return {"text": f"The refund for BK1 is {found.group(0)}."}
+            return {"tool_calls": [{"name": "get_refund", "arguments": {"reference": "BK1"}}]}
+        good = run_task(ScriptedProvider(echo, model="echo"), TASK, [refund_tool()],
+                        agent="good", out_dir=None)
+        bad = run_task(ScriptedProvider(echo, model="echo"), TASK, [refund_tool("$90.00")],
+                       agent="bad", out_dir=None)
+        report = compare(Trajectory.from_dict(good), Trajectory.from_dict(bad))
+        self.assertFalse(report["b"]["outcome"]["success"])
+        self.assertIsNotNone(report["diagnosis"]["decisive_step"]["step"])
+        self.assertEqual(report["diagnosis"]["decisive_step"]["verification"], "hypothesized")
+        path = tmp / "report_t_refund.json"
+        path.write_text(json.dumps(report, indent=1), encoding="utf-8")
+        return path
+
+    def _replay(self, report_path: Path, turns: str, extra=()):
+        proc = subprocess.run(
+            [sys.executable, "-m", "deepcompare", "replay", str(report_path),
+             "--provider", f"echo=scripted:{turns}", "--replays", "3", *extra],
+            cwd=str(ROOT), capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        return proc.stdout, json.loads(report_path.read_text(encoding="utf-8"))
+
+    def test_a_correction_that_flips_the_outcome_verifies_the_step(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            report_path = self._report(tmp)
+            turns = _echo_turns(tmp / "flip.json", "The refund for BK1 is $120.00.")
+            out, report = self._replay(report_path, turns, ["--traces", str(tmp / "replays")])
+            decisive = report["diagnosis"]["decisive_step"]
+            self.assertEqual(decisive["verification"], "replay-verified")
+            self.assertEqual(decisive["replay"]["replays"], 3)
+            self.assertEqual(decisive["replay"]["flipped"], 3)
+            self.assertIn("borrowed_from", decisive["replay"]["correction"])
+            self.assertIn("replay-verified", out)
+            conf = next(l for l in report["verdict_card"]["lines"] if l["key"] == "confidence")
+            self.assertIn("replay-verified (3/3 replays flipped the outcome)", conf["text"])
+            self.assertEqual(len(list((tmp / "replays").glob("*.json"))), 3)
+
+    def test_a_model_that_ignores_the_correction_refutes_the_step(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            report_path = self._report(tmp)
+            turns = _echo_turns(tmp / "stubborn.json", "The refund for BK1 is $90.00.")
+            out, report = self._replay(report_path, turns)
+            decisive = report["diagnosis"]["decisive_step"]
+            self.assertEqual(decisive["verification"], "replay-refuted")
+            self.assertEqual(decisive["replay"]["flipped"], 0)
+            self.assertIn("replay-refuted", out)
+
+    def test_a_page_beside_the_report_is_re_rendered_with_a_solid_ring(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            report_path = self._report(tmp)
+            from deepcompare.report import render_html
+            page = report_path.with_suffix(".html")
+            render_html([json.loads(report_path.read_text())], {}, ROOT / "web" / "blocks.html", page)
+            before = page.read_text(encoding="utf-8")
+            self.assertIn('"verification": "hypothesized"', before)
+            turns = _echo_turns(tmp / "flip.json", "The refund for BK1 is $120.00.")
+            out, _ = self._replay(report_path, turns)
+            self.assertIn("Re-rendered", out)
+            after = page.read_text(encoding="utf-8")
+            self.assertIn('"verification": "replay-verified"', after)
+
+
+class TestWhyCommand(unittest.TestCase):
+    def _report(self, tmp: Path) -> Path:
+        a = Trajectory.from_json(str(ROOT / "demo/traces/t05_flight_duration__atlas-v2.json"))
+        b = Trajectory.from_json(str(ROOT / "demo/traces/t05_flight_duration__bolt-v3.json"))
+        path = tmp / "report_t05.json"
+        path.write_text(json.dumps(compare(a, b), indent=1), encoding="utf-8")
+        return path
+
+    def test_narration_is_stored_checked_and_changes_no_verdict(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            report_path = self._report(tmp)
+            before = json.loads(report_path.read_text(encoding="utf-8"))
+            turns = tmp / "why.json"
+            turns.write_text(json.dumps([{"text": "bolt-v3 failed because it used local "
+                                                  "clock times [F1]; it was 93% cheaper."}]),
+                             encoding="utf-8")
+            proc = subprocess.run(
+                [sys.executable, "-m", "deepcompare", "why", str(report_path),
+                 "--provider", f"narrator=scripted:{turns}"],
+                cwd=str(ROOT), capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertTrue(proc.stdout.startswith("VERDICT"))
+            self.assertIn("UNSUPPORTED numbers", proc.stdout)
+            self.assertIn("93", proc.stdout)
+            after = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertEqual(after["narration"]["source"], "harness-provider")
+            self.assertFalse(after["narration"]["faithfulness"]["faithful"])
+            self.assertTrue(any(n.startswith("93") for n in
+                                after["narration"]["faithfulness"]["unsupported_numbers"]))
+            # the covenant: nothing but the narration key changed
+            del after["narration"]
+            self.assertEqual(before, after)
+
+    def test_a_provider_failure_changes_nothing_and_exits_nonzero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            report_path = self._report(tmp)
+            before = report_path.read_text(encoding="utf-8")
+            turns = tmp / "empty.json"
+            turns.write_text("[]", encoding="utf-8")   # a script with no turns fails
+            proc = subprocess.run(
+                [sys.executable, "-m", "deepcompare", "why", str(report_path),
+                 "--provider", f"narrator=scripted:{turns}"],
+                cwd=str(ROOT), capture_output=True, text=True)
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertEqual(report_path.read_text(encoding="utf-8"), before)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "trace_id": "ef02_docs_outage-scout-v2",
+  "agent": {
+    "name": "scout-v2",
+    "model": "gpt-5",
+    "version": "v2"
+  },
+  "task": {
+    "id": "ef02_docs_outage",
+    "prompt": "What changed in AcmeCorp SDK 4.1.0 according to the changelog?",
+    "expected": "SDK 4.1.0 adds async upload support and drops Python 3.8."
+  },
+  "outcome": {
+    "success": false,
+    "answer": "I could not retrieve the SDK 4.1.0 changelog: docs.acmecorp.com is unreachable.",
+    "score": 0.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 600,
+    "output_tokens": 200,
+    "cost_usd": 0.0024,
+    "latency_s": 5.5
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "search",
+      "name": "web_search",
+      "input": "AcmeCorp SDK 4.1.0 changelog",
+      "output": "Top result: docs.acmecorp.com/changelog.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "fetch_page",
+      "input": "fetch_page(url='docs.acmecorp.com/changelog')",
+      "output": "Error: connection timed out fetching docs.acmecorp.com/changelog.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": true
+    },
+    {
+      "index": 2,
+      "type": "tool_call",
+      "name": "fetch_page",
+      "input": "fetch_page(url='docs.acmecorp.com/changelog', cache='no')",
+      "output": "Error: upstream host docs.acmecorp.com unreachable (503).",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": true
+    },
+    {
+      "index": 3,
+      "type": "reason",
+      "name": "reason",
+      "input": "The documentation host is down; the changelog cannot be read.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final",
+      "input": "I could not retrieve the SDK 4.1.0 changelog: docs.acmecorp.com is unreachable.",
+      "output": "I could not retrieve the SDK 4.1.0 changelog: docs.acmecorp.com is unreachable.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "fetch_page",
+      "effect": "read"
+    }
+  ],
+  "budget": {
+    "max_steps": 12
+  }
+}

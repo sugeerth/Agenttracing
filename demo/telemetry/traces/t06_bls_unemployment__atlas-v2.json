@@ -1,0 +1,272 @@
+{
+  "schema_version": 1,
+  "trace_id": "t06_bls_unemployment__atlas-v2",
+  "agent": {
+    "name": "atlas-v2",
+    "model": "sim-planner-2",
+    "version": "v2"
+  },
+  "task": {
+    "id": "t06_bls_unemployment",
+    "prompt": "According to the U.S. Bureau of Labor Statistics, what was the unemployment rate in December 2024?",
+    "expected": "4.1 percent"
+  },
+  "outcome": {
+    "success": true,
+    "answer": "Per the BLS Employment Situation release of January 10, 2025, the U.S. unemployment rate in December 2024 was 4.1 percent.",
+    "score": 1.0
+  },
+  "totals": {
+    "input_tokens": 622,
+    "output_tokens": 189,
+    "cost_usd": 0.004701,
+    "latency_s": 9.22
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "1) Find the BLS Employment Situation release covering December 2024. 2) Read the headline unemployment rate from bls.gov. 3) Answer with the official figure.",
+      "output": "Plan set. Searching for the official release.",
+      "tokens": 148,
+      "latency_s": 1.69,
+      "quality": "good",
+      "note": null,
+      "model": {
+        "confidence": 0.9293,
+        "min_token_confidence": 0.7229,
+        "entropy": 0.2294,
+        "tokens_scored": 81,
+        "temperature": 0.2,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.8816,
+          "high": 0.977,
+          "n": 81,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 1040,
+              "activation": 4.304,
+              "max_activation": 12.0,
+              "label": "task framing / enumerating sub-goals (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 2211,
+              "activation": 3.783,
+              "max_activation": 12.0,
+              "label": "instruction following (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 1,
+      "type": "search",
+      "name": "web_search",
+      "input": "BLS Employment Situation December 2024 unemployment rate",
+      "output": "[1] bls.gov/news.release/archives/empsit_01102025.htm — The Employment Situation — December 2024 | [2] bls.gov/cps — Labor Force Statistics (CPS) | [3] tradingecon.com — United States Unemployment Rate | [4] econwire.com — \"U.S. unemployment ticks up to 4.2%, Labor Department says\"",
+      "tokens": 182,
+      "latency_s": 2.49,
+      "quality": "good",
+      "note": null,
+      "model": {
+        "confidence": 0.8957,
+        "min_token_confidence": 0.7175,
+        "entropy": 0.2937,
+        "tokens_scored": 100,
+        "temperature": 0.2,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.838,
+          "high": 0.9534,
+          "n": 100,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 4470,
+              "activation": 7.371,
+              "max_activation": 12.0,
+              "label": "named-entity retrieval (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 3312,
+              "activation": 3.074,
+              "max_activation": 12.0,
+              "label": "web lookup intent (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 2,
+      "type": "retrieve",
+      "name": "select_result",
+      "input": "Open result [1]: bls.gov — the Employment Situation news release for December 2024 is the official source.",
+      "output": "Selected https://www.bls.gov/news.release/archives/empsit_01102025.htm (official BLS news release, 2025-01-10).",
+      "tokens": 152,
+      "latency_s": 1.36,
+      "quality": "good",
+      "note": null,
+      "model": {
+        "confidence": 0.91,
+        "min_token_confidence": 0.6899,
+        "entropy": 0.3355,
+        "tokens_scored": 83,
+        "temperature": 0.2,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.8386,
+          "high": 0.9814,
+          "n": 83,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 5183,
+              "activation": 7.756,
+              "max_activation": 12.0,
+              "label": "quoting a source (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 4470,
+              "activation": 7.076,
+              "max_activation": 12.0,
+              "label": "named-entity retrieval (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 3,
+      "type": "read",
+      "name": "open_page",
+      "input": "https://www.bls.gov/news.release/archives/empsit_01102025.htm",
+      "output": "THE EMPLOYMENT SITUATION — DECEMBER 2024. Total nonfarm payroll employment increased by 256,000 in December, and the unemployment rate changed little at 4.1 percent, the U.S. Bureau of Labor Statistics reported today. The number of unemployed people, at 6.9 million, changed little over the month.",
+      "tokens": 187,
+      "latency_s": 1.9,
+      "quality": "good",
+      "note": null,
+      "model": {
+        "confidence": 0.8808,
+        "min_token_confidence": 0.6733,
+        "entropy": 0.3556,
+        "tokens_scored": 102,
+        "temperature": 0.2,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.8169,
+          "high": 0.9447,
+          "n": 102,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 6021,
+              "activation": 7.311,
+              "max_activation": 12.0,
+              "label": "table / number extraction (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 5183,
+              "activation": 3.806,
+              "max_activation": 12.0,
+              "label": "quoting a source (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final_answer",
+      "input": "Compose the final answer from the verified findings.",
+      "output": "Per the BLS Employment Situation release of January 10, 2025, the U.S. unemployment rate in December 2024 was 4.1 percent.",
+      "tokens": 142,
+      "latency_s": 1.78,
+      "quality": "good",
+      "note": null,
+      "model": {
+        "confidence": 0.9344,
+        "min_token_confidence": 0.7859,
+        "entropy": 0.1677,
+        "tokens_scored": 78,
+        "temperature": 0.2,
+        "source": "synthetic-demo",
+        "interval": {
+          "low": 0.8806,
+          "high": 0.9882,
+          "n": 78,
+          "basis": "SYNTHETIC: a band around the synthetic confidence, for the demo"
+        },
+        "internals": {
+          "model": "synthetic-demo",
+          "sae": "synthetic-sae",
+          "source": "synthetic-demo",
+          "features": [
+            {
+              "index": 9902,
+              "activation": 7.183,
+              "max_activation": 12.0,
+              "label": "final answer commitment (synthetic label)",
+              "tokens": [],
+              "url": null
+            },
+            {
+              "index": 2211,
+              "activation": 4.538,
+              "max_activation": 12.0,
+              "label": "instruction following (synthetic label)",
+              "tokens": [],
+              "url": null
+            }
+          ],
+          "note": "SYNTHETIC internals: invented feature labels to exercise the view; real runs record Neuronpedia features"
+        }
+      }
+    }
+  ]
+}

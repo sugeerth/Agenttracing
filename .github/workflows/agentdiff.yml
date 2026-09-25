@@ -1,0 +1,88 @@
+# AgentDiff's own pipeline, and the shape of one for any agent repository:
+# every job is hermetic — no model, no network, no secret. The traces
+# under demo/ are the fixtures; a change that stops reproducing them, or
+# regresses the candidate agent against the baseline, fails the build
+# with the step named in the annotation.
+name: agentdiff
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  checks: write
+  security-events: write
+
+jobs:
+  engine:
+    name: engine tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -e . pytest
+      - run: python -m pytest tests/ --ignore=tests/test_blocks_ui.py -q
+
+  replay:
+    name: predictable replay
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -e .
+      # 1. every recorded run replays from its own recording, step for step
+      - name: rerun the recorded traces hermetically
+        run: |
+          python -m deepcompare rerun demo/traces -o out/rerun --junit --job-summary --github-annotations
+          python -m deepcompare rerun demo/horizon/traces -o out/rerun-horizon --junit --job-summary --github-annotations
+          python -m deepcompare rerun demo/horizon/long -o out/rerun-long --golden demo/horizon/golden.json --junit --job-summary --github-annotations
+          python -m deepcompare rerun demo/horizon/long/h02_migrate_service__comet-lh.json --span migrator-ledger -o out/rerun-span --job-summary
+      # 2. the analysis is a pure function of the traces: two runs, one byte sequence
+      - name: the report is deterministic
+        run: |
+          python -m deepcompare batch demo/traces -o out/pass1
+          python -m deepcompare batch demo/traces -o out/pass2
+          diff -r out/pass1 out/pass2
+      # 3. a candidate agent gated against the baseline, with findings as annotations
+      - name: gate the candidate against the baseline
+        run: |
+          mkdir -p out/baseline out/candidate
+          cp demo/traces/*__atlas-v2.json out/baseline/
+          cp demo/traces/*__bolt-v3.json out/candidate/
+          python -m deepcompare gate out/baseline out/candidate -o out/gate \
+            --junit --sarif --job-summary --github-annotations --fail-on never
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agentdiff-replay
+          path: |
+            out/rerun
+            out/rerun-horizon
+            out/rerun-long
+            out/rerun-span
+            out/gate
+      - name: upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: out/gate/results.sarif
+        continue-on-error: true
+
+  page:
+    name: page (browser tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -e . pytest playwright
+      - run: python -m playwright install --with-deps chromium
+      - run: python web/build_blocks.py
+      - run: python -m pytest tests/test_blocks_ui.py -q

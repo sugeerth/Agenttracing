@@ -1,0 +1,50 @@
+# Prometheus + node exporter (textfile collector) + Grafana, provisioned:
+#   python3 -m deepcompare grafana <out_dir | trace.json> -o grafana/out
+#   cd grafana && docker compose up
+# then http://localhost:3000 (anonymous viewer; admin / agentdiff to edit)
+# and the AgentDiff folder holds the five dashboards. docs/GRAFANA.md.
+services:
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    command:
+      - --collector.disable-defaults
+      - --collector.textfile
+      - --collector.textfile.directory=/textfile
+    volumes:
+      - ./out:/textfile:ro
+    ports:
+      - "9100:9100"
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - node-exporter
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=agentdiff
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/agentdiff/agents.json
+    volumes:
+      - ./provisioning:/etc/grafana/provisioning:ro
+      - ./dashboards:/var/lib/grafana/dashboards/agentdiff:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus-data:
+  grafana-data:

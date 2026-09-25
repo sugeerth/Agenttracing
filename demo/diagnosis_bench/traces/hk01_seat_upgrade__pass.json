@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "trace_id": "hk01_seat_upgrade-steady-v1",
+  "agent": {
+    "name": "steady-v1",
+    "model": "claude-sonnet-5",
+    "version": "v1"
+  },
+  "task": {
+    "id": "hk01_seat_upgrade",
+    "prompt": "Upgrade booking RX417 to a window seat and confirm the change.",
+    "expected": "Booking RX417 upgraded to a window seat."
+  },
+  "outcome": {
+    "success": true,
+    "answer": "Booking RX417 upgraded to a window seat, now 12A.",
+    "score": 1.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 600,
+    "output_tokens": 200,
+    "cost_usd": 0.0024,
+    "latency_s": 5.5
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "Check the booking, then move the seat.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "get_booking",
+      "input": "get_booking(reference='RX417')",
+      "output": "RX417 \u2014 SEA->DEN, seat 14C (aisle).",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 2,
+      "type": "tool_call",
+      "name": "get_policy",
+      "input": "get_policy(topic='seat')",
+      "output": "Seat changes are free on the day of booking for all fares.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 3,
+      "type": "tool_call",
+      "name": "update_seat",
+      "input": "update_seat(reference='RX417', seat='12A')",
+      "output": "Seat changed to 12A (window).",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "write",
+      "error": false
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final",
+      "input": "Booking RX417 upgraded to a window seat, now 12A.",
+      "output": "Booking RX417 upgraded to a window seat, now 12A.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_booking",
+      "effect": "read"
+    },
+    {
+      "name": "get_policy",
+      "effect": "read"
+    },
+    {
+      "name": "get_refund_quote",
+      "effect": "read"
+    },
+    {
+      "name": "cancel_booking",
+      "effect": "write"
+    },
+    {
+      "name": "update_seat",
+      "effect": "write"
+    }
+  ],
+  "budget": {
+    "max_steps": 12
+  }
+}
