@@ -56,9 +56,14 @@
       ".st-key i.bad{background:var(--bad)}.st-key i.warn{background:var(--warn)}",
       ".st-key i.mid{background:var(--accent)}.st-key i.run{background:var(--rule)}",
       ".st-wrap{overflow-x:auto}",
-      ".st-row-label{font:600 var(--fs-xs)/1 inherit;fill:var(--ink-2)}",
+      // SVG text takes explicit properties: `inherit` is not a family inside
+      // the `font` shorthand, so a shorthand here is dropped whole and the
+      // text falls back to 16px
+      ".st-row-label{font-size:var(--fs-xs);font-weight:500;fill:var(--ink-2)}",
+      ".st-agent{font-size:var(--fs-s);font-weight:700;fill:var(--ink)}",
+      ".st-agent-sub{font-size:var(--fs-xs);fill:var(--ink-3)}",
       ".st-row-label.clean{fill:var(--ink-3)}",
-      ".st-axis{font:var(--fs-xs)/1 inherit;fill:var(--ink-3)}",
+      ".st-axis{font-size:var(--fs-xs);fill:var(--ink-3);font-variant-numeric:tabular-nums}",
       ".st-note{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.5;margin:0}",
       ".st-mark{cursor:pointer}",
       ".st-mark:focus-visible{outline:2px solid var(--accent);outline-offset:1px}",
@@ -109,62 +114,121 @@
 
   /* ---------------------------------------------------------------- view */
 
+  function human(task) {
+    // "L03_data_backfill" → "L03 data backfill": the id, readable
+    return String(task || "").replace(/_/g, " ");
+  }
+
   function draw(host, rows, ctx) {
     var d3 = global.d3;
     var charts = AgentDiff.charts;
-    var H = ctx.h;
-    var ROW = 15, PAD_L = 186, PAD_R = 14, PAD_T = 22, PAD_B = 22;
+    var ROW = 16, HEAD = 24, PAD_R = 16, PAD_T = 24, PAD_B = 10;
     var measured = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0;
-    var width = Math.max(560, Math.min(1120, measured || 720));
-    var height = PAD_T + rows.length * ROW + PAD_B;
+    var width = Math.max(560, Math.min(1180, measured || 760));
+
+    // rows grouped under their agent: the agent is said once, as a heading,
+    // and each row is labelled by its task — half the width of "task ·
+    // agent" on every line, and the grouping is the comparison a reader
+    // is making anyway
+    var groups = [];
+    rows.forEach(function (r) {
+      var g = groups[groups.length - 1];
+      if (!g || g.agent !== r.agent) groups.push(g = { agent: r.agent, rows: [] });
+      g.rows.push(r);
+    });
+    // the label column is as wide as the widest label actually renders — an
+    // estimate per character was how the first version clipped them
+    var probe = d3.select(host).append("svg").attr("width", 0).attr("height", 0)
+      .style("position", "absolute").style("visibility", "hidden");
+    var widest = 0;
+    rows.forEach(function (r) {
+      var t = probe.append("text").attr("class", "st-row-label").text(human(r.task));
+      try { widest = Math.max(widest, t.node().getComputedTextLength()); } catch (e) { widest = 180; }
+    });
+    probe.remove();
+    var PAD_L = Math.max(96, Math.min(280, Math.ceil(widest) + 22));
+    var height = PAD_T + groups.length * HEAD + rows.length * ROW + PAD_B;
     var longest = Math.max(1, d3.max(rows, function (r) { return r.steps; }) || 1);
 
     var svg = d3.select(host).append("svg")
       .attr("width", width).attr("height", height)
       .attr("viewBox", "0 0 " + width + " " + height)
       .attr("role", "img")
-      .attr("aria-label", "One strip per run: steps left to right, marked where each dimension fired.");
+      .attr("aria-label", "One strip per run, grouped by agent: steps left to right on one scale, " +
+            "marked where each dimension fired.");
 
     var x = d3.scaleLinear().domain([0, longest]).range([PAD_L, width - PAD_R]);
 
-    // the axis, read once at the top: steps, not time
-    [0, Math.round(longest / 2), longest].forEach(function (v) {
-      svg.append("text").attr("class", "st-axis").attr("x", x(v))
-        .attr("y", 12).attr("text-anchor", v === 0 ? "start" : v === longest ? "end" : "middle")
-        .text(v === 0 ? "step 0" : String(v));
+    // the scale, once, at the top: steps, not time, shared by every run
+    var ticks = x.ticks(6).filter(function (t) { return t > 0 && t < longest; });
+    ticks.forEach(function (t) {
+      svg.append("line").attr("x1", x(t)).attr("x2", x(t))
+        .attr("y1", PAD_T - 6).attr("y2", height - PAD_B)
+        .attr("stroke", "var(--rule)").attr("stroke-width", 1).attr("stroke-dasharray", "2,4");
+      svg.append("text").attr("class", "st-axis").attr("x", x(t)).attr("y", PAD_T - 10)
+        .attr("text-anchor", "middle").text(String(t));
     });
+    svg.append("text").attr("class", "st-axis").attr("x", x(0)).attr("y", PAD_T - 10)
+      .attr("text-anchor", "start").text("step 0");
 
     var color = { flag: "var(--bad)", unrecovered: "var(--bad)",
                   redundant: "var(--warn)", stalled: "var(--accent)" };
+    var y = PAD_T;
+    groups.forEach(function (group, gi) {
+      var markedInGroup = group.rows.filter(function (r) { return !r.clean; }).length;
+      var headY = y + HEAD - 8;
+      svg.append("rect").attr("x", 0).attr("y", headY - 9).attr("width", 9).attr("height", 9)
+        .attr("rx", 2).attr("fill", gi === 0 ? "var(--a)" : gi === 1 ? "var(--b)" : "var(--ink-3)");
+      svg.append("text").attr("class", "st-agent").attr("x", 15).attr("y", headY)
+        .text(group.agent);
+      svg.append("text").attr("class", "st-agent-sub").attr("x", width - PAD_R).attr("y", headY)
+        .attr("text-anchor", "end")
+        .text(markedInGroup ? markedInGroup + " of " + group.rows.length + " run(s) marked"
+                            : "all " + group.rows.length + " runs clean");
+      y += HEAD;
 
-    rows.forEach(function (row, i) {
-      var y = PAD_T + i * ROW + ROW / 2;
-      svg.append("text").attr("class", "st-row-label" + (row.clean ? " clean" : ""))
-        .attr("x", PAD_L - 8).attr("y", y + 3).attr("text-anchor", "end")
-        .text(row.run.length > 34 ? row.run.slice(0, 33) + "…" : row.run);
+      group.rows.forEach(function (row) {
+        var cy = y + ROW / 2;
+        svg.append("text").attr("class", "st-row-label" + (row.clean ? " clean" : ""))
+          .attr("x", PAD_L - 10).attr("y", cy + 3.5).attr("text-anchor", "end")
+          .text(human(row.task));
 
-      // the run itself: its length, to the same scale as every other run
-      svg.append("rect").attr("x", x(0)).attr("y", y - 2)
-        .attr("width", Math.max(1, x(row.steps) - x(0))).attr("height", 4)
-        .attr("rx", 2).attr("fill", "var(--rule)");
-
-      row.marks.forEach(function (m) {
-        var mark = svg.append("rect").attr("class", "st-mark")
-          .attr("x", x(Math.min(m.at, row.steps)) - 1.5).attr("y", y - 6)
-          .attr("width", 3).attr("height", 12).attr("rx", 1.5)
-          .attr("fill", color[m.kind] || "var(--ink-3)")
-          .attr("tabindex", 0)
-          .attr("aria-label", row.run + ", step " + m.at + ": " + m.say);
-        if (charts && charts._tip) {
-          mark.on("mouseenter", function (event) {
-            charts._tip.show(event, [row.run, "step " + m.at + " of " + row.steps, m.say]);
-          }).on("mousemove", function (event) { charts._tip.show(event, [row.run,
-            "step " + m.at + " of " + row.steps, m.say]); })
-            .on("mouseleave", function () { charts._tip.hide(); });
+        // the run: its length, on the scale every other run shares
+        svg.append("rect").attr("class", "st-run").attr("data-steps", row.steps)
+          .attr("x", x(0)).attr("y", cy - 2)
+          .attr("width", Math.max(1, x(row.steps) - x(0))).attr("height", 4)
+          .attr("rx", 2).attr("fill", row.clean ? "var(--rule)" : "var(--rule-2, var(--rule))");
+        // its own halfway point — the lede counts marks past it, so the
+        // chart shows where it is on every run rather than asserting it
+        if (!row.clean && row.steps) {
+          svg.append("line").attr("class", "st-half")
+            .attr("x1", x(row.steps / 2)).attr("x2", x(row.steps / 2))
+            .attr("y1", cy - 5).attr("y2", cy + 5)
+            .attr("stroke", "var(--ink-3)").attr("stroke-width", 1);
         }
-        mark.on("click", function () {
-          try { charts && charts.selectStep && charts.selectStep(ctx.report, "a", m.at); } catch (e) { /* batch page */ }
+
+        row.marks.forEach(function (m) {
+          var label = human(row.task) + " · " + row.agent + ", step " + m.at + ": " + m.say;
+          var mark = svg.append("rect").attr("class", "st-mark")
+            .attr("x", x(Math.min(m.at, row.steps)) - 1.75).attr("y", cy - 6.5)
+            .attr("width", 3.5).attr("height", 13).attr("rx", 1.75)
+            .attr("fill", color[m.kind] || "var(--ink-3)")
+            .attr("tabindex", 0)
+            .attr("aria-label", label);
+          var lines = [human(row.task) + " · " + row.agent, "step " + m.at + " of " + row.steps + " (" +
+                       Math.round(100 * m.at / Math.max(1, row.steps)) + "% through)", m.say];
+          if (charts && charts._tip) {
+            mark.on("mouseenter", function (event) { charts._tip.show(event, lines); })
+              .on("mousemove", function (event) { charts._tip.show(event, lines); })
+              .on("mouseleave", function () { charts._tip.hide(); })
+              .on("focus", function (event) { charts._tip.show(event, lines); })
+              .on("blur", function () { charts._tip.hide(); });
+          }
+          mark.on("click", function () {
+            try { charts && charts.selectStep && charts.selectStep(ctx.report, "a", m.at); } catch (e) { /* batch page */ }
+          });
         });
+        y += ROW;
       });
     });
     return svg;

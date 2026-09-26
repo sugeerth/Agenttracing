@@ -5,6 +5,66 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The front door: a corpus page opens on the corpus
+
+The page was built around one pair, and a batch of thirty-two runs
+inherited that without anyone deciding it. The heading was the first
+task's prompt, the lead line was *"Both solved L01_service_migration"*,
+and the hero was that pair's trajectory map. The corpus-level blocks —
+the dashboard, the strips, the matrix — were all below the fold. A reader
+who stopped after the first screen left with a story about one task.
+
+**On the batch view of a corpus, everything above the fold is now about
+the corpus.** Nothing changed where a pair is the subject: the story and
+evidence views still open on the pair's verdict and its map.
+
+- **The heading** names the corpus — *32 runs · 16 tasks · 2 agents —
+  drift-lh vs summit-lh* — instead of one task's prompt.
+- **The lead is a corpus verdict** (`web/blocks/04_corpus.js`) in the
+  pair verdict's own grammar: Verdict (each agent's failures out of its
+  runs), Where (the costliest issue, quoted), Seen (what the card caught,
+  and none of 20 correct runs flagged), Fix (the first recommendation and
+  its ceiling), Confidence. Every line names the field it came from. The
+  pair verdict steps aside on that view only.
+- **The confidence line says what corpus dashboards leave out.** At
+  sixteen tasks a task is six points, and on this suite the two agents'
+  success intervals overlap — drift-lh 44–86%, summit-lh 81–100% — so the
+  line reads *"the difference between the agents is suggestive, not
+  shown."* That is the correct reading of 11/16 against 16/16, and a
+  dashboard that printed the two point estimates side by side would imply
+  the opposite.
+- **The hero is the strip chart**, grouped by agent: *drift-lh — 10 of
+  16 runs marked*, *summit-lh — all 16 runs clean*. The contrast is
+  readable before any text is.
+
+**The top bar fits on one line.** Eleven view tabs and five buttons were
+~1,460px of fixed content, so at 1440 and 1280 "You" wrapped to a second
+line, which then sat over the task strip as the page scrolled. Three of
+those tabs — Training, Evolution, Evals — lead to views whose emptiness
+is a fact about the data: a batch with no lineage cannot fill them. Those
+tabs are now hidden when there is nothing behind them. Not removed: a
+deep link still opens the view and shows its tab selected, and the eight
+tabs that are lenses on whatever is there always show. Arrow keys move
+through the shown tabs and never land on a hidden one.
+
+**`#view=…` now navigates after load.** It was read once, at startup, so
+"one URL away" was only true with a reload. Found while writing the test
+for the above: the first version of that test set the hash, visited
+nothing, and would have passed.
+
+**Two rendering bugs, one cause.** SVG text given a CSS `font` shorthand
+ending in `inherit` drops the whole declaration — `inherit` is not a
+family inside a shorthand — and falls back to 16px. The strip chart's row
+labels rendered at 16px against a label column sized for 12px, and were
+clipped off the left edge. SVG text now takes explicit `font-size` and
+`font-weight`, and the label column is *measured* from the rendered text
+rather than estimated per character. The same shorthand was in the
+progress block's flag chips.
+
+Seven new browser tests pin the front door; three existing ones were
+updated because they encoded the old one — including the keyboard test
+that walked all eleven tabs on a page where two are now empty.
+
 ## Two charts that say what a table could not
 
 Both exist for the same reason: a count throws away the one thing that

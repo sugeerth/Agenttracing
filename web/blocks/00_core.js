@@ -33,8 +33,21 @@
   var DEFAULT_HERO = "trajectory-map";
   //: the story opens on the two runs over time; the evidence view on the map
   var STORY_HERO = "trace-body";
+  //: the batch view of a corpus opens on the corpus. Every other hero is a
+  //: picture of one pair, and a page of thirty-two runs that opens on one
+  //: of them has put its front door in the wrong room: the reader's first
+  //: question about a corpus is where in it the trouble is, and a single
+  //: pair cannot answer that however well it is drawn.
+  var CORPUS_HERO = "evidence-strip";
+  function hasCorpus() {
+    var sc = State.data && State.data.aggregate && State.data.aggregate.scorecard;
+    return !!(sc && sc.per_run && sc.per_run.length > 1);
+  }
   function defaultHeroId() {
-    return State.prefs && State.prefs.view === "story" && BY_ID[STORY_HERO] ? STORY_HERO : DEFAULT_HERO;
+    var view = State.prefs && State.prefs.view;
+    if (view === "story" && BY_ID[STORY_HERO]) return STORY_HERO;
+    if (view === "batch" && BY_ID[CORPUS_HERO] && hasCorpus()) return CORPUS_HERO;
+    return DEFAULT_HERO;
   }
 
   //: Story mode: after the hero, these blocks follow at full width in this
@@ -719,8 +732,9 @@
     var stored = State.layout.hero;
     if (stored === null) return null;
 
-    // a stored default (either view's) is not a choice: the view decides
-    var wanted = stored && BY_ID[stored.id] && stored.id !== DEFAULT_HERO && stored.id !== STORY_HERO ? stored : null;
+    // a stored default (any view's) is not a choice: the view decides
+    var wanted = stored && BY_ID[stored.id] && stored.id !== DEFAULT_HERO && stored.id !== STORY_HERO
+                 && stored.id !== CORPUS_HERO ? stored : null;
     var source = wanted ? "chosen" : "default";
     if (!wanted && BY_ID[defaultHeroId()]) wanted = { id: defaultHeroId(), collapsed: !!(stored && stored.collapsed) };
     if (wanted && safeRelevance(BY_ID[wanted.id], ctx) > 0) {
@@ -894,6 +908,10 @@
       reports: State.data.reports || [],
       aggregate: State.data.aggregate || {},
       task: State.task,
+      // which view is drawing. A block that means something different on a
+      // corpus page than on one pair — the lead verdict, above all — has to
+      // be able to tell which it is on
+      view: State.prefs && State.prefs.view,
       selectTask: selectTask,
       signal: function () {},   // replaced per block in renderBlock
       explain: function (el, def) { return Explain.attach(el, def); },
@@ -1061,13 +1079,44 @@
   /* The story lane: Story mode's ordered sequence after the hero. Each
    * block keeps its ordinary controls (collapse, star, remove) and its
    * collapse state persists in the layout under `story`. */
+  //: views whose emptiness is a fact about the data rather than a choice of
+  //: lens: a batch with no lineage has no training ground, no evolution and
+  //: no co-evolving eval. The other views are ways of reading whatever is
+  //: there, and always apply.
+  var DATA_VIEWS = ["training", "evolution", "coevolution"];
+
+  /* Whether a view has anything to draw for the data on this page. */
+  function viewHasContent(view) {
+    var groups = VIEW_GROUPS[view] || [];
+    if (!groups.length) return true;
+    var ctx = makeCtx();
+    return REGISTRY.some(function (entry) {
+      return groups.indexOf(entry.group) >= 0 && safeRelevance(entry, ctx) > 0;
+    });
+  }
+
+  /* The views a reader can reach from here: every lens, and the
+   * data-gated views that have something in them — plus whichever view the
+   * reader is on, so a deep link to an empty one still shows where it is. */
+  function reachableViews() {
+    return VIEWS.filter(function (view) {
+      return DATA_VIEWS.indexOf(view) < 0 || view === State.prefs.view || viewHasContent(view);
+    });
+  }
+
   function syncTabs() {
     if (!els.tabs) return;
+    var reachable = reachableViews();
     var tabs = els.tabs.querySelectorAll("[role=tab]");
     for (var i = 0; i < tabs.length; i++) {
-      var on = tabs[i].getAttribute("data-view") === State.prefs.view;
+      var view = tabs[i].getAttribute("data-view");
+      var on = view === State.prefs.view;
       tabs[i].setAttribute("aria-selected", on ? "true" : "false");
       tabs[i].tabIndex = on ? 0 : -1;
+      // a tab to an empty view is a door to an empty room: eleven tabs do
+      // not fit a laptop's top bar, and three of them led nowhere on most
+      // pages. Hidden, not removed — the view is still one URL away
+      tabs[i].hidden = reachable.indexOf(view) < 0;
     }
   }
 
@@ -1221,6 +1270,20 @@
   function renderTitle(ctx) {
     var host = els.title;
     if (!host) return;
+    // on the batch view of a corpus the heading is the corpus: one task's
+    // prompt above thirty-two runs names the wrong subject, and the heading
+    // is the one line every reader reads
+    var sc = ctx.aggregate && ctx.aggregate.scorecard;
+    if (ctx.view === "batch" && sc && (sc.per_run || []).length > 1) {
+      var agents = Object.keys(sc.agents || {});
+      var tasks = {};
+      sc.per_run.forEach(function (r) { tasks[r.task] = 1; });
+      host.textContent = sc.per_run.length + " runs · " + Object.keys(tasks).length + " tasks · " +
+        agents.length + " agent" + (agents.length === 1 ? "" : "s") +
+        (agents.length && agents.length <= 4 ? " — " + agents.join(" vs ") : "");
+      host.hidden = false;
+      return;
+    }
     var task = ctx.report && ctx.report.task;
     var prompt = task && (task.prompt || task.id);
     host.textContent = prompt ? String(prompt) : "AgentDiff report";
@@ -2341,6 +2404,17 @@
         if (els.help.classList.contains("open")) closePanels(); else openPanel(els.help);
       });
     }
+    // the URL keeps working after load: a reader who edits `#view=…` in the
+    // address bar, or follows an in-page link to one, is taken there. The
+    // load-time read alone meant a view hidden from the tabs was "one URL
+    // away" only if you also reloaded, which is not what that phrase means
+    try {
+      global.addEventListener("hashchange", function () {
+        var m = /(?:^|[#&])view=([a-z]+)\b/.exec(global.location.hash || "");
+        if (m && VIEWS.indexOf(m[1]) >= 0) setView(m[1]);
+      });
+    } catch (err) { /* no window: the tabs still work */ }
+
     if (els.tabs) {
       var tabButtons = els.tabs.querySelectorAll("[role=tab]");
       for (var t = 0; t < tabButtons.length; t++) {
@@ -2350,8 +2424,10 @@
       }
       els.tabs.addEventListener("keydown", function (event) {
         if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-        var i = VIEWS.indexOf(State.prefs.view);
-        var next = VIEWS[(i + (event.key === "ArrowRight" ? 1 : VIEWS.length - 1)) % VIEWS.length];
+        // arrows move through the tabs that are shown, never onto a hidden one
+        var order = reachableViews();
+        var i = order.indexOf(State.prefs.view);
+        var next = order[(i + (event.key === "ArrowRight" ? 1 : order.length - 1)) % order.length];
         setView(next);
         var active = els.tabs.querySelector('[data-view="' + next + '"]');
         if (active) active.focus();
@@ -2618,7 +2694,7 @@
       blockEntry: function (id) { return BY_ID[id] || null; },
       rank: rank, reconcile: reconcile, defaultLayout: defaultLayout,
       resolveHero: resolveHero, promoteHero: promoteHero, demoteHero: demoteHero,
-      DEFAULT_HERO: DEFAULT_HERO,
+      DEFAULT_HERO: DEFAULT_HERO, CORPUS_HERO: CORPUS_HERO, hasCorpus: hasCorpus, reachableViews: reachableViews,
       State: State, REGISTRY: REGISTRY, BY_ID: BY_ID, fmt: fmt, uuid: uuid,
       decay: decay, Store: Store, STACK_PLAN: STACK_PLAN,
       TERMS: TERMS, Explain: Explain, renderAll: renderAll, panelsState: panelsState,

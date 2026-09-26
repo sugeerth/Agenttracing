@@ -51,7 +51,7 @@
       ".pg-v.regressed,.pg-v.gamed,.pg-v.forgot{color:var(--bad)}",
       ".pg-v.traded{color:var(--warn)}.pg-v.flat{color:var(--ink-3)}",
       ".pg-flag{display:inline-block;margin:4px 4px 0 0;padding:0 7px;border-radius:999px;",
-      "border:1px solid var(--rule);background:var(--surface-2);font:600 var(--fs-xs)/18px inherit;",
+      "border:1px solid var(--rule);background:var(--surface-2);font-size:var(--fs-xs);font-weight:600;line-height:18px;",
       "color:var(--warn)}",
       ".pg-prov{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.5;margin:4px 0 0}",
       ".pg-prov code{font-family:ui-monospace,monospace}",

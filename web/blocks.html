@@ -89,7 +89,7 @@ button { font: inherit; color: inherit; }
   position: sticky; top: 0; z-index: 65;
   /* Wraps rather than pushing its right-hand buttons off a narrow screen —
      an unreachable control is worse than a two-line bar. */
-  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 10px 18px;
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(8px);
@@ -113,10 +113,11 @@ button { font: inherit; color: inherit; }
 .seg { display: inline-flex; border: 1px solid var(--rule-2); border-radius: 8px; overflow: hidden;
   background: var(--surface); }
 .seg .tab { border: 0; background: transparent; color: var(--ink-2); font: 600 var(--fs-s)/26px inherit;
-  padding: 0 12px; cursor: pointer; position: relative; }
+  padding: 0 9px; cursor: pointer; position: relative; }
 .seg .tab + .tab { border-left: 1px solid var(--rule); }
 .seg .tab[aria-selected="true"] { color: var(--ink); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); box-shadow: inset 0 -2px 0 var(--accent); }
 .seg .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.seg .tab[hidden] { display: none; }
 .tstrip-nav { flex: 0 0 auto; border: 1px solid var(--rule); background: var(--surface); color: var(--ink-2);
   border-radius: 999px; width: 28px; height: 28px; font: 600 var(--fs-l)/26px inherit; cursor: pointer; }
 .tstrip-nav:hover { border-color: var(--accent); color: var(--ink); }
@@ -147,6 +148,9 @@ select.picker {
   .stacks[data-cols="3"], .stacks[data-cols="4"] { grid-template-columns: repeat(2, minmax(0,1fr)); }
 }
 @media (max-width: 780px)  { .stacks { grid-template-columns: minmax(0,1fr) !important; } }
+@media (max-width: 1279px) {
+  .seg .tab { padding: 0 7px; }
+}
 @media (max-width: 640px) {
   .topbar { gap: 8px; padding: 8px 10px; }
   .brand span { display: none; }
@@ -817,8 +821,21 @@ THIS SOFTWARE.
   var DEFAULT_HERO = "trajectory-map";
   //: the story opens on the two runs over time; the evidence view on the map
   var STORY_HERO = "trace-body";
+  //: the batch view of a corpus opens on the corpus. Every other hero is a
+  //: picture of one pair, and a page of thirty-two runs that opens on one
+  //: of them has put its front door in the wrong room: the reader's first
+  //: question about a corpus is where in it the trouble is, and a single
+  //: pair cannot answer that however well it is drawn.
+  var CORPUS_HERO = "evidence-strip";
+  function hasCorpus() {
+    var sc = State.data && State.data.aggregate && State.data.aggregate.scorecard;
+    return !!(sc && sc.per_run && sc.per_run.length > 1);
+  }
   function defaultHeroId() {
-    return State.prefs && State.prefs.view === "story" && BY_ID[STORY_HERO] ? STORY_HERO : DEFAULT_HERO;
+    var view = State.prefs && State.prefs.view;
+    if (view === "story" && BY_ID[STORY_HERO]) return STORY_HERO;
+    if (view === "batch" && BY_ID[CORPUS_HERO] && hasCorpus()) return CORPUS_HERO;
+    return DEFAULT_HERO;
   }
 
   //: Story mode: after the hero, these blocks follow at full width in this
@@ -1503,8 +1520,9 @@ THIS SOFTWARE.
     var stored = State.layout.hero;
     if (stored === null) return null;
 
-    // a stored default (either view's) is not a choice: the view decides
-    var wanted = stored && BY_ID[stored.id] && stored.id !== DEFAULT_HERO && stored.id !== STORY_HERO ? stored : null;
+    // a stored default (any view's) is not a choice: the view decides
+    var wanted = stored && BY_ID[stored.id] && stored.id !== DEFAULT_HERO && stored.id !== STORY_HERO
+                 && stored.id !== CORPUS_HERO ? stored : null;
     var source = wanted ? "chosen" : "default";
     if (!wanted && BY_ID[defaultHeroId()]) wanted = { id: defaultHeroId(), collapsed: !!(stored && stored.collapsed) };
     if (wanted && safeRelevance(BY_ID[wanted.id], ctx) > 0) {
@@ -1678,6 +1696,10 @@ THIS SOFTWARE.
       reports: State.data.reports || [],
       aggregate: State.data.aggregate || {},
       task: State.task,
+      // which view is drawing. A block that means something different on a
+      // corpus page than on one pair — the lead verdict, above all — has to
+      // be able to tell which it is on
+      view: State.prefs && State.prefs.view,
       selectTask: selectTask,
       signal: function () {},   // replaced per block in renderBlock
       explain: function (el, def) { return Explain.attach(el, def); },
@@ -1845,13 +1867,44 @@ THIS SOFTWARE.
   /* The story lane: Story mode's ordered sequence after the hero. Each
    * block keeps its ordinary controls (collapse, star, remove) and its
    * collapse state persists in the layout under `story`. */
+  //: views whose emptiness is a fact about the data rather than a choice of
+  //: lens: a batch with no lineage has no training ground, no evolution and
+  //: no co-evolving eval. The other views are ways of reading whatever is
+  //: there, and always apply.
+  var DATA_VIEWS = ["training", "evolution", "coevolution"];
+
+  /* Whether a view has anything to draw for the data on this page. */
+  function viewHasContent(view) {
+    var groups = VIEW_GROUPS[view] || [];
+    if (!groups.length) return true;
+    var ctx = makeCtx();
+    return REGISTRY.some(function (entry) {
+      return groups.indexOf(entry.group) >= 0 && safeRelevance(entry, ctx) > 0;
+    });
+  }
+
+  /* The views a reader can reach from here: every lens, and the
+   * data-gated views that have something in them — plus whichever view the
+   * reader is on, so a deep link to an empty one still shows where it is. */
+  function reachableViews() {
+    return VIEWS.filter(function (view) {
+      return DATA_VIEWS.indexOf(view) < 0 || view === State.prefs.view || viewHasContent(view);
+    });
+  }
+
   function syncTabs() {
     if (!els.tabs) return;
+    var reachable = reachableViews();
     var tabs = els.tabs.querySelectorAll("[role=tab]");
     for (var i = 0; i < tabs.length; i++) {
-      var on = tabs[i].getAttribute("data-view") === State.prefs.view;
+      var view = tabs[i].getAttribute("data-view");
+      var on = view === State.prefs.view;
       tabs[i].setAttribute("aria-selected", on ? "true" : "false");
       tabs[i].tabIndex = on ? 0 : -1;
+      // a tab to an empty view is a door to an empty room: eleven tabs do
+      // not fit a laptop's top bar, and three of them led nowhere on most
+      // pages. Hidden, not removed — the view is still one URL away
+      tabs[i].hidden = reachable.indexOf(view) < 0;
     }
   }
 
@@ -2005,6 +2058,20 @@ THIS SOFTWARE.
   function renderTitle(ctx) {
     var host = els.title;
     if (!host) return;
+    // on the batch view of a corpus the heading is the corpus: one task's
+    // prompt above thirty-two runs names the wrong subject, and the heading
+    // is the one line every reader reads
+    var sc = ctx.aggregate && ctx.aggregate.scorecard;
+    if (ctx.view === "batch" && sc && (sc.per_run || []).length > 1) {
+      var agents = Object.keys(sc.agents || {});
+      var tasks = {};
+      sc.per_run.forEach(function (r) { tasks[r.task] = 1; });
+      host.textContent = sc.per_run.length + " runs · " + Object.keys(tasks).length + " tasks · " +
+        agents.length + " agent" + (agents.length === 1 ? "" : "s") +
+        (agents.length && agents.length <= 4 ? " — " + agents.join(" vs ") : "");
+      host.hidden = false;
+      return;
+    }
     var task = ctx.report && ctx.report.task;
     var prompt = task && (task.prompt || task.id);
     host.textContent = prompt ? String(prompt) : "AgentDiff report";
@@ -3125,6 +3192,17 @@ THIS SOFTWARE.
         if (els.help.classList.contains("open")) closePanels(); else openPanel(els.help);
       });
     }
+    // the URL keeps working after load: a reader who edits `#view=…` in the
+    // address bar, or follows an in-page link to one, is taken there. The
+    // load-time read alone meant a view hidden from the tabs was "one URL
+    // away" only if you also reloaded, which is not what that phrase means
+    try {
+      global.addEventListener("hashchange", function () {
+        var m = /(?:^|[#&])view=([a-z]+)\b/.exec(global.location.hash || "");
+        if (m && VIEWS.indexOf(m[1]) >= 0) setView(m[1]);
+      });
+    } catch (err) { /* no window: the tabs still work */ }
+
     if (els.tabs) {
       var tabButtons = els.tabs.querySelectorAll("[role=tab]");
       for (var t = 0; t < tabButtons.length; t++) {
@@ -3134,8 +3212,10 @@ THIS SOFTWARE.
       }
       els.tabs.addEventListener("keydown", function (event) {
         if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-        var i = VIEWS.indexOf(State.prefs.view);
-        var next = VIEWS[(i + (event.key === "ArrowRight" ? 1 : VIEWS.length - 1)) % VIEWS.length];
+        // arrows move through the tabs that are shown, never onto a hidden one
+        var order = reachableViews();
+        var i = order.indexOf(State.prefs.view);
+        var next = order[(i + (event.key === "ArrowRight" ? 1 : order.length - 1)) % order.length];
         setView(next);
         var active = els.tabs.querySelector('[data-view="' + next + '"]');
         if (active) active.focus();
@@ -3402,7 +3482,7 @@ THIS SOFTWARE.
       blockEntry: function (id) { return BY_ID[id] || null; },
       rank: rank, reconcile: reconcile, defaultLayout: defaultLayout,
       resolveHero: resolveHero, promoteHero: promoteHero, demoteHero: demoteHero,
-      DEFAULT_HERO: DEFAULT_HERO,
+      DEFAULT_HERO: DEFAULT_HERO, CORPUS_HERO: CORPUS_HERO, hasCorpus: hasCorpus, reachableViews: reachableViews,
       State: State, REGISTRY: REGISTRY, BY_ID: BY_ID, fmt: fmt, uuid: uuid,
       decay: decay, Store: Store, STACK_PLAN: STACK_PLAN,
       TERMS: TERMS, Explain: Explain, renderAll: renderAll, panelsState: panelsState,
@@ -7748,7 +7828,7 @@ THIS SOFTWARE.
       ".pg-v.regressed,.pg-v.gamed,.pg-v.forgot{color:var(--bad)}",
       ".pg-v.traded{color:var(--warn)}.pg-v.flat{color:var(--ink-3)}",
       ".pg-flag{display:inline-block;margin:4px 4px 0 0;padding:0 7px;border-radius:999px;",
-      "border:1px solid var(--rule);background:var(--surface-2);font:600 var(--fs-xs)/18px inherit;",
+      "border:1px solid var(--rule);background:var(--surface-2);font-size:var(--fs-xs);font-weight:600;line-height:18px;",
       "color:var(--warn)}",
       ".pg-prov{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.5;margin:4px 0 0}",
       ".pg-prov code{font-family:ui-monospace,monospace}",
@@ -7874,6 +7954,175 @@ THIS SOFTWARE.
     relevance: function (ctx) {
       var ev = ctx.aggregate && ctx.aggregate.evolution;
       return ev && ev.measurable && (ev.steps || []).length ? 0.98 : 0;
+    },
+    render: render,
+  });
+})(typeof window !== "undefined" ? window : this);
+
+</script>
+<!-- 04_corpus.js -->
+<script>
+/* AgentDiff blocks — the corpus verdict: the page's opening sentence, for a corpus.
+ *
+ * The pair verdict card is the best thing on this page — five lines,
+ * each quoted from the engine with its source named underneath — and on
+ * a page of one pair it is exactly the right opening. On a page of thirty
+ * -two runs it is the wrong one: it leads with a single task ("Both solved
+ * L01_service_migration") above a corpus whose real news is somewhere
+ * else, and a reader who stops after the first sentence leaves with the
+ * wrong story.
+ *
+ * So the batch view of a corpus opens with the same grammar applied to
+ * the corpus: who did how well, where the trouble is, what the card can
+ * and cannot see, what to change, and how far to trust any of it. Five
+ * lines, every one quoted from a field the engine computed, the field
+ * named underneath. The block composes the arrangement and nothing else.
+ *
+ * The confidence line is the one that matters most and the one a corpus
+ * dashboard usually leaves out. Sixteen tasks is a small sample: a
+ * difference of one task is six points, and two agents whose intervals
+ * overlap have not been shown to differ however far apart their point
+ * estimates look. This line says so in those words, from the Wilson
+ * intervals the scorecard already computed.
+ */
+(function (global) {
+  "use strict";
+
+  var AgentDiff = global.AgentDiff;
+  if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
+  var STYLE_ID = "agentdiff-corpus-verdict-css";
+
+  function ensureStyle() {
+    // the pair verdict's grammar, so the two read as one voice
+    L.style.once(STYLE_ID, [
+      ".cv{display:grid;grid-template-columns:max-content 1fr;gap:8px 16px;",
+      "font-size:var(--fs-m);line-height:1.5;color:var(--ink)}",
+      ".cv .k{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.09em;",
+      "font-weight:700;color:var(--ink-3);padding-top:4px}",
+      ".cv .v{margin:0}",
+      ".cv .v.verdict{font-size:var(--fs-l);font-weight:600;line-height:1.35}",
+      ".cv .v.where{border-left:3px solid var(--bad);padding-left:9px}",
+      ".cv .v.confidence{color:var(--ink-2);font-size:var(--fs-s)}",
+      ".cv-src{display:block;font-size:var(--fs-xs);color:var(--ink-3);margin-top:1px}",
+      ".cv-src code{font-family:ui-monospace,monospace}",
+      ".cv-agent{white-space:nowrap}",
+      ".cv-agent i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;",
+      "vertical-align:1px}",
+      ".cv b.bad{color:var(--bad)}.cv b.good{color:var(--good)}",
+    ].join(""));
+  }
+
+  function pct(r) { return Math.round((r || 0) * 100) + "%"; }
+
+  function corpusOf(ctx) {
+    var sc = ctx.aggregate && ctx.aggregate.scorecard;
+    return sc && (sc.per_run || []).length > 1 ? sc : null;
+  }
+
+  function line(H, key, label, kids, source) {
+    return [
+      H("div", { class: "k", text: label }),
+      H("p", { class: "v " + key, role: "listitem", "data-line": key }, kids.concat(
+        source ? [H("span", { class: "cv-src" }, [H("span", { text: "from " }), H("code", { text: source })])] : [])),
+    ];
+  }
+
+  function render(el, ctx) {
+    ensureStyle();
+    var H = ctx.h;
+    var agg = ctx.aggregate || {};
+    var sc = corpusOf(ctx);
+    if (!sc) return ctx.empty(el, "Not a corpus: this page carries a single pair.");
+    var agents = Object.keys(sc.agents || {}).sort();
+    var grid = H("div", { class: "cv", role: "list" });
+    var rows = [];
+
+    // 1 — the verdict: each agent, its successes out of its runs
+    var verdict = [];
+    agents.forEach(function (name, i) {
+      var s = (sc.agents[name].rates || {}).success || {};
+      var failed = (s.runs || 0) - (s.successes || 0);
+      if (i) verdict.push(H("span", { text: "; " }));
+      verdict.push(H("span", { class: "cv-agent" }, [
+        // the page's own agent colours, so the swatch here is the stroke
+        // of that agent's strip in the chart below it
+        H("i", { style: { background: i === 0 ? "var(--a)" : i === 1 ? "var(--b)" : "var(--ink-3)" } }),
+        H("span", { text: name + " " }),
+      ]));
+      verdict.push(H("b", { class: failed ? "bad" : "good",
+        text: failed ? "failed " + failed + " of " + s.runs : "failed none of " + s.runs }));
+    });
+    verdict.push(H("span", { text: "." }));
+    rows.push(line(H, "verdict", "Verdict", verdict, "scorecard.agents[].rates.success"));
+
+    // 2 — where: the costliest problem the pair analysis found, quoted
+    var issues = (agg.issues && agg.issues.issues) || [];
+    var worst = issues.filter(function (i) { return !i.suppressed; })[0];
+    if (worst) {
+      rows.push(line(H, "where", "Where", [H("span", { text: worst.summary })], "issues.issues[0].summary"));
+    }
+
+    // 3 — what the card can see: the known failures, and the controls
+    var det = sc.detection || {};
+    if (det.measurable) {
+      var c = det.controls || {};
+      rows.push(line(H, "seen", "Seen", [
+        H("b", { class: det.caught === det.total ? "good" : "bad", text: det.caught + " of " + det.total }),
+        H("span", { text: " known failures caught; " }),
+        H("b", { class: c.flagged ? "bad" : "good", text: (c.flagged || "none") + " of " + c.runs }),
+        H("span", { text: " runs known to be correct flagged. " + (det.graded_pass || 0) +
+          " of the failures were graded a pass — the grade alone would have missed them." }),
+      ], "scorecard.detection"));
+    }
+
+    // 4 — fix: the first recommendation and what it is worth
+    var rec = (agg.recommendations || [])[0];
+    if (rec) {
+      var fix = [H("span", { text: (rec.agent ? rec.agent + ": " : "") +
+        String(rec.category || "").replace(/_/g, " ") }), H("span", { text: " — " })];
+      if (rec.expected_gain) fix.push(H("b", { text: rec.expected_gain }));
+      fix.push(H("span", { text: ", a ceiling measured on the runs that suggested it." }));
+      rows.push(line(H, "fix", "Fix", fix, "recommendations[0]"));
+    }
+
+    // 5 — confidence: sample size and whether the intervals overlap
+    var sizes = agents.map(function (n) { return ((sc.agents[n].rates || {}).success || {}).runs || 0; });
+    var smallest = Math.min.apply(null, sizes);
+    var cis = agents.map(function (n) { return ((sc.agents[n].rates || {}).success || {}).ci95 || null; });
+    var overlap = null;
+    if (cis.length === 2 && cis[0] && cis[1]) {
+      overlap = cis[0][0] <= cis[1][1] && cis[1][0] <= cis[0][1];
+    }
+    var conf = smallest ? Math.round(100 / smallest) + " points per task at " + smallest +
+      " task(s) per agent" : "no graded runs";
+    var said = "sample: " + conf + ". ";
+    if (overlap === true) {
+      said += "The two success intervals overlap (" + agents.map(function (n, i) {
+        return n + " " + pct(cis[i][0]) + "–" + pct(cis[i][1]); }).join(", ") +
+        "), so the difference between the agents is suggestive, not shown.";
+    } else if (overlap === false) {
+      said += "The two success intervals do not overlap (" + agents.map(function (n, i) {
+        return n + " " + pct(cis[i][0]) + "–" + pct(cis[i][1]); }).join(", ") +
+        "): on this sample the difference is real.";
+    }
+    rows.push(line(H, "confidence", "Confidence", [H("span", { text: said })],
+                   "scorecard.agents[].rates.success.ci95"));
+
+    rows.forEach(function (pair) { grid.appendChild(pair[0]); grid.appendChild(pair[1]); });
+    el.appendChild(grid);
+  }
+
+  AgentDiff.block({
+    id: "corpus-verdict",
+    title: "Verdict",
+    question: "How did each agent do across the corpus, where is the trouble, and how far can we trust it?",
+    group: "outcome",
+    size: "wide",
+    lead: true,
+    relevance: function (ctx) {
+      // the corpus's opening sentence, on the corpus's view
+      return ctx.view === "batch" && corpusOf(ctx) ? 1 : 0;
     },
     render: render,
   });
@@ -8111,9 +8360,14 @@ THIS SOFTWARE.
       ".st-key i.bad{background:var(--bad)}.st-key i.warn{background:var(--warn)}",
       ".st-key i.mid{background:var(--accent)}.st-key i.run{background:var(--rule)}",
       ".st-wrap{overflow-x:auto}",
-      ".st-row-label{font:600 var(--fs-xs)/1 inherit;fill:var(--ink-2)}",
+      // SVG text takes explicit properties: `inherit` is not a family inside
+      // the `font` shorthand, so a shorthand here is dropped whole and the
+      // text falls back to 16px
+      ".st-row-label{font-size:var(--fs-xs);font-weight:500;fill:var(--ink-2)}",
+      ".st-agent{font-size:var(--fs-s);font-weight:700;fill:var(--ink)}",
+      ".st-agent-sub{font-size:var(--fs-xs);fill:var(--ink-3)}",
       ".st-row-label.clean{fill:var(--ink-3)}",
-      ".st-axis{font:var(--fs-xs)/1 inherit;fill:var(--ink-3)}",
+      ".st-axis{font-size:var(--fs-xs);fill:var(--ink-3);font-variant-numeric:tabular-nums}",
       ".st-note{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.5;margin:0}",
       ".st-mark{cursor:pointer}",
       ".st-mark:focus-visible{outline:2px solid var(--accent);outline-offset:1px}",
@@ -8164,62 +8418,121 @@ THIS SOFTWARE.
 
   /* ---------------------------------------------------------------- view */
 
+  function human(task) {
+    // "L03_data_backfill" → "L03 data backfill": the id, readable
+    return String(task || "").replace(/_/g, " ");
+  }
+
   function draw(host, rows, ctx) {
     var d3 = global.d3;
     var charts = AgentDiff.charts;
-    var H = ctx.h;
-    var ROW = 15, PAD_L = 186, PAD_R = 14, PAD_T = 22, PAD_B = 22;
+    var ROW = 16, HEAD = 24, PAD_R = 16, PAD_T = 24, PAD_B = 10;
     var measured = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0;
-    var width = Math.max(560, Math.min(1120, measured || 720));
-    var height = PAD_T + rows.length * ROW + PAD_B;
+    var width = Math.max(560, Math.min(1180, measured || 760));
+
+    // rows grouped under their agent: the agent is said once, as a heading,
+    // and each row is labelled by its task — half the width of "task ·
+    // agent" on every line, and the grouping is the comparison a reader
+    // is making anyway
+    var groups = [];
+    rows.forEach(function (r) {
+      var g = groups[groups.length - 1];
+      if (!g || g.agent !== r.agent) groups.push(g = { agent: r.agent, rows: [] });
+      g.rows.push(r);
+    });
+    // the label column is as wide as the widest label actually renders — an
+    // estimate per character was how the first version clipped them
+    var probe = d3.select(host).append("svg").attr("width", 0).attr("height", 0)
+      .style("position", "absolute").style("visibility", "hidden");
+    var widest = 0;
+    rows.forEach(function (r) {
+      var t = probe.append("text").attr("class", "st-row-label").text(human(r.task));
+      try { widest = Math.max(widest, t.node().getComputedTextLength()); } catch (e) { widest = 180; }
+    });
+    probe.remove();
+    var PAD_L = Math.max(96, Math.min(280, Math.ceil(widest) + 22));
+    var height = PAD_T + groups.length * HEAD + rows.length * ROW + PAD_B;
     var longest = Math.max(1, d3.max(rows, function (r) { return r.steps; }) || 1);
 
     var svg = d3.select(host).append("svg")
       .attr("width", width).attr("height", height)
       .attr("viewBox", "0 0 " + width + " " + height)
       .attr("role", "img")
-      .attr("aria-label", "One strip per run: steps left to right, marked where each dimension fired.");
+      .attr("aria-label", "One strip per run, grouped by agent: steps left to right on one scale, " +
+            "marked where each dimension fired.");
 
     var x = d3.scaleLinear().domain([0, longest]).range([PAD_L, width - PAD_R]);
 
-    // the axis, read once at the top: steps, not time
-    [0, Math.round(longest / 2), longest].forEach(function (v) {
-      svg.append("text").attr("class", "st-axis").attr("x", x(v))
-        .attr("y", 12).attr("text-anchor", v === 0 ? "start" : v === longest ? "end" : "middle")
-        .text(v === 0 ? "step 0" : String(v));
+    // the scale, once, at the top: steps, not time, shared by every run
+    var ticks = x.ticks(6).filter(function (t) { return t > 0 && t < longest; });
+    ticks.forEach(function (t) {
+      svg.append("line").attr("x1", x(t)).attr("x2", x(t))
+        .attr("y1", PAD_T - 6).attr("y2", height - PAD_B)
+        .attr("stroke", "var(--rule)").attr("stroke-width", 1).attr("stroke-dasharray", "2,4");
+      svg.append("text").attr("class", "st-axis").attr("x", x(t)).attr("y", PAD_T - 10)
+        .attr("text-anchor", "middle").text(String(t));
     });
+    svg.append("text").attr("class", "st-axis").attr("x", x(0)).attr("y", PAD_T - 10)
+      .attr("text-anchor", "start").text("step 0");
 
     var color = { flag: "var(--bad)", unrecovered: "var(--bad)",
                   redundant: "var(--warn)", stalled: "var(--accent)" };
+    var y = PAD_T;
+    groups.forEach(function (group, gi) {
+      var markedInGroup = group.rows.filter(function (r) { return !r.clean; }).length;
+      var headY = y + HEAD - 8;
+      svg.append("rect").attr("x", 0).attr("y", headY - 9).attr("width", 9).attr("height", 9)
+        .attr("rx", 2).attr("fill", gi === 0 ? "var(--a)" : gi === 1 ? "var(--b)" : "var(--ink-3)");
+      svg.append("text").attr("class", "st-agent").attr("x", 15).attr("y", headY)
+        .text(group.agent);
+      svg.append("text").attr("class", "st-agent-sub").attr("x", width - PAD_R).attr("y", headY)
+        .attr("text-anchor", "end")
+        .text(markedInGroup ? markedInGroup + " of " + group.rows.length + " run(s) marked"
+                            : "all " + group.rows.length + " runs clean");
+      y += HEAD;
 
-    rows.forEach(function (row, i) {
-      var y = PAD_T + i * ROW + ROW / 2;
-      svg.append("text").attr("class", "st-row-label" + (row.clean ? " clean" : ""))
-        .attr("x", PAD_L - 8).attr("y", y + 3).attr("text-anchor", "end")
-        .text(row.run.length > 34 ? row.run.slice(0, 33) + "…" : row.run);
+      group.rows.forEach(function (row) {
+        var cy = y + ROW / 2;
+        svg.append("text").attr("class", "st-row-label" + (row.clean ? " clean" : ""))
+          .attr("x", PAD_L - 10).attr("y", cy + 3.5).attr("text-anchor", "end")
+          .text(human(row.task));
 
-      // the run itself: its length, to the same scale as every other run
-      svg.append("rect").attr("x", x(0)).attr("y", y - 2)
-        .attr("width", Math.max(1, x(row.steps) - x(0))).attr("height", 4)
-        .attr("rx", 2).attr("fill", "var(--rule)");
-
-      row.marks.forEach(function (m) {
-        var mark = svg.append("rect").attr("class", "st-mark")
-          .attr("x", x(Math.min(m.at, row.steps)) - 1.5).attr("y", y - 6)
-          .attr("width", 3).attr("height", 12).attr("rx", 1.5)
-          .attr("fill", color[m.kind] || "var(--ink-3)")
-          .attr("tabindex", 0)
-          .attr("aria-label", row.run + ", step " + m.at + ": " + m.say);
-        if (charts && charts._tip) {
-          mark.on("mouseenter", function (event) {
-            charts._tip.show(event, [row.run, "step " + m.at + " of " + row.steps, m.say]);
-          }).on("mousemove", function (event) { charts._tip.show(event, [row.run,
-            "step " + m.at + " of " + row.steps, m.say]); })
-            .on("mouseleave", function () { charts._tip.hide(); });
+        // the run: its length, on the scale every other run shares
+        svg.append("rect").attr("class", "st-run").attr("data-steps", row.steps)
+          .attr("x", x(0)).attr("y", cy - 2)
+          .attr("width", Math.max(1, x(row.steps) - x(0))).attr("height", 4)
+          .attr("rx", 2).attr("fill", row.clean ? "var(--rule)" : "var(--rule-2, var(--rule))");
+        // its own halfway point — the lede counts marks past it, so the
+        // chart shows where it is on every run rather than asserting it
+        if (!row.clean && row.steps) {
+          svg.append("line").attr("class", "st-half")
+            .attr("x1", x(row.steps / 2)).attr("x2", x(row.steps / 2))
+            .attr("y1", cy - 5).attr("y2", cy + 5)
+            .attr("stroke", "var(--ink-3)").attr("stroke-width", 1);
         }
-        mark.on("click", function () {
-          try { charts && charts.selectStep && charts.selectStep(ctx.report, "a", m.at); } catch (e) { /* batch page */ }
+
+        row.marks.forEach(function (m) {
+          var label = human(row.task) + " · " + row.agent + ", step " + m.at + ": " + m.say;
+          var mark = svg.append("rect").attr("class", "st-mark")
+            .attr("x", x(Math.min(m.at, row.steps)) - 1.75).attr("y", cy - 6.5)
+            .attr("width", 3.5).attr("height", 13).attr("rx", 1.75)
+            .attr("fill", color[m.kind] || "var(--ink-3)")
+            .attr("tabindex", 0)
+            .attr("aria-label", label);
+          var lines = [human(row.task) + " · " + row.agent, "step " + m.at + " of " + row.steps + " (" +
+                       Math.round(100 * m.at / Math.max(1, row.steps)) + "% through)", m.say];
+          if (charts && charts._tip) {
+            mark.on("mouseenter", function (event) { charts._tip.show(event, lines); })
+              .on("mousemove", function (event) { charts._tip.show(event, lines); })
+              .on("mouseleave", function () { charts._tip.hide(); })
+              .on("focus", function (event) { charts._tip.show(event, lines); })
+              .on("blur", function () { charts._tip.hide(); });
+          }
+          mark.on("click", function () {
+            try { charts && charts.selectStep && charts.selectStep(ctx.report, "a", m.at); } catch (e) { /* batch page */ }
+          });
         });
+        y += ROW;
       });
     });
     return svg;
@@ -8372,7 +8685,13 @@ THIS SOFTWARE.
     lead: true,
     relevance: function (ctx) {
       var card = ctx.report && ctx.report.verdict_card;
-      return card && Array.isArray(card.lines) && card.lines.length ? 1 : 0;
+      if (!(card && Array.isArray(card.lines) && card.lines.length)) return 0;
+      // on the batch view of a corpus the corpus verdict leads; one pair's
+      // verdict above thirty-two runs is the opening sentence of the wrong
+      // story. The pair keeps its verdict everywhere a pair is the subject.
+      var sc = ctx.aggregate && ctx.aggregate.scorecard;
+      if (ctx.view === "batch" && sc && (sc.per_run || []).length > 1) return 0;
+      return 1;
     },
     render: function (el, ctx) {
       ensureStyle();

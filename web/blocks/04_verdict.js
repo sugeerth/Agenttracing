@@ -75,7 +75,13 @@
     lead: true,
     relevance: function (ctx) {
       var card = ctx.report && ctx.report.verdict_card;
-      return card && Array.isArray(card.lines) && card.lines.length ? 1 : 0;
+      if (!(card && Array.isArray(card.lines) && card.lines.length)) return 0;
+      // on the batch view of a corpus the corpus verdict leads; one pair's
+      // verdict above thirty-two runs is the opening sentence of the wrong
+      // story. The pair keeps its verdict everywhere a pair is the subject.
+      var sc = ctx.aggregate && ctx.aggregate.scorecard;
+      if (ctx.view === "batch" && sc && (sc.per_run || []).length > 1) return 0;
+      return 1;
     },
     render: function (el, ctx) {
       ensureStyle();

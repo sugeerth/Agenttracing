@@ -4191,8 +4191,10 @@ class EvidenceStripTest(unittest.TestCase):
         block = self.block(page)
         # the run bars all start at the same x, and the longest run's bar
         # is the widest — one domain across the chart
-        xs = block.evaluate("""el => Array.from(el.querySelectorAll('svg rect'))
-              .filter(r => r.getAttribute('fill') === 'var(--rule)')
+        # selected by what they are, not by colour: a marked run's bar is
+        # drawn a shade darker, and a test that found bars by their fill
+        # counted only the clean ones
+        xs = block.evaluate("""el => Array.from(el.querySelectorAll('svg rect.st-run'))
               .map(r => [Number(r.getAttribute('x')), Number(r.getAttribute('width'))])""")
         self.assertEqual(len(xs), len(self.card["per_run"]))
         self.assertEqual(len({round(x[0], 2) for x in xs}), 1, "every strip starts at the same x")
@@ -4317,6 +4319,171 @@ class DetectionMatrixTest(EvidenceStripTest):
     test_every_run_is_drawn_to_the_same_scale = None
     test_a_mark_carries_its_run_its_step_and_what_fired = None
     test_the_lede_says_how_many_marks_fall_late = None
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class CorpusFrontDoorTest(unittest.TestCase):
+    """The batch view of a corpus opens on the corpus.
+
+    Before this, a page of thirty-two runs opened on one of them: the
+    heading was one task's prompt, the lead was "Both solved
+    L01_service_migration", and the hero was that pair's trajectory map. A
+    reader who stopped after the first screen left with a story about one
+    task. These tests pin the opposite, and pin that nothing about a single
+    pair changed where a pair is the subject.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        suite = ROOT / "demo" / "horizon" / "suite"
+        golden = ROOT / "demo" / "horizon" / "suite_golden.json"
+        if not suite.is_dir():
+            raise unittest.SkipTest("the long-horizon suite is not generated")
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        done = subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(suite), "-o", str(out),
+                               "--golden", str(golden), "--template", str(ROOT / "web" / "blocks.html")],
+                              cwd=str(ROOT), capture_output=True)
+        if done.returncode != 0 or not (out / "report.html").is_file():
+            raise unittest.SkipTest("batch did not write a page")
+        cls.page_path = out / "report.html"
+        cls.card = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))["scorecard"]
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def open(self, view="batch", width=1440):
+        context = self.browser.new_context(viewport={"width": width, "height": 1000})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"file://{self.page_path}#view={view}")
+        page.wait_for_timeout(1600)
+        return context, page, errors
+
+    def lead(self, page):
+        return page.evaluate("() => Array.from(document.querySelectorAll('#lead-lane .block'))"
+                             ".map(b => b.dataset.block)")
+
+    def test_the_heading_names_the_corpus_not_one_task(self):
+        context, page, errors = self.open()
+        heading = page.locator(".page-title").inner_text()
+        n = len(self.card["per_run"])
+        self.assertIn(f"{n} runs", heading)
+        for agent in self.card["agents"]:
+            self.assertIn(agent, heading)
+        self.assertNotIn("Migrate every package", heading, "one task's prompt is not the corpus")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_corpus_verdict_leads_and_the_pair_verdict_steps_aside(self):
+        context, page, errors = self.open()
+        self.assertEqual(self.lead(page), ["corpus-verdict"])
+        lines = page.evaluate("() => Array.from(document.querySelectorAll('.cv [data-line]'))"
+                              ".map(p => p.dataset.line)")
+        self.assertEqual(lines[:3], ["verdict", "where", "seen"])
+        self.assertEqual(lines[-1], "confidence")
+        # every line names the field it came from
+        for line in lines:
+            src = page.locator(f'.cv [data-line="{line}"] .cv-src').inner_text()
+            self.assertTrue(src.startswith("from "), line)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_verdict_says_each_agent_s_failures_out_of_its_runs(self):
+        context, page, errors = self.open()
+        verdict = page.locator('.cv [data-line="verdict"]').inner_text()
+        for name, agent in self.card["agents"].items():
+            s = agent["rates"]["success"]
+            failed = s["runs"] - s["successes"]
+            said = f"failed {failed} of {s['runs']}" if failed else f"failed none of {s['runs']}"
+            self.assertIn(f"{name} {said}", verdict.replace("\n", " "))
+        context.close()
+
+    def test_the_confidence_line_says_whether_the_intervals_overlap(self):
+        """The line a corpus dashboard usually leaves out. At sixteen tasks
+        a task is six points, and two intervals that overlap have not shown
+        a difference however far apart the point estimates look."""
+        context, page, errors = self.open()
+        text = page.locator('.cv [data-line="confidence"]').inner_text()
+        cis = [a["rates"]["success"]["ci95"] for a in self.card["agents"].values()]
+        overlap = cis[0][0] <= cis[1][1] and cis[1][0] <= cis[0][1]
+        if overlap:
+            self.assertIn("overlap", text)
+            self.assertIn("suggestive, not shown", text)
+        else:
+            self.assertIn("do not overlap", text)
+        self.assertIn("points per task", text)
+        context.close()
+
+    def test_the_hero_is_the_corpus_and_the_story_view_still_opens_on_the_pair(self):
+        context, page, errors = self.open()
+        self.assertEqual(page.locator("#hero-lane .block, .hero-lane .block").first.get_attribute("data-block"),
+                         "evidence-strip")
+        context.close()
+        context, page, errors = self.open(view="story")
+        self.assertNotIn("corpus-verdict", self.lead(page), "a pair's view keeps its pair verdict")
+        self.assertIn("verdict-card", self.lead(page))
+        self.assertIn("Migrate every package", page.locator(".page-title").inner_text())
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_top_bar_is_one_line_at_a_laptop_s_width(self):
+        """Eleven view tabs and five buttons did not fit at 1440px, and the
+        wrapped second line sat over the task strip as the page scrolled.
+        Three of those tabs led to views this page cannot fill."""
+        for width in (1280, 1440):
+            context, page, errors = self.open(width=width)
+            self.assertLess(page.evaluate("() => document.querySelector('.topbar').offsetHeight"), 60, width)
+            context.close()
+
+    def test_a_tab_to_an_empty_view_is_hidden_but_the_view_is_one_url_away(self):
+        context, page, errors = self.open()
+        self.assertTrue(page.locator('.tab[data-view="evolution"]').is_hidden(), "no lineage here")
+        self.assertTrue(page.locator('.tab[data-view="coevolution"]').is_hidden())
+        for lens in ("chat", "levels", "data", "trace", "story", "evidence", "batch", "panels"):
+            self.assertFalse(page.locator(f'.tab[data-view="{lens}"]').is_hidden(), lens)
+        context.close()
+        # a deep link to the empty view still shows the reader where they are
+        context, page, errors = self.open(view="evolution")
+        tab = page.locator('.tab[data-view="evolution"]')
+        self.assertFalse(tab.is_hidden())
+        self.assertEqual(tab.get_attribute("aria-selected"), "true")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_strip_labels_are_whole_and_sized_as_text(self):
+        """SVG text given a `font` shorthand ending in `inherit` drops the
+        declaration and renders at 16px, which is how the labels were
+        clipped off the left edge."""
+        context, page, errors = self.open()
+        page.wait_for_timeout(600)
+        clipped = page.evaluate("""() => {
+            const svg = [...document.querySelectorAll('[data-block="evidence-strip"] svg')]
+                          .find(s => s.getAttribute('width') !== '0');
+            const left = svg.getBoundingClientRect().left;
+            return [...svg.querySelectorAll('text.st-row-label')]
+                     .filter(t => t.getBoundingClientRect().left < left - 1).length;
+        }""")
+        self.assertEqual(clipped, 0)
+        size = page.evaluate("() => parseFloat(getComputedStyle(document.querySelector('text.st-row-label')).fontSize)")
+        self.assertLess(size, 14, "label text is not falling back to 16px")
+        self.assertEqual(errors, [])
+        context.close()
 
 
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
@@ -6804,16 +6971,11 @@ class TrainingViewTest(unittest.TestCase):
         self.assertEqual(page.evaluate("() => document.activeElement.dataset.view"), "training")
         self.assertFalse(page.locator("#stacks").is_hidden())
         self.assertTrue(page.locator("#panels-lane").is_hidden())
-        # the sixth and seventh tabs, then the wrap back to the first
-        page.keyboard.press("ArrowRight")
-        page.wait_for_timeout(400)
-        self.assertEqual(page.locator('.tab[data-view="evolution"]').get_attribute("aria-selected"), "true")
-        self.assertEqual(page.evaluate("() => document.activeElement.dataset.view"), "evolution")
-        page.keyboard.press("ArrowRight")
-        page.wait_for_timeout(400)
-        self.assertEqual(page.locator('.tab[data-view="coevolution"]').get_attribute("aria-selected"), "true")
-        self.assertEqual(page.evaluate("() => document.activeElement.dataset.view"), "coevolution")
-        # the first two tabs come after the last: the cycle wraps to Chat, then Levels, then Story
+        # this page has no lineage, so Evolution and Evals have nothing in
+        # them: their tabs are hidden and the arrow does not land on them —
+        # from Training it wraps straight to Chat
+        self.assertTrue(page.locator('.tab[data-view="evolution"]').is_hidden())
+        self.assertTrue(page.locator('.tab[data-view="coevolution"]').is_hidden())
         page.keyboard.press("ArrowRight")
         page.wait_for_timeout(400)
         self.assertEqual(page.locator('.tab[data-view="chat"]').get_attribute("aria-selected"), "true")
@@ -11172,8 +11334,16 @@ class LevelsViewTest(unittest.TestCase):
         for path in (self.bundle_dir, self.runs_dir, self.cov_dir):
             context, page, errors = self._open(path=path)
             views = page.evaluate("() => Array.from(document.querySelectorAll('#view-tabs [data-view]')).map(t => t.dataset.view)")
-            self.assertIn("levels", views)
-            for view in views + ["levels"]:
+            shown = page.evaluate("() => Array.from(document.querySelectorAll('#view-tabs [data-view]'))"
+                                  ".filter(t => !t.hidden).map(t => t.dataset.view)")
+            self.assertIn("levels", shown)
+            # a view whose tab is hidden has nothing to draw for this output;
+            # it is still one URL away, so it is visited that way and has to
+            # render without an error even though a reader cannot click to it
+            for view in [v for v in views if v not in shown]:
+                page.evaluate(f"() => {{ location.hash = 'view={view}'; }}")
+                page.wait_for_timeout(300)
+            for view in shown + ["levels"]:
                 page.locator(f'#view-tabs [data-view="{view}"]').click()
                 page.wait_for_timeout(300)
             self.assertEqual(page.evaluate("() => Array.from(document.querySelectorAll('#stacks .block .empty')).filter(e => e.offsetParent !== null).length"), 0)
@@ -11681,8 +11851,16 @@ class DataViewTest(unittest.TestCase):
         for path in (self.batch_dir, self.runs_dir, self.cov_dir):
             context, page, errors = self._open(path=path)
             views = page.evaluate("() => Array.from(document.querySelectorAll('#view-tabs [data-view]')).map(t => t.dataset.view)")
-            self.assertIn("data", views)
-            for view in views + ["data"]:
+            shown = page.evaluate("() => Array.from(document.querySelectorAll('#view-tabs [data-view]'))"
+                                  ".filter(t => !t.hidden).map(t => t.dataset.view)")
+            self.assertIn("data", shown)
+            # a view whose tab is hidden has nothing to draw for this output;
+            # it is still one URL away, so it is visited that way and has to
+            # render without an error even though a reader cannot click to it
+            for view in [v for v in views if v not in shown]:
+                page.evaluate(f"() => {{ location.hash = 'view={view}'; }}")
+                page.wait_for_timeout(300)
+            for view in shown + ["data"]:
                 page.locator(f'#view-tabs [data-view="{view}"]').click()
                 page.wait_for_timeout(300)
             self.assertEqual(page.evaluate("() => Array.from(document.querySelectorAll('#stacks .block .empty')).filter(e => e.offsetParent !== null).length"), 0)
