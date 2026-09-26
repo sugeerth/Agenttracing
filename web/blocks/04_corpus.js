@@ -10,8 +10,9 @@
  *
  * So the batch view of a corpus opens with the same grammar applied to
  * the corpus: who did how well, where the trouble is, what the card can
- * and cannot see, what to change, and how far to trust any of it. Five
- * lines, every one quoted from a field the engine computed, the field
+ * and cannot see, what the traces taught (and whether it held on the
+ * tasks it was not learned from), what to change, and how far to trust
+ * any of it. Six lines, every one quoted from a field the engine computed, the field
  * named underneath. The block composes the arrangement and nothing else.
  *
  * The confidence line is the one that matters most and the one a corpus
@@ -112,7 +113,39 @@
       ], "scorecard.detection"));
     }
 
-    // 4 — fix: the first recommendation and what it is worth
+    // 4 — learned: what held again from earlier corpora, then what this one
+    // taught that held on both halves of its tasks; an annotation never
+    // stands in for a behaviour here
+    var ls = agg.lessons;
+    if (ls && (ls.measurable || ((ls.ledger || {}).rechecked || []).length)) {
+      var counts = function (x) {
+        return " (" + x.with.wrong + " of " + x.with.runs + " wrong with it, " +
+          x.without.wrong + " of " + x.without.runs + " without)";
+      };
+      var learned = [];
+      var again = ((ls.ledger || {}).rechecked || []).filter(function (r) {
+        return r.status === "held_again" && String(r.name).indexOf("annotation:") !== 0;
+      });
+      if (again.length) {
+        learned.push(H("b", { class: "good", text: "Held again: " }));
+        learned.push(H("span", { text: again[0].phrasing + counts(again[0]) +
+          (again.length > 1 ? ", and " + (again.length - 1) + " more" : "") +
+          " — learned on an earlier corpus, confirmed on this one. " }));
+      }
+      var held = (ls.lessons || []).filter(function (l) {
+        return l.status === "held" && l.source !== "annotation";
+      })[0];
+      if (held) {
+        learned.push(H("b", { class: "good", text: "New: " }));
+        learned.push(H("span", { text: held.phrasing + counts(held) + ", held on both halves of these tasks." }));
+      } else {
+        learned.push(H("span", { text: "Nothing new held on both halves of these " +
+          ((ls.halves || [[], []])[0].length + (ls.halves || [[], []])[1].length) + " tasks." }));
+      }
+      rows.push(line(H, "learned", "Learned", learned, "lessons"));
+    }
+
+    // 5 — fix: the first recommendation and what it is worth
     var rec = (agg.recommendations || [])[0];
     if (rec) {
       var fix = [H("span", { text: (rec.agent ? rec.agent + ": " : "") +
@@ -122,7 +155,7 @@
       rows.push(line(H, "fix", "Fix", fix, "recommendations[0]"));
     }
 
-    // 5 — confidence: sample size and whether the intervals overlap
+    // 6 — confidence: sample size and whether the intervals overlap
     var sizes = agents.map(function (n) { return ((sc.agents[n].rates || {}).success || {}).runs || 0; });
     var smallest = Math.min.apply(null, sizes);
     var cis = agents.map(function (n) { return ((sc.agents[n].rates || {}).success || {}).ci95 || null; });

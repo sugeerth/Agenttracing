@@ -474,7 +474,10 @@
     {
       label: "Evidence",
       groups: ["signal", "other"],
-      blurb: "How far these numbers can be trusted — confidence, reliability, blind spots.",
+      blurb: "What the traces taught, and how far these numbers can be trusted — confidence, reliability, blind spots.",
+      // what the corpus taught leads the column: it is the one reading here
+      // that was tested on runs it was not drawn from
+      order: ["lessons"],
     },
     {
       label: "Training",
@@ -979,7 +982,9 @@
     State.layout.stacks.forEach(function (stack, index) {
       if (visibleStacks.indexOf(index) < 0) return;
       var column = h("div", { class: "stack", "data-stack": index });
-      column.appendChild(stackLabel(index, hero ? 2 : 1));
+      // numbered by place on the page, so the columns count on from the
+      // reading strip above them rather than from the plan's own index
+      column.appendChild(stackLabel(index, visibleStacks.indexOf(index) + (hero ? 2 : 1)));
       stack.forEach(function (item) {
         // A substituted hero is still in its column; render it once.
         if (hero && item.id === hero.item.id) return;
@@ -1002,13 +1007,13 @@
     maybeOfferSuggestion();
   }
 
-  //: `base` is 1 when the lane is collapsed, so the numbering never starts
-  //: at 2 with no step 1 anywhere on the page.
-  function stackLabel(index, base) {
+  //: `n` is the column's place in the reading order: 1 when there is no
+  //: hero, so the numbering never starts at 2 with no step 1 on the page.
+  function stackLabel(index, n) {
     var plan = STACK_PLAN[index];
     return h("div", { class: "stack-label" }, [
       h("div", { class: "name" }, [
-        h("span", { class: "pip", text: String(index + base) }),
+        h("span", { class: "pip", text: String(n) }),
         h("span", { text: plan.label }),
       ]),
       plan.blurb ? h("div", { class: "sub", text: plan.blurb }) : null,
@@ -1472,6 +1477,25 @@
       h("span", { class: "block-q", text: entry.question }),
       actions,
     ]);
+    // A folded block is its title and the question it answers, and the
+    // whole of that is the way in: a reader should not have to find the
+    // chevron that only appears on hover to open what they just read.
+    if (item.collapsed && !hero) {
+      head.setAttribute("role", "button");
+      head.setAttribute("tabindex", "0");
+      head.setAttribute("aria-expanded", "false");
+      var unfold = function (event) {
+        if (event.target.closest && event.target.closest(".block-actions")) return;
+        if (event.type === "keydown" && event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        item.collapsed = false;
+        recordSignal(item.id, "expand");
+        saveLayout();
+        renderAll();
+      };
+      head.addEventListener("click", unfold);
+      head.addEventListener("keydown", unfold);
+    }
 
     /* Say why the lane is showing something other than what was asked for,
      * rather than quietly swapping the page's headline. Outside the body,

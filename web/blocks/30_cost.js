@@ -688,7 +688,18 @@
         }
         if (facts.length) card.appendChild(h("dl", { class: "kv" }, facts));
 
-        if (issue.summary) card.appendChild(h("p", { class: "cost-text", text: issue.summary }));
+        // The summary restates the title and the facts above it; what tells
+        // two issues with the same title apart is the example, which says
+        // which side did what where, so the card quotes that instead.
+        var example = issue.example || {};
+        if (example.summary) {
+          card.appendChild(h("p", { class: "cost-text", "data-role": "example" }, [
+            h("span", { class: "mono", text: (example.task || "") + " · " }),
+            h("span", { text: example.summary }),
+          ]));
+        } else if (issue.summary) {
+          card.appendChild(h("p", { class: "cost-text", text: issue.summary }));
+        }
 
         var occurrences = arr(issue.occurrences);
         if (occurrences.length) {

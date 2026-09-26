@@ -5,6 +5,62 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Lessons: the corpus page learns from its traces, and checks itself
+
+Every corpus block described the corpus it was handed. None of them
+learned anything that could be wrong next week. `deepcompare/lessons.py`
+does, and the design is mostly about the ways learning from traces fools
+itself.
+
+- **Seventeen properties are tried**, and the page says seventeen: the
+  page's own trace signs (`excerpt.notable_steps`), the corpus attributes,
+  and one attribute that reads an annotation. Each is scored within task
+  (Mantel-Haenszel), so task difficulty cannot manufacture a lesson.
+- **A lesson has to hold twice.** The tasks are split in two by a hash of
+  their id, fixed before any scoring. A property strong on one half is a
+  lead; it is a lesson only if the other half agrees in direction. On the
+  sixteen-task suite two properties separate the runs on a half and one
+  holds on both; on a sixty-task procedural corpus seven separate and six
+  hold — the best supported being *an error the run never came back to:
+  in 17 of 17 tasks where only one side did, that side was the wrong one*.
+- **On pairs, the evidence is a count of tasks, and it is said as one.**
+  With two runs per task every within-task difference is ±100 points, so
+  a percentage would claim a precision the data does not have. The
+  sentence gives the discordant tasks and the raw counts, and lessons are
+  ranked by how many tasks they rest on, not by the size of the number.
+- **Wrong is the golden label**, where there is one: twelve runs on the
+  suite, where the grade alone says five.
+- **An annotation is not a lesson.** *A step annotated weak or bad* holds
+  perfectly on both halves of the suite, because the annotator knew which
+  runs were wrong. It is listed apart, and the narrative says *"only a
+  trace annotation held … so no behaviour is a new lesson yet"*.
+- **The ledger** (`batch --lessons FILE`) carries lessons to the next
+  corpus, where every one is re-scored on runs it was never learned from:
+  held again, weakened, reversed, or too few to test. Learned on the
+  sixty-task corpus and carried to the suite, six lessons came in: two
+  held again, and four could not be tested because on the suite nearly
+  every run repeats a call and recovers from an error, leaving one run on
+  the other side. A corpus is fingerprinted; reading it twice is not
+  counted twice.
+
+**On the page**, *What the traces taught* (`web/blocks/05_lessons.js`)
+leads the Evidence column. Each lesson is the engine's sentence beside a
+two-bar glyph — the difference on each half from one centre line — so a
+lesson that held is two bars on the same side, and one that did not is
+visibly one bar, a dashed stub, or two that disagree. A row of dots
+follows a lesson through the ledger. The corpus verdict gains a
+*Learned* line: what held again from earlier corpora, then what held new.
+
+**Simpler to read.** A folded block keeps the question it answers, and
+the title and question together open it (click, Enter or Space) — a
+column of bare uppercase titles had read as a page of empty sections. The
+columns are numbered on from the reading strip (2, 3) instead of by their
+index in the plan (8, 9). Two issue cards with the same title — *Reaches
+for the wrong tool at "run_checks"* — are told apart by quoting each
+one's own example (one side ran an extra `run_checks`, the other skipped
+one) instead of repeating the title as the summary. The strip's
+last-milestone mark is neutral ink, no longer the first agent's blue.
+
 ## The front door: a corpus page opens on the corpus
 
 The page was built around one pair, and a batch of thirty-two runs

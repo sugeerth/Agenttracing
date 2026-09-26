@@ -610,6 +610,18 @@ label.check input { margin-top: 2px; }
 .block-head { background: transparent; border-bottom: 0; padding: 0 0 6px; }
 .block-title { font-size: var(--fs-xs); font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3); }
 .block-q { display: none; }
+/* folded, a block keeps its question: a column of bare uppercase titles
+   reads as a page of empty sections, and the question is what tells a
+   reader whether this is the one to open */
+.block.collapsed .block-head { flex-wrap: wrap; cursor: pointer; padding: 0 0 2px; }
+.block.collapsed .block-title:before { content: "▸ "; color: var(--ink-3); }
+.block.collapsed .block-head:hover .block-title,
+.block.collapsed .block-head:focus-visible .block-title { color: var(--accent); }
+.block.collapsed .block-q {
+  display: block; flex-basis: 100%; order: 3; white-space: normal;
+  font-size: var(--fs-s); line-height: 1.45; color: var(--ink-2); padding-left: 1.1em;
+}
+.stack .block.collapsed + .block.collapsed { margin-top: -14px; }
 .block-body { padding: 0; }
 .block.lead, .block.hero { border: 0; }
 .lead-lane .block-head { display: none; }

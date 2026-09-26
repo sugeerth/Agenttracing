@@ -4488,6 +4488,199 @@ class CorpusFrontDoorTest(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
                      "playwright + chromium required for browser tests")
+class LessonsBlockTest(unittest.TestCase):
+    """What the traces taught, on the corpus page, with a ledger in play.
+
+    Two batches share one ledger: the first reads the tasks of one half of
+    the suite, the second the whole suite, so the second page carries both
+    lessons it learned and lessons it was asked to confirm. The page is
+    pinned against the aggregate it was written from, never against a
+    second copy of the numbers.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        import shutil
+        from deepcompare import lessons as _lessons
+        suite = ROOT / "demo" / "horizon" / "suite"
+        golden = ROOT / "demo" / "horizon" / "suite_golden.json"
+        if not suite.is_dir():
+            raise unittest.SkipTest("the long-horizon suite is not generated")
+        cls.tmp = tempfile.TemporaryDirectory()
+        base = Path(cls.tmp.name)
+        first = base / "first"
+        first.mkdir()
+        files = sorted(suite.glob("*.json"))
+        tasks = {f: json.loads(f.read_text(encoding="utf-8"))["task"]["id"] for f in files}
+        half = set(_lessons.split(tasks.values())[0])
+        for f, tid in tasks.items():
+            if tid in half:
+                shutil.copy(f, first / f.name)
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        ledger = base / "ledger.json"
+        for src, out in ((first, base / "o1"), (suite, base / "o2")):
+            done = subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(src), "-o", str(out),
+                                   "--golden", str(golden), "--lessons", str(ledger),
+                                   "--template", str(ROOT / "web" / "blocks.html")],
+                                  cwd=str(ROOT), capture_output=True)
+            if done.returncode != 0:
+                raise unittest.SkipTest("batch did not write a page")
+        cls.page_path = base / "o2" / "report.html"
+        agg = json.loads((base / "o2" / "aggregate.json").read_text(encoding="utf-8"))
+        cls.lessons = agg["lessons"]
+        cls.issues = agg["issues"]["issues"]
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def open(self, width=1440):
+        context = self.browser.new_context(viewport={"width": width, "height": 1000})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"file://{self.page_path}#view=batch")
+        page.wait_for_timeout(1600)
+        return context, page, errors
+
+    def test_the_ledger_was_in_play(self):
+        led = self.lessons["ledger"]
+        self.assertTrue(led["had_prior"])
+        self.assertFalse(led["seen_before"])
+        self.assertTrue(led["rechecked"], "the first batch taught something for the second to re-test")
+
+    def test_lessons_lead_the_evidence_column(self):
+        context, page, errors = self.open()
+        first = page.evaluate("""() => { const s = [...document.querySelectorAll('#stacks .stack')]
+            .find(s => /evidence/i.test(s.querySelector('.stack-label').innerText));
+            return s && s.querySelector('.block').dataset.block; }""")
+        self.assertEqual(first, "lessons")
+        self.assertFalse(page.locator('.block[data-block="lessons"]').evaluate("b => b.classList.contains('collapsed')"))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_every_lesson_is_drawn_with_both_halves_and_the_right_status(self):
+        context, page, errors = self.open()
+        rows = page.evaluate("""() => [...document.querySelectorAll('.ls-row')].map(r => ({
+            name: r.dataset.lesson, status: r.dataset.status,
+            tracks: r.querySelectorAll('.ls-track').length,
+            bars: [...r.querySelectorAll('.ls-track .ls-bar')].map(b => b.className.replace('ls-bar', '').trim()),
+            text: r.querySelector('.ls-say').innerText }))""")
+        want = {l["name"]: l for l in self.lessons["lessons"]}
+        self.assertEqual(sorted(r["name"] for r in rows), sorted(want))
+        for r in rows:
+            lesson = want[r["name"]]
+            self.assertEqual(r["status"], lesson["status"])
+            self.assertEqual(r["tracks"], 2, r["name"])
+            self.assertIn(lesson["sentence"], r["text"])
+            for bar, half in zip(r["bars"], lesson["halves"]):
+                expect = "none" if not half["measurable"] else ("more" if half["effect"] > 0 else "less" if half["effect"] < 0 else "")
+                self.assertEqual(bar, expect, r["name"])
+            if lesson["status"] == "held":
+                # the replication is something a reader sees: two bars, one side
+                self.assertEqual(r["bars"][0], r["bars"][1], r["name"])
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_annotations_sit_apart_from_what_the_runs_did(self):
+        context, page, errors = self.open()
+        observed = page.evaluate("() => [...document.querySelectorAll('[data-role=observed] .ls-row')].map(r => r.dataset.lesson)")
+        noted = page.evaluate("() => [...document.querySelectorAll('[data-role=annotations] .ls-row')].map(r => r.dataset.lesson)")
+        for name in observed:
+            self.assertFalse(name.startswith("annotation:"), name)
+        for name in noted:
+            self.assertTrue(name.startswith("annotation:"), name)
+        self.assertIn("annotation:poor_quality_step", noted)
+        context.close()
+
+    def test_the_rechecked_lessons_are_all_listed_with_their_verdict(self):
+        context, page, errors = self.open()
+        got = page.evaluate("() => [...document.querySelectorAll('[data-role=rechecked] li')].map(l => [l.dataset.lesson, l.dataset.status])")
+        self.assertEqual(got, [[r["name"], r["status"]] for r in self.lessons["ledger"]["rechecked"]])
+        method = page.locator('[data-role="method"]').inner_text()
+        self.assertIn(f"{self.lessons['tried']} properties tried", method)
+        self.assertIn("earlier corpus", method)
+        context.close()
+
+    def test_the_verdict_says_what_was_learned_and_quotes_its_source(self):
+        context, page, errors = self.open()
+        text = page.locator('.cv [data-line="learned"]').inner_text()
+        self.assertIn("from lessons", text)
+        again = [r for r in self.lessons["ledger"]["rechecked"]
+                 if r["status"] == "held_again" and not r["name"].startswith("annotation:")]
+        if again:
+            self.assertIn("Held again: " + again[0]["phrasing"], text)
+        held = [l for l in self.lessons["lessons"] if l["status"] == "held" and l["source"] != "annotation"]
+        if not held:
+            self.assertIn("Nothing new held on both halves", text)
+        # an annotation never stands in for a lesson on the front line
+        self.assertNotIn("annotated weak or bad", text)
+        context.close()
+
+    def test_a_folded_block_shows_its_question_and_opens_on_a_click(self):
+        context, page, errors = self.open()
+        folded = page.locator("#stacks .block.collapsed").first
+        bid = folded.get_attribute("data-block")
+        q = folded.locator(".block-q")
+        self.assertTrue(q.is_visible())
+        self.assertGreater(len(q.inner_text().strip()), 8)
+        folded.locator(".block-title").click()
+        page.wait_for_timeout(400)
+        opened = page.locator(f'#stacks .block[data-block="{bid}"]')
+        self.assertFalse(opened.evaluate("b => b.classList.contains('collapsed')"))
+        # and from the keyboard
+        other = page.locator("#stacks .block.collapsed").first
+        oid = other.get_attribute("data-block")
+        other.locator(".block-head").focus()
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(400)
+        self.assertFalse(page.locator(f'#stacks .block[data-block="{oid}"]').evaluate("b => b.classList.contains('collapsed')"))
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_columns_count_on_from_the_reading_strip(self):
+        context, page, errors = self.open()
+        chips = page.evaluate("() => [...document.querySelectorAll('#reading .step-chip .pip')].map(p => p.innerText)")
+        cols = page.evaluate("() => [...document.querySelectorAll('#stacks .stack-label .pip')].map(p => p.innerText)")
+        self.assertEqual(cols, chips[1:])
+        context.close()
+
+    def test_an_issue_card_quotes_its_own_example(self):
+        context, page, errors = self.open()
+        got = page.evaluate("() => [...document.querySelectorAll('.cost-card [data-role=example]')].map(p => p.innerText)")
+        self.assertTrue(got)
+        for text, issue in zip(got, [i for i in self.issues if (i.get("example") or {}).get("summary")]):
+            self.assertIn(issue["example"]["summary"], text)
+        # two issues with one title are told apart by their examples
+        self.assertEqual(len(set(got)), len(got))
+        context.close()
+
+    def test_the_block_fits_a_phone_with_nothing_under_11px(self):
+        context, page, errors = self.open(width=390)
+        block = page.locator('.block[data-block="lessons"]')
+        self.assertEqual(block.count(), 1)
+        small = block.evaluate("""b => { const w = document.createTreeWalker(b, NodeFilter.SHOW_TEXT); let n = 0, node;
+            while ((node = w.nextNode())) { const el = node.parentElement; if (!node.textContent.trim() || !el.offsetParent) continue;
+              if (parseFloat(getComputedStyle(el).fontSize) < 11) n++; } return n; }""")
+        self.assertEqual(small, 0)
+        self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth"), 1)
+        self.assertEqual(errors, [])
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
 class DetectionSectionTest(unittest.TestCase):
     """*Does the evaluation see it?* — the one section of the scorecard that
     measures the measurement.

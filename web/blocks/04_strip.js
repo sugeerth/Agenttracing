@@ -54,7 +54,7 @@
       ".st-key span{display:inline-flex;align-items:center;gap:5px}",
       ".st-key i{width:9px;height:9px;border-radius:2px;display:inline-block}",
       ".st-key i.bad{background:var(--bad)}.st-key i.warn{background:var(--warn)}",
-      ".st-key i.mid{background:var(--accent)}.st-key i.run{background:var(--rule)}",
+      ".st-key i.mid{background:var(--ink-2)}.st-key i.run{background:var(--rule)}",
       ".st-wrap{overflow-x:auto}",
       // SVG text takes explicit properties: `inherit` is not a family inside
       // the `font` shorthand, so a shorthand here is dropped whole and the
@@ -172,7 +172,7 @@
       .attr("text-anchor", "start").text("step 0");
 
     var color = { flag: "var(--bad)", unrecovered: "var(--bad)",
-                  redundant: "var(--warn)", stalled: "var(--accent)" };
+                  redundant: "var(--warn)", stalled: "var(--ink-2)" };
     var y = PAD_T;
     groups.forEach(function (group, gi) {
       var markedInGroup = group.rows.filter(function (r) { return !r.clean; }).length;

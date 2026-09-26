@@ -14,6 +14,7 @@ from pathlib import Path
 from ..issues import build_issues, load_suppressions
 from ..metrics import aggregate as build_aggregate
 from ..report import attach_milestones, compare
+from ..lessons import learn as learn_lessons, load_ledger, write_ledger
 from ..router import routing_table
 from ..scorecard import load_golden, load_policy, scorecard as build_scorecard
 from ..trace import Trajectory
@@ -35,6 +36,9 @@ def register(subparsers) -> None:
     )
     parser.add_argument("--golden", default=None, help="golden dataset (tasks JSON with expected_tools, forbidden_tools, …): scores tool correctness and policy")
     parser.add_argument("--policy", default=None, help="safety policy JSON (forbidden_tools, forbidden_patterns, max_writes, write_requires_read)")
+    parser.add_argument("--lessons", default=None, metavar="LEDGER",
+                        help="lessons ledger JSON: every lesson in it is re-tested on this corpus, the lessons this "
+                             "corpus teaches are added, and the file is written back (created when missing)")
     parser.set_defaults(func=run)
 
 
@@ -100,6 +104,18 @@ def run(args: argparse.Namespace) -> int:
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    # What the traces teach, tested on the half of the tasks each lesson was
+    # not drawn from, and — with a ledger — every earlier lesson re-tested here.
+    try:
+        prior = load_ledger(args.lessons) if getattr(args, "lessons", None) else None
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    lessons_policy = policy if policy is not None else (golden_set or {}).get("policy")
+    agg["lessons"] = learn_lessons(trajectories, golden_set, lessons_policy, prior)
+    next_ledger = agg["lessons"]["ledger"].pop("next")
+    if getattr(args, "lessons", None):
+        write_ledger(args.lessons, next_ledger)
     # Re-cluster with any .agentdiffignore found beside the traces or in cwd.
     patterns = (load_suppressions(traces_dir) or load_suppressions(Path.cwd()))
     if patterns:
@@ -139,6 +155,9 @@ def run(args: argparse.Namespace) -> int:
             agents = ", ".join(habit["agents"])
             print(f"  [{habit['kind']}] {agents}: {habit['habit']} — "
                   f"{habit['evidence']}; {habit['impact']}")
+    lessons = agg.get("lessons") or {}
+    if lessons.get("narrative"):
+        print(f"Lessons: {lessons['narrative']}")
     # Printed last because it is the answer to "so which of all that first?" —
     # a reader who stops here has still been told what to do.
     for line in render_triage_text(agg.get("triage") or {}):

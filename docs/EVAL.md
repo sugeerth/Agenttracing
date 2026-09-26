@@ -297,6 +297,56 @@ a reading test — a test asserts no `failure_mode` or milestone evidence
 reaches the prompt), **no memory between questions**, and **it cannot
 move a number** — the synthesis sits beside the card.
 
+## What the traces taught: lessons that must hold twice
+
+Everything above scores a corpus. `aggregate.lessons` learns from one,
+and the difference is that a lesson has to survive being checked on runs
+it was not drawn from.
+
+Seventeen properties a run can have are tried — the page's own trace
+signs (an error the run never came back to, a stretch that produced
+nothing new, a write never checked), the corpus attributes, and one
+attribute that reads a label on the trace. Each is scored as the
+difference in wrong-rate between runs that have it and runs that do not,
+**within the same task**, so a hard task that provokes the property and
+the failure alike cannot manufacture the association. On a corpus of
+pairs that difference is read off the tasks where the two runs split on
+the property, and the sentence says so: *in 17 of 17 tasks where only one
+side did, that side was the wrong one*.
+
+**Twice.** The tasks are split in two by a hash of their id, fixed before
+anything is scored. A property that separates wrong runs from right on
+one half is a lead; it is a lesson only when it does so on both, the same
+way. With seventeen tried, one of them will look strong on half a corpus
+by chance, and the second half is what tells that one apart. A lesson
+with too few runs on one side of a half is reported as too few to test,
+never as held.
+
+**Wrong** is the golden set's label where there is one — the only label
+here that does not come from the run itself — and the run's own outcome
+otherwise. On the long-horizon suite that is twelve runs, not the five
+the grade calls failures.
+
+**An annotation is not a lesson.** A step annotated *bad* separates the
+suite's wrong runs perfectly, because whoever annotated it knew which
+runs were wrong. It is listed under its own heading and never leads the
+narrative or the verdict line.
+
+**The ledger** is how the page learns over time rather than once:
+
+```bash
+agentdiff batch week1/ --golden g.json --lessons lessons.json -o out1/   # learns, writes the ledger
+agentdiff batch week2/ --golden g.json --lessons lessons.json -o out2/   # re-tests every lesson, adds new ones
+```
+
+Every lesson in the ledger is re-scored on the whole of the new corpus —
+none of which it was learned from — and marked held again, weakened,
+reversed or too few to test; the corpus verdict opens its *Learned* line
+with what held again. A corpus is fingerprinted, and the same corpus read
+twice is not counted twice: re-running a batch is not new evidence. These
+are associations, not causes — where to look first, with the counts
+behind every sentence.
+
 ## Commands
 
 ```bash
@@ -305,5 +355,6 @@ agentdiff eval --db traces.sqlite -o eval/                                      
 agentdiff eval traces/ --golden golden.json --judge j=anthropic:MODEL --with-steps
 agentdiff judge traces/ --provider j=openai:MODEL --with-steps --focus --rubric long-run
 agentdiff runs traces/ -o out/ --golden golden.json        # the scorecard on the page
+agentdiff batch traces/ --golden golden.json --lessons lessons.json -o out/   # lessons, carried to the next batch
 agentdiff loop --tasks golden.json --golden golden.json --judge j=openai:MODEL …  # every iteration scored
 ```
