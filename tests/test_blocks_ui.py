@@ -10478,7 +10478,8 @@ class ChatViewTest(unittest.TestCase):
                 context, page, errors = self._open(path)
                 self._ask(page, "what can you answer?")
                 self._ask(page, "where did the time go?")
-                views = page.evaluate("() => Array.from(document.querySelectorAll('#view-tabs [data-view]')).map(t => t.dataset.view)")
+                # a tab with nothing to show is hidden, and a hidden tab is not a view the reader can reach
+                views = page.evaluate("() => Array.from(document.querySelectorAll('#view-tabs [data-view]:not([hidden])')).map(t => t.dataset.view)")
                 self.assertIn("chat", views)
                 for view in views + ["chat"]:
                     page.locator(f'#view-tabs [data-view="{view}"]').click()
@@ -10890,7 +10891,8 @@ class ChatViewTest(unittest.TestCase):
                 for q in ("what is running?", "where did the tokens go?", "what prompt was given?", "is the answer grounded?"):
                     self._ask(page, q, 500)
                 self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth"), 1)
-                views = page.evaluate("() => Array.from(document.querySelectorAll('#view-tabs [data-view]')).map(t => t.dataset.view)")
+                # a tab with nothing to show is hidden, and a hidden tab is not a view the reader can reach
+                views = page.evaluate("() => Array.from(document.querySelectorAll('#view-tabs [data-view]:not([hidden])')).map(t => t.dataset.view)")
                 self.assertIn("levels", views)
                 for view in views + ["chat"]:
                     page.locator(f'#view-tabs [data-view="{view}"]').click()
