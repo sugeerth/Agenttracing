@@ -63,7 +63,7 @@ def _rules_from(answer: str) -> list:
 
 def make_proposer(provider_factory: Callable[[], Provider], traces: list, *,
                   policy: Optional[dict] = None, turns: int = TURNS,
-                  log: Optional[list] = None) -> Callable:
+                  log: Optional[list] = None, out_dir=None) -> Callable:
     """A ``proposer(round, context)`` for :func:`deepcompare.forge.forge`.
 
     ``traces`` are trace dicts; only those of the learn half (named in the
@@ -99,7 +99,9 @@ def make_proposer(provider_factory: Callable[[], Provider], traces: list, *,
         try:
             run = run_task(provider_factory(), task, tools, agent="forge-judge",
                            budget={"max_steps": turns}, grader=lambda answer, t: True,
-                           system_prompt=SYSTEM.format(marks=", ".join(context.get("marks") or [])))
+                           system_prompt=SYSTEM.format(marks=", ".join(context.get("marks") or [])),
+                           # the judge's own runs are written only where the caller asks
+                           out_dir=out_dir)
             answer = str(((run or {}).get("outcome") or {}).get("answer") or "")
             rules = _rules_from(answer)
             record.update({"turns": len((run or {}).get("steps") or []), "proposed": rules,
