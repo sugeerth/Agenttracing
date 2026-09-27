@@ -4754,7 +4754,8 @@ class DuelBlockTest(unittest.TestCase):
         context, page, errors = self.open()
         race = page.locator('.block[data-block="race"]')
         rng = race.locator("input[type=range]")
-        rng.evaluate("e => { e.value = e.max * 0.4; e.dispatchEvent(new Event('input')); }")
+        # a moment both are still working: before the shorter run's end
+        rng.evaluate("e => { e.value = 0.3; e.dispatchEvent(new Event('input')); }")
         page.wait_for_timeout(300)
         at = race.locator('[data-role="at"]').inner_text()
         self.assertTrue(at.startswith("At "))
