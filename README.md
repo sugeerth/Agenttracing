@@ -50,8 +50,8 @@ agentdiff run --tasks tasks.json -o traces/ --runs 3 \
 #   --base-url / --temperature / --api-key-env reach the provider; keys from env only
 
 # 2. Compare: stability and pass^k across runs, or the pairwise diff with diagnosis
-agentdiff runs traces/ -o out/
-agentdiff batch traces/ -o out/ --lessons lessons.json   # + what the traces taught, re-tested next batch
+agentdiff runs traces/ -o out/ && agentdiff batch traces/ -o out/ --lessons lessons.json   # + what the traces taught, re-tested next batch
+agentdiff duel --task demo/vendors/task.json -o duel/   # Codex CLI vs Claude Code, same task (docs/VENDORS.md)
 
 # 3. Replay: a decisive step is a hypothesis until re-execution flips the outcome
 agentdiff replay out/report_t01.json --provider atlas=openai:gpt-4o --replays 3

@@ -18,6 +18,8 @@ from ..adapters import detect_verl, from_agent_lightning, from_openai_messages, 
 from ..registry import convert as registry_convert, dry_run, formats
 from ..claude_code import register_format as _register_claude_code
 _register_claude_code()
+from ..vendors import register_formats as _register_vendors  # noqa: E402
+_register_vendors()
 from ..adapters import register_formats as _register_rl_formats  # noqa: E402
 _register_rl_formats()  # verl, agent-lightning
 from ._io import safe_name  # noqa: E402

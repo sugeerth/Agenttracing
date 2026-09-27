@@ -116,6 +116,9 @@ def run(args: argparse.Namespace) -> int:
     next_ledger = agg["lessons"]["ledger"].pop("next")
     if getattr(args, "lessons", None):
         write_ledger(args.lessons, next_ledger)
+    # a command that runs batch as its last step (``duel``) hands its own
+    # block in here, so the page and aggregate.json carry it
+    agg.update(getattr(args, "extra_aggregate", None) or {})
     # Re-cluster with any .agentdiffignore found beside the traces or in cwd.
     patterns = (load_suppressions(traces_dir) or load_suppressions(Path.cwd()))
     if patterns:

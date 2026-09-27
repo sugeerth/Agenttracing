@@ -4488,6 +4488,118 @@ class CorpusFrontDoorTest(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
                      "playwright + chromium required for browser tests")
+class DuelBlockTest(unittest.TestCase):
+    """Two vendor agents on one task, read on the page.
+
+    The duel is run through the harness against the two stand-in CLIs in
+    tests/fixtures/vendors (test doubles that print each vendor's stream
+    shape and really edit the workspace), so the page is pinned against a
+    real `aggregate.duel` without a network.
+    """
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "duel"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        fakes = ROOT / "tests" / "fixtures" / "vendors"
+        env = dict(os.environ, OPENAI_API_KEY="sk-test-0000000000", ANTHROPIC_API_KEY="sk-ant-test-0000000000")
+        env.pop("FAKE_VENDOR_MODE", None)
+        done = subprocess.run([sys.executable, "-m", "deepcompare", "duel", "--task",
+                               str(ROOT / "demo" / "vendors" / "task.json"), "--runs", "2", "--quiet",
+                               "--codex-bin", str(fakes / "fake_codex.py"), "--claude-bin", str(fakes / "fake_claude.py"),
+                               "--template", str(ROOT / "web" / "blocks.html"), "-o", str(out)],
+                              cwd=str(ROOT), capture_output=True, env=env)
+        if done.returncode != 0:
+            raise unittest.SkipTest("duel did not write a page")
+        cls.page_path = out / "page" / "report.html"
+        cls.duel = json.loads((out / "page" / "aggregate.json").read_text(encoding="utf-8"))["duel"]
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def open(self, width=1440):
+        context = self.browser.new_context(viewport={"width": width, "height": 1000})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"file://{self.page_path}#view=batch")
+        page.wait_for_timeout(1600)
+        return context, page, errors
+
+    def test_the_duel_opens_the_page(self):
+        context, page, errors = self.open()
+        lead = page.evaluate("() => [...document.querySelectorAll('#lead-lane .block')].map(b => b.dataset.block)")
+        self.assertEqual(lead[0], "duel")
+        self.assertIn(self.duel["narrative"], page.locator('.block[data-block="duel"] .dl-lede').inner_text())
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_what_was_not_equal_comes_first(self):
+        context, page, errors = self.open()
+        chips = page.evaluate("() => [...document.querySelectorAll('[data-role=parity] .dl-chip')].map(c => [c.innerText, c.dataset.equal])")
+        unequal = [c[0] for c in chips if c[1] == "false"]
+        self.assertEqual(sorted(unequal), sorted(self.duel["unequal"]))
+        firsts = [c[1] for c in chips[:len(unequal)]]
+        self.assertEqual(set(firsts), {"false"})
+        context.close()
+
+    def test_head_to_head_names_both_agents_and_an_unreported_cost_says_so(self):
+        context, page, errors = self.open()
+        text = page.locator('[data-role="head-to-head"]').inner_text()
+        for agent in self.duel["agents"]:
+            self.assertIn(agent, text)
+        self.assertIn("not reported", text)
+        band = page.locator('[data-role="band"]').inner_text()
+        self.assertIn(f"{self.duel['budget_matched_pairs']} of {len(self.duel['pairs'])}", band)
+        context.close()
+
+    def test_each_agent_is_drawn_with_its_working_signature(self):
+        context, page, errors = self.open()
+        stacks = page.locator('[data-role="habits"] .dl-stack')
+        self.assertEqual(stacks.count(), 2)
+        for i, agent in enumerate(self.duel["agents"]):
+            label = stacks.nth(i).get_attribute("aria-label")
+            shares = self.duel["per_agent"][agent]["shares"]
+            for kind, share in shares.items():
+                if share:
+                    self.assertIn(f"{kind} {round(share * 100)}%", label)
+        context.close()
+
+    def test_what_each_one_made_is_shown_side_by_side(self):
+        context, page, errors = self.open()
+        cols = page.locator('[data-role="made"] .dl-diffs > div')
+        self.assertEqual(cols.count(), 2)
+        for i in range(2):
+            self.assertGreater(cols.nth(i).locator(".dl-patch .add").count(), 0)
+            self.assertGreater(cols.nth(i).locator(".dl-patch .del").count(), 0)
+        context.close()
+
+    def test_it_fits_a_phone(self):
+        context, page, errors = self.open(width=390)
+        self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth"), 1)
+        small = page.locator('.block[data-block="duel"]').evaluate("""b => { const w = document.createTreeWalker(b, NodeFilter.SHOW_TEXT); let n = 0, node;
+            while ((node = w.nextNode())) { const el = node.parentElement; if (!node.textContent.trim() || !el.offsetParent) continue;
+              if (parseFloat(getComputedStyle(el).fontSize) < 11) n++; } return n; }""")
+        self.assertEqual(small, 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
 class LessonsBlockTest(unittest.TestCase):
     """What the traces taught, on the corpus page, with a ledger in play.
 

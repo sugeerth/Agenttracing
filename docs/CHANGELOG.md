@@ -5,6 +5,40 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Codex CLI and Claude Code on the same task
+
+`agentdiff duel` (`deepcompare/harness/vendors.py`, `deepcompare/duel.py`,
+`deepcompare/vendors.py`, `web/blocks/03_duel.js`, `docs/VENDORS.md`) runs
+the two vendor CLIs on one task, each in its own copy of the workspace,
+launched side by side, and reads them the way the page reads any pair.
+
+- **Both streams, read from the real formats.** Codex's `exec --json`
+  event names were read out of the 0.157 binary, not remembered; Claude
+  Code's headless `stream-json` is read message by message with usage
+  counted once per message id. Unknown events are counted, not dropped.
+  Every line is stamped on arrival, so steps have real durations.
+- **The harness grades, not the agent.** The operator's check runs in each
+  workspace after the agent stops. A run whose final message says it is
+  done and whose check fails is counted as `claimed_but_failed` and named
+  in the narrative — the first bug this found was in its own test double,
+  which announced "all four tests pass" over an emptied file.
+- **A parity ledger before any number**: prompt, workspace, check,
+  budget, time limit and user settings equal by construction; the sandbox,
+  budget enforcement (per message for Claude Code, per turn for Codex) and
+  cost reporting (reported, not reported) are not, and the first sentence
+  says so.
+- **A budget band.** Two runs within ±10% of each other's tokens are
+  budget-matched; otherwise the report reads outcomes per million tokens.
+- **What each one made**: before/after snapshots give each run's diff; the
+  page shows both patches side by side.
+- **Keys** reach the vendor processes only. The check runs without them;
+  a key an agent prints is replaced with `[redacted]` before anything is
+  written, and a test has a stand-in agent print its key and asserts it
+  appears nowhere under the output.
+- **Tested without a network** against two stand-in CLIs that print each
+  vendor's stream shape and really edit the workspace; a live test
+  (`AGENTDIFF_LIVE=1`) runs the real CLIs when keys are present.
+
 ## Lessons: the corpus page learns from its traces, and checks itself
 
 Every corpus block described the corpus it was handed. None of them
