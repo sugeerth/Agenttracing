@@ -35,8 +35,10 @@ def _env(**extra):
 
 class VersionTest(unittest.TestCase):
     def test_the_cli_reports_the_packaged_version(self):
-        import tomllib
-        want = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+        import re
+        # tomllib is 3.11+, and this package supports 3.10: read the one field
+        text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        want = re.search(r'^version\s*=\s*"([^"]+)"', text, re.M).group(1)
         done = subprocess.run([sys.executable, "-m", "deepcompare", "--version"], cwd=str(ROOT),
                               capture_output=True, text=True)
         self.assertEqual(done.returncode, 0)
@@ -70,18 +72,23 @@ class ServingTest(unittest.TestCase):
                     with self.assertRaises(urllib.error.HTTPError) as caught:
                         urllib.request.urlopen(base + path, timeout=5)
                     self.assertEqual(caught.exception.code, 403, path)
-                with self.assertRaises(urllib.error.HTTPError):
+                    caught.exception.close()
+                with self.assertRaises(urllib.error.HTTPError) as caught:
                     urllib.request.urlopen(base + "/data.json?token=wrong", timeout=5)
-                ok = urllib.request.urlopen(base + "/data.json?token=t0ken-abcdefghijklmnop", timeout=5)
-                self.assertEqual(ok.status, 200)
-                cookie = ok.headers.get("Set-Cookie")
+                caught.exception.close()
+                with urllib.request.urlopen(base + "/data.json?token=t0ken-abcdefghijklmnop", timeout=5) as ok:
+                    self.assertEqual(ok.status, 200)
+                    cookie = ok.headers.get("Set-Cookie")
+                    frame, referrer = ok.headers.get("X-Frame-Options"), ok.headers.get("Referrer-Policy")
+                    ok.read()
                 self.assertIn("HttpOnly", cookie)
                 self.assertIn("SameSite=Strict", cookie)
-                self.assertEqual(ok.headers.get("X-Frame-Options"), "DENY")
-                self.assertEqual(ok.headers.get("Referrer-Policy"), "no-referrer")
-                again = urllib.request.urlopen(urllib.request.Request(
-                    base + "/data.json", headers={"Cookie": cookie.split(";")[0]}), timeout=5)
-                self.assertEqual(again.status, 200)
+                self.assertEqual(frame, "DENY")
+                self.assertEqual(referrer, "no-referrer")
+                with urllib.request.urlopen(urllib.request.Request(
+                        base + "/data.json", headers={"Cookie": cookie.split(";")[0]}), timeout=5) as again:
+                    self.assertEqual(again.status, 200)
+                    again.read()
             finally:
                 server.shutdown_all()
 
