@@ -295,6 +295,16 @@ def run(args: argparse.Namespace) -> int:
             print("error: give the task once: in words, or --prompt, or --task FILE", file=sys.stderr)
             return 2
         args.prompt = args.what
+    if not (args.prompt or args.task or args.from_dir) and sys.stdin.isatty():
+        # a person at a terminal who gave no task is asked for one
+        try:
+            args.prompt = input("What should the agents do? ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 130
+        if not args.prompt:
+            print("error: no task given", file=sys.stderr)
+            return 2
     simple = bool(args.prompt) and not args.task
     if simple and not args.workspace:
         args.workspace = "."

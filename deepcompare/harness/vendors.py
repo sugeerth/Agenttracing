@@ -186,6 +186,11 @@ def _cli_version(binary: str) -> str:
         return ""
 
 
+#: what to type when a vendor is missing: the fix, not only the fault
+INSTALL = {"codex": "npm i -g @openai/codex", "claude": "npm i -g @anthropic-ai/claude-code"}
+LOGIN = {"codex": "codex login", "claude": "claude (once, to log in)"}
+
+
 def preflight(spec: VendorSpec) -> dict:
     """Whether this vendor can run here: the CLI, its version, and whether a
     credential is *present* — never what it is."""
@@ -203,8 +208,8 @@ def preflight(spec: VendorSpec) -> dict:
             "key_env_present": keys, "login_present": login, "endpoint_env_present": endpoint,
             "ready": bool(binary) and bool(keys or login or endpoint),
             "why": (None if binary and (keys or login or endpoint) else
-                    ("the CLI was not found on PATH" if not binary else
-                     f"no credential: set {' or '.join(KEY_ENV[spec.kind])}, or log in with the CLI"))}
+                    (f"not installed; install it with: {INSTALL[spec.kind]}" if not binary else
+                     f"no credential; set {' or '.join(KEY_ENV[spec.kind])}, or run: {LOGIN[spec.kind]}"))}
 
 
 # --------------------------------------------------------------- workspace
@@ -224,6 +229,11 @@ def mark_output(out: Path) -> None:
     marker = out / OUTPUT_MARKER
     if not marker.exists():
         marker.write_text("written by agentdiff duel: never copied into an agent's workspace\n", encoding="utf-8")
+    # run inside a project, the output stays out of its `git status`
+    # without touching the project's own .gitignore
+    ignore = out / ".gitignore"
+    if not ignore.exists():
+        ignore.write_text("# written by agentdiff duel\n*\n", encoding="utf-8")
 
 
 def _walk(root: Path):

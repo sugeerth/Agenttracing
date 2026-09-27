@@ -5,6 +5,24 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Fewer words still
+
+- `agentdiff "Fix the failing test"`: a sentence where a command goes is
+  the task. A single word is still a command, so `agentdiff demoo` is an
+  error, never two agents started.
+- `agentdiff` alone shows which coding-agent CLIs are ready here and, for
+  each that is not, the command that fixes it (`npm i -g ...`,
+  `codex login`). The duel's preflight errors say the same.
+- At a terminal, `agentdiff duel` with no task asks for one.
+- A duel's output directory ignores itself, so running in a project
+  leaves its `git status` clean.
+- `pip install git+https://github.com/sugeerth/Agenttracing` works. The
+  page inside the package is a build output, missing from a fresh clone,
+  so an install from git had no page to write. A build hook
+  (`setup.py`) now writes it, and the wheel test builds from the files
+  git sees instead of this checkout, where the page already existed and
+  hid the fault.
+
 ## One command
 
 `agentdiff duel "Fix the failing test"`, run inside a project, is the

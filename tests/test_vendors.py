@@ -685,10 +685,11 @@ class OneCommandTest(unittest.TestCase):
                      AGENTDIFF_CLAUDE_BIN=str(FAKES / "fake_claude.py"),
                      PYTHONPATH=str(ROOT) + os.pathsep + os.environ.get("PYTHONPATH", ""))
             e.pop("FAKE_VENDOR_MODE", None)
-            for n, out in ((1, "duel-out"), (2, "duel-out-2")):
+            # the second time without the word `duel`: a sentence is the task
+            for n, out, verb in ((1, "duel-out", ["duel"]), (2, "duel-out-2", [])):
                 with self.subTest(duel=n):
-                    done = subprocess.run([sys.executable, "-m", "deepcompare", "duel",
-                                           "Fix pricing.py so the tests pass"],
+                    done = subprocess.run([sys.executable, "-m", "deepcompare"] + verb +
+                                          ["Fix pricing.py so the tests pass"],
                                           cwd=str(proj), capture_output=True, text=True, env=e, timeout=300)
                     self.assertEqual(done.returncode, 0, done.stderr[-2000:])
                     self.assertIn("check: python3 -m", done.stdout)
@@ -704,12 +705,54 @@ class OneCommandTest(unittest.TestCase):
                                          "an earlier duel's output is never in the agents' workspace")
             self.assertEqual(sorted(p.name for p in proj.iterdir() if p.name.startswith("duel-out")),
                              ["duel-out", "duel-out-2"])
+            # in a git project, the output never shows in `git status`
+            if shutil.which("git"):
+                subprocess.run(["git", "init", "-q"], cwd=str(proj), check=True)
+                status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=str(proj),
+                                        capture_output=True, text=True).stdout
+                self.assertNotIn("duel-out", status)
 
-    def test_agentdiff_alone_says_where_to_start(self):
-        done = subprocess.run([sys.executable, "-m", "deepcompare"], cwd=str(ROOT), capture_output=True, text=True)
+    def test_agentdiff_alone_says_where_to_start_and_what_is_missing(self):
+        with tempfile.TemporaryDirectory() as empty:
+            e = {k: v for k, v in os.environ.items() if not k.startswith("AGENTDIFF_")}
+            e.update(PATH=empty, PYTHONPATH=str(ROOT))
+            done = subprocess.run([sys.executable, "-m", "deepcompare"], cwd=str(ROOT), capture_output=True,
+                                  text=True, env=e)
         self.assertEqual(done.returncode, 0)
-        self.assertIn('duel "Fix the failing test"', done.stdout)
-        self.assertLess(len(done.stdout.splitlines()), 12)
+        self.assertIn('"Fix the failing test"', done.stdout)
+        self.assertIn("npm i -g @openai/codex", done.stdout, "a missing agent comes with its install command")
+        self.assertIn("npm i -g @anthropic-ai/claude-code", done.stdout)
+        self.assertLess(len(done.stdout.splitlines()), 14)
+
+    def test_a_sentence_is_a_task_and_a_word_is_a_command(self):
+        from deepcompare.cli import _is_sentence
+        commands = {"demo", "duel", "batch"}
+        self.assertTrue(_is_sentence("Fix the failing test", commands))
+        self.assertFalse(_is_sentence("demo", commands))
+        self.assertFalse(_is_sentence("demoo", commands), "a typo is an error, never two agents started")
+        self.assertFalse(_is_sentence("--version", commands))
+
+    def test_at_a_terminal_with_no_task_it_asks(self):
+        import pty
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            proj = Path(tmp) / "proj"
+            shutil.copytree(ROOT / "demo" / "vendors" / "bugfix", proj)
+            e = dict(os.environ, OPENAI_API_KEY=KEY_A, ANTHROPIC_API_KEY=KEY_B,
+                     AGENTDIFF_CODEX_BIN=str(FAKES / "fake_codex.py"),
+                     AGENTDIFF_CLAUDE_BIN=str(FAKES / "fake_claude.py"), PYTHONPATH=str(ROOT))
+            e.pop("FAKE_VENDOR_MODE", None)
+            master, slave = pty.openpty()
+            try:
+                proc = subprocess.Popen([sys.executable, "-m", "deepcompare", "duel", "--quiet"], cwd=str(proj),
+                                        stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=e)
+                os.write(master, b"Fix pricing.py so the tests pass\n")
+                out, err = proc.communicate(timeout=300)
+            finally:
+                os.close(master)
+                os.close(slave)
+        self.assertEqual(proc.returncode, 0, err[-1500:])
+        self.assertIn("page: duel-out/page/report.html", out)
 
 
 class LiveAnalyticsTest(unittest.TestCase):

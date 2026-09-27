@@ -162,21 +162,50 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 #: what `agentdiff` alone prints: the three ways in, not fifty commands
-START = """agentdiff — git diff for AI agents
+START = [
+    ('"Fix the failing test"', "run two coding agents on this repo, side by side, and watch live"),
+    ("demo --open", "the report, on example traces that ship with it"),
+    ("batch traces/ -o out/", "compare two agents' traces you already have"),
+]
 
-  {p} duel "Fix the failing test"    run two coding agents on this repo, side by side, and watch live
-  {p} demo --open                    the report, on example traces that ship with it
-  {p} batch traces/ -o out/          compare two agents' traces you already have
 
-{p} --help lists every command."""
+def start_text(prog: str) -> str:
+    width = max(len(f"{prog} {cmd}") for cmd, _ in START)
+    rows = [f"  {(prog + ' ' + cmd):<{width}}   {what}" for cmd, what in START]
+    return "\n".join(["agentdiff — git diff for AI agents", ""] + rows + ["", f"{prog} --help lists every command."])
+
+
+def readiness() -> str:
+    """One line per coding-agent CLI: ready, or the command that fixes it.
+    Presence only: a key's value is never read into anything printed."""
+    from .harness.vendors import VendorSpec, preflight
+    lines = []
+    for kind, label in (("claude", "Claude Code"), ("codex", "Codex")):
+        c = preflight(VendorSpec(kind))
+        mark = "ready  " if c["ready"] else "missing"
+        lines.append(f"  {mark} {label:<12} " + (c["version"] or "") if c["ready"] else
+                     f"  {mark} {label:<12} {c['why']}")
+    return "\n".join(lines)
+
+
+def _is_sentence(arg: str, commands) -> bool:
+    """`agentdiff "Fix the failing test"`: a sentence where a command goes is
+    the task for a duel. A single word is still a command (or a typo of
+    one), so a mistyped command never starts two agents."""
+    return bool(arg) and not arg.startswith("-") and arg not in commands and len(arg.split()) > 1
 
 
 def main(argv: Optional[list[str]] = None) -> int:
     """CLI entry point; returns a process exit code."""
-    if not (sys.argv[1:] if argv is None else argv):
-        print(START.format(p=_program_name()))
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if not argv:
+        print(start_text(_program_name()))
+        print("\ncoding agents on this machine:\n" + readiness())
         return 0
     parser = build_parser()
+    commands = next(a.choices for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    if _is_sentence(argv[0], commands):
+        argv = ["duel"] + argv
     args = parser.parse_args(argv)
     return args.func(args)
 

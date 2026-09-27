@@ -23,11 +23,16 @@ pass rate from a small sample settles.
 ## The one command
 
 ```bash
+pip install git+https://github.com/sugeerth/Agenttracing
 cd your-project
-agentdiff duel "Fix the failing test in parser.py"
+agentdiff "Fix the failing test in parser.py"
 ```
 
-That is the whole setup. The agents work on copies of the directory you
+That is the whole setup. `agentdiff` alone lists which coding-agent CLIs
+are ready on this machine and, for any that is not, the command that
+installs it or logs it in. A sentence in place of a command is the task;
+a single word is still a command, so a typo never starts two agents. At
+a terminal, `agentdiff duel` with no task asks for one. The agents work on copies of the directory you
 are in. Each run is graded by the project's own test command, read from
 its files and never run to find out: a `test` target in the Makefile, a
 `test` script in package.json, Cargo, Go, or Python tests (pytest when it
@@ -38,7 +43,9 @@ its haiku and sonnet models. In a terminal the race opens in your browser
 as they work.
 
 Each duel writes to `duel-out/`, or `duel-out-2/` and on when an earlier
-duel is there, so two duels are never read as one. An output directory
+duel is there, so two duels are never read as one. The directory ignores
+itself (a `.gitignore` of `*` inside it), so it never shows in the
+project's `git status`. An output directory
 is never copied into an agent's workspace, so running inside the project
 does not hand the next duel's agents the last one's reports. The
 terminal ends on the verdict and the page; the full triage is in

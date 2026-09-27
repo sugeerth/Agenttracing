@@ -13,8 +13,8 @@ contains no network code; only the harness talks to a model.
 ## Quick start
 
 ```bash
-pip install -e .                        # installs `agentdiff` (python -m deepcompare works too)
-agentdiff duel "Fix the failing test"   # in your repo: the agents installed, side by side, live,
+pip install git+https://github.com/sugeerth/Agenttracing   # or in a clone: pip install -e .
+agentdiff "Fix the failing test"        # in your repo: the agents installed, side by side, live,
                                         # graded by the project's own tests (docs/VENDORS.md)
 agentdiff demo --open                   # the 8 shipped pairs: out_demo/report.html and the verdict card
 agentdiff demo --everything -o out_all  # every view: pairs, training, lineages, a bundle, the key, MCP

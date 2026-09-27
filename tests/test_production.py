@@ -11,6 +11,7 @@ to work from anywhere, not only from the checkout it was built in.
 import json
 import os
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -151,13 +152,30 @@ class DuelLifecycleTest(unittest.TestCase):
 
 
 class InstalledTest(unittest.TestCase):
-    """The wheel, installed into a clean environment, run from outside the checkout."""
+    """The wheel, installed into a clean environment, run from outside the checkout.
+
+    Built from the files git sees, as `pip install git+https://...` does: the
+    page inside the package is a build output, absent from a fresh clone,
+    and the build writes it. Built from this checkout, where the page was
+    already there, the test once passed while a fresh clone installed a
+    package with no page."""
 
     @unittest.skipUnless(os.environ.get("AGENTDIFF_WHEEL_TEST", "1") == "1", "wheel install test disabled")
     def test_the_installed_console_script_works_from_anywhere(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            built = subprocess.run([sys.executable, "-m", "pip", "wheel", str(ROOT), "--no-deps", "-q",
+            listed = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+                                    cwd=str(ROOT), capture_output=True, text=True)
+            if listed.returncode != 0:
+                self.skipTest("not a git checkout")
+            clean = tmp / "clean"
+            for rel in filter(None, listed.stdout.split("\0")):
+                src = ROOT / rel
+                if src.is_file():
+                    (clean / rel).parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, clean / rel)
+            self.assertFalse((clean / "deepcompare" / "page").exists(), "a fresh clone has no built page")
+            built = subprocess.run([sys.executable, "-m", "pip", "wheel", str(clean), "--no-deps", "-q",
                                     "-w", str(tmp / "wheel")], capture_output=True, text=True, timeout=600)
             if built.returncode != 0:
                 self.skipTest(f"could not build a wheel here: {built.stderr[-300:]}")

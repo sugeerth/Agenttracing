@@ -9,3 +9,4 @@ out_*/
 deepcompare/page/
 .pytest_cache/
 notebooks/
+duel-out*/
