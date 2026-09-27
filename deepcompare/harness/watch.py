@@ -111,11 +111,19 @@ class Watcher:
                             self._ingested.add(key)
                         except Exception as exc:  # noqa: BLE001
                             self.errors.append(f"db checkpoint: {path.name}: {exc}")
+                vendor = data.get("vendor") or {}
                 lives.append({"task": task, "agent": agent, "file": path.name,
                               "steps": data.get("steps") or [], "in_progress": True,
                               "updated_at": data.get("updated_at"),
                               "model": (data.get("agent") or {}).get("model"),
-                              "run_id": data.get("run_id")})
+                              "run_id": data.get("run_id"),
+                              # what a race needs as it runs: the clock, the
+                              # spend so far and its basis, and the vendor's cost
+                              "totals": data.get("totals") or {},
+                              "elapsed_s": data.get("elapsed_s"),
+                              "tokens_basis": (data.get("token_accounting") or {}).get("basis"),
+                              "vendor": {"name": vendor.get("name"), "cost_usd": vendor.get("cost_usd")}
+                              if vendor else None})
                 continue
             try:
                 traj = Trajectory.from_dict(data)
@@ -151,8 +159,22 @@ class Watcher:
                 except Exception as exc:   # noqa: BLE001 — one bad pair must not stop the stream
                     self.errors.append(f"{task}: {exc}")
         agg = build_aggregate(reports) if reports else {"tasks": 0}
-        finished = [{"task": t, "agent": a, "success": finals[t][a].outcome.success,
-                     "steps": len(finals[t][a].steps)} for t in sorted(finals) for a in finals[t]]
+        def compact(t, a):
+            # a finished run, small enough to send on every update: the race
+            # draws an agent that is done beside one still running
+            raw = raw_finals[t][a]
+            steps = [{k: s.get(k) for k in ("type", "name", "started_s", "latency_s", "error", "tokens",
+                                            "tokens_basis", "effect", "span") if s.get(k) is not None}
+                     | {"input": str(s.get("input") or "")[:160]}
+                     for s in raw.get("steps") or []]
+            vendor = raw.get("vendor") or {}
+            return {"task": t, "agent": a, "success": finals[t][a].outcome.success,
+                    "steps": len(finals[t][a].steps), "trace": steps,
+                    "totals": raw.get("totals") or {}, "note": (raw.get("outcome") or {}).get("note"),
+                    "run_id": raw.get("run_id"),
+                    "tokens_basis": (raw.get("token_accounting") or {}).get("basis"),
+                    "vendor": {"name": vendor.get("name"), "cost_usd": vendor.get("cost_usd")} if vendor else None}
+        finished = [compact(t, a) for t in sorted(finals) for a in finals[t]]
         return {
             "reports": reports,
             "aggregate": agg,

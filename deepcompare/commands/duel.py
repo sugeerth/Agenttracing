@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 __all__ = ["register", "run"]
@@ -67,6 +68,14 @@ def register(subparsers) -> None:
     parser.add_argument("--from", dest="from_dir", default=None, metavar="DIR",
                         help="rebuild the report and page from a finished duel's records; runs nothing")
     parser.add_argument("--quiet", action="store_true", help="no live event lines")
+    parser.add_argument("--live", action="store_true",
+                        help="serve the page while the agents work: both stream into a race at "
+                             "http://HOST:PORT/ (localhost only by default)")
+    parser.add_argument("--host", default="127.0.0.1", help="--live: address to bind (default 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=8765, help="--live: port (default 8765)")
+    parser.add_argument("--linger", type=float, default=None, metavar="S",
+                        help="--live: keep serving this many seconds after the duel ends "
+                             "(default: until Ctrl-C)")
     parser.add_argument("--template", default=None, help="page template (default the blocks page)")
     parser.add_argument("-o", "--output", default="duel-out", metavar="DIR")
     parser.set_defaults(func=run)
@@ -242,7 +251,17 @@ def run(args: argparse.Namespace) -> int:
               f"{rec['diff']['added']}+/{rec['diff']['removed']}- in {len(rec['diff']['files'])} file(s)"
               + (f"; stopped by {rec['stopped_by']}" if rec.get("stopped_by") else ""), flush=True)
 
+    server = None
+    if args.live:
+        import threading
+        from ..harness.watch import serve
+        from .paths import DEFAULT_TEMPLATE
+        (out / "traces").mkdir(parents=True, exist_ok=True)
+        server = serve(out / "traces", args.template or DEFAULT_TEMPLATE, host=args.host, port=args.port, poll=0.2)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        print(f"live: http://{args.host}:{server.server_address[1]}/  (both agents stream into the race)", flush=True)
     records = run_duel(tasks, specs, out, runs=args.runs, parallel=not args.sequential,
+                       live_every=0.25 if args.live else 1.0,
                        on_event=on_event, on_done=on_done, budget_tokens=args.budget_tokens,
                        timeout_s=args.timeout, check_timeout_s=args.check_timeout,
                        isolate=not args.use_my_config, sandbox=args.sandbox,
@@ -271,6 +290,17 @@ def run(args: argparse.Namespace) -> int:
             r["trajectory"] = fresh
             (out / r["trace"]).write_text(json.dumps(fresh, indent=1, ensure_ascii=False), encoding="utf-8")
     good = [r for r in records if not r.get("failed")]
-    if not good:
-        return 1
-    return _report(out, good, args.band, args.template, args.quiet)
+    code = _report(out, good, args.band, args.template, args.quiet) if good else 1
+    if server is not None:
+        try:
+            if args.linger is None:
+                print("live: serving the finished race; Ctrl-C to stop", flush=True)
+                while True:
+                    time.sleep(3600)
+            elif args.linger > 0:
+                time.sleep(args.linger)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.shutdown_all()
+    return code

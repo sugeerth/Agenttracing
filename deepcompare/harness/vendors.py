@@ -282,6 +282,7 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
                isolate: bool = True, sandbox: str = "workspace-write",
                claude_mode: str = "acceptEdits", price: Optional[dict] = None,
                started_at: Optional[float] = None, keep_workspace: bool = False,
+               live_every: float = LIVE_EVERY_S,
                on_event: Optional[Callable[[dict], None]] = None) -> dict:
     """One agent, one task, one run. Returns the run record."""
     out = Path(out)
@@ -356,11 +357,13 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
             if budget_tokens and spec.kind == "claude" and \
                     _running_tokens("claude", [item], seen_usage) > budget_tokens:
                 kill("budget")
-            if time.monotonic() - last_live >= LIVE_EVERY_S:
+            if time.monotonic() - last_live >= live_every:
                 last_live = time.monotonic()
                 try:
                     live = convert(list(events))
                     live["in_progress"] = True
+                    live["elapsed_s"] = t
+                    live["updated_at"] = time.time()
                     live_path.write_text(json.dumps(live), encoding="utf-8")
                 except Exception:   # a live frame must never stop the run
                     pass

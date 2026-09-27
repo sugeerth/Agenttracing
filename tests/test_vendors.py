@@ -412,3 +412,59 @@ class LiveDuelTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LiveDuelStreamTest(unittest.TestCase):
+    """`duel --live`: the page is served while the agents work, and both
+    stream into it — the runs in progress with their steps, spend and
+    clock, the finished ones with the compact trace the race draws."""
+
+    def test_both_agents_stream_while_they_work(self):
+        import re
+        import time
+        import urllib.request
+        with tempfile.TemporaryDirectory() as tmp:
+            e = dict(os.environ, OPENAI_API_KEY=KEY_A, ANTHROPIC_API_KEY=KEY_B, FAKE_VENDOR_SLOW="0.25")
+            e.pop("FAKE_VENDOR_MODE", None)
+            proc = subprocess.Popen([sys.executable, "-m", "deepcompare", "duel", "--task", str(TASK), "--quiet",
+                                     "--codex-bin", str(FAKES / "fake_codex.py"),
+                                     "--claude-bin", str(FAKES / "fake_claude.py"),
+                                     "--live", "--port", "0", "--linger", "4", "-o", str(Path(tmp) / "d")],
+                                    cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=e)
+            try:
+                url = None
+                deadline = time.time() + 60
+                while time.time() < deadline and url is None:
+                    line = proc.stdout.readline()
+                    m = re.search(r"live: (http://\S+/)", line or "")
+                    if m:
+                        url = m.group(1)
+                self.assertIsNotNone(url, "the command names the page it serves")
+                seen_running, seen_finished = [], []
+                while time.time() < deadline:
+                    try:
+                        data = json.loads(urllib.request.urlopen(url + "data.json", timeout=5).read())
+                    except OSError:
+                        time.sleep(0.2)
+                        continue
+                    live = data["live"]
+                    seen_running.extend(r for r in live["runs"] if r["steps"])
+                    if len(live["finished"]) >= 2:
+                        seen_finished = live["finished"]
+                        break
+                    time.sleep(0.2)
+                self.assertTrue(seen_running, "a run was seen in progress, with steps")
+                r = seen_running[-1]
+                self.assertIn("totals", r)
+                self.assertIsNotNone(r["elapsed_s"])
+                self.assertEqual({f["agent"] for f in seen_finished}, {"codex", "claude-code"})
+                for f in seen_finished:
+                    self.assertTrue(f["trace"])
+                    self.assertTrue(all("started_s" in s for s in f["trace"] if s["type"] != "answer"))
+                page = urllib.request.urlopen(url, timeout=10).read().decode("utf-8")
+                self.assertIn("live", page)
+                for secret in (KEY_A, KEY_B):
+                    self.assertNotIn(secret, page)
+            finally:
+                proc.wait(timeout=90)
+            self.assertEqual(proc.returncode, 0, proc.stderr.read()[-2000:])
