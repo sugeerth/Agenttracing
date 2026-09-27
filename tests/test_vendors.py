@@ -157,6 +157,14 @@ class ClaudeConverterTest(unittest.TestCase):
         self.assertEqual(self.t["agent"]["model"], "m-1")
         self.assertEqual(self.t["outcome"]["answer"], "All tests pass now.")
 
+    def test_the_model_that_ran_wins_over_the_alias_asked_for(self):
+        init = [e for e in claude_events() if e["e"].get("subtype") == "init"][0]["e"]
+        t = vendors.claude_stream_to_trajectory(claude_events(), task="t", model="sonnet")
+        self.assertEqual(t["agent"]["model"], init["model"])
+        self.assertEqual(t["vendor"]["requested_model"], "sonnet")
+        same = vendors.claude_stream_to_trajectory(claude_events(), task="t", model=init["model"])
+        self.assertNotIn("requested_model", same["vendor"])
+
     def test_tools_line_up_with_the_other_vendor(self):
         got = [(s["type"], s["name"], s.get("effect")) for s in self.t["steps"]]
         self.assertIn(("tool_call", "Bash", None), got)
@@ -620,6 +628,88 @@ class SuiteTasksAreWellFormedTest(unittest.TestCase):
                 test_file.write_text(test_file.read_text() + "\n# edited\n")
                 self.assertEqual(check(), 3 if t["id"] != "contradictory-rounding" else check(),
                                  "a run that edits the tests is refused")
+
+
+class OneCommandTest(unittest.TestCase):
+    """`agentdiff duel "the task"` in a project is the whole setup: the
+    workspace is here, the check is the project's own, the agents are the
+    CLIs installed, and a second duel neither mixes with the first nor
+    hands its agents the first one's output."""
+
+    def test_the_check_is_read_from_the_project_never_run(self):
+        from deepcompare.commands.duel import detect_check
+        from deepcompare.harness.vendors import OUTPUT_MARKER
+        cases = [
+            ({"Makefile": "build:\n\techo\ntest:\n\tpytest\n", "package.json": '{"scripts":{"test":"jest"}}'},
+             "make test"),
+            ({"package.json": '{"scripts":{"test":"jest"}}'}, "npm test --silent"),
+            ({"package.json": '{"scripts":{"test":"echo \\"Error: no test specified\\" && exit 1"}}'}, None),
+            ({"Cargo.toml": "[package]"}, "cargo test -q"),
+            ({"go.mod": "module x"}, "go test ./..."),
+            ({"pkg/tests/test_a.py": ""}, "python3 -m"),
+            ({"README.md": "hi"}, None),
+            # tests inside an earlier duel's output are not the project's
+            ({"duel-out/" + OUTPUT_MARKER: "", "duel-out/x/test_a.py": ""}, None),
+        ]
+        for files, want in cases:
+            with self.subTest(files=sorted(files)), tempfile.TemporaryDirectory() as tmp:
+                for name, text in files.items():
+                    (Path(tmp) / name).parent.mkdir(parents=True, exist_ok=True)
+                    (Path(tmp) / name).write_text(text)
+                cmd, why = detect_check(tmp)
+                self.assertTrue(why)
+                if want is None:
+                    self.assertIsNone(cmd)
+                else:
+                    self.assertTrue(cmd and cmd.startswith(want), cmd)
+
+    def test_the_agents_are_the_clis_installed(self):
+        from unittest import mock
+        from deepcompare.commands.duel import default_agents
+        with tempfile.TemporaryDirectory() as empty, mock.patch.dict(os.environ, {"PATH": empty}):
+            os.environ.pop("AGENTDIFF_CODEX_BIN", None)
+            os.environ.pop("AGENTDIFF_CLAUDE_BIN", None)
+            codex, claude = str(FAKES / "fake_codex.py"), str(FAKES / "fake_claude.py")
+            self.assertEqual(default_agents(codex, claude), ["codex", "claude"])
+            self.assertEqual(default_agents(None, None), ["codex", "claude"], "neither: the preflight says so")
+            self.assertEqual(default_agents(None, claude), ["haiku=claude:haiku", "sonnet=claude:sonnet"])
+            self.assertIsNone(default_agents(codex, None), "two Codex models are the operator's call")
+
+    def test_one_line_in_a_project_twice(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            proj = Path(tmp) / "proj"
+            shutil.copytree(ROOT / "demo" / "vendors" / "bugfix", proj)
+            e = dict(os.environ, OPENAI_API_KEY=KEY_A, ANTHROPIC_API_KEY=KEY_B,
+                     AGENTDIFF_CODEX_BIN=str(FAKES / "fake_codex.py"),
+                     AGENTDIFF_CLAUDE_BIN=str(FAKES / "fake_claude.py"),
+                     PYTHONPATH=str(ROOT) + os.pathsep + os.environ.get("PYTHONPATH", ""))
+            e.pop("FAKE_VENDOR_MODE", None)
+            for n, out in ((1, "duel-out"), (2, "duel-out-2")):
+                with self.subTest(duel=n):
+                    done = subprocess.run([sys.executable, "-m", "deepcompare", "duel",
+                                           "Fix pricing.py so the tests pass"],
+                                          cwd=str(proj), capture_output=True, text=True, env=e, timeout=300)
+                    self.assertEqual(done.returncode, 0, done.stderr[-2000:])
+                    self.assertIn("check: python3 -m", done.stdout)
+                    self.assertIn(f"page: {out}/page/report.html", done.stdout)
+                    self.assertLess(len(done.stdout.splitlines()), 40, "ends on the verdict, not the triage")
+                    self.assertNotIn("live:", done.stdout, "no live server when nobody is at a terminal")
+                    records = [json.loads(p.read_text()) for p in (proj / out / "records").glob("*.json")]
+                    self.assertEqual(len(records), 2)
+                    for r in records:
+                        self.assertTrue(r["check"]["passed"], r["check"])
+                        self.assertEqual(r["task"], "fix-pricing-py-so-the")
+                        self.assertEqual([f["path"] for f in r["diff"]["files"]], ["pricing.py"],
+                                         "an earlier duel's output is never in the agents' workspace")
+            self.assertEqual(sorted(p.name for p in proj.iterdir() if p.name.startswith("duel-out")),
+                             ["duel-out", "duel-out-2"])
+
+    def test_agentdiff_alone_says_where_to_start(self):
+        done = subprocess.run([sys.executable, "-m", "deepcompare"], cwd=str(ROOT), capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0)
+        self.assertIn('duel "Fix the failing test"', done.stdout)
+        self.assertLess(len(done.stdout.splitlines()), 12)
 
 
 class LiveAnalyticsTest(unittest.TestCase):

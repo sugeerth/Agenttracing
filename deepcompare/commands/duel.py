@@ -16,9 +16,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 __all__ = ["register", "run"]
 
@@ -31,16 +34,22 @@ def register(subparsers) -> None:
         "duel", help="run Codex CLI and Claude Code on the same task, each in its own copy of the workspace, "
                      "side by side; trace every event, grade each run with your check, and write a fair "
                      "report and the page (keys from OPENAI_API_KEY / CODEX_API_KEY and ANTHROPIC_API_KEY)")
+    parser.add_argument("what", nargs="?", default=None, metavar="PROMPT",
+                        help='the task in words: `agentdiff duel "Fix the failing test"` runs it on this '
+                             "directory, with the check detected and the page live")
     parser.add_argument("--task", default=None, metavar="FILE",
                         help="task JSON: {id, prompt, workspace, check} or {\"tasks\": [...]}")
     parser.add_argument("--prompt", default=None, help="the task, when there is no --task file")
     parser.add_argument("--workspace", default=None, metavar="DIR",
                         help="the directory each agent starts from (copied per run; never modified)")
     parser.add_argument("--check", default=None, metavar="CMD",
-                        help="shell command run in each agent's workspace after it stops; exit 0 is a pass")
+                        help="shell command run in each agent's workspace after it stops; exit 0 is a pass "
+                             "(default with a prompt: the project's test command, detected)")
+    parser.add_argument("--no-check", action="store_true", help="record the runs ungraded; detect nothing")
     parser.add_argument("--id", default="task", help="task id, when there is no --task file")
     parser.add_argument("--agent", action="append", default=None, metavar="[NAME=]VENDOR[:MODEL]",
-                        help="codex[:MODEL] or claude[:MODEL]; twice. Default: codex and claude")
+                        help="codex[:MODEL] or claude[:MODEL]; twice. Default: codex and claude, or with "
+                             "only Claude Code installed, its haiku and sonnet models")
     parser.add_argument("--runs", type=int, default=1, help="runs per agent per task (default 1)")
     parser.add_argument("--budget-tokens", type=int, default=None, metavar="N",
                         help="token budget per run (input incl. cached + output); enforced while running "
@@ -68,9 +77,11 @@ def register(subparsers) -> None:
     parser.add_argument("--from", dest="from_dir", default=None, metavar="DIR",
                         help="rebuild the report and page from a finished duel's records; runs nothing")
     parser.add_argument("--quiet", action="store_true", help="no live event lines")
-    parser.add_argument("--live", action="store_true",
+    parser.add_argument("--live", action="store_true", default=None,
                         help="serve the page while the agents work: both stream into a race at "
-                             "http://HOST:PORT/ (localhost only by default)")
+                             "http://HOST:PORT/ (localhost only). Default: on in a terminal")
+    parser.add_argument("--no-live", dest="live", action="store_false", help="no live page")
+    parser.add_argument("--no-open", action="store_true", help="--live: do not open a browser")
     parser.add_argument("--host", default="127.0.0.1",
                         help="--live: address to bind (default 127.0.0.1); anything else needs --allow-remote")
     parser.add_argument("--allow-remote", action="store_true",
@@ -82,7 +93,8 @@ def register(subparsers) -> None:
                         help="--live: keep serving this many seconds after the duel ends "
                              "(default: until Ctrl-C)")
     parser.add_argument("--template", default=None, help="page template (default the blocks page)")
-    parser.add_argument("-o", "--output", default="duel-out", metavar="DIR")
+    parser.add_argument("-o", "--output", default=None, metavar="DIR",
+                        help="default duel-out/, or duel-out-2/ and on when it holds an earlier duel")
     parser.set_defaults(func=run)
 
 
@@ -103,9 +115,76 @@ def _tasks(args) -> list:
                         "expected": t.get("expected")})
         return out
     if not args.prompt or not args.workspace:
-        raise ValueError("give --task FILE, or --prompt and --workspace")
+        raise ValueError('give the task in words (agentdiff duel "Fix the failing test"), or --task FILE')
     return [{"id": args.id, "prompt": args.prompt, "workspace": str(Path(args.workspace).resolve()),
              "check": args.check, "expected": None}]
+
+
+#: directories a test search never walks into
+_SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "env", "__pycache__", ".tox", "dist", "build", "target"}
+
+
+def detect_check(workspace) -> tuple:
+    """``(command, why)``: the test command this project already has, or
+    ``(None, why not)``. Read from the files, never by running anything."""
+    from ..harness.vendors import OUTPUT_MARKER
+    ws = Path(workspace)
+    make = ws / "Makefile"
+    if make.is_file() and re.search(r"^test\s*:", make.read_text(encoding="utf-8", errors="replace"), re.M):
+        return "make test", "the Makefile has a test target"
+    pkg = ws / "package.json"
+    if pkg.is_file():
+        try:
+            script = ((json.loads(pkg.read_text(encoding="utf-8")) or {}).get("scripts") or {}).get("test")
+        except ValueError:
+            script = None
+        # npm's placeholder fails on purpose; it is not a test command
+        if script and "no test specified" not in script:
+            return "npm test --silent", "package.json has a test script"
+    if (ws / "Cargo.toml").is_file():
+        return "cargo test -q", "a Cargo project"
+    if (ws / "go.mod").is_file():
+        return "go test ./...", "a Go module"
+    found = False
+    for root, dirs, files in os.walk(ws):
+        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS and not d.startswith(".")
+                   and not (Path(root) / d / OUTPUT_MARKER).is_file()]
+        if any(re.fullmatch(r"test_.*\.py|.*_test\.py", f) for f in files):
+            found = True
+            break
+        if len(Path(root).relative_to(ws).parts) >= 3:   # tests live near the top
+            dirs[:] = []
+    if found:
+        import importlib.util
+        if importlib.util.find_spec("pytest") is not None:
+            return "python3 -m pytest -q", "Python tests, and pytest is installed"
+        return "python3 -m unittest -q", "Python tests (pytest is not installed)"
+    return None, "no test command found (no Makefile test target, package.json test, Cargo, Go or Python tests)"
+
+
+def default_agents(codex_bin: Optional[str] = None, claude_bin: Optional[str] = None) -> Optional[list]:
+    """The two agents to run when none are named: Codex and Claude Code when
+    both are installed (or neither, so the preflight says what is missing);
+    with Claude Code alone, two of its models. None with Codex alone: which
+    two Codex models to compare is the operator's call."""
+    from ..harness.vendors import VendorSpec, _binary
+    have_codex = bool(_binary(VendorSpec("codex", binary=codex_bin or "")))
+    have_claude = bool(_binary(VendorSpec("claude", binary=claude_bin or "")))
+    if have_codex == have_claude:
+        return ["codex", "claude"]
+    if have_claude:
+        return ["haiku=claude:haiku", "sonnet=claude:sonnet"]
+    return None
+
+
+def _free_output(base: str = "duel-out") -> Path:
+    """``duel-out``, unless it holds an earlier duel: then the next free
+    ``duel-out-N``, so two duels are never read as one."""
+    n, path = 1, Path(base)
+    while (path / "records").is_dir() and any((path / "records").glob("*.json")):
+        n += 1
+        path = Path(f"{base}-{n}")
+    return path
 
 
 def _prices(values: list) -> dict:
@@ -193,15 +272,45 @@ def _report(out: Path, records: list, band: float, template, quiet: bool) -> int
         return 1
     ns = argparse.Namespace(tracesdir=str(out / "traces"), output=str(out / "page"), template=template,
                             golden=None, policy=None, lessons=None, extra_aggregate={"duel": slim})
-    code = batch_cmd.run(ns)
+    # the duel ends on its own reading and where the page is; the corpus
+    # triage batch prints goes to a file beside the page, not the terminal
+    import contextlib
+    import io
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        code = batch_cmd.run(ns)
+    (out / "page").mkdir(parents=True, exist_ok=True)
+    (out / "page" / "triage.txt").write_text(buf.getvalue(), encoding="utf-8")
     if code == 0:
-        print(f"page: {out / 'page' / 'report.html'}")
+        print(f"page: {out / 'page' / 'report.html'}   (triage: {out / 'page' / 'triage.txt'})")
+    else:
+        print(buf.getvalue()[-2000:])
     return code
 
 
 def run(args: argparse.Namespace) -> int:
     from ..harness.vendors import parse_spec, preflight, run_duel
-    out = Path(args.output)
+    if getattr(args, "what", None):
+        if args.prompt or args.task:
+            print("error: give the task once: in words, or --prompt, or --task FILE", file=sys.stderr)
+            return 2
+        args.prompt = args.what
+    simple = bool(args.prompt) and not args.task
+    if simple and not args.workspace:
+        args.workspace = "."
+    if simple and args.id == "task":
+        # the page names the task by its first words, not "task"
+        words = re.findall(r"[a-z0-9]+", args.prompt.lower())[:5]
+        args.id = "-".join(words) or "task"
+    if simple and not args.check and not getattr(args, "no_check", False):
+        cmd, why = detect_check(args.workspace)
+        args.check = cmd
+        print(f"check: {cmd}  ({why}; --check CMD to change)" if cmd else f"check: none — {why}; "
+              "the runs are recorded ungraded (--check CMD to grade them)", flush=True)
+    if args.live is None:
+        # a person at a terminal watches it; a script or a test does not
+        args.live = sys.stdout.isatty() and not args.dry_run and not args.from_dir
+    out = Path(args.output) if args.output else _free_output()
     if args.from_dir:
         src = Path(args.from_dir)
         records = _load_records(src)
@@ -211,7 +320,11 @@ def run(args: argparse.Namespace) -> int:
         return _report(src, records, args.band, args.template, args.quiet)
     try:
         tasks = _tasks(args)
-        specs = [parse_spec(s) for s in (args.agent or ["codex", "claude"])]
+        agents = args.agent or default_agents(args.codex_bin, args.claude_bin)
+        if agents is None:
+            raise ValueError("only Codex is installed: name two models to compare, "
+                             "--agent a=codex:MODEL_A --agent b=codex:MODEL_B")
+        specs = [parse_spec(s) for s in agents]
         prices = _prices(args.price)
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -286,8 +399,14 @@ def run(args: argparse.Namespace) -> int:
         server = serve(out / "traces", args.template or DEFAULT_TEMPLATE, host=args.host, port=args.port,
                        poll=0.2, token=token, enrich=live_duel, also=[out / "records"])
         threading.Thread(target=server.serve_forever, daemon=True).start()
-        print(f"live: http://{args.host}:{server.server_address[1]}/" + (f"?token={token}" if token else "")
-              + "  (both agents stream into the race)", flush=True)
+        url = f"http://{args.host}:{server.server_address[1]}/" + (f"?token={token}" if token else "")
+        print(f"live: {url}  (both agents stream into the race)", flush=True)
+        if not args.no_open and sys.stdout.isatty():
+            try:
+                import webbrowser
+                webbrowser.open(url)
+            except Exception:   # noqa: BLE001 — no browser is not an error
+                pass
     # a scheduler's SIGTERM is an interrupt like Ctrl-C: agents stopped,
     # workspaces removed, finished runs still reported
     import signal as _signal

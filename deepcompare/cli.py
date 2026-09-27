@@ -161,8 +161,21 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+#: what `agentdiff` alone prints: the three ways in, not fifty commands
+START = """agentdiff — git diff for AI agents
+
+  {p} duel "Fix the failing test"    run two coding agents on this repo, side by side, and watch live
+  {p} demo --open                    the report, on example traces that ship with it
+  {p} batch traces/ -o out/          compare two agents' traces you already have
+
+{p} --help lists every command."""
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     """CLI entry point; returns a process exit code."""
+    if not (sys.argv[1:] if argv is None else argv):
+        print(START.format(p=_program_name()))
+        return 0
     parser = build_parser()
     args = parser.parse_args(argv)
     return args.func(args)

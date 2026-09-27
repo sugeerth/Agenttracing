@@ -20,6 +20,30 @@ This is a qualitative reading, not a benchmark. A few tasks and a few runs
 show how two agents worked on your work. The intervals show how little a
 pass rate from a small sample settles.
 
+## The one command
+
+```bash
+cd your-project
+agentdiff duel "Fix the failing test in parser.py"
+```
+
+That is the whole setup. The agents work on copies of the directory you
+are in. Each run is graded by the project's own test command, read from
+its files and never run to find out: a `test` target in the Makefile, a
+`test` script in package.json, Cargo, Go, or Python tests (pytest when it
+is installed). The command prints the check it chose; `--check CMD`
+changes it and `--no-check` records the runs ungraded. The agents are
+the CLIs installed: Codex and Claude Code, or, with Claude Code alone,
+its haiku and sonnet models. In a terminal the race opens in your browser
+as they work.
+
+Each duel writes to `duel-out/`, or `duel-out-2/` and on when an earlier
+duel is there, so two duels are never read as one. An output directory
+is never copied into an agent's workspace, so running inside the project
+does not hand the next duel's agents the last one's reports. The
+terminal ends on the verdict and the page; the full triage is in
+`page/triage.txt`. Everything below is for when you want more control.
+
 ## Setup
 
 Install both CLIs (`npm i -g @openai/codex`, and Claude Code), then set the

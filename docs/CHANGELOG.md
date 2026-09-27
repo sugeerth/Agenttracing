@@ -5,6 +5,32 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## One command
+
+`agentdiff duel "Fix the failing test"`, run inside a project, is the
+whole setup:
+
+- the workspace is the directory you are in
+- the check is the project's own test command, read from its files (a
+  Makefile test target, package.json, Cargo, Go, Python tests) and
+  printed; `--check` changes it and `--no-check` drops it
+- the agents are the CLIs installed: Codex and Claude Code, or Claude
+  Code's haiku and sonnet when it is the only one. With Codex alone it
+  asks which two models, because that is the operator's call.
+- in a terminal the page is live and opens in the browser; in a script
+  or a test it is not (`--live` and `--no-live` override)
+- each duel gets a fresh output directory (`duel-out-2/` and on), and an
+  output directory is never copied into an agent's workspace
+- the terminal ends on the verdict and the page, with batch's triage
+  written to `page/triage.txt`
+
+`agentdiff` alone prints the three ways in instead of a usage error.
+
+Found by running the one command for real: asked for `haiku`, the
+report named the model "haiku". A trace now carries the model the CLI
+says it ran (`claude-haiku-4-5-20251001`), with the alias kept as
+`vendor.requested_model`.
+
 ## The live page is the whole page
 
 A page watched while the agents ran used to be a shorter page than the

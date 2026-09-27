@@ -209,6 +209,23 @@ def preflight(spec: VendorSpec) -> dict:
 
 # --------------------------------------------------------------- workspace
 
+#: a file in every duel's output directory: that directory is never copied
+#: into an agent's workspace, so a duel run inside the project it tests does
+#: not hand the next duel's agents the last one's reports and traces
+OUTPUT_MARKER = ".agentdiff-output"
+
+
+def _is_output(path: Path) -> bool:
+    return (path / OUTPUT_MARKER).is_file()
+
+
+def mark_output(out: Path) -> None:
+    out.mkdir(parents=True, exist_ok=True)
+    marker = out / OUTPUT_MARKER
+    if not marker.exists():
+        marker.write_text("written by agentdiff duel: never copied into an agent's workspace\n", encoding="utf-8")
+
+
 def _walk(root: Path):
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
@@ -375,7 +392,8 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
     with _ACTIVE_LOCK:
         _ACTIVE["dirs"].add(str(tmp))
     workdir = tmp / "work"
-    shutil.copytree(source, workdir, symlinks=True)
+    shutil.copytree(source, workdir, symlinks=True,
+                    ignore=lambda d, names: [n for n in names if _is_output(Path(d) / n)])
     before = snapshot(workdir)
     stem = f"{task['id']}__{spec.agent}__{run}"
     raw_path = out / "raw" / f"{stem}.jsonl"
@@ -568,6 +586,7 @@ def run_duel(tasks: list, specs: list, out: Path, *, runs: int = 1, parallel: bo
              on_done: Optional[Callable[[dict], None]] = None, **kw) -> list:
     """Every task, every run, every agent. Agents on one (task, run) are
     launched together unless ``parallel`` is False."""
+    mark_output(out)
     records: list = []
     for task in tasks:
         for n in range(1, runs + 1):

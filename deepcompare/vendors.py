@@ -356,6 +356,9 @@ def claude_stream_to_trajectory(events: Iterable, *, task: str, prompt: str = ""
                                 expected: Optional[str] = None,
                                 termination: Optional[str] = None) -> dict:
     """A ``claude -p --output-format stream-json`` stream as a SCHEMA trajectory."""
+    # the model the CLI says it ran wins over the name it was asked for (an
+    # alias such as `sonnet`); the request is kept beside it when they differ
+    requested, reported = model, ""
     stamped = _stamped(events)
     steps: list = []
     pending: dict = {}           # tool_use id -> (step, t0)
@@ -374,7 +377,8 @@ def claude_stream_to_trajectory(events: Iterable, *, task: str, prompt: str = ""
         if kind == "system":
             if ev.get("subtype") == "init":
                 init = ev
-                model = model or str(ev.get("model") or "")
+                reported = str(ev.get("model") or "")
+                model = reported or model
         elif kind == "assistant":
             msg = ev.get("message") or {}
             mid = str(msg.get("id") or f"m{len(order)}")
@@ -505,6 +509,8 @@ def claude_stream_to_trajectory(events: Iterable, *, task: str, prompt: str = ""
               "unanswered_tool_calls": len(pending), "rate_limit_events": rate_limits}
     source = {"format": "claude-code-stream-json", "events": len(stamped), "unknown_events": unknown,
               "timed": any(t is not None for t, _ in stamped)}
+    if requested and reported and requested != reported:
+        vendor["requested_model"] = requested
     return _finish(steps, task=task, prompt=prompt, agent=agent, model=model, version=version,
                    run_id=run_id, success=success, score=score, note=note, termination=termination,
                    answer=answer, totals=totals, accounting=accounting, source=source, vendor=vendor,

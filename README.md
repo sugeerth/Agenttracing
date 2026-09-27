@@ -13,12 +13,11 @@ contains no network code; only the harness talks to a model.
 ## Quick start
 
 ```bash
-pip install -e .          # installs `agentdiff` (python -m deepcompare works too)
-agentdiff demo --open     # compares the 8 shipped pairs, writes out_demo/report.html,
-                          # prints the flagship pair's verdict card
-agentdiff demo --everything -o out_all   # the whole demo: pairs, training runs, two self-evolving
-                          # lineages with their evals, one bundle with every trace, the key,
-                          # and the MCP snippet for a coding assistant (ten views in one page)
+pip install -e .                        # installs `agentdiff` (python -m deepcompare works too)
+agentdiff duel "Fix the failing test"   # in your repo: the agents installed, side by side, live,
+                                        # graded by the project's own tests (docs/VENDORS.md)
+agentdiff demo --open                   # the 8 shipped pairs: out_demo/report.html and the verdict card
+agentdiff demo --everything -o out_all  # every view: pairs, training, lineages, a bundle, the key, MCP
 agentdiff explain demo/traces/t05_flight_duration__bolt-v3.json --html run.html
 ```
 
