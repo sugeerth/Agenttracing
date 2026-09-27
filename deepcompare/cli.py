@@ -153,6 +153,8 @@ def build_parser() -> argparse.ArgumentParser:
         # a command they do not have.
         prog=_program_name(), description="git diff for AI agents"
     )
+    from . import __version__
+    parser.add_argument("--version", action="version", version=f"agentdiff {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
     for command in COMMANDS:
         command.register(sub)

@@ -13,4 +13,4 @@ from .trace import Trajectory
 from . import suite as _suite  # noqa: E402,F401
 
 __all__ = ["compare", "read_trace", "Trajectory"]
-__version__ = "0.9.0"
+__version__ = "0.10.0"

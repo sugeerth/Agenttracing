@@ -240,6 +240,116 @@ as the data the agent touched. Decide, before you turn recording on:
 - **Do not compare across a schema change** without saying so. The
   bundle's id changes when the bytes change, which is the signal.
 
+## Running agents: `duel`, live serving, the container
+
+Everything above is about the engine, which only reads traces. The
+harness runs agents. `agentdiff duel` starts Codex CLI and Claude Code,
+which hold API keys, spend money and write files, and `watch` and
+`duel --live` serve a page. That half needs its own rules.
+`agentdiff --version` prints the release. `tests/test_production.py`
+builds the wheel, installs it into a clean virtualenv, and runs `batch`
+and `duel --dry-run` from outside the checkout.
+
+### The container
+
+For `duel`, prefer the container. Claude Code runs its commands with no
+OS sandbox of its own, and the container is that sandbox.
+
+```bash
+docker build -t agentdiff .
+docker run --rm -e OPENAI_API_KEY -e ANTHROPIC_API_KEY \
+  -v "$PWD/task:/work/task:ro" -v "$PWD/out:/work/out" \
+  agentdiff duel --task task/task.json -o out
+```
+
+- **User:** it runs as uid 10001, never root.
+- **Contents:** Python and Node are assembled from their official images,
+  plus both vendor CLIs and git (for the diffs agents read).
+- **Build arguments:**
+  - `CODEX_VERSION` and `CLAUDE_CODE_VERSION` pin the CLIs, for an image
+    you can rebuild identically.
+  - `PYTHON_BASE` starts the image from one that trusts a corporate
+    proxy's certificate.
+  - An empty `APT_PACKAGES` skips Debian entirely, if its mirrors are
+    unreachable from where you build.
+- **Keys:** they arrive with `-e` at run time. A key given as a build
+  argument would be baked into a layer, so never pass one that way.
+
+### Keys
+
+- **Where keys come from:** only the environment, as `OPENAI_API_KEY` or
+  `CODEX_API_KEY` for Codex and `ANTHROPIC_API_KEY` for Claude Code, or
+  each CLI's own login.
+- **Where they go:** only the vendor processes. The check command runs
+  with the keys removed from its environment.
+- **Redaction:** any key value that appears in a stream, an error or a
+  check's output is replaced with `[redacted]` before it is written. A
+  test has a stand-in agent print its key and asserts it appears nowhere
+  under the output directory.
+- **What redaction does not cover:** other secrets. Redaction knows the
+  keys above; it does not know your database password. If a task's
+  workspace holds secrets, an agent can read them, and whatever it reads
+  is in the raw stream.
+
+### Serving the page
+
+`watch` and `duel --live` bind `127.0.0.1` by default. The page carries
+every trace in the directory: tool outputs, file contents, whatever the
+agents read. To bind any other address you must pass `--allow-remote`,
+and the server then requires a random token on every request. The token
+is printed once; the first request carries it on the URL, and an
+`HttpOnly`, `SameSite=Strict` cookie carries it after that. Responses set
+`X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and
+`X-Content-Type-Options: nosniff`. There is no TLS: for anything beyond a
+trusted network, put it behind a reverse proxy that terminates TLS, or
+don't serve it at all and share the static `report.html`.
+
+### Limits, and how a run stops
+
+| limit | flag | default | what happens |
+|---|---|---|---|
+| wall time per run | `--timeout` | 1800 s | the agent's process group gets SIGTERM, then SIGKILL after 5 s; `termination: timeout` |
+| tokens per run | `--budget-tokens` | none | Claude Code is stopped when it crosses the budget; Codex, which reports usage once per turn, is marked `over_budget` afterwards |
+| output per run | `--max-stream-mb` | 256 MB | stopped at the cap; a single line over 2 MB is kept truncated with its length |
+| the check | `--check-timeout` | 600 s | a check that hangs is a failed check |
+
+**Stopping a duel.** Ctrl-C, or SIGTERM from a scheduler, stops every
+vendor process the duel started, SIGTERM first and SIGKILL after a grace
+period. It removes every workspace copy, still reports the runs that had
+finished, and exits 130. A test sends SIGTERM mid-duel and checks that no
+agent process and no workspace copy is left.
+
+### What is written, and what to keep
+
+| path | contains | sensitivity |
+|---|---|---|
+| `traces/` | one SCHEMA trace per run | agent inputs and outputs, capped at 8 KB per step |
+| `raw/` | every line each CLI printed, with its arrival time | everything the agent saw and said, uncapped up to the stream cap |
+| `diffs/` | each run's patch | the code the agent wrote |
+| `records/` | check result, diff summary, setup, why it stopped | low |
+| `page/report.html` | the page, self-contained | as sensitive as the traces it embeds |
+
+Treat `raw/` and the page like application logs, with the same retention
+and access rules. `duel --from DIR` rebuilds the report and page from
+`records/` and `traces/`, so `raw/` can be pruned once you no longer need
+to re-convert a stream.
+
+### CI
+
+- `.github/workflows/agentdiff.yml` holds the hermetic pipeline: engine
+  tests, deterministic replay, the gate.
+- `.github/workflows/production.yml` adds the installed wheel run from
+  anywhere, and the container built and smoke-tested with the stand-in
+  CLIs. Both are hermetic.
+- `production.yml` also has a manual job that runs the real Codex CLI and
+  Claude Code on the demo bug. To use it:
+  1. Set `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` as secrets of a
+     `live-vendors` environment.
+  2. Dispatch the workflow with `live: true`.
+
+  It costs a few cents per run and asserts only what must hold whatever
+  the models do.
+
 ## The gap that is still open
 
 An installed wheel carries the engine and the page but not the demo

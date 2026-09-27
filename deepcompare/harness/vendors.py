@@ -48,7 +48,7 @@ from typing import Callable, Optional
 from .. import vendors as _vendors
 
 __all__ = ["VendorSpec", "parse_spec", "preflight", "run_vendor", "run_duel", "snapshot",
-           "KEY_ENV", "SKIP_DIRS"]
+           "KEY_ENV", "SKIP_DIRS", "shutdown_all", "DuelInterrupted", "STREAM_CAP_BYTES"]
 
 #: where each vendor's CLI looks for its key; values are never read here
 #: except to redact them
@@ -61,6 +61,51 @@ DIFF_BYTES = 256_000
 #: the patch kept per run; the rest is summarised
 PATCH_CAP = 200_000
 LIVE_EVERY_S = 1.0
+#: a run's raw stream is cut at this many bytes: an agent that cats a
+#: gigabyte log must not fill the disk or the harness's memory. The run is
+#: stopped there and says why.
+STREAM_CAP_BYTES = 256 * 1024 * 1024
+#: one line of a stream longer than this is kept truncated, with its length
+LINE_CAP_BYTES = 2 * 1024 * 1024
+#: stderr kept per run (its tail): enough to read an error, not a log
+STDERR_CAP = 64 * 1024
+#: seconds a vendor process gets after SIGTERM before SIGKILL
+GRACE_S = 5.0
+
+# every vendor process and workspace copy alive right now, so an interrupt
+# (Ctrl-C, SIGTERM from a scheduler) can stop and remove all of them rather
+# than leaving agents running with API keys in their environment
+_ACTIVE = {"procs": set(), "dirs": set()}
+_ACTIVE_LOCK = threading.Lock()
+
+
+def _terminate(proc) -> None:
+    """SIGTERM the process group, then SIGKILL it if it has not gone."""
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(proc.pid, sig)
+        except (ProcessLookupError, PermissionError, OSError):
+            return
+        try:
+            proc.wait(timeout=GRACE_S)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def shutdown_all() -> dict:
+    """Stop every vendor process this harness started and remove every
+    workspace copy it made. Returns what it stopped and removed."""
+    with _ACTIVE_LOCK:
+        procs, dirs = list(_ACTIVE["procs"]), list(_ACTIVE["dirs"])
+        _ACTIVE["procs"].clear()
+        _ACTIVE["dirs"].clear()
+    for proc in procs:
+        if proc.poll() is None:
+            _terminate(proc)
+    for d in dirs:
+        shutil.rmtree(d, ignore_errors=True)
+    return {"processes": len(procs), "workspaces": len(dirs)}
 
 
 @dataclass
@@ -282,7 +327,7 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
                isolate: bool = True, sandbox: str = "workspace-write",
                claude_mode: str = "acceptEdits", price: Optional[dict] = None,
                started_at: Optional[float] = None, keep_workspace: bool = False,
-               live_every: float = LIVE_EVERY_S,
+               live_every: float = LIVE_EVERY_S, stream_cap: int = STREAM_CAP_BYTES,
                on_event: Optional[Callable[[dict], None]] = None) -> dict:
     """One agent, one task, one run. Returns the run record."""
     out = Path(out)
@@ -293,6 +338,8 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
         raise RuntimeError(f"{spec.agent}: the {spec.kind} CLI was not found on PATH")
     source = Path(task["workspace"]).resolve()
     tmp = Path(tempfile.mkdtemp(prefix=f"agentdiff-{spec.agent}-"))
+    with _ACTIVE_LOCK:
+        _ACTIVE["dirs"].add(str(tmp))
     workdir = tmp / "work"
     shutil.copytree(source, workdir, symlinks=True)
     before = snapshot(workdir)
@@ -318,17 +365,22 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
     proc = subprocess.Popen(argv, cwd=str(workdir), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, env=dict(os.environ), start_new_session=True,
                             text=True, encoding="utf-8", errors="replace", bufsize=1)
-    stderr_chunks: list = []
-    threading.Thread(target=lambda: stderr_chunks.append(proc.stderr.read()), daemon=True).start()
+    with _ACTIVE_LOCK:
+        _ACTIVE["procs"].add(proc)
+    stderr_tail_buf = [""]
+
+    def drain_stderr():
+        # read in chunks and keep the tail: a chatty CLI must not grow the
+        # harness's memory without bound
+        for chunk in iter(lambda: proc.stderr.read(8192), ""):
+            stderr_tail_buf[0] = (stderr_tail_buf[0] + chunk)[-STDERR_CAP:]
+    threading.Thread(target=drain_stderr, daemon=True).start()
 
     def kill(reason: str):
         nonlocal stopped_by
         if stopped_by is None:
             stopped_by = reason
-        try:
-            os.killpg(proc.pid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
-            pass
+        threading.Thread(target=_terminate, args=(proc,), daemon=True).start()
 
     timer = threading.Timer(timeout_s, lambda: kill("timeout"))
     timer.daemon = True
@@ -339,11 +391,21 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
     except (BrokenPipeError, OSError):
         pass
     last_live = 0.0
+    written = 0
+    truncated_lines = 0
     with raw_path.open("w", encoding="utf-8") as raw:
         for line in proc.stdout:
             line = line.strip()
             if not line:
                 continue
+            if written >= stream_cap:
+                if stopped_by is None:
+                    kill("stream_cap")
+                continue
+            if len(line) > LINE_CAP_BYTES:
+                truncated_lines += 1
+                line = json.dumps({"type": "_truncated", "bytes": len(line),
+                                   "head": line[:4000]})
             t = round(time.monotonic() - t0, 3)
             try:
                 ev = json.loads(redact(line, secrets))
@@ -351,7 +413,9 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
                 ev = {"type": "_unparsed", "text": redact(line, secrets)[:2000]}
             item = {"t": t, "e": ev}
             events.append(item)
-            raw.write(json.dumps(item, ensure_ascii=False) + "\n")
+            text_line = json.dumps(item, ensure_ascii=False) + "\n"
+            raw.write(text_line)
+            written += len(text_line)
             if on_event:
                 on_event({"agent": spec.agent, "task": task["id"], "run": run, "t": t, "event": ev})
             if budget_tokens and spec.kind == "claude" and \
@@ -370,12 +434,15 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
     try:
         proc.wait(timeout=30)
     except subprocess.TimeoutExpired:
-        kill(stopped_by or "timeout")
-        proc.wait(timeout=30)
+        if stopped_by is None:
+            stopped_by = "timeout"
+        _terminate(proc)
     timer.cancel()
+    with _ACTIVE_LOCK:
+        _ACTIVE["procs"].discard(proc)
     wall = round(time.monotonic() - t0, 3)
     exit_code = proc.returncode
-    stderr_tail = redact("".join(stderr_chunks)[-4000:], secrets)
+    stderr_tail = redact(stderr_tail_buf[0][-4000:], secrets)
 
     over_budget = False
     if budget_tokens and spec.kind == "codex":
@@ -396,7 +463,7 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
             check.update({"exit_code": None, "passed": False, "output_tail": "the check timed out"})
         check["seconds"] = round(time.monotonic() - c0, 3)
 
-    termination = {"timeout": "timeout", "budget": "user_stop"}.get(stopped_by)
+    termination = {"timeout": "timeout", "budget": "user_stop", "stream_cap": "user_stop"}.get(stopped_by)
     if termination is None and exit_code not in (0, None) and not events:
         termination = "infrastructure_error"
     note = None
@@ -404,6 +471,8 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
         note = f"stopped by the harness at the token budget ({budget_tokens:,})"
     elif stopped_by == "timeout":
         note = f"stopped by the harness at the time limit ({timeout_s:g}s)"
+    elif stopped_by == "stream_cap":
+        note = f"stopped by the harness: its output passed the stream cap ({stream_cap:,} bytes)"
     elif over_budget:
         note = f"went over the token budget ({budget_tokens:,}); the CLI reports usage per turn, so it could not be stopped at it"
     if check["passed"] is not None:
@@ -426,6 +495,7 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
         "patch": f"diffs/{stem}.patch",
         "exit_code": exit_code, "stopped_by": stopped_by or ("over_budget" if over_budget else None),
         "wall_s": wall, "stderr_tail": stderr_tail,
+        "stream": {"bytes": written, "cap": stream_cap, "truncated_lines": truncated_lines},
         "check": check,
         "diff": {k: v for k, v in diff.items() if k != "patch"},
         "setup": {"prompt_sha": hashlib.sha256(prompt.encode()).hexdigest()[:16],
@@ -442,7 +512,19 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
         record["workspace"] = str(workdir)
     else:
         shutil.rmtree(tmp, ignore_errors=True)
+    with _ACTIVE_LOCK:
+        _ACTIVE["dirs"].discard(str(tmp))
     return record
+
+
+class DuelInterrupted(KeyboardInterrupt):
+    """A duel stopped by the operator: carries the runs that finished and
+    what was stopped, so the command can still report them."""
+
+    def __init__(self, records: list, stopped: dict) -> None:
+        super().__init__("duel interrupted")
+        self.records = records
+        self.stopped = stopped
 
 
 def run_duel(tasks: list, specs: list, out: Path, *, runs: int = 1, parallel: bool = True,
@@ -466,15 +548,21 @@ def run_duel(tasks: list, specs: list, out: Path, *, runs: int = 1, parallel: bo
                         on_done(rec)
                 except Exception as exc:  # one vendor failing must not lose the other's run
                     errors.append({"agent": spec.agent, "task": task["id"], "run": run, "error": str(exc)})
-            if parallel:
-                threads = [threading.Thread(target=one, args=(s,)) for s in specs]
-                for th in threads:
-                    th.start()
-                for th in threads:
-                    th.join()
-            else:
-                for s in specs:
-                    one(s)
+            try:
+                if parallel:
+                    threads = [threading.Thread(target=one, args=(s,), daemon=True) for s in specs]
+                    for th in threads:
+                        th.start()
+                    # join in slices, so a Ctrl-C reaches this thread promptly
+                    while any(th.is_alive() for th in threads):
+                        for th in threads:
+                            th.join(timeout=0.2)
+                else:
+                    for s in specs:
+                        one(s)
+            except KeyboardInterrupt:
+                stopped = shutdown_all()
+                raise DuelInterrupted(records + got, stopped)
             for e in errors:
                 e["started_at"] = started
             records.extend(got)

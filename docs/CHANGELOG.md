@@ -5,6 +5,43 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## 0.10.0 — production
+
+**Install and run from anywhere.** `agentdiff --version`. A new test
+builds the wheel, installs it into a clean virtualenv, and runs `batch`
+and `duel --dry-run` from outside the checkout. The `out_explore/`
+directory, which was tracked by mistake, has been removed from the repo.
+
+**A container** (`Dockerfile`) that runs `duel` as uid 10001, with Python
+and Node from their official images, both vendor CLIs pinned by build
+argument, and git. It was built and smoke-tested here with the stand-in
+CLIs: both runs passed and no key appeared in the output. Behind a
+published port, `duel --live --host 0.0.0.0 --allow-remote` answered 403
+without the token and 200 with it.
+
+**Stopping is clean.** Ctrl-C or SIGTERM mid-duel stops every vendor
+process group (SIGTERM, then SIGKILL after 5 s), removes every workspace
+copy, reports the runs that finished, and exits 130. A test sends SIGTERM
+to a running duel and checks nothing is left behind.
+
+**Bounded resources.**
+- A run's output is capped (`--max-stream-mb`, default 256). Past it the
+  agent is stopped and the trace says why.
+- A single line over 2 MB is kept truncated, with its length.
+- stderr is read in chunks and only its tail is kept.
+
+**Serving is local unless you say otherwise.** `watch` and `duel --live`
+refuse any non-loopback address without `--allow-remote`. With it, every
+request needs a random token, held after the first request in an
+`HttpOnly`, `SameSite=Strict` cookie. Responses carry `nosniff`,
+`no-referrer` and `DENY` framing headers.
+
+**CI.** `production.yml` covers the installed wheel, the container build
+and smoke run, and a manual live job that runs both real CLIs with the
+`live-vendors` environment's secrets. `docs/PRODUCTION.md` gains a section
+on running agents: the container, keys, serving, limits, and what is
+written and what to keep.
+
 ## The race, streaming, and a compact Focus
 
 **The race** (`web/blocks/02_race.js`) puts both agents on the wall clock

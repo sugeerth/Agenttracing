@@ -30,7 +30,11 @@ import shutil
 import tempfile
 import threading
 import time
+import hmac
+import ipaddress
+import secrets
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit
 from pathlib import Path
 from typing import Optional, Union
 
@@ -292,10 +296,52 @@ def simulate(source: Union[str, Path], out_dir: Union[str, Path], pace: float = 
 
 # ---------------------------------------------------------------- serving
 
+def is_loopback(host: str) -> bool:
+    if host in ("localhost", ""):
+        return host == "localhost"
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def bind_policy(host: str, allow_remote: bool = False) -> Optional[str]:
+    """The token a server bound to ``host`` requires, or None on loopback.
+
+    The page carries every trace in the directory — tool outputs, file
+    contents, whatever the agents read — so serving it beyond this machine
+    is an explicit choice (``--allow-remote``), and then every request must
+    present a random token the operator was shown once. Refuses otherwise.
+    """
+    if is_loopback(host):
+        return None
+    if not allow_remote:
+        raise ValueError(f"refusing to serve on {host!r}: the page carries every trace in the directory, "
+                         f"including what the agents read. Bind to 127.0.0.1, or pass --allow-remote to "
+                         f"serve it beyond this machine behind a random token.")
+    return secrets.token_urlsafe(24)
+
+
 class _Handler(BaseHTTPRequestHandler):
     watcher: Watcher = None  # type: ignore[assignment]
     template: Path = None    # type: ignore[assignment]
     quiet = True
+    token: Optional[str] = None
+
+    def _authorised(self) -> bool:
+        """A server with no token is loopback-only; one with a token wants
+        it on the query (once) or in the cookie that request set."""
+        if not self.token:
+            return True
+        query = parse_qs(urlsplit(self.path).query).get("token", [""])[0]
+        if query and hmac.compare_digest(query, self.token):
+            self._set_cookie = True
+            return True
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            name, _, value = part.strip().partition("=")
+            if name == "agentdiff_token" and hmac.compare_digest(value, self.token):
+                return True
+        return False
 
     def log_message(self, fmt, *args):  # noqa: D401 — quiet by default
         if not self.quiet:
@@ -306,10 +352,23 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self._security_headers()
         self.end_headers()
         self.wfile.write(body)
 
+    def _security_headers(self) -> None:
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Frame-Options", "DENY")
+        if getattr(self, "_set_cookie", False):
+            self.send_header("Set-Cookie", f"agentdiff_token={self.token}; HttpOnly; SameSite=Strict; Path=/")
+
     def do_GET(self) -> None:  # noqa: N802 — http.server API
+        self._set_cookie = False
+        if not self._authorised():
+            self._send(403, b"forbidden: this page is served behind a token; open the URL the command printed",
+                       "text/plain; charset=utf-8")
+            return
         path = self.path.split("?", 1)[0]
         if path in ("/", "/index.html", "/report.html"):
             payload = self.watcher.payload()
@@ -332,6 +391,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Connection", "keep-alive")
+        self._security_headers()
         self.end_headers()
         since = -1
         try:
@@ -353,7 +413,8 @@ def serve(traces_dir: Union[str, Path], template: Union[str, Path], *,
           host: str = "127.0.0.1", port: int = 8765, poll: float = 0.5,
           demo: Optional[Union[str, Path]] = None, pace: float = 0.4, loop: bool = False,
           ready: Optional[threading.Event] = None, stop: Optional[threading.Event] = None,
-          quiet: bool = True, db: Optional[Union[str, Path]] = None) -> ThreadingHTTPServer:
+          quiet: bool = True, db: Optional[Union[str, Path]] = None,
+          token: Optional[str] = None) -> ThreadingHTTPServer:
     """Serve the live page. Returns the server after it has started (so a
     caller can ``serve_forever`` on it or stop it); with ``demo`` a
     simulator thread streams those traces into ``traces_dir``."""
@@ -366,11 +427,13 @@ def serve(traces_dir: Union[str, Path], template: Union[str, Path], *,
         threading.Thread(target=simulate, args=(demo, traces_dir, pace, loop, stop),
                          name="deepcompare-demo", daemon=True).start()
 
-    handler = type("Handler", (_Handler,), {"watcher": watcher, "template": Path(template), "quiet": quiet})
+    handler = type("Handler", (_Handler,), {"watcher": watcher, "template": Path(template), "quiet": quiet,
+                                            "token": token})
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
     server.watcher = watcher  # type: ignore[attr-defined]
     server.stop_event = stop  # type: ignore[attr-defined]
+    server.token = token  # type: ignore[attr-defined]
 
     def shutdown() -> None:
         stop.set()

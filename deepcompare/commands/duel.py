@@ -71,7 +71,12 @@ def register(subparsers) -> None:
     parser.add_argument("--live", action="store_true",
                         help="serve the page while the agents work: both stream into a race at "
                              "http://HOST:PORT/ (localhost only by default)")
-    parser.add_argument("--host", default="127.0.0.1", help="--live: address to bind (default 127.0.0.1)")
+    parser.add_argument("--host", default="127.0.0.1",
+                        help="--live: address to bind (default 127.0.0.1); anything else needs --allow-remote")
+    parser.add_argument("--allow-remote", action="store_true",
+                        help="--live: serve beyond this machine behind a random token printed once")
+    parser.add_argument("--max-stream-mb", type=float, default=256.0,
+                        help="stop a run whose output passes this many MB (default 256)")
     parser.add_argument("--port", type=int, default=8765, help="--live: port (default 8765)")
     parser.add_argument("--linger", type=float, default=None, metavar="S",
                         help="--live: keep serving this many seconds after the duel ends "
@@ -254,19 +259,49 @@ def run(args: argparse.Namespace) -> int:
     server = None
     if args.live:
         import threading
-        from ..harness.watch import serve
+        from ..harness.watch import bind_policy, serve
         from .paths import DEFAULT_TEMPLATE
+        try:
+            token = bind_policy(args.host, args.allow_remote)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
         (out / "traces").mkdir(parents=True, exist_ok=True)
-        server = serve(out / "traces", args.template or DEFAULT_TEMPLATE, host=args.host, port=args.port, poll=0.2)
+        server = serve(out / "traces", args.template or DEFAULT_TEMPLATE, host=args.host, port=args.port,
+                       poll=0.2, token=token)
         threading.Thread(target=server.serve_forever, daemon=True).start()
-        print(f"live: http://{args.host}:{server.server_address[1]}/  (both agents stream into the race)", flush=True)
-    records = run_duel(tasks, specs, out, runs=args.runs, parallel=not args.sequential,
-                       live_every=0.25 if args.live else 1.0,
-                       on_event=on_event, on_done=on_done, budget_tokens=args.budget_tokens,
-                       timeout_s=args.timeout, check_timeout_s=args.check_timeout,
-                       isolate=not args.use_my_config, sandbox=args.sandbox,
-                       claude_mode=args.claude_permission_mode,
-                       price=None)
+        print(f"live: http://{args.host}:{server.server_address[1]}/" + (f"?token={token}" if token else "")
+              + "  (both agents stream into the race)", flush=True)
+    # a scheduler's SIGTERM is an interrupt like Ctrl-C: agents stopped,
+    # workspaces removed, finished runs still reported
+    import signal as _signal
+    from ..harness.vendors import DuelInterrupted
+
+    def _term(signum, frame):
+        raise KeyboardInterrupt
+    try:
+        _signal.signal(_signal.SIGTERM, _term)
+    except ValueError:      # not the main thread (embedded use): leave it
+        pass
+    try:
+        records = run_duel(tasks, specs, out, runs=args.runs, parallel=not args.sequential,
+                           live_every=0.25 if args.live else 1.0,
+                           stream_cap=int(args.max_stream_mb * 1024 * 1024),
+                           on_event=on_event, on_done=on_done, budget_tokens=args.budget_tokens,
+                           timeout_s=args.timeout, check_timeout_s=args.check_timeout,
+                           isolate=not args.use_my_config, sandbox=args.sandbox,
+                           claude_mode=args.claude_permission_mode,
+                           price=None)
+    except DuelInterrupted as stop:
+        finished = [r for r in stop.records if not r.get("failed")]
+        print(f"\ninterrupted: stopped {stop.stopped['processes']} agent process(es) and removed "
+              f"{stop.stopped['workspaces']} workspace copy(ies); {len(finished)} finished run(s) kept in {out}",
+              file=sys.stderr, flush=True)
+        if finished:
+            _report(out, finished, args.band, args.template, args.quiet)
+        if server is not None:
+            server.shutdown_all()
+        return 130
     failed = [r for r in records if r.get("failed")]
     for f in failed:
         print(f"error: {f['agent']} {f['task']} {f['run']}: {f['error']}", file=sys.stderr)
