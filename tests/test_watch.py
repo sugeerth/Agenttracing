@@ -209,5 +209,51 @@ class ServerTest(unittest.TestCase):
         raise AssertionError("no event arrived")
 
 
+class RepeatRunsStreamTest(unittest.TestCase):
+    """A second run of a task an agent already finished still streams: the
+    live file is stale only when its own final exists, not any final of
+    that task and agent. A real two-run duel found the repeats invisible."""
+
+    def test_a_repeat_streams_beside_its_finished_first_run(self):
+        src = json.loads((DEMO / "t05_flight_duration__atlas-v2.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            (out / "t05__atlas-v2__r1.json").write_text(json.dumps(src), encoding="utf-8")
+            (out / ("t05__atlas-v2__r2" + LIVE_SUFFIX)).write_text(json.dumps(
+                {"task": {"id": "t05"}, "agent": {"name": "atlas-v2"}, "run": "r2",
+                 "steps": src["steps"][:2], "in_progress": True}), encoding="utf-8")
+            live = Watcher(out).build()["live"]
+            self.assertEqual([(r["file"], r["run"]) for r in live["runs"]], [("t05__atlas-v2__r2" + LIVE_SUFFIX, 2)])
+            self.assertEqual([r["run"] for r in live["finished"]], [1])
+            # once its final lands, the live file is stale and both runs are listed
+            (out / "t05__atlas-v2__r2.json").write_text(json.dumps(src), encoding="utf-8")
+            live = Watcher(out).build()["live"]
+            self.assertEqual(live["runs"], [])
+            self.assertEqual([r["run"] for r in live["finished"]], [1, 2])
+
+
+class LiveAnalysisIsTheBatchAnalysisTest(unittest.TestCase):
+    """The watched page runs the analysis `batch` writes, golden set and all:
+    over a finished corpus the two aggregates are the same, reading for
+    reading."""
+
+    def test_watcher_aggregate_equals_batch_aggregate_with_golden(self):
+        import subprocess
+        from deepcompare.scorecard import load_golden
+        suite = ROOT / "demo" / "horizon" / "suite"
+        golden = ROOT / "demo" / "horizon" / "suite_golden.json"
+        with tempfile.TemporaryDirectory() as tmp:
+            done = subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(suite), "-o", tmp,
+                                   "--golden", str(golden)], cwd=str(ROOT), capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr[-2000:])
+            written = json.loads((Path(tmp) / "aggregate.json").read_text(encoding="utf-8"))
+        live = Watcher(suite, golden=load_golden(golden)).build()["aggregate"]
+        for key in ("tasks", "scorecard", "lessons", "forge", "routing"):
+            with self.subTest(reading=key):
+                self.assertIn(key, live)
+                self.assertEqual(json.dumps(live[key], sort_keys=True, default=str),
+                                 json.dumps(written[key], sort_keys=True, default=str))
+
+
 if __name__ == "__main__":
     unittest.main()

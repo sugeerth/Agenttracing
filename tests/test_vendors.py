@@ -620,3 +620,67 @@ class SuiteTasksAreWellFormedTest(unittest.TestCase):
                 test_file.write_text(test_file.read_text() + "\n# edited\n")
                 self.assertEqual(check(), 3 if t["id"] != "contradictory-rounding" else check(),
                                  "a run that edits the tests is refused")
+
+
+class LiveAnalyticsTest(unittest.TestCase):
+    """The page watched while the agents run is the page written when they
+    finish: the whole analysis arrives as runs complete, and at the end the
+    live aggregate is the static one, reading for reading."""
+
+    def test_analytics_stream_in_and_end_equal_to_the_written_page(self):
+        import re
+        import time
+        import urllib.request
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            ws = ROOT / "demo" / "vendors" / "bugfix"
+            task = tmp / "two.json"
+            task.write_text(json.dumps({"tasks": [
+                {"id": "bug-a", "prompt": "Fix pricing.py so the tests pass.", "workspace": str(ws),
+                 "check": "python3 -m unittest -q"},
+                {"id": "bug-b", "prompt": "Fix pricing.py so the tests pass, then say what you changed.",
+                 "workspace": str(ws), "check": "python3 -m unittest -q"}]}))
+            out = tmp / "d"
+            e = dict(os.environ, OPENAI_API_KEY=KEY_A, ANTHROPIC_API_KEY=KEY_B, FAKE_VENDOR_SLOW="0.3")
+            e.pop("FAKE_VENDOR_MODE", None)
+            proc = subprocess.Popen([sys.executable, "-m", "deepcompare", "duel", "--task", str(task), "--quiet",
+                                     "--codex-bin", str(FAKES / "fake_codex.py"),
+                                     "--claude-bin", str(FAKES / "fake_claude.py"),
+                                     "--live", "--port", "0", "--linger", "8", "-o", str(out)],
+                                    cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=e)
+            try:
+                url = None
+                for _ in range(60):
+                    m = re.search(r"live: (http://\S+/)", proc.stdout.readline() or "")
+                    if m:
+                        url = m.group(1)
+                        break
+                self.assertIsNotNone(url)
+                during, final = [], None
+                deadline = time.time() + 90
+                while time.time() < deadline:
+                    try:
+                        data = json.loads(urllib.request.urlopen(url + "data.json", timeout=5).read())
+                    except OSError:
+                        time.sleep(0.2)
+                        continue
+                    live = data["live"]
+                    if live["runs"]:
+                        during.append(data["aggregate"])
+                    if len(live["finished"]) == 4 and not live["runs"] and \
+                            (out / "page" / "aggregate.json").is_file():
+                        final = data["aggregate"]
+                        break
+                    time.sleep(0.15)
+                self.assertTrue(any("duel" in a or a.get("tasks") for a in during),
+                                "analysis arrived while an agent was still running")
+                self.assertIsNotNone(final, "the live page reached the finished state")
+                written = json.loads((out / "page" / "aggregate.json").read_text(encoding="utf-8"))
+                for key in ("tasks", "scorecard", "lessons", "forge", "duel", "issues", "routing"):
+                    with self.subTest(reading=key):
+                        self.assertIn(key, final)
+                        self.assertEqual(json.dumps(final[key], sort_keys=True),
+                                         json.dumps(written[key], sort_keys=True))
+            finally:
+                proc.wait(timeout=90)
+            self.assertEqual(proc.returncode, 0, proc.stderr.read()[-2000:])

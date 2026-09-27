@@ -5,6 +5,31 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The live page is the whole page
+
+A page watched while the agents ran used to be a shorter page than the
+one written at the end: the pair reports and a bare aggregate, without
+the scorecard, the lessons, the forge or the duel's reading. Now one
+pipeline, `deepcompare/corpus.analyse`, produces both. `batch` calls it
+(its output is byte-identical to before), and the live server calls it
+each time the set of finished runs changes.
+
+- `duel --live` fills in the fair report, the verdict and the rest as each
+  run finishes. At the end the live aggregate equals the written one; a
+  test compares them key by key.
+- `watch` takes `--golden` and `--policy`, as `batch` does. A test holds its
+  aggregate to batch's over the long-horizon suite with its golden set.
+- With `--runs 2` or more, the repeats stream too. A real two-run duel
+  found them invisible: the watcher dropped a live run whenever the same
+  agent had already finished that task. A live file is now stale only when
+  its own final exists, and the race keeps one lane per agent, its latest
+  run, labelled *run 2*.
+- The fair report lists runs by task, agent and run, not in the order they
+  finished. That order was the only difference the test found between the
+  two pages.
+- The recorded live duel's report is rebuilt with the
+  *failed the check and said why* row it predated.
+
 ## A live suite, and what it taught the report
 
 **Six tasks built to show behaviour** (`demo/vendors/suite/`): a bug fix,

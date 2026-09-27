@@ -36,7 +36,7 @@ import secrets
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 from pathlib import Path
-from typing import Optional, Union
+from typing import Callable, Optional, Union
 
 from .. import Trajectory, compare
 from ..metrics import aggregate as build_aggregate
@@ -56,12 +56,43 @@ def _agent_of(name: str) -> Optional[str]:
     return parts[1] if len(parts) >= 2 else None
 
 
+def _run_of(name: str, raw: dict):
+    """A run's number: the one it carries, else the ``__r<n>`` its file
+    name ends in, else None (a single run). ``"r2"`` and ``2`` are both 2."""
+    def number(v):
+        if isinstance(v, int) and not isinstance(v, bool):
+            return v
+        v = str(v)
+        return int(v[1:]) if len(v) > 1 and v[0] == "r" and v[1:].isdigit() else None
+    if raw.get("run") is not None:
+        return number(raw["run"]) if number(raw["run"]) is not None else raw["run"]
+    stem = name[:-len(LIVE_SUFFIX)] if name.endswith(LIVE_SUFFIX) else Path(name).stem
+    return number(stem.rsplit("__", 1)[-1])
+
+
+def _run_order(run) -> tuple:
+    return (0, run, "") if isinstance(run, int) else (1, 0, str(run or ""))
+
+
 class Watcher:
     """Turns a directory of (possibly still growing) traces into the
     page payload, and knows when it changed."""
 
-    def __init__(self, traces_dir: Union[str, Path], poll: float = 0.5, db: Optional[Union[str, Path]] = None) -> None:
+    def __init__(self, traces_dir: Union[str, Path], poll: float = 0.5, db: Optional[Union[str, Path]] = None,
+                 golden: Optional[dict] = None, policy: Optional[dict] = None,
+                 enrich: Optional[Callable[[], dict]] = None, also: Optional[list] = None) -> None:
         self.dir = Path(traces_dir)
+        # directories whose changes also re-run the analysis (a duel's
+        # records land just after its traces)
+        self.also = [Path(d) for d in (also or [])]
+        # the full analysis (`deepcompare.corpus.analyse`) runs over the
+        # finished traces, once per change to that set — not on every live
+        # frame, which arrives several times a second while agents work
+        self.golden = golden
+        self.policy = policy
+        self.enrich = enrich
+        self._finals_key: Optional[tuple] = None
+        self._analysis: tuple = ([], {"tasks": 0}, [])
         self.poll = poll
         self.db_path = Path(db) if db else None
         self._ingested: set = set()
@@ -75,6 +106,18 @@ class Watcher:
 
     # ------------------------------------------------------------ scanning
 
+    def _also_key(self) -> list:
+        out = []
+        for d in self.also:
+            if d.is_dir():
+                for path in sorted(d.glob("*.json")):
+                    try:
+                        st = path.stat()
+                    except OSError:
+                        continue
+                    out.append((f"{d.name}/{path.name}", st.st_mtime_ns, st.st_size))
+        return out
+
     def signature(self) -> dict:
         sig = {}
         if not self.dir.is_dir():
@@ -86,13 +129,16 @@ class Watcher:
                 except OSError:
                     continue
                 sig[path.name] = (st.st_mtime_ns, st.st_size)
+        for name, mtime, size in self._also_key():
+            sig[name] = (mtime, size)
         return sig
 
     def build(self) -> dict:
         """The payload: reports for every finished pair, live runs for
         every trace still being written, and the live block itself."""
         finals: dict = {}      # task -> agent -> Trajectory
-        raw_finals: dict = {}
+        every_final: list = []   # every finished run, every repeat of it
+        finals_key: list = []
         lives: list = []
         self.errors = []
         for path in sorted(self.dir.glob("*.json")):
@@ -116,7 +162,7 @@ class Watcher:
                         except Exception as exc:  # noqa: BLE001
                             self.errors.append(f"db checkpoint: {path.name}: {exc}")
                 vendor = data.get("vendor") or {}
-                lives.append({"task": task, "agent": agent, "file": path.name,
+                lives.append({"task": task, "agent": agent, "file": path.name, "run": _run_of(path.name, data),
                               "steps": data.get("steps") or [], "in_progress": True,
                               "updated_at": data.get("updated_at"),
                               "model": (data.get("agent") or {}).get("model"),
@@ -135,7 +181,12 @@ class Watcher:
                 self.errors.append(f"{path.name}: {exc}")
                 continue
             finals.setdefault(traj.task.id, {})[traj.agent.name] = traj
-            raw_finals.setdefault(traj.task.id, {})[traj.agent.name] = data
+            every_final.append((path.name, traj, data))
+            try:
+                st = path.stat()
+                finals_key.append((path.name, st.st_mtime_ns, st.st_size))
+            except OSError:
+                finals_key.append((path.name, 0, 0))
             if self.db_path is not None and path.name not in self._ingested:
                 try:
                     from ..tracedb import TraceDB
@@ -144,41 +195,42 @@ class Watcher:
                     self._ingested.add(path.name)
                 except Exception as exc:  # noqa: BLE001 — the stream must not stop for the store
                     self.errors.append(f"db: {path.name}: {exc}")
-        # a live file whose final exists is stale: drop it
-        done = {(t, a) for t, agents in finals.items() for a in agents}
-        lives = [r for r in lives if (r["task"], r["agent"]) not in done]
+        # a live file whose final exists is stale: drop it. The final is the
+        # file of the same name, so a repeat of a finished run still streams
+        done = {name[:-len(".json")] for name, _, _ in every_final}
+        lives = [r for r in lives if r["file"][:-len(LIVE_SUFFIX)] not in done]
 
-        reports = []
         agents_seen: list = []
         for task in sorted(finals):
             for agent in finals[task]:
                 if agent not in agents_seen:
                     agents_seen.append(agent)
-        pair = agents_seen[:2]
-        for task in sorted(finals):
-            have = finals[task]
-            if len(pair) == 2 and pair[0] in have and pair[1] in have:
-                try:
-                    reports.append(compare(have[pair[0]], have[pair[1]]))
-                except Exception as exc:   # noqa: BLE001 — one bad pair must not stop the stream
-                    self.errors.append(f"{task}: {exc}")
-        agg = build_aggregate(reports) if reports else {"tasks": 0}
-        def compact(t, a):
+        pair = sorted(agents_seen)[:2]
+        key = tuple(sorted(finals_key + self._also_key()))
+        if key != self._finals_key:
+            self._finals_key = key
+            self._analysis = self._analyse(sorted(every_final, key=lambda x: x[0]))
+        # the analysis's own errors stay on every frame it serves, not only the first
+        reports, agg, analysis_errors = self._analysis
+        self.errors.extend(analysis_errors)
+        def compact(name, traj, raw):
             # a finished run, small enough to send on every update: the race
             # draws an agent that is done beside one still running
-            raw = raw_finals[t][a]
+            t, a = traj.task.id, traj.agent.name
             steps = [{k: s.get(k) for k in ("type", "name", "started_s", "latency_s", "error", "tokens",
                                             "tokens_basis", "effect", "span") if s.get(k) is not None}
                      | {"input": str(s.get("input") or "")[:160]}
                      for s in raw.get("steps") or []]
             vendor = raw.get("vendor") or {}
-            return {"task": t, "agent": a, "success": finals[t][a].outcome.success,
-                    "steps": len(finals[t][a].steps), "trace": steps,
+            return {"task": t, "agent": a, "file": name, "run": _run_of(name, raw),
+                    "success": traj.outcome.success, "steps": len(traj.steps), "trace": steps,
                     "totals": raw.get("totals") or {}, "note": (raw.get("outcome") or {}).get("note"),
                     "run_id": raw.get("run_id"),
                     "tokens_basis": (raw.get("token_accounting") or {}).get("basis"),
                     "vendor": {"name": vendor.get("name"), "cost_usd": vendor.get("cost_usd")} if vendor else None}
-        finished = [compact(t, a) for t in sorted(finals) for a in finals[t]]
+        # every finished run, every repeat of it, in run order
+        finished = [compact(*f) for f in sorted(every_final, key=lambda f: (
+            f[1].task.id, f[1].agent.name, _run_order(_run_of(f[0], f[2])), f[0]))]
         return {
             "reports": reports,
             "aggregate": agg,
@@ -191,6 +243,36 @@ class Watcher:
                 "directory": str(self.dir),
             },
         }
+
+    def _analyse(self, finals: list) -> tuple:
+        """``(reports, aggregate, errors)``: the same reading `batch` writes,
+        over the runs finished so far."""
+        from ..corpus import analyse
+        errors: list = []
+        trajectories = [t for _, t, _ in finals]
+        outcomes = {}
+        # as `commands._io.outcomes_from` reads them for `batch`
+        for name, t, data in finals:
+            if "outcome" not in data:
+                continue
+            key = data.get("trace_id") or Path(name).stem
+            outcomes[key] = {"outcome": data["outcome"]}
+            outcomes.setdefault(Path(name).stem, outcomes[key])
+        try:
+            result = analyse(trajectories, golden=self.golden, policy=self.policy, outcomes=outcomes)
+            reports, agg = result["reports"], result["aggregate"]
+        except ValueError as exc:
+            # one agent finished, or no task has both yet: say so, keep streaming
+            reports, agg = [], {"tasks": 0, "pending": str(exc)}
+        except Exception as exc:   # noqa: BLE001 — the analysis must not stop the stream
+            errors.append(f"analysis: {exc}")
+            reports, agg = [], {"tasks": 0}
+        if self.enrich is not None:
+            try:
+                agg.update(self.enrich() or {})
+            except Exception as exc:   # noqa: BLE001
+                errors.append(f"enrich: {exc}")
+        return reports, agg, errors
 
     # ------------------------------------------------------------ the loop
 
@@ -414,13 +496,14 @@ def serve(traces_dir: Union[str, Path], template: Union[str, Path], *,
           demo: Optional[Union[str, Path]] = None, pace: float = 0.4, loop: bool = False,
           ready: Optional[threading.Event] = None, stop: Optional[threading.Event] = None,
           quiet: bool = True, db: Optional[Union[str, Path]] = None,
-          token: Optional[str] = None) -> ThreadingHTTPServer:
+          token: Optional[str] = None, golden: Optional[dict] = None, policy: Optional[dict] = None,
+          enrich: Optional[Callable[[], dict]] = None, also: Optional[list] = None) -> ThreadingHTTPServer:
     """Serve the live page. Returns the server after it has started (so a
     caller can ``serve_forever`` on it or stop it); with ``demo`` a
     simulator thread streams those traces into ``traces_dir``."""
     traces_dir = Path(traces_dir)
     traces_dir.mkdir(parents=True, exist_ok=True)
-    watcher = Watcher(traces_dir, poll=poll, db=db)
+    watcher = Watcher(traces_dir, poll=poll, db=db, golden=golden, policy=policy, enrich=enrich, also=also)
     stop = stop or threading.Event()
     threading.Thread(target=watcher.run, name="deepcompare-watch", daemon=True).start()
     if demo is not None:

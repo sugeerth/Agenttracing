@@ -168,7 +168,7 @@
       tokens: measuredSteps ? Math.max(cum, measured) : measured,
       tokensBasis: measuredSteps || measured ? "measured" : "unreported",
       atEnd: atEnd, running: !!extra.running, success: extra.success,
-      cost: extra.cost, note: extra.note, actions: marks.filter(function (m) { return m.kind !== "think"; }).length,
+      cost: extra.cost, note: extra.note, run: extra.run, actions: marks.filter(function (m) { return m.kind !== "think"; }).length,
     };
   }
 
@@ -185,15 +185,18 @@
       (live.runs || []).concat(live.finished || []).forEach(function (r) { tasks[r.task] = 1; });
       var names = Object.keys(tasks).sort();
       var want = tasks[task] ? task : names[0];
+      // one lane per agent, its latest run: finished runs arrive in run
+      // order, and a run still going is newer than any finished one
+      var byAgent = {};
       (live.finished || []).filter(function (r) { return r.task === want && r.trace; }).forEach(function (r) {
-        out.push(lane(r.agent, r.trace, { totals: r.totals, success: r.success, note: r.note,
-          tokens_basis: r.tokens_basis, cost: r.vendor && r.vendor.cost_usd }));
+        byAgent[r.agent] = lane(r.agent, r.trace, { totals: r.totals, success: r.success, note: r.note,
+          tokens_basis: r.tokens_basis, cost: r.vendor && r.vendor.cost_usd, run: r.run });
       });
       (live.runs || []).filter(function (r) { return r.task === want; }).forEach(function (r) {
-        out.push(lane(r.agent, r.steps || [], { running: true, totals: r.totals, elapsed_s: r.elapsed_s,
-          tokens_basis: r.tokens_basis, cost: r.vendor && r.vendor.cost_usd }));
+        byAgent[r.agent] = lane(r.agent, r.steps || [], { running: true, totals: r.totals, elapsed_s: r.elapsed_s,
+          tokens_basis: r.tokens_basis, cost: r.vendor && r.vendor.cost_usd, run: r.run });
       });
-      out.sort(function (a, b) { return a.agent < b.agent ? -1 : 1; });
+      out = Object.keys(byAgent).sort().map(function (k) { return byAgent[k]; });
       return { lanes: out, live: true, task: want };
     }
     var rep = ctx.report;
@@ -330,7 +333,9 @@
     var top = H("div", { class: "rc-top" }, [
       H("span", { class: "rc-state" + (got.live && running ? " live" : ""), "data-role": "state",
                   text: got.live ? (running ? "live · " + running + " running" : "live · finished") : "replay" }),
-      H("p", { class: "rc-title", text: (got.task ? got.task + " — " : "") + got.lanes.map(function (l) { return l.agent; }).join(" vs ") }),
+      H("p", { class: "rc-title", text: (got.task ? got.task + " — " : "") + got.lanes.map(function (l) { return l.agent; }).join(" vs ")
+        + (got.lanes.some(function (l) { return typeof l.run === "number" && l.run > 1; })
+          ? " · run " + d3.max(got.lanes, function (l) { return typeof l.run === "number" ? l.run : 0; }) : "") }),
     ]);
     root.appendChild(top);
     var key = H("div", { class: "rc-key" });

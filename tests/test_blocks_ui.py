@@ -4840,6 +4840,49 @@ class DuelBlockTest(unittest.TestCase):
             finally:
                 proc.wait(timeout=90)
 
+    def test_a_second_run_streams_in_the_same_two_lanes(self):
+        import re as _re
+        with tempfile.TemporaryDirectory() as tmp:
+            fakes = ROOT / "tests" / "fixtures" / "vendors"
+            env = dict(os.environ, OPENAI_API_KEY="sk-test-0000000000", ANTHROPIC_API_KEY="sk-ant-test-0000000000",
+                       FAKE_VENDOR_SLOW="0.5")
+            env.pop("FAKE_VENDOR_MODE", None)
+            proc = subprocess.Popen([sys.executable, "-m", "deepcompare", "duel", "--task",
+                                     str(ROOT / "demo" / "vendors" / "task.json"), "--quiet", "--live", "--port", "0",
+                                     "--runs", "2", "--linger", "6", "--codex-bin", str(fakes / "fake_codex.py"),
+                                     "--claude-bin", str(fakes / "fake_claude.py"), "-o", str(Path(tmp) / "d")],
+                                    cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+            try:
+                url = None
+                for _ in range(40):
+                    m = _re.search(r"live: (http://\S+/)", proc.stdout.readline() or "")
+                    if m:
+                        url = m.group(1)
+                        break
+                self.assertIsNotNone(url)
+                context = self.browser.new_context(viewport={"width": 1440, "height": 900})
+                page = context.new_page()
+                errors = []
+                page.on("pageerror", lambda e: errors.append(str(e)))
+                page.goto(url + "#view=batch")
+                seen = []   # (state, title, lanes)
+                for _ in range(60):
+                    page.wait_for_timeout(400)
+                    race = page.locator('.block[data-block="race"]')
+                    if race.locator('[data-role="state"]').count():
+                        seen.append((race.locator('[data-role="state"]').first.inner_text().lower(),
+                                     race.locator(".rc-title").first.inner_text(),
+                                     race.locator("text.rc-lab").count()))
+                    if seen and "finished" in seen[-1][0] and "run 2" in seen[-1][1]:
+                        break
+                self.assertTrue(any("running" in st and "run 2" in title for st, title, _ in seen),
+                                "the second run streamed: " + repr(seen[-5:]))
+                self.assertTrue(all(lanes <= 2 for _, _, lanes in seen), "one lane per agent, never one per run")
+                self.assertEqual(errors, [])
+                context.close()
+            finally:
+                proc.wait(timeout=90)
+
     def test_it_fits_a_phone(self):
         context, page, errors = self.open(width=390)
         self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth"), 1)

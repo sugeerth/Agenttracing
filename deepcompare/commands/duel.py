@@ -158,9 +158,11 @@ def _load_records(out: Path) -> list:
     return records
 
 
-def _report(out: Path, records: list, band: float, template, quiet: bool) -> int:
-    from ..duel import duel_report, render_markdown
-    from . import batch as batch_cmd
+def duel_block(out: Path, records: list, band: float) -> tuple:
+    """``(report, block)``: the fair report, and the slimmer block the page
+    carries (each run's profile, the head of its patch). One function for
+    the page written at the end and the page watched while the agents run."""
+    from ..duel import duel_report
     report = duel_report(records, band=band)
     slim = {k: v for k, v in report.items() if k != "profiles"}
     slim["runs_detail"] = [{k: v for k, v in p.items() if k not in ("after",)} for p in report.get("profiles") or []]
@@ -176,6 +178,13 @@ def _report(out: Path, records: list, band: float, template, quiet: bool) -> int
         got = heads.get((d["task"], d["agent"], d["run"]))
         if got:
             d["patch_head"], d["patch_truncated"], d["patch_path"] = got
+    return report, slim
+
+
+def _report(out: Path, records: list, band: float, template, quiet: bool) -> int:
+    from ..duel import render_markdown
+    from . import batch as batch_cmd
+    report, slim = duel_block(out, records, band)
     (out / "duel.json").write_text(json.dumps(slim, indent=1, ensure_ascii=False), encoding="utf-8")
     (out / "DUEL.md").write_text(render_markdown(report), encoding="utf-8")
     print(f"\n{report.get('narrative') or report.get('reason')}")
@@ -269,8 +278,13 @@ def run(args: argparse.Namespace) -> int:
             print(f"error: {exc}", file=sys.stderr)
             return 2
         (out / "traces").mkdir(parents=True, exist_ok=True)
+        # the live page runs the whole analysis — the same one the final page
+        # gets — each time a run finishes, and the duel's own reading with it
+        def live_duel() -> dict:
+            recs = _load_records(out)
+            return {"duel": duel_block(out, recs, args.band)[1]} if recs else {}
         server = serve(out / "traces", args.template or DEFAULT_TEMPLATE, host=args.host, port=args.port,
-                       poll=0.2, token=token)
+                       poll=0.2, token=token, enrich=live_duel, also=[out / "records"])
         threading.Thread(target=server.serve_forever, daemon=True).start()
         print(f"live: http://{args.host}:{server.server_address[1]}/" + (f"?token={token}" if token else "")
               + "  (both agents stream into the race)", flush=True)

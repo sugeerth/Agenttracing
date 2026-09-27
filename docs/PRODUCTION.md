@@ -129,6 +129,12 @@ the API, and the hash makes it citable.
 `agentdiff watch traces/` serves the page with server-sent events as
 runs land. For a demo or a war room, not for a fleet.
 
+The page it serves is the page `batch` writes: the same analysis
+(`deepcompare/corpus.py`) runs over the runs finished so far, with
+`--golden` and `--policy` as for batch. It runs once each time the set
+of finished runs changes, not on every frame, so a live agent's frames
+stay cheap and the cost of a new finished run is one `batch`.
+
 ## What it costs
 
 Measured on this machine (single core, CPython 3.11), reproduce with

@@ -24,7 +24,7 @@ from the agent:
   that turns up in a stream, an error or a check's output is replaced
   with ``[redacted]`` before it is written.
 
-While a run is going, ``<out>/traces/<task>__<agent>.live.json`` is
+While a run is going, ``<out>/traces/<task>__<agent>__<run>.live.json`` is
 rewritten about once a second, so ``agentdiff watch <out>/traces`` draws
 both agents as they work.
 """
@@ -379,7 +379,8 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
     before = snapshot(workdir)
     stem = f"{task['id']}__{spec.agent}__{run}"
     raw_path = out / "raw" / f"{stem}.jsonl"
-    live_path = out / "traces" / f"{task['id']}__{spec.agent}.live.json"
+    # named as its final trace is, run and all, so a repeat streams too
+    live_path = out / "traces" / f"{stem}.live.json"
     argv, facts = _argv(spec, binary, workdir, isolate, sandbox, claude_mode, budget_usd)
     version = _cli_version(binary)
     secrets = _secrets()
@@ -460,6 +461,7 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
                 try:
                     live = convert(list(events))
                     live["in_progress"] = True
+                    live["run"] = run
                     live["elapsed_s"] = t
                     live["updated_at"] = time.time()
                     live_path.write_text(json.dumps(live), encoding="utf-8")

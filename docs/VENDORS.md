@@ -59,6 +59,14 @@ token line grows as it spends. Codex reports usage once, when the turn
 ends, so its line stays flat and then steps to the reported total. The
 page says so rather than drawing a curve Codex never reported.
 
+The rest of the page fills in as runs finish, not only at the end. Each
+finished run re-runs the whole analysis over the runs done so far: the
+fair report, the verdict, the scorecard, the lessons, the eval forge.
+Until both agents have finished a task, the page says what it is waiting
+for. With `--runs 2` or more, each round streams in the same two lanes,
+and the title says which run is on screen. When the last run finishes, the live page's analysis is the written
+page's, reading for reading; `LiveAnalyticsTest` holds the two to that.
+
 Opened from a file, the same race is a replay. A scrubber shows both
 agents at the same second, with a line saying what each was doing and
 what it had spent. Play runs the clock forward, compressed.

@@ -36,6 +36,7 @@
 | median files / lines changed | 1 / 2 | 1 / 2 |
 | runs that touched tests | 0 | 0 |
 | said it was done, failed the check | 0 | 0 |
+| failed the check and said why | 0 | 0 |
 
 ## Pairs (budget band ±10%)
 

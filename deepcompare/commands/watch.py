@@ -34,6 +34,9 @@ def register(subparsers) -> None:
     parser.add_argument("--poll", type=float, default=0.5, help="directory poll interval in seconds")
     parser.add_argument("--template", default=None, help=f"viewer template (default: {DEFAULT_TEMPLATE})")
     parser.add_argument("--verbose", action="store_true", help="log every request")
+    parser.add_argument("--golden", default=None,
+                        help="golden dataset, as for batch: the live page scores tool correctness and milestones")
+    parser.add_argument("--policy", default=None, help="safety policy JSON, as for batch")
     parser.add_argument("--db", default=None, help="also ingest every finished trace into this trace database")
     parser.set_defaults(func=run)
 
@@ -62,10 +65,17 @@ def run(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    from ..scorecard import load_golden, load_policy
+    try:
+        golden_set = load_golden(args.golden) if getattr(args, "golden", None) else None
+        policy = load_policy(args.policy) if getattr(args, "policy", None) else None
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     stop = threading.Event()
     server = serve(traces, template, host=args.host, port=args.port, poll=args.poll,
                    demo=demo, pace=args.pace, loop=args.loop, stop=stop, quiet=not args.verbose,
-                   db=getattr(args, "db", None), token=token)
+                   db=getattr(args, "db", None), token=token, golden=golden_set, policy=policy)
     host, port = server.server_address[:2]
     print(f"watching {traces} — open http://{host}:{port}/" + (f"?token={token}" if token else "")
           + "  (Ctrl-C to stop)")

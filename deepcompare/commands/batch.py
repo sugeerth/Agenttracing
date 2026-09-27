@@ -11,14 +11,11 @@ import argparse
 import sys
 from pathlib import Path
 
-from ..issues import build_issues, load_suppressions
-from ..metrics import aggregate as build_aggregate
-from ..report import attach_milestones, compare
-from ..forge import forge as forge_evals, load_ledger as load_eval_ledger, write_ledger as write_eval_ledger
-from ..lessons import learn as learn_lessons, load_ledger, write_ledger
-from ..router import routing_table
-from ..scorecard import load_golden, load_policy, scorecard as build_scorecard
-from ..trace import Trajectory
+from ..issues import load_suppressions
+from ..corpus import analyse
+from ..forge import load_ledger as load_eval_ledger, write_ledger as write_eval_ledger
+from ..lessons import load_ledger, write_ledger
+from ..scorecard import load_golden, load_policy
 from ..triage import render_triage_text
 from ._io import (load_traces, outcomes_from, template_from, write_aggregate,
                   write_page, write_report)
@@ -60,90 +57,40 @@ def run(args: argparse.Namespace) -> int:
         print("error: no valid traces found", file=sys.stderr)
         return 2
 
-    agent_names = sorted({t.agent.name for t in trajectories})
-    if len(agent_names) != 2:
-        print(
-            f"error: batch mode needs traces from exactly 2 agents, "
-            f"found {len(agent_names)}: {', '.join(agent_names) or '(none)'}",
-            file=sys.stderr,
-        )
-        return 2
-    name_a, name_b = agent_names
-    print(f"Agents: A={name_a}  B={name_b}")
-
-    by_task: dict[str, dict[str, Trajectory]] = {}
-    for t in trajectories:
-        by_task.setdefault(t.task.id, {}).setdefault(t.agent.name, t)
-
     out_dir = Path(args.output)
     out_dir.mkdir(parents=True, exist_ok=True)
-
     try:
         golden_set = load_golden(args.golden) if getattr(args, "golden", None) else None
         policy = load_policy(args.policy) if getattr(args, "policy", None) else None
-    except (ValueError, OSError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
-    reports: list[dict] = []
-    for task_id in sorted(by_task):
-        pair = by_task[task_id]
-        if name_a not in pair or name_b not in pair:
-            print(f"warning: task {task_id!r} lacks a trace for both agents; skipped",
-                  file=sys.stderr)
-            continue
-        report = compare(pair[name_a], pair[name_b])
-        if golden_set or policy:
-            # progress before the answer: the golden task's milestones, both
-            # runs; and the trust section re-read under the policy
-            attach_milestones(report, golden_set, policy=policy)
-        reports.append(report)
-        write_report(out_dir, report)
-
-    if not reports:
-        print("error: no complete task pairs found", file=sys.stderr)
-        return 2
-
-    agg = build_aggregate(reports)
-    agg["routing"] = routing_table(trajectories)
-    try:
-        agg["scorecard"] = build_scorecard(trajectories, golden_set, policy,
-                                           outcomes_from(traces_dir))
-    except (ValueError, OSError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
-    # What the traces teach, tested on the half of the tasks each lesson was
-    # not drawn from, and — with a ledger — every earlier lesson re-tested here.
-    try:
         prior = load_ledger(args.lessons) if getattr(args, "lessons", None) else None
-    except (ValueError, OSError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
-    lessons_policy = policy if policy is not None else (golden_set or {}).get("policy")
-    agg["lessons"] = learn_lessons(trajectories, golden_set, lessons_policy, prior)
-    next_ledger = agg["lessons"]["ledger"].pop("next")
-    if getattr(args, "lessons", None):
-        write_ledger(args.lessons, next_ledger)
-    # a command that runs batch as its last step (``duel``) hands its own
-    # block in here, so the page and aggregate.json carry it
-    agg.update(getattr(args, "extra_aggregate", None) or {})
-    # Re-cluster with any .agentdiffignore found beside the traces or in cwd.
-    patterns = (load_suppressions(traces_dir) or load_suppressions(Path.cwd()))
-    if patterns:
-        agg["issues"] = build_issues(reports, patterns)
-    # The forge: evals written from where these runs went wrong, adopted
-    # only when they hold on tasks they were not written from.
-    try:
         seeds = _load_seeds(args.seeds) if getattr(args, "seeds", None) else None
         prior_evals = load_eval_ledger(args.evals) if getattr(args, "evals", None) else None
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    agg["forge"] = forge_evals(trajectories, golden_set, lessons_policy, issues=agg.get("issues"),
-                               agents=agg.get("agents"), seeds=seeds, ledger=prior_evals,
-                               proposer=getattr(args, "forge_proposer", None))
-    next_evals = agg["forge"]["ledger"].pop("next")
+    # the whole analysis is one engine function (`deepcompare.corpus`), the
+    # same one the live page runs, so the two pages cannot drift apart
+    try:
+        result = analyse(
+            trajectories, golden=golden_set, policy=policy, outcomes=outcomes_from(traces_dir),
+            suppressions=(load_suppressions(traces_dir) or load_suppressions(Path.cwd())),
+            lessons_ledger=prior, evals_ledger=prior_evals, seeds=seeds,
+            proposer=getattr(args, "forge_proposer", None),
+            extra=getattr(args, "extra_aggregate", None),
+            on_skip=lambda t: print(f"warning: task {t!r} lacks a trace for both agents; skipped",
+                                    file=sys.stderr))
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    name_a, name_b = result["agents"]
+    print(f"Agents: A={name_a}  B={name_b}")
+    reports, agg = result["reports"], result["aggregate"]
+    for report in reports:
+        write_report(out_dir, report)
+    if getattr(args, "lessons", None):
+        write_ledger(args.lessons, result["next"]["lessons"])
     if getattr(args, "evals", None):
-        write_eval_ledger(args.evals, next_evals)
+        write_eval_ledger(args.evals, result["next"]["evals"])
     write_aggregate(out_dir, agg)
     write_page(out_dir, reports, agg, template_from(args))
 

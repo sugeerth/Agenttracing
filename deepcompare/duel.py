@@ -319,7 +319,10 @@ def duel_report(records: Iterable[dict], band: float = BAND) -> dict:
     ``records`` are the harness's per-run records: ``{task, agent, run,
     trajectory, check, diff, setup, stopped_by}``.
     """
-    records = [r for r in records if isinstance(r, dict) and r.get("trajectory")]
+    # one order whatever order the runs finished or were read in, so the page
+    # watched live and the page written at the end list the runs alike
+    records = sorted((r for r in records if isinstance(r, dict) and r.get("trajectory")),
+                     key=lambda r: (str(r.get("task")), str(r.get("agent")), str(r.get("run"))))
     agents = sorted({str(r.get("agent")) for r in records})
     if len(agents) < 2:
         return {"measurable": False, "reason": f"{plural(len(agents), 'agent')} recorded; a duel needs two",
