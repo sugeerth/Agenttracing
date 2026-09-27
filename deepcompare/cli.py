@@ -29,6 +29,7 @@ from typing import Optional
 # `report.compare` under a bare `commands.compare` import crashed batch once
 from .commands import (
     batch as batch_cmd,
+    open as open_cmd,
     bench as bench_cmd,
     bundle as bundle_cmd,
     check as check_cmd,
@@ -119,6 +120,7 @@ COMMANDS = (
     judge_cmd,
     panel_cmd,
     duel_cmd,
+    open_cmd,
     forge_cmd,
     why_cmd,
     db_cmd,

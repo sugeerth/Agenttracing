@@ -724,6 +724,56 @@ class OneCommandTest(unittest.TestCase):
         self.assertIn("npm i -g @anthropic-ai/claude-code", done.stdout)
         self.assertLess(len(done.stdout.splitlines()), 14)
 
+    def test_a_model_names_its_vendor(self):
+        from deepcompare.harness.vendors import parse_spec
+        got = {t: (parse_spec(t).kind, parse_spec(t).model, parse_spec(t).agent)
+               for t in ("opus", "gpt-5", "o3", "claude-sonnet-5", "codex", "claude:haiku", "x=sonnet")}
+        self.assertEqual(got["opus"], ("claude", "opus", "opus"))
+        self.assertEqual(got["gpt-5"], ("codex", "gpt-5", "gpt-5"))
+        self.assertEqual(got["o3"], ("codex", "o3", "o3"))
+        self.assertEqual(got["claude-sonnet-5"], ("claude", "claude-sonnet-5", "claude-sonnet-5"))
+        self.assertEqual(got["codex"], ("codex", "", "codex"), "the explicit forms are unchanged")
+        self.assertEqual(got["claude:haiku"], ("claude", "haiku", "claude-code"))
+        self.assertEqual(got["x=sonnet"], ("claude", "sonnet", "x"))
+        with self.assertRaises(ValueError):
+            parse_spec("llama")
+
+    def test_the_terminal_ends_on_a_scoreboard_whose_figures_are_the_reports(self):
+        from deepcompare.duel import duel_report, scoreboard
+        from deepcompare.commands.duel import _load_records
+        live = ROOT / "demo" / "vendors" / "live-suite"
+        report = duel_report(_load_records(live))
+        board = scoreboard(report)
+        lines = board.splitlines()
+        self.assertLess(len(lines), 10)
+        for name, a in report["per_agent"].items():
+            row = next(line for line in lines if line.strip().startswith(name))
+            self.assertIn(f"{a['passed']} of {a['graded']}", row)
+            self.assertIn(f"${a['cost_usd']:.3f}", row)
+        self.assertNotIn("passed more often", board, "equal pass counts name no one")
+        # unequal outcomes and a false claim of done are said, and nothing else is ranked
+        report["per_agent"]["haiku"]["passed"] = 4
+        report["per_agent"]["sonnet"]["claimed_but_failed"] = 1
+        board = scoreboard(report)
+        self.assertIn("sonnet passed more often", board)
+        self.assertIn("sonnet said it was done and failed the check in 1 run", board)
+
+    def test_open_finds_the_newest_duel(self):
+        import time as _time
+        from deepcompare.commands.open import latest_page
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(latest_page(tmp))
+            for name in ("duel-out", "duel-out-2"):
+                page = Path(tmp) / name / "page" / "report.html"
+                page.parent.mkdir(parents=True)
+                page.write_text("x")
+                _time.sleep(0.02)
+            self.assertEqual(latest_page(tmp).parent.parent.name, "duel-out-2")
+            done = subprocess.run([sys.executable, "-m", "deepcompare", "open", tmp, "--print"],
+                                  capture_output=True, text=True, env=dict(os.environ, PYTHONPATH=str(ROOT)))
+            self.assertEqual(done.returncode, 0)
+            self.assertTrue(done.stdout.strip().endswith("duel-out-2/page/report.html"))
+
     def test_a_sentence_is_a_task_and_a_word_is_a_command(self):
         from deepcompare.cli import _is_sentence
         commands = {"demo", "duel", "batch"}

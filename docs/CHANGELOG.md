@@ -5,6 +5,18 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Nothing to install, and a scoreboard
+
+- `uvx --from git+https://github.com/sugeerth/Agenttracing agentdiff "…"`
+  runs a duel with nothing installed. Verified from a clean clone.
+- `--agent opus --agent gpt-5`: a model names its vendor. The explicit
+  forms (`codex`, `claude:MODEL`, `NAME=vendor:model`) are unchanged.
+- The terminal ends on a scoreboard: passed, median tokens, cost, median
+  time, one row per agent. Beneath it come only the lines that change how
+  the rows read. It names no one unless the pass counts differ, and even
+  then it points to the intervals.
+- `agentdiff open` reopens the newest duel's page.
+
 ## Fewer words still
 
 - `agentdiff "Fix the failing test"`: a sentence where a command goes is

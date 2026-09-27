@@ -23,10 +23,21 @@ pass rate from a small sample settles.
 ## The one command
 
 ```bash
-pip install git+https://github.com/sugeerth/Agenttracing
 cd your-project
-agentdiff "Fix the failing test in parser.py"
+uvx --from git+https://github.com/sugeerth/Agenttracing agentdiff "Fix the failing test in parser.py"
 ```
+
+Or install it once (`pip install git+https://github.com/sugeerth/Agenttracing`)
+and type `agentdiff "…"`. To choose the two agents, name the models:
+`--agent opus --agent gpt-5` (a model names its vendor: `haiku`, `sonnet`,
+`opus`, `claude-…` run on Claude Code; `gpt-…`, `o3`, `codex-…` on Codex).
+`agentdiff open` reopens the newest duel's page.
+
+The terminal ends on a scoreboard, one row per agent (passed, median
+tokens, cost, median time). Below it are only the lines that change how
+the rows read: a difference in passes, a claim of done that failed the
+check, tests edited, conditions that were not equal, a cost the CLI does
+not report. It names no winner beyond the counts; `DUEL.md` has the rest.
 
 That is the whole setup. `agentdiff` alone lists which coding-agent CLIs
 are ready on this machine and, for any that is not, the command that
@@ -47,9 +58,8 @@ duel is there, so two duels are never read as one. The directory ignores
 itself (a `.gitignore` of `*` inside it), so it never shows in the
 project's `git status`. An output directory
 is never copied into an agent's workspace, so running inside the project
-does not hand the next duel's agents the last one's reports. The
-terminal ends on the verdict and the page; the full triage is in
-`page/triage.txt`. Everything below is for when you want more control.
+does not hand the next duel's agents the last one's reports. The full
+triage is in `page/triage.txt`. Everything below is for when you want more control.
 
 ## Setup
 

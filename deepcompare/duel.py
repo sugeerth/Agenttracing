@@ -464,6 +464,51 @@ def _narrative(agents, per_agent, pairs, matched, band, unequal, tasks) -> str:
     return " ".join(parts)
 
 
+def _short_tokens(n) -> str:
+    n = float(n or 0)
+    return f"{n / 1e6:.1f}M" if n >= 1e6 else (f"{n / 1e3:.0f}k" if n >= 1e3 else f"{n:.0f}")
+
+
+def scoreboard(report: dict) -> str:
+    """What a terminal shows when a duel ends: one row per agent, then only
+    the lines that change how the rows read. The full reading is DUEL.md;
+    every figure here is a figure there."""
+    if not report.get("measurable"):
+        return str(report.get("reason") or "not measurable")
+    per = report.get("per_agent") or {}
+    names = list(report.get("agents") or per)
+    width = max(8, *(len(n) for n in names))
+    lines = [f"  {'':<{width}}  {'passed':<9} {'tokens':>7}  {'cost':>9}  {'time':>6}"]
+    for name in names:
+        a = per.get(name) or {}
+        med = a.get("median") or {}
+        passed = f"{a.get('passed', 0)} of {a.get('graded', 0)}" if a.get("graded") else "ungraded"
+        cost = a.get("cost_usd")
+        cost_s = f"${cost:.3f}" if isinstance(cost, (int, float)) else "n/r"
+        lines.append(f"  {name:<{width}}  {passed:<9} {_short_tokens(med.get('tokens')):>7}  {cost_s:>9}  "
+                     f"{med.get('wall_s') or 0:>5.0f}s")
+    notes = []
+    graded = [n for n in names if (per.get(n) or {}).get("graded")]
+    rates = {n: (per[n].get("passed", 0), per[n].get("graded", 0)) for n in graded}
+    if len(set(rates.values())) > 1:
+        best = max(graded, key=lambda n: rates[n][0] / rates[n][1])
+        notes.append(f"{best} passed more often; with {report.get('runs')} run(s), the intervals in DUEL.md "
+                     "say how far that goes")
+    for n in names:
+        a = per.get(n) or {}
+        if a.get("claimed_but_failed"):
+            notes.append(f"{n} said it was done and failed the check in {plural(a['claimed_but_failed'], 'run')}")
+        if a.get("touched_tests"):
+            notes.append(f"{n} changed test files in {plural(a['touched_tests'], 'run')}")
+    if report.get("unequal"):
+        notes.append("not equal between them: " + ", ".join(report["unequal"]))
+    if any(not isinstance((per.get(n) or {}).get("cost_usd"), (int, float)) for n in names):
+        notes.append("n/r: the CLI reports no cost (--price sets one, labelled yours)")
+    lines += [f"  · {x}" for x in notes]
+    lines.append("  tokens and time are medians per run")
+    return "\n".join(lines)
+
+
 def render_markdown(report: dict) -> str:
     """DUEL.md: the parity ledger first, then outcome, spend, what each made, how each worked."""
     if not report.get("measurable"):

@@ -48,8 +48,9 @@ def register(subparsers) -> None:
     parser.add_argument("--no-check", action="store_true", help="record the runs ungraded; detect nothing")
     parser.add_argument("--id", default="task", help="task id, when there is no --task file")
     parser.add_argument("--agent", action="append", default=None, metavar="[NAME=]VENDOR[:MODEL]",
-                        help="codex[:MODEL] or claude[:MODEL]; twice. Default: codex and claude, or with "
-                             "only Claude Code installed, its haiku and sonnet models")
+                        help="twice: a model (opus, sonnet, haiku, claude-..., gpt-..., o3), or codex[:MODEL], "
+                             "claude[:MODEL]. Default: codex and claude, or with only Claude Code installed, "
+                             "its haiku and sonnet models")
     parser.add_argument("--runs", type=int, default=1, help="runs per agent per task (default 1)")
     parser.add_argument("--budget-tokens", type=int, default=None, metavar="N",
                         help="token budget per run (input incl. cached + output); enforced while running "
@@ -266,8 +267,9 @@ def _report(out: Path, records: list, band: float, template, quiet: bool) -> int
     report, slim = duel_block(out, records, band)
     (out / "duel.json").write_text(json.dumps(slim, indent=1, ensure_ascii=False), encoding="utf-8")
     (out / "DUEL.md").write_text(render_markdown(report), encoding="utf-8")
-    print(f"\n{report.get('narrative') or report.get('reason')}")
-    print(f"wrote {out / 'duel.json'} and {out / 'DUEL.md'}")
+    from ..duel import scoreboard
+    print("\n" + scoreboard(report))
+    print(f"\nthe full reading: {out / 'DUEL.md'}")
     if not report.get("measurable"):
         return 1
     ns = argparse.Namespace(tracesdir=str(out / "traces"), output=str(out / "page"), template=template,
@@ -282,7 +284,7 @@ def _report(out: Path, records: list, band: float, template, quiet: bool) -> int
     (out / "page").mkdir(parents=True, exist_ok=True)
     (out / "page" / "triage.txt").write_text(buf.getvalue(), encoding="utf-8")
     if code == 0:
-        print(f"page: {out / 'page' / 'report.html'}   (triage: {out / 'page' / 'triage.txt'})")
+        print(f"page: {out / 'page' / 'report.html'}   (agentdiff open reopens it)")
     else:
         print(buf.getvalue()[-2000:])
     return code
@@ -340,8 +342,8 @@ def run(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     if len(specs) != 2 or specs[0].agent == specs[1].agent:
-        print("error: a duel is two agents with different names (NAME=vendor:model to tell two apart)",
-              file=sys.stderr)
+        print("error: a duel is two agents with different names, e.g. --agent opus --agent gpt-5 "
+              "(NAME=vendor:model to tell two of one model apart)", file=sys.stderr)
         return 2
     for spec in specs:
         if spec.kind == "codex" and args.codex_bin:

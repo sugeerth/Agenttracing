@@ -34,6 +34,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -157,14 +158,29 @@ class VendorSpec:
         return self.name or ("claude-code" if self.kind == "claude" else self.kind)
 
 
+def _vendor_of_model(model: str) -> Optional[str]:
+    m = model.strip().lower()
+    if m in ("haiku", "sonnet", "opus") or m.startswith("claude-"):
+        return "claude"
+    if m.startswith(("gpt-", "codex-")) or re.fullmatch(r"o\d(-[a-z0-9-]+)?", m):
+        return "codex"
+    return None
+
+
 def parse_spec(text: str) -> VendorSpec:
     name, _, rest = text.partition("=") if "=" in text.split(":", 1)[0] else ("", "", text)
     kind, _, model = rest.partition(":")
     kind = kind.strip().lower()
     if kind in ("claude-code", "claude_code"):
         kind = "claude"
+    if kind not in ("codex", "claude") and not model:
+        # a model alone names its vendor: `--agent opus`, `--agent gpt-5`
+        vendor = _vendor_of_model(kind)
+        if vendor:
+            return VendorSpec(kind=vendor, model=rest.strip(), name=name.strip() or rest.strip())
     if kind not in ("codex", "claude"):
-        raise ValueError(f"unknown vendor {kind!r}: use codex[:MODEL] or claude[:MODEL]")
+        raise ValueError(f"unknown agent {rest.strip()!r}: use codex[:MODEL], claude[:MODEL], or a model "
+                         "name such as sonnet, opus, haiku, claude-..., gpt-..., o3")
     return VendorSpec(kind=kind, model=model.strip(), name=name.strip())
 
 

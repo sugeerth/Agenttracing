@@ -13,6 +13,7 @@ contains no network code; only the harness talks to a model.
 ## Quick start
 
 ```bash
+uvx --from git+https://github.com/sugeerth/Agenttracing agentdiff "Fix the failing test"   # nothing to install
 pip install git+https://github.com/sugeerth/Agenttracing   # or in a clone: pip install -e .
 agentdiff "Fix the failing test"        # in your repo: the agents installed, side by side, live,
                                         # graded by the project's own tests (docs/VENDORS.md)
