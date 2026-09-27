@@ -32,7 +32,7 @@
   //: [cell, block id, fallback block id, the view the block lives in at full size]
   var PANELS = [
     ["verdict", "duel", "corpus-verdict", "batch"],
-    ["trouble", "evidence-strip", null, "batch"],
+    ["trouble", "race", "evidence-strip", "batch"],
     ["taught", "lessons", null, "batch"],
     ["forged", "forge", null, "batch"],
     ["todo", "what-to-do", "recommendations", "batch"],
@@ -40,23 +40,19 @@
 
   function ensureStyle() {
     L.style.once(STYLE_ID, [
-      ".ff{display:grid;gap:12px;grid-template-columns:repeat(12,minmax(0,1fr));",
+      ".ff{display:grid;gap:8px;grid-template-columns:repeat(12,minmax(0,1fr));",
       "grid-template-rows:minmax(0,1.15fr) minmax(0,1fr);min-height:560px}",
       ".ff-p{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--surface);",
       "border:1px solid var(--rule);border-radius:10px;overflow:hidden}",
-      ".ff-p[data-cell=verdict]{grid-column:1 / span 5}",
-      ".ff-p[data-cell=trouble]{grid-column:6 / span 7}",
-      ".ff-p[data-cell=taught]{grid-column:1 / span 4}",
-      ".ff-p[data-cell=forged]{grid-column:5 / span 4}",
-      ".ff-p[data-cell=todo]{grid-column:9 / span 4}",
-      ".ff-head{display:flex;align-items:baseline;gap:8px;padding:8px 12px 6px;border-bottom:1px solid var(--rule)}",
+
+      ".ff-head{display:flex;align-items:baseline;gap:8px;padding:5px 10px 4px;border-bottom:1px solid var(--rule)}",
       ".ff-head button{font:inherit;font-size:var(--fs-xs);font-weight:700;letter-spacing:.08em;text-transform:uppercase;",
       "color:var(--ink-2);background:none;border:0;padding:0;cursor:pointer;text-align:left}",
       ".ff-head button:hover,.ff-head button:focus-visible{color:var(--accent)}",
       ".ff-head .q{font-size:var(--fs-xs);color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}",
-      ".ff-body{flex:1;min-height:0;overflow:auto;padding:10px 12px}",
+      ".ff-body{flex:1;min-height:0;overflow:auto;padding:7px 10px}",
       "@media (max-width:1099px){.ff{grid-template-columns:minmax(0,1fr);grid-template-rows:none;height:auto !important}",
-      ".ff-p[data-cell]{grid-column:1 / -1}.ff-body{max-height:none;overflow:visible}}",
+      ".ff-p[data-cell]{grid-column:1 / -1 !important;grid-row:auto !important}.ff-body{max-height:none;overflow:visible}}",
     ].join(""));
   }
 
@@ -122,6 +118,27 @@
         body.appendChild(H("div", { class: "empty", text: "This panel could not render: " + err.message }));
       }
     });
+    // each row shares its width among the panels that have something to
+    // show: the prose cell narrower than the chart on top, the lists even
+    // below — so a page with no lessons leaves no hole where they would be
+    var cells = [].slice.call(frame.children);
+    var top = cells.filter(function (c) { return c.dataset.cell === "verdict" || c.dataset.cell === "trouble"; });
+    var bottom = cells.filter(function (c) { return top.indexOf(c) < 0; });
+    var col = 1;
+    top.forEach(function (c) {
+      var span = top.length === 1 ? 12 : c.dataset.cell === "verdict" ? 5 : 7;
+      c.style.gridColumn = col + " / span " + span;
+      c.style.gridRow = "1";
+      col += span;
+    });
+    col = 1;
+    bottom.forEach(function (c, i) {
+      var span = i === bottom.length - 1 ? 13 - col : Math.floor(12 / bottom.length);
+      c.style.gridColumn = col + " / span " + span;
+      c.style.gridRow = top.length ? "2" : "1";
+      col += span;
+    });
+    if (!bottom.length || !top.length) frame.style.gridTemplateRows = "minmax(0,1fr)";
     requestAnimationFrame(function () { fit(frame); });
     if (!global.__agentdiffFocusResize) {
       global.__agentdiffFocusResize = true;

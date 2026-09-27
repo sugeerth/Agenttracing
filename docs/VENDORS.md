@@ -45,8 +45,23 @@ agentdiff duel --task demo/vendors/task.json --runs 3 -o duel-out/
 agentdiff duel --prompt "Fix the failing test in parser.py" --workspace ./repo \
                --check "pytest -q" --budget-tokens 400000 -o duel-out/
 agentdiff duel --agent fast=codex:MODEL_A --agent deep=codex:MODEL_B ...   # one vendor, two models
-agentdiff watch duel-out/traces          # both agents live, while they work
+agentdiff duel --task demo/vendors/task.json --live       # serve the race while they work
 ```
+
+`--live` serves the page on `http://127.0.0.1:8765/` (`--port`, `--host`)
+while the agents run. Each agent's lane grows as its stream arrives,
+about four times a second: every action is a mark at the second it
+began, as wide as it took, coloured by what it was (explore, edit,
+verify, run). Under each lane is the tokens spent so far, and a pulsing
+line marks *now* on a run still going. When a run finishes, its lane
+takes the check's verdict. Claude Code reports usage per message, so its
+token line grows as it spends. Codex reports usage once, when the turn
+ends, so its line stays flat and then steps to the reported total. The
+page says so rather than drawing a curve Codex never reported.
+
+Opened from a file, the same race is a replay. A scrubber shows both
+agents at the same second, with a line saying what each was doing and
+what it had spent. Play runs the clock forward, compressed.
 
 A task file holds `{id, prompt, workspace, check}`, or `{"tasks": [...]}`
 for several tasks. The source workspace is never modified: each run works

@@ -4685,7 +4685,8 @@ class DuelBlockTest(unittest.TestCase):
     def test_the_duel_opens_the_page(self):
         context, page, errors = self.open()
         lead = page.evaluate("() => [...document.querySelectorAll('#lead-lane .block')].map(b => b.dataset.block)")
-        self.assertEqual(lead[0], "duel")
+        # the race (both agents on one clock) opens, the fair reading follows
+        self.assertEqual(lead[:2], ["race", "duel"])
         self.assertIn(self.duel["narrative"], page.locator('.block[data-block="duel"] .dl-lede').inner_text())
         self.assertEqual(errors, [])
         context.close()
@@ -4729,6 +4730,114 @@ class DuelBlockTest(unittest.TestCase):
             self.assertGreater(cols.nth(i).locator(".dl-patch .add").count(), 0)
             self.assertGreater(cols.nth(i).locator(".dl-patch .del").count(), 0)
         context.close()
+
+    # ------------------------------------------------------------ the race
+
+    def test_the_race_leads_and_draws_every_step_on_one_clock(self):
+        context, page, errors = self.open()
+        lead = page.evaluate("() => [...document.querySelectorAll('#lead-lane .block')].map(b => b.dataset.block)")
+        self.assertEqual(lead[:2], ["race", "duel"])
+        self.assertEqual(page.locator("#hero-lane .block[data-block='race']").count(), 0, "drawn once, not also as the hero")
+        race = page.locator('.block[data-block="race"]')
+        self.assertIn("replay", race.locator('[data-role="state"]').inner_text().lower())
+        report = json.loads((self.page_path.parent / "report_bugfix-pricing.json").read_text(encoding="utf-8"))
+        marks = race.locator("rect.rc-mark").count()
+        steps = sum(len(report[side]["steps"]) for side in ("a", "b"))
+        self.assertEqual(marks, steps)
+        label = race.locator("svg").first.get_attribute("aria-label")
+        for agent in self.duel["agents"]:
+            self.assertIn(agent, label)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_scrubber_shows_both_agents_at_the_same_second(self):
+        context, page, errors = self.open()
+        race = page.locator('.block[data-block="race"]')
+        rng = race.locator("input[type=range]")
+        rng.evaluate("e => { e.value = e.max * 0.4; e.dispatchEvent(new Event('input')); }")
+        page.wait_for_timeout(300)
+        at = race.locator('[data-role="at"]').inner_text()
+        self.assertTrue(at.startswith("At "))
+        for agent in self.duel["agents"]:
+            self.assertIn(agent, at)
+        # a vendor that reports usage once, at the end, is not given a curve it never had
+        self.assertIn("tokens not reported until the turn ends", at)
+        self.assertEqual(race.locator('[data-role="cursor"]').count(), 1)
+        before = race.locator("rect.rc-mark").count()
+        rng.evaluate("e => { e.value = 0; e.dispatchEvent(new Event('input')); }")
+        page.wait_for_timeout(200)
+        self.assertLess(race.locator("rect.rc-mark").count(), before)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_play_runs_the_clock_to_the_end(self):
+        context, page, errors = self.open()
+        race = page.locator('.block[data-block="race"]')
+        rng = race.locator("input[type=range]")
+        rng.evaluate("e => { e.value = 0; e.dispatchEvent(new Event('input')); }")
+        race.locator("button", has_text="Play").click()
+        page.wait_for_timeout(700)
+        mid = float(rng.evaluate("e => e.value"))
+        page.wait_for_timeout(4200)
+        end = float(rng.evaluate("e => e.value"))
+        self.assertGreater(end, mid)
+        self.assertAlmostEqual(end, float(rng.evaluate("e => e.max")), places=3)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_focus_on_a_duel_leaves_no_hole(self):
+        context, page, errors = self.open(width=1440)
+        page.goto(f"file://{self.page_path}#view=focus")
+        page.wait_for_timeout(1800)
+        cells = page.evaluate("() => [...document.querySelectorAll('.ff-p')].map(p => [p.dataset.block, p.style.gridColumn])")
+        self.assertEqual([c[0] for c in cells[:2]], ["duel", "race"])
+        bottom = cells[2:]
+        if len(bottom) == 1:
+            self.assertEqual(bottom[0][1], "1 / span 12")
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_race_streams_while_a_live_duel_runs(self):
+        import re as _re
+        with tempfile.TemporaryDirectory() as tmp:
+            fakes = ROOT / "tests" / "fixtures" / "vendors"
+            env = dict(os.environ, OPENAI_API_KEY="sk-test-0000000000", ANTHROPIC_API_KEY="sk-ant-test-0000000000",
+                       FAKE_VENDOR_SLOW="0.5")
+            env.pop("FAKE_VENDOR_MODE", None)
+            proc = subprocess.Popen([sys.executable, "-m", "deepcompare", "duel", "--task",
+                                     str(ROOT / "demo" / "vendors" / "task.json"), "--quiet", "--live", "--port", "0",
+                                     "--linger", "6", "--codex-bin", str(fakes / "fake_codex.py"),
+                                     "--claude-bin", str(fakes / "fake_claude.py"), "-o", str(Path(tmp) / "d")],
+                                    cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+            try:
+                url = None
+                for _ in range(40):
+                    m = _re.search(r"live: (http://\S+/)", proc.stdout.readline() or "")
+                    if m:
+                        url = m.group(1)
+                        break
+                self.assertIsNotNone(url)
+                context = self.browser.new_context(viewport={"width": 1440, "height": 900})
+                page = context.new_page()
+                errors = []
+                page.on("pageerror", lambda e: errors.append(str(e)))
+                page.goto(url + "#view=batch")
+                states, marks = [], []
+                for _ in range(30):
+                    page.wait_for_timeout(400)
+                    st = page.locator('.block[data-block="race"] [data-role="state"]')
+                    if st.count():
+                        states.append(st.first.inner_text().lower())
+                        marks.append(page.locator('.block[data-block="race"] rect.rc-mark').count())
+                    if states and "finished" in states[-1]:
+                        break
+                self.assertTrue(any("running" in s for s in states), states)
+                self.assertIn("finished", states[-1])
+                self.assertGreater(marks[-1], marks[0], "the lanes grew while the page was open")
+                self.assertEqual(errors, [])
+                context.close()
+            finally:
+                proc.wait(timeout=90)
 
     def test_it_fits_a_phone(self):
         context, page, errors = self.open(width=390)
@@ -7421,11 +7530,16 @@ class TrainingViewTest(unittest.TestCase):
         self.assertTrue(page.locator("#panels-lane").is_hidden())
         # this page has no lineage, so Evolution and Evals have nothing in
         # them: their tabs are hidden and the arrow does not land on them —
-        # from Training it wraps straight to Chat
+        # from Training it wraps straight to the first reachable tab (Focus
+        # when the page carries a corpus), and then on to Chat
         self.assertTrue(page.locator('.tab[data-view="evolution"]').is_hidden())
         self.assertTrue(page.locator('.tab[data-view="coevolution"]').is_hidden())
         page.keyboard.press("ArrowRight")
         page.wait_for_timeout(400)
+        if page.evaluate("() => AgentDiff._internals.reachableViews()[0]") == "focus":
+            self.assertEqual(page.locator('.tab[data-view="focus"]').get_attribute("aria-selected"), "true")
+            page.keyboard.press("ArrowRight")
+            page.wait_for_timeout(400)
         self.assertEqual(page.locator('.tab[data-view="chat"]').get_attribute("aria-selected"), "true")
         page.keyboard.press("ArrowRight")
         page.wait_for_timeout(400)

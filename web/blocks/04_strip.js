@@ -123,7 +123,10 @@
   function draw(host, rows, ctx) {
     var d3 = global.d3;
     var charts = AgentDiff.charts;
-    var ROW = 16, HEAD = 24, PAD_R = 16, PAD_T = 24, PAD_B = 10;
+    // in Focus the strip is one panel of five: rows as thin as a mark
+    // stays clickable
+    var tight = ctx && ctx.lane === "focus";
+    var ROW = tight ? 14 : 16, HEAD = tight ? 19 : 24, PAD_R = 16, PAD_T = tight ? 20 : 24, PAD_B = tight ? 6 : 10;
     var measured = host.clientWidth || (host.parentNode && host.parentNode.clientWidth) || 0;
     var width = Math.max(560, Math.min(1180, measured || 760));
 
@@ -282,7 +285,7 @@
         "halfway point. A count cannot say that: twelve unrepaired errors reads the same whether a run " +
         "fell over at step 12 or step 212." }));
     }
-    root.appendChild(lede);
+    if (ctx.lane !== "focus") root.appendChild(lede);
 
     var key = H("div", { class: "st-key" });
     KINDS.forEach(function (k) {
@@ -298,6 +301,7 @@
     AgentDiff.charts.responsive(wrap, function () { draw(wrap, rows, ctx); }, "strip");
 
     var capped = rows.filter(function (r) { return r.capped; }).length;
+    if (ctx.lane === "focus") return;
     root.appendChild(H("p", { class: "st-note", text:
       "Every mark is a step index the engine recorded — a risk flag's own step, an error the run never came "
       + "back to, the start of a stretch that produced nothing new, the last milestone reached. Runs share "

@@ -63,6 +63,9 @@
       ".ls-again-row{font-size:var(--fs-s);line-height:1.5;color:var(--ink-2);padding:4px 0}",
       ".ls-note{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.6;margin:0}",
       ".ls-note b{color:var(--ink-2)}",
+      ".ls.compact{gap:8px}.ls.compact .ls-row{padding:5px 0;grid-template-columns:88px minmax(0,1fr);gap:2px 10px}",
+      ".ls.compact .ls-say{font-size:var(--fs-xs);line-height:1.45}.ls.compact .ls-st{margin-right:5px}",
+      ".ls.compact .ls-h{margin-bottom:2px}",
       ".ls-how{font-size:var(--fs-xs);color:var(--ink-2);line-height:1.6;margin:0;",
       "border-left:2px solid var(--rule-2);padding-left:10px}",
     ].join(""));
@@ -105,7 +108,7 @@
     return t;
   }
 
-  function row(H, lesson, corpus) {
+  function row(H, lesson, corpus, compact) {
     var li = H("li", { class: "ls-row " + lesson.source, "data-lesson": lesson.name,
                        "data-status": lesson.status });
     var halves = lesson.halves || [];
@@ -122,8 +125,12 @@
     var body = H("div");
     var say = H("p", { class: "ls-say" });
     say.appendChild(H("span", { class: "ls-st " + lesson.status, text: STATUS[lesson.status] || lesson.status }));
-    say.appendChild(H("span", { text: lesson.sentence || lesson.phrasing }));
+    var w = lesson.with || {}, o = lesson.without || {};
+    say.appendChild(H("span", { text: compact
+      ? lesson.phrasing + " — " + w.wrong + "/" + w.runs + " wrong with it, " + o.wrong + "/" + o.runs + " without"
+      : (lesson.sentence || lesson.phrasing) }));
     body.appendChild(say);
+    if (compact) { li.appendChild(body); return li; }
 
     var meta = H("p", { class: "ls-meta" });
     var led = lesson.ledger;
@@ -156,9 +163,10 @@
         ? "Nothing learned: " + raw.reason + "."
         : "Nothing learned: this page carries no corpus. `agentdiff batch` learns from one.");
     }
-    var root = H("div", { class: "ls" });
+    var compact = ctx.lane === "focus";
+    var root = H("div", { class: "ls" + (compact ? " compact" : "") });
     el.appendChild(root);
-    root.appendChild(H("p", { class: "ls-lede", text: ls.narrative || "" }));
+    if (!compact) root.appendChild(H("p", { class: "ls-lede", text: ls.narrative || "" }));
 
     var all = ls.lessons || [];
     var observed = all.filter(function (l) { return l.source !== "annotation"; });
@@ -168,7 +176,7 @@
       var sec = H("section", { "data-role": "observed" });
       sec.appendChild(H("div", { class: "ls-h", text: "What the runs did" }));
       var list = H("ul", { class: "ls-list" });
-      observed.forEach(function (l) { list.appendChild(row(H, l, ls.corpus)); });
+      observed.forEach(function (l) { list.appendChild(row(H, l, ls.corpus, compact)); });
       sec.appendChild(list);
       root.appendChild(sec);
     }
@@ -176,7 +184,7 @@
       var sec2 = H("section", { "data-role": "annotations" });
       sec2.appendChild(H("div", { class: "ls-h", text: "What someone wrote on the trace — not a behaviour" }));
       var list2 = H("ul", { class: "ls-list" });
-      noted.forEach(function (l) { list2.appendChild(row(H, l, ls.corpus)); });
+      noted.forEach(function (l) { list2.appendChild(row(H, l, ls.corpus, compact)); });
       sec2.appendChild(list2);
       root.appendChild(sec2);
     }
@@ -201,6 +209,7 @@
       root.appendChild(sec3);
     }
 
+    if (compact) return;
     var how = H("p", { class: "ls-how", "data-role": "method" });
     var halves = ls.halves || [[], []];
     how.appendChild(H("span", { text: "How this learns: " + (ls.tried || 0) + " properties tried; the " +

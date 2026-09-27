@@ -759,6 +759,9 @@
     var best = null, bestScore = 0;
     REGISTRY.forEach(function (entry) {
       if (wanted && entry.id === wanted.id) return;
+      // a lead block already opens the page in its own lane; leading the
+      // hero lane too would draw it twice
+      if (entry.lead) return;
       var score = safeRelevance(entry, ctx);
       if (score > bestScore) { bestScore = score; best = entry; }
     });

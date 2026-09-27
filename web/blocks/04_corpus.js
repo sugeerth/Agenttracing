@@ -47,6 +47,10 @@
       ".cv-agent i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;",
       "vertical-align:1px}",
       ".cv b.bad{color:var(--bad)}.cv b.good{color:var(--good)}",
+      // in Focus: the same six lines, tighter, the sources in a tooltip
+      ".cv.compact{gap:3px 10px;font-size:var(--fs-s);line-height:1.4}",
+      ".cv.compact .v.verdict{font-size:var(--fs-m)}.cv.compact .k{padding-top:2px}",
+      ".cv.compact .cv-src{display:none}.cv.compact .v.confidence{font-size:var(--fs-xs)}",
     ].join(""));
   }
 
@@ -60,7 +64,7 @@
   function line(H, key, label, kids, source) {
     return [
       H("div", { class: "k", text: label }),
-      H("p", { class: "v " + key, role: "listitem", "data-line": key }, kids.concat(
+      H("p", { class: "v " + key, role: "listitem", "data-line": key, title: source ? "from " + source : null }, kids.concat(
         source ? [H("span", { class: "cv-src" }, [H("span", { text: "from " }), H("code", { text: source })])] : [])),
     ];
   }
@@ -72,7 +76,8 @@
     var sc = corpusOf(ctx);
     if (!sc) return ctx.empty(el, "Not a corpus: this page carries a single pair.");
     var agents = Object.keys(sc.agents || {}).sort();
-    var grid = H("div", { class: "cv", role: "list" });
+    var compact = ctx.lane === "focus";
+    var grid = H("div", { class: "cv" + (compact ? " compact" : ""), role: "list" });
     var rows = [];
 
     // 1 — the verdict: each agent, its successes out of its runs

@@ -57,6 +57,8 @@
       ".fg-seeds button:disabled{opacity:.5;cursor:default}",
       ".fg-note{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.5;margin:0}",
       "details.fg-more>summary{cursor:pointer;font-size:var(--fs-s);color:var(--ink-3)}",
+      ".fg.compact{gap:6px}.fg.compact .fg-row{padding:5px 0;font-size:var(--fs-xs);line-height:1.45}",
+      ".fg.compact .fg-uncaught,.fg.compact .fg-seeds{font-size:var(--fs-xs)}",
     ].join(""));
   }
 
@@ -105,12 +107,12 @@
     return f && (f.measurable || ((f.ledger || {}).rechecked || []).length) ? f : null;
   }
 
-  function curve(H, host, rounds, wrong, right) {
+  function curve(H, host, rounds, wrong, right, tall) {
     var d3 = global.d3;
     if (!d3 || !rounds.length) return;
     var draw = function () {
       host.innerHTML = "";
-      var width = Math.max(260, host.clientWidth || 480), height = 132;
+      var width = Math.max(260, host.clientWidth || 480), height = tall || 132;
       var pad = { l: 42, r: 84, t: 12, b: 24 };
       var svg = d3.select(host).append("svg").attr("class", "fg-curve").attr("width", width).attr("height", height)
         .attr("viewBox", "0 0 " + width + " " + height).attr("role", "img")
@@ -144,7 +146,7 @@
     else draw();
   }
 
-  function seedPanel(H, root) {
+  function seedPanel(H, root, compact) {
     var box = H("div", { class: "fg-seeds", "data-role": "seeds" });
     function paint() {
       box.innerHTML = "";
@@ -160,6 +162,7 @@
     box.addEventListener("agentdiff-seeds", paint);
     global.addEventListener("agentdiff-seeds", paint);
     root.appendChild(box);
+    if (compact) return;
     root.appendChild(H("p", { class: "fg-note" }, [H("span", { text: "Marks stay in this browser. Feed them back with " }),
       H("code", { class: "fg-code", text: "agentdiff batch --seeds eval-seeds.json" }),
       H("span", { text: " and each becomes a candidate eval, tested like any other." })]));
@@ -182,16 +185,17 @@
       return ctx.empty(el, raw && raw.reason ? "No evals forged: " + raw.reason + "." :
         "No evals forged: `agentdiff batch` writes them from a corpus.");
     }
-    var root = H("div", { class: "fg" });
+    var compact = ctx.lane === "focus";
+    var root = H("div", { class: "fg" + (compact ? " compact" : "") });
     el.appendChild(root);
-    root.appendChild(H("p", { class: "fg-lede", text: f.narrative || "" }));
+    if (!compact) root.appendChild(H("p", { class: "fg-lede", text: f.narrative || "" }));
 
     var loop = H("section", { "data-role": "curve" });
-    loop.appendChild(H("div", { class: "fg-h", text: "The suite, round by round" }));
+    if (!compact) loop.appendChild(H("div", { class: "fg-h", text: "The suite, round by round" }));
     var host = H("div");
     loop.appendChild(host);
     root.appendChild(loop);
-    curve(H, host, f.rounds || [], f.wrong, f.right);
+    curve(H, host, f.rounds || [], f.wrong, f.right, compact ? 92 : 132);
 
     if ((f.suite || []).length) {
       var sec = H("section", { "data-role": "suite" });
@@ -201,9 +205,15 @@
         var li = H("li", { class: "fg-row", "data-eval": e.id, "data-source": e.source });
         li.appendChild(H("span", { class: "fg-src " + e.source, text: SOURCES[e.source] || e.source }));
         li.appendChild(H("span", { text: "flags a run when " + e.says }));
-        li.appendChild(H("p", { class: "fg-meta", text: halvesSay(e) + " · adds " + (e.adds || []).length +
-          " wrong run(s) nothing earlier caught · round " + e.round }));
-        li.appendChild(H("p", { class: "fg-meta" }, [H("code", { text: e.id })]));
+        if (compact) {
+          var w = e.whole || {};
+          li.appendChild(H("p", { class: "fg-meta", text: "caught " + w.caught + " of " + w.wrong + " wrong · flagged " +
+            w.false_alarms + " of " + w.right + " right · adds " + (e.adds || []).length }));
+        } else {
+          li.appendChild(H("p", { class: "fg-meta", text: halvesSay(e) + " · adds " + (e.adds || []).length +
+            " wrong run(s) nothing earlier caught · round " + e.round }));
+          li.appendChild(H("p", { class: "fg-meta" }, [H("code", { text: e.id })]));
+        }
         list.appendChild(li);
       });
       sec.appendChild(list);
@@ -212,7 +222,7 @@
 
     var tally = f.tally || {};
     var keys = Object.keys(tally).filter(function (k) { return k !== "adopted"; });
-    if (keys.length) {
+    if (keys.length && !compact) {
       var rej = H("section", { "data-role": "rejected" });
       rej.appendChild(H("div", { class: "fg-h", text: "Not adopted" }));
       var chips = H("div", { class: "fg-tally" });
@@ -247,6 +257,7 @@
       root.appendChild(un);
     }
 
+    if (compact) { seedPanel(H, root, true); return; }
     var j = f.judge || {};
     if (j.used) {
       root.appendChild(H("p", { class: "fg-note", "data-role": "judge", text: "An agent judge proposed " + j.proposed +

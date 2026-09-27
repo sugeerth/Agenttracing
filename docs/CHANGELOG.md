@@ -5,6 +5,39 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The race, streaming, and a compact Focus
+
+**The race** (`web/blocks/02_race.js`) puts both agents on the wall clock
+they shared. There is one lane per agent. Each step is a mark at its
+recorded `started_s`, as wide as its `latency_s`, and coloured by the
+same activity classes the duel report uses. Tokens spent so far run under
+each lane, on one scale for both. `agentdiff duel --live` serves the page
+while the agents work: the watcher now sends each run's clock, spend and
+cost as it grows, plus a compact trace of each finished run, so the lanes
+grow in place and the newest marks fade in. Opened from a file, the same
+block is a replay, with a scrubber that holds both agents at the same
+second and a Play control.
+
+It draws only what was recorded. Codex reports tokens once per turn, so
+its line is flat until the turn ends and then steps to the reported
+total. The scrubber says *"tokens not reported until the turn ends"*
+rather than showing the 24 tokens a text-length estimate would give
+against a real 24.9k. A run whose steps carry no start times is laid end
+to end, and the page says so.
+
+**Compact.** Inside Focus, each block draws a dense version of itself:
+- the verdict keeps its six lines and moves the sources into tooltips
+- the lessons are one line each, with the glyph
+- the eval forge is a shorter curve and one line per eval
+- *what to change* shows its top four
+- the strip uses 14px rows and drops its footnote
+- the duel drops its narrative and patches
+
+Each row of the frame shares its width among the panels that have
+something to show, so a duel with no lessons leaves no hole. Gaps between
+columns and blocks tighten across the page (34px to 22px). The race is
+excluded from the hero lane's fallback, so it is drawn once.
+
 ## The forge, a reader's marks, and Focus
 
 **The eval forge** (`deepcompare/forge.py`, `deepcompare/harness/forge_judge.py`,

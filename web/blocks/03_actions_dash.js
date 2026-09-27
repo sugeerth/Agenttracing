@@ -48,6 +48,9 @@
       ".ad-fold pre{white-space:pre-wrap;margin:5px 0 0;padding:7px 9px;border:1px solid var(--rule);",
       "border-radius:8px;background:var(--surface-2);font-size:var(--fs-xs);line-height:1.5;color:var(--ink-2)}",
       ".ad-note{font-size:var(--fs-s);color:var(--ink-2);line-height:1.6;margin:0}",
+      ".ad.compact{gap:6px}.ad.compact .ad-item{padding:6px 0 6px 10px}",
+      ".ad.compact .ad-item:before{top:8px;bottom:8px}",
+      ".ad.compact .ad-say{font-size:var(--fs-xs);line-height:1.45}.ad.compact .ad-gain{font-size:var(--fs-xs);margin-top:2px}",
     ].join(""));
   }
 
@@ -66,17 +69,21 @@
              (ORDER[b.severity] === undefined ? 3 : ORDER[b.severity]);
     });
 
-    var root = H("div", { class: "ad" });
+    var compact = ctx.lane === "focus";
+    var root = H("div", { class: "ad" + (compact ? " compact" : "") });
     el.appendChild(root);
 
     var top = recs[0];
-    var lede = H("p", { class: "ad-lede" });
-    lede.appendChild(H("span", { text: recs.length + " change(s) worth making, worst first. Start with: " }));
-    lede.appendChild(H("b", { text: top.finding }));
-    root.appendChild(lede);
+    if (!compact) {
+      var lede = H("p", { class: "ad-lede" });
+      lede.appendChild(H("span", { text: recs.length + " change(s) worth making, worst first. Start with: " }));
+      lede.appendChild(H("b", { text: top.finding }));
+      root.appendChild(lede);
+    }
+    if (compact && recs.length > 4) recs = recs.slice(0, 4);
 
     var sec = H("section");
-    sec.appendChild(H("div", { class: "ad-h", text: "What to change, and what it would be worth" }));
+    if (!compact) sec.appendChild(H("div", { class: "ad-h", text: "What to change, and what it would be worth" }));
     var list = H("ul", { class: "ad-list" });
     recs.forEach(function (r) {
       var li = H("li", { class: "ad-item", "data-sev": r.severity || "minor",
@@ -92,6 +99,7 @@
         say.appendChild(gain);
       }
       li.appendChild(say);
+      if (compact) { list.appendChild(li); return; }
 
       var prov = H("p", { class: "ad-prov" });
       var tasks = r.evidence_tasks || [];
@@ -113,6 +121,7 @@
     });
     sec.appendChild(list);
     root.appendChild(sec);
+    if (compact) return;
 
     var eff = agg.efficiency && agg.efficiency.narrative;
     if (eff) {

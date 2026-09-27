@@ -67,6 +67,7 @@
       ".dl-patch .add{color:var(--good)}.dl-patch .del{color:var(--bad)}.dl-patch .hunk{color:var(--ink-3)}",
       ".dl-note{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.5;margin:0}",
       ".dl-note code{font-family:ui-monospace,monospace}",
+      ".dl.compact{gap:10px}.dl.compact .dl-grid{gap:3px 12px;font-size:var(--fs-xs)}",
     ].join(""));
   }
 
@@ -118,9 +119,10 @@
     if (!d) return ctx.empty(el, "No duel on this page: `agentdiff duel` runs Codex CLI and Claude Code on the same task.");
     var agents = d.agents;
     var pa = d.per_agent;
-    var root = H("div", { class: "dl" });
+    var compact = ctx.lane === "focus";
+    var root = H("div", { class: "dl" + (compact ? " compact" : "") });
     el.appendChild(root);
-    root.appendChild(H("p", { class: "dl-lede", text: d.narrative }));
+    if (!compact) root.appendChild(H("p", { class: "dl-lede", text: d.narrative }));
 
     // 1 — parity: the unequal conditions first
     var par = H("section", { "data-role": "parity" });
@@ -224,7 +226,7 @@
     var shown = agents.map(function (a) {
       return runs.filter(function (r) { return r.agent === a && r.task === firstTask; })[0];
     });
-    if (shown.some(function (r) { return r && r.patch_head; })) {
+    if (!compact && shown.some(function (r) { return r && r.patch_head; })) {
       var made = H("section", { "data-role": "made" });
       made.appendChild(H("div", { class: "dl-h", text: "What each one made — " + firstTask + ", first run" }));
       var cols = H("div", { class: "dl-diffs" });
@@ -243,6 +245,7 @@
       made.appendChild(cols);
       root.appendChild(made);
     }
+    if (compact) return;
     root.appendChild(H("p", { class: "dl-note" }, [H("span", { text: d.caveat + " Quoted from " }),
       H("code", { text: "duel" }), H("span", { text: "." })]));
   }
