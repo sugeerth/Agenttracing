@@ -347,6 +347,73 @@ twice is not counted twice: re-running a batch is not new evidence. These
 are associations, not causes — where to look first, with the counts
 behind every sentence.
 
+## The forge: evals the traces write, and a loop that goes back
+
+A scorecard asks a fixed set of questions. The forge grows the set, and
+most of its design is about not fooling itself while it does.
+
+**An eval is a rule, not a prompt.** Each one is a deterministic
+assertion over a trace, from a small closed grammar (`forge.RULES`):
+
+- a trace mark (`mark:unrecovered_error` and the page's other marks)
+- `no_check_after_last_edit` and `claims_without_check`
+- a recurring issue's signature (`signature:tool_selection/a:…`)
+- a tool's use or absence
+- a repeated call, or a streak of errors
+- a pattern in a tool's output or the final answer
+- `{"all": [a, b]}`, both at once
+
+Any rule runs on any trace, without a model, and gives the same verdict
+every time.
+
+**Where candidates come from:**
+
+- *template*: every rule the grammar can build from what the wrong runs
+  contain
+- *signature*: the corpus's recurring issues
+- *seed*: a step a reader clicked on the strip chart. The page keeps the
+  marks in the browser, and *Download marks* writes the file
+  `--seeds` reads.
+- *judge*: `agentdiff forge DIR --judge NAME=KIND:MODEL`
+- *refined*: a rule that flagged right runs, narrowed by joining it with
+  another rule that the same wrong runs also satisfy
+
+**Two halves, used once each.** The tasks are split by a hash of their
+id. Every candidate is tried on the learn half. Only the candidates that
+pass there, meaning they catch at least one wrong run and fire on no more
+than 10% of the right ones, meet the held-out half, once. That meeting
+alone decides adoption. Refinements are built from the learn half, so
+the held-out half stays unseen until the test. Refinements are also
+capped per round, because every candidate that meets the held-out half
+is one more test of it, and a held-out half tested without limit stops
+being held out. The narrative states how many held-out tests were run.
+
+**The judge proposes; the held-out half decides.** The judge reads the
+learn half's runs through the panel's tools (`runs`, `open`, `locate`,
+`read`, `flags`). It gets one more tool, `try_rule`, which scores a rule
+on the learn half and names which uncaught runs it would catch. It can
+propose, test and revise. Its final rules are then tested exactly like
+the templates. A test checks that no held-out task id ever appears in
+anything the judge is shown. A rule that does not parse is refused with
+its error. The next round's brief tells the judge which of its rules
+failed, on which half, and why. That brief is the "go back" the loop is
+named for.
+
+**The suite grows by what each eval adds.** Adopted evals are taken
+greedily by the wrong runs they catch that nothing earlier caught. A
+valid eval that adds nothing is *redundant* and stays out. Each round
+targets what is still uncaught. The page draws coverage round by round,
+with the false-alarm rate on the same axes. On the long-horizon suite,
+round 1 catches 6 of 12 wrong runs, a refinement raises that to 8, and
+no right run is flagged at any point. The four runs nothing catches are
+listed; they are where a reader's marks, or the judge, should look next.
+
+**The ledger** (`batch --evals LEDGER`) carries the adopted suite to the
+next corpus. There, every eval is re-tested on runs it has never seen
+and is kept, retired as noisy, or marked blind. A corpus read twice is
+not counted twice. Learned on the 60-task procedural corpus and carried
+to the 16-task suite, 5 of 6 evals were kept.
+
 ## Commands
 
 ```bash
@@ -356,5 +423,7 @@ agentdiff eval traces/ --golden golden.json --judge j=anthropic:MODEL --with-ste
 agentdiff judge traces/ --provider j=openai:MODEL --with-steps --focus --rubric long-run
 agentdiff runs traces/ -o out/ --golden golden.json        # the scorecard on the page
 agentdiff batch traces/ --golden golden.json --lessons lessons.json -o out/   # lessons, carried to the next batch
+agentdiff batch traces/ --golden golden.json --evals evals.json --seeds eval-seeds.json -o out/   # the forge
+agentdiff forge traces/ --golden golden.json --judge j=anthropic:MODEL --evals evals.json -o out/  # with a judge
 agentdiff loop --tasks golden.json --golden golden.json --judge j=openai:MODEL …  # every iteration scored
 ```

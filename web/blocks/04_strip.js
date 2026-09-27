@@ -67,6 +67,7 @@
       ".st-note{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.5;margin:0}",
       ".st-mark{cursor:pointer}",
       ".st-mark:focus-visible{outline:2px solid var(--accent);outline-offset:1px}",
+      ".st-mark.seeded{stroke:var(--ink);stroke-width:2}",
     ].join(""));
   }
 
@@ -224,9 +225,28 @@
               .on("focus", function (event) { charts._tip.show(event, lines); })
               .on("blur", function () { charts._tip.hide(); });
           }
-          mark.on("click", function () {
+          // a click marks the step as an eval seed (`05_forge.js`): the
+          // reader's eye joins the forge's loop, and nothing leaves the page
+          var seed = { task: row.task, agent: row.agent, step: m.at, kind: m.kind, say: m.say };
+          var seeds = global.AgentDiff && global.AgentDiff.seeds;
+          if (seeds && seeds.has(seed)) mark.classed("seeded", true);
+          var toggle = function () {
             try { charts && charts.selectStep && charts.selectStep(ctx.report, "a", m.at); } catch (e) { /* batch page */ }
-          });
+            var S = global.AgentDiff && global.AgentDiff.seeds;
+            if (!S) return;
+            var on = S.toggle(seed);
+            mark.classed("seeded", on);
+            if (global.AgentDiff.toast) {
+              global.AgentDiff.toast(on ? "Step " + m.at + " of " + human(row.task) + " · " + row.agent +
+                                          " marked as an eval seed (" + S.list().length + " marked)"
+                                        : "Unmarked step " + m.at + " of " + human(row.task));
+            }
+            try { global.dispatchEvent(new CustomEvent("agentdiff-seeds")); } catch (e) { /* old browser */ }
+          };
+          mark.on("click", toggle)
+            .on("keydown", function (event) {
+              if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggle(); }
+            });
         });
         y += ROW;
       });

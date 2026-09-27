@@ -151,6 +151,13 @@ select.picker {
 @media (max-width: 1279px) {
   .seg .tab { padding: 0 7px; }
 }
+/* a laptop's width holds twelve tabs on one line only if the chrome
+   around them gives way first: the wordmark's small print and the task
+   picker's width, neither of which carries anything the tabs do */
+@media (max-width: 1399px) {
+  .brand span { display: none; }
+  select.picker { max-width: 150px; }
+}
 @media (max-width: 640px) {
   .topbar { gap: 8px; padding: 8px 10px; }
   .brand span { display: none; }
@@ -674,6 +681,13 @@ body[data-view="evolution"] .stack-label .pip { display: none; }
 body[data-view="coevolution"] .stack-label .pip { display: none; }
 /* ---------- the chat lane: one column, the transcript the full width ---------- */
 body[data-view="chat"] .stack-label { display: none; }
+/* ---------- focus: one frame, no page scroll on a desk; the lanes that
+   lead other views step aside, the frame is the page ---------- */
+body[data-view="focus"] .stack-label,
+body[data-view="focus"] .lead-lane,
+body[data-view="focus"] .task-strip { display: none; }
+body[data-view="focus"] .stacks { padding-top: 8px; padding-bottom: 12px; }
+body[data-view="focus"] .block[data-block="focus-frame"] > .block-head { display: none; }
 body[data-view="levels"] .stack-label .pip { display: none; }
 body[data-view="data"] .stack-label .pip { display: none; }
 body[data-view="trace"] .stack-label .pip { display: none; }
@@ -685,6 +699,7 @@ body[data-view="trace"] .stack-label .pip { display: none; }
   <select class="picker" id="task-picker" aria-label="Task"></select>
   <div class="spacer"></div>
   <div class="seg" id="view-tabs" role="tablist" aria-label="View">
+    <button class="tab" role="tab" data-view="focus" aria-selected="false" title="One screen: the verdict, where the trouble is, what the traces taught, the evals they wrote, what to do">Focus</button>
     <button class="tab" role="tab" data-view="chat" aria-selected="false" title="Ask the page in plain words: every block by asking, and the self-evolving eval answering for itself">Chat</button>
     <button class="tab" role="tab" data-view="levels" aria-selected="false" title="Three levels of grain: what is running, every run, one run in full with its token burn-down and its search map">Levels</button>
     <button class="tab" role="tab" data-view="data" aria-selected="false" title="The inputs: the prompt given to both agents, what each read, the answer's provenance, data → model → agent → answer, and how a self-evolving agent changes from the data it saw">Data</button>
@@ -880,7 +895,7 @@ THIS SOFTWARE.
   //: Trace: one run's execution at semantic zoom, with replay — every step
   //: along constricted time, its phases, marks, burn and reward, the other
   //: run aligned beside it, and the run's readings gathered.
-  var VIEWS = ["chat", "levels", "data", "trace", "story", "evidence", "batch", "panels", "training", "evolution", "coevolution"];
+  var VIEWS = ["focus", "chat", "levels", "data", "trace", "story", "evidence", "batch", "panels", "training", "evolution", "coevolution"];
   var VIEW_GROUPS = {
     chat: ["chat"],
     levels: ["levels"],
@@ -892,6 +907,7 @@ THIS SOFTWARE.
     training: ["training"],
     evolution: ["evolution"],
     coevolution: ["coevolution"],
+    focus: ["focus"],
   };
   //: the panels view's presets: which blocks, in which order
   var PANEL_PRESETS = {
@@ -1075,6 +1091,9 @@ THIS SOFTWARE.
       lead: spec.lead === true,
       // the section name the story view numbers ("1 · What happened")
       storyTitle: typeof spec.storyTitle === "string" ? spec.storyTitle : null,
+      // a block that sizes itself to the window (the Focus frame) is never
+      // clamped: a frame cut at 760px with a fade is not a frame
+      unclamped: spec.unclamped === true,
     };
     REGISTRY.push(entry);
     BY_ID[spec.id] = entry;
@@ -1274,10 +1293,10 @@ THIS SOFTWARE.
     {
       label: "Evidence",
       groups: ["signal", "other"],
-      blurb: "What the traces taught, and how far these numbers can be trusted — confidence, reliability, blind spots.",
-      // what the corpus taught leads the column: it is the one reading here
-      // that was tested on runs it was not drawn from
-      order: ["lessons"],
+      blurb: "What the traces taught, the evals they wrote, and how far these numbers can be trusted — confidence, reliability, blind spots.",
+      // what the corpus taught leads the column, then the evals it wrote:
+      // the two readings here tested on runs they were not drawn from
+      order: ["lessons", "forge"],
     },
     {
       label: "Training",
@@ -1347,6 +1366,14 @@ THIS SOFTWARE.
         "cov-flow", "cov-hindsight", "cov-matrix",
         "cov-metric", "cov-probes", "cov-integrity",
       ],
+    },
+    {
+      // last in the plan, so a stored layout's column indexes do not move
+      label: "Focus",
+      groups: ["focus"],
+      blurb: "One screen: the verdict, where the trouble is, what the traces taught, the evals they wrote, and what to do.",
+      open: Infinity,
+      order: ["focus-frame"],
     },
   ];
 
@@ -1888,7 +1915,7 @@ THIS SOFTWARE.
   //: lens: a batch with no lineage has no training ground, no evolution and
   //: no co-evolving eval. The other views are ways of reading whatever is
   //: there, and always apply.
-  var DATA_VIEWS = ["training", "evolution", "coevolution"];
+  var DATA_VIEWS = ["focus", "training", "evolution", "coevolution"];
 
   /* Whether a view has anything to draw for the data on this page. */
   function viewHasContent(view) {
@@ -2079,7 +2106,7 @@ THIS SOFTWARE.
     // prompt above thirty-two runs names the wrong subject, and the heading
     // is the one line every reader reads
     var sc = ctx.aggregate && ctx.aggregate.scorecard;
-    if (ctx.view === "batch" && sc && (sc.per_run || []).length > 1) {
+    if ((ctx.view === "batch" || ctx.view === "focus") && sc && (sc.per_run || []).length > 1) {
       var agents = Object.keys(sc.agents || {});
       var tasks = {};
       sc.per_run.forEach(function (r) { tasks[r.task] = 1; });
@@ -2157,7 +2184,7 @@ THIS SOFTWARE.
     els.hero.innerHTML = "";
     // the panels view is the reader's own grid, the training view has its
     // own lead (the pair's reward panel): no hero above either
-    if (!hero || State.prefs.view === "chat" || State.prefs.view === "levels" || State.prefs.view === "data" || State.prefs.view === "trace" || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") {
+    if (!hero || State.prefs.view === "chat" || State.prefs.view === "levels" || State.prefs.view === "data" || State.prefs.view === "trace" || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution" || State.prefs.view === "focus") {
       els.hero.hidden = true;
       return;
     }
@@ -2169,7 +2196,7 @@ THIS SOFTWARE.
     var host = els.reading;
     host.innerHTML = "";
     // the story lane IS the reading order; the strip guides the columns
-    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels" || State.prefs.view === "chat" || State.prefs.view === "levels" || State.prefs.view === "data" || State.prefs.view === "trace" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") { host.hidden = true; return; }
+    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels" || State.prefs.view === "chat" || State.prefs.view === "levels" || State.prefs.view === "data" || State.prefs.view === "trace" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution" || State.prefs.view === "focus") { host.hidden = true; return; }
     host.hidden = false;
     host.appendChild(h("span", { class: "lead", text: "Read in this order" }));
     if (hero) {
@@ -2345,7 +2372,7 @@ THIS SOFTWARE.
    * the screen. Measured after render rather than guessed from the block
    * type, so a block that happens to be short today is left alone. */
   function clampIfTall(card, body, item) {
-    if (item.expanded) return;
+    if (item.expanded || (BY_ID[item.id] && BY_ID[item.id].unclamped)) return;
     requestAnimationFrame(function () {
       if (!body.isConnected || body.scrollHeight <= CLAMP_HEIGHT + 80) return;
       body.style.maxHeight = CLAMP_HEIGHT + "px";
@@ -3187,7 +3214,7 @@ THIS SOFTWARE.
     // a view named in the URL (report.html#view=evidence) wins for this
     // load — a link can open the page on its evidence or its batch
     try {
-      var m = /(?:^|[#&])view=(chat|levels|data|trace|story|evidence|batch|panels|training|evolution|coevolution)\b/.exec(global.location.hash || "");
+      var m = /(?:^|[#&])view=(focus|chat|levels|data|trace|story|evidence|batch|panels|training|evolution|coevolution)\b/.exec(global.location.hash || "");
       if (m) State.prefs.view = m[1];
     } catch (err) { /* no location: keep the preference */ }
     State.signals = Store.get(key("signals")) || {};
@@ -3386,6 +3413,9 @@ THIS SOFTWARE.
       if (!entry) return null;
       return { term: id, label: entry.label, short: entry.short, long: entry.long };
     },
+    // a short notice at the foot of the page, for a block that did something
+    // a reader should see confirmed (a step marked as an eval seed)
+    toast: function (message) { toast(message); },
     // exposed for the smoke test, not for block modules
     // blocks that keep local state (a show-all toggle) ask for a re-render
     _rerender: function () { renderAll(); },
@@ -8704,6 +8734,7 @@ THIS SOFTWARE.
       ".st-note{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.5;margin:0}",
       ".st-mark{cursor:pointer}",
       ".st-mark:focus-visible{outline:2px solid var(--accent);outline-offset:1px}",
+      ".st-mark.seeded{stroke:var(--ink);stroke-width:2}",
     ].join(""));
   }
 
@@ -8861,9 +8892,28 @@ THIS SOFTWARE.
               .on("focus", function (event) { charts._tip.show(event, lines); })
               .on("blur", function () { charts._tip.hide(); });
           }
-          mark.on("click", function () {
+          // a click marks the step as an eval seed (`05_forge.js`): the
+          // reader's eye joins the forge's loop, and nothing leaves the page
+          var seed = { task: row.task, agent: row.agent, step: m.at, kind: m.kind, say: m.say };
+          var seeds = global.AgentDiff && global.AgentDiff.seeds;
+          if (seeds && seeds.has(seed)) mark.classed("seeded", true);
+          var toggle = function () {
             try { charts && charts.selectStep && charts.selectStep(ctx.report, "a", m.at); } catch (e) { /* batch page */ }
-          });
+            var S = global.AgentDiff && global.AgentDiff.seeds;
+            if (!S) return;
+            var on = S.toggle(seed);
+            mark.classed("seeded", on);
+            if (global.AgentDiff.toast) {
+              global.AgentDiff.toast(on ? "Step " + m.at + " of " + human(row.task) + " · " + row.agent +
+                                          " marked as an eval seed (" + S.list().length + " marked)"
+                                        : "Unmarked step " + m.at + " of " + human(row.task));
+            }
+            try { global.dispatchEvent(new CustomEvent("agentdiff-seeds")); } catch (e) { /* old browser */ }
+          };
+          mark.on("click", toggle)
+            .on("keydown", function (event) {
+              if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggle(); }
+            });
         });
         y += ROW;
       });
@@ -9045,6 +9095,284 @@ THIS SOFTWARE.
       });
       el.appendChild(grid);
     }
+  });
+})(typeof window !== "undefined" ? window : this);
+
+</script>
+<!-- 05_forge.js -->
+<script>
+/* AgentDiff blocks — the evals the traces wrote.
+ *
+ * `aggregate.forge` is the engine growing an eval suite from the runs on
+ * this page: candidate evals written from where runs went wrong (the
+ * page's own trace marks, the recurring issues' signatures, the steps a
+ * reader marked, and — with `agentdiff forge --judge` — rules an agent
+ * proposed after reading the failing traces), each tried on the learn half
+ * of the tasks, and only the ones that pass there tested once on the
+ * held-out half, which alone decides adoption.
+ *
+ * The block's picture is the loop itself: coverage of the wrong runs,
+ * round by round, beside the share of right runs the suite wrongly flags
+ * — because a suite that "improves" by flagging everything has not
+ * improved, and a curve drawn without its false-alarm line would hide
+ * exactly that. Then the suite, each eval as the sentence it tests with
+ * its counts on both halves; what was not adopted and why; and the wrong
+ * runs nothing catches yet, which is where the next round — or a reader —
+ * should look.
+ *
+ * **A reader's marks are part of the loop.** Clicking a mark on the strip
+ * chart marks that step as an eval seed; they are kept in this browser
+ * only, and "Download marks" writes the JSON `agentdiff batch --seeds` /
+ * `agentdiff forge --seeds` reads. Nothing leaves the page on its own.
+ */
+(function (global) {
+  "use strict";
+
+  var AgentDiff = global.AgentDiff;
+  if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
+  var STYLE_ID = "agentdiff-forge-css";
+  var SEED_KEY = "agentdiff:eval-seeds";
+  var SOURCES = { template: "template", signature: "signature", seed: "your mark", judge: "judge", refined: "refined" };
+
+  function ensureStyle() {
+    L.style.once(STYLE_ID, [
+      ".fg{display:flex;flex-direction:column;gap:14px}",
+      ".fg-lede{font-size:var(--fs-m);line-height:1.6;color:var(--ink);margin:0}",
+      ".fg-h{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);font-weight:700;margin:0 0 6px}",
+      ".fg-curve text{font-size:11px;font-weight:500;font-family:inherit;fill:var(--ink-3)}",
+      ".fg-curve text.v{font-weight:700;fill:var(--ink)}",
+      ".fg-list{list-style:none;margin:0;padding:0}",
+      ".fg-row{padding:8px 0;border-bottom:1px solid var(--rule);font-size:var(--fs-s);line-height:1.5}",
+      ".fg-row:last-child{border-bottom:0}",
+      ".fg-src{display:inline-block;margin-right:7px;padding:0 7px;border-radius:999px;font-size:var(--fs-xs);font-weight:700;",
+      "line-height:18px;background:var(--surface-2);color:var(--ink-2)}",
+      ".fg-src.judge{color:var(--b)}.fg-src.seed{color:var(--a)}.fg-src.refined{color:var(--good)}",
+      ".fg-meta{font-size:var(--fs-xs);color:var(--ink-3);margin:2px 0 0}",
+      ".fg-meta code,.fg-code{font-family:ui-monospace,monospace;font-size:var(--fs-xs)}",
+      ".fg-tally{display:flex;flex-wrap:wrap;gap:6px}",
+      ".fg-chip{font-size:var(--fs-xs);line-height:20px;padding:0 9px;border-radius:999px;background:var(--surface-2);color:var(--ink-2)}",
+      ".fg-uncaught{font-size:var(--fs-s);color:var(--ink-2);line-height:1.6;margin:0}",
+      ".fg-uncaught code{font-family:ui-monospace,monospace;font-size:var(--fs-xs);color:var(--bad)}",
+      ".fg-seeds{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:var(--fs-s);color:var(--ink-2)}",
+      ".fg-seeds button{font:inherit;font-size:var(--fs-xs);border:1px solid var(--rule-2);background:var(--surface);",
+      "color:var(--ink);border-radius:6px;padding:2px 9px;cursor:pointer}",
+      ".fg-seeds button:disabled{opacity:.5;cursor:default}",
+      ".fg-note{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.5;margin:0}",
+      "details.fg-more>summary{cursor:pointer;font-size:var(--fs-s);color:var(--ink-3)}",
+    ].join(""));
+  }
+
+  // ------------------------------------------------------------ the marks
+  // kept in this browser only; every access guarded, the page works without
+  var memory = [];
+  function readSeeds() {
+    try {
+      var got = JSON.parse(global.localStorage.getItem(SEED_KEY) || "[]");
+      return Array.isArray(got) ? got : memory;
+    } catch (err) { return memory; }
+  }
+  function writeSeeds(list) {
+    memory = list;
+    try { global.localStorage.setItem(SEED_KEY, JSON.stringify(list)); } catch (err) { /* memory only */ }
+  }
+  function seedKey(s) { return s.task + "\u0001" + s.agent + "\u0001" + s.step; }
+  var Seeds = {
+    list: readSeeds,
+    has: function (s) { return readSeeds().some(function (x) { return seedKey(x) === seedKey(s); }); },
+    toggle: function (s) {
+      var list = readSeeds();
+      var k = seedKey(s);
+      var at = -1;
+      list.forEach(function (x, i) { if (seedKey(x) === k) at = i; });
+      if (at >= 0) list.splice(at, 1);
+      else list.push({ task: s.task, agent: s.agent, step: s.step, kind: s.kind || null, say: s.say || null });
+      writeSeeds(list);
+      return at < 0;
+    },
+    clear: function () { writeSeeds([]); },
+    download: function () {
+      var blob = new Blob([JSON.stringify({ seeds: readSeeds() }, null, 1)], { type: "application/json" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "eval-seeds.json";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+    },
+  };
+  AgentDiff.seeds = Seeds;
+
+  function forgeOf(ctx) {
+    var f = ctx.aggregate && ctx.aggregate.forge;
+    return f && (f.measurable || ((f.ledger || {}).rechecked || []).length) ? f : null;
+  }
+
+  function curve(H, host, rounds, wrong, right) {
+    var d3 = global.d3;
+    if (!d3 || !rounds.length) return;
+    var draw = function () {
+      host.innerHTML = "";
+      var width = Math.max(260, host.clientWidth || 480), height = 132;
+      var pad = { l: 42, r: 84, t: 12, b: 24 };
+      var svg = d3.select(host).append("svg").attr("class", "fg-curve").attr("width", width).attr("height", height)
+        .attr("viewBox", "0 0 " + width + " " + height).attr("role", "img")
+        .attr("aria-label", "Wrong runs caught and right runs flagged, round by round: " + rounds.map(function (r) {
+          return "round " + r.round + " " + r.caught + " of " + wrong + " caught, " + r.false_alarms + " flagged";
+        }).join("; "));
+      var x = d3.scalePoint().domain(rounds.map(function (r) { return r.round; })).range([pad.l, width - pad.r]).padding(0.2);
+      var y = d3.scaleLinear().domain([0, 1]).range([height - pad.b, pad.t]);
+      [0, 0.5, 1].forEach(function (t) {
+        svg.append("line").attr("x1", pad.l).attr("x2", width - pad.r).attr("y1", y(t)).attr("y2", y(t))
+          .attr("stroke", "var(--rule)").attr("stroke-dasharray", t ? "2,4" : null);
+        svg.append("text").attr("x", pad.l - 6).attr("y", y(t) + 4).attr("text-anchor", "end").text(Math.round(t * 100) + "%");
+      });
+      rounds.forEach(function (r) {
+        svg.append("text").attr("x", x(r.round)).attr("y", height - 6).attr("text-anchor", "middle").text("round " + r.round);
+      });
+      [["coverage", "var(--good)", function (r) { return r.caught / Math.max(1, wrong); }, "caught"],
+       ["fpr", "var(--bad)", function (r) { return r.false_alarms / Math.max(1, right); }, "flagged"]].forEach(function (s) {
+        var line = d3.line().x(function (r) { return x(r.round); }).y(function (r) { return y(s[2](r)); });
+        svg.append("path").attr("d", line(rounds)).attr("fill", "none").attr("stroke", s[1]).attr("stroke-width", 2)
+          .attr("data-series", s[0]);
+        rounds.forEach(function (r) {
+          svg.append("circle").attr("cx", x(r.round)).attr("cy", y(s[2](r))).attr("r", 3.5).attr("fill", s[1]);
+        });
+        var last = rounds[rounds.length - 1];
+        svg.append("text").attr("class", "v").attr("x", x(last.round) + 8).attr("y", y(s[2](last)) + 4)
+          .attr("fill", s[1]).text(s[0] === "coverage" ? last.caught + "/" + wrong + " caught" : last.false_alarms + "/" + right + " flagged");
+      });
+    };
+    if (AgentDiff.charts && AgentDiff.charts.responsive) AgentDiff.charts.responsive(host, draw, "fg-curve");
+    else draw();
+  }
+
+  function seedPanel(H, root) {
+    var box = H("div", { class: "fg-seeds", "data-role": "seeds" });
+    function paint() {
+      box.innerHTML = "";
+      var n = Seeds.list().length;
+      box.appendChild(H("span", { text: n ? n + " step(s) marked on this page as eval seeds." :
+        "Click a mark on the strip chart to mark that step as an eval seed." }));
+      box.appendChild(H("button", { text: "Download marks", disabled: n ? null : "disabled",
+        onclick: function () { Seeds.download(); } }));
+      box.appendChild(H("button", { text: "Clear", disabled: n ? null : "disabled",
+        onclick: function () { Seeds.clear(); paint(); } }));
+    }
+    paint();
+    box.addEventListener("agentdiff-seeds", paint);
+    global.addEventListener("agentdiff-seeds", paint);
+    root.appendChild(box);
+    root.appendChild(H("p", { class: "fg-note" }, [H("span", { text: "Marks stay in this browser. Feed them back with " }),
+      H("code", { class: "fg-code", text: "agentdiff batch --seeds eval-seeds.json" }),
+      H("span", { text: " and each becomes a candidate eval, tested like any other." })]));
+  }
+
+  function halvesSay(e) {
+    var h = e.halves || [];
+    function one(x, label) {
+      return label + ": caught " + x.caught + " of " + x.wrong + " wrong, flagged " + x.false_alarms + " of " + x.right + " right";
+    }
+    return (h[0] ? one(h[0], "learn half") : "") + (h[1] ? " · " + one(h[1], "held-out half") : "");
+  }
+
+  function render(el, ctx) {
+    ensureStyle();
+    var H = ctx.h;
+    var f = forgeOf(ctx);
+    if (!f) {
+      var raw = ctx.aggregate && ctx.aggregate.forge;
+      return ctx.empty(el, raw && raw.reason ? "No evals forged: " + raw.reason + "." :
+        "No evals forged: `agentdiff batch` writes them from a corpus.");
+    }
+    var root = H("div", { class: "fg" });
+    el.appendChild(root);
+    root.appendChild(H("p", { class: "fg-lede", text: f.narrative || "" }));
+
+    var loop = H("section", { "data-role": "curve" });
+    loop.appendChild(H("div", { class: "fg-h", text: "The suite, round by round" }));
+    var host = H("div");
+    loop.appendChild(host);
+    root.appendChild(loop);
+    curve(H, host, f.rounds || [], f.wrong, f.right);
+
+    if ((f.suite || []).length) {
+      var sec = H("section", { "data-role": "suite" });
+      sec.appendChild(H("div", { class: "fg-h", text: "Adopted — each held on tasks it was not written from" }));
+      var list = H("ul", { class: "fg-list" });
+      f.suite.forEach(function (e) {
+        var li = H("li", { class: "fg-row", "data-eval": e.id, "data-source": e.source });
+        li.appendChild(H("span", { class: "fg-src " + e.source, text: SOURCES[e.source] || e.source }));
+        li.appendChild(H("span", { text: "flags a run when " + e.says }));
+        li.appendChild(H("p", { class: "fg-meta", text: halvesSay(e) + " · adds " + (e.adds || []).length +
+          " wrong run(s) nothing earlier caught · round " + e.round }));
+        li.appendChild(H("p", { class: "fg-meta" }, [H("code", { text: e.id })]));
+        list.appendChild(li);
+      });
+      sec.appendChild(list);
+      root.appendChild(sec);
+    }
+
+    var tally = f.tally || {};
+    var keys = Object.keys(tally).filter(function (k) { return k !== "adopted"; });
+    if (keys.length) {
+      var rej = H("section", { "data-role": "rejected" });
+      rej.appendChild(H("div", { class: "fg-h", text: "Not adopted" }));
+      var chips = H("div", { class: "fg-tally" });
+      var WHY = { noisy: "fired on right runs", blind: "caught no wrong run on a half",
+                  redundant: "only caught runs already caught", untested: "a half too small to say" };
+      keys.sort().forEach(function (k) {
+        chips.appendChild(H("span", { class: "fg-chip", "data-status": k, text: tally[k] + " " + k + " — " + (WHY[k] || k) }));
+      });
+      rej.appendChild(chips);
+      var more = H("details", { class: "fg-more" }, [H("summary", { text: "the ones the judge and the refinements proposed" })]);
+      var ml = H("ul", { class: "fg-list" });
+      (f.tested || []).filter(function (e) { return e.source === "judge" || e.source === "refined" || e.source === "seed"; })
+        .slice(0, 24).forEach(function (e) {
+          ml.appendChild(H("li", { class: "fg-row", "data-eval": e.id, "data-status": e.status }, [
+            H("span", { class: "fg-src " + e.source, text: SOURCES[e.source] || e.source }),
+            H("span", { text: e.status + (e.failed_on ? " on the " + e.failed_on + " half" : "") + " — flags a run when " + e.says }),
+            H("p", { class: "fg-meta", text: halvesSay(e) })]));
+        });
+      more.appendChild(ml);
+      rej.appendChild(more);
+      root.appendChild(rej);
+    }
+
+    if ((f.uncaught || []).length) {
+      var un = H("p", { class: "fg-uncaught", "data-role": "uncaught" });
+      un.appendChild(H("b", { text: "No eval catches yet: " }));
+      f.uncaught.forEach(function (r, i) {
+        if (i) un.appendChild(H("span", { text: ", " }));
+        un.appendChild(H("code", { text: r }));
+      });
+      un.appendChild(H("span", { text: ". Mark the step where one went wrong and it becomes the next candidate." }));
+      root.appendChild(un);
+    }
+
+    var j = f.judge || {};
+    if (j.used) {
+      root.appendChild(H("p", { class: "fg-note", "data-role": "judge", text: "An agent judge proposed " + j.proposed +
+        " rule(s) over " + (j.rounds || []).length + " round(s); " + j.adopted + " adopted. It saw " + j.saw + "." }));
+    }
+    var led = f.ledger || {};
+    if ((led.rechecked || []).length) {
+      root.appendChild(H("p", { class: "fg-note", "data-role": "rechecked", text: "Carried in from earlier corpora: " +
+        led.rechecked.map(function (r) { return r.id + " — " + r.status.replace(/_/g, " "); }).join("; ") + "." }));
+    }
+    seedPanel(H, root);
+    if (f.caveat) root.appendChild(H("p", { class: "fg-note", text: f.caveat }));
+  }
+
+  AgentDiff.block({
+    id: "forge",
+    storyTitle: "The evals the traces wrote",
+    title: "The evals the traces wrote",
+    question: "Which evals, written from where runs went wrong, hold on tasks they were not written from — and what does nothing catch yet?",
+    group: "signal",
+    size: "wide",
+    relevance: function (ctx) { return forgeOf(ctx) ? 0.99 : 0; },
+    render: render,
   });
 })(typeof window !== "undefined" ? window : this);
 
@@ -10568,6 +10896,155 @@ THIS SOFTWARE.
     },
   });
 
+})(typeof window !== "undefined" ? window : this);
+
+</script>
+<!-- 06_focus.js -->
+<script>
+/* AgentDiff blocks — Focus: the corpus on one screen.
+ *
+ * The page has grown a block for every question, and every one of them
+ * earns its place; together they are a long scroll, and the picture a
+ * reader needs first is spread down it. Focus is the opposite
+ * arrangement: five panels in one frame the height of the window, no page
+ * scroll on a desk, each panel scrolling inside itself.
+ *
+ *   ┌ verdict (or the duel) ─┬ where the trouble is ──────────┐
+ *   ├ what the traces taught ┼ the evals they wrote ┼ what to do ┤
+ *
+ * Nothing here draws its own chart: each panel is the block that already
+ * answers that question, rendered through its own `render(el, ctx)` —
+ * so the frame cannot drift from the full-size view, and a block improved
+ * anywhere is improved here. Each panel's title jumps to that block in
+ * the view where it lives at full size.
+ *
+ * Screen real estate is the design: the strip, which needs width, gets
+ * the widest cell; the verdict, which is prose, the narrowest that keeps
+ * a line readable; the bottom row splits evenly because its three panels
+ * are lists. On a phone the frame becomes a column and the page scrolls,
+ * because five scrolling panels on a phone are five traps.
+ */
+(function (global) {
+  "use strict";
+
+  var AgentDiff = global.AgentDiff;
+  if (!AgentDiff || typeof AgentDiff.block !== "function") return;
+  var L = AgentDiff.lib;
+  var STYLE_ID = "agentdiff-focus-css";
+
+  //: [cell, block id, fallback block id, the view the block lives in at full size]
+  var PANELS = [
+    ["verdict", "duel", "corpus-verdict", "batch"],
+    ["trouble", "evidence-strip", null, "batch"],
+    ["taught", "lessons", null, "batch"],
+    ["forged", "forge", null, "batch"],
+    ["todo", "what-to-do", "recommendations", "batch"],
+  ];
+
+  function ensureStyle() {
+    L.style.once(STYLE_ID, [
+      ".ff{display:grid;gap:12px;grid-template-columns:repeat(12,minmax(0,1fr));",
+      "grid-template-rows:minmax(0,1.15fr) minmax(0,1fr);min-height:560px}",
+      ".ff-p{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--surface);",
+      "border:1px solid var(--rule);border-radius:10px;overflow:hidden}",
+      ".ff-p[data-cell=verdict]{grid-column:1 / span 5}",
+      ".ff-p[data-cell=trouble]{grid-column:6 / span 7}",
+      ".ff-p[data-cell=taught]{grid-column:1 / span 4}",
+      ".ff-p[data-cell=forged]{grid-column:5 / span 4}",
+      ".ff-p[data-cell=todo]{grid-column:9 / span 4}",
+      ".ff-head{display:flex;align-items:baseline;gap:8px;padding:8px 12px 6px;border-bottom:1px solid var(--rule)}",
+      ".ff-head button{font:inherit;font-size:var(--fs-xs);font-weight:700;letter-spacing:.08em;text-transform:uppercase;",
+      "color:var(--ink-2);background:none;border:0;padding:0;cursor:pointer;text-align:left}",
+      ".ff-head button:hover,.ff-head button:focus-visible{color:var(--accent)}",
+      ".ff-head .q{font-size:var(--fs-xs);color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}",
+      ".ff-body{flex:1;min-height:0;overflow:auto;padding:10px 12px}",
+      "@media (max-width:1099px){.ff{grid-template-columns:minmax(0,1fr);grid-template-rows:none;height:auto !important}",
+      ".ff-p[data-cell]{grid-column:1 / -1}.ff-body{max-height:none;overflow:visible}}",
+    ].join(""));
+  }
+
+  function registry() {
+    var I = AgentDiff._internals || {};
+    return I.BY_ID || {};
+  }
+
+  function pick(ctx, ids) {
+    var by = registry();
+    for (var i = 0; i < ids.length; i++) {
+      var e = ids[i] && by[ids[i]];
+      if (e) {
+        var rel = 0;
+        try { rel = e.relevance ? e.relevance(Object.assign(Object.create(ctx), { view: "batch" })) : 1; } catch (err) { rel = 0; }
+        if (rel > 0) return e;
+      }
+    }
+    return null;
+  }
+
+  function hasCorpus(ctx) {
+    var agg = ctx.aggregate || {};
+    var sc = agg.scorecard;
+    return !!((agg.duel && agg.duel.measurable) || (sc && (sc.per_run || []).length > 1));
+  }
+
+  function fit(frame) {
+    if (global.innerWidth < 1100) { frame.style.height = ""; return; }
+    var top = frame.getBoundingClientRect().top + (global.pageYOffset || 0);
+    frame.style.height = Math.max(560, Math.floor(global.innerHeight - top - 14)) + "px";
+  }
+
+  function render(el, ctx) {
+    ensureStyle();
+    var H = ctx.h;
+    if (!hasCorpus(ctx)) return ctx.empty(el, "Focus reads a corpus or a duel; this page carries one pair.");
+    var frame = H("div", { class: "ff", "data-role": "focus-frame" });
+    el.appendChild(frame);
+    PANELS.forEach(function (p) {
+      var entry = pick(ctx, [p[1], p[2]]);
+      if (!entry) return;
+      var body = H("div", { class: "ff-body" });
+      var panel = H("section", { class: "ff-p", "data-cell": p[0], "data-block": entry.id }, [
+        H("div", { class: "ff-head" }, [
+          H("button", { text: entry.title, title: "Open " + entry.title + " at full size",
+            onclick: function () {
+              try { global.location.hash = "view=" + p[3]; } catch (err) { /* no location */ }
+              setTimeout(function () {
+                var node = document.querySelector('#stacks .block[data-block="' + entry.id + '"], #lead-lane .block[data-block="' + entry.id + '"], #hero-lane .block[data-block="' + entry.id + '"]');
+                if (node && node.scrollIntoView) node.scrollIntoView({ block: "start" });
+              }, 80);
+            } }),
+          H("span", { class: "q", text: entry.question || "" }),
+        ]),
+        body,
+      ]);
+      frame.appendChild(panel);
+      var sub = Object.create(ctx);
+      sub.lane = "focus";
+      sub.view = "batch";
+      try { entry.render(body, sub); } catch (err) {
+        body.appendChild(H("div", { class: "empty", text: "This panel could not render: " + err.message }));
+      }
+    });
+    requestAnimationFrame(function () { fit(frame); });
+    if (!global.__agentdiffFocusResize) {
+      global.__agentdiffFocusResize = true;
+      global.addEventListener("resize", function () {
+        var f = document.querySelector('[data-role="focus-frame"]');
+        if (f) fit(f);
+      });
+    }
+  }
+
+  AgentDiff.block({
+    id: "focus-frame",
+    title: "Focus",
+    question: "The corpus on one screen: the verdict, where the trouble is, what the traces taught, the evals they wrote, what to do.",
+    group: "focus",
+    size: "wide",
+    unclamped: true,
+    relevance: function (ctx) { return hasCorpus(ctx) ? 1 : 0; },
+    render: render,
+  });
 })(typeof window !== "undefined" ? window : this);
 
 </script>

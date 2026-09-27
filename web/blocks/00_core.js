@@ -80,7 +80,7 @@
   //: Trace: one run's execution at semantic zoom, with replay — every step
   //: along constricted time, its phases, marks, burn and reward, the other
   //: run aligned beside it, and the run's readings gathered.
-  var VIEWS = ["chat", "levels", "data", "trace", "story", "evidence", "batch", "panels", "training", "evolution", "coevolution"];
+  var VIEWS = ["focus", "chat", "levels", "data", "trace", "story", "evidence", "batch", "panels", "training", "evolution", "coevolution"];
   var VIEW_GROUPS = {
     chat: ["chat"],
     levels: ["levels"],
@@ -92,6 +92,7 @@
     training: ["training"],
     evolution: ["evolution"],
     coevolution: ["coevolution"],
+    focus: ["focus"],
   };
   //: the panels view's presets: which blocks, in which order
   var PANEL_PRESETS = {
@@ -275,6 +276,9 @@
       lead: spec.lead === true,
       // the section name the story view numbers ("1 · What happened")
       storyTitle: typeof spec.storyTitle === "string" ? spec.storyTitle : null,
+      // a block that sizes itself to the window (the Focus frame) is never
+      // clamped: a frame cut at 760px with a fade is not a frame
+      unclamped: spec.unclamped === true,
     };
     REGISTRY.push(entry);
     BY_ID[spec.id] = entry;
@@ -474,10 +478,10 @@
     {
       label: "Evidence",
       groups: ["signal", "other"],
-      blurb: "What the traces taught, and how far these numbers can be trusted — confidence, reliability, blind spots.",
-      // what the corpus taught leads the column: it is the one reading here
-      // that was tested on runs it was not drawn from
-      order: ["lessons"],
+      blurb: "What the traces taught, the evals they wrote, and how far these numbers can be trusted — confidence, reliability, blind spots.",
+      // what the corpus taught leads the column, then the evals it wrote:
+      // the two readings here tested on runs they were not drawn from
+      order: ["lessons", "forge"],
     },
     {
       label: "Training",
@@ -547,6 +551,14 @@
         "cov-flow", "cov-hindsight", "cov-matrix",
         "cov-metric", "cov-probes", "cov-integrity",
       ],
+    },
+    {
+      // last in the plan, so a stored layout's column indexes do not move
+      label: "Focus",
+      groups: ["focus"],
+      blurb: "One screen: the verdict, where the trouble is, what the traces taught, the evals they wrote, and what to do.",
+      open: Infinity,
+      order: ["focus-frame"],
     },
   ];
 
@@ -1088,7 +1100,7 @@
   //: lens: a batch with no lineage has no training ground, no evolution and
   //: no co-evolving eval. The other views are ways of reading whatever is
   //: there, and always apply.
-  var DATA_VIEWS = ["training", "evolution", "coevolution"];
+  var DATA_VIEWS = ["focus", "training", "evolution", "coevolution"];
 
   /* Whether a view has anything to draw for the data on this page. */
   function viewHasContent(view) {
@@ -1279,7 +1291,7 @@
     // prompt above thirty-two runs names the wrong subject, and the heading
     // is the one line every reader reads
     var sc = ctx.aggregate && ctx.aggregate.scorecard;
-    if (ctx.view === "batch" && sc && (sc.per_run || []).length > 1) {
+    if ((ctx.view === "batch" || ctx.view === "focus") && sc && (sc.per_run || []).length > 1) {
       var agents = Object.keys(sc.agents || {});
       var tasks = {};
       sc.per_run.forEach(function (r) { tasks[r.task] = 1; });
@@ -1357,7 +1369,7 @@
     els.hero.innerHTML = "";
     // the panels view is the reader's own grid, the training view has its
     // own lead (the pair's reward panel): no hero above either
-    if (!hero || State.prefs.view === "chat" || State.prefs.view === "levels" || State.prefs.view === "data" || State.prefs.view === "trace" || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") {
+    if (!hero || State.prefs.view === "chat" || State.prefs.view === "levels" || State.prefs.view === "data" || State.prefs.view === "trace" || State.prefs.view === "panels" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution" || State.prefs.view === "focus") {
       els.hero.hidden = true;
       return;
     }
@@ -1369,7 +1381,7 @@
     var host = els.reading;
     host.innerHTML = "";
     // the story lane IS the reading order; the strip guides the columns
-    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels" || State.prefs.view === "chat" || State.prefs.view === "levels" || State.prefs.view === "data" || State.prefs.view === "trace" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution") { host.hidden = true; return; }
+    if (!State.prefs.reading || State.prefs.view === "story" || State.prefs.view === "panels" || State.prefs.view === "chat" || State.prefs.view === "levels" || State.prefs.view === "data" || State.prefs.view === "trace" || State.prefs.view === "training" || State.prefs.view === "evolution" || State.prefs.view === "coevolution" || State.prefs.view === "focus") { host.hidden = true; return; }
     host.hidden = false;
     host.appendChild(h("span", { class: "lead", text: "Read in this order" }));
     if (hero) {
@@ -1545,7 +1557,7 @@
    * the screen. Measured after render rather than guessed from the block
    * type, so a block that happens to be short today is left alone. */
   function clampIfTall(card, body, item) {
-    if (item.expanded) return;
+    if (item.expanded || (BY_ID[item.id] && BY_ID[item.id].unclamped)) return;
     requestAnimationFrame(function () {
       if (!body.isConnected || body.scrollHeight <= CLAMP_HEIGHT + 80) return;
       body.style.maxHeight = CLAMP_HEIGHT + "px";
@@ -2387,7 +2399,7 @@
     // a view named in the URL (report.html#view=evidence) wins for this
     // load — a link can open the page on its evidence or its batch
     try {
-      var m = /(?:^|[#&])view=(chat|levels|data|trace|story|evidence|batch|panels|training|evolution|coevolution)\b/.exec(global.location.hash || "");
+      var m = /(?:^|[#&])view=(focus|chat|levels|data|trace|story|evidence|batch|panels|training|evolution|coevolution)\b/.exec(global.location.hash || "");
       if (m) State.prefs.view = m[1];
     } catch (err) { /* no location: keep the preference */ }
     State.signals = Store.get(key("signals")) || {};
@@ -2586,6 +2598,9 @@
       if (!entry) return null;
       return { term: id, label: entry.label, short: entry.short, long: entry.long };
     },
+    // a short notice at the foot of the page, for a block that did something
+    // a reader should see confirmed (a step marked as an eval seed)
+    toast: function (message) { toast(message); },
     // exposed for the smoke test, not for block modules
     // blocks that keep local state (a show-all toggle) ask for a re-render
     _rerender: function () { renderAll(); },

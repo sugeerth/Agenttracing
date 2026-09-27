@@ -4488,6 +4488,149 @@ class CorpusFrontDoorTest(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
                      "playwright + chromium required for browser tests")
+class ForgeAndFocusTest(unittest.TestCase):
+    """The evals the traces wrote, a reader's marks feeding them, and the
+    corpus on one screen — pinned against the aggregate the page was
+    written from."""
+
+    tmp = None
+
+    @classmethod
+    def setUpClass(cls):
+        suite = ROOT / "demo" / "horizon" / "suite"
+        golden = ROOT / "demo" / "horizon" / "suite_golden.json"
+        if not suite.is_dir():
+            raise unittest.SkipTest("the long-horizon suite is not generated")
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name) / "batch"
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        done = subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(suite), "-o", str(out),
+                               "--golden", str(golden), "--template", str(ROOT / "web" / "blocks.html")],
+                              cwd=str(ROOT), capture_output=True)
+        if done.returncode != 0:
+            raise unittest.SkipTest("batch did not write a page")
+        cls.page_path = out / "report.html"
+        cls.forge = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))["forge"]
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def open(self, view="batch", width=1440, height=900):
+        context = self.browser.new_context(viewport={"width": width, "height": height})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"file://{self.page_path}#view={view}")
+        page.wait_for_timeout(1800)
+        return context, page, errors
+
+    # ------------------------------------------------------------ the forge
+
+    def test_the_forge_follows_the_lessons_in_the_evidence_column(self):
+        context, page, errors = self.open()
+        order = page.evaluate("""() => { const s = [...document.querySelectorAll('#stacks .stack')]
+            .find(s => /evidence/i.test(s.querySelector('.stack-label').innerText));
+            return [...s.querySelectorAll(':scope > .block')].map(b => b.dataset.block).slice(0, 2); }""")
+        self.assertEqual(order, ["lessons", "forge"])
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_curve_draws_coverage_beside_false_alarms(self):
+        context, page, errors = self.open()
+        block = page.locator('.block[data-block="forge"]')
+        block.scroll_into_view_if_needed()
+        page.wait_for_timeout(400)
+        series = block.evaluate("b => [...b.querySelectorAll('svg path[data-series]')].map(p => p.dataset.series)")
+        self.assertEqual(sorted(series), ["coverage", "fpr"])
+        label = block.locator("svg.fg-curve").get_attribute("aria-label")
+        last = self.forge["rounds"][-1]
+        self.assertIn(f"round {last['round']} {last['caught']} of {self.forge['wrong']} caught", label)
+        context.close()
+
+    def test_the_suite_and_what_nothing_catches_are_listed(self):
+        context, page, errors = self.open()
+        rows = page.evaluate("() => [...document.querySelectorAll('[data-role=suite] .fg-row')].map(r => r.dataset.eval)")
+        self.assertEqual(rows, [e["id"] for e in self.forge["suite"]])
+        uncaught = page.locator('[data-role="uncaught"]').inner_text()
+        for run in self.forge["uncaught"]:
+            self.assertIn(run, uncaught)
+        context.close()
+
+    def test_a_click_on_a_strip_mark_makes_it_an_eval_seed(self):
+        context, page, errors = self.open()
+        mark = page.locator("rect.st-mark").first
+        mark.scroll_into_view_if_needed()
+        mark.click()
+        page.wait_for_timeout(300)
+        seeds = page.evaluate("() => JSON.parse(localStorage.getItem('agentdiff:eval-seeds') || '[]')")
+        self.assertEqual(len(seeds), 1)
+        self.assertTrue(set(seeds[0]) >= {"task", "agent", "step"})
+        self.assertIn("seeded", mark.get_attribute("class"))
+        panel = page.locator('[data-role="seeds"]')
+        self.assertIn("1 step(s) marked", panel.inner_text())
+        self.assertIsNone(panel.locator("button").first.get_attribute("disabled"))
+        mark.click()
+        page.wait_for_timeout(300)
+        self.assertEqual(page.evaluate("() => JSON.parse(localStorage.getItem('agentdiff:eval-seeds') || '[]').length"), 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+    # ------------------------------------------------------------ focus
+
+    def test_focus_is_one_screen_on_a_desk(self):
+        context, page, errors = self.open("focus", 1440, 900)
+        panels = page.evaluate("() => [...document.querySelectorAll('[data-role=focus-frame] .ff-p')].map(p => p.dataset.block)")
+        self.assertEqual(panels, ["corpus-verdict", "evidence-strip", "lessons", "forge", "what-to-do"])
+        self.assertLessEqual(page.evaluate("() => document.documentElement.scrollHeight"), 901,
+                             "the frame is the window: no page scroll")
+        bottom = page.evaluate("() => Math.max(...[...document.querySelectorAll('.ff-p')].map(p => p.getBoundingClientRect().bottom))")
+        self.assertLessEqual(bottom, 900)
+        heading = page.locator(".page-title").inner_text()
+        self.assertIn("runs", heading)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_focus_panel_title_opens_the_block_at_full_size(self):
+        context, page, errors = self.open("focus")
+        page.locator('.ff-p[data-block="forge"] .ff-head button').click()
+        page.wait_for_timeout(800)
+        self.assertEqual(page.evaluate("() => document.body.dataset.view"), "batch")
+        self.assertEqual(page.locator('#stacks .block[data-block="forge"]').count(), 1)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_focus_becomes_a_column_on_a_phone(self):
+        context, page, errors = self.open("focus", 390, 844)
+        self.assertLessEqual(page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth"), 1)
+        lefts = page.evaluate("() => [...document.querySelectorAll('.ff-p')].map(p => Math.round(p.getBoundingClientRect().left))")
+        self.assertEqual(len(set(lefts)), 1, "one column")
+        small = page.evaluate("""() => { const w = document.createTreeWalker(document.querySelector('[data-role=focus-frame]'), NodeFilter.SHOW_TEXT); let n = 0, node;
+            while ((node = w.nextNode())) { const el = node.parentElement; if (!node.textContent.trim() || !el.offsetParent) continue;
+              if (el.closest('svg')) continue;
+              if (parseFloat(getComputedStyle(el).fontSize) < 11) n++; } return n; }""")
+        self.assertEqual(small, 0)
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_the_focus_tab_is_reachable_on_a_corpus(self):
+        context, page, errors = self.open()
+        self.assertIn("focus", page.evaluate("() => AgentDiff._internals.reachableViews()"))
+        self.assertFalse(page.locator('#view-tabs [data-view="focus"]').is_hidden())
+        context.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
 class DuelBlockTest(unittest.TestCase):
     """Two vendor agents on one task, read on the page.
 

@@ -5,6 +5,52 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The forge, a reader's marks, and Focus
+
+**The eval forge** (`deepcompare/forge.py`, `deepcompare/harness/forge_judge.py`,
+`web/blocks/05_forge.js`). A self-improving eval harness whose improvement
+is measured on runs it did not choose on. Candidates are deterministic
+trace assertions written from the wrong runs: marks, signatures,
+templates, a reader's marked steps, and, with `agentdiff forge --judge`,
+rules an agent proposes after reading the failing traces with tools.
+
+- Each candidate is tried on the learn half. Only the survivors meet the
+  held-out half, once, and that meeting decides adoption.
+- Noisy candidates are refined by conjunction, using learn-half material
+  only.
+- Every round targets what is still uncaught, and the judge is told why
+  its earlier rules failed.
+
+The first version adopted on both halves together. With 254 candidates
+tried, both halves were then choosing, so neither was held out. It was
+rewritten before it shipped. On the long-horizon suite: 73 candidates,
+34 held-out tests, and 3 evals adopted. Coverage rises from 6 to 8 of
+the 12 wrong runs with no right run flagged, and 4 wrong runs are left
+uncaught and listed. A ledger (`--evals`) carries the suite forward:
+learned on the 60-task corpus, 5 of 6 evals were kept on the suite.
+
+**A reader's marks are part of the loop.** A click (or Enter) on a mark
+in the strip chart marks that step as an eval seed. The seeds stay in the
+browser, *Download marks* writes the file, and `--seeds` turns each one
+into a candidate.
+
+**Focus** (`web/blocks/06_focus.js`) is a new first tab, shown when the
+page has a corpus or a duel. It puts the corpus on one screen, in five
+panels:
+
+- the verdict, or the duel
+- where the trouble is
+- what the traces taught
+- the evals they wrote
+- what to do
+
+Each panel is the existing block rendered through its own `render`, so
+the frame cannot drift from the full view. Each scrolls inside itself,
+and each title opens the block at full size. At 1440×900 the page does
+not scroll. On a phone it becomes a column. The top bar still fits on
+one line at 1280px: below 1400px the wordmark's small print and the task
+picker's width give way first.
+
 ## Codex CLI and Claude Code on the same task
 
 `agentdiff duel` (`deepcompare/harness/vendors.py`, `deepcompare/duel.py`,

@@ -151,6 +151,13 @@ select.picker {
 @media (max-width: 1279px) {
   .seg .tab { padding: 0 7px; }
 }
+/* a laptop's width holds twelve tabs on one line only if the chrome
+   around them gives way first: the wordmark's small print and the task
+   picker's width, neither of which carries anything the tabs do */
+@media (max-width: 1399px) {
+  .brand span { display: none; }
+  select.picker { max-width: 150px; }
+}
 @media (max-width: 640px) {
   .topbar { gap: 8px; padding: 8px 10px; }
   .brand span { display: none; }
@@ -674,6 +681,13 @@ body[data-view="evolution"] .stack-label .pip { display: none; }
 body[data-view="coevolution"] .stack-label .pip { display: none; }
 /* ---------- the chat lane: one column, the transcript the full width ---------- */
 body[data-view="chat"] .stack-label { display: none; }
+/* ---------- focus: one frame, no page scroll on a desk; the lanes that
+   lead other views step aside, the frame is the page ---------- */
+body[data-view="focus"] .stack-label,
+body[data-view="focus"] .lead-lane,
+body[data-view="focus"] .task-strip { display: none; }
+body[data-view="focus"] .stacks { padding-top: 8px; padding-bottom: 12px; }
+body[data-view="focus"] .block[data-block="focus-frame"] > .block-head { display: none; }
 body[data-view="levels"] .stack-label .pip { display: none; }
 body[data-view="data"] .stack-label .pip { display: none; }
 body[data-view="trace"] .stack-label .pip { display: none; }
@@ -685,6 +699,7 @@ body[data-view="trace"] .stack-label .pip { display: none; }
   <select class="picker" id="task-picker" aria-label="Task"></select>
   <div class="spacer"></div>
   <div class="seg" id="view-tabs" role="tablist" aria-label="View">
+    <button class="tab" role="tab" data-view="focus" aria-selected="false" title="One screen: the verdict, where the trouble is, what the traces taught, the evals they wrote, what to do">Focus</button>
     <button class="tab" role="tab" data-view="chat" aria-selected="false" title="Ask the page in plain words: every block by asking, and the self-evolving eval answering for itself">Chat</button>
     <button class="tab" role="tab" data-view="levels" aria-selected="false" title="Three levels of grain: what is running, every run, one run in full with its token burn-down and its search map">Levels</button>
     <button class="tab" role="tab" data-view="data" aria-selected="false" title="The inputs: the prompt given to both agents, what each read, the answer's provenance, data → model → agent → answer, and how a self-evolving agent changes from the data it saw">Data</button>

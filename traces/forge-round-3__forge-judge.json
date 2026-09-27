@@ -1,0 +1,206 @@
+{
+  "schema_version": 1,
+  "trace_id": "forge-round-3__forge-judge",
+  "run_id": "r1",
+  "agent": {
+    "name": "forge-judge",
+    "model": "scripted-judge",
+    "version": ""
+  },
+  "task": {
+    "id": "forge-round-3",
+    "prompt": "Write rules that catch the uncaught wrong runs without flagging right runs.\n\n{\n \"round\": 3,\n \"uncaught_wrong_runs\": [\n  \"L07_compliance_evidence/drift-lh\"\n ],\n \"what_happened_to_your_earlier_rules\": [\n  {\n   \"rule\": \"tool_called:run_checks>=40\",\n   \"status\": \"blind\",\n   \"learn_half\": {\n    \"wrong\": 5,\n    \"right\": 9,\n    \"caught\": 0,\n    \"false_alarms\": 0,\n    \"recall\": 0.0,\n    \"fpr\": 0.0,\n    \"caught_runs\": [],\n    \"false_alarm_runs\": []\n   }\n  }\n ],\n \"already_tested\": [\n  \"all:[mark:cycle, mark:skipped_beat]\",\n  \"all:[mark:cycle, mark:unrecovered_error]\",\n  \"all:[mark:cycle, signature:reasoning/a:reason.reason/b:reason.reason/q:a]\",\n  \"all:[mark:cycle, signature:reasoning/a:reason.reason/b:reason.reason]\",\n  \"all:[mark:cycle, signature:retrieval/a:read.read_file/b:none]\",\n  \"all:[mark:cycle, signature:retrieval/a:reason.reason/b:read.read_file/q:a]\",\n  \"all:[mark:cycle, signature:tool_selection/a:reason.reason/b:none/q:a]\",\n  \"all:[mark:no_information, mark:skipped_beat]\",\n  \"all:[mark:no_information, mark:unrecovered_error]\",\n  \"all:[mark:no_information, signature:reasoning/a:reason.reason/b:reason.reason]\",\n  \"all:[mark:no_information, signature:retrieval/a:read.read_file/b:none]\",\n  \"all:[mark:no_information, signature:retrieval/a:reason.reason/b:read.read_file/q:a]\",\n  \"all:[mark:no_information, signature:tool_selection/a:reason.reason/b:none/q:a]\",\n  \"all:[mark:recovered_error, mark:skipped_beat]\",\n  \"all:[mark:recovered_error, mark:unrecovered_error]\",\n  \"all:[mark:recovered_error, signature:reasoning/a:reason.reason/b:reason.reason]\",\n  \"all:[mark:recovered_error, signature:retrieval/a:read.read_file/b:none]\",\n  \"all:[mark:recovered_error, signature:retrieval/a:reason.reason/b:read.read_file/q:a]\",\n  \"all:[mark:recovered_error, signature:tool_selection/a:reason.reason/b:none/q:a]\",\n  \"all:[mark:skipped_beat, signature:retrieval/a:reason.reason/b:tool_call.run_checks/q:a]\",\n  \"all:[mark:skipped_beat, signature:tool_selection/a:tool_call.run_checks/b:none]\",\n  \"all:[mark:skipped_beat, tool_absent:publish]\",\n  \"all:[mark:unrecovered_error, signature:reasoning/a:reason.reason/b:reason.reason/q:a]\",\n  \"all:[mark:unrecovered_error, signature:reasoning/a:reason.reason/b:reason.reason]\",\n  \"all:[mark:unrecovered_error, signature:retrieval/a:reason.reason/b:read.read_file/q:a]\",\n  \"all:[mark:unrecovered_error, signature:tool_selection/a:tool_call.run_checks/b:none]\",\n  \"all:[mark:unrecovered_error, tool_absent:publish]\",\n  \"all:[signature:reasoning/a:reason.reason/b:reason.reason, signature:reasoning/a:reason.reason/b:reason.reason/q:a]\",\n  \"all:[signature:reasoning/a:reason.reason/b:reason.reason, signature:retrieval/a:reason.reason/b:read.read_file/q:a]\",\n  \"all:[signature:reasoning/a:reason.reason/b:reason.reason, signature:tool_selection/a:tool_call.run_checks/b:none]\",\n  \"all:[signature:reasoning/a:reason.reason/b:reason.reason, tool_absent:publish]\",\n  \"all:[signature:reasoning/a:reason.reason/b:reason.reason/q:a, signature:retrieval/a:read.read_file/b:none]\",\n  \"all:[signature:reasoning/a:reason.reason/b:reason.reason/q:a, signature:retrieval/a:reason.reason/b:read.read_file/q:a]\",\n  \"all:[signature:reasoning/a:reason.reason/b:reason.reason/q:a, signature:tool_selection/a:tool_call.run_checks/b:none]\",\n  \"all:[signature:retrieval/a:read.read_file/b:none, signature:tool_selection/a:tool_call.run_checks/b:none]\",\n  \"all:[signature:retrieval/a:read.read_file/b:none, tool_absent:publish]\",\n  \"all:[signature:retrieval/a:reason.reason/b:read.read_file/q:a, signature:tool_selection/a:tool_call.run_checks/b:none]\",\n  \"all:[signature:retrieval/a:reason.reason/b:read.read_file/q:a, tool_absent:publish]\",\n  \"all:[signature:tool_selection/a:reason.reason/b:none/q:a, signature:tool_selection/a:tool_call.run_checks/b:none]\",\n  \"all:[signature:tool_selection/a:reason.reason/b:none/q:a, tool_absent:publish]\",\n  \"claims_without_check\",\n  \"error_streak:2\",\n  \"error_streak:3\",\n  \"mark:cycle\",\n  \"mark:no_information\",\n  \"mark:policy_breach\",\n  \"mark:recovered_error\",\n  \"mark:redundant_stretch\",\n  \"mark:shipped_before_check\",\n  \"mark:skipped_beat\",\n  \"mark:unrecovered_error\",\n  \"no_check_after_last_edit\",\n  \"repeated_call:3\",\n  \"repeated_call:5\",\n  \"signature:reasoning/a:answer.final/b:answer.final\",\n  \"signature:reasoning/a:reason.reason/b:none/q:a\",\n  \"signature:reasoning/a:reason.reason/b:reason.reason\",\n  \"signature:reasoning/a:reason.reason/b:reason.reason/q:a\",\n  \"signature:retrieval/a:read.read_file/b:none\",\n  \"signature:retrieval/a:reason.reason/b:none/q:a\",\n  \"signature:retrieval/a:reason.reason/b:read.read_file\",\n  \"signature:retrieval/a:reason.reason/b:read.read_file/q:a\",\n  \"signature:retrieval/a:reason.reason/b:tool_call.run_checks/q:a\",\n  \"signature:tool_selection/a:reason.reason/b:none/q:a\",\n  \"signature:tool_selection/a:reason.reason/b:reason.reason/q:a\",\n  \"signature:tool_selection/a:tool_call.publish/b:none/q:a\",\n  \"signature:tool_selection/a:tool_call.run_checks/b:none\",\n  \"tool_absent:publish\",\n  \"tool_called:publish\",\n  \"tool_called:run_checks>=40\"\n ]\n}",
+    "expected": null
+  },
+  "outcome": {
+    "success": true,
+    "answer": "{\"rules\": [{\"rule\": \"tool_called:run_checks>=40\", \"why\": \"checks without end\"}]}",
+    "score": null,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 1263,
+    "output_tokens": 233,
+    "cost_usd": 0.0,
+    "latency_s": 0.000202
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "tool_call",
+      "name": "try_rule",
+      "input": "try_rule(rule='mark:cycle')",
+      "output": "{\"parses\": true, \"rule\": \"mark:cycle\", \"says\": \"it repeated a call and got the same result back\", \"wrong\": 5, \"right\": 9, \"caught\": 5, \"false_alarms\": 9, \"recall\": 1.0, \"fpr\": 1.0, \"caught_runs\": [\"L01_service_migration/drift-lh\", \"L02_incident_postmortem/drift-lh\", \"L04_dependency_bump/drift-lh\", \"L07_compliance_evidence/drift-lh\", \"L12_release_audit/drift-lh\"], \"false_alarm_runs\": [\"L01_service_migration/summit-lh\", \"L02_incident_postmortem/summit-lh\", \"L04_dependency_bump/summit-lh\", \"L07_compliance_evidence/summit-lh\", \"L12_release_audit/summit-lh\", \"L13_schema_refactor/drift-lh\", \"L13_schema_refactor/summit-lh\", \"L15_access_review/drift-lh\", \"L15_access_review/summit-lh\"], \"catches_uncaught\": [\"L07_compliance_evidence/drift-lh\"]}",
+      "tokens": 193,
+      "latency_s": 0.000169,
+      "quality": null,
+      "note": null,
+      "model": null,
+      "error": null,
+      "effect": "read",
+      "span": null,
+      "tokens_basis": "estimated",
+      "started_s": 0.0
+    },
+    {
+      "index": 1,
+      "type": "answer",
+      "name": "final",
+      "input": "{\"rules\": [{\"rule\": \"tool_called:run_checks>=40\", \"why\": \"checks without end\"}]}",
+      "output": "{\"rules\": [{\"rule\": \"tool_called:run_checks>=40\", \"why\": \"checks without end\"}]}",
+      "tokens": 40,
+      "latency_s": 3.3e-05,
+      "quality": null,
+      "note": null,
+      "model": {
+        "name": "scripted-judge"
+      },
+      "error": null,
+      "effect": null,
+      "span": null,
+      "tokens_basis": "estimated",
+      "started_s": 0.000187
+    }
+  ],
+  "tools": [
+    {
+      "name": "corpus",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "effect": "read"
+    },
+    {
+      "name": "runs",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "task": {
+            "type": "string"
+          },
+          "failed": {
+            "type": "string",
+            "description": "true for failing runs only, false for passing"
+          }
+        }
+      },
+      "effect": "read"
+    },
+    {
+      "name": "contrast",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task"
+        ]
+      },
+      "effect": "read"
+    },
+    {
+      "name": "open",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "run": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "run"
+        ]
+      },
+      "effect": "read"
+    },
+    {
+      "name": "locate",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "term": {
+            "type": "string"
+          },
+          "run": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "term"
+        ]
+      },
+      "effect": "read"
+    },
+    {
+      "name": "read",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "integer"
+          },
+          "end": {
+            "type": "integer"
+          },
+          "run": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "run"
+        ]
+      },
+      "effect": "read"
+    },
+    {
+      "name": "flags",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "run": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "run"
+        ]
+      },
+      "effect": "read"
+    },
+    {
+      "name": "try_rule",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "rule": {
+            "description": "a rule in the grammar: a string, or {\"all\": [rule, rule]}"
+          }
+        },
+        "required": [
+          "rule"
+        ]
+      },
+      "effect": "read"
+    }
+  ],
+  "budget": {
+    "max_steps": 16
+  },
+  "token_accounting": {
+    "basis": "estimated",
+    "measured_steps": 0,
+    "estimated_steps": 2,
+    "input_tokens_basis": "estimated",
+    "estimator": "len(text)/4",
+    "note": "token counts without a measurement are estimated as len(text)/4; compare against runs recorded the same way"
+  }
+}

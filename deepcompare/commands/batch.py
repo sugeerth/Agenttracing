@@ -14,6 +14,7 @@ from pathlib import Path
 from ..issues import build_issues, load_suppressions
 from ..metrics import aggregate as build_aggregate
 from ..report import attach_milestones, compare
+from ..forge import forge as forge_evals, load_ledger as load_eval_ledger, write_ledger as write_eval_ledger
 from ..lessons import learn as learn_lessons, load_ledger, write_ledger
 from ..router import routing_table
 from ..scorecard import load_golden, load_policy, scorecard as build_scorecard
@@ -39,6 +40,12 @@ def register(subparsers) -> None:
     parser.add_argument("--lessons", default=None, metavar="LEDGER",
                         help="lessons ledger JSON: every lesson in it is re-tested on this corpus, the lessons this "
                              "corpus teaches are added, and the file is written back (created when missing)")
+    parser.add_argument("--evals", default=None, metavar="LEDGER",
+                        help="eval ledger JSON: the suite the forge adopted on earlier corpora is re-tested here, "
+                             "this corpus's adopted evals are added, and the file is written back")
+    parser.add_argument("--seeds", default=None, metavar="FILE",
+                        help="steps a reader marked on the page (\"make this an eval\"), as the JSON the page "
+                             "downloads; each becomes a candidate eval")
     parser.set_defaults(func=run)
 
 
@@ -123,6 +130,20 @@ def run(args: argparse.Namespace) -> int:
     patterns = (load_suppressions(traces_dir) or load_suppressions(Path.cwd()))
     if patterns:
         agg["issues"] = build_issues(reports, patterns)
+    # The forge: evals written from where these runs went wrong, adopted
+    # only when they hold on tasks they were not written from.
+    try:
+        seeds = _load_seeds(args.seeds) if getattr(args, "seeds", None) else None
+        prior_evals = load_eval_ledger(args.evals) if getattr(args, "evals", None) else None
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    agg["forge"] = forge_evals(trajectories, golden_set, lessons_policy, issues=agg.get("issues"),
+                               agents=agg.get("agents"), seeds=seeds, ledger=prior_evals,
+                               proposer=getattr(args, "forge_proposer", None))
+    next_evals = agg["forge"]["ledger"].pop("next")
+    if getattr(args, "evals", None):
+        write_eval_ledger(args.evals, next_evals)
     write_aggregate(out_dir, agg)
     write_page(out_dir, reports, agg, template_from(args))
 
@@ -161,8 +182,21 @@ def run(args: argparse.Namespace) -> int:
     lessons = agg.get("lessons") or {}
     if lessons.get("narrative"):
         print(f"Lessons: {lessons['narrative']}")
+    forged = agg.get("forge") or {}
+    if forged.get("narrative"):
+        print(f"Evals forged: {forged['narrative']}")
     # Printed last because it is the answer to "so which of all that first?" —
     # a reader who stops here has still been told what to do.
     for line in render_triage_text(agg.get("triage") or {}):
         print(line)
     return 0
+
+
+def _load_seeds(path) -> list:
+    """The page's downloaded marks: a list, or ``{"seeds": [...]}``."""
+    import json
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    seeds = data.get("seeds") if isinstance(data, dict) else data
+    if not isinstance(seeds, list):
+        raise ValueError(f"{path}: expected a list of seeds or {{\"seeds\": [...]}}")
+    return [s for s in seeds if isinstance(s, dict) and s.get("task") and s.get("agent")]
