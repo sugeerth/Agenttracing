@@ -5,6 +5,37 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## A live agent, run for real, and what it found
+
+Claude Code 2.1.283 ran the demo bug for real on Haiku 4.5 and on Sonnet
+5, through `agentdiff duel`, authenticated by the endpoint its host
+configured. The first live run worked end to end and found a problem no
+stand-in could: **the agent under test inherited the host agent's
+session.** It reported the host session's id and was offered the host's
+tools (notifications, messaging, artifacts). The harness now:
+
+- starts every vendor process without the host session's variables
+  (`HOST_SESSION_PREFIXES`)
+- offers Claude Code its coding tools only, with `--strict-mcp-config`
+- lists the tools on offer as a row of the parity ledger
+- redacts every environment variable named like a secret, not only the
+  three known keys
+
+That run was discarded. Isolated, the second run cut Sonnet's tokens per
+run from 193k to about 112k, because tool definitions are context. Its
+results are in `demo/vendors/live/`:
+
+- both models passed 2 of 2
+- Haiku cost $0.088 and Sonnet $0.181 across both runs
+- median wall time was 15.3 s for Haiku and 7.1 s for Sonnet
+- the two models wrote equivalent fixes by different expressions
+
+The raw streams are now the converter's fixture. The converter knows the
+housekeeping events the real CLI prints (`active_goal`,
+`autocompact_state`, `rate_limit_event`) and counts rate-limit events,
+and the race uses the CLI's own wall time. Codex was not run: no OpenAI
+credential exists in this environment.
+
 ## 0.10.0 — production
 
 **Install and run from anywhere.** `agentdiff --version`. A new test

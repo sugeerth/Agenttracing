@@ -48,11 +48,44 @@ from typing import Callable, Optional
 from .. import vendors as _vendors
 
 __all__ = ["VendorSpec", "parse_spec", "preflight", "run_vendor", "run_duel", "snapshot",
-           "KEY_ENV", "SKIP_DIRS", "shutdown_all", "DuelInterrupted", "STREAM_CAP_BYTES"]
+           "KEY_ENV", "SKIP_DIRS", "shutdown_all", "DuelInterrupted", "STREAM_CAP_BYTES",
+           "vendor_env", "HOST_SESSION_PREFIXES", "CLAUDE_TOOLS"]
 
 #: where each vendor's CLI looks for its key; values are never read here
 #: except to redact them
-KEY_ENV = {"codex": ("CODEX_API_KEY", "OPENAI_API_KEY"), "claude": ("ANTHROPIC_API_KEY",)}
+KEY_ENV = {"codex": ("CODEX_API_KEY", "OPENAI_API_KEY"), "claude": ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
+#: an endpoint the host configured for the CLI (a gateway, a proxy, a
+#: managed provider): the CLI authenticates through it without a key here
+ENDPOINT_ENV = {"codex": ("OPENAI_BASE_URL",), "claude": ("ANTHROPIC_BASE_URL",)}
+#: an environment variable named like this holds something secret, whatever
+#: tool set it — a child process inherits them all, so all are redacted
+_SECRET_NAME = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
+
+#: variables that bind a process to the *host's* agent session: its id, its
+#: messaging socket and token, its remote worker. When the harness itself
+#: runs inside an agent (Claude Code, say), a vendor CLI started with them
+#: joins that session — it reports the host's session id and is offered the
+#: host's tools. An agent under evaluation must not be part of the
+#: evaluator, so these never reach a vendor process. Authentication does
+#: not depend on them (a live run confirmed it with every one removed).
+HOST_SESSION_PREFIXES = (
+    "CLAUDECODE", "CLAUDE_CODE_SESSION", "CLAUDE_CODE_REMOTE", "CLAUDE_CODE_MESSAGING",
+    "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_SESSION_", "SESSION_INGRESS", "CLAUDE_CODE_CONTAINER_ID",
+    "CLAUDE_CODE_WORKER", "CLAUDE_CODE_POST_FOR_SESSION", "CLAUDE_CODE_TEE_SDK", "CLAUDE_PID",
+    "CLAUDE_CODE_ARTIFACT", "CLAUDE_CODE_USE_CCR", "CLAUDE_CODE_BG_TASKS", "CLAUDE_AUTO_BACKGROUND",
+    "CLAUDE_CODE_HOLD", "CLAUDE_CODE_SYNC_SKILLS", "CLAUDE_ADDITIONAL_DIRECTORIES",
+    "CLAUDE_CODE_ADDITIONAL_DIRECTORIES", "CLAUDE_AFTER_LAST_COMPACT", "CLAUDE_ENABLE_STREAM",
+    "CLAUDE_CODE_DIAGNOSTICS", "DOCUMENTS_MCP",
+)
+#: what Claude Code is offered: its coding tools, and nothing a host
+#: installed around it (connectors, notifications, other sessions)
+CLAUDE_TOOLS = ("Bash", "Read", "Edit", "Write", "Grep", "Glob", "TodoWrite", "Task")
+
+
+def vendor_env() -> dict:
+    """The environment a vendor CLI runs in: the operator's, less anything
+    that would make the agent under test part of a host agent session."""
+    return {k: v for k, v in os.environ.items() if not k.startswith(HOST_SESSION_PREFIXES)}
 #: directories that are tooling, not work: copied, never diffed
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache",
              ".pytest_cache", ".ruff_cache", ".tox", ".nox", ".cache"}
@@ -164,11 +197,12 @@ def preflight(spec: VendorSpec) -> dict:
     else:
         login = bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")) or \
             (Path.home() / ".claude" / ".credentials.json").is_file()
+    endpoint = [k for k in ENDPOINT_ENV[spec.kind] if os.environ.get(k)]
     return {"vendor": spec.kind, "agent": spec.agent, "binary": binary,
             "version": _cli_version(binary) if binary else "",
-            "key_env_present": keys, "login_present": login,
-            "ready": bool(binary) and bool(keys or login),
-            "why": (None if binary and (keys or login) else
+            "key_env_present": keys, "login_present": login, "endpoint_env_present": endpoint,
+            "ready": bool(binary) and bool(keys or login or endpoint),
+            "why": (None if binary and (keys or login or endpoint) else
                     ("the CLI was not found on PATH" if not binary else
                      f"no credential: set {' or '.join(KEY_ENV[spec.kind])}, or log in with the CLI"))}
 
@@ -238,18 +272,17 @@ def diff_snapshots(before: dict, after: dict) -> dict:
 
 # ------------------------------------------------------------------ secrets
 
+def _secret_names() -> list:
+    names = {n for group in KEY_ENV.values() for n in group} | {"CLAUDE_CODE_OAUTH_TOKEN"}
+    names |= {n for n in os.environ if any(part in n.upper() for part in _SECRET_NAME)}
+    return sorted(names)
+
+
 def _secrets() -> list:
-    vals = []
-    for names in KEY_ENV.values():
-        for n in names:
-            v = os.environ.get(n)
-            if v and len(v) >= 8:
-                vals.append(v)
-    for n in ("CLAUDE_CODE_OAUTH_TOKEN",):
-        v = os.environ.get(n)
-        if v and len(v) >= 8:
-            vals.append(v)
-    return vals
+    """Every secret-looking value in this environment, longest first, so a
+    value that contains another is replaced whole."""
+    vals = {os.environ[n] for n in _secret_names() if len(os.environ.get(n) or "") >= 8}
+    return sorted(vals, key=len, reverse=True)
 
 
 def redact(text: str, secrets: Optional[list] = None) -> str:
@@ -260,10 +293,8 @@ def redact(text: str, secrets: Optional[list] = None) -> str:
 
 def _check_env() -> dict:
     env = dict(os.environ)
-    for names in KEY_ENV.values():
-        for n in names:
-            env.pop(n, None)
-    env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+    for n in _secret_names():
+        env.pop(n, None)
     return env
 
 
@@ -281,10 +312,12 @@ def _argv(spec: VendorSpec, binary: str, workdir: Path, isolate: bool,
             argv += ["-m", spec.model]
         argv += list(spec.extra) + ["-"]
         facts = {"sandbox": f"codex {sandbox} sandbox", "budget_enforced": "after the turn (usage is per turn)",
-                 "user_config": "ignored" if isolate else "loaded"}
+                 "user_config": "ignored" if isolate else "loaded",
+                 "tools": "the CLI's own (shell, apply_patch, and what its config enables)"}
     else:
         argv = [binary, "-p", "--output-format", "stream-json", "--verbose",
-                "--permission-mode", claude_mode, "--no-session-persistence"]
+                "--permission-mode", claude_mode, "--no-session-persistence",
+                "--tools", ",".join(CLAUDE_TOOLS), "--strict-mcp-config"]
         if claude_mode != "bypassPermissions":
             argv += ["--allowedTools", "Bash"]
         if isolate:
@@ -296,7 +329,8 @@ def _argv(spec: VendorSpec, binary: str, workdir: Path, isolate: bool,
         argv += list(spec.extra)
         facts = {"sandbox": f"claude {claude_mode} (Bash allowed), no OS sandbox",
                  "budget_enforced": "while running (usage is per message)",
-                 "user_config": "ignored" if isolate else "loaded"}
+                 "user_config": "ignored" if isolate else "loaded",
+                 "tools": ", ".join(CLAUDE_TOOLS) + "; no MCP servers"}
     return argv, facts
 
 
@@ -363,7 +397,7 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
                   **({"price": price} if spec.kind == "codex" else {}), **kw)
 
     proc = subprocess.Popen(argv, cwd=str(workdir), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, env=dict(os.environ), start_new_session=True,
+                            stderr=subprocess.PIPE, env=vendor_env(), start_new_session=True,
                             text=True, encoding="utf-8", errors="replace", bufsize=1)
     with _ACTIVE_LOCK:
         _ACTIVE["procs"].add(proc)

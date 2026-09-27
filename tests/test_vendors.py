@@ -349,7 +349,9 @@ class DuelBehaviourTest(unittest.TestCase):
             self.assertEqual(r["per_agent"]["codex"]["passed"], 1)
 
     def test_no_credential_refuses_to_start_and_says_which(self):
-        e = {k: v for k, v in os.environ.items() if k not in ("OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY")}
+        e = {k: v for k, v in os.environ.items() if k not in (
+            "OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_BASE_URL", "OPENAI_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN")}
         e["HOME"] = tempfile.mkdtemp()
         e.pop("CODEX_HOME", None)
         with tempfile.TemporaryDirectory() as tmp:
@@ -468,3 +470,91 @@ class LiveDuelStreamTest(unittest.TestCase):
             finally:
                 proc.wait(timeout=90)
             self.assertEqual(proc.returncode, 0, proc.stderr.read()[-2000:])
+
+
+class HostSessionIsolationTest(unittest.TestCase):
+    """An agent under evaluation is not part of the evaluator.
+
+    Found on a live run: the harness was itself running inside a Claude Code
+    session, and the Claude Code it started inherited that session's id and
+    was offered its tools. The harness now starts every vendor CLI without
+    the host session's variables, and Claude Code with its coding tools
+    only and no inherited MCP servers.
+    """
+
+    def test_a_vendor_does_not_inherit_the_host_agent_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "d"
+            done = run_duel_cli(out, env={"CLAUDECODE": "1", "CLAUDE_CODE_SESSION_ID": "host-session-0000",
+                                          "SESSION_INGRESS_URL": "http://host.invalid"})
+            self.assertEqual(done.returncode, 0, done.stderr[-2000:])
+            events, _ = vendors.read_events(out / "raw" / "bugfix-pricing__claude-code__r1.jsonl")
+            init = next(e["e"] for e in events if e["e"].get("subtype") == "init")
+            self.assertEqual(init["inherited_host_session"], [])
+            argv = init["argv"]
+            self.assertIn("--strict-mcp-config", argv)
+            tools = argv[argv.index("--tools") + 1].split(",")
+            self.assertIn("Bash", tools)
+            for host_tool in ("Artifact", "PushNotification", "SendMessage", "RemoteTrigger"):
+                self.assertNotIn(host_tool, tools)
+            for p in out.rglob("*"):
+                if p.is_file():
+                    self.assertNotIn("host-session-0000", p.read_text(errors="replace"), str(p))
+            r = json.loads((out / "duel.json").read_text(encoding="utf-8"))
+            row = next(x for x in r["parity"] if x["key"] == "tools")
+            self.assertFalse(row["equal"], "Codex and Claude Code are not offered the same tools, and the ledger says so")
+
+    def test_the_environment_keeps_what_authentication_needs(self):
+        from deepcompare.harness.vendors import vendor_env
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"ANTHROPIC_BASE_URL": "https://gw.example", "ANTHROPIC_API_KEY": "k" * 12,
+                                          "CLAUDE_CODE_SESSION_ID": "s", "CLAUDECODE": "1",
+                                          "CLAUDE_CODE_MESSAGING_TOKEN": "t" * 12}):
+            env = vendor_env()
+        self.assertEqual(env["ANTHROPIC_BASE_URL"], "https://gw.example")
+        self.assertIn("ANTHROPIC_API_KEY", env)
+        for gone in ("CLAUDE_CODE_SESSION_ID", "CLAUDECODE", "CLAUDE_CODE_MESSAGING_TOKEN"):
+            self.assertNotIn(gone, env)
+
+
+class RecordedLiveRunTest(unittest.TestCase):
+    """Genuine Claude Code output (demo/vendors/live, recorded from 2.1.283):
+    the converter is pinned against what the real CLI prints, not only
+    against the shapes its stand-in was written to."""
+
+    LIVE = ROOT / "demo" / "vendors" / "live"
+
+    def test_the_real_streams_convert_to_the_committed_traces(self):
+        raws = sorted((self.LIVE / "raw").glob("*.jsonl"))
+        self.assertEqual(len(raws), 4)
+        for raw in raws:
+            with self.subTest(run=raw.stem):
+                record = json.loads((self.LIVE / "records" / f"{raw.stem}.json").read_text(encoding="utf-8"))
+                committed = json.loads((self.LIVE / record["trace"]).read_text(encoding="utf-8"))
+                events, bad = vendors.read_events(raw)
+                self.assertEqual(bad, 0)
+                again = vendors.claude_stream_to_trajectory(
+                    events, task=record["task"], prompt=committed["task"]["prompt"], agent=record["agent"],
+                    model=record["model"], version=committed["agent"]["version"], run_id=record["run"],
+                    success=record["check"]["passed"], score=committed["outcome"]["score"],
+                    note=committed["outcome"].get("note"), termination=committed["outcome"]["termination"])
+                self.assertEqual(again["steps"], committed["steps"])
+                self.assertEqual(again["totals"], committed["totals"])
+                self.assertEqual(again["source"]["unknown_events"], {},
+                                 "every event type the real CLI printed is known to the converter")
+                Trajectory.from_dict(again)
+                self.assertEqual(again["token_accounting"]["basis"], "measured")
+                self.assertGreater(again["totals"]["cost_usd"], 0)
+
+    def test_the_report_rebuilds_from_the_records(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            copy = Path(tmp) / "live"
+            shutil.copytree(self.LIVE, copy)
+            done = subprocess.run([sys.executable, "-m", "deepcompare", "duel", "--from", str(copy)],
+                                  cwd=str(ROOT), capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr[-2000:])
+            r = json.loads((copy / "duel.json").read_text(encoding="utf-8"))
+            for agent in ("haiku", "sonnet"):
+                self.assertEqual((r["per_agent"][agent]["passed"], r["per_agent"][agent]["graded"]), (2, 2))
+            self.assertTrue((copy / "page" / "report.html").is_file())

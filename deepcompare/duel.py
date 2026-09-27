@@ -239,6 +239,11 @@ def _parity(records: list, agents: list) -> list:
     same("sandbox", "the sandbox", "a sandboxed agent may be refused actions the other is allowed")
     same("user_config", "the operator's own vendor settings",
          "a user's custom instructions or hooks change the agent being measured")
+    tools = values("tools")
+    rows.append({"what": "the tools on offer", "key": "tools",
+                 "equal": (len({x for a in agents for x in tools[a]}) == 1) if any(tools.values()) else None,
+                 "values": {a: ", ".join(tools[a]) for a in agents},
+                 "why": "an agent offered a web search or a sub-agent can do what one without cannot"})
     # launched together or one after the other
     skews = []
     pairs: dict = {}

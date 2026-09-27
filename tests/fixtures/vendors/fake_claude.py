@@ -29,7 +29,11 @@ def main():
     cwd = os.getcwd()
     sys.stdin.read()
     mode = os.environ.get("FAKE_VENDOR_MODE", "fix")
+    # what a real CLI would inherit from a host agent session, so a test can
+    # see that the harness kept it out
+    inherited = sorted(k for k in os.environ if k.startswith(("CLAUDECODE", "CLAUDE_CODE_SESSION", "SESSION_INGRESS")))
     emit({"type": "system", "subtype": "init", "cwd": cwd, "session_id": "sess-test", "model": "stand-in-model",
+          "inherited_host_session": inherited, "argv": sys.argv[1:],
           "tools": ["Bash", "Read", "Edit", "Write", "Grep", "Glob"], "permissionMode": "acceptEdits"})
     n = 0
     context = 12000

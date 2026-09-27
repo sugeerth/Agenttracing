@@ -71,6 +71,12 @@ OUTPUT_CAP = 8000
 
 UNGRADED = "ungraded: no check was run, so success is recorded as false"
 
+#: Claude Code stream events that carry session housekeeping rather than
+#: work (seen on a live 2.1.283 run): known, so not counted as unknown, and
+#: not drawn. Rate-limit events are counted in the vendor block, because a
+#: run that waited on its rate limit is slow for a reason that is not the agent.
+CLAUDE_HOUSEKEEPING = frozenset({"active_goal", "autocompact_state", "rate_limit_event", "stream_event"})
+
 
 def _stamped(events: Iterable) -> list:
     """``[(t or None, event)]`` from raw events or ``{"t", "e"}`` lines."""
@@ -360,8 +366,11 @@ def claude_stream_to_trajectory(events: Iterable, *, task: str, prompt: str = ""
     init: dict = {}
     unknown: dict = {}
     last_text = ""
+    rate_limits = 0
     for t, ev in stamped:
         kind = str(ev.get("type") or "")
+        if kind == "rate_limit_event":
+            rate_limits += 1
         if kind == "system":
             if ev.get("subtype") == "init":
                 init = ev
@@ -424,7 +433,7 @@ def claude_stream_to_trajectory(events: Iterable, *, task: str, prompt: str = ""
                 prompt = content
         elif kind == "result":
             result = ev
-        elif kind in ("stream_event",):
+        elif kind in CLAUDE_HOUSEKEEPING:
             pass
         else:
             unknown[kind or "?"] = unknown.get(kind or "?", 0) + 1
@@ -493,7 +502,7 @@ def claude_stream_to_trajectory(events: Iterable, *, task: str, prompt: str = ""
               if isinstance(result.get("duration_api_ms"), (int, float)) else None,
               "permission_denials": len(denials) if isinstance(denials, list) else 0,
               "tools_offered": len(init.get("tools") or []), "subtype": subtype or None,
-              "unanswered_tool_calls": len(pending)}
+              "unanswered_tool_calls": len(pending), "rate_limit_events": rate_limits}
     source = {"format": "claude-code-stream-json", "events": len(stamped), "unknown_events": unknown,
               "timed": any(t is not None for t, _ in stamped)}
     return _finish(steps, task=task, prompt=prompt, agent=agent, model=model, version=version,

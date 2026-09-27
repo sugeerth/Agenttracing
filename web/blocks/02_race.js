@@ -156,8 +156,10 @@
       marks.push({ i: i, start: start, dur: dur, kind: kindOf(s), error: !!s.error,
                    say: (s.name || s.type) + (s.input ? ": " + String(s.input).slice(0, 90) : "") });
     });
-    var elapsed = Math.max(t, +(extra.elapsed_s || 0));
     var totals = extra.totals || {};
+    // the run's own clock when it reported one: a CLI's wall time includes
+    // the start-up and the wrap-up no step covers
+    var elapsed = Math.max(t, +(extra.elapsed_s || 0), extra.running ? 0 : +(totals.latency_s || 0));
     var measured = (+totals.input_tokens || 0) + (+totals.output_tokens || 0);
     var atEnd = !measuredSteps;
     if (atEnd && measured && !extra.running) curve = [[0, 0], [elapsed, measured]];

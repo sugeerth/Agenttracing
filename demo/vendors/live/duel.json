@@ -1,0 +1,599 @@
+{
+ "measurable": true,
+ "agents": [
+  "haiku",
+  "sonnet"
+ ],
+ "tasks": [
+  "bugfix-pricing"
+ ],
+ "runs": 4,
+ "band": 0.1,
+ "parity": [
+  {
+   "what": "the prompt",
+   "key": "prompt_sha",
+   "equal": true,
+   "values": {
+    "haiku": "9749235c6b465313",
+    "sonnet": "9749235c6b465313"
+   },
+   "why": "a different instruction is a different task"
+  },
+  {
+   "what": "the starting workspace",
+   "key": "workspace_sha",
+   "equal": true,
+   "values": {
+    "haiku": "4e286917e0eba120",
+    "sonnet": "4e286917e0eba120"
+   },
+   "why": "each run starts from its own copy of the same files"
+  },
+  {
+   "what": "the check that grades it",
+   "key": "check",
+   "equal": true,
+   "values": {
+    "haiku": "python3 -m unittest -q",
+    "sonnet": "python3 -m unittest -q"
+   },
+   "why": "success is the check's exit status, run by the harness"
+  },
+  {
+   "what": "the token budget",
+   "key": "budget_tokens",
+   "equal": true,
+   "values": {
+    "haiku": "500000",
+    "sonnet": "500000"
+   },
+   "why": "an agent allowed more can do more"
+  },
+  {
+   "what": "the time limit",
+   "key": "timeout_s",
+   "equal": true,
+   "values": {
+    "haiku": "600",
+    "sonnet": "600"
+   },
+   "why": "an agent allowed longer can do more"
+  },
+  {
+   "what": "how the budget is enforced",
+   "key": "budget_enforced",
+   "equal": true,
+   "values": {
+    "haiku": "while running (usage is per message)",
+    "sonnet": "while running (usage is per message)"
+   },
+   "why": "Claude Code reports usage per message, so a budget can stop it mid-run; Codex reports usage once per turn, so its budget can only be checked afterwards"
+  },
+  {
+   "what": "the sandbox",
+   "key": "sandbox",
+   "equal": true,
+   "values": {
+    "haiku": "claude acceptEdits (Bash allowed), no OS sandbox",
+    "sonnet": "claude acceptEdits (Bash allowed), no OS sandbox"
+   },
+   "why": "a sandboxed agent may be refused actions the other is allowed"
+  },
+  {
+   "what": "the operator's own vendor settings",
+   "key": "user_config",
+   "equal": true,
+   "values": {
+    "haiku": "ignored",
+    "sonnet": "ignored"
+   },
+   "why": "a user's custom instructions or hooks change the agent being measured"
+  },
+  {
+   "what": "the tools on offer",
+   "key": "tools",
+   "equal": true,
+   "values": {
+    "haiku": "Bash, Read, Edit, Write, Grep, Glob, TodoWrite, Task; no MCP servers",
+    "sonnet": "Bash, Read, Edit, Write, Grep, Glob, TodoWrite, Task; no MCP servers"
+   },
+   "why": "an agent offered a web search or a sub-agent can do what one without cannot"
+  },
+  {
+   "what": "launched side by side",
+   "key": "started_at",
+   "equal": true,
+   "values": {
+    "largest gap": "0.0s"
+   },
+   "why": "vendor latency and rate limits move over the day; runs launched together share them"
+  },
+  {
+   "what": "cost reporting",
+   "key": "cost_basis",
+   "equal": true,
+   "values": {
+    "haiku": "reported by the CLI",
+    "sonnet": "reported by the CLI"
+   },
+   "why": "a cost one vendor reports and the other does not cannot be compared, only listed"
+  },
+  {
+   "what": "the models",
+   "key": "model",
+   "equal": null,
+   "values": {
+    "haiku": "claude-haiku-4-5-20251001",
+    "sonnet": "claude-sonnet-5"
+   },
+   "why": "different vendors run different models by design; named, not judged"
+  }
+ ],
+ "fair": true,
+ "unequal": [],
+ "per_agent": {
+  "haiku": {
+   "runs": 2,
+   "graded": 2,
+   "passed": 2,
+   "pass_rate": 1.0,
+   "ci95": [
+    0.3424,
+    1.0
+   ],
+   "all_runs_passed_tasks": 1,
+   "median": {
+    "tokens": 97731.5,
+    "input": 96204.0,
+    "cached_input": 82538.0,
+    "output": 1527.5,
+    "wall_s": 15.259,
+    "actions": 5.5,
+    "files_changed": 1.0,
+    "lines_changed": 2.0
+   },
+   "cost_usd": 0.088345,
+   "cost_basis": [
+    "reported by the CLI"
+   ],
+   "passes_per_million_tokens": 10.232,
+   "passes_per_hour": 235.926,
+   "activity": {
+    "explore": 6,
+    "edit": 2,
+    "verify": 3,
+    "run": 0,
+    "research": 0,
+    "plan": 0,
+    "delegate": 0,
+    "other": 0
+   },
+   "shares": {
+    "explore": 0.545,
+    "edit": 0.182,
+    "verify": 0.273,
+    "run": 0.0,
+    "research": 0.0,
+    "plan": 0.0,
+    "delegate": 0.0,
+    "other": 0.0
+   },
+   "explored_before_first_edit": 3.0,
+   "verified_after_last_edit": 2,
+   "edited_runs": 2,
+   "tool_errors": 1,
+   "unrecovered_errors": 0,
+   "redundant_stretches": 0,
+   "touched_tests": 0,
+   "claimed_but_failed": 0,
+   "stopped_by_budget": 0,
+   "infrastructure_errors": 0
+  },
+  "sonnet": {
+   "runs": 2,
+   "graded": 2,
+   "passed": 2,
+   "pass_rate": 1.0,
+   "ci95": [
+    0.3424,
+    1.0
+   ],
+   "all_runs_passed_tasks": 1,
+   "median": {
+    "tokens": 112286.0,
+    "input": 111675.0,
+    "cached_input": 95654.5,
+    "output": 611.0,
+    "wall_s": 7.088,
+    "actions": 5.0,
+    "files_changed": 1.0,
+    "lines_changed": 2.0
+   },
+   "cost_usd": 0.180596,
+   "cost_basis": [
+    "reported by the CLI"
+   ],
+   "passes_per_million_tokens": 8.906,
+   "passes_per_hour": 507.901,
+   "activity": {
+    "explore": 6,
+    "edit": 2,
+    "verify": 2,
+    "run": 0,
+    "research": 0,
+    "plan": 0,
+    "delegate": 0,
+    "other": 0
+   },
+   "shares": {
+    "explore": 0.6,
+    "edit": 0.2,
+    "verify": 0.2,
+    "run": 0.0,
+    "research": 0.0,
+    "plan": 0.0,
+    "delegate": 0.0,
+    "other": 0.0
+   },
+   "explored_before_first_edit": 3.0,
+   "verified_after_last_edit": 2,
+   "edited_runs": 2,
+   "tool_errors": 0,
+   "unrecovered_errors": 0,
+   "redundant_stretches": 0,
+   "touched_tests": 0,
+   "claimed_but_failed": 0,
+   "stopped_by_budget": 0,
+   "infrastructure_errors": 0
+  }
+ },
+ "pairs": [
+  {
+   "task": "bugfix-pricing",
+   "run": "r1",
+   "passed": {
+    "haiku": true,
+    "sonnet": true
+   },
+   "tokens": {
+    "haiku": 87283,
+    "sonnet": 111993
+   },
+   "token_gap": 0.2206,
+   "budget_matched": false,
+   "wall_s": {
+    "haiku": 14.598,
+    "sonnet": 7.151
+   },
+   "files": {
+    "both": [
+     "pricing.py"
+    ],
+    "only": {
+     "haiku": [],
+     "sonnet": []
+    },
+    "overlap": 1.0,
+    "identical": []
+   }
+  },
+  {
+   "task": "bugfix-pricing",
+   "run": "r2",
+   "passed": {
+    "haiku": true,
+    "sonnet": true
+   },
+   "tokens": {
+    "haiku": 108180,
+    "sonnet": 112579
+   },
+   "token_gap": 0.0391,
+   "budget_matched": true,
+   "wall_s": {
+    "haiku": 15.92,
+    "sonnet": 7.025
+   },
+   "files": {
+    "both": [
+     "pricing.py"
+    ],
+    "only": {
+     "haiku": [],
+     "sonnet": []
+    },
+    "overlap": 1.0,
+    "identical": [
+     "pricing.py"
+    ]
+   }
+  }
+ ],
+ "budget_matched_pairs": 1,
+ "narrative": "1 task, 2 paired runs, on equal terms throughout the parity ledger. haiku passed 2 of 2; sonnet passed 2 of 2. 1 of 2 pairs spent within ±10% of each other's tokens; where they did not, compare outcomes per token rather than per run. Passing runs per million tokens: haiku 10.232, sonnet 8.906. haiku explored 3 time(s) before its first edit (median) and ran a check after its last edit in 2 of 2 run(s); sonnet explored 3 time(s) before its first edit (median) and ran a check after its last edit in 2 of 2 run(s).",
+ "caveat": "Qualitative, not a benchmark: a few tasks and a few runs describe how these two agents worked on this work, with the intervals saying how little a pass rate on a small sample settles. Every number is read from the vendors' own streams and the harness's check.",
+ "runs_detail": [
+  {
+   "task": "bugfix-pricing",
+   "agent": "sonnet",
+   "vendor": "claude-code",
+   "model": "claude-sonnet-5",
+   "run": "r1",
+   "passed": true,
+   "exit_code": 0,
+   "termination": "agent_stop",
+   "stopped_by": null,
+   "tokens": {
+    "input": 111392,
+    "cached_input": 88336,
+    "output": 601,
+    "reasoning_output": null,
+    "total": 111993,
+    "basis": "measured"
+   },
+   "cost_usd": 0.116876,
+   "cost_basis": "reported by the CLI",
+   "wall_s": 7.151,
+   "tool_time_s": 0.424,
+   "think_time_s": 0.929,
+   "steps": 7,
+   "actions": 5,
+   "activity": {
+    "explore": 3,
+    "edit": 1,
+    "verify": 1,
+    "run": 0,
+    "research": 0,
+    "plan": 0,
+    "delegate": 0,
+    "other": 0
+   },
+   "shares": {
+    "explore": 0.6,
+    "edit": 0.2,
+    "verify": 0.2,
+    "run": 0.0,
+    "research": 0.0,
+    "plan": 0.0,
+    "delegate": 0.0,
+    "other": 0.0
+   },
+   "explored_before_first_edit": 3,
+   "first_edit_at": 3,
+   "verified_after_last_edit": true,
+   "verify_runs": 1,
+   "tool_errors": 0,
+   "marks": {
+    "shipped_before_check": 1
+   },
+   "files_changed": 1,
+   "lines_added": 1,
+   "lines_removed": 1,
+   "touched_tests": false,
+   "paths": [
+    "pricing.py"
+   ],
+   "final_message_chars": 175,
+   "claimed_done": true,
+   "claimed_but_failed": false,
+   "turns": 6,
+   "permission_denials": 0,
+   "unknown_events": {},
+   "patch_head": "--- a/pricing.py\n+++ b/pricing.py\n@@ -7,7 +7,7 @@\n \n def apply_discount(total: float, percent: float) -> float:\n     \"\"\"Take `percent` off `total` (10 means ten percent off).\"\"\"\n-    return round(total - percent, 2)\n+    return round(total * (1 - percent / 100), 2)\n \n \n def order_total(lines: list, discount_percent: float = 0.0) -> float:\n",
+   "patch_truncated": false,
+   "patch_path": "diffs/bugfix-pricing__sonnet__r1.patch"
+  },
+  {
+   "task": "bugfix-pricing",
+   "agent": "haiku",
+   "vendor": "claude-code",
+   "model": "claude-haiku-4-5-20251001",
+   "run": "r1",
+   "passed": true,
+   "exit_code": 0,
+   "termination": "agent_stop",
+   "stopped_by": null,
+   "tokens": {
+    "input": 85903,
+    "cached_input": 67530,
+    "output": 1380,
+    "reasoning_output": null,
+    "total": 87283,
+    "basis": "measured"
+   },
+   "cost_usd": 0.051352,
+   "cost_basis": "reported by the CLI",
+   "wall_s": 14.598,
+   "tool_time_s": 0.529,
+   "think_time_s": 1.41,
+   "steps": 9,
+   "actions": 5,
+   "activity": {
+    "explore": 3,
+    "edit": 1,
+    "verify": 1,
+    "run": 0,
+    "research": 0,
+    "plan": 0,
+    "delegate": 0,
+    "other": 0
+   },
+   "shares": {
+    "explore": 0.6,
+    "edit": 0.2,
+    "verify": 0.2,
+    "run": 0.0,
+    "research": 0.0,
+    "plan": 0.0,
+    "delegate": 0.0,
+    "other": 0.0
+   },
+   "explored_before_first_edit": 3,
+   "first_edit_at": 3,
+   "verified_after_last_edit": true,
+   "verify_runs": 1,
+   "tool_errors": 0,
+   "marks": {
+    "shipped_before_check": 1
+   },
+   "files_changed": 1,
+   "lines_added": 1,
+   "lines_removed": 1,
+   "touched_tests": false,
+   "paths": [
+    "pricing.py"
+   ],
+   "final_message_chars": 316,
+   "claimed_done": true,
+   "claimed_but_failed": false,
+   "turns": 6,
+   "permission_denials": 0,
+   "unknown_events": {},
+   "patch_head": "--- a/pricing.py\n+++ b/pricing.py\n@@ -7,7 +7,7 @@\n \n def apply_discount(total: float, percent: float) -> float:\n     \"\"\"Take `percent` off `total` (10 means ten percent off).\"\"\"\n-    return round(total - percent, 2)\n+    return round(total - (total * percent / 100), 2)\n \n \n def order_total(lines: list, discount_percent: float = 0.0) -> float:\n",
+   "patch_truncated": false,
+   "patch_path": "diffs/bugfix-pricing__haiku__r1.patch"
+  },
+  {
+   "task": "bugfix-pricing",
+   "agent": "sonnet",
+   "vendor": "claude-code",
+   "model": "claude-sonnet-5",
+   "run": "r2",
+   "passed": true,
+   "exit_code": 0,
+   "termination": "agent_stop",
+   "stopped_by": null,
+   "tokens": {
+    "input": 111958,
+    "cached_input": 102973,
+    "output": 621,
+    "reasoning_output": null,
+    "total": 112579,
+    "basis": "measured"
+   },
+   "cost_usd": 0.06372,
+   "cost_basis": "reported by the CLI",
+   "wall_s": 7.025,
+   "tool_time_s": 0.418,
+   "think_time_s": 1.56,
+   "steps": 8,
+   "actions": 5,
+   "activity": {
+    "explore": 3,
+    "edit": 1,
+    "verify": 1,
+    "run": 0,
+    "research": 0,
+    "plan": 0,
+    "delegate": 0,
+    "other": 0
+   },
+   "shares": {
+    "explore": 0.6,
+    "edit": 0.2,
+    "verify": 0.2,
+    "run": 0.0,
+    "research": 0.0,
+    "plan": 0.0,
+    "delegate": 0.0,
+    "other": 0.0
+   },
+   "explored_before_first_edit": 3,
+   "first_edit_at": 3,
+   "verified_after_last_edit": true,
+   "verify_runs": 1,
+   "tool_errors": 0,
+   "marks": {
+    "shipped_before_check": 1
+   },
+   "files_changed": 1,
+   "lines_added": 1,
+   "lines_removed": 1,
+   "touched_tests": false,
+   "paths": [
+    "pricing.py"
+   ],
+   "final_message_chars": 196,
+   "claimed_done": true,
+   "claimed_but_failed": false,
+   "turns": 6,
+   "permission_denials": 0,
+   "unknown_events": {},
+   "patch_head": "--- a/pricing.py\n+++ b/pricing.py\n@@ -7,7 +7,7 @@\n \n def apply_discount(total: float, percent: float) -> float:\n     \"\"\"Take `percent` off `total` (10 means ten percent off).\"\"\"\n-    return round(total - percent, 2)\n+    return round(total * (1 - percent / 100), 2)\n \n \n def order_total(lines: list, discount_percent: float = 0.0) -> float:\n",
+   "patch_truncated": false,
+   "patch_path": "diffs/bugfix-pricing__sonnet__r2.patch"
+  },
+  {
+   "task": "bugfix-pricing",
+   "agent": "haiku",
+   "vendor": "claude-code",
+   "model": "claude-haiku-4-5-20251001",
+   "run": "r2",
+   "passed": true,
+   "exit_code": 0,
+   "termination": "agent_stop",
+   "stopped_by": null,
+   "tokens": {
+    "input": 106505,
+    "cached_input": 97546,
+    "output": 1675,
+    "reasoning_output": null,
+    "total": 108180,
+    "basis": "measured"
+   },
+   "cost_usd": 0.036993,
+   "cost_basis": "reported by the CLI",
+   "wall_s": 15.92,
+   "tool_time_s": 0.739,
+   "think_time_s": 1.284,
+   "steps": 11,
+   "actions": 6,
+   "activity": {
+    "explore": 3,
+    "edit": 1,
+    "verify": 2,
+    "run": 0,
+    "research": 0,
+    "plan": 0,
+    "delegate": 0,
+    "other": 0
+   },
+   "shares": {
+    "explore": 0.5,
+    "edit": 0.167,
+    "verify": 0.333,
+    "run": 0.0,
+    "research": 0.0,
+    "plan": 0.0,
+    "delegate": 0.0,
+    "other": 0.0
+   },
+   "explored_before_first_edit": 3,
+   "first_edit_at": 4,
+   "verified_after_last_edit": true,
+   "verify_runs": 2,
+   "tool_errors": 1,
+   "marks": {
+    "recovered_error": 1,
+    "shipped_before_check": 1
+   },
+   "files_changed": 1,
+   "lines_added": 1,
+   "lines_removed": 1,
+   "touched_tests": false,
+   "paths": [
+    "pricing.py"
+   ],
+   "final_message_chars": 420,
+   "claimed_done": true,
+   "claimed_but_failed": false,
+   "turns": 7,
+   "permission_denials": 0,
+   "unknown_events": {},
+   "patch_head": "--- a/pricing.py\n+++ b/pricing.py\n@@ -7,7 +7,7 @@\n \n def apply_discount(total: float, percent: float) -> float:\n     \"\"\"Take `percent` off `total` (10 means ten percent off).\"\"\"\n-    return round(total - percent, 2)\n+    return round(total * (1 - percent / 100), 2)\n \n \n def order_total(lines: list, discount_percent: float = 0.0) -> float:\n",
+   "patch_truncated": false,
+   "patch_path": "diffs/bugfix-pricing__haiku__r2.patch"
+  }
+ ]
+}

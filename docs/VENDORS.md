@@ -82,6 +82,42 @@ Output in `duel-out/`:
 `--from duel-out/` rebuilds the report and the page from the records
 without running anything.
 
+## The agent under test is not part of the evaluator
+
+When the harness itself runs inside an agent (Claude Code, say), the
+vendor CLI it starts would inherit that agent's session: its session id,
+its messaging socket and token, its remote tools. A live run found
+exactly that: the Claude Code under test reported the host session's id
+and was offered the host's notification, messaging and artifact tools.
+Now:
+
+- Every vendor process starts without the host session's variables
+  (`harness.vendors.HOST_SESSION_PREFIXES`). Authentication does not
+  need them; the same live run succeeded with all of them removed.
+- Claude Code is offered its coding tools only (`CLAUDE_TOOLS`), with
+  `--strict-mcp-config`.
+- The ledger has a row for **the tools on offer**, so a Codex run and a
+  Claude Code run are not presented as having had the same instruments.
+
+Restricting the tools also changed the spend, and the ledger is why the
+change is visible. Tool definitions are context: Sonnet's tokens per run
+on the demo bug fell from 193k with the host's tools to about 112k with
+its own.
+
+A credential can also be an endpoint the host configured
+(`ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`: a gateway or a managed
+provider). The preflight says so, rather than reporting "none" and
+refusing to start.
+
+## A recorded live run
+
+`demo/vendors/live/` holds a real duel: Claude Code 2.1.283 on Haiku 4.5
+and on Sonnet 5, two runs each, all four passing the check. Its raw
+streams are the converter's fixture. `tests/test_vendors.py` re-converts
+them and requires the committed traces back, with no event type unknown.
+`agentdiff duel --from demo/vendors/live` rebuilds the report without
+running anything.
+
 ## What is and is not equal
 
 The ledger is not a formality. Here is what differs by default, and why

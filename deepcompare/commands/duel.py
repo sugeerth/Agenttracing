@@ -222,7 +222,9 @@ def run(args: argparse.Namespace) -> int:
             return 2
     checks = [preflight(s) for s in specs]
     for c in checks:
-        cred = ", ".join(c["key_env_present"]) or ("a CLI login" if c["login_present"] else "none")
+        cred = ", ".join(c["key_env_present"]) or ("a CLI login" if c["login_present"] else
+               ("an endpoint the host configured (" + ", ".join(c["endpoint_env_present"]) + ")"
+                if c.get("endpoint_env_present") else "none"))
         print(f"{c['agent']:<12} {c['binary'] or '(not found)'}  {c['version']}  credential: {cred}")
     if args.dry_run:
         from ..harness.vendors import _argv
