@@ -1,0 +1,15 @@
+--- a/inventory.py
++++ b/inventory.py
+@@ -13,10 +13,10 @@
+     def remove(self, sku: str, qty: int) -> None:
+         """Take `qty` out; refuse to go below zero and leave stock unchanged."""
+         have = self.stock.get(sku, 0)
+-        self.stock[sku] = have - qty
+         if have < qty:
+             raise ValueError(f"only {have} of {sku} in stock")
++        self.stock[sku] = have - qty
+ 
+     def low(self, threshold: int) -> list:
+         """SKUs at or below `threshold`, sorted."""
+-        return sorted(s for s, q in self.stock.items() if q < threshold)
++        return sorted(s for s, q in self.stock.items() if q <= threshold)

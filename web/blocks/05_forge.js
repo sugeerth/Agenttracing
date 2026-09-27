@@ -138,7 +138,11 @@
           svg.append("circle").attr("cx", x(r.round)).attr("cy", y(s[2](r))).attr("r", 3.5).attr("fill", s[1]);
         });
         var last = rounds[rounds.length - 1];
-        svg.append("text").attr("class", "v").attr("x", x(last.round) + 8).attr("y", y(s[2](last)) + 4)
+        // the two end labels share a height when coverage and false alarms
+        // end level (both zero, say): coverage goes above, alarms below
+        var cy = y(last.caught / Math.max(1, wrong)), fy = y(last.false_alarms / Math.max(1, right));
+        var nudge = Math.abs(cy - fy) < 13 ? (s[0] === "coverage" ? -7 : 7) : 0;
+        svg.append("text").attr("class", "v").attr("x", x(last.round) + 8).attr("y", y(s[2](last)) + 4 + nudge)
           .attr("fill", s[1]).text(s[0] === "coverage" ? last.caught + "/" + wrong + " caught" : last.false_alarms + "/" + right + " flagged");
       });
     };

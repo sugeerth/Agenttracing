@@ -60,6 +60,7 @@
       ".dl-key{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:var(--fs-xs);color:var(--ink-3)}",
       ".dl-key i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}",
       ".dl-flag{font-size:var(--fs-s);color:var(--bad);font-weight:600;margin:0}",
+      ".dl-said{font-size:var(--fs-s);color:var(--good);font-weight:600;margin:0}",
       ".dl-diffs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}",
       "@media (max-width:760px){.dl-diffs{grid-template-columns:minmax(0,1fr)}.dl-grid{grid-template-columns:minmax(96px,max-content) repeat(2,minmax(0,1fr));gap:6px 8px}}",
       ".dl-patch{margin:0;font-family:ui-monospace,monospace;font-size:var(--fs-xs);line-height:1.45;white-space:pre;",
@@ -213,6 +214,10 @@
     });
     how.appendChild(hab);
     agents.forEach(function (a) {
+      if (pa[a].failed_and_said_why) {
+        how.appendChild(H("p", { class: "dl-said", "data-role": "said-why", "data-agent": a,
+          text: a + " failed the check and said what stopped it in " + pa[a].failed_and_said_why + " run(s)." }));
+      }
       if (pa[a].claimed_but_failed) {
         how.appendChild(H("p", { class: "dl-flag", "data-role": "claimed", "data-agent": a,
           text: a + " said it was done and failed the check in " + pa[a].claimed_but_failed + " run(s)." }));

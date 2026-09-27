@@ -5,6 +5,35 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## A live suite, and what it taught the report
+
+**Six tasks built to show behaviour** (`demo/vendors/suite/`): a bug fix,
+a feature from a spec, a performance fix under a timing check, a bug
+across two files, a spec-by-tests task, and an impossible task whose two
+tests contradict each other. Every check refuses a run that changed the
+test file. A test proves each check fails first, passes with a reference
+fix kept out of the workspace, and refuses edited tests.
+
+**Run live** on Haiku 4.5 and Sonnet 5 (`demo/vendors/live-suite/`):
+- both passed 5 of 6 and ran the tests after every edit
+- on the impossible task both changed nothing and named the contradiction
+- Haiku cost $0.25 in total against Sonnet's $0.46
+- Sonnet was faster, and read 228k tokens against 108k on the two-file bug
+
+**Two faults in the report, found by the run and fixed:**
+- the parity ledger compared prompts across tasks and called a suite
+  unequal; it now compares per task
+- the claim detector read "it's mathematically impossible to make all
+  tests pass" as a claim of done; it now reads sentence by sentence and
+  ignores negated or hedged sentences
+
+**New signal:** *failed the check and said what stopped it*, the
+behaviour wanted on an impossible task, counted beside *said it was done
+and failed the check*.
+
+The eval forge's end labels no longer overlap when coverage and false
+alarms end level.
+
 ## A live agent, run for real, and what it found
 
 Claude Code 2.1.283 ran the demo bug for real on Haiku 4.5 and on Sonnet
