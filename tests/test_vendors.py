@@ -758,6 +758,62 @@ class OneCommandTest(unittest.TestCase):
             self.assertIn("nothing to fix", again.stdout)
             self.assertFalse((proj / "second").exists(), "no agent started, nothing written")
 
+    def test_again_adds_runs_to_the_same_comparison_and_refuses_a_changed_workspace(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            proj = Path(tmp) / "proj"
+            shutil.copytree(ROOT / "demo" / "vendors" / "bugfix", proj)
+            first = subprocess.run([sys.executable, "-m", "agentdiff", "Fix pricing.py"], cwd=str(proj),
+                                   capture_output=True, text=True, env=self._env(), timeout=300)
+            self.assertEqual(first.returncode, 0, first.stderr[-2000:])
+            plan = json.loads((proj / "duel-out" / "plan.json").read_text())
+            self.assertEqual(plan["agents"], ["codex", "claude"])
+            self.assertNotIn(KEY_A, (proj / "duel-out" / "plan.json").read_text())
+            more = subprocess.run([sys.executable, "-m", "agentdiff", "again", "2"], cwd=str(proj),
+                                  capture_output=True, text=True, env=self._env(), timeout=300)
+            self.assertEqual(more.returncode, 0, more.stderr[-2000:])
+            runs = sorted(p.stem.rsplit("__", 1)[1] for p in (proj / "duel-out" / "records").glob("*.json"))
+            self.assertEqual(runs, ["r1", "r1", "r2", "r2", "r3", "r3"])
+            report = json.loads((proj / "duel-out" / "duel.json").read_text())
+            self.assertEqual(report["runs"], 6, "one report over every run of the comparison")
+            self.assertFalse((proj / "duel-out-2").exists(), "the same comparison, not a new one")
+            (proj / "pricing.py").write_text((proj / "pricing.py").read_text() + "\n# changed\n")
+            refused = subprocess.run([sys.executable, "-m", "agentdiff", "again"], cwd=str(proj),
+                                     capture_output=True, text=True, env=self._env(), timeout=300)
+            self.assertEqual(refused.returncode, 2)
+            self.assertIn("has changed since this duel ran", refused.stderr)
+
+    def test_at_a_terminal_the_agents_share_one_status_line(self):
+        import pty
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            proj = Path(tmp) / "proj"
+            shutil.copytree(ROOT / "demo" / "vendors" / "bugfix", proj)
+            master, slave = pty.openpty()
+            try:
+                proc = subprocess.Popen([sys.executable, "-m", "agentdiff", "Fix pricing.py", "--no-live"],
+                                        cwd=str(proj), stdin=subprocess.DEVNULL, stdout=slave,
+                                        stderr=subprocess.PIPE, env=self._env())
+                os.close(slave)
+                chunks = []
+                while True:
+                    try:
+                        data = os.read(master, 65536)
+                    except OSError:
+                        break
+                    if not data:
+                        break
+                    chunks.append(data)
+                proc.wait(timeout=300)
+            finally:
+                os.close(master)
+        text = b"".join(chunks).decode("utf-8", "replace")
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("\r", text, "the status line is rewritten in place")
+        self.assertIn("│", text, "both agents on one line")
+        self.assertNotIn("\n[", text, "no scroll of per-action lines")
+        self.assertIn("page: duel-out/page/report.html", text)
+
     def test_a_check_that_already_passes_is_said_to_measure_nothing(self):
         import shutil
         with tempfile.TemporaryDirectory() as tmp:
@@ -900,14 +956,14 @@ class LiveAnalyticsTest(unittest.TestCase):
                     live = data["live"]
                     if live["runs"]:
                         during.append(data["aggregate"])
-                    if len(live["finished"]) == 4 and not live["runs"] and \
-                            (out / "page" / "aggregate.json").is_file():
+                    if live.get("done"):
                         final = data["aggregate"]
                         break
                     time.sleep(0.15)
                 self.assertTrue(any("duel" in a or a.get("tasks") for a in during),
                                 "analysis arrived while an agent was still running")
-                self.assertIsNotNone(final, "the live page reached the finished state")
+                self.assertIsNotNone(final, "the live page's last payload is marked done")
+                self.assertTrue((out / "page" / "aggregate.json").is_file(), "done comes after the page is written")
                 written = json.loads((out / "page" / "aggregate.json").read_text(encoding="utf-8"))
                 for key in ("tasks", "scorecard", "lessons", "forge", "duel", "issues", "routing"):
                     with self.subTest(reading=key):

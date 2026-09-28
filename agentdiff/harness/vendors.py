@@ -254,7 +254,7 @@ def mark_output(out: Path) -> None:
 
 def _walk(root: Path):
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
+        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS and not _is_output(Path(dirpath) / d))
         for f in sorted(filenames):
             p = Path(dirpath) / f
             if p.is_symlink() or not p.is_file():
@@ -642,7 +642,7 @@ def run_duel(tasks: list, specs: list, out: Path, *, runs: int = 1, parallel: bo
              on_event: Optional[Callable[[dict], None]] = None,
              on_done: Optional[Callable[[dict], None]] = None, baseline: bool = True,
              on_baseline: Optional[Callable[[dict, dict], None]] = None,
-             baselines: Optional[dict] = None, **kw) -> list:
+             baselines: Optional[dict] = None, first_run: int = 1, **kw) -> list:
     """Every task, every run, every agent. Agents on one (task, run) are
     launched together unless ``parallel`` is False. With ``baseline``, each
     task's check first runs once on an untouched copy."""
@@ -655,7 +655,7 @@ def run_duel(tasks: list, specs: list, out: Path, *, runs: int = 1, parallel: bo
                     | {"output_tail": b["output_tail"][-1500:]}}
             if on_baseline:
                 on_baseline(task, b)
-        for n in range(1, runs + 1):
+        for n in range(first_run, first_run + runs):
             run = f"r{n}"
             started = time.time()
             got: list = []

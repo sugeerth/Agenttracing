@@ -33,6 +33,19 @@ and type `agentdiff "…"`. To choose the two agents, name the models:
 `opus`, `claude-…` run on Claude Code; `gpt-…`, `o3`, `codex-…` on Codex).
 `agentdiff open` reopens the newest duel's page.
 
+One run each settles little. `agentdiff again 3` adds three runs per
+agent to the newest duel here: the same task, agents and settings (kept
+in its `plan.json`), numbered after the runs already there, with one
+report over all of them. If the project has changed since, it refuses,
+because runs that started from different code are not the same
+comparison.
+
+At a terminal, the agents share one status line, rewritten in place,
+with each one's count of actions and its latest action (`--events`
+prints every action instead). The live page takes the final state, says
+*finished*, and stops listening. The command exits a few seconds later
+(`--linger -1` keeps serving until Ctrl-C).
+
 With no task in mind, `agentdiff fix` writes it: it finds the test
 command, runs it once on an untouched copy, and, if it fails, gives both
 agents the same task. That task is to make it pass without editing, skipping

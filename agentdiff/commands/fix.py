@@ -27,6 +27,8 @@ def register(subparsers) -> None:
                         help="twice, as for duel (default: the CLIs installed)")
     parser.add_argument("--runs", type=int, default=1, help="runs per agent (default 1)")
     parser.add_argument("--no-live", action="store_true", help="no live page")
+    parser.add_argument("--quiet", action="store_true", help="no action lines, as for duel")
+    parser.add_argument("--events", action="store_true", help="every action as a line, as for duel")
     parser.add_argument("-o", "--output", default=None, metavar="DIR")
     parser.set_defaults(func=run)
 
@@ -55,8 +57,9 @@ def run(args: argparse.Namespace) -> int:
     argv = ["duel", task_prompt(command, b), "--check", command, "--id", "fix", "--runs", str(args.runs)]
     for a in args.agent or []:
         argv += ["--agent", a]
-    if args.no_live:
-        argv.append("--no-live")
+    for flag in ("no_live", "quiet", "events"):
+        if getattr(args, flag):
+            argv.append("--" + flag.replace("_", "-"))
     if args.output:
         argv += ["-o", args.output]
     parser = argparse.ArgumentParser(prog="agentdiff")

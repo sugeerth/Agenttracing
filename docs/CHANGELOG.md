@@ -5,6 +5,20 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## `agentdiff again`, a status line, and a page that finishes
+
+- `agentdiff again [N]` adds N runs per agent to the newest duel: the
+  same task, agents and settings (from its `plan.json`), numbered after
+  the runs already there, with one report over all of them. It refuses
+  when the workspace changed since, because runs from different starting
+  code are not the same comparison.
+- At a terminal, one status line for both agents replaces the scroll of
+  actions (`--events` brings the scroll back).
+- The live page's last payload is marked `done`: the page stops
+  listening and says *finished*, instead of *reconnecting* once the
+  server exits. The command exits 3 seconds after the duel
+  (`--linger -1` keeps serving), instead of waiting for Ctrl-C.
+
 ## One name: AgentDiff
 
 The command was already `agentdiff`, but the package, `python -m`, the

@@ -4835,6 +4835,15 @@ class DuelBlockTest(unittest.TestCase):
                 self.assertTrue(any("running" in s for s in states), states)
                 self.assertIn("finished", states[-1])
                 self.assertGreater(marks[-1], marks[0], "the lanes grew while the page was open")
+                # the last payload is marked done: the page stops listening and says so,
+                # rather than "reconnecting" once the server exits
+                page.wait_for_function("() => (document.querySelector('#live-badge') || {}).textContent"
+                                       " && document.querySelector('#live-badge').textContent.includes('finished')",
+                                       timeout=15000)
+                proc.wait(timeout=60)
+                page.wait_for_timeout(1500)
+                self.assertIn("finished", page.locator("#live-badge").inner_text())
+                self.assertNotIn("reconnecting", page.locator("#live-badge").inner_text())
                 self.assertEqual(errors, [])
                 context.close()
             finally:

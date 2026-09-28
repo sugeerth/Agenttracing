@@ -81,6 +81,8 @@ def register(subparsers) -> None:
     parser.add_argument("--from", dest="from_dir", default=None, metavar="DIR",
                         help="rebuild the report and page from a finished duel's records; runs nothing")
     parser.add_argument("--quiet", action="store_true", help="no live event lines")
+    parser.add_argument("--events", action="store_true",
+                        help="print every action as a line (default at a terminal: one status line per agent)")
     parser.add_argument("--live", action="store_true", default=None,
                         help="serve the page while the agents work: both stream into a race at "
                              "http://HOST:PORT/ (localhost only). Default: on in a terminal")
@@ -93,9 +95,9 @@ def register(subparsers) -> None:
     parser.add_argument("--max-stream-mb", type=float, default=256.0,
                         help="stop a run whose output passes this many MB (default 256)")
     parser.add_argument("--port", type=int, default=8765, help="--live: port (default 8765)")
-    parser.add_argument("--linger", type=float, default=None, metavar="S",
-                        help="--live: keep serving this many seconds after the duel ends "
-                             "(default: until Ctrl-C)")
+    parser.add_argument("--linger", type=float, default=3.0, metavar="S",
+                        help="--live: keep serving this many seconds after the duel ends, while the open page "
+                             "takes the final state and stops listening (default 3; -1: until Ctrl-C)")
     parser.add_argument("--template", default=None, help="page template (default the blocks page)")
     parser.add_argument("-o", "--output", default=None, metavar="DIR",
                         help="default duel-out/, or duel-out-2/ and on when it holds an earlier duel")
@@ -230,6 +232,36 @@ def _say(ev: dict) -> str:
     return ""
 
 
+class _Status:
+    """At a terminal: one line, rewritten in place, with each agent's count
+    of actions and the latest one, instead of a scroll of every action."""
+
+    def __init__(self) -> None:
+        import threading
+        self.lock = threading.Lock()
+        self.agents: dict = {}
+        self.t0 = time.monotonic()
+
+    def update(self, agent: str, line: str) -> None:
+        import shutil
+        what = line.split(agent, 1)[-1].strip()
+        with self.lock:
+            n, _ = self.agents.get(agent, (0, ""))
+            self.agents[agent] = (n + 1, what)
+            width = shutil.get_terminal_size((100, 20)).columns - 1
+            share = max(20, (width - 8) // max(1, len(self.agents)))
+            parts = [f"{a} {c} · {w}"[:share - 3] for a, (c, w) in sorted(self.agents.items())]
+            text = f"{time.monotonic() - self.t0:5.0f}s  " + " │ ".join(parts)
+            sys.stdout.write("\r" + text[:width].ljust(width))
+            sys.stdout.flush()
+
+    def clear(self) -> None:
+        import shutil
+        with self.lock:
+            sys.stdout.write("\r" + " " * (shutil.get_terminal_size((100, 20)).columns - 1) + "\r")
+            sys.stdout.flush()
+
+
 def _load_records(out: Path) -> list:
     records = []
     for p in sorted((out / "records").glob("*.json")):
@@ -317,6 +349,8 @@ def run(args: argparse.Namespace) -> int:
         # the page names the task by its first words, not "task"
         words = re.findall(r"[a-z0-9]+", args.prompt.lower())[:5]
         args.id = "-".join(words) or "task"
+    if getattr(args, "again", None):
+        simple = False
     if simple and not args.check and not getattr(args, "no_check", False):
         cmd, why = detect_check(args.workspace)
         args.check = cmd
@@ -379,12 +413,28 @@ def run(args: argparse.Namespace) -> int:
     if not any(t.get("check") for t in tasks):
         print("note: no --check given: runs are recorded ungraded", file=sys.stderr)
     out.mkdir(parents=True, exist_ok=True)
+    again = getattr(args, "again", None) or {}
+    if not again:
+        # what `agentdiff again` needs to add runs to this same comparison
+        (out / "plan.json").write_text(json.dumps({
+            "tasks": tasks, "agents": agents,
+            "options": {k: getattr(args, k) for k in (
+                "band", "budget_tokens", "timeout", "check_timeout", "sequential", "sandbox",
+                "claude_permission_mode", "use_my_config", "max_stream_mb", "codex_bin", "claude_bin",
+                "no_baseline")},
+        }, indent=1), encoding="utf-8")
+    status = _Status() if (not args.quiet and not args.events and sys.stdout.isatty()) else None
 
     def on_event(ev):
-        if not args.quiet:
-            line = _say(ev)
-            if line:
-                print(line, flush=True)
+        if args.quiet:
+            return
+        line = _say(ev)
+        if not line:
+            return
+        if status is not None:
+            status.update(ev["agent"], line)
+        else:
+            print(line, flush=True)
 
     def on_baseline(task, b):
         state = ("fails, as a task's check should" if b["passed"] is False else
@@ -392,6 +442,8 @@ def run(args: argparse.Namespace) -> int:
         print(f"before any work: `{b['command']}` {state} (exit {b['exit_code']}, {b['seconds']:.1f}s)", flush=True)
 
     def on_done(rec):
+        if status is not None:
+            status.clear()
         c = rec["check"]
         verdict = "no check" if c["passed"] is None else ("PASS" if c["passed"] else f"FAIL (exit {c['exit_code']})")
         t = rec["trajectory"]["totals"]
@@ -441,7 +493,8 @@ def run(args: argparse.Namespace) -> int:
     try:
         records = run_duel(tasks, specs, out, runs=args.runs, parallel=not args.sequential,
                            baseline=not args.no_baseline, on_baseline=on_baseline,
-                           baselines=getattr(args, "baselines", None),
+                           baselines=getattr(args, "baselines", None) or again.get("baselines"),
+                           first_run=again.get("first_run", 1),
                            live_every=0.25 if args.live else 1.0,
                            stream_cap=int(args.max_stream_mb * 1024 * 1024),
                            on_event=on_event, on_done=on_done, budget_tokens=args.budget_tokens,
@@ -482,14 +535,19 @@ def run(args: argparse.Namespace) -> int:
             r["trajectory"] = fresh
             (out / r["trace"]).write_text(json.dumps(fresh, indent=1, ensure_ascii=False), encoding="utf-8")
     good = [r for r in records if not r.get("failed")]
+    if again:
+        # the earlier runs of this comparison, then these
+        good = [r for r in _load_records(out) if (r["task"], r["agent"], r["run"]) not in
+                {(g["task"], g["agent"], g["run"]) for g in good}] + good
     code = _report(out, good, args.band, args.template, args.quiet) if good else 1
     if server is not None:
         try:
-            if args.linger is None:
+            server.watcher.finish()
+            if args.linger is not None and args.linger < 0:
                 print("live: serving the finished race; Ctrl-C to stop", flush=True)
                 while True:
                     time.sleep(3600)
-            elif args.linger > 0:
+            elif args.linger and args.linger > 0:
                 time.sleep(args.linger)
         except KeyboardInterrupt:
             pass

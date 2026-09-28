@@ -97,6 +97,9 @@ class Watcher:
         self.db_path = Path(db) if db else None
         self._ingested: set = set()
         self.version = 0
+        # set by the process that fed the directory when it will add nothing
+        # more: the page stops listening and says it is complete
+        self.done = False
         self._signature: Optional[dict] = None
         self._payload: Optional[dict] = None
         self._lock = threading.Lock()
@@ -235,7 +238,7 @@ class Watcher:
             "reports": reports,
             "aggregate": agg,
             "live": {
-                "enabled": True, "events": "/events", "version": self.version,
+                "enabled": True, "events": "/events", "version": self.version, "done": self.done,
                 "generated_at": time.time(), "agents": pair,
                 "runs": sorted(lives, key=lambda r: (r["task"], r["agent"])),
                 "finished": finished,
@@ -289,6 +292,11 @@ class Watcher:
             self._payload = payload
             self._changed.notify_all()
         return True
+
+    def finish(self) -> None:
+        """Nothing more will arrive: one last payload, marked done."""
+        self.done = True
+        self.refresh(force=True)
 
     def payload(self) -> dict:
         with self._lock:

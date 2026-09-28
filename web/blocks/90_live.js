@@ -21,6 +21,7 @@
     "padding:6px 10px;border-radius:999px;background:var(--ink);color:var(--bg);font-size:var(--fs-xs);box-shadow:var(--shadow)}",
     "#live-badge i{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--good)}",
     "#live-badge.off i{background:var(--warn);animation:none}",
+    "#live-badge.done i{background:var(--good);animation:none}",
     "#live-badge i{animation:live-pulse 1.2s ease-in-out infinite alternate}",
     "@keyframes live-pulse{from{opacity:.4}to{opacity:1}}",
     "@media (prefers-reduced-motion:reduce){#live-badge i{animation:none}}",
@@ -42,7 +43,8 @@
     var when = "";
     try { when = new Date().toLocaleTimeString(); } catch (err) { when = ""; }
     text.textContent = "LIVE · " + state + " · " + running + " running · " + reports + " compared" + (when ? " · " + when : "");
-    badge.classList.toggle("off", state !== "connected");
+    badge.classList.toggle("off", state === "connecting" || state === "reconnecting");
+    badge.classList.toggle("done", state === "finished");
   }
   describe(data, "connecting");
 
@@ -51,8 +53,15 @@
     var payload;
     try { payload = JSON.parse(event.data); } catch (err) { return; }
     AgentDiff.load(payload);
-    describe(payload, "connected");
     AgentDiff._liveVersion = payload.live && payload.live.version;
+    if (payload.live && payload.live.done) {
+      // the run is over and this is its last word: stop listening, so the
+      // page stays whole after the server exits instead of "reconnecting"
+      source.close();
+      describe(payload, "finished");
+      return;
+    }
+    describe(payload, "connected");
   });
   source.onopen = function () { describe(null, "connected"); };
   source.onerror = function () { describe(null, "reconnecting"); };

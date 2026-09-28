@@ -520,7 +520,7 @@ def scoreboard(report: dict) -> str:
     if any(not isinstance((per.get(n) or {}).get("cost_usd"), (int, float)) for n in names):
         notes.append("n/r: the CLI reports no cost (--price sets one, labelled yours)")
     lines += [f"  · {x}" for x in notes]
-    lines.append("  tokens and time are medians per run")
+    lines.append("  tokens and time: medians per run; cost: the total")
     return "\n".join(lines)
 
 
