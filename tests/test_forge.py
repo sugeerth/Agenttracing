@@ -14,11 +14,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deepcompare import forge
-from deepcompare.commands._io import load_traces
-from deepcompare.lessons import split
-from deepcompare.scorecard import load_golden
-from deepcompare.trace import Trajectory
+from agentdiff import forge
+from agentdiff.commands._io import load_traces
+from agentdiff.lessons import split
+from agentdiff.scorecard import load_golden
+from agentdiff.trace import Trajectory
 
 ROOT = Path(__file__).resolve().parents[1]
 SUITE = ROOT / "demo" / "horizon" / "suite"
@@ -140,7 +140,7 @@ class ForgeTest(unittest.TestCase):
 
     def test_a_reader_mark_becomes_a_candidate(self):
         # a step of a wrong run that carries a mark
-        from deepcompare import excerpt
+        from agentdiff import excerpt
         for t in self.traces:
             marks = excerpt.notable_steps(t, self.gold.get("policy"))
             if marks and t.agent.name == "drift-lh":
@@ -165,8 +165,8 @@ class JudgeInTheLoopTest(unittest.TestCase):
         cls.halves = split(t.task.id for t in cls.traces)
 
     def test_the_judge_never_sees_the_held_out_half(self):
-        from deepcompare.harness.forge_judge import make_proposer
-        from deepcompare.harness.providers import ScriptedProvider
+        from agentdiff.harness.forge_judge import make_proposer
+        from agentdiff.harness.providers import ScriptedProvider
         seen = []
 
         def script(messages, tools):
@@ -251,7 +251,7 @@ class CommandsTest(unittest.TestCase):
             seeds = Path(tmp) / "seeds.json"
             seeds.write_text(json.dumps({"seeds": [{"task": "L03_data_backfill", "agent": "drift-lh", "step": 5}]}))
             ledger = Path(tmp) / "evals.json"
-            done = subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(SUITE), "-o", str(Path(tmp) / "o"),
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(SUITE), "-o", str(Path(tmp) / "o"),
                                    "--golden", str(GOLDEN), "--evals", str(ledger), "--seeds", str(seeds)],
                                   cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(done.returncode, 0, done.stderr[-2000:])
@@ -271,7 +271,7 @@ class CommandsTest(unittest.TestCase):
                 {"tool_calls": [{"name": "try_rule", "arguments": {"rule": "mark:cycle"}}]},
                 {"text": json.dumps({"rules": [{"rule": "tool_called:run_checks>=40", "why": "checks without end"}]})},
             ]}))
-            done = subprocess.run([sys.executable, "-m", "deepcompare", "forge", str(SUITE), "--golden", str(GOLDEN),
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "forge", str(SUITE), "--golden", str(GOLDEN),
                                    "--judge", f"j=scripted:{script}", "-o", str(Path(tmp) / "f")],
                                   cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(done.returncode, 0, done.stderr[-2000:])

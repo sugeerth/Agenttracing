@@ -16,8 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory
-from deepcompare.efficiency import (
+from agentdiff import Trajectory
+from agentdiff.efficiency import (
     aggregate_efficiency,
     analyse,
     compare_efficiency,
@@ -364,8 +364,8 @@ class TestPairwiseAndAggregate(unittest.TestCase):
         self.assertIn("left", block["narrative"])
 
     def test_report_and_aggregate_are_wired(self):
-        from deepcompare.metrics import aggregate
-        from deepcompare.report import compare
+        from agentdiff.metrics import aggregate
+        from agentdiff.report import compare
         a, b = self.pair()
         report = compare(a, b)
         self.assertIn("efficiency", report)
@@ -374,7 +374,7 @@ class TestPairwiseAndAggregate(unittest.TestCase):
         self.assertEqual(rollup["efficiency"]["agents"]["a"], "left")
 
     def test_cost_per_success_divides_total_cost_by_successes(self):
-        from deepcompare.report import compare
+        from agentdiff.report import compare
         a, b = self.pair(cost=0.01, success_b=False)
         rollup = aggregate_efficiency([compare(a, b)])
         self.assertEqual(rollup["per_agent"]["a"]["cost_per_success"]["value_usd"],
@@ -384,7 +384,7 @@ class TestPairwiseAndAggregate(unittest.TestCase):
         self.assertIn("zero denominator", b_side["reason"])
 
     def test_zero_cost_everywhere_is_unmeasurable_not_free(self):
-        from deepcompare.report import compare
+        from agentdiff.report import compare
         a, b = self.pair(cost=0.0)
         rollup = aggregate_efficiency([compare(a, b)])
         side = rollup["per_agent"]["a"]["cost_per_success"]
@@ -397,7 +397,7 @@ class TestPairwiseAndAggregate(unittest.TestCase):
         self.assertIsNone(rollup["per_agent"]["a"])
 
     def test_reports_without_the_block_are_counted_not_skipped_silently(self):
-        from deepcompare.report import compare
+        from agentdiff.report import compare
         a, b = self.pair()
         report = compare(a, b)
         del report["efficiency"]

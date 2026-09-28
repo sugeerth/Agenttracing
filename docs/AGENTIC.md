@@ -8,7 +8,7 @@ the loop is built and why, including the choices that were mine to make.
 
 ## The controller is not a model
 
-Everything the loop *decides* comes from `deepcompare/planner.py`: a
+Everything the loop *decides* comes from `agentdiff/planner.py`: a
 pure function from the loop's state to the next action, built from
 success counts, Wilson intervals, routing confidence and paired
 comparisons. The models are the things under test (and, with `judge`,

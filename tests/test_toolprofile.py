@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deepcompare.toolprofile import HYPOTHESIS, MAX_SUGGESTIONS, dossier, profile_run, suggest, tool_pair
+from agentdiff.toolprofile import HYPOTHESIS, MAX_SUGGESTIONS, dossier, profile_run, suggest, tool_pair
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -143,7 +143,7 @@ class SuggestTest(unittest.TestCase):
 class DemoTest(unittest.TestCase):
     def test_the_long_demo_reads_the_ledger_retries_and_is_deterministic(self):
         with tempfile.TemporaryDirectory() as tmp:
-            subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "horizon" / "long"), "-o", tmp], cwd=str(ROOT), check=True, capture_output=True)
+            subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(ROOT / "demo" / "horizon" / "long"), "-o", tmp], cwd=str(ROOT), check=True, capture_output=True)
             rep = json.loads((Path(tmp) / "report_h02_migrate_service.json").read_text(encoding="utf-8"))
         self.assertIn("tools_profile", rep)
         tp = rep["tools_profile"]

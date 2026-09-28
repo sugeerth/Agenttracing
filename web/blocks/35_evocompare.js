@@ -5,7 +5,7 @@
  * has no single answer, and these blocks do not pretend it does: there are
  * four axes and four answers, then the details each answer rests on. Every
  * point, bound, count and sentence is read from `aggregate.evolution_compare`
- * (deepcompare/evolvecompare.py); nothing is recomputed in the browser, so
+ * (agentdiff/evolvecompare.py); nothing is recomputed in the browser, so
  * the page and the engine cannot drift:
  *
  *   evc-curves      both lineages' task-stratified IQM per generation on one

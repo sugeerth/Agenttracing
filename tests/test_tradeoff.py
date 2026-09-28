@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare.tradeoff import pair_tradeoff
+from agentdiff.tradeoff import pair_tradeoff
 
 
 def report(ok_a=True, ok_b=True, score_a=None, score_b=None,

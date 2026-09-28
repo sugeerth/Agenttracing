@@ -33,7 +33,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare.record import Recorder  # noqa: E402
+from agentdiff.record import Recorder  # noqa: E402
 from demo._env import (  # noqa: E402,F401 — the environment; the reward constants are re-exported for readers
     ANSWER_REWARD, ERROR_REWARD, EVIDENCE_REWARD, TASKS, TOOL_COST, label_synthetic, run_episode, tools_for,
 )

@@ -14,8 +14,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory
-from deepcompare.variance import (
+from agentdiff import Trajectory
+from agentdiff.variance import (
     METRICS,
     decompose,
     design,

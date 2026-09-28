@@ -16,9 +16,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deepcompare import vendors
-from deepcompare.duel import classify, classify_command, claims_done, duel_report
-from deepcompare.trace import Trajectory
+from agentdiff import vendors
+from agentdiff.duel import classify, classify_command, claims_done, duel_report
+from agentdiff.trace import Trajectory
 
 ROOT = Path(__file__).resolve().parents[1]
 FAKES = ROOT / "tests" / "fixtures" / "vendors"
@@ -213,7 +213,7 @@ class DetectAndConvertTest(unittest.TestCase):
             src = Path(tmp) / "run.jsonl"
             src.write_text("\n".join(json.dumps(e["e"]) for e in codex_events()), encoding="utf-8")
             out = Path(tmp) / "out"
-            done = subprocess.run([sys.executable, "-m", "deepcompare", "convert", str(src), "-o", str(out)],
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "convert", str(src), "-o", str(out)],
                                   cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(done.returncode, 0, done.stderr)
             written = sorted(out.glob("*.json"))
@@ -250,7 +250,7 @@ class ClassifyTest(unittest.TestCase):
         self.assertFalse(claims_done("Should I make the tests pass by changing them?"))
 
     def test_saying_what_stopped_the_work(self):
-        from deepcompare.duel import reports_blocker
+        from agentdiff.duel import reports_blocker
         self.assertTrue(reports_blocker("The tests are contradictory and cannot both pass."))
         self.assertTrue(reports_blocker("I could not install the package: the network is blocked."))
         self.assertFalse(reports_blocker("Fixed the discount. All tests pass."))
@@ -261,7 +261,7 @@ def run_duel_cli(out, *extra, env=None):
     e.pop("FAKE_VENDOR_MODE", None)
     e.update({"OPENAI_API_KEY": KEY_A, "ANTHROPIC_API_KEY": KEY_B})
     e.update(env or {})
-    return subprocess.run([sys.executable, "-m", "deepcompare", "duel", "--task", str(TASK),
+    return subprocess.run([sys.executable, "-m", "agentdiff", "duel", "--task", str(TASK),
                            "--codex-bin", str(FAKES / "fake_codex.py"), "--claude-bin", str(FAKES / "fake_claude.py"),
                            "-o", str(out), "--quiet", *extra], cwd=str(ROOT), capture_output=True, text=True, env=e)
 
@@ -360,7 +360,7 @@ class DuelBehaviourTest(unittest.TestCase):
                                         "check": "python3 -c \"import os,sys; sys.exit(1 if os.environ.get('OPENAI_API_KEY') "
                                                  "or os.environ.get('ANTHROPIC_API_KEY') else 0)\""}))
             e = dict(os.environ, OPENAI_API_KEY=KEY_A, ANTHROPIC_API_KEY=KEY_B)
-            done = subprocess.run([sys.executable, "-m", "deepcompare", "duel", "--task", str(task), "--quiet",
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "duel", "--task", str(task), "--quiet",
                                    "--codex-bin", str(FAKES / "fake_codex.py"), "--claude-bin", str(FAKES / "fake_claude.py"),
                                    "-o", str(Path(tmp) / "d")], cwd=str(ROOT), capture_output=True, text=True, env=e)
             self.assertEqual(done.returncode, 0, done.stderr[-2000:])
@@ -374,7 +374,7 @@ class DuelBehaviourTest(unittest.TestCase):
         e["HOME"] = tempfile.mkdtemp()
         e.pop("CODEX_HOME", None)
         with tempfile.TemporaryDirectory() as tmp:
-            done = subprocess.run([sys.executable, "-m", "deepcompare", "duel", "--task", str(TASK),
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "duel", "--task", str(TASK),
                                    "--codex-bin", str(FAKES / "fake_codex.py"), "--claude-bin", str(FAKES / "fake_claude.py"),
                                    "-o", str(Path(tmp) / "d")], cwd=str(ROOT), capture_output=True, text=True, env=e)
         self.assertEqual(done.returncode, 2)
@@ -386,7 +386,7 @@ class DuelBehaviourTest(unittest.TestCase):
             out = Path(tmp) / "d"
             self.assertEqual(run_duel_cli(out).returncode, 0)
             (out / "duel.json").unlink()
-            done = subprocess.run([sys.executable, "-m", "deepcompare", "duel", "--from", str(out)],
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "duel", "--from", str(out)],
                                   cwd=str(ROOT), capture_output=True, text=True, env={**os.environ, "PATH": "/usr/bin:/bin"})
             self.assertEqual(done.returncode, 0, done.stderr[-2000:])
             self.assertTrue((out / "duel.json").is_file())
@@ -412,7 +412,7 @@ class LiveDuelTest(unittest.TestCase):
                 self.skipTest(f"{tool} is not installed")
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "live"
-            done = subprocess.run([sys.executable, "-m", "deepcompare", "duel", "--task", str(TASK),
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "duel", "--task", str(TASK),
                                    "--timeout", "900", "-o", str(out)], cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(done.returncode, 0, done.stderr[-3000:])
             r = json.loads((out / "duel.json").read_text(encoding="utf-8"))
@@ -447,7 +447,7 @@ class LiveDuelStreamTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             e = dict(os.environ, OPENAI_API_KEY=KEY_A, ANTHROPIC_API_KEY=KEY_B, FAKE_VENDOR_SLOW="0.25")
             e.pop("FAKE_VENDOR_MODE", None)
-            proc = subprocess.Popen([sys.executable, "-m", "deepcompare", "duel", "--task", str(TASK), "--quiet",
+            proc = subprocess.Popen([sys.executable, "-m", "agentdiff", "duel", "--task", str(TASK), "--quiet",
                                      "--codex-bin", str(FAKES / "fake_codex.py"),
                                      "--claude-bin", str(FAKES / "fake_claude.py"),
                                      "--live", "--port", "0", "--linger", "4", "-o", str(Path(tmp) / "d")],
@@ -524,7 +524,7 @@ class HostSessionIsolationTest(unittest.TestCase):
             self.assertFalse(row["equal"], "Codex and Claude Code are not offered the same tools, and the ledger says so")
 
     def test_the_environment_keeps_what_authentication_needs(self):
-        from deepcompare.harness.vendors import vendor_env
+        from agentdiff.harness.vendors import vendor_env
         from unittest import mock
         with mock.patch.dict(os.environ, {"ANTHROPIC_BASE_URL": "https://gw.example", "ANTHROPIC_API_KEY": "k" * 12,
                                           "CLAUDE_CODE_SESSION_ID": "s", "CLAUDECODE": "1",
@@ -576,7 +576,7 @@ class RecordedLiveRunTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             copy = Path(tmp) / "suite"
             shutil.copytree(ROOT / "demo" / "vendors" / "live-suite", copy)
-            done = subprocess.run([sys.executable, "-m", "deepcompare", "duel", "--from", str(copy)],
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "duel", "--from", str(copy)],
                                   cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(done.returncode, 0, done.stderr[-2000:])
             r = json.loads((copy / "duel.json").read_text(encoding="utf-8"))
@@ -592,7 +592,7 @@ class RecordedLiveRunTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             copy = Path(tmp) / "live"
             shutil.copytree(self.LIVE, copy)
-            done = subprocess.run([sys.executable, "-m", "deepcompare", "duel", "--from", str(copy)],
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "duel", "--from", str(copy)],
                                   cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(done.returncode, 0, done.stderr[-2000:])
             r = json.loads((copy / "duel.json").read_text(encoding="utf-8"))
@@ -637,8 +637,8 @@ class OneCommandTest(unittest.TestCase):
     hands its agents the first one's output."""
 
     def test_the_check_is_read_from_the_project_never_run(self):
-        from deepcompare.commands.duel import detect_check
-        from deepcompare.harness.vendors import OUTPUT_MARKER
+        from agentdiff.commands.duel import detect_check
+        from agentdiff.harness.vendors import OUTPUT_MARKER
         cases = [
             ({"Makefile": "build:\n\techo\ntest:\n\tpytest\n", "package.json": '{"scripts":{"test":"jest"}}'},
              "make test"),
@@ -665,7 +665,7 @@ class OneCommandTest(unittest.TestCase):
 
     def test_the_agents_are_the_clis_installed(self):
         from unittest import mock
-        from deepcompare.commands.duel import default_agents
+        from agentdiff.commands.duel import default_agents
         with tempfile.TemporaryDirectory() as empty, mock.patch.dict(os.environ, {"PATH": empty}):
             os.environ.pop("AGENTDIFF_CODEX_BIN", None)
             os.environ.pop("AGENTDIFF_CLAUDE_BIN", None)
@@ -688,7 +688,7 @@ class OneCommandTest(unittest.TestCase):
             # the second time without the word `duel`: a sentence is the task
             for n, out, verb in ((1, "duel-out", ["duel"]), (2, "duel-out-2", [])):
                 with self.subTest(duel=n):
-                    done = subprocess.run([sys.executable, "-m", "deepcompare"] + verb +
+                    done = subprocess.run([sys.executable, "-m", "agentdiff"] + verb +
                                           ["Fix pricing.py so the tests pass"],
                                           cwd=str(proj), capture_output=True, text=True, env=e, timeout=300)
                     self.assertEqual(done.returncode, 0, done.stderr[-2000:])
@@ -716,7 +716,7 @@ class OneCommandTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as empty:
             e = {k: v for k, v in os.environ.items() if not k.startswith("AGENTDIFF_")}
             e.update(PATH=empty, PYTHONPATH=str(ROOT))
-            done = subprocess.run([sys.executable, "-m", "deepcompare"], cwd=str(ROOT), capture_output=True,
+            done = subprocess.run([sys.executable, "-m", "agentdiff"], cwd=str(ROOT), capture_output=True,
                                   text=True, env=e)
         self.assertEqual(done.returncode, 0)
         self.assertIn('"Fix the failing test"', done.stdout)
@@ -736,7 +736,7 @@ class OneCommandTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             proj = Path(tmp) / "proj"
             shutil.copytree(ROOT / "demo" / "vendors" / "bugfix", proj)
-            done = subprocess.run([sys.executable, "-m", "deepcompare", "fix"], cwd=str(proj),
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "fix"], cwd=str(proj),
                                   capture_output=True, text=True, env=self._env(), timeout=300)
             self.assertEqual(done.returncode, 0, done.stderr[-2000:])
             self.assertIn("fails (exit", done.stdout)
@@ -752,7 +752,7 @@ class OneCommandTest(unittest.TestCase):
             self.assertIn("The end of its output", prompt)
             for f in (FAKES.parent / "vendor_solutions" / "bugfix-pricing").iterdir():
                 shutil.copy(f, proj / f.name)
-            again = subprocess.run([sys.executable, "-m", "deepcompare", "fix", "-o", "second"], cwd=str(proj),
+            again = subprocess.run([sys.executable, "-m", "agentdiff", "fix", "-o", "second"], cwd=str(proj),
                                    capture_output=True, text=True, env=self._env(), timeout=300)
             self.assertEqual(again.returncode, 0, again.stderr[-2000:])
             self.assertIn("nothing to fix", again.stdout)
@@ -765,7 +765,7 @@ class OneCommandTest(unittest.TestCase):
             shutil.copytree(ROOT / "demo" / "vendors" / "bugfix", proj)
             for f in (FAKES.parent / "vendor_solutions" / "bugfix-pricing").iterdir():
                 shutil.copy(f, proj / f.name)
-            done = subprocess.run([sys.executable, "-m", "deepcompare", "Tidy pricing.py"], cwd=str(proj),
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "Tidy pricing.py"], cwd=str(proj),
                                   capture_output=True, text=True, env=self._env(), timeout=300)
             self.assertEqual(done.returncode, 0, done.stderr[-2000:])
             self.assertIn("already passes", done.stdout)
@@ -775,7 +775,7 @@ class OneCommandTest(unittest.TestCase):
             self.assertTrue(report["narrative"].startswith("The check already passed before any work"))
 
     def test_a_model_names_its_vendor(self):
-        from deepcompare.harness.vendors import parse_spec
+        from agentdiff.harness.vendors import parse_spec
         got = {t: (parse_spec(t).kind, parse_spec(t).model, parse_spec(t).agent)
                for t in ("opus", "gpt-5", "o3", "claude-sonnet-5", "codex", "claude:haiku", "x=sonnet")}
         self.assertEqual(got["opus"], ("claude", "opus", "opus"))
@@ -789,8 +789,8 @@ class OneCommandTest(unittest.TestCase):
             parse_spec("llama")
 
     def test_the_terminal_ends_on_a_scoreboard_whose_figures_are_the_reports(self):
-        from deepcompare.duel import duel_report, scoreboard
-        from deepcompare.commands.duel import _load_records
+        from agentdiff.duel import duel_report, scoreboard
+        from agentdiff.commands.duel import _load_records
         live = ROOT / "demo" / "vendors" / "live-suite"
         report = duel_report(_load_records(live))
         board = scoreboard(report)
@@ -810,7 +810,7 @@ class OneCommandTest(unittest.TestCase):
 
     def test_open_finds_the_newest_duel(self):
         import time as _time
-        from deepcompare.commands.open import latest_page
+        from agentdiff.commands.open import latest_page
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIsNone(latest_page(tmp))
             for name in ("duel-out", "duel-out-2"):
@@ -819,13 +819,13 @@ class OneCommandTest(unittest.TestCase):
                 page.write_text("x")
                 _time.sleep(0.02)
             self.assertEqual(latest_page(tmp).parent.parent.name, "duel-out-2")
-            done = subprocess.run([sys.executable, "-m", "deepcompare", "open", tmp, "--print"],
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "open", tmp, "--print"],
                                   capture_output=True, text=True, env=dict(os.environ, PYTHONPATH=str(ROOT)))
             self.assertEqual(done.returncode, 0)
             self.assertTrue(done.stdout.strip().endswith("duel-out-2/page/report.html"))
 
     def test_a_sentence_is_a_task_and_a_word_is_a_command(self):
-        from deepcompare.cli import _is_sentence
+        from agentdiff.cli import _is_sentence
         commands = {"demo", "duel", "batch"}
         self.assertTrue(_is_sentence("Fix the failing test", commands))
         self.assertFalse(_is_sentence("demo", commands))
@@ -844,7 +844,7 @@ class OneCommandTest(unittest.TestCase):
             e.pop("FAKE_VENDOR_MODE", None)
             master, slave = pty.openpty()
             try:
-                proc = subprocess.Popen([sys.executable, "-m", "deepcompare", "duel", "--quiet"], cwd=str(proj),
+                proc = subprocess.Popen([sys.executable, "-m", "agentdiff", "duel", "--quiet"], cwd=str(proj),
                                         stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=e)
                 os.write(master, b"Fix pricing.py so the tests pass\n")
                 out, err = proc.communicate(timeout=300)
@@ -876,7 +876,7 @@ class LiveAnalyticsTest(unittest.TestCase):
             out = tmp / "d"
             e = dict(os.environ, OPENAI_API_KEY=KEY_A, ANTHROPIC_API_KEY=KEY_B, FAKE_VENDOR_SLOW="0.3")
             e.pop("FAKE_VENDOR_MODE", None)
-            proc = subprocess.Popen([sys.executable, "-m", "deepcompare", "duel", "--task", str(task), "--quiet",
+            proc = subprocess.Popen([sys.executable, "-m", "agentdiff", "duel", "--task", str(task), "--quiet",
                                      "--codex-bin", str(FAKES / "fake_codex.py"),
                                      "--claude-bin", str(FAKES / "fake_claude.py"),
                                      "--live", "--port", "0", "--linger", "8", "-o", str(out)],

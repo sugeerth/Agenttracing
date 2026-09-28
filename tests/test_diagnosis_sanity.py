@@ -20,8 +20,8 @@ import json
 import unittest
 from pathlib import Path
 
-from deepcompare.report import compare
-from deepcompare.trace import Trajectory
+from agentdiff.report import compare
+from agentdiff.trace import Trajectory
 
 ROOT = Path(__file__).resolve().parent.parent
 PAIRS = [

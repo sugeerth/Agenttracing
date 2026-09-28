@@ -20,9 +20,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deepcompare import evolve as ev
-from deepcompare.cli import main
-from deepcompare.rlstats import within_task_probability
+from agentdiff import evolve as ev
+from agentdiff.cli import main
+from agentdiff.rlstats import within_task_probability
 
 ROOT = Path(__file__).resolve().parents[1]
 DEMO = ROOT / "demo" / "evolve" / "lineage"
@@ -977,9 +977,9 @@ class RegistryTest(_Temp):
     ``lineage_batch`` for the command's whole output."""
 
     def test_the_section_is_registered_in_the_lineage_scope(self):
-        from deepcompare import sections
+        from agentdiff import sections
         sec = sections.get("lineage", "evolution")
-        self.assertEqual(sec.fn.__module__, "deepcompare.evolve")
+        self.assertEqual(sec.fn.__module__, "agentdiff.evolve")
         self.assertTrue(sec.wants_ctx)
         self.assertFalse(sec.on_demand)
         self.assertEqual(sections.registered("lineage")[0], "evolution")
@@ -1040,7 +1040,7 @@ class RegistryTest(_Temp):
     def test_the_last_pair_keeps_parent_as_a_and_child_as_b_past_ten_generations(self):
         # `family@g10` sorts before `family@g9`, so an alphabetical pairing
         # would flip the sides of the last step; the batch says which is which
-        from deepcompare.suite import analyse_runs
+        from agentdiff.suite import analyse_runs
         gens = []
         for i in range(11):
             gid, parent = f"g{i}", (None if i == 0 else f"g{i - 1}")

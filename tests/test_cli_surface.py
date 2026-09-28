@@ -17,12 +17,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from deepcompare.cli import build_parser
-from deepcompare.registry import formats
+from agentdiff.cli import build_parser
+from agentdiff.registry import formats
 
 
 def run_cli(*args, **kwargs):
-    return subprocess.run([sys.executable, "-m", "deepcompare", *args],
+    return subprocess.run([sys.executable, "-m", "agentdiff", *args],
                           cwd=str(ROOT), capture_output=True, text=True, **kwargs)
 
 
@@ -56,7 +56,7 @@ class TestFormatChoices(unittest.TestCase):
 
     def test_a_newly_registered_format_becomes_selectable(self):
         # The point of the registry is extension without touching the CLI.
-        from deepcompare import registry
+        from agentdiff import registry
         registry.register("probeformat", lambda data: (0.0, "test only"),
                           lambda data: ({}, []), "test-only format")
         try:
@@ -78,28 +78,28 @@ class TestProgramName(unittest.TestCase):
     def test_module_invocation_says_python_dash_m(self):
         result = run_cli("--help")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("python -m deepcompare", result.stdout)
+        self.assertIn("python -m agentdiff", result.stdout)
 
     def test_console_script_names_itself(self):
         # Simulate the installed entry point: argv[0] is the script name.
         script = (
             "import sys; sys.argv[0] = '/usr/local/bin/agentdiff';"
             "sys.path.insert(0, %r);"
-            "from deepcompare.cli import build_parser;"
+            "from agentdiff.cli import build_parser;"
             "print(build_parser().format_usage())" % str(ROOT)
         )
         result = subprocess.run([sys.executable, "-c", script],
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("agentdiff", result.stdout)
-        self.assertNotIn("python -m deepcompare", result.stdout)
+        self.assertNotIn("python -m agentdiff", result.stdout)
 
 
 class TestPackaging(unittest.TestCase):
     def test_pyproject_declares_the_console_script(self):
         text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
         self.assertIn("[project.scripts]", text)
-        self.assertIn("deepcompare.cli:main", text)
+        self.assertIn("agentdiff.cli:main", text)
 
     def test_the_package_still_has_no_dependencies(self):
         # The zero-dependency property is a feature: it is why the tool runs

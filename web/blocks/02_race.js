@@ -48,7 +48,7 @@
   };
   var ORDER = ["explore", "edit", "verify", "run", "research", "plan", "delegate", "other", "think"];
 
-  // the same classes `deepcompare.duel.classify` uses, so the race and the
+  // the same classes `agentdiff.duel.classify` uses, so the race and the
   // report agree on what an action was
   var VERIFY = /\b(pytest|py\.test|unittest|nosetests|tox|nox|jest|vitest|mocha|go\s+(test|build|vet)|cargo\s+(test|build|check|clippy)|(npm|pnpm|yarn|bun)\s+(run\s+)?(test|build|lint|typecheck|check)|mvn\s+(test|verify)|gradle\w*\s+(test|build|check)|ruff|mypy|pyright|flake8|pylint|eslint|tsc\b|dotnet\s+(test|build)|ctest|bazel\s+test)/;
   var EXPLORE = { ls: 1, cat: 1, head: 1, tail: 1, rg: 1, grep: 1, egrep: 1, find: 1, fd: 1, tree: 1, wc: 1, pwd: 1,

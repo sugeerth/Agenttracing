@@ -17,9 +17,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory, compare
-from deepcompare.diagnosis import systemic_diagnosis
-from deepcompare.metrics import aggregate
+from agentdiff import Trajectory, compare
+from agentdiff.diagnosis import systemic_diagnosis
+from agentdiff.metrics import aggregate
 
 
 class TestBatchDiagnosis(unittest.TestCase):

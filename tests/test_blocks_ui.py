@@ -119,7 +119,7 @@ class BlocksPageTest(unittest.TestCase):
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
         subprocess.run(
-            [sys.executable, "-m", "deepcompare", "batch",
+            [sys.executable, "-m", "agentdiff", "batch",
              str(ROOT / "demo" / "telemetry" / "traces"), "-o", str(out),
              "--template", str(ROOT / "web" / "blocks.html")],
             cwd=str(ROOT), check=True, capture_output=True)
@@ -448,7 +448,7 @@ class DiagnosisBlockTest(unittest.TestCase):
         out = Path(cls.tmp.name)
         pair_json = out / "t05.json"
         subprocess.run(
-            [sys.executable, "-m", "deepcompare", "compare",
+            [sys.executable, "-m", "agentdiff", "compare",
              str(ROOT / "demo" / "traces" / "t05_flight_duration__atlas-v2.json"),
              str(ROOT / "demo" / "traces" / "t05_flight_duration__bolt-v3.json"),
              "-o", str(pair_json)],
@@ -456,7 +456,7 @@ class DiagnosisBlockTest(unittest.TestCase):
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
 
-        from deepcompare.report import render_html
+        from agentdiff.report import render_html
         cls.diagnosis = json.loads(pair_json.read_text(encoding="utf-8"))["diagnosis"]
         assert cls.diagnosis.get("hypotheses"), "t05 pair carries no diagnosis"
         cls.report = out / "report.html"
@@ -559,14 +559,14 @@ class DecisiveStepBlockTest(unittest.TestCase):
         out = Path(cls.tmp.name)
         t05_json = out / "t05.json"
         subprocess.run(
-            [sys.executable, "-m", "deepcompare", "compare",
+            [sys.executable, "-m", "agentdiff", "compare",
              str(ROOT / "demo" / "traces" / "t05_flight_duration__atlas-v2.json"),
              str(ROOT / "demo" / "traces" / "t05_flight_duration__bolt-v3.json"),
              "-o", str(t05_json)],
             cwd=str(ROOT), check=True, capture_output=True)
         p01_json = out / "p01.json"
         subprocess.run(
-            [sys.executable, "-m", "deepcompare", "compare",
+            [sys.executable, "-m", "agentdiff", "compare",
              str(ROOT / "demo" / "process" / "traces" /
                  "p01_cancel_booking__steady-v1.json"),
              str(ROOT / "demo" / "process" / "traces" /
@@ -576,7 +576,7 @@ class DecisiveStepBlockTest(unittest.TestCase):
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
 
-        from deepcompare.report import render_html
+        from agentdiff.report import render_html
         cls.t05 = json.loads(t05_json.read_text(encoding="utf-8"))
         cls.p01 = json.loads(p01_json.read_text(encoding="utf-8"))
         decisive = cls.t05["diagnosis"].get("decisive_step") or {}
@@ -888,7 +888,7 @@ class DecisiveStepBlockTest(unittest.TestCase):
 class ConsolidatedDiagnosisBlockTest(unittest.TestCase):
     """The Across-runs block renders the cross-run consolidation, verbatim.
 
-    Driven by a real aggregate — `deepcompare runs` over the multi-run demo
+    Driven by a real aggregate — `agentdiff runs` over the multi-run demo
     corpus writes `diagnosis_consolidated` and renders report.html from the
     blocks template — so the test checks the block against the engine's
     actual output, not a fixture. The demo corpus carries reproducible
@@ -906,7 +906,7 @@ class ConsolidatedDiagnosisBlockTest(unittest.TestCase):
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
         subprocess.run(
-            [sys.executable, "-m", "deepcompare", "runs",
+            [sys.executable, "-m", "agentdiff", "runs",
              str(ROOT / "demo" / "runs" / "traces"), "-o", str(out),
              "--template", str(ROOT / "web" / "blocks.html")],
             cwd=str(ROOT), check=True, capture_output=True)
@@ -1015,14 +1015,14 @@ class TrajectoryMapTest(unittest.TestCase):
         out = Path(cls.tmp.name)
         pair_json = out / "t05.json"
         subprocess.run(
-            [sys.executable, "-m", "deepcompare", "compare",
+            [sys.executable, "-m", "agentdiff", "compare",
              str(ROOT / "demo" / "traces" / "t05_flight_duration__atlas-v2.json"),
              str(ROOT / "demo" / "traces" / "t05_flight_duration__bolt-v3.json"),
              "-o", str(pair_json)],
             cwd=str(ROOT), check=True, capture_output=True)
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
-        from deepcompare.report import render_html
+        from agentdiff.report import render_html
         cls.pair = json.loads(pair_json.read_text(encoding="utf-8"))
         cls.report = out / "report.html"
         render_html([cls.pair], {}, ROOT / "web" / "blocks.html", cls.report)
@@ -1154,14 +1154,14 @@ class RunLensTest(unittest.TestCase):
         out = Path(cls.tmp.name)
         pair_json = out / "t05.json"
         subprocess.run(
-            [sys.executable, "-m", "deepcompare", "compare",
+            [sys.executable, "-m", "agentdiff", "compare",
              str(ROOT / "demo" / "traces" / "t05_flight_duration__atlas-v2.json"),
              str(ROOT / "demo" / "traces" / "t05_flight_duration__bolt-v3.json"),
              "-o", str(pair_json)],
             cwd=str(ROOT), check=True, capture_output=True)
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
-        from deepcompare.report import render_html
+        from agentdiff.report import render_html
         cls.pair = json.loads(pair_json.read_text(encoding="utf-8"))
         cls.report = out / "report.html"
         render_html([cls.pair], {}, ROOT / "web" / "blocks.html", cls.report)
@@ -1382,15 +1382,15 @@ class MapRedesignTest(unittest.TestCase):
         out = Path(cls.tmp.name)
         pair_json = out / "t05.json"
         subprocess.run(
-            [sys.executable, "-m", "deepcompare", "compare",
+            [sys.executable, "-m", "agentdiff", "compare",
              str(ROOT / "demo" / "traces" / "t05_flight_duration__atlas-v2.json"),
              str(ROOT / "demo" / "traces" / "t05_flight_duration__bolt-v3.json"),
              "-o", str(pair_json)],
             cwd=str(ROOT), check=True, capture_output=True)
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
-        from deepcompare.report import compare, render_html
-        from deepcompare.trace import Trajectory
+        from agentdiff.report import compare, render_html
+        from agentdiff.trace import Trajectory
         cls.pair = json.loads(pair_json.read_text(encoding="utf-8"))
         cls.report = out / "report.html"
         render_html([cls.pair], {}, ROOT / "web" / "blocks.html", cls.report)
@@ -1588,7 +1588,7 @@ class CompositeViewsTest(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         out = Path(cls.tmp.name)
-        subprocess.run([sys.executable, "-m", "deepcompare", "batch",
+        subprocess.run([sys.executable, "-m", "agentdiff", "batch",
                         str(ROOT / "demo" / "traces"), "-o", str(out / "batch")],
                        cwd=str(ROOT), check=True, capture_output=True)
         cls.report = out / "batch" / "report.html"
@@ -1674,7 +1674,7 @@ class SmallScreensKeysAndMotionTest(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         out = Path(cls.tmp.name)
-        subprocess.run([sys.executable, "-m", "deepcompare", "batch",
+        subprocess.run([sys.executable, "-m", "agentdiff", "batch",
                         str(ROOT / "demo" / "traces"), "-o", str(out / "batch")],
                        cwd=str(ROOT), check=True, capture_output=True)
         cls.report = out / "batch" / "report.html"
@@ -1777,14 +1777,14 @@ class OneSidedMapTest(unittest.TestCase):
         out = Path(cls.tmp.name)
         pair_json = out / "t01.json"
         subprocess.run(
-            [sys.executable, "-m", "deepcompare", "compare",
+            [sys.executable, "-m", "agentdiff", "compare",
              str(ROOT / "demo" / "traces" / "t01_acme_revenue__atlas-v2.json"),
              str(ROOT / "demo" / "traces" / "t01_acme_revenue__bolt-v3.json"),
              "-o", str(pair_json)],
             cwd=str(ROOT), check=True, capture_output=True)
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
-        from deepcompare.report import render_html
+        from agentdiff.report import render_html
         cls.pair = json.loads(pair_json.read_text(encoding="utf-8"))
         one_sided = [r for r in cls.pair["alignment"]
                      if (r.get("a_index") is None) != (r.get("b_index") is None)]
@@ -1885,7 +1885,7 @@ class BatchTaskSwitchTest(unittest.TestCase):
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
         subprocess.run(
-            [sys.executable, "-m", "deepcompare", "batch",
+            [sys.executable, "-m", "agentdiff", "batch",
              str(ROOT / "demo" / "traces"), "-o", str(out),
              "--template", str(ROOT / "web" / "blocks.html")],
             cwd=str(ROOT), check=True, capture_output=True)
@@ -2072,8 +2072,8 @@ class LongPairMapTest(unittest.TestCase):
         b_path.write_text(json.dumps(cls._trajectory("long-b", 6)))
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
-        from deepcompare.report import compare, render_html
-        from deepcompare.trace import Trajectory
+        from agentdiff.report import compare, render_html
+        from agentdiff.trace import Trajectory
         cls.pair = compare(Trajectory.from_json(str(a_path)),
                            Trajectory.from_json(str(b_path)))
         cls.report = out / "report.html"
@@ -2212,8 +2212,8 @@ class AdversarialMapTest(unittest.TestCase):
         out = Path(cls.tmp.name)
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
-        from deepcompare.report import compare, render_html
-        from deepcompare.trace import Trajectory
+        from agentdiff.report import compare, render_html
+        from agentdiff.trace import Trajectory
 
         def build(name, raw_a, raw_b, mutate=None):
             pa, pb = out / f"{name}_a.json", out / f"{name}_b.json"
@@ -2398,12 +2398,12 @@ class IntervalsAndInternalsTest(unittest.TestCase):
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
         subprocess.run(
-            [sys.executable, "-m", "deepcompare", "batch",
+            [sys.executable, "-m", "agentdiff", "batch",
              str(ROOT / "demo" / "telemetry" / "traces"), "-o", str(out / "tel"),
              "--template", str(ROOT / "web" / "blocks.html")],
             cwd=str(ROOT), check=True, capture_output=True)
         subprocess.run(
-            [sys.executable, "-m", "deepcompare", "runs",
+            [sys.executable, "-m", "agentdiff", "runs",
              str(ROOT / "demo" / "runs" / "traces"), "-o", str(out / "runs"),
              "--template", str(ROOT / "web" / "blocks.html")],
             cwd=str(ROOT), check=True, capture_output=True)
@@ -2641,7 +2641,7 @@ class StoryChartsTest(unittest.TestCase):
         out = Path(cls.tmp.name)
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
-        subprocess.run([sys.executable, "-m", "deepcompare", "batch",
+        subprocess.run([sys.executable, "-m", "agentdiff", "batch",
                         str(ROOT / "demo" / "traces"), "-o", str(out),
                         "--template", str(ROOT / "web" / "blocks.html")],
                        cwd=str(ROOT), check=True, capture_output=True)
@@ -3060,7 +3060,7 @@ class StoryChartsTest(unittest.TestCase):
         link = block.locator("a[download]")
         self.assertEqual(link.count(), 1)
         self.assertTrue(link.get_attribute("href").startswith("data:application/json"))
-        self.assertIn("deepcompare feedback", block.locator(".nh-export code").text_content())
+        self.assertIn("agentdiff feedback", block.locator(".nh-export code").text_content())
         self.assertEqual(errors, [])
         context.close()
 
@@ -3208,7 +3208,7 @@ class LongTrajectoryTest(unittest.TestCase):
             (traces / name).write_text(json.dumps(trace), encoding="utf-8")
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
-        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(traces), "-o", str(root / "out"),
+        subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(traces), "-o", str(root / "out"),
                         "--template", str(ROOT / "web" / "blocks.html")],
                        cwd=str(ROOT), check=True, capture_output=True)
         cls.report = root / "out" / "report.html"
@@ -3424,7 +3424,7 @@ class LongTrajectoryTest(unittest.TestCase):
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
                      "playwright + chromium required for browser tests")
 class LiveWatchTest(unittest.TestCase):
-    """Streaming: served by `deepcompare watch`, the page shows the runs
+    """Streaming: served by `agentdiff watch`, the page shows the runs
     as they arrive — a mark per step, the newest pulsing, the count
     growing — and when the pair finishes the story replaces the stream,
     without a reload. Driven by the demo simulator at a fast pace."""
@@ -3432,7 +3432,7 @@ class LiveWatchTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import threading
-        from deepcompare.harness.watch import serve
+        from agentdiff.harness.watch import serve
         cls.tmp = tempfile.TemporaryDirectory()
         cls.src = Path(cls.tmp.name) / "src"
         cls.src.mkdir()
@@ -3462,7 +3462,7 @@ class LiveWatchTest(unittest.TestCase):
 
     def test_sub_agents_stream_in_as_a_growing_tree(self):
         import threading
-        from deepcompare.harness.watch import simulate
+        from agentdiff.harness.watch import simulate
         for path in Path(self.out).glob("*.json"):
             path.unlink()
         stop = threading.Event()
@@ -3502,7 +3502,7 @@ class LiveWatchTest(unittest.TestCase):
 
     def test_the_stream_arrives_and_becomes_the_story(self):
         import threading
-        from deepcompare.harness.watch import simulate
+        from agentdiff.harness.watch import simulate
         context = self.browser.new_context(viewport={"width": 1280, "height": 900})
         page = context.new_page()
         errors = []
@@ -3733,7 +3733,7 @@ class ScorecardBlockTest(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         out = Path(cls.tmp.name) / "runs"
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
-        subprocess.run([sys.executable, "-m", "deepcompare", "runs", str(ROOT / "demo" / "runs" / "traces"), "-o", str(out),
+        subprocess.run([sys.executable, "-m", "agentdiff", "runs", str(ROOT / "demo" / "runs" / "traces"), "-o", str(out),
                         "--golden", str(ROOT / "demo" / "golden" / "tasks.json"), "--template", str(ROOT / "web" / "blocks.html")],
                        cwd=str(ROOT), check=True, capture_output=True)
         cls.page_path = out / "report.html"
@@ -3828,7 +3828,7 @@ class DashboardBlockTest(unittest.TestCase):
         out = Path(cls.tmp.name) / "batch"
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
-        done = subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(suite), "-o", str(out),
+        done = subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(suite), "-o", str(out),
                                "--golden", str(golden), "--template", str(ROOT / "web" / "blocks.html")],
                               cwd=str(ROOT), capture_output=True)
         if done.returncode != 0 or not (out / "report.html").is_file():
@@ -3944,7 +3944,7 @@ class WhatToChangeBlockTest(unittest.TestCase):
         out = Path(cls.tmp.name) / "batch"
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
-        done = subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(suite), "-o", str(out),
+        done = subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(suite), "-o", str(out),
                                "--golden", str(golden), "--template", str(ROOT / "web" / "blocks.html")],
                               cwd=str(ROOT), capture_output=True)
         if done.returncode != 0 or not (out / "report.html").is_file():
@@ -4030,7 +4030,7 @@ class GettingBetterBlockTest(unittest.TestCase):
         out = Path(cls.tmp.name) / "evolve"
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
-        done = subprocess.run([sys.executable, "-m", "deepcompare", "evolve", str(lineage), "-o", str(out),
+        done = subprocess.run([sys.executable, "-m", "agentdiff", "evolve", str(lineage), "-o", str(out),
                                "--template", str(ROOT / "web" / "blocks.html")],
                               cwd=str(ROOT), capture_output=True)
         if done.returncode != 0 or not (out / "report.html").is_file():
@@ -4126,7 +4126,7 @@ class EvidenceStripTest(unittest.TestCase):
         out = Path(cls.tmp.name) / "batch"
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
-        done = subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(suite), "-o", str(out),
+        done = subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(suite), "-o", str(out),
                                "--golden", str(golden), "--template", str(ROOT / "web" / "blocks.html")],
                               cwd=str(ROOT), capture_output=True)
         if done.returncode != 0 or not (out / "report.html").is_file():
@@ -4346,7 +4346,7 @@ class CorpusFrontDoorTest(unittest.TestCase):
         out = Path(cls.tmp.name) / "batch"
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
-        done = subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(suite), "-o", str(out),
+        done = subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(suite), "-o", str(out),
                                "--golden", str(golden), "--template", str(ROOT / "web" / "blocks.html")],
                               cwd=str(ROOT), capture_output=True)
         if done.returncode != 0 or not (out / "report.html").is_file():
@@ -4505,7 +4505,7 @@ class ForgeAndFocusTest(unittest.TestCase):
         out = Path(cls.tmp.name) / "batch"
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
-        done = subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(suite), "-o", str(out),
+        done = subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(suite), "-o", str(out),
                                "--golden", str(golden), "--template", str(ROOT / "web" / "blocks.html")],
                               cwd=str(ROOT), capture_output=True)
         if done.returncode != 0:
@@ -4651,7 +4651,7 @@ class DuelBlockTest(unittest.TestCase):
         fakes = ROOT / "tests" / "fixtures" / "vendors"
         env = dict(os.environ, OPENAI_API_KEY="sk-test-0000000000", ANTHROPIC_API_KEY="sk-ant-test-0000000000")
         env.pop("FAKE_VENDOR_MODE", None)
-        done = subprocess.run([sys.executable, "-m", "deepcompare", "duel", "--task",
+        done = subprocess.run([sys.executable, "-m", "agentdiff", "duel", "--task",
                                str(ROOT / "demo" / "vendors" / "task.json"), "--runs", "2", "--quiet",
                                "--codex-bin", str(fakes / "fake_codex.py"), "--claude-bin", str(fakes / "fake_claude.py"),
                                "--template", str(ROOT / "web" / "blocks.html"), "-o", str(out)],
@@ -4805,7 +4805,7 @@ class DuelBlockTest(unittest.TestCase):
             env = dict(os.environ, OPENAI_API_KEY="sk-test-0000000000", ANTHROPIC_API_KEY="sk-ant-test-0000000000",
                        FAKE_VENDOR_SLOW="0.5")
             env.pop("FAKE_VENDOR_MODE", None)
-            proc = subprocess.Popen([sys.executable, "-m", "deepcompare", "duel", "--task",
+            proc = subprocess.Popen([sys.executable, "-m", "agentdiff", "duel", "--task",
                                      str(ROOT / "demo" / "vendors" / "task.json"), "--quiet", "--live", "--port", "0",
                                      "--linger", "6", "--codex-bin", str(fakes / "fake_codex.py"),
                                      "--claude-bin", str(fakes / "fake_claude.py"), "-o", str(Path(tmp) / "d")],
@@ -4847,7 +4847,7 @@ class DuelBlockTest(unittest.TestCase):
             env = dict(os.environ, OPENAI_API_KEY="sk-test-0000000000", ANTHROPIC_API_KEY="sk-ant-test-0000000000",
                        FAKE_VENDOR_SLOW="0.5")
             env.pop("FAKE_VENDOR_MODE", None)
-            proc = subprocess.Popen([sys.executable, "-m", "deepcompare", "duel", "--task",
+            proc = subprocess.Popen([sys.executable, "-m", "agentdiff", "duel", "--task",
                                      str(ROOT / "demo" / "vendors" / "task.json"), "--quiet", "--live", "--port", "0",
                                      "--runs", "2", "--linger", "6", "--codex-bin", str(fakes / "fake_codex.py"),
                                      "--claude-bin", str(fakes / "fake_claude.py"), "-o", str(Path(tmp) / "d")],
@@ -4911,7 +4911,7 @@ class LessonsBlockTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import shutil
-        from deepcompare import lessons as _lessons
+        from agentdiff import lessons as _lessons
         suite = ROOT / "demo" / "horizon" / "suite"
         golden = ROOT / "demo" / "horizon" / "suite_golden.json"
         if not suite.is_dir():
@@ -4930,7 +4930,7 @@ class LessonsBlockTest(unittest.TestCase):
                        cwd=str(ROOT), check=True, capture_output=True)
         ledger = base / "ledger.json"
         for src, out in ((first, base / "o1"), (suite, base / "o2")):
-            done = subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(src), "-o", str(out),
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(src), "-o", str(out),
                                    "--golden", str(golden), "--lessons", str(ledger),
                                    "--template", str(ROOT / "web" / "blocks.html")],
                                   cwd=str(ROOT), capture_output=True)
@@ -5115,7 +5115,7 @@ class DetectionSectionTest(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         out = Path(cls.tmp.name) / "batch"
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
-        done = subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(suite), "-o", str(out),
+        done = subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(suite), "-o", str(out),
                                "--golden", str(golden), "--template", str(ROOT / "web" / "blocks.html")],
                               cwd=str(ROOT), capture_output=True)
         if done.returncode != 0 or not (out / "report.html").is_file():
@@ -5217,7 +5217,7 @@ class DebugSessionBlockTest(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         out = Path(cls.tmp.name) / "batch"
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
-        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "traces"), "-o", str(out),
+        subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(ROOT / "demo" / "traces"), "-o", str(out),
                         "--template", str(ROOT / "web" / "blocks.html")], cwd=str(ROOT), check=True, capture_output=True)
         cls.page_path = out / "report.html"
         cls.report = json.loads((out / "report_t05_flight_duration.json").read_text(encoding="utf-8"))
@@ -5368,7 +5368,7 @@ class TimeBlockTest(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         out = Path(cls.tmp.name) / "batch"
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
-        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "traces"), "-o", str(out),
+        subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(ROOT / "demo" / "traces"), "-o", str(out),
                         "--template", str(ROOT / "web" / "blocks.html")], cwd=str(ROOT), check=True, capture_output=True)
         cls.page_path = out / "report.html"
         cls.reports = {p.stem[len("report_"):]: json.loads(p.read_text(encoding="utf-8")) for p in out.glob("report_*.json")}
@@ -5443,7 +5443,7 @@ class HorizonBlockTest(unittest.TestCase):
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
         if not (ROOT / "demo" / "horizon" / "traces" / "h01_release_report__orbit-v1.json").is_file():
             subprocess.run([sys.executable, str(ROOT / "demo" / "horizon" / "generate_horizon.py")], cwd=str(ROOT), check=True, capture_output=True)
-        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "horizon" / "traces"), "-o", str(out),
+        subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(ROOT / "demo" / "horizon" / "traces"), "-o", str(out),
                         "--template", str(ROOT / "web" / "blocks.html")], cwd=str(ROOT), check=True, capture_output=True)
         cls.page_path = out / "report.html"
         cls.report = json.loads((out / "report_h01_release_report.json").read_text(encoding="utf-8"))
@@ -5633,7 +5633,7 @@ class PanelsAndHeatTest(unittest.TestCase):
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
         if not (ROOT / "demo" / "horizon" / "traces" / "h01_release_report__orbit-v1.json").is_file():
             subprocess.run([sys.executable, str(ROOT / "demo" / "horizon" / "generate_horizon.py")], cwd=str(ROOT), check=True, capture_output=True)
-        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "horizon" / "traces"), "-o", str(out),
+        subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(ROOT / "demo" / "horizon" / "traces"), "-o", str(out),
                         "--template", str(ROOT / "web" / "blocks.html")], cwd=str(ROOT), check=True, capture_output=True)
         cls.page_path = out / "report.html"
         cls.report = json.loads((out / "report_h01_release_report.json").read_text(encoding="utf-8"))
@@ -5849,7 +5849,7 @@ class MilestonesBlockTest(unittest.TestCase):
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
         if not (ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__atlas-lh.json").is_file():
             subprocess.run([sys.executable, str(ROOT / "demo" / "horizon" / "generate_long.py")], cwd=str(ROOT), check=True, capture_output=True)
-        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "horizon" / "long"), "-o", str(out),
+        subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(ROOT / "demo" / "horizon" / "long"), "-o", str(out),
                         "--golden", str(ROOT / "demo" / "horizon" / "golden.json"), "--template", str(ROOT / "web" / "blocks.html")],
                        cwd=str(ROOT), check=True, capture_output=True)
         cls.page_path = out / "report.html"
@@ -5975,14 +5975,14 @@ class ImpactBlockTest(unittest.TestCase):
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
         if not (ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__atlas-lh.json").is_file():
             subprocess.run([sys.executable, str(ROOT / "demo" / "horizon" / "generate_long.py")], cwd=str(ROOT), check=True, capture_output=True)
-        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "horizon" / "long"), "-o", str(out),
+        subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(ROOT / "demo" / "horizon" / "long"), "-o", str(out),
                         "--golden", str(ROOT / "demo" / "horizon" / "golden.json"), "--template", str(ROOT / "web" / "blocks.html")],
                        cwd=str(ROOT), check=True, capture_output=True)
         cls.page_path = out / "report.html"
         report_path = out / "report_h02_migrate_service.json"
         cls.report = json.loads(report_path.read_text(encoding="utf-8"))
         if "impact" not in cls.report:
-            from deepcompare.report import render_html
+            from agentdiff.report import render_html
             cls.report["impact"] = _impact_fixture(cls.report)
             report_path.write_text(json.dumps(cls.report), encoding="utf-8")
             aggregate_path = out / "aggregate.json"
@@ -6369,7 +6369,7 @@ class LongTreeFoldTest(unittest.TestCase):
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
         if not (ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__atlas-lh.json").is_file():
             subprocess.run([sys.executable, str(ROOT / "demo" / "horizon" / "generate_long.py")], cwd=str(ROOT), check=True, capture_output=True)
-        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "horizon" / "long"), "-o", str(out),
+        subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(ROOT / "demo" / "horizon" / "long"), "-o", str(out),
                         "--golden", str(ROOT / "demo" / "horizon" / "golden.json"), "--template", str(ROOT / "web" / "blocks.html")],
                        cwd=str(ROOT), check=True, capture_output=True)
         cls.page_path = out / "report.html"
@@ -6492,12 +6492,12 @@ class ToolBehaviourTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from deepcompare.report import render_html
-        from deepcompare.toolprofile import tool_pair
+        from agentdiff.report import render_html
+        from agentdiff.toolprofile import tool_pair
         cls.tmp = tempfile.TemporaryDirectory()
         out = Path(cls.tmp.name) / "batch"
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
-        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "horizon" / "long"), "-o", str(out),
+        subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(ROOT / "demo" / "horizon" / "long"), "-o", str(out),
                         "--golden", str(ROOT / "demo" / "horizon" / "golden.json"), "--template", str(ROOT / "web" / "blocks.html")],
                        cwd=str(ROOT), check=True, capture_output=True)
         report = json.loads((out / "report_h02_migrate_service.json").read_text(encoding="utf-8"))
@@ -6620,7 +6620,7 @@ class TrustBlockTest(unittest.TestCase):
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
         if not (ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__atlas-lh.json").is_file():
             subprocess.run([sys.executable, str(ROOT / "demo" / "horizon" / "generate_long.py")], cwd=str(ROOT), check=True, capture_output=True)
-        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "horizon" / "long"), "-o", str(out),
+        subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(ROOT / "demo" / "horizon" / "long"), "-o", str(out),
                         "--golden", str(ROOT / "demo" / "horizon" / "golden.json"), "--template", str(ROOT / "web" / "blocks.html")],
                        cwd=str(ROOT), check=True, capture_output=True)
         cls.page_path = out / "report.html"
@@ -6787,14 +6787,14 @@ class RLBlockTest(unittest.TestCase):
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
         if not (ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__atlas-lh.json").is_file():
             subprocess.run([sys.executable, str(ROOT / "demo" / "horizon" / "generate_long.py")], cwd=str(ROOT), check=True, capture_output=True)
-        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "horizon" / "long"), "-o", str(out),
+        subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(ROOT / "demo" / "horizon" / "long"), "-o", str(out),
                         "--golden", str(ROOT / "demo" / "horizon" / "golden.json"), "--template", str(ROOT / "web" / "blocks.html")],
                        cwd=str(ROOT), check=True, capture_output=True)
         cls.page_path = out / "report.html"
         report_path = out / "report_h02_migrate_service.json"
         cls.report = json.loads(report_path.read_text(encoding="utf-8"))
         if not (cls.report.get("rl") and cls.report["rl"].get("measurable")):
-            from deepcompare.report import render_html
+            from agentdiff.report import render_html
             cls.report["rl"] = _rl_fixture(cls.report)
             report_path.write_text(json.dumps(cls.report), encoding="utf-8")
             aggregate_path = out / "aggregate.json"
@@ -7151,14 +7151,14 @@ class TrainingViewTest(unittest.TestCase):
         rl_traces = ROOT / "demo" / "rl" / "traces"
         forced = os.environ.get("TRAINING_FIXTURE") == "1"
         traces = rl_traces if rl_traces.is_dir() and not forced else ROOT / "demo" / "runs" / "traces"
-        subprocess.run([sys.executable, "-m", "deepcompare", "runs", str(traces), "-o", str(out),
+        subprocess.run([sys.executable, "-m", "agentdiff", "runs", str(traces), "-o", str(out),
                         "--template", str(ROOT / "web" / "blocks.html")], cwd=str(ROOT), check=True, capture_output=True)
         agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
         reports = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(out.glob("report_*.json"))]
         cls.injected = forced or not (isinstance(agg.get("rl"), dict) and agg["rl"].get("agents"))
         if cls.injected:
             agg["rl"] = cls._fixture(reports, traces)
-            from deepcompare.report import render_html
+            from agentdiff.report import render_html
             render_html(reports, agg, ROOT / "web" / "blocks.html", out / "report.html")
         cls.rl, cls.reports = agg["rl"], reports
         cls.page_path = out / "report.html"
@@ -7658,7 +7658,7 @@ class RLTheatreTest(unittest.TestCase):
         out = Path(cls.tmp.name) / "batch"
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
-        subprocess.run([sys.executable, "-m", "deepcompare", "runs", str(traces), "-o", str(out),
+        subprocess.run([sys.executable, "-m", "agentdiff", "runs", str(traces), "-o", str(out),
                         "--template", str(ROOT / "web" / "blocks.html")],
                        cwd=str(ROOT), check=True, capture_output=True)
         agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
@@ -7965,7 +7965,7 @@ class RLStatsBlocksTest(unittest.TestCase):
         out = Path(cls.tmp.name) / "batch"
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
-        subprocess.run([sys.executable, "-m", "deepcompare", "runs", str(traces), "-o", str(out),
+        subprocess.run([sys.executable, "-m", "agentdiff", "runs", str(traces), "-o", str(out),
                         "--template", str(ROOT / "web" / "blocks.html")],
                        cwd=str(ROOT), check=True, capture_output=True)
         agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
@@ -8143,7 +8143,7 @@ class BehaviourSpaceBlocksTest(unittest.TestCase):
         out = Path(cls.tmp.name) / "batch"
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
-        subprocess.run([sys.executable, "-m", "deepcompare", "runs", str(traces), "-o", str(out),
+        subprocess.run([sys.executable, "-m", "agentdiff", "runs", str(traces), "-o", str(out),
                         "--template", str(ROOT / "web" / "blocks.html")],
                        cwd=str(ROOT), check=True, capture_output=True)
         agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
@@ -8365,7 +8365,7 @@ class RLAuditBlocksTest(unittest.TestCase):
         out = Path(cls.tmp.name) / "batch"
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
-        subprocess.run([sys.executable, "-m", "deepcompare", "runs", str(traces), "-o", str(out),
+        subprocess.run([sys.executable, "-m", "agentdiff", "runs", str(traces), "-o", str(out),
                         "--template", str(ROOT / "web" / "blocks.html")],
                        cwd=str(ROOT), check=True, capture_output=True)
         agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
@@ -8592,7 +8592,7 @@ class EvoTimescapeTest(unittest.TestCase):
 
     Self-contained: it builds `aggregate["evolution"]` in the contract's
     shape from the lineage traces (the step timelines exactly as the
-    contract lays them out) unless `deepcompare.evolve` exists and writes
+    contract lays them out) unless `agentdiff.evolve` exists and writes
     one, in which case the engine's output is used. A second page carries
     2,100 episodes — ten of every demo episode — to check the drawing cap
     and the frame budget."""
@@ -8605,8 +8605,8 @@ class EvoTimescapeTest(unittest.TestCase):
 
     @staticmethod
     def _timeline(data):
-        from deepcompare.timing import TOOLISH, time_attribution
-        from deepcompare.trace import Trajectory
+        from agentdiff.timing import TOOLISH, time_attribution
+        from agentdiff.trace import Trajectory
         wasted = {r["index"] for r in (time_attribution(Trajectory.from_dict(data)).get("steps") or []) if r.get("wasted")}
         out, t = [], 0.0
         for s in data["steps"]:
@@ -8620,7 +8620,7 @@ class EvoTimescapeTest(unittest.TestCase):
 
     @classmethod
     def _evolution(cls, replicate=1, cap=2000):
-        from deepcompare.timing import TOOLISH
+        from agentdiff.timing import TOOLISH
         manifests = {p.parent.name: json.loads(p.read_text(encoding="utf-8")) for p in cls.LINEAGE.glob("*/agent.json")}
         by_parent = {m["parent"]: g for g, m in manifests.items()}
         order, cur = [], by_parent.get(None)
@@ -8665,12 +8665,12 @@ class EvoTimescapeTest(unittest.TestCase):
     def _render(cls, out, replicate):
         """The page: the runs output for the last pair, the evolution section
         added to its aggregate — the engine's when it exists, else the fixture."""
-        from deepcompare.report import render_html
+        from agentdiff.report import render_html
         out.mkdir(parents=True, exist_ok=True)
         evolution, source = None, "fixture"
-        if replicate == 1 and (ROOT / "deepcompare" / "evolve.py").is_file():
+        if replicate == 1 and (ROOT / "agentdiff" / "evolve.py").is_file():
             real = out / "engine"
-            proc = subprocess.run([sys.executable, "-m", "deepcompare", "evolve", str(cls.LINEAGE), "-o", str(real)],
+            proc = subprocess.run([sys.executable, "-m", "agentdiff", "evolve", str(cls.LINEAGE), "-o", str(real)],
                                   cwd=str(ROOT), capture_output=True)
             agg_path = real / "aggregate.json"
             if proc.returncode == 0 and agg_path.is_file():
@@ -8689,7 +8689,7 @@ class EvoTimescapeTest(unittest.TestCase):
             for p in (cls.LINEAGE / g / "traces").glob("*.json"):
                 (pair / p.name).write_bytes(p.read_bytes())
         runs = out / "runs"
-        subprocess.run([sys.executable, "-m", "deepcompare", "runs", str(pair), "-o", str(runs)], cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "agentdiff", "runs", str(pair), "-o", str(runs)], cwd=str(ROOT), check=True, capture_output=True)
         agg = json.loads((runs / "aggregate.json").read_text(encoding="utf-8"))
         agg["evolution"] = evolution = cls._evolution(replicate)
         reports = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(runs.glob("report_*.json"))]
@@ -9043,7 +9043,7 @@ class EvolutionBlocksTest(unittest.TestCase):
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
         template = ROOT / "web" / "blocks.html"
-        done = subprocess.run([sys.executable, "-m", "deepcompare", "evolve", str(lineage), "-o", str(out),
+        done = subprocess.run([sys.executable, "-m", "agentdiff", "evolve", str(lineage), "-o", str(out),
                                "--template", str(template)], cwd=str(ROOT), capture_output=True)
         if done.returncode != 0 or not (out / "aggregate.json").is_file():
             cls._build_without_the_command(lineage, out, template)
@@ -9060,8 +9060,8 @@ class EvolutionBlocksTest(unittest.TestCase):
         # the engine module over the lineage, grafted onto a `runs` output of
         # the last pair — what the command writes once it exists
         import shutil
-        from deepcompare import evolve as engine
-        from deepcompare.report import render_html
+        from agentdiff import evolve as engine
+        from agentdiff.report import render_html
         ev = engine.analyse_lineage(str(lineage))
         flat = out / "flat"
         flat.mkdir(parents=True, exist_ok=True)
@@ -9069,7 +9069,7 @@ class EvolutionBlocksTest(unittest.TestCase):
         for gen in last:
             for path in (lineage / gen / "traces").glob("*.json"):
                 shutil.copy(path, flat / path.name)
-        subprocess.run([sys.executable, "-m", "deepcompare", "runs", str(flat), "-o", str(out),
+        subprocess.run([sys.executable, "-m", "agentdiff", "runs", str(flat), "-o", str(out),
                         "--template", str(template)], cwd=str(ROOT), check=True, capture_output=True)
         agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
         agg["evolution"] = ev
@@ -9416,14 +9416,14 @@ class EvolutionCompareBlocksTest(unittest.TestCase):
         b = ROOT / "demo" / "evolve" / "lineage_b"
         if not (a.is_dir() and b.is_dir()):
             raise unittest.SkipTest("the two demo lineages are not there")
-        helptext = subprocess.run([sys.executable, "-m", "deepcompare", "evolve", "--help"],
+        helptext = subprocess.run([sys.executable, "-m", "agentdiff", "evolve", "--help"],
                                   cwd=str(ROOT), capture_output=True, text=True).stdout
         if "--against" not in helptext:
             raise unittest.SkipTest("the evolve command cannot compare lineages yet")
         cls.tmp = tempfile.TemporaryDirectory()
         out = Path(cls.tmp.name) / "evc"
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
-        subprocess.run([sys.executable, "-m", "deepcompare", "evolve", str(a), "--against", str(b), "-o", str(out),
+        subprocess.run([sys.executable, "-m", "agentdiff", "evolve", str(a), "--against", str(b), "-o", str(out),
                         "--template", str(ROOT / "web" / "blocks.html")], cwd=str(ROOT), check=True, capture_output=True)
         agg = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))
         cls.ec = agg.get("evolution_compare") or {}
@@ -9740,7 +9740,7 @@ class SharedLibraryTest(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         out = Path(cls.tmp.name) / "runs"
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
-        subprocess.run([sys.executable, "-m", "deepcompare", "runs", str(ROOT / "demo" / "rl" / "train"), "-o", str(out),
+        subprocess.run([sys.executable, "-m", "agentdiff", "runs", str(ROOT / "demo" / "rl" / "train"), "-o", str(out),
                         "--template", str(ROOT / "web" / "blocks.html")],
                        cwd=str(ROOT), check=True, capture_output=True)
         cls.page_path = out / "report.html"
@@ -10009,7 +10009,7 @@ class CoevolutionBlocksTest(unittest.TestCase):
         out = Path(cls.tmp.name) / "cov"
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
         template = ROOT / "web" / "blocks.html"
-        done = subprocess.run([sys.executable, "-m", "deepcompare", "coevolve", str(lineage), "-o", str(out), "--template", str(template)],
+        done = subprocess.run([sys.executable, "-m", "agentdiff", "coevolve", str(lineage), "-o", str(out), "--template", str(template)],
                               cwd=str(ROOT), capture_output=True)
         if done.returncode != 0 or not (out / "aggregate.json").is_file():
             raise unittest.SkipTest("the coevolve command did not write a page: " + done.stderr.decode("utf-8", "replace")[-300:])
@@ -10020,7 +10020,7 @@ class CoevolutionBlocksTest(unittest.TestCase):
             raise unittest.SkipTest("the demo lineage carries no measurable coevolution section")
         cls.page_path = out / "report.html"
         batch = Path(cls.tmp.name) / "batch"
-        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "traces"), "-o", str(batch), "--template", str(template)],
+        subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(ROOT / "demo" / "traces"), "-o", str(batch), "--template", str(template)],
                        cwd=str(ROOT), check=True, capture_output=True)
         cls.batch_path = batch / "report.html"
         cls._pw = sync_playwright().start()
@@ -10571,7 +10571,7 @@ class ChatViewTest(unittest.TestCase):
 
         def run(name, *args):
             out = root / name
-            done = subprocess.run([sys.executable, "-m", "deepcompare"] + list(args) + ["-o", str(out), "--template", str(template)],
+            done = subprocess.run([sys.executable, "-m", "agentdiff"] + list(args) + ["-o", str(out), "--template", str(template)],
                                   cwd=str(ROOT), capture_output=True)
             if done.returncode != 0 or not (out / "aggregate.json").is_file() or not (out / "report.html").is_file():
                 raise unittest.SkipTest(f"the {args[0]} command did not write a page: " + done.stderr.decode("utf-8", "replace")[-300:])
@@ -10583,7 +10583,7 @@ class ChatViewTest(unittest.TestCase):
         cls.batch_dir, batch_agg = run("batch", "batch", str(ROOT / "demo" / "traces"))
         # the bundle of the pair batch and the lineage: the page with the three levels
         cls.bundle_dir = root / "bundle"
-        done = subprocess.run([sys.executable, "-m", "deepcompare", "bundle", str(cls.batch_dir), str(cls.cov_dir), "-o", str(cls.bundle_dir), "--name", "demo"],
+        done = subprocess.run([sys.executable, "-m", "agentdiff", "bundle", str(cls.batch_dir), str(cls.cov_dir), "-o", str(cls.bundle_dir), "--name", "demo"],
                               cwd=str(ROOT), capture_output=True)
         cls.bundle = json.loads((cls.bundle_dir / "bundle.json").read_text(encoding="utf-8")) if done.returncode == 0 and (cls.bundle_dir / "bundle.json").is_file() else None
         cls.batch_pair = json.loads(sorted(cls.batch_dir.glob("report_*.json"))[0].read_text(encoding="utf-8"))
@@ -11551,7 +11551,7 @@ class LevelsViewTest(unittest.TestCase):
 
         def run(name, *args):
             out = root / name
-            done = subprocess.run([sys.executable, "-m", "deepcompare"] + list(args) + ["-o", str(out), "--template", str(template)],
+            done = subprocess.run([sys.executable, "-m", "agentdiff"] + list(args) + ["-o", str(out), "--template", str(template)],
                                   cwd=str(ROOT), capture_output=True)
             if done.returncode != 0 or not (out / "report.html").is_file():
                 raise unittest.SkipTest(f"the {args[0]} command did not write a page: " + done.stderr.decode("utf-8", "replace")[-300:])
@@ -12080,7 +12080,7 @@ class DataViewTest(unittest.TestCase):
 
         def run(name, *args):
             out = root / name
-            done = subprocess.run([sys.executable, "-m", "deepcompare"] + list(args) + ["-o", str(out), "--template", str(template)],
+            done = subprocess.run([sys.executable, "-m", "agentdiff"] + list(args) + ["-o", str(out), "--template", str(template)],
                                   cwd=str(ROOT), capture_output=True)
             if done.returncode != 0 or not (out / "report.html").is_file():
                 raise unittest.SkipTest(f"the {args[0]} command did not write a page: " + done.stderr.decode("utf-8", "replace")[-300:])
@@ -12545,7 +12545,7 @@ class DataViewTest(unittest.TestCase):
         context.close()
         # the fixture copy: the same page, the instructions stripped from both sides of every report's data section
         html = (self.batch_dir / "report.html").read_text(encoding="utf-8")
-        marker = "window.DEEPCOMPARE_DATA = "
+        marker = "window.AGENTDIFF_DATA = "
         start = html.index(marker) + len(marker)
         end = html.index("\n", start)
         payload = json.loads(html[start:end].rstrip().rstrip(";"))
@@ -12660,9 +12660,9 @@ class ScaffoldMarksTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from deepcompare.harness import ScriptedProvider, Tool, run_task
-        from deepcompare.report import compare, render_html
-        from deepcompare.trace import Trajectory
+        from agentdiff.harness import ScriptedProvider, Tool, run_task
+        from agentdiff.report import compare, render_html
+        from agentdiff.trace import Trajectory
 
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
@@ -12832,7 +12832,7 @@ class TraceViewTest(unittest.TestCase):
 
         def run(name, *args):
             out = root / name
-            done = subprocess.run([sys.executable, "-m", "deepcompare"] + list(args) + ["-o", str(out), "--template", str(template)],
+            done = subprocess.run([sys.executable, "-m", "agentdiff"] + list(args) + ["-o", str(out), "--template", str(template)],
                                   cwd=str(ROOT), capture_output=True)
             if done.returncode != 0 or not (out / "report.html").is_file():
                 raise unittest.SkipTest(f"the {args[0]} command did not write a page: " + done.stderr.decode("utf-8", "replace")[-300:])
@@ -13186,7 +13186,7 @@ class TraceViewTest(unittest.TestCase):
     def test_the_strip_draws_in_tens_of_milliseconds_at_ten_times_the_scale(self):
         context, page, errors = self._open(path=self.bundle_dir)
         biggest = page.evaluate("""() => {
-          const r = (((window.DEEPCOMPARE_DATA || {}).bundle || {}).levels || {}).records || {};
+          const r = (((window.AGENTDIFF_DATA || {}).bundle || {}).levels || {}).records || {};
           return Object.keys(r).filter(k => (r[k].steps || []).length)
                        .sort((a, b) => r[b].steps.length - r[a].steps.length)[0] || null; }""")
         if not biggest:
@@ -13280,7 +13280,7 @@ class HarnessBlocksTest(unittest.TestCase):
         root = Path(cls.tmp.name)
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")], cwd=str(ROOT), check=True, capture_output=True)
         out = root / "cov"
-        done = subprocess.run([sys.executable, "-m", "deepcompare", "coevolve", str(lineage), "-o", str(out),
+        done = subprocess.run([sys.executable, "-m", "agentdiff", "coevolve", str(lineage), "-o", str(out),
                                "--template", str(ROOT / "web" / "blocks.html")], cwd=str(ROOT), capture_output=True)
         if done.returncode != 0 or not (out / "report.html").is_file():
             raise unittest.SkipTest("coevolve wrote no page: " + done.stderr.decode("utf-8", "replace")[-300:])
@@ -13644,7 +13644,7 @@ class HarnessDriftTest(unittest.TestCase):
                        cwd=str(ROOT), check=True, capture_output=True)
         cls.tmp = tempfile.TemporaryDirectory()
         cls.dir = Path(cls.tmp.name) / "cov"
-        done = subprocess.run([sys.executable, "-m", "deepcompare", "coevolve", str(lineage),
+        done = subprocess.run([sys.executable, "-m", "agentdiff", "coevolve", str(lineage),
                                "-o", str(cls.dir), "--template", str(ROOT / "web" / "blocks.html")],
                               cwd=str(ROOT), capture_output=True)
         if done.returncode != 0 or not (cls.dir / "report.html").is_file():
@@ -13791,8 +13791,8 @@ class RecordedClockTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from deepcompare.report import compare, render_html
-        from deepcompare.trace import Trajectory
+        from agentdiff.report import compare, render_html
+        from agentdiff.trace import Trajectory
 
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)
@@ -13921,9 +13921,9 @@ class StepFieldsTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from deepcompare.harness import ScriptedProvider, run_task
-        from deepcompare.report import compare, render_html
-        from deepcompare.trace import Trajectory
+        from agentdiff.harness import ScriptedProvider, run_task
+        from agentdiff.report import compare, render_html
+        from agentdiff.trace import Trajectory
 
         subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
                        cwd=str(ROOT), check=True, capture_output=True)

@@ -3,7 +3,7 @@
  * One block over `aggregate.diagnosis_consolidated`, the engine's answer to
  * the question a single pair report cannot ask: does the diagnosis survive
  * repetition? A pair diagnosis is n=1 by construction; when the corpus holds
- * repeated runs, `deepcompare runs` diagnoses every failing run and asks
+ * repeated runs, `agentdiff runs` diagnoses every failing run and asks
  * whether the same hypothesis leads each time — and it executes the
  * discriminating checks that are answerable offline (grader consistency,
  * environment reproduction, harness flake rate).
@@ -90,13 +90,13 @@
   function str(v) { return typeof v === "string" && v ? v : ""; }
 
   /* The consolidation lives in the aggregate when the page was rendered by
-   * `deepcompare runs`, and on the raw payload when a test page was
+   * `agentdiff runs`, and on the raw payload when a test page was
    * assembled by hand. `batch` and `compare` never write it, so absence is
    * the normal case and means the block hides. */
   function payloadOf(ctx) {
     var fromAggregate = obj(ctx && ctx.aggregate && ctx.aggregate.diagnosis_consolidated);
     if (fromAggregate) return fromAggregate;
-    var raw = obj(global.DEEPCOMPARE_DATA);
+    var raw = obj(global.AGENTDIFF_DATA);
     return raw ? obj(raw.diagnosis_consolidated) : null;
   }
 
@@ -293,7 +293,7 @@
       var payload = payloadOf(ctx);
       if (!payload || !entriesOf(payload).length) {
         return ctx.empty(el, "No cross-run consolidation in this report — it is " +
-          "written by `deepcompare runs` over repeated runs of the same tasks.");
+          "written by `agentdiff runs` over repeated runs of the same tasks.");
       }
 
       el.appendChild(ctx.h("p", {

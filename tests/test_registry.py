@@ -16,8 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory
-from deepcompare.registry import (
+from agentdiff import Trajectory
+from agentdiff.registry import (
     convert,
     detect_format,
     dry_run,
@@ -379,7 +379,7 @@ class TestExtensibility(unittest.TestCase):
             self.assertEqual(result["format"], "myformat")
             self.assertIn("myformat", [f["name"] for f in formats()])
         finally:
-            from deepcompare import registry
+            from agentdiff import registry
             registry._ADAPTERS.pop("myformat", None)
 
     def test_a_broken_detector_cannot_break_discovery(self):
@@ -395,7 +395,7 @@ class TestExtensibility(unittest.TestCase):
             self.assertEqual(broken["confidence"], 0.0)
             self.assertIn("detector error", broken["reason"])
         finally:
-            from deepcompare import registry
+            from agentdiff import registry
             registry._ADAPTERS.pop("broken", None)
 
 

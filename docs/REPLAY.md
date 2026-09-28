@@ -22,7 +22,7 @@ from it and nothing else.
 
 ## The cassette
 
-`deepcompare.harness.cassette.Cassette.from_trace(trace)` indexes every
+`agentdiff.harness.cassette.Cassette.from_trace(trace)` indexes every
 tool-ish step (`search`, `retrieve`, `read`, `tool_call`) by the call as
 the agent made it — the tool's name and its arguments, canonicalised —
 with the results in the order they were observed. A repeated call
@@ -125,7 +125,7 @@ passes through, each recognised by evidence in a step's text::
 
     {"id": "commit", "label": "breaking commit found", "evidence": ["9f3c2e1"], "in": "output", "by_step": 8}
 
-`deepcompare.milestones` reads a run against them — reached or not, at
+`agentdiff.milestones` reads a run against them — reached or not, at
 which step and second, inside which sub-agent, on time or late, in
 order or not, and how many steps ran after the last one with no further
 progress. `batch --golden` attaches both runs' readings and their

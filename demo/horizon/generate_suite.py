@@ -50,7 +50,7 @@ from typing import Optional
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare.record import Recorder  # noqa: E402
+from agentdiff.record import Recorder  # noqa: E402
 
 NOTE = ("SYNTHETIC: a generated long-horizon run of several hundred steps across nested sub-agents; "
         "every value invented to exercise the long-horizon evaluation")

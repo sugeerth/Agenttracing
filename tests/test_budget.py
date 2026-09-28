@@ -20,11 +20,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare import sections  # noqa: E402
-from deepcompare.budget import BURN_CAP, KINDS, TOP_STEPS, budget_aggregate, budget_pair, budget_run  # noqa: E402
-from deepcompare.commands._io import load_traces  # noqa: E402
-from deepcompare.report import compare  # noqa: E402
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff import sections  # noqa: E402
+from agentdiff.budget import BURN_CAP, KINDS, TOP_STEPS, budget_aggregate, budget_pair, budget_run  # noqa: E402
+from agentdiff.commands._io import load_traces  # noqa: E402
+from agentdiff.report import compare  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 
 DEMO = ROOT / "demo" / "traces"
 TRAIN = ROOT / "demo" / "rl" / "train"
@@ -203,7 +203,7 @@ class AggregateTest(unittest.TestCase):
         self.assertFalse(empty["budget"]["measurable"])
 
     def test_the_runs_analysis_hands_the_cap_through(self):
-        from deepcompare.suite import analyse_runs
+        from agentdiff.suite import analyse_runs
         capped = analyse_runs(self.trajs, extra={"token_cap": 3000})["aggregate"]["budget"]
         self.assertEqual(capped["cap"]["value"], 3000)
         self.assertTrue(all(r["tokens"] > 3000 for r in capped["cap"]["over"]))
@@ -318,7 +318,7 @@ class CachedInputTest(unittest.TestCase):
         the prompt count; the Anthropic API reports it beside an input
         count that excludes it. Both reach a step as one field, and a
         provider that says nothing about caching yields no key at all."""
-        from deepcompare.harness.providers import anthropic_usage, openai_usage
+        from agentdiff.harness.providers import anthropic_usage, openai_usage
 
         self.assertEqual(
             openai_usage({"prompt_tokens": 400, "completion_tokens": 20,

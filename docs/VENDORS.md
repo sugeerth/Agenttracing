@@ -256,7 +256,7 @@ better buy, and a per-run comparison would hide that.
 
 ## How the streams are read
 
-`deepcompare/vendors.py` converts both CLIs' streams, and
+`agentdiff/vendors.py` converts both CLIs' streams, and
 `agentdiff convert` detects either one in a saved file.
 
 - **Codex** (`codex exec --json`): `thread.started`, `turn.started`,

@@ -303,7 +303,7 @@ the task was, exactly the places where a run stops behaving like one that
 is going well — an error nothing repaired, a block of steps that produced
 nothing new, a write with no check after it, a call made in a cycle, a
 step whose output the run already had. `--focus` spends the same budget
-on those (`deepcompare/excerpt.py`), keeping a quarter of it for the
+on those (`agentdiff/excerpt.py`), keeping a quarter of it for the
 opening and a quarter for the ending so the judge still sees the task
 taken up and the run concluded.
 

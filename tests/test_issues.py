@@ -14,8 +14,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory, compare
-from deepcompare.issues import (
+from agentdiff import Trajectory, compare
+from agentdiff.issues import (
     build_issues,
     fingerprint,
     is_suppressed,
@@ -105,7 +105,7 @@ class TestFingerprint(unittest.TestCase):
             step(2, "answer", "final"),
         ])
         # Names differing only by digits normalize to the same shape.
-        from deepcompare.issues import _normalize
+        from agentdiff.issues import _normalize
         self.assertEqual(_normalize("open_page_2024"), _normalize("open_page_2025"))
 
     def test_fingerprint_is_stable_and_readable(self):

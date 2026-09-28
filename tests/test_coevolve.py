@@ -25,11 +25,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
-from deepcompare import coevolve as co  # noqa: E402
-from deepcompare import evolve as ev  # noqa: E402
-from deepcompare import sections  # noqa: E402
-from deepcompare.cli import main  # noqa: E402
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff import coevolve as co  # noqa: E402
+from agentdiff import evolve as ev  # noqa: E402
+from agentdiff import sections  # noqa: E402
+from agentdiff.cli import main  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 from test_evolve import G0_ART, _agent, _trace, standard_gens, write_lineage  # noqa: E402
 
 DEMO = ROOT / "demo" / "evolve" / "lineage"
@@ -164,8 +164,8 @@ class FeatureTest(_Temp):
         self.assertIn("no step records a reward", co.FEATURES["critic_error"].basis)
 
     def test_critic_error_is_the_mean_absolute_residual_against_the_discounted_return_to_go(self):
-        from deepcompare.rl import GAMMA
-        from deepcompare.rlaudit import discounted_to_go
+        from agentdiff.rl import GAMMA
+        from agentdiff.rlaudit import discounted_to_go
         d = _trace("g0", "ta", "r1", True, check=True)
         d["steps"][0]["value"] = 3.0
         d["steps"][2]["value"] = 1.0
@@ -898,7 +898,7 @@ class HandLineageTest(_Temp):
         again = co.coevolve(self.lineage, self.evolution, samples=SAMPLES)
         self.assertEqual(json.dumps(again, sort_keys=True), json.dumps(self.co, sort_keys=True))
         sec = sections.get("lineage", "coevolution")
-        self.assertEqual(sec.fn.__module__, "deepcompare.coevolve")
+        self.assertEqual(sec.fn.__module__, "agentdiff.coevolve")
         self.assertEqual(sec.requires, ("evolution",))
         self.assertFalse(sec.on_demand)
         self.assertEqual(sections.registered("lineage")[:2], ["evolution", "coevolution"])

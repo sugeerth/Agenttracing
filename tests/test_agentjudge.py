@@ -17,11 +17,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from deepcompare.harness.agentjudge import (  # noqa: E402
+from agentdiff.harness.agentjudge import (  # noqa: E402
     SYSTEM, _same_family, judge_trace, requirements_of, trace_tools)
-from deepcompare.harness.providers import ScriptedProvider  # noqa: E402
-from deepcompare.scorecard import cohens_kappa, scorecard  # noqa: E402
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff.harness.providers import ScriptedProvider  # noqa: E402
+from agentdiff.scorecard import cohens_kappa, scorecard  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 
 SUITE = ROOT / "demo" / "horizon" / "suite"
 GOLDEN = ROOT / "demo" / "horizon" / "suite_golden.json"
@@ -286,7 +286,7 @@ class CommandTest(unittest.TestCase):
             script.write_text(json.dumps({"model": "stand-in-nav", "turns": [
                 {"text": "", "tool_calls": [{"name": "graph", "arguments": {}}]},
                 {"text": '{"success": false, "score": 0.3, "rationale": "stand-in"}'}]}), encoding="utf-8")
-            done = subprocess.run([sys.executable, "-m", "deepcompare", "judge", str(traces), "--agent",
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "judge", str(traces), "--agent",
                                    "--provider", f"j=scripted:{script}", "--golden", str(GOLDEN)],
                                   cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(done.returncode, 0, done.stderr[-400:])

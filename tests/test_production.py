@@ -40,17 +40,17 @@ class VersionTest(unittest.TestCase):
         # tomllib is 3.11+, and this package supports 3.10: read the one field
         text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
         want = re.search(r'^version\s*=\s*"([^"]+)"', text, re.M).group(1)
-        done = subprocess.run([sys.executable, "-m", "deepcompare", "--version"], cwd=str(ROOT),
+        done = subprocess.run([sys.executable, "-m", "agentdiff", "--version"], cwd=str(ROOT),
                               capture_output=True, text=True)
         self.assertEqual(done.returncode, 0)
         self.assertEqual(done.stdout.strip(), f"agentdiff {want}")
-        from deepcompare import __version__
+        from agentdiff import __version__
         self.assertEqual(__version__, want)
 
 
 class ServingTest(unittest.TestCase):
     def test_the_bind_policy(self):
-        from deepcompare.harness.watch import bind_policy
+        from agentdiff.harness.watch import bind_policy
         for host in ("127.0.0.1", "::1", "localhost"):
             self.assertIsNone(bind_policy(host))
         for host in ("0.0.0.0", "192.168.1.10", ""):
@@ -62,8 +62,8 @@ class ServingTest(unittest.TestCase):
         self.assertNotEqual(token, bind_policy("0.0.0.0", allow_remote=True))
 
     def test_a_tokened_server_refuses_without_it_and_remembers_it_with_a_cookie(self):
-        from deepcompare.commands.paths import DEFAULT_TEMPLATE
-        from deepcompare.harness.watch import serve
+        from agentdiff.commands.paths import DEFAULT_TEMPLATE
+        from agentdiff.harness.watch import serve
         with tempfile.TemporaryDirectory() as tmp:
             server = serve(tmp, DEFAULT_TEMPLATE, host="127.0.0.1", port=0, token="t0ken-abcdefghijklmnop")
             threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -95,7 +95,7 @@ class ServingTest(unittest.TestCase):
 
     def test_watch_will_not_serve_beyond_this_machine_by_accident(self):
         with tempfile.TemporaryDirectory() as tmp:
-            done = subprocess.run([sys.executable, "-m", "deepcompare", "watch", tmp, "--host", "0.0.0.0"],
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "watch", tmp, "--host", "0.0.0.0"],
                                   cwd=str(ROOT), capture_output=True, text=True, timeout=30)
         self.assertEqual(done.returncode, 2)
         self.assertIn("--allow-remote", done.stderr)
@@ -106,7 +106,7 @@ class DuelLifecycleTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             scratch = Path(tmp) / "tmp"
             scratch.mkdir()
-            proc = subprocess.Popen([sys.executable, "-m", "deepcompare", "duel", "--task", str(TASK), "--quiet",
+            proc = subprocess.Popen([sys.executable, "-m", "agentdiff", "duel", "--task", str(TASK), "--quiet",
                                      "--codex-bin", str(FAKES / "fake_codex.py"),
                                      "--claude-bin", str(FAKES / "fake_claude.py"),
                                      "-o", str(Path(tmp) / "d")],
@@ -135,7 +135,7 @@ class DuelLifecycleTest(unittest.TestCase):
     def test_a_run_that_floods_its_output_is_stopped_at_the_cap(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "d"
-            done = subprocess.run([sys.executable, "-m", "deepcompare", "duel", "--task", str(TASK), "--quiet",
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "duel", "--task", str(TASK), "--quiet",
                                    "--codex-bin", str(FAKES / "fake_codex.py"),
                                    "--claude-bin", str(FAKES / "fake_claude.py"),
                                    "--max-stream-mb", "0.002", "-o", str(out)],
@@ -174,7 +174,7 @@ class InstalledTest(unittest.TestCase):
                 if src.is_file():
                     (clean / rel).parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src, clean / rel)
-            self.assertFalse((clean / "deepcompare" / "page").exists(), "a fresh clone has no built page")
+            self.assertFalse((clean / "agentdiff" / "page").exists(), "a fresh clone has no built page")
             built = subprocess.run([sys.executable, "-m", "pip", "wheel", str(clean), "--no-deps", "-q",
                                     "-w", str(tmp / "wheel")], capture_output=True, text=True, timeout=600)
             if built.returncode != 0:
@@ -190,6 +190,9 @@ class InstalledTest(unittest.TestCase):
             ver = subprocess.run([str(exe), "--version"], cwd=str(elsewhere), capture_output=True, text=True)
             self.assertEqual(ver.returncode, 0, ver.stderr)
             self.assertTrue(ver.stdout.startswith("agentdiff "))
+            old = subprocess.run([str(tmp / "venv" / "bin" / "python"), "-m", "deepcompare", "--version"],
+                                 cwd=str(elsewhere), capture_output=True, text=True)
+            self.assertEqual(old.returncode, 0, "the old name ships with the wheel: " + old.stderr[-500:])
             out = elsewhere / "out"
             done = subprocess.run([str(exe), "batch", str(ROOT / "demo" / "traces"), "-o", str(out)],
                                   cwd=str(elsewhere), capture_output=True, text=True, timeout=600)

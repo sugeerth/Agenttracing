@@ -205,11 +205,11 @@ footer { margin-top: 4rem; padding-top: 0.9rem; border-top: 1px solid var(--rule
 </main>
 
 <script>
-window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
+window.AGENTDIFF_DATA = {"reports": [], "aggregate": {}};
 (function () {
   "use strict";
 
-  var RAW = window["DEEPCOMPARE_DATA"] || {};
+  var RAW = window["AGENTDIFF_DATA"] || {};
   var S = RAW.similarity || null;
   var R = RAW.routing || null;
   var body = document.getElementById("app").querySelector("#body");
@@ -249,7 +249,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     body.innerHTML =
       '<div class="empty"><p>No data injected into this template.</p>' +
       '<p class="lede">Generate a populated copy of this page with' +
-      ' <code>python -m deepcompare select &lt;traces&gt; -o out</code>' +
+      ' <code>python -m agentdiff select &lt;traces&gt; -o out</code>' +
       ' &mdash; the engine writes <code>out/select.html</code> alongside' +
       ' <code>out/select.json</code>.</p></div>';
     foot.textContent = "Deterministic analysis — same traces in, same numbers out.";

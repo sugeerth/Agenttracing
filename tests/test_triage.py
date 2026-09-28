@@ -18,9 +18,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory, compare
-from deepcompare.metrics import aggregate
-from deepcompare.triage import render_triage_text, triage
+from agentdiff import Trajectory, compare
+from agentdiff.metrics import aggregate
+from agentdiff.triage import render_triage_text, triage
 
 
 # --------------------------------------------------------------------------
@@ -757,8 +757,8 @@ class TestConsolidatedSource(unittest.TestCase):
         import glob as _glob
         import os
         import tempfile
-        from deepcompare.consolidate import consolidate_diagnoses
-        from deepcompare.stability import medoid_pairs
+        from agentdiff.consolidate import consolidate_diagnoses
+        from agentdiff.stability import medoid_pairs
         data = []
         for f in sorted(_glob.glob(str(cls.ROOT / "demo/runs/traces/t01*.json"))):
             data.append(json.loads(Path(f).read_text()))

@@ -14,8 +14,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory
-from deepcompare.conformance import (
+from agentdiff import Trajectory
+from agentdiff.conformance import (
     check_run,
     check_suite,
     render_conformance_markdown,

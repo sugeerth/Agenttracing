@@ -182,7 +182,7 @@ tasks.json` gives the judge **tools over the trace** and lets it look:
 | `graph()` | how long the run is, which tools it used, how often, when each first appeared |
 | `locate(term)` | the steps whose call, input or result mention a thing |
 | `read(start, end)` | a range of steps, in full |
-| `flags()` | **the deterministic reading** — every place `deepcompare.excerpt` marks, with its reason |
+| `flags()` | **the deterministic reading** — every place `agentdiff.excerpt` marks, with its reason |
 
 The first three are the method as published. The fourth is this
 repository's addition: the engine already knows where a run stops

@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare.narrate import (
+from agentdiff.narrate import (
     check_narration,
     ingest_narration,
     narrate,
@@ -136,7 +136,7 @@ class TestSegregation(unittest.TestCase):
         self.assertIn("commentary only", block["authority"])
 
     def test_the_engine_makes_no_network_call(self):
-        source = Path("deepcompare/narrate.py").read_text(encoding="utf-8")
+        source = Path("agentdiff/narrate.py").read_text(encoding="utf-8")
         for forbidden in ("urllib", "http.client", "requests", "socket"):
             self.assertNotIn(forbidden, source)
 
@@ -224,8 +224,8 @@ class TestDiagnosisInBrief(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from deepcompare.report import compare
-        from deepcompare.trace import Trajectory
+        from agentdiff.report import compare
+        from agentdiff.trace import Trajectory
         root = Path(__file__).resolve().parent.parent
         a = Trajectory.from_json(
             str(root / "demo" / "traces" / "t05_flight_duration__atlas-v2.json"))
@@ -279,8 +279,8 @@ class TestDiagnosisInBrief(unittest.TestCase):
         self.assertGreater(len(brief2["facts"]), 0)
 
     def test_contradictions_are_quoted_when_present(self):
-        from deepcompare.report import compare
-        from deepcompare.trace import Trajectory
+        from agentdiff.report import compare
+        from agentdiff.trace import Trajectory
         root = Path(__file__).resolve().parent.parent
         a = Trajectory.from_json(str(
             root / "demo" / "process" / "traces"
@@ -303,12 +303,12 @@ class TestCrossRunFactsInAggregateBrief(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import glob
-        from deepcompare.consolidate import consolidate_diagnoses
-        from deepcompare.metrics import aggregate as build_aggregate
-        from deepcompare.report import compare
-        from deepcompare.stability import medoid_pairs
+        from agentdiff.consolidate import consolidate_diagnoses
+        from agentdiff.metrics import aggregate as build_aggregate
+        from agentdiff.report import compare
+        from agentdiff.stability import medoid_pairs
         root = Path(__file__).resolve().parent.parent
-        from deepcompare.trace import Trajectory
+        from agentdiff.trace import Trajectory
         runs_by_task = {}
         for f in sorted(glob.glob(str(root / "demo/runs/traces/*.json"))):
             t = Trajectory.from_json(f)
@@ -344,9 +344,9 @@ class TestCrossRunFactsInAggregateBrief(unittest.TestCase):
         self.assertFalse(invented["faithful"])
 
     def test_aggregate_without_consolidation_still_briefs(self):
-        from deepcompare.metrics import aggregate as build_aggregate
-        from deepcompare.report import compare
-        from deepcompare.trace import Trajectory
+        from agentdiff.metrics import aggregate as build_aggregate
+        from agentdiff.report import compare
+        from agentdiff.trace import Trajectory
         root = Path(__file__).resolve().parent.parent / "demo" / "traces"
         a = Trajectory.from_json(str(root / "t01_acme_revenue__atlas-v2.json"))
         b = Trajectory.from_json(str(root / "t01_acme_revenue__bolt-v3.json"))
@@ -362,8 +362,8 @@ class TestDecisiveStepAndAccountInBrief(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from deepcompare.report import compare
-        from deepcompare.trace import Trajectory
+        from agentdiff.report import compare
+        from agentdiff.trace import Trajectory
         cls.compare = staticmethod(compare)
         globals()["compare"] = compare
         root = Path(__file__).resolve().parent.parent
@@ -399,8 +399,8 @@ class TestDecisiveStepAndAccountInBrief(unittest.TestCase):
         self.assertIn("window runs from step", verification[0])
 
     def test_the_evidence_window_shows_only_cited_steps_within_budget(self):
-        from deepcompare.narrate import WINDOW_STEP_BYTES, evidence_window
-        from deepcompare.trace import Trajectory
+        from agentdiff.narrate import WINDOW_STEP_BYTES, evidence_window
+        from agentdiff.trace import Trajectory
         report = self.compare(
             Trajectory.from_json(str(Path(__file__).resolve().parent.parent
                                      / "demo/process/traces/p01_cancel_booking__steady-v1.json")),
@@ -486,11 +486,11 @@ class TestSpectrumFactsInAggregateBrief(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import glob
-        from deepcompare.consolidate import consolidate_diagnoses
-        from deepcompare.metrics import aggregate as build_aggregate
-        from deepcompare.report import compare
-        from deepcompare.stability import medoid_pairs
-        from deepcompare.trace import Trajectory
+        from agentdiff.consolidate import consolidate_diagnoses
+        from agentdiff.metrics import aggregate as build_aggregate
+        from agentdiff.report import compare
+        from agentdiff.stability import medoid_pairs
+        from agentdiff.trace import Trajectory
         root = Path(__file__).resolve().parent.parent
         rbt = {}
         for f in sorted(glob.glob(str(root / "demo/runs/traces/*.json"))):

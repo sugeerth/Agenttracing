@@ -386,11 +386,11 @@ footer { margin-top: 3.5rem; border-top: 1px solid var(--rule); padding-top: 0.7
 <div id="tip" role="status" aria-live="off"></div>
 
 <script>
-window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
+window.AGENTDIFF_DATA = {"reports": [], "aggregate": {}};
 (function () {
   "use strict";
 
-  var RAW = window["DEEPCOMPARE_DATA"] || {};
+  var RAW = window["AGENTDIFF_DATA"] || {};
   var REPORTS = (RAW.reports || []);
   var picker = document.getElementById("picker");
   var body = document.getElementById("body");
@@ -458,7 +458,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     body.innerHTML =
       '<div class="empty"><p>No run data is injected into this template yet.</p>' +
       '<p>Generate a populated copy of this page from a directory of trace files:</p>' +
-      '<p><code>python -m deepcompare batch &lt;traces&gt; -o out --template web/explore.html</code></p>' +
+      '<p><code>python -m agentdiff batch &lt;traces&gt; -o out --template web/explore.html</code></p>' +
       '<p class="mut">The engine writes <code>out/report.html</code> — the same page with every' +
       ' run of the batch in its picker.</p></div>';
     foot.textContent = "Deterministic analysis — same traces in, same numbers out.";

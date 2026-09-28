@@ -88,7 +88,7 @@ transcripts and the claim is held to what the abstract supports.
 ## The program, ranked by impact × feasibility (stdlib, zero dependencies)
 
 The harness came first because everything below wants traces from
-real, swappable models: `deepcompare/harness/` runs any task set
+real, swappable models: `agentdiff/harness/` runs any task set
 against OpenAI-compatible, Anthropic or Ollama endpoints (or scripted
 turns), through a generic tool loop, recorded as first-class SCHEMA
 traces — and it is the *only* place in the project that touches a

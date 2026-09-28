@@ -1,13 +1,13 @@
 # The self-evolving eval: an eval that evolves with the agent it reads
 
-`deepcompare.evolve` reads a lineage g0 → g1 → g2 → … against a fixed
+`agentdiff.evolve` reads a lineage g0 → g1 → g2 → … against a fixed
 set of metrics and checks, and `docs/EVOLVE.md` states the gap in that
 reading plainly: when the grader itself is what got fooled, every number
 is compromised with it. There is a second, quieter version of the same
 gap. An agent that evolves against a fixed eval eventually optimises the
 eval — Goodhart's observation that a measure under pressure stops
 measuring — and a fixed eval cannot notice, because the thing it would
-need to notice with is the thing being optimised. `deepcompare.coevolve`
+need to notice with is the thing being optimised. `agentdiff.coevolve`
 is the answer that stays inside the episodes: an eval that is itself a
 lineage e0 → e1 → e2 → …, each eval step triggered by an agent step.
 When a step exposes a blind spot, a **probe** proposes candidate
@@ -375,7 +375,7 @@ answer to a fooled grader, and both remain outside this layer.
 ## The external proposer
 
 The probes are deterministic and pure; a model can see a blind spot they
-cannot name. `deepcompare/harness/proposer.py` is the seam, and the
+cannot name. `agentdiff/harness/proposer.py` is the seam, and the
 engine never imports it: `agentdiff coevolve … --propose PROVIDER`
 imports it inside the command, hands the provider the engine's brief for
 each step (`coevolve.proposal_brief`: the feature vocabulary with its

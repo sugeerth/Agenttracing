@@ -29,13 +29,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare import data as dm  # noqa: E402
-from deepcompare import evolve as ev  # noqa: E402
-from deepcompare import sections  # noqa: E402
-from deepcompare.commands._io import load_traces  # noqa: E402
-from deepcompare.report import compare  # noqa: E402
-from deepcompare.suite import analyse_runs  # noqa: E402
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff import data as dm  # noqa: E402
+from agentdiff import evolve as ev  # noqa: E402
+from agentdiff import sections  # noqa: E402
+from agentdiff.commands._io import load_traces  # noqa: E402
+from agentdiff.report import compare  # noqa: E402
+from agentdiff.suite import analyse_runs  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 from tests.test_budget import step, trace  # noqa: E402
 from tests.test_evolve import SAMPLES, standard_gens, write_lineage  # noqa: E402
 
@@ -376,7 +376,7 @@ class LineageTest(unittest.TestCase):
     def test_the_section_attaches_after_the_eval_and_reads_every_step(self):
         self.assertEqual(sections.registered("lineage")[:2], ["evolution", "coevolution"])
         # what this pins is that the data side attaches *after* the eval, not
-        # that it is last: the harness section (deepcompare.harnessevo) also
+        # that it is last: the harness section (agentdiff.harnessevo) also
         # declares after=("coevolution",) and registers later, so it follows.
         order = sections.registered("lineage")
         self.assertGreater(order.index("data_evolution"), order.index("coevolution"))
@@ -484,7 +484,7 @@ class DemoLineageTest(unittest.TestCase):
 
 class BriefTest(unittest.TestCase):
     def test_the_chat_brief_carries_the_data_facts_and_allows_every_number_in_them(self):
-        from deepcompare.narrate import chat_brief, check_narration, data_brief
+        from agentdiff.narrate import chat_brief, check_narration, data_brief
         a = Trajectory.from_json(DEMO / "t01_acme_revenue__atlas-v2.json")
         b = Trajectory.from_json(DEMO / "t01_acme_revenue__bolt-v3.json")
         report = compare(a, b)
@@ -508,7 +508,7 @@ class BriefTest(unittest.TestCase):
                          "the data side cannot be read in full: x")
 
     def test_the_lineage_brief_carries_one_fact_per_step(self):
-        from deepcompare.narrate import chat_brief, check_narration
+        from agentdiff.narrate import chat_brief, check_narration
         tmp = Path(tempfile.mkdtemp(prefix="data-brief-"))
         try:
             agg = ev.attach_sections(ev.read_lineage(write_lineage(tmp / "lin", standard_gens())), {}, samples=SAMPLES)
@@ -567,7 +567,7 @@ class ByteIdentityTest(unittest.TestCase):
         self.assertEqual(one, two)
 
     def test_the_module_names_no_model_of_its_own(self):
-        source = (ROOT / "deepcompare" / "data.py").read_text(encoding="utf-8").lower()
+        source = (ROOT / "agentdiff" / "data.py").read_text(encoding="utf-8").lower()
         for needle in ("claude", "gpt", "gemini", "llama", "sonnet", "opus", "haiku", "mistral"):
             self.assertNotIn(needle, source, needle)
         page = json.dumps(dm.data_run(Trajectory.from_json(DEMO / "t01_acme_revenue__atlas-v2.json")))

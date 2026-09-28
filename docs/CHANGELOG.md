@@ -5,6 +5,22 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## One name: AgentDiff
+
+The command was already `agentdiff`, but the package, `python -m`, the
+imports and the page's data marker were still named `deepcompare`. Now
+everything is `agentdiff`: `import agentdiff`, `python -m agentdiff`,
+`window.AGENTDIFF_DATA`, and `AGENTDIFF_SYSTEM_PROMPT` for an operator's
+own agent in `loop`.
+
+The old name keeps working, so nothing written against it breaks:
+- `import deepcompare.report` is the same module object as
+  `agentdiff.report`, not a copy
+- `python -m deepcompare` runs the same CLI
+- `loop` sets `DEEPCOMPARE_SYSTEM_PROMPT` beside the new variable
+
+A test holds the rest of the repository to the new name.
+
 ## `agentdiff fix`, and the check before any work
 
 - `agentdiff fix` needs no prompt. It finds the test command, confirms
@@ -80,7 +96,7 @@ says it ran (`claude-haiku-4-5-20251001`), with the alias kept as
 A page watched while the agents ran used to be a shorter page than the
 one written at the end: the pair reports and a bare aggregate, without
 the scorecard, the lessons, the forge or the duel's reading. Now one
-pipeline, `deepcompare/corpus.analyse`, produces both. `batch` calls it
+pipeline, `agentdiff/corpus.analyse`, produces both. `batch` calls it
 (its output is byte-identical to before), and the live server calls it
 each time the set of finished runs changes.
 
@@ -232,7 +248,7 @@ excluded from the hero lane's fallback, so it is drawn once.
 
 ## The forge, a reader's marks, and Focus
 
-**The eval forge** (`deepcompare/forge.py`, `deepcompare/harness/forge_judge.py`,
+**The eval forge** (`agentdiff/forge.py`, `agentdiff/harness/forge_judge.py`,
 `web/blocks/05_forge.js`). A self-improving eval harness whose improvement
 is measured on runs it did not choose on. Candidates are deterministic
 trace assertions written from the wrong runs: marks, signatures,
@@ -278,8 +294,8 @@ picker's width give way first.
 
 ## Codex CLI and Claude Code on the same task
 
-`agentdiff duel` (`deepcompare/harness/vendors.py`, `deepcompare/duel.py`,
-`deepcompare/vendors.py`, `web/blocks/03_duel.js`, `docs/VENDORS.md`) runs
+`agentdiff duel` (`agentdiff/harness/vendors.py`, `agentdiff/duel.py`,
+`agentdiff/vendors.py`, `web/blocks/03_duel.js`, `docs/VENDORS.md`) runs
 the two vendor CLIs on one task, each in its own copy of the workspace,
 launched side by side, and reads them the way the page reads any pair.
 
@@ -313,7 +329,7 @@ launched side by side, and reads them the way the page reads any pair.
 ## Lessons: the corpus page learns from its traces, and checks itself
 
 Every corpus block described the corpus it was handed. None of them
-learned anything that could be wrong next week. `deepcompare/lessons.py`
+learned anything that could be wrong next week. `agentdiff/lessons.py`
 does, and the design is mostly about the ways learning from traces fools
 itself.
 
@@ -550,7 +566,7 @@ its meaning.
 Two things, and they are the same thing: the judge stops being handed a
 window, and the page stops asking to be believed.
 
-**Agent-as-a-Judge** (`deepcompare/harness/agentjudge.py`, `judge
+**Agent-as-a-Judge** (`agentdiff/harness/agentjudge.py`, `judge
 --agent`). The LLM judge's ceiling is not its reasoning, it is its input:
 the best excerpt this repository can build contains the failing step 75%
 of the time. So the judge gets tools instead — `graph()` for the shape of
@@ -750,7 +766,7 @@ bound is a measurement rather than a reassurance.
 
 Choosing the excerpt by where the steps fall is close to choosing at
 random — the failure is at step 175 of 202, or 95 of 233, and position
-knows nothing about either. `deepcompare/excerpt.py` chooses by what the
+knows nothing about either. `agentdiff/excerpt.py` chooses by what the
 run itself flags instead: an error nothing repaired, a block of steps
 that produced nothing new, a write with no check after it, a call in a
 cycle, a step whose output the run already had, a policy breach. A
@@ -1024,7 +1040,7 @@ backing off, or for a tool that works.
 **The producer.** `Step.attempt` (optional, 1-based, absent rather than
 null when there was only one try) is written only when the *harness*
 re-executed a call. `max_tool_retries` is the budget knob that makes it
-do so — the seventh setting `deepcompare.harness.agent` reads — and each
+do so — the seventh setting `agentdiff.harness.agent` reads — and each
 try is its own step, so the tokens and seconds of a retry are recorded
 rather than folded into one call that looks slow.
 
@@ -1441,7 +1457,7 @@ it not because they were unmeasurable but because the loop had exactly one
 number, and a retry policy or a verification step is not a step cap.
 
 **Three settings, each chosen by what a trace can carry.**
-`deepcompare/harness/agent.py` now reads `max_tool_errors` (how many
+`agentdiff/harness/agent.py` now reads `max_tool_errors` (how many
 failed calls end the run — it was hardcoded at three, a setting nothing
 could vary and no trace recorded), `dedupe_tool_calls` (an identical
 repeat served from a harness cache, which is literally the engine's own
@@ -1541,7 +1557,7 @@ could recommend a scaffold change, `harness_evolution` could detect that a
 gain came from the scaffold, and the thing that drives improvement could
 do neither.
 
-**Two knobs, because a harness has two.** `deepcompare/scaffold.py` turns
+**Two knobs, because a harness has two.** `agentdiff/scaffold.py` turns
 those findings into hypotheses over the only things a harness varies that
 a trace records back: the tool table a run is offered
 (`Trajectory.tools`) and the limits the loop enforces
@@ -1607,7 +1623,7 @@ changed the scaffold, the runner obeyed, and the trace recorded it.
 
 ## The harness beside the agent, and the eval learning to watch it (report section `harness_evolution`, v1)
 
-One section, `harness_evolution` (`deepcompare/harnessevo.py`, `docs/HARNESS.md`),
+One section, `harness_evolution` (`agentdiff/harnessevo.py`, `docs/HARNESS.md`),
 attached to every lineage after `data_evolution`, and one probe on the
 co-evolving eval. Every existing output is byte-identical but for the new
 key (checked by attaching the same lineage with the section registered and
@@ -1755,13 +1771,13 @@ in the live DOM rather than holding a node that is already detached, and
 releases it on Tab or a pointer so it never becomes a focus trap.
 
 **The installed package was missing half of itself.**
-`[tool.setuptools] packages = ["deepcompare"]` named only the top level, so
-the wheel shipped 92 files with no `deepcompare.commands` (every command
-the CLI dispatches to) and no `deepcompare.harness` (the only modules
+`[tool.setuptools] packages = ["agentdiff"]` named only the top level, so
+the wheel shipped 92 files with no `agentdiff.commands` (every command
+the CLI dispatches to) and no `agentdiff.harness` (the only modules
 allowed a socket): `pip install agentdiff && agentdiff --help` died on its
 own import line. No test in the suite could see it because no test built a
-wheel. `packages.find` with `include = ["deepcompare*"]` ships all 155
-files; `web/build_blocks.py` also writes `deepcompare/page/blocks.html` and
+wheel. `packages.find` with `include = ["agentdiff*"]` ships all 155
+files; `web/build_blocks.py` also writes `agentdiff/page/blocks.html` and
 `commands/paths.py` resolves the template from the checkout first and the
 package second, so an installed `batch` writes its page instead of
 silently writing none. `tests/test_packaging.py` builds the wheel from a
@@ -1799,7 +1815,7 @@ Three views join the page, all reading what the reports already carry. **Chat**,
 
 ## The data layer: what the agent was told, what it read, how that reached the answer, and how the agent evolved from it (report sections `data`, `data_evolution`, v1)
 
-One more section, `data` (`deepcompare/data.py`, `docs/DATA.md`), attached to every pair report after `fetches` and to the `runs` aggregate through the registry, and `data_evolution` on every lineage after `coevolution` — every existing output byte-identical apart from the new keys (tested by analysing the same inputs with the sections registered and not). Per run: the task prompt and expected answer as recorded; the agent's instructions with their source (`trace.agent.system_prompt`, `trace.agent.config`, a lineage's artifacts, or null); which model produced which steps from the step telemetry when a step names one, else the trace's declared model, the source said on every row and the name shown as recorded; the corpus — every distinct source fetched, identified the way `fetches` identifies a repeat (tool name + normalised input, hashed), with input, size, tokens, digest, error and repeats; the answer's provenance — its typed values (the semantic extractor's) traced to the fetched outputs that carry them, a share per output, `supported`/`unsupported` as counts, placed beside the pair's own `reading.answer_basis` and `semantic.grounding` verbatim; the chain data → model → agent → answer with `feeds`/`produces`/`reaches` edges, each with its overlap (token containment at `CHAIN_OVERLAP = 0.2`, or adjacency with overlap null) and basis. Per pair the instructions diff by hunk, the corpus diff with Jaccard, the models, the provenance delta. Per lineage, one row per step: what data the cited episodes read (sources, fetches, grounded share, outcome), the change from `evolution.steps[].diff`, the behaviour shift (tools, sources, grounded share before and after), the effect, the evolved eval's flags and the eval generation the step advanced to, and a one-sentence reading. A trace with no prompt, no model or no text is unmeasurable with the reason and the readable parts still produced; SYNTHETIC through. `trace.AgentInfo` keeps `system_prompt` and `config` off `to_dict`. The bundle's level-3 record gains `steps[].input_text`/`output_text` capped at `TEXT_CAP = 4000` with `*_truncated` flags, and `data`; the MCP server gains `step {key, index}` (the whole text of one step from the member's copy of the report) and `data {key}`; the HTTP API `/api/v1/runs/<key>/steps/<index>` and `/api/v1/runs/<key>/data`; the chat brief the data facts per pair, the aggregate's data narrative and one fact per lineage step. On the demo, atlas-v2 and bolt-v3 on t01 share one of their 3 and 6 sources (Jaccard 0.125) and both answers are 3-of-3 grounded by this measure while only one matches the expected answer — grounded is carried, not correct; the ledger-agent's g2→g3 cites three failures that read 29, 39 and 35 sources, removes `run_check` (237 → 0 calls) by one prompt hunk and a protected config key, and the evolved eval flags `verified_rate` −1. Two existing pins moved with the new key (the report's last key is now `data`; a level-3 record's `data` carries the trace's own model name, the index still none). Tests `test_data`, and additions to `test_bundle`, `test_mcp`, `test_serve`.
+One more section, `data` (`agentdiff/data.py`, `docs/DATA.md`), attached to every pair report after `fetches` and to the `runs` aggregate through the registry, and `data_evolution` on every lineage after `coevolution` — every existing output byte-identical apart from the new keys (tested by analysing the same inputs with the sections registered and not). Per run: the task prompt and expected answer as recorded; the agent's instructions with their source (`trace.agent.system_prompt`, `trace.agent.config`, a lineage's artifacts, or null); which model produced which steps from the step telemetry when a step names one, else the trace's declared model, the source said on every row and the name shown as recorded; the corpus — every distinct source fetched, identified the way `fetches` identifies a repeat (tool name + normalised input, hashed), with input, size, tokens, digest, error and repeats; the answer's provenance — its typed values (the semantic extractor's) traced to the fetched outputs that carry them, a share per output, `supported`/`unsupported` as counts, placed beside the pair's own `reading.answer_basis` and `semantic.grounding` verbatim; the chain data → model → agent → answer with `feeds`/`produces`/`reaches` edges, each with its overlap (token containment at `CHAIN_OVERLAP = 0.2`, or adjacency with overlap null) and basis. Per pair the instructions diff by hunk, the corpus diff with Jaccard, the models, the provenance delta. Per lineage, one row per step: what data the cited episodes read (sources, fetches, grounded share, outcome), the change from `evolution.steps[].diff`, the behaviour shift (tools, sources, grounded share before and after), the effect, the evolved eval's flags and the eval generation the step advanced to, and a one-sentence reading. A trace with no prompt, no model or no text is unmeasurable with the reason and the readable parts still produced; SYNTHETIC through. `trace.AgentInfo` keeps `system_prompt` and `config` off `to_dict`. The bundle's level-3 record gains `steps[].input_text`/`output_text` capped at `TEXT_CAP = 4000` with `*_truncated` flags, and `data`; the MCP server gains `step {key, index}` (the whole text of one step from the member's copy of the report) and `data {key}`; the HTTP API `/api/v1/runs/<key>/steps/<index>` and `/api/v1/runs/<key>/data`; the chat brief the data facts per pair, the aggregate's data narrative and one fact per lineage step. On the demo, atlas-v2 and bolt-v3 on t01 share one of their 3 and 6 sources (Jaccard 0.125) and both answers are 3-of-3 grounded by this measure while only one matches the expected answer — grounded is carried, not correct; the ledger-agent's g2→g3 cites three failures that read 29, 39 and 35 sources, removes `run_check` (237 → 0 calls) by one prompt hunk and a protected config key, and the evolved eval flags `verified_rate` −1. Two existing pins moved with the new key (the report's last key is now `data`; a level-3 record's `data` carries the trace's own model name, the index still none). Tests `test_data`, and additions to `test_bundle`, `test_mcp`, `test_serve`.
 
 ## The bundle, the key, the MCP server and the HTTP API: `bundle`, `key`, `mcp`, `serve` (report sections `budget`, `fetches`, v1)
 
@@ -1807,18 +1823,18 @@ Two sections, `budget` (where the tokens went: by kind, by tool, measured/estima
 
 ## The two evals side by side, and a chat about the directory: `evolution_compare.evals`, `chat` (no schema version change)
 
-`evolve --against` now also compares the evals that evolved with the lineages: `evolution_compare.evals` runs `coevolve` on each lineage over the evolution section already in hand and reports what each eval learned (eval generations, adopted, demoted and retired metrics, candidates tested and the validator each rejection failed, drift, closures, the longest hindsight lag, the recommendation under both rules), the metrics more than one eval adopted, and a transfer — every learned metric applied to the other lineage's last step with the same delta test at `ALPHA`, one test per metric and lineage, unadjusted and stated. On the demo, ledger-agent's eval learned three metrics and memo-agent's none (three noise, three redundant); on memo-agent's g5→g6 `verified_rate` and `frugal_pass_rate` say nothing and the retired `clean_pass_rate` falls 1 → 0.86 with an interval excluding zero. The reading declares no winner between the evals. Every other byte of the section, the pair reports and the aggregate is unchanged. `agentdiff chat <out_dir> [--provider …] [--ask "…"] [--script FILE]` is a grounded conversation about one output directory under the narration covenant: one brief from the aggregate's facts, each pair's (`narrate`'s own brief functions), the evolution, the coevolution and the evals comparison (`narrate.coevolution_brief`, every fact numbered, every number allowed); the model is told to cite `[F7]`-style facts or say "not in the report"; every answer goes through `check_narration` and is printed with its violations attached, never silently; without a provider the brief and the prompt are printed; the harness (`deepcompare/harness/chat.py`) is imported inside the command only when a provider or a script is given; credentials from environment variables only, never printed. The Grafana exporter is untouched.
+`evolve --against` now also compares the evals that evolved with the lineages: `evolution_compare.evals` runs `coevolve` on each lineage over the evolution section already in hand and reports what each eval learned (eval generations, adopted, demoted and retired metrics, candidates tested and the validator each rejection failed, drift, closures, the longest hindsight lag, the recommendation under both rules), the metrics more than one eval adopted, and a transfer — every learned metric applied to the other lineage's last step with the same delta test at `ALPHA`, one test per metric and lineage, unadjusted and stated. On the demo, ledger-agent's eval learned three metrics and memo-agent's none (three noise, three redundant); on memo-agent's g5→g6 `verified_rate` and `frugal_pass_rate` say nothing and the retired `clean_pass_rate` falls 1 → 0.86 with an interval excluding zero. The reading declares no winner between the evals. Every other byte of the section, the pair reports and the aggregate is unchanged. `agentdiff chat <out_dir> [--provider …] [--ask "…"] [--script FILE]` is a grounded conversation about one output directory under the narration covenant: one brief from the aggregate's facts, each pair's (`narrate`'s own brief functions), the evolution, the coevolution and the evals comparison (`narrate.coevolution_brief`, every fact numbered, every number allowed); the model is told to cite `[F7]`-style facts or say "not in the report"; every answer goes through `check_narration` and is printed with its violations attached, never silently; without a provider the brief and the prompt are printed; the harness (`agentdiff/harness/chat.py`) is imported inside the command only when a provider or a script is given; credentials from environment variables only, never printed. The Grafana exporter is untouched.
 
 ## The eval that evolves with the agent: `coevolve` (aggregate `coevolution`, v1)
 
-The lineage layer's own docstring names its gap: an agent that evolves against a fixed eval eventually optimises the eval, and when the grader itself was fooled every number is compromised. `deepcompare.coevolve` is the part of that gap an episode-only reading can close. The eval is itself a lineage e0 → e1 → …, each step of it triggered by an agent step, and every `evolve` output now carries `aggregate["coevolution"]`; `agentdiff coevolve <lineage> -o out` prints it, with `--ledger` for every candidate and `--fail-on hindsight,demoted,unconfirmed,rejected_external` for CI. `evolve.attach_sections` and `lineage_batch` gain a `candidates=None` keyword; every existing output is byte-identical apart from the new key.
+The lineage layer's own docstring names its gap: an agent that evolves against a fixed eval eventually optimises the eval, and when the grader itself was fooled every number is compromised. `agentdiff.coevolve` is the part of that gap an episode-only reading can close. The eval is itself a lineage e0 → e1 → …, each step of it triggered by an agent step, and every `evolve` output now carries `aggregate["coevolution"]`; `agentdiff coevolve <lineage> -o out` prints it, with `--ledger` for every candidate and `--fail-on hindsight,demoted,unconfirmed,rejected_external` for CI. `evolve.attach_sections` and `lineage_batch` gain a `candidates=None` keyword; every existing output is byte-identical apart from the new key.
 
 - **Features and the metric language.** Every episode is reduced once to a fixed vocabulary of nineteen features — each a count, a sum, a 1 / 0 or a ratio over the recorded steps, `None` where the episode does not carry what the feature reads — plus one dynamic `uses:<tool>` per tool name the lineage calls. A metric is a spec: a feature, an aggregation (`mean`, `rate`, the task-balanced `iqm`, `task_mean`, `task_min`, `task_spread`), an optional `where` filter and a direction; its value is a stratified-bootstrap interval seeded by its id, its step delta a percentile interval at a stated level. The base eval e0 is the four numbers the Evolution reading already uses, in the same language, and base metrics are never retired or demoted. `parse_spec` refuses an unknown feature, aggregation or operator with the reason.
 - **Probes**, one question each, run at every agent step with what is known up to it and no lookahead: `axes` (when return and outcome disagree, which feature explains it — the top three by standardised shift), `ceiling` (a rate at 0 or 1 is not measuring — the pass rate within a condition), `novelty` (a tool that appears or disappears, a claim where none was), `forgetting` (the worst task and the task spread), `goodhart` (a non-outcome metric the agent moved twice while the pass rate did not — demoted, with its outcome-conditioned variant proposed), `redundancy` (two adopted metrics at |ρ| ≥ 0.9 are one — the newer retired) and `external` (candidates from a file or a model, parsed and put through the same validators).
 - **Validators**, in order, every one computed and written to the ledger row, the first failure deciding: `computable`, `informative` (the delta interval excludes zero at `ALPHA / K` over the K candidates tested at the step — Bonferroni, because six candidates at 0.05 adopt one on noise every third step), `distinct` (under 0.9 against every adopted metric, on the generation series for filtered and task-level specs), `linked` (|ρ| with the outcome at or over 0.15, exempt for behaviour and strictness watchers), `not_already`. A step's candidates are validated as a batch: the survivors are grouped into redundancy classes and one representative per class is adopted by a stated rule — strongest link to the outcome, then the more interpretable kind, then a protected feature, then vocabulary order — so what the eval learns never depends on the order the probes proposed in. Every adopted metric is then tested out of sample at every later step and reads `confirmed`, `unconfirmed` or `pending`.
 - **Hindsight.** The final eval is applied to every generation (`matrix`) and every step: beside the base verdict, the learned metrics whose delta moves against their direction, separately the base metrics whose own intervals do, `changed` when the base said improved or flat and a learned metric flags, and `caught_at` per metric — the first step it would have flagged against the step it was adopted at. The recommendation is given under both evals with `agree`. The whole loop is one graph, `flow`, with `recovers` edges for a later step on which a flagged metric moved back, labelled *recovered, not attributed*, because a recovery is measured and its cause is not.
 - **The eval's own integrity**: drift from the base, multiplicity (tested, adopted, the smallest adjusted level), what was demoted, retired and never confirmed, what an external proposer sent, and the gap sentence in the output: every candidate reads the episodes as recorded; a grader that was fooled fools every metric in this vocabulary; the eval can only learn what the feature vocabulary can express, and an external proposal extends the vocabulary only through the same validators.
-- **The proposer seam** (`deepcompare/harness/proposer.py`, `--propose PROVIDER`): a model is handed the engine's brief for a step and asked for at most three specs in the language; each is parsed by the engine and goes through the same validators; a refusal is a ledger row; it can set no number, verdict or exit code. The engine never imports it; the command does, inside `run`.
+- **The proposer seam** (`agentdiff/harness/proposer.py`, `--propose PROVIDER`): a model is handed the engine's brief for a step and asked for at most three specs in the language; each is parsed by the engine and goes through the same validators; a refusal is a ledger row; it can set no number, verdict or exit code. The engine never imports it; the command does, inside `run`.
 
 On the demo (`demo/evolve/lineage`, SYNTHETIC, seven generations of thirty episodes): twenty candidates tested, three adopted, seventeen rejected with their reasons, the smallest adjusted level 0.0083. e1 after g2→g3 (`axes`): `verified_rate`, delta −1 [−1, −1] at level 0.9917, the representative of four candidates that separate g2 from g3 identically, `uses_run_check_rate` among them. e2 after g3→g4 (`ceiling`): `clean_pass_rate`, 0.75 [0.58, 0.83]. e3 after g5→g6 (`ceiling`, `redundancy`): `frugal_pass_rate`, 0.94 [0.82, 1]; `clean_pass_rate` retired at |ρ| 1 with `tool_calls_mean` over four generations, and unconfirmed. `worst_task_pass` was rejected twice — −0.4 [−0.8, 0] and −0.6 [−0.8, 0], intervals that touch zero at five runs per task — and the threshold was not eased. With hindsight `verified_rate` flags g2→g3 at lag 0 and `frugal_pass_rate` flags it at lag 3 (1 → 0.4762 [−0.7143, −0.3333]) and g4→g5 at lag 1; `changed` is 0, every learned flag landing on a step the base had called gamed or forgot; four loop closures, two on learned metrics; base and evolved both recommend g4. The memo-agent lineage (`lineage_b`) taught its eval nothing: six candidates, three noise at level 0.9833 and three one reading with `tool_errors_mean` (|ρ| 1, 1, 0.95), so e0 is the whole eval and both rules recommend g5. The page gains a seventh view, Evals, whose lane leads with the flow at three zoom levels. `docs/COEVOLVE.md` is the guide. The exporter writes the section as eighteen `agentdiff_coevolution_*` families — the eval generations and their sizes, every metric on every generation with its interval and whether it was learned, the ledger with the validators each candidate failed, the hindsight flags with their intervals, the lag per learned metric, drift, the smallest adjusted level, the closures, and whether the two evals agree — and a sixth dashboard, `evals`, asks what the eval learned and whether it can be trusted; `grafana/generate_dashboards.py` now generates all six, the five earlier ones byte for byte (`docs/GRAFANA.md`).
 
@@ -1826,9 +1842,9 @@ On the demo (`demo/evolve/lineage`, SYNTHETIC, seven generations of thirty episo
 
 Every output byte-identical before and after; the map is `docs/ARCHITECTURE.md`.
 
-- **Sections.** Every analysis registers itself with `deepcompare.sections` under a scope (`pair`, `aggregate`, `lineage`), a key and what it requires; `report.compare`, `suite.analyse_runs` and the lineage's `attach_sections` attach registered sections in dependency order, and a section that raises becomes `unmeasurable("<Type>: <message>")` under its key so a new analysis can never take the report down. Adding an analysis is adding a module that registers; no wiring file changes. The envelope every section returns has one builder (`deepcompare.section`); the prose of a reading (`deepcompare._text`) and the statistics (`deepcompare._stats`: percentile, the normal and the stratified-bootstrap intervals, IQM, one seeded stream per section and label) are implemented once — thirty-eight modules use them, the local copies are gone, and the formatting inconsistencies found between sections are kept parametrised and listed for a deliberate unification.
+- **Sections.** Every analysis registers itself with `agentdiff.sections` under a scope (`pair`, `aggregate`, `lineage`), a key and what it requires; `report.compare`, `suite.analyse_runs` and the lineage's `attach_sections` attach registered sections in dependency order, and a section that raises becomes `unmeasurable("<Type>: <message>")` under its key so a new analysis can never take the report down. Adding an analysis is adding a module that registers; no wiring file changes. The envelope every section returns has one builder (`agentdiff.section`); the prose of a reading (`agentdiff._text`) and the statistics (`agentdiff._stats`: percentile, the normal and the stratified-bootstrap intervals, IQM, one seeded stream per section and label) are implemented once — thirty-eight modules use them, the local copies are gone, and the formatting inconsistencies found between sections are kept parametrised and listed for a deliberate unification.
 - **The scripted environment.** Both demo generators are thin callers of `demo/_env.py`; every generated file regenerates byte for byte.
-- **Commands.** `deepcompare/cli.py` is the parser and the dispatch, 148 lines; every command is a module under `deepcompare/commands/` exposing `register(subparsers)` and `run(args)`, with the load-run-write shape in `_io.py` once. Adding a command is adding one module. The surface, the outputs and the exit codes are unchanged; a test runs the commands end to end so a shadowed name cannot pass a surface check.
+- **Commands.** `agentdiff/cli.py` is the parser and the dispatch, 148 lines; every command is a module under `agentdiff/commands/` exposing `register(subparsers)` and `run(args)`, with the load-run-write shape in `_io.py` once. Adding a command is adding one module. The surface, the outputs and the exit codes are unchanged; a test runs the commands end to end so a shadowed name cannot pass a surface check.
 - **The page library.** `web/blocks/01_lib.js` is `AgentDiff.lib`: formatting, colours, an svg that refuses to exist without an aria-label, the one interval glyph, the fold laws, layout, one-time styles, and the family store — shared selection across a family of blocks, persisted by default and restored on load, task-scoped with one saved entry per task unless a selection belongs to the page. Every finished block takes its helpers from it and a static test forbids a block from defining one locally.
 - **The lineage's last pair** is built with the parent as A and the child as B whatever the names sort to, so a lineage past ten generations keeps its sides; the comparison's embedded copies of each lineage drop their per-episode timelines, which the page reads from the primary section: the comparison section falls from 3.8 MB to 0.6 MB.
 
@@ -1850,7 +1866,7 @@ The task race names the first solver of each task and the tasks a lineage never 
 
 ## A self-evolving agent as a lineage: `evolve` (aggregate `evolution`, v1)
 
-AgentDiff compared agent A with agent B. A self-evolving agent is neither: it is a lineage, g0 → g1 → g2, each generation derived from its parent by a step the agent took on its own — a rule added, a config changed, a memory written, a skill learned — from evidence in its own episodes. `deepcompare.evolve` reads a lineage directory (`gN/agent.json` with the generation's artifacts and provenance, `gN/traces/` in the runs layout, an optional `lineage.json` naming protected paths and size budgets) and answers, per step:
+AgentDiff compared agent A with agent B. A self-evolving agent is neither: it is a lineage, g0 → g1 → g2, each generation derived from its parent by a step the agent took on its own — a rule added, a config changed, a memory written, a skill learned — from evidence in its own episodes. `agentdiff.evolve` reads a lineage directory (`gN/agent.json` with the generation's artifacts and provenance, `gN/traces/` in the runs layout, an optional `lineage.json` naming protected paths and size budgets) and answers, per step:
 
 - **What changed.** A diff of the agent's own artifacts: unified hunks for the prompt, added and removed rules, skills, tools and memory, config keys from → to, and whether a **protected path** was touched — read from the diff and, separately, from the episodes' tool calls, because an agent that edits what judges it may not say so (`integrity.touched[].source`, `silent`).
 - **Whether it helped, on two axes.** The probability the child beats the parent through the training ground's machinery, on *return* and on *outcome*, because they disagree exactly when it matters: on the demo's step that restored the verifier, P(improve) on return is 0.4933 [0.32, 0.67] — reproduced by hand — while on outcome it is 0.73 [0.63, 0.83], since a pass without verification is cheaper than a pass with it. The step is flagged `axes_disagree` and the reading says so in words.
@@ -1911,7 +1927,7 @@ signal is reward and credit rather than faults.
 - **Schema** — optional numeric `reward`, `value`, `advantage` on a
   Step; `Recorder.step(..., reward=, value=, advantage=)` writes them
   only when given. Absent means unrecorded, never 0 earned.
-- **`report.rl`** (`deepcompare.rl.rl_pair`, computed last in `compare`
+- **`report.rl`** (`agentdiff.rl.rl_pair`, computed last in `compare`
   and again by `attach_milestones`) — per side: `rewards[]` with
   `reward`, `cum`, `to_go`, `discounted_to_go` (γ = 0.99), `credit`,
   the feedback labels, the acting agent; `return`, `discounted_return`,
@@ -2167,7 +2183,7 @@ summed from the actual steps).
 
 ## Regression gate (CLI, v8)
 
-`python -m deepcompare gate BASELINE_DIR CANDIDATE_DIR [thresholds] [-o out/] [--markdown gate.md]`
+`python -m agentdiff gate BASELINE_DIR CANDIDATE_DIR [thresholds] [-o out/] [--markdown gate.md]`
 
 Pairs traces by task id across two directories (e.g. agent v1 vs v2 runs),
 compares them, and evaluates gate checks:
@@ -2228,7 +2244,7 @@ cost/latency gap when successes tie). Sorted most-discriminating first.
 
 ## Trace adapters (CLI, v9)
 
-`python -m deepcompare convert --format otel|openai IN.json -o OUT_DIR/`
+`python -m agentdiff convert --format otel|openai IN.json -o OUT_DIR/`
 converts foreign trace formats to SCHEMA trajectories: `otel` reads OpenTelemetry
 GenAI-convention spans (gen_ai.* attributes), `openai` reads a chat-completions
 style message array with tool calls; both use heuristic step typing
@@ -2237,7 +2253,7 @@ warnings for unmapped items rather than failing.
 
 ## Behavioral similarity and agent selection (v10)
 
-`python -m deepcompare select TRACESDIR -o out/` writes `select.json` and a
+`python -m agentdiff select TRACESDIR -o out/` writes `select.json` and a
 lightweight `select.html`, with payload `{"similarity": {...}, "routing": {...}}`.
 
 Similarity is measured on four facets rather than one number, because the
@@ -2597,7 +2613,7 @@ that disagreement is itself the finding.
 
 ## Reference profiles — a base style (v18)
 
-`python -m deepcompare profile TRACESDIR [--build-from DIR] -o out/`
+`python -m agentdiff profile TRACESDIR [--build-from DIR] -o out/`
 
 Every other comparison needs a partner run. A **profile** removes that: a norm
 distilled from many runs, against which any single run can be scored alone.
@@ -2640,7 +2656,7 @@ the path but above the usual spend), then `on-profile`.
 
 ## Cohort comparison — combinations (v18)
 
-`python -m deepcompare cohort TRACESDIR --by model|agent|version|task -o out/`
+`python -m agentdiff cohort TRACESDIR --by model|agent|version|task -o out/`
 
 Compares **groups as populations** rather than picking a representative run:
 model family vs model family, prompt v1 vs v2, and so on.
@@ -2675,7 +2691,7 @@ Two guards make the verdicts trustworthy:
 Open-weight models are the **strongest** case for the model-telemetry
 analysis, not the weakest: a self-hosted vLLM, TGI, llama.cpp or Ollama
 server returns logprobs for every generated token — often the full top-k —
-because there is no reason to withhold them. `deepcompare.logprobs` turns
+because there is no reason to withhold them. `agentdiff.logprobs` turns
 those into the `model` block on each step, so `uncertainty.py` runs on real
 data rather than the demo's synthetic numbers.
 
@@ -2757,7 +2773,7 @@ OpenClawBench names it the **outcome-process gap** and needed 31,264
 annotated trajectories to characterise it
 ([arXiv 2605.29253](https://arxiv.org/abs/2605.29253)).
 
-`deepcompare.process` computes the deterministic subset of that from a
+`agentdiff.process` computes the deterministic subset of that from a
 logged trace — no judge, no re-execution. That restriction is deliberate:
 replaying *frozen* transitions under different evaluator channels flips the
 sign of the same step's score, with cross-channel disagreement exceeding
@@ -2848,7 +2864,7 @@ spotless process.
 
 ## Reference tool-call comparison (v22)
 
-`deepcompare.toolmatch` deliberately borrows other people's vocabulary,
+`agentdiff.toolmatch` deliberately borrows other people's vocabulary,
 because this is the one place where a shared one exists: the four match
 modes are LangChain `agentevals`, the argument modes its `ToolArgsMatchMode`,
 the F1 is Ragas `ToolCallF1`, the order-aware partial credit is DeepEval's
@@ -2887,7 +2903,7 @@ modes pass is more informative than any single verdict.
 
 ## Recording a trace (v23)
 
-`deepcompare.record.Recorder` writes conformant trajectories from a live
+`agentdiff.record.Recorder` writes conformant trajectories from a live
 agent, so the schema is something you emit rather than something you
 hand-write. It carries the v22 fields by default — declared `tools` with
 effects and parameter schemas, `budget`, `outcome.termination`, per-step
@@ -3145,7 +3161,7 @@ central fix rather than N local ones — and the `batch` command prints it.
 
 A pair diagnosis is honest about being n=1: its confidence is capped and
 every hypothesis carries the check that would settle it. When the corpus
-holds repeated runs of the same task, `deepcompare runs` performs the two
+holds repeated runs of the same task, `agentdiff runs` performs the two
 upgrades that repetition makes possible, and writes the result to
 `aggregate["diagnosis_consolidated"]`:
 
@@ -3256,7 +3272,7 @@ explain a one-sided failure), and the answer-coverage "match" verdict
 counts as grader-suspect evidence only at coverage ≥ 0.85 — below
 that, the missing words may *be* the contradiction.
 
-The benchmark (`demo/diagnosis_bench`, `deepcompare/bench.py` v2)
+The benchmark (`demo/diagnosis_bench`, `agentdiff/bench.py` v2)
 scores this axis directly: `step_localization` (exact and within ±1,
 denominators stated), `abstention` (predicting a step where no agent
 step exists is a `spurious_step` miss), and per-scenario
@@ -3401,7 +3417,7 @@ items.
   so "no single step is committed" also says which steps are in play.
   Abstentions (grader, harness, budget) carry `null` window, recipe and
   verification, as before.
-- **The harness** (`deepcompare/harness/`) is the one place in the
+- **The harness** (`agentdiff/harness/`) is the one place in the
   project that talks to a network, and the engine never imports it —
   both pinned by AST tests. Providers for OpenAI-compatible endpoints,
   Anthropic Messages and Ollama chat share one neutral turn contract;
@@ -3676,7 +3692,7 @@ is reported as such.
   each, drops spend rows recorded for no run, and puts the judge on one
   line with the 2×2, the trajectory counts and every number folded away.
   *Debug session* and *Output equality* lose their explanatory paragraphs.
-- **Long horizons: subdivisions and sub-agents** (`deepcompare/horizon.py`,
+- **Long horizons: subdivisions and sub-agents** (`agentdiff/horizon.py`,
   `report.horizon`, story section *Subdivisions and sub-agents*,
   `charts.horizon`, `step.span`, `Recorder.span`, `demo/horizon`). A long
   run folded into a tree a reader opens on demand: the run, the
@@ -3704,7 +3720,7 @@ is reported as such.
   and where the decisive step sits. `demo/horizon` ships a
   SYNTHETIC multi-agent pair (an orchestrator delegating to a researcher,
   a coder with its own test span, and a verifier) to exercise it.
-- **Where the time went** (`deepcompare/timing.py`, `report.timing`,
+- **Where the time went** (`agentdiff/timing.py`, `report.timing`,
   story section *Where the time went*). Every recorded second of a run
   attributed to thinking, waiting on tools (each tool named, with calls
   and seconds) or the answer; the seconds in steps the reading marks as
@@ -3747,7 +3763,7 @@ is reported as such.
   moves the shared cursor (`agentdiff:select-step`), so the timeline,
   map and inspector follow, and their clicks move this block.
 - **The evaluation scorecard, golden sets, offline and online, the judge
-  beside the grade** (`deepcompare/scorecard.py`, CLI `eval`, `--golden`/
+  beside the grade** (`agentdiff/scorecard.py`, CLI `eval`, `--golden`/
   `--policy` on `runs`, `batch` and `loop`, `--judge` on `loop`, block
   *Evaluation scorecard*, `docs/EVAL.md`). Per agent, every dimension an
   agent evaluation asks about, each a count or an interval over the runs
@@ -3777,7 +3793,7 @@ is reported as such.
   intervals, a grid of interval width per family per comparison, a table
   view, and the ledger with the statistics on every row. The variance
   block's per-metric reason is a note, not an empty state.
-- **The agentic loop** (`deepcompare/planner.py`, `deepcompare/harness/loop.py`,
+- **The agentic loop** (`agentdiff/planner.py`, `agentdiff/harness/loop.py`,
   CLI `loop`, block *Agent loop*, `docs/AGENTIC.md`). AgentDiff runs
   itself: given a task set and two agents it runs a baseline, compares,
   reads the failures, turns a finding into a prompt hypothesis, tests
@@ -3801,7 +3817,7 @@ is reported as such.
   with its evidence, the pools, and is what `--resume` continues from;
   `LOOP.md` is the same in prose; the closing page carries the ledger as
   `aggregate.loop`. Prompt changes reach provider agents as the system
-  prompt and command agents through `DEEPCOMPARE_SYSTEM_PROMPT`; runs
+  prompt and command agents through `AGENTDIFF_SYSTEM_PROMPT`; runs
   under a kept change were recorded as `<agent>+p<n>` and the ledger
   names the relabelling. `--suggest AGENT=TEXT` queues a hypothesis of
   your own to test first. The feedback templates now cover the kinds the
@@ -3811,7 +3827,7 @@ is reported as such.
   `stopping` attribution category — before, a failing run's most common
   findings produced no sentence for the next prompt.
 - **Statistics, checkpoints, replay, equality, and the holistic case.**
-  *Equality of output* (`deepcompare/equality.py`, `aggregate.equality`,
+  *Equality of output* (`agentdiff/equality.py`, `aggregate.equality`,
   block *Output equality*): per task and agent, the distinct answers
   over the runs (after a named normalisation), the equality rate (runs
   agreeing with the majority), whether the majority matches the expected
@@ -3828,7 +3844,7 @@ is reported as such.
   against the runner-up, cost, latency, steps and tool calls per run,
   output equality, the diagnosed fault kinds, and what would settle an
   open pick — every number in it is in the table.
-- **A second model judges the output** (`deepcompare/harness/judge.py`,
+- **A second model judges the output** (`agentdiff/harness/judge.py`,
   CLI `judge`). A judging model — any provider, scripted for tests —
   reads the task, the final answer and optionally the steps, and returns
   solved-or-not, a score and a rationale; recorded as `outcome.judge`
@@ -3837,9 +3853,9 @@ is reported as such.
   own model; applied to `outcome.success` only with `--apply`, which
   marks `graded_by: model`. The outcome block shows the judge's tag and
   its disagreement. The engine never calls a judge.
-- **Trace Claude Code — live and after the fact** (`deepcompare/claude_code.py`,
+- **Trace Claude Code — live and after the fact** (`agentdiff/claude_code.py`,
   CLI `hook`, format `claude-code`). Claude Code runs shell hooks around
-  every tool call and at the end of a turn; `python -m deepcompare hook
+  every tool call and at the end of a turn; `python -m agentdiff hook
   --traces DIR --task ID [--expected …]` is such a hook: `PostToolUse`
   appends a `tool_call` step to `DIR/<task>__claude-code.live.json` (what
   `watch` draws as it grows), `Stop` writes the final trace from the
@@ -3851,7 +3867,7 @@ is reported as such.
   `score: null`, a note) — never a guessed success. The same trace
   compares with any other coding agent's: run the other through the
   harness (`run --agent cmd:…`) or convert its log, and `batch` the pair.
-- **Router features** (`deepcompare/router.py`, CLI `route`,
+- **Router features** (`agentdiff/router.py`, CLI `route`,
   `aggregate.routing`, block *Routing*). Per task family, every agent's
   success rate with its 95% Wilson interval, mean cost, latency, tokens,
   steps and tool calls, terminations, and — with reports — the fault
@@ -3864,7 +3880,7 @@ is reported as such.
   act on. The demo's three-run families come out *overlapping* — as
   they should. (Agent selection — best single, portfolios, the oracle
   ceiling — stays in `routing.py` and the `select` command.)
-- **A database for traces** (`deepcompare/tracedb.py`, CLI `db`,
+- **A database for traces** (`agentdiff/tracedb.py`, CLI `db`,
   `--db FILE` on `route`). One SQLite file (stdlib): a row per
   trajectory with the SCHEMA JSON beside indexed columns (task, family,
   agent, model, run, outcome, termination, tokens, cost, latency, steps,
@@ -3921,13 +3937,13 @@ is reported as such.
   first divergence), labelled the light version. The engine's findings
   for each task's recorded pair are precomputed and cached in the page;
   finished live runs are cached in the artifact's shared store and
-  replay for anyone; traces save as SCHEMA JSON for `deepcompare batch`.
+  replay for anyone; traces save as SCHEMA JSON for `agentdiff batch`.
   Opened outside claude.ai the page replays the recorded pair and calls
   nothing. No public model endpoint is reachable from the build
   sandbox, which is why the agents run on the viewer's account.
 - **Live: watch agents run.** `Recorder(stream=True)` writes the
   run-so-far to `<trace>.live.json` after every step and every
-  observation, and removes it when the final lands. `deepcompare watch
+  observation, and removes it when the final lands. `agentdiff watch
   traces/` serves the page from localhost and pushes every change over
   server-sent events (`/events`; `/data.json` for scripts): finished
   pairs go through the ordinary engine and become reports; a trace still
@@ -3938,13 +3954,13 @@ is reported as such.
   with tokens and latency so far and the last three steps in full; a
   live-only task is listed in the picker; when the pair finishes the
   story replaces the stream in place, without a reload. A badge says
-  *LIVE · connected · n running · m compared · time*. `deepcompare watch
+  *LIVE · connected · n running · m compared · time*. `agentdiff watch
   --demo demo/traces --pace 0.4 [--loop]` replays the demo as if its
   agents were running now. The page's privacy claim holds: opened from a
   file it has no live data and the client does nothing; served, it
   listens to the server that served it and nothing else. The server
   lives in the harness package, the network boundary.
-- **The loop back** (`deepcompare/feedback.py`, `report.feedback`, CLI
+- **The loop back** (`agentdiff/feedback.py`, `report.feedback`, CLI
   `feedback`, story section *Next horizon*). Why anyone reads a diff: to
   change something. Each report now carries what the pair hands forward,
   derived read-only from its own fields: **step labels** — every step of
@@ -4056,7 +4072,7 @@ of steps, and everything worth understanding about it sits on that line.
 
 ## Intervals on the confidence line, model internals as evidence (v42)
 
-- **Per-step confidence interval.** `deepcompare.logprobs` now writes
+- **Per-step confidence interval.** `agentdiff.logprobs` now writes
   `model.interval` `{low, high, n, basis}` — the 95% normal interval of
   the step's mean token probability over its own scored tokens, `None`
   under three tokens. `uncertainty.{a,b}.interval` carries the series
@@ -4069,7 +4085,7 @@ of steps, and everything worth understanding about it sits on that line.
   `ci95` (plug-in Wilson, raised to k) beneath the pass^k line with the
   `ci95_basis` in the legend; points without a `ci95` leave a gap.
 - **Model internals.** The harness can stamp each step with the SAE
-  features its text activates: `deepcompare.harness.neuronpedia` talks
+  features its text activates: `agentdiff.harness.neuronpedia` talks
   to the Neuronpedia API (`/search-all`, `/feature`, `/explanation/search`)
   with `NEURONPEDIA_API_KEY` read from the environment only, or answers
   from a `ScriptedNeuronpedia` table offline; `attach_internals(step,
@@ -4133,7 +4149,7 @@ of steps, and everything worth understanding about it sits on that line.
   `ci95: [lo, hi]` — the 95% Wilson interval of the pooled per-run rate
   raised to k (`ci95_basis` states the plug-in assumption); `runs`
   prints `k=2:0.667 [0.21, 0.94]`.
-- **One confidence vocabulary** (`deepcompare/confidence.py`):
+- **One confidence vocabulary** (`agentdiff/confidence.py`):
   `{level, n, basis, verified}` with `verified ∈ hypothesized |
   replay-verified | replay-refuted | replay-mixed | n/a`; `n ≤ 1` can
   never be `high`. `diagnosis.confidence` (n=1, verified from the
@@ -4160,7 +4176,7 @@ of steps, and everything worth understanding about it sits on that line.
   `confidence` line reads `replay-verified (3/3 replays flipped the
   outcome)`; a page beside the report (`<report>.html`) is re-rendered,
   so the map's ring goes solid.
-- **External agents** (`deepcompare/harness/external.py`):
+- **External agents** (`agentdiff/harness/external.py`):
   `--agent NAME=python:module:callable` — the callable receives
   `(task, tools)` and returns a SCHEMA trace dict or an OpenAI-style
   message list; `--agent NAME=cmd:TEMPLATE` — a shell command with
@@ -4223,7 +4239,7 @@ survival, word diff, ×4 collapse on a synthetic loop).
 
 ## Trust & behaviour, frameworks and domains, the timeline as branches
 
-- **Trust & behaviour** (`deepcompare/trust.py`, `report.trust`,
+- **Trust & behaviour** (`agentdiff/trust.py`, `report.trust`,
   `web/blocks/24_trust.js`): per run, how the agent behaved — tool
   calls, distinct tools, thinking steps, whether it answered or was
   stopped and by whom, loops, retries, errors, sub-agents and depth —
@@ -4237,7 +4253,7 @@ survival, word diff, ×4 collapse on a synthetic loop).
   effects, spans. A transparent grade (start at 1.0, every deduction a
   sentence with its number) and a pair narrative. The block is a
   two-column ledger; first in the eval preset.
-- **Tool behaviour and the dossier** (`deepcompare/toolprofile.py`,
+- **Tool behaviour and the dossier** (`agentdiff/toolprofile.py`,
   `report.tools_profile`, `web/blocks/25_tools.js`): per tool and per
   run, calls, distinct inputs, repeats, the longest run of identical
   calls (the same tool with the same input, whatever sat between),
@@ -4251,8 +4267,8 @@ survival, word diff, ×4 collapse on a synthetic loop).
   suggestions with copy buttons; the dossier opens for any tool from
   any chart or table (`AgentDiff.tools.open`, the `agentdiff:select-tool`
   event, `charts.selectTool`).
-- **Frameworks and domains** (`deepcompare/frameworks.py`,
-  `deepcompare/domains.py`, `agentdiff frameworks`): conservative
+- **Frameworks and domains** (`agentdiff/frameworks.py`,
+  `agentdiff/domains.py`, `agentdiff frameworks`): conservative
   detection of the framework and protocols a trace came from (MCP tool
   names → servers, OpenAI Agents SDK handoffs, Claude Code, OTel GenAI)
   and of permission decisions; built-in domain specs (coding, research,
@@ -4270,7 +4286,7 @@ survival, word diff, ×4 collapse on a synthetic loop).
 
 ## Where it mattered: impact-weighted time, folded by importance
 
-- **Impact** (`deepcompare/impact.py`, `report.impact`): every step scored
+- **Impact** (`agentdiff/impact.py`, `report.impact`): every step scored
   by what it carried — the decisive step, the fault's path, the first
   divergence and ranked divergence rows, errors, retries, wasted seconds,
   milestones reached, the answer, tokens — with the weights published as
@@ -4297,7 +4313,7 @@ survival, word diff, ×4 collapse on a synthetic loop).
 
 `docs/REPLAY.md` §Long-horizon is the guide.
 
-- **Milestones** (`deepcompare/milestones.py`): a golden task's
+- **Milestones** (`agentdiff/milestones.py`): a golden task's
   `milestones` (`id`, `label`, `evidence`, `in`, `by_step`, `by_seconds`)
   read against a run — reached, step, second, sub-agent, on time, in
   order, steps after the last with no progress — with a pairwise
@@ -4331,14 +4347,14 @@ survival, word diff, ×4 collapse on a synthetic loop).
 Harness and CLI; the report contract is unchanged. `docs/REPLAY.md` is
 the guide.
 
-- **Cassette** (`deepcompare/harness/cassette.py`): a recorded run's
+- **Cassette** (`agentdiff/harness/cassette.py`): a recorded run's
   tool results, keyed by the call as the agent made it (name and
   canonical arguments; a raw search query keys as itself), replayed in
   order; `cassette.tools()` serves them as harness tools without running
   any tool code. A call the recording never made is a **miss**, kept for
   the report; the policy (`strict` / `empty` / `live`) says what the
   agent is told.
-- **`agentdiff rerun`** (`deepcompare/harness/rerun.py`): replays every
+- **`agentdiff rerun`** (`agentdiff/harness/rerun.py`): replays every
   trace hermetically — the model's own turns and the cassette's world —
   through the recorder and grader, and diffs it against the recording
   (family, name, call, output, error per step; measurements ignored).
@@ -4348,7 +4364,7 @@ the guide.
   `rerun.json`, JUnit, a Markdown summary, `::error` annotations; exit
   1 on drift. Every shipped demo trace reproduces, and a test keeps it
   so.
-- **`agentdiff context`** (`deepcompare/harness/context.py`): the
+- **`agentdiff context`** (`agentdiff/harness/context.py`): the
   message list a model had before a step, rebuilt from the trace and
   labelled as reconstruction; for a report and `--row`, both runs'
   contexts at the aligned row and their unified diff.
@@ -4459,7 +4475,7 @@ New commands and flags: `agentdiff demo [-o DIR] [--open]` compares the
 shipped pairs, writes the blocks report and prints the flagship card;
 `compare --html PATH` writes the blocks page for one pair; `explain
 --html PATH` writes a stdlib-rendered page of one reading
-(`deepcompare/htmlout.py`). `web/blocks.html` is now the default report
+(`agentdiff/htmlout.py`). `web/blocks.html` is now the default report
 template for `batch`, `runs` and `fleet`; `--template web/viewer.html`
 keeps the earlier viewer.
 
@@ -4470,7 +4486,7 @@ declared" rather than "undeclared (not declared)"; an answer-step root
 "committed to a different answer" rather than "made an incorrect tool
 call". The demo agents' `model` labels are `sim-*` — they are scripts,
 and vendor names implied a comparison of real models that never ran.
-`deepcompare.__version__` matches `pyproject.toml`.
+`agentdiff.__version__` matches `pyproject.toml`.
 
 ## Paired inference and clustered error bars (v34)
 

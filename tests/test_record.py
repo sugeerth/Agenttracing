@@ -1,4 +1,4 @@
-"""Tests for the live recorder (deepcompare.record).
+"""Tests for the live recorder (agentdiff.record).
 
 A recorder is trusted infrastructure: everything downstream is computed from
 what it wrote, so the properties worth pinning are the ones where it could
@@ -19,17 +19,17 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory, compare
-from deepcompare.cli import _run_id_from_name
-from deepcompare.process import analyse
-from deepcompare.record import (
+from agentdiff import Trajectory, compare
+from agentdiff.cli import _run_id_from_name
+from agentdiff.process import analyse
+from agentdiff.record import (
     NAME_SEP,
     Recorder,
     estimate_tokens,
     render_call,
     usage_from_response,
 )
-from deepcompare.tooldiff import parse_args
+from agentdiff.tooldiff import parse_args
 
 TOOLS = [
     {"name": "get_booking", "effect": "read",

@@ -31,7 +31,7 @@
  *
  * Two more layers answer through the page: the Levels (`budget` and
  * `fetches` on a pair, on an aggregate, and a bundle page's
- * `DEEPCOMPARE_DATA.bundle.levels` — what is running, where the tokens
+ * `AGENTDIFF_DATA.bundle.levels` — what is running, where the tokens
  * went, the heaviest run, what a run fetched, what was wasted; embeds
  * lv-overview, lv-runs, lv-run with the run selected) and the Data
  * (`data` on a pair and `data_evolution` on a lineage — the prompt and
@@ -196,7 +196,7 @@
     d.tasks = typeof AgentDiff.taskIds === "function" ? AgentDiff.taskIds() : [];
     d.reports = Array.isArray(ctx.reports) ? ctx.reports : [];
     // the Levels: a bundle's three levels when the page is a bundle's, the aggregate's budget and fetches ledgers otherwise
-    var bd = global.DEEPCOMPARE_DATA && global.DEEPCOMPARE_DATA.bundle && global.DEEPCOMPARE_DATA.bundle.levels ? global.DEEPCOMPARE_DATA.bundle : null;
+    var bd = global.AGENTDIFF_DATA && global.AGENTDIFF_DATA.bundle && global.AGENTDIFF_DATA.bundle.levels ? global.AGENTDIFF_DATA.bundle : null;
     d.bundle = bd;
     d.overview = bd && bd.levels.overview ? bd.levels.overview : null;
     d.records = bd && bd.levels.records && typeof bd.levels.records === "object" ? bd.levels.records : {};
@@ -244,7 +244,7 @@
   function runRecord(d, row) {
     if (!row) return null;
     var rec = d.records[row.key];
-    if (rec) return { key: row.key, budget: rec.budget || null, fetches: rec.fetches || null, data: rec.data || null, source: "DEEPCOMPARE_DATA.bundle.levels.records[" + row.key + "]" };
+    if (rec) return { key: row.key, budget: rec.budget || null, fetches: rec.fetches || null, data: rec.data || null, source: "AGENTDIFF_DATA.bundle.levels.records[" + row.key + "]" };
     if (row.report) return { key: row.key, budget: row.report.budget && row.report.budget[row.side] || null, fetches: row.report.fetches && row.report.fetches[row.side] || null, data: row.report.data && row.report.data[row.side] || null, source: "report.<section>." + row.side };
     return null;
   }
@@ -645,7 +645,7 @@
   function runSubject(row) { return row ? { agent: sideName(row), run: row.key, side: row.side || null, task: row.task || null } : null; }
   //: the heaviest runs the page knows: the bundle's, the aggregate ledger's, else the pair reports' sides by their budget totals
   function heaviest(d) {
-    if (d.overview && Array.isArray(d.overview.heaviest_runs) && d.overview.heaviest_runs.length) return { rows: d.overview.heaviest_runs.map(function (h) { return { key: h.key, tokens: h.tokens }; }), source: "DEEPCOMPARE_DATA.bundle.levels.overview.heaviest_runs", cap: d.overview.cap || null };
+    if (d.overview && Array.isArray(d.overview.heaviest_runs) && d.overview.heaviest_runs.length) return { rows: d.overview.heaviest_runs.map(function (h) { return { key: h.key, tokens: h.tokens }; }), source: "AGENTDIFF_DATA.bundle.levels.overview.heaviest_runs", cap: d.overview.cap || null };
     if (d.budgetAgg && Array.isArray(d.budgetAgg.heaviest_runs) && d.budgetAgg.heaviest_runs.length) return { rows: d.budgetAgg.heaviest_runs.map(function (h) { return { key: "page/" + h.task + "/" + h.agent + "/" + h.run, tokens: h.tokens, label: h.agent + " on " + h.task + " (" + h.run + ")" }; }), source: "aggregate.budget.heaviest_runs", cap: d.budgetAgg.cap || null };
     var rows = d.runs.filter(function (r) { return isNum(r.tokens); }).sort(function (a, b) { return b.tokens - a.tokens || (a.key < b.key ? -1 : 1); }).slice(0, 8);
     return rows.length ? { rows: rows.map(function (r) { return { key: r.key, tokens: r.tokens, label: r.agent + " on " + r.task + " (" + r.run_id + ")" }; }), source: "report.budget.<side>.tokens.total, over the pair reports on this page", cap: null } : null;
@@ -659,13 +659,13 @@
       var text = [], src = [];
       if (d.overview) {
         text.push(dot(d.overview.reading || ""));
-        src.push("DEEPCOMPARE_DATA.bundle.levels.overview.reading");
+        src.push("AGENTDIFF_DATA.bundle.levels.overview.reading");
         var t = d.overview.totals || {};
         if (Array.isArray(d.overview.agents) && d.overview.agents.length) {
           text.push("Agent by agent: " + d.overview.agents.slice(0, 12).map(function (a) { var sr = a.success_rate || {}; return a.name + (a.self_evolving ? " (self-evolving)" : "") + " — " + plural(count(a.runs), "run") + ", success " + pct(sr.rate) + (isNum(sr.lo) ? " [" + pct(sr.lo) + ", " + pct(sr.hi) + "]" : "") + ", " + tok(a.tokens_total) + " tokens" + (isNum(a.cost_usd_total) ? ", " + usd(a.cost_usd_total) : "") + ", " + count(a.fetches_total) + " fetches"; }).join("; ") + (d.overview.agents.length > 12 ? "; and " + (d.overview.agents.length - 12) + " more" : "") + ".");
-          src.push("DEEPCOMPARE_DATA.bundle.levels.overview.agents[]");
+          src.push("AGENTDIFF_DATA.bundle.levels.overview.agents[]");
         }
-        if (t.basis) { text.push(cap(dot(t.basis))); src.push("DEEPCOMPARE_DATA.bundle.levels.overview.totals.basis"); }
+        if (t.basis) { text.push(cap(dot(t.basis))); src.push("AGENTDIFF_DATA.bundle.levels.overview.totals.basis"); }
       } else {
         var who = d.family ? "the lineage of " + d.family + (d.genIds.length ? " (" + plural(d.genIds.length, "generation") + (d.cov ? "; its eval " + plural(d.evalGens.length, "eval generation") : "") + ")" : "") : d.policies.length ? d.policies.join(" and ") : d.agents.length ? d.agents.join(" and ") : "its agents";
         text.push("This page is one output, not a bundle: it reads " + who + " over " + plural(d.tasks.length, "task") + " (" + plural(d.runs.length, "run") + " the Levels view can list). `agentdiff bundle` packs several outputs into one page with a level-1 overview, a bundle id and a key.");

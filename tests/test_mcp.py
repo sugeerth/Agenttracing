@@ -20,9 +20,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare import mcpserver  # noqa: E402
-from deepcompare.bundle import Bundle  # noqa: E402
-from deepcompare.commands import mcp as mcp_cmd  # noqa: E402
+from agentdiff import mcpserver  # noqa: E402
+from agentdiff.bundle import Bundle  # noqa: E402
+from agentdiff.commands import mcp as mcp_cmd  # noqa: E402
 from tests.helpers_bundle import demo_bundle  # noqa: E402
 
 KEY = "batch/t01_acme_revenue/atlas-v2/r1"
@@ -199,7 +199,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(mcp_cmd.run(p.parse_args(["mcp", "--bundle", "/nonexistent"])), 2)
 
     def test_the_server_imports_no_network_module(self):
-        tree = ast.parse((ROOT / "deepcompare" / "mcpserver.py").read_text(encoding="utf-8"))
+        tree = ast.parse((ROOT / "agentdiff" / "mcpserver.py").read_text(encoding="utf-8"))
         names = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):

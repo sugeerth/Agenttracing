@@ -162,7 +162,7 @@
         var rp = dec.replay;
         layer(card, "replay", "the decisive step", rp ? [H("span", { class: "tag " + (String(dec.verification).indexOf("verified") >= 0 ? "good" : String(dec.verification).indexOf("refuted") >= 0 ? "bad" : "warn"), text: String(dec.verification) }),
           H("span", { text: (rp.flipped !== undefined ? rp.flipped + " of " + rp.replays + " replay(s) flipped the outcome" : "") })]
-          : [H("span", { class: "tag warn", text: dec.verification || "hypothesized" }), H("span", { text: dec.recipe ? "not replayed yet — `deepcompare replay` from step " + (dec.recipe.step !== undefined ? dec.recipe.step : st.index) + " would test it" : "not replayed yet" })]);
+          : [H("span", { class: "tag warn", text: dec.verification || "hypothesized" }), H("span", { text: dec.recipe ? "not replayed yet — `agentdiff replay` from step " + (dec.recipe.step !== undefined ? dec.recipe.step : st.index) + " would test it" : "not replayed yet" })]);
       }
       var cum = { tokens: 0, latency: 0, calls: 0, errors: 0 };
       r.steps.forEach(function (s2) { if (s2.index <= st.index) { cum.tokens += isNum(s2.tokens) ? s2.tokens : 0; cum.latency += isNum(s2.latency_s) ? s2.latency_s : 0; if (kindOf(s2) === "tool") cum.calls++; if ((r.info[s2.index] || {}).error) cum.errors++; } });

@@ -12,8 +12,8 @@ Four layers, and the boundary between them is the deployment story.
 
 | layer | what it is | what it may do | ships as |
 |---|---|---|---|
-| **engine** (`deepcompare/*.py`) | every analysis | pure stdlib; **no socket, no clock, no randomness without a seed** | a wheel |
-| **harness** (`deepcompare/harness/`) | the only modules that talk to a model or open a port | network, credentials from the environment | the same wheel, imported only by the commands that need it |
+| **engine** (`agentdiff/*.py`) | every analysis | pure stdlib; **no socket, no clock, no randomness without a seed** | a wheel |
+| **harness** (`agentdiff/harness/`) | the only modules that talk to a model or open a port | network, credentials from the environment | the same wheel, imported only by the commands that need it |
 | **page** (`web/blocks/*.js` → one HTML file) | every view | reads inlined JSON; loads nothing | package data |
 | **bundle** (`agentdiff bundle`) | a content-addressed directory of outputs | nothing; it is data | a directory, a hash, a key |
 
@@ -37,13 +37,13 @@ deploys more easily than a service:
 
 Three paths, in the order most teams take them:
 
-1. **Instrument the agent** (`deepcompare.record.Recorder`). The loop
+1. **Instrument the agent** (`agentdiff.record.Recorder`). The loop
    calls `r.step(...)`, `r.tool(...)`, `r.answer(...)`; the trace is a
    JSON file matching `SCHEMA.md`. This gives the richest trace,
    because only the agent knows its own reward, its value estimate, its
    declared effects and which sub-agent is acting.
 2. **Convert what you already emit** (`agentdiff convert`,
-   `deepcompare/adapters.py`). OpenTelemetry spans, LangChain and the
+   `agentdiff/adapters.py`). OpenTelemetry spans, LangChain and the
    other formats in `docs/FRAMEWORKS.md` map onto the schema. You lose
    whatever your framework never recorded — usually rewards, effects
    and token basis — and the engine says `measurable: false` with the
@@ -113,7 +113,7 @@ the bundle verifies it. Then either:
 
 ```jsonc
 // the assistant reads every level itself, over stdio, no socket
-{"mcpServers": {"agentdiff": {"command": "python", "args": ["-m", "deepcompare", "mcp", "--bundle", "/path/to/bundle"]}}}
+{"mcpServers": {"agentdiff": {"command": "python", "args": ["-m", "agentdiff", "mcp", "--bundle", "/path/to/bundle"]}}}
 ```
 
 ```bash
@@ -130,7 +130,7 @@ the API, and the hash makes it citable.
 runs land. For a demo or a war room, not for a fleet.
 
 The page it serves is the page `batch` writes: the same analysis
-(`deepcompare/corpus.py`) runs over the runs finished so far, with
+(`agentdiff/corpus.py`) runs over the runs finished so far, with
 `--golden` and `--policy` as for batch. It runs once each time the set
 of finished runs changes, not on every frame, so a live agent's frames
 stay cheap and the cost of a new finished run is one `batch`.
@@ -138,7 +138,7 @@ stay cheap and the cost of a new finished run is one `batch`.
 ## What it costs
 
 Measured on this machine (single core, CPython 3.11), reproduce with
-`python3 -m deepcompare <cmd>`:
+`python3 -m agentdiff <cmd>`:
 
 | command | corpus | wall clock | peak RSS | output |
 |---|---|---|---|---|
@@ -230,7 +230,7 @@ as the data the agent touched. Decide, before you turn recording on:
 | what goes wrong | what the system does |
 |---|---|
 | a trace fails schema validation | it is skipped with the reason on stderr; the rest of the batch still runs |
-| a section raises | that key becomes `unmeasurable("<exception>")` and every other section still attaches (`deepcompare/sections.py`) |
+| a section raises | that key becomes `unmeasurable("<exception>")` and every other section still attaches (`agentdiff/sections.py`) |
 | a provider call fails | `ProviderError` → the run records `infrastructure_error` and is excluded from the agent's reliability statistics |
 | too few runs to say anything | the runs advisory says so and the intervals stay wide; nothing is asserted |
 | the grader was fooled | **nothing catches it** — stated in every affected section's gap sentence |

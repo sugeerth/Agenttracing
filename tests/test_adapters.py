@@ -15,8 +15,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory, compare
-from deepcompare.adapters import from_openai_messages, from_otel_genai
+from agentdiff import Trajectory, compare
+from agentdiff.adapters import from_openai_messages, from_otel_genai
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 

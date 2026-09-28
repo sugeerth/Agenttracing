@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / "web"
 BLOCKS = WEB / "blocks"
 
-from deepcompare.report import DATA_MARKER, render_html
+from agentdiff.report import DATA_MARKER, render_html
 
 #: Captured at import, before any test rebuilds it — this is the artifact as
 #: committed, which is the thing whose freshness is in question.

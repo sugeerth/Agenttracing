@@ -17,14 +17,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory
-from deepcompare.logprobs import (
+from agentdiff import Trajectory
+from agentdiff.logprobs import (
     attach_telemetry,
     confidence_interval,
     extract_logprobs,
     telemetry_from_logprobs,
 )
-from deepcompare.registry import convert, detect_format
+from agentdiff.registry import convert, detect_format
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
@@ -203,7 +203,7 @@ class TestOpenWeightFixture(unittest.TestCase):
         self.assertIn("acmecorp.com", search["output"])
 
     def test_uncertainty_analysis_runs_on_the_converted_run(self):
-        from deepcompare.uncertainty import has_telemetry
+        from agentdiff.uncertainty import has_telemetry
         trajectory = convert(self.payload())["trajectory"]
         self.assertTrue(has_telemetry(Trajectory.from_json(trajectory)))
 

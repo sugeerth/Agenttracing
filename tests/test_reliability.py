@@ -21,8 +21,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory
-from deepcompare.reliability import (
+from agentdiff import Trajectory
+from agentdiff.reliability import (
     MIN_RUNS_FOR_COMPARISON,
     RUNS_FLOOR_OPEN_ENDED,
     RUNS_FLOOR_STRUCTURED,
@@ -38,7 +38,7 @@ from deepcompare.reliability import (
     sequence_similarity,
     split_harness_failures,
 )
-from deepcompare.statistics import pass_at_k
+from agentdiff.statistics import pass_at_k
 
 CANON = [("plan", "plan"), ("search", "web_search"), ("read", "open_page"),
          ("answer", "final")]

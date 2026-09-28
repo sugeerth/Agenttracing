@@ -1,7 +1,7 @@
 """Measured accuracy of the diagnoser against its ground-truth benchmark.
 
 ``demo/diagnosis_bench/generate.py`` implants one known cause per scenario
-pair; ``deepcompare.bench.run_benchmark`` runs the full compare pipeline and
+pair; ``agentdiff.bench.run_benchmark`` runs the full compare pipeline and
 scores the leading hypothesis against the manifest.  These tests assert an
 honest floor (>= 0.75 overall), not perfection: scenarios the diagnoser
 genuinely cannot separate stay in the corpus and are reported as misses,
@@ -16,7 +16,7 @@ import json
 import unittest
 from pathlib import Path
 
-from deepcompare.bench import run_benchmark
+from agentdiff.bench import run_benchmark
 
 ROOT = Path(__file__).resolve().parent.parent
 BENCH_DIR = ROOT / "demo" / "diagnosis_bench"
@@ -203,13 +203,13 @@ class TestBenchCLI(unittest.TestCase):
     """`agentdiff bench` puts the scorecard and its floors on the CLI."""
 
     def test_floors_match_the_suite(self):
-        from deepcompare.bench import FLOORS
+        from agentdiff.bench import FLOORS
         self.assertEqual(FLOORS["kind_accuracy"], ACCURACY_FLOOR)
         self.assertEqual(FLOORS["step_accuracy_exact"], 0.6)
         self.assertEqual(FLOORS["abstention_accuracy"], 0.75)
 
     def test_floor_violations_flag_regressions(self):
-        from deepcompare.bench import floor_violations
+        from agentdiff.bench import floor_violations
         result = run_benchmark(TRACES)
         self.assertEqual(floor_violations(result), [])
         broken = dict(result)
@@ -219,7 +219,7 @@ class TestBenchCLI(unittest.TestCase):
         self.assertIn("kind_accuracy 0.5 < floor 0.75", problems[0])
 
     def test_scorecard_prints_denominators_and_misses(self):
-        from deepcompare.bench import format_scorecard
+        from agentdiff.bench import format_scorecard
         result = run_benchmark(TRACES)
         card = format_scorecard(result)
         self.assertIn("20/20", card)
@@ -237,7 +237,7 @@ class TestBenchCLI(unittest.TestCase):
         import subprocess
         import sys as _sys
         proc = subprocess.run(
-            [_sys.executable, "-m", "deepcompare", "bench", str(TRACES),
+            [_sys.executable, "-m", "agentdiff", "bench", str(TRACES),
              "--strict"],
             capture_output=True, text=True, cwd=str(ROOT))
         self.assertEqual(proc.returncode, 0, proc.stderr)

@@ -15,13 +15,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory, compare
-from deepcompare.attributes import (
+from agentdiff import Trajectory, compare
+from agentdiff.attributes import (
     ATTRIBUTES,
     attribute_analysis,
     attribute_profiles,
 )
-from deepcompare.shapley import shapley_attribution
+from agentdiff.shapley import shapley_attribution
 
 
 def step(index, stype, name, text="text", tokens=100, quality=None,

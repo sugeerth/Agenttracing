@@ -27,7 +27,7 @@
  * Reads, from a pair report: `a`/`b` (steps), `rl` (rewards, values),
  * `impact` (clusters, lanes, marks), `alignment`, `divergences`,
  * `timing`, `trust`, `diagnosis`, `budget`, `fetches`, `milestones`;
- * from a bundle page: `DEEPCOMPARE_DATA.bundle.levels.records[key]`
+ * from a bundle page: `AGENTDIFF_DATA.bundle.levels.records[key]`
  * (steps, budget, fetches, timeline). Nothing is computed here beyond
  * layout and the running sums the tracks draw, each of which is a
  * cumulative sum of a recorded per-step number.
@@ -160,7 +160,7 @@
   // recorded per-step numbers and nothing else.
 
   function bundleRecords() {
-    var d = global.DEEPCOMPARE_DATA, b = d && d.bundle && d.bundle.levels;
+    var d = global.AGENTDIFF_DATA, b = d && d.bundle && d.bundle.levels;
     return (b && b.records) || null;
   }
 

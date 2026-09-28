@@ -4,7 +4,7 @@ AgentDiff compares agent A with agent B on the same tasks. A
 self-evolving agent is not two agents but a *lineage* g0 → g1 → g2 → …,
 each generation derived from its parent by one step — a prompt edit, a
 rule, a skill, a config change, a memory written — triggered by evidence
-from the parent's own episodes. `deepcompare.evolve` reads that lineage
+from the parent's own episodes. `agentdiff.evolve` reads that lineage
 and answers, per step and with an interval: did the step help, on which
 tasks, what actually changed, and did the evolution go wrong in one of
 the ways evolution goes wrong. Every number is a count or a sum over
@@ -341,7 +341,7 @@ both are outside this layer.
 The quieter form of the same gap is inside this layer's reach: an agent
 that evolves against these fixed metrics eventually optimises them, and
 a fixed eval cannot notice with the thing being optimised.
-`deepcompare.coevolve` answers that part — every `evolve` output also
+`agentdiff.coevolve` answers that part — every `evolve` output also
 carries `aggregate["coevolution"]`, an eval that is itself a lineage
 e0 → e1 → …, where each agent step can trigger a probe to propose a
 metric, five validators test it on the evidence so far, and the final
@@ -438,7 +438,7 @@ runs per task it says the sample is thin, and nothing hides that.
 
 ## The command
 
-    python3 -m deepcompare evolve <lineage_dir> -o out
+    python3 -m agentdiff evolve <lineage_dir> -o out
         [--layout native|flat] [--metric return] [--samples 2000]
         [--fail-on gamed,forgot,protected]
 
@@ -536,11 +536,11 @@ law. The demo simply cannot show that case.
 
 Two self-evolving agents ran over the same tasks for some generations.
 "Which is better" has no single answer and the layer does not pretend it
-has: `deepcompare/evolvecompare.py` gives four, each named by its axis,
+has: `agentdiff/evolvecompare.py` gives four, each named by its axis,
 and a lineage can win on one and lose on another.
 
-    python3 -m deepcompare evolve <lineageA> --against <lineageB> [--against <lineageC>] -o out
-    python3 -m deepcompare evolve-compare <lineageA> <lineageB> ... -o out      # the alias
+    python3 -m agentdiff evolve <lineageA> --against <lineageB> [--against <lineageC>] -o out
+    python3 -m agentdiff evolve-compare <lineageA> <lineageB> ... -o out      # the alias
         [--threshold X] [--layout ...] [--metric return] [--samples 2000] [--fail-on ...]
 
 The output directory is lineage A's ordinary `evolve` output — the last

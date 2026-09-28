@@ -1848,7 +1848,7 @@
       class: "caveat",
       text: "Stored in: " + Store.backendName() + ". Nothing leaves this browser — " +
             "the page contains no network code, which is why it works offline from a file " +
-            "(served by `deepcompare watch`, it listens to that local server for new steps and nothing else).",
+            "(served by `agentdiff watch`, it listens to that local server for new steps and nothing else).",
     }));
 
     body.appendChild(h("h3", { text: "Personalization" }));
@@ -2394,7 +2394,7 @@
 
   function boot() {
     Identity.id = visitorId();
-    State.data = global.DEEPCOMPARE_DATA || { reports: [], aggregate: {} };
+    State.data = global.AGENTDIFF_DATA || { reports: [], aggregate: {} };
 
     State.prefs = Object.assign(defaultPrefs(), Store.get(key("prefs")) || {});
     if (State.prefs.story === false && !(Store.get(key("prefs")) || {}).view) State.prefs.view = "evidence";

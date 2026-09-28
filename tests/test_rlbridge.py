@@ -21,12 +21,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory
-from deepcompare.adapters import (
+from agentdiff import Trajectory
+from agentdiff.adapters import (
     detect_agent_lightning, detect_verl, from_agent_lightning, from_verl, register_formats,
 )
-from deepcompare.registry import convert as registry_convert, detect_format
-from deepcompare.rlexport import (
+from agentdiff.registry import convert as registry_convert, detect_format
+from agentdiff.rlexport import (
     export, load_reports, to_agent_lightning_transitions, to_jsonl, to_preferences,
     to_verl_compute_score_template, to_verl_rewards,
 )
@@ -300,7 +300,7 @@ class DetectionTest(unittest.TestCase):
         self.assertEqual(detect_agent_lightning({"spans": [{"name": "chat", "attributes": {"gen_ai.prompt": "x"}}]})[0], 0.0)
 
     def test_the_formats_are_selectable_on_the_cli(self):
-        result = subprocess.run([sys.executable, "-m", "deepcompare", "convert", "--list-formats"],
+        result = subprocess.run([sys.executable, "-m", "agentdiff", "convert", "--list-formats"],
                                 capture_output=True, text=True, cwd=str(ROOT))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("verl", result.stdout)
@@ -311,7 +311,7 @@ class DetectionTest(unittest.TestCase):
             rollouts = Path(tmp) / "rollouts.jsonl"
             rollouts.write_text("".join(json.dumps(_verl_record(reward_score=1.0, uid=i)) + "\n" for i in range(3)),
                                 encoding="utf-8")
-            result = subprocess.run([sys.executable, "-m", "deepcompare", "convert", str(rollouts), "-o", tmp,
+            result = subprocess.run([sys.executable, "-m", "agentdiff", "convert", str(rollouts), "-o", tmp,
                                      "--format", "verl", "--agent", "policy-40"],
                                     capture_output=True, text=True, cwd=str(ROOT))
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -327,7 +327,7 @@ class RlExportTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from deepcompare.cli import main
+        from agentdiff.cli import main
         cls.tmp = tempfile.TemporaryDirectory()
         root = Path(cls.tmp.name)
         cls.dirs = []
@@ -486,7 +486,7 @@ class RlExportTest(unittest.TestCase):
                                        ("agent-lightning", None, "transition"),
                                        ("verl-reward-fn", 1, "compute_score template")):
                 out = Path(tmp) / f"{fmt}.out"
-                result = subprocess.run([sys.executable, "-m", "deepcompare", "rlexport", str(self.dirs[0]),
+                result = subprocess.run([sys.executable, "-m", "agentdiff", "rlexport", str(self.dirs[0]),
                                          "--format", fmt, "-o", str(out)],
                                         capture_output=True, text=True, cwd=str(ROOT))
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -501,12 +501,12 @@ class RlExportTest(unittest.TestCase):
                     self.assertTrue(all("source" in l and "trajectory_id" in l for l in lines))
             # one report, to stdout
             report = sorted(self.dirs[0].glob("report_*.json"))[0]
-            result = subprocess.run([sys.executable, "-m", "deepcompare", "rlexport", str(report)],
+            result = subprocess.run([sys.executable, "-m", "agentdiff", "rlexport", str(report)],
                                     capture_output=True, text=True, cwd=str(ROOT))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(len(result.stdout.strip().splitlines()), 2)
             self.assertIn("2 trajectory reward record(s) from 1 report(s)", result.stderr)
-        result = subprocess.run([sys.executable, "-m", "deepcompare", "rlexport", "/nonexistent/dir"],
+        result = subprocess.run([sys.executable, "-m", "agentdiff", "rlexport", "/nonexistent/dir"],
                                 capture_output=True, text=True, cwd=str(ROOT))
         self.assertEqual(result.returncode, 2)
 

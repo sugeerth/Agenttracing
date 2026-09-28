@@ -62,7 +62,7 @@ def build(reports_dir: Path | None = None) -> Path:
         raise SystemExit(f"{TEMPLATE} has no {MARKER} marker")
     if reports_dir is None:
         tmp = Path(tempfile.mkdtemp(prefix="agentdiff-live-"))
-        subprocess.run([sys.executable, "-m", "deepcompare", "demo", "-o", str(tmp)],
+        subprocess.run([sys.executable, "-m", "agentdiff", "demo", "-o", str(tmp)],
                        cwd=str(ROOT), check=True, capture_output=True)
         reports_dir = tmp
     payload = json.dumps(precompute(reports_dir), ensure_ascii=False).replace("</", "<\\/")

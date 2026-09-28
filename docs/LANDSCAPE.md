@@ -289,6 +289,6 @@ sequential steps; a critical-path analysis over overlapping spans is the next th
 The agent *stack* — OTel GenAI spans, MCP and A2A, OpenAI Agents SDK handoffs and guardrails, Claude Code
 permission hooks, LangGraph checkpoints inside Temporal, the τ²/SWE-bench Pro/Terminal-Bench/HAL evaluation
 frame, MAST and TRAIL taxonomies — is surveyed in `docs/FRAMEWORKS.md`, with what this project reads from a
-trace today (`deepcompare.frameworks.detect`, `deepcompare.domains`, `python -m deepcompare frameworks`) and
+trace today (`agentdiff.frameworks.detect`, `agentdiff.domains`, `python -m agentdiff frameworks`) and
 the plan for production trace sources. It also covers tool-level transparency and next-prompt guidance
 (Laminar, Langfuse, LangSmith, Braintrust) and what to take from them as principles rather than copies.

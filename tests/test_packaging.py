@@ -3,9 +3,9 @@
 The unit tests import the engine from the checkout, where every module is
 on the path whether or not it is packaged.  A wheel is the other thing:
 it carries what `pyproject.toml` names and nothing else, and for one
-release `[tool.setuptools] packages = ["deepcompare"]` named only the
-top level — so ``deepcompare.commands`` (every command the CLI
-dispatches to) and ``deepcompare.harness`` (the only modules allowed a
+release `[tool.setuptools] packages = ["agentdiff"]` named only the
+top level — so ``agentdiff.commands`` (every command the CLI
+dispatches to) and ``agentdiff.harness`` (the only modules allowed a
 socket) were left out and the installed console script died on its own
 import line before it could parse a flag.  No test in the suite could
 see it, because no test built a wheel.
@@ -30,9 +30,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _subpackages() -> set[str]:
-    """Every importable subpackage of ``deepcompare`` in the checkout."""
+    """Every importable subpackage of ``agentdiff`` in the checkout."""
     out = set()
-    for init in (ROOT / "deepcompare").rglob("__init__.py"):
+    for init in (ROOT / "agentdiff").rglob("__init__.py"):
         rel = init.parent.relative_to(ROOT)
         if "__pycache__" in rel.parts:
             continue
@@ -49,7 +49,7 @@ class WheelTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls._tmp = tempfile.TemporaryDirectory(prefix="agentdiff-wheel-")
-        # The page template is a build output (`deepcompare/page/` is
+        # The page template is a build output (`agentdiff/page/` is
         # gitignored), so on a fresh checkout it does not exist and the
         # template assertion below would quietly skip — which is exactly
         # where it matters most, since CI *is* a fresh checkout.  Build it
@@ -61,7 +61,7 @@ class WheelTest(unittest.TestCase):
         # from a pristine copy of the sources instead.
         src = Path(cls._tmp.name) / "src"
         src.mkdir()
-        for entry in ("pyproject.toml", "README.md", "deepcompare"):
+        for entry in ("pyproject.toml", "README.md", "agentdiff"):
             source = ROOT / entry
             target = src / entry
             if source.is_dir():
@@ -91,12 +91,12 @@ class WheelTest(unittest.TestCase):
         self.assertEqual(missing, [], "subpackages in the checkout but not in the wheel")
 
     def test_the_commands_the_cli_dispatches_to_are_all_in_the_wheel(self):
-        from deepcompare import cli
-        wheeled = {n for n in self.names if n.startswith("deepcompare/commands/") and n.endswith(".py")}
+        from agentdiff import cli
+        wheeled = {n for n in self.names if n.startswith("agentdiff/commands/") and n.endswith(".py")}
         missing = []
         for command in cli.COMMANDS:
             name = command.__name__.rsplit(".", 1)[-1]
-            if f"deepcompare/commands/{name}.py" not in wheeled:
+            if f"agentdiff/commands/{name}.py" not in wheeled:
                 missing.append(name)
         self.assertEqual(missing, [], "commands registered in the CLI but not shipped")
         self.assertGreater(len(wheeled), 30, "the command modules are the CLI")
@@ -129,14 +129,14 @@ class WheelTest(unittest.TestCase):
         template.  In the checkout it is `web/blocks.html`; in a wheel it
         has to be package data, or the installed CLI writes analyses with
         no page and says nothing."""
-        from deepcompare.commands.paths import DEFAULT_TEMPLATE
+        from agentdiff.commands.paths import DEFAULT_TEMPLATE
         template = Path(DEFAULT_TEMPLATE)
         self.assertTrue(template.is_file(), f"the checkout's template is missing: {template}")
         packaged = [n for n in self.names if n.endswith("blocks.html")]
         if not packaged:
             self.skipTest("the page template is not package data yet; "
                           "the installed CLI writes no report.html (tracked in docs/PRODUCTION.md)")
-        self.assertTrue(any(n.startswith("deepcompare/") for n in packaged), packaged)
+        self.assertTrue(any(n.startswith("agentdiff/") for n in packaged), packaged)
 
 
 if __name__ == "__main__":

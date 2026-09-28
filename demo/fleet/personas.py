@@ -1,4 +1,4 @@
-"""Parametric persona model for the DeepCompare demo fleet.
+"""Parametric persona model for the AgentDiff demo fleet.
 
 A persona is a behavioral archetype plus tunable parameters:
 

@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare.commands import bundle as bundle_cmd  # noqa: E402
+from agentdiff.commands import bundle as bundle_cmd  # noqa: E402
 
 BATCH = ROOT / "demo" / "traces"
 TRAIN = ROOT / "demo" / "rl" / "train"
@@ -26,7 +26,7 @@ def batch_output() -> Path:
     if "batch" not in _CACHE:
         # the member's label is the directory's name, and the tests key runs by it
         out = Path(tempfile.mkdtemp(prefix="agentdiff-bundle-")) / "batch"
-        result = subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(BATCH), "-o", str(out)],
+        result = subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(BATCH), "-o", str(out)],
                                 cwd=ROOT, capture_output=True, text=True, timeout=900)
         assert result.returncode == 0, result.stderr[-2000:]
         _CACHE["batch"] = out
@@ -60,7 +60,7 @@ def demo_outputs() -> dict:
         outputs = {"batch": batch_output()}
         for kind, command, source in (("runs", "runs", TRAIN), ("coevolve", "coevolve", LINEAGE)):
             out = base / kind
-            result = subprocess.run([sys.executable, "-m", "deepcompare", command, str(source), "-o", str(out)],
+            result = subprocess.run([sys.executable, "-m", "agentdiff", command, str(source), "-o", str(out)],
                                     cwd=ROOT, capture_output=True, text=True, timeout=900)
             assert result.returncode == 0, result.stderr[-2000:]
             outputs[kind] = out

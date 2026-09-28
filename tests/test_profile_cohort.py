@@ -13,9 +13,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory
-from deepcompare.cohort import GROUPERS, compare_cohorts, group_runs
-from deepcompare.profile import (
+from agentdiff import Trajectory
+from agentdiff.cohort import GROUPERS, compare_cohorts, group_runs
+from agentdiff.profile import (
     THIN_EVIDENCE,
     build_profile,
     profile_suite,

@@ -12,11 +12,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare.scorecard import (  # noqa: E402
+from agentdiff.scorecard import (  # noqa: E402
     RATE_DIMENSIONS, load_golden, load_policy, render_scorecard_markdown, score_run, scorecard,
 )
-from deepcompare.statistics import wilson_interval  # noqa: E402
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff.statistics import wilson_interval  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 
 DEMO = ROOT / "demo" / "runs" / "traces"
 GOLDEN = ROOT / "demo" / "golden" / "tasks.json"
@@ -152,7 +152,7 @@ class EvalCliTest(unittest.TestCase):
             script = Path(tmp) / "judge.json"
             script.write_text(json.dumps([{"text": '{"success": true, "score": 0.9, "rationale": "scripted"}'}]), encoding="utf-8")
             out = Path(tmp) / "eval"
-            proc = subprocess.run([sys.executable, "-m", "deepcompare", "eval", str(d), "--golden", str(GOLDEN),
+            proc = subprocess.run([sys.executable, "-m", "agentdiff", "eval", str(d), "--golden", str(GOLDEN),
                                    "--judge", f"j=scripted:{script}", "-o", str(out)], cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             card = json.loads((out / "eval.json").read_text(encoding="utf-8"))
@@ -170,7 +170,7 @@ class EvalCliTest(unittest.TestCase):
     def test_eval_online_without_golden_says_so(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "eval"
-            proc = subprocess.run([sys.executable, "-m", "deepcompare", "eval", str(DEMO), "-o", str(out)],
+            proc = subprocess.run([sys.executable, "-m", "agentdiff", "eval", str(DEMO), "-o", str(out)],
                                   cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertIn("online — traces as recorded", proc.stdout)

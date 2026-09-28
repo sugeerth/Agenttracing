@@ -23,8 +23,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deepcompare import grafana
-from deepcompare.grafana import (FAMILIES, PREFIX, collect, export, format_value, render_csv, render_json,
+from agentdiff import grafana
+from agentdiff.grafana import (FAMILIES, PREFIX, collect, export, format_value, render_csv, render_json,
                                  render_prom, validate_exposition)
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,7 +44,7 @@ _CACHE: dict = {}
 
 
 def _cli(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([sys.executable, "-m", "deepcompare", *args], cwd=ROOT,
+    return subprocess.run([sys.executable, "-m", "agentdiff", *args], cwd=ROOT,
                           capture_output=True, text=True, timeout=900)
 
 
@@ -103,7 +103,7 @@ class FamilyTest(unittest.TestCase):
                 self.assertIn("interval", FAMILIES[name][1], name)
 
     def test_the_exporter_opens_no_socket(self):
-        for path in (ROOT / "deepcompare" / "grafana.py", ROOT / "deepcompare" / "commands" / "grafana.py"):
+        for path in (ROOT / "agentdiff" / "grafana.py", ROOT / "agentdiff" / "commands" / "grafana.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
                 names = [a.name for a in node.names] if isinstance(node, ast.Import) else \
@@ -473,7 +473,7 @@ class CommandTest(unittest.TestCase):
         self.assertIn("does not exist", result.stderr)
 
     def test_the_command_module_exposes_register_and_run(self):
-        from deepcompare.commands import grafana as command
+        from agentdiff.commands import grafana as command
         self.assertTrue(callable(command.register) and callable(command.run))
 
 

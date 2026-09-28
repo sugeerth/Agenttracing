@@ -1,6 +1,6 @@
 """The section registry, the envelope builders and the shared prose helpers.
 
-The registry (``deepcompare.sections``) is what wires a section to a
+The registry (``agentdiff.sections``) is what wires a section to a
 report: these tests pin that ``requires`` orders the plan, that a section
 which raises is recorded as unmeasurable while the rest still attach, that
 a ``requires`` nothing provides is reported, and that the real registry
@@ -22,10 +22,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare import _stats, _text, sections  # noqa: E402
-from deepcompare.report import compare  # noqa: E402
-from deepcompare.section import is_measurable, measurable, unmeasurable  # noqa: E402
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff import _stats, _text, sections  # noqa: E402
+from agentdiff.report import compare  # noqa: E402
+from agentdiff.section import is_measurable, measurable, unmeasurable  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 
 DEMO = ROOT / "demo" / "traces"
 
@@ -165,8 +165,8 @@ class EnvelopeTest(unittest.TestCase):
         self.assertEqual(measurable(), {"measurable": True, "reason": None})
 
     def test_the_rl_sub_sections_serialise_as_the_envelope(self):
-        from deepcompare.rlaudit import rl_audit
-        from deepcompare.rlspace import behaviour_space
+        from agentdiff.rlaudit import rl_audit
+        from agentdiff.rlspace import behaviour_space
         self.assertEqual(list(rl_audit([]))[:3], ["version", "measurable", "reason"])
         self.assertEqual(list(behaviour_space([]))[:3], ["version", "measurable", "reason"])
 

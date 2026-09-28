@@ -6,7 +6,7 @@ dist/
 *.egg-info/
 out/
 out_*/
-deepcompare/page/
+agentdiff/page/
 .pytest_cache/
 notebooks/
 duel-out*/

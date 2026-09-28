@@ -83,10 +83,10 @@ def build() -> str:
 
     # render_html() replaces the single line carrying this marker, so exactly
     # one must survive the build or the CLI cannot inject report data.
-    hits = [line for line in page.splitlines() if "window.DEEPCOMPARE_DATA" in line]
+    hits = [line for line in page.splitlines() if "window.AGENTDIFF_DATA" in line]
     if len(hits) != 1:
         raise SystemExit(
-            f"expected exactly 1 window.DEEPCOMPARE_DATA line, found {len(hits)}; "
+            f"expected exactly 1 window.AGENTDIFF_DATA line, found {len(hits)}; "
             "a module must not mention the marker"
         )
     return page, modules
@@ -96,7 +96,7 @@ def build() -> str:
 #: `web/blocks.html` stays the artifact the tests pin and review reads; this
 #: copy is a build output (gitignored) that `pip` can ship as package data,
 #: because setuptools can only carry files that live under the package.
-PACKAGED = ROOT.parent / "deepcompare" / "page" / "blocks.html"
+PACKAGED = ROOT.parent / "agentdiff" / "page" / "blocks.html"
 
 
 def main() -> int:

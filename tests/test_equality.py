@@ -9,8 +9,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory
-from deepcompare.equality import equality_analysis, equality_features, normalise
+from agentdiff import Trajectory
+from agentdiff.equality import equality_analysis, equality_features, normalise
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -75,7 +75,7 @@ class AnalysisTest(unittest.TestCase):
         self.assertEqual(folded["all"]["equality_rate"], self.eq["per_agent"]["atlas-v2"]["equality_rate"])
 
     def test_the_router_carries_equality_and_a_rationale(self):
-        from deepcompare.router import routing_table
+        from agentdiff.router import routing_table
         flat = [t for agents in self.runs.values() for ts in agents.values() for t in ts]
         table = routing_table(flat, equality=self.eq)
         fam = table["families"]["t05_flight_duration"]

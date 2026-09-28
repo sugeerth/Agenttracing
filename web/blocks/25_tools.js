@@ -14,7 +14,7 @@
  * that on a double-click of a tool step, the tables on a click of the
  * tool's name.
  *
- * Reads `report.tools_profile` (see deepcompare/toolprofile.py).
+ * Reads `report.tools_profile` (see agentdiff/toolprofile.py).
  */
 (function (global) {
   "use strict";

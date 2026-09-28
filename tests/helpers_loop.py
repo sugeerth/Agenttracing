@@ -13,9 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from deepcompare.harness import Tool  # noqa: E402
-from deepcompare.harness.agent import DEFAULT_SYSTEM  # noqa: E402
-from deepcompare.harness.providers import Provider, ProviderResponse, ToolCall  # noqa: E402
+from agentdiff.harness import Tool  # noqa: E402
+from agentdiff.harness.agent import DEFAULT_SYSTEM  # noqa: E402
+from agentdiff.harness.providers import Provider, ProviderResponse, ToolCall  # noqa: E402
 
 FACTS = {"BK1": "$120.00", "BK2": "$45.00", "BK3": "$300.00", "BK4": "$12.00"}
 TASKS = [{"id": f"refund-{k}", "prompt": f"What refund applies to booking {k}?", "expected": v}
@@ -77,7 +77,7 @@ def factory(spec: str) -> Provider:
 
 
 def run_demo_loop(out_dir, **kwargs):
-    from deepcompare.harness.loop import Loop
+    from agentdiff.harness.loop import Loop
     opts = dict(runs=2, max_iterations=4, template=ROOT / "web" / "blocks.html")
     opts.update(kwargs)
     loop = Loop(TASKS, {"steady": "steady", "sloppy": "sloppy"}, out_dir=out_dir, provider_factory=factory,

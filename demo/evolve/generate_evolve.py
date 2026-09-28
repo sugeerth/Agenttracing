@@ -1,7 +1,7 @@
 """Generate the self-evolving agent demo (SYNTHETIC): one agent, seven
 generations, each derived from the last by an evolution step.
 
-The lineage is built so that the checks in ``deepcompare.evolve`` have
+The lineage is built so that the checks in ``agentdiff.evolve`` have
 something to catch, because a lineage where every step helps teaches a
 reader nothing about reading one:
 
@@ -58,7 +58,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare.record import Recorder  # noqa: E402
+from agentdiff.record import Recorder  # noqa: E402
 from demo._env import TASKS, label_synthetic, run_episode, tools_for  # noqa: E402
 
 NOTE = "SYNTHETIC: a generated generation of a self-evolving agent; rewards paid by a scripted environment; every value invented"

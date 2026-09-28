@@ -1,6 +1,6 @@
 """The self-evolving demo lineage: seven generations built to go wrong.
 
-The engine's tests pin what ``deepcompare.evolve`` reads off this
+The engine's tests pin what ``agentdiff.evolve`` reads off this
 lineage. This file pins the lineage itself — that it regenerates byte
 for byte, that every generation carries its artifacts and its
 provenance, and that the shape the checks depend on is really in the

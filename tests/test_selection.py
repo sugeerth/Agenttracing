@@ -14,9 +14,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory
-from deepcompare.routing import routing_analysis
-from deepcompare.similarity import (
+from agentdiff import Trajectory
+from agentdiff.routing import routing_analysis
+from agentdiff.similarity import (
     Profile,
     cosine,
     facet_similarity,

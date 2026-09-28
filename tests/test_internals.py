@@ -19,14 +19,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory, compare
-from deepcompare.harness.neuronpedia import (
+from agentdiff import Trajectory, compare
+from agentdiff.harness.neuronpedia import (
     Neuronpedia,
     ScriptedNeuronpedia,
     attach_internals,
     feature_url,
 )
-from deepcompare.internals import internals_analysis
+from agentdiff.internals import internals_analysis
 
 ROOT = Path(__file__).resolve().parent.parent
 TELEMETRY = ROOT / "demo" / "telemetry" / "traces"

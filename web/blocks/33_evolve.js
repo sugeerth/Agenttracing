@@ -3,7 +3,7 @@
  * A self-evolving agent is not two agents but a chain g0 → g1 → … where each
  * generation was derived from its parent by one step (a prompt edit, a rule,
  * a config change, a memory written) triggered by the parent's own episodes.
- * These blocks draw `aggregate.evolution` (deepcompare/evolve.py), and only
+ * These blocks draw `aggregate.evolution` (agentdiff/evolve.py), and only
  * that — every point, bound, count and sentence is read from the JSON, so the
  * page and the engine cannot drift:
  *

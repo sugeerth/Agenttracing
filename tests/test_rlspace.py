@@ -24,13 +24,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare.rl import rl_aggregate  # noqa: E402
-from deepcompare.rlspace import (  # noqa: E402
+from agentdiff.rl import rl_aggregate  # noqa: E402
+from agentdiff.rlspace import (  # noqa: E402
     MATRIX_JSON_EPISODES, MAX_DISTANCE_EPISODES, MAX_DISTANCE_TOKENS, _edit_dp, _edit_myers,
     behaviour_episodes, behaviour_space, branch_points, build_trie, distances, edit_distance,
     episode_tokens, mds, ngrams, normalised_distance, policy_trie, rl_space, step_token, vocabulary,
 )
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 
 TRAIN = ROOT / "demo" / "rl" / "train"
 SMALL = ROOT / "demo" / "rl" / "traces"

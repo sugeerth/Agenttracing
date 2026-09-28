@@ -1,4 +1,4 @@
-"""The harness beside the agent: `deepcompare.harnessevo`.
+"""The harness beside the agent: `agentdiff.harnessevo`.
 
 `evolve` reads every artifact change as "the agent evolved". Two of those
 artifacts — `tools` and `config` — are the scaffold the agent runs inside
@@ -25,10 +25,10 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
-from deepcompare import harnessevo as he  # noqa: E402
-from deepcompare import sections  # noqa: E402
-from deepcompare.evolve import analyse_lineage, attach_sections, read_lineage  # noqa: E402
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff import harnessevo as he  # noqa: E402
+from agentdiff import sections  # noqa: E402
+from agentdiff.evolve import analyse_lineage, attach_sections, read_lineage  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 from test_evolve import _agent, _trace, write_lineage  # noqa: E402
 
 

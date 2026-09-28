@@ -11,8 +11,8 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from deepcompare.suite import SuiteError, group_runs
-from deepcompare.trace import Trajectory
+from agentdiff.suite import SuiteError, group_runs
+from agentdiff.trace import Trajectory
 
 
 ROOT = Path(__file__).resolve().parents[1]

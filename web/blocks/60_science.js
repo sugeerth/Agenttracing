@@ -1,8 +1,8 @@
 /* AgentDiff blocks — reliability over repeats, and the failure taxonomies.
  *
- * Six blocks over two engine modules that had no interface: deepcompare
+ * Six blocks over two engine modules that had no interface: agentdiff
  * .reliability (pass^k, consistency, ICC, the runs advisory) and
- * deepcompare.taxonomy (MAST and TRAIL).
+ * agentdiff.taxonomy (MAST and TRAIL).
  *
  * Both modules exist because a number can be true and still mislead, so both
  * ship their qualifiers as data rather than as prose someone may not read.
@@ -24,7 +24,7 @@
  *     modes this tool cannot reach are not the rare ones.
  *
  * Relevance is 0 when the aggregate key is absent: reliability exists only in
- * `deepcompare runs` output and taxonomy in batch output, so on any one
+ * `agentdiff runs` output and taxonomy in batch output, so on any one
  * report half of these blocks hide themselves. That is the contract.
  */
 (function (global) {
@@ -397,7 +397,7 @@
       var rel = reliabilityOf(ctx);
       if (!rel) {
         return ctx.empty(el, "No reliability analysis in this report — pass^k needs " +
-          "repeated runs of the same task, which only `deepcompare runs` produces.");
+          "repeated runs of the same task, which only `agentdiff runs` produces.");
       }
       var list = sides(rel);
       if (!list.length) return ctx.empty(el, "The reliability block carries no agents.");
@@ -1125,7 +1125,7 @@
       var tax = taxonomyOf(ctx);
       if (!tax) {
         return ctx.empty(el, "No taxonomy mapping in this report — it is produced by " +
-          "`deepcompare batch` over a comparison suite.");
+          "`agentdiff batch` over a comparison suite.");
       }
       var totals = obj(tax.signal_totals) || {};
       var mast = obj(tax.mast) || {};

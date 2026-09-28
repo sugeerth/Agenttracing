@@ -14,10 +14,10 @@ import json
 import re
 import unittest
 
-from deepcompare.harness import ScriptedProvider, Tool, run_task
-from deepcompare.harness.replay import messages_from_steps, replay
-from deepcompare.report import compare
-from deepcompare.trace import Trajectory
+from agentdiff.harness import ScriptedProvider, Tool, run_task
+from agentdiff.harness.replay import messages_from_steps, replay
+from agentdiff.report import compare
+from agentdiff.trace import Trajectory
 
 TASK = {"id": "t_refund", "prompt": "What refund applies to booking BK1?",
         "expected": "$120.00"}

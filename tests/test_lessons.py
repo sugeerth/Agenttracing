@@ -8,9 +8,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deepcompare import lessons
-from deepcompare.commands._io import load_traces
-from deepcompare.scorecard import load_golden
+from agentdiff import lessons
+from agentdiff.commands._io import load_traces
+from agentdiff.scorecard import load_golden
 
 ROOT = Path(__file__).resolve().parents[1]
 SUITE = ROOT / "demo" / "horizon" / "suite"
@@ -195,7 +195,7 @@ class BatchLedgerTest(unittest.TestCase):
             ledger = Path(tmp) / "ledger.json"
             for n in (1, 2):
                 done = subprocess.run(
-                    [sys.executable, "-m", "deepcompare", "batch", str(SUITE), "-o", str(Path(tmp) / f"o{n}"),
+                    [sys.executable, "-m", "agentdiff", "batch", str(SUITE), "-o", str(Path(tmp) / f"o{n}"),
                      "--golden", str(GOLDEN), "--lessons", str(ledger)],
                     cwd=str(ROOT), capture_output=True, text=True)
                 self.assertEqual(done.returncode, 0, done.stderr)
@@ -214,7 +214,7 @@ class BatchLedgerTest(unittest.TestCase):
             ledger = Path(tmp) / "ledger.json"
             ledger.write_text("{}", encoding="utf-8")
             done = subprocess.run(
-                [sys.executable, "-m", "deepcompare", "batch", str(SUITE), "-o", str(Path(tmp) / "o"),
+                [sys.executable, "-m", "agentdiff", "batch", str(SUITE), "-o", str(Path(tmp) / "o"),
                  "--lessons", str(ledger)], cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(done.returncode, 2)
             self.assertIn("not a lessons ledger", done.stderr)

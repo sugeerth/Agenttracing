@@ -1,6 +1,6 @@
 /* AgentDiff blocks — the harness beside the agent.
  *
- * `aggregate.harness_evolution` (deepcompare/harnessevo.py) asks two
+ * `aggregate.harness_evolution` (agentdiff/harnessevo.py) asks two
  * questions the Evolution blocks above it cannot: when a generation
  * improved, may the delta be handed to the agent at all — and was the gain
  * the agent needing less, or more being put around it?
@@ -38,7 +38,7 @@
   var KIND_ORDER = ["reasoning", "scaffold", "mixed", "none", "unreadable"];
 
   // a budget entry is usually a limit and so a number, but a loop also has
-  // switches and settings that name a tool (deepcompare/scaffold.py), and
+  // switches and settings that name a tool (agentdiff/scaffold.py), and
   // those are part of what "the same harness" means: shown as recorded
   // rather than pushed through a number formatter that would lose them
   function capValue(v) {

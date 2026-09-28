@@ -85,7 +85,7 @@ def interval_for(model: dict, rng: random.Random) -> dict:
 #: features: the indices are arbitrary, the labels invented, and every
 #: record says so — they exist so the page can show what recorded
 #: internals look like.  Real runs get real features through
-#: deepcompare.harness.neuronpedia.
+#: agentdiff.harness.neuronpedia.
 FEATURE_POOL = {
     "plan": [(1040, "task framing / enumerating sub-goals"), (2211, "instruction following")],
     "search": [(3312, "web lookup intent"), (4470, "named-entity retrieval")],

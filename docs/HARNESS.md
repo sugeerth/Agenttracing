@@ -6,7 +6,7 @@ alongside it so the agent cannot quietly optimise a fixed one. Both of them
 were reading one thing and calling it another.
 
 This is the section that separates them: `aggregate.harness_evolution`,
-from `deepcompare/harnessevo.py`, attached to every lineage after the
+from `agentdiff/harnessevo.py`, attached to every lineage after the
 co-evolving eval. Three readings, and one invariant.
 
 ## Two artifacts are not the agent
@@ -182,7 +182,7 @@ and until now it had a single actuator.
 `ACTIONS` was `("compare", "test-prompt", "stop")` and the state it edited
 was `state["prompts"]`. The loop could change how an agent thinks and
 nothing else. Meanwhile the triage engine classifies every recommendation
-it makes by where the fix lives (`deepcompare.triage.EFFORT`), and of its
+it makes by where the fix lives (`agentdiff.triage.EFFORT`), and of its
 nineteen categories only four are prompt-shaped:
 
 | where the fix lives | categories | the loop could act |
@@ -200,7 +200,7 @@ scaffold, and the thing that drives improvement could do neither.
 
 ### Two knobs, and the rule that decides what may become one
 
-`deepcompare/scaffold.py` turns those findings into hypotheses. A harness
+`agentdiff/scaffold.py` turns those findings into hypotheses. A harness
 varies two things that a trace records back:
 
 - **`tools`** — the tool table a run is offered, which lands in

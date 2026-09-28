@@ -19,10 +19,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deepcompare import __version__
-from deepcompare.report import compare
-from deepcompare.trace import Trajectory
-from deepcompare.verdict import format_verdict_card, verdict_card
+from agentdiff import __version__
+from agentdiff.report import compare
+from agentdiff.trace import Trajectory
+from agentdiff.verdict import format_verdict_card, verdict_card
 
 ROOT = Path(__file__).resolve().parent.parent
 TRACES = ROOT / "demo" / "traces"
@@ -118,7 +118,7 @@ class TestNoDegenerateSentences(unittest.TestCase):
         cls.outputs = {}
         for a in sorted(TRACES.glob("*__atlas-v2.json")):
             b = TRACES / a.name.replace("atlas-v2", "bolt-v3")
-            proc = subprocess.run([sys.executable, "-m", "deepcompare", "compare",
+            proc = subprocess.run([sys.executable, "-m", "agentdiff", "compare",
                                    str(a), str(b)], cwd=str(ROOT),
                                   capture_output=True, text=True, check=True)
             cls.outputs[a.name] = proc.stdout
@@ -135,7 +135,7 @@ class TestNoDegenerateSentences(unittest.TestCase):
 
     def test_explain_output_carries_no_empty_sentence(self):
         for trace in sorted(TRACES.glob("*.json"))[:4]:
-            proc = subprocess.run([sys.executable, "-m", "deepcompare", "explain",
+            proc = subprocess.run([sys.executable, "-m", "agentdiff", "explain",
                                    str(trace)], cwd=str(ROOT),
                                   capture_output=True, text=True, check=True)
             self.assertIsNone(DEGENERATE.search(proc.stdout), trace.name)
@@ -144,7 +144,7 @@ class TestNoDegenerateSentences(unittest.TestCase):
 class TestOneCommandDemo(unittest.TestCase):
     def test_demo_writes_the_blocks_report_and_prints_the_card(self):
         with tempfile.TemporaryDirectory() as tmp:
-            proc = subprocess.run([sys.executable, "-m", "deepcompare", "demo",
+            proc = subprocess.run([sys.executable, "-m", "agentdiff", "demo",
                                    "-o", tmp], cwd=str(ROOT),
                                   capture_output=True, text=True, check=True)
             self.assertTrue(proc.stdout.startswith("AgentDiff demo"))
@@ -159,14 +159,14 @@ class TestOneCommandDemo(unittest.TestCase):
     def test_compare_html_and_explain_html_write_pages(self):
         with tempfile.TemporaryDirectory() as tmp:
             pair = Path(tmp) / "pair.html"
-            subprocess.run([sys.executable, "-m", "deepcompare", "compare",
+            subprocess.run([sys.executable, "-m", "agentdiff", "compare",
                             str(TRACES / "t05_flight_duration__atlas-v2.json"),
                             str(TRACES / "t05_flight_duration__bolt-v3.json"),
                             "--html", str(pair)], cwd=str(ROOT),
                            capture_output=True, text=True, check=True)
             self.assertIn("AgentDiff.block(", pair.read_text(encoding="utf-8"))
             run = Path(tmp) / "run.html"
-            subprocess.run([sys.executable, "-m", "deepcompare", "explain",
+            subprocess.run([sys.executable, "-m", "agentdiff", "explain",
                             str(TRACES / "t05_flight_duration__bolt-v3.json"),
                             "--html", str(run)], cwd=str(ROOT),
                            capture_output=True, text=True, check=True)

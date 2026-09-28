@@ -24,13 +24,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from deepcompare.harness import (  # noqa: E402
+from agentdiff.harness import (  # noqa: E402
     AnthropicProvider, OllamaProvider, OpenAICompatProvider, ProviderError,
     ScriptedProvider, Tool, provider_from_spec, run_suite, run_task,
 )
-from deepcompare.harness.runner import load_tasks  # noqa: E402
-from deepcompare.report import compare  # noqa: E402
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff.harness.runner import load_tasks  # noqa: E402
+from agentdiff.report import compare  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 
 
 def refund_tool():
@@ -54,7 +54,7 @@ class TestNetworkBoundary(unittest.TestCase):
 
     def test_only_the_harness_imports_network_modules(self):
         offenders = []
-        for path in (ROOT / "deepcompare").rglob("*.py"):
+        for path in (ROOT / "agentdiff").rglob("*.py"):
             if "harness" in path.parts:
                 continue
             tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -72,7 +72,7 @@ class TestNetworkBoundary(unittest.TestCase):
 
     def test_the_engine_never_imports_the_harness(self):
         offenders = []
-        for path in (ROOT / "deepcompare").rglob("*.py"):
+        for path in (ROOT / "agentdiff").rglob("*.py"):
             if "harness" in path.parts:
                 continue
             tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -294,7 +294,7 @@ class TestWireFormats(unittest.TestCase):
             provider = OpenAICompatProvider("x", base_url=self.base + "/broken")
             provider.base_url = self.base  # so the path ends in /broken below
             with self.assertRaises(ProviderError) as ctx:
-                from deepcompare.harness.providers import _post_json
+                from agentdiff.harness.providers import _post_json
                 _post_json(self.base + "/broken", {}, provider._headers(), 5)
         finally:
             del os.environ["OPENAI_API_KEY"]
@@ -346,7 +346,7 @@ class TestSpecsAndSuite(unittest.TestCase):
             tasks.write_text(json.dumps([TASK]))
             out = Path(tmp) / "traces"
             result = subprocess.run(
-                [sys.executable, "-m", "deepcompare", "run",
+                [sys.executable, "-m", "agentdiff", "run",
                  "--provider", f"good=scripted:{good}",
                  "--provider", f"bad=scripted:{bad}",
                  "--tasks", str(tasks), "-o", str(out)],
@@ -354,7 +354,7 @@ class TestSpecsAndSuite(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("1/2 succeeded", result.stdout)
             batch = subprocess.run(
-                [sys.executable, "-m", "deepcompare", "batch", str(out),
+                [sys.executable, "-m", "agentdiff", "batch", str(out),
                  "-o", str(Path(tmp) / "out")],
                 cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(batch.returncode, 0, batch.stderr)
@@ -367,7 +367,7 @@ class TestSpecsAndSuite(unittest.TestCase):
             tasks = Path(tmp) / "tasks.json"
             tasks.write_text(json.dumps([TASK]))
             result = subprocess.run(
-                [sys.executable, "-m", "deepcompare", "run",
+                [sys.executable, "-m", "agentdiff", "run",
                  "--provider", "nope:x", "--tasks", str(tasks),
                  "-o", str(Path(tmp) / "t")],
                 cwd=str(ROOT), capture_output=True, text=True)

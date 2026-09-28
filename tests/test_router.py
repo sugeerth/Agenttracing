@@ -16,8 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory
-from deepcompare.router import family_of, router_hints, routing_table
+from agentdiff import Trajectory
+from agentdiff.router import family_of, router_hints, routing_table
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -89,7 +89,7 @@ class RoutingTableTest(unittest.TestCase):
     def test_reports_add_fault_kinds_per_agent(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
-            subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "traces"), "-o", tmp],
+            subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(ROOT / "demo" / "traces"), "-o", tmp],
                            cwd=str(ROOT), check=True, capture_output=True)
             reports = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(Path(tmp).glob("report_*.json"))]
             table = routing_table(load("demo/traces"), reports=reports)
@@ -107,7 +107,7 @@ class RoutingTableTest(unittest.TestCase):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "routing.json"
-            proc = subprocess.run([sys.executable, "-m", "deepcompare", "route", str(ROOT / "demo" / "fleet" / "traces"),
+            proc = subprocess.run([sys.executable, "-m", "agentdiff", "route", str(ROOT / "demo" / "fleet" / "traces"),
                                    "-o", str(out)], cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             table = json.loads(out.read_text(encoding="utf-8"))

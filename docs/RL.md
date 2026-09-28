@@ -1,7 +1,7 @@
 # The run as an episode: reward, return and credit
 
 The impact layer weighs a run by its faults; a policy under training is
-read by what it *earned*. `deepcompare.rl` reads the same traces that
+read by what it *earned*. `agentdiff.rl` reads the same traces that
 way — reward per step, return so far and to go, credit per stretch — in
 the impact layer's shape (clusters that fold, marks that drill down), so
 an episode sits beside the fault-weighted view with one vocabulary.
@@ -105,7 +105,7 @@ so in `harness.note`): two tasks × `policy-v1` (weaker) / `policy-v2`
 on an error, +1 per piece of evidence, ±5 at the answer), a value on each
 thinking step, a `verifier` lane. As generated, policy-v2's mean return
 is 5.23 over six episodes against −2.47 for policy-v1. `python -m
-deepcompare rl demo/rl/traces` prints each episode (return, discounted
+agentdiff rl demo/rl/traces` prints each episode (return, discounted
 return, reward counts, largest rewards) and the per-agent mean with its
 interval (`--json` for the episodes); `runs` and `batch` carry the section.
 
@@ -121,7 +121,7 @@ were recorded, and per-episode returns with intervals across runs. Take
 
 ## The bridge to trainers
 
-The other direction is `rlexport`: `python -m deepcompare rlexport <reports_dir|report.json> --format verl-rewards |
+The other direction is `rlexport`: `python -m agentdiff rlexport <reports_dir|report.json> --format verl-rewards |
 verl-reward-fn | preferences | agent-lightning -o <path>` writes what this section computed in the shapes a trainer
 reads — one reward record per trajectory (`trajectory_id`, `reward` = the return above, `reward_terms` by label,
 `step_rewards`, `milestones` reached, `outcome`) for a veRL reward manager, the `compute_score(data_source,
@@ -141,7 +141,7 @@ normal approximation assumes a sample size nobody running agents has.
 Agarwal, Schwarzer, Castro, Courville and Bellemare showed in 2021 how far
 that goes wrong in published deep-RL results — comparisons drawn from a
 handful of runs routinely reverse when the runs are redrawn — and set out
-the alternative this project implements in `deepcompare/rlstats.py`, from
+the alternative this project implements in `agentdiff/rlstats.py`, from
 scratch and in the standard library, over the same episodes `rl_aggregate`
 already builds. It lands at `aggregate["rl"]["stats"]`.
 
@@ -316,7 +316,7 @@ falls back to memory when a `file://` origin refuses `localStorage`.
 
 Return says which policy won. It does not say what either one did, and two
 policies can earn the same return by behaving nothing alike.
-`deepcompare/rlspace.py` reads the same episodes as *behaviour*, and ships
+`agentdiff/rlspace.py` reads the same episodes as *behaviour*, and ships
 the reading at `aggregate.rl.space`. Every step becomes one token — the
 tool's name for a tool-ish step (`grep`, `read_file`, `search`,
 `run_check`), the step's own family otherwise (`plan`, `reason`,
@@ -418,7 +418,7 @@ ranked branch points are ringed and tabled with the return on each side.
 
 ## Auditing the signal: is the reward trustworthy, is the critic any good?
 
-Everything above reads a policy by what it *earned*. `deepcompare/rlaudit.py`
+Everything above reads a policy by what it *earned*. `agentdiff/rlaudit.py`
 asks the question one layer down — the one nobody asks until a policy is
 already gamed — and writes it to `aggregate["rl"]["audit"]` (and, at pair
 scale, to `report["rl"]["audit"]`):

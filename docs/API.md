@@ -17,7 +17,7 @@ the same id, on any machine — there is no timestamp anywhere.
 
 ## The two sections the third level is made of
 
-`budget` and `fetches` (`deepcompare/budget.py`, `deepcompare/fetches.py`)
+`budget` and `fetches` (`agentdiff/budget.py`, `agentdiff/fetches.py`)
 attach to every pair report and, in a runs layout, to the aggregate.
 Both follow the section envelope (`version`, `measurable`, `reason`, …).
 
@@ -78,7 +78,7 @@ bundle directory holds:
 | `members/<n>/aggregate.json`, `members/<n>/report_*.json` | byte copies of the members |
 | `runs/<key>.json` | the level-3 record of one run |
 | `traces/<member>/…` | with `--traces`, a byte copy of every trace that completed a record |
-| `report.html` | the primary (first) member's page, with `DEEPCOMPARE_DATA.bundle = {id, name, members, levels}` (`levels` also carries `records`) inlined so the Levels view has every run of every member |
+| `report.html` | the primary (first) member's page, with `AGENTDIFF_DATA.bundle = {id, name, members, levels}` (`levels` also carries `records`) inlined so the Levels view has every run of every member |
 | `KEY.txt` | the key |
 
 **The id** is `sha256:<hex>` of the canonical JSON (sorted keys, no
@@ -210,7 +210,7 @@ newest; capabilities `{tools: {}, resources: {}}`; `serverInfo {name:
 For a coding assistant, the `mcpServers` entry:
 
 ```json
-{"mcpServers": {"agentdiff": {"command": "python3", "args": ["-m", "deepcompare", "mcp", "--bundle", "<dir>"]}}}
+{"mcpServers": {"agentdiff": {"command": "python3", "args": ["-m", "agentdiff", "mcp", "--bundle", "<dir>"]}}}
 ```
 
 Tools, each with a JSON schema for its arguments and a description that
@@ -264,7 +264,7 @@ than filling in.
 agentdiff serve --bundle DIR [--host 127.0.0.1] [--port 8787]
 ```
 
-`http.server` in `deepcompare/harness/` (the only place a network module
+`http.server` in `agentdiff/harness/` (the only place a network module
 may live; the command imports it inside `run()`). Read-only GET; every
 answer JSON with `Cache-Control: no-store`, the page apart; anything
 else a 404 with a JSON reason; no directory listing, and a run is found
@@ -318,7 +318,7 @@ GET /api/v1/runs?sort=bogus
 
 Same inputs, same bytes, same id, same key (`tests/test_bundle.py`
 writes the bundle twice and compares every file). No network module
-outside `deepcompare/harness/`, and the engine never imports the harness
+outside `agentdiff/harness/`, and the engine never imports the harness
 (`tests/test_harness.py`); the MCP server imports no network or thread
 module (`tests/test_mcp.py`). The HTTP tests start the server on port 0
 in a thread and drive it with `urllib` from the test alone

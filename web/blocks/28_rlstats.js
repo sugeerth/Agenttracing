@@ -1,7 +1,7 @@
 /* AgentDiff blocks — two policies from few episodes, read the way the RL
  * literature asks for rather than as a mean with a normal interval.
  *
- * `aggregate.rl.stats` (deepcompare/rlstats.py) carries the small-sample
+ * `aggregate.rl.stats` (agentdiff/rlstats.py) carries the small-sample
  * toolkit over the same episodes the rest of the Training view draws:
  * IQM, median, mean and the optimality gap, each with a stratified
  * bootstrap interval; the performance profiles with their bands; and the

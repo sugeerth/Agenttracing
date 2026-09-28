@@ -39,10 +39,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare.harness.judge import STEP_EXCERPT  # noqa: E402
-from deepcompare.scorecard import (UNRECOVERED_CAP, detection, score_run,  # noqa: E402
+from agentdiff.harness.judge import STEP_EXCERPT  # noqa: E402
+from agentdiff.scorecard import (UNRECOVERED_CAP, detection, score_run,  # noqa: E402
                                    scorecard, signals_of)
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 
 SUITE = ROOT / "demo" / "horizon" / "suite"
 GOLDEN = ROOT / "demo" / "horizon" / "suite_golden.json"
@@ -251,7 +251,7 @@ class SuiteTest(unittest.TestCase):
         self.assertEqual((det["caught"], det["total"]), (0, 0))
 
     def test_the_markdown_card_carries_the_milestone_line(self):
-        from deepcompare.scorecard import render_scorecard_markdown
+        from agentdiff.scorecard import render_scorecard_markdown
         trajectories = [Trajectory.from_json(SUITE / f"{t.id}__{a}.json")
                         for t in self.gen.TASKS for a in (FINISHER, FAILER)]
         text = render_scorecard_markdown(scorecard(trajectories, {"tasks": self.tasks, "policy": self.golden["policy"]}))

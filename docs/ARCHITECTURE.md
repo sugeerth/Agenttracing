@@ -5,13 +5,13 @@ every layer has one contract for adding to it. Nothing here needs a
 network, a dependency, or a random number without a seed.
 
     traces  →  sections  →  aggregates  →  the page
-    (SCHEMA)   (deepcompare/*.py)          (web/blocks/*.js)
+    (SCHEMA)   (agentdiff/*.py)          (web/blocks/*.js)
 
 ## 1. Traces
 
 A trace is one run of one agent on one task, in the shape `SCHEMA.md`
-defines; `deepcompare.trace.Trajectory` is its typed reading and
-`deepcompare.record.Recorder` writes one. Adapters (`deepcompare/adapters.py`)
+defines; `agentdiff.trace.Trajectory` is its typed reading and
+`agentdiff.record.Recorder` writes one. Adapters (`agentdiff/adapters.py`)
 turn other frameworks' logs into traces and register themselves with
 `register_formats()`; a new framework is one adapter function and one
 registration, nothing else.
@@ -31,7 +31,7 @@ every generated file stays byte-identical to the one its test pins.
 A section is one analysis with one question, one module, one output
 dict. Every section — `impact`, `trust`, `tools_profile`, `rl`,
 `rl.stats`, `rl.audit`, `rl.space`, `evolution`, `evolution_compare`, `budget`, `fetches`,
-`coevolution`, `data`, `data_evolution` — obeys the same envelope, produced by `deepcompare/section.py`:
+`coevolution`, `data`, `data_evolution` — obeys the same envelope, produced by `agentdiff/section.py`:
 
     {"version": int, "measurable": bool, "reason": str | None, ..., "narrative": str}
 
@@ -44,18 +44,18 @@ it; SYNTHETIC data is labelled through.
 
 **Shared helpers** live in two modules and nowhere else:
 
-- `deepcompare/_text.py` — the prose of a reading: `num`, `signed`,
+- `agentdiff/_text.py` — the prose of a reading: `num`, `signed`,
   `pct`, `secs`, `plural(n, word)`, `join_names`, `interval(point, lo,
   hi)`, `side_name(report, side)`. A grammar bug fixed here is fixed in
   every section.
-- `deepcompare/_stats.py` — `percentile`, `mean_ci` (normal), `iqm`,
+- `agentdiff/_stats.py` — `percentile`, `mean_ci` (normal), `iqm`,
   `median`, `rng(seed, label)` (one `random.Random` per section and
   label, so adding a section never moves another's numbers), and the
   stratified bootstrap. A statistic is implemented once.
 
-**Registration.** `deepcompare/sections.py` is the registry:
+**Registration.** `agentdiff/sections.py` is the registry:
 
-    from deepcompare import sections
+    from agentdiff import sections
     @sections.register("pair", "tools_profile", requires=("timing", "attribution"))
     def tools_profile(report: dict) -> dict: ...
 
@@ -104,7 +104,7 @@ generations' artifacts and traces), `agg["evolution"]` and
 function only, because `data.py` is imported by `report.py`, which
 `evolve` imports through `suite`.
 
-*The data side.* `data` (`deepcompare/data.py`, `docs/DATA.md`) attaches
+*The data side.* `data` (`agentdiff/data.py`, `docs/DATA.md`) attaches
 to every pair report after `fetches` and to the `runs` aggregate; it
 reads the prompt, the instructions, the models, the corpus, the
 answer's provenance and the chain data → model → agent → answer. It
@@ -123,16 +123,16 @@ typed agent, a raw dict, or a lineage's artifacts.
 `evolve`, `evolve --against` and `coevolve` each produce an aggregate
 dict and the per-task pair reports; `report.render_html` writes the page
 with the data inlined. Every command follows one shape, implemented once in
-`deepcompare/commands/_io.py`:
+`agentdiff/commands/_io.py`:
 
     traces = load_traces(dir_or_files, warn)          # SCHEMA validation, run ids from names
     result = <the analysis>                            # pure
     write_outputs(out_dir, reports, aggregate, html=…) # report_<task>.json, aggregate.json, report.html
 
 `bundle` reads output directories through `grafana.load_target` and
-writes the three levels (`deepcompare/bundle.py`); `key`, `mcp`
-(`deepcompare/mcpserver.py`, stdlib JSON-RPC in the engine) and `serve`
-(`deepcompare/harness/serve.py`, the HTTP server in the harness) read the
+writes the three levels (`agentdiff/bundle.py`); `key`, `mcp`
+(`agentdiff/mcpserver.py`, stdlib JSON-RPC in the engine) and `serve`
+(`agentdiff/harness/serve.py`, the HTTP server in the harness) read the
 bundle back. A level-3 record carries each step's text capped at
 `data.TEXT_CAP` and flagged when cut, and the run's `data` reading; the
 `step` tool and the `/steps/<index>` route return the whole text of one
@@ -143,12 +143,12 @@ aggregate does not run the aggregate scope (it never did), so the bundle
 derives a batch member's `budget` and `fetches` from the reports' sides
 and says so (`source`).
 
-`deepcompare/cli.py` is the parser and the dispatch only; each command
-is a module in `deepcompare/commands/` exposing `register(subparsers)`
+`agentdiff/cli.py` is the parser and the dispatch only; each command
+is a module in `agentdiff/commands/` exposing `register(subparsers)`
 and `run(args) -> int`. **Adding a command is adding one module.**
 (Status: `live` and `paths` are there; the remaining commands move as
 the in-flight work lands — see the changelog. Commands: landed — all 43
-are modules under `deepcompare/commands/`, listed in `cli.COMMANDS` in
+are modules under `agentdiff/commands/`, listed in `cli.COMMANDS` in
 `--help` order; `_io.py` holds the load-run-write shape and `_common.py`
 the shared argument groups (CI artifacts, provider options, the trace
 database); `cli.py` imports every command module as `<name>_cmd`, since
@@ -192,14 +192,14 @@ in `web/blocks/README.md`; the agent that knows them is
 | to add | write | register | test |
 |---|---|---|---|
 | a framework's logs | one adapter fn in `adapters.py` | `register_formats()` | `tests/test_adapters.py` |
-| an analysis of a pair | `deepcompare/<name>.py` | `@sections.register("pair", key)` | `tests/test_<name>.py`, pinned on `demo/traces` |
-| a reading of a lineage that is not a check | `deepcompare/<name>.py`, `requires=("evolution",)`, `after=("coevolution", "evolution_compare")` | `@sections.register("lineage", key, …)` | pinned on the hand-built lineage of `tests/test_evolve.py` and on `demo/evolve/lineage` |
+| an analysis of a pair | `agentdiff/<name>.py` | `@sections.register("pair", key)` | `tests/test_<name>.py`, pinned on `demo/traces` |
+| a reading of a lineage that is not a check | `agentdiff/<name>.py`, `requires=("evolution",)`, `after=("coevolution", "evolution_compare")` | `@sections.register("lineage", key, …)` | pinned on the hand-built lineage of `tests/test_evolve.py` and on `demo/evolve/lineage` |
 | an analysis of a batch | same | `@sections.register("aggregate", key)` | pinned on `demo/rl/train` |
 | a check on a lineage | a function in `evolve.py`'s checks table | the table | pinned on `demo/evolve/lineage` |
 | a probe of the eval | `Probe(name, question, trigger(view), propose(view) -> [spec])` in `coevolve.PROBES`; pure, no lookahead, specs in the metric language | the tuple, in the order the probes run | `tests/test_coevolve.py`: its trigger on a synthetic step view, its candidates on the demo, the pinned ledger |
 | a validator of a candidate | `(name, fn(candidate, view) -> {pass, note, …})` in `coevolve.VALIDATORS`; every one is computed, the order decides | the tuple, in deciding order | constructed cases both ways; the multiplicity rule if it tests at a level |
 | a feature of an episode | `Feature(kind, basis, direction)` in `coevolve.FEATURES` and its line in `features()`; None when unreadable, never 0 | the dict, in output order | hand-built trajectories and the demo; `parse_spec` accepts it by id |
-| a command | `deepcompare/commands/<name>.py` | `register(subparsers)` | `tests/test_cli.py` |
+| a command | `agentdiff/commands/<name>.py` | `register(subparsers)` | `tests/test_cli.py` |
 | a chart | `web/blocks/NN_<name>.js` | `AgentDiff.block({...})` | a class at the end of `tests/test_blocks_ui.py` |
 | a demo | a behaviour table + caller over `demo/_env.py` | — | a determinism test |
 | a level of the bundle | a function in `bundle.py`, its tool in `mcpserver.TOOLS`, its route in `harness/serve.py` | the tool table / the route table | `tests/test_bundle.py`, `tests/test_mcp.py`, `tests/test_serve.py` |
@@ -207,7 +207,7 @@ in `web/blocks/README.md`; the agent that knows them is
 
 ## What must stay true
 
-- `deepcompare/` has no network code outside `deepcompare/harness/`
+- `agentdiff/` has no network code outside `agentdiff/harness/`
   (AST-pinned by `tests/test_harness.py`).
 - Same input, same bytes: every section and every demo is deterministic.
 - `web/blocks.html` matches its sources (`tests/test_blocks_build.py`);

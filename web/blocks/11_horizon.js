@@ -149,8 +149,8 @@
         exportRow.appendChild(H("a", { href: href, download: "signal_" + taskId + ".json", text: "download the signal (" + labels + " labelled steps)" }));
       } catch (err) { /* no export */ }
       exportRow.appendChild(H("span", { text: "for a whole batch:" }));
-      exportRow.appendChild(H("code", { text: "python -m deepcompare feedback out/ -o signal.json --jsonl pairs.jsonl" }));
-      exportRow.appendChild(copyable(ctx, "python -m deepcompare feedback out/ -o signal.json --jsonl pairs.jsonl"));
+      exportRow.appendChild(H("code", { text: "python -m agentdiff feedback out/ -o signal.json --jsonl pairs.jsonl" }));
+      exportRow.appendChild(copyable(ctx, "python -m agentdiff feedback out/ -o signal.json --jsonl pairs.jsonl"));
       el.appendChild(exportRow);
       if (fb.note) el.appendChild(H("p", { class: "nh-from", text: String(fb.note) }));
     },

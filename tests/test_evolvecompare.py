@@ -24,9 +24,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deepcompare import evolvecompare as ec
-from deepcompare.cli import main
-from deepcompare.evolve import evolve, read_lineage
+from agentdiff import evolvecompare as ec
+from agentdiff.cli import main
+from agentdiff.evolve import evolve, read_lineage
 
 ROOT = Path(__file__).resolve().parents[1]
 DEMO = ROOT / "demo" / "evolve" / "lineage"
@@ -424,7 +424,7 @@ class HandPairTest(_Temp):
         a, b = ev["lineages"]
         self.assertEqual((a["label"], b["label"]), ("alpha", "beta"))
         # what each eval learned is read off its own coevolution section, not recomputed
-        from deepcompare.coevolve import coevolve
+        from agentdiff.coevolve import coevolve
         co_a = coevolve(read_lineage(self.tmpdir / "alpha"), self.cmp["lineages"][0]["evolution"], samples=SAMPLES)
         self.assertEqual(a["adopted"], [m for e in co_a["eval_generations"][1:] for m in e["adopted"]])
         self.assertEqual(a["eval_generations"], len(co_a["eval_generations"]))
@@ -561,7 +561,7 @@ class ShapeTest(_Temp):
         with self.assertRaises(ValueError):
             ec.evolution_compare([ra, rb], [ea], samples=SAMPLES)
         # an eval section already computed is reused; the block is the same either way
-        from deepcompare.coevolve import coevolve
+        from agentdiff.coevolve import coevolve
         given = ec.evolution_compare([ra, rb], [ea, eb], samples=SAMPLES, by_generation_cap=2,
                                      coevolutions=[coevolve(ra, ea, samples=SAMPLES), None])
         self.assertEqual(json.dumps(given["evals"], sort_keys=True), json.dumps(c["evals"], sort_keys=True))
@@ -791,7 +791,7 @@ class EvalSummaryTest(unittest.TestCase):
 
     def test_a_transferred_tool_metric_reads_0_where_the_other_lineage_never_called_the_tool(self):
         # finding 10: the other lineage's table carried only its own uses:<tool> columns, so the metric was "unreadable"
-        from deepcompare.coevolve import FEATURES, parse_spec
+        from agentdiff.coevolve import FEATURES, parse_spec
         from test_coevolve import gen_rows
         spec = parse_spec({"id": "uses_run_check_rate", "feature": "uses:run_check", "agg": "rate", "direction": "neutral"},
                           list(FEATURES) + ["uses:run_check"])
@@ -880,7 +880,7 @@ class EmbeddedCopyTest(unittest.TestCase):
                 self.assertEqual(g["timelines"], ec.TIMELINES_OMITTED)
 
     def test_the_comparison_is_an_on_demand_lineage_section_after_evolution(self):
-        from deepcompare import evolve as evolve_module, sections
+        from agentdiff import evolve as evolve_module, sections
         sec = sections.get("lineage", "evolution_compare")
         self.assertTrue(sec.on_demand)
         self.assertEqual(sec.requires, ("evolution",))

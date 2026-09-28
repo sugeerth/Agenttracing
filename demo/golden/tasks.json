@@ -1,5 +1,5 @@
 {
-  "note": "Golden set for the shipped demo tasks: the expected answer, the tool(s) a correct solution needs (derived from the passing runs and the task), and the tools a solution must not use. `deepcompare eval demo/runs/traces --golden demo/golden/tasks.json` scores every run against it.",
+  "note": "Golden set for the shipped demo tasks: the expected answer, the tool(s) a correct solution needs (derived from the passing runs and the task), and the tools a solution must not use. `agentdiff eval demo/runs/traces --golden demo/golden/tasks.json` scores every run against it.",
   "policy": {
     "forbidden_tools": [
       "shell",

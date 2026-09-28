@@ -27,8 +27,8 @@
  *                bundle attached (`steps_source: "trace …"`, `--traces`);
  *                a run whose steps are in neither says so with the reason.
  *
- * The data is `DEEPCOMPARE_DATA.bundle` when the page is a bundle's
- * (`agentdiff bundle`): its three levels come from deepcompare/bundle.py
+ * The data is `AGENTDIFF_DATA.bundle` when the page is a bundle's
+ * (`agentdiff bundle`): its three levels come from agentdiff/bundle.py
  * and the level-3 records are inlined. On a plain output page the same
  * levels are derived here from what the output carries — the scorecard's
  * per-run rows, the `budget` and `fetches` ledgers, a lineage's episodes,
@@ -215,7 +215,7 @@
   // bundle's, else the same levels derived from the output on the page.
 
   var MODEL = null;
-  function bundleOf() { var d = global.DEEPCOMPARE_DATA; return d && d.bundle && d.bundle.levels && Array.isArray(d.bundle.levels.runs) ? d.bundle : null; }
+  function bundleOf() { var d = global.AGENTDIFF_DATA; return d && d.bundle && d.bundle.levels && Array.isArray(d.bundle.levels.runs) ? d.bundle : null; }
   function model(ctx) {
     var b = bundleOf();
     var src = b || ctx.aggregate;

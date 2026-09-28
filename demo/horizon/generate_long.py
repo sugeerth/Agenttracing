@@ -22,7 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare.record import Recorder  # noqa: E402
+from agentdiff.record import Recorder  # noqa: E402
 
 TASK = {"id": "h02_migrate_service",
         "prompt": "Migrate the billing service from the v1 API to v2 across all eight packages, keep every test green, and report the final pass count.",

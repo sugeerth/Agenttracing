@@ -1,8 +1,7 @@
-"""Module entry point: ``python -m deepcompare``."""
+"""``python -m deepcompare``: the old name for ``python -m agentdiff``."""
 
 import sys
 
-from .cli import main
+from agentdiff.cli import main
 
-if __name__ == "__main__":
-    sys.exit(main())
+sys.exit(main())

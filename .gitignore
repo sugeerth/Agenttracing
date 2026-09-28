@@ -18,7 +18,7 @@ dist/
 
 # The page, copied under the package by `web/build_blocks.py` so a wheel can
 # ship it. `web/blocks.html` is the committed artifact; this is its build copy.
-deepcompare/page/
+agentdiff/page/
 
 # Output directories from the demo commands in the README.
 out_*/

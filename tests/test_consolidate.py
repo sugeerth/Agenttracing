@@ -1,4 +1,4 @@
-"""Tests for cross-run consolidation (deepcompare.consolidate).
+"""Tests for cross-run consolidation (agentdiff.consolidate).
 
 Three properties are pinned here, because each is a way a cross-run story
 can lie:
@@ -28,11 +28,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare.consolidate import (
+from agentdiff.consolidate import (
     ANSWER_MATCH_THRESHOLD,
     consolidate_diagnoses,
 )
-from deepcompare.trace import Trajectory
+from agentdiff.trace import Trajectory
 
 ROOT = Path(__file__).resolve().parent.parent
 RUN_TRACES = ROOT / "demo" / "runs" / "traces"

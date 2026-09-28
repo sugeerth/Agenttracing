@@ -20,11 +20,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare import sections  # noqa: E402
-from deepcompare.fetches import FETCH_KINDS, QUERY_CHARS, fetches_aggregate, fetches_pair, fetches_run  # noqa: E402
-from deepcompare.commands._io import load_traces  # noqa: E402
-from deepcompare.report import compare  # noqa: E402
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff import sections  # noqa: E402
+from agentdiff.fetches import FETCH_KINDS, QUERY_CHARS, fetches_aggregate, fetches_pair, fetches_run  # noqa: E402
+from agentdiff.commands._io import load_traces  # noqa: E402
+from agentdiff.report import compare  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 from tests.test_budget import step, trace  # noqa: E402
 
 DEMO = ROOT / "demo" / "traces"

@@ -1,6 +1,6 @@
 """Choosing which part of a long run to show a reader with a budget.
 
-`deepcompare/excerpt.py` picks the steps by what the run itself flags
+`agentdiff/excerpt.py` picks the steps by what the run itself flags
 instead of by where they fall. The tests that matter here are the two the
 module could be wrong about in a way nothing else would notice: that it
 never reads the golden set, and that the improvement it claims is real
@@ -17,9 +17,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from deepcompare.excerpt import (CONTEXT, ENDS, WEIGHTS, effective_policy,  # noqa: E402
+from agentdiff.excerpt import (CONTEXT, ENDS, WEIGHTS, effective_policy,  # noqa: E402
                                  focus, notable_steps)
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 
 SUITE = ROOT / "demo" / "horizon" / "suite"
 GOLDEN = ROOT / "demo" / "horizon" / "suite_golden.json"

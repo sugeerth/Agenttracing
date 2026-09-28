@@ -82,7 +82,7 @@ cases, so AgentDiff measures its own: `demo/diagnosis_bench/` ships 20
 handcrafted trace pairs with one implanted known cause each (it began
 as 12; the history below is how it grew) (grader mislabel,
 harness kill, environment fault, wrong fact, blind write, pure
-divergence) and `deepcompare/bench.py` scores whether the leading
+divergence) and `agentdiff/bench.py` scores whether the leading
 hypothesis matches the implant — contested never counts as correct.
 The benchmark's first run measured 10 of 12 and exposed a structural
 blind spot (abandoned tool errors split their score across three

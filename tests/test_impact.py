@@ -14,8 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare import impact as I  # noqa: E402
-from deepcompare.impact import CHUNK, MAX_MARKS, SPLIT_OVER, WEIGHTS, impact_pair, impact_run  # noqa: E402
+from agentdiff import impact as I  # noqa: E402
+from agentdiff.impact import CHUNK, MAX_MARKS, SPLIT_OVER, WEIGHTS, impact_pair, impact_run  # noqa: E402
 
 
 def _step(i, typ, name, *, tokens=10, latency=1.0, span=None, error=None):
@@ -260,7 +260,7 @@ class DemoTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
-        subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "horizon" / "long"),
+        subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(ROOT / "demo" / "horizon" / "long"),
                         "--golden", str(ROOT / "demo" / "horizon" / "golden.json"), "-o", cls.tmp.name],
                        cwd=str(ROOT), check=True, capture_output=True)
         cls.report = json.loads((Path(cls.tmp.name) / "report_h02_migrate_service.json").read_text(encoding="utf-8"))

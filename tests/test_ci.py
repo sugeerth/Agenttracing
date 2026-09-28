@@ -33,10 +33,10 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory, ci
-from deepcompare.conformance import check_suite
-from deepcompare.gate import evaluate_gate
-from deepcompare.report import compare
+from agentdiff import Trajectory, ci
+from agentdiff.conformance import check_suite
+from agentdiff.gate import evaluate_gate
+from agentdiff.report import compare
 
 #: everything an XML or Markdown escaper can get wrong, in one string: a
 #: CDATA terminator, raw markup, quotes, a table delimiter, characters XML
@@ -179,7 +179,7 @@ class TestFindings(unittest.TestCase):
         self.assertFalse(task["gating"])
 
     def test_per_task_finding_carries_the_issue_fingerprint(self):
-        from deepcompare.issues import fingerprint as issue_fingerprint
+        from agentdiff.issues import fingerprint as issue_fingerprint
         gate, reports = regressed_gate()
         task = by_id(ci.collect_findings(gate, reports))["gate.task.t1"]
         self.assertEqual(
@@ -641,7 +641,7 @@ class TestTracePaths(unittest.TestCase):
 class TestCliWiring(unittest.TestCase):
     @staticmethod
     def _run(argv):
-        from deepcompare.cli import main
+        from agentdiff.cli import main
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = main(argv)
@@ -772,7 +772,7 @@ class TestGateMarkdownDiagnosis(unittest.TestCase):
         cand = Trajectory.from_json(str(root / "t01_acme_revenue__bolt-v3.json"))
         reports = [compare(base, cand)]
         gate = evaluate_gate(reports)
-        from deepcompare.gate import render_gate_markdown
+        from agentdiff.gate import render_gate_markdown
         md = render_gate_markdown(gate, reports)
         self.assertIn("- Diagnosis: ", md)
         self.assertIn("best explained by", md)
@@ -785,7 +785,7 @@ class TestGateMarkdownDiagnosis(unittest.TestCase):
         reports = [compare(base, cand)]
         del reports[0]["diagnosis"]
         gate = evaluate_gate(reports)
-        from deepcompare.gate import render_gate_markdown
+        from agentdiff.gate import render_gate_markdown
         md = render_gate_markdown(gate, reports)
         self.assertNotIn("- Diagnosis: ", md)
         self.assertIn("- Attribution: ", md)

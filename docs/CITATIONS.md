@@ -67,7 +67,7 @@ flagged, narration read by nothing.
 
 Open ground the survey identified: *no research tool yet combines
 behavioural diff with efficiency diff* — cost/cache/parallelism deltas
-attached to divergence regions. That is what `deepcompare/efficiency.py`
+attached to divergence regions. That is what `agentdiff/efficiency.py`
 plus the pairwise diff aims at.
 
 ## Experiment-level statistics, 2026 practice
@@ -332,7 +332,7 @@ sentence each is known for.
 - **Spearman** (1904), "The proof and measurement of association
   between two things", *American Journal of Psychology* 15(1), 72–101 —
   the rank correlation the `distinct`, `linked` and `redundancy`
-  readings use, hand-rolled in `deepcompare/rlaudit.py`.
+  readings use, hand-rolled in `agentdiff/rlaudit.py`.
 - **Agarwal, Schwarzer, Castro, Courville, Bellemare** (2021), "Deep
   reinforcement learning at the edge of the statistical precipice",
   NeurIPS 2021, 2108.13264 — the interquartile mean and the

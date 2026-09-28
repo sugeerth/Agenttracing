@@ -25,17 +25,17 @@ jobs:
         run: python demo/generate.py
 
       - name: Batch comparison on demo traces
-        run: python -m deepcompare batch demo/traces -o out/
+        run: python -m agentdiff batch demo/traces -o out/
 
       - name: Fleet analysis on demo fleet traces
-        run: python -m deepcompare fleet demo/fleet/traces -o out_fleet/
+        run: python -m agentdiff fleet demo/fleet/traces -o out_fleet/
 
       - name: Gate must fail on the rondo regression
         run: |
           mkdir -p gate_base gate_cand
           cp demo/fleet/traces/*__rondo-v1.json gate_base/
           cp demo/fleet/traces/*__rondo-v2.json gate_cand/
-          if python -m deepcompare gate gate_base gate_cand -o out_gate/; then
+          if python -m agentdiff gate gate_base gate_cand -o out_gate/; then
             echo "ERROR: gate passed, but the rondo-v2 regression should make it fail"
             exit 1
           fi

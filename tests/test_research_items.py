@@ -16,12 +16,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deepcompare.bench import run_benchmark
-from deepcompare.confidence import confidence, describe
-from deepcompare.diagnosis import HYPOTHESIS_GENERATORS, Ledger, _Ledger
-from deepcompare.reasoning import read_trace
-from deepcompare.report import compare
-from deepcompare.trace import Trajectory
+from agentdiff.bench import run_benchmark
+from agentdiff.confidence import confidence, describe
+from agentdiff.diagnosis import HYPOTHESIS_GENERATORS, Ledger, _Ledger
+from agentdiff.reasoning import read_trace
+from agentdiff.report import compare
+from agentdiff.trace import Trajectory
 
 ROOT = Path(__file__).resolve().parent.parent
 GENERATOR = ROOT / "demo" / "diagnosis_bench" / "generate_scale.py"
@@ -84,11 +84,11 @@ class TestEvidenceClasses(unittest.TestCase):
 
     def test_observable_support_breaks_ties(self):
         # same score, different support: the observable one ranks first
-        from deepcompare.diagnosis import KINDS
+        from agentdiff.diagnosis import KINDS
         self.assertTrue(KINDS)  # the registry order is the third key; the
         # second is "has observable support" — pinned by reading the key
         import inspect
-        from deepcompare import diagnosis
+        from agentdiff import diagnosis
         src = inspect.getsource(diagnosis.diagnose)
         self.assertIn('0 if observable else 1', src)
 
@@ -227,7 +227,7 @@ class TestOneConfidenceVocabulary(unittest.TestCase):
     def test_no_output_says_high_confidence_beside_n_equals_one(self):
         import re
         proc = subprocess.run(
-            [sys.executable, "-m", "deepcompare", "compare",
+            [sys.executable, "-m", "agentdiff", "compare",
              str(ROOT / "demo/traces/t05_flight_duration__atlas-v2.json"),
              str(ROOT / "demo/traces/t05_flight_duration__bolt-v3.json")],
             cwd=str(ROOT), capture_output=True, text=True, check=True)
@@ -242,7 +242,7 @@ class TestPassKInterval(unittest.TestCase):
     def test_runs_prints_pass_k_with_an_interval(self):
         with tempfile.TemporaryDirectory() as tmp:
             proc = subprocess.run(
-                [sys.executable, "-m", "deepcompare", "runs",
+                [sys.executable, "-m", "agentdiff", "runs",
                  str(ROOT / "demo" / "runs" / "traces"), "-o", tmp],
                 cwd=str(ROOT), capture_output=True, text=True, check=True)
             self.assertRegex(proc.stdout, r"pass\^k\s+k=1:\d\.\d{3} \[\d\.\d\d, \d\.\d\d\]")

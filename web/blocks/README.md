@@ -7,7 +7,7 @@ file" property while the modules stay separately editable.
 
 ```bash
 python web/build_blocks.py          # writes web/blocks.html
-python -m deepcompare batch demo/telemetry/traces -o out --template web/blocks.html
+python -m agentdiff batch demo/telemetry/traces -o out --template web/blocks.html
 ```
 
 ## Registering a block

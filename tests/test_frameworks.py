@@ -18,10 +18,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from deepcompare import domains  # noqa: E402
-from deepcompare.frameworks import detect, render_line  # noqa: E402
-from deepcompare.scorecard import load_golden  # noqa: E402
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff import domains  # noqa: E402
+from agentdiff.frameworks import detect, render_line  # noqa: E402
+from agentdiff.scorecard import load_golden  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 
 
 def trace(tool_names, agent="agent-x", extra=None, spans=None, types=None):
@@ -205,7 +205,7 @@ class TestDomains(unittest.TestCase):
 class TestFrameworksCommand(unittest.TestCase):
 
     def run_cli(self, *args):
-        return subprocess.run([sys.executable, "-m", "deepcompare", "frameworks", *args],
+        return subprocess.run([sys.executable, "-m", "agentdiff", "frameworks", *args],
                               cwd=str(ROOT), capture_output=True, text=True)
 
     def test_one_line_per_trace_on_the_demo(self):

@@ -9,7 +9,7 @@
  *
  * Reads `report.trust` ({version, a, b, narrative}); each side carries
  * behaviour, permissions, determinism, data and grade {score, label,
- * reasons[]} — see deepcompare/trust.py for the rubric.
+ * reasons[]} — see agentdiff/trust.py for the rubric.
  */
 (function (global) {
   "use strict";

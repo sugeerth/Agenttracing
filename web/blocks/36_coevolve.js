@@ -1,7 +1,7 @@
 /* AgentDiff blocks — the Evals view: the self-evolving eval that watches a
  * self-evolving agent, drawn as the loop it is.
  *
- * `aggregate.coevolution` (deepcompare/coevolve.py) is an eval that is
+ * `aggregate.coevolution` (agentdiff/coevolve.py) is an eval that is
  * itself a lineage e0 → e1 → …: each agent step that exposes a blind spot
  * triggers probes (the eval's agents, each one question), the probes
  * propose candidate metrics, five validators (the sub-agents, one criterion

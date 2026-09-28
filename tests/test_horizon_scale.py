@@ -46,9 +46,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare.excerpt import effective_policy, focus  # noqa: E402
-from deepcompare.scorecard import scorecard  # noqa: E402
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff.excerpt import effective_policy, focus  # noqa: E402
+from agentdiff.scorecard import scorecard  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 
 GENERATOR = ROOT / "demo" / "horizon" / "generate_suite.py"
 PAIRS = 200
@@ -288,7 +288,7 @@ class HorizonScaleTest(unittest.TestCase):
         in the corpus lands anywhere near `REDUNDANT_STRETCH`. A constant
         that sat between the classes would be fitted to this corpus; this
         one is a floor on what counts as a stretch at all."""
-        from deepcompare.process import REDUNDANT_STRETCH
+        from agentdiff.process import REDUNDANT_STRETCH
         tasks = {t["id"]: t for t in self.golden["tasks"]}
         by_mode: dict = {}
         for r in self.card["per_run"]:
@@ -368,7 +368,7 @@ class HorizonScaleTenXTest(HorizonScaleTest):
         half that was an artefact of 184 runs does not: at this size
         `context_overflow` reaches 10, where at 200 pairs it topped out at
         8. The separation is the claim; the upper bound never was."""
-        from deepcompare.process import REDUNDANT_STRETCH
+        from agentdiff.process import REDUNDANT_STRETCH
         by_mode: dict = {}
         for r in self.card["per_run"]:
             task = self.tasks[r["task"]]

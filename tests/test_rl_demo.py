@@ -23,9 +23,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deepcompare.rl import rl_aggregate
-from deepcompare.suite import group_runs
-from deepcompare.trace import Trajectory
+from agentdiff.rl import rl_aggregate
+from agentdiff.suite import group_runs
+from agentdiff.trace import Trajectory
 
 ROOT = Path(__file__).resolve().parents[1]
 TRAIN = ROOT / "demo" / "rl" / "train"

@@ -2,7 +2,7 @@
 
 The page every command writes is assembled from ``web/blocks/`` by
 ``web/build_blocks.py``, and its copy inside the package
-(``deepcompare/page/``) is a build output, not a tracked file. Without this
+(``agentdiff/page/``) is a build output, not a tracked file. Without this
 hook, ``pip install git+https://github.com/sugeerth/Agenttracing`` built
 from a fresh clone installed a package with no page to write. Everything
 else about the build is in ``pyproject.toml``.

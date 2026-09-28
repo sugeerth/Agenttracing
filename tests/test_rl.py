@@ -21,14 +21,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare import Trajectory, compare  # noqa: E402
-from deepcompare.record import Recorder  # noqa: E402
-from deepcompare.report import attach_milestones  # noqa: E402
-from deepcompare.rl import (  # noqa: E402
+from agentdiff import Trajectory, compare  # noqa: E402
+from agentdiff.record import Recorder  # noqa: E402
+from agentdiff.report import attach_milestones  # noqa: E402
+from agentdiff.rl import (  # noqa: E402
     ANSWER_REWARD, DECISIVE_REWARD, GAMMA, MILESTONE_REWARD, SHAPED_WEIGHTS, mean_ci, rl_aggregate, rl_pair,
     rl_run_from_trace,
 )
-from deepcompare.suite import analyse_runs  # noqa: E402
+from agentdiff.suite import analyse_runs  # noqa: E402
 
 RL_TRACES = ROOT / "demo" / "rl" / "traces"
 DEMO_TRACES = ROOT / "demo" / "traces"
@@ -447,7 +447,7 @@ class DemoTest(unittest.TestCase):
 
 class CliTest(unittest.TestCase):
     def test_rl_on_the_demo_directory(self):
-        result = subprocess.run([sys.executable, "-m", "deepcompare", "rl", str(RL_TRACES)],
+        result = subprocess.run([sys.executable, "-m", "agentdiff", "rl", str(RL_TRACES)],
                                 capture_output=True, text=True, cwd=ROOT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("[recorded]", result.stdout)
@@ -456,7 +456,7 @@ class CliTest(unittest.TestCase):
 
     def test_rl_json_on_one_trace(self):
         path = sorted(RL_TRACES.glob("*.json"))[0]
-        result = subprocess.run([sys.executable, "-m", "deepcompare", "rl", str(path), "--json"],
+        result = subprocess.run([sys.executable, "-m", "agentdiff", "rl", str(path), "--json"],
                                 capture_output=True, text=True, cwd=ROOT)
         self.assertEqual(result.returncode, 0, result.stderr)
         runs = json.loads(result.stdout)

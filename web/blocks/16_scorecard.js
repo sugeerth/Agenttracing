@@ -251,7 +251,7 @@
   // ------------------------------------------------------- judge
   function judgeCards(H, card, agents) {
     var any = agents.some(function (a) { return card.agents[a].judge; });
-    if (!any) return H("p", { class: "sc-note", "data-sec": "judge", text: "No judging model has graded these runs. `deepcompare eval … --judge NAME=kind:model` (or `loop --judge`) adds a second model's verdict beside the grade, never in place of it." });
+    if (!any) return H("p", { class: "sc-note", "data-sec": "judge", text: "No judging model has graded these runs. `agentdiff eval … --judge NAME=kind:model` (or `loop --judge`) adds a second model's verdict beside the grade, never in place of it." });
     var wrap = H("div", { class: "sc-judge", "data-sec": "judge" });
     agents.forEach(function (a) {
       var j = card.agents[a].judge;

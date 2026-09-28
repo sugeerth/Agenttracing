@@ -1,4 +1,4 @@
-"""Unit tests for the DeepCompare AI engine (stdlib unittest)."""
+"""Unit tests for the AgentDiff engine (stdlib unittest)."""
 
 from __future__ import annotations
 
@@ -13,13 +13,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory, compare
-from deepcompare.align import align, step_similarity
-from deepcompare.fleet import fleet_analysis
-from deepcompare.metrics import aggregate, metrics_delta
-from deepcompare.recommend import recommend
-from deepcompare.report import render_html
-from deepcompare.tooldiff import parse_args, token_diff, tool_diff
+from agentdiff import Trajectory, compare
+from agentdiff.align import align, step_similarity
+from agentdiff.fleet import fleet_analysis
+from agentdiff.metrics import aggregate, metrics_delta
+from agentdiff.recommend import recommend
+from agentdiff.report import render_html
+from agentdiff.tooldiff import parse_args, token_diff, tool_diff
 
 
 def make_step(index, type, name="", input="", output="", tokens=100,
@@ -420,7 +420,7 @@ class TestReportRendering(unittest.TestCase):
         template = (
             "<h1>viewer</h1>\n"
             "<script>\n"
-            "  window.DEEPCOMPARE_DATA = null; // replaced by the engine\n"
+            "  window.AGENTDIFF_DATA = null; // replaced by the engine\n"
             "</script>\n"
         )
         with tempfile.TemporaryDirectory() as tmp:
@@ -429,9 +429,9 @@ class TestReportRendering(unittest.TestCase):
             out = Path(tmp) / "report.html"
             render_html([report], agg, tpl, out)
             html = out.read_text(encoding="utf-8")
-        self.assertIn("  window.DEEPCOMPARE_DATA = {", html)
+        self.assertIn("  window.AGENTDIFF_DATA = {", html)
         data_line = next(
-            line for line in html.splitlines() if "window.DEEPCOMPARE_DATA" in line
+            line for line in html.splitlines() if "window.AGENTDIFF_DATA" in line
         )
         payload = data_line.split("=", 1)[1].strip().rstrip(";").replace("<\\/", "</")
         data = json.loads(payload)
@@ -656,7 +656,7 @@ class TestStepEval(unittest.TestCase):
     def test_answer_eval_expected_none_unknown(self):
         a, b = identical_pair()
         a.task.expected = None
-        from deepcompare.steps_eval import answer_eval
+        from agentdiff.steps_eval import answer_eval
         ae = answer_eval(a, b)
         self.assertIsNone(ae["expected"])
         self.assertEqual(ae["a_vs_expected"], {"coverage": None, "verdict": "unknown"})
@@ -705,7 +705,7 @@ class TestSuccessAnalysis(unittest.TestCase):
         self.assertIsNone(report2["success_analysis"])
 
     def test_playbook_groups_and_ordering(self):
-        from deepcompare.success import playbook
+        from agentdiff.success import playbook
         reports = [compare(*retrieval_pair("t1")), compare(*detour_pair("t5"))]
         habits = playbook(reports)
         self.assertEqual(len(habits), 2)
@@ -751,7 +751,7 @@ def circular_pair(task_id="t7c"):
 
 class TestSemantic(unittest.TestCase):
     def test_claim_extraction_kinds_and_normalization(self):
-        from deepcompare.semantic import extract_from_text
+        from agentdiff.semantic import extract_from_text
 
         def kinds(text):
             return extract_from_text(text)
@@ -922,7 +922,7 @@ class TestCounterfactual(unittest.TestCase):
         )
 
     def test_medium_confidence_with_drifted_prefix(self):
-        from deepcompare.counterfactual import counterfactual
+        from agentdiff.counterfactual import counterfactual
         a, b = retrieval_pair()
         report = compare(a, b)
         report["alignment"][1]["op"] = "drift"  # constructed drifted prefix
@@ -940,7 +940,7 @@ class TestGate(unittest.TestCase):
 
     @staticmethod
     def _run(argv):
-        from deepcompare.cli import main
+        from agentdiff.cli import main
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = main(argv)
@@ -1093,32 +1093,32 @@ class TestDiagnosedFingerprintKind(unittest.TestCase):
         }
 
     def test_grader_led_failure_is_not_an_agent_category(self):
-        from deepcompare.fleet import _diagnosed_kind
+        from agentdiff.fleet import _diagnosed_kind
         report = self._report(leading="H1", hypotheses=[
             {"id": "H1", "kind": "grader_or_label"}])
         self.assertEqual(_diagnosed_kind(report), "grader_or_label")
 
     def test_divergence_uses_its_corrected_category(self):
-        from deepcompare.fleet import _diagnosed_kind
+        from agentdiff.fleet import _diagnosed_kind
         report = self._report(leading="H1", hypotheses=[
             {"id": "H1", "kind": "divergence", "category": "planning"}])
         self.assertEqual(_diagnosed_kind(report), "planning")
 
     def test_process_flag_kinds_carry_the_flag(self):
-        from deepcompare.fleet import _diagnosed_kind
+        from agentdiff.fleet import _diagnosed_kind
         report = self._report(leading="H1", hypotheses=[
             {"id": "H1", "kind": "process_pathology", "flag": "blind_write"}])
         self.assertEqual(_diagnosed_kind(report), "process_pathology:blind_write")
 
     def test_contested_is_counted_as_contested(self):
-        from deepcompare.fleet import _diagnosed_kind
+        from agentdiff.fleet import _diagnosed_kind
         report = self._report(leading=None, hypotheses=[
             {"id": "H1", "kind": "divergence"},
             {"id": "H2", "kind": "wrong_fact_propagation"}])
         self.assertEqual(_diagnosed_kind(report), "contested")
 
     def test_missing_diagnosis_falls_back_to_attribution(self):
-        from deepcompare.fleet import _diagnosed_kind
+        from agentdiff.fleet import _diagnosed_kind
         report = {"attribution": {"category": "reasoning"}}
         self.assertEqual(_diagnosed_kind(report), "reasoning")
 

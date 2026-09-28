@@ -89,13 +89,13 @@ by whom, how deep). Finished pairs get all three from `report.horizon`
 (with the reading's parts and wasted seconds). Running agents get both from their steps alone
 (`charts.spanTree` builds the same tree in the page as they stream);
 when the pair finishes, the story replaces them with the full analysis.
-`deepcompare watch --demo demo/horizon/traces` shows the multi-agent
+`agentdiff watch --demo demo/horizon/traces` shows the multi-agent
 pair arriving live.
 
 ## Online — the same page, live
 
 - Run agents through the harness with `record(stream=True)` or the
-  Claude Code hook, and open `deepcompare watch` — running agents stream
+  Claude Code hook, and open `agentdiff watch` — running agents stream
   into the story as they go; when a pair completes, the body chart, the
   time waterfall and the debug layers appear for it.
 - Keep every trace in the trace database (`--db`); `eval --db` gives the

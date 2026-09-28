@@ -12,10 +12,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deepcompare.harness import ScriptedProvider, Tool, run_task
-from deepcompare.harness.cassette import Cassette, CassetteMiss, canonical_args, key_of_step, same_words_grader
-from deepcompare.harness.context import context_at, diff as context_diff, messages_before, render, summary
-from deepcompare.harness.rerun import diff_runs, rerun, rerun_paths, to_annotations, to_junit, to_markdown
+from agentdiff.harness import ScriptedProvider, Tool, run_task
+from agentdiff.harness.cassette import Cassette, CassetteMiss, canonical_args, key_of_step, same_words_grader
+from agentdiff.harness.context import context_at, diff as context_diff, messages_before, render, summary
+from agentdiff.harness.rerun import diff_runs, rerun, rerun_paths, to_annotations, to_junit, to_markdown
 
 ROOT = Path(__file__).resolve().parents[1]
 TASK = {"id": "t_refund", "prompt": "What refund applies to booking BK1?", "expected": "$120.00"}
@@ -237,7 +237,7 @@ class ContextTest(unittest.TestCase):
 
 class RerunCliTest(unittest.TestCase):
     def run_cli(self, *args):
-        return subprocess.run([sys.executable, "-m", "deepcompare", *args], cwd=str(ROOT), capture_output=True, text=True)
+        return subprocess.run([sys.executable, "-m", "agentdiff", *args], cwd=str(ROOT), capture_output=True, text=True)
 
     def test_rerun_writes_the_artifacts_and_exits_by_drift(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -304,7 +304,7 @@ class LongHorizonRerunTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from deepcompare.scorecard import load_golden
+        from agentdiff.scorecard import load_golden
         cls.golden = load_golden(ROOT / "demo" / "horizon" / "golden.json")
         cls.ms = cls.golden["tasks"]["h02_migrate_service"]["milestones"]
         cls.bad = json.loads((ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__comet-lh.json").read_text(encoding="utf-8"))
@@ -325,7 +325,7 @@ class LongHorizonRerunTest(unittest.TestCase):
         self.assertEqual(result["milestones"]["recorded"]["reached"], 7)
 
     def test_a_sub_agent_replays_on_its_own_and_the_scope_is_named(self):
-        from deepcompare.harness.rerun import span_range
+        from agentdiff.harness.rerun import span_range
         lo, hi = span_range(self.bad, "migrator-ledger")
         self.assertLess(lo, hi)
         self.assertTrue(all((s.get("span") or {}).get("agent", "").startswith("migrator-ledger") for s in self.bad["steps"][lo:hi + 1]))
@@ -342,7 +342,7 @@ class LongHorizonRerunTest(unittest.TestCase):
             rerun(self.bad, from_step=10_000)
 
     def test_a_different_model_from_a_checkpoint_is_placed_by_sub_agent(self):
-        from deepcompare.harness.rerun import span_range
+        from agentdiff.harness.rerun import span_range
         lo, hi = span_range(self.bad, "migrator-ledger")
 
         def impatient(messages, tools):
@@ -364,7 +364,7 @@ class LongHorizonRerunTest(unittest.TestCase):
         self.assertTrue(all(n["reproduced"] is None for n in result["drift_map"] if n["to"] < lo))
 
     def test_the_drift_map_covers_the_tree_and_the_markdown_lists_drifted_sub_agents(self):
-        from deepcompare.harness.rerun import diff_runs, drift_map, to_markdown
+        from agentdiff.harness.rerun import diff_runs, drift_map, to_markdown
         result = rerun(self.good)
         rows = result["drift_map"]
         self.assertEqual(rows[0]["kind"], "run")
@@ -383,7 +383,7 @@ class LongHorizonRerunTest(unittest.TestCase):
     def test_checkpoint_bundle_then_resume_from_it(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "ckpt"
-            proc = subprocess.run([sys.executable, "-m", "deepcompare", "checkpoint", str(ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__comet-lh.json"),
+            proc = subprocess.run([sys.executable, "-m", "agentdiff", "checkpoint", str(ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__comet-lh.json"),
                                    "--step", "340", "--golden", str(ROOT / "demo" / "horizon" / "golden.json"), "-o", str(out)], cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertIn("Checkpoint at step 340 of", proc.stdout)
@@ -397,25 +397,25 @@ class LongHorizonRerunTest(unittest.TestCase):
             self.assertEqual((summary["step"], summary["span"]["agent"]), (340, "migrator-ledger"))
             self.assertIn("[0] system", (out / "context.txt").read_text(encoding="utf-8"))
             # resume: the prefix from the recording, the segment served from the bundle's cassette
-            proc = subprocess.run([sys.executable, "-m", "deepcompare", "rerun", str(ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__comet-lh.json"),
+            proc = subprocess.run([sys.executable, "-m", "agentdiff", "rerun", str(ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__comet-lh.json"),
                                    "--from", "340", "--until", "380", "--cassette", str(out / "cassette.json"), "--golden", str(ROOT / "demo" / "horizon" / "golden.json"),
                                    "-o", str(Path(tmp) / "rr")], cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
             self.assertIn("steps 340–380 of", proc.stdout)
             self.assertIn("1 reproduced, 0 drifted", proc.stdout)
-            bad = subprocess.run([sys.executable, "-m", "deepcompare", "checkpoint", str(ROOT / "demo" / "traces" / "t01_acme_revenue__atlas-v2.json"),
+            bad = subprocess.run([sys.executable, "-m", "agentdiff", "checkpoint", str(ROOT / "demo" / "traces" / "t01_acme_revenue__atlas-v2.json"),
                                   "--step", "99", "-o", str(Path(tmp) / "x")], cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(bad.returncode, 2)
 
     def test_span_from_the_cli_names_the_scope(self):
         with tempfile.TemporaryDirectory() as tmp:
-            proc = subprocess.run([sys.executable, "-m", "deepcompare", "rerun", str(ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__atlas-lh.json"),
+            proc = subprocess.run([sys.executable, "-m", "agentdiff", "rerun", str(ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__atlas-lh.json"),
                                    "--span", "reviewer", "-o", tmp, "--job-summary"], cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertIn("(sub-agent reviewer)", proc.stdout)
             summary = json.loads((Path(tmp) / "rerun.json").read_text(encoding="utf-8"))
             self.assertEqual(summary["results"][0]["scope"]["span"], "reviewer")
-            missing = subprocess.run([sys.executable, "-m", "deepcompare", "rerun", str(ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__atlas-lh.json"),
+            missing = subprocess.run([sys.executable, "-m", "agentdiff", "rerun", str(ROOT / "demo" / "horizon" / "long" / "h02_migrate_service__atlas-lh.json"),
                                       "--span", "nobody", "-o", tmp], cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(missing.returncode, 1)
             self.assertIn("no span 'nobody'", (Path(tmp) / "rerun.json").read_text(encoding="utf-8"))

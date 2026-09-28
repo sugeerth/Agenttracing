@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import unittest
 
-from deepcompare.reasoning import check_reading, read_trace
-from deepcompare.report import compare
-from deepcompare.trace import Trajectory
+from agentdiff.reasoning import check_reading, read_trace
+from agentdiff.report import compare
+from agentdiff.trace import Trajectory
 
 T01_FAIL = "demo/traces/t01_acme_revenue__bolt-v3.json"
 T01_PASS = "demo/traces/t01_acme_revenue__atlas-v2.json"

@@ -21,8 +21,8 @@ fault went. AgentDiff sits there. Its rules:
   dimension that cannot be measured reads "not measurable", never a pass
   or a fail; a run with no recorded latencies is *unmeasurable*, not fast;
   synthetic demo data says so.
-- **Engine and harness are separate.** The engine (`deepcompare/*.py`)
-  has no network code; only `deepcompare/harness/` talks to a model.
+- **Engine and harness are separate.** The engine (`agentdiff/*.py`)
+  has no network code; only `agentdiff/harness/` talks to a model.
 
 ## 2. The trace: steps, spans, and streaming
 
@@ -47,12 +47,12 @@ Two optional facts turn a flat trace into a tree:
 So a run that streams and a run that delegates are one object: a tree of
 spans over time, where streaming adds "still open" and delegation adds
 depth. That is why one model (`charts.spanTree` in the page,
-`deepcompare/horizon.py` in the engine) feeds both the live view and
+`agentdiff/horizon.py` in the engine) feeds both the live view and
 the finished analysis.
 
 ## 3. What the engine computes for a pair, in order
 
-`deepcompare.report.compare(a, b)` builds the report section by section;
+`agentdiff.report.compare(a, b)` builds the report section by section;
 later sections read earlier ones and never change them.
 
 1. **Alignment** (`align.py`) — the two step sequences aligned by type,
@@ -326,7 +326,7 @@ grader itself is what got fooled, every number here is compromised
 with it, and only a held-out grader can say so.
 
 The **Evals** view is the seventh, for the eval that watches that
-lineage and evolves with it (`deepcompare/coevolve.py`,
+lineage and evolves with it (`agentdiff/coevolve.py`,
 `docs/COEVOLVE.md`). A fixed eval is what a self-evolving agent
 eventually optimises, so the eval is a lineage too — e0, e1, e2 — each
 step of it triggered by an agent step: probes ask one question each of
@@ -398,7 +398,7 @@ two levels from the `budget` and `fetches` sections and says what a
 plain page cannot show.
 
 The **Data** view is the third tab, the inputs side
-(`web/blocks/39_data.js`, `deepcompare/data.py`, `docs/DATA.md`). **The
+(`web/blocks/39_data.js`, `agentdiff/data.py`, `docs/DATA.md`). **The
 task**: the prompt given to both agents, the expected answer if any,
 each agent's own instructions side by side with the hunks of their
 difference, and the models each used as the traces record them. **The

@@ -19,8 +19,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare.harness.watch import LIVE_SUFFIX, Watcher, serve, simulate
-from deepcompare.record import Recorder
+from agentdiff.harness.watch import LIVE_SUFFIX, Watcher, serve, simulate
+from agentdiff.record import Recorder
 
 ROOT = Path(__file__).resolve().parent.parent
 DEMO = ROOT / "demo" / "traces"
@@ -113,7 +113,7 @@ class CheckpointingWatcherTest(unittest.TestCase):
             (out / "t05_flight_duration__bolt-v3.json").write_text(json.dumps(b), encoding="utf-8")
             (out / ("t05_flight_duration__bolt-v3" + LIVE_SUFFIX)).unlink()
             w.refresh(force=True)
-            from deepcompare.tracedb import TraceDB
+            from agentdiff.tracedb import TraceDB
             with TraceDB(db) as store:
                 self.assertEqual([c["step"] for c in store.checkpoints("t05_flight_duration__bolt-v3")], [1, 2])
                 self.assertEqual(store.count(source="watch"), 1)
@@ -239,11 +239,11 @@ class LiveAnalysisIsTheBatchAnalysisTest(unittest.TestCase):
 
     def test_watcher_aggregate_equals_batch_aggregate_with_golden(self):
         import subprocess
-        from deepcompare.scorecard import load_golden
+        from agentdiff.scorecard import load_golden
         suite = ROOT / "demo" / "horizon" / "suite"
         golden = ROOT / "demo" / "horizon" / "suite_golden.json"
         with tempfile.TemporaryDirectory() as tmp:
-            done = subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(suite), "-o", tmp,
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(suite), "-o", tmp,
                                    "--golden", str(golden)], cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(done.returncode, 0, done.stderr[-2000:])
             written = json.loads((Path(tmp) / "aggregate.json").read_text(encoding="utf-8"))

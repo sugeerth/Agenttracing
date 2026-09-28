@@ -9,10 +9,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare.reasoning import read_trace  # noqa: E402
-from deepcompare.report import compare  # noqa: E402
-from deepcompare.timing import WASTE_LABEL, compare_timing, time_attribution  # noqa: E402
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff.reasoning import read_trace  # noqa: E402
+from agentdiff.report import compare  # noqa: E402
+from agentdiff.timing import WASTE_LABEL, compare_timing, time_attribution  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 
 DEMO = ROOT / "demo" / "traces"
 
@@ -160,7 +160,7 @@ class TimelineBasisTest(unittest.TestCase):
     def test_the_recorder_records_when_each_step_began(self):
         import time as _time
 
-        from deepcompare.record import Recorder
+        from agentdiff.record import Recorder
         with Recorder(task="t", prompt="p", agent="a", model="m", expected="x", out_dir=None) as run:
             run.reason("first")
             _time.sleep(0.02)
@@ -210,7 +210,7 @@ class TimelineBasisTest(unittest.TestCase):
         it, so the trace it writes does not contradict itself."""
         import time as _time
 
-        from deepcompare.harness.providers import ScriptedProvider
+        from agentdiff.harness.providers import ScriptedProvider
         p = ScriptedProvider([{"text": "done", "latency_s": 0.05}])
         start = _time.monotonic()
         r = p.complete([{"role": "user", "content": "x"}], [])

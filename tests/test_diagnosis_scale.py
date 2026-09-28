@@ -23,7 +23,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deepcompare.bench import floor_violations, run_benchmark
+from agentdiff.bench import floor_violations, run_benchmark
 
 ROOT = Path(__file__).resolve().parent.parent
 GENERATOR = ROOT / "demo" / "diagnosis_bench" / "generate_scale.py"

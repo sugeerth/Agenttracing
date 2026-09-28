@@ -788,7 +788,7 @@ body[data-view="trace"] .stack-label .pip { display: none; }
 <div class="toast" id="toast"><span></span></div>
 
 <script>
-window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
+window.AGENTDIFF_DATA = {"reports": [], "aggregate": {}};
 </script>
 <!-- vendor: d3.v7.9.0.min.js -->
 <script>
@@ -2663,7 +2663,7 @@ THIS SOFTWARE.
       class: "caveat",
       text: "Stored in: " + Store.backendName() + ". Nothing leaves this browser — " +
             "the page contains no network code, which is why it works offline from a file " +
-            "(served by `deepcompare watch`, it listens to that local server for new steps and nothing else).",
+            "(served by `agentdiff watch`, it listens to that local server for new steps and nothing else).",
     }));
 
     body.appendChild(h("h3", { text: "Personalization" }));
@@ -3209,7 +3209,7 @@ THIS SOFTWARE.
 
   function boot() {
     Identity.id = visitorId();
-    State.data = global.DEEPCOMPARE_DATA || { reports: [], aggregate: {} };
+    State.data = global.AGENTDIFF_DATA || { reports: [], aggregate: {} };
 
     State.prefs = Object.assign(defaultPrefs(), Store.get(key("prefs")) || {});
     if (State.prefs.story === false && !(Store.get(key("prefs")) || {}).view) State.prefs.view = "evidence";
@@ -4199,7 +4199,7 @@ THIS SOFTWARE.
   };
   var ORDER = ["explore", "edit", "verify", "run", "research", "plan", "delegate", "other", "think"];
 
-  // the same classes `deepcompare.duel.classify` uses, so the race and the
+  // the same classes `agentdiff.duel.classify` uses, so the race and the
   // report agree on what an action was
   var VERIFY = /\b(pytest|py\.test|unittest|nosetests|tox|nox|jest|vitest|mocha|go\s+(test|build|vet)|cargo\s+(test|build|check|clippy)|(npm|pnpm|yarn|bun)\s+(run\s+)?(test|build|lint|typecheck|check)|mvn\s+(test|verify)|gradle\w*\s+(test|build|check)|ruff|mypy|pyright|flake8|pylint|eslint|tsc\b|dotnet\s+(test|build)|ctest|bazel\s+test)/;
   var EXPLORE = { ls: 1, cat: 1, head: 1, tail: 1, rg: 1, grep: 1, egrep: 1, find: 1, fd: 1, tree: 1, wc: 1, pwd: 1,
@@ -11563,7 +11563,7 @@ THIS SOFTWARE.
  * One block over `aggregate.diagnosis_consolidated`, the engine's answer to
  * the question a single pair report cannot ask: does the diagnosis survive
  * repetition? A pair diagnosis is n=1 by construction; when the corpus holds
- * repeated runs, `deepcompare runs` diagnoses every failing run and asks
+ * repeated runs, `agentdiff runs` diagnoses every failing run and asks
  * whether the same hypothesis leads each time — and it executes the
  * discriminating checks that are answerable offline (grader consistency,
  * environment reproduction, harness flake rate).
@@ -11650,13 +11650,13 @@ THIS SOFTWARE.
   function str(v) { return typeof v === "string" && v ? v : ""; }
 
   /* The consolidation lives in the aggregate when the page was rendered by
-   * `deepcompare runs`, and on the raw payload when a test page was
+   * `agentdiff runs`, and on the raw payload when a test page was
    * assembled by hand. `batch` and `compare` never write it, so absence is
    * the normal case and means the block hides. */
   function payloadOf(ctx) {
     var fromAggregate = obj(ctx && ctx.aggregate && ctx.aggregate.diagnosis_consolidated);
     if (fromAggregate) return fromAggregate;
-    var raw = obj(global.DEEPCOMPARE_DATA);
+    var raw = obj(global.AGENTDIFF_DATA);
     return raw ? obj(raw.diagnosis_consolidated) : null;
   }
 
@@ -11853,7 +11853,7 @@ THIS SOFTWARE.
       var payload = payloadOf(ctx);
       if (!payload || !entriesOf(payload).length) {
         return ctx.empty(el, "No cross-run consolidation in this report — it is " +
-          "written by `deepcompare runs` over repeated runs of the same tasks.");
+          "written by `agentdiff runs` over repeated runs of the same tasks.");
       }
 
       el.appendChild(ctx.h("p", {
@@ -13538,8 +13538,8 @@ THIS SOFTWARE.
         exportRow.appendChild(H("a", { href: href, download: "signal_" + taskId + ".json", text: "download the signal (" + labels + " labelled steps)" }));
       } catch (err) { /* no export */ }
       exportRow.appendChild(H("span", { text: "for a whole batch:" }));
-      exportRow.appendChild(H("code", { text: "python -m deepcompare feedback out/ -o signal.json --jsonl pairs.jsonl" }));
-      exportRow.appendChild(copyable(ctx, "python -m deepcompare feedback out/ -o signal.json --jsonl pairs.jsonl"));
+      exportRow.appendChild(H("code", { text: "python -m agentdiff feedback out/ -o signal.json --jsonl pairs.jsonl" }));
+      exportRow.appendChild(copyable(ctx, "python -m agentdiff feedback out/ -o signal.json --jsonl pairs.jsonl"));
       el.appendChild(exportRow);
       if (fb.note) el.appendChild(H("p", { class: "nh-from", text: String(fb.note) }));
     },
@@ -14758,7 +14758,7 @@ THIS SOFTWARE.
   // ------------------------------------------------------- judge
   function judgeCards(H, card, agents) {
     var any = agents.some(function (a) { return card.agents[a].judge; });
-    if (!any) return H("p", { class: "sc-note", "data-sec": "judge", text: "No judging model has graded these runs. `deepcompare eval … --judge NAME=kind:model` (or `loop --judge`) adds a second model's verdict beside the grade, never in place of it." });
+    if (!any) return H("p", { class: "sc-note", "data-sec": "judge", text: "No judging model has graded these runs. `agentdiff eval … --judge NAME=kind:model` (or `loop --judge`) adds a second model's verdict beside the grade, never in place of it." });
     var wrap = H("div", { class: "sc-judge", "data-sec": "judge" });
     agents.forEach(function (a) {
       var j = card.agents[a].judge;
@@ -15099,7 +15099,7 @@ THIS SOFTWARE.
         var rp = dec.replay;
         layer(card, "replay", "the decisive step", rp ? [H("span", { class: "tag " + (String(dec.verification).indexOf("verified") >= 0 ? "good" : String(dec.verification).indexOf("refuted") >= 0 ? "bad" : "warn"), text: String(dec.verification) }),
           H("span", { text: (rp.flipped !== undefined ? rp.flipped + " of " + rp.replays + " replay(s) flipped the outcome" : "") })]
-          : [H("span", { class: "tag warn", text: dec.verification || "hypothesized" }), H("span", { text: dec.recipe ? "not replayed yet — `deepcompare replay` from step " + (dec.recipe.step !== undefined ? dec.recipe.step : st.index) + " would test it" : "not replayed yet" })]);
+          : [H("span", { class: "tag warn", text: dec.verification || "hypothesized" }), H("span", { text: dec.recipe ? "not replayed yet — `agentdiff replay` from step " + (dec.recipe.step !== undefined ? dec.recipe.step : st.index) + " would test it" : "not replayed yet" })]);
       }
       var cum = { tokens: 0, latency: 0, calls: 0, errors: 0 };
       r.steps.forEach(function (s2) { if (s2.index <= st.index) { cum.tokens += isNum(s2.tokens) ? s2.tokens : 0; cum.latency += isNum(s2.latency_s) ? s2.latency_s : 0; if (kindOf(s2) === "tool") cum.calls++; if ((r.info[s2.index] || {}).error) cum.errors++; } });
@@ -20266,7 +20266,7 @@ THIS SOFTWARE.
  *
  * Reads `report.trust` ({version, a, b, narrative}); each side carries
  * behaviour, permissions, determinism, data and grade {score, label,
- * reasons[]} — see deepcompare/trust.py for the rubric.
+ * reasons[]} — see agentdiff/trust.py for the rubric.
  */
 (function (global) {
   "use strict";
@@ -20446,7 +20446,7 @@ THIS SOFTWARE.
  * that on a double-click of a tool step, the tables on a click of the
  * tool's name.
  *
- * Reads `report.tools_profile` (see deepcompare/toolprofile.py).
+ * Reads `report.tools_profile` (see agentdiff/toolprofile.py).
  */
 (function (global) {
   "use strict";
@@ -22248,7 +22248,7 @@ THIS SOFTWARE.
 /* AgentDiff blocks — two policies from few episodes, read the way the RL
  * literature asks for rather than as a mean with a normal interval.
  *
- * `aggregate.rl.stats` (deepcompare/rlstats.py) carries the small-sample
+ * `aggregate.rl.stats` (agentdiff/rlstats.py) carries the small-sample
  * toolkit over the same episodes the rest of the Training view draws:
  * IQM, median, mean and the optimality gap, each with a stratified
  * bootstrap interval; the performance profiles with their bands; and the
@@ -22799,7 +22799,7 @@ THIS SOFTWARE.
  *                    calibration curve over it, the residuals as a
  *                    marginal, and the explained variance said in words
  *
- * Both read `aggregate.rl.audit` (deepcompare/rlaudit.py) and fall back to
+ * Both read `aggregate.rl.audit` (agentdiff/rlaudit.py) and fall back to
  * `report.rl.audit` for a single pair. Every number drawn here is one the
  * engine computed and wrote down — nothing is recomputed in the page, so
  * the chart and the finding list cannot drift apart.
@@ -25993,7 +25993,7 @@ THIS SOFTWARE.
  * A self-evolving agent is not two agents but a chain g0 → g1 → … where each
  * generation was derived from its parent by one step (a prompt edit, a rule,
  * a config change, a memory written) triggered by the parent's own episodes.
- * These blocks draw `aggregate.evolution` (deepcompare/evolve.py), and only
+ * These blocks draw `aggregate.evolution` (agentdiff/evolve.py), and only
  * that — every point, bound, count and sentence is read from the JSON, so the
  * page and the engine cannot drift:
  *
@@ -28431,7 +28431,7 @@ THIS SOFTWARE.
  * has no single answer, and these blocks do not pretend it does: there are
  * four axes and four answers, then the details each answer rests on. Every
  * point, bound, count and sentence is read from `aggregate.evolution_compare`
- * (deepcompare/evolvecompare.py); nothing is recomputed in the browser, so
+ * (agentdiff/evolvecompare.py); nothing is recomputed in the browser, so
  * the page and the engine cannot drift:
  *
  *   evc-curves      both lineages' task-stratified IQM per generation on one
@@ -29694,7 +29694,7 @@ THIS SOFTWARE.
 /* AgentDiff blocks — the Evals view: the self-evolving eval that watches a
  * self-evolving agent, drawn as the loop it is.
  *
- * `aggregate.coevolution` (deepcompare/coevolve.py) is an eval that is
+ * `aggregate.coevolution` (agentdiff/coevolve.py) is an eval that is
  * itself a lineage e0 → e1 → …: each agent step that exposes a blind spot
  * triggers probes (the eval's agents, each one question), the probes
  * propose candidate metrics, five validators (the sub-agents, one criterion
@@ -31316,7 +31316,7 @@ THIS SOFTWARE.
  *
  * Two more layers answer through the page: the Levels (`budget` and
  * `fetches` on a pair, on an aggregate, and a bundle page's
- * `DEEPCOMPARE_DATA.bundle.levels` — what is running, where the tokens
+ * `AGENTDIFF_DATA.bundle.levels` — what is running, where the tokens
  * went, the heaviest run, what a run fetched, what was wasted; embeds
  * lv-overview, lv-runs, lv-run with the run selected) and the Data
  * (`data` on a pair and `data_evolution` on a lineage — the prompt and
@@ -31481,7 +31481,7 @@ THIS SOFTWARE.
     d.tasks = typeof AgentDiff.taskIds === "function" ? AgentDiff.taskIds() : [];
     d.reports = Array.isArray(ctx.reports) ? ctx.reports : [];
     // the Levels: a bundle's three levels when the page is a bundle's, the aggregate's budget and fetches ledgers otherwise
-    var bd = global.DEEPCOMPARE_DATA && global.DEEPCOMPARE_DATA.bundle && global.DEEPCOMPARE_DATA.bundle.levels ? global.DEEPCOMPARE_DATA.bundle : null;
+    var bd = global.AGENTDIFF_DATA && global.AGENTDIFF_DATA.bundle && global.AGENTDIFF_DATA.bundle.levels ? global.AGENTDIFF_DATA.bundle : null;
     d.bundle = bd;
     d.overview = bd && bd.levels.overview ? bd.levels.overview : null;
     d.records = bd && bd.levels.records && typeof bd.levels.records === "object" ? bd.levels.records : {};
@@ -31529,7 +31529,7 @@ THIS SOFTWARE.
   function runRecord(d, row) {
     if (!row) return null;
     var rec = d.records[row.key];
-    if (rec) return { key: row.key, budget: rec.budget || null, fetches: rec.fetches || null, data: rec.data || null, source: "DEEPCOMPARE_DATA.bundle.levels.records[" + row.key + "]" };
+    if (rec) return { key: row.key, budget: rec.budget || null, fetches: rec.fetches || null, data: rec.data || null, source: "AGENTDIFF_DATA.bundle.levels.records[" + row.key + "]" };
     if (row.report) return { key: row.key, budget: row.report.budget && row.report.budget[row.side] || null, fetches: row.report.fetches && row.report.fetches[row.side] || null, data: row.report.data && row.report.data[row.side] || null, source: "report.<section>." + row.side };
     return null;
   }
@@ -31930,7 +31930,7 @@ THIS SOFTWARE.
   function runSubject(row) { return row ? { agent: sideName(row), run: row.key, side: row.side || null, task: row.task || null } : null; }
   //: the heaviest runs the page knows: the bundle's, the aggregate ledger's, else the pair reports' sides by their budget totals
   function heaviest(d) {
-    if (d.overview && Array.isArray(d.overview.heaviest_runs) && d.overview.heaviest_runs.length) return { rows: d.overview.heaviest_runs.map(function (h) { return { key: h.key, tokens: h.tokens }; }), source: "DEEPCOMPARE_DATA.bundle.levels.overview.heaviest_runs", cap: d.overview.cap || null };
+    if (d.overview && Array.isArray(d.overview.heaviest_runs) && d.overview.heaviest_runs.length) return { rows: d.overview.heaviest_runs.map(function (h) { return { key: h.key, tokens: h.tokens }; }), source: "AGENTDIFF_DATA.bundle.levels.overview.heaviest_runs", cap: d.overview.cap || null };
     if (d.budgetAgg && Array.isArray(d.budgetAgg.heaviest_runs) && d.budgetAgg.heaviest_runs.length) return { rows: d.budgetAgg.heaviest_runs.map(function (h) { return { key: "page/" + h.task + "/" + h.agent + "/" + h.run, tokens: h.tokens, label: h.agent + " on " + h.task + " (" + h.run + ")" }; }), source: "aggregate.budget.heaviest_runs", cap: d.budgetAgg.cap || null };
     var rows = d.runs.filter(function (r) { return isNum(r.tokens); }).sort(function (a, b) { return b.tokens - a.tokens || (a.key < b.key ? -1 : 1); }).slice(0, 8);
     return rows.length ? { rows: rows.map(function (r) { return { key: r.key, tokens: r.tokens, label: r.agent + " on " + r.task + " (" + r.run_id + ")" }; }), source: "report.budget.<side>.tokens.total, over the pair reports on this page", cap: null } : null;
@@ -31944,13 +31944,13 @@ THIS SOFTWARE.
       var text = [], src = [];
       if (d.overview) {
         text.push(dot(d.overview.reading || ""));
-        src.push("DEEPCOMPARE_DATA.bundle.levels.overview.reading");
+        src.push("AGENTDIFF_DATA.bundle.levels.overview.reading");
         var t = d.overview.totals || {};
         if (Array.isArray(d.overview.agents) && d.overview.agents.length) {
           text.push("Agent by agent: " + d.overview.agents.slice(0, 12).map(function (a) { var sr = a.success_rate || {}; return a.name + (a.self_evolving ? " (self-evolving)" : "") + " — " + plural(count(a.runs), "run") + ", success " + pct(sr.rate) + (isNum(sr.lo) ? " [" + pct(sr.lo) + ", " + pct(sr.hi) + "]" : "") + ", " + tok(a.tokens_total) + " tokens" + (isNum(a.cost_usd_total) ? ", " + usd(a.cost_usd_total) : "") + ", " + count(a.fetches_total) + " fetches"; }).join("; ") + (d.overview.agents.length > 12 ? "; and " + (d.overview.agents.length - 12) + " more" : "") + ".");
-          src.push("DEEPCOMPARE_DATA.bundle.levels.overview.agents[]");
+          src.push("AGENTDIFF_DATA.bundle.levels.overview.agents[]");
         }
-        if (t.basis) { text.push(cap(dot(t.basis))); src.push("DEEPCOMPARE_DATA.bundle.levels.overview.totals.basis"); }
+        if (t.basis) { text.push(cap(dot(t.basis))); src.push("AGENTDIFF_DATA.bundle.levels.overview.totals.basis"); }
       } else {
         var who = d.family ? "the lineage of " + d.family + (d.genIds.length ? " (" + plural(d.genIds.length, "generation") + (d.cov ? "; its eval " + plural(d.evalGens.length, "eval generation") : "") + ")" : "") : d.policies.length ? d.policies.join(" and ") : d.agents.length ? d.agents.join(" and ") : "its agents";
         text.push("This page is one output, not a bundle: it reads " + who + " over " + plural(d.tasks.length, "task") + " (" + plural(d.runs.length, "run") + " the Levels view can list). `agentdiff bundle` packs several outputs into one page with a level-1 overview, a bundle id and a key.");
@@ -32989,8 +32989,8 @@ THIS SOFTWARE.
  *                bundle attached (`steps_source: "trace …"`, `--traces`);
  *                a run whose steps are in neither says so with the reason.
  *
- * The data is `DEEPCOMPARE_DATA.bundle` when the page is a bundle's
- * (`agentdiff bundle`): its three levels come from deepcompare/bundle.py
+ * The data is `AGENTDIFF_DATA.bundle` when the page is a bundle's
+ * (`agentdiff bundle`): its three levels come from agentdiff/bundle.py
  * and the level-3 records are inlined. On a plain output page the same
  * levels are derived here from what the output carries — the scorecard's
  * per-run rows, the `budget` and `fetches` ledgers, a lineage's episodes,
@@ -33177,7 +33177,7 @@ THIS SOFTWARE.
   // bundle's, else the same levels derived from the output on the page.
 
   var MODEL = null;
-  function bundleOf() { var d = global.DEEPCOMPARE_DATA; return d && d.bundle && d.bundle.levels && Array.isArray(d.bundle.levels.runs) ? d.bundle : null; }
+  function bundleOf() { var d = global.AGENTDIFF_DATA; return d && d.bundle && d.bundle.levels && Array.isArray(d.bundle.levels.runs) ? d.bundle : null; }
   function model(ctx) {
     var b = bundleOf();
     var src = b || ctx.aggregate;
@@ -34162,7 +34162,7 @@ THIS SOFTWARE.
 <!-- 39_data.js -->
 <script>
 /* AgentDiff blocks — the Data view: the inputs side of a run and the chain
- * from them to the answer, read from `report.data` (deepcompare/data.py)
+ * from them to the answer, read from `report.data` (agentdiff/data.py)
  * and, for a lineage, `aggregate.data_evolution`.
  *
  *   dt-task        what both agents were told: the task prompt and the
@@ -36808,7 +36808,7 @@ THIS SOFTWARE.
  * Reads, from a pair report: `a`/`b` (steps), `rl` (rewards, values),
  * `impact` (clusters, lanes, marks), `alignment`, `divergences`,
  * `timing`, `trust`, `diagnosis`, `budget`, `fetches`, `milestones`;
- * from a bundle page: `DEEPCOMPARE_DATA.bundle.levels.records[key]`
+ * from a bundle page: `AGENTDIFF_DATA.bundle.levels.records[key]`
  * (steps, budget, fetches, timeline). Nothing is computed here beyond
  * layout and the running sums the tracks draw, each of which is a
  * cumulative sum of a recorded per-step number.
@@ -36941,7 +36941,7 @@ THIS SOFTWARE.
   // recorded per-step numbers and nothing else.
 
   function bundleRecords() {
-    var d = global.DEEPCOMPARE_DATA, b = d && d.bundle && d.bundle.levels;
+    var d = global.AGENTDIFF_DATA, b = d && d.bundle && d.bundle.levels;
     return (b && b.records) || null;
   }
 
@@ -37944,7 +37944,7 @@ THIS SOFTWARE.
 <script>
 /* AgentDiff blocks — the harness beside the agent.
  *
- * `aggregate.harness_evolution` (deepcompare/harnessevo.py) asks two
+ * `aggregate.harness_evolution` (agentdiff/harnessevo.py) asks two
  * questions the Evolution blocks above it cannot: when a generation
  * improved, may the delta be handed to the agent at all — and was the gain
  * the agent needing less, or more being put around it?
@@ -37982,7 +37982,7 @@ THIS SOFTWARE.
   var KIND_ORDER = ["reasoning", "scaffold", "mixed", "none", "unreadable"];
 
   // a budget entry is usually a limit and so a number, but a loop also has
-  // switches and settings that name a tool (deepcompare/scaffold.py), and
+  // switches and settings that name a tool (agentdiff/scaffold.py), and
   // those are part of what "the same harness" means: shown as recorded
   // rather than pushed through a number formatter that would lose them
   function capValue(v) {
@@ -38421,7 +38421,7 @@ THIS SOFTWARE.
  *
  * So: one cell per category, grouped by where the fix lives, area equal
  * per category so the picture is the share of the vocabulary each class
- * takes. Colour is the verdict `deepcompare.scaffold.reach()` gave it —
+ * takes. Colour is the verdict `agentdiff.scaffold.reach()` gave it —
  * expressible in a knob, prompt-shaped, an investigation, or the scaffold
  * with nothing here that reaches it. The last of those is the finding, and
  * it is drawn as the only outlined kind so the eye lands on it.
@@ -38925,7 +38925,7 @@ THIS SOFTWARE.
  * Outcome-only evaluation is blind by construction: a run can satisfy its
  * oracle while looping, swallowing an error or writing something nobody
  * asked for, and a run can fail with a spotless process because the *oracle*
- * is wrong. `deepcompare.process` computes the deterministic subset of that
+ * is wrong. `agentdiff.process` computes the deterministic subset of that
  * from the logged trace — no judge, no re-execution. These six cards are its
  * interface.
  *
@@ -40394,9 +40394,9 @@ THIS SOFTWARE.
 <script>
 /* AgentDiff blocks — reliability over repeats, and the failure taxonomies.
  *
- * Six blocks over two engine modules that had no interface: deepcompare
+ * Six blocks over two engine modules that had no interface: agentdiff
  * .reliability (pass^k, consistency, ICC, the runs advisory) and
- * deepcompare.taxonomy (MAST and TRAIL).
+ * agentdiff.taxonomy (MAST and TRAIL).
  *
  * Both modules exist because a number can be true and still mislead, so both
  * ship their qualifiers as data rather than as prose someone may not read.
@@ -40418,7 +40418,7 @@ THIS SOFTWARE.
  *     modes this tool cannot reach are not the rare ones.
  *
  * Relevance is 0 when the aggregate key is absent: reliability exists only in
- * `deepcompare runs` output and taxonomy in batch output, so on any one
+ * `agentdiff runs` output and taxonomy in batch output, so on any one
  * report half of these blocks hide themselves. That is the contract.
  */
 (function (global) {
@@ -40791,7 +40791,7 @@ THIS SOFTWARE.
       var rel = reliabilityOf(ctx);
       if (!rel) {
         return ctx.empty(el, "No reliability analysis in this report — pass^k needs " +
-          "repeated runs of the same task, which only `deepcompare runs` produces.");
+          "repeated runs of the same task, which only `agentdiff runs` produces.");
       }
       var list = sides(rel);
       if (!list.length) return ctx.empty(el, "The reliability block carries no agents.");
@@ -41519,7 +41519,7 @@ THIS SOFTWARE.
       var tax = taxonomyOf(ctx);
       if (!tax) {
         return ctx.empty(el, "No taxonomy mapping in this report — it is produced by " +
-          "`deepcompare batch` over a comparison suite.");
+          "`agentdiff batch` over a comparison suite.");
       }
       var totals = obj(tax.signal_totals) || {};
       var mast = obj(tax.mast) || {};
@@ -41865,7 +41865,7 @@ THIS SOFTWARE.
 <script>
 /* AgentDiff blocks — variance attribution.
  *
- * Four blocks over `deepcompare.variance`, the module that asks where the
+ * Four blocks over `agentdiff.variance`, the module that asks where the
  * variation in an outcome actually comes from: the model underneath, the
  * harness around it, the task being hard, or the run simply coming out
  * differently this time. Those four answers call for four different
@@ -41898,7 +41898,7 @@ THIS SOFTWARE.
  *     because when model and harness are the same partition of the data
  *     every model-versus-harness number below it is an artefact.
  *
- * `variance.json` is written by `deepcompare variance`, which is a separate
+ * `variance.json` is written by `agentdiff variance`, which is a separate
  * command from the `batch`/`runs` that render this page. So the data is
  * usually absent, and absent means relevance 0 and hidden — not a chart of
  * something else reconstructed from the reports. This module never derives
@@ -41982,12 +41982,12 @@ THIS SOFTWARE.
 
   /* The decomposition lives in the aggregate when the page was rendered
    * beside one, and on the raw payload when a test page was assembled by
-   * hand. It is written by `deepcompare variance`, which batch and runs do
+   * hand. It is written by `agentdiff variance`, which batch and runs do
    * not invoke, so absent is the normal case and is handled as absence. */
   function payloadOf(ctx) {
     var fromAggregate = obj(ctx && ctx.aggregate && ctx.aggregate.variance);
     if (fromAggregate) return fromAggregate;
-    var raw = obj(global.DEEPCOMPARE_DATA);
+    var raw = obj(global.AGENTDIFF_DATA);
     return raw ? obj(raw.variance) : null;
   }
 
@@ -42343,7 +42343,7 @@ THIS SOFTWARE.
       var v = payloadOf(ctx);
       if (!v) {
         return ctx.empty(el, "No variance decomposition in this report — it is written " +
-          "by `deepcompare variance`, which batch and runs do not run.");
+          "by `agentdiff variance`, which batch and runs do not run.");
       }
       var plan = designOf(v) || {};
       var entries = metricsOf(v);
@@ -42575,7 +42575,7 @@ THIS SOFTWARE.
       var v = payloadOf(ctx);
       if (!v) {
         return ctx.empty(el, "No variance decomposition in this report — the bias " +
-          "correction comes with `deepcompare variance`.");
+          "correction comes with `agentdiff variance`.");
       }
       var list = drawable(v);
       if (!list.length) {
@@ -42751,7 +42751,7 @@ THIS SOFTWARE.
       var plan = designOf(v);
       if (!plan) {
         return ctx.empty(el, "No variance decomposition in this report — the design " +
-          "audit comes with `deepcompare variance`.");
+          "audit comes with `agentdiff variance`.");
       }
       var shape = str(plan.shape);
       var style = SHAPE_STYLE[shape] || { kind: "info", word: shape || "unknown", lead: "" };
@@ -42993,7 +42993,7 @@ THIS SOFTWARE.
       var v = payloadOf(ctx);
       if (!v) {
         return ctx.empty(el, "No variance decomposition in this report — the residual " +
-          "comes with `deepcompare variance`.");
+          "comes with `agentdiff variance`.");
       }
       var list = drawable(v);
       if (!list.length) {
@@ -44004,7 +44004,7 @@ THIS SOFTWARE.
 <script>
 /* AgentDiff — the live client.
  *
- * Only alive when the page was served by `deepcompare watch`, which
+ * Only alive when the page was served by `agentdiff watch`, which
  * injects `live.enabled` into the data. Then it listens to that server's
  * event stream and hands every payload to AgentDiff.load; a badge in the
  * corner says what is running and when the last update landed. A page
@@ -44016,7 +44016,7 @@ THIS SOFTWARE.
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
-  var data = global.DEEPCOMPARE_DATA;
+  var data = global.AGENTDIFF_DATA;
   var live = data && data.live;
   if (!live || live.enabled !== true || typeof global.EventSource !== "function") return;
 

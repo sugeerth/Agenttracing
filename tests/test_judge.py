@@ -13,11 +13,11 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory
-from deepcompare.harness.judge import (DEFAULT_RUBRIC, LONG_RUN_RUBRIC, RUBRICS, STEP_EXCERPT,
+from agentdiff import Trajectory
+from agentdiff.harness.judge import (DEFAULT_RUBRIC, LONG_RUN_RUBRIC, RUBRICS, STEP_EXCERPT,
                                        judge_many, judge_trace, resolve_rubric)
-from deepcompare.harness.providers import ScriptedProvider
-from deepcompare.tracedb import TraceDB
+from agentdiff.harness.providers import ScriptedProvider
+from agentdiff.tracedb import TraceDB
 
 ROOT = Path(__file__).resolve().parent.parent
 DEMO = ROOT / "demo" / "traces"
@@ -93,7 +93,7 @@ class JudgeTest(unittest.TestCase):
             script = Path(tmp) / "judge.json"
             script.write_text(json.dumps([{"text": '{"success": false, "score": 0.2, "rationale": "scripted"}', "tool_calls": []}]), encoding="utf-8")
             db = Path(tmp) / "t.sqlite"
-            proc = subprocess.run([sys.executable, "-m", "deepcompare", "judge", str(d), "--provider", f"j=scripted:{script}", "--db", str(db)],
+            proc = subprocess.run([sys.executable, "-m", "agentdiff", "judge", str(d), "--provider", f"j=scripted:{script}", "--db", str(db)],
                                   cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertIn("2 judged", proc.stdout)
@@ -119,7 +119,7 @@ class JudgeTest(unittest.TestCase):
             script = Path(tmp) / "judge.json"
             script.write_text(json.dumps([{"text": '{"success": false, "score": 0.2, "rationale": "scripted"}'}]),
                               encoding="utf-8")
-            proc = subprocess.run([sys.executable, "-m", "deepcompare", "judge", str(d),
+            proc = subprocess.run([sys.executable, "-m", "agentdiff", "judge", str(d),
                                    "--provider", f"j=scripted:{script}", "--with-steps",
                                    "--rubric", "long-run", "--steps-cap", "60"],
                                   cwd=str(ROOT), capture_output=True, text=True)
@@ -161,7 +161,7 @@ class FocusedJudgingTest(unittest.TestCase):
         return block, seen[0][1]["content"]
 
     def policy_for(self, name):
-        from deepcompare.excerpt import effective_policy
+        from agentdiff.excerpt import effective_policy
         return effective_policy(self.golden.get("policy"), self.tasks[name])
 
     def test_the_forbidden_write_reaches_the_judge_and_would_not_have(self):
@@ -224,12 +224,12 @@ class FocusedJudgingTest(unittest.TestCase):
             script = Path(tmp) / "j.json"
             script.write_text(json.dumps([{"text": '{"success": false, "score": 0.2, "rationale": "s"}'}]),
                               encoding="utf-8")
-            judged = subprocess.run([sys.executable, "-m", "deepcompare", "judge", str(traces),
+            judged = subprocess.run([sys.executable, "-m", "agentdiff", "judge", str(traces),
                                      "--provider", f"j=scripted:{script}"],
                                     cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(judged.returncode, 0, judged.stderr)
             out = Path(tmp) / "out"
-            done = subprocess.run([sys.executable, "-m", "deepcompare", "batch", str(traces), "-o", str(out),
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(traces), "-o", str(out),
                                    "--golden", str(self.GOLDEN)], cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(done.returncode, 0, done.stderr[-400:])
             card = json.loads((out / "aggregate.json").read_text(encoding="utf-8"))["scorecard"]
@@ -242,7 +242,7 @@ class FocusedJudgingTest(unittest.TestCase):
         """A broken reading of the run is a reason to show the ends, not a
         reason to refuse to judge."""
         raw = json.loads((self.SUITE / "L03_data_backfill__drift-lh.json").read_text(encoding="utf-8"))
-        with mock.patch("deepcompare.excerpt.focus", side_effect=RuntimeError("no")):
+        with mock.patch("agentdiff.excerpt.focus", side_effect=RuntimeError("no")):
             block = judge_trace(raw, scripted('{"success": true, "score": 1, "rationale": "x"}'),
                                 with_steps=True, focus=True)
         self.assertIsNone(block["error"])

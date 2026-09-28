@@ -30,10 +30,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
-from deepcompare.cli import main  # noqa: E402
-from deepcompare.harness.chat import ask, converse, format_turn  # noqa: E402
-from deepcompare.harness.providers import ProviderError, ScriptedProvider  # noqa: E402
-from deepcompare.narrate import chat_brief, chat_prompt, check_narration, coevolution_brief  # noqa: E402
+from agentdiff.cli import main  # noqa: E402
+from agentdiff.harness.chat import ask, converse, format_turn  # noqa: E402
+from agentdiff.harness.providers import ProviderError, ScriptedProvider  # noqa: E402
+from agentdiff.narrate import chat_brief, chat_prompt, check_narration, coevolution_brief  # noqa: E402
 from test_evolvecompare import SAMPLES, _lineage_json, alpha_gens, beta_gens, write_lineage  # noqa: E402
 
 
@@ -290,13 +290,13 @@ class CommandTest(_Fixture):
             self.assertNotIn(secret, err)
 
     def test_the_command_imports_the_harness_only_inside_run(self):
-        tree = ast.parse((ROOT / "deepcompare" / "commands" / "chat.py").read_text(encoding="utf-8"))
+        tree = ast.parse((ROOT / "agentdiff" / "commands" / "chat.py").read_text(encoding="utf-8"))
         top = [n for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom))]
         self.assertFalse(any("harness" in (getattr(n, "module", "") or "") for n in top))
         nested = [n for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and "harness" in (n.module or "")]
         self.assertTrue(nested and all(n.col_offset > 0 for n in nested))
         # and the harness side imports the engine, never the other way round
-        narrate = (ROOT / "deepcompare" / "narrate.py").read_text(encoding="utf-8")
+        narrate = (ROOT / "agentdiff" / "narrate.py").read_text(encoding="utf-8")
         self.assertNotIn("harness", narrate)
 
 

@@ -17,10 +17,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deepcompare.bench import (
+from agentdiff.bench import (
     format_scorecard, leakage_probe, pair_validity, run_benchmark,
 )
-from deepcompare.trace import Trajectory
+from agentdiff.trace import Trajectory
 
 ROOT = Path(__file__).resolve().parent.parent
 GENERATOR = ROOT / "demo" / "diagnosis_bench" / "generate_scale.py"
@@ -166,7 +166,7 @@ class TestDecoyFamilies(unittest.TestCase):
         # the first cut of the rule moved the anchor there.  A step that
         # produced any typed value or number is consequential by
         # construction, whatever the normaliser recognised
-        from deepcompare.report import compare
+        from agentdiff.report import compare
         a = Trajectory.from_json(
             str(ROOT / "demo/traces/t05_flight_duration__atlas-v2.json"))
         b = Trajectory.from_json(

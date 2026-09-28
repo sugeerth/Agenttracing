@@ -21,15 +21,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare import Trajectory  # noqa: E402
-from deepcompare.rl import rl_aggregate  # noqa: E402
-from deepcompare.rlstats import (  # noqa: E402
+from agentdiff import Trajectory  # noqa: E402
+from agentdiff.rl import rl_aggregate  # noqa: E402
+from agentdiff.rlstats import (  # noqa: E402
     AGGREGATES, BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, METRICS, PROFILE_POINTS, VERSION,
     aggregate_metrics, default_target, iqm, mean, median, optimality_gap,
     performance_profile, probability_of_improvement, rl_stats, sample_advisory,
     score_matrix, stratified_resamples, tau_grid, within_task_probability,
 )
-from deepcompare._stats import rng as _rng  # noqa: E402
+from agentdiff._stats import rng as _rng  # noqa: E402
 
 RL_TRACES = ROOT / "demo" / "rl" / "traces"
 RL_TRAIN = ROOT / "demo" / "rl" / "train"

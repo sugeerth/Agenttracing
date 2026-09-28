@@ -17,8 +17,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare.progress import compare_progress
-from deepcompare.triage import _verification
+from agentdiff.progress import compare_progress
+from agentdiff.triage import _verification
 
 
 def batch_dir(tmp, name, issues, actions, reports):
@@ -205,7 +205,7 @@ class TestProgress(unittest.TestCase):
             self.assertFalse(result["efficiency_shift"]["available"])
 
     def test_regressions_are_the_narrow_gate_worthy_subset(self):
-        from deepcompare.progress import regressions_in
+        from agentdiff.progress import regressions_in
         result = {
             "actions": [
                 {"status": "persists", "action": "still broken"},
@@ -224,7 +224,7 @@ class TestProgress(unittest.TestCase):
         self.assertTrue(any("broke: x on t3" in f for f in findings))
 
     def test_a_clean_fix_loop_has_no_regressions(self):
-        from deepcompare.progress import regressions_in
+        from agentdiff.progress import regressions_in
         result = {"actions": [{"status": "resolved", "action": "a"}],
                   "new_issues": [],
                   "success_by_agent": {"x": {"flips_broken": [],
@@ -251,7 +251,7 @@ class TestDiagnosisShift(unittest.TestCase):
 
     The batches are real engine output — the demo process traces
     (p01..p04, steady-v1 vs hasty-v2) compared and aggregated exactly the
-    way ``deepcompare batch`` does — with the after-batch produced by
+    way ``agentdiff batch`` does — with the after-batch produced by
     editing traces the way a fix would: repairing an answer, resolving an
     outcome, muddying the evidence until no single cause leads.
     """
@@ -268,8 +268,8 @@ class TestDiagnosisShift(unittest.TestCase):
     @classmethod
     def _engine_batch(cls, name, pairs):
         """A real batch output dir: compared reports plus their aggregate."""
-        from deepcompare import Trajectory, compare
-        from deepcompare.metrics import aggregate as build_aggregate
+        from agentdiff import Trajectory, compare
+        from agentdiff.metrics import aggregate as build_aggregate
         directory = Path(cls.tmp) / name
         directory.mkdir(exist_ok=True)
         reports = [compare(Trajectory.from_dict(a), Trajectory.from_dict(b))
@@ -412,7 +412,7 @@ class TestDiagnosisShift(unittest.TestCase):
                                       "batches"})
 
     def test_diagnosis_shift_is_informational_not_gate_worthy(self):
-        from deepcompare.progress import regressions_in
+        from agentdiff.progress import regressions_in
         # the shift (and the contested turn) must not add gate findings
         for result in (self.result,
                        compare_progress(self.before, self.after_contested)):
@@ -455,12 +455,12 @@ class TestConsolidatedShift(unittest.TestCase):
         """
         import copy
 
-        from deepcompare import Trajectory, compare
-        from deepcompare.consolidate import consolidate_diagnoses
-        from deepcompare.metrics import aggregate as build_aggregate, task_signal
-        from deepcompare.reliability import reliability
-        from deepcompare.stability import medoid_pairs, stability_analysis
-        from deepcompare.triage import triage
+        from agentdiff import Trajectory, compare
+        from agentdiff.consolidate import consolidate_diagnoses
+        from agentdiff.metrics import aggregate as build_aggregate, task_signal
+        from agentdiff.reliability import reliability
+        from agentdiff.stability import medoid_pairs, stability_analysis
+        from agentdiff.triage import triage
 
         runs_by_task = {}
         with tempfile.TemporaryDirectory() as tmp:
@@ -604,7 +604,7 @@ class TestConsolidatedShift(unittest.TestCase):
                                           "one or both batches"})
 
     def test_consolidated_shift_is_informational_not_gate_worthy(self):
-        from deepcompare.progress import regressions_in
+        from agentdiff.progress import regressions_in
         for result in (self.result, compare_progress(self.after, self.before)):
             findings = regressions_in(result)
             # the gate reads nothing from the section: stripping it

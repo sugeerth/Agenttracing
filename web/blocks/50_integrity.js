@@ -3,7 +3,7 @@
  * Outcome-only evaluation is blind by construction: a run can satisfy its
  * oracle while looping, swallowing an error or writing something nobody
  * asked for, and a run can fail with a spotless process because the *oracle*
- * is wrong. `deepcompare.process` computes the deterministic subset of that
+ * is wrong. `agentdiff.process` computes the deterministic subset of that
  * from the logged trace — no judge, no re-execution. These six cards are its
  * interface.
  *

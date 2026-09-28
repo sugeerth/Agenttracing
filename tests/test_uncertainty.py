@@ -12,8 +12,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory, compare
-from deepcompare.uncertainty import (
+from agentdiff import Trajectory, compare
+from agentdiff.uncertainty import (
     analyze,
     calibration_profile,
     confidence_series,

@@ -1,4 +1,4 @@
-"""Task definitions for the DeepCompare demo.
+"""Task definitions for the AgentDiff demo.
 
 Nine research-style tasks, each with a stable id, the prompt given to both
 agents, and the gold expected answer (used by the comparison engine to judge

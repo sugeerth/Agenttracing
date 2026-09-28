@@ -16,8 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory
-from deepcompare.toolmatch import (
+from agentdiff import Trajectory
+from agentdiff.toolmatch import (
     ARG_MODES,
     MATCH_MODES,
     args_match,
@@ -257,7 +257,7 @@ class TestConformanceIntegration(unittest.TestCase):
     """
 
     def check(self):
-        from deepcompare.conformance import check_run
+        from agentdiff.conformance import check_run
         golden = Trajectory.from_json(
             "demo/process/traces/p01_cancel_booking__steady-v1.json")
         candidate = Trajectory.from_json(

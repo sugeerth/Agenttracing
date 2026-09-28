@@ -25,9 +25,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare.bundle import Bundle  # noqa: E402
-from deepcompare.commands import serve as serve_cmd  # noqa: E402
-from deepcompare.harness.serve import _family, make_server  # noqa: E402
+from agentdiff.bundle import Bundle  # noqa: E402
+from agentdiff.commands import serve as serve_cmd  # noqa: E402
+from agentdiff.harness.serve import _family, make_server  # noqa: E402
 from tests.helpers_bundle import demo_bundle  # noqa: E402
 
 KEY = "batch/t01_acme_revenue/atlas-v2/r1"
@@ -117,7 +117,7 @@ class ServeTest(unittest.TestCase):
         status, headers, body = self.get("/")
         self.assertEqual(status, 200)
         self.assertTrue(headers["Content-Type"].startswith("text/html"))
-        self.assertIn(b"DEEPCOMPARE_DATA", body)
+        self.assertIn(b"AGENTDIFF_DATA", body)
         self.assertEqual(self.get("/report.html")[0], 200)
         status, manifest = self.json("/bundle.json")
         self.assertEqual((status, manifest["id"]), (200, self.bundle.id))

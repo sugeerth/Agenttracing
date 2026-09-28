@@ -17,9 +17,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from deepcompare.harness.panel import (  # noqa: E402
+from agentdiff.harness.panel import (  # noqa: E402
     QUESTIONS, SYSTEM, convene, corpus_tools, one_finding, verify)
-from deepcompare.harness.providers import ScriptedProvider  # noqa: E402
+from agentdiff.harness.providers import ScriptedProvider  # noqa: E402
 
 SUITE = ROOT / "demo" / "horizon" / "suite"
 RUN = "L01_service_migration__drift-lh"
@@ -284,7 +284,7 @@ class CommandTest(unittest.TestCase):
                 {"text": "", "tool_calls": [{"name": "corpus", "arguments": {}}]},
                 {"text": json.dumps({"claim": "Invented.", "cites": [
                     {"run": RUN, "step": 136, "quote": "not in the trace"}]})}]}), encoding="utf-8")
-            done = subprocess.run([sys.executable, "-m", "deepcompare", "panel", str(traces),
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "panel", str(traces),
                                    "--provider", f"p=scripted:{script}", "--ask", "why?",
                                    "-o", str(Path(tmp) / "out")],
                                   cwd=str(ROOT), capture_output=True, text=True)
@@ -301,7 +301,7 @@ class CommandTest(unittest.TestCase):
             traces.mkdir()
             one = sorted(SUITE.glob("L01*drift*.json"))[0]
             (traces / one.name).write_text(one.read_text(encoding="utf-8"), encoding="utf-8")
-            done = subprocess.run([sys.executable, "-m", "deepcompare", "panel", str(traces),
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "panel", str(traces),
                                    "--provider", "p=scripted:none.json"],
                                   cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(done.returncode, 2)

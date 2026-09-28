@@ -29,8 +29,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from deepcompare.reasoning import read_trace  # noqa: E402
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff.reasoning import read_trace  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 
 _TOOLISH = re.compile(r"(exitcode|code output|has successfully executed|execution result|"
                       r"```(?:python|bash|sh)|Traceback|stdout|stderr)", re.I)

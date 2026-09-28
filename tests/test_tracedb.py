@@ -13,8 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory
-from deepcompare.tracedb import TraceDB, family_of
+from agentdiff import Trajectory
+from agentdiff.tracedb import TraceDB, family_of
 
 ROOT = Path(__file__).resolve().parent.parent
 DEMO = ROOT / "demo" / "traces"
@@ -115,7 +115,7 @@ class CliTest(unittest.TestCase):
     def test_import_summary_query_export_and_route_from_the_store(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "traces.sqlite"
-            run = lambda *a: subprocess.run([sys.executable, "-m", "deepcompare", *a], cwd=str(ROOT), capture_output=True, text=True)
+            run = lambda *a: subprocess.run([sys.executable, "-m", "agentdiff", *a], cwd=str(ROOT), capture_output=True, text=True)
             p = run("db", "--db", str(db), "import", str(RUNS), "--source", "demo-runs")
             self.assertEqual(p.returncode, 0, p.stderr)
             self.assertIn("imported 48", p.stdout)
@@ -137,7 +137,7 @@ class CliTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "traces.sqlite"
             payload = json.dumps({"hook_event_name": "PostToolUse", "tool_name": "Read", "tool_input": {"file_path": "a.py"}, "tool_response": "x = 1"})
-            base = [sys.executable, "-m", "deepcompare", "hook", "--traces", tmp, "--task", "t1", "--agent", "cc", "--db", str(db), "--prompt", "read a.py"]
+            base = [sys.executable, "-m", "agentdiff", "hook", "--traces", tmp, "--task", "t1", "--agent", "cc", "--db", str(db), "--prompt", "read a.py"]
             subprocess.run(base, input=payload, capture_output=True, text=True, cwd=str(ROOT), check=True)
             p = subprocess.run(base, input=json.dumps({"hook_event_name": "Stop"}), capture_output=True, text=True, cwd=str(ROOT), check=True)
             out = json.loads(p.stdout.strip().splitlines()[-1])

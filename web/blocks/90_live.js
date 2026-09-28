@@ -1,6 +1,6 @@
 /* AgentDiff — the live client.
  *
- * Only alive when the page was served by `deepcompare watch`, which
+ * Only alive when the page was served by `agentdiff watch`, which
  * injects `live.enabled` into the data. Then it listens to that server's
  * event stream and hands every payload to AgentDiff.load; a badge in the
  * corner says what is running and when the last update landed. A page
@@ -12,7 +12,7 @@
   "use strict";
   var AgentDiff = global.AgentDiff;
   if (!AgentDiff) return;
-  var data = global.DEEPCOMPARE_DATA;
+  var data = global.AGENTDIFF_DATA;
   var live = data && data.live;
   if (!live || live.enabled !== true || typeof global.EventSource !== "function") return;
 

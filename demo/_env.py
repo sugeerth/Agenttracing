@@ -188,7 +188,7 @@ def _read_row(r, rng: random.Random, query: str, evidence: str, got: bool) -> No
 def run_episode(task: dict, behaviour: dict, rng: random.Random, recorder, *,
                 files: Optional[list] = None, plan_tokens: int = 90) -> bool:
     """Play one episode of ``behaviour`` on ``task`` into ``recorder`` (a
-    :class:`deepcompare.record.Recorder`, entered here) and return whether
+    :class:`agentdiff.record.Recorder`, entered here) and return whether
     it succeeded.
 
     ``files`` overrides the order the task's files are read in (a

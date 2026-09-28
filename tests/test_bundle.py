@@ -32,9 +32,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare import bundle  # noqa: E402
-from deepcompare.commands import key as key_cmd  # noqa: E402
-from deepcompare.commands.paths import DEFAULT_TEMPLATE  # noqa: E402
+from agentdiff import bundle  # noqa: E402
+from agentdiff.commands import key as key_cmd  # noqa: E402
+from agentdiff.commands.paths import DEFAULT_TEMPLATE  # noqa: E402
 from tests.helpers_bundle import BATCH, LINEAGE, TRAIN, batch_output, demo_bundle, demo_outputs, full_bundle, parser  # noqa: E402
 
 
@@ -271,7 +271,7 @@ class BuildTest(unittest.TestCase):
 
 class StepTextTest(unittest.TestCase):
     def test_a_step_s_text_is_capped_at_text_cap_and_flagged_with_the_full_length_beside(self):
-        from deepcompare.data import TEXT_CAP
+        from agentdiff.data import TEXT_CAP
         from tests.test_budget import step, trace
         long = "x" * (TEXT_CAP + 7)
         t = trace([step(0, "read", "open", input="short", output=long), step(1, "answer", output="a")])
@@ -410,8 +410,8 @@ class TracesTest(unittest.TestCase):
         self.assertEqual(records[run_key]["reward_basis"], "steps as recorded (null where no reward was recorded)")
         self.assertEqual(records[run_key]["timeline"][1][4], -0.1)
         # the MCP tools and the HTTP routes read the completed records as they are
-        from deepcompare import mcpserver
-        from deepcompare.harness.serve import route
+        from agentdiff import mcpserver
+        from agentdiff.harness.serve import route
         server = mcpserver.Server(b)
         self.assertEqual(server.call("step", {"key": key, "index": 1}), full)
         self.assertTrue(server.call("run", {"key": key})["measurable"])
@@ -552,7 +552,7 @@ class KeyTest(unittest.TestCase):
 
 class CommandTest(unittest.TestCase):
     def test_bundle_prints_the_id_the_table_the_totals_and_the_key(self):
-        from deepcompare.commands import bundle as bundle_cmd
+        from agentdiff.commands import bundle as bundle_cmd
         with tempfile.TemporaryDirectory() as tmp:
             args = parser().parse_args(["bundle", str(batch_output()), "-o", tmp, "--token-cap", "1500"])
             code, out, err = _run(bundle_cmd, args)

@@ -1,5 +1,5 @@
-"""The command layout: ``deepcompare/cli.py`` is the parser and the
-dispatch, every command is a module under ``deepcompare/commands/``
+"""The command layout: ``agentdiff/cli.py`` is the parser and the
+dispatch, every command is a module under ``agentdiff/commands/``
 exposing ``register`` and ``run``, and the load-run-write shape lives
 once in ``commands/_io.py``.
 
@@ -7,7 +7,7 @@ Two kinds of test.  The structural ones pin the surface: the subcommand
 list in ``--help`` order, the ``register``/``run`` contract, the
 ``<name>_cmd`` import alias that keeps a command module from shadowing
 the engine function it is named after.  The end-to-end ones run the real
-commands through ``python -m deepcompare`` — a surface test cannot
+commands through ``python -m agentdiff`` — a surface test cannot
 catch a shadowed name; a run can, and that is exactly the mistake this
 decomposition risks at every step.
 """
@@ -25,10 +25,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from deepcompare import cli  # noqa: E402
-from deepcompare.commands import _io  # noqa: E402
-from deepcompare.commands.paths import DEFAULT_TEMPLATE  # noqa: E402
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff import cli  # noqa: E402
+from agentdiff.commands import _io  # noqa: E402
+from agentdiff.commands.paths import DEFAULT_TEMPLATE  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 
 DEMO = ROOT / "demo" / "traces"
 TRAIN = ROOT / "demo" / "rl" / "train"
@@ -46,7 +46,7 @@ SUBCOMMANDS = [
 
 
 def run_cli(*args, cwd=None):
-    return subprocess.run([sys.executable, "-m", "deepcompare", *args],
+    return subprocess.run([sys.executable, "-m", "agentdiff", *args],
                           cwd=str(cwd or ROOT), capture_output=True, text=True)
 
 
@@ -106,14 +106,14 @@ class TestCommandModules(unittest.TestCase):
         self.assertTrue(callable(cli.main) and callable(cli.build_parser))
 
     def test_cli_is_the_parser_and_the_dispatch_only(self):
-        source = (ROOT / "deepcompare" / "cli.py").read_text(encoding="utf-8")
+        source = (ROOT / "agentdiff" / "cli.py").read_text(encoding="utf-8")
         self.assertNotIn("def _cmd_", source)
         self.assertNotIn("add_parser(", source.split("def build_parser")[0])
         self.assertLess(len(source.splitlines()), 300)
 
     def test_no_command_module_imports_the_harness_at_module_level(self):
         import ast
-        for path in sorted((ROOT / "deepcompare" / "commands").glob("*.py")):
+        for path in sorted((ROOT / "agentdiff" / "commands").glob("*.py")):
             tree = ast.parse(path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
                 if isinstance(node, ast.ImportFrom) and node.module and "harness" in node.module:
@@ -183,8 +183,8 @@ class TestLoadTraces(unittest.TestCase):
 class TestWriteOutputs(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from deepcompare.metrics import aggregate
-        from deepcompare.report import compare
+        from agentdiff.metrics import aggregate
+        from agentdiff.report import compare
         by_task = {}
         for t in _io.load_traces(DEMO):
             by_task.setdefault(t.task.id, {})[t.agent.name] = t
@@ -206,7 +206,7 @@ class TestWriteOutputs(unittest.TestCase):
             self.assertEqual(written["html"].name, "report.html")
             self.assertIsNone(written["fleet"])
             self.assertEqual(json.loads(written["aggregate"].read_text(encoding="utf-8")), self.aggregate)
-            self.assertIn("window.DEEPCOMPARE_DATA", written["html"].read_text(encoding="utf-8"))
+            self.assertIn("window.AGENTDIFF_DATA", written["html"].read_text(encoding="utf-8"))
 
     def test_html_off_skips_the_page(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -238,7 +238,7 @@ class TestWriteOutputs(unittest.TestCase):
 # ---------------------------------------------------------- end to end
 
 class TestEndToEnd(unittest.TestCase):
-    """The real commands through ``python -m deepcompare``: exit 0 and the
+    """The real commands through ``python -m agentdiff``: exit 0 and the
     artifacts on disk.  This is what catches a shadowed name."""
 
     def assert_three_artifacts(self, out: Path):

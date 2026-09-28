@@ -7,10 +7,10 @@ triage engine classifies every recommendation it makes by where the fix
 lives, and of its nineteen categories only four are prompt-shaped —
 eleven name the scaffold, which the loop could not touch at all.
 
-These are the tests for closing that: `deepcompare/scaffold.py` turns the
+These are the tests for closing that: `agentdiff/scaffold.py` turns the
 engine's own findings into hypotheses about the two knobs a harness
 genuinely has — the tool table a run is offered and the settings the loop
-obeys — `deepcompare/planner.py` schedules them as paired experiments
+obeys — `agentdiff/planner.py` schedules them as paired experiments
 beside the prompt ones, and the loop runs the variant under the changed
 scaffold.
 
@@ -38,9 +38,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
-from deepcompare import planner as P  # noqa: E402
-from deepcompare import scaffold as S  # noqa: E402
-from deepcompare.triage import EFFORT  # noqa: E402
+from agentdiff import planner as P  # noqa: E402
+from agentdiff import scaffold as S  # noqa: E402
+from agentdiff.triage import EFFORT  # noqa: E402
 
 
 def _action(category, *, agents=("a",), tasks=("t1",), title="Do the thing", details=()):
@@ -504,7 +504,7 @@ class BudgetKnobTest(unittest.TestCase):
         """The knob vocabulary lives in the trace schema, so a change that
         gets past `apply_change` cannot fail at the moment the run testing
         it is written down. One list, three modules."""
-        from deepcompare.trace import BUDGET_FLAGS, BUDGET_NAMES, budget_value_ok
+        from agentdiff.trace import BUDGET_FLAGS, BUDGET_NAMES, budget_value_ok
 
         self.assertEqual(set(BUDGET_FLAGS) | set(BUDGET_NAMES)
                          | {"max_steps", "max_tool_errors", "max_tool_retries", "parallel_tool_calls"},
@@ -536,7 +536,7 @@ class BudgetKnobTest(unittest.TestCase):
         """The invariant that decides what may become a knob: the loop reads
         its settings from `budget`, so a turned knob is on the trace and
         `harnessevo.fingerprint` reads it back."""
-        from deepcompare.harness import agent as agent_mod
+        from agentdiff.harness import agent as agent_mod
 
         source = Path(agent_mod.__file__).read_text(encoding="utf-8")
         for knob in S.BUDGET_KNOBS:
@@ -679,7 +679,7 @@ class LoopIntegrationTest(unittest.TestCase):
             from helpers_loop import TASKS, factory, tools as loop_tools
         except ImportError:
             self.skipTest("the loop helper is not importable")
-        from deepcompare.harness.loop import Loop
+        from agentdiff.harness.loop import Loop
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "loop"
             loop = Loop(TASKS, {"steady": "steady", "sloppy": "sloppy"}, out_dir=out,
@@ -722,7 +722,7 @@ class LoopIntegrationTest(unittest.TestCase):
             from helpers_loop import TASKS, factory, tools as loop_tools
         except ImportError:
             self.skipTest("the loop helper is not importable")
-        from deepcompare.harness.loop import Loop
+        from agentdiff.harness.loop import Loop
 
         knobs = [
             ("raise_cap:max_tool_errors", {"budget": {"max_tool_errors": 5}}, "max_tool_errors", 5),
@@ -777,9 +777,9 @@ class LoopIntegrationTest(unittest.TestCase):
             from helpers_loop import TASKS, factory, tools as loop_tools
         except ImportError:
             self.skipTest("the loop helper is not importable")
-        from deepcompare.harness.loop import Loop
-        from deepcompare.timing import timeline
-        from deepcompare.trace import Trajectory
+        from agentdiff.harness.loop import Loop
+        from agentdiff.timing import timeline
+        from agentdiff.trace import Trajectory
 
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "loop"

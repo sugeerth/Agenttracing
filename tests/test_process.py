@@ -14,8 +14,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory
-from deepcompare.process import (
+from agentdiff import Trajectory
+from agentdiff.process import (
     analyse,
     compare_process,
     effect_of,

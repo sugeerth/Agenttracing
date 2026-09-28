@@ -15,8 +15,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deepcompare.bench import run_benchmark
-from deepcompare.statistics import (
+from agentdiff.bench import run_benchmark
+from agentdiff.statistics import (
     MIN_PAIRS_TO_DISTINGUISH, clustered_se, paired_inference, sign_test,
 )
 
@@ -106,7 +106,7 @@ class TestIntegration(unittest.TestCase):
     def test_runs_command_prints_paired_inference(self):
         with tempfile.TemporaryDirectory() as tmp:
             proc = subprocess.run(
-                [sys.executable, "-m", "deepcompare", "runs",
+                [sys.executable, "-m", "agentdiff", "runs",
                  str(ROOT / "demo" / "runs" / "traces"), "-o", tmp],
                 cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(proc.returncode, 0, proc.stderr)

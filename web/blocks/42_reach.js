@@ -9,7 +9,7 @@
  *
  * So: one cell per category, grouped by where the fix lives, area equal
  * per category so the picture is the share of the vocabulary each class
- * takes. Colour is the verdict `deepcompare.scaffold.reach()` gave it —
+ * takes. Colour is the verdict `agentdiff.scaffold.reach()` gave it —
  * expressible in a knob, prompt-shaped, an investigation, or the scaffold
  * with nothing here that reaches it. The last of those is the finding, and
  * it is drawn as the only outlined kind so the eye lands on it.

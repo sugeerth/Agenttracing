@@ -14,8 +14,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory
-from deepcompare.joint import MAX_ITER, joint_attribute_model
+from agentdiff import Trajectory
+from agentdiff.joint import MAX_ITER, joint_attribute_model
 
 
 def step(index, stype, name, text="text", quality=None, confidence=None):

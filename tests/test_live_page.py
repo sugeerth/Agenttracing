@@ -54,7 +54,7 @@ class LivePageBuildTest(unittest.TestCase):
     def test_the_page_says_what_it_is(self):
         self.assertIn("shown, never judged", self.page)
         self.assertIn("browser-side", self.page)
-        self.assertIn("deepcompare batch", self.page)
+        self.assertIn("agentdiff batch", self.page)
         self.assertIn("FINAL ANSWER", self.page)
         self.assertIn("tokens (est.)", self.page)
         self.assertIn("prefers-reduced-motion", self.page)

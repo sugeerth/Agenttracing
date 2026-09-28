@@ -1193,7 +1193,7 @@
 </style>
 
 <script>
-window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
+window.AGENTDIFF_DATA = {"reports": [], "aggregate": {}};
 </script>
 
 <!-- Vendored library: d3 v7.9.0 — https://d3js.org — ISC License, Copyright 2010-2023 Mike Bostock -->
@@ -1220,7 +1220,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
     <div class="empty" id="dropzone">
       <h1>No comparison data loaded</h1>
       <p>This page is normally populated by the AgentDiff engine
-        (it injects <code>window.DEEPCOMPARE_DATA</code>).<br>
+        (it injects <code>window.AGENTDIFF_DATA</code>).<br>
         You can also drop an <code>aggregate.json</code> or a single comparison
         report anywhere on this page.</p>
       <button class="pick" id="btn-pick" type="button">Choose a JSON file…</button>
@@ -4866,7 +4866,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       if (get(r, ["a", "agent", "name"]) === agentName2 || get(r, ["b", "agent", "name"]) === agentName2) found = i;
     });
     if (found === null) {
-      showTip("<strong>no spotlight diff for this pair</strong><div class='tip-sub'>run: python -m deepcompare compare " + esc(agentName2) + " &lt;other&gt;</div>",
+      showTip("<strong>no spotlight diff for this pair</strong><div class='tip-sub'>run: python -m agentdiff compare " + esc(agentName2) + " &lt;other&gt;</div>",
         ev.clientX, ev.clientY - 6);
       setTimeout(hideTip, 2200);
       return;
@@ -5025,7 +5025,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
       if (idxs.length) {
         html.push('<button class="pin-cta" id="pin-compare" type="button">Compare these two →</button>');
       } else {
-        html.push('<div class="pin-hint">no precomputed diff — run:<br><code>python -m deepcompare compare ' +
+        html.push('<div class="pin-hint">no precomputed diff — run:<br><code>python -m agentdiff compare ' +
           esc(state.pins[0]) + " " + esc(state.pins[1]) + "</code></div>");
       }
     }
@@ -5420,7 +5420,7 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
   });
 
   /* ---------------- boot ---------------- */
-  state.data = normalize(window.DEEPCOMPARE_DATA) || { reports: [], aggregate: {} };
+  state.data = normalize(window.AGENTDIFF_DATA) || { reports: [], aggregate: {} };
   render();
   applyHash(); /* v8: restore #task=<id> / #view=… permalinks (file:// included) */
 })();

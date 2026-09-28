@@ -8,9 +8,9 @@ import json
 import unittest
 from pathlib import Path
 
-from deepcompare.milestones import compare, evaluate, lost_and_gained
-from deepcompare.report import attach_milestones
-from deepcompare.scorecard import load_golden
+from agentdiff.milestones import compare, evaluate, lost_and_gained
+from agentdiff.report import attach_milestones
+from agentdiff.scorecard import load_golden
 
 ROOT = Path(__file__).resolve().parents[1]
 

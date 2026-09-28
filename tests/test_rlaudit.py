@@ -21,13 +21,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare import Trajectory  # noqa: E402
-from deepcompare.rlaudit import (  # noqa: E402
+from agentdiff import Trajectory  # noqa: E402
+from agentdiff.rlaudit import (  # noqa: E402
     ADV_TOL, BAD_LABELS, DOMINANT_SHARE, GOOD_LABELS, TERMINAL_SHARE, VERSION, critic_calibration,
     discounted_to_go, episodes_from_aggregate, episodes_from_pair, episodes_from_runs, rank_average,
     reward_integrity, rl_audit, spearman,
 )
-from deepcompare.suite import analyse_runs  # noqa: E402
+from agentdiff.suite import analyse_runs  # noqa: E402
 
 RL_TRACES = ROOT / "demo" / "rl" / "traces"
 RL_TRAIN = ROOT / "demo" / "rl" / "train"
@@ -42,7 +42,7 @@ def row(step, reward, *, labels=None, value=None, advantage=None, kind=None, nam
 
 def run(agent, task, run_id, success, rewards, *, values=None, advantages=None, labels=None,
         kinds=None, names=None, seconds=1.0):
-    """A run in the shape :func:`deepcompare.rl.rl_run_from_trace` returns,
+    """A run in the shape :func:`agentdiff.rl.rl_run_from_trace` returns,
     which is what the audit's full-detail adapter reads."""
     rows = []
     for i, r in enumerate(rewards):

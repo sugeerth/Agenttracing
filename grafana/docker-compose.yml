@@ -1,5 +1,5 @@
 # Prometheus + node exporter (textfile collector) + Grafana, provisioned:
-#   python3 -m deepcompare grafana <out_dir | trace.json> -o grafana/out
+#   python3 -m agentdiff grafana <out_dir | trace.json> -o grafana/out
 #   cd grafana && docker compose up
 # then http://localhost:3000 (anonymous viewer; admin / agentdiff to edit)
 # and the AgentDiff folder holds the five dashboards. docs/GRAFANA.md.

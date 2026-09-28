@@ -201,13 +201,13 @@ footer { margin-top: 2.5rem; border-top: 1px solid var(--faint); padding-top: 0.
 <div id="tip"></div>
 
 <script>
-window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
+window.AGENTDIFF_DATA = {"reports": [], "aggregate": {}};
 </script>
 
 <script>
 (function () {
   "use strict";
-  var RAW = window["DEEPCOMPARE_DATA"] || {};
+  var RAW = window["AGENTDIFF_DATA"] || {};
   var REPORTS = (RAW.reports || []).filter(function (r) { return r && r.a && r.b; });
 
   /* ------------------------------------------------------------- helpers */
@@ -734,9 +734,9 @@ window.DEEPCOMPARE_DATA = {"reports": [], "aggregate": {}};
         '<span class="sp"></span><button class="pl" data-act="theme">theme</button></div>' +
         '<div class="rule" style="margin-top:.5rem"></div>';
       el("body").innerHTML = '<div class="empty"><p>No data. This page is a template — the engine injects ' +
-        'reports by rewriting the <code>window.' + 'DEEPCOMPARE_DATA</code> line.</p>' +
+        'reports by rewriting the <code>window.' + 'AGENTDIFF_DATA</code> line.</p>' +
         '<p style="margin-top:.7rem">Generate a populated copy with:<br>' +
-        '<code>python -m deepcompare batch TRACES_DIR -o out/ --template web/trace.html</code></p></div>';
+        '<code>python -m agentdiff batch TRACES_DIR -o out/ --template web/trace.html</code></p></div>';
       return;
     }
     var rep = REPORTS[S.i];

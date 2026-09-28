@@ -1,4 +1,4 @@
-"""Tests for the MAST / TRAIL mapping (deepcompare.taxonomy).
+"""Tests for the MAST / TRAIL mapping (agentdiff.taxonomy).
 
 The module's whole value is that its empty cells are trustworthy, so most of
 what is pinned here is negative: that a mapping never points at a code neither
@@ -17,10 +17,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory, compare
-from deepcompare import taxonomy as tx
-from deepcompare.divergence import _KIND_PRIORITY
-from deepcompare.process import _PATHOLOGIES
+from agentdiff import Trajectory, compare
+from agentdiff import taxonomy as tx
+from agentdiff.divergence import _KIND_PRIORITY
+from agentdiff.process import _PATHOLOGIES
 
 DEMO = Path(__file__).resolve().parent.parent / "demo" / "telemetry" / "traces"
 

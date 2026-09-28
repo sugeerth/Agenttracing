@@ -16,9 +16,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare import coevolve as co  # noqa: E402
-from deepcompare.harness import proposer  # noqa: E402
-from deepcompare.harness.providers import ProviderError, ScriptedProvider  # noqa: E402
+from agentdiff import coevolve as co  # noqa: E402
+from agentdiff.harness import proposer  # noqa: E402
+from agentdiff.harness.providers import ProviderError, ScriptedProvider  # noqa: E402
 
 BRIEF = {"step": "g2→g3", "from": "g2", "to": "g3",
          "features": [{"id": f, "kind": ft.kind, "basis": ft.basis} for f, ft in co.FEATURES.items()]
@@ -110,14 +110,14 @@ class ProposeTest(unittest.TestCase):
 
 class BoundaryTest(unittest.TestCase):
     def test_the_seam_imports_only_the_engine_and_the_providers(self):
-        tree = ast.parse((ROOT / "deepcompare" / "harness" / "proposer.py").read_text(encoding="utf-8"))
+        tree = ast.parse((ROOT / "agentdiff" / "harness" / "proposer.py").read_text(encoding="utf-8"))
         modules = {(node.level, node.module) for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
         self.assertEqual(modules - {(0, "__future__"), (0, "typing")}, {(2, "coevolve"), (1, "providers")})
         self.assertTrue({a.name for node in ast.walk(tree) if isinstance(node, ast.Import) for a in node.names} <= {"json", "re"})
 
     def test_the_engine_and_the_command_never_import_the_seam_at_module_level(self):
         for name in ("coevolve.py", "evolve.py", "commands/coevolve.py"):
-            tree = ast.parse((ROOT / "deepcompare" / name).read_text(encoding="utf-8"))
+            tree = ast.parse((ROOT / "agentdiff" / name).read_text(encoding="utf-8"))
             for node in ast.walk(tree):
                 if isinstance(node, ast.ImportFrom) and node.module and "harness" in node.module:
                     self.assertNotEqual(node.col_offset, 0, f"{name} imports {node.module} at module level")
@@ -128,7 +128,7 @@ class BoundaryTest(unittest.TestCase):
 def _lineage_and_evolution():
     import shutil
     import tempfile
-    from deepcompare import evolve as ev
+    from agentdiff import evolve as ev
     sys.path.insert(0, str(ROOT / "tests"))
     from test_evolve import standard_gens, write_lineage
     tmp = Path(tempfile.mkdtemp(prefix="proposer-"))

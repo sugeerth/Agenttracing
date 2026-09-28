@@ -1,4 +1,4 @@
-"""Tests for the adjudicated diagnosis (deepcompare/diagnosis.py).
+"""Tests for the adjudicated diagnosis (agentdiff/diagnosis.py).
 
 These pin the behaviour that makes diagnosis deeper than attribution:
 competing hypotheses are generated from every signal, corroborating ones
@@ -11,14 +11,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deepcompare.diagnosis import (
+from agentdiff.diagnosis import (
     LEAD_MARGIN,
     check_diagnosis,
     diagnose,
     systemic_diagnosis,
 )
-from deepcompare.report import compare
-from deepcompare.trace import Trajectory
+from agentdiff.report import compare
+from agentdiff.trace import Trajectory
 
 ROOT = Path(__file__).resolve().parent.parent
 PROCESS = ROOT / "demo" / "process" / "traces"

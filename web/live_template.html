@@ -127,7 +127,7 @@ table.align td.a{color:var(--a)} table.align td.b{color:var(--b)}
   <div class="runs" id="runs"><span class="empty">none yet</span></div>
 </section>
 
-<p class="note" id="foot">A run in progress is shown, never judged. The browser diff is the light version; the full story — decisive step, causal account, reconcile, prompt suggestions — comes from the Python engine: save the traces and run <span style="font-family:var(--mono)">deepcompare batch</span>.</p>
+<p class="note" id="foot">A run in progress is shown, never judged. The browser diff is the light version; the full story — decisive step, causal account, reconcile, prompt suggestions — comes from the Python engine: save the traces and run <span style="font-family:var(--mono)">agentdiff batch</span>.</p>
 </div>
 
 <script>
@@ -357,7 +357,7 @@ function renderDiff(){
   var note=document.createElement("p"); note.className="note";
   note.innerHTML=(firstDiv>=0?"<b>First divergence at row "+firstDiv+".</b> ":"<b>No divergence found by this light alignment.</b> ")+
     (A.success!==B.success?"One run solved the task and the other did not; the engine's diagnosis would name the decisive step and how the fault travelled. ":"")+
-    "Alignment here is by step type, tool name and argument overlap; token counts are estimates from text length. Save the traces below and run <span style=\"font-family:var(--mono)\">deepcompare batch</span> for the full story.";
+    "Alignment here is by step type, tool name and argument overlap; token counts are estimates from text length. Save the traces below and run <span style=\"font-family:var(--mono)\">agentdiff batch</span> for the full story.";
   host.appendChild(note);
   var acts=document.createElement("div"); acts.className="actions";
   if(state.downloads){ var b=document.createElement("button"); b.textContent="Save both traces (SCHEMA JSON)"; b.addEventListener("click",saveTraces); acts.appendChild(b); }

@@ -12,10 +12,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deepcompare.report import attach_milestones, compare
-from deepcompare.scorecard import load_golden
-from deepcompare.trace import Trajectory
-from deepcompare.trust import RUBRIC, trust_pair, trust_run
+from agentdiff.report import attach_milestones, compare
+from agentdiff.scorecard import load_golden
+from agentdiff.trace import Trajectory
+from agentdiff.trust import RUBRIC, trust_pair, trust_run
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -256,7 +256,7 @@ class ReportWiringTest(unittest.TestCase):
         golden = ROOT / "demo" / "golden" / "tasks.json"
         policy_file = ROOT / "demo" / "golden" / "policy.json"
         with tempfile.TemporaryDirectory() as tmp:
-            cmd = [sys.executable, "-m", "deepcompare", "batch", str(ROOT / "demo" / "traces"), "-o", tmp, "--golden", str(golden)]
+            cmd = [sys.executable, "-m", "agentdiff", "batch", str(ROOT / "demo" / "traces"), "-o", tmp, "--golden", str(golden)]
             if policy_file.is_file():
                 cmd += ["--policy", str(policy_file)]
             subprocess.run(cmd, cwd=str(ROOT), check=True, capture_output=True)

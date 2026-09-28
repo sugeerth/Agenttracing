@@ -1,6 +1,6 @@
 /* AgentDiff blocks — variance attribution.
  *
- * Four blocks over `deepcompare.variance`, the module that asks where the
+ * Four blocks over `agentdiff.variance`, the module that asks where the
  * variation in an outcome actually comes from: the model underneath, the
  * harness around it, the task being hard, or the run simply coming out
  * differently this time. Those four answers call for four different
@@ -33,7 +33,7 @@
  *     because when model and harness are the same partition of the data
  *     every model-versus-harness number below it is an artefact.
  *
- * `variance.json` is written by `deepcompare variance`, which is a separate
+ * `variance.json` is written by `agentdiff variance`, which is a separate
  * command from the `batch`/`runs` that render this page. So the data is
  * usually absent, and absent means relevance 0 and hidden — not a chart of
  * something else reconstructed from the reports. This module never derives
@@ -117,12 +117,12 @@
 
   /* The decomposition lives in the aggregate when the page was rendered
    * beside one, and on the raw payload when a test page was assembled by
-   * hand. It is written by `deepcompare variance`, which batch and runs do
+   * hand. It is written by `agentdiff variance`, which batch and runs do
    * not invoke, so absent is the normal case and is handled as absence. */
   function payloadOf(ctx) {
     var fromAggregate = obj(ctx && ctx.aggregate && ctx.aggregate.variance);
     if (fromAggregate) return fromAggregate;
-    var raw = obj(global.DEEPCOMPARE_DATA);
+    var raw = obj(global.AGENTDIFF_DATA);
     return raw ? obj(raw.variance) : null;
   }
 
@@ -478,7 +478,7 @@
       var v = payloadOf(ctx);
       if (!v) {
         return ctx.empty(el, "No variance decomposition in this report — it is written " +
-          "by `deepcompare variance`, which batch and runs do not run.");
+          "by `agentdiff variance`, which batch and runs do not run.");
       }
       var plan = designOf(v) || {};
       var entries = metricsOf(v);
@@ -710,7 +710,7 @@
       var v = payloadOf(ctx);
       if (!v) {
         return ctx.empty(el, "No variance decomposition in this report — the bias " +
-          "correction comes with `deepcompare variance`.");
+          "correction comes with `agentdiff variance`.");
       }
       var list = drawable(v);
       if (!list.length) {
@@ -886,7 +886,7 @@
       var plan = designOf(v);
       if (!plan) {
         return ctx.empty(el, "No variance decomposition in this report — the design " +
-          "audit comes with `deepcompare variance`.");
+          "audit comes with `agentdiff variance`.");
       }
       var shape = str(plan.shape);
       var style = SHAPE_STYLE[shape] || { kind: "info", word: shape || "unknown", lead: "" };
@@ -1128,7 +1128,7 @@
       var v = payloadOf(ctx);
       if (!v) {
         return ctx.empty(el, "No variance decomposition in this report — the residual " +
-          "comes with `deepcompare variance`.");
+          "comes with `agentdiff variance`.");
       }
       var list = drawable(v);
       if (!list.length) {

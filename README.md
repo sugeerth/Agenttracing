@@ -71,7 +71,7 @@ agentdiff loop --tasks tasks.json --provider atlas=openai:gpt-4o \
 
 ## Bring your own traces
 
-- **Record as it happens**: `deepcompare.record.Recorder` writes a SCHEMA trace.
+- **Record as it happens**: `agentdiff.record.Recorder` writes a SCHEMA trace.
 - **Convert what you have**: `agentdiff convert --format otel|openai file -o traces/` (`--dry-run` says what it would recover and what it would estimate).
 - **Run an existing agent through the harness**: `agentdiff run --agent …`.
 
@@ -136,8 +136,8 @@ they prove the machinery against known ground truth, they do not claim field acc
 ## Repository layout
 
 ```
-deepcompare/            the engine (no network code) — diagnosis, reasoning, verdict, statistics, …
-deepcompare/harness/    the ONE networked package: providers, tool-loop agent, cassette + hermetic rerun, replay; commands/ holds their CLI
+agentdiff/            the engine (no network code) — diagnosis, reasoning, verdict, statistics, …
+agentdiff/harness/    the ONE networked package: providers, tool-loop agent, cassette + hermetic rerun, replay; commands/ holds their CLI
 web/blocks/             the report page, one block per file; build with web/build_blocks.py
 demo/                   shipped traces (scripted agents), the diagnosis benchmark, the Who&When converter
 docs/                   HOW_IT_WORKS (the eleven views), PRODUCTION (deploying it), TRACING (what a trace should record), ARCHITECTURE, API, DATA, COEVOLVE, EVOLVE, RL, …
@@ -146,7 +146,7 @@ tests/                  2,116 engine tests and 337 browser tests of the page, al
 ## Watch it run
 
 ```bash
-python -m deepcompare watch --demo demo/traces --pace 0.4 --loop   # then open http://127.0.0.1:8765/
+python -m agentdiff watch --demo demo/traces --pace 0.4 --loop   # then open http://127.0.0.1:8765/
 ```
 
 Record with `Recorder(..., stream=True)` (or run the harness with it) and
@@ -163,9 +163,9 @@ trace while Claude Code works; the final trace comes from the session transcript
 
 ```json
 {"hooks": {"PostToolUse": [{"matcher": "", "hooks": [{"type": "command",
-   "command": "python -m deepcompare hook --traces traces --task fix-482 --db traces.sqlite"}]}],
+   "command": "python -m agentdiff hook --traces traces --task fix-482 --db traces.sqlite"}]}],
  "Stop": [{"hooks": [{"type": "command",
-   "command": "python -m deepcompare hook --traces traces --task fix-482 --db traces.sqlite --expected 'field_validator'"}]}]}}
+   "command": "python -m agentdiff hook --traces traces --task fix-482 --db traces.sqlite --expected 'field_validator'"}]}]}}
 ```
 
 Run another coding agent on the same task through the harness (`run --agent
@@ -189,7 +189,7 @@ prompt. *Reward shaping* — the step labels (fault enters, carried, wrong
 answer, dead end, spent after basis, fed the answer) as a process signal
 for an RL environment. A *preference pair* — the passing run, or the
 reconciled splice, against the failing one, in the shape a
-preference-optimisation loader reads. `deepcompare feedback out/ --jsonl
+preference-optimisation loader reads. `agentdiff feedback out/ --jsonl
 pairs.jsonl` writes them for a whole batch; every item is labelled a hypothesis until a replay confirms it.
 ## Research direction
 

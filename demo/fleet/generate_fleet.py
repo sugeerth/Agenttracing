@@ -12,7 +12,7 @@ Run from the repo root:
   skeletons (extracted from the flagship traces) plus archetype-specific
   divergences injected with intensity-scaled frequency and severity, with
   wording varied through seeded phrase banks.
-- Every trace is validated with deepcompare.trace.Trajectory.from_json and
+- Every trace is validated with agentdiff.trace.Trajectory.from_json and
   checked for canonical common-prefix wording before the first divergence.
 
 Deterministic (constant seeds derived from agent/task ids, no wall clock),
@@ -44,7 +44,7 @@ from simulator import TrajectoryBuilder, write_trajectory  # noqa: E402
 import agents as flagship_agents  # noqa: E402  (demo/agents.py)
 from personas import Persona  # noqa: E402
 from roster import ROSTER  # noqa: E402
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 
 TRACES_DIR = _HERE / "traces"
 ROSTER_MD = _HERE / "ROSTER.md"

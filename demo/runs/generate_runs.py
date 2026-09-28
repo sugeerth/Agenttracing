@@ -47,7 +47,7 @@ from simulator import (  # noqa: E402
     write_trajectory,
 )
 import agents as flagship_agents  # noqa: E402  (demo/agents.py)
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 
 TRACES_DIR = _HERE / "traces"
 RUNS_MD = _HERE / "RUNS.md"

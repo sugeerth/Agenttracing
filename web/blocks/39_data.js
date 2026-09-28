@@ -1,5 +1,5 @@
 /* AgentDiff blocks — the Data view: the inputs side of a run and the chain
- * from them to the answer, read from `report.data` (deepcompare/data.py)
+ * from them to the answer, read from `report.data` (agentdiff/data.py)
  * and, for a lineage, `aggregate.data_evolution`.
  *
  *   dt-task        what both agents were told: the task prompt and the

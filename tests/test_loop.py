@@ -15,9 +15,9 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
 from helpers_loop import GROUNDING, TASKS, run_demo_loop  # noqa: E402
-from deepcompare.scorecard import load_golden  # noqa: E402
-from deepcompare.harness.providers import provider_from_spec  # noqa: E402
-from deepcompare.harness.loop import PROMPT_ENV, render_ledger_markdown  # noqa: E402
+from agentdiff.scorecard import load_golden  # noqa: E402
+from agentdiff.harness.providers import provider_from_spec  # noqa: E402
+from agentdiff.harness.loop import PROMPT_ENV, render_ledger_markdown  # noqa: E402
 
 
 class LoopApiTest(unittest.TestCase):
@@ -140,7 +140,7 @@ class LoopCliTest(unittest.TestCase):
             bad = Path(tmp) / "bad.json"
             bad.write_text(json.dumps([{"text": "The refund is $99.00."}]), encoding="utf-8")
             out = Path(tmp) / "loop"
-            proc = subprocess.run([sys.executable, "-m", "deepcompare", "loop", "--tasks", str(self._tasks(tmp)),
+            proc = subprocess.run([sys.executable, "-m", "agentdiff", "loop", "--tasks", str(self._tasks(tmp)),
                                    "--provider", f"good=scripted:{good}", "--provider", f"bad=scripted:{bad}",
                                    "--runs", "2", "--iterations", "3", "-o", str(out),
                                    "--suggest", "bad=Always look the refund up.", "--template", str(ROOT / "web" / "blocks.html")],
@@ -172,7 +172,7 @@ class LoopCliTest(unittest.TestCase):
             good = Path(tmp) / "good.json"
             good.write_text(json.dumps([{"text": "The refund for BK1 is $120.00, for BK2 $45.00, for BK3 $300.00 and for BK4 $12.00."}]), encoding="utf-8")
             out = Path(tmp) / "loop"
-            proc = subprocess.run([sys.executable, "-m", "deepcompare", "loop", "--tasks", str(self._tasks(tmp)),
+            proc = subprocess.run([sys.executable, "-m", "agentdiff", "loop", "--tasks", str(self._tasks(tmp)),
                                    "--provider", f"good=scripted:{good}",
                                    "--agent", f"tool=cmd:{sys.executable} {script} {{prompt_file}} {{out_file}}",
                                    "--runs", "1", "--iterations", "2", "-o", str(out), "--template", str(ROOT / "web" / "blocks.html"),
@@ -190,7 +190,7 @@ class LoopCliTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             good = Path(tmp) / "good.json"
             good.write_text(json.dumps([{"text": "x"}]), encoding="utf-8")
-            proc = subprocess.run([sys.executable, "-m", "deepcompare", "loop", "--tasks", str(self._tasks(tmp)),
+            proc = subprocess.run([sys.executable, "-m", "agentdiff", "loop", "--tasks", str(self._tasks(tmp)),
                                    "--provider", f"good=scripted:{good}", "-o", str(Path(tmp) / "o")],
                                   cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(proc.returncode, 2)

@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare.record import Recorder  # noqa: E402
+from agentdiff.record import Recorder  # noqa: E402
 
 TASK = {"id": "h01_release_report",
         "prompt": "Produce the release report for build 4821: the failing test, the commit that broke it, the fix, and the verified pass count.",

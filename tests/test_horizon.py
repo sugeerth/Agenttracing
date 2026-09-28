@@ -11,12 +11,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare.horizon import blame, delegation_graph, graph_diff, segment  # noqa: E402
-from deepcompare.adapters import from_otel_genai  # noqa: E402
-from deepcompare.reasoning import read_trace  # noqa: E402
-from deepcompare.record import Recorder  # noqa: E402
-from deepcompare.report import compare  # noqa: E402
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff.horizon import blame, delegation_graph, graph_diff, segment  # noqa: E402
+from agentdiff.adapters import from_otel_genai  # noqa: E402
+from agentdiff.reasoning import read_trace  # noqa: E402
+from agentdiff.record import Recorder  # noqa: E402
+from agentdiff.report import compare  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 
 HZ = ROOT / "demo" / "horizon" / "traces"
 

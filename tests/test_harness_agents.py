@@ -22,13 +22,13 @@ ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = ROOT / "tests" / "fixtures" / "agents"
 sys.path.insert(0, str(FIXTURES))
 
-from deepcompare.harness import (  # noqa: E402
+from agentdiff.harness import (  # noqa: E402
     CommandAgent, PythonAgent, ScriptedProvider, Tool, agent_from_spec,
     run_suite, run_task,
 )
-from deepcompare.harness.external import run_external  # noqa: E402
-from deepcompare.report import compare  # noqa: E402
-from deepcompare.trace import Trajectory  # noqa: E402
+from agentdiff.harness.external import run_external  # noqa: E402
+from agentdiff.report import compare  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 
 TASK = {"id": "t_refund", "prompt": "What refund applies to booking BK1?",
         "expected": "$120.00"}
@@ -225,8 +225,8 @@ class TestScaffoldKnobs(unittest.TestCase):
         first. The held call stays a write in the process ledger, so
         `writes_before_any_read` goes on reporting the attempt — two
         different claims, kept apart."""
-        from deepcompare.process import side_effects
-        from deepcompare.trace import Trajectory
+        from agentdiff.process import side_effects
+        from agentdiff.trace import Trajectory
 
         write = Tool("ship", lambda **kw: "shipped", "change state",
                      {"type": "object", "properties": {}}, effect="write")
@@ -300,8 +300,8 @@ class TestScaffoldKnobs(unittest.TestCase):
         step began: a timeline reconstructed by summing durations draws a
         concurrent run and a sequential one identically, so nothing could
         have judged the change."""
-        from deepcompare.timing import timeline
-        from deepcompare.trace import Trajectory
+        from agentdiff.timing import timeline
+        from agentdiff.trace import Trajectory
 
         script = [{"text": "", "tool_calls": [{"name": n, "arguments": {}} for n in ("a", "b", "c")]},
                   {"text": "the refund is $120.00"}]
@@ -342,8 +342,8 @@ class TestScaffoldKnobs(unittest.TestCase):
         """The order of writes is part of what the run did; reordering them
         would be the harness changing the agent's behaviour, not its
         schedule."""
-        from deepcompare.timing import timeline
-        from deepcompare.trace import Trajectory
+        from agentdiff.timing import timeline
+        from agentdiff.trace import Trajectory
 
         read, _ = self._slow_read("a", 0.2)
         write = Tool("ship", lambda **kw: time.sleep(0.2) or "shipped", "change state",
@@ -360,8 +360,8 @@ class TestScaffoldKnobs(unittest.TestCase):
     def test_an_undeclared_effect_is_never_issued_alongside_anything(self):
         """The claim being made is that these calls do not affect one
         another, and an undeclared effect supports no such claim."""
-        from deepcompare.timing import timeline
-        from deepcompare.trace import Trajectory
+        from agentdiff.timing import timeline
+        from agentdiff.trace import Trajectory
 
         read, _ = self._slow_read("a", 0.2)
         plain = Tool("b", lambda **kw: time.sleep(0.2) or "ok", "no declared effect",
@@ -373,8 +373,8 @@ class TestScaffoldKnobs(unittest.TestCase):
         self.assertEqual(timeline(Trajectory.from_dict(trace))["overlap_s"], 0.0)
 
     def test_a_failing_read_in_the_batch_is_recorded_as_the_error_it_was(self):
-        from deepcompare.timing import timeline
-        from deepcompare.trace import Trajectory
+        from agentdiff.timing import timeline
+        from agentdiff.trace import Trajectory
 
         good, _ = self._slow_read("a", 0.15)
         def boom(**kw):
@@ -393,8 +393,8 @@ class TestScaffoldKnobs(unittest.TestCase):
                            "a failing call still ran alongside the others")
 
     def test_a_single_call_and_a_width_under_two_stay_sequential(self):
-        from deepcompare.timing import timeline
-        from deepcompare.trace import Trajectory
+        from agentdiff.timing import timeline
+        from agentdiff.trace import Trajectory
 
         tools = [self._slow_read(n, 0.15)[0] for n in ("a", "b")]
         for budget, why in (({"max_steps": 5, "parallel_tool_calls": 1}, "width 1"),
@@ -409,7 +409,7 @@ class TestScaffoldKnobs(unittest.TestCase):
         """The invariant that decides what may become a knob at all: a
         setting whose effect no trace records could never be judged, so the
         loop reads its settings from `budget` and nowhere else."""
-        from deepcompare import scaffold
+        from agentdiff import scaffold
 
         tool, _ = self._counting_tool()
         budget = {"max_steps": 6, "max_tool_errors": 4, "max_tool_retries": 2, "dedupe_tool_calls": True,
@@ -510,7 +510,7 @@ class TestSuiteAndRuns(unittest.TestCase):
             turns = Path(tmp) / "turns.json"
             turns.write_text(json.dumps([{"text": "The refund for BK1 is $120.00."}]),
                              encoding="utf-8")
-            from deepcompare.harness import provider_from_spec
+            from agentdiff.harness import provider_from_spec
             manifest = run_suite(
                 {"scripted-good": f"scripted:{turns}"}, [TASK], [refund_tool()],
                 out_dir=tmp, runs=2, provider_factory=provider_from_spec,
@@ -527,7 +527,7 @@ class TestSuiteAndRuns(unittest.TestCase):
                 data = json.loads((Path(tmp) / name).read_text(encoding="utf-8"))
                 self.assertEqual(data["trace_id"], name[:-5])
             out = Path(tmp) / "out"
-            proc = subprocess.run([sys.executable, "-m", "deepcompare", "runs", tmp, "-o", str(out)],
+            proc = subprocess.run([sys.executable, "-m", "agentdiff", "runs", tmp, "-o", str(out)],
                                   cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertIn("pass^", proc.stdout)
@@ -538,7 +538,7 @@ class TestSuiteAndRuns(unittest.TestCase):
             tasks.write_text(json.dumps([TASK]), encoding="utf-8")
             env = dict(os.environ, PYTHONPATH=str(FIXTURES))
             proc = subprocess.run(
-                [sys.executable, "-m", "deepcompare", "run", "--tasks", str(tasks),
+                [sys.executable, "-m", "agentdiff", "run", "--tasks", str(tasks),
                  "--agent", "clerk=python:toy_agents:message_agent",
                  "--agent", "guesser=python:toy_agents:trace_agent",
                  "-o", str(Path(tmp) / "traces"), "--temperature", "0.2",
@@ -582,7 +582,7 @@ class TestReplayCommand(unittest.TestCase):
 
     def _replay(self, report_path: Path, turns: str, extra=()):
         proc = subprocess.run(
-            [sys.executable, "-m", "deepcompare", "replay", str(report_path),
+            [sys.executable, "-m", "agentdiff", "replay", str(report_path),
              "--provider", f"echo=scripted:{turns}", "--replays", "3", *extra],
             cwd=str(ROOT), capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
@@ -619,7 +619,7 @@ class TestReplayCommand(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             report_path = self._report(tmp)
-            from deepcompare.report import render_html
+            from agentdiff.report import render_html
             page = report_path.with_suffix(".html")
             render_html([json.loads(report_path.read_text())], {}, ROOT / "web" / "blocks.html", page)
             before = page.read_text(encoding="utf-8")
@@ -649,7 +649,7 @@ class TestWhyCommand(unittest.TestCase):
                                                   "clock times [F1]; it was 93% cheaper."}]),
                              encoding="utf-8")
             proc = subprocess.run(
-                [sys.executable, "-m", "deepcompare", "why", str(report_path),
+                [sys.executable, "-m", "agentdiff", "why", str(report_path),
                  "--provider", f"narrator=scripted:{turns}"],
                 cwd=str(ROOT), capture_output=True, text=True)
             self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -673,7 +673,7 @@ class TestWhyCommand(unittest.TestCase):
             turns = tmp / "empty.json"
             turns.write_text("[]", encoding="utf-8")   # a script with no turns fails
             proc = subprocess.run(
-                [sys.executable, "-m", "deepcompare", "why", str(report_path),
+                [sys.executable, "-m", "agentdiff", "why", str(report_path),
                  "--provider", f"narrator=scripted:{turns}"],
                 cwd=str(ROOT), capture_output=True, text=True)
             self.assertNotEqual(proc.returncode, 0)

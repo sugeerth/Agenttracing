@@ -19,11 +19,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deepcompare import Trajectory, compare
-from deepcompare.claude_code import (
+from agentdiff import Trajectory, compare
+from agentdiff.claude_code import (
     LIVE_SUFFIX, UNGRADED, detect_claude_code, hook_event, transcript_to_trajectory,
 )
-from deepcompare.registry import detect_format, dry_run
+from agentdiff.registry import detect_format, dry_run
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -77,7 +77,7 @@ class TranscriptTest(unittest.TestCase):
         self.assertFalse(traj["outcome"]["success"])
 
     def test_the_registry_detects_the_transcript_shape(self):
-        from deepcompare.claude_code import register_format
+        from agentdiff.claude_code import register_format
         register_format()
         det = detect_format(transcript())
         self.assertEqual(det["best"], "claude-code")
@@ -145,7 +145,7 @@ class HookTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             r = hook_event({"hook_event_name": "Notification"}, traces=tmp, task="t", agent="cc")
             self.assertEqual(r["action"], "ignored")
-            proc = subprocess.run([sys.executable, "-m", "deepcompare", "hook", "--traces", tmp, "--task", "t9", "--agent", "cc"],
+            proc = subprocess.run([sys.executable, "-m", "agentdiff", "hook", "--traces", tmp, "--task", "t9", "--agent", "cc"],
                                   input=json.dumps({"hook_event_name": "PostToolUse", "tool_name": "Grep",
                                                     "tool_input": {"pattern": "x"}, "tool_response": "a.py:1"}),
                                   capture_output=True, text=True, cwd=str(ROOT))

@@ -14,7 +14,7 @@
  *                    calibration curve over it, the residuals as a
  *                    marginal, and the explained variance said in words
  *
- * Both read `aggregate.rl.audit` (deepcompare/rlaudit.py) and fall back to
+ * Both read `aggregate.rl.audit` (agentdiff/rlaudit.py) and fall back to
  * `report.rl.audit` for a single pair. Every number drawn here is one the
  * engine computed and wrote down — nothing is recomputed in the page, so
  * the chart and the finding list cannot drift apart.

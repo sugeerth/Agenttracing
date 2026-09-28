@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from deepcompare.planner import (  # noqa: E402
+from agentdiff.planner import (  # noqa: E402
     TIE_RUNS, add_candidates, apply_decision, decide_prompt, new_state, plan, summarise,
 )
 

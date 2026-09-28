@@ -76,19 +76,19 @@ ADK's ANY_ORDER match with an optional "no other tool" strictness.
 
 ## 3. What we emulate now, as principles (built in this pass)
 
-- **Read the conventions, never guess.** `deepcompare.frameworks.detect` names a framework only from an adapter
+- **Read the conventions, never guess.** `agentdiff.frameworks.detect` names a framework only from an adapter
   or source stamp (high), Claude Code's own tool set (medium alone, high with a stamp), `transfer_to_*`
   handoffs (OpenAI Agents SDK, medium), or an identity field (low); plain tool names never name a framework. It
   lists MCP servers from the `mcp__<server>__<tool>` prefix (the dotted form only when the trace declares the
   tool MCP-backed), counts handoffs and whether the span's agent changed to the target, counts guardrail steps,
   reads permission decisions (an explicit `step.permission.decision` or the step's own text), marks `otel-genai`
   and `a2a` protocols, and returns `None` with the signals it did find otherwise. Never raises.
-- **A domain is a spec, not a prompt.** `deepcompare.domains` carries five specs (coding, research, support,
+- **A domain is a spec, not a prompt.** `agentdiff.domains` carries five specs (coding, research, support,
   data, computer_use): expected tool *families* as name patterns, read-before-write and verify-after-write
   rules, forbidden and external tools, stop rules, milestone templates. `infer` says which domain a run's tools
   point at, with confidence; `apply` completes a golden task from a spec without overriding a key the task
   states; a golden task saying `"domain": "coding"` is completed by `load_golden`, which reports `domains`.
-- **The harness is part of the result.** `python -m deepcompare frameworks <trace|dir>` prints, per trace,
+- **The harness is part of the result.** `python -m agentdiff frameworks <trace|dir>` prints, per trace,
   framework, protocols, MCP servers, handoffs, permission counts and inferred domain — the disclosure
   [arXiv 2605.23950](https://arxiv.org/pdf/2605.23950) asks for, read from the trace rather than claimed.
 
