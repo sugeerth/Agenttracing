@@ -13,10 +13,10 @@ contains no network code; only the harness talks to a model.
 ## Quick start
 
 ```bash
-uvx --from git+https://github.com/sugeerth/Agenttracing agentdiff "Fix the failing test"   # nothing to install
+uvx --from git+https://github.com/sugeerth/Agenttracing agentdiff fix   # nothing to install
 pip install git+https://github.com/sugeerth/Agenttracing   # or in a clone: pip install -e .
-agentdiff "Fix the failing test"        # in your repo: the agents installed, side by side, live,
-                                        # graded by the project's own tests (docs/VENDORS.md)
+agentdiff fix                           # in your repo: two agents make its failing tests pass, live
+agentdiff "Add retries to the client"   # or any task in words, graded by the tests (docs/VENDORS.md)
 agentdiff demo --open                   # the 8 shipped pairs: out_demo/report.html and the verdict card
 agentdiff demo --everything -o out_all  # every view: pairs, training, lineages, a bundle, the key, MCP
 agentdiff explain demo/traces/t05_flight_duration__bolt-v3.json --html run.html

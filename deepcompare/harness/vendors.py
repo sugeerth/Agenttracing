@@ -341,6 +341,45 @@ def _check_env() -> dict:
     return env
 
 
+def run_check(command: Optional[str], workdir: Path, timeout_s: float = 600.0,
+              secrets: Optional[list] = None) -> dict:
+    """The check, run in ``workdir`` with every secret removed from its
+    environment and redacted from its output. ``passed`` is None when there
+    is no check."""
+    check = {"command": command, "exit_code": None, "passed": None, "seconds": None, "output_tail": ""}
+    if not command:
+        return check
+    secrets = _secrets() if secrets is None else secrets
+    c0 = time.monotonic()
+    try:
+        done = subprocess.run(command, shell=True, cwd=str(workdir), capture_output=True,
+                              text=True, timeout=timeout_s, env=_check_env())
+        check.update({"exit_code": done.returncode, "passed": done.returncode == 0,
+                      "output_tail": redact((done.stdout + done.stderr)[-3000:], secrets)})
+    except subprocess.TimeoutExpired:
+        check.update({"exit_code": None, "passed": False, "output_tail": "the check timed out"})
+    check["seconds"] = round(time.monotonic() - c0, 3)
+    return check
+
+
+def baseline_check(task: dict, timeout_s: float = 600.0) -> dict:
+    """The check on an untouched copy of the workspace, before any agent
+    works. A task whose check already passes measures nothing: a pass there
+    is no evidence of work, and the report says so."""
+    tmp = Path(tempfile.mkdtemp(prefix="agentdiff-baseline-"))
+    with _ACTIVE_LOCK:
+        _ACTIVE["dirs"].add(str(tmp))
+    try:
+        work = tmp / "work"
+        shutil.copytree(Path(task["workspace"]).resolve(), work, symlinks=True,
+                        ignore=lambda d, names: [n for n in names if _is_output(Path(d) / n)])
+        return run_check(task.get("check"), work, timeout_s)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+        with _ACTIVE_LOCK:
+            _ACTIVE["dirs"].discard(str(tmp))
+
+
 # --------------------------------------------------------------------- run
 
 def _argv(spec: VendorSpec, binary: str, workdir: Path, isolate: bool,
@@ -531,17 +570,7 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
     diff = diff_snapshots(before, after)
     (out / "diffs" / f"{stem}.patch").write_text(diff["patch"], encoding="utf-8")
 
-    check = {"command": task.get("check"), "exit_code": None, "passed": None, "seconds": None, "output_tail": ""}
-    if task.get("check"):
-        c0 = time.monotonic()
-        try:
-            done = subprocess.run(task["check"], shell=True, cwd=str(workdir), capture_output=True,
-                                  text=True, timeout=check_timeout_s, env=_check_env())
-            check.update({"exit_code": done.returncode, "passed": done.returncode == 0,
-                          "output_tail": redact((done.stdout + done.stderr)[-3000:], secrets)})
-        except subprocess.TimeoutExpired:
-            check.update({"exit_code": None, "passed": False, "output_tail": "the check timed out"})
-        check["seconds"] = round(time.monotonic() - c0, 3)
+    check = run_check(task.get("check"), workdir, check_timeout_s, secrets)
 
     termination = {"timeout": "timeout", "budget": "user_stop", "stream_cap": "user_stop"}.get(stopped_by)
     if termination is None and exit_code not in (0, None) and not events:
@@ -577,6 +606,8 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
         "wall_s": wall, "stderr_tail": stderr_tail,
         "stream": {"bytes": written, "cap": stream_cap, "truncated_lines": truncated_lines},
         "check": check,
+        # the same check before any work, on an untouched copy (None: not run)
+        "baseline": task.get("baseline"),
         "diff": {k: v for k, v in diff.items() if k != "patch"},
         "setup": {"prompt_sha": hashlib.sha256(prompt.encode()).hexdigest()[:16],
                   "workspace_sha": workspace_sha(before), "check": task.get("check"),
@@ -609,12 +640,21 @@ class DuelInterrupted(KeyboardInterrupt):
 
 def run_duel(tasks: list, specs: list, out: Path, *, runs: int = 1, parallel: bool = True,
              on_event: Optional[Callable[[dict], None]] = None,
-             on_done: Optional[Callable[[dict], None]] = None, **kw) -> list:
+             on_done: Optional[Callable[[dict], None]] = None, baseline: bool = True,
+             on_baseline: Optional[Callable[[dict, dict], None]] = None,
+             baselines: Optional[dict] = None, **kw) -> list:
     """Every task, every run, every agent. Agents on one (task, run) are
-    launched together unless ``parallel`` is False."""
+    launched together unless ``parallel`` is False. With ``baseline``, each
+    task's check first runs once on an untouched copy."""
     mark_output(out)
     records: list = []
     for task in tasks:
+        if baseline and task.get("check"):
+            b = (baselines or {}).get(task["id"]) or baseline_check(task, kw.get("check_timeout_s", 600.0))
+            task = {**task, "baseline": {k: b[k] for k in ("passed", "exit_code", "seconds")}
+                    | {"output_tail": b["output_tail"][-1500:]}}
+            if on_baseline:
+                on_baseline(task, b)
         for n in range(1, runs + 1):
             run = f"r{n}"
             started = time.time()

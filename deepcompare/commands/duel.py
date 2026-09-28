@@ -46,6 +46,9 @@ def register(subparsers) -> None:
                         help="shell command run in each agent's workspace after it stops; exit 0 is a pass "
                              "(default with a prompt: the project's test command, detected)")
     parser.add_argument("--no-check", action="store_true", help="record the runs ungraded; detect nothing")
+    parser.add_argument("--no-baseline", action="store_true",
+                        help="skip running the check once before any work (by default it runs, so a task "
+                             "whose check already passes is reported as measuring nothing)")
     parser.add_argument("--id", default="task", help="task id, when there is no --task file")
     parser.add_argument("--agent", action="append", default=None, metavar="[NAME=]VENDOR[:MODEL]",
                         help="twice: a model (opus, sonnet, haiku, claude-..., gpt-..., o3), or codex[:MODEL], "
@@ -383,6 +386,11 @@ def run(args: argparse.Namespace) -> int:
             if line:
                 print(line, flush=True)
 
+    def on_baseline(task, b):
+        state = ("fails, as a task's check should" if b["passed"] is False else
+                 "already passes: a pass after the agents will show nothing")
+        print(f"before any work: `{b['command']}` {state} (exit {b['exit_code']}, {b['seconds']:.1f}s)", flush=True)
+
     def on_done(rec):
         c = rec["check"]
         verdict = "no check" if c["passed"] is None else ("PASS" if c["passed"] else f"FAIL (exit {c['exit_code']})")
@@ -432,6 +440,8 @@ def run(args: argparse.Namespace) -> int:
         pass
     try:
         records = run_duel(tasks, specs, out, runs=args.runs, parallel=not args.sequential,
+                           baseline=not args.no_baseline, on_baseline=on_baseline,
+                           baselines=getattr(args, "baselines", None),
                            live_every=0.25 if args.live else 1.0,
                            stream_cap=int(args.max_stream_mb * 1024 * 1024),
                            on_event=on_event, on_done=on_done, budget_tokens=args.budget_tokens,

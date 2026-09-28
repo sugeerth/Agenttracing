@@ -30,6 +30,7 @@ from typing import Optional
 from .commands import (
     batch as batch_cmd,
     open as open_cmd,
+    fix as fix_cmd,
     bench as bench_cmd,
     bundle as bundle_cmd,
     check as check_cmd,
@@ -120,6 +121,7 @@ COMMANDS = (
     judge_cmd,
     panel_cmd,
     duel_cmd,
+    fix_cmd,
     open_cmd,
     forge_cmd,
     why_cmd,
@@ -166,6 +168,7 @@ def build_parser() -> argparse.ArgumentParser:
 #: what `agentdiff` alone prints: the three ways in, not fifty commands
 START = [
     ('"Fix the failing test"', "run two coding agents on this repo, side by side, and watch live"),
+    ("fix", "no prompt: two agents make this repo's failing tests pass"),
     ("demo --open", "the report, on example traces that ship with it"),
     ("batch traces/ -o out/", "compare two agents' traces you already have"),
 ]

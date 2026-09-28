@@ -275,7 +275,7 @@ The full definition of each object, with the reasoning behind every field, is in
 |---|---|
 | `demo` | one command to the first insight: compares the shipped pairs, writes the report page (three views: Story, Evidence, Batch — `#view=…` in the URL opens one), prints the flagship verdict card |
 | `compare A B [--html]` | one pair: card, diagnosis, reading; the blocks page with `--html` |
-| `"TASK"` · `duel [--task T.json] [--agent MODEL ×2] [--check CMD] [--runs N] [--budget-tokens N]` · `open` | two coding agents on the same task, side by side (with no flags: this directory, its tests, the CLIs installed); `open`: the newest duel's page. Every event traced, each run graded by the check, a parity ledger, the diffs, and the page (`docs/VENDORS.md`) |
+| `fix` · `"TASK"` · `duel [--task T.json] [--agent MODEL ×2] [--check CMD] [--runs N] [--budget-tokens N]` · `open` | two coding agents on the same task, side by side (with no flags: this directory, its tests, the CLIs installed; `fix`: the task is the failing tests); the check runs once before any work (`baseline`); `open`: the newest duel's page. Every event traced, each run graded by the check, a parity ledger, the diffs, and the page (`docs/VENDORS.md`) |
 | `batch DIR -o OUT [--golden F] [--lessons LEDGER]` | a directory of two agents' traces, pairwise by task, with an aggregate and the report page; `--lessons` carries what the corpus taught to the next one |
 | `runs DIR -o OUT` | repeated runs: stability, pass^k with intervals, consolidation, paired inference |
 | `fleet` / `select` / `gate` / `progress` / `experiments` / `variance` / `cohort` / `profile` | N agents, selection, CI gate, before/after, experiments, variance attribution, cohorts, profiles |

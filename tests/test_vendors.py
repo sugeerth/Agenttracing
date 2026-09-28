@@ -724,6 +724,56 @@ class OneCommandTest(unittest.TestCase):
         self.assertIn("npm i -g @anthropic-ai/claude-code", done.stdout)
         self.assertLess(len(done.stdout.splitlines()), 14)
 
+    def _env(self):
+        e = dict(os.environ, OPENAI_API_KEY=KEY_A, ANTHROPIC_API_KEY=KEY_B,
+                 AGENTDIFF_CODEX_BIN=str(FAKES / "fake_codex.py"),
+                 AGENTDIFF_CLAUDE_BIN=str(FAKES / "fake_claude.py"), PYTHONPATH=str(ROOT))
+        e.pop("FAKE_VENDOR_MODE", None)
+        return e
+
+    def test_fix_needs_no_prompt_and_starts_nothing_when_nothing_fails(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            proj = Path(tmp) / "proj"
+            shutil.copytree(ROOT / "demo" / "vendors" / "bugfix", proj)
+            done = subprocess.run([sys.executable, "-m", "deepcompare", "fix"], cwd=str(proj),
+                                  capture_output=True, text=True, env=self._env(), timeout=300)
+            self.assertEqual(done.returncode, 0, done.stderr[-2000:])
+            self.assertIn("fails (exit", done.stdout)
+            records = [json.loads(p.read_text()) for p in (proj / "duel-out" / "records").glob("*.json")]
+            self.assertEqual(len(records), 2)
+            for r in records:
+                self.assertEqual(r["task"], "fix")
+                self.assertIs(r["baseline"]["passed"], False, "the check failed before any work")
+                self.assertTrue(r["check"]["passed"])
+            prompt = json.loads((proj / "duel-out" / records[0]["trace"]).read_text())["task"]["prompt"]
+            self.assertIn("python3 -m", prompt)
+            self.assertIn("Do not edit, skip or delete tests", prompt)
+            self.assertIn("The end of its output", prompt)
+            for f in (FAKES.parent / "vendor_solutions" / "bugfix-pricing").iterdir():
+                shutil.copy(f, proj / f.name)
+            again = subprocess.run([sys.executable, "-m", "deepcompare", "fix", "-o", "second"], cwd=str(proj),
+                                   capture_output=True, text=True, env=self._env(), timeout=300)
+            self.assertEqual(again.returncode, 0, again.stderr[-2000:])
+            self.assertIn("nothing to fix", again.stdout)
+            self.assertFalse((proj / "second").exists(), "no agent started, nothing written")
+
+    def test_a_check_that_already_passes_is_said_to_measure_nothing(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            proj = Path(tmp) / "proj"
+            shutil.copytree(ROOT / "demo" / "vendors" / "bugfix", proj)
+            for f in (FAKES.parent / "vendor_solutions" / "bugfix-pricing").iterdir():
+                shutil.copy(f, proj / f.name)
+            done = subprocess.run([sys.executable, "-m", "deepcompare", "Tidy pricing.py"], cwd=str(proj),
+                                  capture_output=True, text=True, env=self._env(), timeout=300)
+            self.assertEqual(done.returncode, 0, done.stderr[-2000:])
+            self.assertIn("already passes", done.stdout)
+            self.assertIn("a pass there shows nothing", done.stdout)
+            report = json.loads((proj / "duel-out" / "duel.json").read_text())
+            self.assertEqual(report["baseline"]["already_passing"], ["tidy-pricing-py"])
+            self.assertTrue(report["narrative"].startswith("The check already passed before any work"))
+
     def test_a_model_names_its_vendor(self):
         from deepcompare.harness.vendors import parse_spec
         got = {t: (parse_spec(t).kind, parse_spec(t).model, parse_spec(t).agent)

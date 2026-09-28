@@ -5,6 +5,20 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## `agentdiff fix`, and the check before any work
+
+- `agentdiff fix` needs no prompt. It finds the test command, confirms
+  on an untouched copy that it fails, and gives two agents the same
+  task: make it pass without touching the tests, with the failing
+  output's last 40 lines. When the tests pass, it starts nothing. Run
+  for real on the suite's two-file bug (the failing test in one file, its
+  cause in another): Haiku and Sonnet both fixed it without editing the
+  test.
+- Every duel runs its check once before any work (the record's
+  `baseline`). A task whose check already passes measures nothing, and
+  the scoreboard, `DUEL.md` and `duel.json` say so, rather than count
+  its passes as work.
+
 ## Nothing to install, and a scoreboard
 
 - `uvx --from git+https://github.com/sugeerth/Agenttracing agentdiff "…"`

@@ -405,13 +405,25 @@ def duel_report(records: Iterable[dict], band: float = BAND) -> dict:
             })
 
     matched = sum(1 for p in pairs if p["budget_matched"])
+    # the check before any work: a task it already passes measures nothing
+    baselines: dict = {}
+    for r in records:
+        b = r.get("baseline")
+        if isinstance(b, dict) and b.get("passed") is not None:
+            baselines[str(r.get("task"))] = bool(b["passed"])
+    already = sorted(t for t, passed in baselines.items() if passed)
+    narrative = _narrative(agents, per_agent, pairs, matched, band, unequal, tasks)
+    if already:
+        narrative = (f"The check already passed before any work on {', '.join(already)}: a pass there is no "
+                     "evidence the agent did anything. ") + narrative
     return {
         "measurable": True, "agents": agents, "tasks": tasks, "runs": len(records), "band": band,
         "parity": parity, "fair": not unequal, "unequal": [p["what"] for p in unequal],
         "per_agent": per_agent, "pairs": pairs,
         "budget_matched_pairs": matched,
         "profiles": profiles,
-        "narrative": _narrative(agents, per_agent, pairs, matched, band, unequal, tasks),
+        "baseline": {"checked": sorted(baselines), "already_passing": already},
+        "narrative": narrative,
         "caveat": ("Qualitative, not a benchmark: a few tasks and a few runs describe how these two agents "
                    "worked on this work, with the intervals saying how little a pass rate on a small sample "
                    "settles. Every number is read from the vendors' own streams and the harness's check."),
@@ -500,6 +512,9 @@ def scoreboard(report: dict) -> str:
             notes.append(f"{n} said it was done and failed the check in {plural(a['claimed_but_failed'], 'run')}")
         if a.get("touched_tests"):
             notes.append(f"{n} changed test files in {plural(a['touched_tests'], 'run')}")
+    already = (report.get("baseline") or {}).get("already_passing") or []
+    if already:
+        notes.append(f"the check passed before any work on {', '.join(already)}: a pass there shows nothing")
     if report.get("unequal"):
         notes.append("not equal between them: " + ", ".join(report["unequal"]))
     if any(not isinstance((per.get(n) or {}).get("cost_usd"), (int, float)) for n in names):

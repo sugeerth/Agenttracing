@@ -33,6 +33,18 @@ and type `agentdiff "…"`. To choose the two agents, name the models:
 `opus`, `claude-…` run on Claude Code; `gpt-…`, `o3`, `codex-…` on Codex).
 `agentdiff open` reopens the newest duel's page.
 
+With no task in mind, `agentdiff fix` writes it: it finds the test
+command, runs it once on an untouched copy, and, if it fails, gives both
+agents the same task. That task is to make it pass without editing, skipping
+or deleting tests, with the last 40 lines of the failing output to start
+from. If it already passes, there is nothing to fix and no agent starts.
+
+Every duel runs its check once before any work, on an untouched copy,
+and records it as the run's `baseline`. A task whose check already
+passes measures nothing: a pass there is no evidence the agent did
+anything. The terminal, `DUEL.md` and `duel.json` (`baseline.already_passing`)
+all say so. `--no-baseline` skips it.
+
 The terminal ends on a scoreboard, one row per agent (passed, median
 tokens, cost, median time). Below it are only the lines that change how
 the rows read: a difference in passes, a claim of done that failed the
