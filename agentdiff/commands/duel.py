@@ -320,6 +320,10 @@ def _report(out: Path, records: list, band: float, template, quiet: bool) -> int
     (out / "page" / "triage.txt").write_text(buf.getvalue(), encoding="utf-8")
     if code == 0:
         print(f"page: {out / 'page' / 'report.html'}   (agentdiff open reopens it)")
+        winners = sorted({r["agent"] for r in records if (r.get("check") or {}).get("passed") is True})
+        if winners:
+            print("keep a change: " + "  or  ".join(f"agentdiff apply {a}" for a in winners)
+                  + "   (--dry-run shows it first)")
     else:
         print(buf.getvalue()[-2000:])
     return code

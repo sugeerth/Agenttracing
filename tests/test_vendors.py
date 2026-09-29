@@ -814,6 +814,65 @@ class OneCommandTest(unittest.TestCase):
         self.assertNotIn("\n[", text, "no scroll of per-action lines")
         self.assertIn("page: duel-out/page/report.html", text)
 
+    def test_apply_keeps_one_agents_change_and_refuses_what_it_should(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            proj = Path(tmp) / "proj"
+            shutil.copytree(ROOT / "demo" / "vendors" / "bugfix", proj)
+            first = subprocess.run([sys.executable, "-m", "agentdiff", "Fix pricing.py"], cwd=str(proj),
+                                   capture_output=True, text=True, env=self._env(), timeout=300)
+            self.assertEqual(first.returncode, 0, first.stderr[-2000:])
+            self.assertIn("agentdiff apply claude-code  or  agentdiff apply codex", first.stdout)
+
+            def agentdiff(*a):
+                return subprocess.run([sys.executable, "-m", "agentdiff", *a], cwd=str(proj),
+                                      capture_output=True, text=True, env=self._env(), timeout=120)
+            both = agentdiff("apply")
+            self.assertEqual(both.returncode, 2)
+            self.assertIn("both passed", both.stderr)
+            before = (proj / "pricing.py").read_text()
+            dry = agentdiff("apply", "codex", "--dry-run")
+            self.assertEqual(dry.returncode, 0)
+            self.assertIn("+++ b/pricing.py", dry.stdout)
+            self.assertEqual((proj / "pricing.py").read_text(), before, "a dry run writes nothing")
+            done = agentdiff("apply", "codex")
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertIn("applied codex r1", done.stdout)
+            check = subprocess.run([sys.executable, "-m", "unittest", "-q"], cwd=str(proj), capture_output=True)
+            self.assertEqual(check.returncode, 0, "the applied change passes the project's tests")
+            again = agentdiff("apply", "claude-code")
+            self.assertEqual(again.returncode, 2)
+            self.assertIn("has changed since the duel", again.stderr)
+
+    def test_which_run_apply_picks(self):
+        from agentdiff.commands.apply import choose
+
+        def rec(agent, run, passed):
+            return {"task": "t", "agent": agent, "run": run, "check": {"passed": passed}}
+        records = [rec("a", "r1", True), rec("a", "r2", True), rec("b", "r1", False)]
+        got, why = choose(records)
+        self.assertEqual((got["agent"], got["run"]), ("a", "r2"), "the one agent that passed, its latest pass")
+        self.assertIsNone(choose(records, "b")[0], "a run that failed its check needs --force")
+        self.assertEqual(choose(records, "b", force=True)[0]["run"], "r1")
+        self.assertIn("no run passed", choose([rec("a", "r1", False)])[1])
+        self.assertIn("--task", choose(records + [{**rec("a", "r1", True), "task": "u"}])[1])
+
+    def test_a_file_holding_a_credential_is_withheld_not_kept(self):
+        from agentdiff.harness.vendors import keep_after
+        with tempfile.TemporaryDirectory() as tmp:
+            work, dest = Path(tmp) / "w", Path(tmp) / "after"
+            work.mkdir()
+            (work / "ok.py").write_text("x = 1\n")
+            (work / "leak.py").write_text(f"KEY = '{KEY_A}'\n")
+            files = [{"path": "ok.py", "status": "modified"}, {"path": "leak.py", "status": "added"},
+                     {"path": "gone.py", "status": "deleted"}]
+            kept = keep_after(work, files, dest, secrets=[KEY_A])
+            self.assertEqual(kept["withheld"], ["leak.py"])
+            self.assertFalse(kept["complete"], "a run with a withheld file cannot be applied")
+            self.assertEqual(kept["deleted"], ["gone.py"])
+            self.assertTrue((dest / "ok.py").is_file())
+            self.assertFalse((dest / "leak.py").exists())
+
     def test_a_check_that_already_passes_is_said_to_measure_nothing(self):
         import shutil
         with tempfile.TemporaryDirectory() as tmp:

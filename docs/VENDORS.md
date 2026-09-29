@@ -33,6 +33,21 @@ and type `agentdiff "…"`. To choose the two agents, name the models:
 `opus`, `claude-…` run on Claude Code; `gpt-…`, `o3`, `codex-…` on Codex).
 `agentdiff open` reopens the newest duel's page.
 
+A duel leaves each agent's change beside the project, never in it.
+`agentdiff apply sonnet` writes that agent's latest passing run into the
+project, file for file as the agent left it; with only one agent passing,
+`agentdiff apply` picks it. Each run keeps its changed files under
+`after/` for this, binary and large ones included, which a patch does
+not carry. `apply` refuses in three cases:
+
+- the project changed since the duel, so it would overwrite work the
+  duel never saw
+- the run failed its check, unless `--force`
+- a file was not kept; a file holding a credential's value is withheld
+  rather than written anywhere
+
+`--dry-run` prints the patch and writes nothing.
+
 One run each settles little. `agentdiff again 3` adds three runs per
 agent to the newest duel here: the same task, agents and settings (kept
 in its `plan.json`), numbered after the runs already there, with one

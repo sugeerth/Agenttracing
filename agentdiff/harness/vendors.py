@@ -94,6 +94,9 @@ SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cach
 DIFF_BYTES = 256_000
 #: the patch kept per run; the rest is summarised
 PATCH_CAP = 200_000
+#: bytes of an agent's changed files kept per run, so `agentdiff apply` can
+#: write them exactly (binary and large files included, which a patch is not)
+AFTER_CAP = 64 * 1024 * 1024
 LIVE_EVERY_S = 1.0
 #: a run's raw stream is cut at this many bytes: an agent that cats a
 #: gigabyte log must not fill the disk or the harness's memory. The run is
@@ -311,6 +314,37 @@ def diff_snapshots(before: dict, after: dict) -> dict:
     text = "".join(patch)
     return {"files": files, "added": added, "removed": removed, "patch": text[:PATCH_CAP],
             "patch_chars": len(text), "patch_truncated": len(text) > PATCH_CAP}
+
+
+def keep_after(workdir: Path, files: list, dest: Path, secrets: Optional[list] = None) -> dict:
+    """Copy each file the run added or changed, as the agent left it, to
+    ``dest``. ``complete`` is False when any was not kept: over
+    ``AFTER_CAP``, or holding a credential's value, which is withheld rather
+    than written anywhere."""
+    secrets = _secrets() if secrets is None else secrets
+    total, withheld, over = 0, [], []
+    for f in files:
+        if f["status"] == "deleted":
+            continue
+        src = workdir / f["path"]
+        try:
+            data = src.read_bytes()
+        except OSError:
+            over.append(f["path"])
+            continue
+        if any(s and s.encode() in data for s in secrets):
+            withheld.append(f["path"])
+            continue
+        if total + len(data) > AFTER_CAP:
+            over.append(f["path"])
+            continue
+        total += len(data)
+        target = dest / f["path"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    return {"bytes": total, "withheld": withheld, "not_kept": over,
+            "deleted": [f["path"] for f in files if f["status"] == "deleted"],
+            "complete": not withheld and not over}
 
 
 # ------------------------------------------------------------------ secrets
@@ -568,7 +602,9 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
         over_budget = _running_tokens("codex", events, {}) > budget_tokens
     after = snapshot(workdir)
     diff = diff_snapshots(before, after)
-    (out / "diffs" / f"{stem}.patch").write_text(diff["patch"], encoding="utf-8")
+    (out / "diffs" / f"{stem}.patch").write_text(redact(diff["patch"], secrets), encoding="utf-8")
+    kept = keep_after(workdir, diff["files"], out / "after" / stem, secrets)
+    kept["dir"] = f"after/{stem}"
 
     check = run_check(task.get("check"), workdir, check_timeout_s, secrets)
 
@@ -609,6 +645,8 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
         # the same check before any work, on an untouched copy (None: not run)
         "baseline": task.get("baseline"),
         "diff": {k: v for k, v in diff.items() if k != "patch"},
+        # the changed files as the agent left them: what `agentdiff apply` writes
+        "after": kept,
         "setup": {"prompt_sha": hashlib.sha256(prompt.encode()).hexdigest()[:16],
                   "workspace_sha": workspace_sha(before), "check": task.get("check"),
                   "budget_tokens": budget_tokens, "timeout_s": timeout_s,

@@ -5,6 +5,22 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## `agentdiff apply`: keep the change you want
+
+- `agentdiff apply [AGENT]` writes one agent's change into the project:
+  its latest passing run, file for file as the agent left it. When only
+  one agent passed, it picks that one. It refuses when the project
+  changed since the duel, when the run failed its check (unless
+  `--force`), or when a file was not kept whole. `--dry-run` prints the
+  patch.
+- Each run keeps its changed files under `after/` (up to 64 MB).
+  Binary and large files are kept too; a patch carries neither. A file
+  holding a credential's value is withheld, not written.
+- The patch in `diffs/` is now redacted like everything else the harness
+  writes.
+- Every duel ends with the command that keeps each passing agent's
+  change.
+
 ## `agentdiff again`, a status line, and a page that finishes
 
 - `agentdiff again [N]` adds N runs per agent to the newest duel: the
