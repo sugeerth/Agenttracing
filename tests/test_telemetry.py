@@ -62,12 +62,38 @@ class WireTest(unittest.TestCase):
         self.assertEqual(decode(from_text(to_text(encode(v)))).trace_id, v.trace_id)
         self.assertTrue(to_text(encode(v)).startswith("adi1."))
 
-    def test_a_hop_is_one_word_per_field_asked_for(self):
+    def test_a_version_1_hop_is_one_word_per_field_asked_for(self):
         p = Probe(clock=FakeClock(), names=False)
-        empty = len(encode(p.vector))
+        empty = len(encode(p.vector, 1))
         with p.hop("x"):
             pass
-        self.assertEqual(len(encode(p.vector)) - empty, 4 * len(DEFAULT_INSTRUCTIONS))
+        self.assertEqual(len(encode(p.vector, 1)) - empty, 4 * len(DEFAULT_INSTRUCTIONS))
+
+    def test_version_2_is_smaller_and_reads_back_the_same_words(self):
+        import random
+        rng = random.Random(7)
+        p = Probe(max_hops=4000)
+        for i in range(400):
+            tool = rng.choice(["Read", "Grep", "Edit", "Bash", "model"])
+            with p.hop(tool, args="x" * rng.randint(5, 200)) as h:
+                h.output_bytes(rng.randint(0, 4000)).tokens(rng.randint(0, 30000), rng.randint(0, 600))
+        v = p.vector
+        one, two = encode(v, 1), encode(v, 2)
+        self.assertEqual(decode(two).hops, v.hops)
+        self.assertEqual(decode(two).names, v.names)
+        self.assertEqual(decode(one).hops, v.hops, "version 1 stays readable")
+        self.assertLess(len(two) * 4, len(one), "a long run is at least 4x smaller")
+        self.assertLess(len(two) / 400, 10, "under 10 bytes a hop")
+
+    def test_a_version_2_vector_that_lies_about_its_hops_is_refused(self):
+        p = Probe(max_hops=4000)
+        for i in range(200):
+            with p.hop("Read") as h:
+                h.output_bytes(i)
+        good = encode(p.vector)
+        for bad, why in ((good[:-3], "cut short"), (good + b"\x00", "trailing")):
+            with self.subTest(why=why), self.assertRaises(WireError):
+                decode(bad)
 
     def test_what_is_not_a_vector_is_refused(self):
         good = encode(Probe(clock=FakeClock()).vector)
@@ -184,6 +210,31 @@ class ProbeTest(unittest.TestCase):
         for t in threads:
             t.join()
         self.assertEqual(summary(p.text())["hops"], 64)
+
+    def test_reading_the_vector_while_threads_stamp_loses_no_hop(self):
+        # the agent's path takes no lock: hops queue, and a read settles only
+        # the ones that ended, so a hop ending mid-read waits for the next one
+        p = Probe(max_hops=60000)
+        stop = threading.Event()
+
+        def stamp():
+            for _ in range(500):
+                with p.hop("t"):
+                    pass
+
+        def read():
+            while not stop.is_set():
+                p.text()
+        reader = threading.Thread(target=read)
+        reader.start()
+        workers = [threading.Thread(target=stamp) for _ in range(8)]
+        for w in workers:
+            w.start()
+        for w in workers:
+            w.join()
+        stop.set()
+        reader.join()
+        self.assertEqual(summary(p.text())["hops"], 4000)
 
     def test_a_span_marks_a_sub_agents_hops(self):
         p = Probe(clock=FakeClock(), instructions=DEFAULT_INSTRUCTIONS + ("span",))
@@ -338,14 +389,14 @@ class CommandTest(unittest.TestCase):
             enc = self.run_cli("encode", str(out))
             self.assertTrue(enc.stdout.startswith("adi1."))
         # a real run's vector, inline: far longer than a file name may be
-        long = Probe()
-        for i in range(60):
-            with long.hop(f"tool-{i}"):
-                pass
+        long = Probe(max_hops=4000)
+        for i in range(400):          # varied names and sizes: no encoding makes this short
+            with long.hop(f"tool-{i}-{i * 7919 % 104729}", args="a" * (i * 37 % 900)) as hop:
+                hop.output_bytes(i * 104729 % 65536)
         self.assertGreater(len(long.text()), 4096)
         inline = self.run_cli("decode", long.text())
         self.assertEqual(inline.returncode, 0, inline.stderr)
-        self.assertIn("60 hop(s)", inline.stdout)
+        self.assertIn("400 hop(s)", inline.stdout)
         fields = self.run_cli("fields").stdout
         self.assertIn("latency", fields)
         bad = self.run_cli("decode", "adi1.!!!")

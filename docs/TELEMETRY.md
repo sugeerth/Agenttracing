@@ -42,9 +42,8 @@ print(probe.text())        # adi1.…  the whole path, a few hundred characters
 ## Why in-band
 
 - **Light.** Standard library only, nothing to run, no collector. A hop
-  is one 32-bit word per field it records, about 40 bytes with the
-  default fields. A real recorded Claude Code run of 8 steps over 13
-  seconds is a 730-character vector.
+  costs the agent about 1.3 µs and takes about 6 bytes on a long run
+  (see *Performance*).
 - **It goes where the run goes.** The vector crosses a function call,
   an environment variable (`AGENTDIFF_INT`) or an HTTP header
   (`AgentDiff-INT`). A tool three processes away stamps its hop on the
@@ -53,29 +52,61 @@ print(probe.text())        # adi1.…  the whole path, a few hundred characters
   prompt, not the file it read, not what the tool returned. A vector can
   sit in a header or a log line without leaking what the agent saw. Full
   content is the trace `Recorder`'s job; the two meet in the sink.
-- **Open.** Each field is one word, so a reader that does not know a
-  newer field skips its word and reads the rest correctly. A field is
-  added by registering it, and nothing else changes.
+- **Open.** Each field is one self-delimiting value, so a reader that
+  does not know a newer field skips it and reads the rest correctly. A
+  field is added by registering it, and nothing else changes.
 
 ## The vector
 
 Big-endian throughout. Every length is checked on the way in, because a
-sink decodes vectors it did not write.
+sink decodes vectors it did not write. A probe writes version 2; version
+1 (one fixed 32-bit word per field) stays readable.
 
 | part | size | what |
 |---|---|---|
-| magic, version | 3 B | `AD`, 1 |
-| flags | 1 B | `OVERFLOW` (hops were refused at the budget), `CLAMPED` (a value did not fit its word), `NAMES` (a name table follows) |
+| magic, version | 3 B | `AD`, 2 (or 1) |
+| flags | 1 B | `OVERFLOW` (hops were refused at the budget), `CLAMPED` (a value did not fit its word), `DEFLATE` (the hops are compressed), `NAMES` (v1: a name table follows) |
 | instructions | 4 B | bitmap of the fields every hop writes |
 | remaining | 2 B | hops the vector may still take (INT's remaining hop count) |
 | hop count, dropped | 4 B | hops on the vector; hops refused once `remaining` reached 0 |
 | trace id | 8 B | random |
 | t0 | 8 B | the run's start, epoch milliseconds: a hop from another process places itself on the run's clock by it |
 | agent, task | 8 B | name hashes |
-| hops | 4 B × fields × hops | one word per bit set, in bit order |
-| names | optional | `hash → name` for every hash used, each name once |
+| names | 2 B + 5 B and the text per name | `hash → name` for every hash used, each once (v2: before the hops, so a hop can point into it) |
+| hops | varies | one varint per field per hop, in bit order |
+
+In version 2:
+- A name field (tool, node, span) holds 1 plus the name's index in the
+  table, usually 1 byte instead of 4.
+- `start` is the signed delta from the previous hop's start.
+- The whole hop block is deflated when that makes it smaller.
+  Decompression is capped at the size limit and must account for every
+  byte, so a hostile vector cannot expand without bound or hide trailing
+  data.
 
 The text form is `adi1.` followed by unpadded base64url.
+
+## Performance
+
+These are the paired results against the first version, from 15
+interleaved runs. The method is in the changelog.
+
+| | before | now | |
+|---|---|---|---|
+| a hop on the agent's path | 12.0–13.1 µs | 1.26 µs | about 10x faster (9.4x and 10.4x in two paired runs) |
+| bytes per hop, a 400-hop mixed run | 40.3 | 6.0 | 6.7x smaller |
+| bytes per hop, the repo's 34 real traces (about 7 hops each) | 71.8 | 36.6 | 2x smaller |
+
+Short runs gain less because a fixed header and the name table dominate
+them, and no encoding removes those.
+
+Where the speed comes from:
+- The agent's path records a hop as a slotted object on a lock-free
+  queue (`deque` appends are atomic).
+- Encoding to words waits until the vector is read or handed over.
+- Reading settles only the hops that have ended, so a hop finishing
+  mid-read is never lost; a test runs eight stamping threads against a
+  reader.
 
 ## Fields
 
@@ -98,6 +129,7 @@ The text form is `adi1.` followed by unpadded base64url.
 | 12 | span | the sub-agent acting |
 | 13 | wait | ms queued before the call ran (a rate limit) |
 | 14 | cost | millionths of a US dollar |
+| 15 | reward | an RL rollout's step reward, signed, thousandths (`RL_INSTRUCTIONS`; `hop.reward(r)`) |
 
 Ask for more with `Probe(instructions=DEFAULT_INSTRUCTIONS + ("effect", "cost"))`.
 A deployment adds its own:

@@ -23,7 +23,11 @@ __all__ = ["from_trajectory"]
 
 def from_trajectory(traj: dict, *, instructions: Iterable[str] = DEFAULT_INSTRUCTIONS + ("effect", "attempt", "span"),
                     node: str = "trace", registry: Registry = FIELDS) -> Vector:
-    steps = [s for s in traj.get("steps") or [] if s.get("type") != "answer"]
+    # every step, the answer included: in a rollout it is where the outcome's reward is paid
+    steps = list(traj.get("steps") or [])
+    instructions = tuple(instructions)
+    if "reward" not in instructions and any(isinstance(s.get("reward"), (int, float)) for s in traj.get("steps") or []):
+        instructions += ("reward",)       # a rollout keeps its rewards
     names: dict = {}
 
     def h(text: str) -> int:
@@ -48,7 +52,8 @@ def from_trajectory(traj: dict, *, instructions: Iterable[str] = DEFAULT_INSTRUC
                   "bytes_in": size_of(s.get("input")), "bytes_out": size_of(s.get("output")),
                   "tokens_in": tin or 0, "tokens_out": tout or 0, "node": h(node),
                   "effect": s.get("effect"), "attempt": s.get("attempt") or 0,
-                  "span": h(span) if span else 0}
+                  "span": h(span) if span else 0,
+                  "reward": float(s.get("reward") or 0.0)}
         words = []
         for _, f in registry.selected(v.instructions):
             if f is None:

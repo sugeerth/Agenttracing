@@ -38,19 +38,30 @@ def _label(v: Vector, h: int) -> Optional[str]:
 def rows(data: Union[str, bytes, Vector], registry: Registry = FIELDS) -> List[dict]:
     """Every hop as ``{field: value}``, names resolved, in start order."""
     v = read(data)
+    # how each position reads, once: (name, decoder); a name's decoder is the
+    # table, and an unknown bit keeps its word under "unknown"
+    plan = []
+    for bit, f in registry.selected(v.instructions):
+        if f is None:
+            plan.append((bit, None))
+        elif f.name in ("tool", "node", "span"):
+            plan.append((f.name, "name"))
+        else:
+            plan.append((f.name, f.decode))
+    names = v.names
     out = []
-    selected = registry.selected(v.instructions)
     for i, words in enumerate(v.hops):
         row: dict = {"hop": i}
-        for (bit, f), word in zip(selected, words):
-            if f is None:
-                row.setdefault("unknown", {})[bit] = word
-            elif f.name in ("tool", "node", "span"):
-                row[f.name] = _label(v, word)
+        for (key, how), word in zip(plan, words):
+            if how is None:
+                row.setdefault("unknown", {})[key] = word
+            elif how == "name":
+                row[key] = (names.get(word) or f"#{word:08x}") if word else None
             else:
-                row[f.name] = f.decode(word)
+                row[key] = how(word)
         out.append(row)
-    return sorted(out, key=lambda r: (r.get("start") or 0.0, r["hop"]))
+    out.sort(key=lambda r: (r.get("start") or 0.0, r["hop"]))
+    return out
 
 
 def summary(data: Union[str, bytes, Vector], registry: Registry = FIELDS) -> dict:
@@ -79,7 +90,10 @@ def to_trajectory(data: Union[str, bytes, Vector], *, prompt: str = "", success:
     rs = rows(v, registry)
     has = {f.name for _, f in registry.selected(v.instructions) if f}
     steps, tin, tout, cost = [], 0, 0, 0.0
-    for r in rs:
+    # an answer hop (a rollout's last step, where the outcome's reward is
+    # paid) becomes the trace's one answer step, keeping its reward
+    answer_hops = [r for r in rs if r.get("kind") == "answer"]
+    for r in (r for r in rs if r.get("kind") != "answer"):
         step = {"index": len(steps), "type": r.get("kind") if r.get("kind") in STEP_TYPES else "tool_call",
                 "name": r.get("tool") or "tool", "input": "", "output": "",
                 "tokens": int((r.get("tokens_in") or 0) + (r.get("tokens_out") or 0)),
@@ -96,6 +110,8 @@ def to_trajectory(data: Union[str, bytes, Vector], *, prompt: str = "", success:
             step["attempt"] = int(r["attempt"])
         if r.get("span"):
             step["span"] = {"id": r["span"], "agent": r["span"]}
+        if "reward" in has:
+            step["reward"] = float(r.get("reward") or 0.0)
         notes = []
         if r.get("status") not in (None, "ok"):
             notes.append(str(r["status"]))
@@ -111,8 +127,17 @@ def to_trajectory(data: Union[str, bytes, Vector], *, prompt: str = "", success:
         cost += float(r.get("cost") or 0.0)
         steps.append(step)
     ends = [s.get("started_s", 0.0) + s["latency_s"] for s in steps]
-    steps.append({"index": len(steps), "type": "answer", "name": "answer", "input": "", "output": answer,
-                  "tokens": 0, "latency_s": 0.0, "note": None})
+    final = {"index": len(steps), "type": "answer", "name": "answer", "input": "", "output": answer,
+             "tokens": 0, "latency_s": 0.0, "note": None}
+    if answer_hops:
+        last = answer_hops[-1]
+        final["latency_s"] = float(last.get("latency") or 0.0)
+        if "start" in has:
+            final["started_s"] = float(last.get("start") or 0.0)
+        if "reward" in has:
+            final["reward"] = float(sum(r.get("reward") or 0.0 for r in answer_hops))
+        ends.append(final.get("started_s", 0.0) + final["latency_s"])
+    steps.append(final)
     info = summary(v, registry)
     outcome_note = None if success is not None else "the outcome was not reported to the sink"
     traj = {

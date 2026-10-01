@@ -19,7 +19,8 @@ from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 from ..trace import EFFECTS, STEP_TYPES
 
-__all__ = ["Field", "Registry", "FIELDS", "WORD_MAX", "KINDS", "STATUSES", "DEFAULT_INSTRUCTIONS"]
+__all__ = ["Field", "Registry", "FIELDS", "WORD_MAX", "KINDS", "STATUSES", "DEFAULT_INSTRUCTIONS",
+           "RL_INSTRUCTIONS"]
 
 #: every field is one unsigned 32-bit word
 WORD_MAX = 0xFFFFFFFF
@@ -120,6 +121,10 @@ def _name(code: int, table: tuple) -> object:
     return table[code] if 0 <= code < len(table) else f"code {code}"
 
 
+#: a reward is signed and a word is not: offset binary, 0 at the middle of the word
+_REWARD_ZERO = 1 << 31
+
+
 def _scaled(factor: float) -> Callable[[object], int]:
     return lambda v: round(float(v or 0) * factor)
 
@@ -155,9 +160,16 @@ for _f in (
           _scaled(1000), lambda w: w / 1000),
     Field(14, "cost", "what the hop cost, in millionths of a US dollar", _scaled(1_000_000),
           lambda w: w / 1_000_000),
+    Field(15, "reward", "the environment's reward for this step (an RL rollout), signed, in thousandths; "
+                        "a vector that asks for it gets one from every hop, 0 when none was paid",
+          lambda v: round(float(v or 0.0) * 1000) + _REWARD_ZERO, lambda w: (w - _REWARD_ZERO) / 1000),
 ):
     FIELDS.register(_f)
 del _f
+
+#: what an RL environment's probe asks for: the defaults and the reward
+RL_INSTRUCTIONS: Tuple[str, ...] = ("tool", "start", "latency", "status", "kind", "bytes_in", "bytes_out",
+                                    "tokens_in", "tokens_out", "node", "reward")
 
 #: what a probe asks every hop for unless told otherwise
 DEFAULT_INSTRUCTIONS: Tuple[str, ...] = ("tool", "start", "latency", "status", "kind", "bytes_in", "bytes_out",

@@ -30,11 +30,12 @@ import platform
 import secrets
 import threading
 import time
+from collections import deque
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Iterator, List, Optional, Protocol
 
-from .fields import DEFAULT_INSTRUCTIONS, FIELDS, Registry, STATUSES
+from .fields import DEFAULT_INSTRUCTIONS, FIELDS, WORD_MAX, Registry, STATUSES
 from .wire import CLAMPED, OVERFLOW, Vector, WireError, decode, encode, from_text, name_hash, to_text
 
 __all__ = ["Probe", "NullProbe", "Hop", "Handoff", "Clock", "SystemClock", "size_of", "DEFAULT_MAX_HOPS"]
@@ -49,17 +50,17 @@ class Clock(Protocol):
 
 
 class SystemClock:
-    def monotonic(self) -> float:
-        return time.monotonic()
-
-    def wall(self) -> float:
-        return time.time()
+    monotonic = staticmethod(time.monotonic)
+    wall = staticmethod(time.time)
 
 
 def size_of(value: Any) -> int:
     """Bytes a value takes as text: what a hop records instead of the value."""
     if value is None:
         return 0
+    if type(value) is str:
+        # most arguments are ASCII, whose length is its size in bytes
+        return len(value) if value.isascii() else len(value.encode("utf-8"))
     if isinstance(value, (bytes, bytearray, memoryview)):
         return len(value)
     if isinstance(value, str):
@@ -86,47 +87,100 @@ def _default_node() -> str:
 
 
 class Hop:
-    """One call in flight. Values set on it are written when it ends."""
+    """One call in flight, and its own context manager.
 
-    def __init__(self, probe: "Probe", tool: str, kind: str, values: dict) -> None:
+    Its values are slots, set as the call goes, and the hop itself is what
+    the probe keeps when it ends; turning it into words waits until the
+    vector is read. The agent's path pays for two clock reads and an
+    append. A field a deployment registered goes in ``extra``.
+    """
+
+    __slots__ = ("_probe", "tool", "kind", "status", "start", "latency", "bytes_in", "bytes_out",
+                 "tokens_in", "tokens_out", "extra", "_t")
+
+    def __init__(self, probe: "Probe", tool: str, kind: str, bytes_in: int, extra: Optional[dict]) -> None:
         self._probe = probe
         self.tool = tool
-        self.values = {"kind": kind, "status": "ok", **values}
-        self._t = probe._clock.monotonic()
-        self.values["start"] = probe._offset(self._t)
+        self.kind = kind
+        self.status = "ok"
+        self.bytes_in = bytes_in
+        self.bytes_out = self.tokens_in = self.tokens_out = 0
+        self.extra = extra
+        self.latency = 0.0
+        self._t = t = probe._now()
+        self.start = probe._base + t
+
+    def __enter__(self) -> "Hop":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        probe = self._probe
+        self.latency = probe._now() - self._t
+        if exc_type is not None:
+            self.status = ("cancelled" if issubclass(exc_type, KeyboardInterrupt) else
+                           "timeout" if issubclass(exc_type, TimeoutError) else "error")
+        probe._pending.append(self)
+        return False
+
+    @property
+    def values(self) -> dict:
+        """Everything this hop will write, by field name."""
+        out = {"tool": self.tool, "kind": self.kind, "status": self.status, "start": self.start,
+               "latency": max(0.0, self.latency), "bytes_in": self.bytes_in, "bytes_out": self.bytes_out,
+               "tokens_in": self.tokens_in, "tokens_out": self.tokens_out}
+        if self.extra:
+            out.update(self.extra)
+        return out
 
     def result(self, value: Any) -> "Hop":
-        return self.output_bytes(size_of(value))
+        self.bytes_out = size_of(value)
+        return self
 
     def output_bytes(self, n: int) -> "Hop":
         """The result's size when the hop counted it itself (a stream)."""
-        self.values["bytes_out"] = int(n)
+        self.bytes_out = int(n)
         return self
 
     def tokens(self, prompt: int = 0, completion: int = 0) -> "Hop":
-        self.values["tokens_in"] = int(prompt or 0)
-        self.values["tokens_out"] = int(completion or 0)
+        self.tokens_in = int(prompt or 0)
+        self.tokens_out = int(completion or 0)
         return self
 
     def cost(self, usd: float) -> "Hop":
-        self.values["cost"] = float(usd or 0.0)
-        return self
+        return self._extra("cost", float(usd or 0.0))
+
+    def reward(self, value: float) -> "Hop":
+        """The environment's reward for this step (an RL rollout)."""
+        return self._extra("reward", float(value))
 
     def fail(self, status: str = "error") -> "Hop":
         if status not in STATUSES:
             raise ValueError(f"status {status!r} is not one of {', '.join(STATUSES)}")
-        self.values["status"] = status
+        self.status = status
         return self
 
     def set(self, field: str, value: Any) -> "Hop":
         """Any registered field by name: the way to fill a field a deployment added."""
         self._probe.registry.get(field)
-        self.values[field] = value
+        if field in _SLOTTED:
+            setattr(self, field, value)
+            return self
+        return self._extra(field, value)
+
+    def _extra(self, field: str, value: Any) -> "Hop":
+        if self.extra is None:
+            self.extra = {}
+        self.extra[field] = value
         return self
 
-    def _finish(self) -> None:
-        self.values["latency"] = max(0.0, self._probe._clock.monotonic() - self._t)
-        self._probe._append(self.tool, self.values)
+
+#: the fields a hop keeps as slots; any other goes in its ``extra``
+_SLOTTED = frozenset(("tool", "kind", "status", "start", "latency", "bytes_in", "bytes_out", "tokens_in",
+                      "tokens_out"))
+
+
+#: fields whose value is a name, carried as its hash
+_NAMED = ("tool", "node", "span")
 
 
 class Probe:
@@ -141,20 +195,31 @@ class Probe:
         self._lock = threading.Lock()
         self._names = names
         self._spans: List[str] = []
+        self._hashes: dict = {}
+        #: hops ended and not yet encoded; a deque, whose append and popleft
+        #: are each atomic, so the agent's threads never take a lock
+        self._pending: deque = deque()
         fresh = vector is None
         if fresh:
             if not 0 < max_hops <= 0xFFFF:
                 raise ValueError("max_hops must be between 1 and 65535")
             vector = Vector(trace_id=secrets.token_bytes(8), instructions=registry.bitmap(instructions),
                             t0=int(self._clock.wall() * 1000), remaining=max_hops)
-        self.vector = vector
+        self._vector = vector
+        #: the clock's reading, bound once: a hop reads it twice
+        self._now = self._clock.monotonic
         if fresh:
             vector.agent, vector.task = self._name(agent), self._name(task)
+        # the encoding plan, once: each word's (field name, encoder); None for a
+        # bit this registry does not know, whose word is written as 0
+        self._plan = [(f.name, f.encode) if f else None for _, f in registry.selected(vector.instructions)]
         self.node = node or _default_node()
         self._node = self._name(self.node)
         # this process's monotonic clock, pinned to the run's start
         self._mono0 = self._clock.monotonic()
         self._lead = self._clock.wall() - vector.t0 / 1000
+        #: a reading of this process's clock, plus this, is seconds since the run began
+        self._base = self._lead - self._mono0
 
     # ---------------------------------------------------------- continuing
     @classmethod
@@ -163,9 +228,17 @@ class Probe:
         """Continue a vector another process started (from its text form)."""
         return cls(vector=decode(from_text(text)), node=node, clock=clock, registry=registry, names=names)
 
+    @property
+    def vector(self) -> Vector:
+        """The vector, every hop recorded so far encoded into it."""
+        with self._lock:
+            self._settle()
+            return self._vector
+
     def text(self) -> str:
         with self._lock:
-            return to_text(encode(self.vector))
+            self._settle()
+            return to_text(encode(self._vector))
 
     def flush(self) -> None:
         """Send the vector back to whoever handed it over (a carrier sets this)."""
@@ -178,45 +251,36 @@ class Probe:
             return 0
         other = decode(from_text(text))
         with self._lock:
-            if other.trace_id != self.vector.trace_id:
+            self._settle()
+            v = self._vector
+            if other.trace_id != v.trace_id:
                 raise WireError("that vector belongs to another run")
-            if other.instructions != self.vector.instructions:
+            if other.instructions != v.instructions:
                 raise WireError("that vector asks for other fields")
             new = other.hops[handoff.base:]
-            self.vector.hops.extend(new)
-            self.vector.remaining = max(0, self.vector.remaining - len(new))
-            self.vector.dropped += max(0, other.dropped - handoff.dropped)
-            self.vector.flags |= other.flags
-            self.vector.names.update(other.names)
+            v.hops.extend(new)
+            v.remaining = max(0, v.remaining - len(new))
+            v.dropped += max(0, other.dropped - handoff.dropped)
+            v.flags |= other.flags
+            v.names.update(other.names)
         return len(new)
 
     def handover(self) -> Handoff:
         """The vector to give a callee, marked with where its hops will start."""
         with self._lock:
-            return Handoff(to_text(encode(self.vector)), len(self.vector.hops), self.vector.dropped)
+            self._settle()
+            v = self._vector
+            return Handoff(to_text(encode(v)), len(v.hops), v.dropped)
 
     # ------------------------------------------------------------- stamping
-    @contextmanager
     def hop(self, tool: str, *, kind: str = "tool_call", args: Any = None, effect: Optional[str] = None,
-            attempt: Optional[int] = None, wait: Optional[float] = None) -> Iterator[Hop]:
-        values: dict = {"bytes_in": size_of(args)}
-        if effect is not None:
-            values["effect"] = effect
-        if attempt is not None:
-            values["attempt"] = attempt
-        if wait is not None:
-            values["wait"] = wait
-        if self._spans:
-            values["span"] = self._spans[-1]
-        hop = Hop(self, tool, kind, values)
-        try:
-            yield hop
-        except BaseException as exc:
-            hop.values["status"] = "cancelled" if isinstance(exc, KeyboardInterrupt) else (
-                "timeout" if isinstance(exc, TimeoutError) else "error")
-            raise
-        finally:
-            hop._finish()
+            attempt: Optional[int] = None, wait: Optional[float] = None) -> Hop:
+        """A hop for one call: ``with probe.hop("search") as hop: ...``."""
+        extra = None
+        if effect is not None or attempt is not None or wait is not None or self._spans:
+            extra = {k: v for k, v in (("effect", effect), ("attempt", attempt), ("wait", wait),
+                                       ("span", self._spans[-1] if self._spans else None)) if v is not None}
+        return Hop(self, tool, kind, size_of(args) if args is not None else 0, extra)
 
     def tool(self, fn: Optional[Callable] = None, *, name: Optional[str] = None, kind: str = "tool_call",
              effect: Optional[str] = None) -> Callable:
@@ -244,38 +308,64 @@ class Probe:
 
     # ------------------------------------------------------------ internals
     def _name(self, text: str) -> int:
-        h = name_hash(text)
-        if self._names:
-            self.vector.names[h] = text
+        h = self._hashes.get(text)
+        if h is None:
+            h = self._hashes[text] = name_hash(text)
+            if self._names:
+                self._vector.names[h] = text
         return h
 
     def _offset(self, t: float) -> float:
         return self._lead + (t - self._mono0)
 
-    def _append(self, tool: str, values: dict) -> None:
-        values = dict(values, tool=tool, node=self.node)
-        with self._lock:
-            v = self.vector
-            if v.remaining <= 0:
-                v.dropped += 1
-                v.flags |= OVERFLOW
-                return
+
+    def _settle(self) -> None:
+        """Encode the hops recorded since the vector was last read (lock held)."""
+        if not self._pending:
+            return
+        v, plan, name, node = self._vector, self._plan, self._name, self._node
+        clamped = False
+        hops = v.hops
+        # take exactly the hops that have ended so far: one ending meanwhile
+        # stays queued for the next read, never lost
+        queue = self._pending
+        pending = [queue.popleft() for _ in range(len(queue))]
+        # the hop budget: what does not fit is refused, and the vector says so
+        room = max(0, v.remaining)
+        if len(pending) > room:
+            v.dropped += len(pending) - room
+            v.flags |= OVERFLOW
+            pending = pending[:room]
+        v.remaining -= len(pending)
+        for hop in pending:
+            tool, extra = hop.tool, hop.extra
             words = []
-            for bit, f in self.registry.selected(v.instructions):
-                if f is None:
-                    words.append(0)
+            add = words.append
+            for step in plan:
+                if step is None:
+                    add(0)
                     continue
-                raw = values.get(f.name)
-                if f.name in ("tool", "node", "span") and isinstance(raw, str):
-                    raw = name_hash(raw)
-                    if self._names:
-                        v.names[raw] = values[f.name]
-                word, clamped = f.word(raw)
-                if clamped:
-                    v.flags |= CLAMPED
-                words.append(word)
-            v.hops.append(words)
-            v.remaining -= 1
+                fname, encode = step
+                if fname == "tool":
+                    add(name(tool))
+                elif fname == "node":
+                    add(node)
+                else:
+                    raw = getattr(hop, fname) if fname in _SLOTTED else (extra.get(fname) if extra else None)
+                    if fname == "latency" and raw < 0:
+                        raw = 0.0
+                    if raw.__class__ is str and fname in _NAMED:
+                        add(name(raw))
+                        continue
+                    w = int(encode(raw))
+                    if w > WORD_MAX:
+                        w, clamped = WORD_MAX, True
+                    elif w < 0:
+                        w, clamped = 0, True
+                    add(w)
+            hops.append(words)
+        if clamped:
+            v.flags |= CLAMPED
 
 
 class NullProbe:
@@ -284,10 +374,10 @@ class NullProbe:
 
     vector = None
     registry = FIELDS
+    node = ""
 
-    @contextmanager
-    def hop(self, tool: str, **_: Any) -> Iterator["_NullHop"]:
-        yield _NullHop()
+    def hop(self, tool: str, **_: Any) -> "_NullHop":
+        return _NullHop()
 
     def tool(self, fn: Optional[Callable] = None, **_: Any) -> Callable:
         return fn if fn is not None else (lambda f: f)
@@ -310,7 +400,18 @@ class NullProbe:
 
 
 class _NullHop:
+    __slots__ = ()
+
+    def __enter__(self) -> "_NullHop":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
+
     def result(self, value: Any) -> "_NullHop":
+        return self
+
+    def reward(self, value: float) -> "_NullHop":
         return self
 
     def output_bytes(self, n: int) -> "_NullHop":

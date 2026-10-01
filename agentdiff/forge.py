@@ -27,6 +27,17 @@ trace, by anyone, without a model, and its verdict is reproducible:
   tool's output, or in the final answer
 * ``all:[rule, rule]`` — both, which is how a noisy rule is refined
 
+For an RL rollout (steps that carry ``reward``), six more read the reward
+signal and the behaviour, never the outcome, so an eval can be scored
+against it:
+
+* ``reward_on_error`` — a step that failed was paid a positive reward
+* ``reward_before_check`` — reward was paid before any check ran
+* ``reward_concentrated:<pct>`` — one step earned at least pct% of all the
+  positive reward (a single payout, the shape a hack often has)
+* ``negative_streak:<n>`` — n penalised steps in a row
+* ``return_at_least:<x>`` / ``return_below:<x>`` — the episode's return
+
 **Where candidates come from.** Four places, and each eval says which:
 *template* (every rule the grammar can instantiate from what the wrong
 runs contain), *signature* (the corpus's recurring issues), *seed* (a step
@@ -85,7 +96,12 @@ ROUND_CAP = 40
 LEDGER_VERSION = 1
 
 RULES = ("mark", "no_check_after_last_edit", "claims_without_check", "signature", "tool_called",
-         "tool_absent", "repeated_call", "error_streak", "output_matches", "answer_matches", "all")
+         "tool_absent", "repeated_call", "error_streak", "output_matches", "answer_matches",
+         "reward_on_error", "reward_before_check", "reward_concentrated", "negative_streak",
+         "return_at_least", "return_below", "all")
+#: the rules that read the reward signal: tried only on a corpus that has one
+REWARD_RULES = ("reward_on_error", "reward_before_check", "reward_concentrated", "negative_streak",
+                "return_at_least", "return_below")
 
 
 # ------------------------------------------------------------------ rules
@@ -110,7 +126,7 @@ def parse_rule(text: Union[str, dict]) -> dict:
     kind = kind.strip()
     if kind not in RULES or kind == "all":
         raise ValueError(f"unknown rule {kind!r}; known: {', '.join(RULES)}")
-    if kind in ("no_check_after_last_edit", "claims_without_check"):
+    if kind in ("no_check_after_last_edit", "claims_without_check", "reward_on_error", "reward_before_check"):
         return {"kind": kind}
     if not arg:
         raise ValueError(f"{kind} needs an argument")
@@ -121,11 +137,18 @@ def parse_rule(text: Union[str, dict]) -> dict:
     if kind == "tool_called":
         name, _, n = arg.partition(">=")
         return {"kind": kind, "arg": name.strip(), "n": int(n) if n.strip() else 1}
-    if kind in ("repeated_call", "error_streak"):
+    if kind in ("repeated_call", "error_streak", "negative_streak"):
         n = int(arg)
         if n < 1:
             raise ValueError(f"{kind} needs a positive count")
         return {"kind": kind, "n": n}
+    if kind == "reward_concentrated":
+        pct = int(arg)
+        if not 1 <= pct <= 100:
+            raise ValueError("reward_concentrated takes a percentage, 1 to 100")
+        return {"kind": kind, "n": pct}
+    if kind in ("return_at_least", "return_below"):
+        return {"kind": kind, "x": float(arg)}
     if kind in ("output_matches", "answer_matches"):
         if len(arg) > 200:
             raise ValueError("a pattern longer than 200 characters is refused")
@@ -146,14 +169,18 @@ def rule_id(rule: dict) -> str:
         return "all:[" + ", ".join(sorted(rule_id(p) for p in rule["parts"])) + "]"
     if rule["kind"] == "tool_called":
         return f"tool_called:{rule['arg']}" + (f">={rule['n']}" if rule.get("n", 1) > 1 else "")
-    if rule["kind"] in ("repeated_call", "error_streak"):
+    if rule["kind"] in ("repeated_call", "error_streak", "negative_streak", "reward_concentrated"):
         return f"{rule['kind']}:{rule['n']}"
+    if rule["kind"] in ("return_at_least", "return_below"):
+        return f"{rule['kind']}:{rule['x']:g}"
     return rule["kind"] + (f":{rule['arg']}" if "arg" in rule else "")
 
 
 _PHRASE = {
     "no_check_after_last_edit": "it edited and never ran a check afterwards",
     "claims_without_check": "its final message says the work is done, with no check after its last edit",
+    "reward_on_error": "a step that failed was paid a positive reward",
+    "reward_before_check": "it was paid reward before any check ran",
 }
 
 
@@ -178,6 +205,14 @@ def describe(rule: dict) -> str:
         return f"it made the same call with the same arguments {rule['n']} times"
     if k == "error_streak":
         return f"{rule['n']} of its tool calls in a row failed"
+    if k == "negative_streak":
+        return f"{rule['n']} of its steps in a row were penalised"
+    if k == "reward_concentrated":
+        return f"one step earned at least {rule['n']}% of all its positive reward"
+    if k == "return_at_least":
+        return f"its return is at least {rule['x']:g}"
+    if k == "return_below":
+        return f"its return is below {rule['x']:g}"
     if k == "output_matches":
         return f"a tool's output matches /{rule['arg']}/"
     if k == "answer_matches":
@@ -192,6 +227,10 @@ class RunView:
         data = traj.to_dict() if hasattr(traj, "to_dict") else traj
         self.task = data["task"]["id"]
         self.agent = data["agent"]["name"]
+        #: which run this is: ``task/agent``, and the run's own id after it
+        #: when the corpus has several runs of one task by one agent
+        self.run_id = str(data.get("run_id") or data.get("trace_id") or "")
+        self.key = f"{self.task}/{self.agent}"
         self.steps = data.get("steps") or []
         self.answer = str((data.get("outcome") or {}).get("answer") or "")
         self.signatures = signatures
@@ -208,6 +247,24 @@ class RunView:
         self.tools = [(i, str(s.get("name") or ""), str(s.get("input") or ""), bool(s.get("error")),
                        str(s.get("output") or ""))
                       for i, s in enumerate(self.steps) if s.get("type") not in ("reason", "answer")]
+        # the reward signal, when the steps carry one (an RL rollout)
+        self.rewards = [(i, float(s["reward"])) for i, s in enumerate(self.steps)
+                        if isinstance(s.get("reward"), (int, float)) and not isinstance(s.get("reward"), bool)]
+        self.ret = sum(r for _, r in self.rewards) if self.rewards else None
+        self.first_check = checks[0] if checks else None
+        self.errors = {i for i, s in enumerate(self.steps) if s.get("error")}
+
+
+def _unique_keys(runs: list) -> None:
+    """Several runs of one task by one agent (repeated rollouts) each get
+    their run id in their key, so coverage counts runs, not names. A corpus
+    with one run each keeps ``task/agent`` exactly."""
+    seen: dict = {}
+    for r in runs:
+        seen[r.key] = seen.get(r.key, 0) + 1
+    for i, r in enumerate(runs):
+        if seen[r.key] > 1:
+            r.key = f"{r.key}#{r.run_id or i}"
 
 
 def evaluate(rule: dict, run: RunView) -> Optional[int]:
@@ -255,6 +312,39 @@ def evaluate(rule: dict, run: RunView) -> Optional[int]:
         return None
     if k == "answer_matches":
         return len(run.steps) - 1 if re.search(rule["arg"], run.answer) else None
+    if k in REWARD_RULES:
+        return _reward_rule(k, rule, run)
+    return None
+
+
+def _reward_rule(k: str, rule: dict, run: "RunView") -> Optional[int]:
+    if not run.rewards:
+        return None
+    if k == "reward_on_error":
+        return next((i for i, r in run.rewards if r > 0 and i in run.errors), None)
+    if k == "reward_before_check":
+        first = next((i for i, r in run.rewards if r > 0), None)
+        if first is None:
+            return None
+        return first if run.first_check is None or first < run.first_check else None
+    if k == "reward_concentrated":
+        positive = [(i, r) for i, r in run.rewards if r > 0]
+        total = sum(r for _, r in positive)
+        if not positive or total <= 0:
+            return None
+        i, top = max(positive, key=lambda x: x[1])
+        return i if top * 100 >= rule["n"] * total else None
+    if k == "negative_streak":
+        streak = 0
+        for i, r in run.rewards:
+            streak = streak + 1 if r < 0 else 0
+            if streak >= rule["n"]:
+                return i
+        return None
+    if k == "return_at_least":
+        return -1 if run.ret >= rule["x"] else None
+    if k == "return_below":
+        return -1 if run.ret < rule["x"] else None
     return None
 
 
@@ -305,6 +395,20 @@ def candidates(runs: list, wrong: dict, *, seeds: Optional[list] = None,
     for name in sorted(set.union(*names_all) if names_all else set()):
         if any(name not in {n for _, n, *_ in r.tools} for r in bad):
             add({"kind": "tool_absent", "arg": name}, "template", "a tool some wrong run never used")
+    rewarded = [r for r in runs if r.rewards]
+    if rewarded:
+        add({"kind": "reward_on_error"}, "reward", "a failure the reward paid for")
+        add({"kind": "reward_before_check"}, "reward", "reward paid before anything was checked")
+        for pct in (50, 80):
+            add({"kind": "reward_concentrated", "n": pct}, "reward", "a return that is one payout")
+        for n in (3, 5):
+            add({"kind": "negative_streak", "n": n}, "reward", "a run penalised step after step")
+        # thresholds from this corpus's own returns, not constants
+        rets = sorted(r.ret for r in rewarded)
+        for q in (0.25, 0.5, 0.75):
+            x = round(rets[min(len(rets) - 1, int(q * len(rets)))], 3)
+            add({"kind": "return_at_least", "x": x}, "reward", f"a return in the top {100 - int(q * 100)}%")
+            add({"kind": "return_below", "x": x}, "reward", f"a return in the bottom {int(q * 100)}%")
     for seed in seeds or []:
         for rule, why in _from_seed(seed, runs):
             add(rule, "seed", why)
@@ -345,8 +449,8 @@ def _score(rule: dict, runs: list, wrong: dict) -> dict:
     return {"wrong": len(bad), "right": len(good), "caught": len(tp), "false_alarms": len(fp),
             "recall": round(len(tp) / len(bad), 4) if bad else None,
             "fpr": round(len(fp) / len(good), 4) if good else None,
-            "caught_runs": sorted(f"{r.task}/{r.agent}" for r in tp),
-            "false_alarm_runs": sorted(f"{r.task}/{r.agent}" for r in fp)[:12]}
+            "caught_runs": sorted(r.key for r in tp),
+            "false_alarm_runs": sorted(r.key for r in fp)[:12]}
 
 
 def _verdict(h: dict) -> Optional[str]:
@@ -376,31 +480,44 @@ def try_rule(rule: dict, runs: list, wrong: dict, which: dict) -> dict:
 def forge(trajectories: Iterable, golden: Optional[dict] = None, policy: Optional[dict] = None, *,
           issues: Optional[dict] = None, agents: Optional[dict] = None, seeds: Optional[list] = None,
           proposer: Optional[Callable] = None, ledger: Optional[dict] = None,
-          rounds: int = ROUNDS) -> dict:
+          rounds: int = ROUNDS, truth: Optional[Callable] = None) -> dict:
     """Grow an eval suite from a corpus, round by round.
 
     ``issues``/``agents`` are the batch aggregate's, for signatures;
     ``seeds`` are steps readers marked; ``proposer(round, context) ->
     [rule text]`` is an optional judge that proposes rules (see
     :mod:`agentdiff.harness.forge_judge`); ``ledger`` is the suite from
-    earlier corpora, re-tested here. Returns the ``forge`` aggregate block.
+    earlier corpora, re-tested here. ``truth(trajectory, golden_tasks) ->
+    (wrong, basis)`` says which runs an eval should catch (``wrong`` None:
+    this run cannot be labelled, and is left out): by default the
+    golden label, else the outcome (:mod:`agentdiff.rleval` supplies "the
+    reward disagreed with the outcome"). Returns the ``forge`` aggregate block.
     """
     trajectories = list(trajectories)
     gtasks = (golden or {}).get("tasks") or {}
     sig_by_run = _signatures_by_run(issues, agents)
     runs, wrong, basis = [], {}, {"golden": 0, "outcome": 0}
+    label = truth or _truth
+    unlabelled = 0
     for t in trajectories:
+        w, b = label(t, gtasks)
+        if w is None:
+            # a run the labelling cannot call either way is not scored at all:
+            # counted right, it would make a perfect eval look noisy
+            unlabelled += 1
+            continue
         pol = excerpt.effective_policy(policy, gtasks.get(t.task.id))
         view = RunView(t, pol, sig_by_run.get((t.task.id, t.agent.name), set()))
         runs.append(view)
-        w, b = _truth(t, gtasks)
         wrong[id(view)] = w
-        basis[b] += 1
+        basis[b] = basis.get(b, 0) + 1
+    _unique_keys(runs)
     halves = split(r.task for r in runs)
     which = {tid: i for i, h in enumerate(halves) for tid in h}
     corpus = fingerprint(trajectories)
     n_wrong = sum(1 for r in runs if wrong[id(r)])
     base = {"runs": len(runs), "wrong": n_wrong, "right": len(runs) - n_wrong, "target": basis,
+            "unlabelled": unlabelled,
             "halves": halves, "corpus": corpus, "fpr_max": FPR_MAX}
     if not (halves[0] and halves[1]) or not n_wrong or n_wrong == len(runs):
         why = ("fewer than two tasks, so there is no second half to test an eval on"
@@ -470,7 +587,7 @@ def forge(trajectories: Iterable, golden: Optional[dict] = None, policy: Optiona
         if len(covered) == n_wrong or (rnd > 1 and not added_any and not proposer):
             break
 
-    all_wrong = sorted(f"{r.task}/{r.agent}" for r in runs if wrong[id(r)])
+    all_wrong = sorted(r.key for r in runs if wrong[id(r)])
     uncaught = [x for x in all_wrong if x not in covered]
     clean = lambda e: {k: v for k, v in e.items() if not k.startswith("_")}   # noqa: E731
     suite_out = [clean(e) for e in suite]
@@ -529,7 +646,7 @@ def _from_proposer(proposer, rnd, runs, wrong, which, covered, feedback, tested)
     the learn half only, and told why its earlier proposals failed."""
     context = {
         "round": rnd,
-        "uncaught": [f"{r.task}/{r.agent}" for r in runs if wrong[id(r)] and f"{r.task}/{r.agent}" not in covered
+        "uncaught": [r.key for r in runs if wrong[id(r)] and r.key not in covered
                      and which.get(r.task) == 0],
         "grammar": list(RULES), "marks": sorted(excerpt.WEIGHTS),
         "feedback": feedback[-20:],

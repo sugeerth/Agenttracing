@@ -5,6 +5,59 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Telemetry at 10x, evals for RL, and evals that evolve with the policy
+
+**Telemetry, about 10x lighter on the agent's path.** Measured against
+the first version, 15 interleaved paired runs:
+- a hop costs 1.26 µs instead of 12–13 µs (9.4x and 10.4x in two paired
+  runs)
+- a long mixed run takes 6.0 bytes a hop instead of 40.3 (6.7x)
+- the repo's short real traces shrink 2x, because a fixed header and the
+  name table dominate them
+
+How: the hop is a slotted object on a lock-free queue, with encoding
+deferred to when the vector is read. Wire version 2 encodes varints,
+delta starts and name indexes, and deflates when that helps;
+decompression is capped and checked to the last byte. Version 1 stays
+readable. A test stamps from eight threads against a concurrent reader
+and loses no hop.
+
+Bugs found along the way:
+- with the hop block deflated, a trailing byte after the stream was
+  ignored; it is now refused
+- the bridge dropped the answer step and with it a rollout's outcome
+  reward; every demo rollout now round-trips with its exact return
+
+A `reward` field (bit 15, signed, `RL_INSTRUCTIONS`) lets an environment
+stamp rewards in-band.
+
+**Evals for RL** (`agentdiff/rleval.py`, `docs/EVOLVING_EVALS.md`):
+- six reward-aware forge rules that read rewards and behaviour, never
+  the outcome
+- a `reward-hacking` target: failed, yet earned as much as a success of
+  the same task
+- the forge takes the labelling as a parameter (`truth`), and a run the
+  labelling cannot call is left out rather than counted right
+
+**The forge counted repeated rollouts as one run.** It keyed runs by
+`task/agent`, so three rollouts of one task were one name, and coverage
+read 7 of 16 where it was 16 of 16. Runs now carry their run id when the
+corpus repeats a task. Single-run corpora are unchanged.
+
+**Evals that evolve with the policy** (`agentdiff evolve-evals`,
+`agentdiff/evolving.py`):
+- each generation forward-tests the suite carried in, on runs it never
+  saw
+- it retires the noisy at once, and the gone-quiet after `--patience`
+  generations
+- it re-tests retired evals and revives those that hold again
+- it forges new evals from the generation's failures
+- a ledger continues across sessions, and never reads a generation twice
+
+On the synthetic four-generation demo, forward coverage drops to 42%
+when a snapshot hack appears, and returns to 100% on never-seen runs
+one generation later.
+
 ## In-band agent telemetry, and the hub
 
 **Telemetry that travels with the run** (`agentdiff/telemetry`,

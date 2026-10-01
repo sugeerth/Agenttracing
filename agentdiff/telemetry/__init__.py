@@ -23,14 +23,14 @@ a function call, an environment variable or an HTTP header.
 
 from .bridge import from_trajectory
 from .carriers import ENV_RETURN, ENV_VECTOR, HEADER, attach, inbound, outbound, reply, subprocess_env
-from .fields import DEFAULT_INSTRUCTIONS, FIELDS, Field, Registry
+from .fields import DEFAULT_INSTRUCTIONS, FIELDS, RL_INSTRUCTIONS, Field, Registry
 from .probe import Handoff, Hop, NullProbe, Probe, size_of
 from .sink import read, rows, summary, to_trajectory
 from .wire import Vector, WireError, decode, encode, from_text, to_text
 
 __all__ = [
     "Probe", "NullProbe", "Hop", "Handoff", "size_of",
-    "Field", "Registry", "FIELDS", "DEFAULT_INSTRUCTIONS",
+    "Field", "Registry", "FIELDS", "DEFAULT_INSTRUCTIONS", "RL_INSTRUCTIONS",
     "Vector", "WireError", "encode", "decode", "to_text", "from_text",
     "subprocess_env", "attach", "outbound", "inbound", "reply", "ENV_VECTOR", "ENV_RETURN", "HEADER",
     "read", "rows", "summary", "to_trajectory", "from_trajectory",
