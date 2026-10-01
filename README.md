@@ -19,7 +19,7 @@ agentdiff fix                           # in your repo: two agents make its fail
 agentdiff "Add retries to the client"   # or any task in words, graded by the tests (docs/VENDORS.md)
 agentdiff demo --open                   # the 8 shipped pairs: out_demo/report.html and the verdict card
 agentdiff demo --everything -o out_all  # every view: pairs, training, lineages, a bundle, the key, MCP
-agentdiff explain demo/traces/t05_flight_duration__bolt-v3.json --html run.html
+agentdiff hub                           # every run here, signed in (demo/demo), plus in-band telemetry (docs/HUB.md)
 ```
 
 The card the demo prints, every line quoting a section of the report:

@@ -5,6 +5,44 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## In-band agent telemetry, and the hub
+
+**Telemetry that travels with the run** (`agentdiff/telemetry`,
+`docs/TELEMETRY.md`). In-band network telemetry has each switch append
+its state to the packet; here each tool call, sub-agent, process and
+service stamps a fixed-size record onto one byte vector that rides the
+run:
+- a 38-byte header carries an instruction bitmap
+- each hop writes one 32-bit word per field asked for, so a reader skips
+  the words of fields it does not know
+- names travel once, in a table
+
+The vector crosses a function call, a subprocess (`AGENTDIFF_INT`, with
+a return directory so callees sharing one hand-off lose nothing) or an
+HTTP header (`AgentDiff-INT`). `agentdiff telemetry wrap -- CMD` makes
+any command a hop, with no code changed. It carries sizes, never
+content. The hop budget and word width are limits it states (`OVERFLOW`,
+`CLAMPED`) rather than hides. The sink reads it back as rows, or as a
+SCHEMA trace every command reads. The bridge compacts any trace to a
+vector: a recorded Claude Code run of 8 steps is 730 characters.
+
+**The hub** (`agentdiff hub`, `docs/HUB.md`): one process, no database,
+behind a sign-in. It lists every duel, report and posted run under a
+directory, and shows a duel's scoreboard and a telemetry run's timeline,
+one lane per process.
+- Sign-in: salted PBKDF2 hashes, `HttpOnly; SameSite=Strict` sessions,
+  form tokens, and a login throttle.
+- The demo account (`demo`/`demo`) exists on this machine only, unless
+  `--demo` says otherwise. Every setting has one default and comes in
+  layers: file, environment, flags.
+- Agents post vectors with an ingest token.
+- A run's own report is served in a CSP sandbox, so nothing in a trace
+  acts as the signed-in user.
+
+The platform is the app as a function (request in, response out, no
+sockets), with its collaborators passed in; `harness/hub_server.py` is
+the only part that listens.
+
 ## `agentdiff apply`: keep the change you want
 
 - `agentdiff apply [AGENT]` writes one agent's change into the project:
