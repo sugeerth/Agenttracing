@@ -161,7 +161,7 @@ def _summary(basis, rounds, checks, failed, passed_at, repeated, longest, stuck)
         return "No steps to go round."
     unit = "check" if basis == "checks" else "turn"
     parts = [f"{len(rounds)} lap(s), each closed by a {unit}" if basis == "checks"
-             else f"{len(rounds)} lap(s), one per model turn (the run never checked its work)"]
+             else f"{len(rounds)} lap(s), one per model turn (no step ran a test suite, lint or check)"]
     if basis == "checks":
         if passed_at:
             parts.append(f"the first passing check closed lap {passed_at}"

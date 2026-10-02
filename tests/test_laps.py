@@ -58,7 +58,7 @@ class LapsTest(unittest.TestCase):
                  {"type": "answer", "name": "answer"}]
         r = laps({"steps": steps})
         self.assertEqual((r["basis"], r["count"]), ("turns", 2))
-        self.assertIn("never checked", r["summary"])
+        self.assertIn("no step ran a test suite", r["summary"])
 
     def test_check_outcomes_are_read_from_what_the_check_said(self):
         self.assertTrue(is_check({"type": "tool_call", "name": "run_tests"}))

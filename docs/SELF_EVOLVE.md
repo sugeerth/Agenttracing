@@ -11,6 +11,8 @@ something else.
 python3 demo/selfevolve/make_tasks.py                       # three tasks, graders held out
 agentdiff self-evolve --task demo/selfevolve/tasks.json --agent haiku -o evo/
 agentdiff self-evolve --task demo/selfevolve/tasks.json --agent haiku -o evo/   # again: continues
+agentdiff fix --evolve 3                                    # in your repo: its failing tests, the same loop
+agentdiff apply --dir evo/g1-h1                             # keep a change the evolved harness made
 agentdiff hub                                               # /evolve draws it, /live follows it
 ```
 
@@ -36,6 +38,17 @@ agentdiff hub                                               # /evolve draws it, 
    the evals meet what the harness produced. An eval whose failure the
    harness fixed catches nothing and is retired. A failure the change
    provoked becomes a new eval, and the next round acts on it.
+
+**Evals born by intervention.** A kept change gives evidence no
+correlation can: preventing what a rule flags raised the pass rate on the
+same tasks. So the rule that motivated a kept change joins the eval suite
+(`source: intervention`, with the counts in its reason), even when the
+forge could not adopt it from a few tasks. From then on it is an eval
+like any other. It is forward-tested on every later generation, and when
+the harness has fixed its failure it catches nothing and retires, its
+reason naming the harness version that prevents it. That closes the loop:
+the evals tell the harness what to change, and the harness's changes tell
+the evals what to keep.
 
 It stops when every run passes, when no eval names a change the harness
 can make, or after `--generations`. The ledger (`evo/ledger.json`)
@@ -81,6 +94,40 @@ share of runs that passed under the harness as it was and with the
 change, the verdict, and the evals born and retired. The run's page has
 every candidate weighed, the eval river, and every trace by arm. With
 `--hub URL`, every run streams to a hub as it goes.
+
+## Real runs
+
+These are real runs of Claude Code (haiku) on this machine, reported as
+they came out.
+
+| tasks | runs | result | what the harness did |
+|---|---|---|---|
+| 3, tests in the workspace | 6 | 6 passed | nothing to fix: converged at g0 |
+| the same 3, graders held out | 6 | 6 passed | converged at g0 |
+| 6, graders held out (`demo/selfevolve`) | 12, $0.51 | 10 passed; `semver` failed both runs | stopped without a change, which is the right call |
+
+The `semver` failures were about what the code does: both runs accepted
+versions SemVer forbids (`1.0.0-a_b`, `01.0.0`). Haiku read, edited and
+tested in the same way in its passing and failing runs, so no eval and
+no rule over how the runs worked could tell them apart. The harness said
+so and changed nothing. It does not reach for the grader's output: the
+held-out tests' failure text in an instruction would be teaching to the
+test.
+
+What was checked for real:
+- **Both knobs reach the CLI.** The run records the CLI's argv with
+  `--append-system-prompt` and `--disallowedTools WebFetch`, and an
+  appended system prompt changes Claude Code's reply. In an agentic run
+  haiku did not follow one probe instruction ("when finished, run echo
+  …"), which is why every change is tested paired, not trusted.
+- **The whole chain.** `fix --evolve` on the pricing bug: the agent
+  passed at g0, `apply --dir` wrote its change, and the tests pass.
+
+The decision path (an eval names a failure, a change is tested, kept,
+its rule born into the suite, retired when fixed) is exercised end to
+end through the same CLI plumbing by `tests/test_selfevolve.py`, with
+the Claude Code stand-in in `careless` mode: it skips the check unless
+the harness tells it to run one.
 
 ## What stays honest
 

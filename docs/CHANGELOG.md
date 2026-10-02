@@ -5,6 +5,52 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## A harness that evolves with its evals; the hub's traces, loops and live runs
+
+**The self-evolving harness** (`agentdiff self-evolve`, `docs/SELF_EVOLVE.md`).
+Real agents (Claude Code, Codex CLI) run under a harness this command
+controls. Each generation:
+- the evolving eval suite meets the runs first
+- the eval that caught the most failures names one change
+  (`selfevolve.REMEDIES`: an instruction, a denied tool, a turn cap)
+- the changed harness runs the same tasks against the current one
+- the change is kept only when it wins more tasks than it loses and
+  breaks none, and a reverted change is never tried again
+
+A kept harness's runs are what the evals meet next. The rule behind a
+kept change joins the suite, born by intervention. It retires once the
+harness has fixed its failure, its reason naming the harness version
+that did. Every trace records the harness it ran under
+(`harness.evolved`). A check that points outside the workspace (a
+held-out grader) is never named to the agent. `demo/selfevolve/` holds
+six tasks whose graders are held out.
+
+**The hub, formalised** (`docs/HUB.md`):
+- **Traces:** every trace under the root, read as the agent's loop
+  (`agentdiff/laps.py`): laps closed by checks, repeats at call level, a
+  flow ring whose cycles are the loops, and every step escaped.
+- **Live:** a poller and the ingest endpoint publish to one bus. Server-sent
+  events say what changed and never its content. A live page loads the
+  hub's one static script, under a policy that allows only that file and
+  this hub.
+- **Evolve, Evals, Account:** the harness river per lineage, the eval river
+  per suite, and a password change that ends every other session.
+- **Remote streaming:** `agentdiff telemetry stream`, `duel --hub` and
+  `self-evolve --hub` post a trace directory as it grows, one trace id per
+  run.
+
+`agentdiff fix --evolve N` puts a repo's failing tests through the same
+loop, and `apply --dir` keeps a change from any arm. Real runs (haiku,
+reported as they came): 6 of 6 and 6 of 6 passed on two easier task sets,
+so it converged with no change. On six held-out tasks, 10 of 12 passed,
+and both `semver` failures were about the code, not the process, so the
+harness stopped without a change ($0.51). The knobs reach the real CLI
+(recorded argv), and the fix, evolve and apply chain was run end to end.
+
+Verified for real: a Claude Code duel (haiku and sonnet) streamed into
+two hubs at once, one reading the disk and one through `duel --hub`, and
+both live pages updated ten times in the 20-second run with no reload.
+
 ## Telemetry at 10x, evals for RL, and evals that evolve with the policy
 
 **Telemetry, about 10x lighter on the agent's path.** Measured against

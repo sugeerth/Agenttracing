@@ -572,6 +572,7 @@ def evolve_page(*, brand: str, user: str, csrf: str, entries: List[Entry], river
 
 
 def evolution_page(*, brand: str, user: str, csrf: str, entry: Entry, data: dict, refs: list = ()) -> str:
+    from ..selfevolve import remedy_text
     h = data.get("harness") or {}
     now = "".join(f"<li>{e(i)}</li>" for i in h.get("instructions") or [])
     now += "".join(f"<li>denied tool <code>{e(t)}</code></li>" for t in h.get("deny_tools") or [])
@@ -591,7 +592,7 @@ def evolution_page(*, brand: str, user: str, csrf: str, entry: Entry, data: dict
         tok_s = (f'{_num(tok.get("current"))} → {_num(tok.get("changed"))}' if tok.get("changed") is not None else "—")
         rows.append(f'<tr><td>{e(g["generation"])}</td><td>v{e(g["harness"]["version"])}</td>'
                     f'<td class="n">{e(g["failed"])}/{e(g["runs"])}</td>'
-                    f'<td>{e((a.get("remedy") or {}).get("value") or "—")}'
+                    f'<td>{e(remedy_text(a["remedy"]) if a.get("remedy") else "—")}'
                     f'<div class="muted">{e((a.get("because") or {}).get("says") or "")}</div></td>'
                     f'<td>{verdict}<div class="muted">{e(t.get("why") or "")}</div></td>'
                     f'<td class="n">{f"{pc[0]}/{pc[1]} → {pn[0]}/{pn[1]}" if pc and pn else "—"}</td>'

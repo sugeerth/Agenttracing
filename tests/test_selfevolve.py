@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -139,6 +140,14 @@ class LoopTest(unittest.TestCase):
         self.assertEqual(res["harness"]["deny_tools"], ["Scratch"])
         lineage = res["evals"]["lineage"]
         self.assertEqual(len(lineage), len(res["lineage"]), "the evals met every generation")
+        evals = {e["id"]: e for e in res["evals"]["evals"]}
+        # a kept change's rule joins the suite on the experiment's evidence ...
+        self.assertEqual(evals["claims_without_check"]["source"], "intervention")
+        self.assertEqual(lineage[0]["born_by_intervention"], ["claims_without_check"])
+        # ... and retires once the harness has fixed what it caught, saying so
+        self.assertEqual(evals["claims_without_check"]["status"], "retired")
+        self.assertIn("harness v1 prevents it", evals["claims_without_check"]["reason"])
+        self.assertEqual(evals["tool_called:Scratch"]["status"], "active")
 
     def test_a_knob_an_agent_lacks_is_refused_before_it_is_tried(self):
         def arm(h, label):
@@ -189,6 +198,28 @@ class CommandTest(unittest.TestCase):
             from agentdiff.hub.catalog import Catalog
             entries = Catalog(tmp, depth=3, limit=50).entries()
             self.assertEqual([x.kind for x in entries], ["evolution"])
+
+
+class FixEvolveTest(unittest.TestCase):
+    def test_fix_evolve_then_apply_keeps_the_evolved_harness_change(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            shutil.copytree(ROOT / "demo" / "vendors" / "bugfix", repo)
+            env = dict(os.environ, FAKE_VENDOR_MODE="careless", PYTHONPATH=str(ROOT),
+                       AGENTDIFF_CLAUDE_BIN=str(FAKES / "fake_claude.py"))
+            out = Path(tmp) / "evo"
+            done = subprocess.run([sys.executable, "-m", "agentdiff", "fix", "--evolve", "2", "--agent", "claude",
+                                   "--check", "python3 -m unittest -q", "-o", str(out)],
+                                  cwd=repo, capture_output=True, text=True, env=env, timeout=240)
+            self.assertEqual(done.returncode, 0, done.stderr + done.stdout)
+            self.assertIn("kept", done.stdout)
+            keep = re.search(r"agentdiff apply --dir (\S+)", done.stdout).group(1)
+            self.assertTrue(keep.endswith("g0-h1"), "the change comes from the evolved harness's arm")
+            applied = subprocess.run([sys.executable, "-m", "agentdiff", "apply", "--dir", keep], cwd=repo,
+                                     capture_output=True, text=True, env=env, timeout=60)
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            check = subprocess.run([sys.executable, "-m", "unittest", "-q"], cwd=repo, capture_output=True, text=True)
+            self.assertEqual(check.returncode, 0, check.stderr)
 
 
 if __name__ == "__main__":

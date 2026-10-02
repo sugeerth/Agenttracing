@@ -15,7 +15,7 @@ contains no network code; only the harness talks to a model.
 ```bash
 uvx --from git+https://github.com/sugeerth/Agenttracing agentdiff fix   # nothing to install
 pip install git+https://github.com/sugeerth/Agenttracing   # or in a clone: pip install -e .
-agentdiff fix                           # in your repo: two agents make its failing tests pass, live
+agentdiff fix                           # in your repo: two agents make its failing tests pass, live (--evolve 3: a harness that evolves, docs/SELF_EVOLVE.md)
 agentdiff "Add retries to the client"   # or any task in words, graded by the tests (docs/VENDORS.md)
 agentdiff demo --open                   # the 8 shipped pairs: out_demo/report.html and the verdict card
 agentdiff demo --everything -o out_all  # every view: pairs, training, lineages, a bundle, the key, MCP

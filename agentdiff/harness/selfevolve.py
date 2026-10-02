@@ -72,6 +72,13 @@ def vendor_arm(tasks: list, specs: List[VendorSpec], out: Path, *, runs: int = 1
             arm_tasks = [dict(t, prompt=t["prompt"] + PROMPT_MARK + "\n".join(f"- {i}" for i in harness.instructions))
                          for t in tasks]
         d = out / label
+        d.mkdir(parents=True, exist_ok=True)
+        # an ordinary duel's plan: `apply` keeps a change from this arm, `again` adds runs to it
+        (d / "plan.json").write_text(json.dumps({
+            "tasks": arm_tasks, "agents": [f"{s.agent}={s.kind}" + (f":{s.model}" if s.model else "") for s in specs],
+            "options": {"budget_tokens": kw.get("budget_tokens"), "timeout": kw.get("timeout_s"),
+                        "check_timeout": kw.get("check_timeout_s"), "harness": harness.version}}, indent=1),
+            encoding="utf-8")
         records = run_duel(arm_tasks, arm_specs, d, runs=runs, parallel=True, baselines=baselines,
                            on_event=on_event, **kw)
         trajs = []

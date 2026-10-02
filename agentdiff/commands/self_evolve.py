@@ -79,6 +79,24 @@ def _markdown(result: dict) -> str:
     return "\n".join(out)
 
 
+def _latest_passing_arm(out: Path, result: dict):
+    """The arm of the harness as it ended that has a passing run: what `apply` keeps."""
+    lineage = result.get("lineage") or []
+    if not lineage:
+        return None
+    version = (result.get("harness") or {}).get("version", 0)
+    for g in reversed(lineage):
+        for label in (f"{g['generation']}-h{version}",):
+            d = out / label
+            for rec in sorted((d / "records").glob("*.json")) if d.is_dir() else []:
+                try:
+                    if (json.loads(rec.read_text(encoding="utf-8")).get("check") or {}).get("passed"):
+                        return d
+                except (OSError, ValueError):
+                    continue
+    return None
+
+
 def run(args: argparse.Namespace) -> int:
     from ..selfevolve import load_ledger, self_evolve, visible_check, write_ledger
     from .duel import _tasks
@@ -165,6 +183,9 @@ def run(args: argparse.Namespace) -> int:
                                                          encoding="utf-8")
     print(f"\n{result['narrative']}\n\nwrote {out / 'self-evolve.json'}, {out / 'SELF_EVOLVE.md'}, "
           f"{out / 'harness.json'}; the next call continues from {ledger_path}")
+    keep = _latest_passing_arm(out, result)
+    if keep:
+        print(f"keep a change: agentdiff apply --dir {keep}   (--dry-run shows it first)")
     if args.hub:
         sent = sum(s.sent for s in streamers)
         print(f"hub: sent {sent} copy(ies) of the runs to {args.hub.rstrip('/')}/live")

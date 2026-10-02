@@ -70,6 +70,9 @@ def summarize(data: dict) -> dict:
     steps = data.get("steps") or []
     tokens = sum(int(s.get("tokens") or 0) for s in steps if isinstance(s, dict))
     seconds = sum(float(s.get("latency_s") or 0) for s in steps if isinstance(s, dict))
+    total = (data.get("totals") or {}).get("latency_s") if isinstance(data.get("totals"), dict) else None
+    if isinstance(total, (int, float)) and total > seconds:
+        seconds = float(total)      # the run's own clock: model time included, not only the tools'
     errors = sum(1 for s in steps if isinstance(s, dict) and s.get("error"))
     outcome = data.get("outcome") or {}
     task = data.get("task") or {}

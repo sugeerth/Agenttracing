@@ -456,12 +456,13 @@ def harness_river(result: dict, width: int = 980) -> str:
     left, col_min = 150, 150
     width = int(max(width, left + col_min * len(gens) + 20)) if len(gens) > 5 else width
     col = (width - left - 20) / len(gens)
-    base, bar_h = 118, 86
+    top, bar_h = 44, 86
+    base = top + bar_h
     height = base + 132
     x = lambda i: left + col * i + col / 2  # noqa: E731
     out = [f'<svg class="viz" viewBox="0 0 {width} {height}" width="{width}" role="img" '
            f'aria-label="{e(result.get("narrative"))}">',
-           f'<text x="{left - 10}" y="22" text-anchor="end">runs that passed</text>',
+           f'<text x="{left - 10}" y="14" text-anchor="end">runs that passed</text>',
            f'<text class="lab" x="{left - 10}" y="{base + 22}" text-anchor="end">harness</text>',
            f'<text class="lab" x="{left - 10}" y="{base + 58}" text-anchor="end">change tried</text>',
            f'<text class="lab" x="{left - 10}" y="{base + 104}" text-anchor="end">evals</text>']
@@ -479,20 +480,20 @@ def harness_river(result: dict, width: int = 980) -> str:
         t = a.get("test") or {}
         chg = _rate((t.get("passed") or {}).get("changed"))
         kept = t.get("verdict") == "kept"
-        bw = 26
+        bw = 36
         if cur is not None:
             h = max(2.0, bar_h * cur)
-            out.append(f'<rect class="a1 hot" x="{cx - bw - 2:.1f}" y="{base - h:.1f}" width="{bw}" height="{h:.1f}" rx="4">'
+            out.append(f'<rect class="a1 hot" x="{cx - bw - 3:.1f}" y="{base - h:.1f}" width="{bw}" height="{h:.1f}" rx="4">'
                        f'<title>{e(g["generation"])}: {runs - failed} of {runs} run(s) passed under '
                        f'v{e(g["harness"]["version"])}</title></rect>'
-                       f'<text x="{cx - bw / 2 - 2:.1f}" y="{base - h - 5:.1f}" text-anchor="middle">{runs - failed}/{runs}</text>')
+                       f'<text x="{cx - bw / 2 - 3:.1f}" y="{base - h - 5:.1f}" text-anchor="middle">{runs - failed}/{runs}</text>')
         if chg is not None:
             pc = t["passed"]["changed"]
             h = max(2.0, bar_h * chg)
             style = "" if kept else ' style="fill:none;stroke:var(--a3);stroke-width:2;stroke-dasharray:4 3"'
-            out.append(f'<rect class="a3 hot" x="{cx + 2:.1f}" y="{base - h:.1f}" width="{bw}" height="{h:.1f}" rx="4"{style}>'
+            out.append(f'<rect class="a3 hot" x="{cx + 3:.1f}" y="{base - h:.1f}" width="{bw}" height="{h:.1f}" rx="4"{style}>'
                        f'<title>with {e(a["remedy"]["id"])}: {pc[0]} of {pc[1]} passed ({e(t.get("verdict"))})</title></rect>'
-                       f'<text x="{cx + bw / 2 + 2:.1f}" y="{base - h - 5:.1f}" text-anchor="middle">{pc[0]}/{pc[1]}</text>')
+                       f'<text x="{cx + bw / 2 + 3:.1f}" y="{base - h - 5:.1f}" text-anchor="middle">{pc[0]}/{pc[1]}</text>')
         # the version lane
         v = g["harness"]["version"]
         vy = base + 18
@@ -502,7 +503,8 @@ def harness_river(result: dict, width: int = 980) -> str:
                    f'style="fill:var(--panel);stroke:var(--a1);stroke-width:2"><title>{e(g["generation"])} ran '
                    f'harness v{v}: {e(", ".join(g["harness"].get("remedies") or []) or "nothing added")}</title></rect>'
                    f'<text class="lab" x="{cx:.1f}" y="{vy + 4}" text-anchor="middle" style="font-size:11px">v{v}</text>')
-        out.append(f'<text class="lab" x="{cx:.1f}" y="{base - bar_h - 14}" text-anchor="middle">{e(g["generation"])}</text>')
+        out.append(f'<text class="lab" x="{cx:.1f}" y="14" text-anchor="middle" style="font-weight:600">'
+                   f'{e(g["generation"])}</text>')
         prev = (cx, vy)
         # the change and its paired test
         if a:

@@ -47,7 +47,7 @@ from .evolving import _narrative as evals_narrative, evolve as evolve_evals
 from .forge import RunView, _score, _unique_keys, candidates, describe, parse_rule, rule_id, spec
 from .trace import Trajectory
 
-__all__ = ["Harness", "REMEDIES", "remedy_for", "decide", "self_evolve", "LEDGER_KIND", "ESSENTIAL_TOOLS",
+__all__ = ["Harness", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "LEDGER_KIND", "ESSENTIAL_TOOLS",
            "load_ledger", "write_ledger", "visible_check"]
 
 LEDGER_KIND = "self-evolving"
@@ -134,6 +134,15 @@ REMEDIES: Dict[str, tuple] = {
                     "failed more often here.", "runs that never called {arg} failed"),
     "tool_called": ("deny_tool", "{arg}", "runs that called {arg} failed, and the harness can take it away"),
 }
+
+
+def remedy_text(remedy: dict) -> str:
+    """The change, as a sentence."""
+    if remedy["knob"] == "deny_tool":
+        return f"deny the {remedy['value']} tool"
+    if remedy["knob"] == "max_turns":
+        return f"at most {remedy['value']} turns"
+    return remedy["value"]
 
 
 def remedy_for(rule_text: Union[str, dict], *, check: str = "") -> Optional[dict]:
@@ -353,6 +362,11 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
         state["evals"] = evals_out["ledger"]
         egen = next((x for x in evals_out["lineage"] if x["generation"] == label), {})
         state.setdefault("eval_lineage", []).append(egen)
+        for rid in egen.get("retired") or []:
+            e = state["evals"]["evals"].get(rid) or {}
+            if e.get("source") == "intervention" and e.get("reason") and "the harness" not in e["reason"]:
+                # the loop closed: the change this eval was born from is why it went quiet
+                e["reason"] += f"; harness v{harness.version} prevents it"
         record = {"generation": label, "harness": asdict(harness), "runs": len(graded), "failed": len(failed),
                   "evals": {k: egen.get(k) for k in ("arrived", "forward", "retired", "born", "reborn", "verdicts")}}
         if not graded:
@@ -374,14 +388,19 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
         if chosen is None:
             record["action"] = None
             state["generations"].append(record)
-            stop = (f"{label}: {len(failed)} failure(s), and no eval that caught them names a change the "
-                    f"harness can make (see what was weighed)")
+            if not choice["weighed"]:
+                stop = (f"{label}: no eval, and no rule over how the runs worked, tells the {len(failed)} "
+                        f"failure(s) apart from the {len(graded) - len(failed)} passing run(s), so there is "
+                        f"nothing the harness can act on")
+            else:
+                stop = (f"{label}: {len(failed)} failure(s); every candidate weighed was already tried, or names "
+                        f"no change the harness can make (see what was weighed)")
             say(stop)
             break
         remedy = chosen["remedy"]
         candidate = harness.with_remedy(remedy)
         say(f"{label}: {chosen['caught']} of {chosen['wrong']} failure(s) caught by "
-            f"{chosen['eval'] or chosen['rule']}; testing: {remedy['value']}")
+            f"{chosen['eval'] or chosen['rule']}; testing: {remedy_text(remedy)}")
 
         # 4. test it, paired: same tasks, same number of runs
         cand_runs = list(run_arm(candidate, f"{label}-h{candidate.version}"))
@@ -396,6 +415,12 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
         if verdict["verdict"] == "kept":
             harness = candidate
             carried = cand_runs     # 5. the evals meet what the harness produced
+            born = _adopt_by_intervention(state, chosen, label, verdict, len(graded) - len(failed))
+            if born:
+                egen.setdefault("born", []).append(born)
+                egen.setdefault("born_by_intervention", []).append(born)
+                record["evals"]["born"] = egen["born"]
+                say(f"{label}: {born} joins the eval suite, born by intervention")
         state["generations"].append(record)
         state["harness"] = asdict(harness)
     state["harness"] = asdict(harness)
@@ -404,11 +429,38 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
     if evals_out:
         # the suite's whole life, every generation of it, in the shape `evolve-evals` writes
         evals = {k: v for k, v in evals_out.items() if k not in ("ledger", "lineage", "narrative")}
+        # the suite as the ledger holds it, born-by-intervention evals included
+        every = [{"id": rid, **e} for rid, e in sorted((state["evals"] or {}).get("evals", {}).items())]
+        evals.update(evals=every, active=[e["id"] for e in every if e["status"] == "active"],
+                     retired=[e["id"] for e in every if e["status"] == "retired"])
         evals["lineage"] = state["eval_lineage"]
         evals["narrative"] = evals_narrative(state["eval_lineage"], target)
     return {"kind": "self-evolve", "target": target, "harness": asdict(harness), "describe": harness.describe(),
             "stop": stop, "lineage": lineage, "evals": evals,
             "narrative": _narrative(lineage, harness, stop), "ledger": state}
+
+
+def _adopt_by_intervention(state: dict, chosen: dict, label: str, verdict: dict, right: int) -> Optional[str]:
+    """A rule whose harness change was kept has evidence a correlation never
+    gives: preventing what it flags raised the pass rate, on the same tasks.
+    It joins the eval suite (when it is not there already) and is carried
+    forward like any other eval: forward-tested on every later generation,
+    and retired once the harness has fixed the failure it caught."""
+    if chosen.get("eval") or not state.get("evals"):
+        return None
+    rule = parse_rule(chosen["rule"])
+    rid = rule_id(rule)
+    evals = state["evals"].setdefault("evals", {})
+    if rid in evals and evals[rid].get("status") == "active":
+        return None
+    pc, pn = verdict["passed"]["current"], verdict["passed"]["changed"]
+    evals[rid] = {"rule": spec(rule), "says": describe(rule), "source": "intervention", "born": label,
+                  "status": "active", "quiet": 0, "retired_at": None,
+                  "reason": (f"born at {label} by intervention: the harness change that prevents it raised passes "
+                             f"from {pc[0]}/{pc[1]} to {pn[0]}/{pn[1]}"),
+                  "history": [{"generation": label, "verdict": "born", "caught": chosen["caught"],
+                               "wrong": chosen["wrong"], "false_alarms": 0, "right": right}]}
+    return rid
 
 
 def _narrative(lineage: list, harness: Harness, stop: str) -> str:
