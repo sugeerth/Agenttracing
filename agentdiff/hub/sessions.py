@@ -63,6 +63,11 @@ class SessionStore:
             for t in [t for t, s in self._sessions.items() if s.user == user]:
                 del self._sessions[t]
 
+    def count(self, user: str) -> int:
+        now = self._clock()
+        with self._lock:
+            return sum(1 for s in self._sessions.values() if s.user == user and s.expires >= now)
+
     @staticmethod
     def csrf_ok(session: Optional[Session], given: Optional[str]) -> bool:
         return bool(session and given and hmac.compare_digest(session.csrf, given))

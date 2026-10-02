@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import secrets
 import time
-from typing import Iterable
+from typing import Iterable, Optional
 
 from .fields import DEFAULT_INSTRUCTIONS, FIELDS, Registry
 from .probe import size_of
@@ -22,7 +22,11 @@ __all__ = ["from_trajectory"]
 
 
 def from_trajectory(traj: dict, *, instructions: Iterable[str] = DEFAULT_INSTRUCTIONS + ("effect", "attempt", "span"),
-                    node: str = "trace", registry: Registry = FIELDS) -> Vector:
+                    node: str = "trace", registry: Registry = FIELDS, trace_id: Optional[bytes] = None) -> Vector:
+    """``trace_id`` (8 bytes) keeps one id across the copies of a growing
+    run, so a hub holds one run that grows, not one run per copy."""
+    if trace_id is not None and len(trace_id) != 8:
+        raise ValueError("a trace id is 8 bytes")
     # every step, the answer included: in a rollout it is where the outcome's reward is paid
     steps = list(traj.get("steps") or [])
     instructions = tuple(instructions)
@@ -34,7 +38,7 @@ def from_trajectory(traj: dict, *, instructions: Iterable[str] = DEFAULT_INSTRUC
         k = name_hash(text)
         names[k] = text
         return k
-    v = Vector(trace_id=secrets.token_bytes(8), instructions=registry.bitmap(instructions),
+    v = Vector(trace_id=trace_id or secrets.token_bytes(8), instructions=registry.bitmap(instructions),
                t0=int(time.time() * 1000), agent=h((traj.get("agent") or {}).get("name") or "agent"),
                task=h((traj.get("task") or {}).get("id") or "task"), remaining=0, names=names)
     clock = 0.0

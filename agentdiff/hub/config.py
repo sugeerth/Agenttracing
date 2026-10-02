@@ -41,6 +41,10 @@ class HubConfig:
     #: the largest telemetry post accepted, in bytes
     max_post_bytes: int = 2_000_000
     password_iterations: int = 240_000
+    #: how often the hub looks at the trace files for new steps, and how often
+    #: an open event stream hears a keepalive when nothing moved
+    live_poll_s: float = 0.5
+    live_keepalive_s: float = 15.0
 
     @property
     def state_dir(self) -> Path:

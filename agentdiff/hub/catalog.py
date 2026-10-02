@@ -3,7 +3,7 @@
 The hub keeps no database. The catalog walks the root (to a depth the
 settings give) and asks each detector whether a directory is something it
 knows: a duel (``duel.json``), a report (``aggregate.json`` beside
-``report.html``). A directory a detector claims is not descended into, so
+``report.html``), a self-evolving eval suite (``evolve-evals.json``). A directory a detector claims is not descended into, so
 a duel's own page is not listed twice. The in-band telemetry agents post
 is a store of its own (:mod:`.ingest`) and is listed beside them.
 
@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional
 
-__all__ = ["Entry", "Catalog", "detect_duel", "detect_report", "DETECTORS"]
+__all__ = ["Entry", "Catalog", "detect_duel", "detect_report", "detect_evals", "DETECTORS"]
 
 _SKIP = {".git", "node_modules", "__pycache__", ".venv", "venv", ".tox", ".mypy_cache", "dist", "build"}
 
@@ -102,8 +102,23 @@ def detect_report(d: Path, root: Path) -> Optional[Entry]:
                  {"agents": names, "tasks": agg.get("tasks")}, d / "report.html")
 
 
+def detect_evals(d: Path, root: Path) -> Optional[Entry]:
+    """An eval suite carried through training generations (``agentdiff evolve-evals``)."""
+    data = _json(d / "evolve-evals.json") if (d / "evolve-evals.json").is_file() else None
+    if data is None or not isinstance(data.get("lineage"), list):
+        return None
+    gens = [g for g in data["lineage"] if isinstance(g, dict) and not g.get("skipped")]
+    last = gens[-1] if gens else {}
+    return Entry(entry_id("evals", d.relative_to(root)), "evals", f"{d.name} · evals for {data.get('target')}",
+                 d, _mtime(d / "evolve-evals.json"),
+                 {"target": data.get("target"), "says": data.get("says"), "generations": len(gens),
+                  "active": len(data.get("active") or []), "retired": len(data.get("retired") or []),
+                  "last_forward": (last.get("forward") or {}).get("coverage") if last.get("arrived") else None,
+                  "narrative": data.get("narrative") or ""})
+
+
 #: in order: the first detector to claim a directory owns it
-DETECTORS: List[Callable[[Path, Path], Optional[Entry]]] = [detect_duel, detect_report]
+DETECTORS: List[Callable[[Path, Path], Optional[Entry]]] = [detect_duel, detect_report, detect_evals]
 
 
 def _mtime(p: Path) -> float:

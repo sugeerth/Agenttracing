@@ -88,6 +88,9 @@ def register(subparsers) -> None:
                              "http://HOST:PORT/ (localhost only). Default: on in a terminal")
     parser.add_argument("--no-live", dest="live", action="store_false", help="no live page")
     parser.add_argument("--no-open", action="store_true", help="--live: do not open a browser")
+    parser.add_argument("--hub", default=None, metavar="URL",
+                        help="stream every run to an agentdiff hub as it goes (in-band: sizes, times, outcomes; "
+                             "the token from $AGENTDIFF_HUB_TOKEN). A hub serving this directory needs no flag")
     parser.add_argument("--host", default="127.0.0.1",
                         help="--live: address to bind (default 127.0.0.1); anything else needs --allow-remote")
     parser.add_argument("--allow-remote", action="store_true",
@@ -483,6 +486,16 @@ def run(args: argparse.Namespace) -> int:
                 webbrowser.open(url)
             except Exception:   # noqa: BLE001 — no browser is not an error
                 pass
+    streamer = None
+    if args.hub:
+        from ..harness.hub_server import TraceStreamer
+        hub_token = os.environ.get("AGENTDIFF_HUB_TOKEN")
+        if not hub_token:
+            print("error: --hub needs $AGENTDIFF_HUB_TOKEN (`agentdiff hub` prints it)", file=sys.stderr)
+            return 2
+        (out / "traces").mkdir(parents=True, exist_ok=True)
+        streamer = TraceStreamer(out / "traces", args.hub, hub_token, interval=0.5).start()
+        print(f"hub: streaming every run to {args.hub.rstrip('/')}/live", flush=True)
     # a scheduler's SIGTERM is an interrupt like Ctrl-C: agents stopped,
     # workspaces removed, finished runs still reported
     import signal as _signal
@@ -515,6 +528,8 @@ def run(args: argparse.Namespace) -> int:
             _report(out, finished, args.band, args.template, args.quiet)
         if server is not None:
             server.shutdown_all()
+        if streamer is not None:
+            streamer.stop()
         return 130
     failed = [r for r in records if r.get("failed")]
     for f in failed:
@@ -544,6 +559,10 @@ def run(args: argparse.Namespace) -> int:
         good = [r for r in _load_records(out) if (r["task"], r["agent"], r["run"]) not in
                 {(g["task"], g["agent"], g["run"]) for g in good}] + good
     code = _report(out, good, args.band, args.template, args.quiet) if good else 1
+    if streamer is not None:
+        streamer.stop()
+        print(f"hub: sent {streamer.sent} copy(ies) of the runs" +
+              (f"; {streamer.failed} failed ({streamer.last_error})" if streamer.failed else ""), flush=True)
     if server is not None:
         try:
             server.watcher.finish()

@@ -4,8 +4,9 @@
     agentdiff hub ~/work --port 8790   another root
     agentdiff hub --add-user alice     add a user (password asked, or $AGENTDIFF_HUB_NEW_PASSWORD)
 
-It lists the duels, reports and in-band telemetry under its root, shows
-each, and takes telemetry agents post to it. The demo account
+It lists the duels, reports, eval suites, traces and in-band telemetry
+under its root, shows each (a trace as its loop, lap by lap), follows
+running agents live, and takes telemetry agents post to it. The demo account
 (``demo``/``demo`` unless the settings say otherwise) exists on this machine
 only, unless ``--demo`` turns it on elsewhere; ``--no-demo`` turns it off.
 Settings: defaults, then ``.agentdiff-hub/hub.json``, then
@@ -82,7 +83,7 @@ def run(args: argparse.Namespace) -> int:
         print(f"error: refusing to serve on {config.host}: the hub shows every run under {config.root}, "
               "including what the agents read. Bind to 127.0.0.1, or pass --allow-remote.", file=sys.stderr)
         return 2
-    from ..harness.hub_server import build_app, make_server
+    from ..harness.hub_server import TracePoller, build_app, make_server
     app = build_app(config)
     try:
         server = make_server(app, quiet=not args.verbose)
@@ -96,11 +97,14 @@ def run(args: argparse.Namespace) -> int:
     print(f"  sign in: {demo[0]} / {demo[1]}   (demo account; --no-demo turns it off)" if demo else
           f"  sign in with a user from {config.state_dir / 'users.json'} (agentdiff hub --add-user NAME)")
     print(f"  agents post telemetry: AGENTDIFF_HUB={app.public_url} AGENTDIFF_HUB_TOKEN={app.ingest_token}")
+    print(f"  live: {app.public_url}/live follows every run under the root as it goes")
     print("  Ctrl-C to stop", flush=True)
+    poller = TracePoller(app.traces, app.bus, config.live_poll_s).start()
     try:
         server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
         pass
     finally:
+        poller.stop()
         server.server_close()
     return 0

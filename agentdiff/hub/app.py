@@ -12,11 +12,24 @@ Routes::
     GET  /login                 the sign-in form
     POST /login                 sign in (form token, throttled)
     POST /logout                sign out (session form token)
-    GET  /                      every run under the root
-    GET  /runs/<id>             one run: a duel's scoreboard, a telemetry path
+    GET  /                      the overview: running now, stuck, recent
+    GET  /runs                  every run under the root (?kind=)
+    GET  /runs/<id>             one run: a duel, a report, a telemetry path, an eval suite
     GET  /runs/<id>/page        the report page the run wrote
+    GET  /traces                every trace (?show=live|passed|failed|stuck, ?q=)
+    GET  /traces/<id>           one trace: its loop lap by lap, its flow, its steps
+    GET  /traces/<id>/panel     the part of that page that moves (for the live script)
+    GET  /live                  every running trace, updating itself
+    GET  /live/panel            its moving part
+    GET  /evals                 every self-evolving eval suite
+    GET  /account               who is signed in; change the password
+    POST /account/password      change it (session form token, current password)
     GET  /api/v1/runs           the catalog as JSON (signed in)
+    GET  /api/v1/traces         the trace index as JSON
+    GET  /api/v1/traces/<id>    one trace, as written
+    GET  /api/v1/events         server-sent events: what changed, never its content
     POST /api/v1/telemetry      an agent posts its vector (bearer ingest token)
+    GET  /static/live.js        the one script, for pages that say they are live
     GET  /healthz               liveness, no sign-in
 """
 
@@ -25,17 +38,22 @@ from __future__ import annotations
 import hmac
 import json
 import re
-from dataclasses import dataclass, field
-from typing import Callable, Dict, Optional, Tuple
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+from typing import Callable, Dict, Iterable, Optional, Tuple
 
 from ..telemetry import rows as telemetry_rows, summary as telemetry_summary
 from . import views
 from .urls import parse_query, quote, split
-from .auth import UserStore, check_password
+from .auth import UserStore, check_password, hash_password
 from .catalog import Catalog
 from .config import HubConfig
 from .ingest import TelemetryStore
+from .live import LiveBus, sse
 from .sessions import LoginThrottle, Session, SessionStore
+from .traces import TraceIndex, trace_id
+
+_STATIC = Path(__file__).with_name("static")
 
 __all__ = ["Request", "Response", "App", "SESSION_COOKIE"]
 
@@ -75,6 +93,10 @@ class Response:
     headers: Dict[str, str] = field(default_factory=dict)
     #: a page the hub did not render (a run's report): served in a sandbox
     sandboxed: bool = False
+    #: a live page: it may load the hub's own script and open the event stream
+    scripted: bool = False
+    #: a body sent as it is made (the event stream), instead of ``body``
+    stream: Optional[Iterable[bytes]] = None
 
     @classmethod
     def html(cls, text: str, status: int = 200, **headers: str) -> "Response":
@@ -94,6 +116,14 @@ def _cookie(name: str, value: str, max_age: Optional[int] = None) -> str:
     return f"{name}={value}; HttpOnly; SameSite=Strict; Path=/{age}"
 
 
+def _under(path: Path, root: Path) -> bool:
+    try:
+        Path(path).resolve().relative_to(Path(root).resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def _safe_next(path: str) -> str:
     """Only a path on this hub: never an absolute URL to somewhere else."""
     return path if path.startswith("/") and not path.startswith("//") and "\\" not in path else "/"
@@ -102,23 +132,40 @@ def _safe_next(path: str) -> str:
 class App:
     def __init__(self, config: HubConfig, *, users: UserStore, sessions: SessionStore, throttle: LoginThrottle,
                  catalog: Catalog, telemetry: TelemetryStore, ingest_token: str, loopback: bool,
-                 public_url: str) -> None:
+                 public_url: str, traces: Optional[TraceIndex] = None, bus: Optional[LiveBus] = None) -> None:
         self.config = config
         self.users, self.sessions, self.throttle = users, sessions, throttle
         self.catalog, self.telemetry = catalog, telemetry
+        self.traces = traces or TraceIndex(catalog.root, depth=config.scan_depth, limit=config.max_entries,
+                                           extra_dirs=[telemetry.dir / "traces"])
+        self.bus = bus or LiveBus()
         self.ingest_token = ingest_token
         self.loopback = loopback
         self.public_url = public_url
+        hexid = r"([0-9a-f]{12})"
         self._routes: list = [
             ("GET", re.compile(r"^/healthz$"), self.healthz, False),
+            ("GET", re.compile(r"^/static/live\.js$"), self.static_live, False),
             ("GET", re.compile(r"^/login$"), self.login_form, False),
             ("POST", re.compile(r"^/login$"), self.login, False),
             ("POST", re.compile(r"^/logout$"), self.logout, True),
             ("POST", re.compile(r"^/api/v1/telemetry$"), self.ingest, False),
-            ("GET", re.compile(r"^/$"), self.runs, True),
+            ("GET", re.compile(r"^/$"), self.overview, True),
+            ("GET", re.compile(r"^/runs$"), self.runs, True),
+            ("GET", re.compile(rf"^/runs/{hexid}$"), self.run, True),
+            ("GET", re.compile(rf"^/runs/{hexid}/page$"), self.run_page, True),
+            ("GET", re.compile(r"^/traces$"), self.trace_index, True),
+            ("GET", re.compile(rf"^/traces/{hexid}$"), self.trace, True),
+            ("GET", re.compile(rf"^/traces/{hexid}/panel$"), self.trace_fragment, True),
+            ("GET", re.compile(r"^/live$"), self.live, True),
+            ("GET", re.compile(r"^/live/panel$"), self.live_fragment, True),
+            ("GET", re.compile(r"^/evals$"), self.evals, True),
+            ("GET", re.compile(r"^/account$"), self.account, True),
+            ("POST", re.compile(r"^/account/password$"), self.change_password, True),
             ("GET", re.compile(r"^/api/v1/runs$"), self.api_runs, True),
-            ("GET", re.compile(r"^/runs/([0-9a-f]{12})$"), self.run, True),
-            ("GET", re.compile(r"^/runs/([0-9a-f]{12})/page$"), self.run_page, True),
+            ("GET", re.compile(r"^/api/v1/traces$"), self.api_traces, True),
+            ("GET", re.compile(rf"^/api/v1/traces/{hexid}$"), self.api_trace, True),
+            ("GET", re.compile(r"^/api/v1/events$"), self.events, True),
         ]
 
     # --------------------------------------------------------------- routing
@@ -184,10 +231,20 @@ class App:
         return Response.redirect("/login", **{"Set-Cookie": _cookie(SESSION_COOKIE, "", 0)})
 
     # ------------------------------------------------------------------ runs
+    def _ingest_info(self) -> dict:
+        return {"url": self.public_url, "token": self.ingest_token}
+
+    def _common(self, session: Session) -> dict:
+        return dict(brand=self.config.title, user=session.user, csrf=session.csrf)
+
+    def overview(self, req: Request, session: Session) -> Response:
+        return Response.html(views.overview_page(**self._common(session), entries=self.catalog.entries(),
+                                                 refs=self.traces.refs(), ingest=self._ingest_info()))
+
     def runs(self, req: Request, session: Session) -> Response:
-        page = views.runs_page(brand=self.config.title, user=session.user, csrf=session.csrf,
-                               entries=self.catalog.entries(),
-                               ingest={"url": self.public_url, "token": self.ingest_token})
+        kind = parse_query(split(req.path)[1]).get("kind", [""])[0]
+        page = views.runs_page(**self._common(session), entries=self.catalog.entries(), ingest=self._ingest_info(),
+                               kind=kind if re.fullmatch(r"[a-z]{0,16}", kind) else "")
         return Response.html(page)
 
     def api_runs(self, req: Request, session: Session) -> Response:
@@ -198,16 +255,34 @@ class App:
         entry = self.catalog.get(run_id)
         if entry is None:
             return Response.html(self._page("Not found", "No run by that id.", session), 404)
-        common = dict(brand=self.config.title, user=session.user, csrf=session.csrf, entry=entry)
+        common = dict(**self._common(session), entry=entry)
         if entry.kind == "duel":
-            return Response.html(views.duel_page(**common))
+            return Response.html(views.duel_page(**common, refs=self._refs_under(entry.path)))
+        if entry.kind == "evals":
+            data = self._json_file(entry.path / "evolve-evals.json")
+            if data is None:
+                return Response.html(self._page("Gone", "That suite's file is no longer readable.", session), 404)
+            return Response.html(views.evals_run_page(**common, data=data))
         if entry.kind == "telemetry":
-            text = self.telemetry.vector(entry.summary.get("run_id", ""))
+            run_id = entry.summary.get("run_id", "")
+            text = self.telemetry.vector(run_id)
             if not text:
                 return Response.html(self._page("Gone", "That run's vector is no longer stored.", session), 404)
+            ref = self.traces.get(trace_id(self.traces.rel(self.telemetry.dir / "traces" / f"{run_id}.json")))
             return Response.html(views.telemetry_page(**common, rows=telemetry_rows(text),
-                                                      info=telemetry_summary(text)))
-        return Response.html(views.report_page(**common))
+                                                      info=telemetry_summary(text), trace_ref=ref))
+        return Response.html(views.report_page(**common, refs=self._refs_under(entry.path)))
+
+    def _refs_under(self, path: Path) -> list:
+        return [r for r in self.traces.refs() if _under(r.path, path)]
+
+    @staticmethod
+    def _json_file(path: Path) -> Optional[dict]:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return data if isinstance(data, dict) else None
 
     def run_page(self, req: Request, session: Session, run_id: str) -> Response:
         entry = self.catalog.get(run_id)
@@ -215,6 +290,120 @@ class App:
             return Response.html(self._page("Not found", "That run wrote no page.", session), 404)
         # the report is a page the run wrote, with its own inline scripts
         return Response(200, entry.page.read_bytes(), sandboxed=True)
+
+    # ---------------------------------------------------------------- traces
+    def trace_index(self, req: Request, session: Session) -> Response:
+        query = parse_query(split(req.path)[1])
+        show = query.get("show", [""])[0]
+        q = query.get("q", [""])[0][:120]
+        return Response.html(views.traces_page(**self._common(session), refs=self.traces.refs(), q=q,
+                                               show=show if show in ("live", "passed", "failed", "stuck") else ""))
+
+    def _trace(self, tid: str):
+        from ..laps import laps
+        ref = self.traces.get(tid)
+        if ref is None:
+            return None
+        data = self.traces.load(ref)
+        if data is None:
+            return None
+        return ref, data, laps(data)
+
+    def trace(self, req: Request, session: Session, tid: str) -> Response:
+        found = self._trace(tid)
+        if found is None:
+            return Response.html(self._page("Not found", "No trace by that id.", session), 404)
+        ref, data, lap = found
+        return Response(200, views.trace_page(**self._common(session), ref=ref, data=data, lap=lap).encode("utf-8"),
+                        scripted=ref.live)
+
+    def trace_fragment(self, req: Request, session: Session, tid: str) -> Response:
+        found = self._trace(tid)
+        if found is None:
+            return Response(404, b"", "text/html; charset=utf-8")
+        ref, data, lap = found
+        return Response.html(views.trace_panel(ref=ref, data=data, lap=lap))
+
+    def _steps_of(self, ref) -> list:
+        data = self.traces.load(ref) or {}
+        return list(data.get("steps") or [])
+
+    def live(self, req: Request, session: Session) -> Response:
+        panel = views.live_panel(refs=self.traces.refs(), steps_of=self._steps_of)
+        return Response(200, views.live_page(**self._common(session), panel=panel).encode("utf-8"), scripted=True)
+
+    def live_fragment(self, req: Request, session: Session) -> Response:
+        return Response.html(views.live_panel(refs=self.traces.refs(), steps_of=self._steps_of))
+
+    def api_traces(self, req: Request, session: Session) -> Response:
+        return Response.json({"traces": [{"id": r.id, "group": r.group, "name": r.name, "live": r.live,
+                                          "updated": r.updated, **{k: v for k, v in r.summary.items()}}
+                                         for r in self.traces.refs()]})
+
+    def api_trace(self, req: Request, session: Session, tid: str) -> Response:
+        ref = self.traces.get(tid)
+        data = self.traces.load(ref) if ref else None
+        if data is None:
+            return Response.json({"error": "no trace by that id"}, 404)
+        return Response.json(data)
+
+    def events(self, req: Request, session: Session) -> Response:
+        last = req.header("Last-Event-ID")
+        since = int(last) if last.isdigit() else self.bus.version
+        return Response(200, b"", "text/event-stream; charset=utf-8", {"X-Accel-Buffering": "no"},
+                        stream=sse(self.bus, since, keepalive_s=self.config.live_keepalive_s))
+
+    def static_live(self, req: Request, session: Optional[Session]) -> Response:
+        return Response(200, (_STATIC / "live.js").read_bytes(), "text/javascript; charset=utf-8",
+                        {"Cache-Control": "no-cache"})
+
+    # ----------------------------------------------------------------- evals
+    def evals(self, req: Request, session: Session) -> Response:
+        from . import viz
+        entries = [x for x in self.catalog.entries() if x.kind == "evals"]
+        rivers = {}
+        for x in entries:
+            data = self._json_file(x.path / "evolve-evals.json")
+            if data:
+                rivers[x.id] = viz.eval_river(data)
+        return Response.html(views.evals_page(**self._common(session), entries=entries, rivers=rivers))
+
+    # --------------------------------------------------------------- account
+    def account(self, req: Request, session: Session, message: Optional[str] = None,
+                error: Optional[str] = None, status: int = 200) -> Response:
+        user = self.users.get(session.user)
+        page = views.account_page(**self._common(session), role=user.role if user else "member",
+                                  demo=bool(user and user.demo), expires=session.expires,
+                                  sessions=self.sessions.count(session.user), message=message, error=error)
+        return Response.html(page, status)
+
+    def change_password(self, req: Request, session: Session) -> Response:
+        form = req.form()
+        if not self.sessions.csrf_ok(session, form.get("csrf")):
+            return Response.html(self._page("Refused", "That form did not come from this hub.", session), 403)
+        user = self.users.get(session.user)
+        if user is None or user.demo:
+            return self.account(req, session, error="The demo account's password comes from the settings.",
+                                status=400)
+        wait = self.throttle.wait_s(user.name)
+        if wait > 0:
+            return self.account(req, session, error=f"Too many wrong passwords; wait {wait:.0f}s.", status=429)
+        if not check_password(form.get("current") or "", user.password_hash):
+            self.throttle.failed(user.name)
+            return self.account(req, session, error="The current password is not right.", status=400)
+        new, again = form.get("new") or "", form.get("again") or ""
+        if len(new) < 8:
+            return self.account(req, session, error="A password of at least 8 characters.", status=400)
+        if new != again:
+            return self.account(req, session, error="The two new passwords differ.", status=400)
+        self.throttle.succeeded(user.name)
+        self.users.put(replace(user, password_hash=hash_password(new, self.config.password_iterations)))
+        # every session of this user ends, then this one starts again
+        self.sessions.end_user(user.name)
+        fresh = self.sessions.create(user.name)
+        resp = self.account(req, fresh, message="Password changed. Every other session of yours was signed out.")
+        resp.headers["Set-Cookie"] = _cookie(SESSION_COOKIE, fresh.token, int(self.sessions.ttl_s))
+        return resp
 
     # ---------------------------------------------------------------- ingest
     def ingest(self, req: Request, session: Optional[Session]) -> Response:
@@ -232,11 +421,17 @@ class App:
         success = data.get("success")
         if success is not None and not isinstance(success, bool):
             return Response.json({"error": "success is true, false or absent"}, 400)
+        live = data.get("live", False)
+        if not isinstance(live, bool):
+            return Response.json({"error": "live is true or false"}, 400)
         try:
             saved = self.telemetry.save(data["vector"], prompt=str(data.get("prompt") or ""), success=success,
-                                        answer=str(data.get("answer") or ""), model=str(data.get("model") or ""))
+                                        answer=str(data.get("answer") or ""), model=str(data.get("model") or ""),
+                                        live=live)
         except ValueError as exc:
             return Response.json({"error": str(exc)}, 400)
+        if saved.get("kept") == "this":
+            self.bus.publish("telemetry", trace_id(self.traces.rel(self.telemetry.dir / "traces" / f"{saved['id']}.json")))
         return Response.json(saved, 201)
 
     def healthz(self, req: Request, session: Optional[Session]) -> Response:

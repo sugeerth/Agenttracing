@@ -36,4 +36,4 @@ agentdiff = "agentdiff.cli:main"
 include = ["agentdiff*", "deepcompare"]
 
 [tool.setuptools.package-data]
-agentdiff = ["page/*.html"]
+agentdiff = ["page/*.html", "hub/static/*.js"]

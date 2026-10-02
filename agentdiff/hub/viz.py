@@ -8,6 +8,8 @@ implementation to drift from the first.
 - :func:`flow_ring` — how the run moves between its tools; cycles are loops
 - :func:`eval_river` — the self-evolving loop: every eval's life across generations
 - :func:`hop_timeline` — in-band telemetry hops on one clock, a lane per process
+- :func:`lap_strip` — a lap chart folded to one line, for a list of traces
+- :func:`step_ribbon` — the last steps of a running trace, newest at the right
 
 Colour follows the activity, never its rank, in the fixed slot order of a
 validated palette (worst adjacent CVD ΔE 9.1 light / 8.4 dark). Every mark
@@ -23,7 +25,7 @@ import math
 from typing import Dict, List, Optional
 
 __all__ = ["ACTIVITIES", "lap_chart", "lap_table", "flow_ring", "eval_river", "hop_timeline", "legend",
-           "activity_of_hop", "VIZ_CSS"]
+           "activity_of_hop", "lap_strip", "step_ribbon", "compact_laps", "VIZ_CSS"]
 
 
 def e(v) -> str:
@@ -45,7 +47,7 @@ ACTIVITIES: Dict[str, tuple] = {
 
 VIZ_CSS = """
 :root{--a1:#2a78d6;--a2:#eb6834;--a3:#1baf7a;--a4:#eda100;--a5:#e87ba4;--a7:#4a3aa7;--an:#9a9993;--at:#d8d7d2;
---good:#0ca30c;--crit:#d03b3b;--grid:#e3e2dc;--ink2:#52514e}
+--sg:#0ca30c;--sc:#d03b3b;--grid:#e3e2dc;--ink2:#52514e}
 @media (prefers-color-scheme:dark){:root{--a1:#3987e5;--a2:#d95926;--a3:#199e70;--a4:#c98500;--a5:#d55181;
 --a7:#9085e9;--an:#77766f;--at:#3d3c39;--grid:#33322f;--ink2:#c3c2b7}}
 svg.viz{display:block;max-width:100%;height:auto}
@@ -55,10 +57,10 @@ svg.viz .a1{fill:var(--a1)}svg.viz .a2{fill:var(--a2)}svg.viz .a3{fill:var(--a3)
 svg.viz .a5{fill:var(--a5)}svg.viz .a7{fill:var(--a7)}svg.viz .an{fill:var(--an)}svg.viz .at{fill:var(--at)}
 svg.viz text.g{fill:#fff;font:600 11px system-ui,sans-serif;pointer-events:none}
 svg.viz text.g.dk{fill:#1d1d1b}
-svg.viz .err{stroke:var(--crit);stroke-width:2}
+svg.viz .err{stroke:var(--sc);stroke-width:2}
 svg.viz .grid{stroke:var(--grid);stroke-width:1}
-svg.viz .ok{fill:var(--good)}svg.viz .bad{fill:var(--crit)}
-svg.viz text.ok{fill:var(--good)}svg.viz text.bad{fill:var(--crit)}
+svg.viz .ok{fill:var(--sg)}svg.viz .bad{fill:var(--sc)}
+svg.viz text.ok{fill:var(--sg)}svg.viz text.bad{fill:var(--sc)}
 svg.viz .bar{fill:var(--a1)}
 svg.viz .edge{fill:none;stroke:var(--ink2);stroke-opacity:.45}
 svg.viz .edge.cyc{stroke:var(--a2);stroke-opacity:.9}
@@ -103,6 +105,8 @@ def lap_chart(result: dict, width: int = 980) -> str:
         return '<p class="muted">No steps to draw.</p>'
     left, right, row_h, gap = 92, 170, 30, 8
     widest = max(len(r["steps"]) for r in rounds)
+    # only as wide as the longest lap needs, so a short run stays legible on a phone
+    width = int(min(width, max(520, left + widest * 28 + 130 + right)))
     tile = max(8.0, min(26.0, (width - left - right - 8) / max(1, widest) - 2))
     top = 22
     height = top + len(rounds) * (row_h + gap) + 6
@@ -145,7 +149,7 @@ def lap_chart(result: dict, width: int = 980) -> str:
         out.append(f'<text x="{bx + max(2.0, bar_w) + 6:.1f}" y="{y + 19}">{r["seconds"]:.1f}s</text>')
     out.append("</svg>")
     used = sorted({s["activity"] for r in rounds for s in r["steps"]})
-    extra = [('<b style="color:var(--good)">✓</b>', "check passed"), ('<b style="color:var(--crit)">✗</b>', "check failed"),
+    extra = [('<b style="color:var(--sg)">✓</b>', "check passed"), ('<b style="color:var(--sc)">✗</b>', "check failed"),
              ('<b style="color:var(--a2)">↻</b>', "same calls as the lap before")]
     return "".join(out) + legend(used, extra)
 
@@ -313,8 +317,8 @@ def eval_river(result: dict, width: int = 980) -> str:
             rx = x(idx[retired_at]) + 16
             out.append(f'<text class="bad" x="{rx:.1f}" y="{y + 5}" style="font-size:15px">✕<title>{e(ev.get("reason"))}</title></text>')
     out.append("</svg>")
-    key = [('<b style="color:var(--good)">●</b>', "born"), ('<b style="color:var(--a1)">■</b>', "holds on runs it never saw"),
-           ('<b style="color:var(--ink2)">○</b>', "quiet: caught nothing"), ('<b style="color:var(--crit)">✕</b>', "retired"),
+    key = [('<b style="color:var(--sg)">●</b>', "born"), ('<b style="color:var(--a1)">■</b>', "holds on runs it never saw"),
+           ('<b style="color:var(--ink2)">○</b>', "quiet: caught nothing"), ('<b style="color:var(--sc)">✕</b>', "retired"),
            ('<b style="color:var(--a7)">↺</b>', "reborn: its failure came back")]
     return "".join(out) + legend([], key)
 
@@ -366,6 +370,67 @@ def hop_timeline(rows: List[dict], span: float, width: int = 980, live: bool = F
                 out.append(f'<text class="g{" dk" if cls in _DARK_GLYPH else ""}" x="{x0 + 5:.1f}" y="{y + 16}">{e(label)}</text>')
     if live:
         out.append(f'<line x1="{x(span):.1f}" x2="{x(span):.1f}" y1="18" y2="{height}" '
-                   f'style="stroke:var(--crit);stroke-width:2"><title>now</title></line>')
+                   f'style="stroke:var(--sc);stroke-width:2"><title>now</title></line>')
     out.append("</svg>")
-    return "".join(out) + legend(sorted(used), [('<b style="color:var(--crit)">▢</b>', "not ok")])
+    return "".join(out) + legend(sorted(used), [('<b style="color:var(--sc)">▢</b>', "not ok")])
+
+
+# --------------------------------------------------- small, for lists
+def compact_laps(result: dict) -> dict:
+    """What a list keeps of :func:`agentdiff.laps.laps`: a mark per lap."""
+    marks = []
+    for r in result.get("laps") or []:
+        passed = (r.get("closed_by") or {}).get("passed")
+        marks.append(["p" if passed is True else "f" if passed is False else "n", bool(r.get("same_as_previous"))])
+    b = ((result.get("stuck") or {}).get("longest_repeated_block") or {})
+    return {"marks": marks, "basis": result.get("basis"), "first_pass_lap": result.get("first_pass_lap"),
+            "repeated": len(result.get("repeated_laps") or []), "stuck": "stuck:" in (result.get("summary") or ""),
+            "block": [b.get("period"), b.get("repeats")] if b else None, "summary": result.get("summary")}
+
+
+def lap_strip(compact: Optional[dict], most: int = 24) -> str:
+    """One square per lap: ✓ passed, ✗ failed, – no check; an orange bar
+    under a lap that repeated the one before. The summary is the hover title."""
+    marks = (compact or {}).get("marks") or []
+    if not marks:
+        return '<span class="muted">—</span>'
+    shown = marks[:most]
+    w = 16 * len(shown) + (26 if len(marks) > most else 2)
+    out = [f'<svg class="viz strip" viewBox="0 0 {w} 19" width="{w}" height="19" role="img" '
+           f'aria-label="{e(compact.get("summary"))}"><title>{e(compact.get("summary"))}</title>']
+    for i, (state, rep) in enumerate(shown):
+        x = 1 + i * 16
+        cls, glyph = {"p": ("ok", "✓"), "f": ("bad", "✗")}.get(state, ("an", "–"))
+        out.append(f'<rect class="{cls}" x="{x}" y="1" width="13" height="13" rx="3"/>'
+                   f'<text class="g" x="{x + 6.5}" y="11.5" text-anchor="middle" style="font-size:9px">{glyph}</text>')
+        if rep:
+            # a repeat: an orange bar under it, joined to the lap it repeated
+            out.append(f'<rect class="a2" x="{x - 3}" y="16" width="16" height="3" rx="1.5"/>')
+    if len(marks) > most:
+        out.append(f'<text x="{1 + most * 16 + 2}" y="12">+{len(marks) - most}</text>')
+    out.append("</svg>")
+    return "".join(out)
+
+
+def step_ribbon(steps: List[dict], most: int = 48, width: int = 560) -> str:
+    """The run's last ``most`` steps as tiles, newest at the right, so a
+    running agent's rhythm (and a loop forming) is visible at a glance."""
+    from ..laps import _activity
+    tail = steps[-most:]
+    if not tail:
+        return '<span class="muted">no steps yet</span>'
+    tile = min(16.0, (width - 4) / max(1, len(tail)) - 2)
+    w = 2 + len(tail) * (tile + 2)
+    out = [f'<svg class="viz" viewBox="0 0 {w:.0f} 22" width="{w:.0f}" height="22" role="img" '
+           f'aria-label="the last {len(tail)} steps, newest at the right">']
+    for i, s in enumerate(tail):
+        act = _activity(s)
+        cls, glyph, label = ACTIVITIES.get(act, ACTIVITIES["other"])
+        x = 2 + i * (tile + 2)
+        name = str(s.get("name") or s.get("type") or "step")
+        out.append(f'<rect class="{cls} hot" x="{x:.1f}" y="3" width="{tile:.1f}" height="16" rx="3">'
+                   f'<title>{e(name)} · {e(label)}{" · error" if s.get("error") else ""}</title></rect>')
+        if s.get("error"):
+            out.append(f'<rect class="err" x="{x:.1f}" y="3" width="{tile:.1f}" height="16" rx="3" fill="none"/>')
+    out.append("</svg>")
+    return "".join(out)

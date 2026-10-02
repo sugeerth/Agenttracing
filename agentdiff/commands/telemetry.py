@@ -55,6 +55,11 @@ def register(subparsers) -> None:
     s.add_argument("--prompt", default="")
     s.add_argument("--answer", default="")
     s.add_argument("--success", choices=("true", "false"), default=None)
+    st = sub.add_parser("stream", help="post a trace directory to a hub as it grows (live frames, then finals)")
+    st.add_argument("directory", help="a traces/ directory, e.g. duel-out/traces")
+    st.add_argument("--hub", default=None, help="the hub's URL (default $AGENTDIFF_HUB)")
+    st.add_argument("--interval", type=float, default=1.0, help="seconds between looks (default 1)")
+    st.add_argument("--once", action="store_true", help="post what is there now, then exit")
     parser.set_defaults(func=run)
 
 
@@ -131,6 +136,35 @@ def _send(args, text: str) -> int:
     return 0
 
 
+def _stream(args) -> int:
+    import time
+    from ..harness.hub_server import TraceStreamer
+    url = args.hub or os.environ.get("AGENTDIFF_HUB")
+    token = os.environ.get("AGENTDIFF_HUB_TOKEN")
+    if not url or not token:
+        print("error: set AGENTDIFF_HUB (or --hub) and AGENTDIFF_HUB_TOKEN; `agentdiff hub` prints both",
+              file=sys.stderr)
+        return 2
+    if not Path(args.directory).is_dir():
+        print(f"error: {args.directory}: not a directory", file=sys.stderr)
+        return 2
+    streamer = TraceStreamer(args.directory, url, token, interval=max(0.1, args.interval))
+    if args.once:
+        streamer.tick()
+    else:
+        print(f"streaming {args.directory} to {url} (sizes, times and outcomes only); Ctrl-C to stop", flush=True)
+        streamer.start()
+        try:
+            while True:
+                time.sleep(3600)
+        except KeyboardInterrupt:
+            pass
+        streamer.stop()
+    print(f"sent {streamer.sent} copy(ies)" + (f"; {streamer.failed} failed, last: {streamer.last_error}"
+                                                if streamer.failed else ""))
+    return 1 if streamer.failed and not streamer.sent else 0
+
+
 def _table(rows: list, info: dict) -> str:
     cols = [c for c in ("hop", "start", "latency", "tool", "kind", "status", "bytes_in", "bytes_out",
                         "tokens_in", "tokens_out", "node") if any(c in r for r in rows)]
@@ -164,6 +198,8 @@ def run(args: argparse.Namespace) -> int:
             print(f"error: {exc}", file=sys.stderr)
             return 2
         return 0
+    if args.action == "stream":
+        return _stream(args)
     if args.action == "fields":
         for f in FIELDS:
             print(f"{f.bit:>2}  {f.name:<11} {f.doc}")
