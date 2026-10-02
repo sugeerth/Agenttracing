@@ -25,3 +25,4 @@ out_*/
 
 # The default output directory of `agentdiff eval` when no -o is given.
 eval/
+demo/selfevolve/tasks.json

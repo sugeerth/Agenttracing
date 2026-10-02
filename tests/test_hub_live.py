@@ -196,6 +196,35 @@ class SectionsTest(unittest.TestCase):
         self.assertEqual(bad.status, 400)
 
 
+class EvolveSectionTest(unittest.TestCase):
+    def test_an_evolving_harness_is_drawn_with_its_changes_and_its_evals(self):
+        sys.path.insert(0, str(ROOT / "tests"))
+        from test_selfevolve import TASKS, _traj
+        from agentdiff.selfevolve import self_evolve
+
+        def arm(h, label):
+            told = any("check" in i.lower() for i in h.instructions)
+            return [_traj(t, told or t in ("t5", "t6"), checked=told or t in ("t5", "t6"), run=f"{label}-{r}")
+                    for t in TASKS for r in ("r1", "r2")]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _root(Path(tmp))
+            out = root / "evo"
+            out.mkdir()
+            result = self_evolve(arm, generations=3, check="pytest -q")
+            (out / "self-evolve.json").write_text(json.dumps({k: v for k, v in result.items() if k != "ledger"}))
+            app = _app(root)
+            h = _sign_in(app)
+            page = app.handle(Request("GET", "/evolve", h)).body.decode()
+            self.assertIn("✓ kept", page)
+            self.assertIn("claims_without_check", page)
+            eid = next(x.id for x in app.catalog.entries() if x.kind == "evolution")
+            one = app.handle(Request("GET", f"/runs/{eid}", h)).body.decode()
+            for want in ("The harness now", "Before you say the work is done", "4/12 → 12/12", "candidate(s) weighed"):
+                self.assertIn(want, one)
+            self.assertIn("Agents evolving", app.handle(Request("GET", "/", h)).body.decode())
+            self.assertIn("evo", app.handle(Request("GET", "/evals", h)).body.decode(), "its evals are listed too")
+
+
 class BusTest(unittest.TestCase):
     def test_the_stream_sends_what_changed_and_resumes_from_the_last_id(self):
         bus = LiveBus()

@@ -167,7 +167,14 @@ agentdiff telemetry decode adi1.…          # the hops, as a table; --json for 
 agentdiff telemetry trace adi1.… -o t.json # a SCHEMA trace: batch, duel, forge and the page read it
 agentdiff telemetry encode trace.json      # any trace AgentDiff reads, compacted to a vector
 agentdiff telemetry send adi1.…            # post it to a hub (docs/HUB.md)
+agentdiff telemetry stream duel-out/traces # post a trace directory as it grows: live frames, then finals
 ```
+
+`stream` turns each trace into a vector with one trace id per run (a hash
+of its file name, `from_trajectory(..., trace_id=)`), so the hub holds one
+run that grows rather than one per copy. A frame still being written is
+posted `live`; the final copy replaces it. A hub that is down is tried
+again at the next look, and nothing is lost while the files are on disk.
 
 What the vector did not carry is never invented. Inputs and outputs are
 sizes; a name left out of the table is shown as its hash. Hops refused

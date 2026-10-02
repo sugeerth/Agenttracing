@@ -3,7 +3,8 @@
 The hub keeps no database. The catalog walks the root (to a depth the
 settings give) and asks each detector whether a directory is something it
 knows: a duel (``duel.json``), a report (``aggregate.json`` beside
-``report.html``), a self-evolving eval suite (``evolve-evals.json``). A directory a detector claims is not descended into, so
+``report.html``), a self-evolving eval suite (``evolve-evals.json``), a
+self-evolving harness with its evals (``self-evolve.json``). A directory a detector claims is not descended into, so
 a duel's own page is not listed twice. The in-band telemetry agents post
 is a store of its own (:mod:`.ingest`) and is listed beside them.
 
@@ -20,7 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional
 
-__all__ = ["Entry", "Catalog", "detect_duel", "detect_report", "detect_evals", "DETECTORS"]
+__all__ = ["Entry", "Catalog", "detect_duel", "detect_report", "detect_evals", "detect_evolution", "DETECTORS"]
 
 _SKIP = {".git", "node_modules", "__pycache__", ".venv", "venv", ".tox", ".mypy_cache", "dist", "build"}
 
@@ -117,8 +118,25 @@ def detect_evals(d: Path, root: Path) -> Optional[Entry]:
                   "narrative": data.get("narrative") or ""})
 
 
+def detect_evolution(d: Path, root: Path) -> Optional[Entry]:
+    """Agents under a harness that evolves with its evals (``agentdiff self-evolve``)."""
+    data = _json(d / "self-evolve.json") if (d / "self-evolve.json").is_file() else None
+    if data is None or data.get("kind") != "self-evolve" or not isinstance(data.get("lineage"), list):
+        return None
+    gens = data["lineage"]
+    rates = [round(1 - g["failed"] / g["runs"], 4) if g.get("runs") else None for g in gens]
+    kept = sum(1 for g in gens if ((g.get("action") or {}).get("test") or {}).get("verdict") == "kept")
+    tried = sum(1 for g in gens if g.get("action"))
+    agents = sorted({str(x) for g in gens for x in ((g.get("action") or {}).get("agents") or [])})
+    return Entry(entry_id("evolution", d.relative_to(root)), "evolution", f"{d.name} · self-evolving harness",
+                 d, _mtime(d / "self-evolve.json"),
+                 {"generations": len(gens), "pass_rates": rates, "kept": kept, "tried": tried,
+                  "version": (data.get("harness") or {}).get("version"), "describe": data.get("describe"),
+                  "stop": data.get("stop"), "agents": agents, "narrative": data.get("narrative") or ""})
+
+
 #: in order: the first detector to claim a directory owns it
-DETECTORS: List[Callable[[Path, Path], Optional[Entry]]] = [detect_duel, detect_report, detect_evals]
+DETECTORS: List[Callable[[Path, Path], Optional[Entry]]] = [detect_evolution, detect_duel, detect_report, detect_evals]
 
 
 def _mtime(p: Path) -> float:

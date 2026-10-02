@@ -1,10 +1,13 @@
 # The hub
 
 `agentdiff hub` is AgentDiff as a small platform. It is one process with
-no database, standard library only, behind a sign-in. It shows every run
-under a directory:
-- duels, with their scoreboards
-- reports
+no database, standard library only, behind a sign-in. It shows everything
+under a directory, and follows it while it runs:
+- every trace, drawn as the loop the agent went round, lap by lap
+- running agents, live, as their traces grow on disk or arrive in-band
+- agents under a harness that evolves with its evals (`docs/SELF_EVOLVE.md`)
+- eval suites carried through generations (`docs/EVOLVING_EVALS.md`)
+- duels, with their scoreboards, and reports
 - in-band telemetry agents post to it (`docs/TELEMETRY.md`)
 
 ```bash
@@ -56,12 +59,47 @@ ignored.
 
 | route | what |
 |---|---|
-| `/` | every run under the root, newest first: kind, title, pass counts or hops |
-| `/runs/<id>` | a duel's scoreboard, notes and the commands to keep a change; a telemetry run's timeline (one lane per process) and its hops |
+| `/` | the overview: running now, agents evolving, traces stuck in a loop, recent traces and runs |
+| `/runs` | every run under the root, newest first (`?kind=duel\|report\|evals\|evolution\|telemetry`) |
+| `/runs/<id>` | a duel's scoreboard and its traces; a telemetry run's hops on one clock, a lane per process; an eval suite; an evolving harness |
 | `/runs/<id>/page` | the report the run wrote |
-| `/api/v1/runs` | the catalog as JSON |
-| `POST /api/v1/telemetry` | an agent posts `{vector, prompt?, success?, answer?, model?}` with `Authorization: Bearer <ingest token>` |
+| `/traces` | every trace, its loop folded to a strip (`?show=live\|passed\|failed\|stuck`, `?q=`) |
+| `/traces/<id>` | one trace: the loop lap by lap, the moves between tools, a lap table, every step |
+| `/live` | every running agent: its last steps, its laps so far; it updates itself |
+| `/evolve` | every self-evolving harness: pass rate per generation, each change tried and its paired test |
+| `/evals` | every eval suite, each eval's life across generations |
+| `/account` | who is signed in; change the password (every other session of that user ends) |
+| `/api/v1/runs`, `/api/v1/traces`, `/api/v1/traces/<id>` | the same as JSON |
+| `/api/v1/events` | server-sent events: what changed (`{v, kinds, ids}`), never its content |
+| `POST /api/v1/telemetry` | an agent posts `{vector, prompt?, success?, answer?, model?, live?}` with `Authorization: Bearer <ingest token>` |
 | `/healthz` | liveness |
+
+## Loops
+
+A trace's page reads the run as the agent's loop (`agentdiff/laps.py`).
+Each lap ends at a check (a test run, a lint, a `run_check` tool), and the
+check's outcome closes it as passed or failed. A run that never checks is
+cut at its model turns. A lap that made the same calls as the one before
+it, arguments and all, is marked as a repeat, and the stuck verdict is
+`process.loops`'s own. A running trace is drawn as far as it has gone and
+judged only when it ends. Every chart has a legend, a hover title per mark
+and a table beside it, so nothing is told by colour alone.
+
+## Live
+
+Two things move while agents run. A trace file grows on disk, frame by
+frame (`<trace>.live.json`, written by the harness); a poller looks every
+half second (`live_poll_s`) and names each trace that was added, grew or
+finished. A vector arrives over the ingest endpoint. Both publish to one
+bus, and `/api/v1/events` streams the change, with a keepalive every 15
+seconds and resumption by `Last-Event-ID`. A page marked live loads the
+hub's one script, `/static/live.js`, which re-fetches that page's
+fragments as the signed-in user, drawn by the same server-side views.
+
+From another machine, `agentdiff telemetry stream DIR` (or `duel --hub
+URL`, `self-evolve --hub URL`) posts a trace directory as it grows, one
+trace id per run, as in-band vectors: sizes, times and outcomes, never
+content.
 
 The ingest token is made once and kept in `.agentdiff-hub/ingest.token`
 (owner only), so agent configurations survive a restart. A posted run is
@@ -79,8 +117,10 @@ at least as many hops.
 - **Network:** the hub binds to `127.0.0.1`. Anything else needs
   `--allow-remote`, because it shows every run under its root, including
   what the agents read.
-- **The hub's own pages** run no script at all. Their policy is
-  `default-src 'none'; style-src 'unsafe-inline'; form-action 'self'`.
+- **The hub's own pages** run no script, except a live page. Their
+  policy is `default-src 'none'; style-src 'unsafe-inline'; form-action 'self'`.
+  A live page adds `script-src 'self'; connect-src 'self'`: the hub's one
+  static file, never an inline script, talking only to this hub.
 - **A run's report** is a page that run wrote, with its own scripts and
   data from agents. It is served under
   `Content-Security-Policy: sandbox allow-scripts`, which gives it an
@@ -100,10 +140,13 @@ at least as many hops.
 | `hub/sessions.py` | sessions, form tokens, the login throttle |
 | `hub/catalog.py` | runs on disk, found by detectors (a new kind of run is one more detector) |
 | `hub/ingest.py` | posted telemetry, kept as runs |
+| `hub/traces.py` | every trace under the root, summarised once per file version |
+| `hub/live.py` | the bus and the event stream |
+| `hub/viz.py` | the charts, as server-side SVG: laps, flow, eval river, harness river, hop timeline |
 | `hub/views.py` | the pages |
 | `hub/urls.py` | paths, queries and forms, without `urllib` (the engine's rule) |
 | `hub/app.py` | request in, response out: every route, no sockets |
-| `harness/hub_server.py` | the only part that listens: the HTTP adapter, the wiring, the client |
+| `harness/hub_server.py` | the only part that listens: the HTTP adapter, the poller, the wiring, the client, the streamer |
 
 The app takes its collaborators as arguments, so a test, or an embedding,
 swaps any of them. Nearly every test runs the app with no socket.

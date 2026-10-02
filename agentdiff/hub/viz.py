@@ -10,6 +10,8 @@ implementation to drift from the first.
 - :func:`hop_timeline` — in-band telemetry hops on one clock, a lane per process
 - :func:`lap_strip` — a lap chart folded to one line, for a list of traces
 - :func:`step_ribbon` — the last steps of a running trace, newest at the right
+- :func:`harness_river` — the self-evolving harness: pass rate per generation,
+  every change tried with its paired test, the evals born and retired
 
 Colour follows the activity, never its rank, in the fixed slot order of a
 validated palette (worst adjacent CVD ΔE 9.1 light / 8.4 dark). Every mark
@@ -25,7 +27,7 @@ import math
 from typing import Dict, List, Optional
 
 __all__ = ["ACTIVITIES", "lap_chart", "lap_table", "flow_ring", "eval_river", "hop_timeline", "legend",
-           "activity_of_hop", "lap_strip", "step_ribbon", "compact_laps", "VIZ_CSS"]
+           "activity_of_hop", "lap_strip", "step_ribbon", "compact_laps", "harness_river", "VIZ_CSS"]
 
 
 def e(v) -> str:
@@ -434,3 +436,98 @@ def step_ribbon(steps: List[dict], most: int = 48, width: int = 560) -> str:
             out.append(f'<rect class="err" x="{x:.1f}" y="3" width="{tile:.1f}" height="16" rx="3" fill="none"/>')
     out.append("</svg>")
     return "".join(out)
+
+
+# ------------------------------------------------------ harness river
+def _rate(passed_n) -> Optional[float]:
+    if not passed_n or not passed_n[1]:
+        return None
+    return passed_n[0] / passed_n[1]
+
+
+def harness_river(result: dict, width: int = 980) -> str:
+    """One column per generation. Bars: the share of runs that passed under the
+    harness as it was (blue), and under the change tried that round (green
+    when kept, outlined when reverted). Under them, the change, its verdict
+    and the evals that entered and left; a version lane joins the columns."""
+    gens = result.get("lineage") or []
+    if not gens:
+        return '<p class="muted">No generation has run yet.</p>'
+    left, col_min = 150, 150
+    width = int(max(width, left + col_min * len(gens) + 20)) if len(gens) > 5 else width
+    col = (width - left - 20) / len(gens)
+    base, bar_h = 118, 86
+    height = base + 132
+    x = lambda i: left + col * i + col / 2  # noqa: E731
+    out = [f'<svg class="viz" viewBox="0 0 {width} {height}" width="{width}" role="img" '
+           f'aria-label="{e(result.get("narrative"))}">',
+           f'<text x="{left - 10}" y="22" text-anchor="end">runs that passed</text>',
+           f'<text class="lab" x="{left - 10}" y="{base + 22}" text-anchor="end">harness</text>',
+           f'<text class="lab" x="{left - 10}" y="{base + 58}" text-anchor="end">change tried</text>',
+           f'<text class="lab" x="{left - 10}" y="{base + 104}" text-anchor="end">evals</text>']
+    for frac in (0.5, 1.0):
+        y = base - bar_h * frac
+        out.append(f'<line class="grid" x1="{left}" x2="{width - 20}" y1="{y:.1f}" y2="{y:.1f}"/>'
+                   f'<text x="{left - 10}" y="{y + 4:.1f}" text-anchor="end">{frac:.0%}</text>')
+    out.append(f'<line class="grid" x1="{left}" x2="{width - 20}" y1="{base}" y2="{base}"/>')
+    prev = None
+    for i, g in enumerate(gens):
+        cx = x(i)
+        runs, failed = g.get("runs") or 0, g.get("failed") or 0
+        cur = (runs - failed) / runs if runs else None
+        a = g.get("action") or {}
+        t = a.get("test") or {}
+        chg = _rate((t.get("passed") or {}).get("changed"))
+        kept = t.get("verdict") == "kept"
+        bw = 26
+        if cur is not None:
+            h = max(2.0, bar_h * cur)
+            out.append(f'<rect class="a1 hot" x="{cx - bw - 2:.1f}" y="{base - h:.1f}" width="{bw}" height="{h:.1f}" rx="4">'
+                       f'<title>{e(g["generation"])}: {runs - failed} of {runs} run(s) passed under '
+                       f'v{e(g["harness"]["version"])}</title></rect>'
+                       f'<text x="{cx - bw / 2 - 2:.1f}" y="{base - h - 5:.1f}" text-anchor="middle">{runs - failed}/{runs}</text>')
+        if chg is not None:
+            pc = t["passed"]["changed"]
+            h = max(2.0, bar_h * chg)
+            style = "" if kept else ' style="fill:none;stroke:var(--a3);stroke-width:2;stroke-dasharray:4 3"'
+            out.append(f'<rect class="a3 hot" x="{cx + 2:.1f}" y="{base - h:.1f}" width="{bw}" height="{h:.1f}" rx="4"{style}>'
+                       f'<title>with {e(a["remedy"]["id"])}: {pc[0]} of {pc[1]} passed ({e(t.get("verdict"))})</title></rect>'
+                       f'<text x="{cx + bw / 2 + 2:.1f}" y="{base - h - 5:.1f}" text-anchor="middle">{pc[0]}/{pc[1]}</text>')
+        # the version lane
+        v = g["harness"]["version"]
+        vy = base + 18
+        if prev is not None:
+            out.append(f'<line class="lane" x1="{prev[0] + 16:.1f}" x2="{cx - 16:.1f}" y1="{vy}" y2="{vy}"/>')
+        out.append(f'<rect class="hot" x="{cx - 15:.1f}" y="{vy - 10}" width="30" height="20" rx="10" '
+                   f'style="fill:var(--panel);stroke:var(--a1);stroke-width:2"><title>{e(g["generation"])} ran '
+                   f'harness v{v}: {e(", ".join(g["harness"].get("remedies") or []) or "nothing added")}</title></rect>'
+                   f'<text class="lab" x="{cx:.1f}" y="{vy + 4}" text-anchor="middle" style="font-size:11px">v{v}</text>')
+        out.append(f'<text class="lab" x="{cx:.1f}" y="{base - bar_h - 14}" text-anchor="middle">{e(g["generation"])}</text>')
+        prev = (cx, vy)
+        # the change and its paired test
+        if a:
+            badge, cls = ("✓ kept", "ok") if kept else ("✗ reverted", "bad")
+            rid = str(a["remedy"]["id"]).split(":", 1)[-1]
+            out.append(f'<text class="{cls}" x="{cx:.1f}" y="{base + 52}" text-anchor="middle" '
+                       f'style="font:600 12px system-ui,sans-serif">{badge}<title>{e(t.get("why"))}</title></text>'
+                       f'<text x="{cx:.1f}" y="{base + 68}" text-anchor="middle">{e(rid[:24])}'
+                       f'<title>{e(a["remedy"]["value"])} (because: {e(a["because"].get("says"))}, '
+                       f'{e(a["because"].get("caught"))} of {e(a["because"].get("wrong"))} failure(s))</title></text>')
+        elif failed == 0 and runs:
+            out.append(f'<text class="ok" x="{cx:.1f}" y="{base + 52}" text-anchor="middle" '
+                       f'style="font:600 12px system-ui,sans-serif">✓ all passed</text>')
+        else:
+            out.append(f'<text x="{cx:.1f}" y="{base + 52}" text-anchor="middle">nothing to try</text>')
+        ev = g.get("evals") or {}
+        born, retired = ev.get("born") or [], ev.get("retired") or []
+        tip = "; ".join(filter(None, [("born " + ", ".join(born)) if born else "",
+                                      ("retired " + ", ".join(retired)) if retired else ""])) or "no change to the suite"
+        out.append(f'<text x="{cx:.1f}" y="{base + 104}" text-anchor="middle">'
+                   f'<tspan style="fill:var(--sg)">+{len(born)}</tspan>  <tspan style="fill:var(--sc)">−{len(retired)}</tspan>'
+                   f'<title>{e(tip)}</title></text>')
+    out.append("</svg>")
+    key = [('<i class="a1"></i>', "passed under the harness as it was"),
+           ('<i class="a3"></i>', "passed with the change (kept)"),
+           ('<i style="background:none;border:2px dashed var(--a3);width:10px;height:10px"></i>', "with the change (reverted)"),
+           ('<b style="color:var(--sg)">+</b><b style="color:var(--sc)">−</b>', "evals born, retired")]
+    return "".join(out) + legend([], key)

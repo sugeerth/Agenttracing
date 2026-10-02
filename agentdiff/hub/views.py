@@ -22,7 +22,7 @@ from .catalog import Entry
 
 __all__ = ["layout", "login_page", "overview_page", "runs_page", "duel_page", "report_page", "telemetry_page",
            "traces_page", "trace_page", "trace_panel", "live_page", "live_panel", "evals_page", "evals_run_page",
-           "account_page", "message_page", "NAV"]
+           "account_page", "message_page", "evolve_page", "evolution_page", "NAV"]
 
 
 def e(value) -> str:
@@ -31,7 +31,8 @@ def e(value) -> str:
 
 #: the sections, in order: (key, label, path)
 NAV = (("overview", "Overview", "/"), ("runs", "Runs", "/runs"), ("traces", "Traces", "/traces"),
-       ("live", "Live", "/live"), ("evals", "Evals", "/evals"), ("account", "Account", "/account"))
+       ("live", "Live", "/live"), ("evolve", "Evolve", "/evolve"), ("evals", "Evals", "/evals"),
+       ("account", "Account", "/account"))
 
 _CSS = """
 :root{--bg:#f7f7f5;--panel:#fff;--ink:#1d1d1b;--soft:#5d5d58;--line:#e3e2dc;--accent:#2f5bd3;
@@ -218,6 +219,12 @@ def _entry_detail(x: Entry) -> str:
         s = x.summary
         return (f'{e(s.get("hops"))} hops across {e(len(s.get("nodes") or []))} process(es), '
                 f'{e(s.get("errors"))} not ok' + (" · <strong>live</strong>" if s.get("live") else ""))
+    if x.kind == "evolution":
+        s = x.summary
+        rates = [r for r in s.get("pass_rates") or [] if r is not None]
+        trend = " → ".join(f"{r:.0%}" for r in rates[:6]) or "—"
+        return (f'{e(s.get("generations"))} generation(s) · passed {e(trend)} · {e(s.get("kept"))} of '
+                f'{e(s.get("tried"))} change(s) kept · {e(s.get("describe"))}')
     if x.kind == "evals":
         s = x.summary
         fwd = s.get("last_forward")
@@ -254,6 +261,7 @@ def _ingest_card(ingest: dict) -> str:
 
 # ------------------------------------------------------------- overview
 def overview_page(*, brand: str, user: str, csrf: str, entries: List[Entry], refs: list, ingest: dict) -> str:
+    evolving = [x for x in entries if x.kind == "evolution"]
     live = [r for r in refs if r.live and time.time() - r.updated <= STALL_S]
     finished = [r for r in refs if not r.live]
     judged = [r for r in finished if r.summary.get("success") is not None]
@@ -272,6 +280,8 @@ def overview_page(*, brand: str, user: str, csrf: str, entries: List[Entry], ref
     loops = [r for r in finished if (r.summary.get("laps") or {}).get("stuck")][:6]
     body = (f'<h1>Overview</h1><p class="sub">Everything under this hub\'s root, read from disk.</p>{tiles}'
             f'<h2>Running now</h2><div class="card">{live_html}</div>'
+            + (f'<h2>Agents evolving</h2>{_entry_cards(evolving[:4])}<p><a href="/evolve">Every evolving harness →</a></p>'
+               if evolving else "")
             + (f'<h2>Stuck in a loop</h2><div class="card">{_trace_rows(loops)}</div>' if loops else "")
             + f'<h2>Recent traces</h2><div class="card">{_trace_rows(finished[:10]) if finished else "<p class=muted>None yet.</p>"}'
             f'<p><a href="/traces">Every trace →</a></p></div>'
@@ -540,6 +550,85 @@ def evals_run_page(*, brand: str, user: str, csrf: str, entry: Entry, data: dict
             f'<h2>Every eval</h2><div class="card"><table><tr><th>eval</th><th>status</th><th>born</th><th>retired</th>'
             f'<th>what it says, and why it left</th></tr>{"".join(rows)}</table></div>')
     return layout(entry.title, body, brand=brand, user=user, csrf=csrf, active="evals")
+
+
+# --------------------------------------------------------------- evolve
+def evolve_page(*, brand: str, user: str, csrf: str, entries: List[Entry], rivers: dict) -> str:
+    blocks = []
+    for x in entries:
+        blocks.append(f'<h2>{e(x.title)}</h2><div class="card"><p class="muted">{e(x.summary.get("describe"))} · '
+                      f'stopped: {e(x.summary.get("stop"))}</p>{rivers.get(x.id) or ""}'
+                      f'<p><a href="/runs/{e(x.id)}">The harness, every change and its evidence →</a></p></div>')
+    if not blocks:
+        blocks.append('<div class="card"><p class="muted">No evolving harness under the root yet. Start one: '
+                      '<code>agentdiff self-evolve --task tasks.json --agent haiku -o evo/</code>. Each generation '
+                      'the agents run, the evals judge them, and the harness tries one change the evals point at; '
+                      'it shows here, and its runs stream to <a href="/live">Live</a> as they go.</p></div>')
+    body = (f'<h1>Evolve</h1><p class="sub">Agents under a harness that changes itself. Each generation: the agents '
+            f'run, the evolving evals judge the runs, the eval that caught the most failures names one change, the '
+            f'change is tested against the harness as it was on the same tasks, and kept only on the counts.</p>'
+            + "".join(blocks))
+    return layout("Evolve", body, brand=brand, user=user, csrf=csrf, active="evolve")
+
+
+def evolution_page(*, brand: str, user: str, csrf: str, entry: Entry, data: dict, refs: list = ()) -> str:
+    h = data.get("harness") or {}
+    now = "".join(f"<li>{e(i)}</li>" for i in h.get("instructions") or [])
+    now += "".join(f"<li>denied tool <code>{e(t)}</code></li>" for t in h.get("deny_tools") or [])
+    if h.get("max_turns"):
+        now += f"<li>at most {e(h['max_turns'])} turns</li>"
+    now = f"<ol>{now}</ol>" if now else '<p class="muted">Nothing added: the agent as it ships.</p>'
+    rows, weighed = [], []
+    for g in data.get("lineage") or []:
+        a = g.get("action") or {}
+        t = a.get("test") or {}
+        pc, pn = (t.get("passed") or {}).get("current"), (t.get("passed") or {}).get("changed")
+        verdict = ""
+        if t:
+            verdict = ('<span class="badge ok">✓ kept</span>' if t["verdict"] == "kept"
+                       else '<span class="badge bad">✗ reverted</span>')
+        tok = t.get("median_tokens") or {}
+        tok_s = (f'{_num(tok.get("current"))} → {_num(tok.get("changed"))}' if tok.get("changed") is not None else "—")
+        rows.append(f'<tr><td>{e(g["generation"])}</td><td>v{e(g["harness"]["version"])}</td>'
+                    f'<td class="n">{e(g["failed"])}/{e(g["runs"])}</td>'
+                    f'<td>{e((a.get("remedy") or {}).get("value") or "—")}'
+                    f'<div class="muted">{e((a.get("because") or {}).get("says") or "")}</div></td>'
+                    f'<td>{verdict}<div class="muted">{e(t.get("why") or "")}</div></td>'
+                    f'<td class="n">{f"{pc[0]}/{pc[1]} → {pn[0]}/{pn[1]}" if pc and pn else "—"}</td>'
+                    f'<td class="n">{tok_s}</td></tr>')
+        items = []
+        for w in g.get("weighed") or []:
+            fate = ("tested" if a and w.get("remedy") and (a.get("remedy") or {}).get("id") == w["remedy"]["id"]
+                    else w.get("skipped") or "not reached")
+            items.append(f'<tr><td class="mono">{e(w.get("eval") or "—")}</td><td>{e(w.get("says"))}</td>'
+                         f'<td class="n">{e(w.get("caught"))}/{e(w.get("wrong"))}</td><td>{e(w.get("source"))}</td>'
+                         f'<td>{e(fate)}</td></tr>')
+        if items:
+            weighed.append(f'<details><summary>{e(g["generation"])}: {len(items)} candidate(s) weighed</summary>'
+                           f'<table><tr><th>eval</th><th>flags a run when</th><th class="n">caught</th><th>from</th>'
+                           f'<th>what happened</th></tr>{"".join(items)}</table></details>')
+    ev = data.get("evals") or {}
+    arms = {}
+    for r in refs:
+        arms.setdefault(r.group, []).append(r)
+    arm_html = "".join(f'<h2>{e(gname)} <span class="muted">· {len(rs)}</span></h2><div class="card">{_trace_rows(rs)}</div>'
+                       for gname, rs in arms.items())
+    body = (f'<p class="muted"><a href="/evolve">Evolve</a></p><h1>{e(entry.title)}</h1>'
+            f'<p class="sub">{e(data.get("describe"))} · stopped: {e(data.get("stop"))}</p>'
+            f'<div class="card">{viz.harness_river(data)}</div>'
+            f'<div class="card"><p>{e(data.get("narrative"))}</p></div>'
+            f'<h2>The harness now</h2><div class="card">{now}</div>'
+            f'<h2>Every generation</h2><div class="card"><table><tr><th>generation</th><th>harness</th>'
+            f'<th class="n">failed</th><th>change tried, and the failure it answers</th><th>paired test</th>'
+            f'<th class="n">passed: as it was → changed</th><th class="n">median tokens</th></tr>{"".join(rows)}</table>'
+            f'{"".join(weighed)}</div>'
+            + (f'<h2>The evals that judged it</h2><div class="card">{viz.eval_river(ev)}<p>{e(ev.get("narrative"))}</p></div>'
+               if ev.get("lineage") else "")
+            + f'<h2>Every run, by arm</h2>{arm_html or "<div class=card><p class=muted>No traces found under it.</p></div>"}'
+            f'<p class="muted">A change is kept when it wins more tasks than it loses, the same tasks run the same '
+            f'number of times, and no task goes from always passing to always failing. Every number is a count of '
+            f'graded runs.</p>')
+    return layout(entry.title, body, brand=brand, user=user, csrf=csrf, active="evolve")
 
 
 # -------------------------------------------------------------- account

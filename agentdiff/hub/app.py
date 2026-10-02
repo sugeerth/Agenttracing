@@ -21,6 +21,7 @@ Routes::
     GET  /traces/<id>/panel     the part of that page that moves (for the live script)
     GET  /live                  every running trace, updating itself
     GET  /live/panel            its moving part
+    GET  /evolve                every self-evolving harness: agents, evals, the changes tried
     GET  /evals                 every self-evolving eval suite
     GET  /account               who is signed in; change the password
     POST /account/password      change it (session form token, current password)
@@ -159,6 +160,7 @@ class App:
             ("GET", re.compile(rf"^/traces/{hexid}/panel$"), self.trace_fragment, True),
             ("GET", re.compile(r"^/live$"), self.live, True),
             ("GET", re.compile(r"^/live/panel$"), self.live_fragment, True),
+            ("GET", re.compile(r"^/evolve$"), self.evolve, True),
             ("GET", re.compile(r"^/evals$"), self.evals, True),
             ("GET", re.compile(r"^/account$"), self.account, True),
             ("POST", re.compile(r"^/account/password$"), self.change_password, True),
@@ -258,6 +260,11 @@ class App:
         common = dict(**self._common(session), entry=entry)
         if entry.kind == "duel":
             return Response.html(views.duel_page(**common, refs=self._refs_under(entry.path)))
+        if entry.kind == "evolution":
+            data = self._json_file(entry.path / "self-evolve.json")
+            if data is None:
+                return Response.html(self._page("Gone", "That run's file is no longer readable.", session), 404)
+            return Response.html(views.evolution_page(**common, data=data, refs=self._refs_under(entry.path)))
         if entry.kind == "evals":
             data = self._json_file(entry.path / "evolve-evals.json")
             if data is None:
@@ -358,14 +365,29 @@ class App:
                         {"Cache-Control": "no-cache"})
 
     # ----------------------------------------------------------------- evals
-    def evals(self, req: Request, session: Session) -> Response:
+    def evolve(self, req: Request, session: Session) -> Response:
         from . import viz
-        entries = [x for x in self.catalog.entries() if x.kind == "evals"]
+        entries = [x for x in self.catalog.entries() if x.kind == "evolution"]
         rivers = {}
         for x in entries:
-            data = self._json_file(x.path / "evolve-evals.json")
+            data = self._json_file(x.path / "self-evolve.json")
             if data:
+                rivers[x.id] = viz.harness_river(data)
+        return Response.html(views.evolve_page(**self._common(session), entries=entries, rivers=rivers))
+
+    def evals(self, req: Request, session: Session) -> Response:
+        from . import viz
+        # a suite on its own, and the suite inside every evolving harness
+        entries = [x for x in self.catalog.entries() if x.kind in ("evals", "evolution")]
+        rivers = {}
+        for x in entries:
+            if x.kind == "evals":
+                data = self._json_file(x.path / "evolve-evals.json")
+            else:
+                data = (self._json_file(x.path / "self-evolve.json") or {}).get("evals")
+            if data and data.get("lineage"):
                 rivers[x.id] = viz.eval_river(data)
+        entries = [x for x in entries if x.id in rivers]
         return Response.html(views.evals_page(**self._common(session), entries=entries, rivers=rivers))
 
     # --------------------------------------------------------------- account

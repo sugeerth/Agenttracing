@@ -6,7 +6,10 @@ shapes Claude Code's headless stream prints (system/init, assistant
 messages with tool_use blocks and usage, user tool_result messages, a
 closing result) and really edits the workspace, so the harness can be
 tested end to end without a network or a key. FAKE_VENDOR_MODE picks what
-it does: `fix` (default), `break`, `idle`. FAKE_VENDOR_SLOW adds a delay
+it does: `fix` (default), `break`, `idle`, `careless` (a first edit that is
+wrong, then "done" without a check, unless the harness's appended system
+prompt tells it to run the check: then it checks, sees the failure and
+fixes it; for the self-evolving harness). FAKE_VENDOR_SLOW adds a delay
 per message (for budget tests).
 """
 import json
@@ -67,6 +70,11 @@ def main():
     def read(path):
         return lambda: (open(os.path.join(cwd, path)).read(), False)
 
+    if mode == "careless":
+        told = ""
+        if "--append-system-prompt" in args:
+            told = args[args.index("--append-system-prompt") + 1]
+        return careless(call, bash, read, cwd, emit, "check" in told.lower(), lambda: n)
     call("Bash", {"command": "python3 -m unittest -q"}, bash("python3 -m unittest -q"),
          text="Let me run the tests first.")
     call("Read", {"file_path": os.path.join(cwd, "pricing.py")}, read("pricing.py"))
@@ -92,6 +100,36 @@ def main():
           "num_turns": n, "result": final, "session_id": "sess-test", "total_cost_usd": 0.0412,
           "usage": {"input_tokens": 290, "cache_creation_input_tokens": 1000, "cache_read_input_tokens": 70500,
                     "output_tokens": 540}, "permission_denials": []})
+    return 0
+
+
+def careless(call, bash, read, cwd, emit, checks, count):
+    path = os.path.join(cwd, "pricing.py")
+
+    def edit(old, new):
+        def go():
+            text = open(path).read()
+            open(path, "w").write(text.replace(old, new))
+            return "The file has been updated.", False
+        return go
+    call("Read", {"file_path": path}, read("pricing.py"), text="I'll look at the pricing code.")
+    wrong = ("return round(total - percent, 2)", "return round(total - total * percent, 2)")
+    call("Edit", {"file_path": path, "old_string": wrong[0], "new_string": wrong[1]}, edit(*wrong))
+    if checks:
+        call("Bash", {"command": "python3 -m unittest -q"}, bash("python3 -m unittest -q"))
+        right = (wrong[1], "return round(total * (1 - percent / 100), 2)")
+        call("Edit", {"file_path": path, "old_string": right[0], "new_string": right[1]}, edit(*right))
+        call("Bash", {"command": "python3 -m unittest -q"}, bash("python3 -m unittest -q"))
+    final = "Fixed apply_discount; the work is done."
+    emit({"type": "assistant", "message": {"id": "msg_final", "model": "stand-in-model", "role": "assistant",
+                                           "content": [{"type": "text", "text": final}],
+                                           "usage": {"input_tokens": 40, "cache_creation_input_tokens": 0,
+                                                     "cache_read_input_tokens": 1000, "output_tokens": 30}},
+          "parent_tool_use_id": None, "session_id": "sess-test"})
+    emit({"type": "result", "subtype": "success", "is_error": False, "duration_ms": 1200, "duration_api_ms": 1000,
+          "num_turns": count() + 1, "result": final, "session_id": "sess-test", "total_cost_usd": 0.01,
+          "usage": {"input_tokens": 200, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 4000,
+                    "output_tokens": 200}, "permission_denials": []})
     return 0
 
 
