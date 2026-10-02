@@ -1,0 +1,162 @@
+{
+ "schema_version": 1,
+ "trace_id": "loops-converges",
+ "run_id": "r1",
+ "agent": {
+  "name": "agent-converges",
+  "model": "synthetic",
+  "version": "synthetic"
+ },
+ "task": {
+  "id": "parse_duration",
+  "prompt": "Make tests/test_parser.py pass.",
+  "expected": null
+ },
+ "outcome": {
+  "success": true,
+  "answer": "fixed; 12 passing",
+  "score": null
+ },
+ "totals": {
+  "input_tokens": 0,
+  "output_tokens": 1380,
+  "cost_usd": 0.0,
+  "latency_s": 12.8
+ },
+ "steps": [
+  {
+   "index": 0,
+   "type": "reason",
+   "name": "think",
+   "input": "Read the failing test first.",
+   "output": "",
+   "tokens": 180,
+   "latency_s": 1.2,
+   "error": null
+  },
+  {
+   "index": 1,
+   "type": "tool_call",
+   "name": "Read",
+   "input": "tests/test_parser.py",
+   "output": "40 lines",
+   "tokens": 60,
+   "latency_s": 0.2,
+   "error": null
+  },
+  {
+   "index": 2,
+   "type": "tool_call",
+   "name": "Grep",
+   "input": "def parse_duration",
+   "output": "src/parser.py:12",
+   "tokens": 60,
+   "latency_s": 0.1,
+   "error": null
+  },
+  {
+   "index": 3,
+   "type": "reason",
+   "name": "think",
+   "input": "Attempt 1: src/parser.py: handle '1h30m'",
+   "output": "",
+   "tokens": 220,
+   "latency_s": 1.0,
+   "error": null
+  },
+  {
+   "index": 4,
+   "type": "tool_call",
+   "name": "Edit",
+   "input": "src/parser.py: handle '1h30m'",
+   "output": "applied",
+   "tokens": 60,
+   "latency_s": 0.3,
+   "error": null
+  },
+  {
+   "index": 5,
+   "type": "tool_call",
+   "name": "Bash",
+   "input": "{\"command\": \"pytest -q\"}",
+   "output": "2 failed, 10 passed",
+   "tokens": 60,
+   "latency_s": 2.1,
+   "error": null
+  },
+  {
+   "index": 6,
+   "type": "reason",
+   "name": "think",
+   "input": "Attempt 2: src/parser.py: minutes default 0",
+   "output": "",
+   "tokens": 220,
+   "latency_s": 1.2,
+   "error": null
+  },
+  {
+   "index": 7,
+   "type": "tool_call",
+   "name": "Edit",
+   "input": "src/parser.py: minutes default 0",
+   "output": "applied",
+   "tokens": 60,
+   "latency_s": 0.3,
+   "error": null
+  },
+  {
+   "index": 8,
+   "type": "tool_call",
+   "name": "Bash",
+   "input": "{\"command\": \"pytest -q\"}",
+   "output": "1 failed, 11 passed",
+   "tokens": 60,
+   "latency_s": 2.1,
+   "error": null
+  },
+  {
+   "index": 9,
+   "type": "reason",
+   "name": "think",
+   "input": "Attempt 3: src/units.py: seconds per minute",
+   "output": "",
+   "tokens": 220,
+   "latency_s": 1.4,
+   "error": null
+  },
+  {
+   "index": 10,
+   "type": "tool_call",
+   "name": "Edit",
+   "input": "src/units.py: seconds per minute",
+   "output": "applied",
+   "tokens": 60,
+   "latency_s": 0.3,
+   "error": null
+  },
+  {
+   "index": 11,
+   "type": "tool_call",
+   "name": "Bash",
+   "input": "{\"command\": \"pytest -q\"}",
+   "output": "12 passed",
+   "tokens": 60,
+   "latency_s": 2.1,
+   "error": null
+  },
+  {
+   "index": 12,
+   "type": "answer",
+   "name": "answer",
+   "input": "",
+   "output": "fixed; 12 passing",
+   "tokens": 60,
+   "latency_s": 0.5,
+   "error": null
+  }
+ ],
+ "harness": {
+  "adapter": "synthetic",
+  "note": "SYNTHETIC: a scripted run showing one loop shape"
+ }
+}
