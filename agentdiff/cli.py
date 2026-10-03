@@ -223,6 +223,28 @@ def _printable() -> None:
             stream.reconfigure(errors="replace")
 
 
+#: what a downloaded build does when started with nothing (a double-click): your sessions and the examples, open
+DOWNLOAD_DEFAULT = ["hub", "--claude-code", "--examples", "--open"]
+
+
+def download_main() -> int:
+    """The entry of a downloaded build (``agentdiff.pyz``, the binaries). With no
+    arguments it opens the hub on your Claude Code sessions and the examples;
+    a window that opened just for it waits for Enter before an error closes it."""
+    argv = sys.argv[1:]
+    clicked = not argv
+    try:
+        code = main(list(DOWNLOAD_DEFAULT) if clicked else argv)
+    except BrokenPipeError:     # the reader went away (| head): nothing more to say
+        return 0
+    if clicked and code and sys.stdin is not None and sys.stdin.isatty():
+        try:
+            input("press Enter to close ")
+        except EOFError:
+            pass
+    return code
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     """CLI entry point; returns a process exit code."""
     _printable()

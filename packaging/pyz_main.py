@@ -40,12 +40,9 @@ def main() -> int:
             import shutil
             shutil.rmtree(tmp, ignore_errors=True)
     sys.path.insert(0, target)
-    from agentdiff.cli import main as cli
-    return cli()
+    from agentdiff.cli import download_main
+    return download_main()
 
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except BrokenPipeError:  # the reader went away (| head): nothing more to say
-        sys.exit(0)
+    sys.exit(main())

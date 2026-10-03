@@ -8,7 +8,7 @@ the same task are the unit of comparison.
 ```json
 {
   "schema_version": 1,
-  "trace_id": "string — unique id", "started_at": "number — optional: unix seconds the run began (UTC); long-run views draw days and hours from it",
+  "trace_id": "string — unique id", "started_at": "number — optional: unix seconds the run began (UTC); long-run views draw days and hours from it", "turns": "array — optional: [{step, at_s, prompt}], each prompt a person typed and the step it came before (claude_sessions)",
   "agent": {
     "name": "string — e.g. 'agent-a'",
     "model": "string — e.g. 'claude-sonnet-5'",

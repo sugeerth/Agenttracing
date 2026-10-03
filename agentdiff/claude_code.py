@@ -103,16 +103,23 @@ def _write_atomic(path: Path, data: dict) -> None:
 # ------------------------------------------------------------ the transcript
 
 def read_transcript(path: Union[str, Path]) -> list:
-    """The transcript's entries, one per non-empty line; bad lines skipped."""
+    """The transcript's entries, one per non-empty line; bad lines skipped.
+    Lines end at a newline only (a JSON string may hold U+2028 unescaped),
+    and are parsed from bytes: a session of hundreds of MB reads in a second."""
     out = []
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
+    with open(path, "rb") as fh:
+        raw = fh.read()
+    for line in raw.split(b"\n"):
         line = line.strip()
         if not line:
             continue
         try:
             out.append(json.loads(line))
         except ValueError:
-            continue
+            try:
+                out.append(json.loads(line.decode("utf-8", errors="replace")))
+            except ValueError:
+                continue
     return out
 
 

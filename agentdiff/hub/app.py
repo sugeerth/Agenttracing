@@ -395,7 +395,8 @@ class App:
                 "long": long, "extra_open": extra, "fix": fix,
                 "other_data": odata if cmp else None, "al": al, "task_nav": views.task_chips(ref, self.traces.refs()),
                 "every": query.get("steps", [""])[0] == "all", "card": card, "change": change,
-                "other_change": other_change, "code_cmp": code_cmp, "act": act}
+                "other_change": other_change, "code_cmp": code_cmp, "act": act,
+                "at": int(query["at"][0]) if query.get("at", [""])[0].isdigit() else None}
 
     @staticmethod
     def _long(query: dict, ref, data: dict, tl: dict, odata: Optional[dict], view: str) -> Optional[dict]:
@@ -467,13 +468,26 @@ class App:
         return Response.html(views.trace_panel(ref=ref, data=data, lap=lap, **self._clock(req, ref, data)))
 
     # -------------------------------------------------------------- timeline
-    def _ribbons_of(self, refs: list):
+    def _ribbons_of(self, refs: list, last_s: Optional[float] = None):
+        """Rows for many runs on one clock; with ``last_s``, a longer run shows only that much of its end."""
         from ..timeline import ribbons
         rows, links, labels = [], [], []
         for r in refs:
             data = self.traces.load(r)
             if data is None:
                 continue
+            cut = False
+            if last_s:
+                steps = data.get("steps") or []
+                ends = [float(st.get("started_s") or 0) + float(st.get("latency_s") or 0) for st in steps
+                        if st.get("started_s") is not None]
+                if ends and max(ends) > last_s:
+                    since = max(ends) - last_s
+                    tail = [dict(st, started_s=round(float(st["started_s"]) - since, 3)) for st in steps
+                            if st.get("started_s") is not None and float(st["started_s"]) >= since]
+                    if tail:
+                        totals = dict(data.get("totals") or {}, latency_s=float(last_s))
+                        data, cut = dict(data, steps=tail, totals=totals), True
             got = ribbons([data])
             if not got:
                 continue
@@ -481,7 +495,8 @@ class App:
             links.append(f"/traces/{r.id}")
             run = r.summary.get("run")
             labels.append(f"{r.summary.get('task')} · {r.summary.get('agent')}" + (f" · {run}" if run else
-                                                                                    f" · {r.name.rsplit('__', 1)[-1]}"))
+                                                                                    f" · {r.name.rsplit('__', 1)[-1]}")
+                          + (" · its last hour" if cut else ""))
         return rows, links, labels
 
     def _timeline_groups(self, req: Request):

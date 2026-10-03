@@ -95,9 +95,15 @@ def _lanes(items: List[dict]) -> List[dict]:
         if x["agent"] not in order:
             order.append(x["agent"])
     lanes: List[dict] = []
+    by_agent: Dict[str, List[dict]] = {}
+    parents: Dict[str, str] = {}
+    for x in items:
+        by_agent.setdefault(x["agent"], []).append(x)
+        if x["parent"]:
+            parents.setdefault(x["agent"], x["parent"])
     for agent in order:
         mine: List[list] = []        # per sub-lane, the end of its last step
-        for x in sorted((x for x in items if x["agent"] == agent), key=lambda x: (x["start"], x["index"])):
+        for x in sorted(by_agent[agent], key=lambda x: (x["start"], x["index"])):
             for k, ends in enumerate(mine):
                 if x["start"] >= ends[-1] - 1e-6:
                     ends.append(x["end"])
@@ -106,12 +112,15 @@ def _lanes(items: List[dict]) -> List[dict]:
             else:
                 mine.append([x["end"]])
                 x["lane"] = f"{agent}#{len(mine) - 1}"
+        counts: Dict[str, int] = {}
+        for x in by_agent[agent]:
+            counts[x["lane"]] = counts.get(x["lane"], 0) + 1
+        parent = parents.get(agent)
         for k in range(len(mine)):
-            parent = next((x["parent"] for x in items if x["agent"] == agent and x["parent"]), None)
             lanes.append({"id": f"{agent}#{k}", "agent": agent, "parallel": k,
                           "label": agent if k == 0 else f"{agent} ∥{k + 1}",
                           "depth": 0 if agent == "root" else 1 + (1 if parent and parent != "root" else 0),
-                          "steps": sum(1 for x in items if x.get("lane") == f"{agent}#{k}")})
+                          "steps": counts.get(f"{agent}#{k}", 0)})
     return lanes
 
 
@@ -161,11 +170,21 @@ def _folds(items: List[dict], lap_ends: set, span: float) -> List[dict]:
     return [s for s in segs if s["to"] > s["from"]]
 
 
+def outcome_of(traj: dict) -> Optional[bool]:
+    """Passed, failed, or None when nothing graded the run: a session no check
+    ran in records ``success: false`` with an ``ungraded`` note, and is not a failure."""
+    outcome = traj.get("outcome") if isinstance(traj.get("outcome"), dict) else {}
+    if str(outcome.get("note") or "").startswith("ungraded") or (traj.get("harness") or {}).get("graded_by") == "ungraded":
+        return None
+    ok = outcome.get("success")
+    return ok if isinstance(ok, bool) else None
+
+
 def look_here(data: dict, items: List[dict], lap: dict) -> Optional[dict]:
     steps = data.get("steps") or []
     if not steps:
         return None
-    success = (data.get("outcome") or {}).get("success")
+    success = outcome_of(data)
     in_progress = bool(data.get("in_progress"))
     rounds = lap.get("laps") or []
     passed_at = lap.get("first_pass_lap")
@@ -188,7 +207,8 @@ def look_here(data: dict, items: List[dict], lap: dict) -> Optional[dict]:
         if best and (best[1] >= 4 or not passed_at):
             prev = rounds[best[0] - 1]
             i = prev["steps"][0]["index"]
-            tail = " and never passed" if not passed_at else ", and the run still failed"
+            tail = (" and never passed" if not passed_at else ", and the run still failed" if success is False
+                    else ", and nothing graded the run")
             return {"index": i, "kind": "loop", "lap": prev["n"],
                     "sentence": f"Lap {prev['n']} at step {i}: from here the run did the same lap {best[1]} time(s) "
                                 f"in a row{tail}" + (f" (a block of {stuck['period']} step(s))"

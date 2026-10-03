@@ -41,6 +41,8 @@ import re
 import statistics
 from typing import Iterable, List, Optional
 
+from .timeline import outcome_of
+
 __all__ = ["code_change", "code_compare", "agent_fix", "verdict_card", "is_test_path", "LARGE_CHANGE", "check_failures",
            "corpus_insight"]
 
@@ -158,7 +160,7 @@ def agent_fix(traj: dict, *, check: str = "", look_kind: Optional[str] = None) -
     from .forge import RunView, evaluate, parse_rule
     from .selfevolve import REMEDIES, remedy_for, remedy_text
     from .trace import Trajectory
-    if (traj.get("outcome") or {}).get("success") is not False or traj.get("in_progress"):
+    if outcome_of(traj) is True or traj.get("in_progress"):
         return None
     try:
         view = RunView(Trajectory.from_dict(traj), None, set())
@@ -192,6 +194,8 @@ def agent_fix(traj: dict, *, check: str = "", look_kind: Optional[str] = None) -
         return {"rule": rule_text, "step": hit, "says": describe(rule), "remedy": r, "change": remedy_text(r),
                 "why": r["why"], "tried": len(tried),
                 "basis": "a hypothesis from this one run: the first rule, in the harness's order, that fires on it"}
+    if outcome_of(traj) is None:
+        return None             # nothing graded it and no rule fired: there is nothing it is known to have got wrong
     return {"rule": None, "remedy": None, "tried": len(tried),
             "why": "none of the failures the harness can act on shows in this run; what it got wrong is in what the "
                    "code does, not in how the agent worked"}
@@ -217,11 +221,15 @@ def verdict_card(traj: dict, tl: dict, *, peers: Iterable[dict] = (), change: Op
     task = (traj.get("task") or {}).get("id")
     agent = (traj.get("agent") or {}).get("name")
     graded = ((traj.get("harness") or {}).get("graded_by")) or "its own outcome"
-    ok = None if traj.get("in_progress") else (traj.get("outcome") or {}).get("success")
+    ok = None if traj.get("in_progress") else outcome_of(traj)
     if traj.get("in_progress"):
         rows.append({"label": "verdict", "text": f"{agent} is still running {task}: {len(tl.get('laps') or [])} lap(s) "
                                                  f"so far, drawn as far as it has gone and judged when it ends.",
                      "source": "the live frame", "tone": "run"})
+    elif ok is None and (traj.get("outcome") or {}).get("success") is not None:
+        rows.append({"label": "verdict", "text": f"{agent} finished {task}, and nothing graded it: no check ran and no "
+                                                 f"expected answer was given, so it is neither a pass nor a failure.",
+                     "source": "outcome.note (ungraded)", "tone": ""})
     else:
         rows.append({"label": "verdict", "text": f"{agent} {'solved' if ok else 'failed' if ok is False else 'finished'} "
                                                  f"{task}.", "source": f"outcome.success, graded by {graded}",
@@ -335,7 +343,8 @@ def mitigation(traj: dict, tl: dict, *, lap: Optional[dict] = None, phases: Opti
     until the test says otherwise, and says so."""
     out_reason: List[dict] = []
     steps: List[dict] = []
-    success = (traj.get("outcome") or {}).get("success")
+    success = outcome_of(traj)
+    ungraded = success is None and not traj.get("in_progress")
     agent = str((traj.get("agent") or {}).get("name") or "agent")
     here = (tl or {}).get("look_here") or {}
     if here.get("sentence"):
@@ -379,11 +388,12 @@ def mitigation(traj: dict, tl: dict, *, lap: Optional[dict] = None, phases: Opti
             rule, remedy = "repeated_call:3", r
             fix = {"rule": rule, "remedy": r, "change": remedy_text(r), "says": "the same failing call, again and again"}
     key = (rule or "").split(":")[0] if rule and not rule.startswith("mark:") else rule
-    if success is not None and rule:
+    if (success is not None or ungraded) and rule:
         if remedy.get("knob") == "instruction":
             text = remedy.get("text") or fix.get("change") or ""
-            steps.append({"title": "Tell the agent", "text": f"Add this to {agent}'s instructions: it answers how "
-                          f"this run failed ({fix.get('says') or rule}).",
+            how = "what this run did" if ungraded else "how this run failed"
+            steps.append({"title": "Tell the agent", "text": f"Add this to {agent}'s instructions: it answers {how} "
+                          f"({fix.get('says') or rule}).",
                           "command": f"claude --append-system-prompt {_q(text)}", "quote": text,
                           "source": f"selfevolve.REMEDIES[{key}]"})
         elif remedy.get("knob") == "deny_tool":
@@ -434,7 +444,13 @@ def mitigation(traj: dict, tl: dict, *, lap: Optional[dict] = None, phases: Opti
             steps.append({"title": "Nothing to change in the agent", "text": "It passed. To compare it with another "
                           "agent on the same task, run them side by side.", "command":
                           "agentdiff duel --task task.json -o duel/", "source": "outcome.success"})
-    if success is None:
+    if ungraded:
+        steps.insert(0, {"title": "Give it a check", "text": "Nothing graded this run, so it is neither a pass nor a "
+                         "failure. Name the command that says the work is done; the guard runs it before the agent "
+                         "may stop, and every later run is graded by it.",
+                         "command": f"agentdiff guard --install --check {_q(check or 'pytest -q')}",
+                         "source": "outcome.note (ungraded)"})
+    elif success is None:
         steps.append({"title": "Wait for the end", "text": "It is still running; the reason and the change come "
                       "when it ends.", "command": "", "source": "in_progress"})
     return {"reason": out_reason, "steps": steps, "check": check,

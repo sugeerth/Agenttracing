@@ -57,6 +57,19 @@ _REPORT_CSP = ("sandbox allow-scripts allow-popups allow-downloads; default-src 
                "frame-ancestors 'none'")
 
 
+def running_hub(host: str, port: int, timeout: float = 1.0) -> Optional[str]:
+    """The address of an AgentDiff hub already listening at ``host:port``, or None
+    (nothing there, or something else). Asked directly, never through a proxy."""
+    name = host if ":" not in host else f"[{host}]"
+    url = f"http://{name}:{port}"
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(url + "/healthz", timeout=timeout) as resp:
+            return url if (resp.headers.get("Server") or "").startswith("agentdiff-hub") else None
+    except (OSError, ValueError):
+        return None
+
+
 def _mark_state(state: Path) -> None:
     from .vendors import mark_output
     mark_output(state)

@@ -113,6 +113,7 @@ def _insight(data: dict, path: Path) -> Optional[dict]:
 
 def summarize(data: dict) -> dict:
     """What a list shows of a trace: never its content, only its shape."""
+    from ..insight import outcome_of
     steps = data.get("steps") or []
     tokens = sum(int(s.get("tokens") or 0) for s in steps if isinstance(s, dict))
     seconds = sum(float(s.get("latency_s") or 0) for s in steps if isinstance(s, dict))
@@ -127,9 +128,21 @@ def summarize(data: dict) -> dict:
             "agent": str(agent.get("name") or "agent") if isinstance(agent, dict) else "agent",
             "model": (agent.get("model") if isinstance(agent, dict) else None),
             "steps": len(steps), "tokens": tokens, "seconds": round(seconds, 3), "errors": errors,
-            "success": outcome.get("success") if isinstance(outcome, dict) else None,
+            "success": outcome_of(data), "ungraded": outcome_of(data) is None and isinstance(outcome, dict)
+            and outcome.get("success") is not None,
             "in_progress": bool(data.get("in_progress")), "elapsed_s": data.get("elapsed_s"),
-            "run": data.get("run"), "laps": _laps(data)}
+            "run": data.get("run"), "laps": _laps(data), "session": _session(data)}
+
+
+def _session(data: dict) -> Optional[dict]:
+    """A Claude Code session read from this machine (:mod:`agentdiff.claude_sessions`): its project and asks."""
+    src = data.get("source") if isinstance(data.get("source"), dict) else {}
+    if src.get("format") != "claude-code-session":
+        return None
+    turns = data.get("turns") if isinstance(data.get("turns"), list) else []
+    return {"project": str(src.get("project") or ""), "asks": len(turns), "subagents": int(src.get("subagents") or 0),
+            "compactions": int(src.get("compactions") or 0),
+            "ask": str((turns[-1] or {}).get("prompt") or "")[:160] if turns else ""}
 
 
 def _laps(data: dict) -> Optional[dict]:
@@ -149,9 +162,19 @@ class TraceIndex:
         self.root = Path(root).resolve()
         self.depth, self.limit = depth, limit
         self.extra_dirs = [Path(d) for d in extra_dirs]
+        #: more folders walked like the root, each named in links by its own name
+        self.extra_roots: List[Path] = []
+        self._examples: Dict[Path, Optional[str]] = {}
         self._cache: Dict[str, Tuple[tuple, dict]] = {}
         self._dirs: Tuple[float, List[Path]] = (-1e9, [])
         self._lock = threading.Lock()
+
+    def add_root(self, path: Path) -> None:
+        """Serve the traces under ``path`` too (the Claude Code sessions folder)."""
+        path = Path(path).resolve()
+        if path not in self.extra_roots and not self._inside(path):
+            self.extra_roots.append(path)
+            self._dirs = (-1e9, [])
 
     # ------------------------------------------------------------- finding
     def directories(self) -> List[Path]:
@@ -172,9 +195,18 @@ class TraceIndex:
 
     def _walk(self) -> List[Path]:
         found: List[Path] = []
-        for dirpath, dirnames, _ in os.walk(self.root):
+        for top in [self.root] + self.extra_roots:
+            found += [d for d in self._walk_one(top) if d not in found]
+        for d in self.extra_dirs:
+            if d.is_dir() and d not in found:
+                found.append(d)
+        return [d for d in found if self._inside(d)]
+
+    def _walk_one(self, top: Path) -> List[Path]:
+        found: List[Path] = []
+        for dirpath, dirnames, _ in os.walk(top):
             d = Path(dirpath)
-            level = len(d.relative_to(self.root).parts)
+            level = len(d.relative_to(top).parts)
             if d.name == "traces":
                 found.append(d)
                 dirnames[:] = []
@@ -182,24 +214,31 @@ class TraceIndex:
             # a trace directory sits a level or two below a run the catalog finds
             dirnames[:] = [] if level >= self.depth + 2 else sorted(
                 n for n in dirnames if n not in _SKIP and (not n.startswith(".") or n == ".agentdiff"))
-        for d in self.extra_dirs:
-            if d.is_dir() and d not in found:
-                found.append(d)
-        return [d for d in found if self._inside(d)]
+        return found
 
     def _inside(self, path: Path) -> bool:
-        try:
-            Path(path).resolve().relative_to(self.root)
-            return True
-        except ValueError:
-            return False
+        real = Path(path).resolve()
+        for top in [self.root] + self.extra_roots:
+            try:
+                real.relative_to(top)
+                return True
+            except ValueError:
+                continue
+        return False
 
     def rel(self, path: Path) -> str:
-        """A path as the index names it: under the root."""
+        """A path as the index names it: under the root, or under an added root by that root's name."""
+        real = path.resolve()
         try:
-            return str(path.resolve().relative_to(self.root))
+            return str(real.relative_to(self.root))
         except ValueError:
-            return str(path)
+            pass
+        for top in self.extra_roots:
+            try:
+                return str(Path(top.name) / real.relative_to(top))
+            except ValueError:
+                continue
+        return str(path)
 
     def refs(self) -> List[TraceRef]:
         out: List[TraceRef] = []
@@ -222,6 +261,23 @@ class TraceIndex:
         out.sort(key=lambda r: (not r.live, -r.updated, r.group, r.name))
         return out[: self.limit]
 
+    def _example(self, folder: Path) -> Optional[str]:
+        """What an ``EXAMPLE`` file at or above ``folder`` (up to the root it is under) says the
+        traces there are: ``synthetic: …`` or ``recorded: …``; None for everything else."""
+        tops = [t for t in [self.root] + self.extra_roots if folder == t or t in folder.parents]
+        top = tops[0] if tops else folder
+        for d in [folder] + [p for p in folder.parents if p == top or top in p.parents]:
+            hit = self._examples.get(d, False)
+            if hit is False:
+                try:
+                    hit = (d / "EXAMPLE").read_text(encoding="utf-8").strip()[:200] or None
+                except OSError:
+                    hit = None
+                self._examples[d] = hit
+            if hit:
+                return hit
+        return None
+
     def _ref(self, path: Path, live: bool) -> Optional[TraceRef]:
         try:
             st = path.stat()
@@ -239,6 +295,7 @@ class TraceIndex:
                 return None
             summary = summarize(data)
             summary["insight"] = _insight(data, path)
+            summary["example"] = self._example(path.parent.resolve())
             with self._lock:
                 self._cache[rel] = (key, summary)
         return TraceRef(trace_id(rel), path, self.rel(path.parent), live or bool(summary.get("in_progress")),

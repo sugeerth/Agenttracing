@@ -5,6 +5,35 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Your Claude Code sessions, in the download
+
+`agentdiff hub --claude-code` reads every session Claude Code wrote on this
+machine into `~/.agentdiff/claude-code` and keeps following them. A
+downloaded build does this by itself when started with nothing, a
+double-click included. Each session is one trace:
+- **Named and split by your prompts.** The task is named by the first
+  prompt you typed. `turns` lists every prompt, each with the step it came
+  before.
+- **Sub-agents on their own lanes**, at the times they ran.
+- **Live** while it is being written.
+- **Not graded** rather than failed: `timeline.outcome_of` reads an
+  ungraded outcome as None everywhere it is counted.
+
+The hub gains:
+- a **Your Claude Code sessions** card on the Overview;
+- a **What you asked** tab, one row per prompt, with its time, steps,
+  edits and checks; `?at=N` opens the steps around step N;
+- *synthetic* and *recorded* marks on the bundled examples, from an
+  `EXAMPLE` file beside them, and the Overview's numbers leave the
+  examples out once there are runs of your own;
+- Live drawing only the last hour of a long run.
+
+A second start opens the hub already running; a port held by something
+else is swapped for a free one. A session of 10,000 steps over 24 days
+used to open in 9 s and now opens in about 2 s: the shell commands are
+classified once, the run's clock is a bisection, laps and lanes are
+counted in one pass, and transcripts are parsed from bytes.
+
 ## agentdiff to download and run
 
 `packaging/build.py` builds two things:

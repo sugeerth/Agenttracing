@@ -1,11 +1,8 @@
-"""The entry point a frozen build runs: the agentdiff command line."""
+"""The entry point a frozen build runs: the agentdiff command line (a double-click opens the hub)."""
 
 import sys
 
-from agentdiff.cli import main
+from agentdiff.cli import download_main
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except BrokenPipeError:  # the reader went away (| head): nothing more to say
-        sys.exit(0)
+    sys.exit(download_main())

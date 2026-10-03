@@ -35,6 +35,14 @@ AgentDiff hub: http://127.0.0.1:8790/   (root /home/me/work)
   agents post telemetry: AGENTDIFF_HUB=http://127.0.0.1:8790 AGENTDIFF_HUB_TOKEN=…
 ```
 
+## Your Claude Code sessions
+
+`agentdiff hub --claude-code` serves the sessions Claude Code wrote on this
+machine, live as you work: named by your first prompt, with a **What you
+asked** tab, sub-agents on lanes, and *not graded* rather than failed until
+a check grades them. A downloaded build does this when started with
+nothing. See `docs/DOWNLOAD.md`.
+
 ## Signing in
 
 - **The demo account** (`demo` / `demo` by default) exists when the hub

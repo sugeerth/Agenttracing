@@ -37,6 +37,7 @@ wrote (:mod:`agentdiff.harness.vendors`).
 
 from __future__ import annotations
 
+import functools
 import re
 from typing import Iterable, Optional
 
@@ -72,8 +73,10 @@ _CLAUDE_KIND = {"Read": "explore", "Grep": "explore", "Glob": "explore", "LS": "
 _TEST_PATH = re.compile(r"(^|/)(tests?|spec|__tests__)(/|$)|(^|/)test_[^/]+$|_test\.\w+$|\.(test|spec)\.\w+$")
 
 
+@functools.lru_cache(maxsize=65536)
 def classify_command(command: str) -> str:
-    """explore | verify | edit | run, for one shell command."""
+    """explore | verify | edit | run, for one shell command (pure, so kept:
+    a long run reads the same commands many times over)."""
     cmd = _WRAPPER.sub("", command or "").strip().strip("'\"")
     if _VERIFY.search(cmd):
         return "verify"
@@ -87,6 +90,16 @@ def classify_command(command: str) -> str:
     if first in _EXPLORE_WORDS or _EXPLORE_GIT.search(cmd):
         return "explore"
     return "run"
+
+
+@functools.lru_cache(maxsize=65536)
+def _bash_command(raw: str) -> str:
+    import json
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return raw
+    return str(data.get("command") or "") if isinstance(data, dict) else raw
 
 
 def classify(step: dict) -> Optional[str]:
@@ -107,11 +120,7 @@ def classify(step: dict) -> Optional[str]:
     if name in ("shell", "Bash", "bash", "exec_command", "local_shell"):
         cmd = step.get("input") or ""
         if name == "Bash" and cmd.startswith("{"):
-            try:
-                import json
-                cmd = str(json.loads(cmd).get("command") or "")
-            except ValueError:
-                pass
+            cmd = _bash_command(cmd)
         return classify_command(cmd)
     if name in ("spawn_agent", "send_input", "close_agent") or (step.get("span") or {}).get("agent") == "sub-agent":
         return "delegate"

@@ -27,6 +27,7 @@ Pass and fail use the reserved status colours, always with ✓ or ✗.
 
 from __future__ import annotations
 
+import bisect
 import html
 import math
 from typing import Dict, List, Optional
@@ -368,7 +369,13 @@ def _clock(t: float, span: float) -> str:
         return f"{t * 1000:.0f}ms" if span >= 0.01 else f"{t * 1000:.1f}ms"
     if span < 120:
         return f"{t:.1f}s" if span < 10 else f"{t:.0f}s"
-    return f"{t / 60:.1f}m"
+    if span < 3 * 3600:
+        return f"{t / 60:.1f}m" if span < 1800 else f"{t / 60:.0f}m"
+    if t < 3600:
+        return f"{t / 60:.0f}m"
+    if t < 86400:
+        return f"{t / 3600:.1f}h" if span < 86400 else f"{t / 3600:.0f}h"
+    return f"{int(t // 86400)}d {int(t % 86400 // 3600)}h"
 
 
 def hop_timeline(rows: List[dict], span: float, width: int = 980, live: bool = False) -> str:
@@ -588,15 +595,17 @@ class _Clock:
             self.parts.append((s, x, x + w))
             x += w
         self.x0, self.x1 = x0, x
+        self._tos = [s["to"] for s, _, _ in self.parts]
 
     def __call__(self, t: float) -> float:
-        for s, a, b in self.parts:
-            if t <= s["to"] or s is self.parts[-1][0]:
-                if s["to"] <= s["from"]:
-                    return a
-                f = min(1.0, max(0.0, (t - s["from"]) / (s["to"] - s["from"])))
-                return a + (b - a) * f
-        return self.x1
+        if not self.parts:
+            return self.x1
+        # the first stretch that ends at or after t (they run in order), else the last
+        s, a, b = self.parts[min(bisect.bisect_left(self._tos, t), len(self.parts) - 1)]
+        if s["to"] <= s["from"]:
+            return a
+        f = min(1.0, max(0.0, (t - s["from"]) / (s["to"] - s["from"])))
+        return a + (b - a) * f
 
 
 def _secs(t: float, span: float) -> str:
@@ -907,11 +916,14 @@ def trunk_svg(runs: list, *, cmp: Optional[dict] = None, axis: str = "time", wid
                    f'style="stroke:var(--{"sc" if r["success"] is False else "ink2"});stroke-width:3;stroke-linecap:round;'
                    f'stroke-opacity:.8"/>')
         # laps as ticks across the trunk
+        lap_x: Dict[int, float] = {}
+        for s in steps:
+            if s.get("lap") is not None:
+                lap_x[s["lap"]] = max(lap_x.get(s["lap"], -1e9), where[k][s["index"]])
         for b in r.get("laps") or []:
-            last = [s for s in steps if s.get("lap") == b["n"]]
-            if not last:
+            if b["n"] not in lap_x:
                 continue
-            lx = max(P(s) for s in last)
+            lx = lap_x[b["n"]]
             col = "var(--sg)" if b["passed"] is True else "var(--sc)" if b["passed"] is False else "var(--ink2)"
             out.append(f'<line x1="{lx:.1f}" x2="{lx:.1f}" y1="{ty - 7}" y2="{ty + 7}" style="stroke:{col};stroke-width:2">'
                        f'<title>end of lap {b["n"]}{": its check " + ("passed" if b["passed"] else "failed") if b["passed"] is not None else ""}'

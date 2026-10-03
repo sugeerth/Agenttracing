@@ -16,7 +16,7 @@ from __future__ import annotations
 import html
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from . import viz
 from .catalog import Entry
@@ -76,6 +76,12 @@ pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:
 border-radius:999px;border:1px solid var(--line);white-space:nowrap}
 .badge.ok{border-color:var(--good)}.badge.bad{border-color:var(--bad)}.badge.run{border-color:var(--accent);color:var(--accent)}
 .badge.idle{color:var(--soft)}
+.tag{display:inline-block;font:600 11px system-ui,sans-serif;letter-spacing:.02em;padding:0 6px;margin-left:6px;
+  border-radius:4px;border:1px dashed var(--line);color:var(--soft);vertical-align:1px;cursor:help}
+.nowrap{white-space:nowrap}
+.askp{max-width:60ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.askbar{display:inline-block;height:8px;border-radius:4px;background:var(--accent);opacity:.55;vertical-align:middle}
+.ask{color:var(--soft);font-size:13px;margin-top:2px;max-width:46ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);display:inline-block}
 .badge.run .dot{animation:pulse 1.2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
@@ -224,6 +230,8 @@ def _status(ref) -> str:
         return '<span class="badge ok"><span class="ok">✓</span>passed</span>'
     if s.get("success") is False:
         return '<span class="badge bad"><span class="bad">✗</span>failed</span>'
+    if s.get("ungraded"):
+        return '<span class="badge idle" title="no check ran and no expected answer was given">– not graded</span>'
     return '<span class="badge idle">– no outcome</span>'
 
 
@@ -239,12 +247,32 @@ def _loop_note(c: Optional[dict], live: bool = False) -> str:
     return ""
 
 
+def _example_tag(s: dict) -> str:
+    """Bundled example runs say so, and say whether they were made up or recorded."""
+    ex = s.get("example")
+    if not ex:
+        return ""
+    kind = next((k for k in ("synthetic", "recorded") if str(ex).startswith(k)), "example")
+    return f'<span class="tag" title="{e(ex)}">{kind}</span>'
+
+
+def _trace_sub(r) -> str:
+    sess = r.summary.get("session")
+    if not sess:
+        return f'<div class="muted mono">{e(r.name)}</div>'
+    bits = [f'{sess["asks"]} ask(s)'] + ([f'{sess["subagents"]} sub-agent(s)'] if sess["subagents"] else [])
+    if sess["compactions"]:
+        bits.append(f'{sess["compactions"]} context summar{"y" if sess["compactions"] == 1 else "ies"}')
+    last = f'<div class="ask" title="{e(sess["ask"])}">last ask: {e(sess["ask"])}</div>' if sess["asks"] > 1 else ""
+    return f'<div class="muted">{" · ".join(bits)}</div>{last}'
+
+
 def _trace_rows(refs) -> str:
     rows = []
     for r in refs:
         s = r.summary
         rows.append(f'<tr><td>{_status(r)}</td><td><a href="/traces/{e(r.id)}"><strong>{e(s.get("task"))}</strong></a>'
-                    f'<div class="muted mono">{e(r.name)}</div></td><td>{e(s.get("agent"))}</td>'
+                    f'{_example_tag(s)}{_trace_sub(r)}</td><td>{e(s.get("agent"))}</td>'
                     f'<td>{viz.lap_strip(s.get("laps"))}<div>{_loop_note(s.get("laps"), r.live)}</div></td>'
                     f'<td class="n">{e(s.get("steps"))}</td><td class="n">{_num(s.get("tokens"))}</td>'
                     f'<td class="n">{_secs(s.get("elapsed_s") if r.live else s.get("seconds"))}</td>'
@@ -315,9 +343,20 @@ def _start_here(refs: list) -> str:
         return ""
     rows = []
     where = "; ".join(f"{v} {_WHERE.get(k, k)}" for k, v in sorted(c["kinds"].items(), key=lambda kv: -kv[1]))
-    rows.append({"label": "verdict", "text": f"{c['runs'] - c['failed']} of {c['runs']} finished run(s) passed; "
-                                             f"{c['failed']} failed.", "source": "outcome.success over the trace index",
-                 "tone": "bad" if c["failed"] else "ok"})
+    passed = sum(1 for x in items if x["success"] is True)
+    ungraded = sum(1 for x in items if x["success"] is None)
+    graded = passed + c["failed"]
+    verdict = (f"{passed} of {graded} graded run(s) passed; {c['failed']} failed" if graded else "No run here was graded")
+    if ungraded:
+        verdict += (f"; {ungraded} {'were' if ungraded > 1 else 'was'} not graded (no check ran: "
+                    f"agentdiff guard --check grades the sessions after it)")
+    rows.append({"label": "verdict", "text": verdict + ".", "source": "outcome.success over the trace index",
+                 "tone": "bad" if c["failed"] else "ok" if graded else ""})
+    stuck_ungraded = [r for r in done if r.summary.get("success") is None and (r.summary.get("laps") or {}).get("stuck")]
+    if stuck_ungraded:
+        rows.append({"label": "loops", "text": f"{len(stuck_ungraded)} of the {ungraded} not graded went round the "
+                                               f"same lap again and again: open one to see where it started.",
+                     "source": "laps.stuck of each run", "tone": "bad"})
     if where:
         rows.append({"label": "where", "text": f"Of the {c['failed']} that failed: {where}.",
                      "source": "timeline.look_here of each failed run", "tone": "bad"})
@@ -399,8 +438,30 @@ def guards_card(guards: list, refs: list) -> str:
               'A refusal is a reason the agent read and acted on, not a failure.</p></div>')
 
 
+def sessions_card(refs: list) -> str:
+    """Your Claude Code sessions, read from this machine: the ones running now first."""
+    mine = [r for r in refs if r.summary.get("session")]
+    if not mine:
+        return ""
+    projects = sorted({r.summary["session"]["project"] for r in mine})
+    running = sum(1 for r in mine if r.live)
+    stuck = sum(1 for r in mine if (r.summary.get("laps") or {}).get("stuck"))
+    calls = sum(int(r.summary.get("steps") or 0) for r in mine)
+    gist = (f'{len(mine)} session(s) in {len(projects)} project(s) · {running} running now · {calls:,} steps'
+            + (f' · <span class="bad">{stuck} went round a loop</span>' if stuck else ""))
+    return (f'<h2>Your Claude Code sessions</h2><div class="card"><p class="muted">{gist}. Read from Claude Code\'s '
+            f'own files on this machine; nothing leaves it. Each opens on its timeline, why it went that way, and '
+            f'what to change in the agent.</p>{_trace_rows(mine[:12])}'
+            f'<p><a href="/traces?q=claude-code">Every session →</a></p></div>')
+
+
 def overview_page(*, brand: str, user: str, csrf: str, entries: List[Entry], refs: list, ingest: dict,
                   guards: Optional[list] = None) -> str:
+    everything = refs
+    own = [r for r in refs if not r.summary.get("example")]
+    examples = len(refs) - len(own)
+    if own and examples:
+        refs = own          # your runs are the headline; the bundled examples stay one click away
     evolving = [x for x in entries if x.kind == "evolution"]
     live = [r for r in refs if r.live and time.time() - r.updated <= STALL_S]
     finished = [r for r in refs if not r.live]
@@ -408,17 +469,22 @@ def overview_page(*, brand: str, user: str, csrf: str, entries: List[Entry], ref
     passed = sum(1 for r in judged if r.summary.get("success"))
     stuck = sum(1 for r in finished if (r.summary.get("laps") or {}).get("stuck"))
     rate = f"{passed / len(judged):.0%}" if judged else "—"
+    ungraded = [r for r in finished if r.summary.get("ungraded")]
     tiles = (f'<div class="tiles">'
              f'<div class="tile"><b>{len(live)}</b><span>running now</span></div>'
              f'<div class="tile"><b>{len(refs)}</b><span>traces</span></div>'
-             f'<div class="tile"><b>{rate}</b><span>passed, of {len(judged)} with an outcome</span></div>'
-             f'<div class="tile"><b class="{"bad" if stuck else ""}">{stuck}</b><span>stuck in a loop</span></div>'
+             + (f'<div class="tile"><b>{rate}</b><span>passed, of {len(judged)} with an outcome</span></div>' if judged
+                or not ungraded else f'<div class="tile"><b>{len(ungraded)}</b><span>not graded: no check ran</span></div>')
+             + f'<div class="tile"><b class="{"bad" if stuck else ""}">{stuck}</b><span>stuck in a loop</span></div>'
              f'<div class="tile"><b>{len(entries)}</b><span>runs: duels, reports, evals</span></div></div>')
     live_html = (_trace_rows(live[:8]) if live else
                  '<p class="muted">Nothing running. Start one — <code>agentdiff "the task"</code> — and it appears '
                  'here as it goes; the <a href="/live">Live</a> page follows it step by step.</p>')
     loops = [r for r in finished if (r.summary.get("laps") or {}).get("stuck")][:6]
-    body = (f'<h1>Overview</h1><p class="sub">Everything under this hub\'s root, read from disk.</p>{tiles}'
+    sub = ("Everything under this hub's root, read from disk"
+           + (f"; the numbers are your runs, not the {examples} bundled example(s), which are under "
+              f"<a href=\"/traces\">Traces</a>" if refs is not everything else "") + ".")
+    body = (f'<h1>Overview</h1><p class="sub">{sub}</p>{tiles}{sessions_card(refs)}'
             f'{_start_here(refs)}{agents_table(refs)}<h2>Running now</h2><div class="card">{live_html}</div>'
             f'{guards_card(guards or [], refs)}'
             + (f'<h2>Agents evolving</h2>{_entry_cards(evolving[:4])}<p><a href="/evolve">Every evolving harness →</a></p>'
@@ -705,12 +771,68 @@ def _picker(ref, others: list, vs: str, axis: str, view: str) -> str:
             f'<button type="submit">Compare</button></form>')
 
 
+def asks_rows(data: dict) -> List[dict]:
+    """Each prompt a person typed (``turns``, :mod:`agentdiff.claude_sessions`) and what the agent did until the next:
+    its steps, how long they ran, the tools, the edits, the checks and how they ended, the errors."""
+    from ..laps import _activity, check_outcome
+    steps = data.get("steps") or []
+    turns = [t for t in data.get("turns") or [] if isinstance(t, dict) and isinstance(t.get("step"), int)]
+    rows = []
+    for i, t in enumerate(turns):
+        lo = t["step"]
+        hi = turns[i + 1]["step"] if i + 1 < len(turns) else len(steps)
+        mine = steps[lo:hi]
+        tools: Dict[str, int] = {}
+        edits = checks = failed = errors = 0
+        end = float(t.get("at_s") or 0)
+        for st in mine:
+            end = max(end, float(st.get("started_s") or 0) + float(st.get("latency_s") or 0))
+            if st.get("type") != "tool_call":
+                continue
+            tools[str(st.get("name"))] = tools.get(str(st.get("name")), 0) + 1
+            kind = _activity(st)
+            edits += kind == "edit"
+            if kind == "verify":
+                checks += 1
+                failed += check_outcome(st) is False
+            errors += bool(st.get("error"))
+        rows.append({"n": i + 1, "prompt": str(t.get("prompt") or ""), "step": lo, "steps": len(mine),
+                     "secs": max(0.0, end - float(t.get("at_s") or 0)), "at": float(t.get("at_s") or 0),
+                     "tools": sorted(tools.items(), key=lambda kv: -kv[1])[:3], "calls": sum(tools.values()),
+                     "edits": edits, "checks": checks, "failed": failed, "errors": errors})
+    return rows
+
+
+def asks_body(data: dict, href: str = "") -> str:
+    rows = asks_rows(data)
+    if not rows:
+        return ""
+    most = max(r["secs"] for r in rows) or 1.0
+    out = []
+    for r in rows:
+        w = 4 + 96 * (r["secs"] / most) ** 0.5
+        chk = (f'{r["checks"]} check(s)' + (f', <span class="bad">{r["failed"]} failed</span>' if r["failed"] else "")
+               if r["checks"] else '<span class="muted">no check</span>')
+        tools = ", ".join(f'{e(n)} ×{c}' for n, c in r["tools"]) or "—"
+        out.append(f'<tr><td class="n">{r["n"]}</td><td><div class="askp" title="{e(r["prompt"])}">{e(r["prompt"])}</div>'
+                   f'<div class="muted">{e(tools)}</div></td>'
+                   f'<td><span class="askbar" style="width:{w:.0f}px"></span> {e(_secs(r["secs"]))}</td>'
+                   f'<td class="n">{r["steps"]}</td><td class="n">{r["edits"]}</td><td>{chk}'
+                   + (f'<div class="bad">{r["errors"]} error(s)</div>' if r["errors"] else "")
+                   + f'</td><td class="nowrap"><a href="{e(href)}?at={r["step"]}#s{r["step"]}">step {r["step"]} →</a>'
+                   f'</td></tr>')
+    return ('<p class="muted">Each thing you asked, and what the agent did until your next ask: the bar is its time '
+            '(square-root scale), the tools are its three most used.</p>'
+            '<table class="asks"><tr><th class="n">#</th><th>you asked</th><th>time</th><th class="n">steps</th>'
+            '<th class="n">edits</th><th>checks</th><th></th></tr>' + "".join(out) + '</table>')
+
+
 def trace_panel(*, ref, data: dict, lap: dict, tl: Optional[dict] = None, cmp: Optional[dict] = None,
                 others: list = (), vs: str = "", axis: str = "step", every: bool = False, view: str = "focus",
                 card: Optional[list] = None, change: Optional[dict] = None, code_cmp: Optional[dict] = None,
                 other_change: Optional[dict] = None, act: Optional[dict] = None, other_data: Optional[dict] = None,
                 al: Optional[dict] = None, task_nav: str = "", long: Optional[dict] = None,
-                extra_open: tuple = (), fix: Optional[dict] = None) -> str:
+                extra_open: tuple = (), fix: Optional[dict] = None, at: Optional[int] = None) -> str:
     """The part of a trace's page that moves while it runs: the card, then the panels."""
     from .urls import quote
     s = ref.summary
@@ -806,7 +928,7 @@ def trace_panel(*, ref, data: dict, lap: dict, tl: Optional[dict] = None, cmp: O
     tools = len({m["from"] for m in moves} | {m["to"] for m in moves})
     add("flow", "How it moved between tools", f"{tools} tool(s), {sum(m['count'] for m in moves)} move(s)",
                          drawn("flow", lambda: viz.flow_ring(lap)), "flow" in opened)
-    focus = (tl.get("look_here") or {}).get("index")
+    focus = at if at is not None and 0 <= at < len(steps) else (tl.get("look_here") or {}).get("index")
     title = "Every step" if len(steps) <= WINDOW_STEPS or every else "The steps that matter"
     steps_html = (f'<section class="card steps" id="steps"><h2>{e(title)}</h2><p class="gist">{len(steps)} step(s)'
                   + ("" if len(steps) <= WINDOW_STEPS or every else ", a window around where to look") + '</p>'
@@ -815,6 +937,10 @@ def trace_panel(*, ref, data: dict, lap: dict, tl: Optional[dict] = None, cmp: O
     # the start: what happened, where, what it cost, what to change; the first tab
     start_gist = next((r["text"] for r in card or [] if r.get("label") == "verdict"), "the verdict")
     tabs.insert(0, ("start", "Start here", start_gist, verdict_html(card or []) + notes))
+    asked = asks_body(data, f"/traces/{ref.id}")
+    if asked:
+        n = len(data.get("turns") or [])
+        tabs.insert(1, ("asks", "What you asked", f"{n} ask(s), each with its time, steps and checks", asked))
     default = {"loop": "laps", "time": "seconds", "threads": "lanes", "code": "code", "training": "reward",
                "long": "long"}.get(view, "start")
     if extra_open:
@@ -1002,13 +1128,14 @@ def live_panel(*, refs: list, steps_of, ribbons_of=None) -> str:
     """Every running trace as a card: its rhythm so far, its loop so far; and
     every run of the last hour on one clock, the running ones growing."""
     now = time.time()
+    refs = [r for r in refs if r.live or not r.summary.get("example")]   # a finished bundled example did not just finish
     running = [r for r in refs if r.live and now - r.updated <= STALL_S]
     stalled = [r for r in refs if r.live and now - r.updated > STALL_S]
     done = [r for r in refs if not r.live and now - r.updated <= 3600][:8]
     cards = []
     if ribbons_of and (running or done):
         shown = (running + done)[:24]
-        rows, links, labels = ribbons_of(shown)
+        rows, links, labels = ribbons_of(shown, 3600.0)
         cards.append(f'<div class="card"><p class="muted">Every run of the last hour on one clock; a running one '
                      f'grows as it streams.</p>{viz.ribbons_svg(rows, links=links, labels=labels)}</div>')
     for r in running:
