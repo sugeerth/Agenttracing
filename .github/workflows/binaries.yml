@@ -7,6 +7,7 @@ name: binaries
 on:
   workflow_dispatch:
   push:
+    branches: ["**"]
     tags: ["v*"]
     paths: ["packaging/**", ".github/workflows/binaries.yml"]
 
@@ -34,7 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, macos-13, windows-latest]
+        os: [ubuntu-latest, macos-latest, macos-15-intel, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -50,7 +51,7 @@ jobs:
         run: |
           bin=$(ls dist/agentdiff-* | head -1)
           "$bin" --version
-          "$bin" timeline "$PWD/demo/loops/traces/parse_duration__agent-stuck.json" -o "$RUNNER_TEMP/t.html"
+          "$bin" timeline "demo/loops/traces/parse_duration__agent-stuck.json" -o "$RUNNER_TEMP/t.html"
       - uses: actions/upload-artifact@v4
         with:
           name: agentdiff-${{ runner.os }}-${{ runner.arch }}
