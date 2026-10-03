@@ -1,0 +1,48 @@
+{
+  "id": "g1",
+  "parent": "g0",
+  "family": "ledger-agent",
+  "mechanism": "rule_add",
+  "evidence": {
+    "episodes": [
+      "rl01_ledger_reconcile__ledger-agent@g0__r1",
+      "rl01_ledger_reconcile__ledger-agent@g0__r2",
+      "rl01_ledger_reconcile__ledger-agent@g0__r5",
+      "rl04_query_regression__ledger-agent@g0__r2",
+      "rl04_query_regression__ledger-agent@g0__r3",
+      "rl04_query_regression__ledger-agent@g0__r4"
+    ],
+    "summary": "failures where the fact lived in a schema or README the agent never opened",
+    "source": "self"
+  },
+  "artifacts": {
+    "system_prompt": "You are a careful analyst. You have grep, read_file, search and run_check. Locate every fact the task needs, then answer with the corrected figure.\n\nRules:\n- Answer from the evidence you find.\n- Read the schema and the README before searching.",
+    "rules": [
+      "Answer from the evidence you find.",
+      "Read the schema and the README before searching."
+    ],
+    "skills": [
+      {
+        "name": "reconcile",
+        "body": "grep the directory, read every file, search each item, read its row"
+      },
+      {
+        "name": "verifier",
+        "body": "run 5 consistency checks before answering"
+      }
+    ],
+    "tools": [
+      "grep",
+      "read_file",
+      "search",
+      "run_check"
+    ],
+    "memory": [],
+    "config": {
+      "checks": 5,
+      "max_search_retries": 1,
+      "verify_before_answer": false
+    }
+  },
+  "note": "SYNTHETIC: a generated generation of a self-evolving agent; rewards paid by a scripted environment; every value invented — read the schema first"
+}

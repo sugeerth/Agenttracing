@@ -1,0 +1,12 @@
+.git
+**/__pycache__
+*.pyc
+build/
+dist/
+*.egg-info/
+out/
+out_*/
+agentdiff/page/
+.pytest_cache/
+notebooks/
+duel-out*/

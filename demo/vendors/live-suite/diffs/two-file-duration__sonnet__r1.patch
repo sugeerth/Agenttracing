@@ -1,0 +1,11 @@
+--- a/duration.py
++++ b/duration.py
+@@ -12,7 +12,7 @@
+         if unit == "h":
+             total += amount * 3600
+         elif unit == "m":
+-            total += amount
++            total += amount * 60
+         else:
+             total += amount
+     return total

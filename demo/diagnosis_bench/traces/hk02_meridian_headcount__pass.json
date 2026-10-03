@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "trace_id": "hk02_meridian_headcount-steady-v1",
+  "agent": {
+    "name": "steady-v1",
+    "model": "claude-sonnet-5",
+    "version": "v1"
+  },
+  "task": {
+    "id": "hk02_meridian_headcount",
+    "prompt": "Summarise Meridian Labs' Q2 2026 headcount change.",
+    "expected": "Meridian Labs grew headcount by 12 percent in Q2 2026."
+  },
+  "outcome": {
+    "success": true,
+    "answer": "Meridian Labs grew headcount by 12 percent in Q2 2026.",
+    "score": 1.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 600,
+    "output_tokens": 200,
+    "cost_usd": 0.0024,
+    "latency_s": 5.5
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "search",
+      "name": "web_search",
+      "input": "Meridian Labs Q2 2026 headcount",
+      "output": "Results: meridianlabs.com/press (Q2 update); industryweekly.com (analysis).",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "retrieve",
+      "name": "meridianlabs.com/press",
+      "input": "open result meridianlabs.com/press",
+      "output": "Meridian Labs press room, Q2 2026 update.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 2,
+      "type": "read",
+      "name": "meridianlabs.com/press",
+      "input": "",
+      "output": "Q2 2026 update: headcount grew 12 percent quarter over quarter.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 3,
+      "type": "reason",
+      "name": "reason",
+      "input": "Headcount grew 12 percent in Q2 2026 per the press page.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final",
+      "input": "Meridian Labs grew headcount by 12 percent in Q2 2026.",
+      "output": "Meridian Labs grew headcount by 12 percent in Q2 2026.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [],
+  "budget": {
+    "max_steps": 12
+  }
+}

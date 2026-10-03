@@ -1,0 +1,48 @@
+{
+  "id": "g4",
+  "parent": "g3",
+  "family": "ledger-agent",
+  "mechanism": "mixed",
+  "evidence": {
+    "episodes": [
+      "rl01_ledger_reconcile__ledger-agent@g3__r2",
+      "rl01_ledger_reconcile__ledger-agent@g3__r3",
+      "rl02_flaky_test__ledger-agent@g3__r2",
+      "rl02_flaky_test__ledger-agent@g3__r3"
+    ],
+    "summary": "answers that were wrong although every fact had been found",
+    "source": "self"
+  },
+  "artifacts": {
+    "system_prompt": "You are a careful analyst. You have grep, read_file, search and run_check. Locate every fact the task needs, then answer with the corrected figure.\n\nRules:\n- Answer from the evidence you find.\n- Read the schema and the README before searching.\n- Retry a search up to three times before giving up on a fact.\n- Verify every item with a check before answering.",
+    "rules": [
+      "Answer from the evidence you find.",
+      "Read the schema and the README before searching.",
+      "Retry a search up to three times before giving up on a fact.",
+      "Verify every item with a check before answering."
+    ],
+    "skills": [
+      {
+        "name": "reconcile",
+        "body": "grep the directory, read every file, search each item, read its row"
+      },
+      {
+        "name": "verifier",
+        "body": "run 3 consistency checks before answering"
+      }
+    ],
+    "tools": [
+      "grep",
+      "read_file",
+      "search",
+      "run_check"
+    ],
+    "memory": [],
+    "config": {
+      "checks": 3,
+      "max_search_retries": 3,
+      "verify_before_answer": true
+    }
+  },
+  "note": "SYNTHETIC: a generated generation of a self-evolving agent; rewards paid by a scripted environment; every value invented — verification restored; the rule was learned on two tasks"
+}

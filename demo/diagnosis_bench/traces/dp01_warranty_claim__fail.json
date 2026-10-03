@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "trace_id": "dp01_warranty_claim-scout-v2",
+  "agent": {
+    "name": "scout-v2",
+    "model": "gpt-5",
+    "version": "v2"
+  },
+  "task": {
+    "id": "dp01_warranty_claim",
+    "prompt": "Which warranty applies to order 88410 and does it cover water damage?",
+    "expected": "Order 88410 carries the Plus warranty, which covers water damage."
+  },
+  "outcome": {
+    "success": false,
+    "answer": "Order 88410 has the Basic warranty, which does not cover water damage.",
+    "score": 0.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 720,
+    "output_tokens": 240,
+    "cost_usd": 0.00288,
+    "latency_s": 6.6
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "Find the order's warranty tier, then check its coverage.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "get_ticket",
+      "input": "get_ticket(order='88410')",
+      "output": "Ticket for order 88410: customer reports water damage; account note mentions the Basic tier brochure was mailed at purchase.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": "weak",
+      "note": "took the mailed-brochure note as the warranty of record",
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 2,
+      "type": "tool_call",
+      "name": "get_policy",
+      "input": "get_policy(topic='warranty basic')",
+      "output": "Basic warranty: manufacturing defects only; excludes liquid damage.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 3,
+      "type": "tool_call",
+      "name": "get_policy",
+      "input": "get_policy(topic='warranty basic')",
+      "output": "Basic warranty: manufacturing defects only; excludes liquid damage.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": "identical call repeated; adds nothing and changes nothing",
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 4,
+      "type": "reason",
+      "name": "reason",
+      "input": "Basic tier excludes liquid damage, so this claim is not covered.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 5,
+      "type": "answer",
+      "name": "final",
+      "input": "Order 88410 has the Basic warranty, which does not cover water damage.",
+      "output": "Order 88410 has the Basic warranty, which does not cover water damage.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_ticket",
+      "effect": "read"
+    },
+    {
+      "name": "get_crm",
+      "effect": "read"
+    },
+    {
+      "name": "update_ticket",
+      "effect": "write"
+    }
+  ],
+  "budget": {
+    "max_steps": 12
+  }
+}

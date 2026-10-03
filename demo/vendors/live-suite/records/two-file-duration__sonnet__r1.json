@@ -1,0 +1,74 @@
+{
+ "task": "two-file-duration",
+ "agent": "sonnet",
+ "vendor": "claude",
+ "model": "claude-sonnet-5",
+ "run": "r1",
+ "trace": "traces/two-file-duration__sonnet__r1.json",
+ "raw": "raw/two-file-duration__sonnet__r1.jsonl",
+ "patch": "diffs/two-file-duration__sonnet__r1.patch",
+ "exit_code": 0,
+ "stopped_by": null,
+ "wall_s": 27.484,
+ "stderr_tail": "",
+ "stream": {
+  "bytes": 34770,
+  "cap": 268435456,
+  "truncated_lines": 0
+ },
+ "check": {
+  "command": "python3 -m unittest -q && python3 -c \"import hashlib,sys; sys.exit(0 if hashlib.sha256(open('test_scheduler.py','rb').read()).hexdigest()=='823706ddb9781094852578e5c0a884957eb9df6d77bd5bb78b0f9976ef6986d8' else 3)\"",
+  "exit_code": 0,
+  "passed": true,
+  "seconds": 0.062,
+  "output_tail": "----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n"
+ },
+ "diff": {
+  "files": [
+   {
+    "path": "duration.py",
+    "status": "modified",
+    "added": 1,
+    "removed": 1,
+    "after_sha": "7af173c883640103a7404778f4a6f2f8768eb315c6157b8d45f42d944e572315"
+   }
+  ],
+  "added": 1,
+  "removed": 1,
+  "patch_chars": 267,
+  "patch_truncated": false
+ },
+ "setup": {
+  "prompt_sha": "6e0e072622732380",
+  "workspace_sha": "73434150db0c3deb",
+  "check": "python3 -m unittest -q && python3 -c \"import hashlib,sys; sys.exit(0 if hashlib.sha256(open('test_scheduler.py','rb').read()).hexdigest()=='823706ddb9781094852578e5c0a884957eb9df6d77bd5bb78b0f9976ef6986d8' else 3)\"",
+  "budget_tokens": 800000,
+  "timeout_s": 900.0,
+  "started_at": 1790531260.572,
+  "cli": "claude",
+  "cli_version": "2.1.283 (Claude Code)",
+  "argv": [
+   "/opt/node22/bin/claude",
+   "-p",
+   "--output-format",
+   "stream-json",
+   "--verbose",
+   "--permission-mode",
+   "acceptEdits",
+   "--no-session-persistence",
+   "--tools",
+   "Bash,Read,Edit,Write,Grep,Glob,TodoWrite,Task",
+   "--strict-mcp-config",
+   "--allowedTools",
+   "Bash",
+   "--setting-sources",
+   "project,local",
+   "--model",
+   "claude-sonnet-5"
+  ],
+  "sandbox": "claude acceptEdits (Bash allowed), no OS sandbox",
+  "budget_enforced": "while running (usage is per message)",
+  "user_config": "ignored",
+  "tools": "Bash, Read, Edit, Write, Grep, Glob, TodoWrite, Task; no MCP servers"
+ }
+}

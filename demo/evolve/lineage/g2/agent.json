@@ -1,0 +1,46 @@
+{
+  "id": "g2",
+  "parent": "g1",
+  "family": "ledger-agent",
+  "mechanism": "rule_add",
+  "evidence": {
+    "episodes": [
+      "rl02_flaky_test__ledger-agent@g1__r1",
+      "rl02_flaky_test__ledger-agent@g1__r3",
+      "rl02_flaky_test__ledger-agent@g1__r4"
+    ],
+    "summary": "searches that returned nothing on the first attempt were abandoned",
+    "source": "self"
+  },
+  "artifacts": {
+    "system_prompt": "You are a careful analyst. You have grep, read_file, search and run_check. Locate every fact the task needs, then answer with the corrected figure.\n\nRules:\n- Answer from the evidence you find.\n- Read the schema and the README before searching.\n- Retry a search up to three times before giving up on a fact.",
+    "rules": [
+      "Answer from the evidence you find.",
+      "Read the schema and the README before searching.",
+      "Retry a search up to three times before giving up on a fact."
+    ],
+    "skills": [
+      {
+        "name": "reconcile",
+        "body": "grep the directory, read every file, search each item, read its row"
+      },
+      {
+        "name": "verifier",
+        "body": "run 5 consistency checks before answering"
+      }
+    ],
+    "tools": [
+      "grep",
+      "read_file",
+      "search",
+      "run_check"
+    ],
+    "memory": [],
+    "config": {
+      "checks": 5,
+      "max_search_retries": 3,
+      "verify_before_answer": false
+    }
+  },
+  "note": "SYNTHETIC: a generated generation of a self-evolving agent; rewards paid by a scripted environment; every value invented — retry searches"
+}

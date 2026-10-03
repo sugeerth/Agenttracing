@@ -1,0 +1,1297 @@
+{
+ "measurable": true,
+ "agents": [
+  "haiku",
+  "sonnet"
+ ],
+ "tasks": [
+  "bugfix-pricing",
+  "contradictory-rounding",
+  "feature-slugify",
+  "guarded-inventory",
+  "perf-dedupe",
+  "two-file-duration"
+ ],
+ "runs": 12,
+ "band": 0.1,
+ "parity": [
+  {
+   "what": "the prompt",
+   "key": "prompt_sha",
+   "equal": true,
+   "values": {
+    "haiku": "6 tasks, the same for both on each",
+    "sonnet": "6 tasks, the same for both on each"
+   },
+   "why": "a different instruction is a different task"
+  },
+  {
+   "what": "the starting workspace",
+   "key": "workspace_sha",
+   "equal": true,
+   "values": {
+    "haiku": "6 tasks, the same for both on each",
+    "sonnet": "6 tasks, the same for both on each"
+   },
+   "why": "each run starts from its own copy of the same files"
+  },
+  {
+   "what": "the check that grades it",
+   "key": "check",
+   "equal": true,
+   "values": {
+    "haiku": "6 tasks, the same for both on each",
+    "sonnet": "6 tasks, the same for both on each"
+   },
+   "why": "success is the check's exit status, run by the harness"
+  },
+  {
+   "what": "the token budget",
+   "key": "budget_tokens",
+   "equal": true,
+   "values": {
+    "haiku": "800000",
+    "sonnet": "800000"
+   },
+   "why": "an agent allowed more can do more"
+  },
+  {
+   "what": "the time limit",
+   "key": "timeout_s",
+   "equal": true,
+   "values": {
+    "haiku": "900",
+    "sonnet": "900"
+   },
+   "why": "an agent allowed longer can do more"
+  },
+  {
+   "what": "how the budget is enforced",
+   "key": "budget_enforced",
+   "equal": true,
+   "values": {
+    "haiku": "while running (usage is per message)",
+    "sonnet": "while running (usage is per message)"
+   },
+   "why": "Claude Code reports usage per message, so a budget can stop it mid-run; Codex reports usage once per turn, so its budget can only be checked afterwards"
+  },
+  {
+   "what": "the sandbox",
+   "key": "sandbox",
+   "equal": true,
+   "values": {
+    "haiku": "claude acceptEdits (Bash allowed), no OS sandbox",
+    "sonnet": "claude acceptEdits (Bash allowed), no OS sandbox"
+   },
+   "why": "a sandboxed agent may be refused actions the other is allowed"
+  },
+  {
+   "what": "the operator's own vendor settings",
+   "key": "user_config",
+   "equal": true,
+   "values": {
+    "haiku": "ignored",
+    "sonnet": "ignored"
+   },
+   "why": "a user's custom instructions or hooks change the agent being measured"
+  },
+  {
+   "what": "the tools on offer",
+   "key": "tools",
+   "equal": true,
+   "values": {
+    "haiku": "Bash, Read, Edit, Write, Grep, Glob, TodoWrite, Task; no MCP servers",
+    "sonnet": "Bash, Read, Edit, Write, Grep, Glob, TodoWrite, Task; no MCP servers"
+   },
+   "why": "an agent offered a web search or a sub-agent can do what one without cannot"
+  },
+  {
+   "what": "launched side by side",
+   "key": "started_at",
+   "equal": true,
+   "values": {
+    "largest gap": "0.0s"
+   },
+   "why": "vendor latency and rate limits move over the day; runs launched together share them"
+  },
+  {
+   "what": "cost reporting",
+   "key": "cost_basis",
+   "equal": true,
+   "values": {
+    "haiku": "reported by the CLI",
+    "sonnet": "reported by the CLI"
+   },
+   "why": "a cost one vendor reports and the other does not cannot be compared, only listed"
+  },
+  {
+   "what": "the models",
+   "key": "model",
+   "equal": null,
+   "values": {
+    "haiku": "claude-haiku-4-5-20251001",
+    "sonnet": "claude-sonnet-5"
+   },
+   "why": "different vendors run different models by design; named, not judged"
+  }
+ ],
+ "fair": true,
+ "unequal": [],
+ "per_agent": {
+  "haiku": {
+   "runs": 6,
+   "graded": 6,
+   "passed": 5,
+   "pass_rate": 0.8333,
+   "ci95": [
+    0.4365,
+    0.9699
+   ],
+   "all_runs_passed_tasks": 5,
+   "median": {
+    "tokens": 101526.5,
+    "input": 98794.0,
+    "cached_input": 83899.5,
+    "output": 1788.5,
+    "wall_s": 20.5435,
+    "actions": 6.0,
+    "files_changed": 1.0,
+    "lines_changed": 3.0
+   },
+   "cost_usd": 0.24754,
+   "cost_basis": [
+    "reported by the CLI"
+   ],
+   "passes_per_million_tokens": 8.402,
+   "passes_per_hour": 140.345,
+   "activity": {
+    "explore": 21,
+    "edit": 6,
+    "verify": 9,
+    "run": 0,
+    "research": 0,
+    "plan": 0,
+    "delegate": 0,
+    "other": 0
+   },
+   "shares": {
+    "explore": 0.583,
+    "edit": 0.167,
+    "verify": 0.25,
+    "run": 0.0,
+    "research": 0.0,
+    "plan": 0.0,
+    "delegate": 0.0,
+    "other": 0.0
+   },
+   "explored_before_first_edit": 4.0,
+   "verified_after_last_edit": 5,
+   "edited_runs": 5,
+   "tool_errors": 6,
+   "unrecovered_errors": 1,
+   "redundant_stretches": 0,
+   "touched_tests": 0,
+   "claimed_but_failed": 0,
+   "failed_and_said_why": 1,
+   "stopped_by_budget": 0,
+   "infrastructure_errors": 0
+  },
+  "sonnet": {
+   "runs": 6,
+   "graded": 6,
+   "passed": 5,
+   "pass_rate": 0.8333,
+   "ci95": [
+    0.4365,
+    0.9699
+   ],
+   "all_runs_passed_tasks": 5,
+   "median": {
+    "tokens": 116240.0,
+    "input": 114434.0,
+    "cached_input": 104127.0,
+    "output": 914.5,
+    "wall_s": 15.2115,
+    "actions": 6.0,
+    "files_changed": 1.0,
+    "lines_changed": 3.0
+   },
+   "cost_usd": 0.455789,
+   "cost_basis": [
+    "reported by the CLI"
+   ],
+   "passes_per_million_tokens": 6.268,
+   "passes_per_hour": 180.988,
+   "activity": {
+    "explore": 25,
+    "edit": 5,
+    "verify": 7,
+    "run": 0,
+    "research": 0,
+    "plan": 0,
+    "delegate": 0,
+    "other": 0
+   },
+   "shares": {
+    "explore": 0.676,
+    "edit": 0.135,
+    "verify": 0.189,
+    "run": 0.0,
+    "research": 0.0,
+    "plan": 0.0,
+    "delegate": 0.0,
+    "other": 0.0
+   },
+   "explored_before_first_edit": 4.0,
+   "verified_after_last_edit": 5,
+   "edited_runs": 5,
+   "tool_errors": 1,
+   "unrecovered_errors": 1,
+   "redundant_stretches": 0,
+   "touched_tests": 0,
+   "claimed_but_failed": 0,
+   "failed_and_said_why": 1,
+   "stopped_by_budget": 0,
+   "infrastructure_errors": 0
+  }
+ },
+ "pairs": [
+  {
+   "task": "bugfix-pricing",
+   "run": "r1",
+   "passed": {
+    "haiku": true,
+    "sonnet": true
+   },
+   "tokens": {
+    "haiku": 108451,
+    "sonnet": 112305
+   },
+   "token_gap": 0.0343,
+   "budget_matched": true,
+   "wall_s": {
+    "haiku": 20.631,
+    "sonnet": 11.808
+   },
+   "files": {
+    "both": [
+     "pricing.py"
+    ],
+    "only": {
+     "haiku": [],
+     "sonnet": []
+    },
+    "overlap": 1.0,
+    "identical": [
+     "pricing.py"
+    ]
+   }
+  },
+  {
+   "task": "contradictory-rounding",
+   "run": "r1",
+   "passed": {
+    "haiku": false,
+    "sonnet": false
+   },
+   "tokens": {
+    "haiku": 69778,
+    "sonnet": 89965
+   },
+   "token_gap": 0.2244,
+   "budget_matched": false,
+   "wall_s": {
+    "haiku": 21.084,
+    "sonnet": 18.615
+   },
+   "files": {
+    "both": [],
+    "only": {
+     "haiku": [],
+     "sonnet": []
+    },
+    "overlap": null,
+    "identical": []
+   }
+  },
+  {
+   "task": "feature-slugify",
+   "run": "r1",
+   "passed": {
+    "haiku": true,
+    "sonnet": true
+   },
+   "tokens": {
+    "haiku": 94602,
+    "sonnet": 119296
+   },
+   "token_gap": 0.207,
+   "budget_matched": false,
+   "wall_s": {
+    "haiku": 32.389,
+    "sonnet": 23.049
+   },
+   "files": {
+    "both": [
+     "text.py"
+    ],
+    "only": {
+     "haiku": [],
+     "sonnet": []
+    },
+    "overlap": 1.0,
+    "identical": []
+   }
+  },
+  {
+   "task": "guarded-inventory",
+   "run": "r1",
+   "passed": {
+    "haiku": true,
+    "sonnet": true
+   },
+   "tokens": {
+    "haiku": 125888,
+    "sonnet": 113184
+   },
+   "token_gap": 0.1009,
+   "budget_matched": false,
+   "wall_s": {
+    "haiku": 20.456,
+    "sonnet": 7.802
+   },
+   "files": {
+    "both": [
+     "inventory.py"
+    ],
+    "only": {
+     "haiku": [],
+     "sonnet": []
+    },
+    "overlap": 1.0,
+    "identical": [
+     "inventory.py"
+    ]
+   }
+  },
+  {
+   "task": "perf-dedupe",
+   "run": "r1",
+   "passed": {
+    "haiku": true,
+    "sonnet": true
+   },
+   "tokens": {
+    "haiku": 87839,
+    "sonnet": 134577
+   },
+   "token_gap": 0.3473,
+   "budget_matched": false,
+   "wall_s": {
+    "haiku": 16.872,
+    "sonnet": 11.364
+   },
+   "files": {
+    "both": [
+     "dedupe.py"
+    ],
+    "only": {
+     "haiku": [],
+     "sonnet": []
+    },
+    "overlap": 1.0,
+    "identical": [
+     "dedupe.py"
+    ]
+   }
+  },
+  {
+   "task": "two-file-duration",
+   "run": "r1",
+   "passed": {
+    "haiku": true,
+    "sonnet": true
+   },
+   "tokens": {
+    "haiku": 108504,
+    "sonnet": 228401
+   },
+   "token_gap": 0.5249,
+   "budget_matched": false,
+   "wall_s": {
+    "haiku": 16.823,
+    "sonnet": 26.816
+   },
+   "files": {
+    "both": [
+     "duration.py"
+    ],
+    "only": {
+     "haiku": [],
+     "sonnet": []
+    },
+    "overlap": 1.0,
+    "identical": [
+     "duration.py"
+    ]
+   }
+  }
+ ],
+ "budget_matched_pairs": 1,
+ "narrative": "6 tasks, 6 paired runs, on equal terms throughout the parity ledger. haiku passed 5 of 6; sonnet passed 5 of 6. 1 of 6 pairs spent within ±10% of each other's tokens; where they did not, compare outcomes per token rather than per run. Passing runs per million tokens: haiku 8.402, sonnet 6.268. haiku explored 4 time(s) before its first edit (median) and ran a check after its last edit in 5 of 5 run(s); sonnet explored 4 time(s) before its first edit (median) and ran a check after its last edit in 5 of 5 run(s). Failed the check and said what stopped it: haiku 1 time(s), sonnet 1 time(s).",
+ "caveat": "Qualitative, not a benchmark: a few tasks and a few runs describe how these two agents worked on this work, with the intervals saying how little a pass rate on a small sample settles. Every number is read from the vendors' own streams and the harness's check.",
+ "runs_detail": [
+  {
+   "task": "bugfix-pricing",
+   "agent": "haiku",
+   "vendor": "claude-code",
+   "model": "claude-haiku-4-5-20251001",
+   "run": "r1",
+   "passed": true,
+   "exit_code": 0,
+   "termination": "agent_stop",
+   "stopped_by": null,
+   "tokens": {
+    "input": 106663,
+    "cached_input": 87254,
+    "output": 1788,
+    "reasoning_output": null,
+    "total": 108451,
+    "basis": "measured"
+   },
+   "cost_usd": 0.057428,
+   "cost_basis": "reported by the CLI",
+   "wall_s": 20.631,
+   "tool_time_s": 1.061,
+   "think_time_s": 1.109,
+   "steps": 11,
+   "actions": 6,
+   "activity": {
+    "explore": 3,
+    "edit": 1,
+    "verify": 2,
+    "run": 0,
+    "research": 0,
+    "plan": 0,
+    "delegate": 0,
+    "other": 0
+   },
+   "shares": {
+    "explore": 0.5,
+    "edit": 0.167,
+    "verify": 0.333,
+    "run": 0.0,
+    "research": 0.0,
+    "plan": 0.0,
+    "delegate": 0.0,
+    "other": 0.0
+   },
+   "explored_before_first_edit": 3,
+   "first_edit_at": 4,
+   "verified_after_last_edit": true,
+   "verify_runs": 2,
+   "tool_errors": 1,
+   "marks": {
+    "recovered_error": 1,
+    "shipped_before_check": 1
+   },
+   "files_changed": 1,
+   "lines_added": 1,
+   "lines_removed": 1,
+   "touched_tests": false,
+   "paths": [
+    "pricing.py"
+   ],
+   "final_message_chars": 407,
+   "claimed_done": true,
+   "claimed_but_failed": false,
+   "failed_and_said_why": false,
+   "turns": 7,
+   "permission_denials": 0,
+   "unknown_events": {},
+   "patch_head": "--- a/pricing.py\n+++ b/pricing.py\n@@ -7,7 +7,7 @@\n \n def apply_discount(total: float, percent: float) -> float:\n     \"\"\"Take `percent` off `total` (10 means ten percent off).\"\"\"\n-    return round(total - percent, 2)\n+    return round(total * (1 - percent / 100), 2)\n \n \n def order_total(lines: list, discount_percent: float = 0.0) -> float:\n",
+   "patch_truncated": false,
+   "patch_path": "diffs/bugfix-pricing__haiku__r1.patch"
+  },
+  {
+   "task": "bugfix-pricing",
+   "agent": "sonnet",
+   "vendor": "claude-code",
+   "model": "claude-sonnet-5",
+   "run": "r1",
+   "passed": true,
+   "exit_code": 0,
+   "termination": "agent_stop",
+   "stopped_by": null,
+   "tokens": {
+    "input": 111643,
+    "cached_input": 102719,
+    "output": 662,
+    "reasoning_output": null,
+    "total": 112305,
+    "basis": "measured"
+   },
+   "cost_usd": 0.063835,
+   "cost_basis": "reported by the CLI",
+   "wall_s": 11.808,
+   "tool_time_s": 0.535,
+   "think_time_s": 1.479,
+   "steps": 8,
+   "actions": 6,
+   "activity": {
+    "explore": 4,
+    "edit": 1,
+    "verify": 1,
+    "run": 0,
+    "research": 0,
+    "plan": 0,
+    "delegate": 0,
+    "other": 0
+   },
+   "shares": {
+    "explore": 0.667,
+    "edit": 0.167,
+    "verify": 0.167,
+    "run": 0.0,
+    "research": 0.0,
+    "plan": 0.0,
+    "delegate": 0.0,
+    "other": 0.0
+   },
+   "explored_before_first_edit": 4,
+   "first_edit_at": 4,
+   "verified_after_last_edit": true,
+   "verify_runs": 1,
+   "tool_errors": 0,
+   "marks": {
+    "shipped_before_check": 1
+   },
+   "files_changed": 1,
+   "lines_added": 1,
+   "lines_removed": 1,
+   "touched_tests": false,
+   "paths": [
+    "pricing.py"
+   ],
+   "final_message_chars": 194,
+   "claimed_done": true,
+   "claimed_but_failed": false,
+   "failed_and_said_why": false,
+   "turns": 7,
+   "permission_denials": 0,
+   "unknown_events": {},
+   "patch_head": "--- a/pricing.py\n+++ b/pricing.py\n@@ -7,7 +7,7 @@\n \n def apply_discount(total: float, percent: float) -> float:\n     \"\"\"Take `percent` off `total` (10 means ten percent off).\"\"\"\n-    return round(total - percent, 2)\n+    return round(total * (1 - percent / 100), 2)\n \n \n def order_total(lines: list, discount_percent: float = 0.0) -> float:\n",
+   "patch_truncated": false,
+   "patch_path": "diffs/bugfix-pricing__sonnet__r1.patch"
+  },
+  {
+   "task": "contradictory-rounding",
+   "agent": "haiku",
+   "vendor": "claude-code",
+   "model": "claude-haiku-4-5-20251001",
+   "run": "r1",
+   "passed": false,
+   "exit_code": 1,
+   "termination": "agent_stop",
+   "stopped_by": null,
+   "tokens": {
+    "input": 67781,
+    "cached_input": 60063,
+    "output": 1997,
+    "reasoning_output": null,
+    "total": 69778,
+    "basis": "measured"
+   },
+   "cost_usd": 0.032402,
+   "cost_basis": "reported by the CLI",
+   "wall_s": 21.084,
+   "tool_time_s": 0.7,
+   "think_time_s": 0.713,
+   "steps": 7,
+   "actions": 4,
+   "activity": {
+    "explore": 3,
+    "edit": 0,
+    "verify": 1,
+    "run": 0,
+    "research": 0,
+    "plan": 0,
+    "delegate": 0,
+    "other": 0
+   },
+   "shares": {
+    "explore": 0.75,
+    "edit": 0.0,
+    "verify": 0.25,
+    "run": 0.0,
+    "research": 0.0,
+    "plan": 0.0,
+    "delegate": 0.0,
+    "other": 0.0
+   },
+   "explored_before_first_edit": null,
+   "first_edit_at": null,
+   "verified_after_last_edit": null,
+   "verify_runs": 1,
+   "tool_errors": 1,
+   "marks": {
+    "unrecovered_error": 1
+   },
+   "files_changed": 0,
+   "lines_added": 0,
+   "lines_removed": 0,
+   "touched_tests": false,
+   "paths": [],
+   "final_message_chars": 894,
+   "claimed_done": false,
+   "claimed_but_failed": false,
+   "failed_and_said_why": true,
+   "turns": 5,
+   "permission_denials": 0,
+   "unknown_events": {},
+   "patch_head": "",
+   "patch_truncated": false,
+   "patch_path": "diffs/contradictory-rounding__haiku__r1.patch"
+  },
+  {
+   "task": "contradictory-rounding",
+   "agent": "sonnet",
+   "vendor": "claude-code",
+   "model": "claude-sonnet-5",
+   "run": "r1",
+   "passed": false,
+   "exit_code": 1,
+   "termination": "agent_stop",
+   "stopped_by": null,
+   "tokens": {
+    "input": 88877,
+    "cached_input": 79749,
+    "output": 1088,
+    "reasoning_output": null,
+    "total": 89965,
+    "basis": "measured"
+   },
+   "cost_usd": 0.064335,
+   "cost_basis": "reported by the CLI",
+   "wall_s": 18.615,
+   "tool_time_s": 0.452,
+   "think_time_s": 2.313,
+   "steps": 7,
+   "actions": 5,
+   "activity": {
+    "explore": 4,
+    "edit": 0,
+    "verify": 1,
+    "run": 0,
+    "research": 0,
+    "plan": 0,
+    "delegate": 0,
+    "other": 0
+   },
+   "shares": {
+    "explore": 0.8,
+    "edit": 0.0,
+    "verify": 0.2,
+    "run": 0.0,
+    "research": 0.0,
+    "plan": 0.0,
+    "delegate": 0.0,
+    "other": 0.0
+   },
+   "explored_before_first_edit": null,
+   "first_edit_at": null,
+   "verified_after_last_edit": null,
+   "verify_runs": 1,
+   "tool_errors": 1,
+   "marks": {
+    "unrecovered_error": 1
+   },
+   "files_changed": 0,
+   "lines_added": 0,
+   "lines_removed": 0,
+   "touched_tests": false,
+   "paths": [],
+   "final_message_chars": 931,
+   "claimed_done": false,
+   "claimed_but_failed": false,
+   "failed_and_said_why": true,
+   "turns": 6,
+   "permission_denials": 0,
+   "unknown_events": {},
+   "patch_head": "",
+   "patch_truncated": false,
+   "patch_path": "diffs/contradictory-rounding__sonnet__r1.patch"
+  },
+  {
+   "task": "feature-slugify",
+   "agent": "haiku",
+   "vendor": "claude-code",
+   "model": "claude-haiku-4-5-20251001",
+   "run": "r1",
+   "passed": true,
+   "exit_code": 0,
+   "termination": "agent_stop",
+   "stopped_by": null,
+   "tokens": {
+    "input": 90925,
+    "cached_input": 80545,
+    "output": 3677,
+    "reasoning_output": null,
+    "total": 94602,
+    "basis": "measured"
+   },
+   "cost_usd": 0.048161,
+   "cost_basis": "reported by the CLI",
+   "wall_s": 32.389,
+   "tool_time_s": 0.629,
+   "think_time_s": 1.117,
+   "steps": 9,
+   "actions": 5,
+   "activity": {
+    "explore": 3,
+    "edit": 1,
+    "verify": 1,
+    "run": 0,
+    "research": 0,
+    "plan": 0,
+    "delegate": 0,
+    "other": 0
+   },
+   "shares": {
+    "explore": 0.6,
+    "edit": 0.2,
+    "verify": 0.2,
+    "run": 0.0,
+    "research": 0.0,
+    "plan": 0.0,
+    "delegate": 0.0,
+    "other": 0.0
+   },
+   "explored_before_first_edit": 3,
+   "first_edit_at": 3,
+   "verified_after_last_edit": true,
+   "verify_runs": 1,
+   "tool_errors": 0,
+   "marks": {
+    "shipped_before_check": 1
+   },
+   "files_changed": 1,
+   "lines_added": 35,
+   "lines_removed": 1,
+   "touched_tests": false,
+   "paths": [
+    "text.py"
+   ],
+   "final_message_chars": 357,
+   "claimed_done": true,
+   "claimed_but_failed": false,
+   "failed_and_said_why": false,
+   "turns": 6,
+   "permission_denials": 0,
+   "unknown_events": {},
+   "patch_head": "--- a/text.py\n+++ b/text.py\n@@ -1,4 +1,6 @@\n \"\"\"Small text helpers for building URLs.\"\"\"\n+\n+import unicodedata\n \n \n def slugify(title: str, max_length: int = 60) -> str:\n@@ -11,4 +13,36 @@\n     - at most `max_length` characters, cut at a hyphen boundary when the\n       cut would otherwise split a word, and never ending in a hyphen\n     \"\"\"\n-    raise NotImplementedError\n+    # Remove accents from accented characters\n+    normalized = unicodedata.normalize('NFKD', title)\n+    normalized = normalized.encode('ascii', 'ignore').decode('ascii')\n+\n+    # Convert to lowercase\n+    normalized = normalized.lower()\n+\n+    # Replace runs of non-alphanumeric characters with single hyphen\n+    result = []\n+    in_non_alnum_run = False\n+    for char in normalized:\n+        if char.isalnum():\n+            result.append(char)\n+            in_non_alnum_run = False\n+        elif not in_non_alnum_run:\n+            result.append('-')\n+            in_non_alnum_run = True\n+\n+    slug = ''.join(result)\n+\n+    # Strip leading/trailing hyphens\n+    slug = slug.strip('-')\n+\n+    # Truncate at word boundary if necessary\n+    if len(slug) > max_length:\n+        slug = slug[:max_length]\n+        slug = slug.rstrip('-')\n+        # Cut at last hyphen to avoid splitting words\n+        last_hyphen = slug.rfind('-')\n+        if last_hyphen > 0:\n+            slug = slug[:last_hyphen]\n+\n+    return slug\n",
+   "patch_truncated": false,
+   "patch_path": "diffs/feature-slugify__haiku__r1.patch"
+  },
+  {
+   "task": "feature-slugify",
+   "agent": "sonnet",
+   "vendor": "claude-code",
+   "model": "claude-sonnet-5",
+   "run": "r1",
+   "passed": true,
+   "exit_code": 0,
+   "termination": "agent_stop",
+   "stopped_by": null,
+   "tokens": {
+    "input": 116456,
+    "cached_input": 105136,
+    "output": 2840,
+    "reasoning_output": null,
+    "total": 119296,
+    "basis": "measured"
+   },
+   "cost_usd": 0.095691,
+   "cost_basis": "reported by the CLI",
+   "wall_s": 23.049,
+   "tool_time_s": 0.495,
+   "think_time_s": 0,
+   "steps": 7,
+   "actions": 6,
+   "activity": {
+    "explore": 4,
+    "edit": 1,
+    "verify": 1,
+    "run": 0,
+    "research": 0,
+    "plan": 0,
+    "delegate": 0,
+    "other": 0
+   },
+   "shares": {
+    "explore": 0.667,
+    "edit": 0.167,
+    "verify": 0.167,
+    "run": 0.0,
+    "research": 0.0,
+    "plan": 0.0,
+    "delegate": 0.0,
+    "other": 0.0
+   },
+   "explored_before_first_edit": 4,
+   "first_edit_at": 4,
+   "verified_after_last_edit": true,
+   "verify_runs": 1,
+   "tool_errors": 0,
+   "marks": {
+    "shipped_before_check": 1
+   },
+   "files_changed": 1,
+   "lines_added": 14,
+   "lines_removed": 1,
+   "touched_tests": false,
+   "paths": [
+    "text.py"
+   ],
+   "final_message_chars": 371,
+   "claimed_done": true,
+   "claimed_but_failed": false,
+   "failed_and_said_why": false,
+   "turns": 7,
+   "permission_denials": 0,
+   "unknown_events": {},
+   "patch_head": "--- a/text.py\n+++ b/text.py\n@@ -1,4 +1,7 @@\n \"\"\"Small text helpers for building URLs.\"\"\"\n+\n+import re\n+import unicodedata\n \n \n def slugify(title: str, max_length: int = 60) -> str:\n@@ -11,4 +14,14 @@\n     - at most `max_length` characters, cut at a hyphen boundary when the\n       cut would otherwise split a word, and never ending in a hyphen\n     \"\"\"\n-    raise NotImplementedError\n+    normalized = unicodedata.normalize(\"NFKD\", title)\n+    stripped = \"\".join(c for c in normalized if not unicodedata.combining(c))\n+    words = [w for w in re.split(r\"[^a-z0-9]+\", stripped.lower()) if w]\n+\n+    result = \"\"\n+    for word in words:\n+        candidate = f\"{result}-{word}\" if result else word\n+        if len(candidate) > max_length:\n+            break\n+        result = candidate\n+    return result\n",
+   "patch_truncated": false,
+   "patch_path": "diffs/feature-slugify__sonnet__r1.patch"
+  },
+  {
+   "task": "guarded-inventory",
+   "agent": "haiku",
+   "vendor": "claude-code",
+   "model": "claude-haiku-4-5-20251001",
+   "run": "r1",
+   "passed": true,
+   "exit_code": 0,
+   "termination": "agent_stop",
+   "stopped_by": null,
+   "tokens": {
+    "input": 124108,
+    "cached_input": 114725,
+    "output": 1780,
+    "reasoning_output": null,
+    "total": 125888,
+    "basis": "measured"
+   },
+   "cost_usd": 0.040077,
+   "cost_basis": "reported by the CLI",
+   "wall_s": 20.456,
+   "tool_time_s": 0.945,
+   "think_time_s": 1.624,
+   "steps": 12,
+   "actions": 8,
+   "activity": {
+    "explore": 4,
+    "edit": 2,
+    "verify": 2,
+    "run": 0,
+    "research": 0,
+    "plan": 0,
+    "delegate": 0,
+    "other": 0
+   },
+   "shares": {
+    "explore": 0.5,
+    "edit": 0.25,
+    "verify": 0.25,
+    "run": 0.0,
+    "research": 0.0,
+    "plan": 0.0,
+    "delegate": 0.0,
+    "other": 0.0
+   },
+   "explored_before_first_edit": 4,
+   "first_edit_at": 5,
+   "verified_after_last_edit": true,
+   "verify_runs": 2,
+   "tool_errors": 2,
+   "marks": {
+    "recovered_error": 1,
+    "shipped_before_check": 2
+   },
+   "files_changed": 1,
+   "lines_added": 2,
+   "lines_removed": 2,
+   "touched_tests": false,
+   "paths": [
+    "inventory.py"
+   ],
+   "final_message_chars": 266,
+   "claimed_done": true,
+   "claimed_but_failed": false,
+   "failed_and_said_why": false,
+   "turns": 9,
+   "permission_denials": 0,
+   "unknown_events": {},
+   "patch_head": "--- a/inventory.py\n+++ b/inventory.py\n@@ -13,10 +13,10 @@\n     def remove(self, sku: str, qty: int) -> None:\n         \"\"\"Take `qty` out; refuse to go below zero and leave stock unchanged.\"\"\"\n         have = self.stock.get(sku, 0)\n-        self.stock[sku] = have - qty\n         if have < qty:\n             raise ValueError(f\"only {have} of {sku} in stock\")\n+        self.stock[sku] = have - qty\n \n     def low(self, threshold: int) -> list:\n         \"\"\"SKUs at or below `threshold`, sorted.\"\"\"\n-        return sorted(s for s, q in self.stock.items() if q < threshold)\n+        return sorted(s for s, q in self.stock.items() if q <= threshold)\n",
+   "patch_truncated": false,
+   "patch_path": "diffs/guarded-inventory__haiku__r1.patch"
+  },
+  {
+   "task": "guarded-inventory",
+   "agent": "sonnet",
+   "vendor": "claude-code",
+   "model": "claude-sonnet-5",
+   "run": "r1",
+   "passed": true,
+   "exit_code": 0,
+   "termination": "agent_stop",
+   "stopped_by": null,
+   "tokens": {
+    "input": 112412,
+    "cached_input": 103118,
+    "output": 772,
+    "reasoning_output": null,
+    "total": 113184,
+    "basis": "measured"
+   },
+   "cost_usd": 0.066496,
+   "cost_basis": "reported by the CLI",
+   "wall_s": 7.802,
+   "tool_time_s": 0.456,
+   "think_time_s": 1.023,
+   "steps": 7,
+   "actions": 5,
+   "activity": {
+    "explore": 3,
+    "edit": 1,
+    "verify": 1,
+    "run": 0,
+    "research": 0,
+    "plan": 0,
+    "delegate": 0,
+    "other": 0
+   },
+   "shares": {
+    "explore": 0.6,
+    "edit": 0.2,
+    "verify": 0.2,
+    "run": 0.0,
+    "research": 0.0,
+    "plan": 0.0,
+    "delegate": 0.0,
+    "other": 0.0
+   },
+   "explored_before_first_edit": 3,
+   "first_edit_at": 3,
+   "verified_after_last_edit": true,
+   "verify_runs": 1,
+   "tool_errors": 0,
+   "marks": {
+    "shipped_before_check": 1
+   },
+   "files_changed": 1,
+   "lines_added": 2,
+   "lines_removed": 2,
+   "touched_tests": false,
+   "paths": [
+    "inventory.py"
+   ],
+   "final_message_chars": 21,
+   "claimed_done": true,
+   "claimed_but_failed": false,
+   "failed_and_said_why": false,
+   "turns": 6,
+   "permission_denials": 0,
+   "unknown_events": {},
+   "patch_head": "--- a/inventory.py\n+++ b/inventory.py\n@@ -13,10 +13,10 @@\n     def remove(self, sku: str, qty: int) -> None:\n         \"\"\"Take `qty` out; refuse to go below zero and leave stock unchanged.\"\"\"\n         have = self.stock.get(sku, 0)\n-        self.stock[sku] = have - qty\n         if have < qty:\n             raise ValueError(f\"only {have} of {sku} in stock\")\n+        self.stock[sku] = have - qty\n \n     def low(self, threshold: int) -> list:\n         \"\"\"SKUs at or below `threshold`, sorted.\"\"\"\n-        return sorted(s for s, q in self.stock.items() if q < threshold)\n+        return sorted(s for s, q in self.stock.items() if q <= threshold)\n",
+   "patch_truncated": false,
+   "patch_path": "diffs/guarded-inventory__sonnet__r1.patch"
+  },
+  {
+   "task": "perf-dedupe",
+   "agent": "haiku",
+   "vendor": "claude-code",
+   "model": "claude-haiku-4-5-20251001",
+   "run": "r1",
+   "passed": true,
+   "exit_code": 0,
+   "termination": "agent_stop",
+   "stopped_by": null,
+   "tokens": {
+    "input": 86484,
+    "cached_input": 78428,
+    "output": 1355,
+    "reasoning_output": null,
+    "total": 87839,
+    "basis": "measured"
+   },
+   "cost_usd": 0.031693,
+   "cost_basis": "reported by the CLI",
+   "wall_s": 16.872,
+   "tool_time_s": 0.754,
+   "think_time_s": 1.227,
+   "steps": 10,
+   "actions": 6,
+   "activity": {
+    "explore": 4,
+    "edit": 1,
+    "verify": 1,
+    "run": 0,
+    "research": 0,
+    "plan": 0,
+    "delegate": 0,
+    "other": 0
+   },
+   "shares": {
+    "explore": 0.667,
+    "edit": 0.167,
+    "verify": 0.167,
+    "run": 0.0,
+    "research": 0.0,
+    "plan": 0.0,
+    "delegate": 0.0,
+    "other": 0.0
+   },
+   "explored_before_first_edit": 4,
+   "first_edit_at": 4,
+   "verified_after_last_edit": true,
+   "verify_runs": 1,
+   "tool_errors": 1,
+   "marks": {
+    "shipped_before_check": 1
+   },
+   "files_changed": 1,
+   "lines_added": 2,
+   "lines_removed": 2,
+   "touched_tests": false,
+   "paths": [
+    "dedupe.py"
+   ],
+   "final_message_chars": 249,
+   "claimed_done": true,
+   "claimed_but_failed": false,
+   "failed_and_said_why": false,
+   "turns": 7,
+   "permission_denials": 0,
+   "unknown_events": {},
+   "patch_head": "--- a/dedupe.py\n+++ b/dedupe.py\n@@ -3,10 +3,10 @@\n \n def unique_in_order(items):\n     \"\"\"The items with duplicates removed, in the order they first appear.\"\"\"\n-    seen = []\n+    seen = set()\n     out = []\n     for item in items:\n         if item not in seen:\n-            seen.append(item)\n+            seen.add(item)\n             out.append(item)\n     return out\n",
+   "patch_truncated": false,
+   "patch_path": "diffs/perf-dedupe__haiku__r1.patch"
+  },
+  {
+   "task": "perf-dedupe",
+   "agent": "sonnet",
+   "vendor": "claude-code",
+   "model": "claude-sonnet-5",
+   "run": "r1",
+   "passed": true,
+   "exit_code": 0,
+   "termination": "agent_stop",
+   "stopped_by": null,
+   "tokens": {
+    "input": 133831,
+    "cached_input": 124790,
+    "output": 746,
+    "reasoning_output": null,
+    "total": 134577,
+    "basis": "measured"
+   },
+   "cost_usd": 0.069568,
+   "cost_basis": "reported by the CLI",
+   "wall_s": 11.364,
+   "tool_time_s": 0.471,
+   "think_time_s": 1.544,
+   "steps": 8,
+   "actions": 6,
+   "activity": {
+    "explore": 4,
+    "edit": 1,
+    "verify": 1,
+    "run": 0,
+    "research": 0,
+    "plan": 0,
+    "delegate": 0,
+    "other": 0
+   },
+   "shares": {
+    "explore": 0.667,
+    "edit": 0.167,
+    "verify": 0.167,
+    "run": 0.0,
+    "research": 0.0,
+    "plan": 0.0,
+    "delegate": 0.0,
+    "other": 0.0
+   },
+   "explored_before_first_edit": 4,
+   "first_edit_at": 4,
+   "verified_after_last_edit": true,
+   "verify_runs": 1,
+   "tool_errors": 0,
+   "marks": {
+    "shipped_before_check": 1
+   },
+   "files_changed": 1,
+   "lines_added": 2,
+   "lines_removed": 2,
+   "touched_tests": false,
+   "paths": [
+    "dedupe.py"
+   ],
+   "final_message_chars": 212,
+   "claimed_done": true,
+   "claimed_but_failed": false,
+   "failed_and_said_why": false,
+   "turns": 7,
+   "permission_denials": 0,
+   "unknown_events": {},
+   "patch_head": "--- a/dedupe.py\n+++ b/dedupe.py\n@@ -3,10 +3,10 @@\n \n def unique_in_order(items):\n     \"\"\"The items with duplicates removed, in the order they first appear.\"\"\"\n-    seen = []\n+    seen = set()\n     out = []\n     for item in items:\n         if item not in seen:\n-            seen.append(item)\n+            seen.add(item)\n             out.append(item)\n     return out\n",
+   "patch_truncated": false,
+   "patch_path": "diffs/perf-dedupe__sonnet__r1.patch"
+  },
+  {
+   "task": "two-file-duration",
+   "agent": "haiku",
+   "vendor": "claude-code",
+   "model": "claude-haiku-4-5-20251001",
+   "run": "r1",
+   "passed": true,
+   "exit_code": 0,
+   "termination": "agent_stop",
+   "stopped_by": null,
+   "tokens": {
+    "input": 106715,
+    "cached_input": 97651,
+    "output": 1789,
+    "reasoning_output": null,
+    "total": 108504,
+    "basis": "measured"
+   },
+   "cost_usd": 0.037779,
+   "cost_basis": "reported by the CLI",
+   "wall_s": 16.823,
+   "tool_time_s": 0.909,
+   "think_time_s": 1.197,
+   "steps": 12,
+   "actions": 7,
+   "activity": {
+    "explore": 4,
+    "edit": 1,
+    "verify": 2,
+    "run": 0,
+    "research": 0,
+    "plan": 0,
+    "delegate": 0,
+    "other": 0
+   },
+   "shares": {
+    "explore": 0.571,
+    "edit": 0.143,
+    "verify": 0.286,
+    "run": 0.0,
+    "research": 0.0,
+    "plan": 0.0,
+    "delegate": 0.0,
+    "other": 0.0
+   },
+   "explored_before_first_edit": 4,
+   "first_edit_at": 5,
+   "verified_after_last_edit": true,
+   "verify_runs": 2,
+   "tool_errors": 1,
+   "marks": {
+    "recovered_error": 1,
+    "shipped_before_check": 1
+   },
+   "files_changed": 1,
+   "lines_added": 1,
+   "lines_removed": 1,
+   "touched_tests": false,
+   "paths": [
+    "duration.py"
+   ],
+   "final_message_chars": 464,
+   "claimed_done": true,
+   "claimed_but_failed": false,
+   "failed_and_said_why": false,
+   "turns": 8,
+   "permission_denials": 0,
+   "unknown_events": {},
+   "patch_head": "--- a/duration.py\n+++ b/duration.py\n@@ -12,7 +12,7 @@\n         if unit == \"h\":\n             total += amount * 3600\n         elif unit == \"m\":\n-            total += amount\n+            total += amount * 60\n         else:\n             total += amount\n     return total\n",
+   "patch_truncated": false,
+   "patch_path": "diffs/two-file-duration__haiku__r1.patch"
+  },
+  {
+   "task": "two-file-duration",
+   "agent": "sonnet",
+   "vendor": "claude-code",
+   "model": "claude-sonnet-5",
+   "run": "r1",
+   "passed": true,
+   "exit_code": 0,
+   "termination": "agent_stop",
+   "stopped_by": null,
+   "tokens": {
+    "input": 227344,
+    "cached_input": 217114,
+    "output": 1057,
+    "reasoning_output": null,
+    "total": 228401,
+    "basis": "measured"
+   },
+   "cost_usd": 0.095864,
+   "cost_basis": "reported by the CLI",
+   "wall_s": 26.816,
+   "tool_time_s": 0.924,
+   "think_time_s": 2.767,
+   "steps": 12,
+   "actions": 9,
+   "activity": {
+    "explore": 6,
+    "edit": 1,
+    "verify": 2,
+    "run": 0,
+    "research": 0,
+    "plan": 0,
+    "delegate": 0,
+    "other": 0
+   },
+   "shares": {
+    "explore": 0.667,
+    "edit": 0.111,
+    "verify": 0.222,
+    "run": 0.0,
+    "research": 0.0,
+    "plan": 0.0,
+    "delegate": 0.0,
+    "other": 0.0
+   },
+   "explored_before_first_edit": 6,
+   "first_edit_at": 7,
+   "verified_after_last_edit": true,
+   "verify_runs": 2,
+   "tool_errors": 0,
+   "marks": {
+    "recovered_error": 1,
+    "shipped_before_check": 1
+   },
+   "files_changed": 1,
+   "lines_added": 1,
+   "lines_removed": 1,
+   "touched_tests": false,
+   "paths": [
+    "duration.py"
+   ],
+   "final_message_chars": 198,
+   "claimed_done": true,
+   "claimed_but_failed": false,
+   "failed_and_said_why": false,
+   "turns": 10,
+   "permission_denials": 0,
+   "unknown_events": {},
+   "patch_head": "--- a/duration.py\n+++ b/duration.py\n@@ -12,7 +12,7 @@\n         if unit == \"h\":\n             total += amount * 3600\n         elif unit == \"m\":\n-            total += amount\n+            total += amount * 60\n         else:\n             total += amount\n     return total\n",
+   "patch_truncated": false,
+   "patch_path": "diffs/two-file-duration__sonnet__r1.patch"
+  }
+ ]
+}

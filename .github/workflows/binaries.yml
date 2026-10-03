@@ -1,0 +1,94 @@
+name: binaries
+
+# agentdiff to download and run: one file for any OS with Python 3.10+
+# (agentdiff.pyz), and a standalone binary per OS that needs no Python.
+# Built on every change to the packaging, on a tag, or by hand; the files
+# are this run's artifacts.
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+    paths: ["packaging/**", ".github/workflows/binaries.yml"]
+
+jobs:
+  pyz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Build agentdiff.pyz
+        run: python packaging/build.py --dist dist
+      - name: It runs from anywhere
+        run: |
+          cd "$RUNNER_TEMP"
+          python "$GITHUB_WORKSPACE/dist/agentdiff.pyz" --version
+          python "$GITHUB_WORKSPACE/dist/agentdiff.pyz" timeline --help > /dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agentdiff.pyz
+          path: dist/agentdiff.pyz
+
+  binary:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, macos-15-intel, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the binary
+        run: |
+          python -m pip install pyinstaller
+          python packaging/build.py --binary --dist dist
+      - name: The download runs without Python
+        shell: bash
+        run: |
+          shopt -s nullglob     # the shell runs with pipefail: a pattern that matches nothing must not fail it
+          cd "$RUNNER_TEMP"
+          archives=("$GITHUB_WORKSPACE"/dist/agentdiff-*.tar.gz "$GITHUB_WORKSPACE"/dist/agentdiff-*.zip)
+          python -c "import shutil, sys; shutil.unpack_archive(sys.argv[1])" "${archives[0]}"
+          bins=(agentdiff-*/agentdiff agentdiff-*/agentdiff.exe)
+          bin="${bins[0]}"
+          [ -x "$bin" ] || { echo "the archive did not keep $bin runnable"; exit 1; }
+          cat agentdiff-*/README.txt
+          "$bin" --version
+          "$bin" timeline "$GITHUB_WORKSPACE/demo/loops/traces/parse_duration__agent-stuck.json" -o t.html
+          "$bin" hub --examples --claude-code --port 8799 > hub.log 2>&1 &
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8799/healthz && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8799/login -o login.html && grep -q "Sign in" login.html
+          curl -fsS http://127.0.0.1:8799/static/longview.js > /dev/null
+          kill %1 || true
+          cat hub.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agentdiff-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            dist/agentdiff-*.tar.gz
+            dist/agentdiff-*.zip
+
+  release:
+    # a tag v* publishes every download on the release page: one click, no zip around it
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [pyz, binary]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: downloads
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la downloads
+          (cd downloads && sha256sum * > SHA256SUMS)
+          gh release create "$GITHUB_REF_NAME" downloads/* --repo "$GITHUB_REPOSITORY" --title "agentdiff $GITHUB_REF_NAME" \
+            --notes "Download the file for your machine, unpack it, and run agentdiff (or double-click it). It opens the hub on your Claude Code sessions. README.txt inside says the rest."

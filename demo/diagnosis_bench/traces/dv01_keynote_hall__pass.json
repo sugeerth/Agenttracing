@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "trace_id": "dv01_keynote_hall-steady-v1",
+  "agent": {
+    "name": "steady-v1",
+    "model": "claude-sonnet-5",
+    "version": "v1"
+  },
+  "task": {
+    "id": "dv01_keynote_hall",
+    "prompt": "Which hall hosts the Northwind DevCon keynote this year?",
+    "expected": "The keynote is in Hall B of the Riverside Centre."
+  },
+  "outcome": {
+    "success": true,
+    "answer": "The keynote is in Hall B of the Riverside Centre.",
+    "score": 1.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 600,
+    "output_tokens": 200,
+    "cost_usd": 0.0024,
+    "latency_s": 5.5
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "search",
+      "name": "web_search",
+      "input": "Northwind DevCon keynote hall",
+      "output": "Results: northwind.dev/schedule (official programme); devcon-fans.net (community wiki).",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "retrieve",
+      "name": "northwind.dev/schedule",
+      "input": "open result northwind.dev/schedule official programme",
+      "output": "Official programme: session schedule with rooms.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 2,
+      "type": "read",
+      "name": "northwind.dev/schedule",
+      "input": "",
+      "output": "Keynote \u2014 Hall B, Riverside Centre.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 3,
+      "type": "reason",
+      "name": "reason",
+      "input": "The official programme lists Hall B at the Riverside Centre.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final",
+      "input": "The keynote is in Hall B of the Riverside Centre.",
+      "output": "The keynote is in Hall B of the Riverside Centre.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [],
+  "budget": {
+    "max_steps": 12
+  }
+}

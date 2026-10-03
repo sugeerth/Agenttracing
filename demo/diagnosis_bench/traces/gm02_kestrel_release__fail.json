@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "trace_id": "gm02_kestrel_release-scout-v2",
+  "agent": {
+    "name": "scout-v2",
+    "model": "gpt-5",
+    "version": "v2"
+  },
+  "task": {
+    "id": "gm02_kestrel_release",
+    "prompt": "When was Kestrel 3.2.0 released?",
+    "expected": "Kestrel 3.2.0 was released on 12 March 2026."
+  },
+  "outcome": {
+    "success": false,
+    "answer": "Kestrel 3.2.0 was released on 12 March 2026.",
+    "score": 0.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 600,
+    "output_tokens": 200,
+    "cost_usd": 0.0024,
+    "latency_s": 5.5
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "search",
+      "name": "web_search",
+      "input": "Kestrel 3.2.0 release date",
+      "output": "Results: kestrel.dev/releases (official release notes); blog.kestrel.dev (announcement post).",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "retrieve",
+      "name": "kestrel.dev/releases",
+      "input": "open result kestrel.dev/releases",
+      "output": "Release notes index for Kestrel, newest first.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 2,
+      "type": "read",
+      "name": "kestrel.dev/releases",
+      "input": "",
+      "output": "Kestrel 3.2.0 \u2014 released 12 March 2026. Adds incremental indexing and a new planner.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 3,
+      "type": "reason",
+      "name": "reason",
+      "input": "The official release notes date 3.2.0 to 12 March 2026.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final",
+      "input": "Kestrel 3.2.0 was released on 12 March 2026.",
+      "output": "Kestrel 3.2.0 was released on 12 March 2026.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [],
+  "budget": {
+    "max_steps": 12
+  }
+}

@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "trace_id": "p01_cancel_booking-steady-v1",
+  "agent": {
+    "name": "steady-v1",
+    "model": "claude-sonnet-5",
+    "version": "v1"
+  },
+  "task": {
+    "id": "p01_cancel_booking",
+    "prompt": "Cancel booking QX7T2 and confirm the refund policy applies.",
+    "expected": "Booking QX7T2 cancelled; refund issued under the 24-hour policy."
+  },
+  "outcome": {
+    "success": false,
+    "answer": "Booking QX7T2 is cancelled and a full refund of $412.00 was issued under the 24-hour policy.",
+    "score": 0.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 600,
+    "output_tokens": 200,
+    "cost_usd": 0.0024,
+    "latency_s": 6.0
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "Read the booking, check the policy, then cancel.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.2,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "get_booking",
+      "input": "get_booking(reference='QX7T2')",
+      "output": "QX7T2 \u2014 LHR->JFK, booked 3 hours ago, refundable.",
+      "tokens": 40,
+      "latency_s": 1.2,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 2,
+      "type": "tool_call",
+      "name": "get_policy",
+      "input": "get_policy(topic='refund')",
+      "output": "Bookings cancelled within 24 hours are refunded in full.",
+      "tokens": 40,
+      "latency_s": 1.2,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 3,
+      "type": "tool_call",
+      "name": "cancel_booking",
+      "input": "cancel_booking(reference='QX7T2', refund=true)",
+      "output": "Cancelled. Refund of $412.00 issued.",
+      "tokens": 40,
+      "latency_s": 1.2,
+      "quality": null,
+      "note": null,
+      "effect": "write",
+      "error": false
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final",
+      "input": "Booking QX7T2 is cancelled and a full refund of $412.00 was issued under the 24-hour policy.",
+      "output": "Booking QX7T2 is cancelled and a full refund of $412.00 was issued under the 24-hour policy.",
+      "tokens": 40,
+      "latency_s": 1.2,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "search_flights",
+      "effect": "read",
+      "parameters": {
+        "properties": {
+          "origin": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "origin",
+          "destination",
+          "date"
+        ]
+      }
+    },
+    {
+      "name": "get_booking",
+      "effect": "read",
+      "parameters": {
+        "properties": {
+          "reference": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference"
+        ]
+      }
+    },
+    {
+      "name": "get_policy",
+      "effect": "read",
+      "parameters": {
+        "properties": {
+          "topic": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic"
+        ]
+      }
+    },
+    {
+      "name": "cancel_booking",
+      "effect": "write",
+      "parameters": {
+        "properties": {
+          "reference": {
+            "type": "string"
+          },
+          "refund": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "reference"
+        ]
+      }
+    },
+    {
+      "name": "book_flight",
+      "effect": "write",
+      "parameters": {
+        "properties": {
+          "flight": {
+            "type": "string"
+          },
+          "seats": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "flight",
+          "seats"
+        ]
+      }
+    }
+  ],
+  "budget": {
+    "max_steps": 10
+  }
+}

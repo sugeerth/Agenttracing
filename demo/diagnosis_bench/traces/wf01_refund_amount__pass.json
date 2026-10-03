@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "trace_id": "wf01_refund_amount-steady-v1",
+  "agent": {
+    "name": "steady-v1",
+    "model": "claude-sonnet-5",
+    "version": "v1"
+  },
+  "task": {
+    "id": "wf01_refund_amount",
+    "prompt": "Cancel booking KL8340 and report the refund amount.",
+    "expected": "Booking KL8340 cancelled with a refund of $412.00."
+  },
+  "outcome": {
+    "success": true,
+    "answer": "Booking KL8340 cancelled with a refund of $412.00.",
+    "score": 1.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 600,
+    "output_tokens": 200,
+    "cost_usd": 0.0024,
+    "latency_s": 5.5
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "Read the booking, quote the live refund, then cancel.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "get_booking",
+      "input": "get_booking(reference='KL8340')",
+      "output": "KL8340 \u2014 AMS->BOS, Flex fare.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 2,
+      "type": "tool_call",
+      "name": "get_refund_quote",
+      "input": "get_refund_quote(reference='KL8340')",
+      "output": "Live refund quote for KL8340: $412.00.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 3,
+      "type": "tool_call",
+      "name": "cancel_booking",
+      "input": "cancel_booking(reference='KL8340', refund=true)",
+      "output": "Cancelled. Refund of $412.00 issued.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "write",
+      "error": false
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final",
+      "input": "Booking KL8340 cancelled with a refund of $412.00.",
+      "output": "Booking KL8340 cancelled with a refund of $412.00.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_booking",
+      "effect": "read"
+    },
+    {
+      "name": "get_policy",
+      "effect": "read"
+    },
+    {
+      "name": "get_refund_quote",
+      "effect": "read"
+    },
+    {
+      "name": "cancel_booking",
+      "effect": "write"
+    },
+    {
+      "name": "update_seat",
+      "effect": "write"
+    }
+  ],
+  "budget": {
+    "max_steps": 12
+  }
+}
