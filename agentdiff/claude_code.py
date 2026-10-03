@@ -129,6 +129,10 @@ def transcript_to_trajectory(entries: list, *, task: str, agent: str = "claude-c
     """
     first_prompt = prompt
     pending: dict = {}          # tool_use id -> step handle
+    began: dict = {}            # step index -> when its entry was written (unix seconds)
+    ended: dict = {}            # tool step index -> when its result came back
+    pending_ix: dict = {}       # tool_use id -> step index
+    last_ts = None
     last_assistant_text = ""
     model_seen = model
     tool_steps = 0
@@ -139,12 +143,18 @@ def transcript_to_trajectory(entries: list, *, task: str, agent: str = "claude-c
         if not isinstance(entry, dict):
             continue
         kind = entry.get("type")
+        ts = _when(entry.get("timestamp"))
+        if ts is not None:
+            last_ts = ts
         message = entry.get("message") if isinstance(entry.get("message"), dict) else None
         content = message.get("content") if message else entry.get("content")
         if kind == "user":
             if isinstance(content, list):
                 for block in content:
                     if isinstance(block, dict) and block.get("type") == "tool_result":
+                        ix = pending_ix.pop(str(block.get("tool_use_id", "")), None)
+                        if ix is not None and ts is not None:
+                            ended[ix] = ts
                         handle = pending.pop(str(block.get("tool_use_id", "")), None)
                         result = _text_of(block.get("content"))
                         is_error = bool(block.get("is_error"))
@@ -173,6 +183,7 @@ def transcript_to_trajectory(entries: list, *, task: str, agent: str = "claude-c
             elif isinstance(content, str):
                 text_parts.append(content)
             text = "\n".join(p for p in text_parts if p).strip()
+            first_new = len(rec._steps)
             if tool_uses:
                 if text:
                     rec.step("reason", "reason", "", text,
@@ -183,11 +194,15 @@ def transcript_to_trajectory(entries: list, *, task: str, agent: str = "claude-c
                     handle = rec.step("tool_call", name, args, "",
                                       tokens=int(out_tokens) if isinstance(out_tokens, int) and len(tool_uses) == 1 and not text else None)
                     pending[str(block.get("id", f"call_{tool_steps}"))] = handle
+                    pending_ix[str(block.get("id", f"call_{tool_steps}"))] = len(rec._steps) - 1
                     tool_steps += 1
             elif text:
                 last_assistant_text = text
                 rec.step("reason", "reason", "", text,
                          tokens=int(out_tokens) if isinstance(out_tokens, int) else None)
+            if ts is not None:
+                for ix in range(first_new, len(rec._steps)):
+                    began[ix] = ts
     # the last assistant text is the answer: turn its reason step into the answer
     steps = rec._steps
     if steps and steps[-1]["type"] == "reason" and steps[-1]["output"] == last_assistant_text and last_assistant_text:
@@ -205,7 +220,33 @@ def transcript_to_trajectory(entries: list, *, task: str, agent: str = "claude-c
         data["outcome"]["score"] = None
         data["outcome"]["note"] = UNGRADED
     data["source"] = {"format": "claude-code-transcript", "entries": len(entries)}
+    # the clock: each entry says when it was written, so a session of days keeps its days
+    if began:
+        t0 = min(began.values())
+        data["started_at"] = round(t0, 3)
+        for ix, st in began.items():
+            if ix < len(data["steps"]):
+                step = data["steps"][ix]
+                step["started_s"] = round(st - t0, 3)
+                if ix in ended:
+                    step["latency_s"] = round(max(0.0, ended[ix] - st), 3)
+        ans = data["steps"][-1] if data["steps"] else None
+        if ans is not None and ans.get("type") == "answer" and "started_s" not in ans and last_ts is not None:
+            ans["started_s"] = round(last_ts - t0, 3)
+        if last_ts is not None:
+            data.setdefault("totals", {})["latency_s"] = round(max(0.0, last_ts - t0), 3)
     return data
+
+
+def _when(value) -> Optional[float]:
+    """An entry's ISO 8601 timestamp as unix seconds, or None."""
+    if not isinstance(value, str) or not value:
+        return None
+    import datetime as _dt
+    try:
+        return _dt.datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
 
 
 # ---------------------------------------------------------------- the hook

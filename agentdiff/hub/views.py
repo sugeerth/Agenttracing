@@ -136,7 +136,7 @@ _MARK = ('<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">'
 
 
 def layout(title: str, body: str, *, brand: str, user: Optional[str] = None, csrf: Optional[str] = None,
-           active: str = "", live: bool = False) -> str:
+           active: str = "", live: bool = False, lens: bool = False) -> str:
     top = ""
     if user:
         links = "".join(f'<a href="{path}"{" class=on" if key == active else ""}>{label}</a>'
@@ -146,7 +146,8 @@ def layout(title: str, body: str, *, brand: str, user: Optional[str] = None, csr
                + f'<span class="who">{e(user)}</span>'
                f'<form method="post" action="/logout"><input type="hidden" name="csrf" value="{e(csrf)}">'
                f'<button class="link" type="submit">Sign out</button></form>')
-    script = '<script src="/static/live.js" defer></script>' if live else ""
+    script = ('<script src="/static/live.js" defer></script>' if live else "") + (
+        '<script src="/static/longview.js" defer></script>' if lens else "")
     return (f'<!doctype html><html lang="en"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1">'
             f'<title>{e(title)} · {e(brand)}</title><style>{_CSS}</style>{script}</head><body>'
@@ -540,7 +541,7 @@ WINDOW_STEPS = 120
 
 
 def _steps_table(steps: List[dict], most: int = 400, focus: Optional[int] = None, every: bool = False,
-                 every_href: str = "") -> str:
+                 every_href: str = "", span: Optional[tuple] = None) -> str:
     """Every step; for a long run, the opening, the stretch around where to look
     first and the ending, with what is left out said and a link to all of it."""
     from ..laps import _activity
@@ -550,6 +551,8 @@ def _steps_table(steps: List[dict], most: int = 400, focus: Optional[int] = None
         keep = set(range(0, 10)) | set(range(max(0, len(steps) - 10), len(steps)))
         if focus is not None:
             keep |= set(range(max(0, focus - 15), min(len(steps), focus + 16)))
+        if span is not None:  # the stretch the long view opened: every step of it, up to 600
+            keep |= set(range(max(0, span[0]), min(len(steps), span[1] + 1, span[0] + 600)))
         most = len(steps)
     gap = 0
     for i, s in enumerate(steps[:most]):
@@ -575,7 +578,7 @@ def _steps_table(steps: List[dict], most: int = 400, focus: Optional[int] = None
 
 
 #: the trace page's panels, in page order: key -> title
-PANELS = (("map", "Trajectory map"), ("trunk", "The run as a trunk"), ("compare", "Two runs on one axis"),
+PANELS = (("long", "The long run"), ("map", "Trajectory map"), ("trunk", "The run as a trunk"), ("compare", "Two runs on one axis"),
           ("code", "The code it produced"), ("seconds", "Where the seconds went"), ("reward", "Reward & credit"),
           ("lanes", "Every thread on its own lane"), ("laps", "The loop, lap by lap"),
           ("flow", "How it moved between tools"), ("steps", "The steps"))
@@ -583,7 +586,8 @@ PANELS = (("map", "Trajectory map"), ("trunk", "The run as a trunk"), ("compare"
 PRESETS = (("focus", "focus", ("map", "trunk", "compare", "code", "steps")),
            ("loop", "the loop", ("trunk", "laps", "flow")), ("time", "time", ("seconds", "lanes", "trunk")),
            ("threads", "threads", ("trunk", "lanes")), ("code", "the code", ("code", "map", "steps")),
-           ("training", "training", ("reward", "trunk")), ("all", "everything", tuple(k for k, _ in PANELS)))
+           ("training", "training", ("reward", "trunk")), ("long", "the long run", ("long", "steps")),
+           ("all", "everything", tuple(k for k, _ in PANELS)))
 
 
 def verdict_html(rows: list) -> str:
@@ -689,7 +693,8 @@ def trace_panel(*, ref, data: dict, lap: dict, tl: Optional[dict] = None, cmp: O
                 others: list = (), vs: str = "", axis: str = "step", every: bool = False, view: str = "focus",
                 card: Optional[list] = None, change: Optional[dict] = None, code_cmp: Optional[dict] = None,
                 other_change: Optional[dict] = None, act: Optional[dict] = None, other_data: Optional[dict] = None,
-                al: Optional[dict] = None, task_nav: str = "") -> str:
+                al: Optional[dict] = None, task_nav: str = "", long: Optional[dict] = None,
+                extra_open: tuple = ()) -> str:
     """The part of a trace's page that moves while it runs: the card, then the panels."""
     from .urls import quote
     s = ref.summary
@@ -711,29 +716,47 @@ def trace_panel(*, ref, data: dict, lap: dict, tl: Optional[dict] = None, cmp: O
                     for k, label, _ in PRESETS)
     presets = f'<div class="filters" aria-label="views"><span class="muted">view</span>{chips}</div>'
     panels = []
+    opened = set(opened) | set(extra_open)
+    if long:
+        if view == "focus":  # a long run opens on its days, not on thousands of branches
+            opened = (opened - {"trunk", "map"}) | {"long"} | set(extra_open)
+
+    def drawn(key: str, make) -> str:
+        """A long run's closed panel is drawn when it is opened: a link, not thousands of marks."""
+        if not long or key in opened:
+            return make()
+        return (f'<p class="muted">A long run: this view is drawn on demand. '
+                f'<a href="/traces/{e(ref.id)}?view={e(view)}{e(keep)}&amp;open={e(key)}#p-{e(key)}">Draw it</a>.</p>')
+    if long:
+        panels.append(_panel("long", "The long run", _long_gist(long["r"]), long_body(ref, long, view=view, vs=vs),
+                             "long" in opened or bool(long.get("win") or long.get("zoom")), start=True))
+        panels.append(_panel("long", "The long run", _long_gist(long["r"]), long_body(ref, long, view=view, vs=vs),
+                             "long" in opened or bool(long.get("win") or long.get("zoom")), start=True))
     folded = f', {tl["folded_steps"]} quiet steps folded' if tl.get("folded_steps") else ""
     if cmp and other_data is not None and al:
         here_b = (cmp["b"].get("look_here") or {}).get("index")
         body = (f'<p class="muted">{e(al["sentence"])} Each column is its run in its own order; a line joins the '
                 f'steps that made the same call. A step of A opens below.</p>'
-                + viz.trajectory_map(data, other_data, al, names=(str(cmp["a"].get("agent")), str(cmp["b"].get("agent"))),
-                                     heres=((tl.get("look_here") or {}).get("index"), here_b,
-                                            (tl.get("look_here") or {}).get("kind"),
-                                            (cmp["b"].get("look_here") or {}).get("kind"))))
+                + drawn("map", lambda: viz.trajectory_map(
+                    data, other_data, al, names=(str(cmp["a"].get("agent")), str(cmp["b"].get("agent"))),
+                    heres=((tl.get("look_here") or {}).get("index"), here_b, (tl.get("look_here") or {}).get("kind"),
+                           (cmp["b"].get("look_here") or {}).get("kind")))))
         panels.append(_panel("map", "Trajectory map", f'{al["matched"]} step(s) shared'
                              + (f', parting at row {al["divergence"]}' if al["divergence"] is not None else ""),
                              body, "map" in opened, start=True))
-    trunk_body = (f'<p class="muted">The trunk is the run on its {e(tl.get("basis"))} clock: thinking on it, each tool '
-                  f'call a branch ending in a leaf, each sub-agent hanging off it where it first acted. Every leaf '
-                  f'opens its step.</p>{viz.trunk_svg([tl], axis="time")}{_picker(ref, list(others), vs, axis, view)}'
-                  if tl else "")
+    trunk_body = drawn("trunk", lambda: (
+        f'<p class="muted">The trunk is the run on its {e(tl.get("basis"))} clock: thinking on it, each tool '
+        f'call a branch ending in a leaf, each sub-agent hanging off it where it first acted. Every leaf '
+        f'opens its step.</p>{viz.trunk_svg([tl], axis="time")}' if tl else "")) + _picker(ref, list(others), vs, axis, view)
     gist_trunk = (f'{len(tl.get("lanes") or [])} thread(s) · {len(tl.get("laps") or [])} lap(s) · '
                   f'{_secs(tl.get("span_s"))}{folded}')
     panels.append(_panel("trunk", "The run as a trunk", gist_trunk, trunk_body, "trunk" in opened))
     if cmp:
         d = cmp.get("diverged_at")
-        body = (f'<p class="note">{e(cmp["sentence"])}</p>{viz.trunk_svg([cmp["a"], cmp["b"]], cmp=cmp, axis=axis)}'
-                f'{viz.pair_timeline(cmp, axis=axis)}<p class="muted">A: {e(cmp["a"].get("agent"))} '
+        body = (f'<p class="note">{e(cmp["sentence"])}</p>'
+                + drawn("compare", lambda: viz.trunk_svg([cmp["a"], cmp["b"]], cmp=cmp, axis=axis)
+                        + viz.pair_timeline(cmp, axis=axis))
+                + f'<p class="muted">A: {e(cmp["a"].get("agent"))} '
                 f'({e(cmp["a"]["look_here"]["sentence"] if cmp["a"].get("look_here") else "")}) · B: '
                 f'{e(cmp["b"].get("agent"))} ({e(cmp["b"]["look_here"]["sentence"] if cmp["b"].get("look_here") else "")})'
                 + (f' · <a href="#s{e(d)}">step {e(d)} →</a>' if d is not None else "") + '</p>')
@@ -750,27 +773,28 @@ def trace_panel(*, ref, data: dict, lap: dict, tl: Optional[dict] = None, cmp: O
                          + (f' against {_secs(cmp["b"].get("span_s"))}' if cmp else ""),
                          '<p class="muted">Area is seconds, on one scale for both runs: a box per lap (per sub-agent '
                          'when it delegated), a tile per step. A tile opens its step.</p>'
-                         + viz.seconds_treemap(secs_runs, secs_names), "seconds" in opened))
+                         + drawn("seconds", lambda: viz.seconds_treemap(secs_runs, secs_names)), "seconds" in opened))
     rw = viz.reward_steps(secs_runs, secs_names)
     if rw:
         panels.append(_panel("reward", "Reward & credit", "the return, step by step",
                              '<p class="muted">The return as it accumulated, one step at a time, from the rewards the '
                              'trace recorded.</p>' + rw, "reward" in opened))
     panels.append(_panel("lanes", "Every thread on its own lane", f'{len(tl.get("lanes") or [])} lane(s){folded}',
-                         viz.run_timeline(tl, live=ref.live) if tl else "", "lanes" in opened))
+                         drawn("lanes", lambda: viz.run_timeline(tl, live=ref.live) if tl else ""), "lanes" in opened))
     lap_gist = (lap.get("summary") or "").split(";")[0]
     panels.append(_panel("laps", "The loop, lap by lap", lap_gist,
-                         f'<p class="muted">{e(lap.get("summary"))}</p>{viz.lap_chart(lap)}{viz.lap_table(lap)}',
-                         "laps" in opened))
+                         f'<p class="muted">{e(lap.get("summary"))}</p>'
+                         + drawn("laps", lambda: viz.lap_chart(lap) + viz.lap_table(lap)), "laps" in opened))
     moves = lap.get("transitions") or []
     tools = len({m["from"] for m in moves} | {m["to"] for m in moves})
     panels.append(_panel("flow", "How it moved between tools", f"{tools} tool(s), {sum(m['count'] for m in moves)} move(s)",
-                         viz.flow_ring(lap), "flow" in opened))
+                         drawn("flow", lambda: viz.flow_ring(lap)), "flow" in opened))
     focus = (tl.get("look_here") or {}).get("index")
     title = "Every step" if len(steps) <= WINDOW_STEPS or every else "The steps that matter"
     panels.append(_panel("steps", title, f"{len(steps)} step(s)" + ("" if len(steps) <= WINDOW_STEPS or every
                                                                      else ", a window around where to look"),
-                         _steps_table(steps, focus=focus, every=every, every_href=f"/traces/{ref.id}?steps=all&view={view}#s0"),
+                         _steps_table(steps, focus=focus, every=every, every_href=f"/traces/{ref.id}?steps=all&view={view}#s0",
+                                      span=_long_span(long)),
                          "steps" in opened or every))
     prompt = str((data.get("task") or {}).get("prompt") or "").strip().splitlines()
     prompt_html = f'<p class="prompt">{e(prompt[0][:300])}</p>' if prompt else ""
@@ -782,13 +806,121 @@ def trace_page(*, brand: str, user: str, csrf: str, ref, data: dict, lap: dict, 
     s = ref.summary
     vs, axis, view = panel.get("vs") or "", panel.get("axis") or "step", panel.get("view") or "focus"
     q = f"?view={quote(view)}" + (f"&vs={quote(vs)}&axis={quote(axis)}" if vs else "")
+    long = panel.get("long") or {}
+    for k in ("burst", "session", "page", "t0", "t1"):
+        if long.get(k) not in (None, 0) or (k == "page" and long.get("page")):
+            q += f"&{k}={quote(str(long[k]))}"
     body = (f'<p class="muted"><a href="/traces">Traces</a> / {e(ref.group)} · '
             f'<a href="/timeline?g={e(quote(ref.group))}">every run here on one clock</a></p>'
             f'<h1>{e(s.get("task"))}</h1>'
             f'<div data-live="/traces/{e(ref.id)}/panel{e(q)}" data-ids="{e(ref.id)}">'
             f'{trace_panel(ref=ref, data=data, lap=lap, **panel)}</div>'
             f'<p class="muted mono">{e(ref.path.name)} · <a href="/api/v1/traces/{e(ref.id)}">JSON</a></p>')
-    return layout(str(s.get("task")), body, brand=brand, user=user, csrf=csrf, active="traces", live=ref.live)
+    return layout(str(s.get("task")), body, brand=brand, user=user, csrf=csrf, active="traces", live=ref.live,
+                  lens=bool(long))
+
+
+# ----------------------------------------------------------------- long runs
+def _long_gist(r: dict) -> str:
+    from ..longrun import dur
+    bits = [f'{dur(r["span_s"])} on the clock', f'{dur(r["active_s"])} working', f'{len(r["sessions"])} session(s)',
+            f'{len(r["bursts"])} burst(s)', f'{r["calls"]:,} calls']
+    if r.get("loops"):
+        lp = max(r["loops"], key=lambda x: x["active_s"])
+        bits.append(f'↻ a loop of {lp["count"]} bursts')
+    return " · ".join(bits)
+
+
+def _long_span(long: Optional[dict]) -> Optional[tuple]:
+    if not long or not long.get("win") or not long["win"]["steps"]:
+        return None
+    idx = [x["index"] for x in long["win"]["steps"]]
+    page = long.get("page") or 0
+    return (min(idx) + 600 * page, max(idx))
+
+
+def long_body(ref, long: dict, *, view: str = "focus", vs: str = "") -> str:
+    """The long run's panel: the lens over the whole run (or the stretch asked
+    for), then that stretch's calls, the story, the rhythm, the pace, where the
+    time went, and the other run beside it."""
+    from ..longrun import dur, when
+    from . import longviz
+    from .urls import quote
+    r = long["r"]
+    sa, span = r.get("started_at"), r["span_s"]
+    base = f"/traces/{ref.id}?view={quote(view)}" + (f"&vs={quote(vs)}" if vs else "")
+    zoom = long.get("zoom")
+    win = long.get("win")
+    parts = [f'<p class="note">{e(r["sentence"])}</p>']
+    if r.get("in_progress") and r.get("quiet_s") is not None:
+        parts.append(f'<p class="muted">Running; quiet for {e(dur(r["quiet_s"]))} since its last step.</p>')
+    crumbs = [f'<a href="{e(base)}#p-long">the whole run</a>']
+    title = ""
+    if long.get("session"):
+        s = r["sessions"][long["session"] - 1]
+        crumbs.append(f'session {s["n"]}')
+        title = (f'Session {s["n"]}: {when(s["from"], sa, span)} to {when(s["to"], sa, span)} · {dur(s["seconds"])} · '
+                 f'{s["calls"]:,} calls in {len(s["bursts"])} burst(s)')
+    elif long.get("burst"):
+        b = r["bursts"][long["burst"] - 1]
+        crumbs.append(f'<a href="{e(base)}&amp;session={b["session"]}#p-long">session {b["session"]}</a>')
+        crumbs.append(f'burst {b["n"]}')
+        nav = []
+        if b["n"] > 1:
+            nav.append(f'<a href="{e(base)}&amp;burst={b["n"] - 1}#p-long">← burst {b["n"] - 1}</a>')
+        if b["n"] < len(r["bursts"]):
+            nav.append(f'<a href="{e(base)}&amp;burst={b["n"] + 1}#p-long">burst {b["n"] + 1} →</a>')
+        title = (f'Burst {b["n"]}: {when(b["from"], sa, span)} · {dur(b["seconds"])} · {b["calls"]:,} calls · '
+                 f'{b["status"]}' + (f' · {b["note"]}' if b["note"] else ""))
+        crumbs.append(" · ".join(nav))
+    elif zoom:
+        crumbs.append(f'{when(zoom[0], sa, span)} to {when(zoom[1], sa, span)}')
+        title = f'{when(zoom[0], sa, span)} to {when(zoom[1], sa, span)}'
+    parts.append(f'<p class="crumbs muted">{" / ".join(crumbs)}</p>')
+    # the lens: the script draws it from /api/v1/traces/<id>/long; without it, the line below is the view
+    parts.append(f'<div class="lens" data-lens="/api/v1/traces/{e(ref.id)}/long" data-base="{e(base)}" '
+                 f'data-burst="{e(long.get("burst") or "")}" aria-label="the lens"></div>')
+    if zoom or win:
+        if long.get("burst"):
+            b = r["bursts"][long["burst"] - 1]
+            z0, z1 = b["from"], b["to"]
+        else:
+            z0, z1 = zoom if zoom else (win["from"], win["to"])
+        pad = max(30.0, (z1 - z0) * 0.04)
+        parts.append(f'<h3>{e(title)}</h3>' + longviz.long_overview(r, long["items"], base=base, t0=max(0.0, z0 - pad),
+                                                                      t1=z1 + pad, live=bool(r.get("in_progress"))))
+    if win:
+        parts.append(f'<h3>Every call</h3><p class="muted">Above, each call on its clock in a lane by what it did; '
+                     f'below, the same calls in order, each the same width. A call opens its step.</p>'
+                     + longviz.burst_calls(win, r, page=long.get("page") or 0,
+                                           base=base + (f"&burst={long['burst']}" if long.get("burst") else
+                                                        f"&t0={win['from']:.0f}&t1={win['to']:.0f}")))
+    parts.append('<h3>The whole run</h3>' if (zoom or win) else "")
+    parts.append(f'<div class="lens-fallback">{longviz.long_overview(r, long["items"], base=base, live=bool(r.get("in_progress")))}</div>')
+    parts.append('<h3>The story, phase by phase</h3><p class="muted">A loop of bursts is one row; so is a stretch of '
+                 'filler, where no check changed. A phase opens its calls.</p>' + longviz.chapters_table(r, base=base))
+    grid = longviz.rhythm_grid(r, base=base)
+    if grid:
+        parts.append(f'<h3>When it worked</h3><p class="muted">{e(r["rhythm"]["unit"])}'
+                     f'{" on the wall clock (UTC)" if r["rhythm"]["wall_clock"] else " from its start"}; '
+                     f'a cell opens that stretch.</p>{grid}')
+    pace = longviz.pace_chart(r)
+    if pace:
+        parts.append(f'<h3>Its pace</h3>{pace}')
+    tm = longviz.phase_treemap(r, long["items"], base=base)
+    if tm:
+        parts.append(f'<h3>Where the working time went</h3>{tm}')
+    other = long.get("other")
+    if other:
+        names = (str(r.get("agent") or "A"), str(other["r"].get("agent") or "B"))
+        parts.append(f'<h3>Beside the other run, checkpoint by checkpoint</h3>'
+                     f'<p class="muted">{e(names[1])}: {e(other["r"]["sentence"])}</p>'
+                     + longviz.diff_timeline(long["data"], other["data"], long["items"], other["items"], names=names))
+    b = r["basis"]
+    parts.append(f'<p class="muted">How it was cut: {e(b["clock"])} clock; sessions split at '
+                 f'{e(dur(b["session_gap_s"]))} idle; bursts at {e(b["burst_gap_s"])}s, {e(b["burst_gap_how"])}. '
+                 f'Progress is {e(b["progress"])}. A repeat is {e(b["repeat"])}.</p>')
+    return "".join(parts)
 
 
 # ----------------------------------------------------------------- live

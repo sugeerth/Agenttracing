@@ -11,6 +11,8 @@ under a directory, and follows it while it runs:
 - in-band telemetry agents post to it (`docs/TELEMETRY.md`)
 - guarded Claude Code sessions: each one traced, and every refusal the
   guards made on the Overview (`docs/GUARD.md`)
+- long runs (hours, days) as sessions, bursts and loops over hours, with
+  a lens that moves phase by phase (`docs/LONGRUN.md`)
 
 ```bash
 agentdiff hub                       # this directory, on http://127.0.0.1:8790/

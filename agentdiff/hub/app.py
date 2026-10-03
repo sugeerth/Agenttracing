@@ -31,6 +31,7 @@ Routes::
     GET  /api/v1/runs           the catalog as JSON (signed in)
     GET  /api/v1/traces         the trace index as JSON
     GET  /api/v1/traces/<id>    one trace, as written
+    GET  /api/v1/traces/<id>/long  a long run's reading (sessions, bursts, phases) and its calls, compact, for the lens
     GET  /api/v1/events         server-sent events: what changed, never its content
     POST /api/v1/telemetry      an agent posts its vector (bearer ingest token)
     GET  /static/live.js        the one script, for pages that say they are live
@@ -42,6 +43,7 @@ from __future__ import annotations
 import hmac
 import json
 import re
+import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Dict, Iterable, Optional, Tuple
@@ -120,6 +122,20 @@ def _cookie(name: str, value: str, max_age: Optional[int] = None) -> str:
     return f"{name}={value}; HttpOnly; SameSite=Strict; Path=/{age}"
 
 
+def _now_on_its_clock(data: dict) -> Optional[float]:
+    """Now, in the seconds of a running trace's own clock: the wall clock since it
+    started, when that agrees with its steps (no earlier than its last, within six
+    hours of it). A replay, or a clock that is not the wall clock, gets none."""
+    start = data.get("started_at")
+    steps = data.get("steps") or []
+    if not isinstance(start, (int, float)) or not steps:
+        return None
+    last = steps[-1]
+    end = float(last.get("started_s") or 0) + float(last.get("latency_s") or 0)
+    now = time.time() - float(start)
+    return now if end - 5 <= now <= end + 6 * 3600 else None
+
+
 def _json_list(path: Path, key: str) -> list:
     try:
         v = json.loads(path.read_text(encoding="utf-8")).get(key)
@@ -158,6 +174,7 @@ class App:
         self._routes: list = [
             ("GET", re.compile(r"^/healthz$"), self.healthz, False),
             ("GET", re.compile(r"^/static/live\.js$"), self.static_live, False),
+            ("GET", re.compile(r"^/static/longview\.js$"), self.static_longview, False),
             ("GET", re.compile(r"^/login$"), self.login_form, False),
             ("POST", re.compile(r"^/login$"), self.login, False),
             ("POST", re.compile(r"^/logout$"), self.logout, True),
@@ -180,6 +197,7 @@ class App:
             ("GET", re.compile(r"^/api/v1/runs$"), self.api_runs, True),
             ("GET", re.compile(r"^/api/v1/traces$"), self.api_traces, True),
             ("GET", re.compile(rf"^/api/v1/traces/{hexid}$"), self.api_trace, True),
+            ("GET", re.compile(rf"^/api/v1/traces/{hexid}/long$"), self.api_trace_long, True),
             ("GET", re.compile(r"^/api/v1/events$"), self.events, True),
         ]
 
@@ -364,10 +382,53 @@ class App:
                 other_change = code_change(orec, opatch) if orec else None
                 code_cmp = code_compare(change, other_change)
         act = self._next_step(ref, data, change, fix, record_paths(ref.path)[1])
+        long = self._long(query, ref, data, tl, odata if cmp else None, view)
+        if long:
+            card.insert(1, {"label": "long run", "text": long["r"]["sentence"],
+                            "step": (long["r"].get("look_here") or {}).get("index"),
+                            "tone": "bad" if long["r"].get("loops") else "",
+                            "source": f"agentdiff.longrun: sessions split at {long['r']['basis']['session_gap_s'] / 60:.0f}m "
+                                      f"idle, bursts at {long['r']['basis']['burst_gap_s'] or '—'}s "
+                                      f"({long['r']['basis']['burst_gap_how']})"})
+        extra = tuple(k for k in query.get("open", [""])[0].split(",") if k in {p for p, _ in views.PANELS})
         return {"tl": tl, "cmp": cmp, "others": others, "vs": vs if cmp else "", "axis": axis, "view": view,
+                "long": long, "extra_open": extra,
                 "other_data": odata if cmp else None, "al": al, "task_nav": views.task_chips(ref, self.traces.refs()),
                 "every": query.get("steps", [""])[0] == "all", "card": card, "change": change,
                 "other_change": other_change, "code_cmp": code_cmp, "act": act}
+
+    @staticmethod
+    def _long(query: dict, ref, data: dict, tl: dict, odata: Optional[dict], view: str) -> Optional[dict]:
+        """A long run's reading, and the stretch of it asked for: a burst, a session, or t0..t1."""
+        from ..longrun import is_long, longrun, window
+        if not (is_long(data) or view == "long"):
+            return None
+
+        def num(key, kind=float):
+            v = query.get(key, [""])[0]
+            try:
+                return kind(v) if v != "" else None
+            except ValueError:
+                return None
+        r = longrun(data, now_s=_now_on_its_clock(data) if ref.live else None)
+        burst, session, page = num("burst", int), num("session", int), num("page", int) or 0
+        t0, t1 = num("t0"), num("t1")
+        win = zoom = None
+        if burst is not None and 1 <= burst <= len(r["bursts"]):
+            win = window(data, burst=burst, reading=r)
+        elif session is not None and 1 <= session <= len(r["sessions"]):
+            s = r["sessions"][session - 1]
+            zoom = (s["from"], s["to"])
+        elif t0 is not None and t1 is not None and t1 > t0:
+            zoom = (max(0.0, t0), t1)
+            win = window(data, t0=zoom[0], t1=zoom[1], reading=r)
+        other = None
+        if odata is not None and is_long(odata):
+            from ..timeline import _items
+            other = {"data": odata, "items": _items(odata)[0], "r": longrun(odata)}
+        return {"r": r, "data": data, "items": tl.get("steps") or [], "win": win, "zoom": zoom, "burst": burst if win and
+                burst is not None else None, "session": session if zoom and session else None, "page": page,
+                "t0": t0, "t1": t1, "other": other}
 
     @staticmethod
     def _next_step(ref, data: dict, change: Optional[dict], fix: Optional[dict], arm: Path) -> Optional[dict]:
@@ -393,8 +454,9 @@ class App:
         if found is None:
             return Response.html(self._page("Not found", "No trace by that id.", session), 404)
         ref, data, lap = found
-        page = views.trace_page(**self._common(session), ref=ref, data=data, lap=lap, **self._clock(req, ref, data))
-        return Response(200, page.encode("utf-8"), scripted=ref.live)
+        clock = self._clock(req, ref, data)
+        page = views.trace_page(**self._common(session), ref=ref, data=data, lap=lap, **clock)
+        return Response(200, page.encode("utf-8"), scripted=ref.live or bool(clock.get("long")))
 
     def trace_fragment(self, req: Request, session: Session, tid: str) -> Response:
         found = self._trace(tid)
@@ -501,6 +563,40 @@ class App:
     def static_live(self, req: Request, session: Optional[Session]) -> Response:
         return Response(200, (_STATIC / "live.js").read_bytes(), "text/javascript; charset=utf-8",
                         {"Cache-Control": "no-cache"})
+
+    def static_longview(self, req: Request, session: Optional[Session]) -> Response:
+        return Response(200, (_STATIC / "longview.js").read_bytes(), "text/javascript; charset=utf-8",
+                        {"Cache-Control": "no-cache"})
+
+    def api_trace_long(self, req: Request, session: Session, tid: str) -> Response:
+        """A long run for the lens: its reading, its phases, and every step as columns."""
+        from ..longrun import longrun
+        from ..timeline import _items
+        from .longviz import phases
+        ref = self.traces.get(tid)
+        data = self.traces.load(ref) if ref else None
+        if data is None:
+            return Response.json({"error": "no trace by that id"}, 404)
+        r = longrun(data, now_s=_now_on_its_clock(data) if ref.live else None)
+        items, _ = _items(data)
+        steps = data.get("steps") or []
+        names: dict = {}
+        acts: dict = {}
+        cols = {k: [] for k in ("i", "s", "d", "a", "n", "e", "c", "k", "t")}
+        for x in sorted(items, key=lambda x: (x["start"], x["index"])):
+            s = steps[x["index"]] if x["index"] < len(steps) else {}
+            cols["i"].append(x["index"])
+            cols["s"].append(round(x["start"], 2))
+            cols["d"].append(round(x["latency_s"], 2))
+            cols["a"].append(acts.setdefault(x["activity"], len(acts)))
+            cols["n"].append(names.setdefault(x["name"], len(names)))
+            cols["e"].append(int(x["error"]))
+            cols["c"].append(-1 if x["check"] is None else int(x["check"]))
+            cols["k"].append(x["tokens"])
+            cols["t"].append(" ".join(str(s.get("input") or "").split())[:90])
+        light = {k: v for k, v in r.items() if k not in ("pace", "rhythm")}
+        return Response.json({"id": ref.id, "reading": light, "phases": phases(r), "activities": list(acts),
+                              "names": list(names), "calls": cols, "live": ref.live})
 
     # ----------------------------------------------------------------- evals
     def evolve(self, req: Request, session: Session) -> Response:

@@ -35,6 +35,8 @@ from __future__ import annotations
 
 import hashlib
 import re
+from itertools import groupby
+from operator import eq
 from typing import Optional
 
 from .tooldiff import TOOLISH_TYPES, parse_args
@@ -308,6 +310,9 @@ def repeats(trajectory: Trajectory) -> dict:
     }
 
 
+#: the longest block looked for, in a run of more than twice this many tool steps
+#: (a longer circuit is read at the scale of bursts: :mod:`agentdiff.longrun`)
+LOOP_PERIOD_CAP = 400
 #: a repeated block is a loop when it goes round at least this many times
 LOOP_TURNS = 3
 #: …or when it covers at least this many steps, however few times it turned
@@ -348,19 +353,24 @@ def loops(steps: list) -> dict:
     indices = [s.index for s in live]
     best = {"period": 0, "repeats": 0, "starts_at": None, "length": 0}
     n = len(signatures)
-    for period in range(1, n // 2 + 1):
-        for start in range(0, n - 2 * period + 1):
-            repeats = 1
-            while True:
-                nxt = start + repeats * period
-                if nxt + period > n:
-                    break
-                if signatures[nxt:nxt + period] != signatures[start:start + period]:
-                    break
-                repeats += 1
-            if repeats >= 2 and repeats * period > best["length"]:
-                best = {"period": period, "repeats": repeats,
-                        "starts_at": indices[start], "length": repeats * period}
+    # A block of `period` steps repeats from `start` while each step equals the
+    # one a period later, so per period the repeats are the runs of such
+    # matches: a run of L matches from s is 1 + L // period turns from s (the
+    # longest any start inside it reaches). The same answer as comparing every
+    # block, in linear time per period.
+    ids: dict = {}
+    sig = [ids.setdefault(x, len(ids)) for x in signatures]
+    top_period = n // 2 if n <= 2 * LOOP_PERIOD_CAP else LOOP_PERIOD_CAP
+    for period in range(1, top_period + 1):
+        pos = 0
+        for same, run in groupby(map(eq, sig, sig[period:])):
+            length = sum(1 for _ in run)
+            if same and length >= period:
+                repeats = 1 + length // period
+                if repeats * period > best["length"]:
+                    best = {"period": period, "repeats": repeats, "starts_at": indices[pos],
+                            "length": repeats * period}
+            pos += length
     multiplicity = {}
     for signature in signatures:
         multiplicity[signature] = multiplicity.get(signature, 0) + 1

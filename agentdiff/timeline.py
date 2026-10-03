@@ -194,8 +194,8 @@ def look_here(data: dict, items: List[dict], lap: dict) -> Optional[dict]:
                                 f"in a row{tail}" + (f" (a block of {stuck['period']} step(s))"
                                                     if stuck.get("period") and not passed_at else "") + "."}
         failed_checks = [x for x in items if x["check"] is False]
-        passed_after = lambda x: any(y["check"] is True and y["index"] > x["index"] for y in items)  # noqa: E731
-        last_fail = next((x for x in reversed(failed_checks) if not passed_after(x)), None)
+        last_pass = max((y["index"] for y in items if y["check"] is True), default=-1)
+        last_fail = next((x for x in reversed(failed_checks) if not last_pass > x["index"]), None)
         if last_fail:
             lapn = next((r["n"] for r in rounds if any(s["index"] == last_fail["index"] for s in r["steps"])), None)
             return {"index": last_fail["index"], "kind": "check", "lap": lapn,
@@ -203,8 +203,12 @@ def look_here(data: dict, items: List[dict], lap: dict) -> Optional[dict]:
                                 f"after it passed; {len(failed_checks)} of "
                                 f"{sum(1 for x in items if x['check'] is not None)} check(s) failed."}
         errs = [x for x in items if x["error"]]
+        last_ok: Dict[str, int] = {}
+        for y in items:
+            if not y["error"]:
+                last_ok[y["name"]] = max(last_ok.get(y["name"], -1), y["index"])
         for x in errs:
-            later_ok = any(y["name"] == x["name"] and not y["error"] and y["index"] > x["index"] for y in items)
+            later_ok = last_ok.get(x["name"], -1) > x["index"]
             if not later_ok:
                 return {"index": x["index"], "kind": "error", "lap": None,
                         "sentence": f"Step {x['index']} ({x['name']}): an error the run never came back to "
@@ -235,11 +239,12 @@ def timeline(traj) -> dict:
     lap = lap_reading(data)
     lap_of: Dict[int, int] = {}
     lap_bands = []
+    by_index = {x["index"]: x for x in items}
     for r in lap.get("laps") or []:
         idx = [s["index"] for s in r["steps"]]
         for i in idx:
             lap_of[i] = r["n"]
-        ts = [x for x in items if x["index"] in idx]
+        ts = [by_index[i] for i in idx if i in by_index]
         if ts:
             closed = r.get("closed_by") or {}
             lap_bands.append({"n": r["n"], "from": min(x["start"] for x in ts), "to": max(x["end"] for x in ts),

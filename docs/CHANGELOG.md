@@ -5,6 +5,34 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Long-running agents: hours and days at the scale they ran
+
+`agentdiff/longrun.py` (`docs/LONGRUN.md`) clusters a run by its own gaps:
+- sessions split by 30 minutes of idle
+- bursts split by the run's own gap (Otsu on log gaps)
+- progress: a check starting to pass
+- the stall between two progress events
+- loops over hours: bursts repeating an earlier one, across idle
+
+The hub's long panel draws:
+- the run on an axis with idle compressed
+- every call of a burst, in true time and in order
+- the story, phase by phase, with filler folded
+- an hour-by-day rhythm grid, the pace, and a treemap
+- two runs cut at the checkpoints they share
+
+The lens (`static/longview.js`) adds a fisheye with a halo, animated
+phase-by-phase movement, and filters for failures, retries and
+checkpoints. `timeline --long` prints the story.
+
+Speed, for long runs:
+- `process.loops` is linear per period, with the same answers as before
+  (tested against the old search).
+- `timeline` lost its quadratic passes.
+- Closed panels on a long run are drawn on demand.
+
+On the 2,000-step demo, a trace page went from 6 s to 0.3 s.
+
 ## Live guards: the remedies, enforced while Claude Code works
 
 `agentdiff guard --install` puts the remedies into Claude Code's hooks

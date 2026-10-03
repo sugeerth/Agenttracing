@@ -215,8 +215,13 @@ def graded(state: dict) -> Optional[dict]:
     after = [c for c in calls[last_edit + 1:] if c["kind"] == "check" and c["failed"] is not None]
     if not after:
         return None
-    return {"success": not after[-1]["failed"], "by": after[-1]["sig"][5:] if after[-1]["sig"].startswith("Bash:")
-            else after[-1]["sig"]}
+    sig = after[-1]["sig"]
+    by = sig
+    if sig.startswith("Bash:"):
+        parts = [p.strip() for p in re.split(r"&&|\|\||;|\n", sig[5:]) if p.strip()]
+        by = next((p for p in parts if _CHECK.search(p)), sig[5:])
+        by = re.split(r"\s+\|\s*|\s+2>&1", by, maxsplit=1)[0]
+    return {"success": not after[-1]["failed"], "by": by}
 
 
 def decide(payload: dict, root: Path, **opts) -> Optional[dict]:
