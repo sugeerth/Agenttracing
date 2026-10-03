@@ -5,6 +5,48 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Timelines: long runs, many threads, many runs, and where to look first
+
+A trace page now leads with the run as a trunk with branches: thinking on
+the trunk, each tool call a branch ending in a leaf, each sub-agent
+hanging off it where it first acted, crowded stretches gathered into ×N
+bubbles. Two runs face each other with their shared steps joined and the
+first difference marked.
+
+`agentdiff/timeline.py` reads a run as an execution, plain data for a
+server and a terminal:
+- one lane per thread (sub-agents from `span`; overlapping steps split
+  into parallel lanes)
+- laps as bands
+- quiet stretches folded (6 + 6·log2(1 + seconds) wide, never an edit,
+  check, error, answer or new thread)
+- a cumulative token track
+- one step and one sentence that says where to look first
+
+The designs are the page's own (the Trace view's recorded clock, the
+impact thread's folds, the timescape's lineage of lanes, the long-horizon
+view's sub-agents), redrawn as server-side SVG.
+
+In the hub:
+- every trace page leads with its clock
+- `compare with` puts two runs on one axis, by step or by time, the first
+  different call marked
+- `/timeline` shows many runs as one row each, a group per directory or
+  per version of an evolving harness, with what the failures have in common
+- the live page and every timeline page grow as runs stream
+
+`agentdiff timeline` prints the same reading in a terminal and writes it
+to a page.
+
+On the repo's 566-step, 28-thread migration it points at lap 84, where the
+run did the same lap 11 times in a row. A trace page that was 29,000
+pixels long is now 3,000: past 120 steps a window around that step,
+past 24 laps the lap chart one click away.
+
+Verified for real: a timeline page opened before a haiku-vs-sonnet duel
+started filled in and redrew 12 times as both agents ran, with no
+reload.
+
 ## A harness that evolves with its evals; the hub's traces, loops and live runs
 
 **The self-evolving harness** (`agentdiff self-evolve`, `docs/SELF_EVOLVE.md`).

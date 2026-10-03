@@ -10,6 +10,11 @@ implementation to drift from the first.
 - :func:`hop_timeline` — in-band telemetry hops on one clock, a lane per process
 - :func:`lap_strip` — a lap chart folded to one line, for a list of traces
 - :func:`step_ribbon` — the last steps of a running trace, newest at the right
+- :func:`run_timeline` — one run on its clock: a lane per thread, laps, folds, where to look
+- :func:`trunk_svg` — a run as a trunk with its tool calls as branches and its sub-agents
+  hanging off it; two runs facing each other, the first difference marked
+- :func:`pair_timeline` — two runs on one axis, the first difference marked
+- :func:`ribbons_svg` — many runs, one row each, on one clock
 - :func:`harness_river` — the self-evolving harness: pass rate per generation,
   every change tried with its paired test, the evals born and retired
 
@@ -27,7 +32,8 @@ import math
 from typing import Dict, List, Optional
 
 __all__ = ["ACTIVITIES", "lap_chart", "lap_table", "flow_ring", "eval_river", "hop_timeline", "legend",
-           "activity_of_hop", "lap_strip", "step_ribbon", "compact_laps", "harness_river", "VIZ_CSS"]
+           "activity_of_hop", "lap_strip", "step_ribbon", "compact_laps", "harness_river", "run_timeline",
+           "pair_timeline", "ribbons_svg", "trunk_svg", "VIZ_CSS"]
 
 
 def e(v) -> str:
@@ -533,3 +539,490 @@ def harness_river(result: dict, width: int = 980) -> str:
            ('<i style="background:none;border:2px dashed var(--a3);width:10px;height:10px"></i>', "with the change (reverted)"),
            ('<b style="color:var(--sg)">+</b><b style="color:var(--sc)">−</b>', "evals born, retired")]
     return "".join(out) + legend([], key)
+
+
+# --------------------------------------------------------- run timeline
+class _Clock:
+    """Seconds to x, with folded stretches drawn short (``timeline.fold_width``)."""
+
+    def __init__(self, segments: list, x0: float, x1: float, span: float) -> None:
+        from ..timeline import fold_width
+        self.segs = segments or [{"kind": "open", "from": 0.0, "to": span or 1.0}]
+        folds = sum(fold_width(s["to"] - s["from"]) for s in self.segs if s["kind"] == "fold")
+        opens = sum(s["to"] - s["from"] for s in self.segs if s["kind"] == "open") or 1.0
+        width = max(40.0, (x1 - x0) - folds)
+        self.parts, x = [], x0
+        for s in self.segs:
+            w = fold_width(s["to"] - s["from"]) if s["kind"] == "fold" else width * (s["to"] - s["from"]) / opens
+            self.parts.append((s, x, x + w))
+            x += w
+        self.x0, self.x1 = x0, x
+
+    def __call__(self, t: float) -> float:
+        for s, a, b in self.parts:
+            if t <= s["to"] or s is self.parts[-1][0]:
+                if s["to"] <= s["from"]:
+                    return a
+                f = min(1.0, max(0.0, (t - s["from"]) / (s["to"] - s["from"])))
+                return a + (b - a) * f
+        return self.x1
+
+
+def _secs(t: float, span: float) -> str:
+    return _clock(t, span)
+
+
+def run_timeline(t: dict, width: int = 980, live: bool = False, link: bool = True) -> str:
+    """One run on its clock: a lane per thread, the laps as bands, quiet
+    stretches folded, the tokens spent as a track, and where to look first."""
+    steps, lanes = t.get("steps") or [], t.get("lanes") or []
+    if not steps:
+        return '<p class="muted">No steps to draw.</p>'
+    left, top, lane_h = 150, 54, 16 if len(lanes) > 10 else 22
+    track_h = 34
+    height = top + lane_h * len(lanes) + 14 + track_h + 22
+    clock = _Clock(t.get("segments") or [], left, width - 14, t.get("span_s") or 1.0)
+    span = t.get("span_s") or 1.0
+    here = t.get("look_here") or {}
+    by_index = {s["index"]: s for s in steps}
+    out = [f'<svg class="viz" viewBox="0 0 {width} {height}" width="{width}" role="img" '
+           f'aria-label="{e(here.get("sentence") or t.get("lap_summary"))}">']
+    # the laps, as bands across every lane
+    lap_label_end = -1e9
+    for b in t.get("laps") or []:
+        xa, xb = clock(b["from"]), max(clock(b["to"]), clock(b["from"]) + 2)
+        shade = "var(--grid)" if b["n"] % 2 else "none"
+        out.append(f'<rect x="{xa:.1f}" y="{top - 22}" width="{xb - xa:.1f}" height="{lane_h * len(lanes) + 24}" '
+                   f'style="fill:{shade};opacity:.45"/>')
+        badge, cls = ("✓", "ok") if b["passed"] is True else ("✗", "bad") if b["passed"] is False else ("", "")
+        lab = f"lap {b['n']}" + (f" {badge}" if badge else "") + (" ↻" if b["repeat"] else "")
+        if xa >= lap_label_end + 4 and (xb - xa > 6 * len(lab) or len(t["laps"]) <= 12):
+            lap_label_end = xa + 6.2 * len(lab)
+            out.append(f'<text class="{cls}" x="{xa + 3:.1f}" y="{top - 10}" style="font-size:10px">{e(lab)}'
+                       f'<title>lap {b["n"]}: {b["steps"]} step(s)'
+                       f'{", closed by a check that " + ("passed" if b["passed"] else "failed") if b["passed"] is not None else ""}'
+                       f'{", the same calls as the lap before" if b["repeat"] else ""}</title></text>')
+        if b["repeat"]:
+            out.append(f'<rect class="rep" x="{xa:.1f}" y="{top - 22}" width="{xb - xa:.1f}" height="{lane_h * len(lanes) + 24}" rx="3"/>')
+    # folds, across every lane
+    for s, a, b2 in clock.parts:
+        if s["kind"] != "fold":
+            continue
+        n = s.get("steps", 0)
+        tip = (f"{n} quiet step(s), {s['to'] - s['from']:.1f}s: no edit, check, error, answer or new thread"
+               if n else f"{s['to'] - s['from']:.1f}s with no step at all")
+        out.append(f'<rect x="{a:.1f}" y="{top - 4}" width="{b2 - a:.1f}" height="{lane_h * len(lanes) + 6}" '
+                   f'style="fill:var(--panel);stroke:var(--ink2);stroke-dasharray:2 3;stroke-opacity:.6"><title>{e(tip)}</title></rect>'
+                   f'<text x="{(a + b2) / 2:.1f}" y="{top + lane_h * len(lanes) + 12}" text-anchor="middle" '
+                   f'style="font-size:9px">⋯{n if n else ""}</text>')
+    # the threads
+    row = {l["id"]: k for k, l in enumerate(lanes)}
+    for k, l in enumerate(lanes):
+        y = top + k * lane_h
+        indent = 4 + 10 * l.get("depth", 0)
+        out.append(f'<text x="{indent}" y="{y + lane_h - 5}" style="font-size:{10 if lane_h < 20 else 11}px">'
+                   f'{e(l["label"][:20])}<title>{e(l["label"])}: {l["steps"]} step(s)</title></text>')
+        out.append(f'<line class="grid" x1="{left}" x2="{clock.x1:.1f}" y1="{y + lane_h - 1}" y2="{y + lane_h - 1}"/>')
+    for s in steps:
+        k = row.get(s.get("lane"), 0)
+        y = top + k * lane_h + 2
+        x0 = clock(s["start"])
+        w = max(2.5, clock(s["end"]) - x0)
+        cls = ACTIVITIES.get(s["activity"], ACTIVITIES["other"])[0]
+        tip = (f'#{s["index"]} {s["name"]} · {ACTIVITIES.get(s["activity"], ACTIVITIES["other"])[2]} · '
+               f'{s["start"]:.1f}s +{s["latency_s"]:.2f}s · {s["tokens"]:,} tokens'
+               + (" · check " + ("passed" if s["check"] else "failed") if s["check"] is not None else "")
+               + (" · error" if s["error"] else "") + (f" · lap {s['lap']}" if s.get("lap") else ""))
+        bar = (f'<rect class="{cls} hot" x="{x0:.1f}" y="{y}" width="{w:.1f}" height="{lane_h - 5}" rx="2">'
+               f'<title>{e(tip)}</title></rect>')
+        if link:
+            bar = f'<a href="#s{s["index"]}">{bar}</a>'
+        out.append(bar)
+        if s["error"] or s["check"] is False:
+            out.append(f'<rect class="err" x="{x0:.1f}" y="{y}" width="{w:.1f}" height="{lane_h - 5}" rx="2" fill="none"/>')
+        elif s["check"] is True:
+            out.append(f'<rect x="{x0:.1f}" y="{y + lane_h - 6}" width="{w:.1f}" height="2" style="fill:var(--sg)"/>')
+    # where to look first
+    if here and here.get("index") in by_index:
+        s = by_index[here["index"]]
+        hx = clock(s["start"])
+        col = "var(--sg)" if here.get("kind") == "pass" else "var(--a1)" if here.get("kind") == "now" else "var(--sc)"
+        k = row.get(s.get("lane"), 0)
+        out.append(f'<line x1="{hx:.1f}" x2="{hx:.1f}" y1="{top - 30}" y2="{top + lane_h * len(lanes)}" '
+                   f'style="stroke:{col};stroke-width:2"><title>{e(here.get("sentence"))}</title></line>'
+                   f'<circle cx="{hx + 1:.1f}" cy="{top + k * lane_h + lane_h / 2:.1f}" r="{lane_h / 2 + 3:.1f}" '
+                   f'style="fill:none;stroke:{col};stroke-width:2"/>'
+                   f'<text x="{hx + 5 if hx < width - 170 else hx - 5:.1f}" y="{top - 32}" '
+                   f'text-anchor="{"start" if hx < width - 170 else "end"}" style="fill:{col};font:600 11px system-ui,sans-serif">'
+                   f'◆ look here: step {here["index"]}<title>{e(here.get("sentence"))}</title></text>')
+    # tokens, as they were spent
+    ty = top + lane_h * len(lanes) + 18
+    cum = t.get("tokens") or []
+    if cum and cum[-1][1]:
+        most = cum[-1][1]
+        pts = [f"{clock(0):.1f},{ty + track_h:.1f}"]
+        for at, n in cum:
+            pts.append(f"{clock(at):.1f},{ty + track_h - track_h * n / most:.1f}")
+        pts.append(f"{clock(cum[-1][0]):.1f},{ty + track_h:.1f}")
+        out.append(f'<polygon points="{" ".join(pts)}" style="fill:var(--a1);opacity:.25"/>'
+                   f'<text x="{left - 8}" y="{ty + track_h - 4}" text-anchor="end" style="font-size:10px">tokens</text>'
+                   f'<text x="{clock(cum[-1][0]) - 4:.1f}" y="{ty + 10}" text-anchor="end" style="font-size:10px">{most:,}</text>')
+    # the clock: real seconds at each open stretch's edges
+    seen = []
+    for s, a, b2 in clock.parts:
+        for tt, xx in ((s["from"], a), (s["to"], b2)):
+            if all(abs(xx - p) > 46 for p in seen):
+                seen.append(xx)
+                out.append(f'<text x="{xx:.1f}" y="12" text-anchor="middle" style="font-size:10px">{e(_secs(tt, span))}</text>')
+    out.append(f'<text x="4" y="{top - 32}" style="font-size:10px">{e(t.get("basis"))} clock</text>')
+    if live:
+        out.append(f'<line x1="{clock.x1:.1f}" x2="{clock.x1:.1f}" y1="18" y2="{top + lane_h * len(lanes)}" '
+                   f'style="stroke:var(--sc);stroke-width:2"><title>now</title></line>')
+    out.append("</svg>")
+    used = sorted({s["activity"] for s in steps})
+    key = [('<b style="color:var(--sc)">◆</b>', "look here"), ('<b style="color:var(--sc)">▢</b>', "error or failed check"),
+           ('<b style="color:var(--sg)">▁</b>', "passed check"), ('<b style="color:var(--a2)">⬚</b>', "repeated lap"),
+           ('<b>⋯</b>', "folded quiet stretch")]
+    return "".join(out) + legend(used, key)
+
+
+# --------------------------------------------------------- two runs
+def pair_timeline(c: dict, axis: str = "step", width: int = 980) -> str:
+    """Two runs on one axis: by step (aligned columns, the first difference
+    marked) or by time (both from 0 on one linear clock)."""
+    rows = [("A", c["a"]), ("B", c["b"])]
+    left, top, row_h = 150, 28, 30
+    height = top + row_h * 2 + 30
+    out = [f'<svg class="viz" viewBox="0 0 {width} {height}" width="{width}" role="img" aria-label="{e(c.get("sentence"))}">']
+    if axis == "time":
+        span = max(c["a"]["span_s"], c["b"]["span_s"]) or 1.0
+        X = lambda tt: left + (width - left - 14) * tt / span  # noqa: E731
+        for i in range(5):
+            tt = span * i / 4
+            out.append(f'<text x="{X(tt):.1f}" y="12" text-anchor="middle" style="font-size:10px">{e(_secs(tt, span))}</text>')
+    else:
+        n = max(len(c["a"]["steps"]), len(c["b"]["steps"])) or 1
+        cw = (width - left - 14) / n
+        for i in range(0, n, max(1, n // 10)):
+            out.append(f'<text x="{left + cw * i + cw / 2:.1f}" y="12" text-anchor="middle" style="font-size:10px">{i}</text>')
+    for k, (name, t) in enumerate(rows):
+        y = top + k * row_h
+        glyph, cls = (("✓", "ok") if t["success"] is True else ("✗", "bad") if t["success"] is False else ("–", ""))
+        out.append(f'<text class="lab" x="4" y="{y + 17}">{name} · {e(str(t["agent"])[:14])}</text>'
+                   f'<text class="{cls}" x="{left - 16}" y="{y + 18}" style="font-size:14px">{glyph}</text>')
+        here = (t.get("look_here") or {}).get("index")
+        for s in sorted(t["steps"], key=lambda s: s["index"]):
+            if axis == "time":
+                x0, w = X(s["start"]), max(2.5, X(s["end"]) - X(s["start"]))
+            else:
+                x0, w = left + cw * s["index"], max(1.5, cw - 1)
+            cls2 = ACTIVITIES.get(s["activity"], ACTIVITIES["other"])[0]
+            out.append(f'<rect class="{cls2} hot" x="{x0:.1f}" y="{y + 4}" width="{w:.1f}" height="{row_h - 10}" rx="2">'
+                       f'<title>{name} #{s["index"]} {e(s["name"])}{" · error" if s["error"] else ""}'
+                       f'{" · check " + ("passed" if s["check"] else "failed") if s["check"] is not None else ""}</title></rect>')
+            if s["error"] or s["check"] is False:
+                out.append(f'<rect class="err" x="{x0:.1f}" y="{y + 4}" width="{w:.1f}" height="{row_h - 10}" rx="2" fill="none"/>')
+            if s["index"] == here:
+                out.append(f'<circle cx="{x0 + w / 2:.1f}" cy="{y + row_h / 2 - 1:.1f}" r="{row_h / 2:.1f}" '
+                           f'style="fill:none;stroke:var(--sc);stroke-width:2"><title>{e(t["look_here"]["sentence"])}</title></circle>')
+    d = c.get("diverged_at")
+    if d is not None and axis != "time":
+        x = left + cw * d
+        out.append(f'<line x1="{x:.1f}" x2="{x:.1f}" y1="{top - 6}" y2="{top + row_h * 2}" style="stroke:var(--a2);stroke-width:2;'
+                   f'stroke-dasharray:4 3"><title>{e(c.get("sentence"))}</title></line>'
+                   f'<text x="{x + 4:.1f}" y="{top + row_h * 2 + 16}" style="fill:var(--a2);font:600 11px system-ui,sans-serif">'
+                   f'⟂ first difference: step {d}</text>')
+    out.append("</svg>")
+    return "".join(out)
+
+
+# --------------------------------------------------------- many runs
+def ribbons_svg(rows: List[dict], width: int = 980, shared: bool = True, links: Optional[list] = None,
+                labels: Optional[list] = None) -> str:
+    """Many runs, one row each: its steps compacted into cells along its clock
+    (one clock for all of them, or each its own), its laps as ticks, how it
+    ended, and where to look first ringed."""
+    if not rows:
+        return '<p class="muted">No runs to draw.</p>'
+    left, right, row_h, top = 230, 78, 18, 20
+    height = top + row_h * len(rows) + 8
+    span = max(r["span_s"] for r in rows) or 1.0
+    out = [f'<svg class="viz" viewBox="0 0 {width} {height}" width="{width}" role="img" '
+           f'aria-label="{len(rows)} runs, one row each, on {"one clock" if shared else "their own clocks"}">']
+    if shared:
+        for i in range(5):
+            tt = span * i / 4
+            x = left + (width - left - right) * tt / span
+            out.append(f'<line class="grid" x1="{x:.1f}" x2="{x:.1f}" y1="{top - 4}" y2="{height}"/>'
+                       f'<text x="{x:.1f}" y="12" text-anchor="middle" style="font-size:10px">{e(_secs(tt, span))}</text>')
+    for k, r in enumerate(rows):
+        y = top + k * row_h
+        own = r["span_s"] or 1.0
+        X = (lambda tt, own=own: left + (width - left - right) * tt / (span if shared else own))
+        glyph, cls = (("●", "") if r["in_progress"] else ("✓", "ok") if r["success"] is True
+                      else ("✗", "bad") if r["success"] is False else ("–", ""))
+        label = (labels[k] if labels else f'{r["agent"]} · {r["task"]}')
+        short = label if len(label) <= 29 else label[:15] + "…" + label[-13:]
+        txt = (f'<text x="{left - 22}" y="{y + 13}" text-anchor="end" style="font-size:11px">{e(short)}'
+               f'<title>{e(label)}</title></text>')
+        if links and links[k]:
+            txt = f'<a href="{e(links[k])}">{txt}</a>'
+        out.append(txt + f'<text class="{cls}" x="{left - 14}" y="{y + 13}" style="font-size:12px'
+                   f'{";fill:var(--a1)" if r["in_progress"] else ""}">{glyph}</text>')
+        here = (r.get("look_here") or {}).get("index")
+        for c in r["cells"]:
+            x0 = X(c["from"])
+            w = max(1.5, X(c["to"]) - x0)
+            cls2 = ACTIVITIES.get(c["activity"], ACTIVITIES["other"])[0]
+            span_lbl = f'#{c["first"]}' + (f'–{c["last"]}' if c["last"] != c["first"] else "")
+            out.append(f'<rect class="{cls2}" x="{x0:.1f}" y="{y + 3}" width="{w:.1f}" height="{row_h - 7}">'
+                       f'<title>{span_lbl} · mostly {ACTIVITIES.get(c["activity"], ACTIVITIES["other"])[2]}'
+                       f'{" · error" if c["error"] else ""}</title></rect>')
+            if c["error"] or c["check"] is False:
+                out.append(f'<rect x="{x0:.1f}" y="{y + row_h - 4}" width="{w:.1f}" height="2" style="fill:var(--sc)"/>')
+            if here is not None and c["first"] <= here <= c["last"]:
+                ring = {"pass": "var(--sg)", "now": "var(--a1)"}.get(r["look_here"].get("kind"), "var(--sc)")
+                out.append(f'<circle cx="{x0 + w / 2:.1f}" cy="{y + row_h / 2 - 1:.1f}" r="7" '
+                           f'style="fill:none;stroke:{ring};stroke-width:2"><title>{e(r["look_here"]["sentence"])}</title></circle>')
+        for lp in r.get("laps") or []:
+            x = X(lp["at"])
+            col = "var(--sg)" if lp["passed"] is True else "var(--sc)" if lp["passed"] is False else "var(--ink2)"
+            out.append(f'<line x1="{x:.1f}" x2="{x:.1f}" y1="{y + 1}" y2="{y + row_h - 3}" style="stroke:{col};stroke-width:1.5">'
+                       f'<title>end of lap {lp["n"]}{" (repeat)" if lp["repeat"] else ""}</title></line>')
+        end = X(r["span_s"])
+        if r["in_progress"]:
+            out.append(f'<circle class="a1" cx="{end + 4:.1f}" cy="{y + row_h / 2 - 1:.1f}" r="3"><title>running</title></circle>')
+        out.append(f'<text x="{width - right + 16}" y="{y + 13}" style="font-size:10px">{e(_secs(r["span_s"], span))}'
+                   f' · {r["steps"]}</text>')
+    out.append("</svg>")
+    used = sorted({c["activity"] for r in rows for c in r["cells"]})
+    key = [('<b class="ok">✓</b><b class="bad">✗</b>', "passed, failed"), ('<b style="color:var(--a1)">●</b>', "running"),
+           ('<b style="color:var(--sc)">○</b>', "look here (a failed run)"), ('<b style="color:var(--sg)">○</b>', "its first passing check"),
+           ('<b style="color:var(--sg)">|</b><b style="color:var(--sc)">|</b>', "end of a lap: check passed, failed")]
+    return "".join(out) + legend(used, key)
+
+
+# --------------------------------------------------------- the trunk
+_BRANCHING = ("explore", "edit", "verify", "run", "research", "delegate", "other")
+
+
+def trunk_svg(runs: list, *, cmp: Optional[dict] = None, axis: str = "time", width: int = 980,
+              link: bool = True) -> str:
+    """Each run as a trunk along its clock: its thinking on the trunk, its tool
+    calls as branches ending in leaves, its sub-agents as branches hanging off
+    it, its laps as ticks on it, crowded stretches gathered into ×N bubbles,
+    where to look ringed. Two runs face each other, A's branches up and B's
+    down, with the steps they share joined and the first difference marked."""
+    if not runs or not any(r.get("steps") for r in runs):
+        return '<p class="muted">No steps to draw.</p>'
+    pair = len(runs) == 2
+    left, right = 120, 20
+    reach = 58
+    subs = [[l for l in r["lanes"] if l["agent"] != "root" and l["parallel"] == 0] for r in runs]
+    sub_h = 16
+    if pair:
+        top_pad = 46 + reach
+        trunk_y = [top_pad, top_pad + 96]
+        height = trunk_y[1] + reach + 50
+    else:
+        trunk_y = [46 + reach + 10]
+        height = trunk_y[0] + 30 + sub_h * len(subs[0]) + 30
+    x0, x1 = left, width - right
+    if axis == "step":
+        n = max(len(r["steps"]) for r in runs) or 1
+
+        def by_step(s):
+            return x0 + (x1 - x0) * (s["index"] + 0.5) / n
+        pos = [by_step] * len(runs)
+    else:
+        if pair:
+            span = max(r["span_s"] for r in runs) or 1.0
+            clocks = [(lambda t, span=span: x0 + (x1 - x0) * t / span)] * 2
+        else:
+            c = _Clock(runs[0].get("segments") or [], x0, x1, runs[0]["span_s"] or 1.0)
+            clocks = [c]
+        pos = [(lambda s, c=c: c(s["start"])) for c in clocks]
+    out = [f'<svg class="viz trunk" viewBox="0 0 {width} {height:.0f}" width="{width}" role="img" '
+           f'aria-label="{e((cmp or {}).get("sentence") or (runs[0].get("look_here") or {}).get("sentence"))}">']
+    # folds on a single run's clock
+    if not pair and axis != "step":
+        for s, a, b2 in clocks[0].parts:
+            if s["kind"] == "fold":
+                out.append(f'<line x1="{a:.1f}" x2="{b2:.1f}" y1="{trunk_y[0]}" y2="{trunk_y[0]}" '
+                           f'style="stroke:var(--panel);stroke-width:6"/>'
+                           f'<line x1="{a:.1f}" x2="{b2:.1f}" y1="{trunk_y[0]}" y2="{trunk_y[0]}" '
+                           f'style="stroke:var(--ink2);stroke-width:2;stroke-dasharray:2 3"><title>{s.get("steps", 0)} quiet '
+                           f'step(s), {s["to"] - s["from"]:.1f}s folded</title></line>')
+    where: List[dict] = [{}, {}]
+    for k, r in enumerate(runs):
+        ty = trunk_y[k]
+        up = -1 if (k == 0) else 1
+        steps = sorted(r["steps"], key=lambda s: (s["start"], s["index"]))
+        here = (r.get("look_here") or {}).get("index")
+        for s in steps:
+            s["_here"] = s["index"] == here
+        P = pos[k]
+        for s in steps:
+            where[k][s["index"]] = P(s)
+        # two runs facing each other carry every thread on their trunks; one run hangs its sub-agents below
+        root_steps = steps if pair else [s for s in steps if s["agent"] == "root"]
+        last_x = max(P(s) for s in steps)
+        glyph, gcls = ("✓", "ok") if r["success"] is True else ("✗", "bad") if r["success"] is False else ("●", "")
+        name = ("A · " if pair and k == 0 else "B · " if pair else "") + str(r.get("agent") or "run")
+        out.append(f'<text class="{gcls}" x="4" y="{ty + 5}" style="font-size:14px">{glyph}</text>'
+                   f'<text class="lab" x="20" y="{ty + 4}" style="font-weight:600">{e(name[:15])}'
+                   f'<title>{e(name)}</title></text>')
+        out.append(f'<line x1="{x0}" x2="{last_x:.1f}" y1="{ty}" y2="{ty}" '
+                   f'style="stroke:var(--{"sc" if r["success"] is False else "ink2"});stroke-width:3;stroke-linecap:round;'
+                   f'stroke-opacity:.8"/>')
+        # laps as ticks across the trunk
+        for b in r.get("laps") or []:
+            last = [s for s in steps if s.get("lap") == b["n"]]
+            if not last:
+                continue
+            lx = max(P(s) for s in last)
+            col = "var(--sg)" if b["passed"] is True else "var(--sc)" if b["passed"] is False else "var(--ink2)"
+            out.append(f'<line x1="{lx:.1f}" x2="{lx:.1f}" y1="{ty - 7}" y2="{ty + 7}" style="stroke:{col};stroke-width:2">'
+                       f'<title>end of lap {b["n"]}{": its check " + ("passed" if b["passed"] else "failed") if b["passed"] is not None else ""}'
+                       f'{" (the same calls as the lap before)" if b["repeat"] else ""}</title></line>')
+        # the root agent's steps: thinking on the trunk, tools as branches
+        leaf = 0
+        last_leaf_x = -1e9
+        clusters = []
+        cur: list = []
+        for s in root_steps:
+            alone = s["_here"] or s["error"] or s["check"] is False
+            if alone:
+                if cur:
+                    clusters.append(cur)
+                    cur = []
+                clusters.append([s])
+                continue
+            if cur and P(s) - P(cur[0]) > 14:
+                clusters.append(cur)
+                cur = []
+            cur.append(s)
+        if cur:
+            clusters.append(cur)
+        leaf_xs = [P(g[0]) for g in clusters if len(g) == 1 and (g[0]["activity"] in _BRANCHING or g[0]["error"])]
+
+        def roomy(xv: float) -> bool:
+            return all(abs(xv - o) >= 30 or o == xv for o in leaf_xs)
+        for g in clusters:
+            if len(g) > 1:
+                ga, gb = P(g[0]), P(g[-1])
+                bw = max(14.0, gb - ga + 10)
+                tools: Dict[str, int] = {}
+                for s in g:
+                    tools[s["name"]] = tools.get(s["name"], 0) + 1
+                top = max(tools.items(), key=lambda kv: kv[1])[0]
+                bad = any(s["error"] or s["check"] is False for s in g)
+                okc = any(s["check"] is True for s in g)
+                tip = (f'steps {g[0]["index"]}–{g[-1]["index"]}: ' + ", ".join(f"{v}× {kk}" for kk, v in
+                                                                                 sorted(tools.items(), key=lambda kv: -kv[1])[:6]))
+                href = f'#s{g[0]["index"]}'
+                body = (f'<rect x="{ga - 5:.1f}" y="{ty - 8}" width="{bw:.1f}" height="16" rx="8" '
+                        f'style="fill:var(--panel);stroke:var(--{"sc" if bad else "sg" if okc else "a1"});stroke-width:1.6">'
+                        f'<title>{e(tip)}</title></rect>')
+                if bw >= 24:
+                    body += (f'<text x="{ga - 5 + bw / 2:.1f}" y="{ty + 4}" text-anchor="middle" style="font-size:9.5px">'
+                             f'×{len(g)}{" " + e(top[:max(0, int((bw - 26) / 6))]) if bw > 46 else ""}</text>')
+                out.append(f'<a href="{href}">{body}</a>' if link else body)
+                continue
+            s = g[0]
+            sx = P(s)
+            cls, glyph2, label = ACTIVITIES.get(s["activity"], ACTIVITIES["other"])
+            tip = (f'#{s["index"]} {s["name"]} · {label} · {s["start"]:.1f}s'
+                   + (" · check " + ("passed" if s["check"] else "failed") if s["check"] is not None else "")
+                   + (" · error" if s["error"] else ""))
+            if s["activity"] in _BRANCHING or s["error"]:
+                h = reach * (1 if leaf % 2 else 0.62)
+                leaf += 1
+                ly = ty + up * h
+                cy = ty + up * h * 0.55
+                stroke = "var(--sc)" if s["error"] or s["check"] is False else "var(--ink2)"
+                node = (f'<path d="M{sx:.1f},{ty} C{sx:.1f},{cy:.1f} {sx:.1f},{cy:.1f} {sx:.1f},{ly:.1f}" '
+                        f'style="fill:none;stroke:{stroke};stroke-width:1.4;stroke-opacity:.7"/>'
+                        f'<circle class="{cls} hot" cx="{sx:.1f}" cy="{ly:.1f}" r="6"><title>{e(tip)}</title></circle>')
+                if s["error"] or s["check"] is False:
+                    node += f'<circle cx="{sx:.1f}" cy="{ly:.1f}" r="8.5" style="fill:none;stroke:var(--sc);stroke-width:2"/>'
+                elif s["check"] is True:
+                    node += (f'<text class="g dk" x="{sx:.1f}" y="{ly + 3.5:.1f}" text-anchor="middle" '
+                             f'style="font-size:9px">✓</text>')
+                if sx - last_leaf_x > 40 and (roomy(sx) or (leaf % 2 == 0)):
+                    ty_lab = ly + up * 12 + (8 if up > 0 else 0)
+                    node += (f'<text x="{sx:.1f}" y="{ty_lab:.1f}" text-anchor="middle" style="font-size:9.5px">'
+                             f'{e(s["name"][:10])}</text>')
+                    last_leaf_x = sx
+                out.append(f'<a href="#s{s["index"]}">{node}</a>' if link else node)
+            else:
+                node = (f'<circle class="{cls} hot" cx="{sx:.1f}" cy="{ty}" r="4.5" '
+                        f'style="stroke:var(--panel);stroke-width:1.5"><title>{e(tip)}</title></circle>')
+                out.append(f'<a href="#s{s["index"]}">{node}</a>' if link else node)
+        # sub-agents, as branches hanging off the trunk (single run only)
+        if not pair:
+            for j, l in enumerate(subs[0]):
+                mine = [s for s in steps if s["agent"] == l["agent"]]
+                if not mine:
+                    continue
+                by = ty + 30 + j * sub_h
+                bx0, bx1 = P(mine[0]), max(P(s) for s in mine)
+                indent = 4 + 8 * l.get("depth", 1)
+                out.append(f'<path d="M{bx0:.1f},{ty} C{bx0:.1f},{by - 6:.1f} {bx0:.1f},{by:.1f} {bx0 + 6:.1f},{by:.1f}" '
+                           f'style="fill:none;stroke:var(--ink2);stroke-width:1.2;stroke-opacity:.6"/>'
+                           f'<line x1="{bx0 + 6:.1f}" x2="{max(bx1, bx0 + 8):.1f}" y1="{by}" y2="{by}" '
+                           f'style="stroke:var(--ink2);stroke-width:2;stroke-opacity:.55"/>'
+                           f'<text x="{indent}" y="{by + 4}" style="font-size:10px">{e(l["agent"][:18])}'
+                           f'<title>{e(l["agent"])}: {len(mine)} step(s)</title></text>')
+                last_x2 = -1e9
+                for s in mine:
+                    sx = P(s)
+                    if sx - last_x2 < 3 and not (s["error"] or s["check"] is False or s["_here"]):
+                        continue
+                    last_x2 = sx
+                    cls = ACTIVITIES.get(s["activity"], ACTIVITIES["other"])[0]
+                    bad = s["error"] or s["check"] is False
+                    node = (f'<circle class="{cls} hot" cx="{sx:.1f}" cy="{by}" r="{4.5 if bad else 3.5}" '
+                            f'style="stroke:{"var(--sc)" if bad else "var(--panel)"};stroke-width:{2 if bad else 1}">'
+                            f'<title>#{s["index"]} {e(s["name"])} · {e(l["agent"])}{" · error" if s["error"] else ""}'
+                            f'{" · check " + ("passed" if s["check"] else "failed") if s["check"] is not None else ""}</title></circle>')
+                    out.append(f'<a href="#s{s["index"]}">{node}</a>' if link else node)
+        # where to look first
+        if here is not None and here in where[k]:
+            hs = next(s for s in steps if s["index"] == here)
+            hx = where[k][here]
+            hy = ty if hs["agent"] == "root" else ty + 30 + sub_h * next(
+                (j for j, l in enumerate(subs[0]) if l["agent"] == hs["agent"]), 0) if not pair else ty
+            col = "var(--sg)" if r["look_here"].get("kind") == "pass" else "var(--a1)" if r["look_here"].get("kind") == "now" else "var(--sc)"
+            out.append(f'<circle cx="{hx:.1f}" cy="{hy:.1f}" r="11" style="fill:none;stroke:{col};stroke-width:2.5">'
+                       f'<title>{e(r["look_here"]["sentence"])}</title></circle>')
+            ly2 = (ty - reach - 30) if (k == 0) else (ty + reach + 40)
+            anchor, lx = ("start", hx + 4) if hx < width - 170 else ("end", hx - 4)
+            out.append(f'<text x="{lx:.1f}" y="{ly2:.1f}" text-anchor="{anchor}" style="fill:{col};font:600 11px system-ui,sans-serif">'
+                       f'◆ look here: step {here}<title>{e(r["look_here"]["sentence"])}</title></text>')
+    # the steps two runs share, joined; the first difference marked
+    if pair and cmp is not None:
+        d = cmp.get("diverged_at")
+        upto = d if d is not None else min(len(runs[0]["steps"]), len(runs[1]["steps"]))
+        for i in range(0, upto, max(1, upto // 40)):
+            if i in where[0] and i in where[1]:
+                out.append(f'<path d="M{where[0][i]:.1f},{trunk_y[0] + 4} C{where[0][i]:.1f},{(trunk_y[0] + trunk_y[1]) / 2:.1f} '
+                           f'{where[1][i]:.1f},{(trunk_y[0] + trunk_y[1]) / 2:.1f} {where[1][i]:.1f},{trunk_y[1] - 4}" '
+                           f'style="fill:none;stroke:var(--sg);stroke-width:1;stroke-opacity:.45"><title>step {i}: the same call in both</title></path>')
+        if d is not None and d in where[0] and d in where[1]:
+            out.append(f'<path d="M{where[0][d]:.1f},{trunk_y[0] + 4} C{where[0][d]:.1f},{(trunk_y[0] + trunk_y[1]) / 2:.1f} '
+                       f'{where[1][d]:.1f},{(trunk_y[0] + trunk_y[1]) / 2:.1f} {where[1][d]:.1f},{trunk_y[1] - 4}" '
+                       f'style="fill:none;stroke:var(--a2);stroke-width:2.5;stroke-dasharray:5 3"><title>{e(cmp["sentence"])}</title></path>'
+                       f'<text x="{where[0][d] + 6:.1f}" y="{(trunk_y[0] + trunk_y[1]) / 2 + 4:.1f}" '
+                       f'style="fill:var(--a2);font:600 11px system-ui,sans-serif">⟂ first difference: step {d}</text>')
+    for r in runs:
+        for s in r["steps"]:
+            s.pop("_here", None)
+    out.append("</svg>")
+    used = sorted({s["activity"] for r in runs for s in r["steps"]})
+    key = [('<b style="color:var(--ink2)">━</b>', "the trunk: thinking on it"), ('<b style="color:var(--ink2)">╭</b>', "a tool call branching off"),
+           ('<b style="color:var(--a1)">⬭</b>', "×N steps gathered (opens the first)"), ('<b style="color:var(--sc)">◯</b>', "error or failed check"),
+           ('<b style="color:var(--sg)">|</b><b style="color:var(--sc)">|</b>', "end of a lap")]
+    if not pair and subs[0]:
+        key.append(('<b style="color:var(--ink2)">└─</b>', "a sub-agent, hanging off the trunk"))
+    return "".join(out) + legend(used, key)

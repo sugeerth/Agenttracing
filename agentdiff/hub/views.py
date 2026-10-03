@@ -22,7 +22,7 @@ from .catalog import Entry
 
 __all__ = ["layout", "login_page", "overview_page", "runs_page", "duel_page", "report_page", "telemetry_page",
            "traces_page", "trace_page", "trace_panel", "live_page", "live_panel", "evals_page", "evals_run_page",
-           "account_page", "message_page", "evolve_page", "evolution_page", "NAV"]
+           "account_page", "message_page", "evolve_page", "evolution_page", "timeline_page", "ribbon_group", "NAV"]
 
 
 def e(value) -> str:
@@ -87,7 +87,8 @@ border-radius:999px;border:1px solid var(--line);white-space:nowrap}
 .filters a{padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--soft);font-size:13px}
 .filters a.on{background:var(--chip);color:var(--ink);border-color:var(--soft)}
 .filters form{display:flex;gap:6px;margin-left:auto}.filters input{width:220px;padding:5px 9px}
-.filters button{padding:5px 12px}
+.filters button{padding:5px 12px}.filters select{padding:5px 8px;border:1px solid var(--line);border-radius:8px;
+background:var(--bg);color:var(--ink);font:inherit;max-width:320px}
 #live-status{font-size:13px}
 .login-wrap{display:grid;grid-template-columns:1fr 1fr;max-width:860px;margin:7vh auto;background:var(--panel);
 border:1px solid var(--line);border-radius:16px;overflow:hidden}
@@ -320,7 +321,8 @@ def duel_page(*, brand: str, user: str, csrf: str, entry: Entry, refs: list = ()
         notes.append("Not equal between them: " + e(", ".join(s["unequal"])) + ".")
     winners = [r["agent"] for r in s.get("rows") or [] if r.get("graded") and r.get("passed")]
     keep = " or ".join(f"<code>agentdiff apply {e(a)}</code>" for a in winners)
-    traces = (f'<h2>Its traces, lap by lap</h2><div class="card">{_trace_rows(refs)}</div>' if refs else "")
+    traces = (f'<h2>Its traces, lap by lap <span class="muted">· <a href="/timeline?run={e(entry.id)}">on one clock →'
+              f'</a></span></h2><div class="card">{_trace_rows(refs)}</div>' if refs else "")
     body = (f'<h1>{e(entry.title)}</h1><div class="card"><table><tr><th>agent</th>{head}</tr>'
             f'{"".join(body_rows)}</table></div>'
             + "".join(f'<p class="note">{n}</p>' for n in notes)
@@ -333,7 +335,8 @@ def duel_page(*, brand: str, user: str, csrf: str, entry: Entry, refs: list = ()
 
 
 def report_page(*, brand: str, user: str, csrf: str, entry: Entry, refs: list = ()) -> str:
-    traces = f'<h2>Its traces</h2><div class="card">{_trace_rows(refs)}</div>' if refs else ""
+    traces = (f'<h2>Its traces <span class="muted">· <a href="/timeline?run={e(entry.id)}">on one clock →</a></span></h2>'
+              f'<div class="card">{_trace_rows(refs)}</div>' if refs else "")
     body = (f'<h1>{e(entry.title)}</h1><div class="card"><p class="muted">{e(entry.path)}</p>'
             f'<p><a href="/runs/{e(entry.id)}/page">Open the report</a></p></div>{traces}')
     return layout(entry.title, body, brand=brand, user=user, csrf=csrf, active="runs")
@@ -394,7 +397,9 @@ def traces_page(*, brand: str, user: str, csrf: str, refs: list, q: str = "", sh
     groups: dict = {}
     for r in shown:
         groups.setdefault(r.group, []).append(r)
-    blocks = "".join(f'<h2>{e(g)} <span class="muted">· {len(rs)}</span></h2><div class="card">{_trace_rows(rs)}</div>'
+    from .urls import quote
+    blocks = "".join(f'<h2>{e(g)} <span class="muted">· {len(rs)} · <a href="/timeline?g={e(quote(g))}">'
+                     f'on one clock →</a></span></h2><div class="card">{_trace_rows(rs)}</div>'
                      for g, rs in groups.items())
     if not blocks:
         blocks = ('<div class="card"><p class="muted">No traces match. A trace is any SCHEMA file in a '
@@ -407,14 +412,35 @@ def traces_page(*, brand: str, user: str, csrf: str, refs: list, q: str = "", sh
     return layout("Traces", body, brand=brand, user=user, csrf=csrf, active="traces")
 
 
-def _steps_table(steps: List[dict], most: int = 400) -> str:
+#: steps above which a run's table shows a window, not every step
+WINDOW_STEPS = 120
+
+
+def _steps_table(steps: List[dict], most: int = 400, focus: Optional[int] = None, every: bool = False,
+                 every_href: str = "") -> str:
+    """Every step; for a long run, the opening, the stretch around where to look
+    first and the ending, with what is left out said and a link to all of it."""
     from ..laps import _activity
     rows = []
+    keep = None
+    if len(steps) > WINDOW_STEPS and not every:
+        keep = set(range(0, 10)) | set(range(max(0, len(steps) - 10), len(steps)))
+        if focus is not None:
+            keep |= set(range(max(0, focus - 15), min(len(steps), focus + 16)))
+        most = len(steps)
+    gap = 0
     for i, s in enumerate(steps[:most]):
+        if keep is not None and i not in keep:
+            gap += 1
+            continue
+        if gap:
+            rows.append(f'<tr><td></td><td colspan="6" class="muted">⋯ {gap} step(s) not shown here; '
+                        f'<a href="{e(every_href)}">show every step</a> or open one from the timeline</td></tr>')
+            gap = 0
         act = _activity(s)
         cls, glyph, label = viz.ACTIVITIES.get(act, viz.ACTIVITIES["other"])
         err = s.get("error")
-        rows.append(f'<tr><td class="n">{i}</td><td><span class="legend"><span><i class="{cls}">{e(glyph)}</i>'
+        rows.append(f'<tr id="s{i}"><td class="n">{i}</td><td><span class="legend"><span><i class="{cls}">{e(glyph)}</i>'
                     f'{e(label)}</span></span></td><td>{e(s.get("name") or s.get("type"))}</td>'
                     f'<td class="clip" title="{e(str(s.get("input") or "")[:600])}">{e(str(s.get("input") or "")[:200])}</td>'
                     f'<td class="clip{" bad" if err else ""}" title="{e(str(err or s.get("output") or "")[:600])}">'
@@ -425,7 +451,43 @@ def _steps_table(steps: List[dict], most: int = 400) -> str:
             '<th class="n">time</th><th class="n">tokens</th></tr>' + "".join(rows) + "</table>" + more)
 
 
-def trace_panel(*, ref, data: dict, lap: dict) -> str:
+def _clock_section(ref, tl: dict, cmp: Optional[dict], others: list, vs: str, axis: str) -> str:
+    here = tl.get("look_here") or {}
+    kind = here.get("kind")
+    cls = " good" if kind == "pass" else "" if kind == "now" else " error"
+    note = (f'<p class="note{cls}" style="font-size:16px"><strong>◆ Look here first.</strong> {e(here.get("sentence"))} '
+            f'<a href="#s{e(here.get("index"))}">step {e(here.get("index"))} →</a></p>' if here else "")
+    folded = (f' {tl["folded_steps"]} quiet step(s) folded (⋯); hover a fold for what it holds.'
+              if tl.get("folded_steps") else "")
+    meta = (f'<p class="muted">{len(tl.get("lanes") or [])} thread(s) · {len(tl.get("laps") or [])} lap(s) · '
+            f'{e(tl.get("basis"))} clock, {e(_secs(tl.get("span_s")))}.{folded} The trunk is the run: thinking on '
+            f'it, each tool call a branch, each sub-agent hanging off it. Every leaf opens its step.</p>')
+    opts = "".join(f'<option value="{e(r.id)}"{" selected" if r.id == vs else ""}>{e(r.summary.get("agent"))} · '
+                   f'{e(r.name)}{" (running)" if r.live else ""}</option>' for r in others)
+    picker = ""
+    if others:
+        picker = (f'<form method="get" action="/traces/{e(ref.id)}" class="filters" style="margin-top:10px">'
+                  f'<label class="muted" for="vs">compare with</label><select id="vs" name="vs"><option value="">—</option>'
+                  f'{opts}</select><select name="axis" aria-label="axis">'
+                  f'<option value="step"{" selected" if axis != "time" else ""}>by step</option>'
+                  f'<option value="time"{" selected" if axis == "time" else ""}>by time</option></select>'
+                  f'<button type="submit">Compare</button></form>')
+    pair = ""
+    if cmp:
+        d = cmp.get("diverged_at")
+        pair = (f'<h2>Two runs on one axis</h2><div class="card"><p class="note">{e(cmp["sentence"])}</p>'
+                f'{viz.trunk_svg([cmp["a"], cmp["b"]], cmp=cmp, axis=axis)}'
+                f'{viz.pair_timeline(cmp, axis=axis)}<p class="muted">A: {e(cmp["a"].get("agent"))} '
+                f'({e(cmp["a"]["look_here"]["sentence"] if cmp["a"].get("look_here") else "")}) · B: '
+                f'{e(cmp["b"].get("agent"))} ({e(cmp["b"]["look_here"]["sentence"] if cmp["b"].get("look_here") else "")})'
+                + (f' · <a href="#s{e(d)}">step {e(d)} →</a>' if d is not None else "") + '</p></div>')
+    trunk = viz.trunk_svg([tl], axis="time")
+    return (f'{note}<h2>On its clock</h2><div class="card">{meta}{trunk}{picker}</div>{pair}'
+            f'<h2>Every thread on its own lane</h2><div class="card">{viz.run_timeline(tl, live=ref.live)}</div>')
+
+
+def trace_panel(*, ref, data: dict, lap: dict, tl: Optional[dict] = None, cmp: Optional[dict] = None,
+                others: list = (), vs: str = "", axis: str = "step", every: bool = False) -> str:
     """The part of a trace's page that moves while it runs."""
     s = ref.summary
     steps = data.get("steps") or []
@@ -443,36 +505,59 @@ def trace_panel(*, ref, data: dict, lap: dict) -> str:
                    + '. Still running: the loop is drawn as far as it has gone, and judged when it ends.</p>')
     else:
         stuck = "stuck:" in (lap.get("summary") or "")
-        verdict = (f'<p class="note{" error" if stuck else " good" if lap.get("first_pass_lap") else ""}">'
+        ok = (data.get("outcome") or {}).get("success")
+        # the colour is the run's outcome, never the laps' alone: a check can pass on a run the grader failed
+        verdict = (f'<p class="note{" error" if stuck or ok is False else " good" if ok else ""}">'
                    f'{e(lap.get("summary"))}</p>')
     if (data.get("source") or {}).get("format") == "agentdiff-int":
         verdict += ('<p class="note">This trace came in-band: sizes, times and outcomes only. A check\'s pass or '
                     'fail is known only when the tool itself failed, and two laps count as the same when they '
                     'called the same tools, since the arguments never travelled.</p>')
-    return (f'{head}{verdict}'
-            f'<h2>The loop, lap by lap</h2><div class="card">{viz.lap_chart(lap)}</div>'
-            f'<h2>How it moved between tools</h2><div class="split"><div class="card">{viz.flow_ring(lap)}</div>'
-            f'<div class="card">{viz.lap_table(lap)}</div></div>'
-            f'<h2>Every step</h2><div class="card">{_steps_table(steps)}</div>')
+    clock = _clock_section(ref, tl, cmp, list(others), vs, axis) if tl else ""
+    focus = ((tl or {}).get("look_here") or {}).get("index")
+    laps_html = (f'<h2>The loop, lap by lap</h2><div class="card">{viz.lap_chart(lap)}</div>'
+                 f'<h2>How it moved between tools</h2><div class="split"><div class="card">{viz.flow_ring(lap)}</div>'
+                 f'<div class="card">{viz.lap_table(lap)}</div></div>')
+    if (lap.get("count") or 0) > 24:
+        # a long run's laps are on the timeline above; the full chart is one click away
+        laps_html = (f'<h2>How it moved between tools</h2><div class="split"><div class="card">{viz.flow_ring(lap)}</div>'
+                     f'<div class="card"><details><summary>All {e(lap.get("count"))} laps, as a chart and a table'
+                     f'</summary>{viz.lap_chart(lap)}{viz.lap_table(lap)}</details></div></div>')
+    title = "Every step" if len(steps) <= WINDOW_STEPS or every else "The steps that matter"
+    return (f'{head}{verdict}{clock}{laps_html}'
+            f'<h2>{title}</h2><div class="card">'
+            f'{_steps_table(steps, focus=focus, every=every, every_href=f"/traces/{ref.id}?steps=all#s0")}</div>')
 
 
-def trace_page(*, brand: str, user: str, csrf: str, ref, data: dict, lap: dict) -> str:
+def trace_page(*, brand: str, user: str, csrf: str, ref, data: dict, lap: dict, tl: Optional[dict] = None,
+               cmp: Optional[dict] = None, others: list = (), vs: str = "", axis: str = "step",
+               every: bool = False) -> str:
+    from .urls import quote
     s = ref.summary
-    body = (f'<p class="muted"><a href="/traces">Traces</a> / {e(ref.group)}</p>'
+    q = (f"?vs={quote(vs)}&axis={quote(axis)}" if vs else "")
+    body = (f'<p class="muted"><a href="/traces">Traces</a> / {e(ref.group)} · '
+            f'<a href="/timeline?g={e(quote(ref.group))}">every run here on one clock</a></p>'
             f'<h1>{e(s.get("task"))}</h1>'
-            f'<div data-live="/traces/{e(ref.id)}/panel" data-ids="{e(ref.id)}">{trace_panel(ref=ref, data=data, lap=lap)}</div>'
+            f'<div data-live="/traces/{e(ref.id)}/panel{e(q)}" data-ids="{e(ref.id)}">'
+            f'{trace_panel(ref=ref, data=data, lap=lap, tl=tl, cmp=cmp, others=others, vs=vs, axis=axis, every=every)}</div>'
             f'<p class="muted mono">{e(ref.path.name)} · <a href="/api/v1/traces/{e(ref.id)}">JSON</a></p>')
     return layout(str(s.get("task")), body, brand=brand, user=user, csrf=csrf, active="traces", live=ref.live)
 
 
 # ----------------------------------------------------------------- live
-def live_panel(*, refs: list, steps_of) -> str:
-    """Every running trace as a card: its rhythm so far, its loop so far."""
+def live_panel(*, refs: list, steps_of, ribbons_of=None) -> str:
+    """Every running trace as a card: its rhythm so far, its loop so far; and
+    every run of the last hour on one clock, the running ones growing."""
     now = time.time()
     running = [r for r in refs if r.live and now - r.updated <= STALL_S]
     stalled = [r for r in refs if r.live and now - r.updated > STALL_S]
     done = [r for r in refs if not r.live and now - r.updated <= 3600][:8]
     cards = []
+    if ribbons_of and (running or done):
+        shown = (running + done)[:24]
+        rows, links, labels = ribbons_of(shown)
+        cards.append(f'<div class="card"><p class="muted">Every run of the last hour on one clock; a running one '
+                     f'grows as it streams.</p>{viz.ribbons_svg(rows, links=links, labels=labels)}</div>')
     for r in running:
         s = r.summary
         steps = steps_of(r)
@@ -552,6 +637,46 @@ def evals_run_page(*, brand: str, user: str, csrf: str, entry: Entry, data: dict
     return layout(entry.title, body, brand=brand, user=user, csrf=csrf, active="evals")
 
 
+# ------------------------------------------------------------- timeline
+_WHERE = {"loop": "went round the same lap", "check": "ended on a failing check", "error": "left an error unrecovered",
+          "unchecked": "answered without a check", "end": "passed its own checks, failed the grader's"}
+
+
+def ribbon_group(name: str, rows: list, links: list, labels: list, scale: str) -> str:
+    failed = [r for r in rows if r["success"] is False and not r["in_progress"]]
+    running = sum(1 for r in rows if r["in_progress"])
+    kinds: dict = {}
+    for r in failed:
+        k = (r.get("look_here") or {}).get("kind")
+        if k in _WHERE:
+            kinds[k] = kinds.get(k, 0) + 1
+    where = "; ".join(f"{v} {_WHERE[k]}" for k, v in sorted(kinds.items(), key=lambda kv: -kv[1]))
+    note = (f'<p class="note error">Of the {len(failed)} that failed: {e(where)}.</p>' if where else "")
+    return (f'<h2>{e(name)} <span class="muted">· {len(rows)} run(s), {len(failed)} failed'
+            f'{f", {running} running" if running else ""}</span></h2>'
+            f'<div class="card">{note}{viz.ribbons_svg(rows, shared=scale != "own", links=links, labels=labels)}</div>')
+
+
+def timeline_page(*, brand: str, user: str, csrf: str, title: str, groups: list, scale: str, base_q: str,
+                  live: bool = False) -> str:
+    """Many runs at once: per group, one row per run on one clock."""
+    chips = "".join(f'<a href="/timeline?{e(base_q)}&scale={k}"{" class=on" if k == scale else ""}>{label}</a>'
+                    for k, label in (("shared", "one clock"), ("own", "each its own clock")))
+    blocks = []
+    n = 0
+    for name, rows, links, labels in groups:
+        n += len(rows)
+        blocks.append(ribbon_group(name, rows, links, labels, scale))
+    if not blocks:
+        blocks.append('<div class="card"><p class="muted">No runs here.</p></div>')
+    body = (f'<p class="muted"><a href="/traces">Traces</a></p><h1>{e(title)}</h1>'
+            f'<p class="sub">One row per run: its steps along its clock, coloured by what it was doing; a '
+            f'tick at the end of each lap (green: its check passed, red: failed); the ring is where to look first. '
+            f'A name opens the run.</p><div class="filters">{chips}</div>'
+            f'<div data-live="/timeline/panel?{e(base_q)}&scale={e(scale)}">{"".join(blocks)}</div>')
+    return layout(title, body, brand=brand, user=user, csrf=csrf, active="traces", live=live)
+
+
 # --------------------------------------------------------------- evolve
 def evolve_page(*, brand: str, user: str, csrf: str, entries: List[Entry], rivers: dict) -> str:
     blocks = []
@@ -625,7 +750,8 @@ def evolution_page(*, brand: str, user: str, csrf: str, entry: Entry, data: dict
             f'{"".join(weighed)}</div>'
             + (f'<h2>The evals that judged it</h2><div class="card">{viz.eval_river(ev)}<p>{e(ev.get("narrative"))}</p></div>'
                if ev.get("lineage") else "")
-            + f'<h2>Every run, by arm</h2>{arm_html or "<div class=card><p class=muted>No traces found under it.</p></div>"}'
+            + f'<h2>Every run, by arm <span class="muted">· <a href="/timeline?run={e(entry.id)}">every version on one '
+              f'clock →</a></span></h2>{arm_html or "<div class=card><p class=muted>No traces found under it.</p></div>"}'
             f'<p class="muted">A change is kept when it wins more tasks than it loses, the same tasks run the same '
             f'number of times, and no task goes from always passing to always failing. Every number is a count of '
             f'graded runs.</p>')

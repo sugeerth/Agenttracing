@@ -19,7 +19,7 @@ agentdiff fix                           # in your repo: two agents make its fail
 agentdiff "Add retries to the client"   # or any task in words, graded by the tests (docs/VENDORS.md)
 agentdiff demo --open                   # the 8 shipped pairs: out_demo/report.html and the verdict card
 agentdiff demo --everything -o out_all  # every view: pairs, training, lineages, a bundle, the key, MCP
-agentdiff self-evolve --task tasks.json --agent haiku   # agents, evals that judge them, a harness that changes itself on what they catch (docs/SELF_EVOLVE.md); agentdiff hub  # all of it, loops and live runs, signed in (demo/demo; docs/HUB.md)
+agentdiff self-evolve --task tasks.json --agent haiku   # agents, evals that judge them, a harness that changes itself on what they catch (docs/SELF_EVOLVE.md); agentdiff hub  # all of it, loops, timelines and live runs, signed in (demo/demo; docs/HUB.md); agentdiff timeline traces/  # where each run went wrong, on its clock
 ```
 
 The card the demo prints, every line quoting a section of the report:

@@ -176,7 +176,7 @@ def _summary(basis, rounds, checks, failed, passed_at, repeated, longest, stuck)
     if (b.get("repeats", 0) >= LOOP_TURNS or b.get("length", 0) >= LOOP_SPAN) and not passed_at:
         parts.append(f"stuck: a block of {b['period']} step(s) went round {b['repeats']} time(s) and never passed")
     elif stuck and stuck.get("looping") and passed_at:
-        parts.append("a call recurs often enough for the loop rule, yet the run converged")
+        parts.append(f"a call recurs often enough for the loop rule, though a check passed on lap {passed_at}")
     return "; ".join(parts) + "."
 
 

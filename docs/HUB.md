@@ -85,6 +85,58 @@ it, arguments and all, is marked as a repeat, and the stuck verdict is
 judged only when it ends. Every chart has a legend, a hover title per mark
 and a table beside it, so nothing is told by colour alone.
 
+## Timelines
+
+Every trace's page leads with the run as a **trunk** along its clock, the
+way the report page's body chart draws a run:
+- thinking sits on the trunk
+- each tool call is a branch ending in a leaf
+- each sub-agent hangs off the trunk where it first acted, as a branch of
+  its own
+- the laps are ticks across the trunk
+- crowded stretches gather into ×N bubbles, so a 566-step run stays legible
+- the step to look at is ringed
+
+Two runs face each other, A's branches up and B's down. The steps they
+share are joined, and the first difference is marked. Below the trunk,
+the same clock as lanes (`agentdiff/timeline.py`):
+- **Where to look first.** One step and one sentence, by rule:
+  - the longest stretch of laps that repeated the one before
+  - else the last failing check that no later check passed
+  - else an error the run never came back to
+  - else the answer of a run that never checked
+  - for a run that passed, its first passing check
+- **One lane per thread.** The root agent, then each sub-agent as it
+  first acts. Steps that overlap in time get lanes of their own, so a
+  fan-out shows as parallel bars.
+- **Laps as bands**, closed by a ✓ or ✗ check; a repeated lap is dashed.
+- **The clock.** A long run's quiet stretches (six or more steps with no
+  edit, check, error, answer or new thread, or idle time) fold to a short
+  segment that says what it holds. The clock basis is stated: recorded
+  from `started_s`, or reconstructed.
+- **Every bar opens its step.** Past 120 steps the table shows the
+  opening, the stretch around where to look and the ending; past 24 laps
+  the lap chart folds away.
+
+**Two runs.** `compare with` puts any run of the same task beside it,
+by step (the first different call is marked) or by time.
+
+**Many runs.** `/timeline` is one row per run on one clock (or each on
+its own): its steps as cells coloured by what it was doing, a tick per
+lap, the look-here ring. It works for a traces directory (`?g=`),
+everything under a run (`?run=`, so a self-evolving lineage shows
+every version's arm in order), or one task (`?task=`). Each group says
+what its failures have in common. A timeline page is always live: one
+opened before the runs start fills in as they stream.
+
+The same reading in a terminal:
+
+```bash
+agentdiff timeline run.json               # where to look, and timeline.html
+agentdiff timeline a.json b.json          # two runs, the first step they differ
+agentdiff timeline duel-out/traces g1/    # one line per failed run, and one row per run on the page
+```
+
 ## Live
 
 Two things move while agents run. A trace file grows on disk, frame by

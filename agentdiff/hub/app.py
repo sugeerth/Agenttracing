@@ -17,8 +17,11 @@ Routes::
     GET  /runs/<id>             one run: a duel, a report, a telemetry path, an eval suite
     GET  /runs/<id>/page        the report page the run wrote
     GET  /traces                every trace (?show=live|passed|failed|stuck, ?q=)
-    GET  /traces/<id>           one trace: its loop lap by lap, its flow, its steps
+    GET  /traces/<id>           one trace: on its clock (threads, laps, folds, where to look first), its
+                                loop lap by lap, its flow, its steps (?vs=<id>&axis=step|time: two runs)
     GET  /traces/<id>/panel     the part of that page that moves (for the live script)
+    GET  /timeline              many runs, one row each, on one clock (?g=<group>, ?run=<id>, ?task=, ?scale=)
+    GET  /timeline/panel        its moving part
     GET  /live                  every running trace, updating itself
     GET  /live/panel            its moving part
     GET  /evolve                every self-evolving harness: agents, evals, the changes tried
@@ -158,6 +161,8 @@ class App:
             ("GET", re.compile(r"^/traces$"), self.trace_index, True),
             ("GET", re.compile(rf"^/traces/{hexid}$"), self.trace, True),
             ("GET", re.compile(rf"^/traces/{hexid}/panel$"), self.trace_fragment, True),
+            ("GET", re.compile(r"^/timeline$"), self.timeline, True),
+            ("GET", re.compile(r"^/timeline/panel$"), self.timeline_fragment, True),
             ("GET", re.compile(r"^/live$"), self.live, True),
             ("GET", re.compile(r"^/live/panel$"), self.live_fragment, True),
             ("GET", re.compile(r"^/evolve$"), self.evolve, True),
@@ -316,31 +321,115 @@ class App:
             return None
         return ref, data, laps(data)
 
+    def _clock(self, req: Request, ref, data: dict) -> dict:
+        """The timeline, the runs it can be compared with, and the comparison asked for."""
+        from ..timeline import compare, timeline
+        query = parse_query(split(req.path)[1])
+        vs = query.get("vs", [""])[0]
+        axis = query.get("axis", ["step"])[0]
+        axis = axis if axis in ("step", "time") else "step"
+        task = ref.summary.get("task")
+        others = [r for r in self.traces.refs() if r.id != ref.id and r.summary.get("task") == task][:60]
+        cmp = None
+        if re.fullmatch(r"[0-9a-f]{12}", vs or ""):
+            other = next((r for r in others if r.id == vs), None) or self.traces.get(vs)
+            odata = self.traces.load(other) if other else None
+            if odata is not None:
+                cmp = compare(data, odata)
+        return {"tl": timeline(data), "cmp": cmp, "others": others, "vs": vs if cmp else "", "axis": axis,
+                "every": query.get("steps", [""])[0] == "all"}
+
     def trace(self, req: Request, session: Session, tid: str) -> Response:
         found = self._trace(tid)
         if found is None:
             return Response.html(self._page("Not found", "No trace by that id.", session), 404)
         ref, data, lap = found
-        return Response(200, views.trace_page(**self._common(session), ref=ref, data=data, lap=lap).encode("utf-8"),
-                        scripted=ref.live)
+        page = views.trace_page(**self._common(session), ref=ref, data=data, lap=lap, **self._clock(req, ref, data))
+        return Response(200, page.encode("utf-8"), scripted=ref.live)
 
     def trace_fragment(self, req: Request, session: Session, tid: str) -> Response:
         found = self._trace(tid)
         if found is None:
             return Response(404, b"", "text/html; charset=utf-8")
         ref, data, lap = found
-        return Response.html(views.trace_panel(ref=ref, data=data, lap=lap))
+        return Response.html(views.trace_panel(ref=ref, data=data, lap=lap, **self._clock(req, ref, data)))
+
+    # -------------------------------------------------------------- timeline
+    def _ribbons_of(self, refs: list):
+        from ..timeline import ribbons
+        rows, links, labels = [], [], []
+        for r in refs:
+            data = self.traces.load(r)
+            if data is None:
+                continue
+            got = ribbons([data])
+            if not got:
+                continue
+            rows.append(got[0])
+            links.append(f"/traces/{r.id}")
+            run = r.summary.get("run")
+            labels.append(f"{r.summary.get('task')} · {r.summary.get('agent')}" + (f" · {run}" if run else
+                                                                                    f" · {r.name.rsplit('__', 1)[-1]}"))
+        return rows, links, labels
+
+    def _timeline_groups(self, req: Request):
+        query = parse_query(split(req.path)[1])
+        scale = query.get("scale", ["shared"])[0]
+        scale = scale if scale in ("shared", "own") else "shared"
+        task = query.get("task", [""])[0][:120]
+        refs = self.traces.refs()
+        title, base = "Every run on one clock", []
+        run = query.get("run", [""])[0]
+        groups_wanted = [g for g in query.get("g", []) if g][:12]
+        if re.fullmatch(r"[0-9a-f]{12}", run or ""):
+            entry = self.catalog.get(run)
+            if entry is not None:
+                refs = [r for r in refs if _under(r.path, entry.path)]
+                title = entry.title
+                base.append(f"run={run}")
+        elif groups_wanted:
+            refs = [r for r in refs if r.group in groups_wanted]
+            title = groups_wanted[0] if len(groups_wanted) == 1 else f"{len(groups_wanted)} groups"
+            base += [f"g={quote(g)}" for g in groups_wanted]
+        if task:
+            refs = [r for r in refs if r.summary.get("task") == task]
+            base.append(f"task={quote(task)}")
+            title += f" · {task}"
+        by: Dict[str, list] = {}
+        for r in refs[:400]:
+            by.setdefault(r.group, []).append(r)
+        groups = []
+        # oldest version first: g0-h0 before g1-h1, so the history reads down the page
+        for g in sorted(by):
+            rs = sorted(by[g], key=lambda r: (str(r.summary.get("task")), str(r.summary.get("agent")), r.name))
+            rows, links, labels = self._ribbons_of(rs)
+            groups.append((g, rows, links, labels))
+        live = any(r.live for r in refs)
+        return title, groups, scale, "&".join(base) or "all=1", live
+
+    def timeline(self, req: Request, session: Session) -> Response:
+        title, groups, scale, base, live = self._timeline_groups(req)
+        # always live: a page opened before its runs exist fills in as they start
+        page = views.timeline_page(**self._common(session), title=title, groups=groups, scale=scale, base_q=base,
+                                   live=True)
+        return Response(200, page.encode("utf-8"), scripted=True)
+
+    def timeline_fragment(self, req: Request, session: Session) -> Response:
+        title, groups, scale, base, live = self._timeline_groups(req)
+        html = "".join(views.ribbon_group(name, rows, links, labels, scale) for name, rows, links, labels in groups)
+        return Response.html(html)
 
     def _steps_of(self, ref) -> list:
         data = self.traces.load(ref) or {}
         return list(data.get("steps") or [])
 
     def live(self, req: Request, session: Session) -> Response:
-        panel = views.live_panel(refs=self.traces.refs(), steps_of=self._steps_of)
+        panel = views.live_panel(refs=self.traces.refs(), steps_of=self._steps_of, ribbons_of=self._ribbons_of)
         return Response(200, views.live_page(**self._common(session), panel=panel).encode("utf-8"), scripted=True)
 
     def live_fragment(self, req: Request, session: Session) -> Response:
-        return Response.html(views.live_panel(refs=self.traces.refs(), steps_of=self._steps_of))
+        return Response.html(views.live_panel(refs=self.traces.refs(), steps_of=self._steps_of,
+                                              ribbons_of=self._ribbons_of))
 
     def api_traces(self, req: Request, session: Session) -> Response:
         return Response.json({"traces": [{"id": r.id, "group": r.group, "name": r.name, "live": r.live,
