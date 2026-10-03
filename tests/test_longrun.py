@@ -469,9 +469,9 @@ if __name__ == "__main__":
 
 
 class ExportTest(unittest.TestCase):
-    """The hub as static files, for a private static host."""
+    """The hub as static files, every part of it, for a private static host."""
 
-    def test_every_page_is_written_linked_and_nothing_secret_leaves(self):
+    def test_every_page_is_written_linked_signed_in_and_nothing_secret_leaves(self):
         from agentdiff.hub.export import export
         from test_hub_live import _root
         with tempfile.TemporaryDirectory() as tmp:
@@ -481,21 +481,30 @@ class ExportTest(unittest.TestCase):
             counts = export(str(root), str(out), bare_index=True, title="Test Hub")
             self.assertGreater(counts["pages"], 10)
             names = {p.name for p in out.iterdir()}
+            for want in ("index.html", "login.html", "account.html", "live.html", "evolve.html", "evals.html"):
+                self.assertIn(want, names)
             index = (out / "index.html").read_text()
-            self.assertTrue(index.startswith("<title>Test Hub</title><style>"), "a bare index for a host's shell")
-            self.assertNotIn("<html", index)
-            for page in (out / n for n in names if n.endswith(".html")):
+            self.assertNotIn("<html", index, "a bare index for a host's shell")
+            self.assertIn("<title>Test Hub</title>", index[:8000])
+            login = (out / "login.html").read_text()
+            self.assertIn('id="signin"', login)
+            self.assertNotIn('name="csrf"', login)
+            for page in (out / n for n in names if n.endswith(".html") and not n.endswith("-page.html")):
                 html = page.read_text()
                 self.assertNotIn('href="/', html, f"{page.name}: every hub link points at a file")
                 self.assertNotIn("ingest-secret-token", html)
+                if page.name != "login.html":
+                    self.assertIn("location.replace('login.html')", html, f"{page.name} asks for a sign-in")
                 for target in re.findall(r'href="([^"#]+\.html)', html):
                     self.assertIn(target, names, f"{page.name} links to {target}, which was not written")
             long_page = next(n for n in names if n.endswith(".phases.html") and
                              "ledger" in (out / n).read_text()[:3000])
             html = (out / long_page).read_text()
-            self.assertIn('data-lens="lens-', html)
+            self.assertIn('data-lens-inline="lens-data"', html, "the lens carries its data")
             self.assertIn("Lens.prototype.fish", html, "the lens is inlined")
-            self.assertIn('#burst-', html, "a burst link moves the lens")
+            self.assertIn("#burst-", html, "a burst link moves the lens")
             self.assertIn(':root[data-theme="dark"]', html, "dark follows the viewer's choice too")
-            lens = json.loads((out / re.search(r'data-lens="(lens-[0-9a-f]+\.json)"', html).group(1)).read_text())
-            self.assertTrue(lens["phases"])
+            data = re.search(r'<script type="application/json" id="lens-data">(.*?)</script>', html, re.S).group(1)
+            self.assertTrue(json.loads(data)["phases"])
+            live = (out / "live.html").read_text()
+            self.assertIn('data-replay="1"', live, "Live replays the longest run")

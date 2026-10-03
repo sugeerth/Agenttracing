@@ -149,17 +149,24 @@ with idle between them, under `agentdiff guard`, reads as three bursts
 
 ## The hub as static files
 
-`agentdiff hub ROOT --export DIR` writes every page of the hub as files:
-- the Overview, runs, traces, timelines, evolve and evals
-- each trace's page, its phases page with the lens, and for a big run a
-  page with every panel drawn
-- the JSON of each trace and of each lens
+`agentdiff hub ROOT --export DIR` writes every part of the hub as linked
+files, for a private static host.
 
-Links point at the files. The lens script is inlined, and burst links
-move the lens (`#burst-N`). The hub's ingest token is never written.
-Signing in, live updates and the compare picker need the hub itself, and
-each page says so.
+- **Sign-in first.** The hub's sign-in page checks the demo account in
+  the page and keeps the name in the tab's session storage. Every other
+  page sends a visitor without it back to sign-in, and *Sign out* clears
+  it. This makes the copy work like the hub; it is not a lock. Keep the
+  copy private, as its host does.
+- **Every section:** the Overview, runs with each run's own report page,
+  traces, timelines, Live, Evolve, Evals and Account.
+- **Every trace:** its page, its phases page with the lens and its data
+  inline, and for a big run a page with every panel drawn. Burst links
+  move the lens (`#burst-N`).
+- **Live** replays the longest run under the root as it grew, phase by
+  phase. Pause it, then move through it.
 
+The hub's ingest token is never written. Live updates, the compare picker
+and changing a password need the hub itself, and each page says so.
 `--bare-index` writes `index.html` without its document shell, for a host
 that adds its own (a private Claude artifact). The theme follows the
 viewer's choice as well as the system's.

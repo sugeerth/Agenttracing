@@ -87,8 +87,8 @@ def run(args: argparse.Namespace) -> int:
     if args.export:
         from ..hub.export import export
         counts = export(args.root, args.export, bare_index=args.bare_index, title=args.title)
-        print(f"wrote {counts['pages']} page(s) and {counts['data']} data file(s) to {args.export}; "
-              f"open {os.path.join(args.export, 'index.html')}")
+        print(f"wrote {counts['pages']} page(s) to {args.export}; open {os.path.join(args.export, 'login.html')} "
+              f"(demo / demo)")
         return 0
     if not is_loopback(config.host) and not args.allow_remote:
         print(f"error: refusing to serve on {config.host}: the hub shows every run under {config.root}, "

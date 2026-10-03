@@ -94,8 +94,44 @@
     else if (here) start = this.phaseOfIndex(here.index);
     this.f = Math.max(0, Math.min(this.phases.length - 1, start));
     this.build();
+    if (root.dataset.replay) this.replay();
     this.layout();
   }
+
+  // ------------------------------------------------------------ replay
+  // a finished run played back as it grew: steps arrive in order, the tape
+  // follows the newest phase, idle passes in a moment
+  Lens.prototype.replay = function () {
+    var self = this, seq = [];
+    this.phases.forEach(function (p) { p.calls.forEach(function (x) { seq.push(x); }); });
+    seq.sort(function (a, b) { return a.s - b.s || a.i - b.i; });
+    if (!seq.length) return;
+    this.seq = seq; this.k = 0; this.T = -1; this.playing = true;
+    var bar = this.root.querySelector(".lens-bar");
+    var btn = this.playB = h("button", "lens-btn", "❚❚ pause", null);
+    bar.insertBefore(btn, this.nextB.nextSibling);
+    btn.addEventListener("click", function () {
+      if (self.k >= seq.length) { self.k = 0; self.T = -1; self.playing = true; }
+      else self.playing = !self.playing;
+      btn.textContent = self.playing ? "❚❚ pause" : "▶ play";
+    });
+    var per = Math.max(1, Math.round(seq.length / 450));
+    this.timer = setInterval(function () {
+      if (!self.playing) return;
+      self.k = Math.min(seq.length, self.k + per);
+      self.T = seq[self.k - 1].s;
+      var last = 0;
+      self.phases.forEach(function (p, j) { if (p.kind !== "idle" && p.from <= self.T) last = j; });
+      if (!self.anim && !self.drag) self.f += (last - self.f) * 0.25;
+      if (self.k >= seq.length) { self.playing = false; btn.textContent = "↺ replay"; self.T = null; self.f = last; }
+      self.layout();
+    }, 110);
+  };
+  Lens.prototype.reached = function (p) {
+    if (this.T == null) return true;
+    var t = p.from != null ? p.from : p.t;
+    return t <= this.T;
+  };
 
   Lens.prototype.phaseOfIndex = function (index) {
     for (var k = 0; k < this.phases.length; k++) {
@@ -231,6 +267,7 @@
 
   Lens.prototype.key = function (ev) {
     if (ev.target && /INPUT|SELECT|TEXTAREA/.test(ev.target.tagName)) return;
+    if (this.playing && /Arrow|Home|End|\[|\]/.test(ev.key)) { this.playing = false; if (this.playB) this.playB.textContent = "▶ play"; }
     var k = Math.round(this.f);
     if (ev.key === "ArrowRight") { this.go(k + 1); ev.preventDefault(); }
     else if (ev.key === "ArrowLeft") { this.go(k - 1); ev.preventDefault(); }
@@ -293,9 +330,11 @@
   // ------------------------------------------------------------ layout
   Lens.prototype.widths = function () {
     var f = this.f, out = [], total = 0;
+    var self = this;
     this.phases.forEach(function (p, k) {
       var d = Math.abs(k - f);
       var fade = d >= 3.6 ? 0 : d <= 2.6 ? 1 : (3.6 - d);   // beyond three phases: scrolled out
+      if (!self.reached(p)) fade = 0;                        // a replay has not got there yet
       var w = p.base * (0.18 + 3.4 * Math.exp(-d * d / 0.55)) * fade;
       out.push(w); total += w;
     });
@@ -320,7 +359,7 @@
     var before = 0, after = 0;
     this.phases.forEach(function (ph, k) {
       var a = self.fish(xs[k][0]), b = self.fish(xs[k][1]), w = b - a;
-      if (w < 0.6) { if (k < f) before++; else if (k > f) after++; return; }
+      if (w < 0.6) { if (k < f) before++; else if (k > f && self.reached(ph)) after++; return; }
       var cls = ph.kind === "idle" ? "idle" : ph.kind === "loop" ? "loop" : ph.kind === "filler" ? "filler" :
         (ph.status === "progress" || ph.status === "done") ? "prog" : (ph.fails ? "fail" : "work");
       var r = el("rect", {x: a, y: TOP - 24, width: Math.max(0.5, w - 1), height: 16, rx: 3,
@@ -344,7 +383,7 @@
     var laneEnd = TOP + LANE * LANES.length, labels = [];
     this.marks.forEach(function (m) {
       var ph = m._p, k = ph.i, a = xs[k][0], b = xs[k][1], w = b - a;
-      if (w < 0.6) { m.setAttribute("display", "none"); return; }
+      if (w < 0.6 || (self.T != null && m._x.s > self.T)) { m.setAttribute("display", "none"); return; }
       m.removeAttribute("display");
       var x = m._x, n = ph.calls.length, j = m._j, x0, x1;
       if (self.pace === "even") { x0 = a + w * j / n; x1 = a + w * (j + 1) / n; }
@@ -376,6 +415,7 @@
       var a = xs[k][0], b = xs[k][1], w = b - a;
       if (w < 0.6 || !ph.events) return;
       ph.events.forEach(function (ev) {
+        if (self.T != null && ev.t > self.T) return;
         var j = 0;
         for (var q = 0; q < ph.calls.length; q++) if (ph.calls[q].i === ev.index) { j = q; break; }
         var x = self.fish(self.pace === "even" ? a + w * (j + 0.5) / ph.calls.length :
@@ -391,7 +431,9 @@
     foot.textContent = this.pace === "even" ? "pace: even — every call the same width inside its phase" :
       "pace: clock — each phase on its own clock";
     // the title, the buttons
-    this.title.textContent = "Phase " + (f + 1) + " of " + this.phases.length + " · " + this.phaseText(p);
+    this.title.textContent = (this.T != null && this.seq ? "Replaying · " + when(this.T, this.start) + " · " +
+      this.k.toLocaleString() + " of " + this.seq.length.toLocaleString() + " steps · " : "") +
+      "Phase " + (f + 1) + " of " + this.phases.length + " · " + this.phaseText(p);
     this.prevB.disabled = f <= 0; this.nextB.disabled = f >= this.phases.length - 1;
     this.mini(xs, f);
     if (this.mx != null) this.lensAt(this.mx, true);
@@ -425,6 +467,7 @@
       var cls = p.kind === "idle" ? "idle" : p.kind === "loop" ? "loop" : p.fails ? "fail" :
         (p.status === "progress" || p.status === "done") ? "prog" : "work";
       var r = el("rect", {x: x, y: 4, width: Math.max(0.5, w - 1), height: 9, "class": "lens-ph " + cls}, g);
+      if (!self.reached(p)) r.setAttribute("opacity", "0.15");   // a replay has not got there yet
       r._phase = k;
       if (xs[k][1] - xs[k][0] >= 0.6) { if (lo == null) lo = x; hi = x + w; }
       x += w;
