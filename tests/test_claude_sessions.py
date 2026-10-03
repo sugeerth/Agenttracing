@@ -313,6 +313,8 @@ class SecondStartTest(unittest.TestCase):
             finally:
                 first.terminate()
                 first.wait(timeout=20)
+            port = self._free_port()            # a fresh one: the first is in TIME_WAIT a while
+            (root / ".agentdiff-hub" / "hub.json").write_text(json.dumps({"port": port}))
             held = socket.socket()
             held.bind(("127.0.0.1", port))
             held.listen(1)
