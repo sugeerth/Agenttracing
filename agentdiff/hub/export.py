@@ -137,7 +137,7 @@ def export(root: str, out: str, *, bare_index: bool = False, title: Optional[str
     user, password = app.demo_account()
     page = app.handle(Request("GET", "/login")).body.decode()
     token = re.search(r'name="csrf" value="([^"]+)"', page).group(1)
-    from urllib.parse import quote
+    from .urls import quote
     body = f"csrf={quote(token)}&user={quote(user)}&password={quote(password)}&next=/".encode()
     resp = app.handle(Request("POST", "/login", body=body))
     headers = {"Cookie": resp.headers["Set-Cookie"].split(";")[0]}
