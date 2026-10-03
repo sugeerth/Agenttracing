@@ -1,0 +1,57 @@
+name: binaries
+
+# agentdiff to download and run: one file for any OS with Python 3.10+
+# (agentdiff.pyz), and a standalone binary per OS that needs no Python.
+# Built on every change to the packaging, on a tag, or by hand; the files
+# are this run's artifacts.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+    paths: ["packaging/**", ".github/workflows/binaries.yml"]
+
+jobs:
+  pyz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Build agentdiff.pyz
+        run: python packaging/build.py --dist dist
+      - name: It runs from anywhere
+        run: |
+          cd "$RUNNER_TEMP"
+          python "$GITHUB_WORKSPACE/dist/agentdiff.pyz" --version
+          python "$GITHUB_WORKSPACE/dist/agentdiff.pyz" timeline --help > /dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agentdiff.pyz
+          path: dist/agentdiff.pyz
+
+  binary:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, macos-13, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the binary
+        run: |
+          python -m pip install pyinstaller
+          python packaging/build.py --binary --dist dist
+      - name: It runs without Python
+        shell: bash
+        run: |
+          bin=$(ls dist/agentdiff-* | head -1)
+          "$bin" --version
+          "$bin" timeline "$PWD/demo/loops/traces/parse_duration__agent-stuck.json" -o "$RUNNER_TEMP/t.html"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agentdiff-${{ runner.os }}-${{ runner.arch }}
+          path: dist/agentdiff-*

@@ -62,7 +62,8 @@ def _enabled(args) -> tuple:
 
 def _command(args, traces: str) -> str:
     pkg = Path(__file__).resolve().parents[2]
-    parts = [shlex.quote(sys.executable), "-m", "agentdiff", "guard"]
+    frozen = bool(getattr(sys, "frozen", False))  # a standalone binary is the command itself
+    parts = [shlex.quote(sys.executable)] + ([] if frozen else ["-m", "agentdiff"]) + ["guard"]
     if args.check:
         parts += ["--check", shlex.quote(args.check)]
     if args.protect_tests:
@@ -75,6 +76,8 @@ def _command(args, traces: str) -> str:
         parts += ["--max-stop-blocks", str(args.max_stop_blocks)]
     if traces:
         parts += ["--traces", shlex.quote(traces)]
+    if frozen:
+        return " ".join(parts)
     # run from wherever this agentdiff is, installed or a clone
     return f"PYTHONPATH={shlex.quote(str(pkg))}${{PYTHONPATH:+:$PYTHONPATH}} " + " ".join(parts)
 

@@ -5,6 +5,22 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## agentdiff to download and run
+
+`packaging/build.py` builds two things:
+- **`agentdiff.pyz`:** one file for any OS with Python 3.10 or later. It
+  unpacks itself once to a cache folder named after its contents, so its
+  pages and scripts are real files.
+- **With `--binary`, a standalone executable per OS** (PyInstaller) that
+  needs no Python.
+
+Both carry example runs: long runs over days, a loop and its fix, a duel,
+an RL policy. `agentdiff hub --examples --open` serves them and opens the
+browser. A frozen build's `guard --install` hook calls the binary itself.
+`.github/workflows/binaries.yml` builds the archive and the binaries for
+Linux, macOS (arm64 and x86_64) and Windows, and checks that each one
+runs.
+
 ## Every view in a tab, the reason, and the steps that change the agent
 
 A trace's page is now tabs, with no script (`:target`). It opens on

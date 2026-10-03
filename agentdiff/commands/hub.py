@@ -19,6 +19,7 @@ import argparse
 import getpass
 import os
 import sys
+from typing import Optional
 
 __all__ = ["register", "run"]
 
@@ -37,6 +38,9 @@ def register(subparsers) -> None:
     parser.add_argument("--add-user", default=None, metavar="NAME", help="add or reset a user, then exit")
     parser.add_argument("--remove-user", default=None, metavar="NAME", help="remove a user, then exit")
     parser.add_argument("--verbose", action="store_true", help="log every request")
+    parser.add_argument("--examples", action="store_true",
+                        help="serve the example runs a downloaded build carries (long runs, a loop, a duel, RL)")
+    parser.add_argument("--open", action="store_true", help="open the hub in the browser once it listens")
     parser.add_argument("--export", default=None, metavar="DIR",
                         help="write every page as static files into DIR (for a private static host), then exit")
     parser.add_argument("--title", default=None, help="--export: the hub's name on its pages")
@@ -73,9 +77,29 @@ def _users(args, config) -> int:
     return 0
 
 
+def _examples() -> Optional[str]:
+    """The example runs a build carries, copied once to a folder the hub may write to."""
+    import shutil
+    from pathlib import Path
+    src = Path(__file__).resolve().parents[1] / "_examples"
+    if not src.is_dir():
+        return None
+    home = Path(os.environ.get("AGENTDIFF_EXAMPLES") or Path.home() / ".agentdiff" / "examples")
+    if not home.is_dir():
+        shutil.copytree(src, home)
+    return str(home)
+
+
 def run(args: argparse.Namespace) -> int:
     from ..hub.config import load
     from ..harness.watch import is_loopback
+    if args.examples:
+        root = _examples()
+        if root is None:
+            print("error: this install carries no examples; a downloaded build does (packaging/build.py), or pass "
+                  "a directory of runs", file=sys.stderr)
+            return 2
+        args.root = root
     try:
         config = load(args.root, file=args.config,
                       overrides={"host": args.host, "port": args.port, "demo": args.demo})
@@ -110,6 +134,10 @@ def run(args: argparse.Namespace) -> int:
     print(f"  agents post telemetry: AGENTDIFF_HUB={app.public_url} AGENTDIFF_HUB_TOKEN={app.ingest_token}")
     print(f"  live: {app.public_url}/live follows every run under the root as it goes")
     print("  Ctrl-C to stop", flush=True)
+    if args.open:
+        import threading
+        import webbrowser
+        threading.Timer(0.6, webbrowser.open, args=(f"{app.public_url}/login",)).start()
     poller = TracePoller(app.traces, app.bus, config.live_poll_s).start()
     try:
         server.serve_forever(poll_interval=0.5)
