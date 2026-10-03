@@ -73,7 +73,7 @@ def main() -> int:
     ap.add_argument("--binary", action="store_true", help="also build the standalone binary (needs PyInstaller)")
     ap.add_argument("--dist", default=str(ROOT / "dist"))
     args = ap.parse_args()
-    dist = Path(args.dist)
+    dist = Path(args.dist).resolve()  # PyInstaller reads relative data paths from its spec folder
     dist.mkdir(parents=True, exist_ok=True)
     p = pyz(dist / "agentdiff.pyz")
     print(f"{p}  ({p.stat().st_size / 1e6:.1f} MB): python3 {p.name} hub --examples --open")

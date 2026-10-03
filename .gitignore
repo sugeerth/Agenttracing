@@ -15,6 +15,9 @@ out_holistic/
 *.egg-info/
 build/
 dist/
+pyi-work/
+stage-bin/
+stage-pyz/
 
 # The page, copied under the package by `web/build_blocks.py` so a wheel can
 # ship it. `web/blocks.html` is the committed artifact; this is its build copy.
