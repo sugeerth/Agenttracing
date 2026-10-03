@@ -1,28 +1,29 @@
-"""Long runs, drawn as one trail: hours and days at the scale they ran.
+"""Long runs, drawn: hours and days at the scale they ran.
 
-One ink, and the shape says it. The run is a trunk along its clock; a burst
-is a branch whose length and leaf grow with its calls, filled when it moved
-forward; failed checks hang below the trunk; a loop of bursts is one arc
-over its stretch; the idle between sessions is a dotted gap that says how
-long it was; checkpoints are dots on the trunk; where to look first is
-ringed.
+- :func:`long_overview` — the whole run on one line. Idle between sessions
+  is compressed to a break that says how long it was; inside a session
+  the clock is true. Rows: the sessions, the bursts coloured by how they
+  went, every call as a density of activity, the checks, then the loop
+  and the stall as brackets. Every burst opens its calls.
+- :func:`rhythm_grid` — a row per day, a column per hour (for a run of
+  hours, a row per hour and a column per 5 minutes): when it worked,
+  when it failed, when it moved forward.
+- :func:`chapters_table` — the run's story as rows. A loop of bursts is
+  one row, a stretch of filler (bursts with no check changing) is one
+  row, and idle is a divider.
+- :func:`burst_calls` — every call of one burst, or of one time range:
+  on its clock in a lane per activity, then in order at an even pace,
+  with lines that show where the clock ran fast or slow.
+- :func:`pace_chart` — calls, seconds per call and tokens per step over
+  the run, as three small charts, each on its own axis.
+- :func:`phase_treemap` — where the working time went: a box per phase
+  (a burst, or a loop of bursts), a tile per tool, area by seconds.
+- :func:`diff_timeline` — two long runs aligned at the checkpoints they
+  share, their tool use mirrored above and below the line.
 
-- :func:`long_overview` — the whole run, or one stretch of it, as that trail.
-- :func:`burst_calls` — every call of a burst, or of a stretch: on its
-  clock, then in order at an even pace, a faint line joining the two.
-- :func:`chapters_table` — the story as rows: a loop is one row, filler is
-  one row, idle is a divider.
-- :func:`rhythm_grid` — a row per day, a column per hour; darker, more calls.
-- :func:`pace_chart` — calls, seconds per call, tokens per step, each on its
-  own axis.
-- :func:`phase_treemap` — where the working time went: a box per phase, a
-  tile per tool, area by seconds, darker where its calls failed.
-- :func:`diff_timeline` — two long runs cut at the checkpoints they share,
-  one above the line and one below.
-
-Server-side SVG, no script needed. The hub's ``longview.js`` adds the lens:
-the same trail as a tape of phases, a fisheye round the pointer, and
-moving phase by phase (``agentdiff/hub/static/longview.js``).
+Server-side SVG, no script needed. The hub's ``longview.js`` adds the lens
+on top: a fisheye with a halo round the cursor, and phase-by-phase
+navigation (``agentdiff/hub/static/longview.js``).
 """
 
 from __future__ import annotations
@@ -30,14 +31,28 @@ from __future__ import annotations
 import bisect
 import difflib
 import math
+from collections import Counter
 from typing import Dict, List, Optional
 
 from ..longrun import check_key, dur, when
-from .viz import e
+from .viz import ACTIVITIES, _DARK_GLYPH, e, legend
 
 __all__ = ["long_overview", "rhythm_grid", "chapters_table", "burst_calls", "pace_chart", "phase_treemap",
            "diff_timeline", "phases", "STATUS", "Axis", "lens_payload"]
 
+#: burst status -> (fill, glyph, what it means)
+STATUS = {
+    "progress": ("var(--sg)", "✓", "progress: a check started passing"),
+    "regressed": ("var(--sc)", "✗", "regressed: a check that passed now fails"),
+    "stuck": ("var(--sc)", "↻", "stuck: repeats an earlier burst, or the same failing call"),
+    "failing": ("var(--sc)", "!", "checks failing, nothing repeated"),
+    "done": ("var(--sg)", "■", "answered"),
+    "working": ("var(--an)", "", "working: edits and runs"),
+    "exploring": ("var(--at)", "", "reading"),
+}
+_MINOR = ' style="stroke-opacity:.5"'
+_BAD_EDGE = ' style="stroke:var(--sc);stroke-width:2"'
+_ORDER = ("explore", "research", "plan", "think", "edit", "run", "verify", "delegate", "other")
 _TICKS = (60, 300, 900, 1800, 3600, 2 * 3600, 3 * 3600, 6 * 3600, 12 * 3600, 86400)
 
 
@@ -130,6 +145,248 @@ def _fit(text: str, px: float, char: float = 6.3) -> str:
     return text if len(text) <= n else (text[: max(0, n - 1)] + "…" if n > 3 else "")
 
 
+def long_overview(r: dict, items: List[dict], *, width: int = 980, base: str = "", t0: Optional[float] = None,
+                  t1: Optional[float] = None, live: bool = False) -> str:
+    """The whole run (or ``t0``..``t1`` of it) on one line: sessions, bursts,
+    every call as a density, checks, the loop and the stall."""
+    if not r.get("bursts"):
+        return '<p class="muted">No steps to draw.</p>'
+    left, right = 70, 12
+    x0, x1 = left, width - right
+    zoom = t0 is not None
+    axis = Axis(r["sessions"], x0, x1, t0=t0, t1=t1)
+    lo, hi = (t0, t1) if zoom else (0.0, r["span_s"])
+    sa = r.get("started_at")
+    span = r["span_s"]
+    y_s, y_b, y_d, d_h, y_c = 22, 44, 70, 62, 152
+    y_br = 172
+    height = 220
+    out = [f'<svg class="viz soft long" viewBox="0 0 {width} {height}" width="{width}" role="img" '
+           f'aria-label="{e(r.get("sentence"))}">']
+    # the clock
+    for x, lab, major in _ticks(axis, sa, span):
+        out.append(f'<line class="grid" x1="{x:.1f}" x2="{x:.1f}" y1="{y_s - 4}" y2="{y_c + 10}"'
+                   f'{_MINOR if not major else ""}/>'
+                   f'<text x="{x + 2:.1f}" y="12" style="font-size:10px{";font-weight:700" if major else ""}">{e(lab)}</text>')
+    for lab, y in (("sessions", y_s + 12), ("bursts", y_b + 13), ("calls", y_d + d_h / 2 + 4), ("checks", y_c + 4)):
+        out.append(f'<text x="4" y="{y}" style="font-size:10px">{lab}</text>')
+    # sessions, and the idle between them
+    for s, (a, b, xa, xb) in zip(r["sessions"] if not zoom else [], axis.parts):
+        lab = _fit(f"S{s['n']} · {when(s['from'], sa, span)} · {s['calls']:,} calls", xb - xa - 6)
+        out.append(f'<a href="{e(base)}&amp;session={s["n"]}#p-long"><rect class="hot" x="{xa:.1f}" y="{y_s}" '
+                   f'width="{max(1.0, xb - xa):.1f}" height="16" rx="3" style="fill:var(--grid);opacity:.85">'
+                   f'<title>session {s["n"]}: {e(when(s["from"], sa, span))} to {e(when(s["to"], sa, span))}, '
+                   f'{e(dur(s["seconds"]))} ({e(dur(s["active_s"]))} working), {s["calls"]:,} calls in '
+                   f'{len(s["bursts"])} burst(s); {s["progress"]} step(s) forward, {s["stuck"]} burst(s) stuck — '
+                   f'open it</title></rect></a>'
+                   f'<text x="{xa + 4:.1f}" y="{y_s + 12}" style="font-size:10px;pointer-events:none">{e(lab)}</text>')
+    for g0, g1, ga, gb in axis.gaps:
+        mid = (ga + gb) / 2
+        out.append(f'<g aria-label="idle {e(dur(g1 - g0))}"><path d="M{mid - 5:.1f},{y_b + 22} l6,-22 M{mid + 1:.1f},{y_b + 22} l6,-22" '
+                   f'style="stroke:var(--ink2);stroke-width:1.5;fill:none"/>'
+                   f'<text x="{mid:.1f}" y="{y_d + 14}" text-anchor="middle" style="font-size:9.5px">{e(dur(g1 - g0))}</text>'
+                   f'<text x="{mid:.1f}" y="{y_d + 26}" text-anchor="middle" style="font-size:9.5px">idle</text>'
+                   f'<title>{e(dur(g1 - g0))} with no step at all, from {e(when(g0, sa, span))} to '
+                   f'{e(when(g1, sa, span))}</title></g>')
+    # bursts, by how they went
+    for b in r["bursts"]:
+        if b["to"] < lo or b["from"] > hi:
+            continue
+        xa = axis(max(lo, b["from"]))
+        w = max(1.5, axis(min(hi, b["to"])) - xa)
+        fill, glyph, what = STATUS.get(b["status"], STATUS["working"])
+        op = ".5" if b["status"] == "failing" else "1"
+        out.append(f'<a href="{e(base)}&amp;burst={b["n"]}#p-long"><rect class="hot" x="{xa:.1f}" y="{y_b}" width="{w:.1f}" '
+                   f'height="20" rx="2" style="fill:{fill};opacity:{op}"><title>burst {b["n"]} · '
+                   f'{e(when(b["from"], sa, span))} · {e(dur(b["seconds"]))} · {b["calls"]:,} calls · {e(what)}'
+                   + (f' · {e(b["note"])}' if b["note"] else "") + ' — open its calls</title></rect></a>')
+        if w >= 12 and glyph:
+            out.append(f'<text class="g" x="{xa + w / 2:.1f}" y="{y_b + 14}" text-anchor="middle">{glyph}</text>')
+    # every call, as a density of activity per 2px column
+    col = 2.0
+    n_bins = int((x1 - x0) / col) + 1
+    bins: List[Counter] = [Counter() for _ in range(n_bins)]
+    checks = [[0, 0] for _ in range(n_bins)]
+    t_of: List[list] = [[] for _ in range(n_bins)]
+    for x in items:
+        if x["start"] < lo or x["start"] > hi:
+            continue
+        k = min(n_bins - 1, max(0, int((axis(x["start"]) - x0) / col)))
+        bins[k][x["activity"]] += 1
+        t_of[k].append(x["start"])
+        if x["check"] is True:
+            checks[k][0] += 1
+        elif x["check"] is False or x["error"]:
+            checks[k][1] += 1
+    most = max((sum(c.values()) for c in bins), default=0) or 1
+    paths: Dict[str, list] = {}
+    for k, c in enumerate(bins):
+        if not c:
+            continue
+        xb, yb = x0 + k * col, y_d + d_h
+        for act in _ORDER:
+            n = c.get(act)
+            if not n:
+                continue
+            h = d_h * n / most
+            yb -= h
+            paths.setdefault(ACTIVITIES.get(act, ACTIVITIES["other"])[0], []).append(
+                f"M{xb:.1f},{yb:.2f}h{col - 0.4:.1f}v{h:.2f}h-{col - 0.4:.1f}z")
+        ts = t_of[k]
+        mix = ", ".join(f"{n} {ACTIVITIES.get(a, ACTIVITIES['other'])[2]}" for a, n in c.most_common(4))
+        p, f = checks[k]
+        out.append(f'<rect x="{xb:.1f}" y="{y_d}" width="{col:.1f}" height="{d_h}" style="fill:transparent">'
+                   f'<title>{e(when(min(ts), sa, span))}–{e(when(max(ts), sa, span))}: {sum(c.values())} step(s): '
+                   f'{e(mix)}' + (f'; {p} check(s) passed' if p else "") + (f'; {f} failed' if f else "")
+                   + '</title></rect>')
+    for cls, ds in paths.items():
+        out.insert(1, f'<path class="{cls}" d="{"".join(ds)}"/>')
+    out.append(f'<text x="4" y="{y_d + d_h / 2 + 16}" style="font-size:9px">max {most}/col</text>')
+    # checks: passed up, failed down
+    mid = y_c
+    for k, (p, f) in enumerate(checks):
+        xb = x0 + k * col
+        if p:
+            out.append(f'<rect x="{xb:.1f}" y="{mid - min(8, 2 + p):.1f}" width="{col - .4:.1f}" height="{min(8, 2 + p):.1f}" '
+                       f'style="fill:var(--sg)"/>')
+        if f:
+            out.append(f'<rect x="{xb:.1f}" y="{mid + 1}" width="{col - .4:.1f}" height="{min(8, 2 + f):.1f}" '
+                       f'style="fill:var(--sc)"/>')
+    for ev in r.get("events") or []:
+        if not lo <= ev["t"] <= hi:
+            continue
+        xe = axis(ev["t"])
+        if ev["kind"] == "progress":
+            out.append(f'<text class="ok" x="{xe:.1f}" y="{mid - 10}" text-anchor="middle" style="font-size:11px">◆'
+                       f'<title>step {ev["index"]}: {e(ev["check"])} passed ({e(ev["how"])}), '
+                       f'{e(when(ev["t"], sa, span))}</title></text>')
+        else:
+            out.append(f'<text class="bad" x="{xe:.1f}" y="{mid + 20}" text-anchor="middle" style="font-size:11px">✗'
+                       f'<title>step {ev["index"]}: {e(ev["check"])} failed after passing, '
+                       f'{e(when(ev["t"], sa, span))}</title></text>')
+    # brackets: the loop, the stall
+    yb = y_br
+    for lp in r.get("loops") or []:
+        if lp["to"] < lo or lp["from"] > hi:
+            continue
+        xa, xb = axis(max(lo, lp["from"])), axis(min(hi, lp["to"]))
+        lab = (f"↻ loop · bursts {lp['bursts'][0]}–{lp['bursts'][1]} · the same calls {lp['count']}× · "
+               f"{dur(lp['wall_s'])} · {lp['calls']:,} calls" + (f" · {lp['failing']} failing" if lp["failing"] else ""))
+        out.append(f'<rect x="{xa:.1f}" y="{y_b - 3}" width="{max(2.0, xb - xa):.1f}" height="26" rx="3" '
+                   f'style="fill:none;stroke:var(--a2);stroke-width:2;stroke-dasharray:5 3"/>'
+                   + _bracket(xa, xb, yb, "var(--a2)", lab, width))
+        yb += 22
+    st = r.get("stall")
+    if st and st["active_s"] >= 600 and st["to"] >= lo and st["from"] <= hi:
+        xa, xb = axis(max(lo, st["from"])), axis(min(hi, st["to"]))
+        lab = (f"no progress for {dur(st['wall_s'])} · {dur(st['active_s'])} of it working · {st['calls']:,} calls"
+               + (" · still going" if st.get("open") and r.get("in_progress") else ""))
+        out.append(_bracket(xa, xb, yb, "var(--sc)", lab, width))
+    # where to look first
+    here = r.get("look_here")
+    if here:
+        ht = next((x["start"] for x in items if x["index"] == here["index"]), None)
+        if ht is not None and lo <= ht <= hi:
+            hx = axis(ht)
+            anchor, tx = ("start", hx + 5) if hx < width - 220 else ("end", hx - 5)
+            out.append(f'<line x1="{hx:.1f}" x2="{hx:.1f}" y1="{y_s}" y2="{y_c + 8}" style="stroke:var(--sc);stroke-width:2">'
+                       f'<title>{e(here["sentence"])}</title></line>'
+                       f'<text x="{tx:.1f}" y="{y_d + 11}" text-anchor="{anchor}" style="fill:var(--sc);'
+                       f'font:600 11px system-ui,sans-serif;paint-order:stroke;stroke:var(--panel);stroke-width:3px">'
+                       f'◆ look here: burst {here["burst"]}<title>{e(here["sentence"])}</title></text>')
+    if live:
+        out.append(f'<line x1="{x1:.1f}" x2="{x1:.1f}" y1="{y_s}" y2="{y_c + 8}" style="stroke:var(--a1);stroke-width:2">'
+                   f'<title>now</title></line>')
+    out.append("</svg>")
+    used = sorted({x["activity"] for x in items})
+    key = ([(f'<b style="color:{STATUS[k][0]}">{STATUS[k][1] or "▬"}</b>', k) for k in
+            ("progress", "stuck", "failing", "working")]
+           + [('<b style="color:var(--sg)">◆</b>', "a check started passing"),
+              ('<b style="color:var(--a2)">⬚</b>', "loop of bursts"), ("<b>//</b>", "idle, compressed")])
+    return "".join(out) + legend(used, key)
+
+
+def _bracket(xa: float, xb: float, y: float, colour: str, label: str, width: int) -> str:
+    xb = max(xb, xa + 2)
+    lab_x, anchor = (xa, "start") if xa < width - 380 else (xb, "end")
+    room = (width - 14 - lab_x) if anchor == "start" else (lab_x - 74)
+    return (f'<path d="M{xa:.1f},{y - 5} v5 H{xb:.1f} v-5" style="fill:none;stroke:{colour};stroke-width:1.5"/>'
+            f'<text x="{lab_x:.1f}" y="{y + 12}" text-anchor="{anchor}" style="fill:{colour};font:600 11px system-ui,sans-serif">'
+            f'{e(_fit(label, room, 6.1))}<title>{e(label)}</title></text>')
+
+
+# ------------------------------------------------------------------- rhythm
+def rhythm_grid(r: dict, *, width: int = 980, base: str = "") -> str:
+    g = r.get("rhythm")
+    if not g or not g.get("cells"):
+        return ""
+    left, top = 76, 18
+    cols, rows = g["cols"], g["rows"]
+    cw = (width - left - 8) / cols
+    ch = 22 if rows <= 12 else 16
+    height = top + rows * ch + 6
+    most = max(c["calls"] for c in g["cells"]) or 1
+    sa = r.get("started_at")
+    out = [f'<svg class="viz soft" viewBox="0 0 {width} {height}" width="{width}" role="img" '
+           f'aria-label="when it worked: {e(g["unit"])}, darker is more calls">']
+    every = 3 if cols == 24 else 2
+    for c in range(0, cols, every):
+        lab = f"{c:02d}:00" if cols == 24 else f":{c * 5:02d}"
+        out.append(f'<text x="{left + c * cw + 2:.1f}" y="12" style="font-size:9.5px">{lab}</text>')
+    for k in range(rows):
+        t_row = g["row0_s"] + k * g["row_s"]
+        if g["row_s"] >= 86400:
+            lab = f"day {k + 1}"
+            if sa is not None:
+                import datetime as _dt
+                lab += f" {_dt.datetime.fromtimestamp(sa + max(0.0, t_row), tz=_dt.timezone.utc):%a}"
+        else:
+            lab = when(max(0.0, t_row), sa, 3600 * 2) if sa is not None else f"+{dur(max(0.0, t_row))}"
+        out.append(f'<text x="4" y="{top + k * ch + ch - 6}" style="font-size:10px">{e(lab)}</text>')
+        for c in range(cols):
+            out.append(f'<rect x="{left + c * cw + .5:.1f}" y="{top + k * ch + .5:.1f}" width="{cw - 1:.1f}" '
+                       f'height="{ch - 1}" rx="2" style="fill:none;stroke:var(--grid)"/>')
+    for c in g["cells"]:
+        x, y = left + c["col"] * cw, top + c["row"] * ch
+        op = 0.14 + 0.86 * math.sqrt(c["calls"] / most) if c["calls"] else 0.06
+        tip = (f'{when(max(0.0, c["t0"]), sa, max(r["span_s"], 13 * 3600 if g["row_s"] >= 86400 else 3600))}: '
+               f'{c["calls"]} call(s), {c["steps"]} step(s)' + (f'; {c["passed"]} check(s) passed' if c["passed"] else "")
+               + (f'; {c["failed"]} failed' if c["failed"] else "") + (f'; {c["progress"]} step(s) forward' if c["progress"] else "")
+               + ("; a burst here repeats an earlier one" if c["stuck"] else "") + " — open this stretch")
+        out.append(f'<a href="{e(base)}&amp;t0={max(0.0, c["t0"]):.0f}&amp;t1={c["t1"]:.0f}#p-long">'
+                   f'<rect class="hot" x="{x + 1:.1f}" y="{y + 1}" width="{cw - 2:.1f}" height="{ch - 2}" rx="2" '
+                   f'style="fill:var(--a1);opacity:{op:.2f}"><title>{e(tip)}</title></rect></a>')
+        if c["failed"]:
+            out.append(f'<rect x="{x + 1:.1f}" y="{y + ch - 4}" width="{cw - 2:.1f}" height="3" style="fill:var(--sc)"/>')
+        if c["progress"]:
+            out.append(f'<text class="ok" x="{x + cw - 3:.1f}" y="{y + 10}" text-anchor="end" style="font-size:10px">◆</text>')
+        if c["stuck"]:
+            out.append(f'<text x="{x + 3:.1f}" y="{y + 10}" style="font-size:10px;fill:var(--a2)">↻</text>')
+        if cw >= 26 and c["calls"]:
+            dark = op > 0.55
+            out.append(f'<text x="{x + cw / 2:.1f}" y="{y + ch - 6}" text-anchor="middle" '
+                       f'style="font-size:9px;{"fill:#fff" if dark else ""};pointer-events:none">{c["calls"]}</text>')
+    out.append("</svg>")
+    key = [('<b style="color:var(--a1)">▮</b>', "darker: more calls (per cell)"), ('<b style="color:var(--sc)">▁</b>', "a check failed"),
+           ('<b style="color:var(--sg)">◆</b>', "a check started passing"), ('<b style="color:var(--a2)">↻</b>', "a repeating burst began")]
+    return "".join(out) + legend([], key)
+
+
+# ------------------------------------------------------------------ chapters
+def _mixbar(mix: dict, w: int = 90, h: int = 9) -> str:
+    total = sum(mix.values()) or 1
+    x, parts = 0.0, []
+    for act in _ORDER:
+        n = mix.get(act)
+        if not n:
+            continue
+        ww = w * n / total
+        parts.append(f'<rect class="{ACTIVITIES.get(act, ACTIVITIES["other"])[0]}" x="{x:.1f}" y="0" width="{ww:.1f}" '
+                     f'height="{h}"><title>{n} {ACTIVITIES.get(act, ACTIVITIES["other"])[2]}</title></rect>')
+        x += ww
+    return f'<svg class="viz soft" viewBox="0 0 {w} {h}" width="{w}" height="{h}" style="display:inline-block;opacity:.7">{"".join(parts)}</svg>'
+
+
 def phases(r: dict, *, fold_filler: bool = True) -> List[dict]:
     """The chapters with filler folded: a run of bursts where no check changed
     and nothing repeated becomes one phase. Each phase has its bursts and its time."""
@@ -173,6 +430,202 @@ def phases(r: dict, *, fold_filler: bool = True) -> List[dict]:
     return merged
 
 
+def chapters_table(r: dict, *, base: str = "", most: int = 80) -> str:
+    """The run's story as rows: a loop is one row, filler is one row, idle a divider."""
+    sa, span = r.get("started_at"), r["span_s"]
+    rows = []
+    for p in phases(r)[:most]:
+        if p["kind"] == "idle":
+            rows.append(f'<tr class="idle"><td colspan="7" class="muted" style="text-align:center">— {e(dur(p["seconds"]))} '
+                        f'idle —</td></tr>')
+            continue
+        a, b = p["bursts"]
+        mine = r["bursts"][a - 1:b]
+        mix: Counter = Counter()
+        for x in mine:
+            mix.update(x["mix"])
+        passed = sum(x["checks"]["passed"] for x in mine)
+        failed = sum(x["checks"]["failed"] for x in mine)
+        if p["kind"] == "loop":
+            badge = '<span class="badge bad">↻ loop</span>'
+            what = (f'the same calls {p["count"]}× in a row'
+                    + (f', across {p["sessions"]} sessions and the idle between' if p.get("sessions", 1) > 1 else "")
+                    + (f'; <code>{e(p["failing"][:70])}</code> kept failing' if p["failing"] else ""))
+        elif p["kind"] == "filler":
+            badge = '<span class="badge idle">filler</span>'
+            what = f'{b - a + 1} burst(s) of reading and editing; no check changed'
+        else:
+            fill, glyph, desc = STATUS.get(p["status"], STATUS["working"])
+            tone = "ok" if p["status"] in ("progress", "done") else "bad" if p["status"] in ("stuck", "regressed", "failing") else ""
+            badge = f'<span class="badge {tone}">{e(glyph)} {e(p["status"])}</span>'
+            ev = next((x for x in reversed(mine) if x["note"]), mine[-1])
+            what = e(ev["note"] or desc)
+        label = f"burst {a}" if a == b else f"bursts {a}–{b}"
+        rows.append(f'<tr><td><a href="{e(base)}&amp;burst={a}#p-long">{e(label)}</a></td>'
+                    f'<td class="muted">{e(when(p["from"], sa, span))}</td><td class="n">{e(dur(p["to"] - p["from"]))}</td>'
+                    f'<td class="n">{p["calls"]:,}</td><td>{_mixbar(dict(mix))}</td>'
+                    f'<td class="n">{"<span class=ok>✓" + str(passed) + "</span> " if passed else ""}'
+                    f'{"<span class=bad>✗" + str(failed) + "</span>" if failed else ""}</td>'
+                    f'<td>{badge} {what}</td></tr>')
+    more = len(phases(r)) - most
+    return ('<table class="chapters"><tr><th>phase</th><th>when</th><th class="n">took</th><th class="n">calls</th>'
+            '<th>what it did</th><th class="n">checks</th><th>how it went</th></tr>' + "".join(rows) + "</table>"
+            + (f'<p class="muted">{more} more phase(s).</p>' if more > 0 else ""))
+
+
+# ------------------------------------------------------------- every call
+def burst_calls(win: dict, r: dict, *, width: int = 980, page: int = 0, per_page: int = 600, base: str = "") -> str:
+    """Every call in a window: on its clock, a lane per activity; then in order,
+    each call the same width, with a line from each to its moment on the clock."""
+    steps = win["steps"]
+    if not steps:
+        return '<p class="muted">No steps in this stretch.</p>'
+    pages = max(1, math.ceil(len(steps) / per_page))
+    page = min(max(0, page), pages - 1)
+    shown = steps[page * per_page:(page + 1) * per_page]
+    t0, t1 = min(x["start"] for x in shown), max(x["end"] for x in shown)
+    t1 = max(t1, t0 + 1.0)
+    left, right = 70, 12
+    x0, x1 = left, width - right
+    acts = [a for a in _ORDER if any(x["activity"] == a for x in shown)]
+    lane_h = 16
+    top = 24
+    clock_h = lane_h * len(acts)
+    y_seq = top + clock_h + 58
+    seq_h = 22
+    height = y_seq + seq_h + 40
+    sa, span = r.get("started_at"), r["span_s"]
+
+    def tx(t: float) -> float:
+        return x0 + (x1 - x0) * (t - t0) / (t1 - t0)
+    cw = (x1 - x0) / len(shown)
+    out = [f'<svg class="viz soft" viewBox="0 0 {width} {height}" width="{width}" role="img" '
+           f'aria-label="{len(shown)} calls, on their clock and in order">']
+    # the clock's ticks
+    step = next((s for s in (1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 21600)
+                 if s * (x1 - x0) / (t1 - t0) >= 70), 21600)
+    k = math.ceil(t0 / step) * step
+    while k <= t1:
+        x = tx(k)
+        out.append(f'<line class="grid" x1="{x:.1f}" x2="{x:.1f}" y1="{top - 4}" y2="{top + clock_h}"/>'
+                   f'<text x="{x + 2:.1f}" y="{top - 8}" style="font-size:9.5px">{e(when(k, sa, max(span, 3601)) if step >= 60 else "+" + dur(k - t0))}</text>')
+        k += step
+    for i, a in enumerate(acts):
+        cls, glyph, label = ACTIVITIES.get(a, ACTIVITIES["other"])
+        out.append(f'<text x="4" y="{top + i * lane_h + 12}" style="font-size:10px">{e(glyph)} {e(label)}</text>'
+                   f'<line class="grid" x1="{x0}" x2="{x1}" y1="{top + (i + 1) * lane_h - 1}" y2="{top + (i + 1) * lane_h - 1}"/>')
+    row = {a: i for i, a in enumerate(acts)}
+    out.append(f'<text x="4" y="{y_seq + 15}" style="font-size:10px">in order</text>')
+    connectors = len(shown) <= 400
+    # the repeated failing calls in a row, bracketed over the sequence
+    streak_from, last_sig = None, None
+    brackets = []
+    for k2, x in enumerate(shown + [None]):
+        sig = (x["name"], x.get("call")) if x else None
+        bad = bool(x and (x["error"] or x["check"] is False))
+        if x is not None and sig == last_sig and bad:
+            continue
+        if streak_from is not None and k2 - streak_from >= 3:
+            brackets.append((streak_from, k2 - 1))
+        streak_from, last_sig = (k2, sig) if bad else (None, None)
+    for k2, x in enumerate(shown):
+        cls, glyph, label = ACTIVITIES.get(x["activity"], ACTIVITIES["other"])
+        xa = tx(x["start"])
+        w = max(1.5, tx(x["end"]) - xa)
+        y = top + row[x["activity"]] * lane_h + 2
+        bad = x["error"] or x["check"] is False
+        tip = (f'#{x["index"]} {x["name"]} · {when(x["start"], sa, max(span, 3601))} · {x["latency_s"]:.1f}s · '
+               f'{x["tokens"]:,} tokens' + (f' · {x["call"]}' if x.get("call") else "")
+               + (" · check passed" if x["check"] is True else " · check failed" if x["check"] is False else "")
+               + (" · error" if x["error"] else "") + (f' → {x["said"]}' if x.get("said") else ""))
+        out.append(f'<a href="#s{x["index"]}"><rect class="{cls} hot" x="{xa:.1f}" y="{y}" width="{w:.1f}" height="{lane_h - 5}" '
+                   f'rx="2"{_BAD_EDGE if bad else ""}><title>{e(tip)}</title></rect></a>')
+        sx = x0 + k2 * cw
+        if connectors:
+            out.append(f'<line x1="{xa + w / 2:.1f}" y1="{top + clock_h + 2}" x2="{sx + cw / 2:.1f}" y2="{y_seq - 2}" '
+                       f'style="stroke:var(--ink2);stroke-opacity:.18"/>')
+        out.append(f'<a href="#s{x["index"]}"><rect class="{cls} hot" x="{sx:.2f}" y="{y_seq}" width="{max(0.6, cw - (0.5 if cw > 3 else 0)):.2f}" '
+                   f'height="{seq_h}"><title>{e(tip)}</title></rect></a>')
+        if bad:
+            out.append(f'<rect x="{sx:.2f}" y="{y_seq + seq_h + 1}" width="{max(0.6, cw - .5):.2f}" height="3" style="fill:var(--sc)"/>')
+        elif x["check"] is True:
+            out.append(f'<rect x="{sx:.2f}" y="{y_seq + seq_h + 1}" width="{max(0.6, cw - .5):.2f}" height="3" style="fill:var(--sg)"/>')
+        if cw >= 11:
+            out.append(f'<text class="g{" dk" if cls in _DARK_GLYPH else ""}" x="{sx + cw / 2:.1f}" y="{y_seq + 15}" '
+                       f'text-anchor="middle">{e(glyph)}</text>')
+    for a, b in brackets:
+        xa, xb = x0 + a * cw, x0 + (b + 1) * cw
+        out.append(f'<path d="M{xa:.1f},{y_seq - 4} v-5 H{xb:.1f} v5" style="fill:none;stroke:var(--sc);stroke-width:1.5"/>'
+                   f'<text class="bad" x="{(xa + xb) / 2:.1f}" y="{y_seq - 12}" text-anchor="middle" style="font-size:10px">'
+                   f'↻ {b - a + 1}× the same failing call</text>')
+    out.append(f'<text x="{x0}" y="{y_seq + seq_h + 18}" style="font-size:10px">each call the same width: '
+               f'{len(shown)} call(s); the lines show where the clock ran fast (fanned in) or slow (fanned out)</text>')
+    out.append("</svg>")
+    nav = ""
+    if pages > 1:
+        links = []
+        for p in range(pages):
+            a = p * per_page
+            links.append(f'<a href="{e(base)}&amp;page={p}#p-long"{" class=on" if p == page else ""}>'
+                         f'{a + 1}–{min(len(steps), a + per_page)}</a>')
+        nav = f'<div class="filters"><span class="muted">calls</span>{"".join(links)}</div>'
+    used = sorted({x["activity"] for x in shown})
+    return nav + "".join(out) + legend(used, [('<b style="color:var(--sc)">▁</b>', "error or failed check"),
+                                              ('<b style="color:var(--sg)">▁</b>', "check passed")])
+
+
+# ------------------------------------------------------------------- pace
+def pace_chart(r: dict, *, width: int = 980) -> str:
+    rows = (r.get("pace") or {}).get("rows") or []
+    if len(rows) < 3:
+        return ""
+    bucket = r["pace"]["bucket_s"]
+    left, right, h, gap = 70, 12, 46, 16
+    x0, x1 = left, width - right
+    span = max(r["span_s"], rows[-1]["to"])
+
+    def tx(t):
+        return x0 + (x1 - x0) * t / span
+    charts = (("calls", f"calls / {dur(bucket)}", lambda p: p["calls"], "bar"),
+              ("sec", "seconds per call", lambda p: p["sec_per_call"], "dot"),
+              ("tok", "tokens per step", lambda p: p["tokens_per_step"], "dot"))
+    height = len(charts) * (h + gap) + 16
+    out = [f'<svg class="viz soft" viewBox="0 0 {width} {height}" width="{width}" role="img" '
+           f'aria-label="pace over the run: calls, seconds per call, tokens per step">']
+    for k, (key, label, get, kind) in enumerate(charts):
+        y0 = 6 + k * (h + gap)
+        vals = [get(p) for p in rows if get(p) is not None]
+        top = max(vals) if vals else 1
+        out.append(f'<text x="4" y="{y0 + 12}" style="font-size:10px">{e(label)}</text>'
+                   f'<text x="4" y="{y0 + 24}" style="font-size:9.5px">max {top:,.1f}</text>'
+                   f'<line class="grid" x1="{x0}" x2="{x1}" y1="{y0 + h}" y2="{y0 + h}"/>')
+        pts = []
+        for p in rows:
+            v = get(p)
+            if v is None:
+                continue
+            xa, xb = tx(p["from"]), tx(p["to"])
+            hh = h * v / (top or 1)
+            tip = f'{when(p["from"], r.get("started_at"), r["span_s"])}: {label} {v:,.1f}'
+            if kind == "bar":
+                out.append(f'<rect class="bar" x="{xa:.1f}" y="{y0 + h - hh:.1f}" width="{max(1.0, xb - xa - 1):.1f}" '
+                           f'height="{hh:.1f}"><title>{e(tip)}; {p["failed"]} failed check(s)</title></rect>')
+                if p["failed"]:
+                    out.append(f'<rect x="{xa:.1f}" y="{y0 + h + 1}" width="{max(1.0, xb - xa - 1):.1f}" height="3" '
+                               f'style="fill:var(--sc)"/>')
+            else:
+                pts.append(f"{(xa + xb) / 2:.1f},{y0 + h - hh:.1f}")
+                out.append(f'<circle cx="{(xa + xb) / 2:.1f}" cy="{y0 + h - hh:.1f}" r="2.5" style="fill:var(--a1)">'
+                           f'<title>{e(tip)}</title></circle>')
+        if len(pts) > 1:
+            out.append(f'<polyline points="{" ".join(pts)}" style="fill:none;stroke:var(--a1);stroke-width:1.5;'
+                       f'stroke-opacity:.6"/>')
+    out.append("</svg>")
+    trend = (r["pace"].get("trend") or {}).get("sentence")
+    return (f'<p class="muted">{e(trend)}</p>' if trend else "") + "".join(out)
+
+
+# ---------------------------------------------------------------- treemap
 def _squarify(values: List[float], x: float, y: float, w: float, h: float) -> List[tuple]:
     """Squarified rectangles for ``values`` (largest first), in order."""
     out: List[tuple] = []
@@ -209,6 +662,77 @@ def _squarify(values: List[float], x: float, y: float, w: float, h: float) -> Li
     return out
 
 
+def phase_treemap(r: dict, items: List[dict], *, width: int = 980, height: int = 260, base: str = "") -> str:
+    """Where the working time went: a box per phase, a tile per tool, area by seconds."""
+    allp = phases(r)
+    keys = [k for k, p in enumerate(allp) if p["kind"] != "idle"]  # the lens numbers phases with the idle among them
+    ph = [allp[k] for k in keys]
+    if not ph:
+        return ""
+    secs = []
+    tools_of = []
+    by_index = {x["index"]: x for x in items}
+    for p in ph:
+        tc: Dict[str, list] = {}
+        for i in range(p["first"], p["last"] + 1):
+            x = by_index.get(i)
+            if x is None or x["latency_s"] <= 0:
+                continue
+            t = tc.setdefault(x["name"], [0.0, 0, 0, Counter()])
+            t[0] += x["latency_s"]
+            t[1] += 1
+            t[2] += int(x["error"] or x["check"] is False)
+            t[3][x["activity"]] += 1
+        tools_of.append(sorted(tc.items(), key=lambda kv: -kv[1][0]))
+        secs.append(sum(v[0] for _, v in tc.items()))
+    order = sorted(range(len(ph)), key=lambda k: -secs[k])
+    rects = _squarify([secs[k] for k in order], 0, 16, width, height)
+    sa, span = r.get("started_at"), r["span_s"]
+    out = [f'<svg class="viz soft treemap" viewBox="0 0 {width} {height + 18}" width="{width}" role="img" '
+           f'aria-label="where the working time went: a box per phase, a tile per tool, area by seconds">'
+           f'<text x="0" y="11" style="font-size:10px">area: seconds a tool ran, inside each phase '
+           f'({dur(sum(secs))} in all)</text>']
+    for k, rc in zip(order, rects):
+        if rc is None:
+            continue
+        x, y, w, h = rc
+        p = ph[k]
+        a, b = p["bursts"]
+        name = (f"loop {a}–{b}" if p["kind"] == "loop" else f"filler {a}–{b}" if p["kind"] == "filler"
+                else f"burst {a}")
+        trs = tools_of[k]
+        inner = _squarify([v[0] for _, v in trs], x + 1, y + (14 if h > 40 and w > 50 else 1), max(1, w - 2),
+                          max(1, h - (15 if h > 40 and w > 50 else 2)))
+        out.append(f'<g data-phase="{keys[k]}">')
+        for (tool, (ts, n, bad, acts)), irc in zip(trs, inner):
+            if irc is None:
+                continue
+            ix, iy, iw, ih = irc
+            act = acts.most_common(1)[0][0]
+            cls = ACTIVITIES.get(act, ACTIVITIES["other"])[0]
+            share = bad / n if n else 0
+            out.append(f'<rect class="{cls}" x="{ix + .5:.1f}" y="{iy + .5:.1f}" width="{max(.5, iw - 1):.1f}" '
+                       f'height="{max(.5, ih - 1):.1f}" style="opacity:{".55" if act == "think" else ".9"}'
+                       f'{";stroke:var(--sc);stroke-width:2" if share >= 0.5 else ""}"><title>{e(name)} · {e(tool)}: '
+                       f'{n} call(s), {e(dur(ts))}' + (f', {bad} failed' if bad else "") + '</title></rect>')
+            if iw > 44 and ih > 14:
+                out.append(f'<text class="g{" dk" if cls in _DARK_GLYPH else ""}" x="{ix + 4:.1f}" y="{iy + 12:.1f}" '
+                           f'style="font-size:9.5px">{e(_fit(f"{tool} {n}×", iw - 6, 5.8))}</text>')
+        tone = "var(--sc)" if p["kind"] == "loop" or p.get("status") in ("stuck", "regressed") else "var(--ink2)"
+        out.append(f'<a href="{e(base)}&amp;burst={a}#p-long"><rect class="hot" x="{x + .5:.1f}" y="{y + .5:.1f}" '
+                   f'width="{max(1, w - 1):.1f}" height="{max(1, h - 1):.1f}" style="fill:transparent;stroke:{tone};'
+                   f'stroke-width:{2 if tone != "var(--ink2)" else 1}"><title>{e(name)}: {e(when(p["from"], sa, span))}, '
+                   f'{e(dur(secs[k]))} of tool time, {p["calls"]:,} calls — open it</title></rect></a>')
+        if h > 40 and w > 50:
+            out.append(f'<text class="lab" x="{x + 4:.1f}" y="{y + 11:.1f}" style="font-size:10.5px;font-weight:700;'
+                       f'fill:{tone}">{e(_fit(name + " · " + dur(secs[k]), w - 8, 6.0))}</text>')
+        out.append("</g>")
+    out.append("</svg>")
+    return "".join(out) + legend(sorted({x["activity"] for x in items}),
+                                 [('<b style="color:var(--sc)">▢</b>', "a loop, or a tool failing half its calls or more")])
+
+
+# ------------------------------------------------------------- two long runs
 def _checkpoints(data: dict, items: List[dict]) -> List[tuple]:
     """(key, time, index) of each check passing where its previous run did not."""
     steps = data.get("steps") or []
@@ -224,448 +748,9 @@ def _checkpoints(data: dict, items: List[dict]) -> List[tuple]:
     return out
 
 
-#: how a burst went, said in words (the drawing says it by shape, never by colour)
-STATUS = {
-    "progress": ("●", "moved forward: a check started passing, or passed more"),
-    "regressed": ("×", "regressed: a check that passed now fails"),
-    "stuck": ("↻", "stuck: repeats an earlier burst, or the same failing call"),
-    "failing": ("↓", "checks failing, nothing repeated"),
-    "done": ("■", "answered"),
-    "working": ("○", "working: edits and runs"),
-    "exploring": ("○", "reading"),
-}
-
-
-def _in_loop(r: dict) -> Dict[int, int]:
-    out = {}
-    for k, lp in enumerate(r.get("loops") or []):
-        for n in range(lp["bursts"][0], lp["bursts"][1] + 1):
-            out[n] = k
-    return out
-
-
-def _stem(x: float, y: float, h: float, cls: str = "stem") -> str:
-    return f'<line class="{cls}" x1="{x:.1f}" x2="{x:.1f}" y1="{y:.1f}" y2="{y - h:.1f}"/>'
-
-
-def _key(items: List[tuple]) -> str:
-    """A one-line key, glyphs and words, no colour."""
-    return ('<div class="legend trail-key">' + "".join(f'<span><b>{g}</b>{e(t)}</span>' for g, t in items)
-            + "</div>")
-
-
-def long_overview(r: dict, items: List[dict], *, width: int = 980, base: str = "", t0: Optional[float] = None,
-                  t1: Optional[float] = None, live: bool = False) -> str:
-    """The whole run (or ``t0``..``t1`` of it) as one trunk along its clock.
-
-    Each burst is a branch: its length and its leaf grow with its calls, and
-    the leaf is filled when the burst moved forward. Failed checks hang below
-    the trunk. A loop of bursts is one arc over its stretch. The idle between
-    sessions is a dotted gap that says how long it was. Checkpoints are dots on
-    the trunk; where to look first is ringed. Shape and position carry it, so
-    it reads in one ink."""
-    if not r.get("bursts"):
-        return '<p class="muted">No steps to draw.</p>'
-    left, right = 16, 16
-    x0, x1 = left, width - right
-    zoom = t0 is not None
-    axis = Axis(r["sessions"], x0, x1, t0=t0, t1=t1, gap_w=44)
-    lo, hi = (t0, t1) if zoom else (0.0, r["span_s"])
-    sa, span = r.get("started_at"), r["span_s"]
-    yt = 104
-    height = 186
-    loop_of = _in_loop(r)
-    out = [f'<svg class="viz trail" viewBox="0 0 {width} {height}" width="{width}" role="img" '
-           f'aria-label="{e(r.get("sentence"))}">']
-    # the clock: hairline ticks on the trunk, the moment above
-    for x, lab, major in _ticks(axis, sa, span):
-        out.append(f'<line class="tick" x1="{x:.1f}" x2="{x:.1f}" y1="{yt - 3}" y2="{yt + 3}"/>'
-                   f'<text class="{"lab2" if major else "mu"}" x="{x:.1f}" y="14">{e(lab)}</text>')
-    # the trunk, and the idle between sessions
-    for a, b, xa, xb in axis.parts:
-        out.append(f'<line class="trunk" x1="{xa:.1f}" x2="{xb:.1f}" y1="{yt}" y2="{yt}"/>')
-    for g0, g1, ga, gb in axis.gaps:
-        out.append(f'<line class="gap" x1="{ga:.1f}" x2="{gb:.1f}" y1="{yt}" y2="{yt}"><title>{e(dur(g1 - g0))} '
-                   f'idle: no step at all, {e(when(g0, sa, span))} to {e(when(g1, sa, span))}</title></line>')
-        if gb - ga >= 30:
-            out.append(f'<text class="mu" x="{(ga + gb) / 2:.1f}" y="{yt + 16}" text-anchor="middle">'
-                       f'{e(dur(g1 - g0))}</text>')
-    # bursts as branches; the bursts of a loop as one arc
-    for b in r["bursts"]:
-        if b["to"] < lo or b["from"] > hi:
-            continue
-        x = axis(max(lo, min(hi, (b["from"] + b["to"]) / 2)))
-        fails = b["checks"]["failed"] + (b["errors"] if not b["checks"]["failed"] else 0)
-        if fails:
-            out.append(f'<line class="stem down" x1="{x:.1f}" x2="{x:.1f}" y1="{yt + 2}" '
-                       f'y2="{yt + min(26, 4 + 5 * math.log2(1 + fails)):.1f}"/>')
-        if b["n"] in loop_of:
-            out.append(_stem(x, yt - 1, 5, "stem faint"))
-            continue
-        h = min(54, 10 + 9 * math.log2(1 + b["calls"]))
-        rr = min(5.5, 1.8 + math.sqrt(b["calls"]) / 2.2)
-        moved = any(ev["kind"] == "progress" for ev in b["events"])
-        cls = "leaf on" if moved else "leaf" + (" dim" if b["status"] in ("working", "exploring") else "")
-        glyph, what = STATUS.get(b["status"], STATUS["working"])
-        out.append(_stem(x, yt - 1, h - rr) +
-                   f'<a href="{e(base)}&amp;burst={b["n"]}#p-long"><circle class="{cls}" cx="{x:.1f}" cy="{yt - h:.1f}" '
-                   f'r="{rr:.1f}"><title>burst {b["n"]} · {e(when(b["from"], sa, span))} · {e(dur(b["seconds"]))} · '
-                   f'{b["calls"]:,} calls · {e(what)}' + (f' · {e(b["note"])}' if b["note"] else "")
-                   + ' — open its calls</title></circle></a>')
-    for lp in r.get("loops") or []:
-        if lp["to"] < lo or lp["from"] > hi:
-            continue
-        xa, xb = axis(max(lo, lp["from"])), axis(min(hi, lp["to"]))
-        peak = yt - min(70, 26 + (xb - xa) / 9)
-        mid = (xa + xb) / 2
-        lab = f"↻ the same calls {lp['count']}× · {dur(lp['wall_s'])}"
-        out.append(f'<a href="{e(base)}&amp;burst={lp["bursts"][0]}#p-long"><path class="arc" '
-                   f'd="M{xa:.1f},{yt - 1} Q{mid:.1f},{2 * peak - yt:.1f} {xb:.1f},{yt - 1}"><title>a loop: bursts '
-                   f'{lp["bursts"][0]}–{lp["bursts"][1]} did the same calls {lp["count"]} times over {e(dur(lp["wall_s"]))}, '
-                   f'{lp["calls"]:,} calls' + (f', {e(lp["failing"])} failing' if lp["failing"] else "")
-                   + ' — open it</title></path></a>'
-                   f'<text class="lab2" x="{min(max(mid, x0 + 90), x1 - 90):.1f}" y="{peak - 6:.1f}" '
-                   f'text-anchor="middle">{e(lab)}</text>')
-    # checkpoints on the trunk, regressions below it
-    for ev in r.get("events") or []:
-        if not lo <= ev["t"] <= hi:
-            continue
-        xe = axis(ev["t"])
-        if ev["kind"] == "progress":
-            out.append(f'<circle class="mile" cx="{xe:.1f}" cy="{yt}" r="2.4"><title>step {ev["index"]}: {e(ev["check"])} '
-                       f'passed ({e(ev["how"])}), {e(when(ev["t"], sa, span))}</title></circle>')
-        else:
-            out.append(f'<text class="lab2" x="{xe:.1f}" y="{yt + 30}" text-anchor="middle">×<title>step {ev["index"]}: '
-                       f'{e(ev["check"])} failed after passing</title></text>')
-    # the stall, as a bracket under the trunk
-    st = r.get("stall")
-    if st and st["active_s"] >= 600 and st["to"] >= lo and st["from"] <= hi:
-        xa, xb = axis(max(lo, st["from"])), axis(min(hi, st["to"]))
-        y = yt + 44
-        lab = (f"no progress for {dur(st['wall_s'])} · {dur(st['active_s'])} of it working · {st['calls']:,} calls"
-               + (" · still going" if st.get("open") and r.get("in_progress") else ""))
-        anchor, lx = ("start", xa) if xa < width - 360 else ("end", xb)
-        out.append(f'<path class="bracket" d="M{xa:.1f},{y - 4} v4 H{max(xb, xa + 2):.1f} v-4"/>'
-                   f'<text class="lab2" x="{lx:.1f}" y="{y + 14}" text-anchor="{anchor}">'
-                   f'{e(_fit(lab, (width - 14 - lx) if anchor == "start" else lx - 14, 6.0))}<title>{e(st["sentence"])}</title></text>')
-    # where to look first
-    here = r.get("look_here")
-    if here:
-        ht = next((x["start"] for x in items if x["index"] == here["index"]), None)
-        if ht is not None and lo <= ht <= hi:
-            hx = axis(ht)
-            out.append(f'<circle class="ring" cx="{hx:.1f}" cy="{yt}" r="8"><title>{e(here["sentence"])}</title></circle>'
-                       f'<line class="tick" x1="{hx:.1f}" x2="{hx:.1f}" y1="{yt + 9}" y2="{yt + 32}"/>'
-                       f'<text class="lab2" x="{hx + 4:.1f}" y="{yt + 32}" style="font-weight:700">look here'
-                       f'<title>{e(here["sentence"])}</title></text>')
-    if live:
-        out.append(f'<circle class="leaf" cx="{x1 - 2:.1f}" cy="{yt}" r="3.5"><title>now: still running</title></circle>')
-    out.append("</svg>")
-    return "".join(out) + _key([("○", "a burst: the longer the branch, the more calls"),
-                                ("●", "it moved forward"), ("·", "a checkpoint"), ("╷", "failed checks"),
-                                ("⌒", "a loop of bursts"), ("┄", "idle, shortened")])
-
-
-# ------------------------------------------------------------------- rhythm
-def rhythm_grid(r: dict, *, width: int = 980, base: str = "") -> str:
-    """A row per day, a column per hour: the ink is how much it worked."""
-    g = r.get("rhythm")
-    if not g or not g.get("cells"):
-        return ""
-    left, top = 76, 18
-    cols, rows = g["cols"], g["rows"]
-    cw = (width - left - 8) / cols
-    ch = 20 if rows <= 12 else 15
-    height = top + rows * ch + 4
-    most = max(c["calls"] for c in g["cells"]) or 1
-    sa = r.get("started_at")
-    out = [f'<svg class="viz trail" viewBox="0 0 {width} {height}" width="{width}" role="img" '
-           f'aria-label="when it worked: {e(g["unit"])}, darker is more calls">']
-    every = 3 if cols == 24 else 2
-    for c in range(0, cols, every):
-        lab = f"{c:02d}:00" if cols == 24 else f":{c * 5:02d}"
-        out.append(f'<text class="mu" x="{left + c * cw + 2:.1f}" y="12">{lab}</text>')
-    for k in range(rows):
-        t_row = g["row0_s"] + k * g["row_s"]
-        if g["row_s"] >= 86400:
-            lab = f"day {k + 1}"
-            if sa is not None:
-                import datetime as _dt
-                lab += f" {_dt.datetime.fromtimestamp(sa + max(0.0, t_row), tz=_dt.timezone.utc):%a}"
-        else:
-            lab = when(max(0.0, t_row), sa, 7200) if sa is not None else f"+{dur(max(0.0, t_row))}"
-        out.append(f'<text class="lab2" x="4" y="{top + k * ch + ch - 6}">{e(lab)}</text>'
-                   f'<line class="tick" x1="{left}" x2="{width - 8}" y1="{top + (k + 1) * ch - .5}" '
-                   f'y2="{top + (k + 1) * ch - .5}" style="stroke-opacity:.35"/>')
-    for c in g["cells"]:
-        x, y = left + c["col"] * cw, top + c["row"] * ch
-        op = 0.08 + 0.72 * math.sqrt(c["calls"] / most) if c["calls"] else 0.04
-        tip = (f'{when(max(0.0, c["t0"]), sa, max(r["span_s"], 13 * 3600 if g["row_s"] >= 86400 else 3600))}: '
-               f'{c["calls"]} call(s)' + (f'; {c["passed"]} check(s) passed' if c["passed"] else "")
-               + (f'; {c["failed"]} failed' if c["failed"] else "") + (f'; {c["progress"]} step(s) forward' if c["progress"] else "")
-               + ("; a repeating burst began here" if c["stuck"] else "") + " — open this stretch")
-        out.append(f'<a href="{e(base)}&amp;t0={max(0.0, c["t0"]):.0f}&amp;t1={c["t1"]:.0f}#p-long">'
-                   f'<rect class="cell" x="{x + 1:.1f}" y="{y + 1}" width="{cw - 2:.1f}" height="{ch - 3}" rx="2" '
-                   f'style="fill-opacity:{op:.2f}"><title>{e(tip)}</title></rect></a>')
-        if c["progress"]:
-            out.append(f'<circle class="{"mile inv" if op > .5 else "mile"}" cx="{x + cw - 5:.1f}" cy="{y + 6}" r="2"/>')
-        if c["stuck"]:
-            out.append(f'<text class="{"inv" if op > .5 else "lab2"}" x="{x + 3:.1f}" y="{y + 10}" '
-                       f'style="font-size:9px">↻</text>')
-    out.append("</svg>")
-    return "".join(out) + _key([("▢", "darker: more calls"), ("·", "a check started passing"),
-                                ("↻", "a repeating burst began")])
-
-
-# ------------------------------------------------------------------ chapters
-def chapters_table(r: dict, *, base: str = "", most: int = 80) -> str:
-    """The run's story as rows: a loop is one row, filler is one row, idle a divider."""
-    sa, span = r.get("started_at"), r["span_s"]
-    rows = []
-    allp = phases(r)
-    for p in allp[:most]:
-        if p["kind"] == "idle":
-            rows.append(f'<tr class="idle"><td colspan="6" class="muted" style="text-align:center">'
-                        f'{e(dur(p["seconds"]))} idle</td></tr>')
-            continue
-        a, b = p["bursts"]
-        mine = r["bursts"][a - 1:b]
-        passed = sum(x["checks"]["passed"] for x in mine)
-        failed = sum(x["checks"]["failed"] for x in mine)
-        if p["kind"] == "loop":
-            glyph = "↻"
-            what = (f'<strong>the same calls {p["count"]}× in a row</strong>'
-                    + (f', across {p["sessions"]} sessions and the idle between' if p.get("sessions", 1) > 1 else "")
-                    + (f'; <code>{e(p["failing"][:70])}</code> kept failing' if p["failing"] else ""))
-        elif p["kind"] == "filler":
-            glyph, what = "○", f'<span class="muted">{b - a + 1} burst(s) of reading and editing; no check changed</span>'
-        else:
-            glyph, desc = STATUS.get(p["status"], STATUS["working"])
-            ev = next((x for x in reversed(mine) if x["note"]), mine[-1])
-            what = e(ev["note"] or desc)
-        label = f"burst {a}" if a == b else f"bursts {a}–{b}"
-        checks = " ".join(x for x in (f"✓{passed}" if passed else "", f"✗{failed}" if failed else "") if x)
-        rows.append(f'<tr><td class="glyph">{glyph}</td><td><a href="{e(base)}&amp;burst={a}#p-long">{e(label)}</a>'
-                    f'<div class="muted">{e(when(p["from"], sa, span))} · {e(dur(p["to"] - p["from"]))}</div></td>'
-                    f'<td class="n">{p["calls"]:,}</td><td class="n muted">{e(checks)}</td><td>{what}</td></tr>')
-    more = len(allp) - most
-    return ('<table class="chapters"><tr><th></th><th>phase</th><th class="n">calls</th><th class="n">checks</th>'
-            '<th>what happened</th></tr>' + "".join(rows) + "</table>"
-            + (f'<p class="muted">{more} more phase(s).</p>' if more > 0 else ""))
-
-
-# ------------------------------------------------------------- every call
-def burst_calls(win: dict, r: dict, *, width: int = 980, page: int = 0, per_page: int = 600, base: str = "") -> str:
-    """Every call in a window, as two trunks: on its clock, then in order at an
-    even pace, with a faint line from each call to its moment. A call is a
-    branch up; a failed one hangs down; a passing check ends in a dot."""
-    steps = win["steps"]
-    if not steps:
-        return '<p class="muted">No steps in this stretch.</p>'
-    pages = max(1, math.ceil(len(steps) / per_page))
-    page = min(max(0, page), pages - 1)
-    shown = steps[page * per_page:(page + 1) * per_page]
-    t0, t1 = min(x["start"] for x in shown), max(x["end"] for x in shown)
-    t1 = max(t1, t0 + 1.0)
-    left, right = 70, 16
-    x0, x1 = left, width - right
-    ya, yb = 70, 190
-    height = 262
-    sa, span = r.get("started_at"), r["span_s"]
-
-    def tx(t: float) -> float:
-        return x0 + (x1 - x0) * (t - t0) / (t1 - t0)
-    cw = (x1 - x0) / len(shown)
-    out = [f'<svg class="viz trail" viewBox="0 0 {width} {height}" width="{width}" role="img" '
-           f'aria-label="{len(shown)} calls, on their clock and in order">']
-    step = next((s for s in (1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 21600)
-                 if s * (x1 - x0) / (t1 - t0) >= 70), 21600)
-    k = math.ceil(t0 / step) * step
-    while k <= t1:
-        x = tx(k)
-        out.append(f'<line class="tick" x1="{x:.1f}" x2="{x:.1f}" y1="{ya - 3}" y2="{ya + 3}"/>'
-                   f'<text class="mu" x="{x:.1f}" y="14" text-anchor="middle">'
-                   f'{e(when(k, sa, max(span, 3601)) if step >= 60 else "+" + dur(k - t0))}</text>')
-        k += step
-    out.append(f'<text class="mu" x="4" y="{ya + 4}">its clock</text><text class="mu" x="4" y="{yb + 4}">in order</text>'
-               f'<line class="trunk" x1="{x0}" x2="{x1}" y1="{ya}" y2="{ya}"/>'
-               f'<line class="trunk" x1="{x0}" x2="{x1}" y1="{yb}" y2="{yb}"/>')
-    connectors = len(shown) <= 400
-    streak_from, last_sig, brackets = None, None, []
-    for k2, x in enumerate(shown + [None]):
-        sig = (x["name"], x.get("call")) if x else None
-        bad = bool(x and (x["error"] or x["check"] is False))
-        if x is not None and sig == last_sig and bad:
-            continue
-        if streak_from is not None and k2 - streak_from >= 3:
-            brackets.append((streak_from, k2 - 1))
-        streak_from, last_sig = (k2, sig) if bad else (None, None)
-    last_label = -1e9
-    for k2, x in enumerate(shown):
-        bad = x["error"] or x["check"] is False
-        think = x["type"] in ("reason", "plan", "answer")
-        h = 0 if think else min(40, 8 + 7 * math.log2(1 + x["latency_s"]))
-        tip = (f'#{x["index"]} {x["name"]} · {when(x["start"], sa, max(span, 3601))} · {x["latency_s"]:.1f}s · '
-               f'{x["tokens"]:,} tokens' + (f' · {x["call"]}' if x.get("call") else "")
-               + (" · check passed" if x["check"] is True else " · check failed" if x["check"] is False else "")
-               + (" · error" if x["error"] else "") + (f' → {x["said"]}' if x.get("said") else ""))
-        xc, xo = tx(x["start"]), x0 + (k2 + 0.5) * cw
-        if connectors:
-            out.append(f'<line class="wire" x1="{xc:.1f}" y1="{ya + 4}" x2="{xo:.1f}" y2="{yb - 46}"/>')
-        for xx, y in ((xc, ya), (xo, yb)):
-            if think:
-                out.append(f'<circle class="mile faint" cx="{xx:.1f}" cy="{y}" r="1.6"/>')
-                continue
-            sign = 1 if bad else -1
-            out.append(f'<line class="stem{" down" if bad else ""}" x1="{xx:.1f}" x2="{xx:.1f}" y1="{y + sign * 1:.1f}" '
-                       f'y2="{y + sign * h:.1f}"/>')
-            if x["check"] is True:
-                out.append(f'<circle class="mile" cx="{xx:.1f}" cy="{y - h:.1f}" r="2.2"/>')
-            elif x["check"] is False:
-                out.append(f'<circle class="leaf" cx="{xx:.1f}" cy="{y + h:.1f}" r="2.2"/>')
-        out.append(f'<a href="#s{x["index"]}"><rect class="hit" x="{xo - max(cw, 3) / 2:.1f}" y="{yb - 44}" '
-                   f'width="{max(cw, 3):.1f}" height="88"><title>{e(tip)}</title></rect></a>')
-        if cw >= 34 and not think and xo - last_label > 40:
-            ly = yb + h + 12 if bad else yb - h - 6
-            out.append(f'<text class="mu" x="{xo:.1f}" y="{ly:.1f}" text-anchor="middle">'
-                       f'{e(_fit(x["name"], cw * 1.6, 5.6))}</text>')
-            last_label = xo
-    for a, b in brackets:
-        xa, xb = x0 + a * cw, x0 + (b + 1) * cw
-        out.append(f'<path class="bracket" d="M{xa:.1f},{yb + 52} v4 H{xb:.1f} v-4"/>'
-                   f'<text class="lab2" x="{(xa + xb) / 2:.1f}" y="{yb + 68}" text-anchor="middle">'
-                   f'↻ {b - a + 1}× the same failing call</text>')
-    out.append("</svg>")
-    nav = ""
-    if pages > 1:
-        links = []
-        for p in range(pages):
-            a = p * per_page
-            links.append(f'<a href="{e(base)}&amp;page={p}#p-long"{" class=on" if p == page else ""}>'
-                         f'{a + 1}–{min(len(steps), a + per_page)}</a>')
-        nav = f'<div class="filters"><span class="muted">calls</span>{"".join(links)}</div>'
-    return nav + "".join(out) + _key([("│", "a call: taller took longer"), ("╷", "it failed"),
-                                      ("·", "a check that passed"), ("⋰", "where in time each call happened")])
-
-
-# ------------------------------------------------------------------- pace
-def pace_chart(r: dict, *, width: int = 980) -> str:
-    rows = (r.get("pace") or {}).get("rows") or []
-    if len(rows) < 3:
-        return ""
-    bucket = r["pace"]["bucket_s"]
-    left, right, h, gap = 120, 16, 34, 14
-    x0, x1 = left, width - right
-    span = max(r["span_s"], rows[-1]["to"])
-
-    def tx(t):
-        return x0 + (x1 - x0) * t / span
-    charts = (("calls", f"calls per {dur(bucket)}", lambda p: p["calls"], "bar"),
-              ("sec", "seconds per call", lambda p: p["sec_per_call"], "line"),
-              ("tok", "tokens per step", lambda p: p["tokens_per_step"], "line"))
-    height = len(charts) * (h + gap) + 4
-    out = [f'<svg class="viz trail" viewBox="0 0 {width} {height}" width="{width}" role="img" '
-           f'aria-label="pace over the run: calls, seconds per call, tokens per step">']
-    for k, (key, label, get, kind) in enumerate(charts):
-        y0 = 4 + k * (h + gap)
-        vals = [get(p) for p in rows if get(p) is not None]
-        top = max(vals) if vals else 1
-        out.append(f'<text class="lab2" x="4" y="{y0 + h - 12}">{e(label)}</text>'
-                   f'<text class="mu" x="4" y="{y0 + h}">up to {top:,.1f}</text>'
-                   f'<line class="tick" x1="{x0}" x2="{x1}" y1="{y0 + h}" y2="{y0 + h}" style="stroke-opacity:.4"/>')
-        pts = []
-        for p in rows:
-            v = get(p)
-            if v is None:
-                continue
-            xa, xb = tx(p["from"]), tx(p["to"])
-            hh = h * v / (top or 1)
-            tip = f'{when(p["from"], r.get("started_at"), r["span_s"])}: {label} {v:,.1f}'
-            if kind == "bar":
-                out.append(f'<rect class="cell" x="{xa:.1f}" y="{y0 + h - hh:.1f}" width="{max(1.0, xb - xa - 1):.1f}" '
-                           f'height="{hh:.1f}" style="fill-opacity:.35"><title>{e(tip)}'
-                           + (f'; {p["failed"]} failed check(s)' if p["failed"] else "") + '</title></rect>')
-            else:
-                pts.append(f"{(xa + xb) / 2:.1f},{y0 + h - hh:.1f}")
-        if len(pts) > 1:
-            out.append(f'<polyline class="line" points="{" ".join(pts)}"/>')
-    out.append("</svg>")
-    trend = (r["pace"].get("trend") or {}).get("sentence")
-    return (f'<p class="muted">{e(trend)}</p>' if trend else "") + "".join(out)
-
-
-# ---------------------------------------------------------------- treemap
-def phase_treemap(r: dict, items: List[dict], *, width: int = 980, height: int = 220, base: str = "") -> str:
-    """Where the working time went: a box per phase, a tile per tool, area by
-    seconds; the darker a tile, the more of its calls failed."""
-    allp = phases(r)
-    keys = [k for k, p in enumerate(allp) if p["kind"] != "idle"]  # the lens numbers phases with the idle among them
-    ph = [allp[k] for k in keys]
-    if not ph:
-        return ""
-    secs, tools_of = [], []
-    by_index = {x["index"]: x for x in items}
-    for p in ph:
-        tc: Dict[str, list] = {}
-        for i in range(p["first"], p["last"] + 1):
-            x = by_index.get(i)
-            if x is None or x["latency_s"] <= 0:
-                continue
-            t = tc.setdefault(x["name"], [0.0, 0, 0])
-            t[0] += x["latency_s"]
-            t[1] += 1
-            t[2] += int(x["error"] or x["check"] is False)
-        tools_of.append(sorted(tc.items(), key=lambda kv: -kv[1][0]))
-        secs.append(sum(v[0] for _, v in tc.items()))
-    order = sorted(range(len(ph)), key=lambda k: -secs[k])
-    rects = _squarify([secs[k] for k in order], 0, 16, width, height)
-    sa, span = r.get("started_at"), r["span_s"]
-    total = sum(secs) or 1
-    out = [f'<svg class="viz trail treemap" viewBox="0 0 {width} {height + 18}" width="{width}" role="img" '
-           f'aria-label="where the working time went: a box per phase, a tile per tool, area by seconds">'
-           f'<text class="mu" x="0" y="11">area is the seconds a tool ran ({dur(total)} in all); darker, more of its '
-           f'calls failed</text>']
-    for k, rc in zip(order, rects):
-        if rc is None:
-            continue
-        x, y, w, h = rc
-        p = ph[k]
-        a, b = p["bursts"]
-        name = (f"loop {a}–{b}" if p["kind"] == "loop" else f"filler {a}–{b}" if p["kind"] == "filler"
-                else f"burst {a}" if a == b else f"bursts {a}–{b}")
-        trs = tools_of[k]
-        room = h > 34 and w > 50
-        inner = _squarify([v[0] for _, v in trs], x + 2, y + (16 if room else 2), max(1, w - 4),
-                          max(1, h - (18 if room else 4)))
-        out.append(f'<g data-phase="{keys[k]}">')
-        for (tool, (ts, n, bad)), irc in zip(trs, inner):
-            if irc is None:
-                continue
-            ix, iy, iw, ih = irc
-            op = 0.10 + 0.32 * (bad / n if n else 0)
-            out.append(f'<rect class="cell" x="{ix + .5:.1f}" y="{iy + .5:.1f}" width="{max(.5, iw - 1):.1f}" '
-                       f'height="{max(.5, ih - 1):.1f}" rx="2" style="fill-opacity:{op:.2f}"><title>{e(name)} · {e(tool)}: '
-                       f'{n} call(s), {e(dur(ts))}' + (f', {bad} failed' if bad else "") + '</title></rect>')
-            if iw > 50 and ih > 14:
-                out.append(f'<text class="lab2" x="{ix + 5:.1f}" y="{iy + 12:.1f}">'
-                           f'{e(_fit(f"{tool} · {n}", iw - 8, 6.0))}</text>')
-        out.append(f'<a href="{e(base)}&amp;burst={a}#p-long"><rect class="box{" strong" if p["kind"] == "loop" else ""}" '
-                   f'x="{x + .5:.1f}" y="{y + .5:.1f}" width="{max(1, w - 1):.1f}" height="{max(1, h - 1):.1f}" rx="3">'
-                   f'<title>{e(name)}: {e(when(p["from"], sa, span))}, {e(dur(secs[k]))} of tool time '
-                   f'({secs[k] / total:.0%}), {p["calls"]:,} calls — open it</title></rect></a>')
-        if room:
-            out.append(f'<text class="lab2" x="{x + 5:.1f}" y="{y + 12:.1f}" style="font-weight:700">'
-                       f'{e(_fit(f"{name} · {secs[k] / total:.0%}", w - 10, 6.2))}</text>')
-        out.append("</g>")
-    out.append("</svg>")
-    return "".join(out)
-
-
-# ------------------------------------------------------------- two long runs
 def diff_timeline(da: dict, db: dict, ia: List[dict], ib: List[dict], *, names=("A", "B"), width: int = 980) -> str:
     """Two long runs cut at the checkpoints they share (the same check starting
-    to pass, in the same order): A's steps rise above the line, B's hang below,
-    and the darker part of each is what failed."""
+    to pass, in the same order), their tool use mirrored: A above, B below."""
     ca, cb = _checkpoints(da, ia), _checkpoints(db, ib)
     sm = difflib.SequenceMatcher(a=[k for k, _, _ in ca], b=[k for k, _, _ in cb], autojunk=False)
     pairs = [(ca[m.a + j], cb[m.b + j]) for m in sm.get_matching_blocks() for j in range(m.size)]
@@ -676,57 +761,63 @@ def diff_timeline(da: dict, db: dict, ia: List[dict], ib: List[dict], *, names=(
     for (pa, pb), (qa, qb) in zip(cuts, cuts[1:]):
         def take(its, t0, t1):
             got = [x for x in its if t0 <= x["start"] < t1]
-            return {"n": len(got), "fail": sum(1 for x in got if x["error"] or x["check"] is False),
-                    "wall": max(0.0, min(t1, max([x["end"] for x in got] or [t0])) - t0)}
+            return {"n": len(got), "mix": Counter(x["activity"] for x in got),
+                    "fail": sum(1 for x in got if x["error"] or x["check"] is False),
+                    "secs": sum(x["latency_s"] for x in got), "wall": max(0.0, min(t1, max([x["end"] for x in got] or [t0])) - t0)}
         segs.append({"a": take(ia, pa[1], qa[1]), "b": take(ib, pb[1], qb[1]),
                      "label": (qa[0] or "end").split(":", 1)[-1] if qa[0] != "end" else "the end"})
     if not segs:
         return ""
-    left, right = 92, 16
+    left, right = 70, 12
     x0, x1 = left, width - right
     wts = [math.sqrt(max(s["a"]["n"], s["b"]["n"], 1)) for s in segs]
     tot = sum(wts)
-    half = 62
-    mid = 30 + half
-    height = mid + half + 28
+    half = 70
+    mid = 42 + half
+    height = mid + half + 46
     most = max(max(s["a"]["n"], s["b"]["n"]) for s in segs) or 1
-    out = [f'<svg class="viz trail" viewBox="0 0 {width} {height}" width="{width}" role="img" '
-           f'aria-label="two runs cut at {len(pairs)} shared checkpoint(s); {e(names[0])} above, {e(names[1])} below">'
-           f'<text class="lab2" x="4" y="{mid - 10}">{e(_fit(names[0], 84))}</text>'
-           f'<text class="lab2" x="4" y="{mid + 18}">{e(_fit(names[1], 84))}</text>'
-           f'<line class="trunk" x1="{x0}" x2="{x1}" y1="{mid}" y2="{mid}"/>']
+    out = [f'<svg class="viz soft" viewBox="0 0 {width} {height}" width="{width}" role="img" '
+           f'aria-label="two runs cut at {len(pairs)} shared checkpoint(s); calls above for {e(names[0])}, below for {e(names[1])}">']
+    out.append(f'<text x="4" y="{mid - half / 2}" style="font-size:10px">{e(_fit(names[0], 64))}</text>'
+               f'<text x="4" y="{mid + half / 2 + 8}" style="font-size:10px">{e(_fit(names[1], 64))}</text>'
+               f'<line x1="{x0}" x2="{x1}" y1="{mid}" y2="{mid}" style="stroke:var(--ink2)"/>')
     x = float(x0)
     worst, worst_k = 0, None
     for k, (s, wt) in enumerate(zip(segs, wts)):
         w = (x1 - x0) * wt / tot
         for side, sign in (("a", -1), ("b", 1)):
             d = s[side]
-            if not d["n"]:
-                continue
-            hh = half * math.sqrt(d["n"] / most)
-            fh = hh * d["fail"] / d["n"]
-            y = mid - hh if sign < 0 else mid
-            out.append(f'<rect class="cell" x="{x + 1.5:.1f}" y="{y:.1f}" width="{max(1.0, w - 3):.1f}" height="{hh:.1f}" '
-                       f'style="fill-opacity:.18"><title>{e(names[0 if side == "a" else 1])}: {d["n"]:,} step(s) over '
-                       f'{e(dur(d["wall"]))} before {e(s["label"])}' + (f', {d["fail"]} failed' if d["fail"] else "")
-                       + '</title></rect>')
-            if fh >= 0.5:
-                fy = (mid - fh) if sign < 0 else (mid + hh - fh)
-                out.append(f'<rect class="cell" x="{x + 1.5:.1f}" y="{fy:.1f}" width="{max(1.0, w - 3):.1f}" '
-                           f'height="{fh:.1f}" style="fill-opacity:.6"/>')
+            yy = mid
+            for act in _ORDER:
+                n = d["mix"].get(act)
+                if not n:
+                    continue
+                # height is the square root of the steps, so a stretch of 20 still shows beside one of 2,000
+                hh = half * (math.sqrt(d["n"]) / math.sqrt(most)) * n / d["n"]
+                y = yy - hh if sign < 0 else yy
+                out.append(f'<rect class="{ACTIVITIES.get(act, ACTIVITIES["other"])[0]}" x="{x + 1:.1f}" y="{y:.1f}" '
+                           f'width="{max(1.0, w - 2):.1f}" height="{hh:.1f}"><title>{e(names[0 if side == "a" else 1])}: '
+                           f'{n} {e(ACTIVITIES.get(act, ACTIVITIES["other"])[2])} step(s) before {e(s["label"])}</title></rect>')
+                yy = yy - hh if sign < 0 else yy + hh
+            if d["fail"]:
+                tall = half * math.sqrt(d["n"] / most)
+                fy = (mid - tall - 5) if sign < 0 else (mid + tall + 2)
+                out.append(f'<rect x="{x + 1:.1f}" y="{fy:.1f}" width="{max(1.0, w - 2):.1f}" height="3" style="fill:var(--sc)">'
+                           f'<title>{d["fail"]} failed</title></rect>')
         delta = s["a"]["n"] - s["b"]["n"]
         if abs(delta) > worst:
             worst, worst_k = abs(delta), k
         if w > 60 and abs(delta) >= max(10, 0.3 * max(s["a"]["n"], s["b"]["n"])):
-            y = (mid - half * math.sqrt(s["a"]["n"] / most) - 6) if delta > 0 else (mid + half * math.sqrt(s["b"]["n"] / most) + 13)
-            out.append(f'<text class="lab2" x="{x + w / 2:.1f}" y="{y:.1f}" text-anchor="middle" style="font-weight:700">'
-                       f'+{abs(delta):,} step(s)</text>')
+            out.append(f'<text x="{x + w / 2:.1f}" y="{mid + 4 + (half + 12) * (-1 if delta > 0 else 1):.1f}" text-anchor="middle" '
+                       f'style="font-size:10px;font-weight:700">{"A" if delta > 0 else "B"} +{abs(delta):,}</text>')
+        out.append(f'<line class="grid" x1="{x + w:.1f}" x2="{x + w:.1f}" y1="{mid - half - 4}" y2="{mid + half + 4}"/>')
         if k < len(segs) - 1:
-            out.append(f'<circle class="mile" cx="{x + w:.1f}" cy="{mid}" r="2.4"><title>checkpoint {k + 1}: '
-                       f'{e(s["label"])} starts passing in both</title></circle>')
+            out.append(f'<text x="{x + w:.1f}" y="{height - 8}" text-anchor="middle" style="font-size:9px">◆'
+                       f'<title>checkpoint {k + 1}: {e(s["label"])} starts passing in both</title></text>')
         x += w
-    out.append(f'<text class="mu" x="{x0}" y="14">cut at {len(pairs)} checkpoint(s) both reached, in the same order; '
-               f'size grows with the square root of the steps between them</text></svg>')
+    out.append(f'<text x="{x0}" y="16" style="font-size:10px">cut at {len(pairs)} checkpoint(s) both runs reached, '
+               f'in the same order; width and height grow with the square root of the steps between them</text>')
+    out.append("</svg>")
     sentence = ""
     if worst_k is not None:
         s = segs[worst_k]
@@ -734,8 +825,9 @@ def diff_timeline(da: dict, db: dict, ia: List[dict], ib: List[dict], *, names=(
         sentence = (f'<p class="note">They part most between {e(before)} and <code>{e(s["label"][:70])}</code>: '
                     f'{e(names[0])} made {s["a"]["n"]:,} step(s) over {e(dur(s["a"]["wall"]))}, '
                     f'{e(names[1])} {s["b"]["n"]:,} over {e(dur(s["b"]["wall"]))}.</p>')
-    return sentence + "".join(out) + _key([("▯", "steps between two checkpoints"), ("▮", "the part that failed"),
-                                           ("·", "a checkpoint both reached")])
+    return sentence + "".join(out) + legend(sorted({x["activity"] for x in ia + ib}),
+                                            [('<b>◆</b>', "a checkpoint both reached"),
+                                             ('<b style="color:var(--sc)">▁</b>', "failed")])
 
 
 def lens_payload(data: dict, r: dict, *, ident: str, live: bool = False) -> dict:

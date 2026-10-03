@@ -7,15 +7,19 @@ a three-minute one, and the night's loop vanishes into a smear.
 `agentdiff.longrun` reads a run at the scale it ran.
 
 ```bash
-agentdiff timeline run.json                  # a run of hours or days: the story, phase by phase
-agentdiff timeline a.json b.json             # two long runs, cut at the checkpoints they share
-agentdiff hub .                              # the long panel and the lens, live while it runs
+agentdiff timeline run.json --long           # any run, phase by phase; the page carries the lens
+agentdiff timeline a.json b.json --long      # two runs, cut at the checkpoints they share
+agentdiff hub .                              # every trace's phases chip, live while it runs
+agentdiff hub . --export site/ --bare-index  # the whole hub as static files, for a private host
 python demo/longrun/make_trace.py            # the demo: three days, and the same agent guarded
 ```
 
-A run is read as long past an hour on its clock or 600 steps, or with
-`--long`. On the hub, its page opens on the long panel. Panels that would
-draw thousands of marks are drawn when opened.
+Phases are a view of **any** run, an option rather than a mode. On the
+hub every trace has the panel, opened with its `phases` chip
+(`?view=long`) or by a link into a burst. On the command line, pass
+`--long`. A run with thousands of steps (past an hour on its clock or
+600 steps) draws its other panels when they are opened, so its page
+stays fast; nothing else changes with length.
 
 ## The rules
 
@@ -53,72 +57,68 @@ more than 800 tool steps.
 
 ## What the hub draws
 
-One trail, in one ink. Shape and position carry the meaning, so nothing
-rests on telling colours apart. Everything is server-side SVG, and the
-page works without a script.
+All server-side SVG; the page works without a script. Every view wears the same colours as the rest of the hub at a lower intensity (`svg.soft`), so a page of thousands of marks stays calm, and identity never rests on colour alone: each mark also has a glyph, a position and a title.
 
-- **The whole run as a trunk** along its clock.
-  - A burst is a branch: the longer the branch and the bigger its leaf,
-    the more calls it made. The leaf is filled when the burst moved
-    forward.
-  - Failed checks hang below the trunk.
-  - A loop of bursts is one arc over its stretch.
-  - The idle between sessions is a dotted gap that says how long it was.
-  - Checkpoints are dots on the trunk. Where to look first is ringed, and
-    the stall is a bracket underneath.
-  - Every leaf opens its burst.
-- **Every call of a burst** (or of any stretch, `?t0=&t1=`), as two trunks.
-  - The first places each call on its clock; the second puts the calls in
-    order at an even pace. Faint lines join each call to its moment.
-  - A call rises from the trunk, taller when it took longer. A failed one
-    hangs below, and a passing check ends in a dot.
+- **The whole run on one line.** Sessions keep their true clock. The idle
+  between them is compressed to a break that says how long it was.
+  - Rows: the sessions, then the bursts coloured by how they went (✓
+    progress, ↻ stuck, ! failing), then every call as a density of
+    activity, then the checks.
+  - Below the rows, the loop and the stall as brackets.
+  - Every burst opens its calls, and every session opens on its own clock.
+- **Every call of a burst** (or of any stretch, `?t0=&t1=`): on its clock
+  in a lane per activity, then in order, each call the same width.
+  - Lines join each call to its moment on the clock: they fan in where
+    the clock ran fast and out where it ran slow.
   - The same failing call run again and again is bracketed.
   - Pages of 600 calls.
 - **The story, phase by phase.** Each phase is one row:
   - an eventful burst, with the filler bursts that led into it
   - a loop, however many bursts it took
-  - a stretch of filler
+  - a stretch of filler, where no check changed
 
   Idle is a divider row between phases.
-- **When it worked:** a row per day and a column per hour; darker means
-  more calls. It uses the wall clock (UTC) when the trace gives
-  `started_at`. A cell opens its stretch.
-- **Its pace:** calls, seconds per call and tokens per step, each on its
-  own axis, with whether the agent slowed or its context grew.
+- **When it worked:** a row per day and a column per hour, on the wall
+  clock (UTC) when the trace gives `started_at`. For a run of hours, a row
+  per hour and a column per 5 minutes. A cell opens its stretch.
+- **Its pace:** calls, seconds per call and tokens per step, as three small
+  charts, each on its own axis. The reading says whether the agent slowed
+  down or its context grew between its first and last thirds.
 - **Where the working time went:** a box per phase and a tile per tool,
-  area by seconds, darker where its calls failed.
-- **Beside another run** (`?vs=`): both cut at the checkpoints they share,
-  one above the line and one below, with the part that failed darker.
+  area by seconds.
+- **Beside another run** (`?vs=`): both runs cut at the checkpoints they
+  share (the same check starting to pass, in the same order). Tool use is
+  mirrored, the first run above the line and the other below, and the
+  stretch where they part most is named.
 
 ## The lens
 
-`/static/longview.js` is the hub's own script; the page's CSP allows no
-other. It draws the same trail as a tape of phases.
+`/static/longview.js` is the hub's own script (the page's CSP allows no
+other). It reads `GET /api/v1/traces/<id>/long` and draws the run as a
+tape of phases.
 
 - **Focus and context.** The phase in focus takes most of the width. Its
   neighbours narrow with distance, and phases more than three away scroll
-  out, counted at the edges. A thin trail above shows the whole run, with
-  what is on screen underlined.
-- **Every call at an even pace,** a branch off the trunk (`pace: clock`
-  puts each phase on its own clock instead). Where there is room, the
-  tool is named at the tip. A crowded phase is a quiet comb, and its
-  detail comes up under the lens.
+  out, counted at the edges. A strip above shows the whole run with what
+  is on screen boxed.
+- **Every call at an even pace.** Each call is the same width inside its
+  phase (`pace: clock` puts the phase on its own clock instead). When
+  there is room, the tool is named beside it.
 - **The fisheye.** A halo follows the pointer and magnifies the calls
   under it, which grow as under glass. The panel below lists them with
-  what they cost: seconds, tokens, failures, retries, the tools that took
-  the time.
+  what they cost: seconds, tokens, failures, the tools that took the time.
 - **Moving.**
   - prev and next, ← →, the wheel or a drag move a phase at a time,
     animated, and idle is passed rather than stopped at
-  - `[` and `]` jump to the previous or next failure, checkpoint or loop
-  - a treemap box brings its phase to the lens
-- **Bring forward:** every call, failures, retries, checkpoints, edits.
-  Everything else fades.
+  - `[` and `]` jump to the previous or next phase with a failure, a
+    checkpoint or a loop
+  - a box in the treemap brings its phase to the lens
+- **Bring forward:** every call, failures, retries (the same failing call
+  again), checkpoints, edits. Everything else dims.
 
 It opens on where to look first. On a live run it restarts with each
-update. `agentdiff timeline --long` writes the same page as one file,
-with the lens and its data inside it, so it opens in any browser without
-a hub.
+update. Focus, filter and pace are kept per tab (session storage). They
+are conveniences only.
 
 ## The demo
 
@@ -146,3 +146,20 @@ its real clock: `started_at`, and each step's `started_s` and latency
 with idle between them, under `agentdiff guard`, reads as three bursts
 (05:30, 05:31, 05:32), each one step forward: first pass, then 2 → 4 and
 4 → 6 passing as it added tests.
+
+## The hub as static files
+
+`agentdiff hub ROOT --export DIR` writes every page of the hub as files:
+- the Overview, runs, traces, timelines, evolve and evals
+- each trace's page, its phases page with the lens, and for a big run a
+  page with every panel drawn
+- the JSON of each trace and of each lens
+
+Links point at the files. The lens script is inlined, and burst links
+move the lens (`#burst-N`). The hub's ingest token is never written.
+Signing in, live updates and the compare picker need the hub itself, and
+each page says so.
+
+`--bare-index` writes `index.html` without its document shell, for a host
+that adds its own (a private Claude artifact). The theme follows the
+viewer's choice as well as the system's.

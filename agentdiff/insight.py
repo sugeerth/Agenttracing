@@ -202,6 +202,14 @@ def _median(xs: List[float]) -> Optional[float]:
     return statistics.median(xs) if xs else None
 
 
+def _s(seconds: float) -> str:
+    """Seconds as a reader says them: 12.3s, or 14h 06m for a long run."""
+    if seconds >= 3600:
+        from .longrun import dur
+        return dur(seconds)
+    return f"{seconds:.1f}s"
+
+
 def verdict_card(traj: dict, tl: dict, *, peers: Iterable[dict] = (), change: Optional[dict] = None,
                  fix: Optional[dict] = None) -> List[dict]:
     """The rows of the card, each ``{label, html_safe_text, source, tone}``."""
@@ -228,11 +236,11 @@ def verdict_card(traj: dict, tl: dict, *, peers: Iterable[dict] = (), change: Op
     secs = tl.get("span_s")
     pt, ps = _median([p.get("tokens") for p in peers]), _median([p.get("seconds") for p in peers])
     graded_peers = [p for p in peers if p.get("success") is not None]
-    cost = f"{tok:,} tokens over {secs:.1f}s" if isinstance(secs, (int, float)) else f"{tok:,} tokens"
+    cost = f"{tok:,} tokens over {_s(secs)}" if isinstance(secs, (int, float)) else f"{tok:,} tokens"
     if pt:
         cost += f"; the other {len(peers)} run(s) of this task: median {pt:,.0f} tokens"
         if ps:
-            cost += f", {ps:.1f}s"
+            cost += f", {_s(ps)}"
         if graded_peers:
             cost += f", {sum(1 for p in graded_peers if p['success'])} of {len(graded_peers)} passed"
     rows.append({"label": "cost", "text": cost + ".", "source": "steps[].tokens, the clock; peers: the trace index", "tone": ""})

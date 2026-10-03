@@ -187,6 +187,9 @@ def _ago(t: float) -> str:
 def _secs(s) -> str:
     if not isinstance(s, (int, float)):
         return "—"
+    if s >= 3600:  # hours and days read as such, not as thousands of minutes
+        from ..longrun import dur
+        return dur(s)
     return f"{s:.1f}s" if s < 120 else f"{s / 60:.1f}m"
 
 
@@ -578,7 +581,7 @@ def _steps_table(steps: List[dict], most: int = 400, focus: Optional[int] = None
 
 
 #: the trace page's panels, in page order: key -> title
-PANELS = (("long", "The long run"), ("map", "Trajectory map"), ("trunk", "The run as a trunk"), ("compare", "Two runs on one axis"),
+PANELS = (("long", "Phases: sessions, bursts and loops"), ("map", "Trajectory map"), ("trunk", "The run as a trunk"), ("compare", "Two runs on one axis"),
           ("code", "The code it produced"), ("seconds", "Where the seconds went"), ("reward", "Reward & credit"),
           ("lanes", "Every thread on its own lane"), ("laps", "The loop, lap by lap"),
           ("flow", "How it moved between tools"), ("steps", "The steps"))
@@ -586,7 +589,7 @@ PANELS = (("long", "The long run"), ("map", "Trajectory map"), ("trunk", "The ru
 PRESETS = (("focus", "focus", ("map", "trunk", "compare", "code", "steps")),
            ("loop", "the loop", ("trunk", "laps", "flow")), ("time", "time", ("seconds", "lanes", "trunk")),
            ("threads", "threads", ("trunk", "lanes")), ("code", "the code", ("code", "map", "steps")),
-           ("training", "training", ("reward", "trunk")), ("long", "the long run", ("long", "steps")),
+           ("training", "training", ("reward", "trunk")), ("long", "phases", ("long", "steps")),
            ("all", "everything", tuple(k for k, _ in PANELS)))
 
 
@@ -717,21 +720,20 @@ def trace_panel(*, ref, data: dict, lap: dict, tl: Optional[dict] = None, cmp: O
     presets = f'<div class="filters" aria-label="views"><span class="muted">view</span>{chips}</div>'
     panels = []
     opened = set(opened) | set(extra_open)
-    if long:
-        if view == "focus":  # a long run opens on its days, not on thousands of branches
-            opened = (opened - {"trunk", "map", "compare"}) | {"long"} | set(extra_open)
+    big = bool(long and long.get("big"))
 
     def drawn(key: str, make) -> str:
-        """A long run's closed panel is drawn when it is opened: a link, not thousands of marks."""
-        if not long or key in opened:
+        """A big run's closed panel is drawn when it is opened: a link, not thousands of marks."""
+        if not big or key in opened:
             return make()
-        return (f'<p class="muted">A long run: this view is drawn on demand. '
+        return (f'<p class="muted">{len(steps):,} steps: this view is drawn when asked for. '
                 f'<a href="/traces/{e(ref.id)}?view={e(view)}{e(keep)}&amp;open={e(key)}#p-{e(key)}">Draw it</a>.</p>')
     if long:
-        panels.append(_panel("long", "The long run", _long_gist(long["r"]), long_body(ref, long, view=view, vs=vs),
-                             "long" in opened or bool(long.get("win") or long.get("zoom")), start=True))
-        panels.append(_panel("long", "The long run", _long_gist(long["r"]), long_body(ref, long, view=view, vs=vs),
-                             "long" in opened or bool(long.get("win") or long.get("zoom")), start=True))
+        # phases are a view of any run, opened by its chip or a link into it; never forced on a run for its length
+        show = "long" in opened or bool(long.get("win") or long.get("zoom"))
+        panels.append(_panel("long", "Phases: sessions, bursts and loops", _long_gist(long["r"]),
+                             long_body(ref, long, view=view, vs=vs) if show or not big else
+                             drawn("long", lambda: ""), show, start=show))
     folded = f', {tl["folded_steps"]} quiet steps folded' if tl.get("folded_steps") else ""
     if cmp and other_data is not None and al:
         here_b = (cmp["b"].get("look_here") or {}).get("index")
@@ -817,7 +819,15 @@ def trace_page(*, brand: str, user: str, csrf: str, ref, data: dict, lap: dict, 
             f'{trace_panel(ref=ref, data=data, lap=lap, **panel)}</div>'
             f'<p class="muted mono">{e(ref.path.name)} · <a href="/api/v1/traces/{e(ref.id)}">JSON</a></p>')
     return layout(str(s.get("task")), body, brand=brand, user=user, csrf=csrf, active="traces", live=ref.live,
-                  lens=bool(long))
+                  lens=lens_open(panel))
+
+
+def lens_open(panel: dict) -> bool:
+    """Whether a trace page shows its phases open, and so runs the lens. A page
+    with the panel closed runs no script; its phases are drawn on the server."""
+    long = panel.get("long") or {}
+    return bool(long) and (panel.get("view") == "long" or "long" in (panel.get("extra_open") or ())
+                           or bool(long.get("win") or long.get("zoom")))
 
 
 # ----------------------------------------------------------------- long runs

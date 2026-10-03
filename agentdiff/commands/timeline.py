@@ -3,8 +3,8 @@
     agentdiff timeline run.json                one run: its threads, laps and folds, and where to look
     agentdiff timeline a.json b.json           two runs on one axis, and the first step they differ
     agentdiff timeline traces/ [more/ ...]     every run, one row each on one clock, and each one's place to look
-    agentdiff timeline run.json --long         a run of hours or days: its sessions, bursts, loops over hours,
-                                               the stall, phase by phase (automatic for a run that long)
+    agentdiff timeline run.json --long         any run in phases: its sessions, bursts, loops (over hours, when it
+                                               ran that long), the stall; the page carries the lens
 
 It prints one line per run that says where to look first, and writes the
 drawings to one page (``timeline.html`` unless ``-o``), the same server-
@@ -36,8 +36,7 @@ def register(subparsers) -> None:
                    help="directories: one clock for every run, or each its own")
     p.add_argument("--json", action="store_true", help="print the reading as JSON instead of lines")
     p.add_argument("--long", action="store_true",
-                   help="read it as a long run (sessions, bursts, loops over hours); automatic past an hour or "
-                        "600 steps")
+                   help="read it in phases: sessions, bursts, loops, the stall, with the lens on the page")
     p.set_defaults(func=run)
 
 
@@ -82,8 +81,7 @@ def run(args: argparse.Namespace) -> int:
             print(f"error: not a trace: {', '.join(bad)}", file=sys.stderr)
             return 2
         tls = [timeline(d) for d in datas]
-        from ..longrun import is_long
-        if args.long or any(is_long(d) for d in datas):
+        if args.long:
             return _long(args, paths, datas, tls)
         for p, t in zip(paths, tls):
             here = t["look_here"] or {}

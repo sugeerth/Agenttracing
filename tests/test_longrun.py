@@ -12,6 +12,7 @@ import io
 import json
 import math
 import random
+import re
 import shutil
 import sys
 import tempfile
@@ -235,11 +236,10 @@ class DrawTest(unittest.TestCase):
             _svg_ok(self, v)
         self.assertNotIn("<a>", views[-1].replace("<a href", ""), "names are escaped")
         over = views[0]
-        for want in ('class="arc"', "the same calls 102×", "no progress for 15h", "look here", 'class="gap"',
-                     "5h 24m", 'class="leaf on"', 'class="mile"'):
+        for want in ("↻ loop · bursts", "no progress for 15h", "◆ look here: burst", "idle", "S4 · day 2 00:30"):
             self.assertIn(want, over)
-        for colour in ("var(--sc)", "var(--sg)", "var(--a1)", "var(--a2)", "var(--a3)"):
-            self.assertNotIn(colour, "".join(views), "one ink: the shape says it, not a colour")
+        self.assertTrue(all('class="viz soft' in v for v in views if "<svg" in v),
+                        "every long view wears the soft class: its colours at a lower intensity")
         self.assertIn("They part most between", views[-1])
 
     def test_the_story_is_one_row_per_phase(self):
@@ -278,18 +278,22 @@ class HubTest(unittest.TestCase):
         from agentdiff.hub.app import Request
         return self.app.handle(Request("GET", path, self.h))
 
-    def test_a_long_run_opens_on_its_days_with_the_lens_and_draws_the_rest_on_demand(self):
+    def test_phases_are_a_view_of_any_run_and_a_big_one_draws_on_demand(self):
+        closed = self.get(f"/traces/{self.a}").body.decode()
+        self.assertIn('<details class="panel" id="p-long">', closed, "an option, not forced on a run for its length")
+        self.assertNotIn("longview.js", closed, "a closed panel runs no script")
+        self.assertIn("Draw it", closed)
         t0 = time.perf_counter()
-        resp = self.get(f"/traces/{self.a}")
+        resp = self.get(f"/traces/{self.a}?view=long")
         self.assertLess(time.perf_counter() - t0, 5.0)
         page = resp.body.decode()
         self.assertTrue(resp.scripted, "the lens is the hub's own script")
         for want in ('id="p-long" open', 'class="lens" data-lens="/api/v1/traces/', 'src="/static/longview.js"',
                      "The story, phase by phase", "When it worked", "Its pace", "Where the working time went",
-                     ">long run<", "Draw it"):
+                     ">phases<", "Draw it"):
             self.assertIn(want, page)
         self.assertLess(len(page), 1_500_000, "closed panels are not drawn")
-        drawn = self.get(f"/traces/{self.a}?open=trunk").body.decode()
+        drawn = self.get(f"/traces/{self.a}?view=long&open=trunk").body.decode()
         self.assertNotIn(f'open=trunk#p-trunk">Draw it', drawn)
 
     def test_a_burst_a_session_and_a_stretch_open_on_their_calls(self):
@@ -301,7 +305,7 @@ class HubTest(unittest.TestCase):
         self.assertEqual(self.get(f"/traces/{self.a}?view=long&burst=x9").status, 200, "a bad number is ignored")
 
     def test_beside_the_guarded_run_checkpoint_by_checkpoint(self):
-        page = self.get(f"/traces/{self.a}?vs={self.b}").body.decode()
+        page = self.get(f"/traces/{self.a}?view=long&vs={self.b}").body.decode()
         self.assertIn("Beside the other run, checkpoint by checkpoint", page)
         self.assertIn("They part most between", page)
 
@@ -317,12 +321,14 @@ class HubTest(unittest.TestCase):
         self.assertIn(b"Lens.prototype.fish", js.body)
         self.assertEqual(self.get("/api/v1/traces/000000000000/long").status, 404)
 
-    def test_a_short_run_has_no_long_panel(self):
+    def test_a_short_run_has_phases_too_one_click_away(self):
         from agentdiff.hub.traces import trace_id
         tid = trace_id("loops/traces/parse_duration__agent-stuck.json")
         page = self.get(f"/traces/{tid}").body.decode()
-        self.assertNotIn('id="p-long"', page)
-        self.assertNotIn("longview.js", page)
+        self.assertIn('<details class="panel" id="p-long">', page)
+        self.assertIn("The story, phase by phase", page, "a short run's phases are drawn, just closed")
+        opened = self.get(f"/traces/{tid}?view=long").body.decode()
+        self.assertIn('id="p-long" open', opened)
 
 
 class TranscriptClockTest(unittest.TestCase):
@@ -360,7 +366,7 @@ class CommandTest(unittest.TestCase):
             buf = io.StringIO()
             with redirect_stdout(buf):
                 code = main(["timeline", str(DEMO / "ledger_v2__agent-3day.json"),
-                             str(DEMO / "ledger_v2__agent-guarded.json"), "-o", str(Path(tmp) / "t.html")])
+                             str(DEMO / "ledger_v2__agent-guarded.json"), "--long", "-o", str(Path(tmp) / "t.html")])
             self.assertEqual(code, 0)
             out = buf.getvalue()
             self.assertIn("look here: Burst 23", out)
@@ -408,7 +414,7 @@ class LensBrowserTest(unittest.TestCase):
                     errors = []
                     page.on("pageerror", lambda e: errors.append(str(e)))
                     page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
-                    page.goto(f"{base}/traces/{tid}")
+                    page.goto(f"{base}/traces/{tid}?view=long")
                     page.wait_for_selector(".lens.on svg.lens-tape", timeout=15000)
                     self.assertIn("↻ loop", page.text_content(".lens-title"))
                     svg = page.query_selector("svg.lens-tape")
@@ -417,7 +423,7 @@ class LensBrowserTest(unittest.TestCase):
                     page.mouse.move(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.6)
                     page.wait_for_timeout(150)
                     self.assertIn("under the lens", page.text_content(".lens-card"))
-                    self.assertTrue(page.is_visible("svg.lens-tape circle.halo"))
+                    self.assertTrue(page.is_visible(".lens-halo circle"))
                     svg.focus()
                     page.keyboard.press("ArrowRight")
                     page.wait_for_timeout(600)
@@ -440,7 +446,7 @@ class LensBrowserTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "long.html"
             with redirect_stdout(io.StringIO()):
-                main(["timeline", str(DEMO / "ledger_v2__agent-3day.json"), "-o", str(out)])
+                main(["timeline", str(DEMO / "ledger_v2__agent-3day.json"), "--long", "-o", str(out)])
             with sync_playwright() as p:
                 browser = p.chromium.launch(executable_path=_chromium())
                 page = browser.new_page(viewport={"width": 1100, "height": 1000})
@@ -460,3 +466,36 @@ class LensBrowserTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExportTest(unittest.TestCase):
+    """The hub as static files, for a private static host."""
+
+    def test_every_page_is_written_linked_and_nothing_secret_leaves(self):
+        from agentdiff.hub.export import export
+        from test_hub_live import _root
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _root(Path(tmp))
+            shutil.copytree(DEMO, root / "longrun" / "traces")
+            out = Path(tmp) / "site"
+            counts = export(str(root), str(out), bare_index=True, title="Test Hub")
+            self.assertGreater(counts["pages"], 10)
+            names = {p.name for p in out.iterdir()}
+            index = (out / "index.html").read_text()
+            self.assertTrue(index.startswith("<title>Test Hub</title><style>"), "a bare index for a host's shell")
+            self.assertNotIn("<html", index)
+            for page in (out / n for n in names if n.endswith(".html")):
+                html = page.read_text()
+                self.assertNotIn('href="/', html, f"{page.name}: every hub link points at a file")
+                self.assertNotIn("ingest-secret-token", html)
+                for target in re.findall(r'href="([^"#]+\.html)', html):
+                    self.assertIn(target, names, f"{page.name} links to {target}, which was not written")
+            long_page = next(n for n in names if n.endswith(".phases.html") and
+                             "ledger" in (out / n).read_text()[:3000])
+            html = (out / long_page).read_text()
+            self.assertIn('data-lens="lens-', html)
+            self.assertIn("Lens.prototype.fish", html, "the lens is inlined")
+            self.assertIn('#burst-', html, "a burst link moves the lens")
+            self.assertIn(':root[data-theme="dark"]', html, "dark follows the viewer's choice too")
+            lens = json.loads((out / re.search(r'data-lens="(lens-[0-9a-f]+\.json)"', html).group(1)).read_text())
+            self.assertTrue(lens["phases"])

@@ -383,8 +383,8 @@ class App:
                 code_cmp = code_compare(change, other_change)
         act = self._next_step(ref, data, change, fix, record_paths(ref.path)[1])
         long = self._long(query, ref, data, tl, odata if cmp else None, view)
-        if long:
-            card.insert(1, {"label": "long run", "text": long["r"]["sentence"],
+        if long and (long["r"].get("loops") or len(long["r"]["sessions"]) > 1):
+            card.insert(1, {"label": "phases", "text": long["r"]["sentence"],
                             "step": (long["r"].get("look_here") or {}).get("index"),
                             "tone": "bad" if long["r"].get("loops") else "",
                             "source": f"agentdiff.longrun: sessions split at {long['r']['basis']['session_gap_s'] / 60:.0f}m "
@@ -399,9 +399,10 @@ class App:
 
     @staticmethod
     def _long(query: dict, ref, data: dict, tl: dict, odata: Optional[dict], view: str) -> Optional[dict]:
-        """A long run's reading, and the stretch of it asked for: a burst, a session, or t0..t1."""
+        """The run read in phases (sessions, bursts, loops), and the stretch of it asked
+        for: a burst, a session, or t0..t1. Every run has it, as a view to open."""
         from ..longrun import is_long, longrun, window
-        if not (is_long(data) or view == "long"):
+        if not data.get("steps"):
             return None
 
         def num(key, kind=float):
@@ -426,7 +427,7 @@ class App:
         if odata is not None and is_long(odata):
             from ..timeline import _items
             other = {"data": odata, "items": _items(odata)[0], "r": longrun(odata)}
-        return {"r": r, "data": data, "items": tl.get("steps") or [], "win": win, "zoom": zoom, "burst": burst if win and
+        return {"r": r, "data": data, "big": is_long(data), "items": tl.get("steps") or [], "win": win, "zoom": zoom, "burst": burst if win and
                 burst is not None else None, "session": session if zoom and session else None, "page": page,
                 "t0": t0, "t1": t1, "other": other}
 
@@ -456,7 +457,7 @@ class App:
         ref, data, lap = found
         clock = self._clock(req, ref, data)
         page = views.trace_page(**self._common(session), ref=ref, data=data, lap=lap, **clock)
-        return Response(200, page.encode("utf-8"), scripted=ref.live or bool(clock.get("long")))
+        return Response(200, page.encode("utf-8"), scripted=ref.live or views.lens_open(clock))
 
     def trace_fragment(self, req: Request, session: Session, tid: str) -> Response:
         found = self._trace(tid)

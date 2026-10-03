@@ -5,6 +5,20 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Phases as a view of any run, softer colours, the hub as static files
+
+- **Phases for every run.** Sessions, bursts, loops and the lens are a
+  view any trace opens (its `phases` chip), no longer forced on a run for
+  its length. `timeline --long` is an explicit flag. A finished trace's
+  page runs a script only while its phases view is open.
+- **Softer colours.** The long views keep their colours at a lower
+  intensity (`svg.soft`).
+- **Readable durations.** Hours and days read as such: `1d 21h`, not
+  `2749.8m`.
+- **`agentdiff hub --export DIR`** writes the whole hub as linked files,
+  for a private static host. It also fixes a panel drawn twice on a long
+  run's page.
+
 ## Long-running agents: hours and days at the scale they ran
 
 `agentdiff/longrun.py` (`docs/LONGRUN.md`) clusters a run by its own gaps:

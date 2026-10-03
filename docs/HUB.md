@@ -11,8 +11,11 @@ under a directory, and follows it while it runs:
 - in-band telemetry agents post to it (`docs/TELEMETRY.md`)
 - guarded Claude Code sessions: each one traced, and every refusal the
   guards made on the Overview (`docs/GUARD.md`)
-- long runs (hours, days) as sessions, bursts and loops over hours, with
-  a lens that moves phase by phase (`docs/LONGRUN.md`)
+- every run in phases (sessions, bursts, loops over hours when it ran that
+  long), with a lens that moves phase by phase, a view any trace can open
+  (`docs/LONGRUN.md`)
+- the whole hub as static files for a private host:
+  `agentdiff hub ROOT --export DIR`
 
 ```bash
 agentdiff hub                       # this directory, on http://127.0.0.1:8790/

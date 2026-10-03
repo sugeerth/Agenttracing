@@ -37,6 +37,11 @@ def register(subparsers) -> None:
     parser.add_argument("--add-user", default=None, metavar="NAME", help="add or reset a user, then exit")
     parser.add_argument("--remove-user", default=None, metavar="NAME", help="remove a user, then exit")
     parser.add_argument("--verbose", action="store_true", help="log every request")
+    parser.add_argument("--export", default=None, metavar="DIR",
+                        help="write every page as static files into DIR (for a private static host), then exit")
+    parser.add_argument("--title", default=None, help="--export: the hub's name on its pages")
+    parser.add_argument("--bare-index", action="store_true",
+                        help="--export: write index.html without its document shell, for a host that adds one")
     parser.set_defaults(func=run)
 
 
@@ -79,6 +84,12 @@ def run(args: argparse.Namespace) -> int:
         return 2
     if args.add_user or args.remove_user:
         return _users(args, config)
+    if args.export:
+        from ..hub.export import export
+        counts = export(args.root, args.export, bare_index=args.bare_index, title=args.title)
+        print(f"wrote {counts['pages']} page(s) and {counts['data']} data file(s) to {args.export}; "
+              f"open {os.path.join(args.export, 'index.html')}")
+        return 0
     if not is_loopback(config.host) and not args.allow_remote:
         print(f"error: refusing to serve on {config.host}: the hub shows every run under {config.root}, "
               "including what the agents read. Bind to 127.0.0.1, or pass --allow-remote.", file=sys.stderr)
