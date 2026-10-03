@@ -21,6 +21,9 @@ from pathlib import Path
 
 __all__ = ["register", "run"]
 
+#: "</" written inside a script element, so text in a trace cannot close it
+_CLOSE = "<\\/"
+
 
 def register(subparsers) -> None:
     p = subparsers.add_parser(
@@ -153,9 +156,16 @@ def _long(args, paths: list, datas: list, tls: list) -> int:
                 what = next((x["note"] for x in reversed(mine) if x["note"]), ph.get("status") or "")
             print(f"    {when(ph['from'], sa, span):>12}  {name:<14} {dur(ph['to'] - ph['from']):>8}  "
                   f"{ph['calls']:>6,} calls  {what}")
+        k = len(body)
+        payload = json.dumps(longviz.lens_payload(datas[len(body)], r, ident=p.stem), separators=(",", ":"))
+        payload = payload.replace("</", _CLOSE)
         body.append(f'<h2>{views.e(p.name)}</h2><div class="card"><p class="note">{views.e(r["sentence"])}</p>'
-                    f'{longviz.long_overview(r, t["steps"])}{longviz.chapters_table(r)}'
-                    f'{longviz.rhythm_grid(r)}{longviz.pace_chart(r)}{longviz.phase_treemap(r, t["steps"])}</div>')
+                    f'<div class="lens" data-lens-inline="lens-{k}" data-base=""></div>'
+                    f'<script type="application/json" id="lens-{k}">{payload}</script>'
+                    f'<h3>The whole run</h3>{longviz.long_overview(r, t["steps"])}'
+                    f'<h3>The story, phase by phase</h3>{longviz.chapters_table(r)}'
+                    f'<h3>When it worked</h3>{longviz.rhythm_grid(r)}<h3>Its pace</h3>{longviz.pace_chart(r)}'
+                    f'<h3>Where the working time went</h3>{longviz.phase_treemap(r, t["steps"])}</div>')
     if len(datas) == 2:
         names = tuple(str(r.get("agent") or p.stem) for r, p in zip(readings, paths))
         body.insert(0, '<h2>Two long runs, checkpoint by checkpoint</h2><div class="card">'
@@ -164,7 +174,11 @@ def _long(args, paths: list, datas: list, tls: list) -> int:
     if args.json:
         print(json.dumps({"long": readings}, indent=1, default=str))
     title = paths[0].stem if len(paths) == 1 else f"{paths[0].stem} vs {paths[1].stem}"
-    page = views.layout(title, f"<h1>{views.e(title)}</h1>" + "".join(body), brand="AgentDiff")
+    # the lens, inline: the page is one file that works wherever it is opened
+    script = (Path(__file__).resolve().parents[1] / "hub" / "static" / "longview.js").read_text(encoding="utf-8")
+    script = script.replace("</script", _CLOSE + "script")
+    page = views.layout(title, f"<h1>{views.e(title)}</h1>" + "".join(body)
+                        + f"<script>{script}</script>", brand="AgentDiff")
     Path(args.output).write_text(page, encoding="utf-8")
     print(f"wrote {args.output}")
     return 0

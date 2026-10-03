@@ -571,32 +571,13 @@ class App:
     def api_trace_long(self, req: Request, session: Session, tid: str) -> Response:
         """A long run for the lens: its reading, its phases, and every step as columns."""
         from ..longrun import longrun
-        from ..timeline import _items
-        from .longviz import phases
+        from .longviz import lens_payload
         ref = self.traces.get(tid)
         data = self.traces.load(ref) if ref else None
         if data is None:
             return Response.json({"error": "no trace by that id"}, 404)
         r = longrun(data, now_s=_now_on_its_clock(data) if ref.live else None)
-        items, _ = _items(data)
-        steps = data.get("steps") or []
-        names: dict = {}
-        acts: dict = {}
-        cols = {k: [] for k in ("i", "s", "d", "a", "n", "e", "c", "k", "t")}
-        for x in sorted(items, key=lambda x: (x["start"], x["index"])):
-            s = steps[x["index"]] if x["index"] < len(steps) else {}
-            cols["i"].append(x["index"])
-            cols["s"].append(round(x["start"], 2))
-            cols["d"].append(round(x["latency_s"], 2))
-            cols["a"].append(acts.setdefault(x["activity"], len(acts)))
-            cols["n"].append(names.setdefault(x["name"], len(names)))
-            cols["e"].append(int(x["error"]))
-            cols["c"].append(-1 if x["check"] is None else int(x["check"]))
-            cols["k"].append(x["tokens"])
-            cols["t"].append(" ".join(str(s.get("input") or "").split())[:90])
-        light = {k: v for k, v in r.items() if k not in ("pace", "rhythm")}
-        return Response.json({"id": ref.id, "reading": light, "phases": phases(r), "activities": list(acts),
-                              "names": list(names), "calls": cols, "live": ref.live})
+        return Response.json(lens_payload(data, r, ident=ref.id, live=ref.live))
 
     # ----------------------------------------------------------------- evals
     def evolve(self, req: Request, session: Session) -> Response:

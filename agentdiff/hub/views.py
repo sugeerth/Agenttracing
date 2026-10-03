@@ -719,7 +719,7 @@ def trace_panel(*, ref, data: dict, lap: dict, tl: Optional[dict] = None, cmp: O
     opened = set(opened) | set(extra_open)
     if long:
         if view == "focus":  # a long run opens on its days, not on thousands of branches
-            opened = (opened - {"trunk", "map"}) | {"long"} | set(extra_open)
+            opened = (opened - {"trunk", "map", "compare"}) | {"long"} | set(extra_open)
 
     def drawn(key: str, make) -> str:
         """A long run's closed panel is drawn when it is opened: a link, not thousands of marks."""
@@ -890,8 +890,8 @@ def long_body(ref, long: dict, *, view: str = "focus", vs: str = "") -> str:
         parts.append(f'<h3>{e(title)}</h3>' + longviz.long_overview(r, long["items"], base=base, t0=max(0.0, z0 - pad),
                                                                       t1=z1 + pad, live=bool(r.get("in_progress"))))
     if win:
-        parts.append(f'<h3>Every call</h3><p class="muted">Above, each call on its clock in a lane by what it did; '
-                     f'below, the same calls in order, each the same width. A call opens its step.</p>'
+        parts.append(f'<h3>Every call</h3><p class="muted">Above, each call where it happened on the clock; below, '
+                     f'the same calls in order, each the same width. A call opens its step.</p>'
                      + longviz.burst_calls(win, r, page=long.get("page") or 0,
                                            base=base + (f"&burst={long['burst']}" if long.get("burst") else
                                                         f"&t0={win['from']:.0f}&t1={win['to']:.0f}")))

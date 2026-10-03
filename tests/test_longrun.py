@@ -235,8 +235,11 @@ class DrawTest(unittest.TestCase):
             _svg_ok(self, v)
         self.assertNotIn("<a>", views[-1].replace("<a href", ""), "names are escaped")
         over = views[0]
-        for want in ("↻ loop · bursts", "no progress for 15h", "◆ look here: burst", "idle", "S4 · day 2 00:30"):
+        for want in ('class="arc"', "the same calls 102×", "no progress for 15h", "look here", 'class="gap"',
+                     "5h 24m", 'class="leaf on"', 'class="mile"'):
             self.assertIn(want, over)
+        for colour in ("var(--sc)", "var(--sg)", "var(--a1)", "var(--a2)", "var(--a3)"):
+            self.assertNotIn(colour, "".join(views), "one ink: the shape says it, not a colour")
         self.assertIn("They part most between", views[-1])
 
     def test_the_story_is_one_row_per_phase(self):
@@ -365,6 +368,8 @@ class CommandTest(unittest.TestCase):
             self.assertIn("— 17h 32m idle —", out)
             page = (Path(tmp) / "t.html").read_text()
             self.assertIn("Two long runs, checkpoint by checkpoint", page)
+            self.assertEqual(page.count('data-lens-inline="lens-'), 2, "the file carries its lens and its data")
+            self.assertIn("Lens.prototype.fish", page)
 
 
 def _chromium():
@@ -412,7 +417,7 @@ class LensBrowserTest(unittest.TestCase):
                     page.mouse.move(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.6)
                     page.wait_for_timeout(150)
                     self.assertIn("under the lens", page.text_content(".lens-card"))
-                    self.assertTrue(page.is_visible(".lens-halo circle"))
+                    self.assertTrue(page.is_visible("svg.lens-tape circle.halo"))
                     svg.focus()
                     page.keyboard.press("ArrowRight")
                     page.wait_for_timeout(600)
@@ -427,6 +432,30 @@ class LensBrowserTest(unittest.TestCase):
                     browser.close()
             finally:
                 server.shutdown()
+
+
+    def test_the_page_written_to_a_file_carries_a_working_lens(self):
+        from playwright.sync_api import sync_playwright
+        from agentdiff.cli import main
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "long.html"
+            with redirect_stdout(io.StringIO()):
+                main(["timeline", str(DEMO / "ledger_v2__agent-3day.json"), "-o", str(out)])
+            with sync_playwright() as p:
+                browser = p.chromium.launch(executable_path=_chromium())
+                page = browser.new_page(viewport={"width": 1100, "height": 1000})
+                errors = []
+                page.on("pageerror", lambda e: errors.append(str(e)))
+                page.goto(out.as_uri())
+                page.wait_for_selector(".lens.on svg.lens-tape", timeout=15000)
+                svg = page.query_selector("svg.lens-tape")
+                svg.scroll_into_view_if_needed()
+                box = svg.bounding_box()
+                page.mouse.move(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.6)
+                page.wait_for_timeout(150)
+                self.assertIn("under the lens", page.text_content(".lens-card"))
+                self.assertEqual(errors, [])
+                browser.close()
 
 
 if __name__ == "__main__":

@@ -86,29 +86,41 @@ font-size:9px;line-height:12px;color:#fff}
 .legend .an{background:var(--an)}.legend .at{background:var(--at);color:var(--ink)}
 .lens{position:relative;margin:6px 0 14px}.lens:empty{display:none}
 .lens-bar{display:flex;align-items:center;gap:10px;margin:4px 0}
-.lens-title{flex:1;font:600 13px system-ui,sans-serif;color:var(--ink);min-height:1.3em}
-.lens-btn{font:600 12px system-ui,sans-serif;padding:4px 10px;border-radius:999px;border:1px solid var(--line);
-background:var(--panel);color:var(--ink);cursor:pointer}.lens-btn:disabled{opacity:.4;cursor:default}
+.lens-title{flex:1;font:500 13px system-ui,sans-serif;color:var(--ink);min-height:1.3em}
+.lens-btn{font:500 12px system-ui,sans-serif;padding:3px 10px;border-radius:999px;border:1px solid var(--line);
+background:var(--panel);color:var(--ink2);cursor:pointer}.lens-btn:hover{color:var(--ink);border-color:var(--ink2)}
+.lens-btn:disabled{opacity:.35;cursor:default}
 .lens-chips{margin:2px 0 4px}.lens-hint{margin-left:auto;font-size:11px}
-svg.lens-tape{cursor:crosshair;touch-action:pan-y}svg.lens-tape:focus{outline:2px solid var(--accent);outline-offset:2px}
-svg.viz .lens-ph{fill:var(--an);opacity:.55;cursor:pointer}svg.viz .lens-ph.prog{fill:var(--sg);opacity:.85}
-svg.viz .lens-ph.fail{fill:var(--sc);opacity:.5}svg.viz .lens-ph.loop{fill:var(--sc);opacity:.85}
-svg.viz .lens-ph.filler{fill:var(--at);opacity:1}svg.viz .lens-ph.idle{fill:none;stroke:var(--ink2);stroke-dasharray:2 2;opacity:.6}
-svg.viz .lens-ph.now{stroke:var(--ink);stroke-width:2;opacity:1}
-svg.viz .lens-ph-lab{fill:var(--ink);pointer-events:none}
-svg.viz .lens-view{fill:none;stroke:var(--ink);stroke-width:1.5}
-.lens-halo .ring{fill:var(--a1);fill-opacity:.08;stroke:var(--a1);stroke-opacity:.7;stroke-width:1.5;pointer-events:none}
-.lens-halo .spine{stroke:var(--a1);stroke-opacity:.6;pointer-events:none}
-.lens-card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:12px;
-min-height:150px;margin-top:4px}
-.lens-sum{font-weight:600;margin-bottom:4px}
-.lens-row{display:grid;grid-template-columns:14px auto 1fr auto;gap:6px;align-items:baseline;white-space:nowrap}
-.lens-row span.mono{overflow:hidden;text-overflow:ellipsis;color:var(--soft)}.lens-row.bad b{color:var(--sc)}
-.lens-row i{display:inline-block;width:12px;height:12px;border-radius:3px;font-style:normal;text-align:center;
-font-size:9px;line-height:12px;color:#fff}
-.lens-row i.a1{background:var(--a1)}.lens-row i.a2{background:var(--a2)}.lens-row i.a3{background:var(--a3)}
-.lens-row i.a4{background:var(--a4)}.lens-row i.a5{background:var(--a5)}.lens-row i.a7{background:var(--a7)}
-.lens-row i.an{background:var(--an)}.lens-row i.at{background:var(--at);color:var(--ink)}
+svg.lens-tape{cursor:crosshair;touch-action:pan-y}svg.lens-tape:focus{outline:1px solid var(--line);outline-offset:4px}
+.lens-card{background:var(--panel);border-top:1px solid var(--line);padding:8px 2px;font-size:12px;min-height:140px;margin-top:2px}
+.lens-sum{font-weight:600;margin-bottom:4px;color:var(--ink)}
+.lens-row{display:grid;grid-template-columns:14px auto 1fr auto;gap:8px;align-items:baseline;white-space:nowrap;color:var(--ink2)}
+.lens-row span.mono{overflow:hidden;text-overflow:ellipsis;color:var(--soft)}.lens-row.bad b{text-decoration:underline}
+.lens-row i{font-style:normal;color:var(--soft);text-align:center}
+svg.trail text{font:11px system-ui,sans-serif;fill:var(--ink2)}
+svg.trail text.mu{fill:var(--soft);font-size:10px}svg.trail text.lab2{fill:var(--ink2)}
+svg.trail text.inv{fill:var(--panel)}svg.trail text.now{fill:var(--ink);font-weight:600}
+svg.trail .trunk{stroke:var(--ink);stroke-width:1.4}
+svg.trail .gap{stroke:var(--soft);stroke-width:1.4;stroke-dasharray:1 4}
+svg.trail .tick{stroke:var(--soft);stroke-width:1}
+svg.trail .stem{stroke:var(--ink2);stroke-opacity:.5;stroke-width:1}
+svg.trail .stem.faint{stroke-opacity:.22}
+svg.trail .leaf{fill:var(--panel);stroke:var(--ink2);stroke-width:1.1}
+svg.trail .leaf.on{fill:var(--ink);stroke:var(--ink)}svg.trail .leaf.dim{stroke-opacity:.4}
+svg.trail .mile{fill:var(--ink);stroke:var(--panel);stroke-width:1}
+svg.trail .mile.faint{fill:var(--soft);stroke:none}svg.trail .mile.inv{fill:var(--panel);stroke:none}
+svg.trail .arc{fill:none;stroke:var(--ink);stroke-width:1.3}
+svg.trail .bracket{fill:none;stroke:var(--ink2);stroke-width:1}
+svg.trail .ring{fill:none;stroke:var(--ink);stroke-width:1.5}
+svg.trail .halo{fill:none;stroke:var(--soft);stroke-width:1}
+svg.trail .wire{stroke:var(--ink2);stroke-opacity:.12}
+svg.trail .hit{fill:transparent}svg.trail .cell{fill:var(--ink)}
+svg.trail .box{fill:none;stroke:var(--ink2);stroke-opacity:.45}svg.trail .box.strong{stroke:var(--ink);stroke-opacity:1;stroke-width:1.5}
+svg.trail .line{fill:none;stroke:var(--ink2);stroke-width:1.2}
+svg.trail .sep{stroke:var(--line);stroke-width:1}
+svg.trail a:hover .leaf,svg.trail a:hover .arc,svg.trail a:hover .box{stroke:var(--ink);stroke-width:2}
+.trail-key{color:var(--soft);font-size:11.5px}.trail-key b{font-weight:400;color:var(--ink2);margin-right:5px}
+table.chapters td.glyph{color:var(--ink2);width:16px;text-align:center}
 """
 
 _DARK_GLYPH = {"a4", "at", "a5", "a3"}   # light fills: a dark glyph reads better on them
