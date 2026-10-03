@@ -94,6 +94,19 @@ font-weight:650;margin:0 0 6px}.starthere{font:700 10px var(--mono);letter-spaci
 color:var(--panel);padding:2px 7px;border-radius:5px;margin-right:6px}
 .vrow.ok .vtext{border-left:3px solid var(--good);padding-left:9px}.vrow.fix .vtext{border-left:3px solid var(--accent);
 padding-left:9px}.vrow.run .vtext{color:var(--accent)}
+.tabs{margin:14px 0 12px}.tabbar{display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--line)}
+.tab{display:flex;flex-direction:column;gap:1px;padding:7px 12px 8px;border:1px solid transparent;border-bottom:none;
+border-radius:10px 10px 0 0;color:var(--soft);max-width:230px;min-width:0;margin-bottom:-1px}
+.tab b{font-size:13px;color:var(--ink);font-weight:600}.tab span{font-size:11px;overflow:hidden;text-overflow:ellipsis;
+white-space:nowrap}.tab:hover{text-decoration:none;background:var(--chip)}
+.tabs:not(:has(.tabp:target)) .tab.default{background:var(--panel);border-color:var(--line);color:var(--ink);
+box-shadow:inset 0 2px 0 var(--accent)}
+.tabp{display:none;background:var(--panel);border:1px solid var(--line);border-top:none;border-radius:0 0 12px 12px;
+padding:12px 16px 16px;overflow-x:auto;scroll-margin-top:150px}.tabp>h2{margin:4px 0 2px}
+.tabp:target,.tabs:not(:has(.tabp:target)) .tabp.default{display:block}
+.why ol{padding-left:20px}.why li{margin:0 0 10px}.why li p{margin:2px 0}.why .mit li b{font-size:14px}
+pre.cmd{background:var(--chip);border-radius:8px;padding:8px 10px;margin:4px 0;white-space:pre-wrap;word-break:break-word;
+font:12.5px var(--mono)}
 details.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin:0 0 12px;padding:0 16px;
 overflow-x:auto}details.panel>summary{cursor:pointer;list-style:none;display:flex;gap:12px;align-items:baseline;
 flex-wrap:wrap;padding:12px 0}details.panel>summary::-webkit-details-marker{display:none}
@@ -697,7 +710,7 @@ def trace_panel(*, ref, data: dict, lap: dict, tl: Optional[dict] = None, cmp: O
                 card: Optional[list] = None, change: Optional[dict] = None, code_cmp: Optional[dict] = None,
                 other_change: Optional[dict] = None, act: Optional[dict] = None, other_data: Optional[dict] = None,
                 al: Optional[dict] = None, task_nav: str = "", long: Optional[dict] = None,
-                extra_open: tuple = ()) -> str:
+                extra_open: tuple = (), fix: Optional[dict] = None) -> str:
     """The part of a trace's page that moves while it runs: the card, then the panels."""
     from .urls import quote
     s = ref.summary
@@ -717,10 +730,13 @@ def trace_panel(*, ref, data: dict, lap: dict, tl: Optional[dict] = None, cmp: O
     keep = f"&vs={quote(vs)}&axis={quote(axis)}" if vs else ""
     chips = "".join(f'<a href="/traces/{e(ref.id)}?view={k}{e(keep)}"{" class=on" if k == view else ""}>{e(label)}</a>'
                     for k, label, _ in PRESETS)
-    presets = f'<div class="filters" aria-label="views"><span class="muted">view</span>{chips}</div>'
-    panels = []
+    tabs: List[tuple] = []
+
+    def add(key: str, title: str, gist: str, body: str, open_: bool = False, start: bool = False) -> None:
+        tabs.append((key, title, gist, body))
     opened = set(opened) | set(extra_open)
-    big = bool(long and long.get("big"))
+    # every view is drawn; only a run of thousands upon thousands of steps draws its heaviest on request
+    big = len(steps) > HUGE_STEPS
 
     def drawn(key: str, make) -> str:
         """A big run's closed panel is drawn when it is opened: a link, not thousands of marks."""
@@ -731,9 +747,8 @@ def trace_panel(*, ref, data: dict, lap: dict, tl: Optional[dict] = None, cmp: O
     if long:
         # phases are a view of any run, opened by its chip or a link into it; never forced on a run for its length
         show = "long" in opened or bool(long.get("win") or long.get("zoom"))
-        panels.append(_panel("long", "Phases: sessions, bursts and loops", _long_gist(long["r"]),
-                             long_body(ref, long, view=view, vs=vs) if show or not big else
-                             drawn("long", lambda: ""), show, start=show))
+        add("long", "Phases", _long_gist(long["r"]),
+            long_body(ref, long, view=view, vs=vs) if show or not big else drawn("long", lambda: ""), show)
     folded = f', {tl["folded_steps"]} quiet steps folded' if tl.get("folded_steps") else ""
     if cmp and other_data is not None and al:
         here_b = (cmp["b"].get("look_here") or {}).get("index")
@@ -743,16 +758,16 @@ def trace_panel(*, ref, data: dict, lap: dict, tl: Optional[dict] = None, cmp: O
                     data, other_data, al, names=(str(cmp["a"].get("agent")), str(cmp["b"].get("agent"))),
                     heres=((tl.get("look_here") or {}).get("index"), here_b, (tl.get("look_here") or {}).get("kind"),
                            (cmp["b"].get("look_here") or {}).get("kind")))))
-        panels.append(_panel("map", "Trajectory map", f'{al["matched"]} step(s) shared'
+        add("map", "Trajectory map", f'{al["matched"]} step(s) shared'
                              + (f', parting at row {al["divergence"]}' if al["divergence"] is not None else ""),
-                             body, "map" in opened, start=True))
+                             body, "map" in opened, start=True)
     trunk_body = drawn("trunk", lambda: (
         f'<p class="muted">The trunk is the run on its {e(tl.get("basis"))} clock: thinking on it, each tool '
         f'call a branch ending in a leaf, each sub-agent hanging off it where it first acted. Every leaf '
         f'opens its step.</p>{viz.trunk_svg([tl], axis="time")}' if tl else "")) + _picker(ref, list(others), vs, axis, view)
     gist_trunk = (f'{len(tl.get("lanes") or [])} thread(s) · {len(tl.get("laps") or [])} lap(s) · '
                   f'{_secs(tl.get("span_s"))}{folded}')
-    panels.append(_panel("trunk", "The run as a trunk", gist_trunk, trunk_body, "trunk" in opened))
+    add("trunk", "The run as a trunk", gist_trunk, trunk_body, "trunk" in opened)
     if cmp:
         d = cmp.get("diverged_at")
         body = (f'<p class="note">{e(cmp["sentence"])}</p>'
@@ -763,44 +778,93 @@ def trace_panel(*, ref, data: dict, lap: dict, tl: Optional[dict] = None, cmp: O
                 f'{e(cmp["b"].get("agent"))} ({e(cmp["b"]["look_here"]["sentence"] if cmp["b"].get("look_here") else "")})'
                 + (f' · <a href="#s{e(d)}">step {e(d)} →</a>' if d is not None else "") + '</p>')
         gist = f"first difference at step {d}" if d is not None else "the same calls throughout"
-        panels.append(_panel("compare", "Two runs on one axis", gist, body, "compare" in opened))
+        add("compare", "Two runs on one axis", gist, body, "compare" in opened)
     gist_code = (f'+{change["added"]} −{change["removed"]} in {len(change["files"])} file(s)'
                  + (f' · {len(change["flags"])} flag(s)' if change["flags"] else "") if change else "not captured")
-    panels.append(_panel("code", "The code it produced", gist_code,
-                         code_panel(change, compare=code_cmp, other=other_change, act=act), "code" in opened))
+    add("code", "The code it produced", gist_code,
+                         code_panel(change, compare=code_cmp, other=other_change, act=act), "code" in opened)
     secs_runs = [tl] + ([cmp["b"]] if cmp else [])
     secs_names = ([f'A · {tl.get("agent") or "run"}', f'B · {cmp["b"].get("agent") or "run"}'] if cmp
                   else [str(tl.get("agent") or "run")])
-    panels.append(_panel("seconds", "Where the seconds went", f'{_secs(tl.get("span_s"))} on its clock'
+    add("seconds", "Where the seconds went", f'{_secs(tl.get("span_s"))} on its clock'
                          + (f' against {_secs(cmp["b"].get("span_s"))}' if cmp else ""),
                          '<p class="muted">Area is seconds, on one scale for both runs: a box per lap (per sub-agent '
                          'when it delegated), a tile per step. A tile opens its step.</p>'
-                         + drawn("seconds", lambda: viz.seconds_treemap(secs_runs, secs_names)), "seconds" in opened))
+                         + drawn("seconds", lambda: viz.seconds_treemap(secs_runs, secs_names)), "seconds" in opened)
     rw = viz.reward_steps(secs_runs, secs_names)
     if rw:
-        panels.append(_panel("reward", "Reward & credit", "the return, step by step",
+        add("reward", "Reward & credit", "the return, step by step",
                              '<p class="muted">The return as it accumulated, one step at a time, from the rewards the '
-                             'trace recorded.</p>' + rw, "reward" in opened))
-    panels.append(_panel("lanes", "Every thread on its own lane", f'{len(tl.get("lanes") or [])} lane(s){folded}',
-                         drawn("lanes", lambda: viz.run_timeline(tl, live=ref.live) if tl else ""), "lanes" in opened))
+                             'trace recorded.</p>' + rw, "reward" in opened)
+    add("lanes", "Every thread on its own lane", f'{len(tl.get("lanes") or [])} lane(s){folded}',
+                         drawn("lanes", lambda: viz.run_timeline(tl, live=ref.live) if tl else ""), "lanes" in opened)
     lap_gist = (lap.get("summary") or "").split(";")[0]
-    panels.append(_panel("laps", "The loop, lap by lap", lap_gist,
+    add("laps", "The loop, lap by lap", lap_gist,
                          f'<p class="muted">{e(lap.get("summary"))}</p>'
-                         + drawn("laps", lambda: viz.lap_chart(lap) + viz.lap_table(lap)), "laps" in opened))
+                         + drawn("laps", lambda: viz.lap_chart(lap) + viz.lap_table(lap)), "laps" in opened)
     moves = lap.get("transitions") or []
     tools = len({m["from"] for m in moves} | {m["to"] for m in moves})
-    panels.append(_panel("flow", "How it moved between tools", f"{tools} tool(s), {sum(m['count'] for m in moves)} move(s)",
-                         drawn("flow", lambda: viz.flow_ring(lap)), "flow" in opened))
+    add("flow", "How it moved between tools", f"{tools} tool(s), {sum(m['count'] for m in moves)} move(s)",
+                         drawn("flow", lambda: viz.flow_ring(lap)), "flow" in opened)
     focus = (tl.get("look_here") or {}).get("index")
     title = "Every step" if len(steps) <= WINDOW_STEPS or every else "The steps that matter"
-    panels.append(_panel("steps", title, f"{len(steps)} step(s)" + ("" if len(steps) <= WINDOW_STEPS or every
-                                                                     else ", a window around where to look"),
-                         _steps_table(steps, focus=focus, every=every, every_href=f"/traces/{ref.id}?steps=all&view={view}#s0",
-                                      span=_long_span(long)),
-                         "steps" in opened or every))
+    steps_html = (f'<section class="card steps" id="steps"><h2>{e(title)}</h2><p class="gist">{len(steps)} step(s)'
+                  + ("" if len(steps) <= WINDOW_STEPS or every else ", a window around where to look") + '</p>'
+                  + _steps_table(steps, focus=focus, every=every, every_href=f"/traces/{ref.id}?steps=all&view={view}#s0",
+                                 span=_long_span(long)) + '</section>')
+    # the start: what happened, where, what it cost, what to change; the first tab
+    start_gist = next((r["text"] for r in card or [] if r.get("label") == "verdict"), "the verdict")
+    tabs.insert(0, ("start", "Start here", start_gist, verdict_html(card or []) + notes))
+    default = {"loop": "laps", "time": "seconds", "threads": "lanes", "code": "code", "training": "reward",
+               "long": "long"}.get(view, "start")
+    if extra_open:
+        default = extra_open[0]
+    if long and (long.get("win") or long.get("zoom")):
+        default = "long"
+    if default not in {k for k, *_ in tabs}:
+        default = "start"
+    from ..insight import mitigation
+    mit = mitigation(data, tl, lap=lap, phases=(long or {}).get("r"), change=change, fix=fix, act=act)
     prompt = str((data.get("task") or {}).get("prompt") or "").strip().splitlines()
     prompt_html = f'<p class="prompt">{e(prompt[0][:300])}</p>' if prompt else ""
-    return f'{task_nav}{prompt_html}{head}{verdict_html(card or [])}{notes}{presets}{"".join(panels)}'
+    return (f'{task_nav}{prompt_html}{head}{tabs_html(tabs, default)}{mitigation_html(mit)}{steps_html}')
+
+
+#: steps past which a run draws its heaviest views when asked, not on every page load
+HUGE_STEPS = 5000
+
+
+def tabs_html(tabs: List[tuple], default: str) -> str:
+    """Every view in its own tab, with no script: a tab is a link to its panel,
+    the panel it names shows (``:target``), and the default one shows until then."""
+    bar, panes, rules = [], [], []
+    for key, title, gist, body in tabs:
+        on = " default" if key == default else ""
+        bar.append(f'<a class="tab{on}" href="#p-{e(key)}" role="tab"><b>{e(title)}</b><span>{e(gist)}</span></a>')
+        head = "" if key == "start" else f'<h2>{e(title)}</h2><p class="gist">{e(gist)}</p>'
+        panes.append(f'<section class="tabp{on}" id="p-{e(key)}" role="tabpanel" aria-label="{e(title)}">'
+                     f'{head}{body}</section>')
+        rules.append(f'.tabs:has(#p-{key}:target) .tab[href="#p-{key}"]')
+    style = ("<style>" + ",".join(rules) + "{background:var(--panel);border-color:var(--line);color:var(--ink);"
+             "box-shadow:inset 0 2px 0 var(--accent)}</style>")
+    return (f'<div class="tabs">{style}<nav class="tabbar" role="tablist" aria-label="views">{"".join(bar)}</nav>'
+            f'<div class="tabpanels">{"".join(panes)}</div></div>')
+
+
+def mitigation_html(mit: dict) -> str:
+    """Why the run went the way it did, and the steps that change the agent."""
+    reasons = "".join(
+        f'<li>{e(r["text"])}'
+        + (f' <a class="stepchip" href="#s{e(r["step"])}">step {e(r["step"])}</a>' if r.get("step") is not None else "")
+        + f'<div class="vsrc">from {e(r["source"])}</div></li>' for r in mit.get("reason") or [])
+    steps = "".join(
+        f'<li><b>{e(st["title"])}</b><p>{e(st["text"])}</p>'
+        + (f'<pre class="cmd">{e(st["command"])}</pre>' if st.get("command") else "")
+        + f'<div class="vsrc">from {e(st["source"])}</div></li>' for st in mit.get("steps") or [])
+    return (f'<section class="card why" id="why"><h2>Why it went this way</h2>'
+            + (f'<ol class="reasons">{reasons}</ol>' if reasons else '<p class="muted">Nothing on the record to explain.</p>')
+            + f'<h2>What to change in the agent</h2><ol class="mit">{steps}</ol>'
+            f'<p class="muted">{e(mit.get("basis"))}.</p></section>')
 
 
 def trace_page(*, brand: str, user: str, csrf: str, ref, data: dict, lap: dict, **panel) -> str:

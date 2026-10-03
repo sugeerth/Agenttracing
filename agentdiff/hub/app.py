@@ -392,7 +392,7 @@ class App:
                                       f"({long['r']['basis']['burst_gap_how']})"})
         extra = tuple(k for k in query.get("open", [""])[0].split(",") if k in {p for p, _ in views.PANELS})
         return {"tl": tl, "cmp": cmp, "others": others, "vs": vs if cmp else "", "axis": axis, "view": view,
-                "long": long, "extra_open": extra,
+                "long": long, "extra_open": extra, "fix": fix,
                 "other_data": odata if cmp else None, "al": al, "task_nav": views.task_chips(ref, self.traces.refs()),
                 "every": query.get("steps", [""])[0] == "all", "card": card, "change": change,
                 "other_change": other_change, "code_cmp": code_cmp, "act": act}

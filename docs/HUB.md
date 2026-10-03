@@ -11,6 +11,10 @@ under a directory, and follows it while it runs:
 - in-band telemetry agents post to it (`docs/TELEMETRY.md`)
 - guarded Claude Code sessions: each one traced, and every refusal the
   guards made on the Overview (`docs/GUARD.md`)
+- every trace's views in tabs, opening on **Start here** (the verdict card),
+  and at the bottom **Why it went this way** and **What to change in the
+  agent**: the instruction to give it, the guard that enforces it, a cap
+  when it went round for hours, and the self-evolve command that tests it
 - every run in phases (sessions, bursts, loops over hours when it ran that
   long), with a lens that moves phase by phase, a view any trace can open
   (`docs/LONGRUN.md`)

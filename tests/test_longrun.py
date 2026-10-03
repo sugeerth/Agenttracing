@@ -278,23 +278,38 @@ class HubTest(unittest.TestCase):
         from agentdiff.hub.app import Request
         return self.app.handle(Request("GET", path, self.h))
 
-    def test_phases_are_a_view_of_any_run_and_a_big_one_draws_on_demand(self):
+    def test_every_view_is_a_tab_phases_one_of_them_and_the_fix_is_at_the_bottom(self):
         closed = self.get(f"/traces/{self.a}").body.decode()
-        self.assertIn('<details class="panel" id="p-long">', closed, "an option, not forced on a run for its length")
-        self.assertNotIn("longview.js", closed, "a closed panel runs no script")
-        self.assertIn("Draw it", closed)
+        self.assertIn('<section class="tabp" id="p-long"', closed, "an option, not forced on a run for its length")
+        self.assertIn('class="tabp default" id="p-start"', closed)
+        self.assertNotIn("longview.js", closed, "a page on another tab runs no script")
+        for tab in ("p-trunk", "p-lanes", "p-laps", "p-flow", "p-seconds", "p-code"):
+            self.assertIn(f'id="{tab}"', closed)
+        self.assertNotIn("Draw it", closed, "every view is drawn")
+        self.assertIn("What to change in the agent", closed)
+        self.assertIn("agentdiff guard --install", closed, "a loop of hours: the repeat guard, even though it passed")
+        self.assertIn("claude --max-turns", closed)
         t0 = time.perf_counter()
         resp = self.get(f"/traces/{self.a}?view=long")
         self.assertLess(time.perf_counter() - t0, 5.0)
         page = resp.body.decode()
         self.assertTrue(resp.scripted, "the lens is the hub's own script")
-        for want in ('id="p-long" open', 'class="lens" data-lens="/api/v1/traces/', 'src="/static/longview.js"',
-                     "The story, phase by phase", "When it worked", "Its pace", "Where the working time went",
-                     ">phases<", "Draw it"):
+        for want in ('class="tabp default" id="p-long"', 'class="lens" data-lens="/api/v1/traces/',
+                     'src="/static/longview.js"', "The story, phase by phase", "When it worked", "Its pace",
+                     "Where the working time went", ">phases<"):
             self.assertIn(want, page)
-        self.assertLess(len(page), 1_500_000, "closed panels are not drawn")
-        drawn = self.get(f"/traces/{self.a}?view=long&open=trunk").body.decode()
-        self.assertNotIn(f'open=trunk#p-trunk">Draw it', drawn)
+
+    def test_a_run_of_thousands_upon_thousands_draws_its_heaviest_on_request(self):
+        from agentdiff.hub import views
+        old = views.HUGE_STEPS
+        views.HUGE_STEPS = 100
+        try:
+            page = self.get(f"/traces/{self.a}").body.decode()
+            self.assertIn("Draw it", page)
+            self.assertNotIn("Draw it", self.get(f"/traces/{self.a}?open=trunk").body.decode().split('id="p-trunk"')[1]
+                             .split("</section>")[0])
+        finally:
+            views.HUGE_STEPS = old
 
     def test_a_burst_a_session_and_a_stretch_open_on_their_calls(self):
         page = self.get(f"/traces/{self.a}?view=long&burst=23").body.decode()
@@ -325,10 +340,11 @@ class HubTest(unittest.TestCase):
         from agentdiff.hub.traces import trace_id
         tid = trace_id("loops/traces/parse_duration__agent-stuck.json")
         page = self.get(f"/traces/{tid}").body.decode()
-        self.assertIn('<details class="panel" id="p-long">', page)
-        self.assertIn("The story, phase by phase", page, "a short run's phases are drawn, just closed")
+        self.assertIn('<section class="tabp" id="p-long"', page)
+        self.assertIn("The story, phase by phase", page, "a short run's phases are drawn, one tab away")
         opened = self.get(f"/traces/{tid}?view=long").body.decode()
-        self.assertIn('id="p-long" open', opened)
+        self.assertIn('class="tabp default" id="p-long"', opened)
+        self.assertIn("agentdiff guard --install", page, "a stuck run: the guard that would have stopped it")
 
 
 class TranscriptClockTest(unittest.TestCase):

@@ -106,6 +106,35 @@ class AgentFixTest(unittest.TestCase):
         self.assertIsNone(agent_fix(conv))
 
 
+class MitigationTest(unittest.TestCase):
+    def _read(self, rel):
+        from agentdiff.insight import mitigation
+        from agentdiff.laps import laps
+        from agentdiff.longrun import longrun
+        t = json.loads((ROOT / rel).read_text())
+        tl = timeline(t)
+        return mitigation(t, tl, lap=laps(t), phases=longrun(t),
+                          fix=agent_fix(t, look_kind=(tl.get("look_here") or {}).get("kind")))
+
+    def test_a_stuck_run_gets_the_reason_and_the_steps_that_change_the_agent(self):
+        m = self._read("demo/loops/traces/parse_duration__agent-stuck.json")
+        self.assertTrue(all(r["source"] for r in m["reason"]))
+        titles = [st["title"] for st in m["steps"]]
+        self.assertEqual(titles[:2], ["Tell the agent", "Enforce it while it works"])
+        self.assertEqual(titles[-1], "Test it on the counts")
+        self.assertIn("--append-system-prompt", m["steps"][0]["command"])
+        self.assertEqual(m["steps"][1]["command"], "agentdiff guard --install")
+
+    def test_a_run_that_passed_cleanly_needs_no_change_and_one_that_looped_for_hours_does(self):
+        clean = self._read("demo/loops/traces/parse_duration__agent-converges.json")
+        self.assertEqual([st["title"] for st in clean["steps"]], ["Nothing to change in the agent"])
+        looped = self._read("demo/longrun/traces/ledger_v2__agent-3day.json")
+        titles = [st["title"] for st in looped["steps"]]
+        self.assertIn("Stop a loop of hours early", titles)
+        self.assertIn("Enforce it while it works", titles)
+        self.assertTrue(any("14h" in r["text"] for r in looped["reason"]))
+
+
 class CardTest(unittest.TestCase):
     def test_every_row_names_where_its_words_came_from(self):
         t = json.loads((LIVE / "traces" / "bugfix-pricing__haiku__r1.json").read_text())
@@ -140,13 +169,14 @@ class HubTest(unittest.TestCase):
             a = trace_id("duel/traces/bugfix-pricing__haiku__r1.json")
             b = trace_id("duel/traces/bugfix-pricing__sonnet__r1.json")
             page = app.handle(Request("GET", f"/traces/{a}?vs={b}&view=code", h)).body.decode()
-            for want in ('class="vcard"', ">code<", "pricing.py", "Beside the other run", "Keep this change",
-                         "agentdiff apply --dir", 'id="p-code" open', 'class="add"'):
+            for want in ('class="vcard"', ">The code it produced<", "pricing.py", "Beside the other run",
+                         "Keep this change", "agentdiff apply --dir", 'class="tabp default" id="p-code"', 'class="add"',
+                         "Why it went this way", "What to change in the agent"):
                 self.assertIn(want, page)
             # presets open different panels, and the rest stay one click away
             loop = app.handle(Request("GET", f"/traces/{a}?view=loop", h)).body.decode()
-            self.assertIn('id="p-laps" open', loop)
-            self.assertIn('<details class="panel" id="p-code">', loop)
+            self.assertIn('class="tabp default" id="p-laps"', loop)
+            self.assertIn('<section class="tabp" id="p-code"', loop, "the other views are one tab away")
             junk = app.handle(Request("GET", f"/traces/{a}?view=<script>", h)).body.decode()
             self.assertNotIn("<script>", junk.split("</style>", 1)[1].replace('<script src="/static/live.js" defer></script>', ""))
             over = app.handle(Request("GET", "/", h)).body.decode()
@@ -201,7 +231,7 @@ class ReplicaTest(unittest.TestCase):
             a = trace_id("rl/traces/rl01_ledger_reconcile__policy-v1__r1.json")
             b = trace_id("rl/traces/rl01_ledger_reconcile__policy-v1__r2.json")
             page = app.handle(Request("GET", f"/traces/{a}?vs={b}&view=all", h)).body.decode()
-            for want in ('class="taskchips"', 'class="prompt"', ">cause<", 'class="stepchip"', "START HERE",
+            for want in ('class="taskchips"', 'class="prompt"', ">cause<", 'class="stepchip"', "<b>Start here</b>",
                          "Trajectory map", "Where the seconds went", "Reward &amp; credit"):
                 self.assertIn(want, page)
             over = app.handle(Request("GET", "/", h)).body.decode()

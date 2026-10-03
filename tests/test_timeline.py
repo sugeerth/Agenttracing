@@ -176,7 +176,7 @@ class HubTest(unittest.TestCase):
             self.assertIn("The steps that matter", long_page)
             self.assertIn('id="s398"', long_page, "the window holds the step to look at")
             self.assertLess(len(re.findall(r'<tr id="s', long_page)), 120)
-            self.assertIn('<details class="panel" id="p-laps">', long_page, "122 laps: one click away, not open")
+            self.assertIn('<section class="tabp" id="p-laps"', long_page, "122 laps: one tab away, not the first")
             every = app.handle(Request("GET", f"/traces/{long_id}?steps=all", h)).body.decode()
             self.assertGreater(len(re.findall(r'<tr id="s', every)), 390)
             many = app.handle(Request("GET", "/timeline?g=loops/traces", h)).body.decode()

@@ -11,9 +11,10 @@ the other files:
   it is not a lock. Keep the copy private, as its host does.
 - **Every section:** the Overview, runs and each run's report page,
   traces, timelines, Live, Evolve, Evals and Account.
-- **Every trace:** its page; its phases page, with the lens and its data
-  inline; and for a big run, a page with every panel drawn. A burst link
-  becomes ``#burst-N`` on the phases page, and the lens moves there.
+- **Every trace:** its page, every view in its own tab, the reason and
+  the steps to change the agent at the bottom; and its phases page, with
+  the lens and its data inline. A burst link becomes ``#burst-N`` on the
+  phases page, and the lens moves there.
 - **Live** has nothing running in a copy, so it replays the longest run
   under the root as it grew, phase by phase.
 
@@ -69,8 +70,6 @@ def _target(href: str, here: str, long_ids: set, runs: set) -> Optional[str]:
         page = f"trace-{tid}.html"
         if view == "long" or burst or q.get("session") or q.get("t0"):
             page = f"trace-{tid}.phases.html"
-        elif (q.get("open") or view == "all") and tid in long_ids:
-            page = f"trace-{tid}.all.html"
         if burst.isdigit():
             return (page if page != here else "") + f"#burst-{burst}"
         return (page if page != here or not frag else "") + (f"#{frag}" if frag else "")
@@ -187,7 +186,6 @@ def export(root: str, out: str, *, bare_index: bool = False, title: Optional[str
     pages: List[Tuple[str, str]] = [(p, f) for p, f in _TOP.items() if p != "/login"]
     pages += [(f"/traces/{r.id}", f"trace-{r.id}.html") for r in refs]
     pages += [(f"/traces/{r.id}?view=long", f"trace-{r.id}.phases.html") for r in refs]
-    pages += [(f"/traces/{r.id}?view=all", f"trace-{r.id}.all.html") for r in refs if r.id in long_ids]
     pages += [(f"/runs/{x.id}", f"run-{x.id}.html") for x in entries]
     counts = {"pages": 0}
 

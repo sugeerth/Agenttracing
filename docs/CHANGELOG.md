@@ -5,6 +5,28 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Every view in a tab, the reason, and the steps that change the agent
+
+A trace's page is now tabs, with no script (`:target`). It opens on
+**Start here**, the verdict card. Every other view has a tab of its own:
+phases, the trajectory map, the trunk, two runs, the code, the seconds,
+reward, lanes, laps and flow. Every view is drawn; only a run past
+`HUGE_STEPS` (5,000) draws its heaviest when asked.
+
+Below the tabs, `insight.mitigation()` gives the reason and the fix.
+**Why it went this way** is the cause, the loop or stall, the cases the
+check failed, and why the change fits, each with its source.
+**What to change in the agent**, in order:
+1. the instruction to give it, with the exact text
+   (`--append-system-prompt`)
+2. the live guard that enforces it (`agentdiff guard --install`, with
+   `--check` or `--protect-tests`)
+3. a turn cap, when it went round for hours, even if it passed
+4. the self-evolve command that tests it on the counts
+5. for a clean pass, how to keep the change
+
+Every step is a hypothesis until the paired test keeps it.
+
 ## Phases as a view of any run, softer colours, the hub as static files
 
 - **Phases for every run.** Sessions, bursts, loops and the lens are a

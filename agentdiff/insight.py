@@ -303,3 +303,144 @@ def corpus_insight(items: Iterable[dict]) -> Optional[dict]:
     return {"runs": len(items), "failed": len(failed), "kinds": kinds,
             "top_fix": {"rule": top_fix[0], "runs": top_fix[1][0], "change": top_fix[1][1]} if top_fix else None,
             "agents": agents}
+
+
+#: the live guard that enforces each remedy while the agent works (``agentdiff guard``)
+_GUARD_FOR = {"repeated_call": "repeat", "error_streak": "repeat", "mark:cycle": "repeat",
+              "mark:redundant_stretch": "repeat", "claims_without_check": "check",
+              "no_check_after_last_edit": "check", "mark:shipped_before_check": "check",
+              "mark:unverified_write": "check"}
+
+
+def _check_command(traj: dict, change: Optional[dict]) -> str:
+    """The check this run's task uses: the harness's, else the one the run ran most."""
+    if change and change.get("check"):
+        return str(change["check"])
+    from collections import Counter
+    from .laps import is_check
+    from .longrun import check_part, _command
+    seen = Counter(check_part(_command(s)) for s in traj.get("steps") or [] if isinstance(s, dict) and is_check(s))
+    return seen.most_common(1)[0][0] if seen else ""
+
+
+def mitigation(traj: dict, tl: dict, *, lap: Optional[dict] = None, phases: Optional[dict] = None,
+               change: Optional[dict] = None, fix: Optional[dict] = None, act: Optional[dict] = None) -> dict:
+    """Why the run went the way it did, and the steps that change the agent.
+
+    ``reason`` is sentences, each with where it came from. ``steps`` are what
+    to do, in order: the instruction to give the agent, the guard that
+    enforces it while it works, a cap when it went round, the command that
+    tests the change on the counts (self-evolve keeps it only if it wins),
+    and keeping the code when the run passed. Every step is a hypothesis
+    until the test says otherwise, and says so."""
+    out_reason: List[dict] = []
+    steps: List[dict] = []
+    success = (traj.get("outcome") or {}).get("success")
+    agent = str((traj.get("agent") or {}).get("name") or "agent")
+    here = (tl or {}).get("look_here") or {}
+    if here.get("sentence"):
+        out_reason.append({"text": here["sentence"], "step": here.get("index"), "source": "timeline.look_here"})
+    if lap and (lap.get("stuck") or {}).get("longest_repeated_block", {}).get("repeats", 0) >= 3:
+        blk = lap["stuck"]["longest_repeated_block"]
+        out_reason.append({"text": f"A block of {blk['period']} step(s) went round {blk['repeats']} times in a row.",
+                           "step": blk.get("starts_at"), "source": "laps.stuck (process.loops)"})
+    if phases:
+        for lp in (phases.get("loops") or [])[:1]:
+            from .longrun import dur
+            out_reason.append({"text": f"Bursts {lp['bursts'][0]}–{lp['bursts'][1]} did the same calls "
+                                       f"{lp['count']} times over {dur(lp['wall_s'])}"
+                                       + (f", with {lp['failing']} failing." if lp["failing"] else "."),
+                               "step": lp.get("first_index"), "source": "longrun.loops"})
+        st = phases.get("stall")
+        if st and st.get("active_s", 0) >= 600 and not phases.get("loops"):
+            out_reason.append({"text": st["sentence"], "step": st.get("from_index"), "source": "longrun.stall"})
+    if change and change.get("failures"):
+        out_reason.append({"text": "The check failed on: " + "; ".join(change["failures"][:4]) + ".", "step": None,
+                           "source": "the harness's check output"})
+    for f in (change or {}).get("flags") or []:
+        out_reason.append({"text": f["sentence"], "step": None, "source": "insight.code_change"})
+    if fix and fix.get("why"):
+        out_reason.append({"text": ("Why this change: " if fix.get("rule") else "") + fix["why"][0].upper() + fix["why"][1:]
+                                   + ("" if fix["why"].endswith(".") else "."),
+                           "step": fix.get("step") if isinstance(fix.get("step"), int) else None,
+                           "source": f"insight.agent_fix ({fix['rule']})" if fix.get("rule") else "insight.agent_fix"})
+    check = _check_command(traj, change)
+    rule = (fix or {}).get("rule")
+    remedy = (fix or {}).get("remedy") or {}
+    loops = (phases or {}).get("loops") or []
+    long_loop = max(loops, key=lambda x: x["active_s"]) if loops else None
+    if long_loop and long_loop["wall_s"] < 1800:
+        long_loop = None
+    if success is True and long_loop and not rule:
+        # it passed, but went round for hours first: the same remedy as a run that never got out
+        from .selfevolve import remedy_for, remedy_text
+        r = remedy_for("repeated_call:3", check=check)
+        if r and not r.get("unactionable"):
+            rule, remedy = "repeated_call:3", r
+            fix = {"rule": rule, "remedy": r, "change": remedy_text(r), "says": "the same failing call, again and again"}
+    key = (rule or "").split(":")[0] if rule and not rule.startswith("mark:") else rule
+    if success is not None and rule:
+        if remedy.get("knob") == "instruction":
+            text = remedy.get("text") or fix.get("change") or ""
+            steps.append({"title": "Tell the agent", "text": f"Add this to {agent}'s instructions: it answers how "
+                          f"this run failed ({fix.get('says') or rule}).",
+                          "command": f"claude --append-system-prompt {_q(text)}", "quote": text,
+                          "source": f"selfevolve.REMEDIES[{key}]"})
+        elif remedy.get("knob") == "deny_tool":
+            steps.append({"title": "Take the tool away", "text": f"Deny {remedy.get('text')} to {agent}: the runs "
+                          f"that called it failed.", "command": f"claude --disallowedTools {_q(remedy.get('text'))}",
+                          "source": "selfevolve.REMEDIES[tool_called]"})
+        elif remedy.get("knob") == "max_turns":
+            steps.append({"title": "Cap the turns", "text": remedy.get("why") or "", "command":
+                          f"claude --max-turns {remedy.get('value') or 30}", "source": "selfevolve.REMEDIES"})
+        guard = _GUARD_FOR.get(key)
+        if guard:
+            flag = f' --check {_q(check)}' if guard == "check" and check else ""
+            steps.append({"title": "Enforce it while it works", "text": (
+                "The repeat guard refuses a failing command run again unchanged, quoting its failure."
+                if guard == "repeat" else "The check guard sends a finish with unchecked edits back to run the "
+                "check, at most twice."), "command": f"agentdiff guard --install{flag}",
+                "source": f"agentdiff.guard ({guard})"})
+    if success is False and (change or {}).get("tests"):
+        steps.append({"title": "Protect the tests", "text": "It edited the tests: refuse test edits, so it fixes "
+                      "the code the tests catch.", "command": "agentdiff guard --install --protect-tests",
+                      "source": "agentdiff.guard (tests)"})
+    if long_loop:
+        lp = long_loop
+        from .longrun import dur
+        steps.append({"title": "Stop a loop of hours early", "text": f"It went round {lp['count']} bursts doing the "
+                      f"same calls for {dur(lp['wall_s'])}. A turn cap ends a run that stops moving, so it is seen in "
+                      f"minutes, not overnight. Pick the cap from a run that passed: a few times its turns.",
+                      "command": "claude --max-turns 200",
+                      "source": "longrun.loops; selfevolve (max_turns)"})
+    if success is False or (success is True and long_loop):
+        if act and act.get("command") and "self-evolve" in act["command"]:
+            cmd = act["command"]
+        else:
+            cmd = f"agentdiff self-evolve --task tasks.json --agent {agent} --generations 1"
+        steps.append({"title": "Test it on the counts", "text": "Run the task with and without the change, the same "
+                      "number of times; it is kept only if it wins more tasks than it loses and breaks none. Until "
+                      "then it is a hypothesis from this one run.", "command": cmd,
+                      "source": "selfevolve.decide"})
+        if not rule and success is False:
+            steps.insert(0, {"title": "Look at the code, not the loop", "text": (fix or {}).get("why") or
+                             "No harness change answers this failure: what it got wrong is in what the code does.",
+                             "command": "", "source": "insight.agent_fix"})
+    if success is True and not long_loop:
+        if act and act.get("command"):
+            steps.append({"title": act.get("title") or "Keep this change", "text": act.get("why") or "",
+                          "command": act["command"], "source": "the harness's record"})
+        else:
+            steps.append({"title": "Nothing to change in the agent", "text": "It passed. To compare it with another "
+                          "agent on the same task, run them side by side.", "command":
+                          "agentdiff duel --task task.json -o duel/", "source": "outcome.success"})
+    if success is None:
+        steps.append({"title": "Wait for the end", "text": "It is still running; the reason and the change come "
+                      "when it ends.", "command": "", "source": "in_progress"})
+    return {"reason": out_reason, "steps": steps, "check": check,
+            "basis": "each step is a hypothesis from this run until self-evolve's paired test keeps or reverts it"}
+
+
+def _q(text) -> str:
+    import shlex
+    return shlex.quote(str(text or ""))
