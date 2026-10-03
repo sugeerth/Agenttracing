@@ -107,7 +107,7 @@ REMEDIES: Dict[str, tuple] = {
     "claims_without_check": ("instruction", "Before you say the work is done, run the task's check{check} after "
                              "your last edit and read its result; if it fails, keep working.",
                              "the run said it was done with no check after its last edit"),
-    "no_check_after_last_edit": ("instruction", "After your last edit, run the task's check{check} again and read "
+    "no_check_after_last_edit": ("instruction", "After your last edit, run the task's check{check} and read "
                                  "its result before you finish.",
                                  "the run made an edit no check ever saw"),
     "mark:shipped_before_check": ("instruction", "Do not finish until the task's check{check} has passed after your "

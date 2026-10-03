@@ -33,7 +33,8 @@ from typing import Dict, List, Optional
 
 __all__ = ["ACTIVITIES", "lap_chart", "lap_table", "flow_ring", "eval_river", "hop_timeline", "legend",
            "activity_of_hop", "lap_strip", "step_ribbon", "compact_laps", "harness_river", "run_timeline",
-           "pair_timeline", "ribbons_svg", "trunk_svg", "VIZ_CSS"]
+           "pair_timeline", "ribbons_svg", "trunk_svg", "trajectory_map", "seconds_treemap", "wilson_bar",
+           "reward_steps", "VIZ_CSS"]
 
 
 def e(v) -> str:
@@ -908,10 +909,19 @@ def trunk_svg(runs: list, *, cmp: Optional[dict] = None, axis: str = "time", wid
 
         def roomy(xv: float) -> bool:
             return all(abs(xv - o) >= 30 or o == xv for o in leaf_xs)
+        bubble_end = -1e9
         for g in clusters:
             if len(g) > 1:
                 ga, gb = P(g[0]), P(g[-1])
                 bw = max(14.0, gb - ga + 10)
+                if ga - 5 < bubble_end + 2:
+                    # never on top of the bubble before it: start after it, or fold into its count
+                    shift = bubble_end + 2 - (ga - 5)
+                    ga += shift
+                    bw -= shift
+                    if bw < 10:
+                        continue
+                bubble_end = ga - 5 + bw
                 tools: Dict[str, int] = {}
                 for s in g:
                     tools[s["name"]] = tools.get(s["name"], 0) + 1
@@ -1026,3 +1036,196 @@ def trunk_svg(runs: list, *, cmp: Optional[dict] = None, axis: str = "time", wid
     if not pair and subs[0]:
         key.append(('<b style="color:var(--ink2)">└─</b>', "a sub-agent, hanging off the trunk"))
     return "".join(out) + legend(used, key)
+
+
+# ------------------------------------------------------ trajectory map
+_PHASE_CLS = {"frame": "a5", "acquire": "a1", "reason": "an", "change": "a2", "verify": "a3", "delegate": "a7", "act": "an"}
+
+
+def trajectory_map(da: dict, db: dict, al: dict, *, names=("A", "B"), heres=(None, None), width: int = 980) -> str:
+    """Two runs as columns of steps, each in its own order, joined where they made
+    the same call: a solid line for a match, dotted for a step in the same place
+    that did something else, the first such line in the divergence colour."""
+    from ..laps import _activity
+    from ..timeline import PHASES
+    sa, sb = da.get("steps") or [], db.get("steps") or []
+    if not sa or not sb:
+        return '<p class="muted">Both runs need steps to be mapped.</p>'
+    row_h, top = 30, 26
+    n = max(len(sa), len(sb))
+    height = top + row_h * n + 10
+    colw = 360
+    ax, bx = 8, width - colw - 8
+    mid_a, mid_b = ax + colw, bx
+    out = [f'<svg class="viz" viewBox="0 0 {width} {height}" width="{width}" role="img" aria-label="{e(al.get("sentence"))}">',
+           f'<text class="lab" x="{ax}" y="14" style="font-weight:700">■ A · {e(names[0])}</text>',
+           f'<text class="lab" x="{bx}" y="14" style="font-weight:700">■ B · {e(names[1])}</text>']
+
+    kinds = (heres[2] if len(heres) > 2 else None, heres[3] if len(heres) > 3 else None)
+
+    def row(x, y, s, i, side, here):
+        act = _activity(s)
+        phase = PHASES.get(act, "act")
+        cls = _PHASE_CLS.get(phase, "an")
+        what = " ".join(str(s.get("input") or s.get("output") or "").split())[:52]
+        bad = bool(s.get("error"))
+        tip = f'{side} step {i} · {s.get("name")} · {phase}' + (" · error" if bad else "")
+        right = side == "A"
+        tx = x + colw - 18 if right else x + 18
+        anchor = "end" if right else "start"
+        dot_x = x + colw - 6 if right else x + 6
+        mark = (f'<rect class="{cls}" x="{dot_x - 5}" y="{y + 4}" width="10" height="10" rx="2"/>' if act != "verify"
+                else f'<path class="{cls}" d="M{dot_x},{y + 3} l6,6 l-6,6 l-6,-6 z"/>')
+        kind = kinds[0 if side == "A" else 1]
+        col = "var(--sg)" if (here == i and kind == "pass" and not bad) else "var(--sc)"
+        ring = (f'<circle cx="{dot_x}" cy="{y + 9}" r="9" style="fill:none;stroke:{col};stroke-width:2"/>'
+                if (here == i or bad) else "")
+        body = (f'<text x="{x + (6 if right else colw - 6)}" y="{y + 12}" text-anchor="{"start" if right else "end"}" '
+                f'style="font-size:9px;fill:var(--{cls})">{e(phase)}</text>'
+                f'<text class="lab" x="{tx}" y="{y + 12}" text-anchor="{anchor}" style="font-size:12px">{i} · {e(str(s.get("name"))[:22])}</text>'
+                f'<text x="{tx}" y="{y + 24}" text-anchor="{anchor}" style="font-size:10px">{e(what)}</text>'
+                f'{mark}{ring}<title>{e(tip)}</title>')
+        return f'<a href="#s{i}">{body}</a>' if side == "A" else body
+    ya = {i: top + i * row_h for i in range(len(sa))}
+    yb = {j: top + j * row_h for j in range(len(sb))}
+    for k, r in enumerate(al.get("rows") or []):
+        if r["a"] is None or r["b"] is None:
+            continue
+        if r["op"] == "drift" and not r.get("same_tool") and k != al.get("divergence"):
+            continue        # two different tools in the same place: no line says anything about that
+        y1, y2 = ya[r["a"]] + 9, yb[r["b"]] + 9
+        x1, x2 = mid_a - 2, mid_b + 2
+        div = k == al.get("divergence")
+        if r["op"] == "match":
+            style = "stroke:var(--ink2);stroke-opacity:.35;stroke-width:1.2"
+            label = "match"
+        else:
+            style = (f"stroke:var(--{'sc' if div else 'a4'});stroke-width:{2 if div else 1.4};stroke-dasharray:3 3")
+            label = "diverge" if div else "drift"
+        out.append(f'<path d="M{x1},{y1} C{(x1 + x2) / 2:.0f},{y1} {(x1 + x2) / 2:.0f},{y2} {x2},{y2}" '
+                   f'style="fill:none;{style}"><title>row {k}: A {r["a"]} · B {r["b"]} · {label}</title></path>')
+        if r["op"] != "match" and (div or r is (al.get("rows") or [])[min(len(al["rows"]) - 1, (al.get("divergence") or 0) + 1)]):
+            out.append(f'<text x="{(x1 + x2) / 2:.0f}" y="{(y1 + y2) / 2 - 3:.0f}" text-anchor="middle" '
+                       f'style="font-size:10px;fill:var(--{"sc" if div else "a4"})">{label}</text>')
+    for i, s in enumerate(sa):
+        out.append(row(ax, ya[i], s, i, "A", heres[0]))
+    for j, s in enumerate(sb):
+        out.append(row(bx, yb[j], s, j, "B", heres[1]))
+    out.append("</svg>")
+    key = [('<b style="color:var(--ink2)">―</b>', "the same call"), ('<b style="color:var(--a4)">┄</b>', "drift: the same place, another call"),
+           ('<b style="color:var(--sc)">┄</b>', "the divergence"), ('<b style="color:var(--sc)">◯</b>', "error, or where to look")]
+    return "".join(out) + legend([], key)
+
+
+# ------------------------------------------------- where the seconds went
+def seconds_treemap(tls: List[dict], names: List[str], width: int = 980, height: int = 170) -> str:
+    """Area is seconds, on one scale for every run: a box per lap (or per
+    sub-agent, when the run delegated), a tile per step; light tiles think,
+    solid ones call a tool, a red edge an error or a failed check."""
+    if not tls:
+        return '<p class="muted">No runs.</p>'
+    most = max((t.get("span_s") or 0) for t in tls) or 1.0
+    gap = 14
+    total_w = width - gap * (len(tls) - 1)
+    out = [f'<svg class="viz" viewBox="0 0 {width} {height + 22}" width="{width}" role="img" '
+           f'aria-label="where the seconds went, area by seconds">']
+    x0 = 0.0
+    for t, name in zip(tls, names):
+        steps = [s for s in t.get("steps") or [] if s["latency_s"] > 0]
+        secs = sum(s["latency_s"] for s in steps) or 1e-9
+        w = max(60.0, total_w * (t.get("span_s") or secs) / most / len(tls))
+        out.append(f'<text class="lab" x="{x0:.1f}" y="12" style="font-weight:700">{e(name)} · {_secs(t.get("span_s") or secs, most)}</text>')
+        multi = len({s["agent"] for s in steps}) > 1
+        groups: Dict[str, list] = {}
+        for s in steps:
+            groups.setdefault(s["agent"] if multi else f"lap {s.get('lap') or 1}", []).append(s)
+        gx = x0
+        for gname, g in groups.items():
+            gs = sum(s["latency_s"] for s in g)
+            gw = w * gs / secs
+            out.append(f'<rect x="{gx:.1f}" y="18" width="{max(1.0, gw - 1):.1f}" height="{height}" '
+                       f'style="fill:none;stroke:var(--ink2);stroke-opacity:.5"><title>{e(gname)}: {gs:.1f}s, '
+                       f'{len(g)} step(s)</title></rect>')
+            if gw > 44:
+                out.append(f'<text x="{gx + 3:.1f}" y="30" style="font-size:9.5px">{e(gname[:max(3, int(gw / 6.2))])}</text>')
+            ty = 34.0
+            for s in sorted(g, key=lambda s: -s["latency_s"]):
+                th = (height - 18) * s["latency_s"] / gs
+                cls = ACTIVITIES.get(s["activity"], ACTIVITIES["other"])[0]
+                op = ".45" if s["activity"] == "think" else "1"
+                bad = s["error"] or s["check"] is False
+                out.append(f'<a href="#s{s["index"]}"><rect class="{cls}" x="{gx + 1:.1f}" y="{ty:.1f}" width="{max(1.0, gw - 3):.1f}" '
+                           f'height="{max(0.5, th - 1):.1f}" style="opacity:{op}{";stroke:var(--sc);stroke-width:2" if bad else ""}">'
+                           f'<title>#{s["index"]} {e(s["name"])} · {s["latency_s"]:.2f}s</title></rect></a>')
+                if th > 14 and gw > 52:
+                    out.append(f'<text class="g{" dk" if cls in _DARK_GLYPH or op != "1" else ""}" x="{gx + 4:.1f}" y="{ty + 11:.1f}" '
+                               f'style="font-size:9.5px">{e(s["name"][:int(gw / 6.5)])}</text>')
+                ty += th
+            gx += gw
+        x0 += w + gap
+    out.append("</svg>")
+    return "".join(out) + legend(sorted({s["activity"] for t in tls for s in t["steps"]}),
+                                 [('<b style="opacity:.45">▮</b>', "light: thinking"), ('<b style="color:var(--sc)">▢</b>', "error or failed check")])
+
+
+# ----------------------------------------------------------- levels
+def wilson_bar(passed: int, n: int, width: int = 150) -> str:
+    """Success as a dot on its 95% Wilson interval, the interval a line."""
+    from ..statistics import wilson_interval
+    if not n:
+        return '<span class="muted">—</span>'
+    lo, hi = wilson_interval(passed, n)
+    p = passed / n
+    X = lambda v: 4 + (width - 8) * v  # noqa: E731
+    col = "var(--sg)" if p >= 0.5 else "var(--sc)"
+    return (f'<svg class="viz" viewBox="0 0 {width} 14" width="{width}" height="14" role="img" '
+            f'aria-label="{p:.0%} [{lo:.0%}, {hi:.0%}] n={n}"><line class="grid" x1="4" x2="{width - 4}" y1="7" y2="7"/>'
+            f'<line x1="{X(lo):.1f}" x2="{X(hi):.1f}" y1="7" y2="7" style="stroke:var(--ink2);stroke-width:1.5"/>'
+            f'<line x1="{X(lo):.1f}" x2="{X(lo):.1f}" y1="3" y2="11" style="stroke:var(--ink2)"/>'
+            f'<line x1="{X(hi):.1f}" x2="{X(hi):.1f}" y1="3" y2="11" style="stroke:var(--ink2)"/>'
+            f'<circle cx="{X(p):.1f}" cy="7" r="3.5" style="fill:{col}"/>'
+            f'<title>{passed} of {n}: {p:.0%}, 95% Wilson [{lo:.0%}, {hi:.0%}]</title></svg>'
+            f' <span class="mono">{p:.0%} [{lo:.0%}, {hi:.0%}] n={n}</span>')
+
+
+# ----------------------------------------------------------- rewards
+def reward_steps(tls: List[dict], names: List[str], width: int = 980, height: int = 150) -> str:
+    """The return as it accumulated, step by step, for each run that carries rewards."""
+    series = []
+    for t, name in zip(tls, names):
+        steps = sorted(t.get("steps") or [], key=lambda s: s["index"])
+        if not any(s.get("reward") is not None for s in steps):
+            continue
+        acc, pts = 0.0, [(0, 0.0)]
+        for s in steps:
+            acc += s.get("reward") or 0.0
+            pts.append((s["index"] + 1, acc))
+        series.append((name, pts, t.get("success")))
+    if not series:
+        return ""
+    n = max(p[-1][0] for _, p, _ in series) or 1
+    lo = min(min(v for _, v in p) for _, p, _ in series)
+    hi = max(max(v for _, v in p) for _, p, _ in series)
+    lo, hi = min(lo, 0.0), max(hi, 0.0)
+    span = (hi - lo) or 1.0
+    left = 44
+    X = lambda i: left + (width - left - 10) * i / n  # noqa: E731
+    Y = lambda v: 22 + (height - 42) * (hi - v) / span  # noqa: E731
+    out = [f'<svg class="viz" viewBox="0 0 {width} {height}" width="{width}" role="img" aria-label="return, step by step">',
+           f'<line class="grid" x1="{left}" x2="{width - 10}" y1="{Y(0):.1f}" y2="{Y(0):.1f}"/>',
+           f'<text x="{left - 6}" y="{Y(hi) + 4:.1f}" text-anchor="end">{hi:+.1f}</text>',
+           f'<text x="{left - 6}" y="{Y(0) + 4:.1f}" text-anchor="end">0</text>',
+           f'<text x="{left - 6}" y="{Y(lo) + 4:.1f}" text-anchor="end">{lo:+.1f}</text>']
+    for k, (name, pts, ok) in enumerate(series):
+        cls = ("a1", "a2")[k % 2]
+        d = f"M{X(pts[0][0]):.1f},{Y(pts[0][1]):.1f}"
+        for (i0, v0), (i1, v1) in zip(pts, pts[1:]):
+            d += f" H{X(i1):.1f} V{Y(v1):.1f}"
+        out.append(f'<path d="{d}" style="fill:none;stroke:var(--{cls});stroke-width:2"><title>{e(name)}: return '
+                   f'{pts[-1][1]:+.2f}</title></path>'
+                   f'<text x="{X(pts[-1][0]) - 4:.1f}" y="{Y(pts[-1][1]) + (14 if pts[-1][1] < 0 else -6):.1f}" '
+                   f'text-anchor="end" style="fill:var(--{cls})">'
+                   f'{e(name)} {pts[-1][1]:+.1f} {"✓" if ok else "✗" if ok is False else ""}</text>')
+    out.append(f'<text x="{left}" y="{height - 4}">step 0</text><text x="{width - 10}" y="{height - 4}" text-anchor="end">step {n}</text>')
+    out.append("</svg>")
+    return "".join(out)

@@ -5,6 +5,46 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## A run, start here: the card, the code it produced, the change it points at
+
+Every trace page opens with a card in the report page's grammar, each
+row naming its source: verdict, where, cost, code, fix (or keep),
+confidence. `agentdiff/insight.py` reads the code a run produced from
+the harness's record (the workspace diffed before and after):
+- the files and lines it changed
+- the cases the check failed on
+- flags before keeping it: tests edited, a deleted file, a large change,
+  a pass with no change, a change not kept whole
+- beside another run's change, whether both left the same bytes
+
+For a failed run it names the one change to the agent its failure points
+at, among the remedies for how it failed, labelled a hypothesis, with the
+command that tests it.
+
+The page is now panels with presets (focus, the loop, threads, the code,
+everything). Each panel opens and closes and still says its one fact
+while closed. The Overview's **Start here** reads all runs at once: what
+the failures have in common, the change most of them point at, and each
+agent's code.
+
+The report page's views are now drawn by the hub too, as server-side
+SVG:
+- **Trajectory map**: two runs as aligned step columns, matched by the
+  longest common run of the same calls (`timeline.align`)
+- **Where the seconds went**: a treemap, area = seconds, one scale for
+  both runs
+- **Reward & credit**: the return step by step
+- **Levels**: every agent's success on its 95% Wilson interval
+
+They come with the page's header grammar: task chips with a dot per run,
+the prompt as the headline, step chips in the card. On the demo the
+Levels table reads as the page does, ledger-agent@g0 50% [33%, 67%] n=30.
+
+On the real runs: the haiku SemVer failure's card names the four
+invalid versions its code accepted and points at "test your change after
+your last edit". The haiku-vs-sonnet duel shows both agents left the
+same bytes in `pricing.py`.
+
 ## Timelines: long runs, many threads, many runs, and where to look first
 
 A trace page now leads with the run as a trunk with branches: thinking on

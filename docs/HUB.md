@@ -85,6 +85,68 @@ it, arguments and all, is marked as a repeat, and the stuck verdict is
 judged only when it ends. Every chart has a legend, a hover title per mark
 and a table beside it, so nothing is told by colour alone.
 
+## A run, start here
+
+Every trace's page opens with its card (`agentdiff/insight.py`). One row
+each, and every row names the field its words came from:
+
+| row | what it says |
+|---|---|
+| verdict | how it ended, and by whose check |
+| where | where to look first, with a link to the step |
+| cost | its tokens and time, against the other runs of its task |
+| code | what it changed in the workspace, the cases the check failed on, and any flag a reader should see before keeping it |
+| fix | for a failed run: the one change to the agent its failure points at (the first `selfevolve.REMEDIES` rule that fires on it, among the remedies for how it failed), labelled a hypothesis |
+| keep | for a run that passed and kept its change whole: that it can be applied |
+| confidence | what the reading rests on |
+
+The page follows the report page's grammar:
+- a chip per task in the run's directory, with a dot per run (● passed,
+  ○ failed, ◐ running)
+- the prompt as the headline
+- the card, with a step chip on the rows that point at a step
+
+Below the card, the page is panels you open and close. The views are the
+report page's, drawn on the server:
+
+| panel | from the page |
+|---|---|
+| **Trajectory map** (START HERE when comparing) | Evidence: two runs as columns of steps in their own order, a line where they made the same call, dotted where they drifted, the divergence in red, each step's phase |
+| **The run as a trunk** | Story: thinking on the trunk, tool calls as branches, sub-agents hanging off it |
+| **Two runs on one axis** | the trunks facing each other, and by step |
+| **Where the seconds went** | Panels: area is seconds on one scale for both runs, a box per lap or sub-agent, a tile per step |
+| **Reward & credit** | Training: the return step by step, when the trace recorded rewards |
+| **Every thread on its own lane**, **the loop**, **the flow**, **the steps** | Trace, Batch |
+
+A preset picks which start open: **focus** (map, trunk, comparison,
+code, steps), **the loop**, **time** (seconds, lanes, trunk),
+**threads**, **the code**, **training** (reward, trunk) or
+**everything**. A closed panel still says
+its one fact (`+97 −1 in 1 file(s)`, `28 thread(s) · 122 lap(s)`), so
+the details are there on demand.
+
+**The code it produced** comes from the harness's record of the run:
+the workspace diffed before and after, never the agent's account.
+- the files, how each changed, and a badge on a test file
+- whether the check passed, and the cases it named as failing
+- the patch
+- beside another run's change, the files both touched and whether they
+  left the same bytes
+- the command to act on it: `agentdiff apply --dir …` to keep a change
+  that passed, or `agentdiff self-evolve …` to test the change to the
+  agent that a failure points at
+
+Flags: the tests were edited, a file was deleted, a large change, a pass
+with no change, a change not kept whole, a truncated patch.
+
+The Overview adds **Levels · the agents**: each agent's runs and
+tasks, success as a dot on its 95% Wilson interval, median tokens,
+seconds and lines changed. Its **Start here** reads the same across
+every finished run:
+how many failed, what the failures have in common, the one change to the
+agent most of them point at, and each agent's code (pass rate, median
+lines changed, runs that edited tests).
+
 ## Timelines
 
 Every trace's page leads with the run as a **trunk** along its clock, the

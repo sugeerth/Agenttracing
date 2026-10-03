@@ -1,0 +1,297 @@
+"""What a run means, what it changed, and what to change next.
+
+The hub's pages draw a run; this says what it amounts to, in the order a
+reader acts on it:
+
+**The verdict card.** One row each, every row naming where its words came
+from:
+- VERDICT: how it ended, and by whose check
+- WHERE: where to look first (:mod:`agentdiff.timeline`)
+- COST: its tokens and time, against the other runs of its task
+- CODE: what it changed in the workspace
+- FIX: the one change to the agent the run's failure points at
+- CONFIDENCE: what the reading rests on
+
+**The code it produced** (:func:`code_change`). The files the agent
+changed and how much, from the run record the harness wrote (the diff
+is the harness's, taken from the workspace before and after, never the
+agent's account). Flags a reader should see before keeping the change:
+- the tests were edited
+- a file was deleted
+- the change is large
+- the check passed with no change at all
+- the run passed but its change is not kept whole
+
+:func:`code_compare` sets two runs' changes side by side: the files both
+touched, and whether they left the same bytes in each.
+
+**The change to the agent** (:func:`agent_fix`). For a run that failed,
+the first rule in :data:`agentdiff.selfevolve.REMEDIES` order that fires
+on this run names a harness change. It is a hypothesis, labelled as one,
+with the command that tests it. ``self-evolve`` keeps it only on the
+counts. A run that passed has nothing to fix; its change can be kept.
+
+No number here is estimated: each is a count or a sum over the run's
+record and its steps.
+"""
+
+from __future__ import annotations
+
+import re
+import statistics
+from typing import Iterable, List, Optional
+
+__all__ = ["code_change", "code_compare", "agent_fix", "verdict_card", "is_test_path", "LARGE_CHANGE", "check_failures",
+           "corpus_insight"]
+
+#: lines changed above which a change is flagged as large
+LARGE_CHANGE = 300
+_TEST_PATH = re.compile(r"(^|/)(tests?|spec|__tests__)(/|$)|(^|/)test_[^/]*\.py$|_test\.(py|go|ts|js)$|\.spec\.(ts|js)$"
+                        r"|(^|/)conftest\.py$", re.I)
+
+
+def is_test_path(path: str) -> bool:
+    return bool(_TEST_PATH.search(path or ""))
+
+
+_FAIL_LINE = re.compile(r"^(?:FAIL|ERROR): (?P<ut>.+?)\s*$|^FAILED (?P<py>[^\s(]\S*)(?: - (?P<why>.*))?$|"
+                        r"^(?P<file>[\w./-]+\.\w+):(?P<line>\d+): (?P<msg>\w*Error.*)$", re.M)
+
+
+def check_failures(output: str, most: int = 8) -> List[str]:
+    """The cases a check named as failing (unittest's FAIL/ERROR lines, pytest's
+    FAILED lines, a file:line error), in the order it printed them."""
+    out: List[str] = []
+    for m in _FAIL_LINE.finditer(output or ""):
+        if m.group("ut"):
+            # unittest prints "name (module.Class.name) (subtest)": the name and the subtest say it
+            name = re.sub(r"\s*\([\w.]+\.\w+\)", "", m.group("ut"), count=1)
+        elif m.group("py"):
+            name = m.group("py") + (f" ({m.group('why')[:80]})" if m.group("why") else "")
+        else:
+            name = f"{m.group('file')}:{m.group('line')} {m.group('msg')[:80]}"
+        if name not in out:
+            out.append(name)
+        if len(out) >= most:
+            break
+    return out
+
+
+def code_change(record: Optional[dict], patch: str = "") -> Optional[dict]:
+    """The change a run left in its workspace, from the harness's record."""
+    if not isinstance(record, dict) or not isinstance(record.get("diff"), dict):
+        return None
+    diff = record["diff"]
+    files = []
+    for f in diff.get("files") or []:
+        if not isinstance(f, dict):
+            continue
+        files.append({"path": str(f.get("path")), "status": f.get("status") or "modified",
+                      "added": int(f.get("added") or 0), "removed": int(f.get("removed") or 0),
+                      "test": is_test_path(str(f.get("path"))), "after_sha": f.get("after_sha")})
+    added, removed = int(diff.get("added") or 0), int(diff.get("removed") or 0)
+    check = record.get("check") or {}
+    passed = check.get("passed")
+    kept = record.get("after") or {}
+    flags = []
+    tests = [f["path"] for f in files if f["test"]]
+    if tests:
+        flags.append({"kind": "tests_edited", "sentence": f"It changed {len(tests)} test file(s) ({', '.join(tests[:3])}): "
+                                                          f"read them before trusting the check that passed."})
+    gone = [f["path"] for f in files if f["status"] == "deleted"]
+    if gone:
+        flags.append({"kind": "deleted", "sentence": f"It deleted {', '.join(gone[:3])}."})
+    if added + removed > LARGE_CHANGE:
+        flags.append({"kind": "large", "sentence": f"A large change: {added + removed} lines over {len(files)} file(s)."})
+    if passed and not files:
+        flags.append({"kind": "no_change", "sentence": "The check passed with no change to the workspace: the pass "
+                                                       "shows nothing about the agent."})
+    if passed and kept and kept.get("complete") is False:
+        flags.append({"kind": "not_kept", "sentence": "Its change was not kept whole (a file withheld or too large), "
+                                                      "so it cannot be applied as it is."})
+    if diff.get("patch_truncated"):
+        flags.append({"kind": "truncated", "sentence": "The patch was cut at its size limit: the counts are whole, "
+                                                       "the text is not."})
+    failures = check_failures(str(check.get("output_tail") or "")) if passed is False else []
+    return {"files": files, "added": added, "removed": removed, "tests": tests, "passed": passed, "failures": failures,
+            "check": check.get("command"), "check_tail": str(check.get("output_tail") or "")[-1200:],
+            "flags": flags, "patch": patch, "baseline_passed": ((record.get("setup") or {}).get("baseline") or {}).get("passed"),
+            "keepable": bool(passed and files and kept.get("complete", True) is not False)}
+
+
+def code_compare(a: Optional[dict], b: Optional[dict]) -> Optional[dict]:
+    if not a or not b:
+        return None
+    fa = {f["path"]: f for f in a["files"]}
+    fb = {f["path"]: f for f in b["files"]}
+    both = sorted(set(fa) & set(fb))
+    same = [p for p in both if fa[p].get("after_sha") and fa[p].get("after_sha") == fb[p].get("after_sha")]
+    only_a, only_b = sorted(set(fa) - set(fb)), sorted(set(fb) - set(fa))
+    if not both and not only_a and not only_b:
+        sentence = "Neither changed a file."
+    elif not only_a and not only_b and len(same) == len(both):
+        sentence = f"They left the same bytes in all {len(both)} file(s) they changed."
+    else:
+        bits = []
+        if both:
+            bits.append(f"both changed {len(both)} file(s)" + (f", {len(same)} to the same bytes" if same else ", differently"))
+        if only_a:
+            bits.append(f"only A changed {', '.join(only_a[:3])}")
+        if only_b:
+            bits.append(f"only B changed {', '.join(only_b[:3])}")
+        sentence = "; ".join(bits).capitalize() + "."
+    return {"both": both, "same": same, "only_a": only_a, "only_b": only_b, "sentence": sentence,
+            "lines": [a["added"] + a["removed"], b["added"] + b["removed"]]}
+
+
+#: how a run failed -> the remedies tried first, so the fix answers the failure the reader is shown
+_PREFER = {"loop": ("repeated_call", "mark:cycle", "mark:redundant_stretch"),
+           "unchecked": ("claims_without_check", "no_check_after_last_edit", "mark:shipped_before_check"),
+           "end": ("claims_without_check", "no_check_after_last_edit", "mark:unverified_write"),
+           "error": ("mark:unrecovered_error", "error_streak"),
+           "check": ("mark:unrecovered_error", "repeated_call", "error_streak")}
+
+
+def agent_fix(traj: dict, *, check: str = "", look_kind: Optional[str] = None) -> Optional[dict]:
+    """For a failed run, the first harness change whose rule fires on it: first
+    among the remedies for how it failed (``look_kind``), then in the harness's order."""
+    from .forge import RunView, evaluate, parse_rule
+    from .selfevolve import REMEDIES, remedy_for, remedy_text
+    from .trace import Trajectory
+    if (traj.get("outcome") or {}).get("success") is not False or traj.get("in_progress"):
+        return None
+    try:
+        view = RunView(Trajectory.from_dict(traj), None, set())
+    except (ValueError, KeyError, TypeError):
+        return None
+    tried = []
+    order = list(_PREFER.get(look_kind or "", ())) + [k for k in REMEDIES if k not in _PREFER.get(look_kind or "", ())]
+    for key in order:
+        if key == "tool_called":
+            continue          # a tool to deny needs other runs to show it travels with failure
+        if key.startswith("mark:"):
+            rule_text = key
+        elif key in ("repeated_call", "error_streak"):
+            rule_text = f"{key}:3" if key == "repeated_call" else f"{key}:2"
+        elif key == "tool_absent":
+            continue          # likewise: absent compared with what, needs other runs
+        else:
+            rule_text = key
+        try:
+            rule = parse_rule(rule_text)
+            hit = evaluate(rule, view)
+        except (ValueError, KeyError, TypeError):
+            continue
+        tried.append(rule_text)
+        if hit is None:
+            continue
+        r = remedy_for(rule_text, check=check)
+        if not r or r.get("unactionable"):
+            continue
+        from .forge import describe
+        return {"rule": rule_text, "step": hit, "says": describe(rule), "remedy": r, "change": remedy_text(r),
+                "why": r["why"], "tried": len(tried),
+                "basis": "a hypothesis from this one run: the first rule, in the harness's order, that fires on it"}
+    return {"rule": None, "remedy": None, "tried": len(tried),
+            "why": "none of the failures the harness can act on shows in this run; what it got wrong is in what the "
+                   "code does, not in how the agent worked"}
+
+
+def _median(xs: List[float]) -> Optional[float]:
+    xs = [x for x in xs if isinstance(x, (int, float))]
+    return statistics.median(xs) if xs else None
+
+
+def verdict_card(traj: dict, tl: dict, *, peers: Iterable[dict] = (), change: Optional[dict] = None,
+                 fix: Optional[dict] = None) -> List[dict]:
+    """The rows of the card, each ``{label, html_safe_text, source, tone}``."""
+    rows = []
+    task = (traj.get("task") or {}).get("id")
+    agent = (traj.get("agent") or {}).get("name")
+    graded = ((traj.get("harness") or {}).get("graded_by")) or "its own outcome"
+    ok = None if traj.get("in_progress") else (traj.get("outcome") or {}).get("success")
+    if traj.get("in_progress"):
+        rows.append({"label": "verdict", "text": f"{agent} is still running {task}: {len(tl.get('laps') or [])} lap(s) "
+                                                 f"so far, drawn as far as it has gone and judged when it ends.",
+                     "source": "the live frame", "tone": "run"})
+    else:
+        rows.append({"label": "verdict", "text": f"{agent} {'solved' if ok else 'failed' if ok is False else 'finished'} "
+                                                 f"{task}.", "source": f"outcome.success, graded by {graded}",
+                     "tone": "ok" if ok else "bad" if ok is False else ""})
+    here = tl.get("look_here") or {}
+    if here:
+        rows.append({"label": "cause" if here.get("kind") not in ("pass", "now") else "where", "text": here["sentence"],
+                     "source": f"timeline.look_here ({here.get('kind')})",
+                     "step": here.get("index"), "tone": "bad" if here.get("kind") not in ("pass", "now") else ""})
+    peers = list(peers)
+    tok = sum(int(s.get("tokens") or 0) for s in traj.get("steps") or [])
+    secs = tl.get("span_s")
+    pt, ps = _median([p.get("tokens") for p in peers]), _median([p.get("seconds") for p in peers])
+    graded_peers = [p for p in peers if p.get("success") is not None]
+    cost = f"{tok:,} tokens over {secs:.1f}s" if isinstance(secs, (int, float)) else f"{tok:,} tokens"
+    if pt:
+        cost += f"; the other {len(peers)} run(s) of this task: median {pt:,.0f} tokens"
+        if ps:
+            cost += f", {ps:.1f}s"
+        if graded_peers:
+            cost += f", {sum(1 for p in graded_peers if p['success'])} of {len(graded_peers)} passed"
+    rows.append({"label": "cost", "text": cost + ".", "source": "steps[].tokens, the clock; peers: the trace index", "tone": ""})
+    if change:
+        text = (f"{len(change['files'])} file(s), +{change['added']} −{change['removed']}"
+                + (f" ({', '.join(f['path'] for f in change['files'][:3])})" if change["files"] else ""))
+        if change.get("failures"):
+            text += (f". The check failed on {len(change['failures'])} case(s) it named: "
+                     f"{', '.join(change['failures'][:3])}" + ("…" if len(change["failures"]) > 3 else ""))
+        if change["flags"]:
+            text += ". " + " ".join(f["sentence"] for f in change["flags"][:2])
+        rows.append({"label": "code", "text": text, "source": "the harness's diff of the workspace (record.diff)"
+                                                                 + (", the check's output (record.check)" if change.get("failures") else ""),
+                     "tone": "bad" if change["flags"] or change.get("failures") else ""})
+    if fix:
+        if fix.get("remedy"):
+            rows.append({"label": "fix", "text": f"Change the agent: {fix['change']} (because {fix['says']}, at step "
+                                                 f"{fix['step']}).", "source": f"selfevolve.REMEDIES[{fix['rule']}]; "
+                                                                                f"{fix['basis']}",
+                         "step": fix.get("step"), "tone": "fix"})
+        else:
+            rows.append({"label": "fix", "text": f"No harness change: {fix['why']}.",
+                         "source": f"{fix['tried']} rule(s) tried", "tone": ""})
+    elif ok and change and change.get("keepable"):
+        rows.append({"label": "keep", "text": "Its change passed and is kept whole: it can be applied.",
+                     "source": "record.check, record.after", "tone": "ok"})
+    basis = tl.get("basis")
+    n = len(peers) + 1
+    conf = (f"{'one run' if n == 1 else f'{n} runs of this task'}; {basis} clock"
+            + ("; the cause is a reading of the steps, not a replay" if ok is False else ""))
+    rows.append({"label": "confidence", "text": conf + ".", "source": "the trace index; timeline.basis", "tone": ""})
+    return rows
+
+
+def corpus_insight(items: Iterable[dict]) -> Optional[dict]:
+    """Across many runs: what the failures have in common, and the change most of them point at.
+    ``items``: ``{"look_kind", "fix_rule", "fix_change", "success", "agent", "lines", "tests_edited"}``."""
+    items = list(items)
+    failed = [x for x in items if x.get("success") is False]
+    if not items:
+        return None
+    kinds: dict = {}
+    fixes: dict = {}
+    for x in failed:
+        if x.get("look_kind"):
+            kinds[x["look_kind"]] = kinds.get(x["look_kind"], 0) + 1
+        if x.get("fix_rule"):
+            fixes.setdefault(x["fix_rule"], [0, x.get("fix_change")])[0] += 1
+    top_fix = max(fixes.items(), key=lambda kv: kv[1][0]) if fixes else None
+    by_agent: dict = {}
+    for x in items:
+        a = by_agent.setdefault(x.get("agent") or "agent", {"runs": 0, "passed": 0, "lines": [], "tests_edited": 0})
+        a["runs"] += 1
+        a["passed"] += 1 if x.get("success") else 0
+        if isinstance(x.get("lines"), int):
+            a["lines"].append(x["lines"])
+        a["tests_edited"] += 1 if x.get("tests_edited") else 0
+    agents = [{"agent": k, "runs": v["runs"], "passed": v["passed"], "median_lines": _median(v["lines"]),
+               "tests_edited": v["tests_edited"]} for k, v in sorted(by_agent.items())]
+    return {"runs": len(items), "failed": len(failed), "kinds": kinds,
+            "top_fix": {"rule": top_fix[0], "runs": top_fix[1][0], "change": top_fix[1][1]} if top_fix else None,
+            "agents": agents}

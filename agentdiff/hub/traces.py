@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
-__all__ = ["TraceRef", "TraceIndex", "LIVE_SUFFIX", "trace_id"]
+__all__ = ["TraceRef", "TraceIndex", "LIVE_SUFFIX", "trace_id", "load_record", "record_paths"]
 
 LIVE_SUFFIX = ".live.json"
 _NOT_TRACES = {"RUN_MANIFEST.json", "aggregate.json", "plan.json", "duel.json"}
@@ -63,6 +63,52 @@ class TraceRef:
 def _is_trace_file(name: str) -> bool:
     return name.endswith(".json") and name not in _NOT_TRACES and not name.startswith(("report_", ".")) \
         and not name.endswith((".meta.json", ".tmp"))
+
+
+def record_paths(path: Path) -> tuple:
+    """The harness's record of a trace and its patch, when it wrote them:
+    ``<run dir>/records/<stem>.json`` beside ``<run dir>/traces/<stem>.json``."""
+    name = path.name
+    stem = name[: -len(LIVE_SUFFIX)] if name.endswith(LIVE_SUFFIX) else name[: -len(".json")]
+    base = path.parent.parent
+    rec = base / "records" / f"{stem}.json"
+    return rec, base
+
+
+def load_record(path: Path) -> tuple:
+    """(record, patch text) for a trace; (None, "") when the harness wrote none."""
+    rec_path, base = record_paths(path)
+    try:
+        rec = json.loads(rec_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None, ""
+    patch = ""
+    p = rec.get("patch") if isinstance(rec, dict) else None
+    if isinstance(p, str) and ".." not in Path(p).parts:
+        try:
+            patch = (base / p).read_text(encoding="utf-8", errors="replace")[:200_000]
+        except OSError:
+            patch = ""
+    return (rec if isinstance(rec, dict) else None), patch
+
+
+def _insight(data: dict, path: Path) -> Optional[dict]:
+    """What a list needs of a run's meaning: how it failed, the fix it points at, what code it left."""
+    from ..insight import agent_fix, code_change
+    from ..timeline import timeline
+    try:
+        tl = timeline(data)
+    except (ValueError, KeyError, TypeError):
+        return None
+    kind = (tl.get("look_here") or {}).get("kind")
+    fix = agent_fix(data, look_kind=kind)
+    rec, _ = load_record(path)
+    change = code_change(rec) if rec else None
+    return {"look_kind": kind, "look": (tl.get("look_here") or {}).get("sentence"),
+            "fix_rule": (fix or {}).get("rule"), "fix_change": (fix or {}).get("change"),
+            "lines": (change["added"] + change["removed"]) if change else None,
+            "files": len(change["files"]) if change else None,
+            "tests_edited": bool(change and change["tests"]), "flags": [f["kind"] for f in (change or {}).get("flags") or []]}
 
 
 def summarize(data: dict) -> dict:
@@ -184,6 +230,7 @@ class TraceIndex:
             if data is None:
                 return None
             summary = summarize(data)
+            summary["insight"] = _insight(data, path)
             with self._lock:
                 self._cache[rel] = (key, summary)
         return TraceRef(trace_id(rel), path, self.rel(path.parent), live or bool(summary.get("in_progress")),

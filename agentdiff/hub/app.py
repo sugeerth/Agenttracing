@@ -120,6 +120,14 @@ def _cookie(name: str, value: str, max_age: Optional[int] = None) -> str:
     return f"{name}={value}; HttpOnly; SameSite=Strict; Path=/{age}"
 
 
+def _json_list(path: Path, key: str) -> list:
+    try:
+        v = json.loads(path.read_text(encoding="utf-8")).get(key)
+    except (OSError, ValueError, AttributeError):
+        return []
+    return v if isinstance(v, list) else []
+
+
 def _under(path: Path, root: Path) -> bool:
     try:
         Path(path).resolve().relative_to(Path(root).resolve())
@@ -322,22 +330,61 @@ class App:
         return ref, data, laps(data)
 
     def _clock(self, req: Request, ref, data: dict) -> dict:
-        """The timeline, the runs it can be compared with, and the comparison asked for."""
+        """Everything a trace's page shows beside the trace: its clock, its card, the
+        code it produced, the run it is compared with, and what to do next."""
+        from ..insight import agent_fix, code_change, code_compare, verdict_card
         from ..timeline import compare, timeline
+        from .traces import load_record, record_paths
         query = parse_query(split(req.path)[1])
         vs = query.get("vs", [""])[0]
         axis = query.get("axis", ["step"])[0]
         axis = axis if axis in ("step", "time") else "step"
+        view = query.get("view", ["focus"])[0]
+        view = view if view in {k for k, _, _ in views.PRESETS} else "focus"
         task = ref.summary.get("task")
         others = [r for r in self.traces.refs() if r.id != ref.id and r.summary.get("task") == task][:60]
-        cmp = None
+        tl = timeline(data)
+        rec, patch = load_record(ref.path)
+        change = code_change(rec, patch) if rec else None
+        fix = agent_fix(data, look_kind=(tl.get("look_here") or {}).get("kind"))
+        peers = [{"tokens": r.summary.get("tokens"), "seconds": r.summary.get("seconds"), "success": r.summary.get("success")}
+                 for r in others if not r.live]
+        card = verdict_card(data, tl, peers=peers, change=change, fix=fix)
+        cmp = other_change = code_cmp = odata = al = None
         if re.fullmatch(r"[0-9a-f]{12}", vs or ""):
             other = next((r for r in others if r.id == vs), None) or self.traces.get(vs)
             odata = self.traces.load(other) if other else None
             if odata is not None:
+                from ..timeline import align
                 cmp = compare(data, odata)
-        return {"tl": timeline(data), "cmp": cmp, "others": others, "vs": vs if cmp else "", "axis": axis,
-                "every": query.get("steps", [""])[0] == "all"}
+                al = align(data, odata)
+                orec, opatch = load_record(other.path)
+                other_change = code_change(orec, opatch) if orec else None
+                code_cmp = code_compare(change, other_change)
+        act = self._next_step(ref, data, change, fix, record_paths(ref.path)[1])
+        return {"tl": tl, "cmp": cmp, "others": others, "vs": vs if cmp else "", "axis": axis, "view": view,
+                "other_data": odata if cmp else None, "al": al, "task_nav": views.task_chips(ref, self.traces.refs()),
+                "every": query.get("steps", [""])[0] == "all", "card": card, "change": change,
+                "other_change": other_change, "code_cmp": code_cmp, "act": act}
+
+    @staticmethod
+    def _next_step(ref, data: dict, change: Optional[dict], fix: Optional[dict], arm: Path) -> Optional[dict]:
+        """The command that acts on this run: keep its change, or test the change to the agent."""
+        agent = str((data.get("agent") or {}).get("name") or "")
+        run = str(data.get("run_id") or "") or ref.name.rsplit("__", 1)[-1]
+        if change and change.get("keepable"):
+            return {"title": "Keep this change", "why": "Its check passed and the harness kept every file it changed; "
+                                                        "apply writes them into the project, and refuses if the project "
+                                                        "changed since.",
+                    "command": f"agentdiff apply --dir {arm} {agent} --run {run} --dry-run   # then without --dry-run"}
+        if fix and fix.get("remedy") and (arm / "plan.json").is_file():
+            spec = next((a for a in (_json_list(arm / "plan.json", "agents")) if str(a).split("=", 1)[0] == agent), agent)
+            return {"title": "Test the change to the agent", "why": "One generation of self-evolve runs these tasks "
+                                                                    "with and without the change, the same number of "
+                                                                    "times, and keeps it only on the counts.",
+                    "command": f"agentdiff self-evolve --task {arm / 'plan.json'} --agent {spec} --generations 1 "
+                               f"-o {arm.parent / ('evolve-' + agent)}"}
+        return None
 
     def trace(self, req: Request, session: Session, tid: str) -> Response:
         found = self._trace(tid)

@@ -321,3 +321,43 @@ def ribbons(trajs: Iterable, *, cells: int = 60) -> List[dict]:
                               for b in t["laps"]],
                      "look_here": t["look_here"], "basis": t["basis"], "lanes": len(t["lanes"])})
     return rows
+
+
+#: the phase a step's activity belongs to, as the report page names them
+PHASES = {"plan": "frame", "research": "acquire", "explore": "acquire", "think": "reason", "edit": "change",
+          "run": "change", "verify": "verify", "delegate": "delegate", "other": "act"}
+
+
+def align(a, b) -> dict:
+    """Two runs' steps matched in order (a longest common run of the same calls).
+    Rows: ``match`` (the same call), ``drift`` (a step in the same place, a
+    different call), ``a_only``/``b_only``. The first row that is not a match
+    is the divergence."""
+    import difflib
+    da, db = _data(a), _data(b)
+
+    def sig(s):
+        # a step is its call; a model turn with no call is what it said, so two silences never match
+        body = s.get("input") or (s.get("output") if s.get("type") in ("reason", "answer", "plan") else "") or ""
+        return (str(s.get("name") or s.get("type")), " ".join(str(body).split())[:160] or f"#{id(s)}")
+    sa = [sig(s) for s in da.get("steps") or [] if isinstance(s, dict)]
+    sb = [sig(s) for s in db.get("steps") or [] if isinstance(s, dict)]
+    rows = []
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, sa, sb, autojunk=False).get_opcodes():
+        if op == "equal":
+            rows += [{"op": "match", "a": i, "b": j} for i, j in zip(range(i1, i2), range(j1, j2))]
+        elif op == "replace":
+            n = min(i2 - i1, j2 - j1)
+            rows += [{"op": "drift", "a": i1 + k, "b": j1 + k, "same_tool": sa[i1 + k][0] == sb[j1 + k][0]}
+                     for k in range(n)]
+            rows += [{"op": "a_only", "a": i, "b": None} for i in range(i1 + n, i2)]
+            rows += [{"op": "b_only", "a": None, "b": j} for j in range(j1 + n, j2)]
+        elif op == "delete":
+            rows += [{"op": "a_only", "a": i, "b": None} for i in range(i1, i2)]
+        else:
+            rows += [{"op": "b_only", "a": None, "b": j} for j in range(j1, j2)]
+    first = next((k for k, r in enumerate(rows) if r["op"] != "match"), None)
+    matched = sum(1 for r in rows if r["op"] == "match")
+    return {"rows": rows, "divergence": first, "matched": matched, "a_steps": len(sa), "b_steps": len(sb),
+            "sentence": (f"{matched} of their steps are the same call in the same order"
+                         + (f"; they part at row {first}" if first is not None else "; they never part") + ".")}
