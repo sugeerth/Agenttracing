@@ -216,8 +216,16 @@ def _is_sentence(arg: str, commands) -> bool:
     return bool(arg) and not arg.startswith("-") and arg not in commands and len(arg.split()) > 1
 
 
+def _printable() -> None:
+    """A console that cannot show ✗ or → (Windows cp1252) gets a ? instead of a crash."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure") and (stream.encoding or "").lower().replace("-", "") != "utf8":
+            stream.reconfigure(errors="replace")
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     """CLI entry point; returns a process exit code."""
+    _printable()
     argv = sys.argv[1:] if argv is None else list(argv)
     if not argv:
         print(start_text(_program_name()))

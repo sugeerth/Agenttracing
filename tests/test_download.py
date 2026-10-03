@@ -44,5 +44,16 @@ class PyzTest(unittest.TestCase):
             self.assertEqual(len(unpacked), 1, "unpacked once, reused after")
 
 
+class ConsoleTest(unittest.TestCase):
+    def test_a_windows_console_gets_the_report_not_a_crash(self):
+        trace = ROOT / "demo" / "loops" / "traces" / "parse_duration__agent-stuck.json"
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ, PYTHONIOENCODING="cp1252", PYTHONPATH=str(ROOT))
+            run = subprocess.run([sys.executable, "-m", "agentdiff", "timeline", str(trace), "-o", str(Path(tmp) / "t.html")],
+                                 env=env, capture_output=True, timeout=120)
+            self.assertEqual(run.returncode, 0, run.stderr.decode("cp1252", "replace"))
+            self.assertIn(b"look here", run.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

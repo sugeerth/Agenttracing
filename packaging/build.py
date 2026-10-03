@@ -27,13 +27,11 @@ _SKIP = shutil.ignore_patterns("__pycache__", "*.pyc", "raw", ".agentdiff-hub")
 
 
 def stage(dest: Path) -> Path:
-    """The package as a build ships it: agentdiff, deepcompare, the examples."""
+    """The package as a build ships it: agentdiff and the examples."""
     if dest.exists():
         shutil.rmtree(dest)
     dest.mkdir(parents=True)
-    for pkg in ("agentdiff", "deepcompare"):
-        if (ROOT / pkg).is_dir():
-            shutil.copytree(ROOT / pkg, dest / pkg, ignore=_SKIP)
+    shutil.copytree(ROOT / "agentdiff", dest / "agentdiff", ignore=_SKIP)
     for src, to in EXAMPLES:
         if (ROOT / src).is_dir():
             shutil.copytree(ROOT / src, dest / "agentdiff" / "_examples" / to, ignore=_SKIP)
