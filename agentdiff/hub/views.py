@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import html
 import time
+from pathlib import Path
 from typing import List, Optional
 
 from . import viz
@@ -349,7 +350,40 @@ def agents_table(refs: list) -> str:
             'lines overlap are not shown apart by these runs.</p></div>')
 
 
-def overview_page(*, brand: str, user: str, csrf: str, entries: List[Entry], refs: list, ingest: dict) -> str:
+def guards_card(guards: list, refs: list) -> str:
+    """What ``agentdiff guard`` refused in Claude Code sessions, per project:
+    counts by guard, and the latest refusals, each linked to its session's trace."""
+    if not guards:
+        return ""
+    by_sid = {}  # a guarded session's trace is named <project>-<first 8 of its session id>
+    for r in refs:
+        by_sid.setdefault(str(r.summary.get("task") or "").rpartition("-")[2], r)
+    what = {"repeat": "a failing command rerun unchanged", "check": "a finish with edits not checked",
+            "tests": "an edit to a test"}
+    parts = []
+    for project, g in guards:
+        name = Path(project).name if project not in ("", ".") else "this root"
+        counts = " · ".join(f'<strong>{e(n)}</strong> {e(what.get(k, k))}' for k, n in sorted(g["by_guard"].items()))
+        rows = []
+        for x in reversed(g["recent"]):
+            sid = "".join(ch for ch in str(x.get("session") or "") if ch.isalnum())[:8]
+            ref = by_sid.get(sid) if sid else None
+            link = f'<a href="/traces/{e(ref.id)}">trace</a>' if ref else '<span class="muted">untraced</span>'
+            when = _ago(x["t"]) if isinstance(x.get("t"), (int, float)) else ""
+            rows.append(f'<tr><td><span class="badge">{e(x.get("guard"))}</span></td>'
+                        f'<td>{e(str(x.get("reason") or "").replace("agentdiff guard: ", ""))}</td>'
+                        f'<td>{link}</td><td class="muted">{e(when)}</td></tr>')
+        parts.append(f'<p><strong>{e(name)}</strong> <span class="muted mono">{e(project)}</span> — '
+                     f'{e(g["fired"])} refusal(s) over {e(g["sessions"])} session(s): {counts}</p>'
+                     f'<table><tr><th>guard</th><th>what the agent was told</th><th></th><th>when</th></tr>'
+                     + "".join(rows) + "</table>")
+    return ('<h2>Guards · refused while the agent worked</h2><div class="card">' + "".join(parts)
+            + '<p class="muted">Live remedies in Claude Code\'s hooks (<code>agentdiff guard --install</code>). '
+              'A refusal is a reason the agent read and acted on, not a failure.</p></div>')
+
+
+def overview_page(*, brand: str, user: str, csrf: str, entries: List[Entry], refs: list, ingest: dict,
+                  guards: Optional[list] = None) -> str:
     evolving = [x for x in entries if x.kind == "evolution"]
     live = [r for r in refs if r.live and time.time() - r.updated <= STALL_S]
     finished = [r for r in refs if not r.live]
@@ -369,6 +403,7 @@ def overview_page(*, brand: str, user: str, csrf: str, entries: List[Entry], ref
     loops = [r for r in finished if (r.summary.get("laps") or {}).get("stuck")][:6]
     body = (f'<h1>Overview</h1><p class="sub">Everything under this hub\'s root, read from disk.</p>{tiles}'
             f'{_start_here(refs)}{agents_table(refs)}<h2>Running now</h2><div class="card">{live_html}</div>'
+            f'{guards_card(guards or [], refs)}'
             + (f'<h2>Agents evolving</h2>{_entry_cards(evolving[:4])}<p><a href="/evolve">Every evolving harness →</a></p>'
                if evolving else "")
             + (f'<h2>Stuck in a loop</h2><div class="card">{_trace_rows(loops)}</div>' if loops else "")

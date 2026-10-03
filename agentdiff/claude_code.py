@@ -6,7 +6,9 @@ Live. Claude Code runs shell hooks around every tool call and at the end
 of a turn, handing each a JSON payload on stdin (``hook_event_name``,
 ``tool_name``, ``tool_input``, ``tool_response``, ``transcript_path``,
 ``session_id`` …). ``python -m agentdiff hook --traces DIR --task ID``
-is such a hook: every ``PostToolUse`` appends one ``tool_call`` step to
+is such a hook: every ``PostToolUse`` appends one ``tool_call`` step (and
+every ``PostToolUseFailure``, Claude Code's event for a call that failed,
+one with ``error: true``) to
 ``DIR/<task>__<agent>.live.json`` — the file ``agentdiff watch`` draws
 as it grows — and ``Stop`` writes the final trace from the transcript
 (which also carries the assistant's text between calls, as ``reason``
@@ -16,6 +18,7 @@ steps, and the token counts) and removes the live file. Wire it once in
     {"hooks": {
       "PostToolUse": [{"matcher": "", "hooks": [{"type": "command",
         "command": "python -m agentdiff hook --traces traces --task my-task --agent claude-code"}]}],
+      "PostToolUseFailure": [ ...the same... ],
       "Stop": [{"hooks": [{"type": "command",
         "command": "python -m agentdiff hook --traces traces --task my-task --agent claude-code --expected 'the answer'"}]}]}}
 
@@ -245,18 +248,27 @@ def hook_event(payload: dict, *, traces: Union[str, Path], task: str, agent: str
         _write_atomic(live, data)
         return {"event": event, "action": "prompt recorded", "path": str(live)}
 
-    if event == "PostToolUse":
+    if event in ("PostToolUse", "PostToolUseFailure"):
+        # a call that failed (a command's non-zero exit) arrives as PostToolUseFailure, its output in ``error``
+        failed = event == "PostToolUseFailure"
         data = load_live()
         name = str(payload.get("tool_name") or "tool")
         tool_input = payload.get("tool_input")
-        response = payload.get("tool_response")
+        response = payload.get("error") if failed else payload.get("tool_response")
         args = json.dumps(tool_input, ensure_ascii=False) if not isinstance(tool_input, str) else tool_input
-        out = response if isinstance(response, str) else json.dumps(response, ensure_ascii=False) if response is not None else ""
+        if isinstance(response, dict) and "stdout" in response and isinstance(response.get("stdout"), str):
+            # a shell result: what it printed, as text, so a check's "OK" or "2 failed" reads as written
+            out = response["stdout"] + (("\n" + response["stderr"]) if response.get("stderr") else "")
+        else:
+            out = response if isinstance(response, str) else json.dumps(response, ensure_ascii=False) \
+                if response is not None else ""
         last = data.get("last_at") or data.get("started_at") or now
         step = {"index": len(data["steps"]), "type": "tool_call", "name": name,
                 "input": args[:4000], "output": out[:8000],
                 "tokens": estimate_tokens(args + out), "latency_s": round(max(0.0, now - last), 3),
                 "tokens_basis": "estimated"}
+        if failed:
+            step["error"] = True
         data["steps"].append(step)
         data["last_at"] = now
         data["updated_at"] = now

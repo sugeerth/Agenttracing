@@ -156,14 +156,13 @@ replaces the stream in place. A run in progress is shown, never analysed.
 `python web/build_live.py` writes `web/live.html`, the deployable demo: as
 a claude.ai artifact it runs two real Claude agents on the viewer's account
 with tools defined in the page and streams every step; elsewhere it replays the recorded pair.
-## Trace Claude Code, and route
+## Guard and trace Claude Code, and route
 
-Add two hooks to `.claude/settings.json` and every tool call streams into a
-trace while Claude Code works; the final trace comes from the session transcript, with the reasoning between calls:
+`agentdiff guard --install --check 'pytest -q'` guards every Claude Code session in a project while it works, through its hooks (docs/GUARD.md): a failing command rerun unchanged is refused with its failure; a finish with edits made after the last check is sent back to run it (twice at most); `--protect-tests` refuses edits to tests.
+Each session is also traced to `.agentdiff/traces`, graded by its last check, and the hub's Overview lists every refusal. Or add the two hooks by hand; the final trace comes from the transcript, with the reasoning between calls:
 
 ```json
-{"hooks": {"PostToolUse": [{"matcher": "", "hooks": [{"type": "command",
-   "command": "python -m agentdiff hook --traces traces --task fix-482 --db traces.sqlite"}]}],
+{"hooks": {"PostToolUse": [{"matcher": "", "hooks": [{"type": "command", "command": "python -m agentdiff hook --traces traces --task fix-482 --db traces.sqlite"}]}],
  "Stop": [{"hooks": [{"type": "command",
    "command": "python -m agentdiff hook --traces traces --task fix-482 --db traces.sqlite --expected 'field_validator'"}]}]}}
 ```

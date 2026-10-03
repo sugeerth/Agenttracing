@@ -253,8 +253,10 @@ class App:
         return dict(brand=self.config.title, user=session.user, csrf=session.csrf)
 
     def overview(self, req: Request, session: Session) -> Response:
+        from ..guard import summary
+        guards = [(self.traces.rel(p), g) for p in self.traces.guarded() for g in [summary(p)] if g]
         return Response.html(views.overview_page(**self._common(session), entries=self.catalog.entries(),
-                                                 refs=self.traces.refs(), ingest=self._ingest_info()))
+                                                 refs=self.traces.refs(), ingest=self._ingest_info(), guards=guards))
 
     def runs(self, req: Request, session: Session) -> Response:
         kind = parse_query(split(req.path)[1]).get("kind", [""])[0]

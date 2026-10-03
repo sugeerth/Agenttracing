@@ -9,6 +9,8 @@ under a directory, and follows it while it runs:
 - eval suites carried through generations (`docs/EVOLVING_EVALS.md`)
 - duels, with their scoreboards, and reports
 - in-band telemetry agents post to it (`docs/TELEMETRY.md`)
+- guarded Claude Code sessions: each one traced, and every refusal the
+  guards made on the Overview (`docs/GUARD.md`)
 
 ```bash
 agentdiff hub                       # this directory, on http://127.0.0.1:8790/

@@ -162,6 +162,14 @@ class TraceIndex:
         self._dirs = (time.monotonic(), dirs)
         return dirs
 
+    def guarded(self) -> List[Path]:
+        """The projects whose Claude Code sessions ``agentdiff guard`` watches
+        (each has ``.agentdiff/guard``), the root among them."""
+        out = [d.parent.parent for d in self.directories() if d.parent.name == ".agentdiff"]
+        if (self.root / ".agentdiff" / "guard").is_dir() and self.root not in out:
+            out.insert(0, self.root)
+        return [p for p in dict.fromkeys(out) if (p / ".agentdiff" / "guard").is_dir()]
+
     def _walk(self) -> List[Path]:
         found: List[Path] = []
         for dirpath, dirnames, _ in os.walk(self.root):
@@ -173,7 +181,7 @@ class TraceIndex:
                 continue
             # a trace directory sits a level or two below a run the catalog finds
             dirnames[:] = [] if level >= self.depth + 2 else sorted(
-                n for n in dirnames if n not in _SKIP and not n.startswith("."))
+                n for n in dirnames if n not in _SKIP and (not n.startswith(".") or n == ".agentdiff"))
         for d in self.extra_dirs:
             if d.is_dir() and d not in found:
                 found.append(d)

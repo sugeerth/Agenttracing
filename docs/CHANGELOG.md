@@ -5,6 +5,27 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Live guards: the remedies, enforced while Claude Code works
+
+`agentdiff guard --install` puts the remedies into Claude Code's hooks
+(`agentdiff/guard.py`, `docs/GUARD.md`):
+- `repeat`: refuses a failing command run again unchanged, quoting its
+  failure
+- `check`: sends a finish with unchecked edits back to run the check,
+  at most twice
+- `tests`: refuses edits to tests, when asked
+
+Every refusal is logged and listed on the hub's Overview, linked to its
+session's trace. Every session is traced to `.agentdiff/traces`, one
+file per session; the hub finds that directory. An ungraded session is
+graded by its last check after its last edit, and the trace says so.
+
+Read off real sessions: Claude Code reports a failed call as
+`PostToolUseFailure`, with the output in `error`. The tracer now records
+it as a step with `error: true`, where before it was missed. A shell
+step's output is the printed text, not its JSON wrapper, so a check's
+`OK` reads as a pass.
+
 ## A run, start here: the card, the code it produced, the change it points at
 
 Every trace page opens with a card in the report page's grammar, each
