@@ -43,6 +43,16 @@ asked** tab, sub-agents on lanes, and *not graded* rather than failed until
 a check grades them. A downloaded build does this when started with
 nothing. See `docs/DOWNLOAD.md`.
 
+## The charts
+
+Every run opens on **At a glance**. It shows your prompts as pins, the main
+agent's track, the checks, the loops and each sub-agent's lane, on one clock
+that folds the idle between working stretches. Hover a pin to read the
+prompt; hover any mark to name its steps. **Where the seconds went** adds up
+each step's time by activity, by tool and by agent, and lists the slowest
+steps. The Overview shows **when you worked**, by day and hour, over your
+sessions.
+
 ## Signing in
 
 - **The demo account** (`demo` / `demo` by default) exists when the hub

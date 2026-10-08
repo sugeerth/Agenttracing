@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from . import viz
+from . import glance, seconds, viz
 from .catalog import Entry
 
 __all__ = ["layout", "login_page", "overview_page", "runs_page", "duel_page", "report_page", "telemetry_page",
@@ -101,10 +101,9 @@ color:var(--panel);padding:2px 7px;border-radius:5px;margin-right:6px}
 .vrow.ok .vtext{border-left:3px solid var(--good);padding-left:9px}.vrow.fix .vtext{border-left:3px solid var(--accent);
 padding-left:9px}.vrow.run .vtext{color:var(--accent)}
 .tabs{margin:14px 0 12px}.tabbar{display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--line)}
-.tab{display:flex;flex-direction:column;gap:1px;padding:7px 12px 8px;border:1px solid transparent;border-bottom:none;
-border-radius:10px 10px 0 0;color:var(--soft);max-width:230px;min-width:0;margin-bottom:-1px}
-.tab b{font-size:13px;color:var(--ink);font-weight:600}.tab span{font-size:11px;overflow:hidden;text-overflow:ellipsis;
-white-space:nowrap}.tab:hover{text-decoration:none;background:var(--chip)}
+.tab{display:flex;flex-direction:column;gap:1px;padding:6px 11px 7px;border:1px solid transparent;border-bottom:none;
+border-radius:9px 9px 0 0;color:var(--soft);min-width:0;margin-bottom:-1px;white-space:nowrap}
+.tab b{font-size:13px;color:var(--ink);font-weight:600}.tab span{display:none}.tab:hover{text-decoration:none;background:var(--chip)}
 .tabs:not(:has(.tabp:target)) .tab.default{background:var(--panel);border-color:var(--line);color:var(--ink);
 box-shadow:inset 0 2px 0 var(--accent)}
 .tabp{display:none;background:var(--panel);border:1px solid var(--line);border-top:none;border-radius:0 0 12px 12px;
@@ -143,7 +142,7 @@ border:1px solid var(--line);border-radius:16px;overflow:hidden}
 .login-side{padding:20px}.login-form{padding:20px}}
 @media (max-width:640px){header{flex-wrap:wrap;padding:10px 16px;gap:8px}header nav{order:3;flex:1 1 100%}
 td,th{font-size:13px;padding:5px}.filters form{margin-left:0;width:100%}.filters input{flex:1;width:auto}}
-""" + viz.VIZ_CSS
+""" + viz.VIZ_CSS + glance.GLANCE_CSS + seconds.SECONDS_CSS
 
 _MARK = ('<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">'
          '<rect x="1" y="3" width="6" height="6" rx="2" style="fill:var(--a1)"/>'
@@ -258,13 +257,14 @@ def _example_tag(s: dict) -> str:
 
 def _trace_sub(r) -> str:
     sess = r.summary.get("session")
+    strip = viz.mini_strip((r.summary.get("insight") or {}).get("strip") or [])
     if not sess:
-        return f'<div class="muted mono">{e(r.name)}</div>'
+        return f'<div class="muted mono">{e(r.name)}</div>{strip}'
     bits = [f'{sess["asks"]} ask(s)'] + ([f'{sess["subagents"]} sub-agent(s)'] if sess["subagents"] else [])
     if sess["compactions"]:
         bits.append(f'{sess["compactions"]} context summar{"y" if sess["compactions"] == 1 else "ies"}')
     last = f'<div class="ask" title="{e(sess["ask"])}">last ask: {e(sess["ask"])}</div>' if sess["asks"] > 1 else ""
-    return f'<div class="muted">{" · ".join(bits)}</div>{last}'
+    return f'<div class="muted">{" · ".join(bits)}</div>{strip}{last}'
 
 
 def _trace_rows(refs) -> str:
@@ -449,9 +449,10 @@ def sessions_card(refs: list) -> str:
     calls = sum(int(r.summary.get("steps") or 0) for r in mine)
     gist = (f'{len(mine)} session(s) in {len(projects)} project(s) · {running} running now · {calls:,} steps'
             + (f' · <span class="bad">{stuck} went round a loop</span>' if stuck else ""))
+    worked = glance.worked_html([r.summary.get("hours") for r in mine])
     return (f'<h2>Your Claude Code sessions</h2><div class="card"><p class="muted">{gist}. Read from Claude Code\'s '
             f'own files on this machine; nothing leaves it. Each opens on its timeline, why it went that way, and '
-            f'what to change in the agent.</p>{_trace_rows(mine[:12])}'
+            f'what to change in the agent.</p>{worked}{_trace_rows(mine[:12])}'
             f'<p><a href="/traces?q=claude-code">Every session →</a></p></div>')
 
 
@@ -771,6 +772,20 @@ def _picker(ref, others: list, vs: str, axis: str, view: str) -> str:
             f'<button type="submit">Compare</button></form>')
 
 
+def _glance(ref, data: dict, tl: dict, long: Optional[dict]) -> str:
+    """The run at a glance, above its verdict (agentdiff.hub.glance)."""
+    if not tl or not tl.get("steps"):
+        return ""
+    r = (long or {}).get("r")
+    if r is None:
+        from ..longrun import longrun
+        try:
+            r = longrun(data)
+        except (ValueError, KeyError, TypeError):
+            return ""
+    return glance.glance_html(data, tl, r, href=f"/traces/{ref.id}")
+
+
 def asks_rows(data: dict) -> List[dict]:
     """Each prompt a person typed (``turns``, :mod:`agentdiff.claude_sessions`) and what the agent did until the next:
     its steps, how long they ran, the tools, the edits, the checks and how they ended, the errors."""
@@ -910,9 +925,11 @@ def trace_panel(*, ref, data: dict, lap: dict, tl: Optional[dict] = None, cmp: O
                   else [str(tl.get("agent") or "run")])
     add("seconds", "Where the seconds went", f'{_secs(tl.get("span_s"))} on its clock'
                          + (f' against {_secs(cmp["b"].get("span_s"))}' if cmp else ""),
-                         '<p class="muted">Area is seconds, on one scale for both runs: a box per lap (per sub-agent '
-                         'when it delegated), a tile per step. A tile opens its step.</p>'
-                         + drawn("seconds", lambda: viz.seconds_treemap(secs_runs, secs_names)), "seconds" in opened)
+                         '<p class="muted">The time each step took, added up: by activity, by tool, by agent, and '
+                         'the slowest steps. Idle time between steps is in no bar.'
+                         + (' A is the full bar, B the thin one below it, on one scale.' if cmp else '') + '</p>'
+                         + drawn("seconds", lambda: seconds.seconds_html(secs_runs, secs_names, href=f"/traces/{ref.id}")),
+                         "seconds" in opened)
     rw = viz.reward_steps(secs_runs, secs_names)
     if rw:
         add("reward", "Reward & credit", "the return, step by step",
@@ -936,7 +953,7 @@ def trace_panel(*, ref, data: dict, lap: dict, tl: Optional[dict] = None, cmp: O
                                  span=_long_span(long)) + '</section>')
     # the start: what happened, where, what it cost, what to change; the first tab
     start_gist = next((r["text"] for r in card or [] if r.get("label") == "verdict"), "the verdict")
-    tabs.insert(0, ("start", "Start here", start_gist, verdict_html(card or []) + notes))
+    tabs.insert(0, ("start", "Start here", start_gist, _glance(ref, data, tl, long) + verdict_html(card or []) + notes))
     asked = asks_body(data, f"/traces/{ref.id}")
     if asked:
         n = len(data.get("turns") or [])
@@ -966,7 +983,8 @@ def tabs_html(tabs: List[tuple], default: str) -> str:
     bar, panes, rules = [], [], []
     for key, title, gist, body in tabs:
         on = " default" if key == default else ""
-        bar.append(f'<a class="tab{on}" href="#p-{e(key)}" role="tab"><b>{e(title)}</b><span>{e(gist)}</span></a>')
+        bar.append(f'<a class="tab{on}" href="#p-{e(key)}" role="tab" title="{e(gist)}"><b>{e(title)}</b>'
+                   f'<span>{e(gist)}</span></a>')
         head = "" if key == "start" else f'<h2>{e(title)}</h2><p class="gist">{e(gist)}</p>'
         panes.append(f'<section class="tabp{on}" id="p-{e(key)}" role="tabpanel" aria-label="{e(title)}">'
                      f'{head}{body}</section>')

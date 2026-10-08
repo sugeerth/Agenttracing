@@ -61,6 +61,7 @@ VIZ_CSS = """
 @media (prefers-color-scheme:dark){:root{--a1:#3987e5;--a2:#d95926;--a3:#199e70;--a4:#c98500;--a5:#d55181;
 --a7:#9085e9;--an:#77766f;--at:#3d3c39;--grid:#33322f;--ink2:#c3c2b7}}
 svg.viz{display:block;max-width:100%;height:auto}
+svg.viz.mini{display:inline-block;vertical-align:middle;margin-top:4px}
 svg.viz text{fill:var(--ink2);font:11px ui-monospace,SFMono-Regular,Menlo,monospace}
 svg.viz text.lab{font:12px system-ui,sans-serif;fill:var(--ink)}
 svg.viz .a1{fill:var(--a1)}svg.viz .a2{fill:var(--a2)}svg.viz .a3{fill:var(--a3)}svg.viz .a4{fill:var(--a4)}
@@ -74,7 +75,7 @@ svg.viz text.ok{fill:var(--sg)}svg.viz text.bad{fill:var(--sc)}
 svg.viz .bar{fill:var(--a1)}
 svg.viz .edge{fill:none;stroke:var(--ink2);stroke-opacity:.45}
 svg.viz .edge.cyc{stroke:var(--a2);stroke-opacity:.9}
-svg.viz .rep{fill:none;stroke:var(--a2);stroke-width:1.5;stroke-dasharray:4 3}
+svg.viz .rep{fill:var(--a2);fill-opacity:.1;stroke:var(--a2);stroke-opacity:.35;stroke-width:1}
 svg.viz .lane{stroke:var(--ink2);stroke-width:2}
 svg.viz .lane.quiet{stroke-dasharray:3 4;stroke-opacity:.6}
 svg.viz rect.hot:hover,svg.viz circle.hot:hover{stroke:var(--ink);stroke-width:2}
@@ -612,6 +613,56 @@ def _secs(t: float, span: float) -> str:
     return _clock(t, span)
 
 
+def _stretches(steps: List[dict], gap: float = 1800.0) -> List[dict]:
+    """The run's working stretches: steps closer than ``gap`` seconds belong to one (longrun's sessions)."""
+    out: List[dict] = []
+    reach = -1e18
+    for s in sorted(steps, key=lambda s: (s["start"], s["index"])):
+        if not out or s["start"] - reach > gap:
+            out.append({"from": s["start"], "to": s["end"]})
+        out[-1]["to"] = max(out[-1]["to"], s["end"])
+        reach = max(reach, s["end"])
+    return out
+
+
+def _dur(s: float) -> str:
+    from ..longrun import dur
+    return dur(s)
+
+
+def _gap(s: float) -> str:
+    return f"{s / 86400:.1f}d" if s >= 86400 else f"{s / 3600:.0f}h" if s >= 3600 else f"{s / 60:.0f}m"
+
+
+def mini_strip(cells: List[list], width: int = 200, height: int = 8) -> str:
+    """A run in a list row: its working stretches side by side, each coloured by what it did most
+    there, a red tick under where something failed, the idle between stretches a narrow gap."""
+    if not cells:
+        return ""
+    w = width / len(cells)
+    out = [f'<svg class="viz mini" viewBox="0 0 {width} {height + 4}" width="{width}" height="{height + 4}" '
+           f'role="img" aria-label="the run at a glance">']
+    k = 0
+    while k < len(cells):
+        act, bad, gap = cells[k]
+        j = k
+        while j + 1 < len(cells) and not cells[j + 1][2] and not gap and cells[j + 1][0] == act:
+            j += 1
+        x, xw = k * w, (j - k + 1) * w
+        if gap:
+            out.append(f'<line x1="{x + w / 2:.1f}" y1="{height}" x2="{x + w / 2:.1f}" y2="0" '
+                       f'style="stroke:var(--ink2);stroke-opacity:.35;stroke-width:1"/>')
+        else:
+            cls = ACTIVITIES.get(act, ACTIVITIES["other"])[0] if act else ""
+            out.append(f'<rect class="{cls}" x="{x:.1f}" y="0" width="{xw:.1f}" height="{height}" '
+                       f'style="{"fill:var(--grid);" if not act else ""}fill-opacity:.8"/>')
+        for m in range(k, j + 1):
+            if cells[m][1]:
+                out.append(f'<rect x="{m * w:.1f}" y="{height + 1.5}" width="{w:.1f}" height="2" style="fill:var(--sc)"/>')
+        k = j + 1
+    return "".join(out) + "</svg>"
+
+
 def run_timeline(t: dict, width: int = 980, live: bool = False, link: bool = True) -> str:
     """One run on its clock: a lane per thread, the laps as bands, quiet
     stretches folded, the tokens spent as a track, and where to look first."""
@@ -621,17 +672,39 @@ def run_timeline(t: dict, width: int = 980, live: bool = False, link: bool = Tru
     left, top, lane_h = 150, 54, 16 if len(lanes) > 10 else 22
     track_h = 34
     height = top + lane_h * len(lanes) + 14 + track_h + 22
-    clock = _Clock(t.get("segments") or [], left, width - 14, t.get("span_s") or 1.0)
     span = t.get("span_s") or 1.0
+    stretches = _stretches(steps)
+    if len(stretches) > 1:
+        # a run of separate working stretches: each on its own clock, the idle between them a narrow break,
+        # so every stretch (and every sub-agent in it) keeps its width
+        from .longviz import Axis
+        clock = Axis(stretches, left, width - 14, gap_w=30.0, min_w=16.0)
+    else:
+        clock = _Clock(t.get("segments") or [], left, width - 14, t.get("span_s") or 1.0)
+    folding = isinstance(clock, _Clock)
     here = t.get("look_here") or {}
     by_index = {s["index"]: s for s in steps}
     out = [f'<svg class="viz" viewBox="0 0 {width} {height}" width="{width}" role="img" '
            f'aria-label="{e(here.get("sentence") or t.get("lap_summary"))}">']
     # the laps, as bands across every lane
     lap_label_end = -1e9
+    many = len(t.get("laps") or []) > 40     # hundreds of laps: one band per run of repeats, no striping
+    run_from = None
+    for k, b in enumerate(t.get("laps") or []):
+        if not many:
+            break
+        nxt = (t["laps"][k + 1] if k + 1 < len(t["laps"]) else None)
+        if b["repeat"] and run_from is None:
+            run_from = t["laps"][k - 1] if k else b
+        if run_from is not None and not (nxt and nxt["repeat"]):
+            xa, xb = clock(run_from["from"]), max(clock(b["to"]), clock(run_from["from"]) + 2)
+            out.append(f'<rect class="rep" x="{xa:.1f}" y="{top - 22}" width="{xb - xa:.1f}" '
+                       f'height="{lane_h * len(lanes) + 24}" rx="3"><title>laps {run_from["n"]}–{b["n"]}: '
+                       f'each the same calls as the lap before</title></rect>')
+            run_from = None
     for b in t.get("laps") or []:
         xa, xb = clock(b["from"]), max(clock(b["to"]), clock(b["from"]) + 2)
-        shade = "var(--grid)" if b["n"] % 2 else "none"
+        shade = "var(--grid)" if b["n"] % 2 and not many else "none"
         out.append(f'<rect x="{xa:.1f}" y="{top - 22}" width="{xb - xa:.1f}" height="{lane_h * len(lanes) + 24}" '
                    f'style="fill:{shade};opacity:.45"/>')
         badge, cls = ("✓", "ok") if b["passed"] is True else ("✗", "bad") if b["passed"] is False else ("", "")
@@ -642,10 +715,16 @@ def run_timeline(t: dict, width: int = 980, live: bool = False, link: bool = Tru
                        f'<title>lap {b["n"]}: {b["steps"]} step(s)'
                        f'{", closed by a check that " + ("passed" if b["passed"] else "failed") if b["passed"] is not None else ""}'
                        f'{", the same calls as the lap before" if b["repeat"] else ""}</title></text>')
-        if b["repeat"]:
+        if b["repeat"] and not many:
             out.append(f'<rect class="rep" x="{xa:.1f}" y="{top - 22}" width="{xb - xa:.1f}" height="{lane_h * len(lanes) + 24}" rx="3"/>')
-    # folds, across every lane
-    for s, a, b2 in clock.parts:
+    # folds, across every lane; or the breaks between working stretches
+    for g0, g1, ga, gb in ([] if folding else clock.gaps):
+        cx = (ga + gb) / 2
+        out.append(f'<rect x="{ga:.1f}" y="{top - 4}" width="{gb - ga:.1f}" height="{lane_h * len(lanes) + 6}" '
+                   f'style="fill:var(--panel)"><title>idle {e(_dur(g1 - g0))}</title></rect>'
+                   f'<text x="{cx:.1f}" y="{top + lane_h * len(lanes) + 12}" text-anchor="middle" style="font-size:9px">'
+                   f'⁄⁄ {e(_gap(g1 - g0))}</text>')
+    for s, a, b2 in (clock.parts if folding else []):
         if s["kind"] != "fold":
             continue
         n = s.get("steps", 0)
@@ -679,9 +758,10 @@ def run_timeline(t: dict, width: int = 980, live: bool = False, link: bool = Tru
             bar = f'<a href="#s{s["index"]}">{bar}</a>'
         out.append(bar)
         if s["error"] or s["check"] is False:
-            out.append(f'<rect class="err" x="{x0:.1f}" y="{y}" width="{w:.1f}" height="{lane_h - 5}" rx="2" fill="none"/>')
+            # the same mark as a passed check, in the other colour: a dense loop of failures stays readable
+            out.append(f'<rect x="{x0:.1f}" y="{y + lane_h - 5}" width="{w:.1f}" height="2" style="fill:var(--sc)"/>')
         elif s["check"] is True:
-            out.append(f'<rect x="{x0:.1f}" y="{y + lane_h - 6}" width="{w:.1f}" height="2" style="fill:var(--sg)"/>')
+            out.append(f'<rect x="{x0:.1f}" y="{y + lane_h - 5}" width="{w:.1f}" height="2" style="fill:var(--sg)"/>')
     # where to look first
     if here and here.get("index") in by_index:
         s = by_index[here["index"]]
@@ -707,9 +787,15 @@ def run_timeline(t: dict, width: int = 980, live: bool = False, link: bool = Tru
         out.append(f'<polygon points="{" ".join(pts)}" style="fill:var(--a1);opacity:.25"/>'
                    f'<text x="{left - 8}" y="{ty + track_h - 4}" text-anchor="end" style="font-size:10px">tokens</text>'
                    f'<text x="{clock(cum[-1][0]) - 4:.1f}" y="{ty + 10}" text-anchor="end" style="font-size:10px">{most:,}</text>')
-    # the clock: real seconds at each open stretch's edges
+    # the clock: real seconds at each open stretch's edges, or the moments of each working stretch
+    if not folding:
+        from .longviz import _ticks
+        for tx, lab, major in _ticks(clock, t.get("started_at"), span):
+            if tx + 6 * len(lab) <= width:
+                out.append(f'<text x="{tx:.1f}" y="12" style="font-size:10px{";fill:var(--ink)" if major else ""}">'
+                           f'{e(lab)}</text>')
     seen = []
-    for s, a, b2 in clock.parts:
+    for s, a, b2 in (clock.parts if folding else []):
         for tt, xx in ((s["from"], a), (s["to"], b2)):
             if all(abs(xx - p) > 46 for p in seen):
                 seen.append(xx)
@@ -720,8 +806,8 @@ def run_timeline(t: dict, width: int = 980, live: bool = False, link: bool = Tru
                    f'style="stroke:var(--sc);stroke-width:2"><title>now</title></line>')
     out.append("</svg>")
     used = sorted({s["activity"] for s in steps})
-    key = [('<b style="color:var(--sc)">◆</b>', "look here"), ('<b style="color:var(--sc)">▢</b>', "error or failed check"),
-           ('<b style="color:var(--sg)">▁</b>', "passed check"), ('<b style="color:var(--a2)">⬚</b>', "repeated lap"),
+    key = [('<b style="color:var(--sc)">◆</b>', "look here"), ('<b style="color:var(--sc)">▁</b>', "error or failed check"),
+           ('<b style="color:var(--sg)">▁</b>', "passed check"), ('<b style="color:var(--a2);opacity:.6">▮</b>', "repeated lap"),
            ('<b>⋯</b>', "folded quiet stretch")]
     return "".join(out) + legend(used, key)
 

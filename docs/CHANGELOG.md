@@ -5,6 +5,38 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The charts a run leads with
+
+- **At a glance** (`hub/glance.py`) now opens every run, above its
+  verdict, on one clock. Each working stretch keeps its true time, and the
+  idle between two stretches is a narrow break that says how long it was.
+  From top to bottom:
+  - each prompt you typed, as a numbered pin; hovering it shows the prompt
+    and clicking it opens the steps;
+  - the main agent's track, each column coloured by what it spent most
+    seconds on;
+  - every check, as a dot that passed or failed;
+  - the loops, as brackets;
+  - each sub-agent on a lane named by what it was asked.
+
+  It needs no script: the hover cards are CSS.
+- **Every thread on its own lane** now puts a run of several working
+  stretches on the same session clock. Before, folding a multi-day run
+  squeezed days 2 and 3 into a sliver, so its sub-agent lanes drew empty
+  and its ticks all read "17h". Failures are now a red underline (a passed
+  check's green one, in the other colour), and repeated laps are a faint
+  wash merged across a run of repeats.
+- **Where the seconds went** is now bars (`hub/seconds.py`): the share of
+  time by activity; the tools by time, with their calls and failures; the
+  main agent and each sub-agent; and the slowest steps, as links. It
+  replaces a treemap that turned into thousands of outlined tiles on a long
+  run.
+- **Lists** give each run a strip of its working stretches. The Overview's
+  sessions card gains **when you worked**: a day-by-hour grid in this
+  machine's local time, one blue ramp quartiled over the busy hours.
+- The tabs are one compact row of titles; each tab's detail is in its
+  tooltip.
+
 ## Your Claude Code sessions, in the download
 
 `agentdiff hub --claude-code` reads every session Claude Code wrote on this

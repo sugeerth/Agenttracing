@@ -288,7 +288,8 @@ def timeline(traj) -> dict:
     return {"task": (data.get("task") or {}).get("id"), "agent": (data.get("agent") or {}).get("name"),
             # a run still going has no outcome yet, whatever its half-written frame says
             "success": None if running else (data.get("outcome") or {}).get("success"), "in_progress": running,
-            "basis": basis, "span_s": round(span, 3), "steps": items, "lanes": lanes, "laps": lap_bands,
+            "basis": basis, "started_at": data.get("started_at") if isinstance(data.get("started_at"), (int, float)) else None,
+            "span_s": round(span, 3), "steps": items, "lanes": lanes, "laps": lap_bands,
             "segments": segs, "tokens": cum, "look_here": here, "lap_summary": lap.get("summary"),
             "folded_steps": sum(s.get("steps", 0) for s in segs if s["kind"] == "fold")}
 

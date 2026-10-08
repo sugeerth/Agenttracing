@@ -104,11 +104,45 @@ def _insight(data: dict, path: Path) -> Optional[dict]:
     fix = agent_fix(data, look_kind=kind)
     rec, _ = load_record(path)
     change = code_change(rec) if rec else None
-    return {"look_kind": kind, "look": (tl.get("look_here") or {}).get("sentence"),
+    return {"strip": strip_cells(tl), "look_kind": kind, "look": (tl.get("look_here") or {}).get("sentence"),
             "fix_rule": (fix or {}).get("rule"), "fix_change": (fix or {}).get("change"),
             "lines": (change["added"] + change["removed"]) if change else None,
             "files": len(change["files"]) if change else None,
             "tests_edited": bool(change and change["tests"]), "flags": [f["kind"] for f in (change or {}).get("flags") or []]}
+
+
+STRIP_CELLS = 48
+
+
+def strip_cells(tl: dict, cells: int = STRIP_CELLS) -> List[list]:
+    """A run in ``cells`` cells for a list: ``[activity, failed, gap]`` each, its working stretches
+    side by side and the idle between them one gap cell (the same clock as the run's own chart)."""
+    from .viz import _stretches
+    items = [x for x in tl.get("steps") or [] if isinstance(x.get("start"), (int, float))]
+    if not items:
+        return []
+    parts = _stretches(items)
+    gaps = len(parts) - 1
+    room = max(len(parts), cells - gaps)
+    total = sum(max(1e-3, p["to"] - p["from"]) for p in parts)
+    widths = [max(1, round(room * max(1e-3, p["to"] - p["from"]) / total)) for p in parts]
+    out: List[list] = []
+    for p, w in zip(parts, widths):
+        if out:
+            out.append([None, False, True])
+        mine = [x for x in items if p["from"] <= x["start"] <= p["to"]]
+        span = max(1e-6, p["to"] - p["from"])
+        weight: List[Dict[str, float]] = [{} for _ in range(w)]
+        bad = [False] * w
+        for x in mine:
+            k = min(w - 1, int((x["start"] - p["from"]) / span * w))
+            weight[k][x["activity"]] = weight[k].get(x["activity"], 0.0) + max(0.25, x["end"] - x["start"])
+            bad[k] = bad[k] or bool(x.get("error")) or x.get("check") is False
+        for k in range(w):
+            wk = weight[k]
+            doing = [a for a in wk if a != "think"] or list(wk)
+            out.append([max(doing, key=lambda a: wk[a]) if doing else None, bad[k], False])
+    return out
 
 
 def summarize(data: dict) -> dict:
@@ -131,7 +165,31 @@ def summarize(data: dict) -> dict:
             "success": outcome_of(data), "ungraded": outcome_of(data) is None and isinstance(outcome, dict)
             and outcome.get("success") is not None,
             "in_progress": bool(data.get("in_progress")), "elapsed_s": data.get("elapsed_s"),
-            "run": data.get("run"), "laps": _laps(data), "session": _session(data)}
+            "run": data.get("run"), "laps": _laps(data), "session": _session(data), "hours": _hours(data)}
+
+
+def _hours(data: dict) -> Optional[dict]:
+    """Seconds working in each hour of this machine's local time, ``{"2026-10-03T14": 840.0}``:
+    a run that says when it started. The Overview adds these up into when you worked."""
+    t0 = data.get("started_at")
+    if not isinstance(t0, (int, float)):
+        return None
+    import datetime as _dt
+    out: Dict[str, float] = {}
+    for st in data.get("steps") or []:
+        if not isinstance(st, dict) or not isinstance(st.get("started_s"), (int, float)):
+            continue
+        a = t0 + float(st["started_s"])
+        b = a + max(0.0, float(st.get("latency_s") or 0.0))
+        while True:
+            hour = _dt.datetime.fromtimestamp(a).replace(minute=0, second=0, microsecond=0)
+            end = min(b, (hour + _dt.timedelta(hours=1)).timestamp())
+            key = hour.strftime("%Y-%m-%dT%H")
+            out[key] = out.get(key, 0.0) + max(0.0, end - a)
+            if end >= b:
+                break
+            a = end
+    return {k: round(v, 1) for k, v in out.items() if v > 0}
 
 
 def _session(data: dict) -> Optional[dict]:
