@@ -352,7 +352,7 @@ class App:
     def _clock(self, req: Request, ref, data: dict) -> dict:
         """Everything a trace's page shows beside the trace: its clock, its card, the
         code it produced, the run it is compared with, and what to do next."""
-        from ..insight import agent_fix, code_change, code_compare, verdict_card
+        from ..insight import agent_fix, code_change, code_compare, code_from_steps, verdict_card
         from ..timeline import compare, timeline
         from .traces import load_record, record_paths
         query = parse_query(split(req.path)[1])
@@ -365,7 +365,7 @@ class App:
         others = [r for r in self.traces.refs() if r.id != ref.id and r.summary.get("task") == task][:60]
         tl = timeline(data)
         rec, patch = load_record(ref.path)
-        change = code_change(rec, patch) if rec else None
+        change = code_change(rec, patch) if rec else code_from_steps(data)
         fix = agent_fix(data, look_kind=(tl.get("look_here") or {}).get("kind"))
         peers = [{"tokens": r.summary.get("tokens"), "seconds": r.summary.get("seconds"), "success": r.summary.get("success")}
                  for r in others if not r.live]
@@ -379,7 +379,7 @@ class App:
                 cmp = compare(data, odata)
                 al = align(data, odata)
                 orec, opatch = load_record(other.path)
-                other_change = code_change(orec, opatch) if orec else None
+                other_change = code_change(orec, opatch) if orec else code_from_steps(odata)
                 code_cmp = code_compare(change, other_change)
         act = self._next_step(ref, data, change, fix, record_paths(ref.path)[1])
         long = self._long(query, ref, data, tl, odata if cmp else None, view)

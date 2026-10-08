@@ -51,7 +51,11 @@ that folds the idle between working stretches. Hover a pin to read the
 prompt; hover any mark to name its steps. **Where the seconds went** adds up
 each step's time by activity, by tool and by agent, and lists the slowest
 steps. The Overview shows **when you worked**, by day and hour, over your
-sessions.
+sessions. Below it are **what keeps failing** across them (each command
+with its last error and a link to the step), **the files your agents
+change most**, and **where the working time goes** by project. A
+session's code tab rebuilds what it changed from its own edit calls, with
+a chart of which file was edited when, under the prompt that led to it.
 
 ## Signing in
 

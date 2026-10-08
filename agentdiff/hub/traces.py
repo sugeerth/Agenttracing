@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -94,7 +95,7 @@ def load_record(path: Path) -> tuple:
 
 def _insight(data: dict, path: Path) -> Optional[dict]:
     """What a list needs of a run's meaning: how it failed, the fix it points at, what code it left."""
-    from ..insight import agent_fix, code_change
+    from ..insight import agent_fix, code_change, code_from_steps
     from ..timeline import timeline
     try:
         tl = timeline(data)
@@ -103,8 +104,8 @@ def _insight(data: dict, path: Path) -> Optional[dict]:
     kind = (tl.get("look_here") or {}).get("kind")
     fix = agent_fix(data, look_kind=kind)
     rec, _ = load_record(path)
-    change = code_change(rec) if rec else None
-    return {"strip": strip_cells(tl), "look_kind": kind, "look": (tl.get("look_here") or {}).get("sentence"),
+    change = code_change(rec) if rec else code_from_steps(data)
+    return {"strip": strip_cells(tl), "digest": digest(data, tl, change), "look_kind": kind, "look": (tl.get("look_here") or {}).get("sentence"),
             "fix_rule": (fix or {}).get("rule"), "fix_change": (fix or {}).get("change"),
             "lines": (change["added"] + change["removed"]) if change else None,
             "files": len(change["files"]) if change else None,
@@ -112,6 +113,52 @@ def _insight(data: dict, path: Path) -> Optional[dict]:
 
 
 STRIP_CELLS = 48
+_HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\b", re.S)
+_ERRLINE = re.compile(r"(error|exception|traceback|failed|failure|denied|not found|no such|refused|timed out)", re.I)
+
+
+def _error_line(out: str) -> str:
+    """The line of a failed step's output that says what went wrong, else its last line."""
+    lines = [ln.strip() for ln in str(out or "").splitlines() if ln.strip()]
+    picks = ((lambda ln: ln.startswith("FAILED "), False), (lambda ln: ln.startswith("E ") and len(ln) > 3, False),
+             (lambda ln: re.match(r"[\w.]*(Error|Exception)\b", ln), True),      # a traceback's last word
+             (lambda ln: re.search(r"\b\d+ (failed|errors?)\b", ln), False), (lambda ln: _ERRLINE.search(ln), True))
+    for pick, last in picks:
+        hit = next((ln for ln in (reversed(lines) if last else lines) if pick(ln)), None)
+        if hit:
+            return hit[:180]
+    return (lines[-1] if lines else "")[:180]
+
+
+def digest(data: dict, tl: dict, change: Optional[dict]) -> dict:
+    """What a run adds to the picture across runs: the commands that failed (each with how often, its last
+    step and the line that said what went wrong), the files it changed, and its seconds by activity."""
+    from ..longrun import _command, check_part
+    fails: Dict[str, dict] = {}
+    steps = {s.get("index"): s for s in data.get("steps") or [] if isinstance(s, dict)}
+    for x in tl.get("steps") or []:
+        if x.get("type") != "tool_call" or not (x.get("error") or x.get("check") is False):
+            continue
+        st = steps.get(x["index"]) or {}
+        # a heredoc's body is a script, not the command: python3 - <<EOF … EOF reads as python3 - <<EOF
+        raw = _HEREDOC.sub(lambda m: "<<" + m.group(2), _command(st))
+        # and a variable set first (S=/tmp/… && …) is plumbing, not what was run
+        raw = " && ".join(p for p in re.split(r"&&|;|\n", raw) if p.strip() and not re.fullmatch(r"\s*\w+=\S*\s*", p))
+        cmd = check_part(raw) if x["name"] in ("Bash", "shell", "exec_command") else ""
+        key = f'{x["name"]}: {cmd}' if cmd else str(x["name"])
+        key = " ".join(key.split())[:140]
+        f = fails.setdefault(key, {"n": 0, "step": x["index"], "line": ""})
+        f["n"] += 1
+        f["step"] = x["index"]
+        f["line"] = _error_line(st.get("output"))
+    top = dict(sorted(fails.items(), key=lambda kv: -kv[1]["n"])[:12])
+    # a harness diff says each file changed once; edit calls say how many times
+    files = [[f["path"], int(f.get("edits") or 1), int(f.get("added") or 0) + int(f.get("removed") or 0), bool(f.get("test"))]
+             for f in sorted((change or {}).get("files") or [], key=lambda f: -int(f.get("edits") or 1))[:20]]
+    act: Dict[str, float] = {}
+    for x in tl.get("steps") or []:
+        act[x["activity"]] = act.get(x["activity"], 0.0) + max(0.0, float(x["end"]) - float(x["start"]))
+    return {"fails": top, "files": files, "act": {k: round(v, 1) for k, v in act.items()}}
 
 
 def strip_cells(tl: dict, cells: int = STRIP_CELLS) -> List[list]:

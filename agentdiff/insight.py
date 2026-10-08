@@ -121,6 +121,134 @@ def code_change(record: Optional[dict], patch: str = "") -> Optional[dict]:
             "keepable": bool(passed and files and kept.get("complete", True) is not False)}
 
 
+#: the tool calls that write a file, and what a successful one prints
+EDIT_TOOLS = ("Edit", "MultiEdit", "Write", "NotebookEdit", "str_replace_based_edit_tool", "apply_patch")
+MOST_PATCH_LINES = 1200
+
+
+def _rel(path: str, root: Optional[str]) -> str:
+    import os
+    if root and path.startswith(root.rstrip("/") + "/"):
+        return os.path.relpath(path, root)
+    return path
+
+
+def _diff_lines(old: str, new: str) -> tuple:
+    """(added, removed, hunk lines) between two texts, by line."""
+    import difflib
+    a, b = old.splitlines(), new.splitlines()
+    added = removed = 0
+    hunk = []
+    for line in difflib.ndiff(a, b):
+        if line.startswith("+ "):
+            added += 1
+            hunk.append("+" + line[2:])
+        elif line.startswith("- "):
+            removed += 1
+            hunk.append("-" + line[2:])
+    return added, removed, hunk
+
+
+def code_from_steps(traj: dict) -> Optional[dict]:
+    """The change a run made, read from its own edit calls (Edit, MultiEdit, Write, NotebookEdit): each
+    file with its edits, the lines each added and removed, and the edits as a patch. This is what the
+    agent asked its tools to do, not a diff of the workspace: an edit made by a shell command (sed -i,
+    a heredoc) names no file the reading can trust, so those are counted apart, and a failed edit counts
+    for nothing. None when the run made no edit call."""
+    import json as _json
+    steps = [s for s in traj.get("steps") or [] if isinstance(s, dict)]
+    root = ((traj.get("source") or {}).get("cwd") if isinstance(traj.get("source"), dict) else None)
+    files: dict = {}
+    order: List[str] = []
+    patch: List[str] = []
+    failed_edits = 0
+    shell_edits = 0
+    from .laps import _activity
+    for s in steps:
+        if s.get("type") != "tool_call":
+            continue
+        name = str(s.get("name") or "")
+        if name not in EDIT_TOOLS:
+            if name in ("Bash", "shell", "exec_command") and _activity(s) == "edit" and not s.get("error"):
+                shell_edits += 1
+            continue
+        if s.get("error"):
+            failed_edits += 1
+            continue
+        try:
+            args = _json.loads(s.get("input") or "{}")
+        except ValueError:
+            continue
+        if not isinstance(args, dict):
+            continue
+        path = str(args.get("file_path") or args.get("notebook_path") or args.get("path") or "")
+        if not path:
+            continue
+        rel = _rel(path, root)
+        out = str(s.get("output") or "")
+        if name == "Write":
+            new = str(args.get("content") or "")
+            created = "created" in out.lower() or rel not in files
+            pairs = [("", new)]
+            how = "created" if created and rel not in files else "rewritten"
+        elif name == "MultiEdit":
+            pairs = [(str(x.get("old_string") or ""), str(x.get("new_string") or ""))
+                     for x in args.get("edits") or [] if isinstance(x, dict)]
+            how = "edited"
+        elif name == "NotebookEdit":
+            pairs = [("", str(args.get("new_source") or ""))]
+            how = "edited"
+        else:
+            pairs = [(str(args.get("old_string") or ""), str(args.get("new_string") or ""))]
+            how = "edited"
+        f = files.get(rel)
+        if f is None:
+            f = files[rel] = {"path": rel, "status": how, "added": 0, "removed": 0, "test": is_test_path(rel),
+                              "edits": 0, "steps": [], "after_sha": None}
+            order.append(rel)
+        elif how == "rewritten" and f["status"] != "created":
+            f["status"] = "rewritten"
+        f["edits"] += 1
+        f["steps"].append(s.get("index"))
+        for old, new in pairs:
+            a, r, hunk = _diff_lines(old, new)
+            f["added"] += a
+            f["removed"] += r
+            if len(patch) < MOST_PATCH_LINES:
+                patch.append(f"--- {rel}  (step {s.get('index')}, {name})")
+                patch.extend(hunk[: max(0, MOST_PATCH_LINES - len(patch))])
+    if not files:
+        return None
+    flist = sorted((files[p] for p in order), key=lambda f: -(f["added"] + f["removed"]))   # the biggest first
+    added = sum(f["added"] for f in flist)
+    removed = sum(f["removed"] for f in flist)
+    # a test it wrote is new work; a test that was there and changed may be the check bent to pass
+    tests = [f["path"] for f in flist if f["test"] and f["status"] != "created"]
+    flags = []
+    if tests:
+        flags.append({"kind": "tests_edited", "sentence": f"It changed {len(tests)} existing test file(s) "
+                                                          f"({', '.join(tests[:3])}): read them before trusting a check "
+                                                          f"that passed."})
+    if added + removed > LARGE_CHANGE:
+        flags.append({"kind": "large", "sentence": f"A large change: {added + removed} lines over {len(flist)} file(s)."})
+    # the last check it ran, and how it ended, from the steps
+    from .laps import check_outcome
+    last = next((s for s in reversed(steps) if s.get("type") == "tool_call" and _activity(s) == "verify"), None)
+    passed = check_outcome(last) if last else None
+    command = None
+    if last is not None:
+        try:
+            command = str(_json.loads(last.get("input") or "{}").get("command") or last.get("name"))
+        except (ValueError, AttributeError):
+            command = str(last.get("name"))
+    tail = str((last or {}).get("output") or "")[-1200:]
+    return {"files": flist, "added": added, "removed": removed, "tests": tests, "passed": passed,
+            "failures": check_failures(tail) if passed is False else [], "check": command, "check_tail": tail,
+            "flags": flags, "patch": "\n".join(patch), "baseline_passed": None, "keepable": False,
+            "source": "steps", "failed_edits": failed_edits, "shell_edits": shell_edits,
+            "check_step": (last or {}).get("index")}
+
+
 def code_compare(a: Optional[dict], b: Optional[dict]) -> Optional[dict]:
     if not a or not b:
         return None
@@ -260,7 +388,9 @@ def verdict_card(traj: dict, tl: dict, *, peers: Iterable[dict] = (), change: Op
                      f"{', '.join(change['failures'][:3])}" + ("…" if len(change["failures"]) > 3 else ""))
         if change["flags"]:
             text += ". " + " ".join(f["sentence"] for f in change["flags"][:2])
-        rows.append({"label": "code", "text": text, "source": "the harness's diff of the workspace (record.diff)"
+        rows.append({"label": "code", "text": text, "source": ("the agent's own edit calls (Edit, Write, MultiEdit), not a "
+                                                                 "diff of the workspace" if change.get("source") == "steps"
+                                                                 else "the harness's diff of the workspace (record.diff)")
                                                                  + (", the check's output (record.check)" if change.get("failures") else ""),
                      "tone": "bad" if change["flags"] or change.get("failures") else ""})
     if fix:
@@ -300,13 +430,16 @@ def corpus_insight(items: Iterable[dict]) -> Optional[dict]:
     top_fix = max(fixes.items(), key=lambda kv: kv[1][0]) if fixes else None
     by_agent: dict = {}
     for x in items:
-        a = by_agent.setdefault(x.get("agent") or "agent", {"runs": 0, "passed": 0, "lines": [], "tests_edited": 0})
+        a = by_agent.setdefault(x.get("agent") or "agent", {"runs": 0, "passed": 0, "graded": 0, "lines": [],
+                                                           "tests_edited": 0})
         a["runs"] += 1
+        a["graded"] += 1 if x.get("success") is not None else 0
         a["passed"] += 1 if x.get("success") else 0
         if isinstance(x.get("lines"), int):
             a["lines"].append(x["lines"])
         a["tests_edited"] += 1 if x.get("tests_edited") else 0
-    agents = [{"agent": k, "runs": v["runs"], "passed": v["passed"], "median_lines": _median(v["lines"]),
+    agents = [{"agent": k, "runs": v["runs"], "passed": v["passed"], "graded": v["graded"],
+               "median_lines": _median(v["lines"]),
                "tests_edited": v["tests_edited"]} for k, v in sorted(by_agent.items())]
     return {"runs": len(items), "failed": len(failed), "kinds": kinds,
             "top_fix": {"rule": top_fix[0], "runs": top_fix[1][0], "change": top_fix[1][1]} if top_fix else None,

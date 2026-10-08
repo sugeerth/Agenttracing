@@ -5,6 +5,39 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## What a session changed, and what keeps happening
+
+- **The code a Claude Code session produced**
+  (`insight.code_from_steps`) is read from its own Edit, MultiEdit,
+  Write and NotebookEdit calls. For each file it gives how the file was
+  made (created, edited or rewritten), its edit calls, and the lines added
+  and removed (a line diff of each call). It also gives the edits in order
+  as a patch, and the last check the session ran with how that check
+  ended.
+  - It is labelled as what the agent asked its tools to do, not a diff of
+    the workspace.
+  - Shell edits (`sed -i`, heredocs, redirects) name no file it can trust,
+    so they are counted apart; failed edit calls count for nothing.
+  - A test file the agent wrote is new work. Only an existing test that
+    changed is flagged.
+- **Which files, when** (`hub/glance.files_html`) is a row per file and a
+  mark per edit call on the run's own clock, taller the more lines the
+  call changed, with your prompts above. You can read which ask led to
+  which files.
+- **What keeps happening across your sessions** is on the Overview,
+  added up from each run's `digest` (`hub/traces.digest`, cached with its
+  summary):
+  - **what keeps failing**: each failing command or tool across sessions,
+    named without its plumbing (a heredoc's body, a variable set first,
+    `| tail`, `2>&1`), with how often and in how many sessions it failed,
+    the line its last failure said, and a link to that step;
+  - **the files your agents change most**;
+  - **where the working time goes**, by activity and by project.
+- *When you worked* shows the last 14 days with any work and dots the
+  quiet days it leaves out. "Start here" counts passes over graded runs
+  only, and "Recent traces" no longer repeats the sessions listed above
+  it.
+
 ## The charts a run leads with
 
 - **At a glance** (`hub/glance.py`) now opens every run, above its

@@ -79,6 +79,11 @@ border-radius:999px;border:1px solid var(--line);white-space:nowrap}
 .tag{display:inline-block;font:600 11px system-ui,sans-serif;letter-spacing:.02em;padding:0 6px;margin-left:6px;
   border-radius:4px;border:1px dashed var(--line);color:var(--soft);vertical-align:1px;cursor:help}
 .nowrap{white-space:nowrap}
+.acrossall h3{font:600 12px system-ui,sans-serif;letter-spacing:.04em;text-transform:uppercase;color:var(--soft);margin:18px 0 6px}
+table.across{width:100%;table-layout:fixed}table.across td,table.across th{padding:4px 8px 4px 0;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}table.across td.mono{max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+table.across th:nth-child(1){width:30%}table.across th:nth-child(2){width:13%}
+table.across.fails th:nth-child(3),table.across.fails th:nth-child(4){width:8%}table.across.fails th:nth-child(6){width:10%}
+.xbar{display:block;height:9px;border-radius:0 4px 4px 0;background:var(--a1);opacity:.75;min-width:2px}.xbar.bad{background:var(--sc);opacity:.65}
 .askp{max-width:60ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .askbar{display:inline-block;height:8px;border-radius:4px;background:var(--accent);opacity:.55;vertical-align:middle}
 .ask{color:var(--soft);font-size:13px;margin-top:2px;max-width:46ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -273,7 +278,7 @@ def _trace_rows(refs) -> str:
         s = r.summary
         rows.append(f'<tr><td>{_status(r)}</td><td><a href="/traces/{e(r.id)}"><strong>{e(s.get("task"))}</strong></a>'
                     f'{_example_tag(s)}{_trace_sub(r)}</td><td>{e(s.get("agent"))}</td>'
-                    f'<td>{viz.lap_strip(s.get("laps"))}<div>{_loop_note(s.get("laps"), r.live)}</div></td>'
+                    f'<td>{viz.lap_strip(s.get("laps"))}<div>{"" if s.get("session") else _loop_note(s.get("laps"), r.live)}</div></td>'
                     f'<td class="n">{e(s.get("steps"))}</td><td class="n">{_num(s.get("tokens"))}</td>'
                     f'<td class="n">{_secs(s.get("elapsed_s") if r.live else s.get("seconds"))}</td>'
                     f'<td class="muted">{e(_ago(r.updated))}</td></tr>')
@@ -368,9 +373,11 @@ def _start_here(refs: list) -> str:
     code = [a for a in c["agents"] if a["median_lines"] is not None]
     if code:
         rows.append({"label": "code", "text": "; ".join(
-            f"{a['agent']}: {a['passed']}/{a['runs']} passed, a median {a['median_lines']:.0f} line(s) changed"
+            f"{a['agent']}: " + (f"{a['passed']}/{a['graded']} graded run(s) passed" if a.get("graded") else
+                                 f"{a['runs']} run(s), none graded") + f", a median {a['median_lines']:.0f} line(s) changed"
             + (f", {a['tests_edited']} run(s) edited tests" if a["tests_edited"] else "") for a in code[:6]) + ".",
-                     "source": "the harness's diff of each workspace (records)",
+                     "source": ("the agents' own edit calls (Claude Code sessions)" if all((r.summary.get("session") for r in done))
+                                else "the harness's diff of each workspace (records)"),
                      "tone": "bad" if any(a["tests_edited"] for a in code) else ""})
     return (f'<h2>Start here</h2>{verdict_html(rows)}'
             f'<p class="muted"><a href="/traces?show=failed">Every failed run →</a> · '
@@ -438,6 +445,81 @@ def guards_card(guards: list, refs: list) -> str:
               'A refusal is a reason the agent read and acted on, not a failure.</p></div>')
 
 
+def _across(mine: list) -> str:
+    """What keeps happening over every session: the commands that keep failing (with what they said last and
+    a link to that step), the files the agents change most, and the working time by project."""
+    from ..longrun import dur
+    fails: Dict[str, dict] = {}
+    files: Dict[str, dict] = {}
+    projects: Dict[str, dict] = {}
+    act: Dict[str, float] = {}
+    many = len({(r.summary.get("session") or {}).get("project") for r in mine}) > 1
+    for r in sorted(mine, key=lambda r: r.updated):
+        dg = (r.summary.get("insight") or {}).get("digest") or {}
+        proj = (r.summary.get("session") or {}).get("project") or "?"
+        p = projects.setdefault(proj, {"sessions": 0, "secs": 0.0, "tokens": 0, "fails": 0})
+        p["sessions"] += 1
+        p["secs"] += sum((dg.get("act") or {}).values())
+        p["tokens"] += int(r.summary.get("tokens") or 0)
+        for k, v in (dg.get("act") or {}).items():
+            act[k] = act.get(k, 0.0) + v
+        for key, f in (dg.get("fails") or {}).items():
+            a = fails.setdefault(key, {"n": 0, "runs": set(), "last": None})
+            a["n"] += f["n"]
+            a["runs"].add(r.id)
+            a["last"] = (r.id, f["step"], f["line"])
+            p["fails"] += f["n"]
+        for path, edits, lines, test in dg.get("files") or []:
+            name = f"{proj}/{path}" if many and not str(path).startswith("/") else path
+            a = files.setdefault(name, {"edits": 0, "lines": 0, "runs": set(), "test": test})
+            a["edits"] += edits
+            a["lines"] += lines
+            a["runs"].add(r.id)
+    out = []
+    top = sorted(fails.items(), key=lambda kv: (-len(kv[1]["runs"]), -kv[1]["n"]))[:8]
+    if top:
+        most = max(v["n"] for _, v in top)
+        rows = "".join(
+            f'<tr><td class="mono" title="{e(k)}">{e(_cut(k, 70))}</td>'
+            f'<td><span class="xbar bad" style="width:{100 * v["n"] / most:.0f}%"></span></td>'
+            f'<td class="n">{v["n"]}</td><td class="n">{len(v["runs"])}</td>'
+            f'<td class="muted" title="{e(v["last"][2])}">{e(_cut(v["last"][2], 70))}</td>'
+            f'<td><a href="/traces/{e(v["last"][0])}?at={v["last"][1]}#s{v["last"][1]}">step {v["last"][1]} →</a></td></tr>'
+            for k, v in top)
+        out.append('<h3>What keeps failing</h3><table class="across fails"><tr><th>command or tool</th><th></th>'
+                   '<th class="n">failed</th><th class="n">sessions</th><th>what it said last</th><th></th></tr>'
+                   + rows + '</table>')
+    topf = sorted(files.items(), key=lambda kv: (-len(kv[1]["runs"]), -kv[1]["edits"]))[:10]
+    if topf:
+        most = max(v["edits"] for _, v in topf)
+        rows = "".join(
+            f'<tr><td class="mono" title="{e(k)}">{e(_cut(k, 70))}{" <span class=tag>test</span>" if v["test"] else ""}</td>'
+            f'<td><span class="xbar" style="width:{100 * v["edits"] / most:.0f}%"></span></td>'
+            f'<td class="n">{v["edits"]}</td><td class="n">{v["lines"]:,}</td><td class="n">{len(v["runs"])}</td></tr>'
+            for k, v in topf)
+        out.append('<h3>The files your agents change most</h3><table class="across"><tr><th>file</th><th></th>'
+                   '<th class="n">edit calls</th><th class="n">lines</th><th class="n">sessions</th></tr>' + rows + '</table>')
+    if projects:
+        most = max(p["secs"] for p in projects.values()) or 1.0
+        rows = "".join(
+            f'<tr><td>{e(name)}</td><td><span class="xbar" style="width:{100 * p["secs"] / most:.0f}%"></span></td>'
+            f'<td class="n">{e(dur(p["secs"]))}</td><td class="n">{p["sessions"]}</td><td class="n">{p["tokens"]:,}</td>'
+            f'<td class="n">{p["fails"]}</td></tr>'
+            for name, p in sorted(projects.items(), key=lambda kv: -kv[1]["secs"]))
+        busy = sum(act.values()) or 1.0
+        share = " · ".join(f'<span><i style="background:var(--{viz.ACTIVITIES[k][0]})"></i>{e(viz.ACTIVITIES[k][2])} '
+                           f'<b>{100 * act[k] / busy:.0f}%</b></span>'
+                           for k in sorted(act, key=lambda k: -act[k]) if k in viz.ACTIVITIES and act[k] / busy >= 0.01)
+        stack = "".join(f'<span style="flex:{act[k]:.2f};background:var(--{viz.ACTIVITIES[k][0]})" '
+                        f'title="{e(viz.ACTIVITIES[k][2])}: {e(dur(act[k]))}"></span>'
+                        for k in viz.ACTIVITIES if act.get(k, 0) > 0)
+        out.append('<h3>Where the working time goes</h3>'
+                   f'<div class="secs"><div class="stack">{stack}</div><div class="parts">{share}</div></div>'
+                   '<table class="across"><tr><th>project</th><th></th><th class="n">working</th><th class="n">sessions</th>'
+                   '<th class="n">tokens</th><th class="n">failures</th></tr>' + rows + '</table>')
+    return f'<div class="acrossall">{"".join(out)}</div>' if out else ""
+
+
 def sessions_card(refs: list) -> str:
     """Your Claude Code sessions, read from this machine: the ones running now first."""
     mine = [r for r in refs if r.summary.get("session")]
@@ -449,10 +531,11 @@ def sessions_card(refs: list) -> str:
     calls = sum(int(r.summary.get("steps") or 0) for r in mine)
     gist = (f'{len(mine)} session(s) in {len(projects)} project(s) · {running} running now · {calls:,} steps'
             + (f' · <span class="bad">{stuck} went round a loop</span>' if stuck else ""))
-    worked = glance.worked_html([r.summary.get("hours") for r in mine])
+    worked = glance.worked_html([r.summary.get("hours") for r in mine]) + _across(mine)
     return (f'<h2>Your Claude Code sessions</h2><div class="card"><p class="muted">{gist}. Read from Claude Code\'s '
             f'own files on this machine; nothing leaves it. Each opens on its timeline, why it went that way, and '
-            f'what to change in the agent.</p>{worked}{_trace_rows(mine[:12])}'
+            f'what to change in the agent.</p>{worked}<div class="acrossall"><h3>The sessions, newest first</h3></div>'
+            f'{_trace_rows(mine[:12])}'
             f'<p><a href="/traces?q=claude-code">Every session →</a></p></div>')
 
 
@@ -482,6 +565,7 @@ def overview_page(*, brand: str, user: str, csrf: str, entries: List[Entry], ref
                  '<p class="muted">Nothing running. Start one — <code>agentdiff "the task"</code> — and it appears '
                  'here as it goes; the <a href="/live">Live</a> page follows it step by step.</p>')
     loops = [r for r in finished if (r.summary.get("laps") or {}).get("stuck")][:6]
+    others = [r for r in finished if not r.summary.get("session")]
     sub = ("Everything under this hub's root, read from disk"
            + (f"; the numbers are your runs, not the {examples} bundled example(s), which are under "
               f"<a href=\"/traces\">Traces</a>" if refs is not everything else "") + ".")
@@ -491,7 +575,7 @@ def overview_page(*, brand: str, user: str, csrf: str, entries: List[Entry], ref
             + (f'<h2>Agents evolving</h2>{_entry_cards(evolving[:4])}<p><a href="/evolve">Every evolving harness →</a></p>'
                if evolving else "")
             + (f'<h2>Stuck in a loop</h2><div class="card">{_trace_rows(loops)}</div>' if loops else "")
-            + f'<h2>Recent traces</h2><div class="card">{_trace_rows(finished[:10]) if finished else "<p class=muted>None yet.</p>"}'
+            + f'<h2>Recent traces</h2><div class="card">{_trace_rows(others[:10]) if others else "<p class=muted>None yet besides your sessions above.</p>"}'
             f'<p><a href="/traces">Every trace →</a></p></div>'
             f'<h2>Recent runs</h2>{_entry_cards(entries[:6]) or "<div class=card><p class=muted>None yet.</p></div>"}'
             f'<p><a href="/runs">Every run →</a></p><h2>Send telemetry here</h2>{_ingest_card(ingest)}')
@@ -695,7 +779,9 @@ def _patch_html(patch: str, most: int = 600) -> str:
 
 
 def code_panel(change: Optional[dict], *, compare: Optional[dict] = None, other: Optional[dict] = None,
-               act: Optional[dict] = None) -> str:
+               act: Optional[dict] = None, chart: str = "", href: str = "") -> str:
+    if change is not None and change.get("source") == "steps":
+        return _steps_code(change, chart=chart, href=href, compare=compare, other=other)
     if change is None:
         return ('<p class="muted">No record of its workspace: the code a run produces is captured when it runs '
                 'under the harness (<code>agentdiff duel</code>, <code>fix</code>, <code>self-evolve</code>), which '
@@ -731,6 +817,55 @@ def code_panel(change: Optional[dict], *, compare: Optional[dict] = None, other:
     if act:
         action = (f'<h3>{e(act["title"])}</h3><p class="muted">{e(act["why"])}</p><pre>{e(act["command"])}</pre>')
     return f'{flags}{table}{check}{patch}{cmp_html}{action}'
+
+
+def _steps_code(change: dict, *, chart: str, href: str, compare: Optional[dict], other: Optional[dict]) -> str:
+    """The change a run made, read from its own edit calls (insight.code_from_steps)."""
+    n_calls = sum(f["edits"] for f in change["files"])
+    shell = change.get("shell_edits") or 0
+    note = (f'<p class="muted">Read from the agent\'s own edit calls: {n_calls} call(s) over {len(change["files"])} '
+            f'file(s). This is what it asked its tools to write, not a diff of the workspace'
+            + (f'; {shell} more edit(s) went through shell commands (<code>sed -i</code>, a heredoc, a redirect), which '
+               f'name no file this reading can trust, so they are not in these counts' if shell else "")
+            + (f'; {change["failed_edits"]} edit call(s) failed and count for nothing' if change.get("failed_edits") else "")
+            + '.</p>')
+    flags = "".join(f'<p class="note error">{e(f["sentence"])}</p>' for f in change["flags"])
+    rows = []
+    for f in sorted(change["files"], key=lambda f: -(f["added"] + f["removed"])):
+        first = f["steps"][0] if f["steps"] else None
+        link = f' <a href="{e(href)}?at={first}#s{first}" class="muted">step {first} →</a>' if first is not None and href else ""
+        rows.append(f'<tr><td class="mono">{e(f["path"])}{" <span class=tag>test</span>" if f["test"] else ""}</td>'
+                    f'<td>{e(f["status"])}</td><td class="n">{f["edits"]}</td><td class="n ok">+{f["added"]}</td>'
+                    f'<td class="n{" bad" if f["removed"] else " muted"}">−{f["removed"]}</td><td>{link}</td></tr>')
+    table = ('<table><tr><th>file</th><th>how</th><th class="n">edit calls</th><th class="n">added</th>'
+             '<th class="n">removed</th><th></th></tr>' + "".join(rows) + '</table>')
+    check = ""
+    if change.get("check"):
+        verdict = ("passed" if change["passed"] else "failed" if change["passed"] is False
+                   else "printed nothing that says whether it passed")
+        cls = "ok" if change["passed"] else "bad" if change["passed"] is False else "muted"
+        step = change.get("check_step")
+        check = (f'<p>The last check it ran, <code>{e(_cut(change["check"], 140))}</code>, <strong class="{cls}">'
+                 f'{verdict}</strong>' + (f' (<a href="{e(href)}?at={step}#s{step}">step {step}</a>)' if step is not None
+                                          and href else "") + '.</p>'
+                 + ("<p>The cases it named as failing:</p><ul>" + "".join(f"<li><code>{e(x)}</code></li>"
+                                                                         for x in change["failures"]) + "</ul>"
+                    if change.get("failures") else ""))
+    patch = ""
+    if change.get("patch"):
+        n = change["patch"].count("\n") + 1
+        patch = (f'<details{" open" if n <= 160 else ""}><summary class="muted">the edits in the order it made them, '
+                 f'{n} line(s)</summary>{_patch_html(change["patch"])}</details>')
+    cmp_html = ""
+    if compare and other:
+        cmp_html = (f'<h3>Beside the other run\'s change</h3><p>{e(compare["sentence"])} A changed '
+                    f'{compare["lines"][0]} line(s), B {compare["lines"][1]}.</p>')
+    return f'{note}{flags}{chart}{table}{check}{patch}{cmp_html}'
+
+
+def _cut(text: str, most: int) -> str:
+    text = " ".join(str(text).split())
+    return text if len(text) <= most else text[: most - 1] + "…"
 
 
 def _panel(key: str, title: str, gist: str, body: str, open_: bool, start: bool = False) -> str:
@@ -918,8 +1053,16 @@ def trace_panel(*, ref, data: dict, lap: dict, tl: Optional[dict] = None, cmp: O
         add("compare", "Two runs on one axis", gist, body, "compare" in opened)
     gist_code = (f'+{change["added"]} −{change["removed"]} in {len(change["files"])} file(s)'
                  + (f' · {len(change["flags"])} flag(s)' if change["flags"] else "") if change else "not captured")
+    files_chart = ""
+    if change and change.get("source") == "steps" and tl:
+        r_long = (long or {}).get("r")
+        if r_long is None:
+            from ..longrun import longrun
+            r_long = longrun(data)
+        files_chart = glance.files_html(data, tl, r_long, change, href=f"/traces/{ref.id}")
     add("code", "The code it produced", gist_code,
-                         code_panel(change, compare=code_cmp, other=other_change, act=act), "code" in opened)
+                         code_panel(change, compare=code_cmp, other=other_change, act=act, chart=files_chart,
+                                    href=f"/traces/{ref.id}"), "code" in opened)
     secs_runs = [tl] + ([cmp["b"]] if cmp else [])
     secs_names = ([f'A · {tl.get("agent") or "run"}', f'B · {cmp["b"].get("agent") or "run"}'] if cmp
                   else [str(tl.get("agent") or "run")])

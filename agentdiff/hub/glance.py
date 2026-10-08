@@ -34,7 +34,7 @@ from ..longrun import dur, when
 from .longviz import Axis, _fit, _ticks
 from .viz import ACTIVITIES
 
-__all__ = ["glance_svg", "glance_html", "worked_html", "GLANCE_CSS"]
+__all__ = ["glance_svg", "glance_html", "worked_html", "files_html", "GLANCE_CSS"]
 
 LEFT, RIGHT = 128, 14
 COL = 2.0                 # px per column of the agent's track
@@ -80,6 +80,10 @@ svg.glance-svg .tip text.k{fill:var(--soft);font-size:11px}
 .worked svg rect.h:hover{stroke:var(--ink);stroke-width:1.5}
 .worked .wkey{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--soft);margin-top:4px}
 .worked .wkey i{display:inline-block;width:12px;height:12px;border-radius:2px}
+svg.glance-svg .edit{fill:var(--a2);fill-opacity:.85}svg.glance-svg .edit.new{fill:var(--a3)}
+svg.glance-svg .edit:hover{fill-opacity:1}
+svg.glance-svg text.fname{fill:var(--ink);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px}
+svg.glance-svg text.fnum{font-variant-numeric:tabular-nums}
 .glance .gkey{display:flex;flex-wrap:wrap;gap:4px 14px;margin:6px 0 0;font-size:12px;color:var(--soft)}
 .glance .gkey i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
 .glance .gkey i.dot{border-radius:50%}
@@ -428,9 +432,11 @@ def worked_html(hours_by_run: List[dict], *, days: int = 14) -> str:
             total[k] = total.get(k, 0.0) + float(v)
     if not total:
         return ""
-    last = max(_dt.datetime.strptime(k, "%Y-%m-%dT%H") for k in total).date()
-    first = max(min(_dt.datetime.strptime(k, "%Y-%m-%dT%H") for k in total).date(), last - _dt.timedelta(days=days - 1))
-    rows = [first + _dt.timedelta(days=k) for k in range((last - first).days + 1)]
+    # the last ``days`` days anything was worked on, in order: a quiet stretch between two of them is skipped,
+    # and the dates on the left say so
+    active = sorted({_dt.datetime.strptime(k, "%Y-%m-%dT%H").date() for k in total})
+    rows = active[-days:]
+    first = rows[0]
     vals = sorted(v for k, v in total.items() if _dt.datetime.strptime(k, "%Y-%m-%dT%H").date() >= first)
     cuts = [vals[min(len(vals) - 1, int(len(vals) * q))] for q in (0.25, 0.5, 0.75)]
 
@@ -446,6 +452,10 @@ def worked_html(hours_by_run: List[dict], *, days: int = 14) -> str:
     for r, day in enumerate(rows):
         y = 18 + r * (ch + gap)
         out.append(f'<text x="0" y="{y + 11}">{day:%a %d %b}</text>')
+        if r and (day - rows[r - 1]).days > 1:
+            out.append(f'<line x1="{left}" y1="{y - 1}" x2="{left + 24 * cw - gap}" y2="{y - 1}" '
+                       f'style="stroke:var(--soft);stroke-dasharray:2 3;stroke-opacity:.6">'
+                       f'<title>{(day - rows[r - 1]).days - 1} day(s) with nothing</title></line>')
         day_total = 0.0
         for hcol in range(24):
             key = f"{day:%Y-%m-%d}T{hcol:02d}"
@@ -458,7 +468,121 @@ def worked_html(hours_by_run: List[dict], *, days: int = 14) -> str:
             out.append(f'<text x="{left + 24 * cw + 8}" y="{y + 11}">{e(dur(day_total))}</text>')
     out.append("</svg>")
     bday = _dt.datetime.strptime(busiest[0], "%Y-%m-%dT%H")
+    quiet = sum(max(0, (b - a).days - 1) for a, b in zip(rows, rows[1:]))
     key = ('<div class="wkey">less <i style="background:var(--h0)"></i><i style="background:var(--h1)"></i>'
            '<i style="background:var(--h2)"></i><i style="background:var(--h3)"></i><i style="background:var(--h4)"></i> more'
-           f' · busiest hour {bday:%a %d %b %H}:00, {e(dur(busiest[1]))} working · this machine\'s local time</div>')
+           f' · busiest hour {bday:%a %d %b %H}:00, {e(dur(busiest[1]))} working'
+           + (f' · {quiet} quiet day(s) left out, at the dotted lines' if quiet else "")
+           + ' · this machine\'s local time</div>')
     return '<div class="worked">' + "".join(out) + key + "</div>"
+
+
+FILES_MAX = 16
+
+
+def _tail(path: str, px: float, char: float = 6.6) -> str:
+    """A path cut from the left, so its file name stays: …/harness/cassette.py."""
+    n = int(px / char)
+    return path if len(path) <= n else "…" + path[-(n - 1):]
+
+
+def files_html(data: dict, tl: dict, r: dict, change: dict, *, width: int = 980, href: str = "") -> str:
+    """Which files the agent edited, and when: a row per file, a mark per edit call at its moment on the run's
+    clock (the same clock as At a glance), taller the more lines it changed; your prompts above, so each edit
+    sits under the ask that led to it."""
+    items = [x for x in tl.get("steps") or [] if isinstance(x.get("start"), (int, float))]
+    if not items or not change or not change.get("files"):
+        return ""
+    at = {x["index"]: x for x in items}
+    span = max(float(tl.get("span_s") or 0.0), max(float(x["end"]) for x in items), 1e-3)
+    sa = r.get("started_at")
+    sessions = r.get("sessions") or []
+    left, right = 230, 96
+    x0, x1 = left, width - right
+    axis = Axis(sessions, x0, x1, gap_w=30.0, min_w=16.0) if len(sessions) > 1 else Axis([], x0, x1, t0=0.0, t1=span)
+    files = sorted(change["files"], key=lambda f: (-(f["added"] + f["removed"]), -f["edits"]))
+    shown = files[:FILES_MAX]
+    # each edit call's own lines, from the steps
+    import json as _json
+    sizes: Dict[int, int] = {}
+    most = 1
+    by_index = {s.get("index"): s for s in data.get("steps") or [] if isinstance(s, dict)}
+    for f in shown:
+        for i in f["steps"]:
+            st = by_index.get(i)
+            n = 1
+            if st is not None:
+                try:
+                    a = _json.loads(st.get("input") or "{}")
+                    text = str(a.get("content") or a.get("new_string") or a.get("new_source") or "")
+                    old = str(a.get("old_string") or "")
+                    n = max(1, len(text.splitlines()) + len(old.splitlines()))
+                except (ValueError, AttributeError):
+                    pass
+            sizes[i] = n
+            most = max(most, n)
+    turns = [t for t in data.get("turns") or [] if isinstance(t, dict) and isinstance(t.get("at_s"), (int, float))]
+    top = 26 if turns else 8
+    row_h = 18
+    height = top + row_h * len(shown) + (16 if len(files) > len(shown) else 0) + 26
+    out = [f'<svg class="viz glance-svg" viewBox="0 0 {width} {height}" role="img" '
+           f'aria-label="{len(files)} file(s) edited, by when each edit call ran">']
+    for a, b, xa, xb in axis.parts:
+        out.append(f'<rect class="bed" x="{xa:.1f}" y="{top - 4}" width="{max(1.0, xb - xa):.1f}" '
+                   f'height="{row_h * len(shown) + 4}" rx="4" style="opacity:.28"/>')
+    groups: List[List[tuple]] = []
+    for k, t in enumerate(sorted(turns, key=lambda t: t["at_s"])):
+        tx = axis(float(t["at_s"]))
+        if groups and tx - groups[-1][-1][1] < 16:
+            groups[-1].append((k + 1, tx, t))
+        else:
+            groups.append([(k + 1, tx, t)])
+    for g in groups:
+        tx = g[0][1]
+        label = str(g[0][0]) if len(g) == 1 else f"{g[0][0]}–{g[-1][0]}"
+        says = " · ".join(f"#{n}: " + _wrap(t.get("prompt") or "", 160, 1)[0] for n, _, t in g[:3])
+        rr = 7 if len(label) == 1 else 10
+        out.append(f'<g><title>you asked · {e(says)}</title>'
+                   f'<line class="rule" x1="{tx:.1f}" y1="14" x2="{tx:.1f}" y2="{top + row_h * len(shown)}" '
+                   f'style="stroke:var(--accent);stroke-opacity:.25"/>'
+                   f'<circle cx="{tx:.1f}" cy="10" r="{rr}" style="fill:var(--accent)"/>'
+                   f'<text x="{tx:.1f}" y="13.5" text-anchor="middle" style="fill:var(--panel);font:700 9px system-ui,sans-serif">'
+                   f'{e(label)}</text></g>')
+    for k, f in enumerate(shown):
+        y = top + k * row_h
+        cy = y + row_h / 2
+        out.append(f'<line class="hair" x1="{x0}" y1="{y + row_h - 0.5:.1f}" x2="{x1}" y2="{y + row_h - 0.5:.1f}"/>')
+        lab = _tail(f["path"], left - (34 if f["test"] else 10))
+        out.append(f'<text class="fname" x="0" y="{cy + 4:.1f}">{e(lab)}<title>{e(f["path"])}: {f["edits"]} edit call(s), '
+                   f'{e(f["status"])}</title></text>')
+        if f["test"]:
+            out.append(f'<text x="{left - 30}" y="{cy + 4:.1f}" style="font-size:10px">test</text>')
+        for n, i in enumerate(f["steps"]):
+            x = at.get(i)
+            if x is None:
+                continue
+            h = 4 + 10 * (sizes.get(i, 1) / most) ** 0.5
+            cls = "edit new" if n == 0 and f["status"] == "created" else "edit"
+            link_a = f'<a href="{e(href)}?at={i}#s{i}">' if href else ""
+            link_b = "</a>" if href else ""
+            out.append(f'{link_a}<rect class="{cls}" x="{axis(x["start"]) - 1.5:.1f}" y="{cy - h / 2:.1f}" width="3" '
+                       f'height="{h:.1f}" rx="1"><title>step {i} · {e(x["name"])} · {e(f["path"])} · '
+                       f'{sizes.get(i, 1)} line(s) · {e(when(x["start"], sa, span))}</title></rect>{link_b}')
+        rem = "var(--sc)" if f["removed"] else "var(--soft)"
+        out.append(f'<text class="fnum" x="{x1 + 8}" y="{cy + 4:.1f}"><tspan style="fill:var(--sg)">+{f["added"]}</tspan> '
+                   f'<tspan style="fill:{rem}">−{f["removed"]}</tspan></text>')
+    yb = top + row_h * len(shown)
+    if len(files) > len(shown):
+        rest = files[len(shown):]
+        out.append(f'<text x="0" y="{yb + 12}">+{len(rest)} more file(s), +{sum(f["added"] for f in rest)} '
+                   f'−{sum(f["removed"] for f in rest)}: every one is in the table below</text>')
+        yb += 16
+    for tx, lab, major in (_ticks(axis, sa, span) if sa is not None or span >= 600 else _plain_ticks(span, x0, x1)):
+        if tx > x1 - 20 or tx + 6.1 * len(lab) > width - right + 40:
+            continue
+        out.append(f'<text class="tick" x="{tx:.1f}" y="{yb + 16}"{_INK if major else ""}>{e(lab)}</text>')
+    out.append("</svg>")
+    key = ('<div class="gkey"><span><i style="background:var(--a2)"></i>an edit call, taller the more lines</span>'
+           '<span><i style="background:var(--a3)"></i>the call that created the file</span>'
+           + ('<span><i class="pin"></i>your prompt</span>' if turns else "") + "</div>")
+    return '<div class="glance">' + "".join(out) + key + "</div>"

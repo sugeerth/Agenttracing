@@ -60,6 +60,9 @@ transcript reader, `claude_code.transcript_to_trajectory`.
   what the agent did until your next one: the time, the steps, the edits,
   the checks and how many failed, the errors, the tools it used most, and a
   link into the steps at that point.
+- **The code it changed.** The files it created, edited or rewritten,
+  read from its own edit calls, with the edits in order and a chart of
+  which file was edited under which prompt.
 - **Sub-agents as lanes.** Each sub-agent Claude Code started joins the
   session at the times it ran, on a lane named by what it was asked.
 - **Never a failure nobody measured.** Nothing graded a session, so it is

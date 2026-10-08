@@ -226,7 +226,9 @@ def convert(session: Session, *, now: Optional[float] = None) -> Optional[dict]:
                       len(data["steps"]) - 1)
             turns.append({"step": ix, "at_s": round(max(0.0, at - t0), 3), "prompt": _short(text, 400)})
         data["turns"] = turns
+    cwd = next((str(e.get("cwd")) for e in entries if isinstance(e, dict) and e.get("cwd")), None)
     data["source"] = dict(data.get("source") or {}, format="claude-code-session", session=session.sid, project=project,
+                          cwd=cwd,
                           subagents=subs, compactions=sum(1 for e in entries if isinstance(e, dict)
                                                           and e.get("isCompactSummary")))
     data.setdefault("harness", {})["graded_by"] = "ungraded"
