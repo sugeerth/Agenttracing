@@ -2,14 +2,15 @@ name: binaries
 
 # agentdiff to download and run: one file for any OS with Python 3.10+
 # (agentdiff.pyz), and a standalone binary per OS that needs no Python.
-# Built on every change to the packaging, on a tag, or by hand; the files
-# are this run's artifacts.
+# Built on every change to the code or the packaging, on a tag, or by hand;
+# the files are this run's artifacts.
 on:
   workflow_dispatch:
   push:
     branches: ["**"]
     tags: ["v*"]
-    paths: ["packaging/**", ".github/workflows/binaries.yml"]
+    # the downloads carry the code, so a change to it builds them again
+    paths: ["packaging/**", "agentdiff/**", ".github/workflows/binaries.yml"]
 
 jobs:
   pyz:
