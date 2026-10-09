@@ -266,6 +266,7 @@ class CommandTest(unittest.TestCase):
             self.assertIn(f"(root {base / 'home'})", out)
             self.assertEqual(len(list((base / "home" / "claude-code").rglob("*__claude-code.json"))), 1)
             self.assertFalse((Path(tmp) / "claude-code").exists(), "nothing written where it was started")
+            self.assertTrue((base / "home" / "self-evolve").is_dir(), "the folder self-evolve --demo writes to")
 
 
 class SecondStartTest(unittest.TestCase):

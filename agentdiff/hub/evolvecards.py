@@ -13,7 +13,7 @@ from __future__ import annotations
 import html
 from typing import List, Optional
 
-__all__ = ["evolve_card", "evals_card", "CARDS_CSS"]
+__all__ = ["evolve_card", "evals_card", "start_card", "CARDS_CSS"]
 
 CARDS_CSS = """
 .ecard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:0 0 14px}
@@ -44,6 +44,14 @@ CARDS_CSS = """
 .ecard .more{font-size:13px}
 .ekey{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;color:var(--soft);margin:-4px 0 14px}
 .ekey i{display:inline-block;width:14px;height:6px;border-radius:3px;background:var(--a1);margin-right:5px;vertical-align:1px}
+.ecard .tag{font:600 11px system-ui,sans-serif;padding:1px 7px;border-radius:999px;background:var(--chip);color:var(--soft)}
+.ecard.start h2{margin:0 0 6px;font:600 16px system-ui,sans-serif;text-transform:none;letter-spacing:0;color:var(--ink)}
+.ecard.start>p{font-size:14px;line-height:1.45;margin:0 0 6px}
+.ways{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin:10px 0 6px}
+.way{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--bg);min-width:0}
+.way b{display:block;font:600 14px system-ui,sans-serif;color:var(--ink);margin-bottom:4px}
+.way p{font-size:13px;color:var(--soft);margin:0 0 6px;line-height:1.4}
+.way pre.cmd{font-size:12px}
 .ekey i.c{background:none;border-right:2px solid var(--a3);border-radius:0;width:8px;height:10px;vertical-align:-1px}
 """
 
@@ -65,6 +73,49 @@ def _meter(passed: int, runs: int, changed: Optional[float] = None) -> str:
     w = 100 * passed / runs if runs else 0
     mark = f'<s style="left:0;width:{100 * changed:.1f}%"></s>' if changed is not None else ""
     return f'<div class="meter" title="{passed} of {runs} passed"><i style="width:{w:.1f}%"></i>{mark}</div>'
+
+
+def start_card(*, prog: str, folder: str, claude: Optional[str], here: bool = True) -> str:
+    """How to evolve one of your own: the demo's six tasks, or your project when its tests fail. The commands
+    are this machine's: the program as it was started and the folder this hub lists."""
+    sep = "\\" if "\\" in folder else "/"
+    demo = f"{prog} self-evolve --demo"
+    mine = f"cd your-project\n{prog} fix --evolve 3 -o {_quote(folder + sep + 'your-project')}"
+    if not here:  # a page exported to read elsewhere: nothing about the machine it was made on
+        found = 'It runs the <code>claude</code> CLI on your machine, on your Claude Code account.'
+    elif claude:
+        found = f'Claude Code is on this machine (<code>{e(claude)}</code>); the runs use its account.'
+    else:
+        found = ('There is no <code>claude</code> on PATH here: install Claude Code first, or pass '
+                 '<code>--claude-bin PATH</code>.')
+    return ('<div class="ecard start"><h2>Evolve your own agent</h2>'
+            '<p class="muted">Your Claude Code runs the tasks under a harness that changes itself. The evals read '
+            'how the runs went; when one names a change (an instruction, a denied tool), the changed harness runs the '
+            'same tasks, and the change is kept only if it wins more tasks than it loses. ' + found + '</p>'
+            '<div class="ways">'
+            '<div class="way"><b>On six small tasks</b><p>Each graded by tests the agent is never shown, so it '
+            'cannot be taught to the test. Two runs a task each generation, up to three generations; '
+            'our recorded run of one generation was 12 runs with haiku, $0.51.</p>'
+            f'<pre class="cmd">{e(demo)}</pre></div>'
+            '<div class="way"><b>On your project, when its tests fail</b><p>The same loop, on making them pass '
+            'without touching the tests. When it ends it names the folder to keep the change from: '
+            '<code>agentdiff apply --dir …</code>.</p>'
+            f'<pre class="cmd">{e(mine)}</pre></div></div>'
+            '<p class="muted">Every run is on <a href="/live">Live</a> while it goes; the harness lands here when '
+            f'it ends, from <code>{e(folder)}</code>.</p></div>')
+
+
+def _tag(entry) -> str:
+    """A bundled example says so, and whether it was made up or recorded (its ``EXAMPLE`` file)."""
+    ex = str((getattr(entry, "summary", None) or {}).get("example") or "")
+    if not ex:
+        return ""
+    kind = next((k for k in ("synthetic", "recorded") if ex.startswith(k)), "example")
+    return f'<span class="tag" title="{e(ex)}">{kind}</span>'
+
+
+def _quote(path: str) -> str:
+    return f'"{path}"' if any(c in path for c in " '()&") else path
 
 
 def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True) -> str:
@@ -139,7 +190,7 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True) -> 
         ends.append(f'<li>at most {e(harness["max_turns"])} turns</li>')
     ends_html = (f'<div class="ends">It ends with v{e(harness.get("version", 0))}:<ul>{"".join(ends)}</ul></div>'
                  if ends else '<div class="ends">It ends as the agent ships: nothing added.</div>')
-    name = f'<a class="t" href="{href}">{e(entry.title)}</a>' if title else ""
+    name = (f'<a class="t" href="{href}">{e(entry.title)}</a>' if title else "") + _tag(entry)
     return (f'<div class="ecard"><div class="ehead">{name}{pill}</div>'
             f'{stats}<div class="gstrip">{"".join(steps)}</div>{ends_html}'
             + (f'<a class="more" href="{href}">Every change and its evidence →</a>' if link else "") + '</div>')
@@ -181,7 +232,7 @@ def evals_card(entry, data: dict, *, link: bool = True, title: bool = True) -> s
     lives = "".join(f'<li><code>{e(x.get("id"))}</code>: {e(_cut(x.get("says") or "", 90))} · born {e(x.get("born"))}'
                     + (f', retired {e(x.get("retired_at"))}' if x.get("retired_at") else ", standing") + '</li>'
                     for x in evals[:6])
-    name = f'<a class="t" href="{href}">{e(entry.title)}</a>' if title else ""
+    name = (f'<a class="t" href="{href}">{e(entry.title)}</a>' if title else "") + _tag(entry)
     return (f'<div class="ecard"><div class="ehead">{name}{pill}'
             f'<span class="mut" style="font-size:13px;color:var(--soft)">target: {e(data.get("says") or "runs that failed")}</span></div>'
             f'{stats}<div class="gstrip">{"".join(steps)}</div>'

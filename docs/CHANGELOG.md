@@ -5,6 +5,35 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Self-evolving agents in the download
+
+The download now carries self-evolving agents, beside your sessions.
+- **`self-evolve --demo`** runs your own Claude Code (`claude`, haiku by
+  default) on the six demo tasks it carries, each graded by tests the
+  agent is not given. It writes to `~/.agentdiff/self-evolve/demo-AGENT`,
+  and a second call continues from its ledger. The graders are Python
+  tests, so it needs `python3`, and says so when there is none.
+- **The hub lists them.** `hub --claude-code` also lists
+  `~/.agentdiff/self-evolve` (`Catalog.add_root`): each harness on
+  Evolve, its runs on Live and Traces. An `fix --evolve 3 -o` into that
+  folder lands there too.
+- **Evolve opens on a way in.** Until you have a harness of your own, the
+  page opens on how to start one. It gives the commands as this machine
+  runs them: the downloaded binary's own path, the folder the hub lists,
+  and whether `claude` is on PATH. Once you have one, yours come first,
+  then the examples, and the way in closes the page.
+- **Two examples, labelled.** *stand-in-learns-to-check* is synthetic:
+  the real command, with Claude Code played by the careless stand-in.
+  It fails 0/6, is told to run the check, the change is kept, and every
+  run passes (`demo/selfevolve/make_example.py`). *haiku-on-six-tasks* is
+  recorded: 12 real haiku runs, $0.51. Semver failed both runs and no
+  change the harness can make answers it, so it stopped without one.
+  An upgrade adds the examples a home folder lacks and keeps the rest.
+- **From a session.** An ungraded session that ran a check gets a second
+  step after *Give it a check*: *Let a harness evolve on it*, with
+  `cd` into its project and `agentdiff fix --evolve 3 --check … -o
+  ~/.agentdiff/self-evolve/PROJECT`.
+
 ## Evolve and Evals as cards
 
 The Evolve and Evals lists are now one compact card per harness or suite

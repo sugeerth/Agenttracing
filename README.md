@@ -15,7 +15,7 @@ contains no network code; only the harness talks to a model.
 ```bash
 uvx --from git+https://github.com/sugeerth/Agenttracing agentdiff fix   # nothing to install
 pip install git+https://github.com/sugeerth/Agenttracing   # or in a clone: pip install -e .
-./agentdiff                             # downloaded (docs/DOWNLOAD.md: macOS, Windows, Linux, or agentdiff.pyz) or double-clicked: the hub on your own Claude Code sessions, live (hub --claude-code)
+./agentdiff                             # downloaded (docs/DOWNLOAD.md: macOS, Windows, Linux, or agentdiff.pyz) or double-clicked: the hub on your own Claude Code sessions, live (hub --claude-code); `./agentdiff self-evolve --demo` evolves your Claude Code's harness
 agentdiff fix                           # in your repo: two agents make its failing tests pass, live (--evolve 3: a harness that evolves, docs/SELF_EVOLVE.md)
 agentdiff "Add retries to the client"   # or any task in words, graded by the tests (docs/VENDORS.md)
 agentdiff demo --open                   # the 8 shipped pairs: out_demo/report.html and the verdict card

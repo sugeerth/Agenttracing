@@ -60,6 +60,9 @@ jobs:
           cat agentdiff-*/README.txt
           "$bin" --version
           "$bin" timeline "$GITHUB_WORKSPACE/demo/loops/traces/parse_duration__agent-stuck.json" -o t.html
+          # the six demo tasks it carries, ready for a self-evolving harness (no agent is started)
+          AGENTDIFF_HOME="$PWD/home" "$bin" self-evolve --demo --dry-run > evo.txt
+          cat evo.txt && grep -q "6 task(s)" evo.txt && [ -f home/self-evolve/demo-tasks/tasks.json ]
           "$bin" hub --examples --claude-code --port 8799 > hub.log 2>&1 &
           for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8799/healthz && break; sleep 1; done
           curl -fsS http://127.0.0.1:8799/login -o login.html && grep -q "Sign in" login.html

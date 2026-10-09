@@ -4,6 +4,7 @@
     agentdiff self-evolve --task tasks.json --agent haiku --generations 5 --runs 3 -o evo/
     agentdiff self-evolve --task tasks.json --agent haiku -o evo/          again: continues from evo/ledger.json
     agentdiff self-evolve --task tasks.json --agent haiku --hub http://127.0.0.1:8790   every run, live, on a hub
+    agentdiff self-evolve --demo                                           six tasks it carries, graders held out
 
 Each generation the agents run the tasks under the current harness and
 each run's check grades it; the evolving eval suite meets those runs;
@@ -33,14 +34,18 @@ def register(subparsers) -> None:
         "self-evolve", help="real agents under a harness that evolves: run, let the evolving evals judge, change "
                             "the harness where an eval caught failures, test the change paired, keep or revert it, "
                             "and carry on with what the change produced")
-    p.add_argument("--task", required=True, metavar="FILE", help="tasks JSON, as for duel (each with a check)")
+    p.add_argument("--task", default=None, metavar="FILE", help="tasks JSON, as for duel (each with a check)")
+    p.add_argument("--demo", action="store_true",
+                   help="instead of --task: the six tasks it carries, graders held out (docs/SELF_EVOLVE.md), "
+                        "written to ~/.agentdiff/self-evolve, where the hub shows them")
     p.add_argument("--agent", action="append", default=[], metavar="SPEC",
                    help="an agent, as for duel (haiku, sonnet, claude:MODEL, codex:MODEL); default haiku")
     p.add_argument("--generations", type=int, default=3, help="rounds to go (default 3)")
     p.add_argument("--runs", type=int, default=2, help="runs of each task per arm (default 2)")
     p.add_argument("--target", default="failure", choices=sorted(TARGETS), help="what an eval must catch")
     p.add_argument("--patience", type=int, default=2, help="generations an eval may catch nothing before it retires")
-    p.add_argument("-o", "--output", default="self-evolve-out", metavar="DIR")
+    p.add_argument("-o", "--output", default=None, metavar="DIR",
+                   help="default self-evolve-out, or ~/.agentdiff/self-evolve/demo-AGENT with --demo")
     p.add_argument("--fresh", action="store_true", help="start over instead of continuing from DIR/ledger.json")
     p.add_argument("--budget-tokens", type=int, default=None, help="stop a run past this many tokens")
     p.add_argument("--timeout", type=float, default=900.0, help="seconds per run (default 900)")
@@ -97,10 +102,59 @@ def _latest_passing_arm(out: Path, result: dict):
     return None
 
 
+def _demo_source() -> Path:
+    """The demo tasks as a build carries them, else as the repository has them."""
+    here = Path(__file__).resolve().parents[1]
+    for d in (here / "_demo" / "selfevolve", here.parent / "demo" / "selfevolve"):
+        if (d / "tasks").is_dir() and (d / "hidden").is_dir():
+            return d
+    raise OSError("this install carries no demo tasks; a downloaded build or a clone of the repository does")
+
+
+def demo_tasks(dest: Path) -> Path:
+    """The six demo tasks copied to ``dest`` (once), and a tasks.json whose checks name the held-out graders
+    there by absolute path, run by the Python on this machine: the graders are Python tests."""
+    import shlex
+    import shutil
+    import subprocess
+    python = shutil.which("python3") or shutil.which("python")
+    if not python:
+        raise OSError("the demo's graders are Python tests, and there is no python3 on PATH to run them")
+    src = _demo_source()
+    for part in ("tasks", "hidden"):
+        if not (dest / part).is_dir():
+            shutil.copytree(src / part, dest / part, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    join = subprocess.list2cmdline if os.name == "nt" else (lambda a: " ".join(shlex.quote(x) for x in a))
+    from ..selfevolve import DEMO_TASKS
+    tasks = []
+    for tid, prompt in DEMO_TASKS:
+        hidden = str((dest / "hidden" / tid).resolve())
+        tasks.append({"id": tid, "workspace": f"tasks/{tid}", "prompt": prompt,
+                      "check": join([python, "-m", "unittest", "discover", "-s", hidden, "-t", hidden])})
+    out = dest / "tasks.json"
+    out.write_text(json.dumps({"tasks": tasks}, indent=1) + "\n", encoding="utf-8")
+    return out
+
+
 def run(args: argparse.Namespace) -> int:
     from ..selfevolve import load_ledger, self_evolve, visible_check, write_ledger
     from .duel import _tasks
     from ..harness.vendors import parse_spec, preflight
+    if args.demo:
+        from .hub import _home
+        name = "demo-" + "-".join(a.replace(":", "-").replace("/", "-") for a in (args.agent or ["haiku"]))
+        args.output = args.output or str(_home() / "self-evolve" / name)
+        try:
+            args.task = str(demo_tasks(_home() / "self-evolve" / "demo-tasks"))
+        except OSError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        print(f"demo: six tasks, each graded by tests the agent is not given ({Path(args.task).parent / 'hidden'}); "
+              f"writing to {args.output}, where `agentdiff hub --claude-code` shows it", flush=True)
+    elif not args.task:
+        print("error: give the tasks with --task FILE, or --demo for the six it carries", file=sys.stderr)
+        return 2
+    args.output = args.output or "self-evolve-out"
     try:
         tasks = _tasks(argparse.Namespace(task=args.task, workspace=None, check=None, prompt=None, id="task"))
     except (OSError, ValueError) as exc:

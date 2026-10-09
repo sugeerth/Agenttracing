@@ -8,7 +8,8 @@ what they caught, and are forged anew when the harness provokes
 something else.
 
 ```bash
-python3 demo/selfevolve/make_tasks.py                       # three tasks, graders held out
+agentdiff self-evolve --demo                                # the six tasks it carries, into ~/.agentdiff/self-evolve
+python3 demo/selfevolve/make_tasks.py                       # in a clone: the same tasks, graders held out
 agentdiff self-evolve --task demo/selfevolve/tasks.json --agent haiku -o evo/
 agentdiff self-evolve --task demo/selfevolve/tasks.json --agent haiku -o evo/   # again: continues
 agentdiff fix --evolve 3                                    # in your repo: its failing tests, the same loop

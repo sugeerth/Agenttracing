@@ -15,17 +15,12 @@ be teaching to the test.
 """
 
 import json
+import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-TASKS = [
-    ("pricing", "apply_discount in pricing.py gives the wrong total. Fix it."),
-    ("slugify", "Implement slugify in text_utils.py."),
-    ("duration", "Implement parse_duration in durations.py."),
-    ("semver", "Implement compare in semver.py."),
-    ("csvline", "Implement split_csv_line in csvline.py."),
-    ("wrap", "Implement wrap in wrap.py."),
-]
+sys.path.insert(0, str(HERE.parents[1]))
+from agentdiff.selfevolve import DEMO_TASKS as TASKS  # noqa: E402  (what `self-evolve --demo` runs)
 
 
 def main() -> None:

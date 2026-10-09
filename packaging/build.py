@@ -23,7 +23,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 #: the example runs a build carries, as (from, to under agentdiff/_examples)
 EXAMPLES = [("demo/longrun/traces", "long-runs/traces"), ("demo/loops/traces", "loops/traces"),
-            ("demo/vendors/live", "duel"), ("demo/rl/traces", "rl/traces")]
+            ("demo/vendors/live", "duel"), ("demo/rl/traces", "rl/traces"),
+            ("demo/selfevolve/examples", "self-evolve")]
+#: what `self-evolve --demo` runs, as (from, to under agentdiff/_demo): the tasks and their held-out graders
+DEMO = [("demo/selfevolve/tasks", "selfevolve/tasks"), ("demo/selfevolve/hidden", "selfevolve/hidden")]
 _SKIP = shutil.ignore_patterns("__pycache__", "*.pyc", "raw", ".agentdiff-hub")
 
 
@@ -36,6 +39,8 @@ def stage(dest: Path) -> Path:
     for src, to in EXAMPLES:
         if (ROOT / src).is_dir():
             shutil.copytree(ROOT / src, dest / "agentdiff" / "_examples" / to, ignore=_SKIP)
+    for src, to in DEMO:
+        shutil.copytree(ROOT / src, dest / "agentdiff" / "_demo" / to, ignore=_SKIP)
     return dest
 
 
@@ -53,7 +58,8 @@ def binary(dist: Path) -> Path:
     name = f"agentdiff-{platform.system().lower()}-{platform.machine().lower()}"
     sep = ";" if os.name == "nt" else ":"
     data = [f"{staged / 'agentdiff' / 'hub' / 'static'}{sep}agentdiff/hub/static",
-            f"{staged / 'agentdiff' / '_examples'}{sep}agentdiff/_examples"]
+            f"{staged / 'agentdiff' / '_examples'}{sep}agentdiff/_examples",
+            f"{staged / 'agentdiff' / '_demo'}{sep}agentdiff/_demo"]
     if (staged / "agentdiff" / "page").is_dir():
         data.append(f"{staged / 'agentdiff' / 'page'}{sep}agentdiff/page")
     cmd = [sys.executable, "-m", "PyInstaller", "--onefile", "--name", name, "--distpath", str(dist),

@@ -1,0 +1,124 @@
+{
+ "schema_version": 1,
+ "trace_id": "pricing-1__claude-code__r1",
+ "run_id": "r1",
+ "agent": {
+  "name": "claude-code",
+  "model": "stand-in-model",
+  "version": "0.0.0-test-double (Claude Code stand-in)"
+ },
+ "task": {
+  "id": "pricing-1",
+  "prompt": "Fix the bug in pricing.py.",
+  "expected": null
+ },
+ "outcome": {
+  "success": false,
+  "answer": "Fixed apply_discount; the work is done.",
+  "score": 0.0,
+  "termination": "agent_stop",
+  "note": "check `python3 -m unittest -q` exited 1"
+ },
+ "totals": {
+  "input_tokens": 4200,
+  "output_tokens": 200,
+  "cost_usd": 0.01,
+  "latency_s": 1.2
+ },
+ "steps": [
+  {
+   "index": 0,
+   "type": "reason",
+   "name": "message",
+   "input": "",
+   "output": "I'll look at the pricing code.",
+   "tokens": 0,
+   "latency_s": 0.011,
+   "started_s": 0.026,
+   "tokens_basis": null
+  },
+  {
+   "index": 1,
+   "type": "read",
+   "name": "Read",
+   "input": "{\"file_path\": \"/tmp/agentdiff-claude-code-0_jix1km/work/pricing.py\"}",
+   "output": "\"\"\"Order pricing for a small shop.\"\"\"\n\n\ndef line_total(unit_price: float, quantity: int) -> float:\n    return round(unit_price * quantity, 2)\n\n\ndef apply_discount(total: float, percent: float) -> float:\n    \"\"\"Take `percent` off `total` (10 means ten percent off).\"\"\"\n    return round(total - percent, 2)\n\n\ndef order_total(lines: list, discount_percent: float = 0.0) -> float:\n    subtotal = sum(line_total(price, qty) for price, qty in lines)\n    return apply_discount(subtotal, discount_percent)\n",
+   "tokens": 12370,
+   "latency_s": 0.011,
+   "started_s": 0.047,
+   "effect": "read",
+   "tokens_basis": "measured",
+   "input_tokens": 12250,
+   "output_tokens": 120,
+   "cached_tokens": 12000
+  },
+  {
+   "index": 2,
+   "type": "tool_call",
+   "name": "Edit",
+   "input": "{\"file_path\": \"/tmp/agentdiff-claude-code-0_jix1km/work/pricing.py\", \"old_string\": \"return round(total - percent, 2)\", \"new_string\": \"return round(total - total * percent, 2)\"}",
+   "output": "The file has been updated.",
+   "tokens": 13870,
+   "latency_s": 0.011,
+   "started_s": 0.068,
+   "effect": "write",
+   "tokens_basis": "measured",
+   "input_tokens": 13750,
+   "output_tokens": 120,
+   "cached_tokens": 13500
+  },
+  {
+   "index": 3,
+   "type": "answer",
+   "name": "answer",
+   "input": "",
+   "output": "Fixed apply_discount; the work is done.",
+   "tokens": 9,
+   "tokens_basis": "estimated",
+   "latency_s": 0.0
+  }
+ ],
+ "token_accounting": {
+  "basis": "measured",
+  "per_step": "measured per message, on the message's last step",
+  "cached_input_tokens": 4000,
+  "cache_write_input_tokens": 0
+ },
+ "source": {
+  "format": "claude-code-stream-json",
+  "events": 8,
+  "unknown_events": {},
+  "timed": true
+ },
+ "vendor": {
+  "name": "claude-code",
+  "session_id": "sess-test",
+  "turns": 3,
+  "usage": {
+   "input_tokens": 200,
+   "cache_creation_input_tokens": 0,
+   "cache_read_input_tokens": 4000,
+   "output_tokens": 200
+  },
+  "cost_usd": 0.01,
+  "cost_basis": "reported by the CLI",
+  "duration_api_s": 1.0,
+  "permission_denials": 0,
+  "tools_offered": 6,
+  "subtype": "success",
+  "unanswered_tool_calls": 0,
+  "rate_limit_events": 0
+ },
+ "harness": {
+  "adapter": "vendor:claude",
+  "graded_by": "harness check",
+  "note": "run by `agentdiff duel`: the grade, the diff and the clock are the harness's",
+  "evolved": {
+   "version": 0,
+   "remedies": [],
+   "instructions": [],
+   "deny_tools": [],
+   "max_turns": null
+  }
+ }
+}

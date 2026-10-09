@@ -1425,26 +1425,31 @@ def timeline_page(*, brand: str, user: str, csrf: str, title: str, groups: list,
 
 # --------------------------------------------------------------- evolve
 def evolve_page(*, brand: str, user: str, csrf: str, entries: List[Entry], rivers: dict,
-                datas: Optional[dict] = None) -> str:
-    blocks = []
+                datas: Optional[dict] = None, start: str = "") -> str:
+    # yours first, then the bundled examples
+    own, examples = [], []
     for x in entries:
         if datas and datas.get(x.id):
-            blocks.append(evolvecards.evolve_card(x, datas[x.id]))
-            continue
-        blocks.append(f'<h2>{e(x.title)}</h2><div class="card"><p class="muted">{e(x.summary.get("describe"))} · '
-                      f'stopped: {e(x.summary.get("stop"))}</p>{rivers.get(x.id) or ""}'
-                      f'<p><a href="/runs/{e(x.id)}">The harness, every change and its evidence →</a></p></div>')
-    if not blocks:
+            block = evolvecards.evolve_card(x, datas[x.id])
+        else:
+            block = (f'<h2>{e(x.title)}</h2><div class="card"><p class="muted">{e(x.summary.get("describe"))} · '
+                     f'stopped: {e(x.summary.get("stop"))}</p>{rivers.get(x.id) or ""}'
+                     f'<p><a href="/runs/{e(x.id)}">The harness, every change and its evidence →</a></p></div>')
+        (examples if x.summary.get("example") else own).append(block)
+    # how to start one leads until you have one of your own, then closes the page
+    lead, close = ("", start) if own else (start, "")
+    blocks = own + examples
+    if not entries and not start:
         blocks.append('<div class="card"><p class="muted">No evolving harness under the root yet. Start one: '
-                      '<code>agentdiff self-evolve --task tasks.json --agent haiku -o evo/</code>. Each generation '
+                      '<code>agentdiff self-evolve --demo</code>. Each generation '
                       'the agents run, the evals judge them, and the harness tries one change the evals point at; '
                       'it shows here, and its runs stream to <a href="/live">Live</a> as they go.</p></div>')
     body = (f'<h1>Evolve</h1><p class="sub">Agents under a harness that changes itself. Each generation: the agents '
             f'run, the evolving evals judge the runs, the eval that caught the most failures names one change, the '
             f'change is tested against the harness as it was on the same tasks, and kept only on the counts.</p>'
-            + ('<div class="ekey"><span><i></i>runs that passed under the harness as it was</span>'
-               '<span><i class="c"></i>passed with the change tried</span></div>' if datas else "")
-            + "".join(blocks))
+            + lead + ('<div class="ekey"><span><i></i>runs that passed under the harness as it was</span>'
+                      '<span><i class="c"></i>passed with the change tried</span></div>' if datas else "")
+            + "".join(blocks) + close)
     return layout("Evolve", body, brand=brand, user=user, csrf=csrf, active="evolve")
 
 

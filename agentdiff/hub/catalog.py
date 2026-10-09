@@ -115,7 +115,17 @@ def detect_evals(d: Path, root: Path) -> Optional[Entry]:
                  {"target": data.get("target"), "says": data.get("says"), "generations": len(gens),
                   "active": len(data.get("active") or []), "retired": len(data.get("retired") or []),
                   "last_forward": (last.get("forward") or {}).get("coverage") if last.get("arrived") else None,
-                  "narrative": data.get("narrative") or ""})
+                  "narrative": data.get("narrative") or "", "example": _example(d)})
+
+
+def _example(d: Path) -> Optional[str]:
+    """What an ``EXAMPLE`` file beside a run or one folder up says it is (``synthetic: …``, ``recorded: …``)."""
+    for f in (d / "EXAMPLE", d.parent / "EXAMPLE"):
+        try:
+            return f.read_text(encoding="utf-8").strip()[:200] or None
+        except OSError:
+            continue
+    return None
 
 
 def detect_evolution(d: Path, root: Path) -> Optional[Entry]:
@@ -132,7 +142,8 @@ def detect_evolution(d: Path, root: Path) -> Optional[Entry]:
                  d, _mtime(d / "self-evolve.json"),
                  {"generations": len(gens), "pass_rates": rates, "kept": kept, "tried": tried,
                   "version": (data.get("harness") or {}).get("version"), "describe": data.get("describe"),
-                  "stop": data.get("stop"), "agents": agents, "narrative": data.get("narrative") or ""})
+                  "stop": data.get("stop"), "agents": agents, "narrative": data.get("narrative") or "",
+                  "example": _example(d)})
 
 
 #: in order: the first detector to claim a directory owns it
@@ -154,26 +165,35 @@ class Catalog:
         self.depth, self.limit = depth, limit
         self.detectors = list(detectors or DETECTORS)
         self.extra = extra
+        #: folders outside the root the hub also lists (``hub --claude-code``: what ``self-evolve --demo`` writes)
+        self.extra_roots: List[Path] = []
+
+    def add_root(self, path: Path) -> None:
+        path = Path(path).resolve()
+        if path not in self.extra_roots and not self.inside(path):
+            self.extra_roots.append(path)
 
     def entries(self) -> List[Entry]:
         found: List[Entry] = []
-        for dirpath, dirnames, _ in os.walk(self.root):
-            d = Path(dirpath)
-            level = len(d.relative_to(self.root).parts)
-            claimed = None
-            for detect in self.detectors:
-                claimed = detect(d, self.root)
+        # an extra root's ids are relative to its parent, so they carry its name and never meet the root's
+        for top, base in [(self.root, self.root)] + [(t, t.parent) for t in self.extra_roots]:
+            for dirpath, dirnames, _ in os.walk(top):
+                d = Path(dirpath)
+                level = len(d.relative_to(top).parts)
+                claimed = None
+                for detect in self.detectors:
+                    claimed = detect(d, base)
+                    if claimed:
+                        break
                 if claimed:
+                    found.append(claimed)
+                    dirnames[:] = []
+                else:
+                    dirnames[:] = sorted(n for n in dirnames if n not in _SKIP and not n.startswith("."))
+                if level >= self.depth:
+                    dirnames[:] = []
+                if len(found) >= self.limit:
                     break
-            if claimed:
-                found.append(claimed)
-                dirnames[:] = []
-            else:
-                dirnames[:] = sorted(n for n in dirnames if n not in _SKIP and not n.startswith("."))
-            if level >= self.depth:
-                dirnames[:] = []
-            if len(found) >= self.limit:
-                break
         if self.extra:
             found.extend(self.extra())
         return sorted(found, key=lambda e: e.updated, reverse=True)[: self.limit]
@@ -182,9 +202,12 @@ class Catalog:
         return next((e for e in self.entries() if e.id == entry_id_), None)
 
     def inside(self, path: Path) -> bool:
-        """Whether ``path`` is under the root: nothing outside it is ever served."""
-        try:
-            Path(path).resolve().relative_to(self.root)
-            return True
-        except ValueError:
-            return False
+        """Whether ``path`` is under the root or a folder added to it: nothing outside them is ever served."""
+        path = Path(path).resolve()
+        for top in [self.root] + self.extra_roots:
+            try:
+                path.relative_to(top)
+                return True
+            except ValueError:
+                continue
+        return False

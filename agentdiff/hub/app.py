@@ -42,7 +42,9 @@ from __future__ import annotations
 
 import hmac
 import json
+import os
 import re
+import sys
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -170,6 +172,10 @@ class App:
         self.ingest_token = ingest_token
         self.loopback = loopback
         self.public_url = public_url
+        #: where this machine's own evolving harnesses are written (``hub --claude-code``), else None
+        self.evolve_home: Optional[Path] = None
+        #: rendering pages to read elsewhere (``hub --export``): no path or program of this machine on them
+        self.exporting = False
         hexid = r"([0-9a-f]{12})"
         self._routes: list = [
             ("GET", re.compile(r"^/healthz$"), self.healthz, False),
@@ -605,7 +611,22 @@ class App:
             if data:
                 rivers[x.id] = viz.harness_river(data)
                 datas[x.id] = data
-        return Response.html(views.evolve_page(**self._common(session), entries=entries, rivers=rivers, datas=datas))
+        return Response.html(views.evolve_page(**self._common(session), entries=entries, rivers=rivers, datas=datas,
+                                               start=self._evolve_start()))
+
+    def _evolve_start(self) -> str:
+        """Evolve your own: the commands as this machine runs them, into the folder this hub lists."""
+        import shlex
+        import shutil
+        import subprocess
+        from .evolvecards import start_card
+        if self.exporting:
+            return start_card(prog="agentdiff", folder="~/.agentdiff/self-evolve", claude=None, here=False)
+        prog = "agentdiff"
+        if getattr(sys, "frozen", False):  # the downloaded binary: wherever it was unpacked
+            prog = subprocess.list2cmdline([sys.executable]) if os.name == "nt" else shlex.quote(sys.executable)
+        folder = str(self.evolve_home or Path(self.config.root).resolve())
+        return start_card(prog=prog, folder=folder, claude=shutil.which("claude"))
 
     def evals(self, req: Request, session: Session) -> Response:
         from . import viz

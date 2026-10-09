@@ -49,6 +49,30 @@ Nothing leaves the machine. The hub listens on 127.0.0.1 only, the traces
 are files in your home folder (the folder is readable by you alone), and no
 part of reading a session talks to a network.
 
+## Self-evolving agents
+
+```bash
+./agentdiff self-evolve --demo                  # your Claude Code, six tasks, graders it is never shown
+cd your-project && /path/to/agentdiff fix --evolve 3 -o ~/.agentdiff/self-evolve/your-project   # when its tests fail
+```
+
+Your own `claude` runs under a harness that changes itself
+(`docs/SELF_EVOLVE.md`). The evals read how the runs went. When one names
+a change (an instruction, a denied tool), the changed harness runs the
+same tasks, and the change is kept only if it wins more tasks than it
+loses. Everything is written to `~/.agentdiff/self-evolve`. The hub lists
+that folder: each harness on **Evolve**, every run on **Live** as it goes.
+The runs use your Claude Code account. The recorded example was 12 haiku
+runs for $0.51. The demo's graders are Python tests, so it needs `python3`.
+
+Until you have a harness of your own, Evolve opens on these commands,
+written for this machine. It also shows two examples, each marked: a
+synthetic stand-in that learns to run the check, and a recorded haiku run
+that stopped without a change because none answered its failures.
+
+A self-evolve run starts `claude`, which talks to Anthropic the way
+Claude Code always does; nothing else in it does.
+
 ## A session in the hub
 
 The importer is `agentdiff/claude_sessions.py`; the steps come from the

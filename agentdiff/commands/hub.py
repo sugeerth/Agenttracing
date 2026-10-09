@@ -109,10 +109,13 @@ def _examples() -> Optional[str]:
     from pathlib import Path
     src = Path(__file__).resolve().parents[1] / "_examples"
     home = Path(os.environ.get("AGENTDIFF_EXAMPLES") or _home() / "examples")
-    if not home.is_dir():
-        if not src.is_dir():
-            return None
-        shutil.copytree(src, home)
+    if not src.is_dir():
+        return str(home) if home.is_dir() else None
+    home.mkdir(parents=True, exist_ok=True)
+    # a newer build carries examples an older one did not: add them, and leave the ones already there alone
+    for part in src.iterdir():
+        if part.is_dir() and not (home / part.name).exists():
+            shutil.copytree(part, home / part.name)
     return str(home)
 
 
@@ -165,6 +168,12 @@ def run(args: argparse.Namespace) -> int:
         dest = _home() / "claude-code"
         app.traces.add_root(dest)
         follower, mine = _sessions(dest)
+        # the harnesses you evolve (`self-evolve --demo`, `fix --evolve -o …`): on Evolve, their runs on Live
+        evo = _home() / "self-evolve"
+        evo.mkdir(parents=True, exist_ok=True)
+        app.catalog.add_root(evo)
+        app.traces.add_root(evo)
+        app.evolve_home = evo
     try:
         server = make_server(app, quiet=not args.verbose)
     except OSError as exc:
@@ -190,6 +199,9 @@ def run(args: argparse.Namespace) -> int:
     print(f"  agents post telemetry: AGENTDIFF_HUB={app.public_url} AGENTDIFF_HUB_TOKEN={app.ingest_token}")
     if mine:
         print(f"  yours: {mine}")
+    if app.evolve_home:
+        print(f"  evolve: {app.public_url}/evolve lists the harnesses evolved into {app.evolve_home} "
+              "(agentdiff self-evolve --demo)")
     print(f"  live: {app.public_url}/live follows every run under the root as it goes")
     print("  Ctrl-C to stop", flush=True)
     if args.open:

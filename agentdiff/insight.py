@@ -583,6 +583,17 @@ def mitigation(traj: dict, tl: dict, *, lap: Optional[dict] = None, phases: Opti
                          "may stop, and every later run is graded by it.",
                          "command": f"agentdiff guard --install --check {_q(check or 'pytest -q')}",
                          "source": "outcome.note (ungraded)"})
+        src = traj.get("source") or {}
+        if check and src.get("format") == "claude-code-session" and src.get("cwd"):
+            # its own project and its own check: when the check fails there, a harness can evolve on it
+            name = src.get("project") or re.split(r"[/\\]", str(src["cwd"]).rstrip("/\\"))[-1] or "project"
+            steps.insert(1, {"title": "Let a harness evolve on it", "text": "When the check fails in this project, "
+                             "a self-evolving harness takes it from there: Claude Code runs it under a harness that "
+                             "changes one thing a generation (an instruction, a denied tool), kept only when a paired "
+                             "test on the same task says it helped. It lands on Evolve.",
+                             "command": f"cd {_q(src['cwd'])}\nagentdiff fix --evolve 3 --check {_q(check)} "
+                                        f"-o ~/.agentdiff/self-evolve/{_q(name)}",
+                             "source": "selfevolve (fix --evolve)"})
     elif success is None:
         steps.append({"title": "Wait for the end", "text": "It is still running; the reason and the change come "
                       "when it ends.", "command": "", "source": "in_progress"})

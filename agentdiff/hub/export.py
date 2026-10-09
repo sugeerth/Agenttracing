@@ -162,6 +162,7 @@ def export(root: str, out: str, *, bare_index: bool = False, title: Optional[str
         from dataclasses import replace
         config = replace(config, title=title)
     app = build_app(config)
+    app.exporting = True
     user, password = app.demo_account()
     page = app.handle(Request("GET", "/login")).body.decode()
     token = re.search(r'name="csrf" value="([^"]+)"', page).group(1)

@@ -47,12 +47,23 @@ from .evolving import _narrative as evals_narrative, evolve as evolve_evals
 from .forge import RunView, _score, _unique_keys, candidates, describe, parse_rule, rule_id, spec
 from .trace import Trajectory
 
-__all__ = ["Harness", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "LEDGER_KIND", "ESSENTIAL_TOOLS",
+__all__ = ["DEMO_TASKS", "Harness", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "LEDGER_KIND", "ESSENTIAL_TOOLS",
            "load_ledger", "write_ledger", "visible_check"]
 
 LEDGER_KIND = "self-evolving"
 LEDGER_VERSION = 1
 #: tools a coding agent cannot work without: never denied, whatever travels with failure
+#: the six demo tasks (``demo/selfevolve``, ``self-evolve --demo``): each workspace holds the code and its
+#: docstring spec, and the tests that grade a run are held out, outside the workspace the agent is given
+DEMO_TASKS = (
+    ("pricing", "apply_discount in pricing.py gives the wrong total. Fix it."),
+    ("slugify", "Implement slugify in text_utils.py."),
+    ("duration", "Implement parse_duration in durations.py."),
+    ("semver", "Implement compare in semver.py."),
+    ("csvline", "Implement split_csv_line in csvline.py."),
+    ("wrap", "Implement wrap in wrap.py."),
+)
+
 ESSENTIAL_TOOLS = ("Bash", "Read", "Edit", "Write", "shell", "apply_patch", "exec_command")
 
 
