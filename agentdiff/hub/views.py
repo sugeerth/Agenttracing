@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from . import glance, seconds, viz
+from . import evolvecards, glance, seconds, viz
 from .catalog import Entry
 
 __all__ = ["layout", "login_page", "overview_page", "runs_page", "duel_page", "report_page", "telemetry_page",
@@ -147,7 +147,7 @@ border:1px solid var(--line);border-radius:16px;overflow:hidden}
 .login-side{padding:20px}.login-form{padding:20px}}
 @media (max-width:640px){header{flex-wrap:wrap;padding:10px 16px;gap:8px}header nav{order:3;flex:1 1 100%}
 td,th{font-size:13px;padding:5px}.filters form{margin-left:0;width:100%}.filters input{flex:1;width:auto}}
-""" + viz.VIZ_CSS + glance.GLANCE_CSS + seconds.SECONDS_CSS
+""" + viz.VIZ_CSS + glance.GLANCE_CSS + seconds.SECONDS_CSS + evolvecards.CARDS_CSS
 
 _MARK = ('<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">'
          '<rect x="1" y="3" width="6" height="6" rx="2" style="fill:var(--a1)"/>'
@@ -1332,9 +1332,13 @@ def live_page(*, brand: str, user: str, csrf: str, panel: str) -> str:
 
 
 # ---------------------------------------------------------------- evals
-def evals_page(*, brand: str, user: str, csrf: str, entries: List[Entry], rivers: dict) -> str:
+def evals_page(*, brand: str, user: str, csrf: str, entries: List[Entry], rivers: dict,
+               datas: Optional[dict] = None) -> str:
     blocks = []
     for x in entries:
+        if datas and datas.get(x.id):
+            blocks.append(evolvecards.evals_card(x, datas[x.id]))
+            continue
         blocks.append(f'<h2>{e(x.title)}</h2><div class="card"><p class="muted">{e(x.summary.get("says"))}</p>'
                       f'{rivers.get(x.id) or ""}<p><a href="/runs/{e(x.id)}">Every eval and why it entered and left →</a>'
                       f'</p></div>')
@@ -1342,8 +1346,9 @@ def evals_page(*, brand: str, user: str, csrf: str, entries: List[Entry], rivers
         blocks.append('<div class="card"><p class="muted">No eval suites under the root yet. Carry one through '
                       'training generations with <code>agentdiff evolve-evals g0/ g1/ g2/ -o evals/</code>; '
                       'its <code>evolve-evals.json</code> shows here.</p></div>')
-    body = (f'<h1>Evals</h1><p class="sub">Each suite across its generations. A bar is the forward coverage: what '
-            f'the suite carried in caught of failures it had never seen. A lane is one eval\'s life.</p>'
+    body = (f'<h1>Evals</h1><p class="sub">Each suite across its generations: what the evals it carried in caught of '
+            f'failures they had never seen (forward coverage), and each eval\'s life, from the failure it was born on '
+            f'to the generation it retired.</p>'
             + "".join(blocks))
     return layout("Evals", body, brand=brand, user=user, csrf=csrf, active="evals")
 
@@ -1419,9 +1424,13 @@ def timeline_page(*, brand: str, user: str, csrf: str, title: str, groups: list,
 
 
 # --------------------------------------------------------------- evolve
-def evolve_page(*, brand: str, user: str, csrf: str, entries: List[Entry], rivers: dict) -> str:
+def evolve_page(*, brand: str, user: str, csrf: str, entries: List[Entry], rivers: dict,
+                datas: Optional[dict] = None) -> str:
     blocks = []
     for x in entries:
+        if datas and datas.get(x.id):
+            blocks.append(evolvecards.evolve_card(x, datas[x.id]))
+            continue
         blocks.append(f'<h2>{e(x.title)}</h2><div class="card"><p class="muted">{e(x.summary.get("describe"))} · '
                       f'stopped: {e(x.summary.get("stop"))}</p>{rivers.get(x.id) or ""}'
                       f'<p><a href="/runs/{e(x.id)}">The harness, every change and its evidence →</a></p></div>')
@@ -1433,18 +1442,14 @@ def evolve_page(*, brand: str, user: str, csrf: str, entries: List[Entry], river
     body = (f'<h1>Evolve</h1><p class="sub">Agents under a harness that changes itself. Each generation: the agents '
             f'run, the evolving evals judge the runs, the eval that caught the most failures names one change, the '
             f'change is tested against the harness as it was on the same tasks, and kept only on the counts.</p>'
+            + ('<div class="ekey"><span><i></i>runs that passed under the harness as it was</span>'
+               '<span><i class="c"></i>passed with the change tried</span></div>' if datas else "")
             + "".join(blocks))
     return layout("Evolve", body, brand=brand, user=user, csrf=csrf, active="evolve")
 
 
 def evolution_page(*, brand: str, user: str, csrf: str, entry: Entry, data: dict, refs: list = ()) -> str:
     from ..selfevolve import remedy_text
-    h = data.get("harness") or {}
-    now = "".join(f"<li>{e(i)}</li>" for i in h.get("instructions") or [])
-    now += "".join(f"<li>denied tool <code>{e(t)}</code></li>" for t in h.get("deny_tools") or [])
-    if h.get("max_turns"):
-        now += f"<li>at most {e(h['max_turns'])} turns</li>"
-    now = f"<ol>{now}</ol>" if now else '<p class="muted">Nothing added: the agent as it ships.</p>'
     rows, weighed = [], []
     for g in data.get("lineage") or []:
         a = g.get("action") or {}
@@ -1481,16 +1486,18 @@ def evolution_page(*, brand: str, user: str, csrf: str, entry: Entry, data: dict
     arm_html = "".join(f'<h2>{e(gname)} <span class="muted">· {len(rs)}</span></h2><div class="card">{_trace_rows(rs)}</div>'
                        for gname, rs in arms.items())
     body = (f'<p class="muted"><a href="/evolve">Evolve</a></p><h1>{e(entry.title)}</h1>'
-            f'<p class="sub">{e(data.get("describe"))} · stopped: {e(data.get("stop"))}</p>'
-            f'<div class="card">{viz.harness_river(data)}</div>'
-            f'<div class="card"><p>{e(data.get("narrative"))}</p></div>'
-            f'<h2>The harness now</h2><div class="card">{now}</div>'
+            f'{evolvecards.evolve_card(entry, data, link=False, title=False)}'
+            f'<h2>The story, generation by generation</h2><div class="card"><p>{e(data.get("narrative"))}</p>'
+            + (f'<details><summary class="muted">the river: every generation on one chart</summary>'
+               f'{viz.harness_river(data)}</details>' if len(data.get("lineage") or []) > 1 else "")
+            + '</div>'
             f'<h2>Every generation</h2><div class="card"><table><tr><th>generation</th><th>harness</th>'
             f'<th class="n">failed</th><th>change tried, and the failure it answers</th><th>paired test</th>'
             f'<th class="n">passed: as it was → changed</th><th class="n">median tokens</th></tr>{"".join(rows)}</table>'
             f'{"".join(weighed)}</div>'
-            + (f'<h2>The evals that judged it</h2><div class="card">{viz.eval_river(ev)}<p>{e(ev.get("narrative"))}</p></div>'
-               if ev.get("lineage") else "")
+            + (f'<h2>The evals that judged it</h2>{evolvecards.evals_card(entry, ev, link=False, title=False)}'
+               f'<div class="card"><p>{e(ev.get("narrative"))}</p><details><summary class="muted">every eval\'s life on one '
+               f'chart</summary>{viz.eval_river(ev)}</details></div>' if ev.get("lineage") else "")
             + f'<h2>Every run, by arm <span class="muted">· <a href="/timeline?run={e(entry.id)}">every version on one '
               f'clock →</a></span></h2>{arm_html or "<div class=card><p class=muted>No traces found under it.</p></div>"}'
             f'<p class="muted">A change is kept when it wins more tasks than it loses, the same tasks run the same '

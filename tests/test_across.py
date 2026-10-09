@@ -114,5 +114,44 @@ class OverviewAcrossTest(unittest.TestCase):
             self.assertIn("Where the working time goes", html)
 
 
+class EvolveCardsTest(unittest.TestCase):
+    LINEAGE = [
+        {"generation": "g0", "runs": 18, "failed": 15, "harness": {"version": 0},
+         "action": {"remedy": {"id": "instruction:claims_without_check"},
+                    "test": {"verdict": "kept", "passed": {"current": [3, 18], "changed": [12, 18]}}},
+         "evals": {"born": ["claims_without_check"], "retired": []}},
+        {"generation": "g1", "runs": 18, "failed": 6, "harness": {"version": 1},
+         "action": {"remedy": {"id": "mark:unrecovered_error"},
+                    "test": {"verdict": "reverted", "passed": {"current": [12, 18], "changed": [12, 18]}}},
+         "evals": {"born": [], "retired": ["claims_without_check"]}},
+        {"generation": "g2", "runs": 18, "failed": 0, "harness": {"version": 1}, "action": {}, "evals": {}},
+    ]
+
+    def test_a_harness_card_says_whether_it_worked_and_what_each_generation_tried(self):
+        from types import SimpleNamespace
+        from agentdiff.hub.evolvecards import evolve_card
+        x = SimpleNamespace(id="abc", title="demo · self-evolving harness")
+        out = evolve_card(x, {"lineage": self.LINEAGE, "stop": "converged at g2",
+                              "harness": {"version": 1, "instructions": ["Run the check."], "deny_tools": []}})
+        self.assertIn("✓ every run passes", out)
+        self.assertIn("17%", out)
+        self.assertIn("100%", out)
+        self.assertIn("(3/18 → 18/18)", out)
+        self.assertIn("✓ kept</span> <code>instruction:claims_without_check</code>", out)
+        self.assertIn("✗ reverted", out)
+        self.assertIn("<q>Run the check.</q>", out)
+        self.assertIn('href="/runs/abc"', out)
+        self.assertNotIn('href="/runs/abc">Every', evolve_card(x, {"lineage": self.LINEAGE}, link=False))
+
+    def test_a_suite_card_with_nothing_wrong_says_so(self):
+        from types import SimpleNamespace
+        from agentdiff.hub.evolvecards import evals_card
+        x = SimpleNamespace(id="abc", title="suite")
+        out = evals_card(x, {"lineage": [{"generation": "g0", "runs": 4, "wrong": 0, "arrived": 1,
+                                          "forward": {"caught": 0, "coverage": None}}], "evals": []})
+        self.assertIn("nothing wrong to catch", out)
+        self.assertIn("no eval standing", out)
+
+
 if __name__ == "__main__":
     unittest.main()

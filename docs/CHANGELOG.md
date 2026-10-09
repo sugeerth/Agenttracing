@@ -5,6 +5,25 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Evolve and Evals as cards
+
+The Evolve and Evals lists are now one compact card per harness or suite
+(`hub/evolvecards.py`), each opening on whether it worked. A harness card
+gives:
+- a status;
+- the pass rate from the first generation to the last;
+- the changes kept and reverted, and the evals born and retired;
+- a strip of generations, each with the runs that passed, the change
+  tried and whether the counts kept it;
+- the harness it ends with, as the instructions it was told and the
+  tools it was denied.
+
+A suite card gives its forward coverage and each generation's catch, and
+lists every eval with the generation it was born and retired in. The
+cards replace a full-width chart per entry, which on a one-generation run
+was a single bar in an empty frame. A run's own page opens on the same
+card, with the river behind a fold.
+
 ## What a session changed, and what keeps happening
 
 - **The code a Claude Code session produced**

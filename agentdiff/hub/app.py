@@ -599,18 +599,19 @@ class App:
     def evolve(self, req: Request, session: Session) -> Response:
         from . import viz
         entries = [x for x in self.catalog.entries() if x.kind == "evolution"]
-        rivers = {}
+        rivers, datas = {}, {}
         for x in entries:
             data = self._json_file(x.path / "self-evolve.json")
             if data:
                 rivers[x.id] = viz.harness_river(data)
-        return Response.html(views.evolve_page(**self._common(session), entries=entries, rivers=rivers))
+                datas[x.id] = data
+        return Response.html(views.evolve_page(**self._common(session), entries=entries, rivers=rivers, datas=datas))
 
     def evals(self, req: Request, session: Session) -> Response:
         from . import viz
         # a suite on its own, and the suite inside every evolving harness
         entries = [x for x in self.catalog.entries() if x.kind in ("evals", "evolution")]
-        rivers = {}
+        rivers, datas = {}, {}
         for x in entries:
             if x.kind == "evals":
                 data = self._json_file(x.path / "evolve-evals.json")
@@ -618,8 +619,9 @@ class App:
                 data = (self._json_file(x.path / "self-evolve.json") or {}).get("evals")
             if data and data.get("lineage"):
                 rivers[x.id] = viz.eval_river(data)
+                datas[x.id] = data
         entries = [x for x in entries if x.id in rivers]
-        return Response.html(views.evals_page(**self._common(session), entries=entries, rivers=rivers))
+        return Response.html(views.evals_page(**self._common(session), entries=entries, rivers=rivers, datas=datas))
 
     # --------------------------------------------------------------- account
     def account(self, req: Request, session: Session, message: Optional[str] = None,
