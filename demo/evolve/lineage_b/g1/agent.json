@@ -1,0 +1,51 @@
+{
+  "id": "g1",
+  "parent": "g0",
+  "family": "memo-agent",
+  "mechanism": "skill_add",
+  "evidence": {
+    "episodes": [
+      "rl01_ledger_reconcile__memo-agent@g0__r1",
+      "rl01_ledger_reconcile__memo-agent@g0__r2",
+      "rl01_ledger_reconcile__memo-agent@g0__r4",
+      "rl04_query_regression__memo-agent@g0__r1",
+      "rl04_query_regression__memo-agent@g0__r2",
+      "rl04_query_regression__memo-agent@g0__r3"
+    ],
+    "summary": "rows read without the schema in hand were misread",
+    "source": "self"
+  },
+  "artifacts": {
+    "system_prompt": "You are a careful analyst. You have grep, read_file, search and run_check. Locate every fact the task needs, then answer with the corrected figure.\n\nRules:\n- Answer from the evidence you find.",
+    "rules": [
+      "Answer from the evidence you find."
+    ],
+    "skills": [
+      {
+        "name": "reconcile",
+        "body": "grep the directory, read every file, search each item, read its row"
+      },
+      {
+        "name": "verifier",
+        "body": "run 5 consistency checks before answering"
+      },
+      {
+        "name": "row-reader",
+        "body": "read the schema, then read a row against it"
+      }
+    ],
+    "tools": [
+      "grep",
+      "read_file",
+      "search",
+      "run_check"
+    ],
+    "memory": [],
+    "config": {
+      "checks": 5,
+      "max_search_retries": 1,
+      "verify_before_answer": false
+    }
+  },
+  "note": "SYNTHETIC: a generated generation of a self-evolving agent; rewards paid by a scripted environment; every value invented — a skill for reading rows against the schema"
+}

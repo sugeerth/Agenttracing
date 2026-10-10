@@ -1,0 +1,75 @@
+{
+ "schema_version": 1,
+ "trace_id": "a1_negation-steady-v1",
+ "agent": {
+  "name": "steady-v1",
+  "model": "model-x",
+  "version": "1"
+ },
+ "task": {
+  "id": "a1_negation",
+  "prompt": "Is booking BK1234 refundable under the flex fare? Answer clearly.",
+  "expected": "Booking BK1234 is refundable under the flex fare and the customer keeps loyalty points."
+ },
+ "outcome": {
+  "success": true,
+  "answer": "Booking BK1234 is refundable under the flex fare and the customer keeps loyalty points.",
+  "score": 1.0,
+  "termination": "agent_stop"
+ },
+ "totals": {
+  "input_tokens": 400,
+  "output_tokens": 160,
+  "cost_usd": 0.001,
+  "latency_s": 4.0
+ },
+ "steps": [
+  {
+   "type": "plan",
+   "name": "plan",
+   "input": "Read the fare rules, then answer.",
+   "output": "",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "index": 0
+  },
+  {
+   "type": "tool_call",
+   "name": "get_booking",
+   "input": "get_booking(reference='BK1234')",
+   "output": "BK1234 - flex fare, refundable, loyalty points retained on cancel.",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "effect": "read",
+   "error": false,
+   "index": 1
+  },
+  {
+   "type": "reason",
+   "name": "reason",
+   "input": "The record shows the fare is refundable.",
+   "output": "",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "index": 2
+  },
+  {
+   "type": "answer",
+   "name": "final",
+   "input": "Booking BK1234 is refundable under the flex fare and the customer keeps loyalty points.",
+   "output": "Booking BK1234 is refundable under the flex fare and the customer keeps loyalty points.",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "index": 3
+  }
+ ],
+ "tools": [
+  {
+   "name": "get_booking",
+   "effect": "read"
+  }
+ ],
+ "budget": {
+  "max_steps": 12
+ }
+}

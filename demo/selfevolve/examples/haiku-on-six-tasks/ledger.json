@@ -1,0 +1,85 @@
+{
+  "eval_lineage": [
+    {
+      "arrived": 0,
+      "born": [],
+      "corpus": "61a5fcfaed21",
+      "forge": {
+        "measurable": true,
+        "reason": null,
+        "tried": 11
+      },
+      "forward": {
+        "caught": 0,
+        "coverage": 0.0,
+        "false_alarms": 0,
+        "fpr": 0.0
+      },
+      "generation": "g0",
+      "leaving": {
+        "caught": 0,
+        "coverage": 0.0,
+        "false_alarms": 0,
+        "suite": 0
+      },
+      "reborn": [],
+      "retired": [],
+      "right": 10,
+      "runs": 12,
+      "verdicts": {},
+      "wrong": 2
+    }
+  ],
+  "evals": {
+    "evals": {},
+    "generations": [
+      {
+        "corpus": "61a5fcfaed21",
+        "label": "g0"
+      }
+    ],
+    "kind": "evolving-evals",
+    "target": "failure",
+    "version": 1
+  },
+  "generations": [
+    {
+      "action": null,
+      "evals": {
+        "arrived": 0,
+        "born": [],
+        "forward": {
+          "caught": 0,
+          "coverage": 0.0,
+          "false_alarms": 0,
+          "fpr": 0.0
+        },
+        "reborn": [],
+        "retired": [],
+        "verdicts": {}
+      },
+      "failed": 2,
+      "generation": "g0",
+      "harness": {
+        "deny_tools": [],
+        "instructions": [],
+        "max_turns": null,
+        "remedies": [],
+        "version": 0
+      },
+      "runs": 12,
+      "weighed": []
+    }
+  ],
+  "harness": {
+    "deny_tools": [],
+    "instructions": [],
+    "max_turns": null,
+    "remedies": [],
+    "version": 0
+  },
+  "kind": "self-evolving",
+  "target": "failure",
+  "tried": {},
+  "version": 1
+}

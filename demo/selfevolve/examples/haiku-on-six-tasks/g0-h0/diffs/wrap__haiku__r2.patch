@@ -1,0 +1,57 @@
+--- a/wrap.py
++++ b/wrap.py
+@@ -11,4 +11,53 @@
+     pieces. No line has leading or trailing spaces. Empty text gives [].
+     ``width`` below 1 raises ValueError.
+     """
+-    raise NotImplementedError
++    if width < 1:
++        raise ValueError("width must be at least 1")
++
++    if not text:
++        return []
++
++    result = []
++    paragraphs = text.split('\n\n')
++
++    for para_idx, para in enumerate(paragraphs):
++        if not para.strip():
++            continue
++
++        words = para.split()
++        if not words:
++            continue
++
++        para_lines = []
++        current_line = []
++        current_length = 0
++
++        for word in words:
++            if len(word) <= width:
++                if not current_line:
++                    current_line.append(word)
++                    current_length = len(word)
++                elif current_length + 1 + len(word) <= width:
++                    current_line.append(word)
++                    current_length += 1 + len(word)
++                else:
++                    para_lines.append(' '.join(current_line))
++                    current_line = [word]
++                    current_length = len(word)
++            else:
++                if current_line:
++                    para_lines.append(' '.join(current_line))
++                    current_line = []
++                    current_length = 0
++
++                for i in range(0, len(word), width):
++                    para_lines.append(word[i:i+width])
++
++        if current_line:
++            para_lines.append(' '.join(current_line))
++
++        if result and para_lines:
++            result.append('')
++        result.extend(para_lines)
++
++    return result

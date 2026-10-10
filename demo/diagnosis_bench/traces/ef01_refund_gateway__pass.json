@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "trace_id": "ef01_refund_gateway-steady-v1",
+  "agent": {
+    "name": "steady-v1",
+    "model": "claude-sonnet-5",
+    "version": "v1"
+  },
+  "task": {
+    "id": "ef01_refund_gateway",
+    "prompt": "Cancel booking VN882 and report the refund.",
+    "expected": "Booking VN882 cancelled with a full refund."
+  },
+  "outcome": {
+    "success": true,
+    "answer": "Booking VN882 cancelled with a full refund.",
+    "score": 1.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 480,
+    "output_tokens": 160,
+    "cost_usd": 0.00192,
+    "latency_s": 4.4
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "Read the booking, then cancel with refund.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "get_booking",
+      "input": "get_booking(reference='VN882')",
+      "output": "VN882 \u2014 LIS->MAD, Flex fare, refundable.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 2,
+      "type": "tool_call",
+      "name": "cancel_booking",
+      "input": "cancel_booking(reference='VN882', refund=true)",
+      "output": "Cancelled. Full refund issued to the original card.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "write",
+      "error": false
+    },
+    {
+      "index": 3,
+      "type": "answer",
+      "name": "final",
+      "input": "Booking VN882 cancelled with a full refund.",
+      "output": "Booking VN882 cancelled with a full refund.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_booking",
+      "effect": "read"
+    },
+    {
+      "name": "get_policy",
+      "effect": "read"
+    },
+    {
+      "name": "get_refund_quote",
+      "effect": "read"
+    },
+    {
+      "name": "cancel_booking",
+      "effect": "write"
+    },
+    {
+      "name": "update_seat",
+      "effect": "write"
+    }
+  ],
+  "budget": {
+    "max_steps": 12
+  }
+}

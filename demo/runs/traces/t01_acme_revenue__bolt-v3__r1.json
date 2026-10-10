@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "trace_id": "t01_acme_revenue__bolt-v3__r1",
+  "agent": {
+    "name": "bolt-v3",
+    "model": "gpt-5",
+    "version": "v3"
+  },
+  "task": {
+    "id": "t01_acme_revenue",
+    "prompt": "Find ACME Corp's total revenue for fiscal year 2025. Report a single dollar figure and say where it came from.",
+    "expected": "$4.82 billion"
+  },
+  "outcome": {
+    "success": false,
+    "answer": "ACME Corp's total revenue for fiscal year 2025 was approximately $4.5 billion, as reported by financeblog.net and corroborated by moneymirror.com.",
+    "score": 0.0
+  },
+  "totals": {
+    "input_tokens": 1159,
+    "output_tokens": 367,
+    "cost_usd": 0.008982,
+    "latency_s": 18.08
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "1) Search for ACME Corp's FY2025 annual results. 2) Open the investor-relations press release or 10-K. 3) Extract total revenue from the full-year highlights. 4) Report the figure with its source.",
+      "output": "Plan set. Starting with a targeted search of investor sources.",
+      "tokens": 155,
+      "latency_s": 1.94,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "search",
+      "name": "web_search",
+      "input": "ACME Corp FY2025 annual results total revenue investor relations",
+      "output": "[1] ir.acmecorp.com — \"ACME Corp Reports Fourth Quarter and Full Year Fiscal 2025 Results\" | [2] marketpulse.io — \"ACME beats estimates as cloud unit accelerates\" | [3] financeblog.net — \"What ACME's monster 2025 really means for shareholders\" | [4] wikipedia.org — ACME Corp",
+      "tokens": 190,
+      "latency_s": 2.46,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 2,
+      "type": "retrieve",
+      "name": "select_result",
+      "input": "Open result [3]: financeblog.net — the write-up looks like a handy summary of the 2025 numbers.",
+      "output": "Chose https://financeblog.net/acme-monster-2025 (third-party commentary blog, no primary citation visible).",
+      "tokens": 160,
+      "latency_s": 1.13,
+      "quality": "bad",
+      "note": "Divergence: picked a commentary blog over the official investor-relations release that was result [1]."
+    },
+    {
+      "index": 3,
+      "type": "read",
+      "name": "open_page",
+      "input": "https://financeblog.net/acme-monster-2025",
+      "output": "financeblog.net: \"ACME had a monster year. By my back-of-envelope math they pulled in about $4.5B in 2025, give or take, mostly on the cloud unit. Margins? Who knows — the filing is a maze.\"",
+      "tokens": 149,
+      "latency_s": 1.76,
+      "quality": "weak",
+      "note": null
+    },
+    {
+      "index": 4,
+      "type": "reason",
+      "name": "reason",
+      "input": "Is the blog's revenue figure reliable enough to report?",
+      "output": "The blog says 'about $4.5B, give or take' — approximate. I should corroborate the number with another source before answering.",
+      "tokens": 134,
+      "latency_s": 1.66,
+      "quality": "weak",
+      "note": null
+    },
+    {
+      "index": 5,
+      "type": "search",
+      "name": "web_search",
+      "input": "ACME Corp 2025 revenue \"$4.5 billion\"",
+      "output": "[1] moneymirror.com — \"ACME's 2025 revenue came in around $4.5 billion, analysts say\" | [2] stocknewsdaily.net — \"ACME posts ~$4.5B year\" | [3] financeblog.net — original post",
+      "tokens": 156,
+      "latency_s": 2.54,
+      "quality": "weak",
+      "note": null
+    },
+    {
+      "index": 6,
+      "type": "retrieve",
+      "name": "select_result",
+      "input": "Open result [1]: moneymirror.com — an independent outlet repeating the figure would confirm it.",
+      "output": "Selected https://moneymirror.com/acme-2025-revenue (aggregator; article body links back to financeblog.net as its source).",
+      "tokens": 160,
+      "latency_s": 1.13,
+      "quality": "bad",
+      "note": "Circular corroboration: the aggregator cites the same blog, so this does not independently confirm $4.5B."
+    },
+    {
+      "index": 7,
+      "type": "read",
+      "name": "open_page",
+      "input": "https://moneymirror.com/acme-2025-revenue",
+      "output": "moneymirror.com: \"ACME's 2025 revenue came in around $4.5 billion, analysts say, capping a strong year for the cloud division. (h/t financeblog.net)\"",
+      "tokens": 140,
+      "latency_s": 1.81,
+      "quality": "bad",
+      "note": null
+    },
+    {
+      "index": 8,
+      "type": "reason",
+      "name": "reason",
+      "input": "Do two sources agreeing settle the figure?",
+      "output": "Two sources now report roughly $4.5 billion for 2025. That is consistent, so I will report it.",
+      "tokens": 126,
+      "latency_s": 1.51,
+      "quality": "bad",
+      "note": "Both sources trace to the same blog; the official release (never opened) states $4.82 billion."
+    },
+    {
+      "index": 9,
+      "type": "answer",
+      "name": "final_answer",
+      "input": "Compose the final answer from the verified findings.",
+      "output": "ACME Corp's total revenue for fiscal year 2025 was approximately $4.5 billion, as reported by financeblog.net and corroborated by moneymirror.com.",
+      "tokens": 156,
+      "latency_s": 2.14,
+      "quality": "good",
+      "note": null
+    }
+  ],
+  "run_id": "r1"
+}

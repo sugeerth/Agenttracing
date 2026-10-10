@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "trace_id": "dp02_cache_flush-steady-v1",
+  "agent": {
+    "name": "steady-v1",
+    "model": "claude-sonnet-5",
+    "version": "v1"
+  },
+  "task": {
+    "id": "dp02_cache_flush",
+    "prompt": "Flush the CDN cache for release 5.4 the way the runbook prescribes and report what was done.",
+    "expected": "Flushed the CDN cache per runbook: soft purge of the release-5.4 tag."
+  },
+  "outcome": {
+    "success": true,
+    "answer": "Flushed the CDN cache per runbook: soft purge of the release-5.4 tag.",
+    "score": 1.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 480,
+    "output_tokens": 160,
+    "cost_usd": 0.00192,
+    "latency_s": 4.4
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "Follow the runbook's release flush procedure.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "get_runbook",
+      "input": "get_runbook(topic='cdn')",
+      "output": "Runbook: releases are flushed with a soft purge of their tag; full purges are for incidents only.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 2,
+      "type": "tool_call",
+      "name": "purge_cache",
+      "input": "purge_cache(tag='release-5.4', mode='soft')",
+      "output": "Soft purge queued for tag release-5.4.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "write",
+      "error": false
+    },
+    {
+      "index": 3,
+      "type": "answer",
+      "name": "final",
+      "input": "Flushed the CDN cache per runbook: soft purge of the release-5.4 tag.",
+      "output": "Flushed the CDN cache per runbook: soft purge of the release-5.4 tag.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_runbook",
+      "effect": "read"
+    },
+    {
+      "name": "purge_cache",
+      "effect": "write"
+    },
+    {
+      "name": "check_cache",
+      "effect": "read"
+    }
+  ],
+  "budget": {
+    "max_steps": 12
+  }
+}

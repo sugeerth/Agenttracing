@@ -1,0 +1,10 @@
+{
+  "tasks": [
+    {
+      "id": "bugfix-pricing",
+      "prompt": "The tests in test_pricing.py fail. Find the bug in pricing.py and fix it without changing the tests. Run the tests to confirm they pass.",
+      "workspace": "bugfix",
+      "check": "python3 -m unittest -q"
+    }
+  ]
+}

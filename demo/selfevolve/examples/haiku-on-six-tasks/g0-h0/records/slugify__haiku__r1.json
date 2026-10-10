@@ -1,0 +1,88 @@
+{
+ "task": "slugify",
+ "agent": "haiku",
+ "vendor": "claude",
+ "model": "claude-haiku-4-5-20251001",
+ "run": "r1",
+ "trace": "traces/slugify__haiku__r1.json",
+ "raw": "raw/slugify__haiku__r1.jsonl",
+ "patch": "diffs/slugify__haiku__r1.patch",
+ "exit_code": 0,
+ "stopped_by": null,
+ "wall_s": 18.565,
+ "stderr_tail": "",
+ "stream": {
+  "bytes": 32448,
+  "cap": 268435456,
+  "truncated_lines": 0
+ },
+ "check": {
+  "command": "python3 -m unittest discover -s /home/user/Agenttracing/demo/selfevolve/hidden/slugify -t /home/user/Agenttracing/demo/selfevolve/hidden/slugify",
+  "exit_code": 0,
+  "passed": true,
+  "seconds": 0.055,
+  "output_tail": "......\n----------------------------------------------------------------------\nRan 6 tests in 0.000s\n\nOK\n"
+ },
+ "baseline": {
+  "passed": false,
+  "exit_code": 1,
+  "seconds": 0.051,
+  "output_tail": "           ^^^^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-4prwvq4m/work/text_utils.py\", line 14, in slugify\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_one_long_word (test_text_utils.SlugifyTest.test_one_long_word)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/home/user/Agenttracing/demo/selfevolve/hidden/slugify/test_text_utils.py\", line 20, in test_one_long_word\n    self.assertEqual(slugify(\"abcdefghij\", max_length=4), \"abcd\")\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-4prwvq4m/work/text_utils.py\", line 14, in slugify\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_runs_and_ends (test_text_utils.SlugifyTest.test_runs_and_ends)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/home/user/Agenttracing/demo/selfevolve/hidden/slugify/test_text_utils.py\", line 14, in test_runs_and_ends\n    self.assertEqual(slugify(\"  --a__b  c--  \"), \"a-b-c\")\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-4prwvq4m/work/text_utils.py\", line 14, in slugify\n    raise NotImplementedError\nNotImplementedError\n\n----------------------------------------------------------------------\nRan 6 tests in 0.001s\n\nFAILED (errors=6)\n"
+ },
+ "diff": {
+  "files": [
+   {
+    "path": "text_utils.py",
+    "status": "modified",
+    "added": 31,
+    "removed": 1,
+    "after_sha": "209efab0fcd036618e323f8d41924ca06242f30a16a881b8b918cd42b3518349"
+   }
+  ],
+  "added": 31,
+  "removed": 1,
+  "patch_chars": 1205,
+  "patch_truncated": false
+ },
+ "after": {
+  "bytes": 1361,
+  "withheld": [],
+  "not_kept": [],
+  "deleted": [],
+  "complete": true,
+  "dir": "after/slugify__haiku__r1"
+ },
+ "setup": {
+  "prompt_sha": "6613722391e983f0",
+  "workspace_sha": "e8114931ca63c322",
+  "check": "python3 -m unittest discover -s /home/user/Agenttracing/demo/selfevolve/hidden/slugify -t /home/user/Agenttracing/demo/selfevolve/hidden/slugify",
+  "budget_tokens": 600000,
+  "timeout_s": 600.0,
+  "started_at": 1790977934.008,
+  "cli": "claude",
+  "cli_version": "2.1.288 (Claude Code)",
+  "argv": [
+   "/opt/node22/bin/claude",
+   "-p",
+   "--output-format",
+   "stream-json",
+   "--verbose",
+   "--permission-mode",
+   "acceptEdits",
+   "--no-session-persistence",
+   "--tools",
+   "Bash,Read,Edit,Write,Grep,Glob,TodoWrite,Task",
+   "--strict-mcp-config",
+   "--allowedTools",
+   "Bash",
+   "--setting-sources",
+   "project,local",
+   "--model",
+   "claude-haiku-4-5-20251001"
+  ],
+  "sandbox": "claude acceptEdits (Bash allowed), no OS sandbox",
+  "budget_enforced": "while running (usage is per message)",
+  "user_config": "ignored",
+  "tools": "Bash, Read, Edit, Write, Grep, Glob, TodoWrite, Task; no MCP servers"
+ }
+}

@@ -1,0 +1,88 @@
+{
+ "task": "duration",
+ "agent": "haiku",
+ "vendor": "claude",
+ "model": "claude-haiku-4-5-20251001",
+ "run": "r2",
+ "trace": "traces/duration__haiku__r2.json",
+ "raw": "raw/duration__haiku__r2.jsonl",
+ "patch": "diffs/duration__haiku__r2.patch",
+ "exit_code": 0,
+ "stopped_by": null,
+ "wall_s": 22.328,
+ "stderr_tail": "",
+ "stream": {
+  "bytes": 37047,
+  "cap": 268435456,
+  "truncated_lines": 0
+ },
+ "check": {
+  "command": "python3 -m unittest discover -s /home/user/Agenttracing/demo/selfevolve/hidden/duration -t /home/user/Agenttracing/demo/selfevolve/hidden/duration",
+  "exit_code": 0,
+  "passed": true,
+  "seconds": 0.078,
+  "output_tail": "...\n----------------------------------------------------------------------\nRan 3 tests in 0.001s\n\nOK\n"
+ },
+ "baseline": {
+  "passed": false,
+  "exit_code": 1,
+  "seconds": 0.054,
+  "output_tail": "---------------------------------\nTraceback (most recent call last):\n  File \"/home/user/Agenttracing/demo/selfevolve/hidden/duration/test_durations.py\", line 21, in test_refuses\n    parse_duration(bad)\n  File \"/tmp/agentdiff-baseline-z43knffg/work/durations.py\", line 13, in parse_duration\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_refuses (test_durations.DurationTest.test_refuses) (bad='1h1h')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/home/user/Agenttracing/demo/selfevolve/hidden/duration/test_durations.py\", line 21, in test_refuses\n    parse_duration(bad)\n  File \"/tmp/agentdiff-baseline-z43knffg/work/durations.py\", line 13, in parse_duration\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_refuses (test_durations.DurationTest.test_refuses) (bad='h')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/home/user/Agenttracing/demo/selfevolve/hidden/duration/test_durations.py\", line 21, in test_refuses\n    parse_duration(bad)\n  File \"/tmp/agentdiff-baseline-z43knffg/work/durations.py\", line 13, in parse_duration\n    raise NotImplementedError\nNotImplementedError\n\n----------------------------------------------------------------------\nRan 3 tests in 0.002s\n\nFAILED (errors=8)\n"
+ },
+ "diff": {
+  "files": [
+   {
+    "path": "durations.py",
+    "status": "modified",
+    "added": 43,
+    "removed": 1,
+    "after_sha": "e1498c27c419031658ae5c80b9c819352c4ac558b6cc5e6a957292d10a794aa5"
+   }
+  ],
+  "added": 43,
+  "removed": 1,
+  "patch_chars": 1631,
+  "patch_truncated": false
+ },
+ "after": {
+  "bytes": 1721,
+  "withheld": [],
+  "not_kept": [],
+  "deleted": [],
+  "complete": true,
+  "dir": "after/duration__haiku__r2"
+ },
+ "setup": {
+  "prompt_sha": "04066b9ee42fb46a",
+  "workspace_sha": "cd83f8f7b37e907d",
+  "check": "python3 -m unittest discover -s /home/user/Agenttracing/demo/selfevolve/hidden/duration -t /home/user/Agenttracing/demo/selfevolve/hidden/duration",
+  "budget_tokens": 600000,
+  "timeout_s": 600.0,
+  "started_at": 1790978040.409,
+  "cli": "claude",
+  "cli_version": "2.1.288 (Claude Code)",
+  "argv": [
+   "/opt/node22/bin/claude",
+   "-p",
+   "--output-format",
+   "stream-json",
+   "--verbose",
+   "--permission-mode",
+   "acceptEdits",
+   "--no-session-persistence",
+   "--tools",
+   "Bash,Read,Edit,Write,Grep,Glob,TodoWrite,Task",
+   "--strict-mcp-config",
+   "--allowedTools",
+   "Bash",
+   "--setting-sources",
+   "project,local",
+   "--model",
+   "claude-haiku-4-5-20251001"
+  ],
+  "sandbox": "claude acceptEdits (Bash allowed), no OS sandbox",
+  "budget_enforced": "while running (usage is per message)",
+  "user_config": "ignored",
+  "tools": "Bash, Read, Edit, Write, Grep, Glob, TodoWrite, Task; no MCP servers"
+ }
+}

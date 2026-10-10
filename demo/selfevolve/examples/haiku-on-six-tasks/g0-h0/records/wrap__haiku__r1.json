@@ -1,0 +1,88 @@
+{
+ "task": "wrap",
+ "agent": "haiku",
+ "vendor": "claude",
+ "model": "claude-haiku-4-5-20251001",
+ "run": "r1",
+ "trace": "traces/wrap__haiku__r1.json",
+ "raw": "raw/wrap__haiku__r1.jsonl",
+ "patch": "diffs/wrap__haiku__r1.patch",
+ "exit_code": 0,
+ "stopped_by": null,
+ "wall_s": 48.415,
+ "stderr_tail": "",
+ "stream": {
+  "bytes": 56915,
+  "cap": 268435456,
+  "truncated_lines": 0
+ },
+ "check": {
+  "command": "python3 -m unittest discover -s /home/user/Agenttracing/demo/selfevolve/hidden/wrap -t /home/user/Agenttracing/demo/selfevolve/hidden/wrap",
+  "exit_code": 0,
+  "passed": true,
+  "seconds": 0.062,
+  "output_tail": "....\n----------------------------------------------------------------------\nRan 4 tests in 0.000s\n\nOK\n"
+ },
+ "baseline": {
+  "passed": false,
+  "exit_code": 1,
+  "seconds": 0.047,
+  "output_tail": ", 10), [\"the quick\", \"brown fox\"])\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-mxxf9w_2/work/wrap.py\", line 14, in wrap\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_long_words (test_wrap.WrapTest.test_long_words)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/home/user/Agenttracing/demo/selfevolve/hidden/wrap/test_wrap.py\", line 16, in test_long_words\n    self.assertEqual(wrap(\"abcdefghij xy\", 4), [\"abcd\", \"efgh\", \"ij\", \"xy\"])\n                     ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-mxxf9w_2/work/wrap.py\", line 14, in wrap\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_paragraphs (test_wrap.WrapTest.test_paragraphs)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/home/user/Agenttracing/demo/selfevolve/hidden/wrap/test_wrap.py\", line 12, in test_paragraphs\n    self.assertEqual(wrap(\"one two\\n\\nthree\", 7), [\"one two\", \"\", \"three\"])\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-mxxf9w_2/work/wrap.py\", line 14, in wrap\n    raise NotImplementedError\nNotImplementedError\n\n----------------------------------------------------------------------\nRan 4 tests in 0.001s\n\nFAILED (errors=4)\n"
+ },
+ "diff": {
+  "files": [
+   {
+    "path": "wrap.py",
+    "status": "modified",
+    "added": 45,
+    "removed": 1,
+    "after_sha": "cd82919afad3bac7d425cb6136361ca081f8fba8c9fefffc4d91324fbdcec64a"
+   }
+  ],
+  "added": 45,
+  "removed": 1,
+  "patch_chars": 1328,
+  "patch_truncated": false
+ },
+ "after": {
+  "bytes": 1636,
+  "withheld": [],
+  "not_kept": [],
+  "deleted": [],
+  "complete": true,
+  "dir": "after/wrap__haiku__r1"
+ },
+ "setup": {
+  "prompt_sha": "42e8667fb35f32fe",
+  "workspace_sha": "529434eba6038b8f",
+  "check": "python3 -m unittest discover -s /home/user/Agenttracing/demo/selfevolve/hidden/wrap -t /home/user/Agenttracing/demo/selfevolve/hidden/wrap",
+  "budget_tokens": 600000,
+  "timeout_s": 600.0,
+  "started_at": 1790978190.979,
+  "cli": "claude",
+  "cli_version": "2.1.288 (Claude Code)",
+  "argv": [
+   "/opt/node22/bin/claude",
+   "-p",
+   "--output-format",
+   "stream-json",
+   "--verbose",
+   "--permission-mode",
+   "acceptEdits",
+   "--no-session-persistence",
+   "--tools",
+   "Bash,Read,Edit,Write,Grep,Glob,TodoWrite,Task",
+   "--strict-mcp-config",
+   "--allowedTools",
+   "Bash",
+   "--setting-sources",
+   "project,local",
+   "--model",
+   "claude-haiku-4-5-20251001"
+  ],
+  "sandbox": "claude acceptEdits (Bash allowed), no OS sandbox",
+  "budget_enforced": "while running (usage is per message)",
+  "user_config": "ignored",
+  "tools": "Bash, Read, Edit, Write, Grep, Glob, TodoWrite, Task; no MCP servers"
+ }
+}
