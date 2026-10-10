@@ -176,6 +176,11 @@ class App:
         self.evolve_home: Optional[Path] = None
         #: rendering pages to read elsewhere (``hub --export``): no path or program of this machine on them
         self.exporting = False
+        from .jobs import Jobs
+        #: a self-evolve started from the Evolve page
+        self.jobs = Jobs()
+        #: one message for a session's next Evolve page (what an adopt wrote)
+        self._said: Dict[str, str] = {}
         hexid = r"([0-9a-f]{12})"
         self._routes: list = [
             ("GET", re.compile(r"^/healthz$"), self.healthz, False),
@@ -198,6 +203,9 @@ class App:
             ("GET", re.compile(r"^/live/panel$"), self.live_fragment, True),
             ("GET", re.compile(r"^/evolve$"), self.evolve, True),
             ("GET", re.compile(r"^/evals$"), self.evals, True),
+            ("POST", re.compile(r"^/evolve/start$"), self.evolve_start, True),
+            ("POST", re.compile(r"^/evolve/stop$"), self.evolve_stop, True),
+            ("POST", re.compile(rf"^/evolve/adopt/{hexid}$"), self.evolve_adopt, True),
             ("GET", re.compile(r"^/account$"), self.account, True),
             ("POST", re.compile(r"^/account/password$"), self.change_password, True),
             ("GET", re.compile(r"^/api/v1/runs$"), self.api_runs, True),
@@ -611,11 +619,24 @@ class App:
             if data:
                 rivers[x.id] = viz.harness_river(data)
                 datas[x.id] = data
+        for x in entries:
+            if x.id not in datas and x.summary.get("progress"):
+                datas[x.id] = {"lineage": []}  # running, before its first generation has ended
+        job = None if self.exporting else self.jobs.view()
+        running = bool(job and job["running"]) or any(x.summary.get("running") for x in entries)
+        adopt = {} if self.exporting or not self.loopback else {
+            # yours only: a bundled example's harness was made on its own tasks, not on your project
+            x.id: str(x.path) for x in entries
+            if (datas.get(x.id) or {}).get("harness", {}).get("version") and not x.summary.get("example")}
         return Response.html(views.evolve_page(**self._common(session), entries=entries, rivers=rivers, datas=datas,
-                                               start=self._evolve_start()))
+                                               start=self._evolve_start(session, job), refresh=5 if running else 0,
+                                               adopt=adopt, flash=self._said.pop(session.token, "")))
 
-    def _evolve_start(self) -> str:
-        """Evolve your own: the commands as this machine runs them, into the folder this hub lists."""
+    def _evolve_folder(self) -> Path:
+        return self.evolve_home or Path(self.config.root).resolve() / "self-evolve"
+
+    def _evolve_start(self, session: Session, job: Optional[dict]) -> str:
+        """Evolve your own: a button on a hub on this machine, and the commands as this machine runs them."""
         import shlex
         import shutil
         import subprocess
@@ -625,8 +646,89 @@ class App:
         prog = "agentdiff"
         if getattr(sys, "frozen", False):  # the downloaded binary: wherever it was unpacked
             prog = subprocess.list2cmdline([sys.executable]) if os.name == "nt" else shlex.quote(sys.executable)
-        folder = str(self.evolve_home or Path(self.config.root).resolve())
-        return start_card(prog=prog, folder=folder, claude=shutil.which("claude"))
+        claude = shutil.which("claude")
+        return start_card(prog=prog, folder=str(self._evolve_folder()), claude=claude,
+                          csrf=session.csrf if self.loopback and claude else None, job=job)
+
+    def _evolve_refused(self, req: Request, session: Session) -> Optional[Response]:
+        if not self.sessions.csrf_ok(session, req.form().get("csrf")):
+            return Response.html(self._page("Refused", "That form did not come from this hub.", session), 403)
+        if not self.loopback or self.exporting:
+            return Response.html(self._page("Refused", "Only a hub on this machine (127.0.0.1) starts agents or "
+                                            "writes to a project.", session), 403)
+        return None
+
+    def evolve_start(self, req: Request, session: Session) -> Response:
+        """Start ``self-evolve --demo``, or ``fix --evolve`` in a project, as the form says."""
+        import shutil
+        refused = self._evolve_refused(req, session)
+        if refused:
+            return refused
+        form = req.form()
+        agent = form.get("agent") or "haiku"
+        if agent not in ("haiku", "sonnet"):
+            return Response.html(self._page("Not started", "The agent is haiku or sonnet.", session), 400)
+        try:
+            gens = min(5, max(1, int(form.get("generations") or 3)))
+            runs = min(3, max(1, int(form.get("runs") or 2)))
+        except ValueError:
+            return Response.html(self._page("Not started", "Generations and runs are numbers.", session), 400)
+        if not shutil.which("claude"):
+            return Response.html(self._page("Not started", "There is no claude on this machine's PATH: install "
+                                            "Claude Code, then start the hub again.", session), 400)
+        folder = self._evolve_folder()
+        if form.get("mode") == "project":
+            project = Path(os.path.expanduser((form.get("project") or "").strip()))
+            if not str(project) or not project.is_absolute() or not project.is_dir():
+                return Response.html(self._page("Not started", "Give the project as a full path to a folder on this "
+                                                "machine, such as /Users/you/code/shop.", session), 400)
+            check = (form.get("check") or "").strip()[:400]
+            out = folder / project.name
+            args = ["fix", "--evolve", str(gens), "--runs", str(runs), "--agent", agent, "-o", str(out)]
+            args += ["--check", check] if check else []
+            cwd, what = project, f"fix --evolve {gens} in {project}"
+        else:
+            out = folder / f"demo-{agent}"
+            args = ["self-evolve", "--demo", "--agent", agent, "--generations", str(gens), "--runs", str(runs),
+                    "-o", str(out)]
+            cwd, what = folder, f"self-evolve --demo, {agent}, {gens} generation(s) of {runs} run(s) a task"
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            self.jobs.start(args, cwd=cwd, out=out, what=what)
+        except (RuntimeError, OSError) as exc:
+            return Response.html(self._page("Not started", str(exc), session), 409)
+        return Response.redirect("/evolve")
+
+    def evolve_stop(self, req: Request, session: Session) -> Response:
+        refused = self._evolve_refused(req, session)
+        if refused:
+            return refused
+        self.jobs.stop()
+        return Response.redirect("/evolve")
+
+    def evolve_adopt(self, req: Request, session: Session, run_id: str) -> Response:
+        """Write the harness a self-evolve ended with into a project's Claude Code."""
+        from ..adopt import adopt
+        from ..commands.self_evolve import adopt_text
+        refused = self._evolve_refused(req, session)
+        if refused:
+            return refused
+        entry = self.catalog.get(run_id)
+        if entry is None or entry.kind != "evolution" or entry.summary.get("example"):
+            return Response.html(self._page("Not adopted", "No self-evolving harness of yours by that id.", session),
+                                 404)
+        project = Path(os.path.expanduser((req.form().get("project") or "").strip()))
+        if not str(project) or not project.is_absolute() or not project.is_dir():
+            return Response.html(self._page("Not adopted", "Give the project as a full path to a folder on this "
+                                            "machine.", session), 400)
+        harness = self._json_file(entry.path / "harness.json") or {}
+        try:
+            got = adopt(harness, project, source=str(entry.path))
+        except (OSError, ValueError) as exc:
+            return Response.html(self._page("Not adopted", str(exc), session), 400)
+        # what it wrote, said on the next page; kept here, not in the URL, so no link can put words on it
+        self._said[session.token] = "\n".join(adopt_text(got, project))
+        return Response.redirect("/evolve")
 
     def evals(self, req: Request, session: Session) -> Response:
         from . import viz

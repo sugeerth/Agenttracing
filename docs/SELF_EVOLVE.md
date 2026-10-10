@@ -83,18 +83,50 @@ be teaching to the test.
 
 | file | what |
 |---|---|
-| `self-evolve.json` | the lineage: per generation the harness, the runs and failures, the evals born and retired, every candidate weighed, the change tried and its paired test |
+| `self-evolve.json` | the lineage: per generation the harness, the runs and failures, the evals born and retired, every candidate weighed, the change tried and its paired test. Rewritten as each generation ends (`"running": true` until the last), with the ledger beside it, so a stopped run keeps what finished |
+| `progress.json` | where it is now: the generation and arm, the runs of that arm done, the change being tested, its last lines, and `running`, `stopped`, `failed` or `done` |
 | `harness.json` | the harness as it ended: its instructions, denied tools and turn cap |
 | `SELF_EVOLVE.md` | the same, as a table |
 | `evals/evolve-evals.json` | the eval suite's own lineage, as `evolve-evals` writes it |
 | `ledger.json` | what the next call continues from |
 | `g<N>-h<V>/` | each arm, an ordinary duel output: traces, records, diffs. Every trace records its harness in `harness.evolved` |
 
-On the hub, `/evolve` draws each lineage as a river: per generation, the
+On the hub, `/evolve` draws each lineage as a card: per generation, the
 share of runs that passed under the harness as it was and with the
 change, the verdict, and the evals born and retired. The run's page has
 every candidate weighed, the eval river, and every trace by arm. With
 `--hub URL`, every run streams to a hub as it goes.
+
+## From the hub: start it, watch it, keep it
+
+On a hub on this machine (127.0.0.1) with Claude Code installed, Evolve
+has a **Start** for the six demo tasks and one for your project, with
+the agent, the generations and the runs a task. It starts the same
+command a terminal would, writing to the folder the hub lists
+(`~/.agentdiff/self-evolve` with `hub --claude-code`). Only a signed-in
+user, with the form's CSRF token, starts one, and only one runs at a
+time.
+- **While it runs**, its card says the generation, whether this arm runs
+  the harness as it is or the change being tested, the runs of the arm
+  done, and what it last said. The page refreshes itself every few
+  seconds (a meta refresh, no script). Each generation is drawn as it
+  ends, and every run is on Live.
+- **Stop** ends it and the agents it started, the way Ctrl-C does. The
+  generations that finished are kept, and starting it again with the
+  same agent continues from them. A run whose process went away without
+  saying so is shown as *ended without finishing*.
+- **Use it in your Claude Code.** A harness of yours that kept a change
+  can be adopted into a project, from its card or with
+  `agentdiff self-evolve --adopt DIR --into PROJECT` (`agentdiff.adopt`).
+  Its instructions go into the project's `CLAUDE.md`, between markers.
+  Its denied tools go into `permissions.deny` in
+  `.claude/settings.local.json`. A turn cap has no setting, so it is
+  given as the flag. What was written is recorded, and `--unadopt` takes
+  out exactly that. The paired test gave the instructions with
+  `--append-system-prompt`; `CLAUDE.md` gives the same words as project
+  instructions, a different channel, which the command says. The bundled
+  examples cannot be adopted: their harnesses were made on their own
+  tasks.
 
 ## Real runs
 

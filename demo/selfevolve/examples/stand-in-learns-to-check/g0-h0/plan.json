@@ -3,21 +3,21 @@
   {
    "id": "pricing-0",
    "prompt": "Fix the bug in pricing.py.",
-   "workspace": "/tmp/tmp24cwnu42/pricing-0",
+   "workspace": "/tmp/tmpt04vh4mr/pricing-0",
    "check": "python3 -m unittest -q",
    "expected": null
   },
   {
    "id": "pricing-1",
    "prompt": "Fix the bug in pricing.py.",
-   "workspace": "/tmp/tmp24cwnu42/pricing-1",
+   "workspace": "/tmp/tmpt04vh4mr/pricing-1",
    "check": "python3 -m unittest -q",
    "expected": null
   },
   {
    "id": "pricing-2",
    "prompt": "Fix the bug in pricing.py.",
-   "workspace": "/tmp/tmp24cwnu42/pricing-2",
+   "workspace": "/tmp/tmpt04vh4mr/pricing-2",
    "check": "python3 -m unittest -q",
    "expected": null
   }

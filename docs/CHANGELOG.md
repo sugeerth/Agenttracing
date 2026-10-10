@@ -5,6 +5,31 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Evolve: start it, watch it, keep it
+
+Self-evolving agents are no longer a command to type and a page to read
+afterwards.
+- **Start and Stop on Evolve.** On a hub on 127.0.0.1 with Claude Code
+  installed, Evolve starts `self-evolve --demo` or `fix --evolve` in your
+  project (`hub/jobs.py`). You choose the agent, the generations and the
+  runs a task. It takes a signed-in user and the form's CSRF token, and
+  runs one at a time. Stop ends it and the agents it started.
+- **Watch it.** `self-evolve` writes `progress.json` as it goes: the
+  generation, the arm, its runs done, the change being tested and its
+  last lines. It also rewrites `self-evolve.json` and the ledger as each
+  generation ends (`selfevolve.self_evolve(on_generation=)`). The card
+  draws the run in progress, and the page refreshes itself with a meta
+  refresh while anything runs. A stopped run keeps every finished
+  generation, and its next start continues from them. A run whose
+  process is gone shows as ended.
+- **Keep it.** `self-evolve --adopt DIR --into PROJECT`, or *Use it in
+  your Claude Code* on a card of yours (`agentdiff.adopt`), writes the
+  harness where Claude Code reads it every session: its instructions in
+  a marked `CLAUDE.md` block, its denied tools in
+  `.claude/settings.local.json`. `--unadopt` takes out exactly what was
+  written. It says that `CLAUDE.md` is a different channel from the
+  `--append-system-prompt` the paired test used.
+
 ## Self-evolving agents in the download
 
 The download now carries self-evolving agents, beside your sessions.

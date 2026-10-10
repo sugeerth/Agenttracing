@@ -342,11 +342,14 @@ def _fresh(target: str) -> dict:
 
 def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3, target: str = "failure",
                 ledger: Optional[dict] = None, patience: int = 2, check: str = "",
-                refuse_knobs: tuple = (), on_progress: Optional[Callable[[str], None]] = None) -> dict:
+                refuse_knobs: tuple = (), on_progress: Optional[Callable[[str], None]] = None,
+                on_generation: Optional[Callable[[dict], None]] = None) -> dict:
     """Go round ``generations`` times. ``run_arm(harness, label)`` runs the
     agents under ``harness`` and returns their trajectories (each graded by
     its task's check); it is called once per arm. Returns the lineage, the
-    harness as it ended, the eval suite's own lineage and the ledger."""
+    harness as it ended, the eval suite's own lineage and the ledger.
+    ``on_generation`` is given the same result, ``running`` and all, each
+    time a generation ends but the run goes on: what a stopped run keeps."""
     say = on_progress or (lambda s: None)
     state = json.loads(json.dumps(ledger)) if ledger else _fresh(target)
     if state.get("kind") != LEDGER_KIND:
@@ -434,7 +437,16 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
                 say(f"{label}: {born} joins the eval suite, born by intervention")
         state["generations"].append(record)
         state["harness"] = asdict(harness)
+        if on_generation and g < start + generations - 1:
+            # a copy: the loop goes on changing its own state
+            on_generation(json.loads(json.dumps(_result(state, harness, f"running: {label} done", evals_out, target,
+                                                         running=True), default=str)))
     state["harness"] = asdict(harness)
+    return _result(state, harness, stop, evals_out, target)
+
+
+def _result(state: dict, harness: Harness, stop: str, evals_out: dict, target: str, *, running: bool = False) -> dict:
+    """What a run of :func:`self_evolve` says: the lineage so far, the harness, the evals, the ledger."""
     lineage = state["generations"]
     evals = {}
     if evals_out:
@@ -446,9 +458,12 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
                      retired=[e["id"] for e in every if e["status"] == "retired"])
         evals["lineage"] = state["eval_lineage"]
         evals["narrative"] = evals_narrative(state["eval_lineage"], target)
-    return {"kind": "self-evolve", "target": target, "harness": asdict(harness), "describe": harness.describe(),
-            "stop": stop, "lineage": lineage, "evals": evals,
-            "narrative": _narrative(lineage, harness, stop), "ledger": state}
+    out = {"kind": "self-evolve", "target": target, "harness": asdict(harness), "describe": harness.describe(),
+           "stop": stop, "lineage": lineage, "evals": evals,
+           "narrative": _narrative(lineage, harness, stop), "ledger": state}
+    if running:
+        out["running"] = True
+    return out
 
 
 def _adopt_by_intervention(state: dict, chosen: dict, label: str, verdict: dict, right: int) -> Optional[str]:

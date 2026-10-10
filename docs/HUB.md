@@ -99,7 +99,7 @@ ignored.
 | `/traces` | every trace, its loop folded to a strip (`?show=live\|passed\|failed\|stuck`, `?q=`) |
 | `/traces/<id>` | one trace: the loop lap by lap, the moves between tools, a lap table, every step |
 | `/live` | every running agent: its last steps, its laps so far; it updates itself |
-| `/evolve` | every self-evolving harness: pass rate per generation, each change tried and its paired test |
+| `/evolve` | every self-evolving harness: pass rate per generation, each change tried and its paired test; on this machine, Start, Stop, the run in progress, and adopting a harness into a project (`docs/SELF_EVOLVE.md`) |
 | `/evals` | every eval suite, each eval's life across generations |
 | `/account` | who is signed in; change the password (every other session of that user ends) |
 | `/api/v1/runs`, `/api/v1/traces`, `/api/v1/traces/<id>` | the same as JSON |

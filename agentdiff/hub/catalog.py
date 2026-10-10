@@ -128,9 +128,36 @@ def _example(d: Path) -> Optional[str]:
     return None
 
 
+def progress_of(d: Path) -> Optional[dict]:
+    """A self-evolve's ``progress.json``, with ``status`` corrected when the process that said "running" is gone."""
+    data = _json(d / "progress.json") if (d / "progress.json").is_file() else None
+    if not data or data.get("kind") != "self-evolve-progress":
+        return None
+    if data.get("status") == "running" and not _alive(data.get("pid"), data.get("updated_at")):
+        data = dict(data, status="ended", end="it stopped without saying why (the process is gone)")
+    return data
+
+
+def _alive(pid, updated_at) -> bool:
+    import time
+    if os.name == "nt":  # os.kill(pid, 0) would end the process on Windows: go by when it last wrote
+        return bool(updated_at) and time.time() - float(updated_at) < 3 * 3600
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except PermissionError:
+        return True
+    except (OSError, TypeError, ValueError):
+        return False
+
+
 def detect_evolution(d: Path, root: Path) -> Optional[Entry]:
-    """Agents under a harness that evolves with its evals (``agentdiff self-evolve``)."""
+    """Agents under a harness that evolves with its evals (``agentdiff self-evolve``), finished or running."""
+    progress = progress_of(d)
     data = _json(d / "self-evolve.json") if (d / "self-evolve.json").is_file() else None
+    if data is None and progress:
+        # running, before its first generation has ended
+        data = {"kind": "self-evolve", "lineage": [], "harness": {"version": 0}, "running": True}
     if data is None or data.get("kind") != "self-evolve" or not isinstance(data.get("lineage"), list):
         return None
     gens = data["lineage"]
@@ -139,11 +166,12 @@ def detect_evolution(d: Path, root: Path) -> Optional[Entry]:
     tried = sum(1 for g in gens if g.get("action"))
     agents = sorted({str(x) for g in gens for x in ((g.get("action") or {}).get("agents") or [])})
     return Entry(entry_id("evolution", d.relative_to(root)), "evolution", f"{d.name} · self-evolving harness",
-                 d, _mtime(d / "self-evolve.json"),
+                 d, max(_mtime(d / "self-evolve.json"), _mtime(d / "progress.json")),
                  {"generations": len(gens), "pass_rates": rates, "kept": kept, "tried": tried,
                   "version": (data.get("harness") or {}).get("version"), "describe": data.get("describe"),
                   "stop": data.get("stop"), "agents": agents, "narrative": data.get("narrative") or "",
-                  "example": _example(d)})
+                  "example": _example(d), "progress": progress,
+                  "running": bool(progress and progress.get("status") == "running")})
 
 
 #: in order: the first detector to claim a directory owns it

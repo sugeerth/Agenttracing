@@ -65,8 +65,14 @@ that folder: each harness on **Evolve**, every run on **Live** as it goes.
 The runs use your Claude Code account. The recorded example was 12 haiku
 runs for $0.51. The demo's graders are Python tests, so it needs `python3`.
 
-Until you have a harness of your own, Evolve opens on these commands,
-written for this machine. It also shows two examples, each marked: a
+Or press **Start** on Evolve: the same runs, from the page, with Stop.
+While one runs, its card shows the generation, the runs done and the
+change being tested, and each generation lands as it ends. When a
+harness of yours keeps a change, **Use it in your Claude Code** writes
+it into a project's `CLAUDE.md` and `.claude/settings.local.json`, and
+`self-evolve --unadopt` takes it out again. Until you have a harness of
+your own, Evolve opens on all this, with the commands written for this
+machine. It also shows two examples, each marked: a
 synthetic stand-in that learns to run the check, and a recorded haiku run
 that stopped without a change because none answered its failures.
 

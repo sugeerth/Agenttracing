@@ -159,7 +159,7 @@ _MARK = ('<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">'
 
 
 def layout(title: str, body: str, *, brand: str, user: Optional[str] = None, csrf: Optional[str] = None,
-           active: str = "", live: bool = False, lens: bool = False) -> str:
+           active: str = "", live: bool = False, lens: bool = False, refresh: int = 0) -> str:
     top = ""
     if user:
         links = "".join(f'<a href="{path}"{" class=on" if key == active else ""}>{label}</a>'
@@ -173,7 +173,8 @@ def layout(title: str, body: str, *, brand: str, user: Optional[str] = None, csr
         '<script src="/static/longview.js" defer></script>' if lens else "")
     return (f'<!doctype html><html lang="en"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1">'
-            f'<title>{e(title)} · {e(brand)}</title><style>{_CSS}</style>{script}</head><body>'
+            + (f'<meta http-equiv="refresh" content="{int(refresh)}">' if refresh else "")
+            + f'<title>{e(title)} · {e(brand)}</title><style>{_CSS}</style>{script}</head><body>'
             f'<header><a class="brand" href="/">{_MARK}{e(brand)}</a>{top}</header><main>{body}</main></body></html>')
 
 
@@ -1425,19 +1426,26 @@ def timeline_page(*, brand: str, user: str, csrf: str, title: str, groups: list,
 
 # --------------------------------------------------------------- evolve
 def evolve_page(*, brand: str, user: str, csrf: str, entries: List[Entry], rivers: dict,
-                datas: Optional[dict] = None, start: str = "") -> str:
+                datas: Optional[dict] = None, start: str = "", refresh: int = 0, adopt: Optional[dict] = None,
+                flash: str = "") -> str:
     # yours first, then the bundled examples
     own, examples = [], []
     for x in entries:
-        if datas and datas.get(x.id):
-            block = evolvecards.evolve_card(x, datas[x.id])
+        if datas and datas.get(x.id) is not None:
+            block = evolvecards.evolve_card(x, datas[x.id], adopt_csrf=csrf if (adopt or {}).get(x.id) else None)
         else:
             block = (f'<h2>{e(x.title)}</h2><div class="card"><p class="muted">{e(x.summary.get("describe"))} · '
                      f'stopped: {e(x.summary.get("stop"))}</p>{rivers.get(x.id) or ""}'
                      f'<p><a href="/runs/{e(x.id)}">The harness, every change and its evidence →</a></p></div>')
-        (examples if x.summary.get("example") else own).append(block)
-    # how to start one leads until you have one of your own, then closes the page
-    lead, close = ("", start) if own else (start, "")
+        (examples if x.summary.get("example") else own).append((bool(x.summary.get("running")), block))
+    # what is running leads, then yours, then the examples. How to start one leads too, until you have one of your
+    # own, or while one runs (its Stop is there); otherwise it closes the page
+    running = any(r for r, _ in own)
+    own = [b for _, b in sorted(own, key=lambda rb: not rb[0])]
+    examples = [b for _, b in examples]
+    lead, close = ("", start) if own and not running else (start, "")
+    if flash:
+        lead = f'<div class="card said" role="status"><pre class="cmd">{e(flash)}</pre></div>' + lead
     blocks = own + examples
     if not entries and not start:
         blocks.append('<div class="card"><p class="muted">No evolving harness under the root yet. Start one: '
@@ -1450,7 +1458,7 @@ def evolve_page(*, brand: str, user: str, csrf: str, entries: List[Entry], river
             + lead + ('<div class="ekey"><span><i></i>runs that passed under the harness as it was</span>'
                       '<span><i class="c"></i>passed with the change tried</span></div>' if datas else "")
             + "".join(blocks) + close)
-    return layout("Evolve", body, brand=brand, user=user, csrf=csrf, active="evolve")
+    return layout("Evolve", body, brand=brand, user=user, csrf=csrf, active="evolve", refresh=refresh)
 
 
 def evolution_page(*, brand: str, user: str, csrf: str, entry: Entry, data: dict, refs: list = ()) -> str:

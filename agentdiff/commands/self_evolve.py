@@ -5,6 +5,7 @@
     agentdiff self-evolve --task tasks.json --agent haiku -o evo/          again: continues from evo/ledger.json
     agentdiff self-evolve --task tasks.json --agent haiku --hub http://127.0.0.1:8790   every run, live, on a hub
     agentdiff self-evolve --demo                                           six tasks it carries, graders held out
+    agentdiff self-evolve --adopt evo/ --into ~/my-project                 use the evolved harness in Claude Code
 
 Each generation the agents run the tasks under the current harness and
 each run's check grades it; the evolving eval suite meets those runs;
@@ -55,6 +56,11 @@ def register(subparsers) -> None:
     p.add_argument("--hub", default=None, metavar="URL", help="stream every run to a hub as it goes "
                                                                "($AGENTDIFF_HUB_TOKEN); a hub serving DIR needs no flag")
     p.add_argument("--dry-run", action="store_true", help="say what would run, and run nothing")
+    p.add_argument("--adopt", default=None, metavar="DIR",
+                   help="instead of running: use the harness DIR ended with in your Claude Code (--into PROJECT): "
+                        "its instructions in CLAUDE.md, its denied tools in .claude/settings.local.json")
+    p.add_argument("--unadopt", action="store_true", help="take an adopted harness out of --into PROJECT again")
+    p.add_argument("--into", default=".", metavar="PROJECT", help="--adopt, --unadopt: the project (default here)")
     p.set_defaults(func=run)
 
 
@@ -82,6 +88,124 @@ def _markdown(result: dict) -> str:
             "and no task goes from always passing to always failing. Every number above is a count of graded runs.",
             ""]
     return "\n".join(out)
+
+
+def adopt_text(got: dict, project: Path) -> list:
+    """What ``--adopt`` did, as lines: what it wrote, and what it could not."""
+    if got.get("nothing"):
+        return [got["why"]]
+    out = [f"adopted into {project}:"]
+    if got.get("instructions"):
+        out.append(f"  {got['instructions']} instruction(s) in {project / 'CLAUDE.md'}, between the agentdiff "
+                   "harness markers. The paired test gave them with --append-system-prompt; CLAUDE.md gives the "
+                   "same words as project instructions, so watch the next sessions to see they still help.")
+    if got.get("deny"):
+        out.append(f"  denied {', '.join(got['deny'])} in {project / '.claude' / 'settings.local.json'}"
+                   + ("" if got.get("deny_added") == got.get("deny") else " (some were denied already)"))
+    if got.get("max_turns"):
+        out.append(f"  a turn cap has no setting: start it with `claude --max-turns {got['max_turns']}`")
+    out.append(f"  take it out again: agentdiff self-evolve --unadopt --into {project}")
+    return out
+
+
+def _adopt(args: argparse.Namespace) -> int:
+    from ..adopt import adopt, unadopt
+    project = Path(os.path.expanduser(args.into)).resolve()
+    if args.unadopt:
+        got = unadopt(project)
+        print(f"took the adopted harness out of {project}: {', '.join(got['removed']) or 'its record'}" if got
+              else f"no adopted harness in {project}")
+        return 0
+    src = Path(os.path.expanduser(args.adopt))
+    path = src / "harness.json" if src.is_dir() else src
+    try:
+        harness = json.loads(path.read_text(encoding="utf-8"))
+        got = adopt(harness, project, source=str(src.resolve()))
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print("\n".join(adopt_text(got, project)))
+    return 0
+
+
+def _stop(signum, frame):
+    raise KeyboardInterrupt
+
+
+def _write_result(out: Path, result: dict) -> None:
+    """self-evolve.json, harness.json, SELF_EVOLVE.md and the eval suite: after every generation, and at the end."""
+    import tempfile
+    body = json.dumps({k: v for k, v in result.items() if k != "ledger"}, indent=1, default=str)
+    # written whole, then moved into place: the hub never reads half a lineage
+    fd, tmp = tempfile.mkstemp(dir=out, prefix=".self-evolve.", suffix=".json")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(body)
+    os.replace(tmp, out / "self-evolve.json")
+    (out / "harness.json").write_text(json.dumps(result["harness"], indent=1), encoding="utf-8")
+    (out / "SELF_EVOLVE.md").write_text(_markdown(result), encoding="utf-8")
+    if result.get("evals"):
+        (out / "evals").mkdir(exist_ok=True)
+        (out / "evals" / "evolve-evals.json").write_text(json.dumps(result["evals"], indent=1, default=str),
+                                                         encoding="utf-8")
+
+
+class Progress:
+    """``progress.json``: where a running self-evolve is, for the hub's Evolve page. The generation and arm, the
+    runs of that arm done out of how many, the change being tested, the last lines it said, and whether it is
+    still going (its pid), stopped, failed or done."""
+
+    LINES = 8
+
+    def __init__(self, out: Path, *, generations: int, per_arm: int, agents: list, tasks: list) -> None:
+        import threading
+        import time
+        self.path = out / "progress.json"
+        self.lock = threading.Lock()
+        self.data = {"kind": "self-evolve-progress", "status": "running", "pid": os.getpid(),
+                     "started_at": time.time(), "updated_at": time.time(), "generations": generations,
+                     "per_arm": per_arm, "agents": agents, "tasks": tasks, "generation": None, "arm": None,
+                     "testing": None, "runs_done": 0, "arms_done": 0, "lines": [], "end": None}
+
+    def arm(self, label: str, version: int) -> None:
+        with self.lock:
+            if self.data["arm"]:
+                self.data["arms_done"] += 1
+            gen = label.split("-")[0]
+            # the second arm of a generation runs the harness with the change being tested
+            self.data.update(generation=gen, arm=label, runs_done=0,
+                             testing=self.data["testing"] if gen == self.data["generation"] else None)
+        self.write()
+
+    def run_done(self, record: dict) -> None:
+        with self.lock:
+            self.data["runs_done"] += 1
+        self.write()
+
+    def say(self, line: str) -> None:
+        with self.lock:
+            self.data["lines"] = (self.data["lines"] + [line])[-self.LINES:]
+            if "; testing: " in line:  # "g0: 6 of 6 failure(s) caught by …; testing: <the change>"
+                self.data["testing"] = line.split("; testing: ", 1)[1]
+        self.write()
+
+    def end(self, status: str, why: str = "") -> None:
+        with self.lock:
+            self.data.update(status=status, end=why or None)
+        self.write()
+
+    def write(self) -> None:
+        import tempfile
+        import time
+        with self.lock:
+            self.data["updated_at"] = time.time()
+            body = json.dumps(self.data, indent=1)
+            try:
+                fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=".progress.", suffix=".json")
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(body)
+                os.replace(tmp, self.path)
+            except OSError:
+                pass  # progress is for the page; the run goes on without it
 
 
 def _latest_passing_arm(out: Path, result: dict):
@@ -140,6 +264,8 @@ def run(args: argparse.Namespace) -> int:
     from ..selfevolve import load_ledger, self_evolve, visible_check, write_ledger
     from .duel import _tasks
     from ..harness.vendors import parse_spec, preflight
+    if args.adopt or args.unadopt:
+        return _adopt(args)
     if args.demo:
         from .hub import _home
         name = "demo-" + "-".join(a.replace(":", "-").replace("/", "-") for a in (args.agent or ["haiku"]))
@@ -203,8 +329,15 @@ def run(args: argparse.Namespace) -> int:
             print("error: --hub needs $AGENTDIFF_HUB_TOKEN (`agentdiff hub` prints it)", file=sys.stderr)
             return 2
     out.mkdir(parents=True, exist_ok=True)
+    progress = Progress(out, generations=args.generations, per_arm=per_arm,
+                        agents=[s.agent for s in specs], tasks=[t["id"] for t in tasks])
     arm = vendor_arm(tasks, specs, out, runs=args.runs, budget_tokens=args.budget_tokens, timeout_s=args.timeout,
-                     check_timeout_s=args.check_timeout)
+                     check_timeout_s=args.check_timeout, on_done=progress.run_done)
+    counted = arm
+
+    def arm(harness, label):  # noqa: F811 — the same arm, counted run by run for progress.json
+        progress.arm(label, harness.version)
+        return counted(harness, label)
     if args.hub:
         # every arm writes its own traces directory: stream each as it appears
         inner = arm
@@ -219,22 +352,37 @@ def run(args: argparse.Namespace) -> int:
                 return inner(harness, label)
             finally:
                 s.stop()
+
+    def said(line: str) -> None:
+        print(line, flush=True)
+        progress.say(line)
+
+    def generation(partial: dict) -> None:
+        # a generation that finished is kept, on disk, before the next one starts
+        write_ledger(ledger_path, partial["ledger"])
+        _write_result(out, partial)
+        progress.write()
+    import signal
+    for name in ("SIGTERM", "SIGBREAK"):  # the hub's Stop (SIGBREAK on Windows): end the way Ctrl-C does
+        try:
+            signal.signal(getattr(signal, name), _stop)
+        except (ValueError, OSError, AttributeError):
+            pass
+    progress.write()
     try:
         result = self_evolve(arm, generations=args.generations, target=args.target, ledger=ledger,
                              patience=args.patience, check=visible_check([t["check"] for t in tasks]),
-                             refuse_knobs=refuse, on_progress=lambda s: print(s, flush=True))
+                             refuse_knobs=refuse, on_progress=said, on_generation=generation)
     except KeyboardInterrupt:
+        progress.end("stopped")
         print("\ninterrupted: the ledger keeps every generation that finished", file=sys.stderr)
         return 130
+    except Exception as exc:
+        progress.end("failed", str(exc))
+        raise
     write_ledger(ledger_path, result["ledger"])
-    (out / "self-evolve.json").write_text(json.dumps({k: v for k, v in result.items() if k != "ledger"}, indent=1,
-                                                     default=str), encoding="utf-8")
-    (out / "harness.json").write_text(json.dumps(result["harness"], indent=1), encoding="utf-8")
-    (out / "SELF_EVOLVE.md").write_text(_markdown(result), encoding="utf-8")
-    if result.get("evals"):
-        (out / "evals").mkdir(exist_ok=True)
-        (out / "evals" / "evolve-evals.json").write_text(json.dumps(result["evals"], indent=1, default=str),
-                                                         encoding="utf-8")
+    _write_result(out, result)
+    progress.end("done", result["stop"])
     print(f"\n{result['narrative']}\n\nwrote {out / 'self-evolve.json'}, {out / 'SELF_EVOLVE.md'}, "
           f"{out / 'harness.json'}; the next call continues from {ledger_path}")
     keep = _latest_passing_arm(out, result)

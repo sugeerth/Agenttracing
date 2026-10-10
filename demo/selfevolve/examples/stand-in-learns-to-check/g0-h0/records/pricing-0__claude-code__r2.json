@@ -9,10 +9,10 @@
  "patch": "diffs/pricing-0__claude-code__r2.patch",
  "exit_code": 0,
  "stopped_by": null,
- "wall_s": 0.118,
+ "wall_s": 0.117,
  "stderr_tail": "",
  "stream": {
-  "bytes": 3674,
+  "bytes": 3673,
   "cap": 268435456,
   "truncated_lines": 0
  },
@@ -21,13 +21,13 @@
   "exit_code": 1,
   "passed": false,
   "seconds": 0.052,
-  "output_tail": "======================================================================\nFAIL: test_order_total (test_pricing.PricingTest.test_order_total)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/agentdiff-claude-code-j3wd8nqo/work/test_pricing.py\", line 17, in test_order_total\n    self.assertEqual(order_total([(10.0, 3), (5.0, 2)], discount_percent=20), 32.0)\nAssertionError: -760.0 != 32.0\n\n======================================================================\nFAIL: test_ten_percent_off (test_pricing.PricingTest.test_ten_percent_off)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/agentdiff-claude-code-j3wd8nqo/work/test_pricing.py\", line 11, in test_ten_percent_off\n    self.assertEqual(apply_discount(200.0, 10), 180.0)\nAssertionError: -1800.0 != 180.0\n\n----------------------------------------------------------------------\nRan 4 tests in 0.001s\n\nFAILED (failures=2)\n"
+  "output_tail": "======================================================================\nFAIL: test_order_total (test_pricing.PricingTest.test_order_total)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/agentdiff-claude-code-xp4c6bge/work/test_pricing.py\", line 17, in test_order_total\n    self.assertEqual(order_total([(10.0, 3), (5.0, 2)], discount_percent=20), 32.0)\nAssertionError: -760.0 != 32.0\n\n======================================================================\nFAIL: test_ten_percent_off (test_pricing.PricingTest.test_ten_percent_off)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/agentdiff-claude-code-xp4c6bge/work/test_pricing.py\", line 11, in test_ten_percent_off\n    self.assertEqual(apply_discount(200.0, 10), 180.0)\nAssertionError: -1800.0 != 180.0\n\n----------------------------------------------------------------------\nRan 4 tests in 0.001s\n\nFAILED (failures=2)\n"
  },
  "baseline": {
   "passed": false,
   "exit_code": 1,
-  "seconds": 0.064,
-  "output_tail": "======================================================================\nFAIL: test_order_total (test_pricing.PricingTest.test_order_total)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/agentdiff-baseline-hp258ur9/work/test_pricing.py\", line 17, in test_order_total\n    self.assertEqual(order_total([(10.0, 3), (5.0, 2)], discount_percent=20), 32.0)\nAssertionError: 20.0 != 32.0\n\n======================================================================\nFAIL: test_ten_percent_off (test_pricing.PricingTest.test_ten_percent_off)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/agentdiff-baseline-hp258ur9/work/test_pricing.py\", line 11, in test_ten_percent_off\n    self.assertEqual(apply_discount(200.0, 10), 180.0)\nAssertionError: 190.0 != 180.0\n\n----------------------------------------------------------------------\nRan 4 tests in 0.001s\n\nFAILED (failures=2)\n"
+  "seconds": 0.048,
+  "output_tail": "======================================================================\nFAIL: test_order_total (test_pricing.PricingTest.test_order_total)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/agentdiff-baseline-hjngzzzy/work/test_pricing.py\", line 17, in test_order_total\n    self.assertEqual(order_total([(10.0, 3), (5.0, 2)], discount_percent=20), 32.0)\nAssertionError: 20.0 != 32.0\n\n======================================================================\nFAIL: test_ten_percent_off (test_pricing.PricingTest.test_ten_percent_off)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/agentdiff-baseline-hjngzzzy/work/test_pricing.py\", line 11, in test_ten_percent_off\n    self.assertEqual(apply_discount(200.0, 10), 180.0)\nAssertionError: 190.0 != 180.0\n\n----------------------------------------------------------------------\nRan 4 tests in 0.001s\n\nFAILED (failures=2)\n"
  },
  "diff": {
   "files": [
@@ -58,7 +58,7 @@
   "check": "python3 -m unittest -q",
   "budget_tokens": null,
   "timeout_s": 900.0,
-  "started_at": 1791553842.667,
+  "started_at": 1791618330.505,
   "cli": "claude",
   "cli_version": "0.0.0-test-double (Claude Code stand-in)",
   "argv": [
