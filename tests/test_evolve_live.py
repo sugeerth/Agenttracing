@@ -97,7 +97,9 @@ class StartFromTheHubTest(unittest.TestCase):
                 done = get("/evolve").body.decode()
                 self.assertIn("✓ ended", done)
                 self.assertNotIn('http-equiv="refresh"', done, "nothing running: the page stays still")
-                self.assertIn("demo: six tasks", done, "the end of what it printed")
+                tail = app.jobs.view()["tail"]
+                self.assertTrue(any(x.startswith("wrote ") for x in tail), tail)
+                self.assertIn("<li>wrote ", done, "the end of what it printed")
 
     def test_stop_ends_it_and_the_agents_it_started(self):
         with tempfile.TemporaryDirectory() as tmp:
