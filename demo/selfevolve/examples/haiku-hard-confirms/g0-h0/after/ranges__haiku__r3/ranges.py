@@ -1,0 +1,139 @@
+"""Whether a version satisfies a range, the way npm's caret and tilde ranges read."""
+
+import operator
+import re
+
+_NUMERIC = re.compile(r"[0-9]+")
+_PRE_ID = re.compile(r"[0-9A-Za-z-]+")
+_WILDCARDS = ("x", "*")
+_OPERATORS = {
+    ">=": operator.ge,
+    "<=": operator.le,
+    ">": operator.gt,
+    "<": operator.lt,
+    "=": operator.eq,
+}
+
+
+def _split_pre(text):
+    """Split ``core-pre`` into its core and pre-release (``None`` when there is no pre-release)."""
+    core, sep, pre = text.partition("-")
+    if sep and not pre:
+        raise ValueError(f"empty pre-release: {text!r}")
+    return core, (pre if sep else None)
+
+
+def _pre_key(pre):
+    """SemVer precedence key; a release (``None``) sorts above every pre-release of the same core."""
+    if pre is None:
+        return (1, ())
+    ids = []
+    for ident in pre.split("."):
+        if not _PRE_ID.fullmatch(ident):
+            raise ValueError(f"malformed pre-release: {pre!r}")
+        if _NUMERIC.fullmatch(ident):
+            ids.append((0, int(ident)))
+        else:
+            ids.append((1, ident))
+    return (0, tuple(ids))
+
+
+def _parts(core, pre):
+    """Numeric parts of ``MAJOR[.MINOR[.PATCH]]`` plus whether a trailing wildcard was present."""
+    parts = core.split(".")
+    if len(parts) > 3:
+        raise ValueError(f"too many components: {core!r}")
+    nums, wild = [], False
+    for part in parts:
+        if part in _WILDCARDS:
+            wild = True
+        elif wild or not _NUMERIC.fullmatch(part):
+            raise ValueError(f"malformed version: {core!r}")
+        else:
+            nums.append(int(part))
+    if wild and pre is not None:
+        raise ValueError(f"wildcard with pre-release: {core!r}")
+    return nums, wild
+
+
+def _full(text):
+    """Key and pre-release flag of a complete MAJOR.MINOR.PATCH version."""
+    core, pre = _split_pre(text)
+    nums, wild = _parts(core, pre)
+    if wild or len(nums) != 3:
+        raise ValueError(f"expected MAJOR.MINOR.PATCH: {text!r}")
+    return (*nums, _pre_key(pre)), pre is not None
+
+
+def _caret_or_tilde(op, text):
+    """Bounds for ``^`` or ``~`` (also a bare partial such as ``1.2.x``, which reads as ``~``)."""
+    core, pre = _split_pre(text)
+    nums, _ = _parts(core, pre)
+    if not nums:
+        return []
+    if pre is not None and len(nums) < 3:
+        raise ValueError(f"pre-release needs a full version: {text!r}")
+    major, minor, patch = (nums + [0, 0])[:3]
+    lower = (major, minor, patch, _pre_key(pre))
+    if op == "^":
+        if major:
+            upper = (major + 1, 0, 0)
+        elif len(nums) == 1:
+            upper = (1, 0, 0)
+        elif len(nums) == 2 or minor:
+            upper = (0, minor + 1, 0)
+        else:
+            upper = (0, 0, patch + 1)
+    elif len(nums) == 1:
+        upper = (major + 1, 0, 0)
+    else:
+        upper = (major, minor + 1, 0)
+    return [(">=", lower, pre is not None), ("<", (*upper, _pre_key(None)), False)]
+
+
+def _comparator(token):
+    """Bounds ``(op, key, has_pre)`` that one whitespace-separated comparator contributes to its set."""
+    if token in _WILDCARDS:
+        return []
+    if token[0] in "^~":
+        return _caret_or_tilde(token[0], token[1:])
+    for op in _OPERATORS:
+        if token.startswith(op):
+            key, has_pre = _full(token[len(op):])
+            return [(op, key, has_pre)]
+    core, pre = _split_pre(token)
+    _, wild = _parts(core, pre)
+    if wild:
+        return _caret_or_tilde("~", token)
+    key, has_pre = _full(token)
+    return [("=", key, has_pre)]
+
+
+def _set_matches(key, has_pre, text):
+    """Whether a version (``key``, ``has_pre``) satisfies one comparator set."""
+    bounds = []
+    for token in text.split():
+        bounds.extend(_comparator(token))
+    if has_pre and not any(b_pre and b_key[:3] == key[:3] for _, b_key, b_pre in bounds):
+        return False
+    return all(_OPERATORS[op](key, b_key) for op, b_key, _ in bounds)
+
+
+def satisfies(version: str, spec: str) -> bool:
+    """Whether ``version`` (MAJOR.MINOR.PATCH, digits only, or with a pre-release after "-") is in ``spec``.
+
+    A spec is comparator sets joined by ``||`` (either one); a set is comparators separated by spaces (all of
+    them). A comparator is one of:
+
+    - ``=1.2.3`` or ``1.2.3``, ``>1.2.3``, ``>=1.2.3``, ``<1.2.3``, ``<=1.2.3``;
+    - ``^1.2.3``: >=1.2.3 <2.0.0; ``^0.2.3``: >=0.2.3 <0.3.0; ``^0.0.3``: >=0.0.3 <0.0.4;
+    - ``~1.2.3``: >=1.2.3 <1.3.0; ``~1.2``: >=1.2.0 <1.3.0; ``~1``: >=1.0.0 <2.0.0;
+    - ``1.2.x`` or ``1.2.*``: >=1.2.0 <1.3.0; ``1.x``: >=1.0.0 <2.0.0; ``*`` or ``x`` or an empty set: any version.
+
+    A version with a pre-release (``1.2.3-beta``) satisfies only a set in which some comparator names the same
+    MAJOR.MINOR.PATCH with a pre-release, and then compares by SemVer precedence (``1.2.3-alpha`` < ``1.2.3-beta``
+    < ``1.2.3``). Whitespace around ``||`` and between comparators is ignored. A malformed version or spec raises
+    ValueError.
+    """
+    key, has_pre = _full(version)
+    return any(_set_matches(key, has_pre, text) for text in spec.split("||"))

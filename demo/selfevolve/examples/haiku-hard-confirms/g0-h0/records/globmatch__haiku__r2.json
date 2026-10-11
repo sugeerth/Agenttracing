@@ -1,0 +1,88 @@
+{
+ "task": "globmatch",
+ "agent": "haiku",
+ "vendor": "claude",
+ "model": "haiku",
+ "run": "r2",
+ "trace": "traces/globmatch__haiku__r2.json",
+ "raw": "raw/globmatch__haiku__r2.jsonl",
+ "patch": "diffs/globmatch__haiku__r2.patch",
+ "exit_code": 0,
+ "stopped_by": null,
+ "wall_s": 23.049,
+ "stderr_tail": "",
+ "stream": {
+  "bytes": 40943,
+  "cap": 268435456,
+  "truncated_lines": 0
+ },
+ "check": {
+  "command": "/usr/local/bin/python3 -m unittest discover -s /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/globmatch -t /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/globmatch",
+  "exit_code": 0,
+  "passed": true,
+  "seconds": 0.063,
+  "output_tail": "......\n----------------------------------------------------------------------\nRan 6 tests in 0.001s\n\nOK\n"
+ },
+ "baseline": {
+  "passed": false,
+  "exit_code": 1,
+  "seconds": 0.077,
+  "output_tail": " raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_star_stays_in_one_segment (test_globmatch.GlobTest.test_star_stays_in_one_segment)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/globmatch/test_globmatch.py\", line 8, in test_star_stays_in_one_segment\n    self.assertTrue(match(\"*.py\", \"a.py\"))\n                    ^^^^^^^^^^^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-5fb38nyr/work/globmatch.py\", line 16, in match\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_whole_path (test_globmatch.GlobTest.test_whole_path)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/globmatch/test_globmatch.py\", line 44, in test_whole_path\n    self.assertFalse(match(\"a\", \"ab\"))\n                     ^^^^^^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-5fb38nyr/work/globmatch.py\", line 16, in match\n    raise NotImplementedError\nNotImplementedError\n\n----------------------------------------------------------------------\nRan 6 tests in 0.002s\n\nFAILED (errors=6)\n"
+ },
+ "diff": {
+  "files": [
+   {
+    "path": "globmatch.py",
+    "status": "modified",
+    "added": 85,
+    "removed": 1,
+    "after_sha": "f168490f880255b20bf22678d1cdbe4b755d497014464fbfbb0fe9369916d95d"
+   }
+  ],
+  "added": 85,
+  "removed": 1,
+  "patch_chars": 2856,
+  "patch_truncated": false
+ },
+ "after": {
+  "bytes": 3190,
+  "withheld": [],
+  "not_kept": [],
+  "deleted": [],
+  "complete": true,
+  "dir": "after/globmatch__haiku__r2"
+ },
+ "setup": {
+  "prompt_sha": "364149faef64aa81",
+  "workspace_sha": "90901c53ba1384ad",
+  "check": "/usr/local/bin/python3 -m unittest discover -s /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/globmatch -t /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/globmatch",
+  "budget_tokens": null,
+  "timeout_s": 900.0,
+  "started_at": 1791707300.491,
+  "cli": "claude",
+  "cli_version": "2.1.296 (Claude Code)",
+  "argv": [
+   "/opt/node22/bin/claude",
+   "-p",
+   "--output-format",
+   "stream-json",
+   "--verbose",
+   "--permission-mode",
+   "acceptEdits",
+   "--no-session-persistence",
+   "--tools",
+   "Bash,Read,Edit,Write,Grep,Glob,TodoWrite,Task",
+   "--strict-mcp-config",
+   "--allowedTools",
+   "Bash",
+   "--setting-sources",
+   "project,local",
+   "--model",
+   "haiku"
+  ],
+  "sandbox": "claude acceptEdits (Bash allowed), no OS sandbox",
+  "budget_enforced": "while running (usage is per message)",
+  "user_config": "ignored",
+  "tools": "Bash, Read, Edit, Write, Grep, Glob, TodoWrite, Task; no MCP servers"
+ }
+}

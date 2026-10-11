@@ -1,0 +1,221 @@
+{
+ "schema_version": 1,
+ "trace_id": "ranges__haiku__r3",
+ "run_id": "r3",
+ "agent": {
+  "name": "haiku",
+  "model": "claude-haiku-5-5",
+  "version": "2.1.296 (Claude Code)"
+ },
+ "task": {
+  "id": "ranges",
+  "prompt": "Implement satisfies in ranges.py.",
+  "expected": null
+ },
+ "outcome": {
+  "success": true,
+  "answer": "I implemented `satisfies` in `/tmp/agentdiff-haiku-lbj_gknc/work/ranges.py`. All 50 of my ad-hoc checks pass, and malformed inputs raise `ValueError`. The directory isn't a git repo and there's no test suite, so the checks live only in my scratchpad.\n\nThe implementation has a few small helpers: a version parser that builds a SemVer precedence key, a parser for `^`, `~`, and wildcard forms, and a per-set matcher. Behaviour that the docstring didn't pin down, and the choices I made:\n\n- **Bare partials are rejected.** `1.2` or `1` on their own raise `ValueError`. Only `~`/`^` and wildcard forms (`1.2.x`, `1.x`) accept partial versions.\n- **`^` on partials follows npm.** `^0` is `<1.0.0`, `^0.0` is `<0.1.0`, and `^0.2` is `<0.3.0`.\n- **Pre-releases are allowed only on full versions**, e.g. `^1.2.3-beta` is fine but `^1.2-beta` and `*-beta` raise.\n- **Operators take full versions only.** `>=1.x` raises rather than being expanded.\n- **An empty set matches any release but not a pre-release**, the same as `*`. This follows the gate rule in the docstring.\n- **`X` is not accepted as a wildcard**, only `x` and `*`, matching the docstring.\n\nBoth the spec and my choices above are worth a look if you expected npm's full grammar. Say the word and I can add tests or loosen any of these.",
+  "score": 1.0,
+  "termination": "agent_stop",
+  "note": "check `/usr/local/bin/python3 -m unittest discover -s /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/ranges -t /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/ranges` exited 0"
+ },
+ "totals": {
+  "input_tokens": 137912,
+  "output_tokens": 16047,
+  "cost_usd": 0.013615,
+  "latency_s": 69.23
+ },
+ "steps": [
+  {
+   "index": 0,
+   "type": "tool_call",
+   "name": "Bash",
+   "input": "{\"command\": \"find . -name \\\"ranges.py\\\" -not -path \\\"*/node_modules/*\\\" && ls -la\", \"description\": \"Locate ranges.py and list working directory\"}",
+   "output": "./ranges.py\ntotal 12\ndrwxr-xr-x 2 root root 4096 Oct 11 03:05 .\ndrwx------ 3 root root 4096 Oct 11 08:29 ..\n-rw-r--r-- 1 root root 1158 Oct 11 03:04 ranges.py",
+   "tokens": 10457,
+   "latency_s": 0.182,
+   "started_s": 2.056,
+   "tokens_basis": "measured",
+   "input_tokens": 10437,
+   "output_tokens": 20,
+   "cached_tokens": 6071
+  },
+  {
+   "index": 1,
+   "type": "read",
+   "name": "Read",
+   "input": "{\"file_path\": \"/tmp/agentdiff-haiku-lbj_gknc/work/ranges.py\"}",
+   "output": "1\t\"\"\"Whether a version satisfies a range, the way npm's caret and tilde ranges read.\"\"\"\n2\t\n3\t\n4\tdef satisfies(version: str, spec: str) -> bool:\n5\t    \"\"\"Whether ``version`` (MAJOR.MINOR.PATCH, digits only, or with a pre-release after \"-\") is in ``spec``.\n6\t\n7\t    A spec is comparator sets joined by ``||`` (either one); a set is comparators separated by spaces (all of\n8\t    them). A comparator is one of:\n9\t\n10\t    - ``=1.2.3`` or ``1.2.3``, ``>1.2.3``, ``>=1.2.3``, ``<1.2.3``, ``<=1.2.3``;\n11\t    - ``^1.2.3``: >=1.2.3 <2.0.0; ``^0.2.3``: >=0.2.3 <0.3.0; ``^0.0.3``: >=0.0.3 <0.0.4;\n12\t    - ``~1.2.3``: >=1.2.3 <1.3.0; ``~1.2``: >=1.2.0 <1.3.0; ``~1``: >=1.0.0 <2.0.0;\n13\t    - ``1.2.x`` or ``1.2.*``: >=1.2.0 <1.3.0; ``1.x``: >=1.0.0 <2.0.0; ``*`` or ``x`` or an empty set: any version.\n14\t\n15\t    A version with a pre-release (``1.2.3-beta``) satisfies only a set in which some comparator names the same\n16\t    MAJOR.MINOR.PATCH with a pre-release, and then compares by SemVer precedence (``1.2.3-alpha`` < ``1.2.3-beta``\n17\t    < ``1.2.3``). Whitespace around ``||`` and between comparators is ignored. A malformed version or spec raises\n18\t    ValueError.\n19\t    \"\"\"\n20\t    raise NotImplementedError\n21\t",
+   "tokens": 10719,
+   "latency_s": 0.048,
+   "started_s": 2.869,
+   "effect": "read",
+   "tokens_basis": "measured",
+   "input_tokens": 10703,
+   "output_tokens": 16,
+   "cached_tokens": 10435
+  },
+  {
+   "index": 2,
+   "type": "tool_call",
+   "name": "Write",
+   "input": "{\"file_path\": \"/tmp/agentdiff-haiku-lbj_gknc/work/ranges.py\", \"content\": \"\\\"\\\"\\\"Whether a version satisfies a range, the way npm's caret and tilde ranges read.\\\"\\\"\\\"\\n\\nimport operator\\nimport re\\n\\n_NUMERIC = re.compile(r\\\"[0-9]+\\\")\\n_PRE_ID = re.compile(r\\\"[0-9A-Za-z-]+\\\")\\n_WILDCARDS = (\\\"x\\\", \\\"*\\\")\\n_OPERATORS = {\\n    \\\">=\\\": operator.ge,\\n    \\\"<=\\\": operator.le,\\n    \\\">\\\": operator.gt,\\n    \\\"<\\\": operator.lt,\\n    \\\"=\\\": operator.eq,\\n}\\n\\n\\ndef _split_pre(text):\\n    \\\"\\\"\\\"Split ``core-pre`` into its core and pre-release (``None`` when there is no pre-release).\\\"\\\"\\\"\\n    core, sep, pre = text.partition(\\\"-\\\")\\n    if sep and not pre:\\n        raise ValueError(f\\\"empty pre-release: {text!r}\\\")\\n    return core, (pre if sep else None)\\n\\n\\ndef _pre_key(pre):\\n    \\\"\\\"\\\"SemVer precedence key; a release (``None``) sorts above every pre-release of the same core.\\\"\\\"\\\"\\n    if pre is None:\\n        return (1, ())\\n    ids = []\\n    for ident in pre.split(\\\".\\\"):\\n        if not _PRE_ID.fullmatch(ident):\\n            raise ValueError(f\\\"malformed pre-release: {pre!r}\\\")\\n        if _NUMERIC.fullmatch(ident):\\n            ids.append((0, int(ident)))\\n        else:\\n            ids.append((1, ident))\\n    return (0, tuple(ids))\\n\\n\\ndef _parts(core, pre):\\n    \\\"\\\"\\\"Numeric parts of ``MAJOR[.MINOR[.PATCH]]`` plus whether a trailing wildcard was present.\\\"\\\"\\\"\\n    parts = core.split(\\\".\\\")\\n    if len(parts) > 3:\\n        raise ValueError(f\\\"too many components: {core!r}\\\")\\n    nums, wild = [], False\\n    for part in parts:\\n        if part in _WILDCARDS:\\n            wild = True\\n        elif wild or not _NUMERIC.fullmatch(part):\\n            raise ValueError(f\\\"malformed version: {core!r}\\\")\\n        else:\\n            nums.append(int(part))\\n    if wild and pre is not None:\\n        raise ValueError(f\\\"wildcard with pre-release: {core!r}\\\")\\n    return nums, wild\\n\\n\\ndef _full(text):\\n    \\\"\\\"\\\"Key and pre-release flag of a complete MAJOR.MINOR.PATCH version.\\\"\\\"\\\"\\n    core, pre = _split_pre(text)\\n    nums, wild = _parts(core, pre)\\n    if wild or len(nums) != 3:\\n        raise ValueError(f\\\"expected MAJOR.MINOR.PATCH: {text!r}\\\")\\n    return (*nums, _pre_key(pre)), pre is not None\\n\\n\\ndef _caret_or_tilde(op, text):\\n    \\\"\\\"\\\"Bounds for ``^`` or ``~`` (also a bare partial such as ``1.2.x``, which reads as ``~``).\\\"\\\"\\\"\\n    core, pre = _split_pre(text)\\n    nums, _ = _parts(core, pre)\\n    if not nums:\\n        return []\\n    if pre is not None and len(nums) < 3:\\n        raise ValueError(f\\\"pre-release needs a full version: {text!r}\\\")\\n    major, minor, patch = (nums + [0, 0])[:3]\\n    lower = (major, minor, patch, _pre_key(pre))\\n    if op == \\\"^\\\":\\n        if major:\\n            upper = (major + 1, 0, 0)\\n        elif len(nums) == 1:\\n            upper = (1, 0, 0)\\n        elif len(nums) == 2 or minor:\\n            upper = (0, minor + 1, 0)\\n        else:\\n            upper = (0, 0, patch + 1)\\n    elif len(nums) == 1:\\n        upper = (major + 1, 0, 0)\\n    else:\\n        upper = (major, minor + 1, 0)\\n    return [(\\\">=\\\", lower, pre is not None), (\\\"<\\\", (*upper, _pre_key(None)), False)]\\n\\n\\ndef _comparator(token):\\n    \\\"\\\"\\\"Bounds ``(op, key, has_pre)`` that one whitespace-separated comparator contributes to its set.\\\"\\\"\\\"\\n    if token in _WILDCARDS:\\n        return []\\n    if token[0] in \\\"^~\\\":\\n        return _caret_or_tilde(token[0], token[1:])\\n    for op in _OPERATORS:\\n        if token.startswith(op):\\n            key, has_pre = _full(token[len(op):])\\n            return [(op, key, has_pre)]\\n    core, pre = _split_pre(token)\\n    _, wild = _parts(core, pre)\\n    if wild:\\n        return _caret_or_tilde(\\\"~\\\", token)\\n    key, has_pre = _full(token)\\n    return [(\\\"=\\\", key, has_pre)]\\n\\n\\ndef _set_matches(key, has_pre, text):\\n    \\\"\\\"\\\"Whether a version (``key``, ``has_pre``) satisfies one comparator set.\\\"\\\"\\\"\\n    bounds = []\\n    for token in text.split():\\n        bounds.extend(_comparator(token))\\n    if has_pre and not any(b_pre and b_key[:3] == key[:3] for _, b_key, b_pre in bounds):\\n        return False\\n    return all(_OPERATORS[op](key, b_key) for op, b_key, _ in bounds)\\n\\n\\ndef satisfies(version: str, spec: str) -> bool:\\n    \\\"\\\"\\\"Whether ``version`` (MAJOR.MINOR.PATCH, digits only, or with a pre-release after \\\"-\\\") is in ``spec``.\\n\\n    A spec is comparator sets joined by ``||`` (either one); a set is comparators separated by spaces (all of\\n    them). A comparator is one of:\\n\\n    - ``=1.2.3`` or ``1.2.3``, ``>1.2.3``, ``>=1.2.3``, ``<1.2.3``, ``<=1.2.3``;\\n    - ``^1.2.3``: >=1.2.3 <2.0.0; ``^0.2.3``: >=0.2.3 <0.3.0; ``^0.0.3``: >=0.0.3 <0.0.4;\\n    - ``~1.2.3``: >=1.2.3 <1.3.0; ``~1.2``: >=1.2.0 <1.3.0; ``~1``: >=1.0.0 <2.0.0;\\n    - ``1.2.x`` or ``1.2.*``: >=1.2.0 <1.3.0; ``1.x``: >=1.0.0 <2.0.0; ``*`` or ``x`` or an empty set: any version.\\n\\n    A version with a pre-release (``1.2.3-beta``) satisfies only a set in which some comparator names the same\\n    MAJOR.MINOR.PATCH with a pre-release, and then compares by SemVer precedence (``1.2.3-alpha`` < ``1.2.3-beta``\\n    < ``1.2.3``). Whitespace around ``||`` and between comparators is ignored. A malformed version or spec raises\\n    ValueError.\\n    \\\"\\\"\\\"\\n    key, has_pre = _full(version)\\n    return any(_set_matches(key, has_pre, text) for text in spec.split(\\\"||\\\"))\\n\"}",
+   "output": "The file /tmp/agentdiff-haiku-lbj_gknc/work/ranges.py has been updated successfully. (file state is current in your context — no need to Read it back)",
+   "tokens": 11470,
+   "latency_s": 0.048,
+   "started_s": 56.403,
+   "effect": "write",
+   "tokens_basis": "measured",
+   "input_tokens": 11467,
+   "output_tokens": 3,
+   "cached_tokens": 10701
+  },
+  {
+   "index": 3,
+   "type": "tool_call",
+   "name": "Bash",
+   "input": "{\"command\": \"cd /tmp/claude-0/-tmp-agentdiff-haiku-lbj-gknc-work/11ffcf1e-49b6-4ce8-996b-86786f2bbbbf/scratchpad && cat > check_ranges.py <<'EOF'\\nimport sys\\nsys.path.insert(0, \\\"/tmp/agentdiff-haiku-lbj_gknc/work\\\")\\nfrom ranges import satisfies as s\\n\\ncases = [\\n    (\\\"1.2.3\\\", \\\"1.2.3\\\", True), (\\\"1.2.4\\\", \\\"1.2.3\\\", False), (\\\"1.2.3\\\", \\\"=1.2.3\\\", True),\\n    (\\\"1.2.3\\\", \\\">1.2.3\\\", False), (\\\"1.2.4\\\", \\\">1.2.3\\\", True), (\\\"1.2.3\\\", \\\">=1.2.3\\\", True),\\n    (\\\"1.2.2\\\", \\\"<1.2.3\\\", True), (\\\"1.2.3\\\", \\\"<=1.2.3\\\", True), (\\\"1.2.4\\\", \\\"<=1.2.3\\\", False),\\n    (\\\"1.9.9\\\", \\\"^1.2.3\\\", True), (\\\"2.0.0\\\", \\\"^1.2.3\\\", False), (\\\"1.2.2\\\", \\\"^1.2.3\\\", False),\\n    (\\\"0.2.9\\\", \\\"^0.2.3\\\", True), (\\\"0.3.0\\\", \\\"^0.2.3\\\", False), (\\\"0.0.3\\\", \\\"^0.0.3\\\", True),\\n    (\\\"0.0.4\\\", \\\"^0.0.3\\\", False), (\\\"0.2\\\", \\\"^0.2\\\", False),\\n    (\\\"1.2.9\\\", \\\"~1.2.3\\\", True), (\\\"1.3.0\\\", \\\"~1.2.3\\\", False), (\\\"1.2.0\\\", \\\"~1.2\\\", True),\\n    (\\\"1.3.0\\\", \\\"~1.2\\\", False), (\\\"1.9.0\\\", \\\"~1\\\", True), (\\\"2.0.0\\\", \\\"~1\\\", False),\\n    (\\\"1.2.5\\\", \\\"1.2.x\\\", True), (\\\"1.3.0\\\", \\\"1.2.*\\\", False), (\\\"1.9.9\\\", \\\"1.x\\\", True),\\n    (\\\"2.0.0\\\", \\\"1.x\\\", False), (\\\"9.9.9\\\", \\\"*\\\", True), (\\\"9.9.9\\\", \\\"x\\\", True), (\\\"1.0.0\\\", \\\"\\\", True),\\n    (\\\"1.0.0\\\", \\\"\\\", True),\\n    (\\\"1.2.3-alpha\\\", \\\"1.2.3-alpha\\\", True), (\\\"1.2.3-beta\\\", \\\">=1.2.3-alpha <1.2.3\\\", True),\\n    (\\\"1.2.3-alpha\\\", \\\">=1.2.3-beta\\\", False), (\\\"1.2.3\\\", \\\"^1.2.3-beta\\\", True),\\n    (\\\"1.2.3-beta\\\", \\\"^1.2.3\\\", False), (\\\"1.2.3-beta\\\", \\\"*\\\", False), (\\\"1.2.3-beta\\\", \\\"1.2.3-beta || ^1\\\", True),\\n    (\\\"1.2.3-beta\\\", \\\"^1.2.2-alpha\\\", True), (\\\"1.2.3-beta\\\", \\\"^1.2.2\\\", False),\\n    (\\\"1.0.0-alpha.1\\\", \\\"<1.0.0-alpha.beta\\\", True), (\\\"1.0.0-alpha.10\\\", \\\">1.0.0-alpha.9\\\", True),\\n    (\\\"1.0.0-1\\\", \\\"<1.0.0-alpha\\\", True),\\n    (\\\"1.0.0\\\", \\\"<2.0.0 || >=3.0.0\\\", True), (\\\"2.5.0\\\", \\\"<2.0.0 || >=3.0.0\\\", False),\\n    (\\\"3.0.0\\\", \\\" >=1.0.0   <4.0.0 ||  \\\", True), (\\\"1.0.0\\\", \\\"  ^1.0.0   \\\", True),\\n    (\\\"1.2.3\\\", \\\"1.2.3 ||\\\", True),\\n]\\nbad = [c for c in cases if s(c[0], c[1]) != c[2]]\\nprint(\\\"failures:\\\", bad or \\\"none\\\", \\\"of\\\", len(cases))\\nfor v, spec in [(\\\"1.2\\\", \\\"*\\\"), (\\\"1.2.3.4\\\", \\\"*\\\"), (\\\"a.b.c\\\", \\\"*\\\"), (\\\"1.2.3-\\\", \\\"*\\\"), (\\\"1.2.3\\\", \\\"1.2\\\"),\\n                (\\\"1.2.3\\\", \\\">=1.x\\\"), (\\\"1.2.3\\\", \\\"^1.2-beta\\\"), (\\\"1.2.3\\\", \\\"1.*.3\\\"), (\\\"1.2.3\\\", \\\"1.2.3-\\\"),\\n                (\\\"1.2.3\\\", \\\">= 1.2.3\\\"), (\\\"1.2.3\\\", \\\"1.2.3-a..b\\\"), (\\\"1.2.3\\\", \\\"*-beta\\\"), (\\\"1.2.3+build\\\", \\\"*\\\")]:\\n    try:\\n        s(v, spec); print(\\\"NO ERROR\\\", v, spec)\\n    except ValueError as e:\\n        pass\\nprint(\\\"error checks done\\\")\\nEOF\\npython3 check_ranges.py\", \"description\": \"Run ad-hoc checks of satisfies against expected results\"}",
+   "output": "Exit code 1\nTraceback (most recent call last):\n  File \"/tmp/claude-0/-tmp-agentdiff-haiku-lbj-gknc-work/11ffcf1e-49b6-4ce8-996b-86786f2bbbbf/scratchpad/check_ranges.py\", line 27, in <module>\n    bad = [c for c in cases if s(c[0], c[1]) != c[2]]\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/tmp/claude-0/-tmp-agentdiff-haiku-lbj-gknc-work/11ffcf1e-49b6-4ce8-996b-86786f2bbbbf/scratchpad/check_ranges.py\", line 27, in <listcomp>\n    bad = [c for c in cases if s(c[0], c[1]) != c[2]]\n                               ^^^^^^^^^^^^^\n  File \"/tmp/agentdiff-haiku-lbj_gknc/work/ranges.py\", line 138, in satisfies\n    key, has_pre = _full(version)\n                   ^^^^^^^^^^^^^^\n  File \"/tmp/agentdiff-haiku-lbj_gknc/work/ranges.py\", line 64, in _full\n    raise ValueError(f\"expected MAJOR.MINOR.PATCH: {text!r}\")\nValueError: expected MAJOR.MINOR.PATCH: '0.2'",
+   "tokens": 24387,
+   "latency_s": 0.098,
+   "started_s": 61.91,
+   "tokens_basis": "measured",
+   "error": true,
+   "input_tokens": 24367,
+   "output_tokens": 20,
+   "cached_tokens": 11465
+  },
+  {
+   "index": 4,
+   "type": "reason",
+   "name": "message",
+   "input": "",
+   "output": "The failure is in my test table, not the implementation: `\"0.2\"` isn't a valid version, so that case should use a full version. Fixing the case and rerunning.",
+   "tokens": 0,
+   "latency_s": 0.321,
+   "started_s": 62.861,
+   "tokens_basis": null
+  },
+  {
+   "index": 5,
+   "type": "tool_call",
+   "name": "Bash",
+   "input": "{\"command\": \"cd /tmp/claude-0/-tmp-agentdiff-haiku-lbj-gknc-work/11ffcf1e-49b6-4ce8-996b-86786f2bbbbf/scratchpad && sed -i 's/(\\\"0.2\\\", \\\"^0.2\\\", False)/(\\\"0.2.9\\\", \\\"^0.2\\\", True), (\\\"0.3.0\\\", \\\"^0.2\\\", False)/' check_ranges.py && python3 check_ranges.py\", \"description\": \"Rerun ad-hoc checks after fixing test case\"}",
+   "output": "failures: [('1.2.3-beta', '^1.2.2-alpha', True)] of 49\nerror checks done\nShell cwd was reset to /tmp/agentdiff-haiku-lbj_gknc/work",
+   "tokens": 26455,
+   "latency_s": 0.126,
+   "started_s": 63.954,
+   "tokens_basis": "measured",
+   "input_tokens": 26448,
+   "output_tokens": 7,
+   "cached_tokens": 24365
+  },
+  {
+   "index": 6,
+   "type": "reason",
+   "name": "message",
+   "input": "",
+   "output": "The one remaining failure is also my expectation, not the code. Under the spec, a pre-release version only matches a set where a comparator has the same `MAJOR.MINOR.PATCH` with a pre-release. `^1.2.2-alpha` has core `1.2.2`, not `1.2.3`, so `1.2.3-beta` should be rejected. I'll correct the expectation.",
+   "tokens": 0,
+   "latency_s": 0.57,
+   "started_s": 65.282,
+   "tokens_basis": null
+  },
+  {
+   "index": 7,
+   "type": "tool_call",
+   "name": "Bash",
+   "input": "{\"command\": \"cd /tmp/claude-0/-tmp-agentdiff-haiku-lbj-gknc-work/11ffcf1e-49b6-4ce8-996b-86786f2bbbbf/scratchpad && sed -i 's/(\\\"1.2.3-beta\\\", \\\"^1.2.2-alpha\\\", True)/(\\\"1.2.3-beta\\\", \\\"^1.2.2-alpha\\\", False), (\\\"1.2.3-beta\\\", \\\"^1.2.3-alpha\\\", True)/' check_ranges.py && python3 check_ranges.py\", \"description\": \"Rerun checks with corrected pre-release expectation\"}",
+   "output": "failures: none of 50\nerror checks done\nShell cwd was reset to /tmp/agentdiff-haiku-lbj_gknc/work",
+   "tokens": 26932,
+   "latency_s": 0.126,
+   "started_s": 66.83,
+   "tokens_basis": "measured",
+   "input_tokens": 26922,
+   "output_tokens": 10,
+   "cached_tokens": 26446
+  },
+  {
+   "index": 8,
+   "type": "answer",
+   "name": "answer",
+   "input": "",
+   "output": "I implemented `satisfies` in `/tmp/agentdiff-haiku-lbj_gknc/work/ranges.py`. All 50 of my ad-hoc checks pass, and malformed inputs raise `ValueError`. The directory isn't a git repo and there's no test suite, so the checks live only in my scratchpad.\n\nThe implementation has a few small helpers: a version parser that builds a SemVer precedence key, a parser for `^`, `~`, and wildcard forms, and a per-set matcher. Behaviour that the docstring didn't pin down, and the choices I made:\n\n- **Bare partials are rejected.** `1.2` or `1` on their own raise `ValueError`. Only `~`/`^` and wildcard forms (`1.2.x`, `1.x`) accept partial versions.\n- **`^` on partials follows npm.** `^0` is `<1.0.0`, `^0.0` is `<0.1.0`, and `^0.2` is `<0.3.0`.\n- **Pre-releases are allowed only on full versions**, e.g. `^1.2.3-beta` is fine but `^1.2-beta` and `*-beta` raise.\n- **Operators take full versions only.** `>=1.x` raises rather than being expanded.\n- **An empty set matches any release but not a pre-release**, the same as `*`. This follows the gate rule in the docstring.\n- **`X` is not accepted as a wildcard**, only `x` and `*`, matching the docstring.\n\nBoth the spec and my choices above are worth a look if you expected npm's full grammar. Say the word and I can add tests or loosen any of these.",
+   "tokens": 322,
+   "tokens_basis": "estimated",
+   "latency_s": 0.0
+  }
+ ],
+ "token_accounting": {
+  "basis": "measured",
+  "per_step": "measured per message, on the message's last step",
+  "cached_input_tokens": 116403,
+  "cache_write_input_tokens": 21495
+ },
+ "source": {
+  "format": "claude-code-stream-json",
+  "events": 64,
+  "unknown_events": {},
+  "timed": true
+ },
+ "vendor": {
+  "name": "claude-code",
+  "session_id": "11ffcf1e-49b6-4ce8-996b-86786f2bbbbf",
+  "turns": 7,
+  "usage": {
+   "input_tokens": 14,
+   "cache_creation_input_tokens": 21495,
+   "cache_read_input_tokens": 116403,
+   "output_tokens": 16047,
+   "output_tokens_details": {
+    "thinking_tokens": 10697
+   },
+   "server_tool_use": {
+    "web_search_requests": 0,
+    "web_fetch_requests": 0
+   },
+   "service_tier": "standard",
+   "cache_creation": {
+    "ephemeral_1h_input_tokens": 21495,
+    "ephemeral_5m_input_tokens": 0
+   },
+   "inference_geo": "global",
+   "iterations": [
+    {
+     "input_tokens": 2,
+     "output_tokens": 539,
+     "cache_read_input_tokens": 26920,
+     "cache_creation_input_tokens": 646,
+     "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 646
+     },
+     "type": "message"
+    }
+   ],
+   "speed": "standard",
+   "fallback_credit": null
+  },
+  "cost_usd": 0.013615,
+  "cost_basis": "reported by the CLI",
+  "duration_api_s": 69.003,
+  "permission_denials": 0,
+  "tools_offered": 7,
+  "subtype": "success",
+  "unanswered_tool_calls": 0,
+  "rate_limit_events": 1,
+  "requested_model": "haiku"
+ },
+ "harness": {
+  "adapter": "vendor:claude",
+  "graded_by": "harness check",
+  "note": "run by `agentdiff duel`: the grade, the diff and the clock are the harness's",
+  "evolved": {
+   "version": 0,
+   "remedies": [],
+   "instructions": [],
+   "deny_tools": [],
+   "max_turns": null
+  }
+ }
+}

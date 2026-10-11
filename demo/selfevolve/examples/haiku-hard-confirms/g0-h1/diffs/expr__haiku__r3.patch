@@ -1,0 +1,123 @@
+--- a/expr.py
++++ b/expr.py
+@@ -1,4 +1,111 @@
+ """Evaluating integer arithmetic."""
++
++_DIGITS = "0123456789"
++_TWO_CHAR_OPS = ("**", "//")
++_ONE_CHAR_OPS = "+-*%()"
++
++
++def _tokenize(text: str) -> list:
++    tokens = []
++    i = 0
++    while i < len(text):
++        c = text[i]
++        if c == " ":
++            i += 1
++        elif c in _DIGITS:
++            j = i
++            while j < len(text) and text[j] in _DIGITS:
++                j += 1
++            tokens.append(int(text[i:j]))
++            i = j
++        elif text[i:i + 2] in _TWO_CHAR_OPS:
++            tokens.append(text[i:i + 2])
++            i += 2
++        elif c in _ONE_CHAR_OPS:
++            tokens.append(c)
++            i += 1
++        else:
++            raise ValueError(f"unexpected character {c!r}")
++    return tokens
++
++
++class _Parser:
++    # expr   := term (('+' | '-') term)*
++    # term   := factor (('*' | '//' | '%') factor)*
++    # factor := ('+' | '-') factor | power
++    # power  := primary ('**' factor)?
++    # primary := NUMBER | '(' expr ')'
++
++    def __init__(self, tokens: list):
++        self.tokens = tokens
++        self.pos = 0
++
++    def peek(self):
++        return self.tokens[self.pos] if self.pos < len(self.tokens) else None
++
++    def take(self):
++        tok = self.peek()
++        self.pos += 1
++        return tok
++
++    def parse(self) -> int:
++        value = self.expr()
++        if self.peek() is not None:
++            raise ValueError(f"unexpected token {self.peek()!r}")
++        return value
++
++    def expr(self) -> int:
++        value = self.term()
++        while self.peek() in ("+", "-"):
++            op = self.take()
++            right = self.term()
++            value = value + right if op == "+" else value - right
++        return value
++
++    def term(self) -> int:
++        value = self.factor()
++        while self.peek() in ("*", "//", "%"):
++            op = self.take()
++            right = self.factor()
++            if op == "*":
++                value *= right
++            elif right == 0:
++                raise ValueError("division by zero")
++            elif op == "//":
++                value //= right
++            else:
++                value %= right
++        return value
++
++    def factor(self) -> int:
++        # Unary operators are looped rather than recursed so long runs like "- - - 3" stay shallow.
++        negate = False
++        while self.peek() in ("+", "-"):
++            if self.take() == "-":
++                negate = not negate
++        value = self.power()
++        return -value if negate else value
++
++    def power(self) -> int:
++        base = self.primary()
++        if self.peek() == "**":
++            self.take()
++            exponent = self.factor()
++            if exponent < 0:
++                raise ValueError("negative exponent is not an integer")
++            return base ** exponent
++        return base
++
++    def primary(self) -> int:
++        tok = self.take()
++        if isinstance(tok, int):
++            return tok
++        if tok == "(":
++            value = self.expr()
++            if self.take() != ")":
++                raise ValueError("unbalanced parentheses")
++            return value
++        raise ValueError(f"unexpected token {tok!r}")
+ 
+ 
+ def evaluate(text: str) -> int:
+@@ -17,4 +124,7 @@
+     Division or modulo by zero, an empty expression, unbalanced parentheses, a lone operator, a single ``/``,
+     or any other character raises ValueError. ``eval`` and ``ast`` are not to be used.
+     """
+-    raise NotImplementedError
++    tokens = _tokenize(text)
++    if not tokens:
++        raise ValueError("empty expression")
++    return _Parser(tokens).parse()

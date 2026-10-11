@@ -98,7 +98,7 @@ class FolderTest(unittest.TestCase):
         cat = Catalog(EXAMPLES, depth=3, limit=50)
         kinds = {x.path.name: (x.summary.get("example") or "").split(":")[0] for x in cat.entries()}
         self.assertEqual(kinds, {"stand-in-learns-to-check": "synthetic", "haiku-on-six-tasks": "recorded",
-                                 "haiku-hard-explores": "recorded"})
+                                 "haiku-hard-confirms": "recorded"})
 
 
 class EvolvePageTest(unittest.TestCase):

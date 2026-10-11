@@ -20,6 +20,13 @@ numbers are the schema/report versions the sections were introduced in.
   card ("On tasks it never evolved on") and offered on Evolve's Start.
 - **Cost on the card**: each change's median tokens a run against the
   harness as it was.
+- **Measured, for real.** At three at once, 12 haiku runs took 2.6
+  minutes, where one at a time had taken about a minute a run.
+  `examples/haiku-hard-confirms` is a recorded run that took the whole
+  chain: 42 runs, $0.45, 15 minutes at four at once. A `ranges` run
+  failed, the harness explored, and the edge-case instruction was kept
+  on one task moving. `ranges` ran again both arms, and the change held
+  (2/3 → 3/3 on the fresh runs).
 
 ## Self-evolve explores, and says how far from luck
 
@@ -38,8 +45,9 @@ numbers are the schema/report versions the sections were introduced in.
   repository), and fails its untouched stub. The small six are easy
   enough that a strong agent passes them all, so a harness has nothing
   to learn from them.
-- **A real run that evolves.** `examples/haiku-hard-explores` is recorded:
-  24 haiku runs on the hard six, $0.24. A `ranges` run accepted `>=1.2`,
+- **A real run that evolves.** A recorded run (since replaced by
+  `examples/haiku-hard-confirms`, which also confirms): 24 haiku runs on
+  the hard six, $0.24. A `ranges` run accepted `>=1.2`,
   no eval named a change, so the harness explored. The edge-case
   instruction was kept (11/12 → 12/12), and the card says that one task
   moving is as likely by chance.

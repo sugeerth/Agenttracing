@@ -1,0 +1,90 @@
+{
+ "task": "isodur",
+ "agent": "haiku",
+ "vendor": "claude",
+ "model": "haiku",
+ "run": "r2",
+ "trace": "traces/isodur__haiku__r2.json",
+ "raw": "raw/isodur__haiku__r2.jsonl",
+ "patch": "diffs/isodur__haiku__r2.patch",
+ "exit_code": 0,
+ "stopped_by": null,
+ "wall_s": 30.463,
+ "stderr_tail": "",
+ "stream": {
+  "bytes": 56189,
+  "cap": 268435456,
+  "truncated_lines": 0
+ },
+ "check": {
+  "command": "/usr/local/bin/python3 -m unittest discover -s /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/isodur -t /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/isodur",
+  "exit_code": 0,
+  "passed": true,
+  "seconds": 0.065,
+  "output_tail": "...\n----------------------------------------------------------------------\nRan 3 tests in 0.001s\n\nOK\n"
+ },
+ "baseline": {
+  "passed": false,
+  "exit_code": 1,
+  "seconds": 0.072,
+  "output_tail": "work/isodur.py\", line 14, in parse\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_values (test_isodur.DurationTest.test_values) (text='P1Y2M3DT4H5M6S')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/isodur/test_isodur.py\", line 13, in test_values\n    self.assertAlmostEqual(parse(text), secs)\n                           ^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-r26f7o6t/work/isodur.py\", line 14, in parse\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_values (test_isodur.DurationTest.test_values) (text='P0D')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/isodur/test_isodur.py\", line 13, in test_values\n    self.assertAlmostEqual(parse(text), secs)\n                           ^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-r26f7o6t/work/isodur.py\", line 14, in parse\n    raise NotImplementedError\nNotImplementedError\n\n----------------------------------------------------------------------\nRan 3 tests in 0.005s\n\nFAILED (errors=35)\n"
+ },
+ "diff": {
+  "files": [
+   {
+    "path": "isodur.py",
+    "status": "modified",
+    "added": 37,
+    "removed": 1,
+    "after_sha": "6650d1b7c4c7fce613e975799a3848f8d29c8ec2f651ac60e3319e7f36dabae6"
+   }
+  ],
+  "added": 37,
+  "removed": 1,
+  "patch_chars": 1643,
+  "patch_truncated": false
+ },
+ "after": {
+  "bytes": 2028,
+  "withheld": [],
+  "not_kept": [],
+  "deleted": [],
+  "complete": true,
+  "dir": "after/isodur__haiku__r2"
+ },
+ "setup": {
+  "prompt_sha": "05231fd77aebfa77",
+  "workspace_sha": "723898c980105e25",
+  "check": "/usr/local/bin/python3 -m unittest discover -s /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/isodur -t /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/isodur",
+  "budget_tokens": null,
+  "timeout_s": 900.0,
+  "started_at": 1791707854.863,
+  "cli": "claude",
+  "cli_version": "2.1.296 (Claude Code)",
+  "argv": [
+   "/opt/node22/bin/claude",
+   "-p",
+   "--output-format",
+   "stream-json",
+   "--verbose",
+   "--permission-mode",
+   "acceptEdits",
+   "--no-session-persistence",
+   "--tools",
+   "Bash,Read,Edit,Write,Grep,Glob,TodoWrite,Task",
+   "--strict-mcp-config",
+   "--allowedTools",
+   "Bash",
+   "--setting-sources",
+   "project,local",
+   "--model",
+   "haiku",
+   "--append-system-prompt",
+   "Before you finish, list every rule and edge case the task and the code's docstrings state, write a quick test for each one, run them, and fix what fails."
+  ],
+  "sandbox": "claude acceptEdits (Bash allowed), no OS sandbox",
+  "budget_enforced": "while running (usage is per message)",
+  "user_config": "ignored",
+  "tools": "Bash, Read, Edit, Write, Grep, Glob, TodoWrite, Task; no MCP servers"
+ }
+}

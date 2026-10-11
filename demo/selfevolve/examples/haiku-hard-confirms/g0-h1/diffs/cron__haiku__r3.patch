@@ -1,0 +1,107 @@
+--- a/cron.py
++++ b/cron.py
+@@ -1,6 +1,58 @@
+ """When a cron schedule fires next."""
+ 
+-from datetime import datetime
++from datetime import datetime, timedelta
++
++MONTH_NAMES = {name: i for i, name in enumerate(
++    ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], start=1)}
++DOW_NAMES = {name: i for i, name in enumerate(["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"])}
++
++# Searching this far ahead is enough for any satisfiable expression (Feb 29 recurs at most every 8 years).
++SEARCH_SPAN = timedelta(days=366 * 400)
++
++
++def _value(text: str, lo: int, hi: int, names: dict[str, int] | None) -> int:
++    if text.isdigit() and text.isascii():
++        value = int(text)
++    elif names is not None and text.upper() in names:
++        value = names[text.upper()]
++    else:
++        raise ValueError(f"invalid cron value {text!r}")
++    if not lo <= value <= hi:
++        raise ValueError(f"cron value {value} out of range {lo}-{hi}")
++    return value
++
++
++def _parse_field(field: str, lo: int, hi: int, names: dict[str, int] | None = None) -> set[int]:
++    """Expand one cron field into the set of values it matches.
++
++    ``hi`` bounds explicit values and ``*`` is ``lo..hi``; the caller decides whether 7 is allowed for day of week.
++    """
++    values: set[int] = set()
++    for part in field.split(","):
++        if not part:
++            raise ValueError(f"empty item in cron field {field!r}")
++        base, slash, step_text = part.partition("/")
++        step = 1
++        if slash:
++            if not step_text.isdigit() or not step_text.isascii() or int(step_text) == 0:
++                raise ValueError(f"invalid cron step {step_text!r}")
++            step = int(step_text)
++        if base == "*":
++            start, end = lo, hi
++        elif "-" in base:
++            left, dash, right = base.partition("-")
++            if not dash or "-" in right:
++                raise ValueError(f"invalid cron range {base!r}")
++            start = _value(left, lo, hi, names)
++            end = _value(right, lo, hi, names)
++            if start > end:
++                raise ValueError(f"cron range {base!r} runs backwards")
++        else:
++            if slash:
++                raise ValueError(f"cron step needs * or a range, got {part!r}")
++            start = end = _value(base, lo, hi, names)
++        values.update(range(start, end + 1, step))
++    return values
+ 
+ 
+ def next_run(expr: str, after: datetime) -> datetime:
+@@ -16,4 +68,43 @@
+     the other one counts. A malformed expression, or a value out of its field's range, raises ValueError.
+     Times are naive: no time zones, no daylight saving.
+     """
+-    raise NotImplementedError
++    fields = expr.split(" ")
++    if len(fields) != 5 or not all(fields):
++        raise ValueError(f"cron expression needs five single-space-separated fields, got {expr!r}")
++    minute_f, hour_f, dom_f, month_f, dow_f = fields
++
++    minutes = _parse_field(minute_f, 0, 59)
++    hours = _parse_field(hour_f, 0, 23)
++    doms = _parse_field(dom_f, 1, 31)
++    months = _parse_field(month_f, 1, 12, MONTH_NAMES)
++    dows = {d % 7 for d in _parse_field(dow_f, 0, 7, DOW_NAMES)}  # 7 is Sunday, same as 0
++
++    # A field starting with "*" counts as unrestricted, as in Vixie cron.
++    dom_star = dom_f.startswith("*")
++    dow_star = dow_f.startswith("*")
++
++    def day_matches(day: datetime) -> bool:
++        dom_ok = day.day in doms
++        dow_ok = (day.weekday() + 1) % 7 in dows  # Python Monday=0, cron Sunday=0
++        if dom_star or dow_star:
++            return dom_ok and dow_ok
++        return dom_ok or dow_ok
++
++    t = after.replace(second=0, microsecond=0) + timedelta(minutes=1)
++    limit = t + SEARCH_SPAN
++    while t < limit:
++        if t.month not in months:
++            year, month = (t.year + 1, 1) if t.month == 12 else (t.year, t.month + 1)
++            t = t.replace(year=year, month=month, day=1, hour=0, minute=0)
++            continue
++        if not day_matches(t):
++            t = t.replace(hour=0, minute=0) + timedelta(days=1)
++            continue
++        if t.hour not in hours:
++            t = t.replace(minute=0) + timedelta(hours=1)
++            continue
++        if t.minute not in minutes:
++            t += timedelta(minutes=1)
++            continue
++        return t
++    raise ValueError(f"cron expression {expr!r} never fires")

@@ -1,0 +1,174 @@
+"""Whether a version satisfies a range, the way npm's caret and tilde ranges read."""
+
+import re
+from typing import Callable, List, Optional, Tuple
+
+_DIGITS = re.compile(r"[0-9]+")
+_IDENTIFIER = re.compile(r"[0-9A-Za-z-]+")
+_WILDCARDS = ("x", "X", "*")
+_OPERATORS = (">=", "<=", ">", "<", "=", "^", "~")
+
+# A pre-release key sorts below the release key (1,), and pre-release identifiers compare as SemVer does:
+# numeric ones by value and below alphanumeric ones, which compare as text.
+_RELEASE = (1,)
+
+Key = Tuple[Tuple[int, int, int], tuple]
+Predicate = Callable[[Key], bool]
+
+
+def satisfies(version: str, spec: str) -> bool:
+    """Whether ``version`` (MAJOR.MINOR.PATCH, digits only, or with a pre-release after "-") is in ``spec``.
+
+    A spec is comparator sets joined by ``||`` (either one); a set is comparators separated by spaces (all of
+    them). A comparator is one of:
+
+    - ``=1.2.3`` or ``1.2.3``, ``>1.2.3``, ``>=1.2.3``, ``<1.2.3``, ``<=1.2.3``;
+    - ``^1.2.3``: >=1.2.3 <2.0.0; ``^0.2.3``: >=0.2.3 <0.3.0; ``^0.0.3``: >=0.0.3 <0.0.4;
+    - ``~1.2.3``: >=1.2.3 <1.3.0; ``~1.2``: >=1.2.0 <1.3.0; ``~1``: >=1.0.0 <2.0.0;
+    - ``1.2.x`` or ``1.2.*``: >=1.2.0 <1.3.0; ``1.x``: >=1.0.0 <2.0.0; ``*`` or ``x`` or an empty set: any version.
+
+    A version with a pre-release (``1.2.3-beta``) satisfies only a set in which some comparator names the same
+    MAJOR.MINOR.PATCH with a pre-release, and then compares by SemVer precedence (``1.2.3-alpha`` < ``1.2.3-beta``
+    < ``1.2.3``). Whitespace around ``||`` and between comparators is ignored. A malformed version or spec raises
+    ValueError.
+    """
+    key = _parse_version(version)
+    sets = [_parse_set(text) for text in spec.split("||")]
+    return any(_set_matches(key, comparators) for comparators in sets)
+
+
+def _parse_version(text: str) -> Key:
+    numbers, pre_key = _parse_partial(text)
+    if len(numbers) != 3 or None in numbers:
+        raise ValueError(f"malformed version: {text!r}")
+    return tuple(numbers), pre_key or _RELEASE
+
+
+def _parse_partial(text: str) -> Tuple[List[Optional[int]], Optional[tuple]]:
+    """Split ``MAJOR[.MINOR[.PATCH]][-PRE]`` into numbers (``None`` for a wildcard) and a pre-release key."""
+    core, separator, pre = text.partition("-")
+    parts = core.split(".")
+    if len(parts) > 3:
+        raise ValueError(f"malformed version: {text!r}")
+
+    numbers: List[Optional[int]] = []
+    for part in parts:
+        if part in _WILDCARDS:
+            numbers.append(None)
+        elif _DIGITS.fullmatch(part):
+            numbers.append(int(part))
+        else:
+            raise ValueError(f"malformed version: {text!r}")
+
+    first_wildcard = _first_wildcard(numbers)
+    if any(number is not None for number in numbers[first_wildcard:]):
+        raise ValueError(f"malformed version: {text!r}")
+    if separator and (len(numbers) != 3 or None in numbers):
+        raise ValueError(f"malformed version: {text!r}")
+
+    return numbers, (_pre_key(pre) if separator else None)
+
+
+def _pre_key(text: str) -> tuple:
+    identifiers = []
+    for identifier in text.split("."):
+        if not _IDENTIFIER.fullmatch(identifier):
+            raise ValueError(f"malformed pre-release: {text!r}")
+        if _DIGITS.fullmatch(identifier):
+            identifiers.append((0, int(identifier)))
+        else:
+            identifiers.append((1, identifier))
+    return (0, tuple(identifiers))
+
+
+def _first_wildcard(numbers: List[Optional[int]]) -> int:
+    """Index of the first wildcard, or 3 when every part of a full version is given."""
+    padded = numbers + [None] * (3 - len(numbers))
+    return next((index for index, number in enumerate(padded) if number is None), 3)
+
+
+def _parse_set(text: str) -> List[Tuple[Predicate, Optional[tuple]]]:
+    return [_parse_comparator(token) for token in text.split()]
+
+
+def _parse_comparator(token: str) -> Tuple[Predicate, Optional[tuple]]:
+    """Return a predicate on versions, and the MAJOR.MINOR.PATCH this comparator names if it has a pre-release."""
+    op = next((candidate for candidate in _OPERATORS if token.startswith(candidate)), "")
+    numbers, pre_key = _parse_partial(token[len(op):])
+    op = op or "="
+    first_wildcard = _first_wildcard(numbers)
+    base = tuple(0 if number is None else number for number in numbers + [None] * (3 - len(numbers)))
+    names = base if pre_key else None
+    lower = (base, pre_key or _RELEASE)
+
+    if first_wildcard == 0:
+        return (_NOTHING if op in ("<", ">") else _ANYTHING), None
+    if op == "^":
+        nonzero = [index for index in range(first_wildcard) if base[index]]
+        index = nonzero[0] if nonzero else first_wildcard - 1
+        return _bounded(lower, (_bump(base, index), _RELEASE)), names
+    if op == "~":
+        index = 0 if first_wildcard == 1 else 1
+        return _bounded(lower, (_bump(base, index), _RELEASE)), names
+
+    if first_wildcard == 3:
+        if op == "=":
+            return _bounded(lower, lower, upper_inclusive=True), names
+        if op == ">":
+            return _bounded(lower, None, lower_inclusive=False), names
+        if op == ">=":
+            return _bounded(lower, None), names
+        if op == "<":
+            return _bounded(None, lower), names
+        return _bounded(None, lower, upper_inclusive=True), names
+
+    # A partial version such as 1.2 or 1.x covers [1.2.0, 1.3.0): "=" means inside it, ">" means at or past its end.
+    end = (_bump(base, first_wildcard - 1), _RELEASE)
+    if op == "=":
+        return _bounded(lower, end), names
+    if op == ">":
+        return _bounded(end, None), names
+    if op == ">=":
+        return _bounded(lower, None), names
+    if op == "<":
+        return _bounded(None, lower), names
+    return _bounded(None, end), names
+
+
+def _bump(core: Tuple[int, ...], index: int) -> Tuple[int, ...]:
+    """Increment the part at ``index`` and zero everything after it."""
+    return tuple(
+        number + 1 if position == index else (0 if position > index else number)
+        for position, number in enumerate(core)
+    )
+
+
+def _bounded(
+    lower: Optional[Key] = None,
+    upper: Optional[Key] = None,
+    lower_inclusive: bool = True,
+    upper_inclusive: bool = False,
+) -> Predicate:
+    def contains(key: Key) -> bool:
+        if lower is not None and (key < lower or (key == lower and not lower_inclusive)):
+            return False
+        if upper is not None and (key > upper or (key == upper and not upper_inclusive)):
+            return False
+        return True
+
+    return contains
+
+
+def _ANYTHING(key: Key) -> bool:
+    return True
+
+
+def _NOTHING(key: Key) -> bool:
+    return False
+
+
+def _set_matches(key: Key, comparators: List[Tuple[Predicate, Optional[tuple]]]) -> bool:
+    core, pre_key = key
+    if pre_key != _RELEASE and not any(names == core for _, names in comparators):
+        return False
+    return all(predicate(key) for predicate, _ in comparators)

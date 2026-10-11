@@ -78,7 +78,7 @@ Every grader was checked against a reference solution, which is not in
 the repository, and every untouched stub fails its grader. Held out means
 what it means for the small six: the graders are outside the workspace
 the agent is given and are never named to it, not hidden on the disk. A
-recorded run's traces (`examples/haiku-hard-explores`) hold the code its
+recorded run's traces (`examples/haiku-hard-confirms`) hold the code its
 agents wrote. Here agents fail on what the code does: the case exploration is
 for.
 
@@ -209,7 +209,8 @@ they came out.
 | the same 3, graders held out | 6 | 6 passed | converged at g0 |
 | 6, graders held out (`demo/selfevolve`) | 12, $0.51 | 10 passed; `semver` failed both runs | stopped without a change, which is the right call |
 | the same 6, a newer haiku, exploring | 12, $0.05 | 12 passed | converged at g0: nothing to learn |
-| the hard 6 (`--demo hard`), exploring | 24, $0.24 | g0: 11 passed, a `ranges` run accepted `>=1.2` | no eval named a change, so it explored: `explore:edge_cases` kept, 11/12 → 12/12, then converged. One task moved, which a change that did nothing would do about half the time: kept by the rule, weak evidence, and the page says so (`examples/haiku-hard-explores`) |
+| the hard 6 (`--demo hard`), exploring | 24, $0.24 | g0: 11 passed, a `ranges` run accepted `>=1.2` | no eval named a change, so it explored: `explore:edge_cases` kept, 11/12 → 12/12, then converged. One task moved, which a change that did nothing would do about half the time: kept by the rule, weak evidence, and the page says so |
+| the hard 6, exploring and confirming, 4 at once | 42, $0.45, 15 min | g0: 17 of 18 passed, a `ranges` run failed | explored `explore:edge_cases`, kept on one task moving, so `ranges` ran again both arms: 2/3 → 3/3 on the fresh runs, it held, then g1 passed 18/18. Still one task: the card says "held when ranges ran again" beside the chance (`examples/haiku-hard-confirms`) |
 
 The `semver` failures were about what the code does: both runs accepted
 versions SemVer forbids (`1.0.0-a_b`, `01.0.0`). Haiku read, edited and

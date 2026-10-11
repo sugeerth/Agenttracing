@@ -1,0 +1,140 @@
+--- a/globmatch.py
++++ b/globmatch.py
+@@ -1,4 +1,112 @@
+ """Shell-style matching of a path against a glob pattern."""
++
++from typing import List, Optional, Set, Tuple, Union
++
++# A token is one of:
++#   ("lit", char)                  - a literal character
++#   ("star",) / ("dstar",)         - ``*`` / ``**``
++#   ("any",)                       - ``?``
++#   ("class", negated, members)    - ``[...]``; members is a list of (lo, hi) ranges
++Token = Union[Tuple[str], Tuple[str, str], Tuple[str, bool, List[Tuple[str, str]]]]
++
++
++def _parse_class(pattern: str, start: int) -> Tuple[Optional[Token], int]:
++    """Parse a bracket expression whose ``[`` is at ``start``.
++
++    Returns the class token and the index just past the closing ``]``, or
++    ``(None, start)`` if the bracket is never closed.
++    """
++    i = start + 1
++    negated = i < len(pattern) and pattern[i] == "!"
++    if negated:
++        i += 1
++
++    # Gather members as (char, escaped) so escaped characters never act as range operators.
++    items: List[Tuple[str, bool]] = []
++    while i < len(pattern):
++        c = pattern[i]
++        if c == "]" and items:  # a ']' first in the set is a member, not the terminator
++            break
++        if c == "\\" and i + 1 < len(pattern):
++            items.append((pattern[i + 1], True))
++            i += 2
++        else:
++            items.append((c, False))
++            i += 1
++    else:
++        return None, start  # no closing ']'
++
++    members: List[Tuple[str, str]] = []
++    j = 0
++    while j < len(items):
++        if j + 2 < len(items) and items[j + 1] == ("-", False):
++            members.append((items[j][0], items[j + 2][0]))
++            j += 3
++        else:
++            members.append((items[j][0], items[j][0]))
++            j += 1
++    return ("class", negated, members), i + 1
++
++
++def _tokenize(pattern: str) -> List[Token]:
++    tokens: List[Token] = []
++    i = 0
++    while i < len(pattern):
++        c = pattern[i]
++        if c == "\\" and i + 1 < len(pattern):
++            tokens.append(("lit", pattern[i + 1]))
++            i += 2
++        elif c == "*":
++            run = 0
++            while i < len(pattern) and pattern[i] == "*":
++                run += 1
++                i += 1
++            tokens.append(("dstar",) if run >= 2 else ("star",))
++        elif c == "?":
++            tokens.append(("any",))
++            i += 1
++        elif c == "[":
++            token, nxt = _parse_class(pattern, i)
++            if token is None:
++                tokens.append(("lit", "["))
++                i += 1
++            else:
++                tokens.append(token)
++                i = nxt
++        else:
++            tokens.append(("lit", c))
++            i += 1
++    return tokens
++
++
++def _class_contains(members: List[Tuple[str, str]], ch: str) -> bool:
++    return any(lo <= ch <= hi for lo, hi in members)
++
++
++def _accepts(token: Token, ch: str) -> bool:
++    """Whether a single-character token consumes ``ch``."""
++    kind = token[0]
++    if kind == "lit":
++        return ch == token[1]
++    if kind == "any":
++        return ch != "/"
++    if kind == "class":
++        _, negated, members = token
++        if ch == "/":
++            return False
++        return _class_contains(members, ch) != negated
++    return False  # star/dstar are handled by the caller
++
++
++def _closure(states: Set[int], tokens: List[Token]) -> Set[int]:
++    """Add every state reachable by letting ``*``/``**`` match the empty string."""
++    result = set(states)
++    while True:
++        pending = [s for s in result if s < len(tokens) and tokens[s][0] in ("star", "dstar")]
++        new = {s + 1 for s in pending} - result
++        if not new:
++            return result
++        result |= new
+ 
+ 
+ def match(pattern: str, path: str) -> bool:
+@@ -13,4 +121,23 @@
+     - A ``[`` with no closing ``]`` is a literal ``[``.
+     Matching is case-sensitive.
+     """
+-    raise NotImplementedError
++    tokens = _tokenize(pattern)
++    end = len(tokens)
++    states = _closure({0}, tokens)
++    for ch in path:
++        nxt: Set[int] = set()
++        for s in states:
++            if s >= end:
++                continue
++            kind = tokens[s][0]
++            if kind == "star":
++                if ch != "/":
++                    nxt.add(s)  # keep consuming in the same star
++            elif kind == "dstar":
++                nxt.add(s)
++            elif _accepts(tokens[s], ch):
++                nxt.add(s + 1)
++        if not nxt:
++            return False
++        states = _closure(nxt, tokens)
++    return end in states
