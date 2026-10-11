@@ -47,7 +47,7 @@ from .evolving import _narrative as evals_narrative, evolve as evolve_evals
 from .forge import RunView, _score, _unique_keys, candidates, describe, parse_rule, rule_id, spec
 from .trace import Trajectory
 
-__all__ = ["DEMO_TASKS", "Harness", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "LEDGER_KIND", "ESSENTIAL_TOOLS",
+__all__ = ["DEMO_TASKS", "EXPLORE", "Harness", "explore_remedy", "sign_test", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "LEDGER_KIND", "ESSENTIAL_TOOLS",
            "load_ledger", "write_ledger", "visible_check"]
 
 LEDGER_KIND = "self-evolving"
@@ -145,6 +145,52 @@ REMEDIES: Dict[str, tuple] = {
                     "failed more often here.", "runs that never called {arg} failed"),
     "tool_called": ("deny_tool", "{arg}", "runs that called {arg} failed, and the harness can take it away"),
 }
+
+
+#: what the harness tries when the runs failed and no eval, nor any rule over how they worked, names a change:
+#: a failure in what the code does, not in how the agent worked. Fixed, tried in this order, one a generation,
+#: each tested paired and kept only on the counts like any other change. None names a grader or a test: an
+#: instruction that told the agent where the grader is would be teaching to the test.
+EXPLORE: Tuple[Tuple[str, str, str], ...] = (
+    ("edge_cases", "Before you finish, list every rule and edge case the task and the code's docstrings state, "
+                   "write a quick test for each one, run them, and fix what fails.",
+     "the failures were in what the code does: test every case the task states"),
+    ("spec_first", "Read the whole specification first (the task, the docstrings and any examples) and keep to "
+                   "it exactly: accept what it allows, reject what it forbids, and add nothing it does not state.",
+     "the failures were in what the code does: keep to the specification exactly"),
+    ("review_diff", "When you think you are done, re-read your whole change against the task one line at a "
+                    "time, and fix anything that does not match what it asks.",
+     "the failures were in what the code does: check the change against the task once more"),
+)
+
+
+def explore_remedy(tried: dict, harness: "Harness") -> Optional[dict]:
+    """The next exploration instruction not yet in the harness and not reverted before; None when spent."""
+    for key, value, why in EXPLORE:
+        rid = f"explore:{key}"
+        if rid in harness.remedies or tried.get(rid) == "reverted":
+            continue
+        return {"id": rid, "knob": "instruction", "value": value, "why": why, "rule": None, "explored": True}
+    return None
+
+
+def sign_test(wins: int, losses: int) -> Optional[float]:
+    """One-sided sign test over the tasks that changed: the chance a change that does nothing wins at least
+    ``wins`` of the ``wins + losses`` tasks that moved, each a coin toss. None when no task moved."""
+    from math import comb
+    n = wins + losses
+    if not n:
+        return None
+    return sum(comb(n, k) for k in range(wins, n + 1)) / 2 ** n
+
+
+def chance_text(p: Optional[float]) -> str:
+    """A sign test's p as words: 'a change that did nothing would do this well 1 time in 8'."""
+    if p is None:
+        return "no task moved, so there is nothing to weigh"
+    if p >= 0.5:
+        return "a change that did nothing would do at least this well about half the time or more"
+    return f"a change that did nothing would do this well 1 time in {round(1 / p)} (sign test over tasks)"
 
 
 def remedy_text(remedy: dict) -> str:
@@ -257,7 +303,10 @@ def decide(base: list, cand: list) -> dict:
     else:
         verdict, why = "reverted", "no task changed: an instruction that does nothing is not kept"
     tok_a, tok_b = _tokens(base), _tokens(cand)
+    # how far the counts are from luck: reported beside the verdict, never deciding it
+    p = sign_test(len(wins), len(losses))
     return {"verdict": verdict, "why": why, "tasks": len(tasks), "wins": wins, "losses": losses, "broke": broke,
+            "p_value": p, "chance": chance_text(p),
             "passed": {"current": [passed_a, n_a], "changed": [passed_b, n_b]},
             "median_tokens": {"current": tok_a, "changed": tok_b}}
 
@@ -343,13 +392,15 @@ def _fresh(target: str) -> dict:
 def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3, target: str = "failure",
                 ledger: Optional[dict] = None, patience: int = 2, check: str = "",
                 refuse_knobs: tuple = (), on_progress: Optional[Callable[[str], None]] = None,
-                on_generation: Optional[Callable[[dict], None]] = None) -> dict:
+                on_generation: Optional[Callable[[dict], None]] = None, explore: bool = False) -> dict:
     """Go round ``generations`` times. ``run_arm(harness, label)`` runs the
     agents under ``harness`` and returns their trajectories (each graded by
     its task's check); it is called once per arm. Returns the lineage, the
     harness as it ended, the eval suite's own lineage and the ledger.
     ``on_generation`` is given the same result, ``running`` and all, each
-    time a generation ends but the run goes on: what a stopped run keeps."""
+    time a generation ends but the run goes on: what a stopped run keeps.
+    With ``explore``, a generation whose failures no eval names a change for
+    tries the next instruction of :data:`EXPLORE` instead of stopping."""
     say = on_progress or (lambda s: None)
     state = json.loads(json.dumps(ledger)) if ledger else _fresh(target)
     if state.get("kind") != LEDGER_KIND:
@@ -399,6 +450,14 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
         choice = _choose(evals_out, label, trajs, harness, state["tried"], check, refuse_knobs)
         record["weighed"] = choice["weighed"]
         chosen = choice["chosen"]
+        if chosen is None and explore and "instruction" not in refuse_knobs:
+            # no eval tells these failures apart: try a generic instruction, and let the paired test judge it
+            r = explore_remedy(state["tried"], harness)
+            if r:
+                chosen = {"eval": None, "rule": None, "caught": len(failed), "wrong": len(failed),
+                          "source": "exploration",
+                          "says": "no eval, nor any rule over how the runs worked, named a change: "
+                                  "a generic instruction, tested like any other", "remedy": r}
         if chosen is None:
             record["action"] = None
             state["generations"].append(record)
@@ -409,12 +468,18 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
             else:
                 stop = (f"{label}: {len(failed)} failure(s); every candidate weighed was already tried, or names "
                         f"no change the harness can make (see what was weighed)")
+            if explore:
+                stop += "; and every exploration instruction was tried"
             say(stop)
             break
         remedy = chosen["remedy"]
         candidate = harness.with_remedy(remedy)
-        say(f"{label}: {chosen['caught']} of {chosen['wrong']} failure(s) caught by "
-            f"{chosen['eval'] or chosen['rule']}; testing: {remedy_text(remedy)}")
+        if chosen["source"] == "exploration":
+            say(f"{label}: no eval names a change for the {len(failed)} failure(s), so it explores; "
+                f"testing: {remedy_text(remedy)}")
+        else:
+            say(f"{label}: {chosen['caught']} of {chosen['wrong']} failure(s) caught by "
+                f"{chosen['eval'] or chosen['rule']}; testing: {remedy_text(remedy)}")
 
         # 4. test it, paired: same tasks, same number of runs
         cand_runs = list(run_arm(candidate, f"{label}-h{candidate.version}"))
@@ -425,7 +490,7 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
                             "test": verdict}
         say(f"{label}: {verdict['verdict']}: {verdict['why']} "
             f"(passed {verdict['passed']['current'][0]}/{verdict['passed']['current'][1]} → "
-            f"{verdict['passed']['changed'][0]}/{verdict['passed']['changed'][1]})")
+            f"{verdict['passed']['changed'][0]}/{verdict['passed']['changed'][1]}; {verdict['chance']})")
         if verdict["verdict"] == "kept":
             harness = candidate
             carried = cand_runs     # 5. the evals meet what the harness produced
@@ -472,8 +537,8 @@ def _adopt_by_intervention(state: dict, chosen: dict, label: str, verdict: dict,
     It joins the eval suite (when it is not there already) and is carried
     forward like any other eval: forward-tested on every later generation,
     and retired once the harness has fixed the failure it caught."""
-    if chosen.get("eval") or not state.get("evals"):
-        return None
+    if chosen.get("eval") or not chosen.get("rule") or not state.get("evals"):
+        return None  # an eval already, or an exploration: no rule to adopt
     rule = parse_rule(chosen["rule"])
     rid = rule_id(rule)
     evals = state["evals"].setdefault("evals", {})
@@ -501,8 +566,9 @@ def _narrative(lineage: list, harness: Harness, stop: str) -> str:
         a = g.get("action")
         if a:
             t = a["test"]
-            bit += (f"; tried {a['remedy']['id']} (from {a['because']['eval'] or 'a one-generation hypothesis'}): "
-                    f"{t['verdict']}, {t['why']}")
+            src = ("exploration: no eval named a change" if a["because"].get("source") == "exploration"
+                   else a["because"]["eval"] or "a one-generation hypothesis")
+            bit += f"; tried {a['remedy']['id']} (from {src}): {t['verdict']}, {t['why']}"
         parts.append(bit + ".")
     parts.append(f"Stopped: {stop}. The harness now: {harness.describe()}.")
     return " ".join(parts)

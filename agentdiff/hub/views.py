@@ -1478,7 +1478,8 @@ def evolution_page(*, brand: str, user: str, csrf: str, entry: Entry, data: dict
                     f'<td class="n">{e(g["failed"])}/{e(g["runs"])}</td>'
                     f'<td>{e(remedy_text(a["remedy"]) if a.get("remedy") else "—")}'
                     f'<div class="muted">{e((a.get("because") or {}).get("says") or "")}</div></td>'
-                    f'<td>{verdict}<div class="muted">{e(t.get("why") or "")}</div></td>'
+                    f'<td>{verdict}<div class="muted">{e(t.get("why") or "")}</div>'
+                    + (f'<div class="muted">{e(t["chance"])}</div>' if t.get("chance") else "") + '</td>'
                     f'<td class="n">{f"{pc[0]}/{pc[1]} → {pn[0]}/{pn[1]}" if pc and pn else "—"}</td>'
                     f'<td class="n">{tok_s}</td></tr>')
         items = []

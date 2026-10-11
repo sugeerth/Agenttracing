@@ -56,6 +56,27 @@ can make, or after `--generations`. The ledger (`evo/ledger.json`)
 holds the harness, every change tried and its verdict, and the eval
 suite, so the next call continues where this one stopped.
 
+## When the evals are silent: explore
+
+Some failures are in what the code does, not in how the agent worked.
+Every run read, edited and checked the same way, and only the held-out
+grader tells them apart, as with `semver` below. No eval and no rule
+over the steps can name a change for that. Instead of stopping there,
+the harness tries the next instruction of a short, fixed library
+(`selfevolve.EXPLORE`), one a generation:
+
+| id | the instruction |
+|---|---|
+| `explore:edge_cases` | list every rule and edge case the task and the docstrings state, test each one, and fix what fails |
+| `explore:spec_first` | read the whole specification first and keep to it exactly: accept what it allows, reject what it forbids |
+| `explore:review_diff` | re-read the whole change against the task, one line at a time, before finishing |
+
+An explored change is tested paired like any other and kept only on the
+counts. When it is reverted, the next one is tried. When the library is
+spent, the harness stops and says so. None of them names a grader, a
+test file or a test command. `--no-explore` stops where the evals stop,
+as before.
+
 ## What the harness can change
 
 | an eval that flags a run when | the change | Claude Code | Codex CLI |
@@ -172,4 +193,9 @@ the harness tells it to run one.
   runs. A kept change is attributable; two are never stacked untested.
 - The paired test is small. With two runs a task, one lucky run can
   move a task, which is why the verdict states its counts and a later
-  generation re-measures the kept harness.
+  generation re-measures the kept harness. Each verdict also states its
+  sign test over the tasks that moved: the chance that a change which
+  did nothing wins at least as many of them (`p_value`, and in words,
+  "1 time in 8"). It is reported beside the verdict and never decides it.
+- An explored change is labelled *explored* wherever it is shown. It
+  came from no eval, so no eval is born from it when it is kept.

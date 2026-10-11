@@ -77,6 +77,8 @@ CARDS_CSS = """
 .ecard details.use summary{font:600 13px system-ui,sans-serif;color:var(--accent);cursor:pointer}
 .ecard details.use p{font-size:13px;line-height:1.45}
 .card.said pre{margin:0}
+.gstep .xp{font:600 10px system-ui,sans-serif;text-transform:uppercase;letter-spacing:.4px;padding:1px 6px;
+  border-radius:999px;border:1px solid var(--line);color:var(--soft)}
 .ecard .tag{font:600 11px system-ui,sans-serif;padding:1px 7px;border-radius:999px;background:var(--chip);color:var(--soft)}
 .ecard.start h2{margin:0 0 6px;font:600 16px system-ui,sans-serif;text-transform:none;letter-spacing:0;color:var(--ink)}
 .ecard.start>p{font-size:14px;line-height:1.45;margin:0 0 6px}
@@ -266,6 +268,15 @@ def live_strip(entry, now: Optional[float] = None) -> str:
             + '</div>')
 
 
+def _odds(p) -> str:
+    """A kept change's sign test, short: ' · 1 in 8 by chance'. Nothing when no task moved."""
+    if p is None:
+        return ""
+    if p >= 0.5:
+        return " · as likely by chance"
+    return f" · 1 in {round(1 / p)} by chance"
+
+
 def _tag(entry) -> str:
     """A bundled example says so, and whether it was made up or recorded (its ``EXAMPLE`` file)."""
     ex = str((getattr(entry, "summary", None) or {}).get("example") or "")
@@ -316,18 +327,22 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, ado
         rem = (a.get("remedy") or {}).get("id")
         changed = (t.get("passed") or {}).get("changed")
         ch = changed[0] / changed[1] if changed and changed[1] else None
+        explored = (a.get("because") or {}).get("source") == "exploration"
+        tag = '<span class="xp" title="no eval named a change: a generic instruction, tested paired">explored</span> ' \
+            if explored else ""
+        odds = _odds(t.get("p_value")) if t else ""
         if g["failed"] == 0:
             chg = '<span class="ok">✓ every run passed</span>'
         elif not rem:
             chg = '<span class="mut">nothing the harness can change answers these failures</span>'
         elif t.get("verdict") == "kept":
-            chg = (f'<span class="ok">✓ kept</span> <code>{e(_cut(rem, 48))}</code><br><span class="mut">'
-                   f'{changed[0]}/{changed[1]} passed with it</span>' if changed else
-                   f'<span class="ok">✓ kept</span> <code>{e(_cut(rem, 48))}</code>')
+            chg = (f'{tag}<span class="ok">✓ kept</span> <code>{e(_cut(rem, 48))}</code><br><span class="mut">'
+                   f'{changed[0]}/{changed[1]} passed with it{odds}</span>' if changed else
+                   f'{tag}<span class="ok">✓ kept</span> <code>{e(_cut(rem, 48))}</code>')
         elif t.get("verdict") == "reverted":
-            chg = (f'<span class="bad">✗ reverted</span> <code>{e(_cut(rem, 48))}</code><br><span class="mut">'
+            chg = (f'{tag}<span class="bad">✗ reverted</span> <code>{e(_cut(rem, 48))}</code><br><span class="mut">'
                    f'{changed[0]}/{changed[1]} with it: no better</span>' if changed else
-                   f'<span class="bad">✗ reverted</span> <code>{e(_cut(rem, 48))}</code>')
+                   f'{tag}<span class="bad">✗ reverted</span> <code>{e(_cut(rem, 48))}</code>')
         else:
             chg = f'<span class="mut">tried</span> <code>{e(_cut(rem, 48))}</code>'
         ev = g.get("evals") or {}

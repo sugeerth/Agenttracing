@@ -5,6 +5,21 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Self-evolve explores, and says how far from luck
+
+- **Exploration.** Some failures no eval can name: the runs worked the
+  same way and only the held-out grader tells them apart. On those, the
+  harness no longer just stops. It tries the next instruction of a
+  fixed library (`selfevolve.EXPLORE`: test every stated edge case, keep
+  to the spec exactly, re-read the change against the task). Each is
+  tested paired and kept only on the counts, and labelled *explored*.
+  No eval is born from one, and none names a grader. It is on by
+  default; `--no-explore` turns it off.
+- **Every verdict states its chance.** `decide` adds `p_value`, a
+  one-sided sign test over the tasks that moved, with the same thing in
+  words. It shows in the progress lines, on the card ("1 in 8 by
+  chance") and on the run's page. It never changes a verdict.
+
 ## Evolve: start it, watch it, keep it
 
 Self-evolving agents are no longer a command to type and a page to read

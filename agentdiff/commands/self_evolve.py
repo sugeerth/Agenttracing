@@ -45,6 +45,9 @@ def register(subparsers) -> None:
     p.add_argument("--runs", type=int, default=2, help="runs of each task per arm (default 2)")
     p.add_argument("--target", default="failure", choices=sorted(TARGETS), help="what an eval must catch")
     p.add_argument("--patience", type=int, default=2, help="generations an eval may catch nothing before it retires")
+    p.add_argument("--no-explore", dest="explore", action="store_false",
+                   help="stop when no eval names a change, instead of trying a generic instruction "
+                        "(selfevolve.EXPLORE), tested paired like any other")
     p.add_argument("-o", "--output", default=None, metavar="DIR",
                    help="default self-evolve-out, or ~/.agentdiff/self-evolve/demo-AGENT with --demo")
     p.add_argument("--fresh", action="store_true", help="start over instead of continuing from DIR/ledger.json")
@@ -372,7 +375,8 @@ def run(args: argparse.Namespace) -> int:
     try:
         result = self_evolve(arm, generations=args.generations, target=args.target, ledger=ledger,
                              patience=args.patience, check=visible_check([t["check"] for t in tasks]),
-                             refuse_knobs=refuse, on_progress=said, on_generation=generation)
+                             refuse_knobs=refuse, on_progress=said, on_generation=generation,
+                             explore=getattr(args, "explore", True))
     except KeyboardInterrupt:
         progress.end("stopped")
         print("\ninterrupted: the ledger keeps every generation that finished", file=sys.stderr)
