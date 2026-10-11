@@ -153,7 +153,7 @@ def start_card(*, prog: str, folder: str, claude: Optional[str], here: bool = Tr
     machine with Claude Code installed (``csrf`` given), each is a button; the commands are this machine's too:
     the program as it was started and the folder this hub lists."""
     sep = "\\" if "\\" in folder else "/"
-    demo = f"{prog} self-evolve --demo"
+    demo = f"{prog} self-evolve --demo hard"
     mine = f"cd your-project\n{prog} fix --evolve 3 -o {_quote(folder + sep + 'your-project')}"
     if not here:  # a page exported to read elsewhere: nothing about the machine it was made on
         found = 'It runs the <code>claude</code> CLI on your machine, on your Claude Code account.'
@@ -166,7 +166,10 @@ def start_card(*, prog: str, folder: str, claude: Optional[str], here: bool = Tr
     hidden = f'<input type="hidden" name="csrf" value="{e(csrf)}">' if csrf else ""
     go = '<button type="submit"' + (' disabled title="one is running"' if busy else "") + '>Start</button>'
     demo_form = (f'<form method="post" action="/evolve/start" class="go">{hidden}'
-                 f'<input type="hidden" name="mode" value="demo">{_knobs()}{go}</form>' if csrf else "")
+                 '<input type="hidden" name="mode" value="demo">'
+                 '<label>tasks <select name="tasks"><option value="hard" selected>six hard ones</option>'
+                 '<option value="six">six small ones</option></select></label>'
+                 f'{_knobs()}{go}</form>' if csrf else "")
     mine_form = (f'<form method="post" action="/evolve/start" class="go">{hidden}'
                  '<input type="hidden" name="mode" value="project">'
                  '<label class="wide">project <input name="project" required placeholder="/full/path/to/your-project" '
@@ -186,10 +189,12 @@ def start_card(*, prog: str, folder: str, claude: Optional[str], here: bool = Tr
             'same tasks, and the change is kept only if it wins more tasks than it loses. ' + found + '</p>'
             + job_panel(job, csrf) +
             '<div class="ways">'
-            '<div class="way"><b>On six small tasks</b><p>Each graded by tests the agent is never shown, so it '
-            'cannot be taught to the test. A generation runs every task as many times as you say, and again when '
-            f'it tests a change: up to {per} runs a generation at two a task. In the recorded example a haiku run '
-            f'cost about ${HAIKU_RUN_USD:.2f}.</p>'
+            '<div class="way"><b>On six demo tasks</b><p>Each graded by tests the agent is never shown, so it '
+            'cannot be taught to the test. The hard six state every edge case in their specs and the tests hold '
+            'the code to each one, so an agent fails on what the code does and the harness has something to '
+            'learn; the small six are easy enough that it rarely does. A generation runs every task as many '
+            f'times as you say, and again when it tests a change: up to {per} runs a generation at two a task. '
+            f'In the recorded example a haiku run cost about ${HAIKU_RUN_USD:.2f}.</p>'
             f'{demo_form}{cmd_demo}</div>'
             '<div class="way"><b>On your project, when its tests fail</b><p>The same loop, on making them pass '
             'without touching the tests. It starts only when the check fails now; when it ends it names the folder '

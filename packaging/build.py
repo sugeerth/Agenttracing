@@ -26,7 +26,8 @@ EXAMPLES = [("demo/longrun/traces", "long-runs/traces"), ("demo/loops/traces", "
             ("demo/vendors/live", "duel"), ("demo/rl/traces", "rl/traces"),
             ("demo/selfevolve/examples", "self-evolve")]
 #: what `self-evolve --demo` runs, as (from, to under agentdiff/_demo): the tasks and their held-out graders
-DEMO = [("demo/selfevolve/tasks", "selfevolve/tasks"), ("demo/selfevolve/hidden", "selfevolve/hidden")]
+DEMO = [("demo/selfevolve/tasks", "selfevolve/tasks"), ("demo/selfevolve/hidden", "selfevolve/hidden"),
+        ("demo/selfevolve/hard/tasks", "selfevolve/hard/tasks"), ("demo/selfevolve/hard/hidden", "selfevolve/hard/hidden")]
 _SKIP = shutil.ignore_patterns("__pycache__", "*.pyc", "raw", ".agentdiff-hub")
 
 

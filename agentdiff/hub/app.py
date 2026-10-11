@@ -688,10 +688,11 @@ class App:
             args += ["--check", check] if check else []
             cwd, what = project, f"fix --evolve {gens} in {project}"
         else:
-            out = folder / f"demo-{agent}"
-            args = ["self-evolve", "--demo", "--agent", agent, "--generations", str(gens), "--runs", str(runs),
-                    "-o", str(out)]
-            cwd, what = folder, f"self-evolve --demo, {agent}, {gens} generation(s) of {runs} run(s) a task"
+            which = "hard" if form.get("tasks") == "hard" else "six"
+            out = folder / (f"demo-hard-{agent}" if which == "hard" else f"demo-{agent}")
+            args = ["self-evolve", "--demo", which, "--agent", agent, "--generations", str(gens), "--runs",
+                    str(runs), "-o", str(out)]
+            cwd, what = folder, f"self-evolve --demo {which}, {agent}, {gens} generation(s) of {runs} run(s) a task"
         try:
             folder.mkdir(parents=True, exist_ok=True)
             self.jobs.start(args, cwd=cwd, out=out, what=what)

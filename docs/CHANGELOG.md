@@ -15,6 +15,13 @@ numbers are the schema/report versions the sections were introduced in.
   tested paired and kept only on the counts, and labelled *explored*.
   No eval is born from one, and none names a grader. It is on by
   default; `--no-explore` turns it off.
+- **The hard six** (`--demo hard`, the default on Evolve): `cron`,
+  `expr`, `isoweek`, `globmatch`, `ranges` and `isodur`, whose specs
+  state every edge case and whose held-out graders hold the code to
+  each one. Each grader passes a reference solution kept outside the
+  repository, and fails its untouched stub. The small six are easy
+  enough that a strong agent passes them all, so a harness has nothing
+  to learn from them.
 - **Every verdict states its chance.** `decide` adds `p_value`, a
   one-sided sign test over the tasks that moved, with the same thing in
   words. It shows in the progress lines, on the card ("1 in 8 by

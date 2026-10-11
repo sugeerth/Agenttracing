@@ -9,6 +9,7 @@ something else.
 
 ```bash
 agentdiff self-evolve --demo                                # the six tasks it carries, into ~/.agentdiff/self-evolve
+agentdiff self-evolve --demo hard                           # six whose specs state every edge case: agents fail here
 python3 demo/selfevolve/make_tasks.py                       # in a clone: the same tasks, graders held out
 agentdiff self-evolve --task demo/selfevolve/tasks.json --agent haiku -o evo/
 agentdiff self-evolve --task demo/selfevolve/tasks.json --agent haiku -o evo/   # again: continues
@@ -55,6 +56,28 @@ It stops when every run passes, when no eval names a change the harness
 can make, or after `--generations`. The ledger (`evo/ledger.json`)
 holds the harness, every change tried and its verdict, and the eval
 suite, so the next call continues where this one stopped.
+
+## The hard six
+
+The six small tasks are easy enough that a strong agent passes them
+(haiku: 12 of 12, then 6 of 6), so a harness has nothing to learn.
+`--demo hard` (`demo/selfevolve/hard`) is six tasks whose specs state
+every rule and edge case exactly, graded by held-out tests that hold the
+code to each one:
+- `cron`: when day of month and day of week are both restricted, either
+  one matching is enough.
+- `expr`: `-2 ** 2` is -4, `**` groups right to left, and `//` and `%`
+  round toward negative infinity.
+- `isoweek`: by hand, including the days around New Year that belong to
+  the neighbouring ISO year.
+- `globmatch`: `*`, `**`, `?`, classes and escapes.
+- `ranges`: npm-style caret, tilde and x ranges, and pre-release rules.
+- `isodur`: ISO 8601 durations, with only the last number fractional.
+
+Every grader was checked against a reference solution, kept outside the
+repository so no agent can find it, and every untouched stub fails its
+grader. Here agents fail on what the code does: the case exploration is
+for.
 
 ## When the evals are silent: explore
 

@@ -41,6 +41,19 @@ class DemoTasksTest(unittest.TestCase):
             self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
             self.assertIn("Ran ", done.stderr)
 
+    def test_the_hard_set_is_graded_the_same_way_and_every_stub_fails(self):
+        from agentdiff.selfevolve import DEMO_HARD
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "hard"
+            tasks = json.loads(demo_tasks(dest, "hard").read_text())["tasks"]
+            self.assertEqual([t["id"] for t in tasks], [t for t, _ in DEMO_HARD])
+            for t in tasks:
+                with self.subTest(task=t["id"]):
+                    self.assertNotIn(str(dest / "tasks"), t["check"])
+                    done = subprocess.run(t["check"], shell=True, cwd=dest / t["workspace"], capture_output=True,
+                                          text=True, timeout=120)
+                    self.assertNotEqual(done.returncode, 0, "the untouched spec fails its grader")
+
     def test_demo_without_python_says_why(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch("shutil.which", return_value=None):
             with self.assertRaisesRegex(OSError, "Python tests"):

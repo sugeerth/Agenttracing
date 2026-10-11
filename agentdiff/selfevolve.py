@@ -47,7 +47,7 @@ from .evolving import _narrative as evals_narrative, evolve as evolve_evals
 from .forge import RunView, _score, _unique_keys, candidates, describe, parse_rule, rule_id, spec
 from .trace import Trajectory
 
-__all__ = ["DEMO_TASKS", "EXPLORE", "Harness", "explore_remedy", "sign_test", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "LEDGER_KIND", "ESSENTIAL_TOOLS",
+__all__ = ["DEMO_TASKS", "DEMO_HARD", "DEMOS", "EXPLORE", "Harness", "explore_remedy", "sign_test", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "LEDGER_KIND", "ESSENTIAL_TOOLS",
            "load_ledger", "write_ledger", "visible_check"]
 
 LEDGER_KIND = "self-evolving"
@@ -63,6 +63,19 @@ DEMO_TASKS = (
     ("csvline", "Implement split_csv_line in csvline.py."),
     ("wrap", "Implement wrap in wrap.py."),
 )
+
+#: six harder ones (``demo/selfevolve/hard``, ``self-evolve --demo hard``): each spec states its edge cases
+#: exactly, and the held-out tests hold the code to every one, so an agent fails on what the code does
+DEMO_HARD = (
+    ("cron", "Implement next_run in cron.py."),
+    ("expr", "Implement evaluate in expr.py."),
+    ("isoweek", "Implement iso_week and from_iso in isoweek.py."),
+    ("globmatch", "Implement match in globmatch.py."),
+    ("ranges", "Implement satisfies in ranges.py."),
+    ("isodur", "Implement parse in isodur.py."),
+)
+#: the demo task sets, by the name ``--demo`` takes: (folder under demo/selfevolve, tasks)
+DEMOS = {"six": ("", DEMO_TASKS), "hard": ("hard", DEMO_HARD)}
 
 ESSENTIAL_TOOLS = ("Bash", "Read", "Edit", "Write", "shell", "apply_patch", "exec_command")
 

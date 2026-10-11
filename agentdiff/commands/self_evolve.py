@@ -36,9 +36,10 @@ def register(subparsers) -> None:
                             "the harness where an eval caught failures, test the change paired, keep or revert it, "
                             "and carry on with what the change produced")
     p.add_argument("--task", default=None, metavar="FILE", help="tasks JSON, as for duel (each with a check)")
-    p.add_argument("--demo", action="store_true",
-                   help="instead of --task: the six tasks it carries, graders held out (docs/SELF_EVOLVE.md), "
-                        "written to ~/.agentdiff/self-evolve, where the hub shows them")
+    p.add_argument("--demo", nargs="?", const="six", default=None, choices=("six", "hard"),
+                   help="instead of --task: six tasks it carries, graders held out (docs/SELF_EVOLVE.md), "
+                        "written to ~/.agentdiff/self-evolve, where the hub shows them; --demo hard for six "
+                        "whose specs state every edge case, where agents fail on what the code does")
     p.add_argument("--agent", action="append", default=[], metavar="SPEC",
                    help="an agent, as for duel (haiku, sonnet, claude:MODEL, codex:MODEL); default haiku")
     p.add_argument("--generations", type=int, default=3, help="rounds to go (default 3)")
@@ -229,16 +230,19 @@ def _latest_passing_arm(out: Path, result: dict):
     return None
 
 
-def _demo_source() -> Path:
-    """The demo tasks as a build carries them, else as the repository has them."""
+def _demo_source(which: str = "six") -> Path:
+    """A demo task set as a build carries it, else as the repository has it."""
+    from ..selfevolve import DEMOS
+    sub = DEMOS[which][0]
     here = Path(__file__).resolve().parents[1]
     for d in (here / "_demo" / "selfevolve", here.parent / "demo" / "selfevolve"):
+        d = d / sub if sub else d
         if (d / "tasks").is_dir() and (d / "hidden").is_dir():
             return d
     raise OSError("this install carries no demo tasks; a downloaded build or a clone of the repository does")
 
 
-def demo_tasks(dest: Path) -> Path:
+def demo_tasks(dest: Path, which: str = "six") -> Path:
     """The six demo tasks copied to ``dest`` (once), and a tasks.json whose checks name the held-out graders
     there by absolute path, run by the Python on this machine: the graders are Python tests."""
     import shlex
@@ -247,14 +251,14 @@ def demo_tasks(dest: Path) -> Path:
     python = shutil.which("python3") or shutil.which("python")
     if not python:
         raise OSError("the demo's graders are Python tests, and there is no python3 on PATH to run them")
-    src = _demo_source()
+    from ..selfevolve import DEMOS
+    src = _demo_source(which)
     for part in ("tasks", "hidden"):
         if not (dest / part).is_dir():
             shutil.copytree(src / part, dest / part, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     join = subprocess.list2cmdline if os.name == "nt" else (lambda a: " ".join(shlex.quote(x) for x in a))
-    from ..selfevolve import DEMO_TASKS
     tasks = []
-    for tid, prompt in DEMO_TASKS:
+    for tid, prompt in DEMOS[which][1]:
         hidden = str((dest / "hidden" / tid).resolve())
         tasks.append({"id": tid, "workspace": f"tasks/{tid}", "prompt": prompt,
                       "check": join([python, "-m", "unittest", "discover", "-s", hidden, "-t", hidden])})
@@ -271,14 +275,15 @@ def run(args: argparse.Namespace) -> int:
         return _adopt(args)
     if args.demo:
         from .hub import _home
-        name = "demo-" + "-".join(a.replace(":", "-").replace("/", "-") for a in (args.agent or ["haiku"]))
+        hard = "-hard" if args.demo == "hard" else ""
+        name = f"demo{hard}-" + "-".join(a.replace(":", "-").replace("/", "-") for a in (args.agent or ["haiku"]))
         args.output = args.output or str(_home() / "self-evolve" / name)
         try:
-            args.task = str(demo_tasks(_home() / "self-evolve" / "demo-tasks"))
+            args.task = str(demo_tasks(_home() / "self-evolve" / f"demo{hard}-tasks", args.demo))
         except OSError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
-        print(f"demo: six tasks, each graded by tests the agent is not given ({Path(args.task).parent / 'hidden'}); "
+        print(f"demo: six {'hard ' if hard else ''}tasks, each graded by tests the agent is not given ({Path(args.task).parent / 'hidden'}); "
               f"writing to {args.output}, where `agentdiff hub --claude-code` shows it", flush=True)
     elif not args.task:
         print("error: give the tasks with --task FILE, or --demo for the six it carries", file=sys.stderr)

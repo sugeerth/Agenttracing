@@ -52,7 +52,7 @@ part of reading a session talks to a network.
 ## Self-evolving agents
 
 ```bash
-./agentdiff self-evolve --demo                  # your Claude Code, six tasks, graders it is never shown
+./agentdiff self-evolve --demo hard             # your Claude Code, six hard tasks, graders it is never shown
 cd your-project && /path/to/agentdiff fix --evolve 3 -o ~/.agentdiff/self-evolve/your-project   # when its tests fail
 ```
 
