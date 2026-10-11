@@ -1,0 +1,80 @@
+--- a/isoweek.py
++++ b/isoweek.py
+@@ -1,4 +1,46 @@
+ """ISO 8601 week dates, by hand."""
++
++_MONTH_LENGTHS = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
++
++
++def _is_leap(year: int) -> bool:
++    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
++
++
++def _check_date(year: int, month: int, day: int) -> None:
++    if not 1 <= month <= 12:
++        raise ValueError(f"month out of range: {month}")
++    length = _MONTH_LENGTHS[month - 1] + (1 if month == 2 and _is_leap(year) else 0)
++    if not 1 <= day <= length:
++        raise ValueError(f"day out of range for {year}-{month:02d}: {day}")
++
++
++def _days_from_civil(year: int, month: int, day: int) -> int:
++    """Days since 1970-01-01 (proleptic Gregorian); Howard Hinnant's algorithm."""
++    year -= month <= 2
++    era = year // 400
++    yoe = year - era * 400
++    doy = (153 * (month + (-3 if month > 2 else 9)) + 2) // 5 + day - 1
++    doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
++    return era * 146097 + doe - 719468
++
++
++def _civil_from_days(days: int) -> tuple:
++    """Inverse of _days_from_civil: (year, month, day)."""
++    days += 719468
++    era = days // 146097
++    doe = days - era * 146097
++    yoe = (doe - doe // 1460 + doe // 36524 - doe // 146096) // 365
++    doy = doe - (365 * yoe + yoe // 4 - yoe // 100)
++    mp = (5 * doy + 2) // 153
++    day = doy - (153 * mp + 2) // 5 + 1
++    month = mp + 3 if mp < 10 else mp - 9
++    return yoe + era * 400 + (month <= 2), month, day
++
++
++def _weekday(days: int) -> int:
++    """ISO weekday 1-7 (Monday 1) of a day count; 1970-01-01 was a Thursday."""
++    return (days + 3) % 7 + 1
+ 
+ 
+ def iso_week(year: int, month: int, day: int) -> tuple:
+@@ -9,10 +51,28 @@
+     (2026-02-29, month 13, day 0) raises ValueError. The ``datetime``, ``calendar`` and ``time`` modules are
+     not to be used.
+     """
+-    raise NotImplementedError
++    _check_date(year, month, day)
++    days = _days_from_civil(year, month, day)
++    weekday = _weekday(days)
++    # The Thursday of this ISO week decides which Gregorian year the week belongs to.
++    thursday = days - weekday + 4
++    iso_year, _, _ = _civil_from_days(thursday)
++    week = (thursday - _days_from_civil(iso_year, 1, 1)) // 7 + 1
++    return iso_year, week, weekday
+ 
+ 
+ def from_iso(iso_year: int, week: int, weekday: int) -> tuple:
+     """The Gregorian (year, month, day) of an ISO week date; a week the ISO year does not have (week 53 of a
+     52-week year), week 0, or a weekday outside 1-7 raises ValueError."""
+-    raise NotImplementedError
++    if not 1 <= weekday <= 7:
++        raise ValueError(f"weekday out of range: {weekday}")
++    if week < 1:
++        raise ValueError(f"week out of range: {week}")
++    # 4 January is always in week 1, so the Monday of week 1 is found from it.
++    jan4 = _days_from_civil(iso_year, 1, 4)
++    week1_monday = jan4 - (_weekday(jan4) - 1)
++    days = week1_monday + (week - 1) * 7 + (weekday - 1)
++    # Weeks past the year's last one spill into the next ISO year; reject those rather than wrap around.
++    if iso_week(*_civil_from_days(days)) != (iso_year, week, weekday):
++        raise ValueError(f"ISO year {iso_year} has no week {week}")
++    return _civil_from_days(days)

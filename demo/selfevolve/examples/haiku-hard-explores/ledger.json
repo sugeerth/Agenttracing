@@ -1,0 +1,197 @@
+{
+  "eval_lineage": [
+    {
+      "arrived": 0,
+      "born": [],
+      "corpus": "137a2e5fb269",
+      "forge": {
+        "measurable": true,
+        "reason": null,
+        "tried": 20
+      },
+      "forward": {
+        "caught": 0,
+        "coverage": 0.0,
+        "false_alarms": 0,
+        "fpr": 0.0
+      },
+      "generation": "g0",
+      "leaving": {
+        "caught": 0,
+        "coverage": 0.0,
+        "false_alarms": 0,
+        "suite": 0
+      },
+      "reborn": [],
+      "retired": [],
+      "right": 11,
+      "runs": 12,
+      "verdicts": {},
+      "wrong": 1
+    },
+    {
+      "arrived": 0,
+      "born": [],
+      "corpus": "7eed9cf47a18",
+      "forge": {
+        "measurable": false,
+        "reason": "every run is right or every run is wrong, so an eval has nothing to tell apart",
+        "tried": 0
+      },
+      "forward": {
+        "caught": 0,
+        "coverage": null,
+        "false_alarms": 0,
+        "fpr": 0.0
+      },
+      "generation": "g1",
+      "leaving": {
+        "caught": 0,
+        "coverage": null,
+        "false_alarms": 0,
+        "suite": 0
+      },
+      "reborn": [],
+      "retired": [],
+      "right": 12,
+      "runs": 12,
+      "verdicts": {},
+      "wrong": 0
+    }
+  ],
+  "evals": {
+    "evals": {},
+    "generations": [
+      {
+        "corpus": "137a2e5fb269",
+        "label": "g0"
+      },
+      {
+        "corpus": "7eed9cf47a18",
+        "label": "g1"
+      }
+    ],
+    "kind": "evolving-evals",
+    "target": "failure",
+    "version": 1
+  },
+  "generations": [
+    {
+      "action": {
+        "because": {
+          "caught": 1,
+          "eval": null,
+          "rule": null,
+          "says": "no eval, nor any rule over how the runs worked, named a change: a generic instruction, tested like any other",
+          "source": "exploration",
+          "wrong": 1
+        },
+        "remedy": {
+          "explored": true,
+          "id": "explore:edge_cases",
+          "knob": "instruction",
+          "rule": null,
+          "value": "Before you finish, list every rule and edge case the task and the code's docstrings state, write a quick test for each one, run them, and fix what fails.",
+          "why": "the failures were in what the code does: test every case the task states"
+        },
+        "test": {
+          "broke": [],
+          "chance": "a change that did nothing would do at least this well about half the time or more",
+          "losses": [],
+          "median_tokens": {
+            "changed": 148718.0,
+            "current": 86897.0
+          },
+          "p_value": 0.5,
+          "passed": {
+            "changed": [
+              12,
+              12
+            ],
+            "current": [
+              11,
+              12
+            ]
+          },
+          "tasks": 6,
+          "verdict": "kept",
+          "why": "it won 1 task(s) and lost 0",
+          "wins": [
+            "ranges"
+          ]
+        }
+      },
+      "evals": {
+        "arrived": 0,
+        "born": [],
+        "forward": {
+          "caught": 0,
+          "coverage": 0.0,
+          "false_alarms": 0,
+          "fpr": 0.0
+        },
+        "reborn": [],
+        "retired": [],
+        "verdicts": {}
+      },
+      "failed": 1,
+      "generation": "g0",
+      "harness": {
+        "deny_tools": [],
+        "instructions": [],
+        "max_turns": null,
+        "remedies": [],
+        "version": 0
+      },
+      "runs": 12,
+      "weighed": []
+    },
+    {
+      "action": null,
+      "evals": {
+        "arrived": 0,
+        "born": [],
+        "forward": {
+          "caught": 0,
+          "coverage": null,
+          "false_alarms": 0,
+          "fpr": 0.0
+        },
+        "reborn": [],
+        "retired": [],
+        "verdicts": {}
+      },
+      "failed": 0,
+      "generation": "g1",
+      "harness": {
+        "deny_tools": [],
+        "instructions": [
+          "Before you finish, list every rule and edge case the task and the code's docstrings state, write a quick test for each one, run them, and fix what fails."
+        ],
+        "max_turns": null,
+        "remedies": [
+          "explore:edge_cases"
+        ],
+        "version": 1
+      },
+      "runs": 12
+    }
+  ],
+  "harness": {
+    "deny_tools": [],
+    "instructions": [
+      "Before you finish, list every rule and edge case the task and the code's docstrings state, write a quick test for each one, run them, and fix what fails."
+    ],
+    "max_turns": null,
+    "remedies": [
+      "explore:edge_cases"
+    ],
+    "version": 1
+  },
+  "kind": "self-evolving",
+  "target": "failure",
+  "tried": {
+    "explore:edge_cases": "kept"
+  },
+  "version": 1
+}

@@ -182,6 +182,8 @@ they came out.
 | 3, tests in the workspace | 6 | 6 passed | nothing to fix: converged at g0 |
 | the same 3, graders held out | 6 | 6 passed | converged at g0 |
 | 6, graders held out (`demo/selfevolve`) | 12, $0.51 | 10 passed; `semver` failed both runs | stopped without a change, which is the right call |
+| the same 6, a newer haiku, exploring | 12, $0.05 | 12 passed | converged at g0: nothing to learn |
+| the hard 6 (`--demo hard`), exploring | 24, $0.24 | g0: 11 passed, a `ranges` run accepted `>=1.2` | no eval named a change, so it explored: `explore:edge_cases` kept, 11/12 → 12/12, then converged. One task moved, which a change that did nothing would do about half the time: kept by the rule, weak evidence, and the page says so (`examples/haiku-hard-explores`) |
 
 The `semver` failures were about what the code does: both runs accepted
 versions SemVer forbids (`1.0.0-a_b`, `01.0.0`). Haiku read, edited and

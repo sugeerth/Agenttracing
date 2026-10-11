@@ -1,0 +1,55 @@
+{
+ "tasks": [
+  {
+   "id": "cron",
+   "prompt": "Implement next_run in cron.py.",
+   "workspace": "/tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/tasks/cron",
+   "check": "/usr/local/bin/python3 -m unittest discover -s /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/hidden/cron -t /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/hidden/cron",
+   "expected": null
+  },
+  {
+   "id": "expr",
+   "prompt": "Implement evaluate in expr.py.",
+   "workspace": "/tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/tasks/expr",
+   "check": "/usr/local/bin/python3 -m unittest discover -s /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/hidden/expr -t /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/hidden/expr",
+   "expected": null
+  },
+  {
+   "id": "isoweek",
+   "prompt": "Implement iso_week and from_iso in isoweek.py.",
+   "workspace": "/tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/tasks/isoweek",
+   "check": "/usr/local/bin/python3 -m unittest discover -s /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/hidden/isoweek -t /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/hidden/isoweek",
+   "expected": null
+  },
+  {
+   "id": "globmatch",
+   "prompt": "Implement match in globmatch.py.",
+   "workspace": "/tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/tasks/globmatch",
+   "check": "/usr/local/bin/python3 -m unittest discover -s /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/hidden/globmatch -t /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/hidden/globmatch",
+   "expected": null
+  },
+  {
+   "id": "ranges",
+   "prompt": "Implement satisfies in ranges.py.",
+   "workspace": "/tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/tasks/ranges",
+   "check": "/usr/local/bin/python3 -m unittest discover -s /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/hidden/ranges -t /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/hidden/ranges",
+   "expected": null
+  },
+  {
+   "id": "isodur",
+   "prompt": "Implement parse in isodur.py.",
+   "workspace": "/tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/tasks/isodur",
+   "check": "/usr/local/bin/python3 -m unittest discover -s /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/hidden/isodur -t /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/hidden/isodur",
+   "expected": null
+  }
+ ],
+ "agents": [
+  "haiku=claude:haiku"
+ ],
+ "options": {
+  "budget_tokens": null,
+  "timeout": 900.0,
+  "check_timeout": 600.0,
+  "harness": 1
+ }
+}

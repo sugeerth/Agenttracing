@@ -1,0 +1,88 @@
+{
+ "task": "isoweek",
+ "agent": "haiku",
+ "vendor": "claude",
+ "model": "haiku",
+ "run": "r1",
+ "trace": "traces/isoweek__haiku__r1.json",
+ "raw": "raw/isoweek__haiku__r1.jsonl",
+ "patch": "diffs/isoweek__haiku__r1.patch",
+ "exit_code": 0,
+ "stopped_by": null,
+ "wall_s": 75.527,
+ "stderr_tail": "",
+ "stream": {
+  "bytes": 56107,
+  "cap": 268435456,
+  "truncated_lines": 0
+ },
+ "check": {
+  "command": "/usr/local/bin/python3 -m unittest discover -s /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/hidden/isoweek -t /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/hidden/isoweek",
+  "exit_code": 0,
+  "passed": true,
+  "seconds": 0.086,
+  "output_tail": "....\n----------------------------------------------------------------------\nRan 4 tests in 0.005s\n\nOK\n"
+ },
+ "baseline": {
+  "passed": false,
+  "exit_code": 1,
+  "seconds": 0.101,
+  "output_tail": "gentdiff-baseline-l9wji3dh/work/isoweek.py\", line 12, in iso_week\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_known (test_isoweek.WeekTest.test_known) (d=(2016, 1, 3))\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/hidden/isoweek/test_isoweek.py\", line 16, in test_known\n    self.assertEqual(iso_week(*d), w)\n                     ^^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-l9wji3dh/work/isoweek.py\", line 12, in iso_week\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_known (test_isoweek.WeekTest.test_known) (d=(2000, 2, 29))\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/hidden/isoweek/test_isoweek.py\", line 16, in test_known\n    self.assertEqual(iso_week(*d), w)\n                     ^^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-l9wji3dh/work/isoweek.py\", line 12, in iso_week\n    raise NotImplementedError\nNotImplementedError\n\n----------------------------------------------------------------------\nRan 4 tests in 0.021s\n\nFAILED (errors=136)\n"
+ },
+ "diff": {
+  "files": [
+   {
+    "path": "isoweek.py",
+    "status": "modified",
+    "added": 63,
+    "removed": 2,
+    "after_sha": "6340c185eb6b7f7da14debb43fd8d9b6e4c3b6f072c3d4566192f1a8b650f90d"
+   }
+  ],
+  "added": 63,
+  "removed": 2,
+  "patch_chars": 3199,
+  "patch_truncated": false
+ },
+ "after": {
+  "bytes": 3320,
+  "withheld": [],
+  "not_kept": [],
+  "deleted": [],
+  "complete": true,
+  "dir": "after/isoweek__haiku__r1"
+ },
+ "setup": {
+  "prompt_sha": "83a1a0a9a729bf06",
+  "workspace_sha": "1f9327cef2d8e9d3",
+  "check": "/usr/local/bin/python3 -m unittest discover -s /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/hidden/isoweek -t /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/realh/self-evolve/demo-hard-tasks/hidden/isoweek",
+  "budget_tokens": null,
+  "timeout_s": 900.0,
+  "started_at": 1791689020.631,
+  "cli": "claude",
+  "cli_version": "2.1.296 (Claude Code)",
+  "argv": [
+   "/opt/node22/bin/claude",
+   "-p",
+   "--output-format",
+   "stream-json",
+   "--verbose",
+   "--permission-mode",
+   "acceptEdits",
+   "--no-session-persistence",
+   "--tools",
+   "Bash,Read,Edit,Write,Grep,Glob,TodoWrite,Task",
+   "--strict-mcp-config",
+   "--allowedTools",
+   "Bash",
+   "--setting-sources",
+   "project,local",
+   "--model",
+   "haiku"
+  ],
+  "sandbox": "claude acceptEdits (Bash allowed), no OS sandbox",
+  "budget_enforced": "while running (usage is per message)",
+  "user_config": "ignored",
+  "tools": "Bash, Read, Edit, Write, Grep, Glob, TodoWrite, Task; no MCP servers"
+ }
+}

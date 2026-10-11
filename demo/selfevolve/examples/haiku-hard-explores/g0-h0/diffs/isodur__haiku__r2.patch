@@ -1,0 +1,41 @@
+--- a/isodur.py
++++ b/isodur.py
+@@ -1,4 +1,15 @@
+ """ISO 8601 durations, as seconds."""
++
++import re
++
++_NUMBER = r"[0-9]+(?:[.,][0-9]+)?"
++_WEEKS = re.compile(rf"P({_NUMBER})W")
++_DURATION = re.compile(
++    rf"P(?:({_NUMBER})Y)?(?:({_NUMBER})M)?(?:({_NUMBER})D)?"
++    rf"(?:T(?:({_NUMBER})H)?(?:({_NUMBER})M)?(?:({_NUMBER})S)?)?"
++)
++# Seconds per Y, M, D, H, M, S, in the order the groups appear in _DURATION.
++_FACTORS = (365 * 86400, 30 * 86400, 86400, 3600, 60, 1)
+ 
+ 
+ def parse(text: str) -> float:
+@@ -11,4 +22,21 @@
+     units out of order or repeated, a sign, a fraction on any number but the last, or anything else raises
+     ValueError.
+     """
+-    raise NotImplementedError
++    weeks = _WEEKS.fullmatch(text)
++    if weeks:
++        return float(weeks.group(1).replace(",", ".")) * 7 * 86400
++
++    if text.endswith("T"):
++        raise ValueError(f"no time part after 'T' in {text!r}")
++    match = _DURATION.fullmatch(text)
++    if match is None:
++        raise ValueError(f"invalid ISO 8601 duration: {text!r}")
++
++    given = [(part, factor) for part, factor in zip(match.groups(), _FACTORS) if part is not None]
++    if not given:
++        raise ValueError(f"no components in ISO 8601 duration: {text!r}")
++    for part, _ in given[:-1]:
++        if "." in part or "," in part:
++            raise ValueError(f"only the last number may have a fraction: {text!r}")
++
++    return sum(float(part.replace(",", ".")) * factor for part, factor in given)

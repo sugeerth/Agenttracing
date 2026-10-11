@@ -22,6 +22,17 @@ numbers are the schema/report versions the sections were introduced in.
   repository, and fails its untouched stub. The small six are easy
   enough that a strong agent passes them all, so a harness has nothing
   to learn from them.
+- **A real run that evolves.** `examples/haiku-hard-explores` is recorded:
+  24 haiku runs on the hard six, $0.24. A `ranges` run accepted `>=1.2`,
+  no eval named a change, so the harness explored. The edge-case
+  instruction was kept (11/12 → 12/12), and the card says that one task
+  moving is as likely by chance.
+- **The live page's last word is whole.** The watcher analysed in more
+  than one thread at once, so the final, done payload could carry an
+  analysis of fewer runs than the written page. Builds now run one at a
+  time, a file's stat is taken before it is read, and `finish()`
+  analyses afresh. This was the intermittent `LiveAnalyticsTest`
+  failure: 0 of 30 repeats fail now, where about 1 in 10 did.
 - **Every verdict states its chance.** `decide` adds `p_value`, a
   one-sided sign test over the tasks that moved, with the same thing in
   words. It shows in the progress lines, on the card ("1 in 8 by

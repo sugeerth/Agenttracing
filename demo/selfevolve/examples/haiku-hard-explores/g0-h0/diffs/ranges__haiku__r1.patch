@@ -1,0 +1,110 @@
+--- a/ranges.py
++++ b/ranges.py
+@@ -1,4 +1,91 @@
+ """Whether a version satisfies a range, the way npm's caret and tilde ranges read."""
++
++import operator
++import re
++
++_OPS = {"==": operator.eq, ">=": operator.ge, ">": operator.gt, "<=": operator.le, "<": operator.lt}
++_PREFIXES = ("^", "~", ">=", "<=", ">", "<", "=")
++_WILDCARDS = ("x", "X", "*")
++_DIGITS = re.compile(r"[0-9]+")
++_PRE_IDS = re.compile(r"[0-9A-Za-z-]+")
++
++
++def _parse(text: str) -> tuple[tuple[int, ...], tuple[str, ...] | None]:
++    """Split ``1.2.3``, ``1.2.3-beta``, or a partial like ``1.2`` or ``1.x`` into numbers and pre-release identifiers.
++
++    Only complete versions (three numbers) may carry a pre-release, so ``len(nums) == 3`` means no wildcard.
++    """
++    core, dash, pre_text = text.partition("-")
++    parts = core.split(".")
++    nums = []
++    for part in parts:
++        if part in _WILDCARDS:
++            break
++        if not _DIGITS.fullmatch(part):
++            raise ValueError(f"malformed version: {text!r}")
++        nums.append(int(part))
++    if len(parts) > 3 or any(part not in _WILDCARDS for part in parts[len(nums):]):
++        raise ValueError(f"malformed version: {text!r}")
++    pre = None
++    if dash:
++        if len(nums) != 3 or not all(_PRE_IDS.fullmatch(i) for i in pre_text.split(".")):
++            raise ValueError(f"malformed version: {text!r}")
++        pre = tuple(pre_text.split("."))
++    return tuple(nums), pre
++
++
++def _key(nums: tuple[int, ...], pre: tuple[str, ...] | None = None) -> tuple:
++    """SemVer-precedence sort key; a release outranks its own pre-releases."""
++    major, minor, patch = nums + (0,) * (3 - len(nums))
++    if pre is None:
++        return (major, minor, patch, 1, ())
++    return (major, minor, patch, 0, tuple((0, int(i)) if _DIGITS.fullmatch(i) else (1, i) for i in pre))
++
++
++def _ceil(nums: tuple[int, ...], index: int) -> tuple[int, ...]:
++    """The first version past the ``index``th component: bump it and let the rest reset to zero."""
++    return (*nums[:index], nums[index] + 1)
++
++
++def _comparator(text: str) -> tuple[list[tuple[str, tuple]], tuple[int, ...] | None]:
++    """The bounds a comparator puts on a version, and the MAJOR.MINOR.PATCH it names if it has a pre-release."""
++    op = next((p for p in _PREFIXES if text.startswith(p)), "")
++    nums, pre = _parse(text[len(op):])
++    n = len(nums)
++    if not n and op:
++        raise ValueError(f"wildcard needs a bare comparator: {text!r}")
++    anchor = nums if pre is not None else None
++    lower = _key(nums, pre)
++
++    if op in ("", "="):
++        if n == 3:
++            return [("==", lower)], anchor
++        if n == 0:
++            return [], None
++        return [(">=", lower), ("<", _key(_ceil(nums, n - 1)))], None
++    if op == "^":
++        index = next((i for i in range(n) if nums[i]), n - 1)
++        return [(">=", lower), ("<", _key(_ceil(nums, index)))], anchor
++    if op == "~":
++        return [(">=", lower), ("<", _key(_ceil(nums, 0 if n == 1 else 1)))], anchor
++    if op == ">=":
++        return [(">=", lower)], anchor
++    if op == "<":
++        return [("<", lower)], anchor
++    if op == ">":
++        return ([(">", lower)] if n == 3 else [(">=", _key(_ceil(nums, n - 1)))]), anchor
++    return ([("<=", lower)] if n == 3 else [("<", _key(_ceil(nums, n - 1)))]), anchor
++
++
++def _parse_set(text: str) -> tuple[list[tuple[str, tuple]], set[tuple[int, ...]]]:
++    """All bounds of a comparator set, and the MAJOR.MINOR.PATCH values its pre-release comparators name."""
++    bounds, anchors = [], set()
++    for comparator in text.split():
++        constraints, anchor = _comparator(comparator)
++        bounds.extend(constraints)
++        if anchor is not None:
++            anchors.add(anchor)
++    return bounds, anchors
+ 
+ 
+ def satisfies(version: str, spec: str) -> bool:
+@@ -17,4 +104,14 @@
+     < ``1.2.3``). Whitespace around ``||`` and between comparators is ignored. A malformed version or spec raises
+     ValueError.
+     """
+-    raise NotImplementedError
++    nums, pre = _parse(version)
++    if len(nums) != 3:
++        raise ValueError(f"malformed version: {version!r}")
++    key = _key(nums, pre)
++    sets = [_parse_set(text) for text in spec.split("||")]
++    for bounds, anchors in sets:
++        if pre is not None and nums not in anchors:
++            continue
++        if all(_OPS[op](key, bound) for op, bound in bounds):
++            return True
++    return False

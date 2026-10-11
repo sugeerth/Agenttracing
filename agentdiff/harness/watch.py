@@ -103,6 +103,8 @@ class Watcher:
         self._signature: Optional[dict] = None
         self._payload: Optional[dict] = None
         self._lock = threading.Lock()
+        # one build at a time: a poll's build begun on fewer files must never hand its analysis to the next
+        self._building = threading.Lock()
         self._changed = threading.Condition(self._lock)
         self._stop = threading.Event()
         self.errors: list = []
@@ -136,9 +138,13 @@ class Watcher:
             sig[name] = (mtime, size)
         return sig
 
-    def build(self) -> dict:
+    def build(self, final: bool = False) -> dict:
         """The payload: reports for every finished pair, live runs for
         every trace still being written, and the live block itself."""
+        with self._building:
+            return self._build(final)
+
+    def _build(self, final: bool) -> dict:
         finals: dict = {}      # task -> agent -> Trajectory
         every_final: list = []   # every finished run, every repeat of it
         finals_key: list = []
@@ -148,6 +154,8 @@ class Watcher:
             if path.name in SKIP_NAMES or path.name.startswith("report_"):
                 continue
             try:
+                # stat first: a file rewritten after this read then differs from its key, and is read again
+                before = path.stat()
                 data = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue   # half-written: the next poll sees it whole
@@ -185,11 +193,7 @@ class Watcher:
                 continue
             finals.setdefault(traj.task.id, {})[traj.agent.name] = traj
             every_final.append((path.name, traj, data))
-            try:
-                st = path.stat()
-                finals_key.append((path.name, st.st_mtime_ns, st.st_size))
-            except OSError:
-                finals_key.append((path.name, 0, 0))
+            finals_key.append((path.name, before.st_mtime_ns, before.st_size))
             if self.db_path is not None and path.name not in self._ingested:
                 try:
                     from ..tracedb import TraceDB
@@ -211,8 +215,8 @@ class Watcher:
         pair = sorted(agents_seen)[:2]
         key = tuple(sorted(finals_key + self._also_key()))
         if key != self._finals_key:
-            self._finals_key = key
             self._analysis = self._analyse(sorted(every_final, key=lambda x: x[0]))
+            self._finals_key = key
         # the analysis's own errors stay on every frame it serves, not only the first
         reports, agg, analysis_errors = self._analysis
         self.errors.extend(analysis_errors)
@@ -238,7 +242,7 @@ class Watcher:
             "reports": reports,
             "aggregate": agg,
             "live": {
-                "enabled": True, "events": "/events", "version": self.version, "done": self.done,
+                "enabled": True, "events": "/events", "version": self.version, "done": final,
                 "generated_at": time.time(), "agents": pair,
                 "runs": sorted(lives, key=lambda r: (r["task"], r["agent"])),
                 "finished": finished,
@@ -287,6 +291,8 @@ class Watcher:
             self._signature = sig
         payload = self.build()
         with self._lock:
+            if self.done:
+                return False  # finish() has published the last payload; one begun before it never replaces it
             self.version += 1
             payload["live"]["version"] = self.version
             self._payload = payload
@@ -294,9 +300,19 @@ class Watcher:
         return True
 
     def finish(self) -> None:
-        """Nothing more will arrive: one last payload, marked done."""
-        self.done = True
-        self.refresh(force=True)
+        """Nothing more will arrive: one last payload, built from everything there now, marked done. Only this
+        payload says done, so a refresh begun before it can never be the last word."""
+        sig = self.signature()
+        with self._building:
+            self._finals_key = None  # the last word is analysed from the files as they are, never from a cache
+            payload = self._build(True)
+        with self._lock:
+            self.done = True
+            self._signature = sig
+            self.version += 1
+            payload["live"]["version"] = self.version
+            self._payload = payload
+            self._changed.notify_all()
 
     def payload(self) -> dict:
         with self._lock:

@@ -1,0 +1,70 @@
+{
+ "target": "failure",
+ "says": "runs that failed",
+ "patience": 2,
+ "fpr_max": 0.1,
+ "evals": [],
+ "active": [],
+ "retired": [],
+ "lineage": [
+  {
+   "generation": "g0",
+   "corpus": "137a2e5fb269",
+   "runs": 12,
+   "wrong": 1,
+   "right": 11,
+   "arrived": 0,
+   "forward": {
+    "caught": 0,
+    "coverage": 0.0,
+    "false_alarms": 0,
+    "fpr": 0.0
+   },
+   "verdicts": {},
+   "retired": [],
+   "born": [],
+   "reborn": [],
+   "forge": {
+    "measurable": true,
+    "reason": null,
+    "tried": 20
+   },
+   "leaving": {
+    "suite": 0,
+    "caught": 0,
+    "coverage": 0.0,
+    "false_alarms": 0
+   }
+  },
+  {
+   "generation": "g1",
+   "corpus": "7eed9cf47a18",
+   "runs": 12,
+   "wrong": 0,
+   "right": 12,
+   "arrived": 0,
+   "forward": {
+    "caught": 0,
+    "coverage": null,
+    "false_alarms": 0,
+    "fpr": 0.0
+   },
+   "verdicts": {},
+   "retired": [],
+   "born": [],
+   "reborn": [],
+   "forge": {
+    "measurable": false,
+    "reason": "every run is right or every run is wrong, so an eval has nothing to tell apart",
+    "tried": 0
+   },
+   "leaving": {
+    "suite": 0,
+    "caught": 0,
+    "coverage": null,
+    "false_alarms": 0
+   }
+  }
+ ],
+ "narrative": "Target: runs that failed. g0: 1 of 12 runs to catch. g1: 0 of 12 runs to catch; nothing forged (every run is right or every run is wrong, so an eval has nothing to tell apart)."
+}
