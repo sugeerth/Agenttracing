@@ -54,6 +54,7 @@ part of reading a session talks to a network.
 ```bash
 ./agentdiff self-evolve --demo hard             # your Claude Code, six hard tasks, graders it is never shown
 cd your-project && /path/to/agentdiff fix --evolve 3 -o ~/.agentdiff/self-evolve/your-project   # when its tests fail
+./agentdiff self-evolve --from-git ~/your-project  # tasks from its own history, graded by the tests each commit changed
 ```
 
 Your own `claude` runs under a harness that changes itself

@@ -82,6 +82,38 @@ recorded run's traces (`examples/haiku-hard-confirms`) hold the code its
 agents wrote. Here agents fail on what the code does: the case exploration is
 for.
 
+## On your repository's history
+
+```bash
+agentdiff self-evolve --from-git ~/my-project --python ~/my-project/.venv/bin/python
+```
+
+Your own repository's history is a set of tasks with graders nobody had
+to write (`agentdiff/gittasks.py`). Each recent commit that changed code
+and its tests becomes one:
+- **The start:** the agent works on a copy of the commit's parent.
+- **The prompt:** the commit's message, trailers removed.
+- **The grader:** the test files the commit added or changed. They are
+  held out: outside the workspace, never named to the agent, and copied
+  in over its work when it has finished, then run.
+
+A commit becomes a task only if its grader is sound: the held-out tests
+must fail on the parent (so there is something to do) and pass on the
+commit itself (so it can be done, and the grader agrees with the change
+the project made). Every commit looked at is reported in
+`tasks-report.json`, taken or not, with why.
+
+- Merges, commits with more than 12 files, and messages under 20
+  characters are not used.
+- Tests run with pytest when it is installed for `--python`, else
+  unittest. `--test-cmd "CMD {files}"` gives any other runner.
+- The project's own dependencies must be installed for that Python, as
+  for any test run of it. A task whose grader cannot pass on its commit
+  is skipped and says why.
+- `--commits N` caps the tasks (default 6).
+
+Evolve has the same as a third way in, "On your repository's history".
+
 ## Faster and surer
 
 - **Runs at once.** `--jobs N` (default 3) runs that many task runs

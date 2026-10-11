@@ -6,6 +6,7 @@
     agentdiff self-evolve --task tasks.json --agent haiku --hub http://127.0.0.1:8790   every run, live, on a hub
     agentdiff self-evolve --demo                                           six tasks it carries, graders held out
     agentdiff self-evolve --adopt evo/ --into ~/my-project                 use the evolved harness in Claude Code
+    agentdiff self-evolve --from-git ~/my-project                          tasks from its history, graded by its tests
 
 Each generation the agents run the tasks under the current harness and
 each run's check grades it; the evolving eval suite meets those runs;
@@ -23,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -68,6 +70,15 @@ def register(subparsers) -> None:
     p.add_argument("--hub", default=None, metavar="URL", help="stream every run to a hub as it goes "
                                                                "($AGENTDIFF_HUB_TOKEN); a hub serving DIR needs no flag")
     p.add_argument("--dry-run", action="store_true", help="say what would run, and run nothing")
+    p.add_argument("--from-git", default=None, metavar="REPO",
+                   help="instead of --task: tasks from REPO's history. Each commit that changed code and its tests "
+                        "is a task: the agent starts from its parent with its message, and the tests it changed, held "
+                        "out, grade the run. A task is kept only when they fail on the parent and pass on the commit")
+    p.add_argument("--commits", type=int, default=6, metavar="N", help="--from-git: at most N tasks (default 6)")
+    p.add_argument("--python", default=None, metavar="PATH",
+                   help="--from-git: the Python the project's tests run with (its dependencies installed)")
+    p.add_argument("--test-cmd", default=None, metavar="CMD",
+                   help="--from-git: the test command, {files} for the test files (default pytest, else unittest)")
     p.add_argument("--adopt", default=None, metavar="DIR",
                    help="instead of running: use the harness DIR ended with in your Claude Code (--into PROJECT): "
                         "its instructions in CLAUDE.md, its denied tools in .claude/settings.local.json")
@@ -319,8 +330,35 @@ def run(args: argparse.Namespace) -> int:
             return 2
         print(f"demo: six {'hard ' if hard else ''}tasks, each graded by tests the agent is not given ({Path(args.task).parent / 'hidden'}); "
               f"writing to {args.output}, where `agentdiff hub --claude-code` shows it", flush=True)
+    elif args.from_git:
+        from ..gittasks import build
+        from .hub import _home
+        repo = Path(os.path.expanduser(args.from_git)).resolve()
+        if not (repo / ".git").exists():
+            print(f"error: {repo} is not a git repository", file=sys.stderr)
+            return 2
+        dest = _home() / "self-evolve" / f"git-{repo.name}-tasks"
+        print(f"from-git: looking through {repo.name}'s history for commits that changed code and its tests",
+              flush=True)
+        try:
+            made = build(repo, dest, want=args.commits, test_cmd=args.test_cmd, python=args.python,
+                         timeout=args.check_timeout, on_progress=lambda s: print(f"  {s}", flush=True))
+        except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        if not made["tasks"]:
+            print("error: no commit made a sound task (see the reasons above, and "
+                  f"{dest / 'tasks-report.json'}); are the project's dependencies installed for --python?",
+                  file=sys.stderr)
+            return 2
+        args.task = str(made["tasks"])
+        args.output = args.output or str(_home() / "self-evolve" / f"git-{repo.name}-"
+                                         f"{'-'.join(a.replace(':', '-') for a in (args.agent or ['haiku']))}")
+        print(f"from-git: {len(made['kept'])} task(s), {len(made['skipped'])} commit(s) skipped; writing to "
+              f"{args.output}", flush=True)
     elif not args.task:
-        print("error: give the tasks with --task FILE, or --demo for the six it carries", file=sys.stderr)
+        print("error: give the tasks with --task FILE, --demo for the six it carries, or --from-git REPO",
+              file=sys.stderr)
         return 2
     args.output = args.output or "self-evolve-out"
     try:

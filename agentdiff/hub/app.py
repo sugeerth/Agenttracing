@@ -677,7 +677,20 @@ class App:
             return Response.html(self._page("Not started", "There is no claude on this machine's PATH: install "
                                             "Claude Code, then start the hub again.", session), 400)
         folder = self._evolve_folder()
-        if form.get("mode") == "project":
+        if form.get("mode") == "git":
+            repo = Path(os.path.expanduser((form.get("project") or "").strip()))
+            if not str(repo) or not repo.is_absolute() or not (repo / ".git").exists():
+                return Response.html(self._page("Not started", "Give the repository as a full path to a git "
+                                                "checkout on this machine.", session), 400)
+            py = (form.get("python") or "").strip()
+            if py and not (Path(py).is_absolute() and Path(py).is_file()):
+                return Response.html(self._page("Not started", "Its Python is a full path to a python executable, "
+                                                "or empty.", session), 400)
+            out = folder / f"git-{repo.name}-{agent}"
+            args = ["self-evolve", "--from-git", str(repo), "--agent", agent, "--generations", str(gens),
+                    "--runs", str(runs), "-o", str(out)] + (["--python", py] if py else [])
+            cwd, what = folder, f"self-evolve --from-git {repo.name}, {agent}, {gens} generation(s) of {runs} run(s)"
+        elif form.get("mode") == "project":
             project = Path(os.path.expanduser((form.get("project") or "").strip()))
             if not str(project) or not project.is_absolute() or not project.is_dir():
                 return Response.html(self._page("Not started", "Give the project as a full path to a folder on this "

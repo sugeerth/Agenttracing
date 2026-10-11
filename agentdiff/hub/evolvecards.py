@@ -181,11 +181,22 @@ def start_card(*, prog: str, folder: str, claude: Optional[str], here: bool = Tr
                  '<label class="wide">its check <input name="check" placeholder="detected when empty: pytest -q, '
                  'npm test, cargo test, go test ./…" autocomplete="off" spellcheck="false"></label>'
                  f'{_knobs()}{go}</form>' if csrf else "")
+    hist = f"{prog} self-evolve --from-git your-project --python your-project/.venv/bin/python"
+    git_form = (f'<form method="post" action="/evolve/start" class="go">{hidden}'
+                '<input type="hidden" name="mode" value="git">'
+                '<label class="wide">repository <input name="project" required placeholder="/full/path/to/your-project" '
+                'autocomplete="off" spellcheck="false"></label>'
+                '<label class="wide">its Python, with its dependencies <input name="python" '
+                'placeholder="optional: /full/path/to/your-project/.venv/bin/python" autocomplete="off" '
+                'spellcheck="false"></label>'
+                f'{_knobs()}{go}</form>' if csrf else "")
+    cmd_hist = f'<pre class="cmd">{e(hist)}</pre>'
     cmd_demo = f'<pre class="cmd">{e(demo)}</pre>'
     cmd_mine = f'<pre class="cmd">{e(mine)}</pre>'
     if csrf:  # the buttons lead; the commands stay one fold away, for a terminal
         cmd_demo = f'<details class="term"><summary>or in a terminal</summary>{cmd_demo}</details>'
         cmd_mine = f'<details class="term"><summary>or in a terminal</summary>{cmd_mine}</details>'
+        cmd_hist = f'<details class="term"><summary>or in a terminal</summary>{cmd_hist}</details>'
     per = 6 * 2 * 2
     return ('<div class="ecard start"><h2>Evolve your own agent</h2>'
             '<p class="muted">Your Claude Code runs the tasks under a harness that changes itself. The evals read '
@@ -203,7 +214,12 @@ def start_card(*, prog: str, folder: str, claude: Optional[str], here: bool = Tr
             '<div class="way"><b>On your project, when its tests fail</b><p>The same loop, on making them pass '
             'without touching the tests. It starts only when the check fails now; when it ends it names the folder '
             'to keep the change from (<code>agentdiff apply --dir …</code>).</p>'
-            f'{mine_form}{cmd_mine}</div></div>'
+            f'{mine_form}{cmd_mine}</div>'
+            '<div class="way"><b>On your repository\'s history</b><p>Each recent commit that changed code and its '
+            'tests is a task: Claude Code starts from the commit\'s parent with its message, and the tests the commit '
+            'changed, held out, grade the run. A commit is used only when those tests fail on its parent and pass on '
+            'the commit itself.</p>'
+            f'{git_form}{cmd_hist}</div></div>'
             '<p class="muted">Every run is on <a href="/live">Live</a> while it goes, and each generation lands '
             f'here as it ends, from <code>{e(folder)}</code>.</p></div>')
 
