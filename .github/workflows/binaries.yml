@@ -10,7 +10,8 @@ on:
     branches: ["**"]
     tags: ["v*"]
     # the downloads carry the code, so a change to it builds them again
-    paths: ["packaging/**", "agentdiff/**", ".github/workflows/binaries.yml"]
+    # what a download carries: the package, the build, and the demo tasks and examples it bundles
+    paths: ["packaging/**", "agentdiff/**", "demo/**", ".github/workflows/binaries.yml"]
 
 jobs:
   pyz:
