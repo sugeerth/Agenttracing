@@ -97,7 +97,8 @@ class FolderTest(unittest.TestCase):
     def test_the_examples_say_what_they_are(self):
         cat = Catalog(EXAMPLES, depth=3, limit=50)
         kinds = {x.path.name: (x.summary.get("example") or "").split(":")[0] for x in cat.entries()}
-        self.assertEqual(kinds, {"stand-in-learns-to-check": "synthetic", "haiku-on-six-tasks": "recorded"})
+        self.assertEqual(kinds, {"stand-in-learns-to-check": "synthetic", "haiku-on-six-tasks": "recorded",
+                                 "haiku-hard-explores": "recorded"})
 
 
 class EvolvePageTest(unittest.TestCase):
