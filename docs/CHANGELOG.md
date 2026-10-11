@@ -18,8 +18,8 @@ numbers are the schema/report versions the sections were introduced in.
 - **The hard six** (`--demo hard`, the default on Evolve): `cron`,
   `expr`, `isoweek`, `globmatch`, `ranges` and `isodur`, whose specs
   state every edge case and whose held-out graders hold the code to
-  each one. Each grader passes a reference solution kept outside the
-  repository, and fails its untouched stub. The small six are easy
+  each one. Each grader passes a reference solution (not in the
+  repository), and fails its untouched stub. The small six are easy
   enough that a strong agent passes them all, so a harness has nothing
   to learn from them.
 - **A real run that evolves.** `examples/haiku-hard-explores` is recorded:

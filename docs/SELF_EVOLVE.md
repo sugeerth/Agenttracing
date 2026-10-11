@@ -74,9 +74,12 @@ code to each one:
 - `ranges`: npm-style caret, tilde and x ranges, and pre-release rules.
 - `isodur`: ISO 8601 durations, with only the last number fractional.
 
-Every grader was checked against a reference solution, kept outside the
-repository so no agent can find it, and every untouched stub fails its
-grader. Here agents fail on what the code does: the case exploration is
+Every grader was checked against a reference solution, which is not in
+the repository, and every untouched stub fails its grader. Held out means
+what it means for the small six: the graders are outside the workspace
+the agent is given and are never named to it, not hidden on the disk. A
+recorded run's traces (`examples/haiku-hard-explores`) hold the code its
+agents wrote. Here agents fail on what the code does: the case exploration is
 for.
 
 ## When the evals are silent: explore
