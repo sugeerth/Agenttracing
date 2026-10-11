@@ -214,7 +214,7 @@ class Progress:
                      "per_arm": per_arm, "agents": agents, "tasks": tasks, "generation": None, "arm": None,
                      "testing": None, "runs_done": 0, "arms_done": 0, "lines": [], "end": None}
 
-    def arm(self, label: str, version: int, runs: Optional[int] = None) -> None:
+    def arm(self, label: str, version: int, runs: Optional[int] = None, tasks: Optional[list] = None) -> None:
         with self.lock:
             if self.data["arm"]:
                 self.data["arms_done"] += 1
@@ -222,6 +222,7 @@ class Progress:
             # the second arm of a generation runs the harness with the change being tested; a confirmation
             # arm runs only the tasks the change moved
             self.data.update(generation=gen, arm=label, runs_done=0, arm_runs=runs or self.data["per_arm"],
+                             arm_tasks=list(tasks) if tasks else None,
                              testing=self.data["testing"] if gen == self.data["generation"] else None)
         self.write()
 
@@ -425,7 +426,8 @@ def run(args: argparse.Namespace) -> int:
     counted = arm
 
     def arm(harness, label, only=None):  # noqa: F811 — the same arm, counted run by run for progress.json
-        progress.arm(label, harness.version, runs=None if only is None else len(only) * args.runs * len(specs))
+        progress.arm(label, harness.version, runs=None if only is None else len(only) * args.runs * len(specs),
+                     tasks=only)
         return counted(harness, label, only=only)
     if args.hub:
         # every arm writes its own traces directory: stream each as it appears

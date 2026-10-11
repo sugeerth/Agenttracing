@@ -195,7 +195,10 @@ be teaching to the test.
 
 On the hub, `/evolve` draws each lineage as a card: per generation, the
 share of runs that passed under the harness as it was and with the
-change, the verdict, and the evals born and retired. The run's page has
+change, the verdict, and the evals born and retired. Every card also
+has one chart of every run of every task in every arm (`hub/evochart.py`),
+each square opening its trace, which fills in square by square while it
+runs. The run's page has
 every candidate weighed, the eval river, and every trace by arm. With
 `--hub URL`, every run streams to a hub as it goes.
 

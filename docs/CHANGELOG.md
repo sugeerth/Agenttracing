@@ -5,6 +5,39 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The evolution, run by run
+
+Every self-evolving harness now has one chart of all it did
+(`hub/evochart.py`), on its card on Evolve and at the top of its page:
+- **Rows** are the tasks.
+- **Columns** are the arms, grouped by generation: the harness as it
+  was, the change it tested, the re-runs of a weak win on their own
+  shaded band, and the held-out pair.
+- **Each run** is a square, passed or failed by its own check, that
+  opens its trace.
+- **Above each generation:** the change tried and what the counts made
+  of it, with *explored* when no eval named it. Above each arm: the
+  share of its runs that passed.
+- **Beside each task the change moved:** an accent bar and which way it
+  went.
+
+While a self-evolve runs, the generation running now is drawn from the
+folders it has made. The arm running now has an outlined square for
+every run still to come, filled in pass or fail as each finishes, so the
+self-refreshing page shows it evolve square by square. It is server-side
+SVG with the browser's own hover titles and no script, in light and dark,
+and it scrolls sideways on a phone.
+
+## Self-evolve on your own repository's history
+
+`self-evolve --from-git REPO` (`agentdiff/gittasks.py`) turns recent
+commits that changed code and its tests into tasks. The agent starts
+from the parent with the commit's message, and the commit's tests, held
+out, grade the run. A commit is used only when those tests fail on its
+parent and pass on the commit; every commit looked at says why it was
+taken or not. On python-slugify's history it made six tasks, and skipped
+one whose tests already passed on its parent.
+
 ## Self-evolve: faster, surer, and tested on tasks it never saw
 
 - **`--jobs N`** (default 3): `run_duel` runs that many task runs at

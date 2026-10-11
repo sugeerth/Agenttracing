@@ -81,6 +81,8 @@ CARDS_CSS = """
   border-radius:999px;border:1px solid var(--line);color:var(--soft)}
 .ecard .hold{font-size:13px;color:var(--soft);margin:2px 0 8px}.ecard .hold b{color:var(--ink);font-weight:600}
 .ecard .hold .ok{color:var(--good)}
+.ecard details.runs{margin:4px 0 10px}.ecard details.runs>summary{font:600 13px system-ui,sans-serif;
+  color:var(--ink);cursor:pointer;margin-bottom:4px}
 .ecard .tag{font:600 11px system-ui,sans-serif;padding:1px 7px;border-radius:999px;background:var(--chip);color:var(--soft)}
 .ecard.start h2{margin:0 0 6px;font:600 16px system-ui,sans-serif;text-transform:none;letter-spacing:0;color:var(--ink)}
 .ecard.start>p{font-size:14px;line-height:1.45;margin:0 0 6px}
@@ -293,6 +295,19 @@ def live_strip(entry, now: Optional[float] = None) -> str:
             + '</div>')
 
 
+def _runs_chart(entry, data: dict, *, open_: bool) -> str:
+    """Every run, task by task (:mod:`.evochart`): open while it runs, so it fills in square by square."""
+    from .evochart import evolution_matrix
+    path = getattr(entry, "path", None)
+    if path is None:
+        return ""
+    chart = evolution_matrix(path, data, progress=(getattr(entry, "summary", None) or {}).get("progress"))
+    if not chart:
+        return ""
+    return (f'<details class="runs"{" open" if open_ else ""}><summary>Every run, task by task</summary>'
+            f'{chart}</details>')
+
+
 def _tokens(med) -> str:
     """What a change cost: ' · tokens +19%' (median per run, the change against the harness as it was)."""
     if not med or not med.get("current") or med.get("changed") is None:
@@ -347,9 +362,10 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, ado
     href = f"/runs/{e(entry.id)}"
     stop = str(data.get("stop") or "")
     live = live_strip(entry)
+    runs = _runs_chart(entry, data, open_=bool(live))
     if not gens:
         return (f'<div class="ecard"><div class="ehead"><a class="t" href="{href}">{e(entry.title)}</a>{_tag(entry)}'
-                + ('' if live else '<span class="pill">no generation yet</span>') + f'</div>{live}</div>')
+                + ('' if live else '<span class="pill">no generation yet</span>') + f'</div>{live}{runs}</div>')
     first, last = gens[0], gens[-1]
     p0, r0 = first["runs"] - first["failed"], first["runs"]
     p1, r1 = last["runs"] - last["failed"], last["runs"]
@@ -429,7 +445,7 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, ado
         pill = ""  # still going: the strip says where it is, not how it ended
     use = adopt_form(entry, adopt_csrf) if adopt_csrf and harness.get("version") and not live else ""
     return (f'<div class="ecard"><div class="ehead">{name}{pill}</div>{live}'
-            f'{stats}<div class="gstrip">{"".join(steps)}</div>{ends_html}{holdout_line(data)}{use}'
+            f'{stats}<div class="gstrip">{"".join(steps)}</div>{runs}{ends_html}{holdout_line(data)}{use}'
             + (f'<a class="more" href="{href}">Every change and its evidence →</a>' if link else "") + '</div>')
 
 

@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from . import evolvecards, glance, seconds, viz
+from . import evochart, evolvecards, glance, seconds, viz
 from .catalog import Entry
 
 __all__ = ["layout", "login_page", "overview_page", "runs_page", "duel_page", "report_page", "telemetry_page",
@@ -147,7 +147,7 @@ border:1px solid var(--line);border-radius:16px;overflow:hidden}
 .login-side{padding:20px}.login-form{padding:20px}}
 @media (max-width:640px){header{flex-wrap:wrap;padding:10px 16px;gap:8px}header nav{order:3;flex:1 1 100%}
 td,th{font-size:13px;padding:5px}.filters form{margin-left:0;width:100%}.filters input{flex:1;width:auto}}
-""" + viz.VIZ_CSS + glance.GLANCE_CSS + seconds.SECONDS_CSS + evolvecards.CARDS_CSS
+""" + viz.VIZ_CSS + glance.GLANCE_CSS + seconds.SECONDS_CSS + evolvecards.CARDS_CSS + evochart.EVM_CSS
 
 _MARK = ('<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">'
          '<rect x="1" y="3" width="6" height="6" rx="2" style="fill:var(--a1)"/>'
@@ -1499,9 +1499,11 @@ def evolution_page(*, brand: str, user: str, csrf: str, entry: Entry, data: dict
         arms.setdefault(r.group, []).append(r)
     arm_html = "".join(f'<h2>{e(gname)} <span class="muted">· {len(rs)}</span></h2><div class="card">{_trace_rows(rs)}</div>'
                        for gname, rs in arms.items())
+    matrix = evochart.evolution_matrix(entry.path, data, {str(Path(r.path).resolve()): r.id for r in refs})
     body = (f'<p class="muted"><a href="/evolve">Evolve</a></p><h1>{e(entry.title)}</h1>'
             f'{evolvecards.evolve_card(entry, data, link=False, title=False)}'
-            f'<h2>The story, generation by generation</h2><div class="card"><p>{e(data.get("narrative"))}</p>'
+            + (f'<h2>Every run, task by task</h2><div class="card">{matrix}</div>' if matrix else "")
+            + f'<h2>The story, generation by generation</h2><div class="card"><p>{e(data.get("narrative"))}</p>'
             + (f'<details><summary class="muted">the river: every generation on one chart</summary>'
                f'{viz.harness_river(data)}</details>' if len(data.get("lineage") or []) > 1 else "")
             + '</div>'
