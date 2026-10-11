@@ -5,6 +5,22 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Self-evolve: faster, surer, and tested on tasks it never saw
+
+- **`--jobs N`** (default 3): `run_duel` runs that many task runs at
+  once, each in its own copy of the workspace, with records in task and
+  run order.
+- **Confirmation by replication.** A change kept on one or two tasks
+  moving (sign test weaker than 1 in 4) runs those tasks again, both
+  arms. It stays only if the fresh runs alone show it winning again.
+  Pooling the runs would have let one lucky pass stand forever.
+  `--no-confirm` turns it off.
+- **`--holdout N`**: the harness it ends with is tested against the
+  agent as it ships on N tasks the evolution never ran. It is on the
+  card ("On tasks it never evolved on") and offered on Evolve's Start.
+- **Cost on the card**: each change's median tokens a run against the
+  harness as it was.
+
 ## Self-evolve explores, and says how far from luck
 
 - **Exploration.** Some failures no eval can name: the runs worked the

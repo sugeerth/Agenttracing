@@ -47,7 +47,7 @@ from .evolving import _narrative as evals_narrative, evolve as evolve_evals
 from .forge import RunView, _score, _unique_keys, candidates, describe, parse_rule, rule_id, spec
 from .trace import Trajectory
 
-__all__ = ["DEMO_TASKS", "DEMO_HARD", "DEMOS", "EXPLORE", "Harness", "explore_remedy", "sign_test", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "LEDGER_KIND", "ESSENTIAL_TOOLS",
+__all__ = ["CONFIRM_P", "DEMO_TASKS", "DEMO_HARD", "DEMOS", "EXPLORE", "Harness", "explore_remedy", "sign_test", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "LEDGER_KIND", "ESSENTIAL_TOOLS",
            "load_ledger", "write_ledger", "visible_check"]
 
 LEDGER_KIND = "self-evolving"
@@ -195,6 +195,18 @@ def sign_test(wins: int, losses: int) -> Optional[float]:
     if not n:
         return None
     return sum(comb(n, k) for k in range(wins, n + 1)) / 2 ** n
+
+
+#: a kept change whose sign test is weaker than this is confirmed before it stays (``self_evolve(confirm=True)``)
+CONFIRM_P = 0.25
+
+
+def _takes_only(run_arm) -> bool:
+    import inspect
+    try:
+        return "only" in inspect.signature(run_arm).parameters
+    except (TypeError, ValueError):
+        return False
 
 
 def chance_text(p: Optional[float]) -> str:
@@ -405,7 +417,8 @@ def _fresh(target: str) -> dict:
 def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3, target: str = "failure",
                 ledger: Optional[dict] = None, patience: int = 2, check: str = "",
                 refuse_knobs: tuple = (), on_progress: Optional[Callable[[str], None]] = None,
-                on_generation: Optional[Callable[[dict], None]] = None, explore: bool = False) -> dict:
+                on_generation: Optional[Callable[[dict], None]] = None, explore: bool = False,
+                confirm: bool = False) -> dict:
     """Go round ``generations`` times. ``run_arm(harness, label)`` runs the
     agents under ``harness`` and returns their trajectories (each graded by
     its task's check); it is called once per arm. Returns the lineage, the
@@ -413,7 +426,11 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
     ``on_generation`` is given the same result, ``running`` and all, each
     time a generation ends but the run goes on: what a stopped run keeps.
     With ``explore``, a generation whose failures no eval names a change for
-    tries the next instruction of :data:`EXPLORE` instead of stopping."""
+    tries the next instruction of :data:`EXPLORE` instead of stopping.
+    With ``confirm``, a change the counts would keep but whose sign test is
+    weaker than :data:`CONFIRM_P` is run again, both arms, on the tasks it
+    moved, and decided on all the runs together: it stays only if it still
+    wins. ``run_arm`` must then take ``only=`` (the task ids to run)."""
     say = on_progress or (lambda s: None)
     state = json.loads(json.dumps(ledger)) if ledger else _fresh(target)
     if state.get("kind") != LEDGER_KIND:
@@ -497,6 +514,29 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
         # 4. test it, paired: same tasks, same number of runs
         cand_runs = list(run_arm(candidate, f"{label}-h{candidate.version}"))
         verdict = decide(trajs, cand_runs)
+        if (confirm and verdict["verdict"] == "kept" and (verdict["p_value"] or 1) > CONFIRM_P
+                and _takes_only(run_arm)):
+            # one or two tasks moved: a lucky run could be all it is. Run the tasks that moved again, both arms
+            moved = sorted(set(verdict["wins"]) | set(verdict["losses"]))
+            first = {k: verdict[k] for k in ("verdict", "why", "passed", "p_value", "chance", "wins", "losses")}
+            say(f"{label}: kept on {len(moved)} task(s) that moved, {verdict['chance']}; confirming: "
+                f"{', '.join(moved)} again, both arms")
+            more_base = list(run_arm(harness, f"{label}-h{harness.version}-confirm", only=moved))
+            more_cand = list(run_arm(candidate, f"{label}-h{candidate.version}-confirm", only=moved))
+            # a replication: the fresh runs alone must show the change winning again. Pooled with the first
+            # runs, one lucky pass against a task that never passed would always still count as a win
+            again = decide(more_base, more_cand)
+            held = again["verdict"] == "kept"
+            verdict = decide(trajs + more_base, cand_runs + more_cand)
+            if not held:
+                verdict.update(verdict="reverted", why=f"it did not hold when {', '.join(moved)} ran again: "
+                                                       f"{again['why']}")
+            verdict["confirm"] = {"tasks": moved, "runs": len(more_base) + len(more_cand), "first": first,
+                                  "again": {k: again[k] for k in ("verdict", "why", "passed", "p_value", "chance")},
+                                  "held": held}
+            say(f"{label}: confirmation {'held' if held else 'did not hold'}: {again['why']} "
+                f"(passed {again['passed']['current'][0]}/{again['passed']['current'][1]} → "
+                f"{again['passed']['changed'][0]}/{again['passed']['changed'][1]} on the fresh runs)")
         state["tried"][remedy["id"]] = verdict["verdict"]
         record["action"] = {"remedy": remedy, "because": {k: chosen[k] for k in ("eval", "rule", "caught", "wrong",
                                                                                   "source", "says")},

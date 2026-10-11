@@ -82,6 +82,29 @@ recorded run's traces (`examples/haiku-hard-explores`) hold the code its
 agents wrote. Here agents fail on what the code does: the case exploration is
 for.
 
+## Faster and surer
+
+- **Runs at once.** `--jobs N` (default 3) runs that many task runs
+  together. Each run has its own copy of the workspace, and the records
+  come back in task and run order whatever order they finished in.
+- **A weak win is run again.** Kept on its first paired test, a change
+  whose sign test is weaker than 1 in 4 (`selfevolve.CONFIRM_P`), that
+  is one or two tasks moving, is confirmed before it stays. The tasks it
+  moved run again, both arms, and the fresh runs alone must show it
+  winning again. It is a replication, not a pooling: pooled with the
+  first runs, one lucky pass on a task that never passed would always
+  still count as a win. A change that does not hold is reverted, with
+  the counts of both tests. `--no-confirm` keeps a change on its first
+  test, as before.
+- **Tasks it never saw.** `--holdout N` keeps the last N tasks out of
+  the evolution. At the end, the harness it ended with runs against the
+  agent as it ships on them, paired and decided the same way: whether
+  what it learned carries over to tasks it was never tuned on. It
+  changes nothing that was kept. It is reported on the card and as
+  `holdout` in `self-evolve.json`.
+- **What a change costs.** Each change's card says how its median
+  tokens a run compare with the harness as it was ("tokens +19%").
+
 ## When the evals are silent: explore
 
 Some failures are in what the code does, not in how the agent worked.

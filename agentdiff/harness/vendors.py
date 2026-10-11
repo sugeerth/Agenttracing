@@ -680,12 +680,15 @@ def run_duel(tasks: list, specs: list, out: Path, *, runs: int = 1, parallel: bo
              on_event: Optional[Callable[[dict], None]] = None,
              on_done: Optional[Callable[[dict], None]] = None, baseline: bool = True,
              on_baseline: Optional[Callable[[dict, dict], None]] = None,
-             baselines: Optional[dict] = None, first_run: int = 1, **kw) -> list:
+             baselines: Optional[dict] = None, first_run: int = 1, jobs: int = 1, **kw) -> list:
     """Every task, every run, every agent. Agents on one (task, run) are
     launched together unless ``parallel`` is False. With ``baseline``, each
-    task's check first runs once on an untouched copy."""
+    task's check first runs once on an untouched copy. ``jobs`` (task, run)
+    pairs run at once; each run has its own copy of the workspace, so they
+    never share one. The records come back in task and run order whatever
+    order the runs finished in."""
     mark_output(out)
-    records: list = []
+    units = []
     for task in tasks:
         if baseline and task.get("check"):
             b = (baselines or {}).get(task["id"]) or baseline_check(task, kw.get("check_timeout_s", 600.0))
@@ -693,38 +696,55 @@ def run_duel(tasks: list, specs: list, out: Path, *, runs: int = 1, parallel: bo
                     | {"output_tail": b["output_tail"][-1500:]}}
             if on_baseline:
                 on_baseline(task, b)
-        for n in range(first_run, first_run + runs):
-            run = f"r{n}"
-            started = time.time()
-            got: list = []
-            errors: list = []
+        units += [(task, f"r{n}") for n in range(first_run, first_run + runs)]
+    done: dict = {}
+    lock = threading.Lock()
 
-            def one(spec):
-                try:
-                    rec = run_vendor(spec, task, out, run=run, started_at=time.time(), on_event=on_event, **kw)
-                    got.append(rec)
-                    if on_done:
-                        on_done(rec)
-                except Exception as exc:  # one vendor failing must not lose the other's run
-                    errors.append({"agent": spec.agent, "task": task["id"], "run": run, "error": str(exc)})
+    def unit(i: int, task: dict, run: str) -> None:
+        started = time.time()
+        got: list = []
+        errors: list = []
+
+        def one(spec):
             try:
-                if parallel:
-                    threads = [threading.Thread(target=one, args=(s,), daemon=True) for s in specs]
-                    for th in threads:
-                        th.start()
-                    # join in slices, so a Ctrl-C reaches this thread promptly
-                    while any(th.is_alive() for th in threads):
-                        for th in threads:
-                            th.join(timeout=0.2)
-                else:
-                    for s in specs:
-                        one(s)
-            except KeyboardInterrupt:
-                stopped = shutdown_all()
-                raise DuelInterrupted(records + got, stopped)
-            for e in errors:
-                e["started_at"] = started
-            records.extend(got)
-            if errors:
-                records.extend({"failed": True, **e} for e in errors)
-    return records
+                rec = run_vendor(spec, task, out, run=run, started_at=time.time(), on_event=on_event, **kw)
+                got.append(rec)
+                if on_done:
+                    on_done(rec)
+            except Exception as exc:  # one vendor failing must not lose the other's run
+                errors.append({"agent": spec.agent, "task": task["id"], "run": run, "error": str(exc)})
+        if parallel and len(specs) > 1:
+            threads = [threading.Thread(target=one, args=(s,), daemon=True) for s in specs]
+            for th in threads:
+                th.start()
+            for th in threads:
+                th.join()
+        else:
+            for s in specs:
+                one(s)
+        for e in errors:
+            e["started_at"] = started
+        with lock:
+            done[i] = got + [{"failed": True, **e} for e in errors]
+
+    workers = max(1, int(jobs or 1))
+    pending = list(enumerate(units))
+    running: list = []
+    try:
+        while pending or running:
+            while pending and len(running) < workers:
+                i, (task, run) = pending.pop(0)
+                th = threading.Thread(target=unit, args=(i, task, run), daemon=True)
+                th.start()
+                running.append(th)
+            # join in slices, so a Ctrl-C reaches this thread promptly
+            for th in list(running):
+                th.join(timeout=0.2)
+                if not th.is_alive():
+                    running.remove(th)
+    except KeyboardInterrupt:
+        stopped = shutdown_all()
+        with lock:
+            finished = [r for i in sorted(done) for r in done[i] if not r.get("failed")]
+        raise DuelInterrupted(finished, stopped)
+    return [r for i in sorted(done) for r in done[i]]

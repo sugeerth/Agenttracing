@@ -46,6 +46,14 @@ def register(subparsers) -> None:
     p.add_argument("--runs", type=int, default=2, help="runs of each task per arm (default 2)")
     p.add_argument("--target", default="failure", choices=sorted(TARGETS), help="what an eval must catch")
     p.add_argument("--patience", type=int, default=2, help="generations an eval may catch nothing before it retires")
+    p.add_argument("--jobs", type=int, default=3, metavar="N",
+                   help="runs at once (default 3); each has its own copy of the workspace")
+    p.add_argument("--no-confirm", dest="confirm", action="store_false",
+                   help="keep a change on its first paired test even when one or two tasks moved, instead of "
+                        "running those tasks again to see it hold")
+    p.add_argument("--holdout", type=int, default=0, metavar="N",
+                   help="keep the last N tasks out of the evolution, and at the end test the harness it ends "
+                        "with against the agent as it ships on them: does it help on tasks it never saw")
     p.add_argument("--no-explore", dest="explore", action="store_false",
                    help="stop when no eval names a change, instead of trying a generic instruction "
                         "(selfevolve.EXPLORE), tested paired like any other")
@@ -132,6 +140,31 @@ def _adopt(args: argparse.Namespace) -> int:
     return 0
 
 
+def _holdout(held: list, specs: list, out: Path, result: dict, args, progress, said) -> dict:
+    """The harness it ended with, against the agent as it ships, on tasks the evolution never ran: whether what
+    it learned carries over. Paired like any test, and decided the same way; it changes nothing it kept."""
+    from ..harness.selfevolve import vendor_arm
+    from ..selfevolve import Harness, decide
+    ids = [t["id"] for t in held]
+    final = Harness.from_dict(result["harness"])
+    if not final.version:
+        return {"tasks": ids, "skipped": "the harness ends as the agent ships: there is nothing to compare"}
+    arm = vendor_arm(held, specs, out, runs=args.runs, budget_tokens=args.budget_tokens, timeout_s=args.timeout,
+                     check_timeout_s=args.check_timeout, on_done=progress.run_done, jobs=args.jobs)
+    said(f"held out: running {', '.join(ids)} under the agent as it ships, then under {final.describe()}")
+    progress.arm("holdout-h0", 0, runs=len(held) * args.runs * len(specs))
+    base = list(arm(Harness(), "holdout-h0"))
+    progress.arm(f"holdout-h{final.version}", final.version, runs=len(held) * args.runs * len(specs))
+    cand = list(arm(final, f"holdout-h{final.version}"))
+    v = decide(base, cand)
+    pc, pn = v["passed"]["current"], v["passed"]["changed"]
+    said(f"held out: {pc[0]}/{pc[1]} as it ships, {pn[0]}/{pn[1]} with v{final.version}: {v['why']} ({v['chance']})")
+    return {"tasks": ids, "version": final.version, "test": v,
+            "says": ("it helped on tasks it never saw" if v["verdict"] == "kept" else
+                     "it did not help on tasks it never saw" if v["wins"] or v["losses"] or pc[0] != pn[0] else
+                     "no held-out task moved")}
+
+
 def _stop(signum, frame):
     raise KeyboardInterrupt
 
@@ -170,13 +203,14 @@ class Progress:
                      "per_arm": per_arm, "agents": agents, "tasks": tasks, "generation": None, "arm": None,
                      "testing": None, "runs_done": 0, "arms_done": 0, "lines": [], "end": None}
 
-    def arm(self, label: str, version: int) -> None:
+    def arm(self, label: str, version: int, runs: Optional[int] = None) -> None:
         with self.lock:
             if self.data["arm"]:
                 self.data["arms_done"] += 1
             gen = label.split("-")[0]
-            # the second arm of a generation runs the harness with the change being tested
-            self.data.update(generation=gen, arm=label, runs_done=0,
+            # the second arm of a generation runs the harness with the change being tested; a confirmation
+            # arm runs only the tasks the change moved
+            self.data.update(generation=gen, arm=label, runs_done=0, arm_runs=runs or self.data["per_arm"],
                              testing=self.data["testing"] if gen == self.data["generation"] else None)
         self.write()
 
@@ -316,6 +350,15 @@ def run(args: argparse.Namespace) -> int:
     except (OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    held: list = []
+    if args.holdout:
+        if args.holdout >= len(tasks):
+            print(f"error: --holdout {args.holdout} leaves no task to evolve on ({len(tasks)} task(s))",
+                  file=sys.stderr)
+            return 2
+        tasks, held = tasks[:-args.holdout], tasks[-args.holdout:]
+        print(f"held out: {', '.join(t['id'] for t in held)}, never run while it evolves; the harness it ends "
+              f"with is tested on them at the end", flush=True)
     per_arm = len(tasks) * len(specs) * args.runs
     print(f"self-evolve: {len(tasks)} task(s) × {len(specs)} agent(s) × {args.runs} run(s) = {per_arm} run(s) per arm; "
           f"up to two arms a generation, {args.generations} generation(s)"
@@ -340,24 +383,24 @@ def run(args: argparse.Namespace) -> int:
     progress = Progress(out, generations=args.generations, per_arm=per_arm,
                         agents=[s.agent for s in specs], tasks=[t["id"] for t in tasks])
     arm = vendor_arm(tasks, specs, out, runs=args.runs, budget_tokens=args.budget_tokens, timeout_s=args.timeout,
-                     check_timeout_s=args.check_timeout, on_done=progress.run_done)
+                     check_timeout_s=args.check_timeout, on_done=progress.run_done, jobs=args.jobs)
     counted = arm
 
-    def arm(harness, label):  # noqa: F811 — the same arm, counted run by run for progress.json
-        progress.arm(label, harness.version)
-        return counted(harness, label)
+    def arm(harness, label, only=None):  # noqa: F811 — the same arm, counted run by run for progress.json
+        progress.arm(label, harness.version, runs=None if only is None else len(only) * args.runs * len(specs))
+        return counted(harness, label, only=only)
     if args.hub:
         # every arm writes its own traces directory: stream each as it appears
         inner = arm
         streamers = []
 
-        def arm(harness, label):  # noqa: F811 — the same arm, streamed
+        def arm(harness, label, only=None):  # noqa: F811 — the same arm, streamed
             d = out / label / "traces"
             d.mkdir(parents=True, exist_ok=True)
             s = TraceStreamer(d, args.hub, token, interval=0.5).start()
             streamers.append(s)
             try:
-                return inner(harness, label)
+                return inner(harness, label, only=only)
             finally:
                 s.stop()
 
@@ -381,7 +424,7 @@ def run(args: argparse.Namespace) -> int:
         result = self_evolve(arm, generations=args.generations, target=args.target, ledger=ledger,
                              patience=args.patience, check=visible_check([t["check"] for t in tasks]),
                              refuse_knobs=refuse, on_progress=said, on_generation=generation,
-                             explore=getattr(args, "explore", True))
+                             explore=getattr(args, "explore", True), confirm=getattr(args, "confirm", True))
     except KeyboardInterrupt:
         progress.end("stopped")
         print("\ninterrupted: the ledger keeps every generation that finished", file=sys.stderr)
@@ -389,6 +432,15 @@ def run(args: argparse.Namespace) -> int:
     except Exception as exc:
         progress.end("failed", str(exc))
         raise
+    if held:
+        try:
+            result["holdout"] = _holdout(held, specs, out, result, args, progress, said)
+        except KeyboardInterrupt:
+            progress.end("stopped")
+            print("\ninterrupted during the held-out test: the evolution is kept", file=sys.stderr)
+            write_ledger(ledger_path, result["ledger"])
+            _write_result(out, result)
+            return 130
     write_ledger(ledger_path, result["ledger"])
     _write_result(out, result)
     progress.end("done", result["stop"])

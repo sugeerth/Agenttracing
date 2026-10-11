@@ -57,8 +57,10 @@ def vendor_arm(tasks: list, specs: List[VendorSpec], out: Path, *, runs: int = 1
     out = Path(out)
     baselines: dict = {}
 
-    def run_arm(harness: Harness, label: str) -> list:
-        for t in tasks:
+    def run_arm(harness: Harness, label: str, only: Optional[list] = None) -> list:
+        """Every task, or ``only`` the tasks named (a confirmation of the tasks a change moved)."""
+        chosen = [t for t in tasks if not only or t["id"] in only]
+        for t in chosen:
             if t.get("check") and t["id"] not in baselines:
                 baselines[t["id"]] = baseline_check(t, kw.get("check_timeout_s", 600.0))
         arm_specs = []
@@ -66,11 +68,11 @@ def vendor_arm(tasks: list, specs: List[VendorSpec], out: Path, *, runs: int = 1
             s2 = copy.deepcopy(s)
             s2.extra = list(s.extra) + harness_args(s, harness)
             arm_specs.append(s2)
-        arm_tasks = tasks
+        arm_tasks = chosen
         if harness.instructions and any(s.kind == "codex" for s in specs):
             # Codex has no system-prompt flag: the notes ride on the prompt, marked as the harness's
             arm_tasks = [dict(t, prompt=t["prompt"] + PROMPT_MARK + "\n".join(f"- {i}" for i in harness.instructions))
-                         for t in tasks]
+                         for t in chosen]
         d = out / label
         d.mkdir(parents=True, exist_ok=True)
         # an ordinary duel's plan: `apply` keeps a change from this arm, `again` adds runs to it

@@ -79,6 +79,8 @@ CARDS_CSS = """
 .card.said pre{margin:0}
 .gstep .xp{font:600 10px system-ui,sans-serif;text-transform:uppercase;letter-spacing:.4px;padding:1px 6px;
   border-radius:999px;border:1px solid var(--line);color:var(--soft)}
+.ecard .hold{font-size:13px;color:var(--soft);margin:2px 0 8px}.ecard .hold b{color:var(--ink);font-weight:600}
+.ecard .hold .ok{color:var(--good)}
 .ecard .tag{font:600 11px system-ui,sans-serif;padding:1px 7px;border-radius:999px;background:var(--chip);color:var(--soft)}
 .ecard.start h2{margin:0 0 6px;font:600 16px system-ui,sans-serif;text-transform:none;letter-spacing:0;color:var(--ink)}
 .ecard.start>p{font-size:14px;line-height:1.45;margin:0 0 6px}
@@ -169,6 +171,8 @@ def start_card(*, prog: str, folder: str, claude: Optional[str], here: bool = Tr
                  '<input type="hidden" name="mode" value="demo">'
                  '<label>tasks <select name="tasks"><option value="hard" selected>six hard ones</option>'
                  '<option value="six">six small ones</option></select></label>'
+                 '<label>hold out <select name="holdout"><option value="0" selected>none</option>'
+                 '<option value="2">2 tasks, to test on at the end</option></select></label>'
                  f'{_knobs()}{go}</form>' if csrf else "")
     mine_form = (f'<form method="post" action="/evolve/start" class="go">{hidden}'
                  '<input type="hidden" name="mode" value="project">'
@@ -250,7 +254,7 @@ def live_strip(entry, now: Optional[float] = None) -> str:
     # a generation's second arm runs the change its evals named; the first, the harness as it is
     what = (f'testing a change: <q>{e(_cut(testing, 110))}</q>' if testing
             else "running the agents under the harness as it is")
-    done, per = int(pr.get("runs_done") or 0), int(pr.get("per_arm") or 0)
+    done, per = int(pr.get("runs_done") or 0), int(pr.get("arm_runs") or pr.get("per_arm") or 0)
     head = {"running": '<span class="pill run">● running</span>', "stopped": '<span class="pill">■ stopped</span>',
             "failed": '<span class="pill bad">✗ failed</span>',
             "ended": '<span class="pill warn">ended without finishing</span>'}.get(status, "")
@@ -271,6 +275,32 @@ def live_strip(entry, now: Optional[float] = None) -> str:
             + f'<span class="when">{when} · generation {n} of {gens}</span>{end}'
             + (f'<details class="said"><summary>What it said</summary><ul>{lines}</ul></details>' if lines else "")
             + '</div>')
+
+
+def _tokens(med) -> str:
+    """What a change cost: ' · tokens +19%' (median per run, the change against the harness as it was)."""
+    if not med or not med.get("current") or med.get("changed") is None:
+        return ""
+    d = (med["changed"] - med["current"]) / med["current"]
+    if abs(d) < 0.05:
+        return " · tokens about the same"
+    return f" · tokens {'+' if d > 0 else '−'}{abs(d) * 100:.0f}%"
+
+
+def holdout_line(data: dict) -> str:
+    """How the harness it ended with did on tasks it never evolved on, against the agent as it ships."""
+    h = data.get("holdout") or {}
+    if not h:
+        return ""
+    names = ", ".join(h.get("tasks") or [])
+    if h.get("skipped"):
+        return f'<div class="hold"><b>Held out</b> ({e(names)}): {e(h["skipped"])}.</div>'
+    t = h.get("test") or {}
+    pc, pn = (t.get("passed") or {}).get("current"), (t.get("passed") or {}).get("changed")
+    nums = f"{pc[0]}/{pc[1]} as it ships → {pn[0]}/{pn[1]} with v{h.get('version')}" if pc and pn else ""
+    cls = "ok" if t.get("verdict") == "kept" else "mut"
+    return (f'<div class="hold"><b>On tasks it never evolved on</b> ({e(names)}): <span class="{cls}">'
+            f'{e(h.get("says") or "")}</span> · {e(nums)}{_odds(t.get("p_value"))}</div>')
 
 
 def _odds(p) -> str:
@@ -336,6 +366,12 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, ado
         tag = '<span class="xp" title="no eval named a change: a generic instruction, tested paired">explored</span> ' \
             if explored else ""
         odds = _odds(t.get("p_value")) if t else ""
+        conf = (t.get("confirm") or {}) if t else {}
+        if conf:
+            odds += (f' · <span class="ok" title="{e(conf["first"]["chance"])}">held when '
+                     f'{e(", ".join(conf["tasks"]))} ran again</span>' if conf.get("held") else
+                     f' · <span class="bad">did not hold when {e(", ".join(conf["tasks"]))} ran again</span>')
+        odds += _tokens(t.get("median_tokens") if t else None)
         if g["failed"] == 0:
             chg = '<span class="ok">✓ every run passed</span>'
         elif not rem:
@@ -346,7 +382,7 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, ado
                    f'{tag}<span class="ok">✓ kept</span> <code>{e(_cut(rem, 48))}</code>')
         elif t.get("verdict") == "reverted":
             chg = (f'{tag}<span class="bad">✗ reverted</span> <code>{e(_cut(rem, 48))}</code><br><span class="mut">'
-                   f'{changed[0]}/{changed[1]} with it: no better</span>' if changed else
+                   f'{changed[0]}/{changed[1]} with it: no better{odds if conf else ""}</span>' if changed else
                    f'{tag}<span class="bad">✗ reverted</span> <code>{e(_cut(rem, 48))}</code>')
         else:
             chg = f'<span class="mut">tried</span> <code>{e(_cut(rem, 48))}</code>'
@@ -377,7 +413,7 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, ado
         pill = ""  # still going: the strip says where it is, not how it ended
     use = adopt_form(entry, adopt_csrf) if adopt_csrf and harness.get("version") and not live else ""
     return (f'<div class="ecard"><div class="ehead">{name}{pill}</div>{live}'
-            f'{stats}<div class="gstrip">{"".join(steps)}</div>{ends_html}{use}'
+            f'{stats}<div class="gstrip">{"".join(steps)}</div>{ends_html}{holdout_line(data)}{use}'
             + (f'<a class="more" href="{href}">Every change and its evidence →</a>' if link else "") + '</div>')
 
 
