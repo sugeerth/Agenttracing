@@ -21,6 +21,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from agentdiff.claude_sessions import _task_id  # noqa: E402
 from agentdiff.guard import decide, failed_output, is_check_command, summary
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -212,13 +213,22 @@ class CommandTest(unittest.TestCase):
         hook(_post("pytest -q", out="===== 4 passed in 0.1s ====="))
         self.assertIsNone(hook(STOP))
         final = [p for p in traces.glob("*.json") if not p.name.endswith(".live.json")]
-        self.assertEqual([p.name for p in final], [f"{self.root.name}-s1__claude-code.json"])
+        self.assertEqual([p.name for p in final], [f"{_task_id(self.root.name)}-s1__claude-code.json"])
         t = json.loads(final[0].read_text())
         calls = [x for x in t["steps"] if x["type"] == "tool_call"]
         self.assertEqual(calls[-1]["output"], "===== 4 passed in 0.1s =====", "printed text, not JSON")
         self.assertTrue(t["outcome"]["success"])
         self.assertIn("graded by the check it ran last", t["outcome"]["note"])
         self.assertEqual(t["harness"]["graded_by"], "its last check after its last edit, `pytest -q`")
+
+    def test_a_project_named_with_a_double_underscore_is_still_traced(self):
+        self.root = self.root / "my__project"
+        self.root.mkdir()
+        traces = self.root / "traces"
+        self.cli("guard", "--traces", str(traces), stdin=json.dumps(_post("pytest -q", out="4 passed")))
+        self.cli("guard", "--traces", str(traces), stdin=json.dumps(STOP))
+        self.assertEqual(sorted(p.name for p in traces.glob("*.json")), ["my_project-s1__claude-code.json"],
+                         "'__' separates fields in a trace name, so the folder's is collapsed, not refused")
 
     def test_the_hook_fails_open_and_status_reads_the_log(self):
         code, out = self.cli("guard", stdin="not json")

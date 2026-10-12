@@ -202,9 +202,11 @@ def _hook(args, project: Path) -> int:
                                                                "UserPromptSubmit") and not out:
         try:
             from ..claude_code import hook_event
-            # one trace per session, so sessions sit side by side on the hub rather than overwrite
+            from ..claude_sessions import _task_id
+            # one trace per session, so sessions sit side by side on the hub rather than overwrite; a folder
+            # named with "__" would be refused as a task (it separates fields in trace names), so it is collapsed
             sid = "".join(ch for ch in str(payload.get("session_id") or "") if ch.isalnum())[:8]
-            task = (Path(root).name or "session") + (f"-{sid}" if sid else "")
+            task = _task_id(Path(root).name or "session") + (f"-{sid}" if sid else "")
             done = hook_event(payload, traces=args.traces, task=task, agent="claude-code", expected=None, prompt=None)
             if payload.get("hook_event_name") == "Stop" and done.get("path"):
                 _grade(Path(done["path"]), root, payload)
