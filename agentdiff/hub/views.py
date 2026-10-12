@@ -1501,7 +1501,7 @@ def evolution_page(*, brand: str, user: str, csrf: str, entry: Entry, data: dict
                        for gname, rs in arms.items())
     matrix = evochart.evolution_matrix(entry.path, data, {str(Path(r.path).resolve()): r.id for r in refs})
     body = (f'<p class="muted"><a href="/evolve">Evolve</a></p><h1>{e(entry.title)}</h1>'
-            f'{evolvecards.evolve_card(entry, data, link=False, title=False)}'
+            f'{evolvecards.evolve_card(entry, data, link=False, title=False, chart=False)}'
             + (f'<h2>Every run, task by task</h2><div class="card">{matrix}</div>' if matrix else "")
             + f'<h2>The story, generation by generation</h2><div class="card"><p>{e(data.get("narrative"))}</p>'
             + (f'<details><summary class="muted">the river: every generation on one chart</summary>'

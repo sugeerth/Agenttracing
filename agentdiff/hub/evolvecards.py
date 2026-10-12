@@ -356,13 +356,14 @@ def _quote(path: str) -> str:
     return f'"{path}"' if any(c in path for c in " '()&") else path
 
 
-def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, adopt_csrf: Optional[str] = None) -> str:
+def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, adopt_csrf: Optional[str] = None,
+                chart: bool = True) -> str:
     """One self-evolving harness: did it work, what each generation tried, what it ended with."""
     gens = data.get("lineage") or []
     href = f"/runs/{e(entry.id)}"
     stop = str(data.get("stop") or "")
     live = live_strip(entry)
-    runs = _runs_chart(entry, data, open_=bool(live))
+    runs = _runs_chart(entry, data, open_=bool(live)) if chart else ""
     if not gens:
         return (f'<div class="ecard"><div class="ehead"><a class="t" href="{href}">{e(entry.title)}</a>{_tag(entry)}'
                 + ('' if live else '<span class="pill">no generation yet</span>') + f'</div>{live}{runs}</div>')
