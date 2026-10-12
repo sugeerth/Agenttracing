@@ -5,6 +5,33 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Exploration starts from what the project keeps
+
+When no eval names a change, the harness now first tries what the
+task's own repository holds (`selfevolve.project_knowledge`, read from
+the workspace, never from a grader):
+- `explore:project_guide`, when it keeps `AGENTS.md`, `CLAUDE.md`,
+  `CONTRIBUTING.md` or the like: read it first and follow it;
+- `explore:project_tests`, when it has tests and a test command: read
+  the tests for the code being changed, add tests in their style, and
+  run that command.
+
+Only then does it try the generic library. These changes are tested and
+kept by the same counts, and the card and chart mark them *explored ·
+project*.
+
+Measured on python-slugify's history with haiku:
+- **Generic library only:** 100 runs, $1.29. All three changes were
+  reverted: two did not hold on the re-runs, and one broke a task.
+- **With the project's own knowledge first:** 76 runs, $1.24.
+  - Reading `AGENTS.md` was kept and held on the re-run (6/14 → 8/14).
+  - The project-tests change was reverted.
+  - The edge-case instruction, on top of the guide, was kept and held
+    (12/18 → 16/18; re-runs 3/6 → 6/6).
+
+Both kept changes are weak evidence: each moved one to three tasks,
+which a change that did nothing would do about half the time.
+
 ## The evolution, run by run
 
 Every self-evolving harness now has one chart of all it did

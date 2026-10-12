@@ -259,6 +259,15 @@ they came out.
 | the same 6, a newer haiku, exploring | 12, $0.05 | 12 passed | converged at g0: nothing to learn |
 | the hard 6 (`--demo hard`), exploring | 24, $0.24 | g0: 11 passed, a `ranges` run accepted `>=1.2` | no eval named a change, so it explored: `explore:edge_cases` kept, 11/12 → 12/12, then converged. One task moved, which a change that did nothing would do about half the time: kept by the rule, weak evidence, and the page says so |
 | the hard 6, exploring and confirming, 4 at once | 42, $0.45, 15 min | g0: 17 of 18 passed, a `ranges` run failed | explored `explore:edge_cases`, kept on one task moving, so `ranges` ran again both arms: 2/3 → 3/3 on the fresh runs, it held, then g1 passed 18/18. Still one task: the card says "held when ranges ran again" beside the chance (`examples/haiku-hard-confirms`) |
+| python-slugify's history (`--from-git`, 6 tasks), the generic library only | 100, $1.29 | g0: 8 of 12 passed | all three explored changes reverted: `edge_cases` and `spec_first` did not hold on the re-runs, and `review_diff` broke a task that always passed |
+| the same history, the project's own knowledge first | 76, $1.24, 31 min | g0: 6 of 12 passed | `project_guide` (read `AGENTS.md`) kept, 6/14 → 8/14, and it held on the re-run (0/2 → 1/2); `project_tests` reverted (7/12 both); then `edge_cases`, on top of the guide, kept, 12/18 → 16/18, and it held on the re-runs (3/6 → 6/6). It ended with both instructions |
+
+On python-slugify the base rate moved run to run: under the same harness, 3 to 6 of 12 runs
+failed. Each change kept there moved one to three tasks, which a change that did nothing
+would do about half the time. So these are two weak wins that each held on fresh runs, not
+proof. They are reported as they came out, beside the run where every generic change failed.
+In the generic run haiku read `AGENTS.md` in 5 of 100 runs. That is why the project's guide
+is now tried first.
 
 The `semver` failures were about what the code does: both runs accepted
 versions SemVer forbids (`1.0.0-a_b`, `01.0.0`). Haiku read, edited and

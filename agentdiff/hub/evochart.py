@@ -155,6 +155,15 @@ def arms_of(path: Path, data: dict, progress: Optional[dict] = None) -> List[dic
     return cols
 
 
+def _explored(v: dict) -> str:
+    return "explored from the project" if v.get("project") else "explored"
+
+
+def _head_w(gname: str, v: dict) -> int:
+    """How wide a generation's first header line is drawn (13px, semibold), so the next one starts past it."""
+    return int(len(gname) * 8.4 + (6 + len(_explored(v)) * 7.6 if v.get("explored") else 0)) + 8
+
+
 def _verdicts(data: dict) -> Dict[str, dict]:
     """Per generation: what it tried (``what``), and what the counts made of it (``said``, in its colour)."""
     out = {}
@@ -225,7 +234,7 @@ def evolution_matrix(path: Path, data: dict, trace_ids: Optional[Dict[str, str]]
         for i in idx:
             xs.append(x)
             x += col_w
-        x = max(x, start + GROUP_MIN)
+        x = max(x, start + GROUP_MIN, start + _head_w(gname, verdicts.get(gname) or {}))
         prev = gname
     width = x + 4
     top = HEAD
@@ -249,8 +258,7 @@ def evolution_matrix(path: Path, data: dict, trace_ids: Optional[Dict[str, str]]
         room = int(GROUP_MIN / 6.4) if len(idx) == 1 else int((xs[idx[-1]] + col_w - gx0) / 6.4)
         tip = e(v.get("tip") or "")
         parts.append(f'<text class="gh" x="{gx0}" y="13">{e(gname)}'
-                     + (f'<tspan class="soft" dx="6">explored{" from the project" if v.get("project") else ""}</tspan>'
-                        if v.get("explored") else "") + '</text>')
+                     + (f'<tspan class="soft" dx="6">{_explored(v)}</tspan>' if v.get("explored") else "") + '</text>')
         if v.get("what"):
             parts.append(f'<text class="what" x="{gx0}" y="28"><title>{tip}</title>{e(_cut(v["what"], room))}</text>')
         if v.get("said"):

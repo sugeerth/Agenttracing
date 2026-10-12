@@ -64,6 +64,23 @@ class MatrixTest(unittest.TestCase):
             self.assertIn("1 of 4 run", svg)
             self.assertIn("testing a change", svg)
 
+    def test_a_long_header_pushes_the_next_generation_past_it(self):
+        import re
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            for arm in ("g0-h0", "g0-h1", "g1-h0", "g1-h1"):
+                _arm(d / arm, {"t1": [True, False]})
+            test = {"verdict": "reverted", "passed": {"current": [1, 2], "changed": [1, 2]}}
+            data = {"lineage": [{"generation": g, "runs": 2, "failed": 1, "harness": {"version": 0},
+                                 "action": {"remedy": {"id": "explore:project_tests", "project": True},
+                                            "because": {"source": "exploration"}, "test": test}}
+                                for g in ("g0", "g1")]}
+            svg = evolution_matrix(d, data)
+            self.assertIn("explored from the project", svg)
+            heads = [int(x) for x in re.findall(r'<text class="gh" x="(\d+)"', svg)]
+            self.assertGreaterEqual(heads[1] - heads[0], int(len("g0 explored from the project") * 7),
+                                    "g1's header starts after g0's ends, not over it")
+
     def test_nothing_to_draw_is_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(evolution_matrix(Path(tmp), {"lineage": []}), "")
