@@ -174,6 +174,7 @@ def _verdicts(data: dict) -> Dict[str, dict]:
         out[g["generation"]] = {"what": rem.get("id") or "", "said": said,
                                 "cls": "kept" if t.get("verdict") == "kept" else "reverted",
                                 "explored": (a.get("because") or {}).get("source") == "exploration",
+                                "project": bool(rem.get("project")),
                                 "tip": f"{rem.get('value') or rem.get('id') or ''} — {t.get('why') or ''}"}
     h = data.get("holdout") or {}
     if h.get("version"):
@@ -248,7 +249,8 @@ def evolution_matrix(path: Path, data: dict, trace_ids: Optional[Dict[str, str]]
         room = int(GROUP_MIN / 6.4) if len(idx) == 1 else int((xs[idx[-1]] + col_w - gx0) / 6.4)
         tip = e(v.get("tip") or "")
         parts.append(f'<text class="gh" x="{gx0}" y="13">{e(gname)}'
-                     + ('<tspan class="soft" dx="6">explored</tspan>' if v.get("explored") else "") + '</text>')
+                     + (f'<tspan class="soft" dx="6">explored{" from the project" if v.get("project") else ""}</tspan>'
+                        if v.get("explored") else "") + '</text>')
         if v.get("what"):
             parts.append(f'<text class="what" x="{gx0}" y="28"><title>{tip}</title>{e(_cut(v["what"], room))}</text>')
         if v.get("said"):

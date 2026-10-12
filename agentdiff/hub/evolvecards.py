@@ -396,8 +396,10 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, ado
         changed = (t.get("passed") or {}).get("changed")
         ch = changed[0] / changed[1] if changed and changed[1] else None
         explored = (a.get("because") or {}).get("source") == "exploration"
-        tag = '<span class="xp" title="no eval named a change: a generic instruction, tested paired">explored</span> ' \
-            if explored else ""
+        from_project = bool((a.get("remedy") or {}).get("project"))
+        tag = (f'<span class="xp" title="no eval named a change: '
+               f'{"an instruction built from the project itself" if from_project else "a generic instruction"}, '
+               f'tested paired">explored{" · project" if from_project else ""}</span> ' if explored else "")
         odds = _odds(t.get("p_value")) if t else ""
         conf = (t.get("confirm") or {}) if t else {}
         if conf:

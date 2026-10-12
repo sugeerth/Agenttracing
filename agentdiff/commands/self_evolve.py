@@ -453,6 +453,11 @@ def run(args: argparse.Namespace) -> int:
         write_ledger(ledger_path, partial["ledger"])
         _write_result(out, partial)
         progress.write()
+    # what the project itself knows, tried before the generic instructions: read from the first task's workspace
+    from ..selfevolve import project_knowledge
+    first = project_knowledge(Path(tasks[0]["workspace"])) if tasks and tasks[0].get("workspace") else []
+    if first and getattr(args, "explore", True):
+        said(f"project knowledge, tried first when it explores: {'; '.join(why for _, _, why in first)}")
     import signal
     for name in ("SIGTERM", "SIGBREAK"):  # the hub's Stop (SIGBREAK on Windows): end the way Ctrl-C does
         try:
@@ -464,7 +469,8 @@ def run(args: argparse.Namespace) -> int:
         result = self_evolve(arm, generations=args.generations, target=args.target, ledger=ledger,
                              patience=args.patience, check=visible_check([t["check"] for t in tasks]),
                              refuse_knobs=refuse, on_progress=said, on_generation=generation,
-                             explore=getattr(args, "explore", True), confirm=getattr(args, "confirm", True))
+                             explore=getattr(args, "explore", True), confirm=getattr(args, "confirm", True),
+                             explore_first=first)
     except KeyboardInterrupt:
         progress.end("stopped")
         print("\ninterrupted: the ledger keeps every generation that finished", file=sys.stderr)

@@ -152,6 +152,19 @@ the harness tries the next instruction of a short, fixed library
 | `explore:spec_first` | read the whole specification first and keep to it exactly: accept what it allows, reject what it forbids |
 | `explore:review_diff` | re-read the whole change against the task, one line at a time, before finishing |
 
+Before the generic library, it tries what the project itself keeps
+(`selfevolve.project_knowledge`, read from the task's workspace, never
+from a grader):
+- `explore:project_guide`: read the project's contributor guide
+  (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md` and the like) first, and
+  follow it;
+- `explore:project_tests`: read the project's existing tests for the code
+  being changed, add tests in their style, and run its test command.
+
+The demo tasks keep neither, so they go straight to the generic library.
+On a repository's history they usually keep both. The card labels these
+*explored · project*.
+
 An explored change is tested paired like any other and kept only on the
 counts. When it is reverted, the next one is tried. When the library is
 spent, the harness stops and says so. None of them names a grader, a

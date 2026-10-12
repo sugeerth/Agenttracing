@@ -81,3 +81,30 @@ class ExploreTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProjectKnowledgeTest(unittest.TestCase):
+    def test_what_the_project_itself_keeps_comes_first(self):
+        import tempfile
+        from agentdiff.selfevolve import project_knowledge
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp)
+            self.assertEqual(project_knowledge(ws), [], "nothing kept, nothing to read")
+            (ws / "AGENTS.md").write_text("Keep legacy output frozen.\n")
+            (ws / "tests").mkdir()
+            (ws / "tests" / "test_x.py").write_text("import unittest\n")
+            got = project_knowledge(ws)
+            self.assertEqual([k for k, _, _ in got], ["project_guide", "project_tests"])
+            self.assertIn("`AGENTS.md`", got[0][1])
+            self.assertIn("(in `tests/`)", got[1][1])
+            for _, text, _ in got:
+                for word in ("hidden", "grader", "held out"):
+                    self.assertNotIn(word, text)
+
+    def test_a_project_instruction_is_tried_before_the_generic_ones(self):
+        first = [("project_guide", "Read AGENTS.md first.", "the project's own guide")]
+        out = self_evolve(_arm("project_guide"), generations=3, explore=True, explore_first=first)
+        a = out["lineage"][0]["action"]
+        self.assertEqual(a["remedy"]["id"], "explore:project_guide")
+        self.assertTrue(a["remedy"]["project"])
+        self.assertEqual(a["test"]["verdict"], "kept")

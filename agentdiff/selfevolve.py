@@ -41,13 +41,13 @@ import copy
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from .evolving import _narrative as evals_narrative, evolve as evolve_evals
 from .forge import RunView, _score, _unique_keys, candidates, describe, parse_rule, rule_id, spec
 from .trace import Trajectory
 
-__all__ = ["CONFIRM_P", "DEMO_TASKS", "DEMO_HARD", "DEMOS", "EXPLORE", "Harness", "explore_remedy", "sign_test", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "LEDGER_KIND", "ESSENTIAL_TOOLS",
+__all__ = ["CONFIRM_P", "GUIDES", "project_knowledge", "DEMO_TASKS", "DEMO_HARD", "DEMOS", "EXPLORE", "Harness", "explore_remedy", "sign_test", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "LEDGER_KIND", "ESSENTIAL_TOOLS",
            "load_ledger", "write_ledger", "visible_check"]
 
 LEDGER_KIND = "self-evolving"
@@ -177,13 +177,45 @@ EXPLORE: Tuple[Tuple[str, str, str], ...] = (
 )
 
 
-def explore_remedy(tried: dict, harness: "Harness") -> Optional[dict]:
-    """The next exploration instruction not yet in the harness and not reverted before; None when spent."""
-    for key, value, why in EXPLORE:
+#: contributor guides a project may keep, read in this order (``project_knowledge``)
+GUIDES = ("AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", "CONTRIBUTING.rst", "CONTRIBUTING.txt", ".github/CONTRIBUTING.md",
+          "docs/CONTRIBUTING.md", "HACKING.md", "DEVELOPMENT.md")
+
+
+def project_knowledge(workspace) -> List[Tuple[str, str, str]]:
+    """Exploration instructions built from a task's own workspace, tried before the generic ones: the project's
+    contributor guide when it keeps one, and its own tests and test command. Read from the files there, never from
+    a grader: a held-out grader is outside the workspace and is never looked at."""
+    ws = Path(workspace)
+    out: List[Tuple[str, str, str]] = []
+    guides = [g for g in GUIDES if (ws / g).is_file()]
+    if guides:
+        named = ", ".join(f"`{g}`" for g in guides[:3])
+        out.append(("project_guide", f"This project keeps {named}. Read it before you change anything, and follow "
+                                     "what it says about how changes are made, where they go and how they are tested.",
+                    f"the project's own guide for contributors ({', '.join(guides[:3])})"))
+    test_dir = next((d for d in ("tests", "test", "spec", "__tests__") if (ws / d).is_dir()), None)
+    from .commands.duel import detect_check
+    command, _ = detect_check(ws)
+    if test_dir or command:
+        where = f" (in `{test_dir}/`)" if test_dir else ""
+        run = f" and run `{command}`" if command else " and run them"
+        out.append(("project_tests", f"Before you finish, read the project's existing tests for the code you "
+                                     f"change{where}, add tests in the same style for exactly what the task asks, "
+                                     f"edge cases included,{run}; fix what fails.",
+                    "the project's own tests" + (f" and test command ({command})" if command else "")))
+    return out
+
+
+def explore_remedy(tried: dict, harness: "Harness", first: Sequence[Tuple[str, str, str]] = ()) -> Optional[dict]:
+    """The next exploration instruction not yet in the harness and not reverted before; None when spent.
+    ``first`` (a project's own, :func:`project_knowledge`) is tried before the generic :data:`EXPLORE`."""
+    for key, value, why in list(first) + list(EXPLORE):
         rid = f"explore:{key}"
         if rid in harness.remedies or tried.get(rid) == "reverted":
             continue
-        return {"id": rid, "knob": "instruction", "value": value, "why": why, "rule": None, "explored": True}
+        return {"id": rid, "knob": "instruction", "value": value, "why": why, "rule": None, "explored": True,
+                "project": key.startswith("project_")}
     return None
 
 
@@ -418,7 +450,7 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
                 ledger: Optional[dict] = None, patience: int = 2, check: str = "",
                 refuse_knobs: tuple = (), on_progress: Optional[Callable[[str], None]] = None,
                 on_generation: Optional[Callable[[dict], None]] = None, explore: bool = False,
-                confirm: bool = False) -> dict:
+                confirm: bool = False, explore_first: Sequence[Tuple[str, str, str]] = ()) -> dict:
     """Go round ``generations`` times. ``run_arm(harness, label)`` runs the
     agents under ``harness`` and returns their trajectories (each graded by
     its task's check); it is called once per arm. Returns the lineage, the
@@ -482,7 +514,7 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
         chosen = choice["chosen"]
         if chosen is None and explore and "instruction" not in refuse_knobs:
             # no eval tells these failures apart: try a generic instruction, and let the paired test judge it
-            r = explore_remedy(state["tried"], harness)
+            r = explore_remedy(state["tried"], harness, explore_first)
             if r:
                 chosen = {"eval": None, "rule": None, "caught": len(failed), "wrong": len(failed),
                           "source": "exploration",
