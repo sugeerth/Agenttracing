@@ -1066,7 +1066,7 @@ def to_sarif(
         "runs": [{
             "tool": {"driver": {
                 "name": TOOL_NAME,
-                "informationUri": "https://github.com/sugeerth/Agenttracing",
+                "informationUri": "https://github.com/sugeerth/agentdiff",
                 "rules": rules,
             }},
             "columnKind": "utf16CodeUnits",

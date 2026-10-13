@@ -24,10 +24,10 @@ pass rate from a small sample settles.
 
 ```bash
 cd your-project
-uvx --from git+https://github.com/sugeerth/Agenttracing agentdiff "Fix the failing test in parser.py"
+uvx --from git+https://github.com/sugeerth/agentdiff agentdiff "Fix the failing test in parser.py"
 ```
 
-Or install it once (`pip install git+https://github.com/sugeerth/Agenttracing`)
+Or install it once (`pip install git+https://github.com/sugeerth/agentdiff`)
 and type `agentdiff "…"`. To choose the two agents, name the models:
 `--agent opus --agent gpt-5` (a model names its vendor: `haiku`, `sonnet`,
 `opus`, `claude-…` run on Claude Code; `gpt-…`, `o3`, `codex-…` on Codex).

@@ -107,8 +107,8 @@ def run(args: argparse.Namespace) -> int:
         # what to run instead rather than printing a path inside site-packages.
         print(f"error: the demo traces are not here ({DEMO_TRACES}).\n"
               "  The demo corpus ships with the repository, not with the wheel.\n"
-              "  Clone it:   git clone https://github.com/sugeerth/Agenttracing && "
-              "cd Agenttracing && agentdiff demo\n"
+              "  Clone it:   git clone https://github.com/sugeerth/agentdiff && "
+              "cd agentdiff && agentdiff demo\n"
               "  Or point the engine at your own traces: agentdiff batch <dir> -o out",
               file=sys.stderr)
         return 2

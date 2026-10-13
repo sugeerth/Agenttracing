@@ -13,8 +13,8 @@ contains no network code; only the harness talks to a model.
 ## Quick start
 
 ```bash
-uvx --from git+https://github.com/sugeerth/Agenttracing agentdiff fix   # nothing to install
-pip install git+https://github.com/sugeerth/Agenttracing   # or in a clone: pip install -e .
+uvx --from git+https://github.com/sugeerth/agentdiff agentdiff fix   # nothing to install
+pip install git+https://github.com/sugeerth/agentdiff   # or in a clone: pip install -e .
 ./agentdiff                             # downloaded (docs/DOWNLOAD.md: macOS, Windows, Linux, or agentdiff.pyz) or double-clicked: the hub on your own Claude Code sessions, live (hub --claude-code); `./agentdiff self-evolve --demo` (or `--from-git ~/repo`, on your own history) evolves your Claude Code's harness
 agentdiff fix                           # in your repo: two agents make its failing tests pass, live (--evolve 3: a harness that evolves, docs/SELF_EVOLVE.md)
 agentdiff "Add retries to the client"   # or any task in words, graded by the tests (docs/VENDORS.md)
@@ -197,4 +197,4 @@ A ranked program distilled from the interpretability and agent-evaluation
 literature — counterfactual decisive steps, evidence classes over stated
 reasoning, overdetermination, pass^k, leaky benchmarks, paired designs — each
 item's status in [`docs/RESEARCH_INSIGHTS.md`](docs/RESEARCH_INSIGHTS.md). With an open-weights model the
-harness also records per-step logprob intervals and Neuronpedia SAE features, cited as evidence that never moves a score.
+harness also records per-step logprob intervals and Neuronpedia SAE features, cited as evidence that never moves a score. MIT licensed ([`LICENSE`](LICENSE)).

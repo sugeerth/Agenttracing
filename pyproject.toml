@@ -7,11 +7,13 @@ name = "agentdiff"
 version = "0.10.0"
 description = "Git diff for AI agents — behavioral comparison and failure attribution"
 readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.10"
 dependencies = []
 keywords = ["agents", "tracing", "evaluation", "observability", "llm"]
 classifiers = [
     "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.10",
@@ -22,8 +24,8 @@ classifiers = [
 ]
 
 [project.urls]
-Source = "https://github.com/sugeerth/Agenttracing"
-Documentation = "https://github.com/sugeerth/Agenttracing/blob/main/docs/HOW_IT_WORKS.md"
+Source = "https://github.com/sugeerth/agentdiff"
+Documentation = "https://github.com/sugeerth/agentdiff/blob/main/docs/HOW_IT_WORKS.md"
 
 [project.scripts]
 agentdiff = "agentdiff.cli:main"
