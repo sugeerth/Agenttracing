@@ -1,0 +1,79 @@
+# What a release has to survive before anyone runs it for real: the wheel
+# installed into a clean environment and run from outside the checkout,
+# the container built and smoke-tested as the unprivileged user it runs as,
+# and — on demand, with the repository's own secrets — both vendor CLIs on
+# the demo bug. The first two are hermetic; the last spends a few cents.
+name: production
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      live:
+        description: "Run Codex CLI and Claude Code for real (needs OPENAI_API_KEY and ANTHROPIC_API_KEY secrets)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: installed wheel, run from anywhere
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pytest
+      - run: python web/build_blocks.py
+      - run: python -m pytest tests/test_production.py tests/test_packaging.py -q
+
+  container:
+    name: container build and smoke run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build
+        run: docker build -t agentdiff:ci .
+      - name: the image runs, as an unprivileged user, with both vendor CLIs
+        run: |
+          docker run --rm agentdiff:ci --version
+          test "$(docker run --rm --entrypoint id agentdiff:ci -u)" != "0"
+          docker run --rm --entrypoint codex agentdiff:ci --version
+          docker run --rm --entrypoint claude agentdiff:ci --version
+      - name: a duel inside the container, with the stand-in CLIs
+        run: |
+          mkdir -p out && chmod 777 out
+          docker run --rm -e OPENAI_API_KEY=sk-test-000000000000 -e ANTHROPIC_API_KEY=sk-ant-test-000000000000 \
+            -v "$PWD/demo/vendors:/work/task:ro" -v "$PWD/tests/fixtures/vendors:/fakes:ro" -v "$PWD/out:/work/out" \
+            agentdiff:ci duel --task task/task.json --codex-bin /fakes/fake_codex.py \
+            --claude-bin /fakes/fake_claude.py --quiet -o out
+          python3 -c "import json; r = json.load(open('out/duel.json')); assert r['measurable']; \
+            assert all(p['passed'] == 1 for p in r['per_agent'].values()), r['per_agent']"
+          ! grep -rq "sk-test-000000000000\|sk-ant-test-000000000000" out
+
+  live-vendors:
+    name: Codex CLI and Claude Code, for real
+    if: github.event_name == 'workflow_dispatch' && inputs.live
+    runs-on: ubuntu-latest
+    environment: live-vendors
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install -g @openai/codex @anthropic-ai/claude-code
+      - run: python -m pip install -e . pytest
+      - name: the demo bug, both vendors, through the harness
+        env:
+          AGENTDIFF_LIVE: "1"
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python -m pytest tests/test_vendors.py -k Live -q

@@ -1,0 +1,47 @@
+--- a/text.py
++++ b/text.py
+@@ -1,4 +1,6 @@
+ """Small text helpers for building URLs."""
++
++import unicodedata
+ 
+ 
+ def slugify(title: str, max_length: int = 60) -> str:
+@@ -11,4 +13,36 @@
+     - at most `max_length` characters, cut at a hyphen boundary when the
+       cut would otherwise split a word, and never ending in a hyphen
+     """
+-    raise NotImplementedError
++    # Remove accents from accented characters
++    normalized = unicodedata.normalize('NFKD', title)
++    normalized = normalized.encode('ascii', 'ignore').decode('ascii')
++
++    # Convert to lowercase
++    normalized = normalized.lower()
++
++    # Replace runs of non-alphanumeric characters with single hyphen
++    result = []
++    in_non_alnum_run = False
++    for char in normalized:
++        if char.isalnum():
++            result.append(char)
++            in_non_alnum_run = False
++        elif not in_non_alnum_run:
++            result.append('-')
++            in_non_alnum_run = True
++
++    slug = ''.join(result)
++
++    # Strip leading/trailing hyphens
++    slug = slug.strip('-')
++
++    # Truncate at word boundary if necessary
++    if len(slug) > max_length:
++        slug = slug[:max_length]
++        slug = slug.rstrip('-')
++        # Cut at last hyphen to avoid splitting words
++        last_hyphen = slug.rfind('-')
++        if last_hyphen > 0:
++            slug = slug[:last_hyphen]
++
++    return slug

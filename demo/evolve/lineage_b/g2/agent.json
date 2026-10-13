@@ -1,0 +1,55 @@
+{
+  "id": "g2",
+  "parent": "g1",
+  "family": "memo-agent",
+  "mechanism": "memory",
+  "evidence": {
+    "episodes": [
+      "rl02_flaky_test__memo-agent@g1__r1",
+      "rl02_flaky_test__memo-agent@g1__r2",
+      "rl02_flaky_test__memo-agent@g1__r3",
+      "rl03_flag_rollout__memo-agent@g1__r4",
+      "rl03_flag_rollout__memo-agent@g1__r5"
+    ],
+    "summary": "the same three habits rediscovered on every run",
+    "source": "self"
+  },
+  "artifacts": {
+    "system_prompt": "You are a careful analyst. You have grep, read_file, search and run_check. Locate every fact the task needs, then answer with the corrected figure.\n\nRules:\n- Answer from the evidence you find.\n\nNotes from earlier runs:\n- note 1: grep the directory before reading any file\n- note 2: the README often names the schema file\n- note 3: always look for the prior occurrence in history or alerts\n- note 4: if a search returns no rows, retry with the id prefix only",
+    "rules": [
+      "Answer from the evidence you find."
+    ],
+    "skills": [
+      {
+        "name": "reconcile",
+        "body": "grep the directory, read every file, search each item, read its row"
+      },
+      {
+        "name": "verifier",
+        "body": "run 5 consistency checks before answering"
+      },
+      {
+        "name": "row-reader",
+        "body": "read the schema, then read a row against it"
+      }
+    ],
+    "tools": [
+      "grep",
+      "read_file",
+      "search",
+      "run_check"
+    ],
+    "memory": [
+      "note 1: grep the directory before reading any file",
+      "note 2: the README often names the schema file",
+      "note 3: always look for the prior occurrence in history or alerts",
+      "note 4: if a search returns no rows, retry with the id prefix only"
+    ],
+    "config": {
+      "checks": 5,
+      "max_search_retries": 2,
+      "verify_before_answer": false
+    }
+  },
+  "note": "SYNTHETIC: a generated generation of a self-evolving agent; rewards paid by a scripted environment; every value invented — four generic notes"
+}

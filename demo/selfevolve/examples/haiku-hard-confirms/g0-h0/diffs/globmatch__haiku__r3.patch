@@ -1,0 +1,88 @@
+--- a/globmatch.py
++++ b/globmatch.py
+@@ -13,4 +13,84 @@
+     - A ``[`` with no closing ``]`` is a literal ``[``.
+     Matching is case-sensitive.
+     """
+-    raise NotImplementedError
++    tokens = _tokenize(pattern)
++    m = len(path)
++
++    # ok[j]: the tokens from the current index onward match path[j:].
++    # Start from the empty pattern, which matches only the empty suffix.
++    ok = [j == m for j in range(m + 1)]
++    for tok in reversed(tokens):
++        nxt = [False] * (m + 1)
++        if tok[0] in ("star", "globstar"):
++            # Consume path characters one at a time while the wildcard allows them.
++            nxt[m] = ok[m]
++            for j in range(m - 1, -1, -1):
++                allowed = tok[0] == "globstar" or path[j] != "/"
++                nxt[j] = ok[j] or (allowed and nxt[j + 1])
++        else:
++            for j in range(m):
++                nxt[j] = _accepts(tok, path[j]) and ok[j + 1]
++        ok = nxt
++    return ok[0]
++
++
++def _read_char(pattern: str, i: int) -> tuple[str, int]:
++    """Return the literal character at ``i`` (resolving a backslash escape) and the next index."""
++    if pattern[i] == "\\" and i + 1 < len(pattern):
++        return pattern[i + 1], i + 2
++    return pattern[i], i + 1
++
++
++def _tokenize(pattern: str) -> list[tuple]:
++    """Split a pattern into tokens: ("lit", c), ("one",), ("star",), ("globstar",), ("class", negated, ranges)."""
++    tokens = []
++    i = 0
++    while i < len(pattern):
++        c = pattern[i]
++        if c == "*" and pattern[i + 1 : i + 2] == "*":
++            tokens.append(("globstar",))
++            i += 2
++        elif c == "*":
++            tokens.append(("star",))
++            i += 1
++        elif c == "?":
++            tokens.append(("one",))
++            i += 1
++        elif c == "[" and (parsed := _parse_class(pattern, i)) is not None:
++            tok, i = parsed
++            tokens.append(tok)
++        else:
++            ch, i = _read_char(pattern, i)
++            tokens.append(("lit", ch))
++    return tokens
++
++
++def _parse_class(pattern: str, i: int) -> tuple[tuple, int] | None:
++    """Parse a bracket expression starting at ``i``. Return (token, next index), or None if unclosed."""
++    k = i + 1
++    negated = pattern[k : k + 1] == "!"
++    if negated:
++        k += 1
++    ranges = []
++    while k < len(pattern):
++        if pattern[k] == "]" and ranges:
++            return ("class", negated, ranges), k + 1
++        lo, k = _read_char(pattern, k)
++        if k + 1 < len(pattern) and pattern[k] == "-" and pattern[k + 1] != "]":
++            hi, k = _read_char(pattern, k + 1)
++        else:
++            hi = lo
++        ranges.append((lo, hi))
++    return None
++
++
++def _accepts(tok: tuple, ch: str) -> bool:
++    """Whether a single-character token matches ``ch``. Wildcards never match ``/``."""
++    if tok[0] == "lit":
++        return ch == tok[1]
++    if ch == "/":
++        return False
++    if tok[0] == "one":
++        return True
++    _, negated, ranges = tok
++    return any(lo <= ch <= hi for lo, hi in ranges) != negated

@@ -1,0 +1,88 @@
+{
+ "task": "ranges",
+ "agent": "haiku",
+ "vendor": "claude",
+ "model": "haiku",
+ "run": "r2",
+ "trace": "traces/ranges__haiku__r2.json",
+ "raw": "raw/ranges__haiku__r2.jsonl",
+ "patch": "diffs/ranges__haiku__r2.patch",
+ "exit_code": 0,
+ "stopped_by": null,
+ "wall_s": 87.343,
+ "stderr_tail": "",
+ "stream": {
+  "bytes": 119395,
+  "cap": 268435456,
+  "truncated_lines": 0
+ },
+ "check": {
+  "command": "/usr/local/bin/python3 -m unittest discover -s /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/ranges -t /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/ranges",
+  "exit_code": 1,
+  "passed": false,
+  "seconds": 0.075,
+  "output_tail": ".F....\n======================================================================\nFAIL: test_malformed (test_ranges.RangeTest.test_malformed) (v='1.2.3', spec='>=1.2')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/ranges/test_ranges.py\", line 47, in test_malformed\n    with self.assertRaises(ValueError):\nAssertionError: ValueError not raised\n\n----------------------------------------------------------------------\nRan 6 tests in 0.002s\n\nFAILED (failures=1)\n"
+ },
+ "baseline": {
+  "passed": false,
+  "exit_code": 1,
+  "seconds": 0.09,
+  "output_tail": "ges.py\", line 20, in satisfies\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_tilde_and_x (test_ranges.RangeTest.test_tilde_and_x) (spec='*', v='9.9.9')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/ranges/test_ranges.py\", line 10, in check\n    self.assertTrue(satisfies(v, spec))\n                    ^^^^^^^^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-sle98_gv/work/ranges.py\", line 20, in satisfies\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_tilde_and_x (test_ranges.RangeTest.test_tilde_and_x) (spec='', v='3.1.4')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/ranges/test_ranges.py\", line 10, in check\n    self.assertTrue(satisfies(v, spec))\n                    ^^^^^^^^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-sle98_gv/work/ranges.py\", line 20, in satisfies\n    raise NotImplementedError\nNotImplementedError\n\n----------------------------------------------------------------------\nRan 6 tests in 0.009s\n\nFAILED (errors=60)\n"
+ },
+ "diff": {
+  "files": [
+   {
+    "path": "ranges.py",
+    "status": "modified",
+    "added": 111,
+    "removed": 1,
+    "after_sha": "4f38c16b973cafce0c668bf19ffa4d2bb35bebc755aac3953609ac2722bc8334"
+   }
+  ],
+  "added": 111,
+  "removed": 1,
+  "patch_chars": 4699,
+  "patch_truncated": false
+ },
+ "after": {
+  "bytes": 5335,
+  "withheld": [],
+  "not_kept": [],
+  "deleted": [],
+  "complete": true,
+  "dir": "after/ranges__haiku__r2"
+ },
+ "setup": {
+  "prompt_sha": "bb1d8c1ab0dd0b2b",
+  "workspace_sha": "7319d95d46a1e477",
+  "check": "/usr/local/bin/python3 -m unittest discover -s /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/ranges -t /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/ranges",
+  "budget_tokens": null,
+  "timeout_s": 900.0,
+  "started_at": 1791707347.327,
+  "cli": "claude",
+  "cli_version": "2.1.296 (Claude Code)",
+  "argv": [
+   "/opt/node22/bin/claude",
+   "-p",
+   "--output-format",
+   "stream-json",
+   "--verbose",
+   "--permission-mode",
+   "acceptEdits",
+   "--no-session-persistence",
+   "--tools",
+   "Bash,Read,Edit,Write,Grep,Glob,TodoWrite,Task",
+   "--strict-mcp-config",
+   "--allowedTools",
+   "Bash",
+   "--setting-sources",
+   "project,local",
+   "--model",
+   "haiku"
+  ],
+  "sandbox": "claude acceptEdits (Bash allowed), no OS sandbox",
+  "budget_enforced": "while running (usage is per message)",
+  "user_config": "ignored",
+  "tools": "Bash, Read, Edit, Write, Grep, Glob, TodoWrite, Task; no MCP servers"
+ }
+}

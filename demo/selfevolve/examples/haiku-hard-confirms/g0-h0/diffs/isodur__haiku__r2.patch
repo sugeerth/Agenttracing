@@ -1,0 +1,38 @@
+--- a/isodur.py
++++ b/isodur.py
+@@ -1,4 +1,15 @@
+ """ISO 8601 durations, as seconds."""
++
++import re
++
++_NUM = r"[0-9]+(?:[.,][0-9]+)?"
++_WEEKS = re.compile(rf"P({_NUM})W")
++_DURATION = re.compile(
++    rf"P(?=T?[0-9])"
++    rf"(?:({_NUM})Y)?(?:({_NUM})M)?(?:({_NUM})D)?"
++    rf"(?:T(?=[0-9])(?:({_NUM})H)?(?:({_NUM})M)?(?:({_NUM})S)?)?"
++)
++_UNITS = (365 * 86400, 30 * 86400, 86400, 3600, 60, 1)
+ 
+ 
+ def parse(text: str) -> float:
+@@ -11,4 +22,18 @@
+     units out of order or repeated, a sign, a fraction on any number but the last, or anything else raises
+     ValueError.
+     """
+-    raise NotImplementedError
++    weeks = _WEEKS.fullmatch(text)
++    if weeks:
++        return float(weeks.group(1).replace(",", ".")) * 7 * 86400
++
++    match = _DURATION.fullmatch(text)
++    if not match:
++        raise ValueError(f"invalid ISO 8601 duration: {text!r}")
++
++    numbers = match.groups()
++    given = [i for i, n in enumerate(numbers) if n is not None]
++    for i in given[:-1]:
++        if "." in numbers[i] or "," in numbers[i]:
++            raise ValueError(f"only the last number may have a fraction: {text!r}")
++
++    return sum(float(numbers[i].replace(",", ".")) * _UNITS[i] for i in given)

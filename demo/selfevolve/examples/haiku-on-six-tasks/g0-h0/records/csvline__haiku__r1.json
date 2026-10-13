@@ -1,0 +1,88 @@
+{
+ "task": "csvline",
+ "agent": "haiku",
+ "vendor": "claude",
+ "model": "claude-haiku-4-5-20251001",
+ "run": "r1",
+ "trace": "traces/csvline__haiku__r1.json",
+ "raw": "raw/csvline__haiku__r1.jsonl",
+ "patch": "diffs/csvline__haiku__r1.patch",
+ "exit_code": 0,
+ "stopped_by": null,
+ "wall_s": 24.504,
+ "stderr_tail": "",
+ "stream": {
+  "bytes": 37731,
+  "cap": 268435456,
+  "truncated_lines": 0
+ },
+ "check": {
+  "command": "python3 -m unittest discover -s /home/user/Agenttracing/demo/selfevolve/hidden/csvline -t /home/user/Agenttracing/demo/selfevolve/hidden/csvline",
+  "exit_code": 0,
+  "passed": true,
+  "seconds": 0.048,
+  "output_tail": "...\n----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n"
+ },
+ "baseline": {
+  "passed": false,
+  "exit_code": 1,
+  "seconds": 0.052,
+  "output_tail": "-------------------------------------------------------\nTraceback (most recent call last):\n  File \"/home/user/Agenttracing/demo/selfevolve/hidden/csvline/test_csvline.py\", line 23, in test_refuses\n    split_csv_line(bad)\n  File \"/tmp/agentdiff-baseline-pbjq280n/work/csvline.py\", line 13, in split_csv_line\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_refuses (test_csvline.CsvTest.test_refuses) (bad='\"a\"b,c')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/home/user/Agenttracing/demo/selfevolve/hidden/csvline/test_csvline.py\", line 23, in test_refuses\n    split_csv_line(bad)\n  File \"/tmp/agentdiff-baseline-pbjq280n/work/csvline.py\", line 13, in split_csv_line\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_refuses (test_csvline.CsvTest.test_refuses) (bad='a,\"b\"x')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/home/user/Agenttracing/demo/selfevolve/hidden/csvline/test_csvline.py\", line 23, in test_refuses\n    split_csv_line(bad)\n  File \"/tmp/agentdiff-baseline-pbjq280n/work/csvline.py\", line 13, in split_csv_line\n    raise NotImplementedError\nNotImplementedError\n\n----------------------------------------------------------------------\nRan 3 tests in 0.001s\n\nFAILED (errors=5)\n"
+ },
+ "diff": {
+  "files": [
+   {
+    "path": "csvline.py",
+    "status": "modified",
+    "added": 34,
+    "removed": 1,
+    "after_sha": "c8dfbac01992481ed37ced09c1de072cc88d0892b7d7e03c64da85c505063a7b"
+   }
+  ],
+  "added": 34,
+  "removed": 1,
+  "patch_chars": 1213,
+  "patch_truncated": false
+ },
+ "after": {
+  "bytes": 1454,
+  "withheld": [],
+  "not_kept": [],
+  "deleted": [],
+  "complete": true,
+  "dir": "after/csvline__haiku__r1"
+ },
+ "setup": {
+  "prompt_sha": "578fcdbfbfb586a8",
+  "workspace_sha": "6e293031693352ed",
+  "check": "python3 -m unittest discover -s /home/user/Agenttracing/demo/selfevolve/hidden/csvline -t /home/user/Agenttracing/demo/selfevolve/hidden/csvline",
+  "budget_tokens": 600000,
+  "timeout_s": 600.0,
+  "started_at": 1790978137.733,
+  "cli": "claude",
+  "cli_version": "2.1.288 (Claude Code)",
+  "argv": [
+   "/opt/node22/bin/claude",
+   "-p",
+   "--output-format",
+   "stream-json",
+   "--verbose",
+   "--permission-mode",
+   "acceptEdits",
+   "--no-session-persistence",
+   "--tools",
+   "Bash,Read,Edit,Write,Grep,Glob,TodoWrite,Task",
+   "--strict-mcp-config",
+   "--allowedTools",
+   "Bash",
+   "--setting-sources",
+   "project,local",
+   "--model",
+   "claude-haiku-4-5-20251001"
+  ],
+  "sandbox": "claude acceptEdits (Bash allowed), no OS sandbox",
+  "budget_enforced": "while running (usage is per message)",
+  "user_config": "ignored",
+  "tools": "Bash, Read, Edit, Write, Grep, Glob, TodoWrite, Task; no MCP servers"
+ }
+}

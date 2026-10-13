@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "trace_id": "dv01_keynote_hall-scout-v2",
+  "agent": {
+    "name": "scout-v2",
+    "model": "gpt-5",
+    "version": "v2"
+  },
+  "task": {
+    "id": "dv01_keynote_hall",
+    "prompt": "Which hall hosts the Northwind DevCon keynote this year?",
+    "expected": "The keynote is in Hall B of the Riverside Centre."
+  },
+  "outcome": {
+    "success": false,
+    "answer": "The keynote is in Hall D.",
+    "score": 0.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 600,
+    "output_tokens": 200,
+    "cost_usd": 0.0024,
+    "latency_s": 5.5
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "search",
+      "name": "web_search",
+      "input": "Northwind DevCon keynote hall",
+      "output": "Results: northwind.dev/schedule (official programme); devcon-fans.net (community wiki).",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "retrieve",
+      "name": "devcon-fans.net",
+      "input": "open result devcon-fans.net community wiki",
+      "output": "Community wiki: venue notes, last updated before the venue change.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": "weak",
+      "note": "chose the unofficial source over the official programme"
+    },
+    {
+      "index": 2,
+      "type": "read",
+      "name": "devcon-fans.net",
+      "input": "",
+      "output": "Wiki venue page: keynote listed in Hall D (previous layout).",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 3,
+      "type": "reason",
+      "name": "reason",
+      "input": "The wiki lists Hall D for the keynote.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final",
+      "input": "The keynote is in Hall D.",
+      "output": "The keynote is in Hall D.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [],
+  "budget": {
+    "max_steps": 12
+  }
+}

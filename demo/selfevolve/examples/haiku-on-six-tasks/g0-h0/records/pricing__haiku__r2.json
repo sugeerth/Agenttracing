@@ -1,0 +1,88 @@
+{
+ "task": "pricing",
+ "agent": "haiku",
+ "vendor": "claude",
+ "model": "claude-haiku-4-5-20251001",
+ "run": "r2",
+ "trace": "traces/pricing__haiku__r2.json",
+ "raw": "raw/pricing__haiku__r2.jsonl",
+ "patch": "diffs/pricing__haiku__r2.patch",
+ "exit_code": 0,
+ "stopped_by": null,
+ "wall_s": 10.832,
+ "stderr_tail": "",
+ "stream": {
+  "bytes": 25025,
+  "cap": 268435456,
+  "truncated_lines": 0
+ },
+ "check": {
+  "command": "python3 -m unittest discover -s /home/user/Agenttracing/demo/selfevolve/hidden/pricing -t /home/user/Agenttracing/demo/selfevolve/hidden/pricing",
+  "exit_code": 0,
+  "passed": true,
+  "seconds": 0.05,
+  "output_tail": "....\n----------------------------------------------------------------------\nRan 4 tests in 0.000s\n\nOK\n"
+ },
+ "baseline": {
+  "passed": false,
+  "exit_code": 1,
+  "seconds": 0.054,
+  "output_tail": "..FF\n======================================================================\nFAIL: test_order_total (test_pricing.PricingTest.test_order_total)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/home/user/Agenttracing/demo/selfevolve/hidden/pricing/test_pricing.py\", line 17, in test_order_total\n    self.assertEqual(order_total([(10.0, 3), (5.0, 2)], discount_percent=20), 32.0)\nAssertionError: 20.0 != 32.0\n\n======================================================================\nFAIL: test_ten_percent_off (test_pricing.PricingTest.test_ten_percent_off)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/home/user/Agenttracing/demo/selfevolve/hidden/pricing/test_pricing.py\", line 11, in test_ten_percent_off\n    self.assertEqual(apply_discount(200.0, 10), 180.0)\nAssertionError: 190.0 != 180.0\n\n----------------------------------------------------------------------\nRan 4 tests in 0.001s\n\nFAILED (failures=2)\n"
+ },
+ "diff": {
+  "files": [
+   {
+    "path": "pricing.py",
+    "status": "modified",
+    "added": 1,
+    "removed": 1,
+    "after_sha": "015d068a049c4a48c3c79917b05479848a477020f0c18206b441792509533967"
+   }
+  ],
+  "added": 1,
+  "removed": 1,
+  "patch_chars": 341,
+  "patch_truncated": false
+ },
+ "after": {
+  "bytes": 510,
+  "withheld": [],
+  "not_kept": [],
+  "deleted": [],
+  "complete": true,
+  "dir": "after/pricing__haiku__r2"
+ },
+ "setup": {
+  "prompt_sha": "5afc2306db926b5a",
+  "workspace_sha": "145e9a9e0914787d",
+  "check": "python3 -m unittest discover -s /home/user/Agenttracing/demo/selfevolve/hidden/pricing -t /home/user/Agenttracing/demo/selfevolve/hidden/pricing",
+  "budget_tokens": 600000,
+  "timeout_s": 600.0,
+  "started_at": 1790977923.109,
+  "cli": "claude",
+  "cli_version": "2.1.288 (Claude Code)",
+  "argv": [
+   "/opt/node22/bin/claude",
+   "-p",
+   "--output-format",
+   "stream-json",
+   "--verbose",
+   "--permission-mode",
+   "acceptEdits",
+   "--no-session-persistence",
+   "--tools",
+   "Bash,Read,Edit,Write,Grep,Glob,TodoWrite,Task",
+   "--strict-mcp-config",
+   "--allowedTools",
+   "Bash",
+   "--setting-sources",
+   "project,local",
+   "--model",
+   "claude-haiku-4-5-20251001"
+  ],
+  "sandbox": "claude acceptEdits (Bash allowed), no OS sandbox",
+  "budget_enforced": "while running (usage is per message)",
+  "user_config": "ignored",
+  "tools": "Bash, Read, Edit, Write, Grep, Glob, TodoWrite, Task; no MCP servers"
+ }
+}

@@ -1,0 +1,1 @@
+recorded: real runs of Claude Code (haiku) on the six demo tasks, graders held out: 12 runs, $0.51. semver failed both runs, and no change the harness can make answers it, so it stopped without one

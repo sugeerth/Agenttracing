@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "trace_id": "dv02_db_migration-scout-v2",
+  "agent": {
+    "name": "scout-v2",
+    "model": "gpt-5",
+    "version": "v2"
+  },
+  "task": {
+    "id": "dv02_db_migration",
+    "prompt": "Migrate the analytics database to the new host with minimal downtime and report the approach.",
+    "expected": "Migrated by promoting the standby replica; downtime was minimal."
+  },
+  "outcome": {
+    "success": false,
+    "answer": "Migrated the analytics database with a dump and restore; the database was offline while the restore ran.",
+    "score": 0.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 600,
+    "output_tokens": 200,
+    "cost_usd": 0.0024,
+    "latency_s": 5.5
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "Take a full dump and restore it onto the new host.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": "weak",
+      "note": "ignored the standby replica path"
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "get_runbook",
+      "input": "get_runbook(topic='database')",
+      "output": "Runbook: preferred path is standby replica promotion; dump-and-restore requires an outage window.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 2,
+      "type": "tool_call",
+      "name": "run_backup",
+      "input": "run_backup(target='analytics')",
+      "output": "Full dump of analytics written to the snapshot store.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 3,
+      "type": "tool_call",
+      "name": "restore_snapshot",
+      "input": "restore_snapshot(target='analytics')",
+      "output": "Snapshot restored onto the new host; the database was offline while the restore ran.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "write",
+      "error": false
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final",
+      "input": "Migrated the analytics database with a dump and restore; the database was offline while the restore ran.",
+      "output": "Migrated the analytics database with a dump and restore; the database was offline while the restore ran.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_runbook",
+      "effect": "read"
+    },
+    {
+      "name": "run_backup",
+      "effect": "read"
+    },
+    {
+      "name": "restore_snapshot",
+      "effect": "write"
+    },
+    {
+      "name": "promote_replica",
+      "effect": "write"
+    },
+    {
+      "name": "check_replication",
+      "effect": "read"
+    }
+  ],
+  "budget": {
+    "max_steps": 12
+  }
+}

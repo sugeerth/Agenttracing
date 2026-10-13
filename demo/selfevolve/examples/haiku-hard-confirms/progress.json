@@ -1,0 +1,36 @@
+{
+ "kind": "self-evolve-progress",
+ "status": "done",
+ "pid": 3622,
+ "started_at": 1791707228.891737,
+ "updated_at": 1791708154.4304178,
+ "generations": 3,
+ "per_arm": 18,
+ "agents": [
+  "haiku"
+ ],
+ "tasks": [
+  "cron",
+  "expr",
+  "isoweek",
+  "globmatch",
+  "ranges",
+  "isodur"
+ ],
+ "generation": "g0",
+ "arm": "g0-h1-confirm",
+ "testing": "Before you finish, list every rule and edge case the task and the code's docstrings state, write a quick test for each one, run them, and fix what fails.",
+ "runs_done": 3,
+ "arms_done": 3,
+ "lines": [
+  "g0: running the agents under the agent as it ships: no instruction added, no tool denied",
+  "g0: no eval names a change for the 1 failure(s), so it explores; testing: Before you finish, list every rule and edge case the task and the code's docstrings state, write a quick test for each one, run them, and fix what fails.",
+  "g0: kept on 1 task(s) that moved, a change that did nothing would do at least this well about half the time or more; confirming: ranges again, both arms",
+  "g0: confirmation held: it won 1 task(s) and lost 0 (passed 2/3 \u2192 3/3 on the fresh runs)",
+  "g0: kept: it won 1 task(s) and lost 0 (passed 19/21 \u2192 21/21; a change that did nothing would do at least this well about half the time or more)",
+  "g1: the runs of v1: 1 instruction(s) (kept last round) are this generation's",
+  "converged at g1: every run passed under v1: 1 instruction(s)"
+ ],
+ "end": "converged at g1: every run passed under v1: 1 instruction(s)",
+ "arm_runs": 3
+}

@@ -1,0 +1,26 @@
+--- a/text.py
++++ b/text.py
+@@ -1,4 +1,7 @@
+ """Small text helpers for building URLs."""
++
++import re
++import unicodedata
+ 
+ 
+ def slugify(title: str, max_length: int = 60) -> str:
+@@ -11,4 +14,14 @@
+     - at most `max_length` characters, cut at a hyphen boundary when the
+       cut would otherwise split a word, and never ending in a hyphen
+     """
+-    raise NotImplementedError
++    normalized = unicodedata.normalize("NFKD", title)
++    stripped = "".join(c for c in normalized if not unicodedata.combining(c))
++    words = [w for w in re.split(r"[^a-z0-9]+", stripped.lower()) if w]
++
++    result = ""
++    for word in words:
++        candidate = f"{result}-{word}" if result else word
++        if len(candidate) > max_length:
++            break
++        result = candidate
++    return result

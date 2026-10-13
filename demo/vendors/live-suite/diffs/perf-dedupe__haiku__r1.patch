@@ -1,0 +1,15 @@
+--- a/dedupe.py
++++ b/dedupe.py
+@@ -3,10 +3,10 @@
+ 
+ def unique_in_order(items):
+     """The items with duplicates removed, in the order they first appear."""
+-    seen = []
++    seen = set()
+     out = []
+     for item in items:
+         if item not in seen:
+-            seen.append(item)
++            seen.add(item)
+             out.append(item)
+     return out

@@ -1,0 +1,12 @@
+{
+ "label": "g0-h1",
+ "version": 1,
+ "remedies": [
+  "instruction:claims_without_check"
+ ],
+ "instructions": [
+  "Before you say the work is done, run the task's check (`python3 -m unittest -q`) after your last edit and read its result; if it fails, keep working."
+ ],
+ "deny_tools": [],
+ "max_turns": null
+}

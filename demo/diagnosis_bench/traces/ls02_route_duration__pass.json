@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "trace_id": "ls02_route_duration-steady-v1",
+  "agent": {
+    "name": "steady-v1",
+    "model": "claude-sonnet-5",
+    "version": "v1"
+  },
+  "task": {
+    "id": "ls02_route_duration",
+    "prompt": "How long is the Auckland to Santiago flight NW7?",
+    "expected": "Flight NW7 Auckland to Santiago takes 11 hours 20 minutes."
+  },
+  "outcome": {
+    "success": true,
+    "answer": "Flight NW7 Auckland to Santiago takes 11 hours 20 minutes.",
+    "score": 1.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 600,
+    "output_tokens": 200,
+    "cost_usd": 0.0024,
+    "latency_s": 5.5
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "search",
+      "name": "web_search",
+      "input": "flight NW7 Auckland Santiago duration",
+      "output": "Results: northwind.com/routes (route map, archived snapshot); flightaware.com/NW7 (live tracking).",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "retrieve",
+      "name": "flightaware.com/NW7",
+      "input": "open result flightaware.com/NW7 live tracking",
+      "output": "Live tracking page for NW7 with current schedule.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 2,
+      "type": "read",
+      "name": "flightaware.com/NW7",
+      "input": "",
+      "output": "NW7 AKL-SCL: scheduled block time 11 hours 20 minutes.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 3,
+      "type": "reason",
+      "name": "reason",
+      "input": "The live schedule gives 11 hours 20 minutes.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final",
+      "input": "Flight NW7 Auckland to Santiago takes 11 hours 20 minutes.",
+      "output": "Flight NW7 Auckland to Santiago takes 11 hours 20 minutes.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "fetch_page",
+      "effect": "read"
+    }
+  ],
+  "budget": {
+    "max_steps": 12
+  }
+}

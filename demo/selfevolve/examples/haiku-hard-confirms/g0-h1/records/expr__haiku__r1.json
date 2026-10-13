@@ -1,0 +1,90 @@
+{
+ "task": "expr",
+ "agent": "haiku",
+ "vendor": "claude",
+ "model": "haiku",
+ "run": "r1",
+ "trace": "traces/expr__haiku__r1.json",
+ "raw": "raw/expr__haiku__r1.jsonl",
+ "patch": "diffs/expr__haiku__r1.patch",
+ "exit_code": 0,
+ "stopped_by": null,
+ "wall_s": 270.643,
+ "stderr_tail": "",
+ "stream": {
+  "bytes": 114393,
+  "cap": 268435456,
+  "truncated_lines": 0
+ },
+ "check": {
+  "command": "/usr/local/bin/python3 -m unittest discover -s /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/expr -t /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/expr",
+  "exit_code": 0,
+  "passed": true,
+  "seconds": 0.078,
+  "output_tail": "......\n----------------------------------------------------------------------\nRan 6 tests in 0.005s\n\nOK\n"
+ },
+ "baseline": {
+  "passed": false,
+  "exit_code": 1,
+  "seconds": 0.085,
+  "output_tail": "^^^^\n  File \"/tmp/agentdiff-baseline-0ng42vt0/work/expr.py\", line 20, in evaluate\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_unary (test_expr.ExprTest.test_unary) (text='4--3')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/expr/test_expr.py\", line 35, in test_unary\n    self.assertEqual(evaluate(text), v)\n                     ^^^^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-0ng42vt0/work/expr.py\", line 20, in evaluate\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_unary (test_expr.ExprTest.test_unary) (text='-(2 + 3)')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/expr/test_expr.py\", line 35, in test_unary\n    self.assertEqual(evaluate(text), v)\n                     ^^^^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-0ng42vt0/work/expr.py\", line 20, in evaluate\n    raise NotImplementedError\nNotImplementedError\n\n----------------------------------------------------------------------\nRan 6 tests in 0.008s\n\nFAILED (errors=41)\n"
+ },
+ "diff": {
+  "files": [
+   {
+    "path": "expr.py",
+    "status": "modified",
+    "added": 105,
+    "removed": 1,
+    "after_sha": "832c9c36fac9f2c69d25e398e37b56caa19a4736e95a12645ffa3fab7926e3db"
+   }
+  ],
+  "added": 105,
+  "removed": 1,
+  "patch_chars": 3566,
+  "patch_truncated": false
+ },
+ "after": {
+  "bytes": 4028,
+  "withheld": [],
+  "not_kept": [],
+  "deleted": [],
+  "complete": true,
+  "dir": "after/expr__haiku__r1"
+ },
+ "setup": {
+  "prompt_sha": "f186025eebff1b8b",
+  "workspace_sha": "5ae0dd877d33c01a",
+  "check": "/usr/local/bin/python3 -m unittest discover -s /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/expr -t /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/expr",
+  "budget_tokens": null,
+  "timeout_s": 900.0,
+  "started_at": 1791707544.269,
+  "cli": "claude",
+  "cli_version": "2.1.296 (Claude Code)",
+  "argv": [
+   "/opt/node22/bin/claude",
+   "-p",
+   "--output-format",
+   "stream-json",
+   "--verbose",
+   "--permission-mode",
+   "acceptEdits",
+   "--no-session-persistence",
+   "--tools",
+   "Bash,Read,Edit,Write,Grep,Glob,TodoWrite,Task",
+   "--strict-mcp-config",
+   "--allowedTools",
+   "Bash",
+   "--setting-sources",
+   "project,local",
+   "--model",
+   "haiku",
+   "--append-system-prompt",
+   "Before you finish, list every rule and edge case the task and the code's docstrings state, write a quick test for each one, run them, and fix what fails."
+  ],
+  "sandbox": "claude acceptEdits (Bash allowed), no OS sandbox",
+  "budget_enforced": "while running (usage is per message)",
+  "user_config": "ignored",
+  "tools": "Bash, Read, Edit, Write, Grep, Glob, TodoWrite, Task; no MCP servers"
+ }
+}

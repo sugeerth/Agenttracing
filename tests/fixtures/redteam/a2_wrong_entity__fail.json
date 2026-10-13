@@ -1,0 +1,90 @@
+{
+ "schema_version": 1,
+ "trace_id": "a2_wrong_entity-scout-v2",
+ "agent": {
+  "name": "scout-v2",
+  "model": "model-x",
+  "version": "1"
+ },
+ "task": {
+  "id": "a2_wrong_entity",
+  "prompt": "Cancel booking BK1111 and report the refund amount.",
+  "expected": "Booking BK1111 cancelled with a refund of $420.00."
+ },
+ "outcome": {
+  "success": false,
+  "answer": "Booking BK1111 cancelled with a refund of $420.00.",
+  "score": 0.0,
+  "termination": "agent_stop"
+ },
+ "totals": {
+  "input_tokens": 500,
+  "output_tokens": 200,
+  "cost_usd": 0.001,
+  "latency_s": 5.0
+ },
+ "steps": [
+  {
+   "type": "plan",
+   "name": "plan",
+   "input": "Look up the booking, cancel it, report the refund.",
+   "output": "",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "index": 0
+  },
+  {
+   "type": "tool_call",
+   "name": "get_booking",
+   "input": "get_booking(reference='BK1111')",
+   "output": "BK1111 - confirmed, refundable, refund quote $420.00.",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "effect": "read",
+   "error": false,
+   "index": 1
+  },
+  {
+   "type": "tool_call",
+   "name": "cancel_booking",
+   "input": "cancel_booking(reference='BK9111', refund=true)",
+   "output": "Cancelled BK9111. Refund of $420.00 processed.",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "effect": "write",
+   "error": false,
+   "index": 2
+  },
+  {
+   "type": "reason",
+   "name": "reason",
+   "input": "Cancellation done; reporting the quoted refund.",
+   "output": "",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "index": 3
+  },
+  {
+   "type": "answer",
+   "name": "final",
+   "input": "Booking BK1111 cancelled with a refund of $420.00.",
+   "output": "Booking BK1111 cancelled with a refund of $420.00.",
+   "tokens": 40,
+   "latency_s": 1.0,
+   "index": 4
+  }
+ ],
+ "tools": [
+  {
+   "name": "get_booking",
+   "effect": "read"
+  },
+  {
+   "name": "cancel_booking",
+   "effect": "write"
+  }
+ ],
+ "budget": {
+  "max_steps": 12
+ }
+}

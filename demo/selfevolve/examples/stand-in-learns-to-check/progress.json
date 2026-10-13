@@ -1,0 +1,31 @@
+{
+ "kind": "self-evolve-progress",
+ "status": "done",
+ "pid": 2270,
+ "started_at": 1791618330.1317623,
+ "updated_at": 1791618335.4480407,
+ "generations": 3,
+ "per_arm": 6,
+ "agents": [
+  "claude-code"
+ ],
+ "tasks": [
+  "pricing-0",
+  "pricing-1",
+  "pricing-2"
+ ],
+ "generation": "g0",
+ "arm": "g0-h1",
+ "testing": "Before you say the work is done, run the task's check (`python3 -m unittest -q`) after your last edit and read its result; if it fails, keep working.",
+ "runs_done": 6,
+ "arms_done": 1,
+ "lines": [
+  "g0: running the agents under the agent as it ships: no instruction added, no tool denied",
+  "g0: 6 of 6 failure(s) caught by claims_without_check; testing: Before you say the work is done, run the task's check (`python3 -m unittest -q`) after your last edit and read its result; if it fails, keep working.",
+  "g0: kept: it won 3 task(s) and lost 0 (passed 0/6 \u2192 6/6)",
+  "g0: claims_without_check joins the eval suite, born by intervention",
+  "g1: the runs of v1: 1 instruction(s) (kept last round) are this generation's",
+  "converged at g1: every run passed under v1: 1 instruction(s)"
+ ],
+ "end": "converged at g1: every run passed under v1: 1 instruction(s)"
+}

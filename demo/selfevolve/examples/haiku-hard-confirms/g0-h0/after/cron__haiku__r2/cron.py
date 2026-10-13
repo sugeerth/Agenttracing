@@ -1,0 +1,90 @@
+"""When a cron schedule fires next."""
+
+from datetime import datetime, timedelta
+
+_MONTHS = {name: i for i, name in enumerate(
+    ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], start=1)}
+_DAYS = {name: i for i, name in enumerate(["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"])}
+
+# Longer than the 400-year Gregorian cycle, so every satisfiable expression is found.
+_MAX_DAYS = 366 * 400
+
+
+def _value(text: str, lo: int, hi: int, names: dict[str, int] | None) -> int:
+    if names and text.upper() in names:
+        return names[text.upper()]
+    if text.isascii() and text.isdigit() and lo <= int(text) <= hi:
+        return int(text)
+    raise ValueError(f"bad value {text!r}")
+
+
+def _parse_field(text: str, lo: int, hi: int, names: dict[str, int] | None = None, star_hi: int | None = None) -> set[int]:
+    if star_hi is None:
+        star_hi = hi
+    values = set()
+    for part in text.split(","):
+        rng, slash, step_text = part.partition("/")
+        step = 1
+        if slash:
+            if not (step_text.isascii() and step_text.isdigit()) or int(step_text) < 1:
+                raise ValueError(f"bad step in {part!r}")
+            step = int(step_text)
+        if rng == "*":
+            a, b = lo, star_hi
+        else:
+            start_text, dash, end_text = rng.partition("-")
+            if slash and not dash:
+                raise ValueError(f"step needs * or a range: {part!r}")
+            a = _value(start_text, lo, hi, names)
+            b = _value(end_text, lo, hi, names) if dash else a
+            if a > b:
+                raise ValueError(f"reversed range {part!r}")
+        values.update(range(a, b + 1, step))
+    return values
+
+
+def next_run(expr: str, after: datetime) -> datetime:
+    """The first minute strictly after ``after`` (seconds and microseconds dropped first) that ``expr`` matches.
+
+    ``expr`` has five fields separated by single spaces: minute (0-59), hour (0-23), day of month (1-31),
+    month (1-12), day of week (0-6, Sunday is 0; 7 is also Sunday). Each field is ``*``, a number, a range
+    ``a-b``, a step ``*/n`` or ``a-b/n``, or a comma list of those. Months may be written JAN-DEC and days of
+    week SUN-SAT, in any case, also inside ranges (``MON-FRI``).
+
+    When both day of month and day of week are restricted (neither is ``*``), a day matches when EITHER does,
+    as in Vixie cron: ``0 0 13 * FRI`` fires on every 13th and on every Friday. When one of them is ``*``, only
+    the other one counts. A malformed expression, or a value out of its field's range, raises ValueError.
+    Times are naive: no time zones, no daylight saving.
+    """
+    fields = expr.split(" ")
+    if len(fields) != 5:
+        raise ValueError(f"expected 5 fields, got {len(fields)}: {expr!r}")
+    minute_f, hour_f, dom_f, month_f, dow_f = fields
+
+    minutes = sorted(_parse_field(minute_f, 0, 59))
+    hours = sorted(_parse_field(hour_f, 0, 23))
+    dom = _parse_field(dom_f, 1, 31)
+    months = _parse_field(month_f, 1, 12, _MONTHS)
+    dow = {d % 7 for d in _parse_field(dow_f, 0, 7, _DAYS, star_hi=6)}
+
+    dom_star = dom_f == "*"
+    dow_star = dow_f == "*"
+
+    start = after.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    day = start.date()
+    for _ in range(_MAX_DAYS):
+        if day.month in months:
+            dom_ok = day.day in dom
+            dow_ok = day.isoweekday() % 7 in dow
+            if dom_star or dow_star:
+                day_ok = dom_ok and dow_ok
+            else:
+                day_ok = dom_ok or dow_ok
+            if day_ok:
+                for hour in hours:
+                    for minute in minutes:
+                        if day == start.date() and (hour, minute) < (start.hour, start.minute):
+                            continue
+                        return datetime(day.year, day.month, day.day, hour, minute, tzinfo=start.tzinfo)
+        day += timedelta(days=1)
+    raise ValueError(f"{expr!r} never matches")

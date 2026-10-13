@@ -1,0 +1,48 @@
+--- a/text_utils.py
++++ b/text_utils.py
+@@ -1,4 +1,6 @@
+ """Text helpers for URLs."""
++
++import unicodedata
+ 
+ 
+ def slugify(text: str, max_length: int = 50) -> str:
+@@ -11,4 +13,37 @@
+       (a single word longer than ``max_length`` is cut at ``max_length``)
+     - text with nothing usable gives "n-a"
+     """
+-    raise NotImplementedError
++    # Normalize to NFD and remove accents
++    normalized = unicodedata.normalize('NFD', text)
++    text_without_accents = ''.join(
++        char for char in normalized if unicodedata.category(char) != 'Mn'
++    )
++
++    # Convert to lowercase and build slug
++    slug = ''
++    prev_was_separator = True
++    for char in text_without_accents.lower():
++        if char.isalnum():
++            slug += char
++            prev_was_separator = False
++        elif not prev_was_separator:
++            slug += '-'
++            prev_was_separator = True
++
++    # Strip hyphens from ends
++    slug = slug.strip('-')
++
++    # Handle empty case
++    if not slug:
++        return 'n-a'
++
++    # Truncate to max_length at a hyphen
++    if len(slug) > max_length:
++        truncated = slug[:max_length]
++        last_hyphen = truncated.rfind('-')
++        if last_hyphen > 0:
++            slug = truncated[:last_hyphen]
++        else:
++            slug = truncated
++
++    return slug

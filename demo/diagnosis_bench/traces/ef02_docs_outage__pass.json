@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "trace_id": "ef02_docs_outage-steady-v1",
+  "agent": {
+    "name": "steady-v1",
+    "model": "claude-sonnet-5",
+    "version": "v1"
+  },
+  "task": {
+    "id": "ef02_docs_outage",
+    "prompt": "What changed in AcmeCorp SDK 4.1.0 according to the changelog?",
+    "expected": "SDK 4.1.0 adds async upload support and drops Python 3.8."
+  },
+  "outcome": {
+    "success": true,
+    "answer": "SDK 4.1.0 adds async upload support and drops Python 3.8.",
+    "score": 1.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 480,
+    "output_tokens": 160,
+    "cost_usd": 0.00192,
+    "latency_s": 4.4
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "search",
+      "name": "web_search",
+      "input": "AcmeCorp SDK 4.1.0 changelog",
+      "output": "Top result: docs.acmecorp.com/changelog.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "fetch_page",
+      "input": "fetch_page(url='docs.acmecorp.com/changelog')",
+      "output": "Changelog 4.1.0: adds async upload support; drops Python 3.8.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 2,
+      "type": "reason",
+      "name": "reason",
+      "input": "4.1.0 adds async upload and removes Python 3.8 support.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 3,
+      "type": "answer",
+      "name": "final",
+      "input": "SDK 4.1.0 adds async upload support and drops Python 3.8.",
+      "output": "SDK 4.1.0 adds async upload support and drops Python 3.8.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "fetch_page",
+      "effect": "read"
+    }
+  ],
+  "budget": {
+    "max_steps": 12
+  }
+}

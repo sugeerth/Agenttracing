@@ -1,0 +1,20 @@
+{
+ "tasks": [
+  {
+   "id": "ranges",
+   "prompt": "Implement satisfies in ranges.py.",
+   "workspace": "/tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/tasks/ranges",
+   "check": "/usr/local/bin/python3 -m unittest discover -s /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/ranges -t /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/ranges",
+   "expected": null
+  }
+ ],
+ "agents": [
+  "haiku=claude:haiku"
+ ],
+ "options": {
+  "budget_tokens": null,
+  "timeout": 900.0,
+  "check_timeout": 600.0,
+  "harness": 0
+ }
+}

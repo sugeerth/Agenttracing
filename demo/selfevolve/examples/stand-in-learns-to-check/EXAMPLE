@@ -1,0 +1,1 @@
+synthetic: Claude Code played by a scripted stand-in that skips the check unless told to run one (tests/fixtures/vendors/fake_claude.py); the self-evolve command and its decisions are real

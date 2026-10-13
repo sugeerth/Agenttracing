@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "trace_id": "hk02_meridian_headcount-scout-v2",
+  "agent": {
+    "name": "scout-v2",
+    "model": "gpt-5",
+    "version": "v2"
+  },
+  "task": {
+    "id": "hk02_meridian_headcount",
+    "prompt": "Summarise Meridian Labs' Q2 2026 headcount change.",
+    "expected": "Meridian Labs grew headcount by 12 percent in Q2 2026."
+  },
+  "outcome": {
+    "success": false,
+    "answer": "Run aborted by the harness before the summary could be written.",
+    "score": 0.0,
+    "termination": "unexpected_error"
+  },
+  "totals": {
+    "input_tokens": 480,
+    "output_tokens": 160,
+    "cost_usd": 0.00192,
+    "latency_s": 4.4
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "search",
+      "name": "web_search",
+      "input": "Meridian Labs Q2 2026 headcount",
+      "output": "Results: meridianlabs.com/press (Q2 update); industryweekly.com (analysis).",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "retrieve",
+      "name": "meridianlabs.com/press",
+      "input": "open result meridianlabs.com/press",
+      "output": "Meridian Labs press room, Q2 2026 update.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 2,
+      "type": "read",
+      "name": "meridianlabs.com/press",
+      "input": "",
+      "output": "Q2 2026 update: headcount grew 12 percent quarter over quarter.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 3,
+      "type": "answer",
+      "name": "final",
+      "input": "Run aborted by the harness before the summary could be written.",
+      "output": "Run aborted by the harness before the summary could be written.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [],
+  "budget": {
+    "max_steps": 12
+  }
+}

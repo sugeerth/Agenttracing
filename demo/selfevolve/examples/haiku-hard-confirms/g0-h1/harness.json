@@ -1,0 +1,12 @@
+{
+ "label": "g0-h1",
+ "version": 1,
+ "remedies": [
+  "explore:edge_cases"
+ ],
+ "instructions": [
+  "Before you finish, list every rule and edge case the task and the code's docstrings state, write a quick test for each one, run them, and fix what fails."
+ ],
+ "deny_tools": [],
+ "max_turns": null
+}

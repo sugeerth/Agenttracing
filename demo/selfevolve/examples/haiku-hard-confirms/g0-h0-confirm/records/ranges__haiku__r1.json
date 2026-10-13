@@ -1,0 +1,88 @@
+{
+ "task": "ranges",
+ "agent": "haiku",
+ "vendor": "claude",
+ "model": "haiku",
+ "run": "r1",
+ "trace": "traces/ranges__haiku__r1.json",
+ "raw": "raw/ranges__haiku__r1.jsonl",
+ "patch": "diffs/ranges__haiku__r1.patch",
+ "exit_code": 0,
+ "stopped_by": null,
+ "wall_s": 75.162,
+ "stderr_tail": "",
+ "stream": {
+  "bytes": 104885,
+  "cap": 268435456,
+  "truncated_lines": 0
+ },
+ "check": {
+  "command": "/usr/local/bin/python3 -m unittest discover -s /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/ranges -t /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/ranges",
+  "exit_code": 0,
+  "passed": true,
+  "seconds": 0.071,
+  "output_tail": "......\n----------------------------------------------------------------------\nRan 6 tests in 0.002s\n\nOK\n"
+ },
+ "baseline": {
+  "passed": false,
+  "exit_code": 1,
+  "seconds": 0.09,
+  "output_tail": "ges.py\", line 20, in satisfies\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_tilde_and_x (test_ranges.RangeTest.test_tilde_and_x) (spec='*', v='9.9.9')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/ranges/test_ranges.py\", line 10, in check\n    self.assertTrue(satisfies(v, spec))\n                    ^^^^^^^^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-sle98_gv/work/ranges.py\", line 20, in satisfies\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_tilde_and_x (test_ranges.RangeTest.test_tilde_and_x) (spec='', v='3.1.4')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/ranges/test_ranges.py\", line 10, in check\n    self.assertTrue(satisfies(v, spec))\n                    ^^^^^^^^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-sle98_gv/work/ranges.py\", line 20, in satisfies\n    raise NotImplementedError\nNotImplementedError\n\n----------------------------------------------------------------------\nRan 6 tests in 0.009s\n\nFAILED (errors=60)\n"
+ },
+ "diff": {
+  "files": [
+   {
+    "path": "ranges.py",
+    "status": "modified",
+    "added": 99,
+    "removed": 1,
+    "after_sha": "298b59b00e6f7331f5e4ea2cb7dcda2a5a8e1480655cc1a7262a7f1d15785fac"
+   }
+  ],
+  "added": 99,
+  "removed": 1,
+  "patch_chars": 3879,
+  "patch_truncated": false
+ },
+ "after": {
+  "bytes": 4527,
+  "withheld": [],
+  "not_kept": [],
+  "deleted": [],
+  "complete": true,
+  "dir": "after/ranges__haiku__r1"
+ },
+ "setup": {
+  "prompt_sha": "bb1d8c1ab0dd0b2b",
+  "workspace_sha": "7319d95d46a1e477",
+  "check": "/usr/local/bin/python3 -m unittest discover -s /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/ranges -t /tmp/claude-0/-home-user-Agenttracing/96c1e8d6-6818-5a09-8132-1071631a9134/scratchpad/real20b/self-evolve/demo-hard-tasks/hidden/ranges",
+  "budget_tokens": null,
+  "timeout_s": 900.0,
+  "started_at": 1791707919.14,
+  "cli": "claude",
+  "cli_version": "2.1.296 (Claude Code)",
+  "argv": [
+   "/opt/node22/bin/claude",
+   "-p",
+   "--output-format",
+   "stream-json",
+   "--verbose",
+   "--permission-mode",
+   "acceptEdits",
+   "--no-session-persistence",
+   "--tools",
+   "Bash,Read,Edit,Write,Grep,Glob,TodoWrite,Task",
+   "--strict-mcp-config",
+   "--allowedTools",
+   "Bash",
+   "--setting-sources",
+   "project,local",
+   "--model",
+   "haiku"
+  ],
+  "sandbox": "claude acceptEdits (Bash allowed), no OS sandbox",
+  "budget_enforced": "while running (usage is per message)",
+  "user_config": "ignored",
+  "tools": "Bash, Read, Edit, Write, Grep, Glob, TodoWrite, Task; no MCP servers"
+ }
+}

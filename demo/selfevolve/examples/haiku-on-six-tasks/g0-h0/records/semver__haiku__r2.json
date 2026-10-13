@@ -1,0 +1,88 @@
+{
+ "task": "semver",
+ "agent": "haiku",
+ "vendor": "claude",
+ "model": "claude-haiku-4-5-20251001",
+ "run": "r2",
+ "trace": "traces/semver__haiku__r2.json",
+ "raw": "raw/semver__haiku__r2.jsonl",
+ "patch": "diffs/semver__haiku__r2.patch",
+ "exit_code": 0,
+ "stopped_by": null,
+ "wall_s": 25.883,
+ "stderr_tail": "",
+ "stream": {
+  "bytes": 48282,
+  "cap": 268435456,
+  "truncated_lines": 0
+ },
+ "check": {
+  "command": "python3 -m unittest discover -s /home/user/Agenttracing/demo/selfevolve/hidden/semver -t /home/user/Agenttracing/demo/selfevolve/hidden/semver",
+  "exit_code": 1,
+  "passed": false,
+  "seconds": 0.05,
+  "output_tail": "..FFFFFF.\n======================================================================\nFAIL: test_invalid (test_semver.SemverTest.test_invalid) (bad='01.0.0')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/home/user/Agenttracing/demo/selfevolve/hidden/semver/test_semver.py\", line 28, in test_invalid\n    with self.assertRaises(ValueError):\nAssertionError: ValueError not raised\n\n======================================================================\nFAIL: test_invalid (test_semver.SemverTest.test_invalid) (bad='1.0.0-')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/home/user/Agenttracing/demo/selfevolve/hidden/semver/test_semver.py\", line 28, in test_invalid\n    with self.assertRaises(ValueError):\nAssertionError: ValueError not raised\n\n======================================================================\nFAIL: test_invalid (test_semver.SemverTest.test_invalid) (bad='1.0.0-01')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/home/user/Agenttracing/demo/selfevolve/hidden/semver/test_semver.py\", line 28, in test_invalid\n    with self.assertRaises(ValueError):\nAssertionError: ValueError not raised\n\n======================================================================\nFAIL: test_invalid (test_semver.SemverTest.test_invalid) (bad='1.0.0-alpha..1')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/home/user/Agenttracing/demo/selfevolve/hidden/semver/test_semver.py\", line 28, in test_invalid\n    with self.assertRaises(ValueError):\nAssertionError: ValueError not raised\n\n======================================================================\nFAIL: test_invalid (test_semver.SemverTest.test_invalid) (bad='1.0.0+')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/home/user/Agenttracing/demo/selfevolve/hidden/semver/test_semver.py\", line 28, in test_invalid\n    with self.assertRaises(ValueError):\nAssertionError: ValueError not raised\n\n======================================================================\nFAIL: test_invalid (test_semver.SemverTest.test_invalid) (bad='1.0.0-a_b')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/home/user/Agenttracing/demo/selfevolve/hidden/semver/test_semver.py\", line 28, in test_invalid\n    with self.assertRaises(ValueError):\nAssertionError: ValueError not raised\n\n----------------------------------------------------------------------\nRan 4 tests in 0.001s\n\nFAILED (failures=6)\n"
+ },
+ "baseline": {
+  "passed": false,
+  "exit_code": 1,
+  "seconds": 0.05,
+  "output_tail": " -1)\n                     ^^^^^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-hx79mwl7/work/semver.py\", line 11, in compare\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_prerelease_chain (test_semver.SemverTest.test_prerelease_chain) (lo='1.0.0-beta.11', hi='1.0.0-rc.1')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/home/user/Agenttracing/demo/selfevolve/hidden/semver/test_semver.py\", line 18, in test_prerelease_chain\n    self.assertEqual(compare(lo, hi), -1)\n                     ^^^^^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-hx79mwl7/work/semver.py\", line 11, in compare\n    raise NotImplementedError\nNotImplementedError\n\n======================================================================\nERROR: test_prerelease_chain (test_semver.SemverTest.test_prerelease_chain) (lo='1.0.0-rc.1', hi='1.0.0')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/home/user/Agenttracing/demo/selfevolve/hidden/semver/test_semver.py\", line 18, in test_prerelease_chain\n    self.assertEqual(compare(lo, hi), -1)\n                     ^^^^^^^^^^^^^^^\n  File \"/tmp/agentdiff-baseline-hx79mwl7/work/semver.py\", line 11, in compare\n    raise NotImplementedError\nNotImplementedError\n\n----------------------------------------------------------------------\nRan 4 tests in 0.002s\n\nFAILED (errors=17)\n"
+ },
+ "diff": {
+  "files": [
+   {
+    "path": "semver.py",
+    "status": "modified",
+    "added": 98,
+    "removed": 1,
+    "after_sha": "5c88e34505c964ea9c045b75cf4d4987170e15a3362e37fbeb7a7f1d9d03de02"
+   }
+  ],
+  "added": 98,
+  "removed": 1,
+  "patch_chars": 3088,
+  "patch_truncated": false
+ },
+ "after": {
+  "bytes": 3168,
+  "withheld": [],
+  "not_kept": [],
+  "deleted": [],
+  "complete": true,
+  "dir": "after/semver__haiku__r2"
+ },
+ "setup": {
+  "prompt_sha": "f4bdd3b57c3ffbc8",
+  "workspace_sha": "9a8075ad022c644a",
+  "check": "python3 -m unittest discover -s /home/user/Agenttracing/demo/selfevolve/hidden/semver -t /home/user/Agenttracing/demo/selfevolve/hidden/semver",
+  "budget_tokens": 600000,
+  "timeout_s": 600.0,
+  "started_at": 1790978111.782,
+  "cli": "claude",
+  "cli_version": "2.1.288 (Claude Code)",
+  "argv": [
+   "/opt/node22/bin/claude",
+   "-p",
+   "--output-format",
+   "stream-json",
+   "--verbose",
+   "--permission-mode",
+   "acceptEdits",
+   "--no-session-persistence",
+   "--tools",
+   "Bash,Read,Edit,Write,Grep,Glob,TodoWrite,Task",
+   "--strict-mcp-config",
+   "--allowedTools",
+   "Bash",
+   "--setting-sources",
+   "project,local",
+   "--model",
+   "claude-haiku-4-5-20251001"
+  ],
+  "sandbox": "claude acceptEdits (Bash allowed), no OS sandbox",
+  "budget_enforced": "while running (usage is per message)",
+  "user_config": "ignored",
+  "tools": "Bash, Read, Edit, Write, Grep, Glob, TodoWrite, Task; no MCP servers"
+ }
+}

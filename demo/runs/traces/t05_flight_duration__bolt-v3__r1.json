@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "trace_id": "t05_flight_duration__bolt-v3__r1",
+  "agent": {
+    "name": "bolt-v3",
+    "model": "gpt-5",
+    "version": "v3"
+  },
+  "task": {
+    "id": "t05_flight_duration",
+    "prompt": "A traveler flies SQ306 from Singapore (SIN) to London Heathrow (LHR), connects, then flies BA117 from LHR to New York (JFK), all on 10 June 2025. Scheduled times: SQ306 departs SIN 09:00 SGT, arrives LHR 15:40 BST; BA117 departs LHR 17:55 BST, arrives JFK 20:45 EDT. What is the total elapsed journey time from SIN departure to JFK arrival?",
+    "expected": "23 hours 45 minutes"
+  },
+  "outcome": {
+    "success": false,
+    "answer": "The total elapsed travel time is about 11 hours 45 minutes (6h40m SIN-LHR, 2h15m connection, 2h50m LHR-JFK).",
+    "score": 0.0
+  },
+  "totals": {
+    "input_tokens": 475,
+    "output_tokens": 197,
+    "cost_usd": 0.00438,
+    "latency_s": 7.89
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "1) Work out the duration of each flight leg and the layover from the scheduled times. 2) Sum them. 3) Sanity-check the total against the end-to-end departure/arrival difference. 4) Answer.",
+      "output": "Plan set. Working through the legs in order.",
+      "tokens": 167,
+      "latency_s": 2.24,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "calculator",
+      "input": "(15:40 - 09:00) + (17:55 - 15:40) + (20:45 - 17:55)",
+      "output": "6:40 + 2:15 + 2:50 = 11:45",
+      "tokens": 126,
+      "latency_s": 1.38,
+      "quality": "bad",
+      "note": "Divergence: used a plain calculator on local clock times. SGT/BST/EDT offsets are ignored, so every leg duration is wrong."
+    },
+    {
+      "index": 2,
+      "type": "tool_call",
+      "name": "calculator",
+      "input": "20:45 - 09:00",
+      "output": "11:45",
+      "tokens": 97,
+      "latency_s": 1.15,
+      "quality": "bad",
+      "note": "The cross-check repeats the same timezone error, so it falsely corroborates 11h45m."
+    },
+    {
+      "index": 3,
+      "type": "reason",
+      "name": "reason",
+      "input": "Sanity-check the total.",
+      "output": "Leg-by-leg gives 11h45m and door-to-door (20:45 minus 09:00) also gives 11h45m — the two methods agree, so the total holds.",
+      "tokens": 138,
+      "latency_s": 1.5,
+      "quality": "weak",
+      "note": "Failed sanity check: SIN to New York via London in under 12 hours should have triggered a re-check of timezone handling."
+    },
+    {
+      "index": 4,
+      "type": "answer",
+      "name": "final_answer",
+      "input": "Compose the final answer from the verified findings.",
+      "output": "The total elapsed travel time is about 11 hours 45 minutes (6h40m SIN-LHR, 2h15m connection, 2h50m LHR-JFK).",
+      "tokens": 144,
+      "latency_s": 1.62,
+      "quality": "good",
+      "note": null
+    }
+  ],
+  "run_id": "r1"
+}

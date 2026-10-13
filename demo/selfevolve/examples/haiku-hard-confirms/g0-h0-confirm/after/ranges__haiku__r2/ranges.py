@@ -1,0 +1,108 @@
+"""Whether a version satisfies a range, the way npm's caret and tilde ranges read."""
+
+from __future__ import annotations
+
+import operator
+import re
+
+_PRE_ID = r"(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+_PRE = re.compile(rf"{_PRE_ID}(?:\.{_PRE_ID})*")
+_NUM = re.compile(r"[0-9]+")
+_WILD = ("x", "X", "*")
+# Longest operators first so ">=" is not read as ">" followed by "=".
+_OPS = {">=": operator.ge, "<=": operator.le, ">": operator.gt, "<": operator.lt, "=": operator.eq}
+
+
+def _split(text: str) -> tuple[list[int | None], int, str | None]:
+    """Parse ``MAJOR[.MINOR[.PATCH]][-pre]`` with wildcards into (parts, known count, pre-release)."""
+    core, dash, pre = text.partition("-")
+    if dash and not _PRE.fullmatch(pre):
+        raise ValueError(f"malformed pre-release in {text!r}")
+    fields = core.split(".")
+    if len(fields) > 3:
+        raise ValueError(f"too many parts in {text!r}")
+    parts: list[int | None] = []
+    for field in fields:
+        if field in _WILD:
+            parts.append(None)
+        elif _NUM.fullmatch(field):
+            parts.append(int(field))
+        else:
+            raise ValueError(f"malformed version part in {text!r}")
+    parts += [None] * (3 - len(parts))
+    known = sum(p is not None for p in parts)
+    if any(p is not None for p in parts[known:]):
+        raise ValueError(f"wildcard must trail in {text!r}")
+    if dash and known < 3:
+        raise ValueError(f"pre-release needs a full version in {text!r}")
+    return parts, known, pre if dash else None
+
+
+def _key(parts: list[int], pre: str | None) -> tuple:
+    """SemVer precedence as tuple order; a release sorts after its own pre-releases."""
+    if pre is None:
+        pre_key = (1, ())
+    else:
+        pre_key = (0, tuple((0, int(i), "") if i.isdigit() else (1, 0, i) for i in pre.split(".")))
+    return (*parts, pre_key)
+
+
+def _comparator(word: str) -> list[tuple[str, tuple]]:
+    """Expand one comparator into (operator, bound) tests; an empty list means any version."""
+    if word[:1] in ("^", "~"):
+        parts, known, pre = _split(word[1:])
+        if known == 0:
+            return []
+        if word[0] == "^":
+            nonzero = [i for i in range(known) if parts[i]]
+            bump = nonzero[0] if nonzero else known - 1
+        else:
+            bump = min(known, 2) - 1
+        low = [p or 0 for p in parts]
+        high = low[:bump] + [low[bump] + 1] + [0] * (2 - bump)
+        return [(">=", _key(low, pre)), ("<", _key(high, None))]
+
+    op = next((o for o in _OPS if word.startswith(o)), None)
+    if op is not None:
+        parts, known, pre = _split(word[len(op):])
+        if known < 3:
+            raise ValueError(f"operator needs a full version in {word!r}")
+        return [(op, _key(parts, pre))]
+
+    parts, known, pre = _split(word)
+    if known == 3:
+        return [("=", _key(parts, pre))]
+    if known == 0:
+        return []
+    low = [p or 0 for p in parts]
+    high = low[: known - 1] + [low[known - 1] + 1] + [0] * (3 - known)
+    return [(">=", _key(low, None)), ("<", _key(high, None))]
+
+
+def satisfies(version: str, spec: str) -> bool:
+    """Whether ``version`` (MAJOR.MINOR.PATCH, digits only, or with a pre-release after "-") is in ``spec``.
+
+    A spec is comparator sets joined by ``||`` (either one); a set is comparators separated by spaces (all of
+    them). A comparator is one of:
+
+    - ``=1.2.3`` or ``1.2.3``, ``>1.2.3``, ``>=1.2.3``, ``<1.2.3``, ``<=1.2.3``;
+    - ``^1.2.3``: >=1.2.3 <2.0.0; ``^0.2.3``: >=0.2.3 <0.3.0; ``^0.0.3``: >=0.0.3 <0.0.4;
+    - ``~1.2.3``: >=1.2.3 <1.3.0; ``~1.2``: >=1.2.0 <1.3.0; ``~1``: >=1.0.0 <2.0.0;
+    - ``1.2.x`` or ``1.2.*``: >=1.2.0 <1.3.0; ``1.x``: >=1.0.0 <2.0.0; ``*`` or ``x`` or an empty set: any version.
+
+    A version with a pre-release (``1.2.3-beta``) satisfies only a set in which some comparator names the same
+    MAJOR.MINOR.PATCH with a pre-release, and then compares by SemVer precedence (``1.2.3-alpha`` < ``1.2.3-beta``
+    < ``1.2.3``). Whitespace around ``||`` and between comparators is ignored. A malformed version or spec raises
+    ValueError.
+    """
+    parts, known, pre = _split(version)
+    if known < 3:
+        raise ValueError(f"version must be MAJOR.MINOR.PATCH: {version!r}")
+    key = _key(parts, pre)
+    sets = [[test for word in group.split() for test in _comparator(word)] for group in spec.split("||")]
+    for tests in sets:
+        if pre is not None and not any(bound[3][0] == 0 and bound[:3] == key[:3] for _, bound in tests):
+            continue
+        if all(_OPS[op](key, bound) for op, bound in tests):
+            return True
+    return False

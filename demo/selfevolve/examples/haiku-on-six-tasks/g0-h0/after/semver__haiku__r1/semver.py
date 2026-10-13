@@ -1,0 +1,107 @@
+"""Version precedence, as Semantic Versioning 2.0.0 defines it."""
+
+
+def compare(a: str, b: str) -> int:
+    """-1 when version ``a`` has lower precedence than ``b``, 1 when higher, 0 when equal.
+
+    Follows SemVer 2.0.0 exactly: MAJOR.MINOR.PATCH, an optional
+    pre-release after "-", optional build metadata after "+" (ignored for
+    precedence). A version that is not valid SemVer 2.0.0 raises ValueError.
+    """
+    def parse_version(v: str):
+        # Remove build metadata (everything after +)
+        if '+' in v:
+            v_without_build = v.split('+', 1)[0]
+        else:
+            v_without_build = v
+
+        # Split on '-' to separate version from pre-release
+        if '-' in v_without_build:
+            version_part, prerelease_part = v_without_build.split('-', 1)
+        else:
+            version_part = v_without_build
+            prerelease_part = None
+
+        # Parse MAJOR.MINOR.PATCH
+        parts = version_part.split('.')
+        if len(parts) != 3:
+            raise ValueError(f"Invalid version: {v}")
+
+        try:
+            major, minor, patch = int(parts[0]), int(parts[1]), int(parts[2])
+        except ValueError:
+            raise ValueError(f"Invalid version: {v}")
+
+        # Check for leading zeros in numeric parts (except for 0 itself)
+        for part in parts:
+            if part != '0' and part.startswith('0'):
+                raise ValueError(f"Invalid version: {v}")
+
+        # Validate that they're non-negative
+        if major < 0 or minor < 0 or patch < 0:
+            raise ValueError(f"Invalid version: {v}")
+
+        # Parse pre-release identifiers
+        if prerelease_part:
+            if prerelease_part == '':
+                raise ValueError(f"Invalid version: {v}")
+            prerelease = prerelease_part.split('.')
+            if any(id == '' for id in prerelease):
+                raise ValueError(f"Invalid version: {v}")
+        else:
+            prerelease = None
+
+        return major, minor, patch, prerelease
+
+    major_a, minor_a, patch_a, prerelease_a = parse_version(a)
+    major_b, minor_b, patch_b, prerelease_b = parse_version(b)
+
+    # Compare MAJOR.MINOR.PATCH
+    if major_a != major_b:
+        return -1 if major_a < major_b else 1
+    if minor_a != minor_b:
+        return -1 if minor_a < minor_b else 1
+    if patch_a != patch_b:
+        return -1 if patch_a < patch_b else 1
+
+    # Both have same MAJOR.MINOR.PATCH, compare pre-release
+    # No pre-release means higher precedence
+    if prerelease_a is None and prerelease_b is None:
+        return 0
+    if prerelease_a is None:
+        return 1
+    if prerelease_b is None:
+        return -1
+
+    # Compare pre-release identifiers
+    for i in range(max(len(prerelease_a), len(prerelease_b))):
+        if i >= len(prerelease_a):
+            return -1
+        if i >= len(prerelease_b):
+            return 1
+
+        id_a = prerelease_a[i]
+        id_b = prerelease_b[i]
+
+        # Check if identifiers are numeric (only digits, no leading zeros except "0")
+        is_numeric_a = id_a.isdigit() and (id_a == '0' or not id_a.startswith('0'))
+        is_numeric_b = id_b.isdigit() and (id_b == '0' or not id_b.startswith('0'))
+
+        if is_numeric_a and is_numeric_b:
+            # Both numeric, compare numerically
+            num_a = int(id_a)
+            num_b = int(id_b)
+            if num_a != num_b:
+                return -1 if num_a < num_b else 1
+        elif is_numeric_a:
+            # Numeric identifiers have lower precedence than non-numeric
+            return -1
+        elif is_numeric_b:
+            # Non-numeric has higher precedence than numeric
+            return 1
+        else:
+            # Both non-numeric, compare lexically
+            if id_a != id_b:
+                return -1 if id_a < id_b else 1
+
+    return 0

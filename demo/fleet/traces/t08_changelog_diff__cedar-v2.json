@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "trace_id": "t08_changelog_diff__cedar-v2",
+  "agent": {
+    "name": "cedar-v2",
+    "model": "claude-sonnet-5",
+    "version": "v2"
+  },
+  "task": {
+    "id": "t08_changelog_diff",
+    "prompt": "Summarize the breaking changes between fastcache 4.2 and fastcache 5.0.",
+    "expected": "Three breaking changes: default TTL changed from never-expire to 300 seconds; purge() was removed in favor of clear(); Python 3.8/3.9 support dropped (requires >=3.10)."
+  },
+  "outcome": {
+    "success": true,
+    "answer": "Three breaking changes land in fastcache 5.0: a 300-second default TTL replacing never-expire, removal of cache.purge() (use clear()), and a new Python >=3.10 floor.",
+    "score": 1.0
+  },
+  "totals": {
+    "input_tokens": 723,
+    "output_tokens": 259,
+    "cost_usd": 0.006054,
+    "latency_s": 11.46
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "1) Find the fastcache 5.0 release notes or changelog. 2) Collect every entry marked breaking since 4.2. 3) Condense them into a short summary.",
+      "output": "Plan set. Looking for the official release notes.",
+      "tokens": 146,
+      "latency_s": 1.63,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "search",
+      "name": "web_search",
+      "input": "fastcache 5.0 changelog breaking changes since 4.2",
+      "output": "[1] github.com/fastcache/fastcache/releases — Releases | [2] fastcache.dev/changelog — Changelog | [3] stackoverflow.com — \"fastcache 5.0 purge() gone?\"",
+      "tokens": 148,
+      "latency_s": 2.52,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 2,
+      "type": "retrieve",
+      "name": "select_result",
+      "input": "Open result [1]: the GitHub releases page lists 5.0.0 with its full notes, which is the primary record.",
+      "output": "Selected https://github.com/fastcache/fastcache/releases/tag/v5.0.0 (official release notes).",
+      "tokens": 147,
+      "latency_s": 1.25,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 3,
+      "type": "read",
+      "name": "open_page",
+      "input": "https://github.com/fastcache/fastcache/releases/tag/v5.0.0",
+      "output": "fastcache v5.0.0 — Highlights & breaking changes. BREAKING: Cache() now defaults to ttl=300 seconds; previously entries never expired unless ttl was set. BREAKING: cache.purge() has been removed; call cache.clear() instead. BREAKING: dropped support for Python 3.8 and 3.9; fastcache now requires Python >=3.10. Added: native asyncio API (AsyncCache), LRU eviction statistics, typed stubs. Fixed: race in concurrent set() under free-threading. (No breaking changes were shipped in 4.3-4.9.)",
+      "tokens": 234,
+      "latency_s": 2.04,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 4,
+      "type": "reason",
+      "name": "reason",
+      "input": "Filter the notes down to what the question asks.",
+      "output": "Only entries labeled BREAKING matter for 4.2 -> 5.0: the TTL default change, the purge() removal, and the dropped Python versions. The asyncio API and eviction stats are additive.",
+      "tokens": 155,
+      "latency_s": 1.88,
+      "quality": "good",
+      "note": null
+    },
+    {
+      "index": 5,
+      "type": "answer",
+      "name": "final_answer",
+      "input": "Compose the final answer from the verified findings.",
+      "output": "Three breaking changes land in fastcache 5.0: a 300-second default TTL replacing never-expire, removal of cache.purge() (use clear()), and a new Python >=3.10 floor.",
+      "tokens": 152,
+      "latency_s": 2.14,
+      "quality": "good",
+      "note": null
+    }
+  ]
+}

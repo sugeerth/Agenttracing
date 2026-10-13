@@ -1,0 +1,134 @@
+{
+  "note": "Golden set for the long-horizon demo: the milestones a correct migration passes through, each recognised by evidence in a step's text (SYNTHETIC).",
+  "tasks": [
+    {
+      "id": "h02_migrate_service",
+      "prompt": "Migrate the billing service from the v1 API to v2 across all eight packages, keep every test green, and report the final pass count.",
+      "expected": "8 packages migrated; 1,240 passing",
+      "family": "migration",
+      "any_of_tools": [
+        "run_tests"
+      ],
+      "expected_tools": [
+        "write_file",
+        "run_tests"
+      ],
+      "milestones": [
+        {
+          "id": "pkg_auth",
+          "label": "auth migrated",
+          "evidence": [
+            "package auth migrated"
+          ],
+          "in": "any"
+        },
+        {
+          "id": "pkg_catalog",
+          "label": "catalog migrated",
+          "evidence": [
+            "package catalog migrated"
+          ],
+          "in": "any"
+        },
+        {
+          "id": "pkg_cart",
+          "label": "cart migrated",
+          "evidence": [
+            "package cart migrated"
+          ],
+          "in": "any"
+        },
+        {
+          "id": "pkg_pricing",
+          "label": "pricing migrated",
+          "evidence": [
+            "package pricing migrated"
+          ],
+          "in": "any"
+        },
+        {
+          "id": "pkg_invoice",
+          "label": "invoice migrated",
+          "evidence": [
+            "package invoice migrated"
+          ],
+          "in": "any"
+        },
+        {
+          "id": "pkg_ledger",
+          "label": "ledger migrated",
+          "evidence": [
+            "package ledger migrated"
+          ],
+          "in": "any"
+        },
+        {
+          "id": "pkg_refunds",
+          "label": "refunds migrated",
+          "evidence": [
+            "package refunds migrated"
+          ],
+          "in": "any"
+        },
+        {
+          "id": "pkg_reports",
+          "label": "reports migrated",
+          "evidence": [
+            "package reports migrated"
+          ],
+          "in": "any"
+        },
+        {
+          "id": "verified",
+          "label": "whole suite green",
+          "evidence": [
+            "1240 passed"
+          ],
+          "in": "output"
+        }
+      ]
+    },
+    {
+      "id": "h01_release_report",
+      "prompt": "Produce the release report for build 4821: the failing test, the commit that broke it, the fix, and the verified pass count.",
+      "expected": "test_parse_dates; commit 9f3c2e1; 412 passing",
+      "family": "release",
+      "milestones": [
+        {
+          "id": "failing_test",
+          "label": "failing test identified",
+          "evidence": [
+            "test_parse_dates"
+          ],
+          "in": "output",
+          "by_step": 3
+        },
+        {
+          "id": "commit",
+          "label": "breaking commit found",
+          "evidence": [
+            "9f3c2e1"
+          ],
+          "in": "output",
+          "by_step": 8
+        },
+        {
+          "id": "fix",
+          "label": "fix written",
+          "evidence": [
+            "write src/dates.py"
+          ],
+          "in": "input"
+        },
+        {
+          "id": "green",
+          "label": "tests green",
+          "evidence": [
+            "412 passed"
+          ],
+          "in": "output"
+        }
+      ]
+    }
+  ]
+}

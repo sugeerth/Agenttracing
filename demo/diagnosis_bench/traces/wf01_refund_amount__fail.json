@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "trace_id": "wf01_refund_amount-scout-v2",
+  "agent": {
+    "name": "scout-v2",
+    "model": "gpt-5",
+    "version": "v2"
+  },
+  "task": {
+    "id": "wf01_refund_amount",
+    "prompt": "Cancel booking KL8340 and report the refund amount.",
+    "expected": "Booking KL8340 cancelled with a refund of $412.00."
+  },
+  "outcome": {
+    "success": false,
+    "answer": "Booking KL8340 cancelled with a refund of $389.00.",
+    "score": 0.0,
+    "termination": "agent_stop"
+  },
+  "totals": {
+    "input_tokens": 720,
+    "output_tokens": 240,
+    "cost_usd": 0.00288,
+    "latency_s": 6.6
+  },
+  "steps": [
+    {
+      "index": 0,
+      "type": "plan",
+      "name": "plan",
+      "input": "Read the booking, check the refund table, then cancel.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 1,
+      "type": "tool_call",
+      "name": "get_booking",
+      "input": "get_booking(reference='KL8340')",
+      "output": "KL8340 \u2014 AMS->BOS, Flex fare.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 2,
+      "type": "tool_call",
+      "name": "get_policy",
+      "input": "get_policy(topic='refund')",
+      "output": "Cached refund table (stale revision): Flex fare AMS->BOS refunds $389.00.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": "stale cached table \u2014 the wrong amount enters here",
+      "effect": "read",
+      "error": false
+    },
+    {
+      "index": 3,
+      "type": "tool_call",
+      "name": "cancel_booking",
+      "input": "cancel_booking(reference='KL8340', refund=true)",
+      "output": "Cancelled. Refund processed per fare table.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null,
+      "effect": "write",
+      "error": false
+    },
+    {
+      "index": 4,
+      "type": "reason",
+      "name": "reason",
+      "input": "The refund table shows $389.00 for this fare.",
+      "output": "",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    },
+    {
+      "index": 5,
+      "type": "answer",
+      "name": "final",
+      "input": "Booking KL8340 cancelled with a refund of $389.00.",
+      "output": "Booking KL8340 cancelled with a refund of $389.00.",
+      "tokens": 40,
+      "latency_s": 1.1,
+      "quality": null,
+      "note": null
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_booking",
+      "effect": "read"
+    },
+    {
+      "name": "get_policy",
+      "effect": "read"
+    },
+    {
+      "name": "get_refund_quote",
+      "effect": "read"
+    },
+    {
+      "name": "cancel_booking",
+      "effect": "write"
+    },
+    {
+      "name": "update_seat",
+      "effect": "write"
+    }
+  ],
+  "budget": {
+    "max_steps": 12
+  }
+}

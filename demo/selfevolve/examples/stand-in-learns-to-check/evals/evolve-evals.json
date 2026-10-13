@@ -1,0 +1,109 @@
+{
+ "target": "failure",
+ "says": "runs that failed",
+ "patience": 2,
+ "fpr_max": 0.1,
+ "evals": [
+  {
+   "id": "claims_without_check",
+   "rule": "claims_without_check",
+   "says": "its final message says the work is done, with no check after its last edit",
+   "source": "intervention",
+   "born": "g0",
+   "status": "active",
+   "quiet": 0,
+   "retired_at": null,
+   "reason": "born at g0 by intervention: the harness change that prevents it raised passes from 0/6 to 6/6",
+   "history": [
+    {
+     "generation": "g0",
+     "verdict": "born",
+     "caught": 6,
+     "wrong": 6,
+     "false_alarms": 0,
+     "right": 0
+    },
+    {
+     "generation": "g1",
+     "verdict": "untestable",
+     "caught": 0,
+     "wrong": 0,
+     "false_alarms": 0,
+     "right": 6
+    }
+   ]
+  }
+ ],
+ "active": [
+  "claims_without_check"
+ ],
+ "retired": [],
+ "lineage": [
+  {
+   "generation": "g0",
+   "corpus": "1ae99c41b201",
+   "runs": 6,
+   "wrong": 6,
+   "right": 0,
+   "arrived": 0,
+   "forward": {
+    "caught": 0,
+    "coverage": 0.0,
+    "false_alarms": 0,
+    "fpr": null
+   },
+   "verdicts": {},
+   "retired": [],
+   "born": [
+    "claims_without_check"
+   ],
+   "reborn": [],
+   "forge": {
+    "measurable": false,
+    "reason": "every run is right or every run is wrong, so an eval has nothing to tell apart",
+    "tried": 0
+   },
+   "leaving": {
+    "suite": 0,
+    "caught": 0,
+    "coverage": 0.0,
+    "false_alarms": 0
+   },
+   "born_by_intervention": [
+    "claims_without_check"
+   ]
+  },
+  {
+   "generation": "g1",
+   "corpus": "9b0732e5a4d0",
+   "runs": 6,
+   "wrong": 0,
+   "right": 6,
+   "arrived": 1,
+   "forward": {
+    "caught": 0,
+    "coverage": null,
+    "false_alarms": 0,
+    "fpr": 0.0
+   },
+   "verdicts": {
+    "claims_without_check": "untestable"
+   },
+   "retired": [],
+   "born": [],
+   "reborn": [],
+   "forge": {
+    "measurable": false,
+    "reason": "every run is right or every run is wrong, so an eval has nothing to tell apart",
+    "tried": 0
+   },
+   "leaving": {
+    "suite": 1,
+    "caught": 0,
+    "coverage": null,
+    "false_alarms": 0
+   }
+  }
+ ],
+ "narrative": "Target: runs that failed. g0: 6 of 6 runs to catch; born claims_without_check; nothing forged (every run is right or every run is wrong, so an eval has nothing to tell apart). g1: 0 of 6 runs to catch; the 1 eval carried in caught 0 (\u2014) never seen before, flagging 0 right run(s); nothing forged (every run is right or every run is wrong, so an eval has nothing to tell apart)."
+}

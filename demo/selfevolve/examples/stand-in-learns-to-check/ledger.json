@@ -1,0 +1,282 @@
+{
+  "eval_lineage": [
+    {
+      "arrived": 0,
+      "born": [
+        "claims_without_check"
+      ],
+      "born_by_intervention": [
+        "claims_without_check"
+      ],
+      "corpus": "1ae99c41b201",
+      "forge": {
+        "measurable": false,
+        "reason": "every run is right or every run is wrong, so an eval has nothing to tell apart",
+        "tried": 0
+      },
+      "forward": {
+        "caught": 0,
+        "coverage": 0.0,
+        "false_alarms": 0,
+        "fpr": null
+      },
+      "generation": "g0",
+      "leaving": {
+        "caught": 0,
+        "coverage": 0.0,
+        "false_alarms": 0,
+        "suite": 0
+      },
+      "reborn": [],
+      "retired": [],
+      "right": 0,
+      "runs": 6,
+      "verdicts": {},
+      "wrong": 6
+    },
+    {
+      "arrived": 1,
+      "born": [],
+      "corpus": "9b0732e5a4d0",
+      "forge": {
+        "measurable": false,
+        "reason": "every run is right or every run is wrong, so an eval has nothing to tell apart",
+        "tried": 0
+      },
+      "forward": {
+        "caught": 0,
+        "coverage": null,
+        "false_alarms": 0,
+        "fpr": 0.0
+      },
+      "generation": "g1",
+      "leaving": {
+        "caught": 0,
+        "coverage": null,
+        "false_alarms": 0,
+        "suite": 1
+      },
+      "reborn": [],
+      "retired": [],
+      "right": 6,
+      "runs": 6,
+      "verdicts": {
+        "claims_without_check": "untestable"
+      },
+      "wrong": 0
+    }
+  ],
+  "evals": {
+    "evals": {
+      "claims_without_check": {
+        "born": "g0",
+        "history": [
+          {
+            "caught": 6,
+            "false_alarms": 0,
+            "generation": "g0",
+            "right": 0,
+            "verdict": "born",
+            "wrong": 6
+          },
+          {
+            "caught": 0,
+            "false_alarms": 0,
+            "generation": "g1",
+            "right": 6,
+            "verdict": "untestable",
+            "wrong": 0
+          }
+        ],
+        "quiet": 0,
+        "reason": "born at g0 by intervention: the harness change that prevents it raised passes from 0/6 to 6/6",
+        "retired_at": null,
+        "rule": "claims_without_check",
+        "says": "its final message says the work is done, with no check after its last edit",
+        "source": "intervention",
+        "status": "active"
+      }
+    },
+    "generations": [
+      {
+        "corpus": "1ae99c41b201",
+        "label": "g0"
+      },
+      {
+        "corpus": "9b0732e5a4d0",
+        "label": "g1"
+      }
+    ],
+    "kind": "evolving-evals",
+    "target": "failure",
+    "version": 1
+  },
+  "generations": [
+    {
+      "action": {
+        "because": {
+          "caught": 6,
+          "eval": null,
+          "rule": "claims_without_check",
+          "says": "its final message says the work is done, with no check after its last edit",
+          "source": "this generation only; every run failed, so nothing told it apart",
+          "wrong": 6
+        },
+        "remedy": {
+          "id": "instruction:claims_without_check",
+          "knob": "instruction",
+          "rule": "claims_without_check",
+          "value": "Before you say the work is done, run the task's check (`python3 -m unittest -q`) after your last edit and read its result; if it fails, keep working.",
+          "why": "the run said it was done with no check after its last edit"
+        },
+        "test": {
+          "broke": [],
+          "losses": [],
+          "median_tokens": {
+            "changed": 4400.0,
+            "current": 4400.0
+          },
+          "passed": {
+            "changed": [
+              6,
+              6
+            ],
+            "current": [
+              0,
+              6
+            ]
+          },
+          "tasks": 3,
+          "verdict": "kept",
+          "why": "it won 3 task(s) and lost 0",
+          "wins": [
+            "pricing-0",
+            "pricing-1",
+            "pricing-2"
+          ]
+        }
+      },
+      "evals": {
+        "arrived": 0,
+        "born": [
+          "claims_without_check"
+        ],
+        "forward": {
+          "caught": 0,
+          "coverage": 0.0,
+          "false_alarms": 0,
+          "fpr": null
+        },
+        "reborn": [],
+        "retired": [],
+        "verdicts": {}
+      },
+      "failed": 6,
+      "generation": "g0",
+      "harness": {
+        "deny_tools": [],
+        "instructions": [],
+        "max_turns": null,
+        "remedies": [],
+        "version": 0
+      },
+      "runs": 6,
+      "weighed": [
+        {
+          "caught": 6,
+          "eval": null,
+          "remedy": {
+            "id": "instruction:claims_without_check",
+            "knob": "instruction",
+            "rule": "claims_without_check",
+            "value": "Before you say the work is done, run the task's check (`python3 -m unittest -q`) after your last edit and read its result; if it fails, keep working.",
+            "why": "the run said it was done with no check after its last edit"
+          },
+          "rule": "claims_without_check",
+          "says": "its final message says the work is done, with no check after its last edit",
+          "source": "this generation only; every run failed, so nothing told it apart",
+          "wrong": 6
+        },
+        {
+          "caught": 6,
+          "eval": null,
+          "remedy": {
+            "id": "instruction:no_check_after_last_edit",
+            "knob": "instruction",
+            "rule": "no_check_after_last_edit",
+            "value": "After your last edit, run the task's check (`python3 -m unittest -q`) and read its result before you finish.",
+            "why": "the run made an edit no check ever saw"
+          },
+          "rule": "no_check_after_last_edit",
+          "says": "it edited and never ran a check afterwards",
+          "source": "this generation only; every run failed, so nothing told it apart",
+          "wrong": 6
+        },
+        {
+          "caught": 6,
+          "eval": null,
+          "remedy": {
+            "id": "instruction:mark:blind_write",
+            "knob": "instruction",
+            "rule": "mark:blind_write",
+            "value": "Read a file before you change it.",
+            "why": "the run wrote to a file it had not read"
+          },
+          "rule": "mark:blind_write",
+          "says": "it wrote before it had read anything",
+          "source": "this generation only; every run failed, so nothing told it apart",
+          "wrong": 6
+        }
+      ]
+    },
+    {
+      "action": null,
+      "evals": {
+        "arrived": 1,
+        "born": [],
+        "forward": {
+          "caught": 0,
+          "coverage": null,
+          "false_alarms": 0,
+          "fpr": 0.0
+        },
+        "reborn": [],
+        "retired": [],
+        "verdicts": {
+          "claims_without_check": "untestable"
+        }
+      },
+      "failed": 0,
+      "generation": "g1",
+      "harness": {
+        "deny_tools": [],
+        "instructions": [
+          "Before you say the work is done, run the task's check (`python3 -m unittest -q`) after your last edit and read its result; if it fails, keep working."
+        ],
+        "max_turns": null,
+        "remedies": [
+          "instruction:claims_without_check"
+        ],
+        "version": 1
+      },
+      "runs": 6
+    }
+  ],
+  "harness": {
+    "deny_tools": [],
+    "instructions": [
+      "Before you say the work is done, run the task's check (`python3 -m unittest -q`) after your last edit and read its result; if it fails, keep working."
+    ],
+    "max_turns": null,
+    "remedies": [
+      "instruction:claims_without_check"
+    ],
+    "version": 1
+  },
+  "kind": "self-evolving",
+  "target": "failure",
+  "tried": {
+    "instruction:claims_without_check": "kept"
+  },
+  "version": 1
+}
