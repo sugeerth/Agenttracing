@@ -116,9 +116,27 @@ def _run(check: List[str], cwd: Path, timeout: float) -> tuple:
     return done.returncode == 0, "\n".join(tail)
 
 
+def _disagrees(check: List[str], tree: Path, want: bool, times: int, timeout: float) -> Optional[str]:
+    """Runs ``check`` on a fresh copy of ``tree`` up to ``times`` times, stopping at the first run that does
+    not come out ``want``. None when every run did; else what that run did, as "passed", "failed" or
+    "timed out", after how many that agreed."""
+    for n in range(times):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_in = Path(tmp) / "tree"
+            shutil.copytree(tree, run_in)
+            got, _ = _run(check, run_in, timeout)
+        if got is not want:
+            did = "timed out" if got is None else "passed" if got else "failed"
+            return f"{'passed' if want else 'failed'} {n + 1} time(s), then {did}"
+    return None
+
+
 def build(repo: Path, dest: Path, *, want: int = 6, look: int = 200, test_cmd: Optional[str] = None,
-          timeout: float = 300.0, python: Optional[str] = None, on_progress=None) -> dict:
+          timeout: float = 300.0, python: Optional[str] = None, on_progress=None, checks: int = 3) -> dict:
     """Up to ``want`` tasks from ``repo``'s history, each validated, written under ``dest`` with a tasks.json.
+    A grader is checked ``checks`` times on the parent and on the commit, each run on a fresh copy: a task
+    whose tests do not fail on the parent every time and pass on the commit every time is flaky, and left
+    out, since a flaky grader would pass or fail the agent's runs by chance.
     Returns ``{"tasks": path or None, "kept": [...], "skipped": [{"sha", "subject", "why"}]}``."""
     say = on_progress or (lambda s: None)
     repo, dest = Path(repo).resolve(), Path(dest).resolve()
@@ -152,11 +170,20 @@ def build(repo: Path, dest: Path, *, want: int = 6, look: int = 200, test_cmd: O
             on_commit = Path(tmp) / "commit"
             _extract(repo, c["sha"], on_commit)
             after, after_out = _run(check, on_commit, timeout)
-        why = None
-        if after is not True:
-            why = "its tests do not pass on the commit itself" + (f": {after_out}" if after_out else "")
-        elif before is not False:
-            why = "its tests already pass on the parent: nothing to do"
+            why = None
+            if after is not True:
+                why = "its tests do not pass on the commit itself" + (f": {after_out}" if after_out else "")
+            elif before is not False:
+                why = "its tests already pass on the parent: nothing to do"
+            elif checks > 1:
+                # once each was the first look; the rest must agree with it, run for run
+                odd = _disagrees(check, work, False, checks - 1, timeout)
+                if odd:
+                    why = f"a flaky grader: on the parent its tests {odd}"
+                else:
+                    odd = _disagrees(check, on_commit, True, checks - 1, timeout)
+                    if odd:
+                        why = f"a flaky grader: on the commit its tests {odd}"
         if why:
             shutil.rmtree(work, ignore_errors=True)
             shutil.rmtree(hidden, ignore_errors=True)
@@ -164,10 +191,12 @@ def build(repo: Path, dest: Path, *, want: int = 6, look: int = 200, test_cmd: O
             say(f"{tid}: skipped, {why.splitlines()[0]}")
             continue
         kept.append({"id": tid, "workspace": f"tasks/{tid}", "prompt": PROMPT.format(message=c["message"]),
+                     "checked": max(1, checks),
                      "check": subprocess.list2cmdline(check) if os.name == "nt" else shlex.join(check),
                      "source": {"repo": str(repo), "commit": c["sha"], "parent": c["parent"],
                                 "tests": c["tests"], "code": c["code"]}})
-        say(f"{tid}: kept: fails on the parent, passes on the commit")
+        say(f"{tid}: kept: fails on the parent, passes on the commit"
+            + (f", {checks} times each" if checks > 1 else ""))
     path = None
     if kept:
         path = dest / "tasks.json"

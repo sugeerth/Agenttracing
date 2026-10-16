@@ -103,6 +103,23 @@ commit itself (so it can be done, and the grader agrees with the change
 the project made). Every commit looked at is reported in
 `tasks-report.json`, taken or not, with why.
 
+A grader must also agree with itself. The tests run 3 times on the
+parent and 3 times on the commit (`--grader-checks N`), each run on a
+fresh copy. A task is kept only if they fail on the parent every time
+and pass on the commit every time. One that does not is a flaky grader:
+it would pass or fail the agent's runs by chance, and the evolution would
+learn from noise. It is left out, with what it did ("on the commit its
+tests passed 2 time(s), then failed"). It costs test runs only, never
+agent runs.
+- **Arithmetic:** a grader that fails 3 runs in 10 on the commit gets
+  through one check 70% of the time, three checks 34% and five 17%.
+- **Measured on python-slugify:** the same 6 tasks are kept at 1 check
+  and at 5, since none of its graders is flaky. Building them took 14 s
+  at 1 check and 46 s at 5.
+- **The workspace holds no history.** It is the parent's tree from
+  `git archive`, with no `.git`, so the agent cannot read the fix from
+  the repository's own log.
+
 - Merges, commits with more than 12 files, and messages under 20
   characters are not used.
 - Tests run with pytest when it is installed for `--python`, else

@@ -92,6 +92,36 @@ class GitTasksTest(unittest.TestCase):
             (work / "calc.py").write_text("def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n")
             self.assertEqual(subprocess.run(task["check"], shell=True, cwd=work, capture_output=True).returncode, 0)
 
+    def test_a_grader_that_does_not_agree_with_itself_is_flaky_and_left_out(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, count = Path(tmp) / "repo", Path(tmp) / "runs-on-the-commit"
+            make_repo(repo)
+            # on the commit, the held-out test passes its first run and fails every later one
+            flaky = (TEST_HEAD.format(more=", subtract") + "    def test_subtract(self):\n"
+                     "        import pathlib\n"
+                     f"        p = pathlib.Path({str(count)!r})\n"
+                     "        n = int(p.read_text()) if p.exists() else 0\n"
+                     "        p.write_text(str(n + 1))\n"
+                     "        self.assertEqual(subtract(5, 7), -2)\n"
+                     "        self.assertEqual(n, 0)\n")
+            _commit(repo, "Add subtract again, now with a test that remembers its runs", {
+                "calc.py": "def add(a, b):\n    return a + b\n",
+                "test_calc.py": TEST_HEAD.format(more="") + "    def test_add(self):\n        self.assertEqual(add(1, 1), 2)\n"})
+            _commit(repo, "Bring subtract back, which takes the second number from the first", {
+                "calc.py": "def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n",
+                "test_calc.py": flaky})
+            cmd = f"{sys.executable} -m unittest {{files}}"
+            once = build(repo, Path(tmp) / "once", want=1, python=sys.executable, test_cmd=cmd, checks=1)
+            self.assertEqual(len(once["kept"]), 1, "one look each: the flaky grader passes")
+            count.unlink()
+            thrice = build(repo, Path(tmp) / "thrice", want=1, python=sys.executable, test_cmd=cmd, checks=3)
+            why = {s["subject"]: s["why"] for s in thrice["skipped"]}
+            self.assertEqual(why["Bring subtract back, which takes the second number from the first"],
+                             "a flaky grader: on the commit its tests passed 1 time(s), then failed")
+            self.assertEqual([k["id"].split("-", 1)[1] for k in thrice["kept"]], ["add-subtract-which-takes-the"],
+                             "the next sound commit is taken instead")
+            self.assertEqual(thrice["kept"][0]["checked"], 3)
+
     def test_the_command_says_when_no_commit_makes_a_task(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "repo"

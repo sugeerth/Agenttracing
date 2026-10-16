@@ -5,6 +5,22 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Tasks from history: a grader must agree with itself
+
+`--from-git` now runs each task's held-out tests 3 times on the parent
+and 3 times on the commit (`--grader-checks N`), each on a fresh copy.
+It keeps a task only if they fail on the parent every time and pass on
+the commit every time. A flaky grader would pass or fail the agent's runs
+by chance, so it is left out, and the report says what it did. It costs
+test runs, never agent runs.
+- **Arithmetic:** a grader failing 3 runs in 10 gets through one check
+  70% of the time and three checks 34%.
+- **Measured on python-slugify:** the same 6 tasks at 1 check and at 5,
+  since none of its graders is flaky. The build took 14 s and 46 s.
+
+Prompted by 2026 work on mining tasks from repository history, which
+re-runs tests to filter flaky ones (`docs/RESEARCH_LOG.md`).
+
 ## Self-evolve stops a change that can no longer be kept
 
 The changed harness now runs a round at a time (run 1 of every task,

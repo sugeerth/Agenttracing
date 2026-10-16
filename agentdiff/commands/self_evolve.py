@@ -80,6 +80,9 @@ def register(subparsers) -> None:
     p.add_argument("--commits", type=int, default=6, metavar="N", help="--from-git: at most N tasks (default 6)")
     p.add_argument("--python", default=None, metavar="PATH",
                    help="--from-git: the Python the project's tests run with (its dependencies installed)")
+    p.add_argument("--grader-checks", type=int, default=3, metavar="N",
+                   help="--from-git: run each task's tests N times on the parent and on the commit (default 3); "
+                        "a task whose tests do not agree every time is flaky and left out")
     p.add_argument("--test-cmd", default=None, metavar="CMD",
                    help="--from-git: the test command, {files} for the test files (default pytest, else unittest)")
     p.add_argument("--adopt", default=None, metavar="DIR",
@@ -346,7 +349,8 @@ def run(args: argparse.Namespace) -> int:
               flush=True)
         try:
             made = build(repo, dest, want=args.commits, test_cmd=args.test_cmd, python=args.python,
-                         timeout=args.check_timeout, on_progress=lambda s: print(f"  {s}", flush=True))
+                         timeout=args.check_timeout, checks=max(1, args.grader_checks),
+                         on_progress=lambda s: print(f"  {s}", flush=True))
         except (OSError, ValueError, subprocess.CalledProcessError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2

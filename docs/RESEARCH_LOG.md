@@ -4,6 +4,64 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-10-16, second run
+
+**How it was read.** As in the first run: through search-engine
+extracts, since arXiv and its mirrors could not be reached.
+
+**Read:**
+- *Are "Solved Issues" in SWE-bench Really Solved Correctly?* (ICSE
+  2026). Each differentiating test is run 20 times under each patch, and
+  kept only if it separates them every time.
+  https://software-lab.org/publications/icse2026_SWE-bench-correctness.pdf
+- *SWE-rebench* (arXiv 2505.20411) and *SWE-Next* (arXiv 2603.20691):
+  task pipelines mined from repositories. They name flaky tests,
+  intermittently unavailable external services, and environment drift
+  among the reasons execution checks fail. https://arxiv.org/abs/2505.20411
+- *RuBench* (arXiv 2607.06411), and reports on SWE-Bench Pro, where most
+  cheating runs read the gold commit from the shipped `.git`. RuBench
+  strips history from each workspace and checks that the regression tests
+  fail on the parent and pass on the fix. https://arxiv.org/abs/2607.06411
+- *Failure as a Process: An Anatomy of CLI Coding Agent Trajectories*
+  (arXiv 2607.09510). 1,794 annotated Terminal-Bench runs: failures are
+  mostly epistemic, begin in the first few steps, and stay hidden until
+  recovery is no longer possible. About half of failed runs commit their
+  decisive error by step 7, become unrecoverable around step 12, and
+  first show a symptom around step 16. https://arxiv.org/abs/2607.09510
+- Reward hacking in coding agents: *Do Coding Agents Deceive Us?* (capped
+  evaluation, arXiv 2606.07379), *SpecBench* (the gap between visible
+  and held-out tests, arXiv 2605.21384), *BaitBench* (arXiv 2608.30724)
+  and *HackTrace* (arXiv 2610.03055).
+
+**Taken: a grader must agree with itself.** `--from-git` checked each
+held-out grader once on the parent and once on the commit, so one lucky
+pass or failure there let a flaky grader in. A flaky grader then passes
+or fails the agent's runs by chance, and the evolution learns from
+noise.
+- Built: `gittasks.build(checks=3)`, which checks each grader 3 times on
+  each side on fresh copies and stops at the first run that disagrees.
+  The command gets `--grader-checks N`.
+- Tested with a grader that remembers its runs and fails after the
+  first.
+- Measured on python-slugify: the same 6 tasks at 1 check and at 5, in
+  14 s and 46 s. None of its graders is flaky, which also clears the
+  graders behind the recorded slugify evolutions.
+
+**Not taken, and why:**
+- **Stripping history from workspaces** (RuBench). Already so: each
+  workspace is `git archive` of the parent, with no `.git`.
+- **Watching for the decisive error early** (Failure as a Process).
+  AgentDiff already names the decisive step after the fact. Acting on it
+  during a run would mean a model or a learned monitor deciding, mid-run,
+  that a run has failed. Left for a guard rule built on counts, if one
+  can be found that fires early without a judge.
+- **Capped evaluation** (CapCode). It needs tests the agent can see as
+  well as held-out ones. A `--from-git` task holds all of its grader out,
+  so there is no visible score to cap. Revisit if visible tests are ever
+  given to the agent.
+- **Behavioural hack detection** (HackTrace). It reads model internal
+  states, which Claude Code and Codex CLI do not expose.
+
 ## 2026-10-16
 
 **How it was read.** arXiv and the paper mirrors could not be reached
