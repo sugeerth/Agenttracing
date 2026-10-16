@@ -5,6 +5,32 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Self-evolve stops a change that can no longer be kept
+
+The changed harness now runs a round at a time (run 1 of every task,
+then run 2) and stops once no outcome of the rounds left could make the
+change kept (`selfevolve.could_keep`, `self_evolve(settle=True)`, on by
+default; `--no-settle` turns it off).
+- **Exact over counts.** It bounds each task's final pass count and
+  asks the paired rule itself, so it can't change a verdict. A test
+  checks it against `decide()` on every completion of 400 random cases.
+- **Only a lost cause stops.** A kept change's runs become the next
+  generation's, so they always run in full.
+- **On the card and the chart:** a settled verdict says "settled after
+  1 of 2 rounds" and how many runs it did not need.
+
+Measured:
+- **Synthetic** (pass rates from the recorded python-slugify arms): it
+  skips 17–35% of a harmful change's runs (2 to 5 runs a task), about 5%
+  of a do-nothing change's, and none of the verdicts change in 2,700
+  draws.
+- **Recorded:** over the 8 real changes on disk it would have saved
+  nothing. They were neutral or helpful.
+
+Prompted by 2026 work on when a partial evaluation already supports the
+full run's decision (`docs/RESEARCH_LOG.md`). Those studies estimate it
+with an error target; here the rule is exact.
+
 ## Exploration starts from what the project keeps
 
 When no eval names a change, the harness now first tries what the

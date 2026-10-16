@@ -53,6 +53,9 @@ def register(subparsers) -> None:
     p.add_argument("--no-confirm", dest="confirm", action="store_false",
                    help="keep a change on its first paired test even when one or two tasks moved, instead of "
                         "running those tasks again to see it hold")
+    p.add_argument("--no-settle", dest="settle", action="store_false",
+                   help="run every run of the changed harness even once the runs left could no longer make "
+                        "it kept (by default it runs a round at a time and stops there)")
     p.add_argument("--holdout", type=int, default=0, metavar="N",
                    help="keep the last N tasks out of the evolution, and at the end test the harness it ends "
                         "with against the agent as it ships on them: does it help on tasks it never saw")
@@ -425,22 +428,23 @@ def run(args: argparse.Namespace) -> int:
                      check_timeout_s=args.check_timeout, on_done=progress.run_done, jobs=args.jobs)
     counted = arm
 
-    def arm(harness, label, only=None):  # noqa: F811 — the same arm, counted run by run for progress.json
-        progress.arm(label, harness.version, runs=None if only is None else len(only) * args.runs * len(specs),
-                     tasks=only)
-        return counted(harness, label, only=only)
+    def arm(harness, label, only=None, rounds=None):  # noqa: F811 — the same arm, counted run by run
+        if not rounds or rounds[0] == 1:  # a later round goes on counting the arm its first round began
+            progress.arm(label, harness.version, runs=None if only is None else len(only) * args.runs * len(specs),
+                         tasks=only)
+        return counted(harness, label, only=only, rounds=rounds)
     if args.hub:
         # every arm writes its own traces directory: stream each as it appears
         inner = arm
         streamers = []
 
-        def arm(harness, label, only=None):  # noqa: F811 — the same arm, streamed
+        def arm(harness, label, only=None, rounds=None):  # noqa: F811 — the same arm, streamed
             d = out / label / "traces"
             d.mkdir(parents=True, exist_ok=True)
             s = TraceStreamer(d, args.hub, token, interval=0.5).start()
             streamers.append(s)
             try:
-                return inner(harness, label, only=only)
+                return inner(harness, label, only=only, rounds=rounds)
             finally:
                 s.stop()
 
@@ -470,7 +474,7 @@ def run(args: argparse.Namespace) -> int:
                              patience=args.patience, check=visible_check([t["check"] for t in tasks]),
                              refuse_knobs=refuse, on_progress=said, on_generation=generation,
                              explore=getattr(args, "explore", True), confirm=getattr(args, "confirm", True),
-                             explore_first=first)
+                             explore_first=first, settle=getattr(args, "settle", True))
     except KeyboardInterrupt:
         progress.end("stopped")
         print("\ninterrupted: the ledger keeps every generation that finished", file=sys.stderr)

@@ -241,6 +241,14 @@ def _takes_only(run_arm) -> bool:
         return False
 
 
+def _takes_rounds(run_arm) -> bool:
+    import inspect
+    try:
+        return "rounds" in inspect.signature(run_arm).parameters
+    except (TypeError, ValueError):
+        return False
+
+
 def chance_text(p: Optional[float]) -> str:
     """A sign test's p as words: 'a change that did nothing would do this well 1 time in 8'."""
     if p is None:
@@ -368,6 +376,29 @@ def decide(base: list, cand: list) -> dict:
             "median_tokens": {"current": tok_a, "changed": tok_b}}
 
 
+def could_keep(base: list, cand: list, left: int) -> bool:
+    """Whether :func:`decide` could still keep the change once ``left`` more runs of every task have run
+    under it, whatever those runs do. Exact, over counts: each task's pass count under the change can end
+    anywhere from what it has now to that plus ``left``; the change can still be kept only if some choice
+    of those ends breaks no task and wins more tasks than it loses."""
+    a, b = _by_task(base), _by_task(cand)
+    best = 0
+    for t, (pa, na) in a.items():
+        pb, nb = b.get(t, (0, 0))
+        n = nb + left
+        if not n:
+            continue  # never run under the change: decide() leaves it out
+        # each end the task can reach, with the side of the current harness it lands on (+1 won, -1 lost)
+        reach = []
+        for end in range(pb, pb + left + 1):
+            if pa == na and end == 0:
+                continue  # broken: always passed before, never with the change. Any such end reverts
+            reach.append((end * na > pa * n) - (end * na < pa * n))
+        if not reach:
+            return False
+        best += max(reach)
+    return best > 0
+
 # ------------------------------------------------------------ the action
 def _views(runs: list) -> Tuple[list, dict]:
     views, wrong = [], {}
@@ -446,11 +477,31 @@ def _fresh(target: str) -> dict:
             "generations": [], "tried": {}, "evals": None, "eval_lineage": []}
 
 
+def _candidate_runs(run_arm, candidate: Harness, label: str, base: list, settle: bool) -> Tuple[list, Optional[dict]]:
+    """The changed harness's runs: the whole arm at once, or with ``settle`` round by round, as many rounds as
+    the current harness ran, until the rounds left could no longer save the change."""
+    per_task = _by_task(base)
+    planned = max((n for _, n in per_task.values()), default=0)
+    if not (settle and planned > 1 and _takes_rounds(run_arm)):
+        return list(run_arm(candidate, label)), None
+    runs = list(run_arm(candidate, label, rounds=(1, 1)))
+    # a round is one run of every task by every agent: as many runs a task as agents
+    each = max((n for _, n in _by_task(runs).values()), default=0) or 1
+    rounds = max(1, planned // each)
+    for k in range(1, rounds + 1):
+        if k > 1:
+            runs += list(run_arm(candidate, label, rounds=(k, 1)))
+        if k < rounds and not could_keep(base, runs, (rounds - k) * each):
+            return runs, {"after": k, "of": rounds, "skipped": (rounds - k) * each * len(per_task)}
+    return runs, None
+
+
 def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3, target: str = "failure",
                 ledger: Optional[dict] = None, patience: int = 2, check: str = "",
                 refuse_knobs: tuple = (), on_progress: Optional[Callable[[str], None]] = None,
                 on_generation: Optional[Callable[[dict], None]] = None, explore: bool = False,
-                confirm: bool = False, explore_first: Sequence[Tuple[str, str, str]] = ()) -> dict:
+                confirm: bool = False, explore_first: Sequence[Tuple[str, str, str]] = (),
+                settle: bool = False) -> dict:
     """Go round ``generations`` times. ``run_arm(harness, label)`` runs the
     agents under ``harness`` and returns their trajectories (each graded by
     its task's check); it is called once per arm. Returns the lineage, the
@@ -461,8 +512,14 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
     tries the next instruction of :data:`EXPLORE` instead of stopping.
     With ``confirm``, a change the counts would keep but whose sign test is
     weaker than :data:`CONFIRM_P` is run again, both arms, on the tasks it
-    moved, and decided on all the runs together: it stays only if it still
-    wins. ``run_arm`` must then take ``only=`` (the task ids to run)."""
+    moved: it stays only if those fresh runs alone show it winning again.
+    ``run_arm`` must then take ``only=`` (the task ids to run).
+    With ``settle``, the changed harness runs one round at a time (run 1 of
+    every task, then run 2, ...) and stops as soon as :func:`could_keep`
+    says no outcome of the rounds left could make it kept: a reverted arm's
+    runs are thrown away, so the ones it skips were waste, and the verdict is
+    the one the full arm would have reached. ``run_arm`` must then take
+    ``rounds=(first, count)``."""
     say = on_progress or (lambda s: None)
     state = json.loads(json.dumps(ledger)) if ledger else _fresh(target)
     if state.get("kind") != LEDGER_KIND:
@@ -544,8 +601,14 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
                 f"{chosen['eval'] or chosen['rule']}; testing: {remedy_text(remedy)}")
 
         # 4. test it, paired: same tasks, same number of runs
-        cand_runs = list(run_arm(candidate, f"{label}-h{candidate.version}"))
+        cand_runs, settled = _candidate_runs(run_arm, candidate, f"{label}-h{candidate.version}", trajs, settle)
         verdict = decide(trajs, cand_runs)
+        if settled:
+            verdict["settled"] = settled
+            verdict["why"] += (f"; settled after {settled['after']} of {settled['of']} round(s): no outcome of the "
+                               f"{settled['skipped']} run(s) left could have made it kept, so they were not run")
+            say(f"{label}: settled after {settled['after']} of {settled['of']} round(s), "
+                f"{settled['skipped']} run(s) not needed")
         if (confirm and verdict["verdict"] == "kept" and (verdict["p_value"] or 1) > CONFIRM_P
                 and _takes_only(run_arm)):
             # one or two tasks moved: a lucky run could be all it is. Run the tasks that moved again, both arms

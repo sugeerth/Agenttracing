@@ -128,6 +128,28 @@ Evolve has the same as a third way in, "On your repository's history".
   still count as a win. A change that does not hold is reverted, with
   the counts of both tests. `--no-confirm` keeps a change on its first
   test, as before.
+- **No run past the point it could matter.** The changed harness runs
+  a round at a time: run 1 of every task, then run 2. After each round
+  `selfevolve.could_keep` asks whether any outcome of the runs left could
+  still make the change kept. Each task's pass count can end anywhere
+  from what it has to that plus every run left passing. The change can
+  still be kept only if some choice of those ends breaks no task and wins
+  more tasks than it loses. If none can, the arm stops: the change is
+  reverted, as the full arm would have reverted it, and the card says
+  after how many rounds. It is exact over counts, not a statistical
+  early stop, so it can't change a verdict. It only stops a change that
+  can no longer be kept: a kept change's runs become the next
+  generation's, so those always run in full. `--no-settle` runs every
+  run.
+  - **Synthetic** (six tasks with per-task pass rates taken from the
+    recorded python-slugify arms; 300 draws each): it skipped 17% of a
+    harmful change's runs at 2 runs a task, 26% at 3 and 35% at 5, and
+    about 4–5% of a change that does nothing. The verdict matched the
+    full arm's in all 2,700.
+  - **Recorded:** replayed over the 8 real changes on disk (96 runs,
+    $1.51), it would have stopped none early. They were neutral or
+    helpful, and with 2 or 3 runs a task one round rarely leaves a change
+    out of reach.
 - **Tasks it never saw.** `--holdout N` keeps the last N tasks out of
   the evolution. At the end, the harness it ended with runs against the
   agent as it ships on them, paired and decided the same way: whether
