@@ -5,6 +5,69 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Tasks from history: a grader the work cannot talk round
+
+A `--from-git` task's grader now holds each run to the held-out tests
+that passed on the commit, by name. Before, an agent's `conftest.py`, a
+runner setting, or code that patches the test framework could skip or
+deselect the held-out tests, and a check that exited 0 counted as a pass.
+- `run_check.py` reads which tests passed (pytest `-rA`, unittest `-v`)
+  and fails a run that is missing any of them, naming them.
+- The default commands now print those names.
+- Each task records how many tests it is held to (`held_to`).
+
+Measured:
+- **Recorded:** re-grading all 176 recorded python-slugify runs changed
+  no verdict. 4 of them edited `tox.ini` or `pyproject.toml`, to register
+  a test file of their own, which the held grader allows.
+- **Tested:** work that makes every test skip itself passes unheld and
+  fails held.
+
+Prompted by 2026 work on agents gaming their graders
+(`docs/RESEARCH_LOG.md`).
+
+## Tasks from history: a grader must agree with itself
+
+`--from-git` now runs each task's held-out tests 3 times on the parent
+and 3 times on the commit (`--grader-checks N`), each on a fresh copy.
+It keeps a task only if they fail on the parent every time and pass on
+the commit every time. A flaky grader would pass or fail the agent's runs
+by chance, so it is left out, and the report says what it did. It costs
+test runs, never agent runs.
+- **Arithmetic:** a grader failing 3 runs in 10 gets through one check
+  70% of the time and three checks 34%.
+- **Measured on python-slugify:** the same 6 tasks at 1 check and at 5,
+  since none of its graders is flaky. The build took 14 s and 46 s.
+
+Prompted by 2026 work on mining tasks from repository history, which
+re-runs tests to filter flaky ones (`docs/RESEARCH_LOG.md`).
+
+## Self-evolve stops a change that can no longer be kept
+
+The changed harness now runs a round at a time (run 1 of every task,
+then run 2) and stops once no outcome of the rounds left could make the
+change kept (`selfevolve.could_keep`, `self_evolve(settle=True)`, on by
+default; `--no-settle` turns it off).
+- **Exact over counts.** It bounds each task's final pass count and
+  asks the paired rule itself, so it can't change a verdict. A test
+  checks it against `decide()` on every completion of 400 random cases.
+- **Only a lost cause stops.** A kept change's runs become the next
+  generation's, so they always run in full.
+- **On the card and the chart:** a settled verdict says "settled after
+  1 of 2 rounds" and how many runs it did not need.
+
+Measured:
+- **Synthetic** (pass rates from the recorded python-slugify arms): it
+  skips 17–35% of a harmful change's runs (2 to 5 runs a task), about 5%
+  of a do-nothing change's, and none of the verdicts change in 2,700
+  draws.
+- **Recorded:** over the 8 real changes on disk it would have saved
+  nothing. They were neutral or helpful.
+
+Prompted by 2026 work on when a partial evaluation already supports the
+full run's decision (`docs/RESEARCH_LOG.md`). Those studies estimate it
+with an error target; here the rule is exact.
+
 ## Exploration starts from what the project keeps
 
 When no eval names a change, the harness now first tries what the

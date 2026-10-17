@@ -179,6 +179,8 @@ def _verdicts(data: dict) -> Dict[str, dict]:
         said = t.get("verdict", "")
         if conf:
             said += " · held on re-run" if conf.get("held") else " · did not hold"
+        if t.get("settled"):
+            said += f" · settled after {t['settled']['after']} of {t['settled']['of']} rounds"
         rem = a.get("remedy") or {}
         out[g["generation"]] = {"what": rem.get("id") or "", "said": said,
                                 "cls": "kept" if t.get("verdict") == "kept" else "reverted",
@@ -319,11 +321,16 @@ def evolution_matrix(path: Path, data: dict, trace_ids: Optional[Dict[str, str]]
                 cells.append(f'<path class="down" d="M{mark_x} {y + 2} l4.5 7 l4.5 -7 z"><title>{e(task)}: passed '
                              f'less often with the change</title></path>')
         parts.append(f'<g class="row">{"".join(cells)}</g>')
-    svg = (f'<svg class="evm" viewBox="0 0 {width} {height}" width="{width}" height="{height}" role="img" '
-           f'aria-label="every run of every task, in every arm of every generation">{"".join(parts)}</svg>')
+    body = "".join(parts)
+    # with links inside it is a group a keyboard can enter, not an image: an image's contents are not reachable
+    linked = "<a " in body
+    svg = (f'<svg class="evm" viewBox="0 0 {width} {height}" width="{width}" height="{height}" '
+           f'role="{"group" if linked else "img"}" '
+           f'aria-label="every run of every task, in every arm of every generation">{body}</svg>')
     key = ('<div class="evmkey"><span><i class="p"></i>a run that passed its check</span>'
            '<span><i class="f"></i>failed</span><span><b class="u">▲</b>the change won the task</span>'
            '<span><b class="d">▼</b>lost it</span><span>bar: share of the arm\'s runs that passed</span>'
            '<span><b style="color:var(--accent)">▍</b>a task the change moved</span>'
-           '<span>shaded: the moved tasks, run again</span><span>each square opens its run</span></div>')
+           '<span>shaded: the moved tasks, run again</span>'
+           + ('<span>each square opens its run</span>' if linked else '') + '</div>')
     return f'<div class="evmwrap">{svg}</div>{key}'

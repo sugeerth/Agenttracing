@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from agentdiff.gittasks import build, candidates  # noqa: E402
+from agentdiff.gittasks import build, candidates, passed_ids  # noqa: E402
 
 TEST_HEAD = "import unittest\n\nfrom calc import add{more}\n\n\nclass CalcTest(unittest.TestCase):\n"
 
@@ -92,6 +92,63 @@ class GitTasksTest(unittest.TestCase):
             (work / "calc.py").write_text("def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n")
             self.assertEqual(subprocess.run(task["check"], shell=True, cwd=work, capture_output=True).returncode, 0)
 
+    def test_a_grader_that_does_not_agree_with_itself_is_flaky_and_left_out(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, count = Path(tmp) / "repo", Path(tmp) / "runs-on-the-commit"
+            make_repo(repo)
+            # on the commit, the held-out test passes its first run and fails every later one
+            flaky = (TEST_HEAD.format(more=", subtract") + "    def test_subtract(self):\n"
+                     "        import pathlib\n"
+                     f"        p = pathlib.Path({str(count)!r})\n"
+                     "        n = int(p.read_text()) if p.exists() else 0\n"
+                     "        p.write_text(str(n + 1))\n"
+                     "        self.assertEqual(subtract(5, 7), -2)\n"
+                     "        self.assertEqual(n, 0)\n")
+            _commit(repo, "Add subtract again, now with a test that remembers its runs", {
+                "calc.py": "def add(a, b):\n    return a + b\n",
+                "test_calc.py": TEST_HEAD.format(more="") + "    def test_add(self):\n        self.assertEqual(add(1, 1), 2)\n"})
+            _commit(repo, "Bring subtract back, which takes the second number from the first", {
+                "calc.py": "def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n",
+                "test_calc.py": flaky})
+            cmd = f"{sys.executable} -m unittest {{files}}"
+            once = build(repo, Path(tmp) / "once", want=1, python=sys.executable, test_cmd=cmd, checks=1)
+            self.assertEqual(len(once["kept"]), 1, "one look each: the flaky grader passes")
+            count.unlink()
+            thrice = build(repo, Path(tmp) / "thrice", want=1, python=sys.executable, test_cmd=cmd, checks=3)
+            why = {s["subject"]: s["why"] for s in thrice["skipped"]}
+            self.assertEqual(why["Bring subtract back, which takes the second number from the first"],
+                             "a flaky grader: on the commit its tests passed 1 time(s), then failed")
+            self.assertEqual([k["id"].split("-", 1)[1] for k in thrice["kept"]], ["add-subtract-which-takes-the"],
+                             "the next sound commit is taken instead")
+            self.assertEqual(thrice["kept"][0]["checked"], 3)
+
+    def test_a_run_that_skips_the_held_out_tests_does_not_pass(self):
+        """Work that makes the held-out tests skip themselves exits 0. Held to the tests the commit passed, it fails."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            make_repo(repo)
+            made = build(repo, Path(tmp) / "tasks", want=1, python=sys.executable)
+            task = made["kept"][0]
+            self.assertEqual(task["held_to"], 2, "test_add and test_subtract passed on the commit")
+            work = Path(tmp) / "tasks" / task["workspace"]
+
+            def graded(calc: str, held: bool = True):
+                run = Path(tmp) / "run"
+                shutil.rmtree(run, ignore_errors=True)
+                shutil.copytree(work, run)
+                (run / "calc.py").write_text(calc)
+                check = task["check"] if held else task["check"].replace(
+                    str(Path(tmp) / "tasks" / "expect" / f"{task['id']}.json"), "-")
+                return subprocess.run(check, shell=True, cwd=run, capture_output=True, text=True)
+            honest = "def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n"
+            self.assertEqual(graded(honest).returncode, 0)
+            sabotage = ("import unittest\nunittest.TestCase.setUp = lambda self: self.skipTest('not today')\n\n"
+                        "def add(a, b):\n    return 0\n\n\ndef subtract(a, b):\n    return 0\n")
+            self.assertEqual(graded(sabotage, held=False).returncode, 0, "unheld, every test skips and it exits 0")
+            done = graded(sabotage)
+            self.assertEqual(done.returncode, 1)
+            self.assertIn("held-out tests that passed on the commit did not pass here (2)", done.stdout)
+
     def test_the_command_says_when_no_commit_makes_a_task(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "repo"
@@ -104,6 +161,23 @@ class GitTasksTest(unittest.TestCase):
                                   env=dict(os.environ, PYTHONPATH=str(ROOT), AGENTDIFF_HOME=str(Path(tmp) / "home")))
             self.assertEqual(done.returncode, 2)
             self.assertIn("no commit made a sound task", done.stderr)
+
+
+class PassedIdsTest(unittest.TestCase):
+    def test_it_reads_the_tests_that_passed_from_pytest_and_unittest(self):
+        pytest_out = ("..s\n==== short test summary info ====\nPASSED tests/test_a.py::test_one\n"
+                      "PASSED tests/test_a.py::Case::test_two\nSKIPPED [1] tests/test_a.py:9: no\n"
+                      "FAILED tests/test_a.py::test_four - assert 1 == 2\n")
+        self.assertEqual(passed_ids(pytest_out), {"tests/test_a.py::test_one", "tests/test_a.py::Case::test_two"})
+        new = "test_add (test_calc.CalcTest.test_add) ... ok\ntest_sub (test_calc.CalcTest.test_sub) ... skipped 'x'\n"
+        old = "test_add (test_calc.CalcTest) ... ok\ntest_mul (test_calc.CalcTest) ... FAIL\n"
+        documented = "test_div (test_calc.CalcTest.test_div)\nDivides by two. ... ok\n"
+        self.assertEqual(passed_ids(new), {"test_calc.CalcTest.test_add"})
+        self.assertEqual(passed_ids(old), {"test_calc.CalcTest.test_add"}, "Python 3.10 names it the same way")
+        self.assertEqual(passed_ids(documented), {"test_calc.CalcTest.test_div"})
+        self.assertEqual(passed_ids("Ran 3 tests\nOK\n"), set())
+        coloured = "\x1b[32mPASSED\x1b[0m test_calc.py::\x1b[1mCalcTest::test_add\x1b[0m\n"
+        self.assertEqual(passed_ids(coloured), {"test_calc.py::CalcTest::test_add"}, "a terminal's colour codes")
 
 
 @unittest.skipIf(shutil.which("git") is None or os.name == "nt", "needs git, and the stand-in's shebang")

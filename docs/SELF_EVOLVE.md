@@ -103,6 +103,40 @@ commit itself (so it can be done, and the grader agrees with the change
 the project made). Every commit looked at is reported in
 `tasks-report.json`, taken or not, with why.
 
+A grader must also agree with itself. The tests run 3 times on the
+parent and 3 times on the commit (`--grader-checks N`), each run on a
+fresh copy. A task is kept only if they fail on the parent every time
+and pass on the commit every time. One that does not is a flaky grader:
+it would pass or fail the agent's runs by chance, and the evolution would
+learn from noise. It is left out, with what it did ("on the commit its
+tests passed 2 time(s), then failed"). It costs test runs only, never
+agent runs.
+- **Arithmetic:** a grader that fails 3 runs in 10 on the commit gets
+  through one check 70% of the time, three checks 34% and five 17%.
+- **Measured on python-slugify:** the same 6 tasks are kept at 1 check
+  and at 5, since none of its graders is flaky. Building them took 14 s
+  at 1 check and 46 s at 5.
+- **A grader the work cannot talk round.** The held-out tests are
+  copied in over the agent's work, but its work can still change how
+  they run. A `conftest.py`, a test-runner setting, or code that patches
+  the test framework can skip, deselect or swap them out, and the
+  command then exits 0. So when a task is made, the tests that pass on
+  the commit are written down by name (pytest `-rA`, unittest `-v`). A
+  run passes only if every one of them passes again, whatever the exit
+  code says, and the check names the ones that did not. Changing
+  configuration is not refused, only judged by the tests it lets run.
+  - **Recorded:** 4 of the 176 recorded python-slugify runs edited
+    `tox.ini` or `pyproject.toml`, to register a test file of their own.
+    Re-graded with the held grader, all 176 kept the verdict they were
+    recorded with.
+  - **Tested:** work whose code makes every test skip itself exits 0
+    unheld, and fails held, in a test.
+  - **Limit:** a `--test-cmd` whose output names no passing tests is not
+    held, and the task says so (`held_to` 0).
+- **The workspace holds no history.** It is the parent's tree from
+  `git archive`, with no `.git`, so the agent cannot read the fix from
+  the repository's own log.
+
 - Merges, commits with more than 12 files, and messages under 20
   characters are not used.
 - Tests run with pytest when it is installed for `--python`, else
@@ -128,6 +162,28 @@ Evolve has the same as a third way in, "On your repository's history".
   still count as a win. A change that does not hold is reverted, with
   the counts of both tests. `--no-confirm` keeps a change on its first
   test, as before.
+- **No run past the point it could matter.** The changed harness runs
+  a round at a time: run 1 of every task, then run 2. After each round
+  `selfevolve.could_keep` asks whether any outcome of the runs left could
+  still make the change kept. Each task's pass count can end anywhere
+  from what it has to that plus every run left passing. The change can
+  still be kept only if some choice of those ends breaks no task and wins
+  more tasks than it loses. If none can, the arm stops: the change is
+  reverted, as the full arm would have reverted it, and the card says
+  after how many rounds. It is exact over counts, not a statistical
+  early stop, so it can't change a verdict. It only stops a change that
+  can no longer be kept: a kept change's runs become the next
+  generation's, so those always run in full. `--no-settle` runs every
+  run.
+  - **Synthetic** (six tasks with per-task pass rates taken from the
+    recorded python-slugify arms; 300 draws each): it skipped 17% of a
+    harmful change's runs at 2 runs a task, 26% at 3 and 35% at 5, and
+    about 4–5% of a change that does nothing. The verdict matched the
+    full arm's in all 2,700.
+  - **Recorded:** replayed over the 8 real changes on disk (96 runs,
+    $1.51), it would have stopped none early. They were neutral or
+    helpful, and with 2 or 3 runs a task one round rarely leaves a change
+    out of reach.
 - **Tasks it never saw.** `--holdout N` keeps the last N tasks out of
   the evolution. At the end, the harness it ended with runs against the
   agent as it ships on them, paired and decided the same way: whether
