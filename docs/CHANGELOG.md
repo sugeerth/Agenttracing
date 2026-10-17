@@ -5,6 +5,27 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Tasks from history: a grader the work cannot talk round
+
+A `--from-git` task's grader now holds each run to the held-out tests
+that passed on the commit, by name. Before, an agent's `conftest.py`, a
+runner setting, or code that patches the test framework could skip or
+deselect the held-out tests, and a check that exited 0 counted as a pass.
+- `run_check.py` reads which tests passed (pytest `-rA`, unittest `-v`)
+  and fails a run that is missing any of them, naming them.
+- The default commands now print those names.
+- Each task records how many tests it is held to (`held_to`).
+
+Measured:
+- **Recorded:** re-grading all 176 recorded python-slugify runs changed
+  no verdict. 4 of them edited `tox.ini` or `pyproject.toml`, to register
+  a test file of their own, which the held grader allows.
+- **Tested:** work that makes every test skip itself passes unheld and
+  fails held.
+
+Prompted by 2026 work on agents gaming their graders
+(`docs/RESEARCH_LOG.md`).
+
 ## Tasks from history: a grader must agree with itself
 
 `--from-git` now runs each task's held-out tests 3 times on the parent

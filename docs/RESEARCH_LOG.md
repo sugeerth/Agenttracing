@@ -4,6 +4,63 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-10-17
+
+**How it was read.** Through search-engine extracts, since arXiv and its
+mirrors could not be reached.
+
+**Read:**
+- *Computer Use at the Edge of the Statistical Precipice* (D'Oro et al.,
+  arXiv 2605.08261, a NeurIPS 2026 oral). It pairs Wilson intervals with
+  a hierarchical bootstrap so intervals respect a benchmark's nesting.
+  Per a talk summary, 95% intervals covered 17% from rollouts alone and
+  about 95% once the scenario hierarchy was included. It also finds that
+  a replay script that ignores the screen beats frontier agents on
+  static benchmarks. https://arxiv.org/abs/2605.08261
+- *RRSI: Regularized Recursive Self-Improvement of Agent Harnesses*
+  (arXiv 2609.24972), *Hierarchical Self-Improvement* (arXiv 2608.08466)
+  and *Gated Semantic Quality-Diversity* (arXiv 2607.13683). Harness
+  gains on the evolution split shrink or vanish on held-out environments;
+  they argue for a sealed test set scored only after evolution.
+  https://arxiv.org/abs/2609.24972
+- *Auditing Harness Tampering in Self-Improving Agents* (arXiv
+  2609.00069). A loop that can rewrite its own harness can tamper with
+  what evaluates it.
+- *ReliabilityBench* (arXiv 2601.06112) and pass^k reliability.
+- Grader gaming: *SpecBench* (arXiv 2605.21384), *BaitBench* (arXiv
+  2608.30724), *Hack-Verifiable Terminal Bench* (arXiv 2608.22103) and
+  *Do Coding Agents Deceive Us?* (arXiv 2606.07379).
+
+**Taken: a grader the work cannot talk round.** The tampering and gaming
+work points at a hole in `--from-git`. The held-out tests are copied in
+over the agent's work, but the work decides how they run: a
+`conftest.py`, a runner setting, or code that patches the test framework
+can skip or deselect them, and a check that exits 0 counted as a pass.
+- Built: the grader writes down, by name, the tests that pass on the
+  commit, and a run passes only if all of them pass again.
+- Measured: re-grading 176 recorded python-slugify runs changed no
+  verdict. 4 runs had edited `tox.ini` or `pyproject.toml` to register a
+  test file of their own, and they are still judged by the held tests.
+- Tested: work that makes every test skip itself passes unheld and fails
+  held.
+
+**Not taken, and why:**
+- **Hierarchical bootstrap intervals** (D'Oro et al.). AgentDiff's
+  verdicts are counts with a sign test reported beside them, never
+  intervals, and its tasks are not nested in scenarios. Revisit if a
+  task set ever groups tasks (for example, several commits from one
+  file).
+- **A sealed test set scored only after evolution** (Gated QD). Already
+  `--holdout N`.
+- **Regularising the harness** (RRSI). AgentDiff's harness changes one
+  bounded knob a generation and keeps it only on a paired win, so there
+  is little to regularise. A test that drops each kept instruction again,
+  to see whether it still earns its place, is a candidate for a later
+  run.
+- **Harness tampering by the loop itself.** By design the loop can
+  change only instructions, denied tools and a turn cap, never its
+  grader or its records.
+
 ## 2026-10-16, second run
 
 **How it was read.** As in the first run: through search-engine

@@ -116,6 +116,23 @@ agent runs.
 - **Measured on python-slugify:** the same 6 tasks are kept at 1 check
   and at 5, since none of its graders is flaky. Building them took 14 s
   at 1 check and 46 s at 5.
+- **A grader the work cannot talk round.** The held-out tests are
+  copied in over the agent's work, but its work can still change how
+  they run. A `conftest.py`, a test-runner setting, or code that patches
+  the test framework can skip, deselect or swap them out, and the
+  command then exits 0. So when a task is made, the tests that pass on
+  the commit are written down by name (pytest `-rA`, unittest `-v`). A
+  run passes only if every one of them passes again, whatever the exit
+  code says, and the check names the ones that did not. Changing
+  configuration is not refused, only judged by the tests it lets run.
+  - **Recorded:** 4 of the 176 recorded python-slugify runs edited
+    `tox.ini` or `pyproject.toml`, to register a test file of their own.
+    Re-graded with the held grader, all 176 kept the verdict they were
+    recorded with.
+  - **Tested:** work whose code makes every test skip itself exits 0
+    unheld, and fails held, in a test.
+  - **Limit:** a `--test-cmd` whose output names no passing tests is not
+    held, and the task says so (`held_to` 0).
 - **The workspace holds no history.** It is the parent's tree from
   `git archive`, with no `.git`, so the agent cannot read the fix from
   the repository's own log.
