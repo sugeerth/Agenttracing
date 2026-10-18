@@ -184,6 +184,24 @@ Evolve has the same as a third way in, "On your repository's history".
     $1.51), it would have stopped none early. They were neutral or
     helpful, and with 2 or 3 runs a task one round rarely leaves a change
     out of reach.
+- **Every kept change, tested again.** A change is kept on one paired
+  test, and a later change can make it redundant, so nothing kept is
+  ever questioned again. `--prune` puts each one through the same test
+  again when the evolution ends, newest first: the harness it ended
+  with, against that harness without the change. The change stays only
+  if the rule that kept it would keep it now. A dropped change is not
+  tried again, and the smaller harness is what the next one is tested
+  against. It runs before `--holdout`, so the held-out test is of the
+  harness that ships. It costs one arm per kept change, plus one.
+  `--generations 0 --prune` prunes a run that already finished.
+  - **Recorded:** the python-slugify evolution that kept "read
+    `AGENTS.md`" and then the edge-case instruction, re-tested with 36
+    real runs ($0.73). The edge-case instruction stays: 6/12 passed
+    without it and 9/12 with it, winning 3 tasks and losing none (1 in 8
+    by chance). Reading `AGENTS.md` is dropped: on top of the edge-case
+    instruction it passed 9/12 with and without, winning one task and
+    losing one. It had been kept on one task that moved. One evolution
+    is one case, not a rate.
 - **Tasks it never saw.** `--holdout N` keeps the last N tasks out of
   the evolution. At the end, the harness it ended with runs against the
   agent as it ships on them, paired and decided the same way: whether

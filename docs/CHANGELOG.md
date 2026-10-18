@@ -5,6 +5,31 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Self-evolve: every kept change, tested again (--prune)
+
+A change was kept on one paired test and never questioned again, even
+when a later change made it redundant. `--prune` (`selfevolve.prune`)
+tests each kept change again when the evolution ends, newest first:
+- the harness it ended with runs against that harness without the
+  change;
+- the change stays only if `decide()` would keep it now;
+- a dropped change is not tried again, and the smaller harness is what
+  the next change is tested against.
+
+It runs before `--holdout`. `--generations 0 --prune` prunes a finished
+run, and the card says what each re-test found.
+
+Measured on the recorded python-slugify evolution, with 36 real runs
+($0.73):
+- **The edge-case instruction stays:** 6/12 → 9/12, winning 3 tasks and
+  losing none.
+- **"Read `AGENTS.md`" is dropped:** 9/12 with and without it, one task
+  won and one lost.
+
+Prompted by 2026 work showing that self-evolving agents accumulate
+instructions and that harness gains shrink on held-out tasks
+(`docs/RESEARCH_LOG.md`).
+
 ## Tasks from history: a grader the work cannot talk round
 
 A `--from-git` task's grader now holds each run to the held-out tests

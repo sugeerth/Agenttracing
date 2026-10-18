@@ -4,6 +4,59 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-10-18
+
+**How it was read.** Through search-engine extracts, since arXiv and its
+mirrors could not be reached.
+
+**Read:**
+- *Rethinking the Evaluation of Harness Evolution for Agents* (Wang et
+  al., arXiv 2607.12227, v4 of 5 October 2026). On Terminal-Bench 2.1,
+  harness evolution does not consistently beat parallel sampling or
+  sequential refinement under matched budgets, and gains are marginal
+  once search and evaluation tasks are separated. It calls for
+  budget-matched baselines. https://arxiv.org/abs/2607.12227
+- *SkillZip* (arXiv 2608.11079): self-evolving agents grow their skills
+  append-only. It compresses them without evaluation runs, by stating
+  repeated rules once. https://arxiv.org/abs/2608.11079
+- Practitioner instruction-ablation protocols for `CLAUDE.md` and
+  `AGENTS.md`: cut, then restore only what the agent repeatedly needs.
+  These are anecdotal.
+- *Self-Evolving Agent Harness* (arXiv 2610.18813, a 66-page survey of
+  harness self-improvement), *Evo²* (arXiv 2610.13025), *DarwinX* (arXiv
+  2608.07545), and *Self-Evolving Harness on Multiple Tasks with the Agent
+  as Its Own Optimizer* (arXiv 2609.38372).
+
+**Taken: every kept change, tested again** (prompted by SkillZip's
+accumulation, the ablation protocols, and the 2026-10-17 entry's
+candidate from RRSI). A change was kept on one paired test and never
+questioned again, though a later change could make it redundant.
+- Built: `selfevolve.prune` and `--prune`. It tests each kept change,
+  newest first, by the rule that kept it, against the harness without
+  it, and drops it if it no longer wins. `--generations 0 --prune`
+  prunes a finished run, and the card shows each re-test.
+- Tested with a stand-in where one instruction helps and one changes
+  nothing: the second is dropped and the first stays.
+- Measured on the recorded python-slugify evolution (36 real runs,
+  $0.73):
+  - the edge-case instruction stays, 6/12 → 9/12, winning 3 tasks and
+    losing none;
+  - "read `AGENTS.md`" is dropped, 9/12 with and without, one task won
+    and one lost.
+  It had been kept on one task that moved. One evolution is one case.
+
+**Not taken, and why:**
+- **Budget-matched baselines** (Wang et al.). A fair one for AgentDiff
+  is the agent as it ships, given as many extra runs as the evolution
+  spent, best by the task's own check. For a `--from-git` task the only
+  check is the held-out grader, and picking by it would be choosing with
+  the answer key. Revisit if tasks ever carry a visible check of their
+  own.
+- **Compressing instructions without evaluation** (SkillZip). AgentDiff
+  keeps a handful of short instructions, each kept or dropped only on
+  paired runs. Rewriting them without a run would change a harness on
+  no evidence.
+
 ## 2026-10-17
 
 **How it was read.** Through search-engine extracts, since arXiv and its
