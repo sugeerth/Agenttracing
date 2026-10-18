@@ -334,6 +334,21 @@ def holdout_line(data: dict) -> str:
             f'{e(h.get("says") or "")}</span> · {e(nums)}{_odds(t.get("p_value"))}</div>')
 
 
+def prune_line(data: dict) -> str:
+    """Whether each change it kept still earned its place when tested again against the harness it ended with."""
+    p = data.get("prune") or {}
+    if not p.get("tested"):
+        return ""
+    bits = []
+    for t in p["tested"]:
+        v = t.get("test") or {}
+        pc, pn = (v.get("passed") or {}).get("current"), (v.get("passed") or {}).get("changed")
+        nums = f" ({pc[0]}/{pc[1]} without, {pn[0]}/{pn[1]} with)" if pc and pn else ""
+        bits.append(f'<span class="{"ok" if t.get("stays") else "mut"}">{e(t["remedy"]["id"])} '
+                    f'{"stays" if t.get("stays") else "dropped"}</span>{e(nums)}')
+    return f'<div class="hold"><b>Tested again</b>: {e(p.get("says") or "")} · {" · ".join(bits)}</div>'
+
+
 def _odds(p) -> str:
     """A kept change's sign test, short: ' · 1 in 8 by chance'. Nothing when no task moved."""
     if p is None:
@@ -448,7 +463,7 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, ado
         pill = ""  # still going: the strip says where it is, not how it ended
     use = adopt_form(entry, adopt_csrf) if adopt_csrf and harness.get("version") and not live else ""
     return (f'<div class="ecard"><div class="ehead">{name}{pill}</div>{live}'
-            f'{stats}<div class="gstrip">{"".join(steps)}</div>{runs}{ends_html}{holdout_line(data)}{use}'
+            f'{stats}<div class="gstrip">{"".join(steps)}</div>{runs}{ends_html}{prune_line(data)}{holdout_line(data)}{use}'
             + (f'<a class="more" href="{href}">Every change and its evidence →</a>' if link else "") + '</div>')
 
 

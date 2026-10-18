@@ -56,6 +56,10 @@ def register(subparsers) -> None:
     p.add_argument("--no-settle", dest="settle", action="store_false",
                    help="run every run of the changed harness even once the runs left could no longer make "
                         "it kept (by default it runs a round at a time and stops there)")
+    p.add_argument("--prune", action="store_true",
+                   help="when it ends, test each kept change again against the harness without it, newest first, "
+                        "and drop one that no longer wins (one more arm per kept change; with --generations 0, "
+                        "prunes a run that already finished)")
     p.add_argument("--holdout", type=int, default=0, metavar="N",
                    help="keep the last N tasks out of the evolution, and at the end test the harness it ends "
                         "with against the agent as it ships on them: does it help on tasks it never saw")
@@ -486,6 +490,17 @@ def run(args: argparse.Namespace) -> int:
     except Exception as exc:
         progress.end("failed", str(exc))
         raise
+    if getattr(args, "prune", False):
+        from ..selfevolve import prune
+        try:
+            result = prune(arm, result, on_progress=said)
+        except KeyboardInterrupt:
+            progress.end("stopped")
+            print("\ninterrupted while pruning: the evolution is kept as it ended", file=sys.stderr)
+            write_ledger(ledger_path, result["ledger"])
+            _write_result(out, result)
+            return 130
+        said(f"prune: {result['prune']['says']}")
     if held:
         try:
             result["holdout"] = _holdout(held, specs, out, result, args, progress, said)

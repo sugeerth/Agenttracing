@@ -47,7 +47,7 @@ from .evolving import _narrative as evals_narrative, evolve as evolve_evals
 from .forge import RunView, _score, _unique_keys, candidates, describe, parse_rule, rule_id, spec
 from .trace import Trajectory
 
-__all__ = ["CONFIRM_P", "GUIDES", "project_knowledge", "DEMO_TASKS", "DEMO_HARD", "DEMOS", "EXPLORE", "Harness", "explore_remedy", "sign_test", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "LEDGER_KIND", "ESSENTIAL_TOOLS",
+__all__ = ["CONFIRM_P", "GUIDES", "project_knowledge", "DEMO_TASKS", "DEMO_HARD", "DEMOS", "EXPLORE", "Harness", "explore_remedy", "sign_test", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "prune", "could_keep", "LEDGER_KIND", "ESSENTIAL_TOOLS",
            "load_ledger", "write_ledger", "visible_check"]
 
 LEDGER_KIND = "self-evolving"
@@ -656,6 +656,52 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
                                                          running=True), default=str)))
     state["harness"] = asdict(harness)
     return _result(state, harness, stop, evals_out, target)
+
+
+def prune(run_arm: Callable[[Harness, str], list], result: dict,
+          on_progress: Optional[Callable[[str], None]] = None) -> dict:
+    """Each change the evolution kept, tested again against the harness it ended with: newest first, the harness
+    without it runs against the harness with it, and the change stays only if :func:`decide` would keep it now,
+    by the same rule that kept it. A change kept on one task that moved, or made redundant by a later one, no
+    longer wins and is dropped; the smaller harness is then what the next change is tested against.
+    Returns ``result`` with the harness it leaves and, under ``prune``, every test made."""
+    say = on_progress or (lambda s: None)
+    kept = [g["action"]["remedy"] for g in result.get("lineage") or []
+            if ((g.get("action") or {}).get("test") or {}).get("verdict") == "kept"]
+    out = dict(result)
+    if not kept:
+        out["prune"] = {"tested": [], "dropped": [], "says": "nothing was kept, so nothing to prune"}
+        return out
+    final = Harness.from_dict(result["harness"])
+    say(f"prune: testing each of the {len(kept)} kept change(s) again, newest first, against {final.describe()}")
+    with_runs = list(run_arm(final, f"prune-h{final.version}"))
+    current, ref, tested, version = list(kept), final, [], final.version
+    for remedy in reversed(kept):
+        rest = [r for r in current if r["id"] != remedy["id"]]
+        without = Harness()
+        for r in rest:
+            without = without.with_remedy(r)
+        version += 1
+        without.version = version
+        runs = list(run_arm(without, f"prune-h{version}"))
+        test = decide(runs, with_runs)  # the change is the "changed" arm: what removing it would lose
+        stays = test["verdict"] == "kept"
+        tested.append({"remedy": remedy, "stays": stays, "test": test, "without": asdict(without)})
+        say(f"prune: {remedy['id']} {'stays' if stays else 'is dropped'}: with it {test['why']} "
+            f"(passed {test['passed']['current'][0]}/{test['passed']['current'][1]} without it, "
+            f"{test['passed']['changed'][0]}/{test['passed']['changed'][1]} with it; {test['chance']})")
+        if not stays:
+            current, ref, with_runs = rest, without, runs
+    dropped = [t["remedy"]["id"] for t in tested if not t["stays"]]
+    out["harness"] = asdict(ref)
+    out["prune"] = {"tested": tested, "dropped": dropped, "before": asdict(final),
+                    "says": (f"{len(dropped)} of {len(kept)} kept change(s) no longer earned their place"
+                             if dropped else f"every one of the {len(kept)} kept change(s) still earns its place")}
+    if out.get("ledger"):
+        # a dropped change is not tried again: it was, and it no longer earned its place
+        tried = dict(out["ledger"].get("tried") or {}, **{d: "pruned" for d in dropped})
+        out["ledger"] = dict(out["ledger"], harness=asdict(ref), tried=tried)
+    return out
 
 
 def _result(state: dict, harness: Harness, stop: str, evals_out: dict, target: str, *, running: bool = False) -> dict:
