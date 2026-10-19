@@ -334,6 +334,22 @@ def holdout_line(data: dict) -> str:
             f'{e(h.get("says") or "")}</span> · {e(nums)}{_odds(t.get("p_value"))}</div>')
 
 
+def signal_line(data: dict) -> str:
+    """Per generation, how many tasks could tell a change apart: those that passed some runs and failed others."""
+    bits = []
+    for g in data.get("lineage") or []:
+        sig = g.get("signal")
+        if not sig or not g.get("failed"):
+            continue
+        n = sum(len(v) for v in sig.values())
+        bits.append(f'{e(g["generation"])} {len(sig["mixed"])}/{n}')
+    if not bits:
+        return ""
+    return ('<div class="hold" title="a task that always passed can only be broken by a change, and one that always '
+            'failed can only be won"><b>Tasks that could tell a change apart</b> (passed some runs, failed others): '
+            + " · ".join(bits) + '</div>')
+
+
 def prune_line(data: dict) -> str:
     """Whether each change it kept still earned its place when tested again against the harness it ended with."""
     p = data.get("prune") or {}
@@ -463,7 +479,7 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, ado
         pill = ""  # still going: the strip says where it is, not how it ended
     use = adopt_form(entry, adopt_csrf) if adopt_csrf and harness.get("version") and not live else ""
     return (f'<div class="ecard"><div class="ehead">{name}{pill}</div>{live}'
-            f'{stats}<div class="gstrip">{"".join(steps)}</div>{runs}{ends_html}{prune_line(data)}{holdout_line(data)}{use}'
+            f'{stats}<div class="gstrip">{"".join(steps)}</div>{runs}{ends_html}{signal_line(data)}{prune_line(data)}{holdout_line(data)}{use}'
             + (f'<a class="more" href="{href}">Every change and its evidence →</a>' if link else "") + '</div>')
 
 

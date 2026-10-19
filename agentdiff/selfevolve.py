@@ -47,7 +47,7 @@ from .evolving import _narrative as evals_narrative, evolve as evolve_evals
 from .forge import RunView, _score, _unique_keys, candidates, describe, parse_rule, rule_id, spec
 from .trace import Trajectory
 
-__all__ = ["CONFIRM_P", "GUIDES", "project_knowledge", "DEMO_TASKS", "DEMO_HARD", "DEMOS", "EXPLORE", "Harness", "explore_remedy", "sign_test", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "prune", "could_keep", "LEDGER_KIND", "ESSENTIAL_TOOLS",
+__all__ = ["CONFIRM_P", "GUIDES", "project_knowledge", "DEMO_TASKS", "DEMO_HARD", "DEMOS", "EXPLORE", "Harness", "explore_remedy", "sign_test", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "prune", "could_keep", "task_signal", "LEDGER_KIND", "ESSENTIAL_TOOLS",
            "load_ledger", "write_ledger", "visible_check"]
 
 LEDGER_KIND = "self-evolving"
@@ -376,6 +376,25 @@ def decide(base: list, cand: list) -> dict:
             "median_tokens": {"current": tok_a, "changed": tok_b}}
 
 
+def task_signal(runs: list) -> dict:
+    """Which tasks of an arm can tell a change apart. A task that passed some runs and failed others is where a
+    change can be seen to win or lose. One that always passed can only be broken, and one that always failed can
+    only be won, by a change that makes the difference every run. A paired test's evidence comes mostly from
+    the first kind."""
+    out: Dict[str, List[str]] = {"mixed": [], "always_passed": [], "always_failed": []}
+    for task, (passed, n) in sorted(_by_task(runs).items()):
+        out["mixed" if 0 < passed < n else "always_passed" if passed == n else "always_failed"].append(task)
+    return out
+
+
+def signal_text(sig: dict, version: int) -> str:
+    """One line: how many of the tasks can tell a change apart under the harness that ran them."""
+    n = sum(len(v) for v in sig.values())
+    return (f"of {n} task(s), {len(sig['mixed'])} passed some runs and failed others under v{version}; "
+            f"{len(sig['always_passed'])} always passed (a change can only break them) and "
+            f"{len(sig['always_failed'])} always failed (a change can only win them)")
+
+
 def could_keep(base: list, cand: list, left: int) -> bool:
     """Whether :func:`decide` could still keep the change once ``left`` more runs of every task have run
     under it, whatever those runs do. Exact, over counts: each task's pass count under the change can end
@@ -552,7 +571,10 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
                 # the loop closed: the change this eval was born from is why it went quiet
                 e["reason"] += f"; harness v{harness.version} prevents it"
         record = {"generation": label, "harness": asdict(harness), "runs": len(graded), "failed": len(failed),
-                  "evals": {k: egen.get(k) for k in ("arrived", "forward", "retired", "born", "reborn", "verdicts")}}
+                  "evals": {k: egen.get(k) for k in ("arrived", "forward", "retired", "born", "reborn", "verdicts")},
+                  "signal": task_signal(graded)}
+        if failed:
+            say(f"{label}: {signal_text(record['signal'], harness.version)}")
         if not graded:
             record["action"] = None
             state["generations"].append(record)

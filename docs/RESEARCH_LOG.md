@@ -4,6 +4,58 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-10-19
+
+**How it was read.** Through search-engine extracts, since arXiv and its
+mirrors could not be reached.
+
+**Read:**
+- *Efficient Benchmarking of AI Agents* (arXiv 2603.23749). Evaluating
+  new agents only on tasks with intermediate historical pass rates
+  (30–70%) cuts tasks by 44–70% and keeps rankings, as IRT's Fisher
+  information is largest near a pass probability of one half.
+  https://arxiv.org/abs/2603.23749
+- *Efficient SWE Agent Benchmarking via Trajectory-Aware Evaluation*
+  (PTA-IRT, arXiv 2609.01603). It adds trajectory signals to a
+  four-parameter IRT model and picks tasks by expected Fisher
+  information; it reports a 10% task budget recovering full rankings.
+  https://arxiv.org/abs/2609.01603
+- *Efficient Safety Benchmarking via Item Response Theory* (arXiv
+  2606.20626) and *Beyond Outcomes* (arXiv 2609.18909).
+- Harness-design studies: *An Empirical Study of Harness Design for
+  Coding Agents* (arXiv 2609.20804, planning helps weaker models and
+  mostly saves cost for stronger ones), *The Scaffold Effect* (arXiv
+  2607.22585), *Same Model, Different Harness* (arXiv 2608.26218), and
+  *Harness or Model?* (arXiv 2609.11987). *Agentic Harness Engineering*
+  (arXiv 2604.25850) found the system prompt the least transferable
+  component.
+
+**Taken: report which tasks can tell a change apart.** The benchmarking
+work puts the signal in tasks with intermediate pass rates. In a paired
+harness test, those are the tasks that passed some runs and failed
+others under the current harness.
+- Built: `selfevolve.task_signal`. Each generation records and says its
+  mixed, always-passed and always-failed tasks, and the card counts them.
+- Measured over the 9 generations of recorded real evolutions:
+  - 24% of tasks were mixed, 61% always passed and 15% always failed;
+  - of 18 task moves by tested changes, 8 were on mixed tasks, 6 won an
+    always-failing task, and 4 lost an always-passing one;
+  - the six-task demo had no mixed task, and learned nothing.
+
+**Not taken, and why:**
+- **Running only the informative tasks** (the 30–70% filter, IRT
+  selection). AgentDiff keeps a change only if it breaks no task, and a
+  task that always passes is exactly where a break shows. Dropping those
+  tasks would save runs by no longer looking for breaks. The settling
+  rule of 2026-10-16 already stops a changed arm that cannot win.
+- **Trajectory-aware IRT** (PTA-IRT). It needs an IRT model fitted over
+  many agents and tasks; one evolution has one agent and a handful of
+  tasks.
+- **Warning that an evolved prompt may not transfer to another model**
+  (Agentic Harness Engineering). A warning at `--adopt` time would need
+  to know which model the user runs in Claude Code, which `--adopt`
+  cannot see. Left for when it can.
+
 ## 2026-10-18
 
 **How it was read.** Through search-engine extracts, since arXiv and its

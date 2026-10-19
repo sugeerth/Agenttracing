@@ -5,6 +5,26 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Self-evolve: which tasks can tell a change apart
+
+Each generation now records and says which of its tasks passed some
+runs and failed others under the harness it ran (`signal` in the
+lineage). Those are where a change can be seen to win or lose. The card
+counts them per generation. A task that always passed can only be
+broken, and one that always failed can only be won. Tasks are never
+dropped for it, since an always-passing task is where a break shows.
+
+Measured over the 9 generations of recorded real evolutions on disk:
+- **Task kinds:** 24% of tasks were mixed, 61% always passed and 15%
+  always failed.
+- **Moves:** of the 18 times a tested change moved a task, 8 were on
+  mixed tasks, 6 won a task that always failed, and 4 lost one that
+  always passed.
+
+Prompted by 2026 work on efficient agent benchmarking, which finds that
+the signal sits in tasks with intermediate pass rates
+(`docs/RESEARCH_LOG.md`).
+
 ## Self-evolve: every kept change, tested again (--prune)
 
 A change was kept on one paired test and never questioned again, even

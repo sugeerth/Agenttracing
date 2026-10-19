@@ -184,6 +184,22 @@ Evolve has the same as a third way in, "On your repository's history".
     $1.51), it would have stopped none early. They were neutral or
     helpful, and with 2 or 3 runs a task one round rarely leaves a change
     out of reach.
+- **Which tasks can tell a change apart.** Each generation records and
+  says which tasks passed some runs and failed others under the harness
+  it ran (`selfevolve.task_signal`, `signal` in `self-evolve.json`). A
+  task that always passed can only be broken by a change, and one that
+  always failed can only be won by a change that fixes it every run.
+  Most of a paired test's evidence sits in the first kind. The card
+  counts them per generation. When few tasks are mixed, an evolution has
+  little to learn from, and more tasks or more runs a task will help
+  more than more generations. It is reported, never used to drop a task:
+  a task that always passes is where a change that breaks things shows.
+  - **Recorded**, over the 9 generations of real evolutions on disk (54
+    task-generations): 13 tasks (24%) were mixed, 33 (61%) always passed
+    and 8 (15%) always failed. Of the 18 times a tested change moved a
+    task, 8 were on mixed tasks, 6 won a task that always failed, and 4
+    lost one that always passed. The six-task demo run had no mixed task,
+    which is why it learned nothing.
 - **Every kept change, tested again.** A change is kept on one paired
   test, and a later change can make it redundant, so nothing kept is
   ever questioned again. `--prune` puts each one through the same test
