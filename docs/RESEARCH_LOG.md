@@ -4,6 +4,52 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-10-20
+
+**How it was read.** Through search-engine extracts, the specification
+included, since arXiv and its mirrors could not be reached.
+
+**Read:**
+- The OpenTelemetry GenAI semantic conventions for agent spans, now in
+  their own repository (`open-telemetry/semantic-conventions-genai`,
+  `gen-ai-agent-spans.md`), with secondary guides. `invoke_agent` and
+  `execute_tool` are operations still at Development stability. The
+  run is an `invoke_agent` span named `invoke_agent {gen_ai.agent.name}`,
+  with `chat` and tool spans beneath it. An `execute_tool` span requires
+  `gen_ai.operation.name` and `gen_ai.tool.name`, and `error.type` when
+  it fails. Content (prompts, tool arguments and results) is opt-in.
+  https://github.com/open-telemetry/semantic-conventions-genai
+- *RRSI* (arXiv 2609.24972), on token cost as a second objective of
+  harness search. Per a secondary write-up, unregularised loops spent
+  3.8M tokens a trial against 1.56M for the baseline. Also Martin
+  Fowler's *Are Harnesses Worth the Cost?* and *Cost-Utility Alignment
+  in LLM Agent Trajectories* (arXiv 2608.26195; only its references were
+  returned).
+
+**Taken: OpenTelemetry both ways.** AgentDiff read GenAI spans, but only
+in a simplified container, not the standard OTLP/JSON a collector
+writes. Nothing it recorded (agent runs, traced Claude Code sessions,
+self-evolve arms) could go out to an OpenTelemetry backend.
+- Built: `agentdiff/otlp_export.py` and `convert --to otel [--content]`.
+  The run is an `invoke_agent` span, the steps are `execute_tool`,
+  `retrieve`, `search` or `chat` spans, failures carry an error status,
+  content is opt-in, and AgentDiff's extras sit under `agentdiff.*`.
+  `adapters.from_otlp` reads standard `resourceSpans`.
+- Measured: 1,141 traces and 35,009 steps round-tripped with content
+  came back exact in every field compared, text included. Two importer
+  gaps found on the way (whitespace stripped, empty input replaced by
+  the span name) are fixed for AgentDiff's own spans.
+
+**Not taken, and why:**
+- **Token cost as a second objective for keeping a change** (RRSI). A
+  rule that trades tokens against tasks needs a rate of exchange, and
+  any default would be a number made up here. The card already shows
+  each change's median-token change beside its verdict. A user-set
+  threshold (`--max-token-growth`) is a candidate if one is asked for.
+- **Sending spans to a collector.** That is network code, which belongs
+  only under `agentdiff/harness/`. The file is enough for a collector's
+  file receiver or any OTLP/JSON upload.
+
 ## 2026-10-19
 
 **How it was read.** Through search-engine extracts, since arXiv and its

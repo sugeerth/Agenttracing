@@ -5,6 +5,29 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## OpenTelemetry both ways
+
+`agentdiff convert --to otel` writes any trace as OTLP/JSON after the
+GenAI conventions (`agentdiff/otlp_export.py`). The run is an
+`invoke_agent` span; each step is an `execute_tool`, `retrieve`,
+`search` or `chat` span beneath it.
+- **Conventions:** the attributes use the conventions' names, and a
+  failed step or run gets an error status. Content is opt-in
+  (`--content`).
+- **Extras:** what the conventions do not name rides under
+  `agentdiff.*`.
+- **Import:** `convert` now reads a standard OTLP/JSON document
+  (`resourceSpans`) as well. An AgentDiff export comes back step for
+  step, its text exact. Spans from other tools are read as before.
+
+Measured on every SCHEMA trace under `demo/` (1,141 traces, 35,009
+steps): exported with content and read back, every step's type, name,
+tokens, latency, error and text, and every trace's id, outcome, totals
+and prompt, came back the same.
+
+Prompted by the OpenTelemetry GenAI agent-span conventions
+(`docs/RESEARCH_LOG.md`).
+
 ## Self-evolve: which tasks can tell a change apart
 
 Each generation now records and says which of its tasks passed some

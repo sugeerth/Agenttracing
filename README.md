@@ -73,7 +73,7 @@ agentdiff loop --tasks tasks.json --provider atlas=openai:gpt-4o \
 ## Bring your own traces
 
 - **Record as it happens**: `agentdiff.record.Recorder` writes a SCHEMA trace.
-- **Convert what you have**: `agentdiff convert --format otel|openai file -o traces/` (`--dry-run` says what it would recover and what it would estimate).
+- **Convert what you have**: `agentdiff convert --format otel|openai file -o traces/` (`--dry-run` says what it would recover and what it would estimate); `--to otel` writes any trace as OTLP/JSON GenAI spans for an OpenTelemetry backend (`docs/FRAMEWORKS.md` §4b).
 - **Run an existing agent through the harness**: `agentdiff run --agent …`.
 
 ## What it does
