@@ -184,6 +184,21 @@ Evolve has the same as a third way in, "On your repository's history".
     $1.51), it would have stopped none early. They were neutral or
     helpful, and with 2 or 3 runs a task one round rarely leaves a change
     out of reach.
+- **One test among several.** Each verdict's sign test says how often a
+  change that did nothing would do as well. A run tests a change every
+  generation, though, and across several tests one is likelier to look
+  good by luck. So the run's tested changes are also taken as one family
+  (`selfevolve.family`, `family` in `self-evolve.json`). Each sign test
+  is adjusted with Holm's step-down method for all of them, and the card
+  shows it beside a kept change's own odds: "1 in 8 by chance (1 in 3
+  across the 3 tested)". Like the sign test, it is reported, never used
+  to decide.
+  - **Recorded:** the 4 changes kept in the real evolutions on disk each
+    had a 1-in-2 sign test on its own. In the python-slugify run, which
+    tested 3 changes, the adjusted chance is 1: across 3 tests, a change
+    that did nothing would do that well somewhere. None of them would
+    pass a family-wise correction. That is why a weak win is re-run on
+    fresh runs, and why `--prune` tests what was kept again.
 - **Which tasks can tell a change apart.** Each generation records and
   says which tasks passed some runs and failed others under the harness
   it ran (`selfevolve.task_signal`, `signal` in `self-evolve.json`). A

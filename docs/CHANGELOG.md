@@ -5,6 +5,23 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Self-evolve: one test among several
+
+A run tests a change every generation, so each verdict's sign test is
+now also reported Holm-adjusted for every change the run tested
+(`selfevolve.family`, `family` in `self-evolve.json`). The card shows
+the adjusted chance beside a kept change's own odds. It is reported,
+never used to decide.
+
+Measured on the recorded real evolutions on disk: the 4 kept changes
+each had a 1-in-2 sign test on its own. In the python-slugify run, which
+tested 3 changes, every adjusted chance is 1, so none of them would pass
+a family-wise correction.
+
+Prompted by 2026 agent-evaluation papers that correct paired agent
+comparisons for multiplicity with Holm–Bonferroni and Benjamini–Hochberg
+(`docs/RESEARCH_LOG.md`).
+
 ## OpenTelemetry both ways
 
 `agentdiff convert --to otel` writes any trace as OTLP/JSON after the

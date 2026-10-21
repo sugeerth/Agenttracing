@@ -432,6 +432,13 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, ado
                f'{"an instruction built from the project itself" if from_project else "a generic instruction"}, '
                f'tested paired">explored{" · project" if from_project else ""}</span> ' if explored else "")
         odds = _odds(t.get("p_value")) if t else ""
+        fam = data.get("family") or {}
+        adj = (fam.get("adjusted") or {}).get(g.get("generation"))
+        if odds and fam.get("tests", 0) > 1 and adj is not None:
+            # one of several changes tested: the chance some change that did nothing does this well among them
+            odds += (f' <span class="mut" title="Holm-adjusted over the {fam["tests"]} changes this run tested">'
+                     f'({"as likely" if adj >= 0.5 else "1 in " + str(round(1 / adj))} across the '
+                     f'{fam["tests"]} tested)</span>')
         conf = (t.get("confirm") or {}) if t else {}
         if conf:
             odds += (f' · <span class="ok" title="{e(conf["first"]["chance"])}">held when '

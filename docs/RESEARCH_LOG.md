@@ -4,6 +4,56 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-10-21
+
+**How it was read.** Through search-engine extracts, since arXiv and its
+mirrors could not be reached.
+
+**Read:**
+- Multiple comparisons in agent evaluation:
+  - *Engineering Reliable Coding Agents* (arXiv 2608.13867) and *General
+    Agent Evaluation* (arXiv 2602.22953). Exact McNemar or binomial
+    tests over discordant pairs, Holm–Bonferroni across ablations, and
+    Benjamini–Hochberg/Yekutieli across pooled comparisons.
+  - Underpowered contrasts are excluded, with fewer than 20 discordant
+    pairs in one paper and 5 or fewer in one report.
+  - Repeated runs of one task are exchangeable, not independent cases.
+  - None covers re-testing a harness again and again, where repeated
+    looks inflate false positives beyond what one batch's correction
+    handles.
+- Evaluations that grow their own tests:
+  - *TestJack* (arXiv 2610.10619): new tests from each trial against
+    the task's requirements, finding fixed suites overstate frontier
+    agents.
+  - *TestEvo-Bench* (arXiv 2607.02469), *TEBench* (arXiv 2605.06125),
+    *SpecPath* (arXiv 2608.09799), *EvoCode-Bench* (arXiv 2605.24110).
+
+**Taken: one test among several.** A self-evolving run tests a change
+every generation and reported each sign test alone. Across several
+tests, one is likelier to look good by luck.
+- Built: `selfevolve.holm` and `selfevolve.family`. The run's tested
+  changes are taken as one family, each sign test is Holm-adjusted for
+  all of them, and the card shows it beside a kept change's own odds.
+  It is reported, never used to decide.
+- Measured on the recorded real evolutions: the 4 kept changes each had
+  a 1-in-2 sign test alone, and in the python-slugify run (3 tested) an
+  adjusted chance of 1. None would pass a family-wise correction. That
+  is what the replication re-runs and `--prune` are for, and the docs
+  now say so with the numbers.
+
+**Not taken, and why:**
+- **Deciding by the adjusted chance.** With a handful of tasks, no
+  change could ever be kept: the smallest possible sign test over 6
+  tasks is 1 in 64, and Holm over a few tests leaves little room. The
+  paired rule over counts stays the decision. The adjusted chance says
+  how much weight a kept change can bear.
+- **Benjamini–Hochberg** (false discovery rate). A run keeps at most a
+  few changes, and the question it answers is whether any of them is
+  luck, which is the family-wise question Holm answers.
+- **Growing tests from each trial** (TestJack). The new tests are
+  written by a model and then judge the run, so a model would decide a
+  verdict. Left unless the tests could come from the project itself.
+
 ## 2026-10-20
 
 **How it was read.** Through search-engine extracts, the specification

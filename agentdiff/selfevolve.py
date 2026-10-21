@@ -47,7 +47,7 @@ from .evolving import _narrative as evals_narrative, evolve as evolve_evals
 from .forge import RunView, _score, _unique_keys, candidates, describe, parse_rule, rule_id, spec
 from .trace import Trajectory
 
-__all__ = ["CONFIRM_P", "GUIDES", "project_knowledge", "DEMO_TASKS", "DEMO_HARD", "DEMOS", "EXPLORE", "Harness", "explore_remedy", "sign_test", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "prune", "could_keep", "task_signal", "LEDGER_KIND", "ESSENTIAL_TOOLS",
+__all__ = ["CONFIRM_P", "GUIDES", "project_knowledge", "DEMO_TASKS", "DEMO_HARD", "DEMOS", "EXPLORE", "Harness", "explore_remedy", "sign_test", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "prune", "could_keep", "task_signal", "holm", "family", "LEDGER_KIND", "ESSENTIAL_TOOLS",
            "load_ledger", "write_ledger", "visible_check"]
 
 LEDGER_KIND = "self-evolving"
@@ -227,6 +227,25 @@ def sign_test(wins: int, losses: int) -> Optional[float]:
     if not n:
         return None
     return sum(comb(n, k) for k in range(wins, n + 1)) / 2 ** n
+
+
+def holm(ps: Dict[str, float]) -> Dict[str, float]:
+    """Holm's step-down adjustment of several p values taken together: each becomes the chance, across all of
+    them, that a change that did nothing does this well somewhere among the tests made."""
+    out: Dict[str, float] = {}
+    worst = 0.0
+    for i, (key, p) in enumerate(sorted(ps.items(), key=lambda kv: (kv[1], kv[0]))):
+        worst = max(worst, min(1.0, (len(ps) - i) * p))
+        out[key] = worst
+    return out
+
+
+def family(lineage: list) -> dict:
+    """The evolution's tested changes taken as one family: how many were tested, and each one's sign test
+    adjusted for all of them (:func:`holm`). Reported beside each verdict; it decides nothing."""
+    ps = {g["generation"]: ((g.get("action") or {}).get("test") or {})["p_value"] for g in lineage
+          if ((g.get("action") or {}).get("test") or {}).get("p_value") is not None}
+    return {"tests": len(ps), "adjusted": holm(ps)}
 
 
 #: a kept change whose sign test is weaker than this is confirmed before it stays (``self_evolve(confirm=True)``)
@@ -741,7 +760,7 @@ def _result(state: dict, harness: Harness, stop: str, evals_out: dict, target: s
         evals["narrative"] = evals_narrative(state["eval_lineage"], target)
     out = {"kind": "self-evolve", "target": target, "harness": asdict(harness), "describe": harness.describe(),
            "stop": stop, "lineage": lineage, "evals": evals,
-           "narrative": _narrative(lineage, harness, stop), "ledger": state}
+           "narrative": _narrative(lineage, harness, stop), "ledger": state, "family": family(lineage)}
     if running:
         out["running"] = True
     return out
