@@ -224,7 +224,9 @@ Evolve has the same as a third way in, "On your repository's history".
   tried again, and the smaller harness is what the next one is tested
   against. It runs before `--holdout`, so the held-out test is of the
   harness that ships. It costs one arm per kept change, plus one.
-  `--generations 0 --prune` prunes a run that already finished.
+  `--generations 0 --prune` prunes a run that already finished. It is
+  also how to re-validate after the agent's model is upgraded: it
+  re-tests every kept change against the agent as it runs now.
   - **Recorded:** the python-slugify evolution that kept "read
     `AGENTS.md`" and then the edge-case instruction, re-tested with 36
     real runs ($0.73). The edge-case instruction stays: 6/12 passed

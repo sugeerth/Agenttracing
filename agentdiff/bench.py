@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 from .report import compare
 from .semantic import normalize_for_containment
@@ -104,6 +104,7 @@ def format_scorecard(result: dict) -> str:
             f"  error bar       naive ±{clustered['naive_se']:.4f}, clustered by "
             f"cause ±{clustered['clustered_se']:.4f} ({clustered['clusters']} "
             f"families; ×{clustered['ratio']}) — the clustered one is honest")
+    struct = result.get("structural_baselines") or {}
     probe = result.get("leakage_probe") or {}
     margin = result.get("engine_minus_probe") or {}
     if probe.get("kind", {}).get("total"):
@@ -115,6 +116,13 @@ def format_scorecard(result: dict) -> str:
             if probe['step']['total'] else
             f"  leakage probe   kind {probe['kind']['correct']}/{probe['kind']['total']}"
             f" — engine margin kind {margin.get('kind'):+.4f}")
+    if struct.get("best"):
+        rules = struct["rules"]
+        lines.append(
+            "  one-rule steps  " + ", ".join(
+                f"{r.replace('_', ' ')} {rules[r]['exact']}/{rules[r]['total']}" for r in rules)
+            + f" — engine margin over the best ({struct['best'].replace('_', ' ')}) "
+            f"{struct['engine_margin']:+.4f}")
     if result.get("invalid_pairs"):
         lines.append(f"  INVALID PAIRS   {len(result['invalid_pairs'])} excluded — "
                      "clean twin fails its own grader: "
@@ -263,6 +271,26 @@ def leakage_probe(failing: Trajectory, passing: Trajectory) -> dict:
             "cue": "first step without a twin"}
 
 
+#: one-rule guesses at the decisive step, each a structural fact of the failing run and nothing more
+STRUCTURAL = ("last_step", "first_error", "first_divergence", "first_write")
+
+
+def structural_baselines(failing: Trajectory, passing: Trajectory) -> dict:
+    """What each one-rule baseline names as the decisive step, or None where its rule finds nothing:
+    the last step before the answer (where the run gave up), the first step that errored, the first step
+    without a twin in the passing run, and the first write. An attribution method is worth its margin over
+    the best of them, not its score."""
+    steps = failing.steps[:-1] if len(failing.steps) > 1 else list(failing.steps)
+    twins = {(s.type, s.name, s.input) for s in passing.steps}
+    first = lambda pick: next((i for i, st in enumerate(steps) if pick(st)), None)  # noqa: E731
+    return {
+        "last_step": len(steps) - 1 if steps else None,
+        "first_error": first(lambda st: st.error is True or (st.output or "").lower().startswith("error")),
+        "first_divergence": first(lambda st: (st.type, st.name, st.input) not in twins),
+        "first_write": first(lambda st: st.effect == "write"),
+    }
+
+
 def _normalise(text: str) -> str:
     return normalize_for_containment(text)
 
@@ -289,6 +317,15 @@ def pair_validity(scenario: dict, failing: Trajectory, passing: Trajectory) -> d
             "artifact": artifact, "artifact_reachable": reachable}
 
 
+def _structural_rollup(hits: dict, total: int, engine: Optional[float]) -> dict:
+    """Each one-rule baseline's exact decisive-step hits, the best of them, and the engine's margin over it."""
+    rules = {rule: {"exact": n, "total": total, "accuracy": round(n / total, 4) if total else None}
+             for rule, n in hits.items()}
+    best = max(STRUCTURAL, key=lambda r: (hits[r], -STRUCTURAL.index(r))) if total else None
+    return {"rules": rules, "best": best,
+            "engine_margin": (round(engine - hits[best] / total, 4) if best and engine is not None else None)}
+
+
 def run_benchmark(traces_dir: Union[str, Path]) -> dict:
     """Run the diagnoser over every manifest pair and score it.
 
@@ -311,6 +348,7 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
     invalid_pairs: list[dict] = []
     unreachable: list[dict] = []
     probe_hits = {"kind": 0, "step": 0, "kind_total": 0, "step_total": 0}
+    structural_hits = {rule: 0 for rule in STRUCTURAL}
     for scenario in scenarios:
         failing = Trajectory.from_json(root / scenario["fail"])
         passing = Trajectory.from_json(root / scenario["pass"])
@@ -337,6 +375,8 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
         if probe_truth_steps:
             probe_hits["step_total"] += 1
             probe_hits["step"] += 1 if probe["step"] in probe_truth_steps else 0
+            for rule, guess in structural_baselines(failing, passing).items():
+                structural_hits[rule] += 1 if guess in probe_truth_steps else 0
 
         lead, labels = _leading_labels(diagnosis)
         secondary = set(scenario.get("secondary", []))
@@ -510,6 +550,8 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
                     "engine's score it reproduces is the share the benchmark may "
                     "be leaking; the headline is the margin, not the score",
         },
+        "structural_baselines": _structural_rollup(structural_hits, probe_hits["step_total"],
+                                                   exact / len(step_truth) if step_truth else None),
         "engine_minus_probe": {
             "kind": (round(correct_total / total - probe_hits["kind"] / probe_hits["kind_total"], 4)
                      if total and probe_hits["kind_total"] else None),

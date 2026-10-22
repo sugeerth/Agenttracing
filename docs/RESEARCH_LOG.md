@@ -4,6 +4,57 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-10-22
+
+**How it was read.** Through search-engine extracts, since arXiv and its
+mirrors could not be reached.
+
+**Read:**
+- *Structural Baselines Matter for Agent Failure Detection and
+  Attribution* (arXiv 2610.16661). Counterfactual replay fixes the
+  decisive step instead of human labels. On failures where replay can
+  verify it, the simple baseline "the point where the agent gave up"
+  falls to near chance. Monitoring and attribution scores should be
+  reported as gains over such baselines.
+  https://arxiv.org/abs/2610.16661
+- *EMFA* (arXiv 2610.11600; error propagation with counterfactual
+  verification, the earliest decisive error as target), *Causal Agent
+  Replay* (arXiv 2606.08275; a run as a structural causal model, one
+  step intervened on, re-run forward; validated only on synthetic
+  models), *ReCast* (arXiv 2610.11334) and *AgenTracer* (arXiv
+  2509.03312).
+- Harness drift after model upgrades (practitioner sources only):
+  instructions are bets against a model's limits that go stale. They
+  recommend pinning a baseline and replaying real tasks old against
+  new.
+
+**Taken: score the diagnoser against one-rule baselines.** AgentDiff's
+benchmark reported the engine's margin over a composite surface-cue
+probe, never over single structural rules.
+- Built: `bench.structural_baselines` (last step, first error, first
+  divergence, first write), scored by the same exact-step rule. The
+  scorecard prints the engine's margin over the best of them.
+- Measured:
+  - handcrafted +0.31;
+  - 2,200 generated pairs, annotated, +0.16;
+  - stripped of annotations, −0.003: 1,344 for the engine against 1,350
+    for "first step without a twin" of 1,852.
+  That is a negative result, now stated in the README and
+  `docs/BENCHMARK.md`. On unannotated traces the engine's exact step
+  does not beat one rule. The engine still names the cause and abstains
+  where the rule cannot.
+
+**Not taken, and why:**
+- **Counterfactual replay to verify decisive steps** (Structural
+  Baselines, CAR, AgenTracer). It needs re-running the agent from a
+  changed step, real runs a step. AgentDiff's `replay` exists, but
+  turning it into a benchmark label would cost far more than one run's
+  $2.
+- **A harness-drift check after a model upgrade.** `--prune
+  --generations 0` already re-tests every kept change against the agent
+  as it runs today, which is what a drift check would do. It is noted in
+  `docs/SELF_EVOLVE.md` as the way to re-validate.
+
 ## 2026-10-21
 
 **How it was read.** Through search-engine extracts, since arXiv and its

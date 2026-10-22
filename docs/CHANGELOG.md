@@ -5,6 +5,27 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The diagnoser against one-rule baselines
+
+`agentdiff bench` now also scores four one-rule guesses at the decisive
+step: the last step before the answer, the first error, the first step
+without a twin in the passing run, and the first write
+(`bench.structural_baselines`). It prints the engine's margin over the
+best of them.
+
+Measured, with today's generator (19 families):
+- **Handcrafted 20:** +0.31 over the best rule (16/16 against "first
+  divergence" 11/16).
+- **2,200 generated, annotated:** +0.16 (1643 against 1350 of 1852).
+- **2,200 generated, stripped of annotations:** −0.003 (1344 against
+  1350). A negative result, in the README and `docs/BENCHMARK.md`: on
+  unannotated traces the engine's exact step is no better than that one
+  rule, though it also names the cause and abstains where the rule
+  cannot.
+
+Prompted by *Structural Baselines Matter for Agent Failure Detection and
+Attribution* (arXiv 2610.16661).
+
 ## Self-evolve: one test among several
 
 A run tests a change every generation, so each verdict's sign test is
