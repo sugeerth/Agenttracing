@@ -130,11 +130,18 @@ class TestCausalWindow(unittest.TestCase):
         self.assertIn("flips", recipe["expects"])
 
     def test_contested_lists_joint_candidates_instead_of_dropping_them(self):
-        d = self.diagnosis("tests/fixtures/redteam/a3_garbage_args__fail.json",
-                           "tests/fixtures/redteam/a3_garbage_args__pass.json")
+        from agentdiff.diagnosis import CONTESTED_BASIS, first_twinless
+        fail = "tests/fixtures/redteam/a3_garbage_args__fail.json"
+        d = self.diagnosis(fail, "tests/fixtures/redteam/a3_garbage_args__pass.json")
         dec = d["decisive_step"]
-        self.assertIsNone(dec["step"])
-        self.assertIsNone(dec["verification"])
+        self.assertIsNone(d["leading"])
+        # the step is only where the runs part, labelled as such; the cause stays contested
+        self.assertEqual(dec["step"], first_twinless(
+            Trajectory.from_json(fail),
+            Trajectory.from_json("tests/fixtures/redteam/a3_garbage_args__pass.json")))
+        self.assertEqual(dec["basis"], CONTESTED_BASIS)
+        self.assertEqual(dec["verification"], "hypothesized")
+        self.assertTrue(dec["reason"].startswith("contested"))
         self.assertTrue(dec["joint_candidates"])
         kinds = {c["kind"] for c in dec["joint_candidates"]}
         self.assertIn("environment_error", kinds)
