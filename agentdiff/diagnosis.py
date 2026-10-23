@@ -1264,11 +1264,25 @@ _CORRECTION_HINTS = {
 }
 
 
+def first_twinless(failing: Trajectory, passing: Trajectory) -> Optional[int]:
+    """The first step before the failing run's answer with no twin (same type, name and input) anywhere in
+    the passing run — where the two runs first part, read from structure alone. None when every step has one."""
+    steps = failing.steps[:-1] if len(failing.steps) > 1 else list(failing.steps)
+    twins = {(s.type, s.name, s.input) for s in passing.steps}
+    return next((i for i, st in enumerate(steps) if (st.type, st.name, st.input) not in twins), None)
+
+
+#: what a contested diagnosis's step rests on: no hypothesis led, so the step is structure, not a verdict
+CONTESTED_BASIS = ("first step with no twin in the passing run — structural fallback; "
+                   "the evidence is contested, so no cause is claimed for it")
+
+
 def _decisive_step(mode: str, leading: Optional[dict], led: Ledger,
                    ranked: Optional[list] = None,
                    account: Optional[list] = None,
                    traj: Optional[Trajectory] = None,
-                   side: Optional[str] = None) -> dict:
+                   side: Optional[str] = None,
+                   other: Optional[Trajectory] = None) -> dict:
     """Commit to a decisive error step — or abstain with the reason — and
     say how much of the trace the commitment really covers.
 
@@ -1292,7 +1306,12 @@ def _decisive_step(mode: str, leading: Optional[dict], led: Ledger,
     machine-readable ``replay_recipe`` any harness can execute.  When
     the diagnosis is contested, the anchored contenders are listed as
     ``joint_candidates`` instead of being silently dropped: no single
-    step is committed, and the reader sees which steps are in play.
+    cause is committed, and the reader sees which steps are in play.  With
+    the passing run in hand (``other``), a contested diagnosis still names
+    where the runs first part (:func:`first_twinless`), labelled as a
+    structural fallback in ``basis``: the cause stays contested, but the
+    step to replay first is not left blank.  Abstentions (a grader or a
+    harness kill leading) never reach this branch.
     """
     base = {"step": None, "criterion": DECISIVE_CRITERION, "basis": None,
             "reason": None, "point_of_no_return": None, "window": None,
@@ -1310,12 +1329,22 @@ def _decisive_step(mode: str, leading: Optional[dict], led: Ledger,
                 candidates.append({"kind": h.get("kind"),
                                    "flag": h.get("flag"), "step": anchor,
                                    "score": h.get("score")})
-        return dict(base,
-                    reason="contested: no hypothesis leads, so no step is "
-                           "committed" + (" — the anchored contenders are "
-                                          "listed as joint candidates"
-                                          if candidates else ""),
-                    joint_candidates=candidates)
+        out = dict(base,
+                   reason="contested: no hypothesis leads, so no cause is "
+                          "committed" + (" — the anchored contenders are "
+                                         "listed as joint candidates"
+                                         if candidates else ""),
+                   joint_candidates=candidates)
+        step = first_twinless(traj, other) if traj is not None and other is not None else None
+        if step is None:
+            return out
+        return dict(out, step=step, basis=CONTESTED_BASIS, point_of_no_return=step,
+                    window={"earliest": step, "point_of_no_return": step, "steps": 1},
+                    verification=DECISIVE_VERIFICATION,
+                    replay_recipe={"side": side, "step": step,
+                                   "correction": _CORRECTION_HINTS["divergence"],
+                                   "expects": "the outcome flips to success",
+                                   "replays": "≥3 — agent policies are stochastic; one rollout proves nothing"})
     kind = leading.get("kind")
     if kind == "grader_or_label":
         return dict(base, reason="no agent error to correct — the correction "
@@ -1542,7 +1571,8 @@ def diagnose(report: dict, a: Trajectory, b: Trajectory) -> dict:
     decisive = _decisive_step(
         mode, leading, led, ranked, account,
         (a if account_side == "a" else b) if account_side else None,
-        account_side)
+        account_side,
+        (b if account_side == "a" else a) if account_side else None)
 
     if decisive.get("step") is not None and account_side:
         over = _two_wrong_values(report, account_side,

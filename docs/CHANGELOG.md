@@ -5,6 +5,28 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## A contested diagnosis names where the runs part
+
+When no hypothesis leads, `decisive_step` used to name no step. It now
+names the first step before the answer with no twin in the passing run
+(`diagnosis.first_twinless`). Its `basis` is `CONTESTED_BASIS`, a
+structural fallback with no cause claimed. The reason still says the
+diagnosis is contested and lists the joint candidates. The verdict
+card's cause line says which cause acted there is contested, and the
+page's banner says "no single cause is committed". Abstentions (a
+grader or a harness kill leading) are unchanged.
+
+Measured (`docs/BENCHMARK.md`, "Contested fallback"):
+- **Handcrafted:** 16/16, unchanged.
+- **2,200 generated, annotated:** 1643 → 1800 of 1852.
+- **2,200 generated, stripped:** 1344 → 1554, now +0.11 over the best
+  one-rule baseline instead of −0.003.
+- **Abstention:** 326/348 in both conditions, unchanged.
+
+The generator's contested cases all have the first divergence as their
+true step, so this gain is measured on a generator that may favour the
+rule.
+
 ## The diagnoser against one-rule baselines
 
 `agentdiff bench` now also scores four one-rule guesses at the decisive

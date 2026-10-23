@@ -26,8 +26,9 @@ Scoring rules, applied without mercy:
   Causes with **no** agent step to correct (a grader mislabel, a harness
   kill) are scored as abstention: predicting ``None`` there is a correct
   answer, and naming a step is a ``spurious_step`` miss.  A contested
-  diagnosis predicts no step, which on a step-truth scenario counts as a
-  miss, not a pass.
+  diagnosis names only its structural fallback (the first step with no
+  twin in the passing run), scored like any other step; where it has
+  none it predicts no step, a miss on a step-truth scenario.
 - Accuracies are always reported with their denominators, and every miss
   is listed with what actually led, so the number cannot silently exclude
   the failures.
@@ -280,13 +281,13 @@ def structural_baselines(failing: Trajectory, passing: Trajectory) -> dict:
     the last step before the answer (where the run gave up), the first step that errored, the first step
     without a twin in the passing run, and the first write. An attribution method is worth its margin over
     the best of them, not its score."""
+    from .diagnosis import first_twinless
     steps = failing.steps[:-1] if len(failing.steps) > 1 else list(failing.steps)
-    twins = {(s.type, s.name, s.input) for s in passing.steps}
     first = lambda pick: next((i for i, st in enumerate(steps) if pick(st)), None)  # noqa: E731
     return {
         "last_step": len(steps) - 1 if steps else None,
         "first_error": first(lambda st: st.error is True or (st.output or "").lower().startswith("error")),
-        "first_divergence": first(lambda st: (st.type, st.name, st.input) not in twins),
+        "first_divergence": first_twinless(failing, passing),
         "first_write": first(lambda st: st.effect == "write"),
     }
 

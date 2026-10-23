@@ -4,6 +4,52 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-10-23
+
+**How it was read.** Through search-engine extracts, since arXiv and its
+mirrors could not be reached.
+
+**Read:**
+- *CORRECT* (arXiv 2509.24088). The formal definition: a step is a
+  decisive error if replacing it with a correct alternative flips the
+  outcome to success. The earliest such step is the target.
+  https://arxiv.org/abs/2509.24088
+- *TrajDebug* (arXiv 2608.06346). The same counterfactual target, and
+  the warning that the critical error is not necessarily the first
+  visible local error, nor the one closest to the failure.
+  https://arxiv.org/abs/2608.06346
+- *REFLECT* (arXiv 2606.09071). It localizes by diagnosing a candidate
+  step, replaying from it, and re-localizing, with the outcome as
+  contrastive evidence.
+- *Who Broke the System?* (arXiv 2607.07989), *TrajAudit* (arXiv
+  2605.26563), *Executable Prefix Values for Locating Agent Failures*
+  (arXiv 2610.17633) and *CatchBench* (arXiv 2608.22808). Titles and
+  extracts only.
+
+**Taken: a contested diagnosis names where the runs part.** Yesterday's
+negative result, read case by case: the engine and the rule "first step
+without a twin in the passing run" are right on different cases. Of the
+456 stripped cases only the rule got, the engine named no step in 210,
+and all 210 were contested.
+- Built: when no hypothesis leads, `decisive_step` names the first
+  twinless step (`diagnosis.first_twinless`). It is labelled a
+  structural fallback in `basis`; the cause stays contested.
+- Measured, exact decisive step of 1,852: annotated 1643 → 1800;
+  stripped 1344 → 1554, now +0.11 over the best rule instead of −0.003.
+  Handcrafted 16/16 and abstention 326/348 are unchanged.
+- The caveat: every contested case in the generator has the first
+  divergence as its true step, so the generator may favour the rule.
+
+**Not taken, and why:**
+- **Replay to verify the step** (REFLECT, CORRECT). Same reason as
+  2026-10-22: real runs per step, more than one run's budget.
+- **The earliest twinless step within the engine's own chain**, and **the
+  earlier of the engine's step and the rule's**. Both were evaluated
+  offline on all three corpora. Each was worse than the fallback or
+  changed nothing.
+- **A first-error rule.** TrajDebug's warning applies to it, and it
+  scored 371/1852 here.
+
 ## 2026-10-22
 
 **How it was read.** Through search-engine extracts, since arXiv and its

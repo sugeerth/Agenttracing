@@ -55,6 +55,47 @@ does that the rule cannot is name the cause (0.850 of kinds right) and
 abstain where no agent step is at fault (326/348). For the step alone,
 on unannotated traces, the rule is the bar it has not cleared.
 
+## Contested fallback (2026-10-23)
+
+The negative result above, read case by case on the stripped corpus:
+
+| | the rule right | the rule wrong |
+|---|---|---|
+| **the engine right** | 894 | 450 |
+| **the engine wrong** | 456 | 52 |
+
+The two are right on different cases. Of the 456 where only the rule
+was right, the engine named a later step 237 times and **no step** 210
+times. Every one of those 210 was a contested diagnosis: no hypothesis
+led, so `_decisive_step` committed nothing.
+
+Now a contested diagnosis still names a step: the first step before the
+answer with no twin (same type, name, input) in the passing run
+(`diagnosis.first_twinless`, the rule the bench scores too). Its
+`basis` says it is a structural fallback. The cause is still contested:
+the reason says no cause is committed, the joint candidates stay, the
+confidence stays low, and the verdict card says which cause acted there
+is contested. Abstentions are untouched, since a grader or a harness
+kill that leads never reaches the contested branch.
+
+| corpus | condition | decisive step exact, before | after | within ±1, after | abstention | engine margin over the best rule |
+|---|---|---|---|---|---|---|
+| handcrafted (20 pairs) | annotated | 16/16 | 16/16 | 16/16 | — | +0.31 |
+| generated, 2,200 pairs | annotated | 1643/1852 | **1800/1852** | 1852/1852 | 326/348 | **+0.24** |
+| generated, 2,200 pairs | stripped | 1344/1852 | **1554/1852** | 1808/1852 | 326/348 | **+0.11** |
+
+Two other combinations were tried offline and not taken. One took the
+earliest twinless step inside the engine's own causal chain; the other
+took the earlier of the engine's step and the rule's when the rule's
+step is in that chain. Each was worse than the fallback or no change.
+
+**The caveat.** On the generated corpus, every contested case's true
+step is the first divergence, so the generator may favour this rule.
+The gain is a measurement on this generator, not proof that real
+contested failures start where the runs first part. The fallback is
+labelled, never presented as a cause, and stays hypothesized until a
+replay verifies it.
+
 ## External validation: Who&When (2026-09-03)
 
 The public Who&When failure-attribution dataset (Zhang et al., 2025;

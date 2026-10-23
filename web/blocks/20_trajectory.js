@@ -2938,7 +2938,7 @@
 
     if (dec && dec.contested) {
       host.appendChild(H("div", { class: "tjm-note",
-        text: "Diagnosis contested — no decisive step is committed" +
+        text: "Diagnosis contested — no single cause is committed" +
               (dec.reason ? ": " + dec.reason : ".") }));
     }
   }
