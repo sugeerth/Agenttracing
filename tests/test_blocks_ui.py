@@ -2331,6 +2331,8 @@ class AdversarialMapTest(unittest.TestCase):
         note = page.locator('.block[data-block="trajectory-map"] .tjm-note')
         self.assertEqual(note.count(), 1, "contested note missing")
         self.assertIn("contested", note.inner_text().lower())
+        # the step a contested diagnosis names is said as where the runs part, never ringed as a cause
+        self.assertIn("a structural fallback to replay first, not a cause", note.inner_text())
         decisive = page.evaluate("""() => {
             const svg = document.querySelector(
                 '.block[data-block="trajectory-map"] svg.tj');

@@ -2235,14 +2235,19 @@
     (Array.isArray(diag.causal_account) ? diag.causal_account : []).forEach(function (entry) {
       if (entry && entry.step !== null && entry.step !== undefined) account[entry.step] = entry;
     });
+    var contested = diag.leading === null || diag.leading === undefined;
+    var named = dec.step !== undefined && dec.step !== null ? dec.step : null;
     return {
       side: side,
-      step: dec.step !== undefined ? dec.step : null,
+      // a contested diagnosis commits to no cause, so no step is ringed as
+      // decisive; the step it names is only where the runs part, said in the note
+      step: contested ? null : named,
+      parted: contested ? named : null,
       reason: dec.reason || null,
       // "hypothesized" until a replay flips the outcome; the map draws
       // the ring by this, never by the score
       verification: dec.verification || "hypothesized",
-      contested: diag.leading === null || diag.leading === undefined,
+      contested: contested,
       account: account,
     };
   }
@@ -2939,7 +2944,9 @@
     if (dec && dec.contested) {
       host.appendChild(H("div", { class: "tjm-note",
         text: "Diagnosis contested — no single cause is committed" +
-              (dec.reason ? ": " + dec.reason : ".") }));
+              (dec.reason ? ": " + dec.reason : ".") +
+              (dec.parted !== null ? " The runs first part at step " + dec.parted +
+                " — a structural fallback to replay first, not a cause." : "") }));
     }
   }
 

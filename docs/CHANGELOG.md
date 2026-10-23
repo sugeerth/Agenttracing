@@ -12,8 +12,10 @@ names the first step before the answer with no twin in the passing run
 (`diagnosis.first_twinless`). Its `basis` is `CONTESTED_BASIS`, a
 structural fallback with no cause claimed. The reason still says the
 diagnosis is contested and lists the joint candidates. The verdict
-card's cause line says which cause acted there is contested, and the
-page's banner says "no single cause is committed". Abstentions (a
+card's cause line says which cause acted there is contested. The
+page's map still rings no decisive step on a contested diagnosis; its
+note names where the runs part as a fallback to replay first, not a
+cause, and the horizon view marks no decisive span. Abstentions (a
 grader or a harness kill leading) are unchanged.
 
 Measured (`docs/BENCHMARK.md`, "Contested fallback"):
