@@ -29,6 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from agentdiff.conformal import evaluate, rank_of  # noqa: E402
 from agentdiff.reasoning import read_trace  # noqa: E402
 from agentdiff.trace import Trajectory  # noqa: E402
 
@@ -102,6 +103,23 @@ def predict(reading: dict) -> tuple:
     return None, "no prediction"
 
 
+def reading_order(reading: dict, traj: Trajectory) -> list:
+    """Every step, in the order the reading would replay them: the critical error, the observable findings by
+    their earliest step, every finding's steps, the located next actions, the error steps, then the rest."""
+    n = len(traj.steps)
+    findings = reading.get("what_it_means") or []
+    picks = ([(reading.get("critical_error") or {}).get("step")]
+             + sorted(min(f["steps"]) for f in findings if f.get("evidence_class") == "observable" and f.get("steps"))
+             + sorted(i for f in findings for i in (f.get("steps") or []))
+             + [t.get("at_step") for t in reading.get("take_forward") or []]
+             + [i for i, st in enumerate(traj.steps) if st.error] + list(range(n)))
+    order = []
+    for i in picks:
+        if isinstance(i, int) and 0 <= i < n and i not in order:
+            order.append(i)
+    return order
+
+
 def score(rows: list) -> dict:
     n = len(rows)
     predicted = [r for r in rows if r["predicted"] is not None]
@@ -155,7 +173,8 @@ def main(argv=None) -> int:
         pred_agent = traj.steps[pred].name if pred is not None and pred < len(traj.steps) else None
         row = {"trace": stem, "subset": subset, "steps": len(traj.steps),
                "truth": labels["mistake_step"], "truth_agent": labels["mistake_agent"],
-               "predicted": pred, "predicted_agent": pred_agent, "why": why}
+               "predicted": pred, "predicted_agent": pred_agent, "why": why,
+               "replay_rank": rank_of(reading_order(reading, traj), [labels["mistake_step"]])}
         rows.append(row)
         reasons[why] = reasons.get(why, 0) + 1
     (out / "labels.json").write_text(json.dumps(labels_all, indent=1), encoding="utf-8")
@@ -166,6 +185,11 @@ def main(argv=None) -> int:
         part = [r for r in rows if r["subset"] == subset]
         result["by_subset"][subset] = score(part)
         result["by_subset"][subset].pop("by_reason", None)
+    # replay sets (agentdiff.conformal): how many steps, in the reading's order and in plain step order,
+    # cover the labelled mistake at a stated rate on the held-out half
+    set_rows = [{"id": r["trace"], "rank": r["replay_rank"], "index_rank": r["truth"] + 1, "steps": r["steps"]}
+                for r in rows]
+    result["replay_sets"] = [evaluate(set_rows, a) for a in (0.5, 0.2, 0.1)]
     result["rows"] = rows
     (out / "whowhen_validation.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
     print(f"Who&When: {result['logs']} failing logs converted; reading layer pointed at a "
@@ -182,6 +206,10 @@ def main(argv=None) -> int:
               f"{part['step_within_1']}/{part['logs']}, agent {part['agent_exact']}/{part['logs']}, "
               f"first-step floor {part['floors']['always_first_step']['hits']}/{part['logs']}")
     print(f"  pointer basis: {reasons}")
+    for e in result["replay_sets"]:
+        ro, so = e["replay_order"], e["step_order"]
+        print(f"  replay set, {e['target']:.0%} target (held out n={ro['test']}, runs of {e['mean_steps']} steps): "
+              f"reading order k={ro['k']} covers {ro['coverage']}, step order k={so['k']} covers {so['coverage']}")
     print(f"  {result['note']}")
     return 0
 
