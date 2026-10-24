@@ -597,7 +597,11 @@ def _gen_divergence(report: dict, side: str, traj: Trajectory, led: Ledger) -> l
 
     while root < len(traj.steps) - 1 and _excusable_twin(root):
         root += 1
-    category = _root_category(traj, root, divergences[0].get("kind", "divergence"))
+    by_argument = _argument_divergence(report, side, traj, root)
+    if by_argument is not None:
+        root = by_argument
+    category = _root_category(traj, root, "tool_selection" if by_argument is not None
+                              else divergences[0].get("kind", "divergence"))
     supports, contradicts = [], []
     score = 0.45
     root_step = traj.steps[root] if 0 <= root < len(traj.steps) else None
@@ -635,7 +639,42 @@ def _gen_divergence(report: dict, side: str, traj: Trajectory, led: Ledger) -> l
         ),
         "supports": supports, "contradicts": contradicts,
         "score": score, "status": None, "category": category, "root": root,
+        "by_argument": by_argument is not None,
     }]
+
+
+def _argument_divergence(report: dict, side: str, traj: Trajectory, root: int) -> Optional[int]:
+    """The earliest tool call before ``root`` that the aligner matched to the other run's call of the same tool
+    although its arguments AND its result differ and that result reaches the decision, or None. Text similarity pairs two calls of one tool by
+    their shared name, so a different argument (another source, another id) can still score as a match and
+    the divergence surfaces only at the decision that read the different result. Different arguments that
+    returned the same result changed nothing and are passed over."""
+    other = "b" if side == "a" else "a"
+    other_steps = (report.get(other) or {}).get("steps", [])
+    for e in report.get("alignment") or []:
+        i, j = e.get(f"{side}_index"), e.get(f"{other}_index")
+        if e.get("op") != "match" or i is None or j is None or i >= root or j >= len(other_steps):
+            continue
+        mine, theirs = traj.steps[i], other_steps[j]
+        if (mine.type != "tool_call" or mine.input == theirs.get("input")
+                or (mine.output or "") == (theirs.get("output") or "")):
+            continue
+        # a call that failed is the error hypotheses' anchor (environment error, invented arguments); this
+        # rule is for a call that quietly returned something else
+        if mine.error is True or (mine.output or "").lower().startswith("error"):
+            continue
+        # the different result must reach a decision: words only this call's result carries reappear in
+        # what the run itself reasoned, planned or answered, up to the divergent step (a later tool call
+        # repeating a word is not the run deciding on it)
+        only_here = _words(mine.output) - _words(theirs.get("output"))
+        if only_here and any(only_here & _words(f"{s.input} {s.output}")
+                             for s in traj.steps[i + 1:root + 1] if s.type != "tool_call"):
+            return i
+    return None
+
+
+def _words(text) -> set:
+    return {w for w in re.findall(r"[a-z0-9]+", str(text or "").lower()) if len(w) > 3}
 
 
 def _flag_steps(side_report: dict, flag: str) -> list[dict]:
@@ -833,6 +872,7 @@ def _fuse(raw: list[dict], report: dict, ledger: list[dict],
                 f"forward, so the anchor moves to step {origin}, where the "
                 f"wrong fact entered")
             div["root"] = origin
+            div["by_argument"] = False
             root = origin
         if origin is not None and root is not None and origin >= root:
             div["score"] = max(div["score"], wf["score"]) + 0.15
@@ -1357,7 +1397,9 @@ def _decisive_step(mode: str, leading: Optional[dict], led: Ledger,
                                  "a harness setting, not an agent step")
     if kind == "divergence":
         step = leading.get("root")
-        basis = "the divergent decision; fused evidence places nothing earlier"
+        basis = ("the same tool called with different arguments, returning a different result"
+                 if leading.get("by_argument")
+                 else "the divergent decision; fused evidence places nothing earlier")
     elif kind == "wrong_fact_propagation":
         step = leading.get("origin")
         basis = "where the wrong fact entered, per claim provenance"
