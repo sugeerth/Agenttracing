@@ -14,7 +14,9 @@ Each diagnosis carries the first five as `decisive_step.replay_order`.
 `agentdiff bench` calibrates split-conformal k on half of the
 step-truth scenarios and prints the held-out coverage and set size at
 90%, 95% and 99%, beside the same procedure on plain step order
-(`replay_sets` in the result).
+(`replay_sets` in the result). The trajectory map numbers the replay
+order (1–5) on the failing run's steps, beside the existing rings; a
+contested diagnosis keeps its order and still rings no decisive step.
 
 On 902 held-out generated pairs (5.8 steps), the 99% target needs k=3
 (annotated) or k=4 (stripped) against k=7 for step order. Calibrated
