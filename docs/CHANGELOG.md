@@ -5,6 +5,251 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## What a self-evolve verdict's test could show
+
+Each self-evolve verdict carries `resolution` (`selfevolve.resolution`).
+It has three parts, all exact:
+- the sign test's best possible chance, every task moving the change's
+  way;
+- its power against a change that wins 3 in 4 of the tasks it moves, at
+  the share that moved;
+- the tasks that would give 80% power.
+
+The run says it, and the evolution card shows it per tested change,
+computed from the test's own counts for records from before the field.
+It decides nothing. On the 10 changes tested in the recorded real
+evolutions (6 tasks each), power was at most 0.025, and 80% would take
+53 to 161 tasks.
+
+Prompted by *Identical Runs, Different Results* (arXiv 2609.33812).
+
+## Replay sets
+
+`agentdiff.conformal` ranks every step of a failing run in the order to
+replay them: the committed step, where the runs part, the contested
+candidates, the causal account, the other twinless steps, the rest.
+Each diagnosis carries the first five as `decisive_step.replay_order`.
+`agentdiff bench` calibrates split-conformal k on half of the
+step-truth scenarios and prints the held-out coverage and set size at
+90%, 95% and 99%, beside the same procedure on plain step order
+(`replay_sets` in the result). The trajectory map numbers the replay
+order (1–5) on the failing run's steps, beside the existing rings; a
+contested diagnosis keeps its order and still rings no decisive step.
+
+On 902 held-out generated pairs (5.8 steps), the 99% target needs k=3
+(annotated) or k=4 (stripped) against k=7 for step order. Calibrated
+on one corpus and applied to another, it falls short (0.987 at 99%), so
+the docs say to calibrate on traces like the ones being diagnosed.
+
+`demo/external/whowhen.py` reports the same sets on the 184 human-
+labelled Who&When logs: coverage meets each target on the held-out half
+(0.92 at 90%), and the reading's order needs the same k as step order.
+That is a negative result for the order, reported as such.
+
+## Same tool, other arguments
+
+The divergence hypothesis moves its root back to a tool call that the
+aligner matched to the other run's call of the same tool when the
+arguments and the result both differ, the call did not fail, and the
+result's own words reappear in what the run reasoned, planned or
+answered (`diagnosis._argument_divergence`). The decisive step's basis
+then says so. On stripped traces the exact decisive step goes from 1554
+to 1752 of 1852; the annotated and handcrafted corpora are unchanged in
+every outcome.
+
+## A contested diagnosis names where the runs part
+
+When no hypothesis leads, `decisive_step` used to name no step. It now
+names the first step before the answer with no twin in the passing run
+(`diagnosis.first_twinless`). Its `basis` is `CONTESTED_BASIS`, a
+structural fallback with no cause claimed. The reason still says the
+diagnosis is contested and lists the joint candidates. The verdict
+card's cause line says which cause acted there is contested. The
+page's map still rings no decisive step on a contested diagnosis; its
+note names where the runs part as a fallback to replay first, not a
+cause, and the horizon view marks no decisive span. Abstentions (a
+grader or a harness kill leading) are unchanged.
+
+Measured (`docs/BENCHMARK.md`, "Contested fallback"):
+- **Handcrafted:** 16/16, unchanged.
+- **2,200 generated, annotated:** 1643 → 1800 of 1852.
+- **2,200 generated, stripped:** 1344 → 1554, now +0.11 over the best
+  one-rule baseline instead of −0.003.
+- **Abstention:** 326/348 in both conditions, unchanged.
+
+The generator's contested cases all have the first divergence as their
+true step, so this gain is measured on a generator that may favour the
+rule.
+
+## The diagnoser against one-rule baselines
+
+`agentdiff bench` now also scores four one-rule guesses at the decisive
+step: the last step before the answer, the first error, the first step
+without a twin in the passing run, and the first write
+(`bench.structural_baselines`). It prints the engine's margin over the
+best of them.
+
+Measured, with today's generator (19 families):
+- **Handcrafted 20:** +0.31 over the best rule (16/16 against "first
+  divergence" 11/16).
+- **2,200 generated, annotated:** +0.16 (1643 against 1350 of 1852).
+- **2,200 generated, stripped of annotations:** −0.003 (1344 against
+  1350). A negative result, in the README and `docs/BENCHMARK.md`: on
+  unannotated traces the engine's exact step is no better than that one
+  rule, though it also names the cause and abstains where the rule
+  cannot.
+
+Prompted by *Structural Baselines Matter for Agent Failure Detection and
+Attribution* (arXiv 2610.16661).
+
+## Self-evolve: one test among several
+
+A run tests a change every generation, so each verdict's sign test is
+now also reported Holm-adjusted for every change the run tested
+(`selfevolve.family`, `family` in `self-evolve.json`). The card shows
+the adjusted chance beside a kept change's own odds. It is reported,
+never used to decide.
+
+Measured on the recorded real evolutions on disk: the 4 kept changes
+each had a 1-in-2 sign test on its own. In the python-slugify run, which
+tested 3 changes, every adjusted chance is 1, so none of them would pass
+a family-wise correction.
+
+Prompted by 2026 agent-evaluation papers that correct paired agent
+comparisons for multiplicity with Holm–Bonferroni and Benjamini–Hochberg
+(`docs/RESEARCH_LOG.md`).
+
+## OpenTelemetry both ways
+
+`agentdiff convert --to otel` writes any trace as OTLP/JSON after the
+GenAI conventions (`agentdiff/otlp_export.py`). The run is an
+`invoke_agent` span; each step is an `execute_tool`, `retrieve`,
+`search` or `chat` span beneath it.
+- **Conventions:** the attributes use the conventions' names, and a
+  failed step or run gets an error status. Content is opt-in
+  (`--content`).
+- **Extras:** what the conventions do not name rides under
+  `agentdiff.*`.
+- **Import:** `convert` now reads a standard OTLP/JSON document
+  (`resourceSpans`) as well. An AgentDiff export comes back step for
+  step, its text exact. Spans from other tools are read as before.
+
+Measured on every SCHEMA trace under `demo/` (1,141 traces, 35,009
+steps): exported with content and read back, every step's type, name,
+tokens, latency, error and text, and every trace's id, outcome, totals
+and prompt, came back the same.
+
+Prompted by the OpenTelemetry GenAI agent-span conventions
+(`docs/RESEARCH_LOG.md`).
+
+## Self-evolve: which tasks can tell a change apart
+
+Each generation now records and says which of its tasks passed some
+runs and failed others under the harness it ran (`signal` in the
+lineage). Those are where a change can be seen to win or lose. The card
+counts them per generation. A task that always passed can only be
+broken, and one that always failed can only be won. Tasks are never
+dropped for it, since an always-passing task is where a break shows.
+
+Measured over the 9 generations of recorded real evolutions on disk:
+- **Task kinds:** 24% of tasks were mixed, 61% always passed and 15%
+  always failed.
+- **Moves:** of the 18 times a tested change moved a task, 8 were on
+  mixed tasks, 6 won a task that always failed, and 4 lost one that
+  always passed.
+
+Prompted by 2026 work on efficient agent benchmarking, which finds that
+the signal sits in tasks with intermediate pass rates
+(`docs/RESEARCH_LOG.md`).
+
+## Self-evolve: every kept change, tested again (--prune)
+
+A change was kept on one paired test and never questioned again, even
+when a later change made it redundant. `--prune` (`selfevolve.prune`)
+tests each kept change again when the evolution ends, newest first:
+- the harness it ended with runs against that harness without the
+  change;
+- the change stays only if `decide()` would keep it now;
+- a dropped change is not tried again, and the smaller harness is what
+  the next change is tested against.
+
+It runs before `--holdout`. `--generations 0 --prune` prunes a finished
+run, and the card says what each re-test found.
+
+Measured on the recorded python-slugify evolution, with 36 real runs
+($0.73):
+- **The edge-case instruction stays:** 6/12 → 9/12, winning 3 tasks and
+  losing none.
+- **"Read `AGENTS.md`" is dropped:** 9/12 with and without it, one task
+  won and one lost.
+
+Prompted by 2026 work showing that self-evolving agents accumulate
+instructions and that harness gains shrink on held-out tasks
+(`docs/RESEARCH_LOG.md`).
+
+## Tasks from history: a grader the work cannot talk round
+
+A `--from-git` task's grader now holds each run to the held-out tests
+that passed on the commit, by name. Before, an agent's `conftest.py`, a
+runner setting, or code that patches the test framework could skip or
+deselect the held-out tests, and a check that exited 0 counted as a pass.
+- `run_check.py` reads which tests passed (pytest `-rA`, unittest `-v`)
+  and fails a run that is missing any of them, naming them.
+- The default commands now print those names.
+- Each task records how many tests it is held to (`held_to`).
+
+Measured:
+- **Recorded:** re-grading all 176 recorded python-slugify runs changed
+  no verdict. 4 of them edited `tox.ini` or `pyproject.toml`, to register
+  a test file of their own, which the held grader allows.
+- **Tested:** work that makes every test skip itself passes unheld and
+  fails held.
+
+Prompted by 2026 work on agents gaming their graders
+(`docs/RESEARCH_LOG.md`).
+
+## Tasks from history: a grader must agree with itself
+
+`--from-git` now runs each task's held-out tests 3 times on the parent
+and 3 times on the commit (`--grader-checks N`), each on a fresh copy.
+It keeps a task only if they fail on the parent every time and pass on
+the commit every time. A flaky grader would pass or fail the agent's runs
+by chance, so it is left out, and the report says what it did. It costs
+test runs, never agent runs.
+- **Arithmetic:** a grader failing 3 runs in 10 gets through one check
+  70% of the time and three checks 34%.
+- **Measured on python-slugify:** the same 6 tasks at 1 check and at 5,
+  since none of its graders is flaky. The build took 14 s and 46 s.
+
+Prompted by 2026 work on mining tasks from repository history, which
+re-runs tests to filter flaky ones (`docs/RESEARCH_LOG.md`).
+
+## Self-evolve stops a change that can no longer be kept
+
+The changed harness now runs a round at a time (run 1 of every task,
+then run 2) and stops once no outcome of the rounds left could make the
+change kept (`selfevolve.could_keep`, `self_evolve(settle=True)`, on by
+default; `--no-settle` turns it off).
+- **Exact over counts.** It bounds each task's final pass count and
+  asks the paired rule itself, so it can't change a verdict. A test
+  checks it against `decide()` on every completion of 400 random cases.
+- **Only a lost cause stops.** A kept change's runs become the next
+  generation's, so they always run in full.
+- **On the card and the chart:** a settled verdict says "settled after
+  1 of 2 rounds" and how many runs it did not need.
+
+Measured:
+- **Synthetic** (pass rates from the recorded python-slugify arms): it
+  skips 17–35% of a harmful change's runs (2 to 5 runs a task), about 5%
+  of a do-nothing change's, and none of the verdicts change in 2,700
+  draws.
+- **Recorded:** over the 8 real changes on disk it would have saved
+  nothing. They were neutral or helpful.
+
+Prompted by 2026 work on when a partial evaluation already supports the
+full run's decision (`docs/RESEARCH_LOG.md`). Those studies estimate it
+with an error target; here the rule is exact.
+
 ## Exploration starts from what the project keeps
 
 When no eval names a change, the harness now first tries what the

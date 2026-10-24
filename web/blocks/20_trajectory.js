@@ -2178,6 +2178,9 @@
       ".tjm-legend-more[open]>summary::before{content:'▾ '}",
       "svg.tj g.tj-hit{cursor:pointer;outline:none}",
       "svg.tj g.tj-hit:focus-visible .tjm-focus{opacity:1}",
+      "svg.tj .tjm-replay circle{fill:var(--surface);stroke:var(--ink-2);stroke-width:1.2}",
+      "svg.tj .tjm-replay text{fill:var(--ink);font-family:var(--mono);font-size:var(--fs-xs);",
+      "font-weight:700}",
       ".tj-diff{margin-top:8px;border-top:1px solid var(--rule);padding-top:6px}",
       ".tj-diff .tj-lbl{margin-top:4px}",
       ".tj-diff-body{font:var(--fs-s)/1.55 var(--mono);white-space:pre-wrap;word-break:break-word;",
@@ -2225,6 +2228,9 @@
     return null;
   }
 
+  // the engine shows at most five steps to replay first; so does the map
+  var REPLAY_MAX = 5;
+
   function decisiveInfo(report) {
     var diag = report && report.diagnosis;
     if (!diag || diag.mode !== "single_failure") return null;
@@ -2235,15 +2241,33 @@
     (Array.isArray(diag.causal_account) ? diag.causal_account : []).forEach(function (entry) {
       if (entry && entry.step !== null && entry.step !== undefined) account[entry.step] = entry;
     });
+    var contested = diag.leading === null || diag.leading === undefined;
+    var named = dec.step !== undefined && dec.step !== null ? dec.step : null;
+    // the order a person should replay the failing run's steps in: the
+    // committed step, where the runs first part, then the contenders and
+    // the account. [] when the diagnosis names no step. It is an order to
+    // try, not a cause, so a contested diagnosis keeps it.
+    var replayOrder = [], replay = {};
+    (Array.isArray(dec.replay_order) ? dec.replay_order : []).forEach(function (s) {
+      if (typeof s !== "number" || !isFinite(s) || Math.floor(s) !== s) return;
+      if (replay[s] || replayOrder.length >= REPLAY_MAX) return;
+      replayOrder.push(s);
+      replay[s] = replayOrder.length;          // rank, 1-based
+    });
     return {
       side: side,
-      step: dec.step !== undefined ? dec.step : null,
+      // a contested diagnosis commits to no cause, so no step is ringed as
+      // decisive; the step it names is only where the runs part, said in the note
+      step: contested ? null : named,
+      parted: contested ? named : null,
       reason: dec.reason || null,
       // "hypothesized" until a replay flips the outcome; the map draws
       // the ring by this, never by the score
       verification: dec.verification || "hypothesized",
-      contested: diag.leading === null || diag.leading === undefined,
+      contested: contested,
       account: account,
+      replayOrder: replayOrder,
+      replay: replay,
     };
   }
 
@@ -2667,11 +2691,24 @@
         var isDecisive = dec && dec.side === side && dec.step === step.index;
         var isRoot = root && root.side === side && root.index === step.index;
         var picked = sel.row === rowIdx && rowIdx >= 0;
+        // the replay order's ranks this node carries: its own step's, and
+        // on a collapsed loop node those of the steps folded into it
+        var replayHere = [];
+        if (dec && dec.side === side && dec.replayOrder.length) {
+          var members = v.collapsed ? lane[3].slice(v.group.from, v.group.to + 1) : [step];
+          members.forEach(function (m) {
+            if (m && dec.replay[m.index]) replayHere.push({ rank: dec.replay[m.index], step: m.index });
+          });
+          replayHere.sort(function (p, q) { return p.rank - q.rank; });
+        }
         var name = String(step.name || step.type || "step");
         var label = side.toUpperCase() + " step " + step.index + " · " + name +
                     (v.collapsed ? " · ×" + v.group.n + " identical steps collapsed" : "") +
                     (step.error ? " · error" : "") +
-                    (isDecisive ? " · decisive step" : isRoot ? " · attributed root" : "");
+                    (isDecisive ? " · decisive step" : isRoot ? " · attributed root" : "") +
+                    replayHere.map(function (r) {
+                      return " · replay #" + r.rank + (r.step !== step.index ? " (step " + r.step + ", collapsed here)" : "");
+                    }).join("");
 
         var g = S("g", { class: "tj-hit", tabindex: "0", role: "button",
                          "aria-label": label, "data-side": side, "data-i": i,
@@ -2713,6 +2750,21 @@
           glyph.setAttribute("stroke-width", 2);
         }
         g.appendChild(glyph);
+
+        // the replay rank: a small numbered disc below the node on the
+        // gutter side, clear of every ring (r ≤ 13) and of the name, which
+        // sits on the outer side. Neutral ink, never red: it says what to
+        // replay first, not what caused the failure.
+        if (replayHere.length) {
+          var dir = side === "a" ? 1 : -1;
+          var first = replayHere[0];
+          var disc = S("g", { class: "tjm-replay", "aria-hidden": "true",
+                              "data-rank": first.rank, "data-step": first.step });
+          disc.appendChild(S("circle", { cx: x + dir * 16, cy: y + 12, r: 6.5 }));
+          disc.appendChild(S("text", { x: x + dir * 16, y: y + 12, "text-anchor": "middle",
+                                       "dominant-baseline": "central", text: String(first.rank) }));
+          g.appendChild(disc);
+        }
 
         var textX = side === "a" ? x - 14 : x + 14;
         var anchor = side === "a" ? "end" : "start";
@@ -2916,7 +2968,8 @@
     var foot = H("div", { class: "tjm-foot" }, [
       legendKey("solid line", "matched"),
       legendKey("dashed line", "drifted / divergent, with the aligner's score"),
-      dec ? legendKey(dec.verification === "replay-verified" ? "solid red ring" : "long-dashed red ring",
+      // keyed only when a ring is drawn: a contested diagnosis rings nothing
+      dec && dec.step !== null ? legendKey(dec.verification === "replay-verified" ? "solid red ring" : "long-dashed red ring",
                       "decisive step — " + (dec.verification === "replay-verified"
                         ? "replay-verified" : "hypothesized, not replay-verified")) : null,
       legendKey("dotted curve", "same claim in both runs (red = wrong-valued)"),
@@ -2931,6 +2984,10 @@
         legendKey("outer band", "phase of work from the reading"),
         root ? legendKey("short-dashed red ring", "attributed root") : null,
         dec ? legendKey("amber halo", "on the causal account") : null,
+        dec && dec.replayOrder.length
+          ? legendKey("numbered disc 1–" + dec.replayOrder.length,
+                      "replay order — the failing run's steps to replay first, 1 first; an order to try, not a cause")
+          : null,
         legendKey("keys", "Tab to a step, Enter opens it, ↑↓ move along the run, ←→ cross the gutter"),
       ]),
     ]);
@@ -2938,8 +2995,10 @@
 
     if (dec && dec.contested) {
       host.appendChild(H("div", { class: "tjm-note",
-        text: "Diagnosis contested — no decisive step is committed" +
-              (dec.reason ? ": " + dec.reason : ".") }));
+        text: "Diagnosis contested — no single cause is committed" +
+              (dec.reason ? ": " + dec.reason : ".") +
+              (dec.parted !== null ? " The runs first part at step " + dec.parted +
+                " — a structural fallback to replay first, not a cause." : "") }));
     }
   }
 

@@ -215,6 +215,14 @@ def _outcome_of(data: Any) -> Optional[dict]:
 def _detect_otel(data: Any) -> tuple[float, str]:
     if not isinstance(data, dict):
         return 0.0, "not a JSON object"
+    if isinstance(data.get("resourceSpans"), list):
+        from .adapters import otlp_spans
+        flat = otlp_spans(data)
+        if any(isinstance(sp.get("attributes"), list) and any(str(a.get("key", "")).startswith("gen_ai.")
+                                                             for a in sp["attributes"] if isinstance(a, dict))
+               for sp in flat[:50]):
+            return 0.95, "an OTLP/JSON document whose spans carry gen_ai.* attributes"
+        return (0.35, "an OTLP/JSON document without gen_ai.* attributes") if flat else (0.0, "no spans")
     spans = data.get("spans")
     if not isinstance(spans, list) or not spans:
         return 0.0, "no 'spans' array"
@@ -237,6 +245,9 @@ def _detect_otel(data: Any) -> tuple[float, str]:
 
 
 def _convert_otel(data: Any) -> tuple[dict, list[str]]:
+    if isinstance(data, dict) and isinstance(data.get("resourceSpans"), list):
+        from .adapters import from_otlp
+        return from_otlp(data)
     meta = _meta_of(data)
     return from_otel_genai(
         data["spans"],

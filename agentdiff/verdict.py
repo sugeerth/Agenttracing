@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Optional
 from . import sections as _sections
+from .diagnosis import CONTESTED_BASIS
 
 
 def _side_name(report: dict, side: str) -> str:
@@ -84,6 +85,9 @@ def verdict_card(report: dict) -> dict:
         elif lead is not None:
             mechanism = lead.get("statement") or ""
             basis = "the leading hypothesis"
+        elif decisive.get("basis") == CONTESTED_BASIS:
+            mechanism = "where the runs first part; which cause acted there is contested"
+            basis = "the structural fallback of a contested diagnosis"
         else:
             mechanism = "the divergent decision"
             basis = "the divergence"

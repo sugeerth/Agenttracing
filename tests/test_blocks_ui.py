@@ -2331,6 +2331,8 @@ class AdversarialMapTest(unittest.TestCase):
         note = page.locator('.block[data-block="trajectory-map"] .tjm-note')
         self.assertEqual(note.count(), 1, "contested note missing")
         self.assertIn("contested", note.inner_text().lower())
+        # the step a contested diagnosis names is said as where the runs part, never ringed as a cause
+        self.assertIn("a structural fallback to replay first, not a cause", note.inner_text())
         decisive = page.evaluate("""() => {
             const svg = document.querySelector(
                 '.block[data-block="trajectory-map"] svg.tj');
@@ -14028,3 +14030,187 @@ class StepFieldsTest(unittest.TestCase):
         self.assertIn("every field is as the trace recorded", lowered)
         self.assertEqual(errors, [])
         ctx.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
+class ReplayOrderMapTest(unittest.TestCase):
+    """The trajectory map numbers the diagnosis's replay order.
+
+    ``diagnosis.decisive_step.replay_order`` lists up to five step indices
+    of the failing run (``diagnosis.subject``) in the order to replay them.
+    The map draws a numbered disc (``g.tjm-replay[data-rank][data-step]``)
+    on each of those steps, adds " · replay #N" to the step's title, and
+    keys the disc in the full legend only when the order is non-empty. The
+    disc never replaces a ring: a leading diagnosis keeps its decisive
+    ring, and a contested one still rings no step, even though its order
+    (an order to try, not a cause) is drawn.
+
+    Pairs come from the repository's own data through ``compare``: a bench
+    pair with a five-step order, a bench abstention (``[]``), and the
+    contested red-team fixture. An engine that predates the field gets the
+    shape the newer engine writes, built from the report's own fields; an
+    engine that writes it is read as is, and the assertions compare the
+    drawing with whatever the report carries.
+    """
+
+    tmp = None
+    BENCH = ROOT / "demo" / "diagnosis_bench" / "traces"
+    REDTEAM = ROOT / "tests" / "fixtures" / "redteam"
+
+    @staticmethod
+    def _ensure_replay_order(rep, fail_path, pass_path):
+        dec = rep["diagnosis"].setdefault("decisive_step", {})
+        if "replay_order" in dec:
+            return
+        failing = json.loads(Path(fail_path).read_text(encoding="utf-8"))["steps"]
+        passing = json.loads(Path(pass_path).read_text(encoding="utf-8"))["steps"]
+        twins = {(s.get("type"), s.get("name"), s.get("input")) for s in passing}
+        body = failing[:-1] if len(failing) > 1 else failing
+        twinless = [i for i, s in enumerate(body)
+                    if (s.get("type"), s.get("name"), s.get("input")) not in twins]
+        step = dec.get("step")
+        if step is None and rep["diagnosis"].get("leading") is None and twinless:
+            # the newer engine names where the runs part for a contested case
+            step = dec["step"] = twinless[0]
+        if step is None:
+            dec["replay_order"] = []
+            return
+        account = sorted(e["step"] for e in rep["diagnosis"].get("causal_account") or []
+                         if isinstance(e.get("step"), int))
+        order = []
+        for i in [step] + twinless[:1] + account + twinless + list(range(len(failing))):
+            if isinstance(i, int) and 0 <= i < len(failing) and i not in order:
+                order.append(i)
+        dec["replay_order"] = order[:5]
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        from agentdiff.report import compare, render_html
+        from agentdiff.trace import Trajectory
+
+        def build(name, base):
+            fail, ok = Path(f"{base}__fail.json"), Path(f"{base}__pass.json")
+            rep = compare(Trajectory.from_json(str(fail)), Trajectory.from_json(str(ok)))
+            cls._ensure_replay_order(rep, fail, ok)
+            html = out / f"{name}.html"
+            render_html([rep], {}, ROOT / "web" / "blocks.html", html)
+            return rep, html
+
+        cls.ordered, cls.ordered_html = build("ordered", cls.BENCH / "ls02_route_duration")
+        cls.empty, cls.empty_html = build("empty", cls.BENCH / "gm01_flex_refund")
+        cls.contested, cls.contested_html = build("contested", cls.REDTEAM / "a1_negation")
+        assert cls.ordered["diagnosis"]["decisive_step"]["replay_order"], "ls02 must carry an order"
+        assert cls.empty["diagnosis"]["decisive_step"]["replay_order"] == [], "gm01 abstains"
+        assert cls.contested["diagnosis"]["leading"] is None
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        if cls.tmp:
+            cls.tmp.cleanup()
+
+    def open_map(self, html, width=1440, scheme="light"):
+        context = self.browser.new_context(viewport={"width": width, "height": 1000},
+                                           color_scheme=scheme)
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.type + ": " + m.text)
+                if m.type in ("error", "warning") else None)
+        page.goto(f"file://{html}#view=evidence")
+        page.wait_for_timeout(500)
+        block = page.locator('.block[data-block="trajectory-map"]')
+        if block.count() and "collapsed" in (block.get_attribute("class") or ""):
+            block.locator(".block-actions .icon-btn").nth(1).click()
+            page.wait_for_timeout(200)
+        return context, page, errors
+
+    def drawn(self, page):
+        return page.evaluate("""() => {
+            const block = document.querySelector('.block[data-block="trajectory-map"]');
+            const svg = block.querySelector('svg.tj');
+            const discs = [...svg.querySelectorAll('g.tj-hit g.tjm-replay')].map(g => ({
+                rank: +g.getAttribute('data-rank'), step: +g.getAttribute('data-step'),
+                text: g.querySelector('text').textContent,
+                side: g.closest('g.tj-hit').getAttribute('data-side'),
+                node: +g.closest('g.tj-hit').getAttribute('data-index'),
+                title: g.closest('g.tj-hit').querySelector(':scope > title').textContent.split('\\n')[0],
+                size: parseFloat(getComputedStyle(g.querySelector('text')).fontSize) }));
+            const titled = [...svg.querySelectorAll('g.tj-hit > title')]
+                .filter(t => / · replay #\\d/.test(t.textContent)).length;
+            const decisive = [...svg.querySelectorAll('g.tj-hit')].filter(g =>
+                g.querySelector('.tj-ring.dec')).map(g => +g.getAttribute('data-index'));
+            const decisiveTitles = [...svg.querySelectorAll('g.tj-hit title')]
+                .filter(t => t.textContent.indexOf('decisive step') >= 0).length;
+            const legend = [...block.querySelectorAll('.tjm-legend-more .k')]
+                .map(k => k.textContent).filter(t => /replay order/.test(t));
+            return { discs, titled, decisive, decisiveTitles, legend,
+                     overflow: document.documentElement.scrollWidth > window.innerWidth };
+        }""")
+
+    def expected(self, rep):
+        side = rep["diagnosis"]["subject"]
+        order = rep["diagnosis"]["decisive_step"]["replay_order"][:5]
+        return side, [{"rank": k + 1, "step": s} for k, s in enumerate(order)]
+
+    def test_the_discs_follow_the_replay_order_beside_the_decisive_ring(self):
+        side, want = self.expected(self.ordered)
+        for width, scheme in ((1440, "light"), (1440, "dark"), (390, "light")):
+            context, page, errors = self.open_map(self.ordered_html, width, scheme)
+            got = self.drawn(page)
+            discs = sorted(got["discs"], key=lambda d: d["rank"])
+            self.assertEqual([{"rank": d["rank"], "step": d["step"]} for d in discs], want, (width, scheme))
+            for d in discs:
+                self.assertEqual(d["side"], side)
+                self.assertEqual(d["node"], d["step"], "a disc sits on its own step's node")
+                self.assertEqual(d["text"], str(d["rank"]))
+                self.assertIn(" · replay #%d" % d["rank"], d["title"])
+                self.assertGreaterEqual(d["size"], 11)
+            self.assertEqual(got["titled"], len(want))
+            # the disc adds to the ring, never replaces it
+            committed = self.ordered["diagnosis"]["decisive_step"]["step"]
+            self.assertEqual(got["decisive"], [committed])
+            self.assertEqual(want[0]["step"], committed, "rank 1 is the committed step")
+            self.assertEqual(len(got["legend"]), 1, "the full legend keys the disc")
+            self.assertFalse(got["overflow"], (width, scheme))
+            self.assertEqual(errors, [])
+            context.close()
+
+    def test_an_empty_order_draws_no_disc_and_no_key(self):
+        context, page, errors = self.open_map(self.empty_html)
+        got = self.drawn(page)
+        self.assertEqual(got["discs"], [])
+        self.assertEqual(got["titled"], 0)
+        self.assertEqual(got["legend"], [])
+        self.assertEqual(errors, [])
+        context.close()
+
+    def test_a_contested_diagnosis_rings_nothing_but_keeps_the_order(self):
+        context, page, errors = self.open_map(self.contested_html)
+        got = self.drawn(page)
+        self.assertEqual(got["decisive"], [], "contested must commit to no ring")
+        self.assertEqual(got["decisiveTitles"], 0)
+        keys = page.locator('.block[data-block="trajectory-map"] .tjm-foot .k').all_inner_texts()
+        self.assertFalse([k for k in keys if "red ring" in k and "decisive" in k],
+                         "no ring is drawn, so none is keyed")
+        note = page.locator('.block[data-block="trajectory-map"] .tjm-note')
+        self.assertEqual(note.count(), 1)
+        self.assertIn("contested", note.inner_text().lower())
+        side, want = self.expected(self.contested)
+        self.assertTrue(want, "the contested pair carries an order to replay")
+        self.assertEqual(sorted(({"rank": d["rank"], "step": d["step"]} for d in got["discs"]),
+                                key=lambda d: d["rank"]), want)
+        self.assertEqual(len(got["legend"]), 1)
+        self.assertEqual(errors, [])
+        context.close()

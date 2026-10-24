@@ -53,6 +53,13 @@ def register(subparsers) -> None:
     p.add_argument("--no-confirm", dest="confirm", action="store_false",
                    help="keep a change on its first paired test even when one or two tasks moved, instead of "
                         "running those tasks again to see it hold")
+    p.add_argument("--no-settle", dest="settle", action="store_false",
+                   help="run every run of the changed harness even once the runs left could no longer make "
+                        "it kept (by default it runs a round at a time and stops there)")
+    p.add_argument("--prune", action="store_true",
+                   help="when it ends, test each kept change again against the harness without it, newest first, "
+                        "and drop one that no longer wins (one more arm per kept change; with --generations 0, "
+                        "prunes a run that already finished)")
     p.add_argument("--holdout", type=int, default=0, metavar="N",
                    help="keep the last N tasks out of the evolution, and at the end test the harness it ends "
                         "with against the agent as it ships on them: does it help on tasks it never saw")
@@ -77,6 +84,9 @@ def register(subparsers) -> None:
     p.add_argument("--commits", type=int, default=6, metavar="N", help="--from-git: at most N tasks (default 6)")
     p.add_argument("--python", default=None, metavar="PATH",
                    help="--from-git: the Python the project's tests run with (its dependencies installed)")
+    p.add_argument("--grader-checks", type=int, default=3, metavar="N",
+                   help="--from-git: run each task's tests N times on the parent and on the commit (default 3); "
+                        "a task whose tests do not agree every time is flaky and left out")
     p.add_argument("--test-cmd", default=None, metavar="CMD",
                    help="--from-git: the test command, {files} for the test files (default pytest, else unittest)")
     p.add_argument("--adopt", default=None, metavar="DIR",
@@ -343,7 +353,8 @@ def run(args: argparse.Namespace) -> int:
               flush=True)
         try:
             made = build(repo, dest, want=args.commits, test_cmd=args.test_cmd, python=args.python,
-                         timeout=args.check_timeout, on_progress=lambda s: print(f"  {s}", flush=True))
+                         timeout=args.check_timeout, checks=max(1, args.grader_checks),
+                         on_progress=lambda s: print(f"  {s}", flush=True))
         except (OSError, ValueError, subprocess.CalledProcessError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
@@ -425,22 +436,23 @@ def run(args: argparse.Namespace) -> int:
                      check_timeout_s=args.check_timeout, on_done=progress.run_done, jobs=args.jobs)
     counted = arm
 
-    def arm(harness, label, only=None):  # noqa: F811 — the same arm, counted run by run for progress.json
-        progress.arm(label, harness.version, runs=None if only is None else len(only) * args.runs * len(specs),
-                     tasks=only)
-        return counted(harness, label, only=only)
+    def arm(harness, label, only=None, rounds=None):  # noqa: F811 — the same arm, counted run by run
+        if not rounds or rounds[0] == 1:  # a later round goes on counting the arm its first round began
+            progress.arm(label, harness.version, runs=None if only is None else len(only) * args.runs * len(specs),
+                         tasks=only)
+        return counted(harness, label, only=only, rounds=rounds)
     if args.hub:
         # every arm writes its own traces directory: stream each as it appears
         inner = arm
         streamers = []
 
-        def arm(harness, label, only=None):  # noqa: F811 — the same arm, streamed
+        def arm(harness, label, only=None, rounds=None):  # noqa: F811 — the same arm, streamed
             d = out / label / "traces"
             d.mkdir(parents=True, exist_ok=True)
             s = TraceStreamer(d, args.hub, token, interval=0.5).start()
             streamers.append(s)
             try:
-                return inner(harness, label, only=only)
+                return inner(harness, label, only=only, rounds=rounds)
             finally:
                 s.stop()
 
@@ -470,7 +482,7 @@ def run(args: argparse.Namespace) -> int:
                              patience=args.patience, check=visible_check([t["check"] for t in tasks]),
                              refuse_knobs=refuse, on_progress=said, on_generation=generation,
                              explore=getattr(args, "explore", True), confirm=getattr(args, "confirm", True),
-                             explore_first=first)
+                             explore_first=first, settle=getattr(args, "settle", True))
     except KeyboardInterrupt:
         progress.end("stopped")
         print("\ninterrupted: the ledger keeps every generation that finished", file=sys.stderr)
@@ -478,6 +490,17 @@ def run(args: argparse.Namespace) -> int:
     except Exception as exc:
         progress.end("failed", str(exc))
         raise
+    if getattr(args, "prune", False):
+        from ..selfevolve import prune
+        try:
+            result = prune(arm, result, on_progress=said)
+        except KeyboardInterrupt:
+            progress.end("stopped")
+            print("\ninterrupted while pruning: the evolution is kept as it ended", file=sys.stderr)
+            write_ledger(ledger_path, result["ledger"])
+            _write_result(out, result)
+            return 130
+        said(f"prune: {result['prune']['says']}")
     if held:
         try:
             result["holdout"] = _holdout(held, specs, out, result, args, progress, said)
