@@ -1283,6 +1283,9 @@ DECISIVE_CRITERION = (
 #: itself never claims more than "hypothesized".
 DECISIVE_VERIFICATION = "hypothesized"
 
+#: how many steps of the replay order a diagnosis carries
+REPLAY_SHOWN = 5
+
 #: the one overdetermination signature a trace can show without a replay
 #: (Thought Anchors' warning, applied narrowly): the run OBSERVED a wrong
 #: value and then ASSERTED a different wrong value of the same kind that
@@ -1622,6 +1625,15 @@ def diagnose(report: dict, a: Trajectory, b: Trajectory) -> dict:
         if over:
             decisive["overdetermined"] = over
             decisive["joint_candidates"] = list(over["candidates"])
+
+    # which steps to replay first: the committed step, where the runs part, the contenders, the account
+    # (agentdiff.conformal); the bench calibrates how many of them cover the decisive step at a stated rate
+    decisive["replay_order"] = []
+    if decisive.get("step") is not None and account_side:
+        from .conformal import replay_order
+        failing, passing = (a, b) if account_side == "a" else (b, a)
+        decisive["replay_order"] = replay_order(
+            {"decisive_step": decisive, "causal_account": account}, failing, passing)[:REPLAY_SHOWN]
 
     # evidence added while building the account or the decisive step is
     # classified too (idempotent: items already stamped are skipped)

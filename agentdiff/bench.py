@@ -124,6 +124,16 @@ def format_scorecard(result: dict) -> str:
                 f"{r.replace('_', ' ')} {rules[r]['exact']}/{rules[r]['total']}" for r in rules)
             + f" — engine margin over the best ({struct['best'].replace('_', ' ')}) "
             f"{struct['engine_margin']:+.4f}")
+    sets = [x for x in result.get("replay_sets") or [] if (x.get("replay_order") or {}).get("coverage") is not None]
+    if sets:
+        def _one(x: dict, key: str) -> str:
+            o = x[key]
+            return (f"k={o['k']} covers {o['coverage']:.2f} ({o['mean_set']} steps)" if o.get("coverage") is not None
+                    else "no finite k")
+        lines.append(
+            f"  replay sets     held out (n={sets[0]['replay_order']['test']}, runs of {sets[0]['mean_steps']} steps): "
+            + "; ".join(f"{x['target']:.0%} target, replay order {_one(x, 'replay_order')}, "
+                        f"step order {_one(x, 'step_order')}" for x in sets))
     if result.get("invalid_pairs"):
         lines.append(f"  INVALID PAIRS   {len(result['invalid_pairs'])} excluded — "
                      "clean twin fails its own grader: "
@@ -274,6 +284,20 @@ def leakage_probe(failing: Trajectory, passing: Trajectory) -> dict:
 
 #: one-rule guesses at the decisive step, each a structural fact of the failing run and nothing more
 STRUCTURAL = ("last_step", "first_error", "first_divergence", "first_write")
+
+
+#: the coverage targets replay sets are calibrated for
+REPLAY_ALPHAS = (0.1, 0.05, 0.01)
+
+
+def _replay_sets(step_truth: list[dict]) -> list[dict]:
+    """Conformal replay sets (agentdiff.conformal) over the step-truth scenarios, one per target in
+    REPLAY_ALPHAS: k calibrated on one half, coverage and set size measured on the other, for the replay order
+    and for plain step order."""
+    from .conformal import evaluate
+    rows = [{"id": r["scenario"], "rank": r.get("replay_rank"), "index_rank": min(r["decisive_truth"]) + 1,
+             "steps": r["steps"]} for r in step_truth if "steps" in r]
+    return [evaluate(rows, a) for a in REPLAY_ALPHAS] if rows else []
 
 
 def structural_baselines(failing: Trajectory, passing: Trajectory) -> dict:
@@ -462,6 +486,10 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
             "overdetermined_flagged": bool(
                 (diagnosis.get("decisive_step") or {}).get("overdetermined")),
         }
+        if truth_steps:
+            from .conformal import rank_of, replay_order
+            entry["replay_rank"] = rank_of(replay_order(diagnosis, failing, passing), truth_steps)
+            entry["steps"] = len(failing.steps)
         results.append(entry)
 
         bucket = by_cause.setdefault(
@@ -551,6 +579,7 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
                     "engine's score it reproduces is the share the benchmark may "
                     "be leaking; the headline is the margin, not the score",
         },
+        "replay_sets": _replay_sets(step_truth),
         "structural_baselines": _structural_rollup(structural_hits, probe_hits["step_total"],
                                                    exact / len(step_truth) if step_truth else None),
         "engine_minus_probe": {
