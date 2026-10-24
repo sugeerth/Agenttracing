@@ -96,6 +96,74 @@ contested failures start where the runs first part. The fallback is
 labelled, never presented as a cause, and stays hypothesized until a
 replay verifies it.
 
+## Same tool, other arguments (2026-10-24)
+
+The stripped corpus still had 237 cases where the engine named a step 1
+or 2 after the truth. All 237 had one shape: a divergence led, and the
+true step was a tool call that the aligner had matched to the passing
+run's call of the same tool. Text similarity weighs the shared tool
+name, so a call with a different argument (an old mirror instead of the
+current page) could score exactly the match threshold. The divergence
+then surfaced only at the reasoning step that read the different result.
+
+The divergence hypothesis now moves its root back to such a call when
+all of these hold (`diagnosis._argument_divergence`):
+- the arguments differ and the result differs;
+- the call did not fail (a failed call is the error hypotheses' anchor);
+- words only its result carries reappear in what the run itself
+  reasoned, planned or answered before the divergent step.
+
+Each condition was added because a looser version broke something,
+measured:
+- moving on argument and result alone also fired on early calls that
+  did not matter (late_decision moved too early, ±1 fell from 1852 to
+  1827) and flipped 24 wrong_entity kinds;
+- letting any later step count as "reached" let a decoy through when the
+  agent's own later arguments repeated a word;
+- including failed calls folded the invented-arguments hypothesis into
+  the divergence and turned 100 contested garbage_args cases into a
+  confident wrong cause.
+
+| corpus | condition | decisive step exact, before | after | within ±1 | cause kind | chain recall |
+|---|---|---|---|---|---|---|
+| handcrafted (20 pairs) | annotated | 16/16 | 16/16 | 16/16 | 20/20 | 0.93 |
+| generated, 2,200 pairs | annotated | 1800/1852 | 1800/1852 | 1852/1852 | 1933/2200 | 0.87 |
+| generated, 2,200 pairs | stripped | 1554/1852 | **1752/1852** | 1808/1852 | 1871 → 1877 | 0.74 → 0.78 |
+
+The annotated corpus is unchanged in every outcome: there the quality
+annotation already split the pair. The rule recovers that signal from
+the observation text. Abstention stays 326/348. The engine's margin over
+the best one-rule baseline on stripped traces is now +0.22.
+
+## Replay sets (2026-10-24)
+
+One named step is often wrong on hard cases. What someone replaying a
+failure needs is an order to try steps in and a number to stop at.
+`agentdiff.conformal` ranks every step of the failing run: the committed
+step, where the runs part, the contested candidates, the causal account,
+the other steps without a twin, then the rest. Each diagnosis carries
+the first five as `decisive_step.replay_order`.
+
+The bench calibrates split-conformal k on a deterministic half of the
+step-truth scenarios and reports, on the other half, the coverage and
+set size it actually got. It runs the same procedure on plain step
+order, which is the floor.
+
+| corpus | target | replay order: k, held-out coverage | step order: k, held-out coverage |
+|---|---|---|---|
+| generated, annotated (902 held out, 5.8 steps) | 90% | k=1, 0.97 | k=5, 0.91 |
+| | 95% | k=1, 0.97 | k=6, 0.97 |
+| | 99% | k=3, 1.00 | k=7, 1.00 |
+| generated, stripped (902 held out) | 90% | k=1, 0.94 | k=5, 0.91 |
+| | 95% | k=2, 0.97 | k=6, 0.97 |
+| | 99% | k=4, 1.00 | k=7, 1.00 |
+
+The guarantee is marginal and needs exchangeability. A k calibrated on
+the annotated corpus and applied to the stripped one fell short: 0.946
+at the 95% target and 0.987 at 99%. Calibrate on traces like the ones
+you diagnose. The handcrafted corpus (16 cases) is too small to
+calibrate at these targets and prints no line.
+
 ## External validation: Who&When (2026-09-03)
 
 The public Who&When failure-attribution dataset (Zhang et al., 2025;
@@ -144,6 +212,22 @@ on Who&When is hard (published accuracies peak at 14–30% with strong
 LLM judges). Converting these logs into pairs — recording a passing run
 of each task through the harness — is the next experiment, not a
 change to this number.
+
+**Replay sets on the same logs (2026-10-24).** `whowhen.py` now ranks
+every step in the reading's order and runs the same conformal procedure
+against the human labels (101 logs held out, runs of 22 steps on
+average):
+
+| target | reading's order: k, held-out coverage | step order: k, held-out coverage |
+|---|---|---|
+| 50% | k=6, 0.65 | k=6, 0.66 |
+| 80% | k=10, 0.85 | k=10, 0.84 |
+| 90% | k=17, 0.92 | k=17, 0.91 |
+
+Two readings. The procedure keeps its promise on real labels: each
+target was met on logs it never saw. The reading's order is no better
+than step order, which is the same negative result as the pointer table
+above, now as a set.
 
 ## History: how the benchmark was built
 

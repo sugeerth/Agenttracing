@@ -4,6 +4,49 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-10-24
+
+**How it was read.** Through search-engine extracts for papers. The
+Who&When dataset was cloned read-only from its public GitHub repository
+(mingyin1/Agents_Failure_Attribution).
+
+**Read:**
+- *Conformal Agent Error Attribution* (arXiv 2605.06788). Attribution
+  as a set with a coverage guarantee instead of a single step.
+  https://arxiv.org/abs/2605.06788
+- *TrajDebug* (arXiv 2608.06346), again: trace an error's lifecycle back
+  to where it entered, not to where it shows.
+- *LongRCA Bench* (arXiv 2608.15242; 1,140 long-horizon failures with
+  earliest-decisive-step labels) and *Failure as a Process* (arXiv
+  2607.09510). Extracts only.
+
+**Taken, three things:**
+- **Same tool, other arguments.** All 237 stripped cases where the
+  engine named a later step had one shape: the aligner matched two calls
+  of the same tool with different arguments. The divergence now moves
+  back to such a call when its result differs, it did not fail, and its
+  words reach what the run reasoned (TrajDebug's lifecycle, applied as
+  provenance). Stripped exact steps went 1554 → 1752 of 1852, with no
+  outcome changed on the annotated or handcrafted corpora. Three looser
+  versions each broke something measurable, recorded in
+  `docs/BENCHMARK.md`.
+- **Replay sets** (Conformal Agent Error Attribution). A replay order
+  over every step and a split-conformal k, reported held out beside
+  plain step order. The 99% target needs 3–4 steps against 7 on the
+  generated corpora; under a shift between corpora coverage fell short
+  (0.987).
+- **Replay sets on Who&When**, real human labels. The procedure met
+  every target on the held-out half (0.92 at 90%). The reading's order
+  was no better than step order: a negative result.
+
+**Not taken, and why:**
+- **LongRCA Bench as a second real corpus.** Not tried today; its
+  traces would need a converter like `whowhen.py`, and they too lack a
+  passing twin.
+- **A position prior learned from Who&When.** It would fit the order to
+  the dataset being scored. Without a separate corpus to calibrate on,
+  any gain would be leakage.
+
 ## 2026-10-23
 
 **How it was read.** Through search-engine extracts, since arXiv and its

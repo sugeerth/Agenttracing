@@ -5,6 +5,38 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Replay sets
+
+`agentdiff.conformal` ranks every step of a failing run in the order to
+replay them: the committed step, where the runs part, the contested
+candidates, the causal account, the other twinless steps, the rest.
+Each diagnosis carries the first five as `decisive_step.replay_order`.
+`agentdiff bench` calibrates split-conformal k on half of the
+step-truth scenarios and prints the held-out coverage and set size at
+90%, 95% and 99%, beside the same procedure on plain step order
+(`replay_sets` in the result).
+
+On 902 held-out generated pairs (5.8 steps), the 99% target needs k=3
+(annotated) or k=4 (stripped) against k=7 for step order. Calibrated
+on one corpus and applied to another, it falls short (0.987 at 99%), so
+the docs say to calibrate on traces like the ones being diagnosed.
+
+`demo/external/whowhen.py` reports the same sets on the 184 human-
+labelled Who&When logs: coverage meets each target on the held-out half
+(0.92 at 90%), and the reading's order needs the same k as step order.
+That is a negative result for the order, reported as such.
+
+## Same tool, other arguments
+
+The divergence hypothesis moves its root back to a tool call that the
+aligner matched to the other run's call of the same tool when the
+arguments and the result both differ, the call did not fail, and the
+result's own words reappear in what the run reasoned, planned or
+answered (`diagnosis._argument_divergence`). The decisive step's basis
+then says so. On stripped traces the exact decisive step goes from 1554
+to 1752 of 1852; the annotated and handcrafted corpora are unchanged in
+every outcome.
+
 ## A contested diagnosis names where the runs part
 
 When no hypothesis leads, `decisive_step` used to name no step. It now

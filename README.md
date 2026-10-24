@@ -125,7 +125,7 @@ a fooled grader fools every metric here ([docs/COEVOLVE.md](docs/COEVOLVE.md)).
 | Who&When, 184 public failing logs, single-trace reading | external | — | 8/184 exact, 46/184 within ±1; floor 20/184 | — |
 
 The probe is a deliberately dumb surface-cue detector scored on every corpus;
-the engine's margin over it, not its score, is the claim. Against one-rule baselines (2026-10-22, `docs/BENCHMARK.md`), the exact decisive step beats "the first step without a twin" by +0.31 handcrafted and +0.16 on 2,200 generated pairs, but not once annotations are stripped (1344 vs 1350 of 1852): a negative result. Naming where the runs part when the diagnosis is contested (2026-10-23) lifts that to 1554 (+0.11), on a generator that may favour the rule. The
+the engine's margin over it, not its score, is the claim. Against one-rule baselines (2026-10-22, `docs/BENCHMARK.md`), the exact decisive step beats "the first step without a twin" by +0.31 handcrafted and +0.16 on 2,200 generated pairs, but not once annotations are stripped (1344 vs 1350 of 1852): a negative result. Naming where the runs part when the diagnosis is contested (2026-10-23) lifts that to 1554, and tracing a same-tool call with other arguments to the decision that read its result (2026-10-24) to 1752 (+0.22). Replay sets add how many steps to replay to cover the decisive one at 90/95/99%, held out. The
 last row is a **negative result**, reported as such: without a passing
 twin the pairwise diagnoser cannot run, and the single-trace reading
 does not beat the always-first-step floor on those prose-only logs.
