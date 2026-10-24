@@ -5,6 +5,24 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## What a self-evolve verdict's test could show
+
+Each self-evolve verdict carries `resolution` (`selfevolve.resolution`).
+It has three parts, all exact:
+- the sign test's best possible chance, every task moving the change's
+  way;
+- its power against a change that wins 3 in 4 of the tasks it moves, at
+  the share that moved;
+- the tasks that would give 80% power.
+
+The run says it, and the evolution card shows it per tested change,
+computed from the test's own counts for records from before the field.
+It decides nothing. On the 10 changes tested in the recorded real
+evolutions (6 tasks each), power was at most 0.025, and 80% would take
+53 to 161 tasks.
+
+Prompted by *Identical Runs, Different Results* (arXiv 2609.33812).
+
 ## Replay sets
 
 `agentdiff.conformal` ranks every step of a failing run in the order to

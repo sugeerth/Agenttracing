@@ -199,6 +199,24 @@ Evolve has the same as a third way in, "On your repository's history".
     that did nothing would do that well somewhere. None of them would
     pass a family-wise correction. That is why a weak win is re-run on
     fresh runs, and why `--prune` tests what was kept again.
+- **What the test could show.** Each verdict also carries its sign
+  test's resolution (`selfevolve.resolution`, `resolution` in each
+  test), said in the run and shown on the card. Like the sign test and
+  Holm's adjustment, it is reported and decides nothing. It has three
+  parts, all exact:
+  - the best chance the test can reach, which is every task moving the
+    change's way: with 4 tasks or fewer it cannot reach 0.05 at all;
+  - its power against a change that wins 3 in 4 of the tasks it moves,
+    at the share of tasks that moved in this run;
+  - the fewest tasks that would give that power 80%.
+  - **Recorded:** across the 10 changes tested in the real evolutions on
+    disk, all on 6 tasks, the best chance was 1 in 64. With 1 to 3 of
+    the 6 tasks moving, though, the power was at most 0.025, and 80%
+    would take 53 to 161 tasks. The scripted stand-in's 3 tasks cannot
+    reach 0.05 however they move. Every real verdict so far was made by
+    the paired rule over counts on evidence too thin for a test to
+    confirm, which is why replication, the held-out check and `--prune`
+    exist.
 - **Which tasks can tell a change apart.** Each generation records and
   says which tasks passed some runs and failed others under the harness
   it ran (`selfevolve.task_signal`, `signal` in `self-evolve.json`). A

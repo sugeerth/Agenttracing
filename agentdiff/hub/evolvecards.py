@@ -350,6 +350,34 @@ def signal_line(data: dict) -> str:
             + " · ".join(bits) + '</div>')
 
 
+def _share(x: float) -> str:
+    return "<0.01" if 0 < x < 0.005 else f"{x:.2f}"
+
+
+def resolution_line(data: dict) -> str:
+    """Per tested change, the sign test's power against a change that wins three in four of the tasks it moves,
+    and the tasks that would give it 80%: how much any verdict here could show (selfevolve.resolution)."""
+    from ..selfevolve import resolution
+    bits, floor = [], None
+    for g in data.get("lineage") or []:
+        t = (g.get("action") or {}).get("test") or {}
+        # a record from before the field: the same numbers, from the test's own counts
+        r = t.get("resolution") or (resolution(t["tasks"], len(t.get("wins") or []) + len(t.get("losses") or []))
+                                    if t.get("tasks") else None)
+        if not r or not r.get("moved", [0, 0])[1]:
+            continue
+        if not r.get("reachable"):
+            floor = r
+        need = f", ~{r['tasks_needed']} tasks for {r['target']:.0%}" if r.get("tasks_needed") else ""
+        bits.append(f'{e(g["generation"])} {e(_share(r["power"]))}{e(need)}')
+    if not bits:
+        return ""
+    note = (f' · with {floor["moved"][1]} tasks no outcome reaches {floor["alpha"]:g}' if floor else "")
+    return ('<div class="hold" title="exact power of the one-sided sign test at the share of tasks that moved; '
+            'reported, it decides nothing"><b>What the test could show</b> (power against a change that wins '
+            '3 in 4 moved tasks): ' + " · ".join(bits) + e(note) + '</div>')
+
+
 def prune_line(data: dict) -> str:
     """Whether each change it kept still earned its place when tested again against the harness it ended with."""
     p = data.get("prune") or {}
@@ -486,7 +514,7 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, ado
         pill = ""  # still going: the strip says where it is, not how it ended
     use = adopt_form(entry, adopt_csrf) if adopt_csrf and harness.get("version") and not live else ""
     return (f'<div class="ecard"><div class="ehead">{name}{pill}</div>{live}'
-            f'{stats}<div class="gstrip">{"".join(steps)}</div>{runs}{ends_html}{signal_line(data)}{prune_line(data)}{holdout_line(data)}{use}'
+            f'{stats}<div class="gstrip">{"".join(steps)}</div>{runs}{ends_html}{signal_line(data)}{resolution_line(data)}{prune_line(data)}{holdout_line(data)}{use}'
             + (f'<a class="more" href="{href}">Every change and its evidence →</a>' if link else "") + '</div>')
 
 

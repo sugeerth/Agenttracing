@@ -4,6 +4,55 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-10-24, second run
+
+**How it was read.** Through search-engine extracts, since arXiv and its
+mirrors could not be reached.
+
+**Read:**
+- *Identical Runs, Different Results: Benchmarking AI Coding Agents on
+  Open-Weight Models* (arXiv 2609.33812). Over 584 runs of six coding
+  agents, run-to-run spread exceeded the gaps between agent–model
+  pairings. Resolving those gaps would take tens to over a hundred runs
+  per arm.
+  https://arxiv.org/abs/2609.33812
+- *What Does an LLM-Agent Leaderboard Rank Actually Compare?* (arXiv
+  2609.07785). Most close orderings on SWE-bench Verified are
+  underpowered, and none of 45 pairs survives a simultaneous interval.
+- *Stop Comparing LLM Agents Without Disclosing the Harness* (arXiv
+  2605.23950). The harness moved results more than the model in some
+  settings.
+- *Self-Evolving Coding Agents via Harness-Policy Optimization* (arXiv
+  2610.22791), and *Self-Evolving Agent Harnesses via Gated Semantic
+  Quality-Diversity* (arXiv 2607.13683, a paired 2σ test on a sealed
+  set). Extracts only.
+
+**Taken: say what each verdict's test could ever show.** AgentDiff
+reported each verdict's sign test and its Holm adjustment, but not
+whether the test had any chance of showing a real gain.
+- Built: `selfevolve.resolution`, which is exact. It gives the best
+  chance the test can reach, its power against a change that wins 3 in
+  4 moved tasks at the observed share of tasks that moved, and the tasks
+  that would give 80%. The run says it and the card shows it; it decides
+  nothing.
+- Measured on the recorded real evolutions (10 tested changes, 6 tasks
+  each, one duplicated record counted once): power at most 0.025, and
+  80% would take 53 to 161 tasks. The scripted stand-in's 3 tasks cannot
+  reach 0.05 at all. The paper's finding holds here too: these verdicts
+  rest on the paired rule over counts, and no test could confirm them at
+  this size.
+
+**Not taken, and why:**
+- **Deciding by power** (refusing to keep a change until a test could
+  confirm it). With 6 tasks nothing could ever be kept, the same reason
+  2026-10-21 gave for not deciding by Holm.
+- **Running more tasks or runs to reach power.** That costs real agent
+  runs, about 53 tasks or more, far beyond one run's $2. `resolution`
+  says how many, so the user can choose.
+- **A simultaneous interval over many comparisons** (the leaderboard
+  paper). A self-evolve run compares one change at a time, and Holm
+  already covers the family.
+
 ## 2026-10-24
 
 **How it was read.** Through search-engine extracts for papers. The

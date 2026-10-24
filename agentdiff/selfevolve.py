@@ -47,7 +47,7 @@ from .evolving import _narrative as evals_narrative, evolve as evolve_evals
 from .forge import RunView, _score, _unique_keys, candidates, describe, parse_rule, rule_id, spec
 from .trace import Trajectory
 
-__all__ = ["CONFIRM_P", "GUIDES", "project_knowledge", "DEMO_TASKS", "DEMO_HARD", "DEMOS", "EXPLORE", "Harness", "explore_remedy", "sign_test", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "prune", "could_keep", "task_signal", "holm", "family", "LEDGER_KIND", "ESSENTIAL_TOOLS",
+__all__ = ["CONFIRM_P", "GUIDES", "project_knowledge", "DEMO_TASKS", "DEMO_HARD", "DEMOS", "EXPLORE", "Harness", "explore_remedy", "sign_test", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "prune", "could_keep", "task_signal", "holm", "family", "resolution", "resolution_text", "LEDGER_KIND", "ESSENTIAL_TOOLS",
            "load_ledger", "write_ledger", "visible_check"]
 
 LEDGER_KIND = "self-evolving"
@@ -229,6 +229,64 @@ def sign_test(wins: int, losses: int) -> Optional[float]:
     return sum(comb(n, k) for k in range(wins, n + 1)) / 2 ** n
 
 
+#: the conventional level a sign test is read against when stating its resolution; it decides nothing here
+RESOLUTION_ALPHA = 0.05
+#: the change the resolution is stated against: one that wins three in four of the tasks it moves
+RESOLUTION_WIN = 0.75
+
+
+def _critical(n: int, alpha: float) -> Optional[int]:
+    """The fewest wins of ``n`` moved tasks whose sign test reaches ``alpha``, or None when none can."""
+    return next((k for k in range(n + 1) if n and sign_test(k, n - k) <= alpha), None)
+
+
+def _power(tasks: int, move: float, win: float, alpha: float) -> float:
+    """Exact chance that the sign test reaches ``alpha`` over ``tasks`` tasks when each moves with chance
+    ``move`` and a moved task goes the change's way with chance ``win``."""
+    from math import comb
+    total = 0.0
+    for n in range(tasks + 1):
+        k0 = _critical(n, alpha)
+        if k0 is None:
+            continue
+        p_n = comb(tasks, n) * move ** n * (1 - move) ** (tasks - n)
+        total += p_n * sum(comb(n, k) * win ** k * (1 - win) ** (n - k) for k in range(k0, n + 1))
+    return total
+
+
+def resolution(tasks: int, moved: int, *, alpha: float = RESOLUTION_ALPHA, win: float = RESOLUTION_WIN,
+               target: float = 0.8, most: int = 400) -> dict:
+    """What the sign test over these tasks could ever show. ``best_p`` is its chance if every task moved the
+    change's way: above ``alpha`` the test cannot reach it whatever happens. ``power`` is the exact chance it
+    reaches ``alpha`` against a change that wins ``win`` of the tasks it moves, at this run's share of tasks
+    that moved; ``tasks_needed`` is the fewest tasks (up to ``most``) that would give ``target`` power at that
+    share, or None. Reported beside the verdict; it decides nothing."""
+    best = sign_test(tasks, 0) if tasks else None
+    move = moved / tasks if tasks else 0.0
+    power = _power(tasks, move, win, alpha) if tasks and move else 0.0
+    needed = (next((t for t in range(1, most + 1) if _power(t, move, win, alpha) >= target), None)
+              if move else None)
+    return {"alpha": alpha, "win": win, "best_p": best, "reachable": best is not None and best <= alpha,
+            "moved": [moved, tasks], "power": round(power, 4), "target": target, "tasks_needed": needed}
+
+
+def resolution_text(res: dict) -> str:
+    """One line on what the test could show, from :func:`resolution`."""
+    moved, tasks = res["moved"]
+    if not tasks:
+        return "no task was graded under both, so the test can show nothing"
+    head = (f"with {tasks} task(s) the best chance the sign test can reach is {res['best_p']:.3g}"
+            + (f", so it cannot reach {res['alpha']:g} however the tasks move" if not res["reachable"]
+               else f" (every task moving the change's way)"))
+    if not moved:
+        return head + "; no task moved, so its power against any change is unmeasured here"
+    need = (f"about {res['tasks_needed']} tasks would give {res['target']:.0%}" if res["tasks_needed"]
+            else f"no number of tasks up to 400 gives {res['target']:.0%}")
+    return (head + f"; against a change that wins {res['win']:.0%} of the tasks it moves, with {moved} of {tasks} "
+            f"moving as here, its power is {'<0.01' if 0 < res['power'] < 0.005 else format(res['power'], '.2f')} "
+            f"and {need}")
+
+
 def holm(ps: Dict[str, float]) -> Dict[str, float]:
     """Holm's step-down adjustment of several p values taken together: each becomes the chance, across all of
     them, that a change that did nothing does this well somewhere among the tests made."""
@@ -391,6 +449,7 @@ def decide(base: list, cand: list) -> dict:
     p = sign_test(len(wins), len(losses))
     return {"verdict": verdict, "why": why, "tasks": len(tasks), "wins": wins, "losses": losses, "broke": broke,
             "p_value": p, "chance": chance_text(p),
+            "resolution": resolution(len(tasks), len(wins) + len(losses)),
             "passed": {"current": [passed_a, n_a], "changed": [passed_b, n_b]},
             "median_tokens": {"current": tok_a, "changed": tok_b}}
 
@@ -680,6 +739,8 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
         say(f"{label}: {verdict['verdict']}: {verdict['why']} "
             f"(passed {verdict['passed']['current'][0]}/{verdict['passed']['current'][1]} → "
             f"{verdict['passed']['changed'][0]}/{verdict['passed']['changed'][1]}; {verdict['chance']})")
+        if verdict.get("resolution"):
+            say(f"{label}: what the test could show: {resolution_text(verdict['resolution'])}")
         if verdict["verdict"] == "kept":
             harness = candidate
             carried = cand_runs     # 5. the evals meet what the harness produced
