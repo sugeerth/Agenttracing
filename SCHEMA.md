@@ -199,7 +199,7 @@ Every pairwise report carries, beyond the sections above:
   `decisive_step` {step, criterion, basis (if contested: the first twinless
   step, a structural fallback), window, verification (hypothesized |
   replay-verified | replay-refuted | replay-mixed), replay_recipe, replay_order (steps
-  to replay first), joint_candidates, overdetermined, replay}, `confidence` {level, n, basis, verified}.
+  to replay first), joint_candidates, overdetermined, replay {…, controls, control_flipped}}, `confidence` {level, n, basis, verified}.
 - `reading` — `{a, b}`: each run understood alone — phases,
   what_happened (per-step role), rests_on (answer atoms with basis
   status), answer_basis, validity, phase_checks, errors, critical_error,

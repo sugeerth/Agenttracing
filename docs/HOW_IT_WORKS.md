@@ -72,7 +72,11 @@ later sections read earlier ones and never change them.
    evidence ledger; the *decisive step*: the earliest step whose
    correction is expected to flip the outcome; a causal window; a replay
    recipe. `replay` re-executes from that step through a provider and
-   writes the verdict back (`replay-verified` / `replay-refuted`).
+   writes the verdict back (`replay-verified` / `replay-refuted`). Each
+   corrected replay has a control, the same prefix replayed unchanged:
+   a step is verified only when the correction beats the controls by
+   half the replays, because a failure replayed from its prefix does not
+   always fail again.
 5. **Where the time went** (`timing.py`) — every recorded second to
    thinking, a named tool, or the answer; the seconds in steps the
    reading marks wasted counted and named; the slowest steps; a

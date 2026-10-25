@@ -5,6 +5,30 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Replay controls
+
+`agentdiff replay` (and `harness.replay.replay`) now runs control
+replays: the same prefix replayed with nothing changed, as many as the
+corrected replays by default (`--controls N`, 0 for none). The result
+carries `controls`, `control_flipped` and `control_flip_rate`, and the
+card's confidence line says "3/3 replays flipped the outcome; 0/3
+without the correction".
+
+A step is `replay-verified` only when the correction flips at least half
+its replays **and** beats the controls by half the replays
+(`harness.replay.replay_verdict`). A failed run replayed from its prefix
+does not always fail again, and an outcome reached without the
+correction is not credited to it. With `--controls 0` the old rule
+applies and the note says the verdict is uncontrolled.
+
+Measured exactly, on a labelled synthetic model where the failure
+reproduces 68% of the time (the rate *Repair or Resample?* reports for
+unguided re-runs):
+- **A correction that changes nothing** is "verified" 0.242 of the time
+  with 3 replays and no controls, and 0.091 with 3 controls (0.191 →
+  0.042 at 5 each).
+- **When the failure always reproduces,** the rule is unchanged.
+
 ## What a self-evolve verdict's test could show
 
 Each self-evolve verdict carries `resolution` (`selfevolve.resolution`).

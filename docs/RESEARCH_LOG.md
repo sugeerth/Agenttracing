@@ -4,6 +4,58 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-10-25
+
+**How it was read.** Through search-engine extracts, since arXiv and its
+mirrors could not be reached.
+
+**Read:**
+- *Repair or Resample? Rethinking Failure Debugging in LLM Multi-Agent
+  Systems* (arXiv 2608.25920; SymTrace and SymFail, 536 annotated
+  failures). Unguided re-runs reproduced only 67.97% of failures and
+  repaired 6.90%. A final success after a re-run does not prove the
+  fault was corrected, because outcome variability mixes with repair.
+  https://arxiv.org/abs/2608.25920
+- *Chronicle: Cut-Point Replay for Regression Testing of LLM Agents*
+  (arXiv 2609.20625). A recorded run is replayed with a chosen set of
+  boundaries served from the record and the rest live. Its own stated
+  gap: a reordering that keeps each call's count goes undetected.
+- *Efficient Benchmarking in Production: A Study of an Evolving LLM
+  Agent* (arXiv 2609.21267; IRT adaptive testing and difficulty-
+  stratified subsets), *How Benchmarks Mis-Score Computer-Use Agents*
+  (arXiv 2607.28367; 15.3% of FAIL verdicts wrong in 150 audited
+  trajectories), *DeepSWE* (arXiv 2607.07946; agents recovering the
+  fix from shipped `.git` history), and loop detection by hashing a tool
+  call's name and arguments (arXiv 2603.05344). Extracts only.
+
+**Taken: control replays.** `agentdiff replay` verified a decisive step
+when the corrected replays flipped the outcome, without asking whether
+the uncorrected run would have flipped anyway.
+- Built: every corrected replay is matched by a control replay of the
+  same prefix with nothing changed. A step is verified only when the
+  correction flips at least half its replays and beats the controls by
+  half the replays (`harness.replay.replay_verdict`). The control flip
+  rate is reported as how often the failure did not reproduce.
+- Measured, exactly, on a labelled synthetic model with the failure
+  reproducing 68% of the time: a correction that changes nothing was
+  "verified" 0.242 of the time with 3 replays. With 3 controls it is
+  0.091; with 5 each, 0.191 becomes 0.042. When the failure always
+  reproduces, the rule is unchanged. No real replay ran today, so there
+  is no spend and no real-data number.
+
+**Not taken, and why:**
+- **IRT adaptive testing or stratified subsets** (2609.21267). Rejected
+  on 2026-10-19 (IRT, the 30–70% filter), and nothing new changes the
+  reason.
+- **Detecting an agent that reads the fix from `.git` history**
+  (DeepSWE). `--from-git` workspaces carry no `.git` (2026-10-16, second
+  run).
+- **Loop detection by a name-and-arguments fingerprint.** AgentDiff's
+  repeat and loop flags already match on the call's name and input.
+- **Cut-point replay.** AgentDiff's replay already serves the recorded
+  prefix and runs the rest live. Chronicle's order gap does not apply,
+  since a diff aligns steps in order.
+
 ## 2026-10-24, second run
 
 **How it was read.** Through search-engine extracts, since arXiv and its

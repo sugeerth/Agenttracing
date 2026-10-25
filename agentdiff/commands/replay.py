@@ -27,6 +27,9 @@ def register(subparsers) -> None:
                         help="replay from this step (default: the diagnosis's decisive step)")
     parser.add_argument("--replays", type=int, default=3,
                         help="rollouts (default 3; one proves nothing)")
+    parser.add_argument("--controls", type=int, default=None,
+                        help="uncorrected replays of the same prefix, to see whether the failure reproduces "
+                             "(default: as many as --replays; 0 runs none and the verdict is uncontrolled)")
     parser.add_argument("--correction", default=None,
                         help="text to substitute at the step (default: the passing "
                              "run's aligned step, verbatim)")
@@ -96,7 +99,7 @@ def run(args: argparse.Namespace) -> int:
                  "outcome": report[side]["outcome"], "steps": report[side]["steps"],
                  "budget": report.get(side, {}).get("budget") or {"max_steps": 12}}
         result = replay(trace, factory(), tools, int(step), correction,
-                        replays=args.replays, out_dir=args.traces,
+                        replays=args.replays, controls=args.controls, out_dir=args.traces,
                         provider_factory=factory)
     except (ValueError, OSError, ImportError, AttributeError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -104,9 +107,12 @@ def run(args: argparse.Namespace) -> int:
     summary = {
         "verdict": result["verdict"], "replays": result["replays"],
         "flipped": result["flipped"], "flip_rate": result["flip_rate"],
+        "controls": result["controls"], "control_flipped": result["control_flipped"],
+        "control_flip_rate": result["control_flip_rate"],
         "step": result["step"], "correction": correction,
         "provider": {"name": name or kind, "model": factory().model},
         "runs": [{k: v for k, v in r.items() if k != "trace"} for r in result["runs"]],
+        "control_runs": [{k: v for k, v in r.items() if k != "trace"} for r in result["control_runs"]],
         "note": result["note"],
     }
     decisive["verification"] = result["verdict"]
@@ -119,6 +125,11 @@ def run(args: argparse.Namespace) -> int:
           f"×{result['replays']} with the {summary['provider']['name']} provider")
     print(f"  {result['verdict']}: {result['flipped']}/{result['replays']} replay(s) "
           f"flipped the outcome (rate {result['flip_rate']})")
+    if result["controls"]:
+        print(f"  without the correction, {result['control_flipped']}/{result['controls']} control replay(s) "
+              f"flipped it too: the failure reproduced in {result['controls'] - result['control_flipped']}")
+    else:
+        print("  no control replays ran: the verdict does not know whether the failure reproduces")
     print(f"  correction: " + (f"borrowed from {correction['borrowed_from']}"
                                if correction.get("borrowed_from") else "as given"))
     if args.traces:

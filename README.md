@@ -56,7 +56,7 @@ agentdiff duel --task demo/vendors/task.json -o duel/   # Codex CLI vs Claude Co
 
 # 3. Replay: a decisive step is a hypothesis until re-execution flips the outcome
 agentdiff replay out/report_t01.json --provider atlas=openai:gpt-4o --replays 3
-#   -> replay-verified / replay-refuted / replay-mixed, written into the report;
+#   -> replay-verified / replay-refuted / replay-mixed against as many uncorrected control replays, written into the report;
 #      the map's ring goes solid, the card's CONF line says so
 
 # 4. Why: narrate through any provider, checked number by number

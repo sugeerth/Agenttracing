@@ -165,7 +165,10 @@ def verdict_card(report: dict) -> dict:
                 text += ", not replay-verified"
             elif replay.get("replays"):
                 text += (f" ({replay.get('flipped')}/{replay['replays']} replays "
-                         f"flipped the outcome)")
+                         f"flipped the outcome"
+                         + (f"; {replay.get('control_flipped')}/{replay['controls']} without the correction"
+                            if replay.get("controls") else "")
+                         + ")")
         lines.append({"key": "confidence", "text": text,
                       "source": "diagnosis.confidence"})
     return {"version": 1, "lines": lines}
