@@ -4,6 +4,64 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-10-26
+
+**How it was read.** Through search-engine extracts, since arXiv and its
+mirrors could not be reached.
+
+**Read:**
+- *Otap: Structure-Aware Optimal Transport for Evaluating Planning and
+  Execution in Agent Trajectories* (arXiv 2607.17082). It compares a run
+  with references as DAGs, tolerating reordered steps and one-to-many
+  mappings. https://arxiv.org/abs/2607.17082
+- *HarnessDev: Can LLMs Create and Evolve Their Own Agent Harness?*
+  (arXiv 2609.01437). Visible feedback and held-out scores moved the
+  same way in only 34 of 64 harness switches (53.1%). Optimising a noisy
+  score repeatedly favours a lucky run.
+- *Re-executing Coding-Agent Evaluations* (arXiv 2610.14460). Re-running
+  1,929 Darwin Gödel Machine evaluations left the best-agent selection
+  and the ranking unchanged.
+- *Engineering Reliable Coding Agents* (arXiv 2608.13867). Over 60,000
+  SWE-bench Verified trajectories, single-run pass@1 varied by 2.2–6.0
+  points, and by more than 1.5 even at temperature 0.
+- *RRSI* (arXiv 2609.24972), *Hierarchical Self-Improvement* (arXiv
+  2608.08466), *Self-Harness* (arXiv 2606.09498), *When Agents Look the
+  Same* (arXiv 2604.21255) and *AgentAssay* (arXiv 2603.02601). Extracts
+  only.
+
+**Taken: nothing.** No idea fit AgentDiff and could be measured here, so
+only this log changed.
+
+**Considered, measured, not taken:**
+- **Moved steps, as `git diff --color-moved` marks them** (prompted by
+  Otap's tolerance for reordering). A step one run takes at one place
+  and the other at another, with the same type, name and input, shows
+  as two one-sided steps. Counted before building:
+  - the 20 handcrafted pairs: 0 of 17 one-sided steps were such moves;
+  - the 2,200 generated pairs: 0 of 1,756;
+  - every pair of recorded real vendor runs of one task (20 pairs): 0 of
+    63;
+  - the demo pairs: 0 of 21.
+
+  Real runs differ in their arguments, not their order. A marker that
+  would fire on none of this data is not built. A looser match (same
+  tool, similar arguments) is what the aligner's drift already does.
+- **Visible versus held-out agreement for self-evolve** (HarnessDev). No
+  recorded real evolution ran a held-out check, so there is nothing to
+  measure. Collecting it needs many real paired runs per change, beyond
+  one run's $2. Run 11's `resolution` already says how little a 6-task
+  verdict can show.
+
+**Not taken, and why:**
+- **Re-execution as a check on verdicts** (2610.14460). Agrees with
+  2026-10-17's re-grading of 176 recorded runs (no verdict changed).
+  Nothing to build.
+- **Repeated runs before calling a winner** (2608.13867). `runs` and
+  `fleet` already refuse below ten paired tasks, and `duel --again` adds
+  runs.
+- **Regularising harness evolution** (RRSI). Rejected on 2026-10-17;
+  nothing new changes the reason.
+
 ## 2026-10-25
 
 **How it was read.** Through search-engine extracts, since arXiv and its
