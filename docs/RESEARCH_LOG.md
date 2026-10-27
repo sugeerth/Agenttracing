@@ -4,6 +4,50 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-10-27
+
+**How it was read.** Through search-engine extracts, since arXiv and its
+mirrors could not be reached.
+
+**Read:**
+- *Token Reduction Is Not Cost Reduction: An Empirical Study of
+  End-to-End Efficiency in API-Based Coding Agents* (arXiv 2607.12161).
+  It defines cost per successful execution with failed runs kept in the
+  numerator, and reports 95% intervals on cost-per-success ratios. Its
+  most aggressive compression cut tool-output tokens by 38.4% yet raised
+  billed cost by 6.8%.
+  https://arxiv.org/abs/2607.12161
+- *Who&When Pro* (arXiv 2607.09996; 12,326 traces with decisive-step and
+  failure-mode labels, 18 modes), *XAI for Coding Agent Failures* (arXiv
+  2603.05941), *ARCO* (arXiv 2606.21262; rubrics that co-evolve with the
+  policy), *Rubrics as an Attack Surface* (arXiv 2602.13576; judge drift
+  from criterion-preserving edits), *AgentDiet* (arXiv 2509.23586).
+  Extracts only.
+
+**Taken: an interval on cost per success.** AgentDiff already computed
+cost per success with failed runs in the numerator, but gave no
+interval, so "B is 20% dearer per solved task" over a handful of tasks
+could be noise.
+- Built: `efficiency.cost_per_success_ratio`, B's cost per success over
+  A's with a paired, seeded bootstrap over tasks. It is in `batch`'s
+  efficiency rollup and narrative. Resamples that leave a side without a
+  success are counted, not dropped.
+- Measured on the recorded live suite (real billed cost, 6 tasks, one
+  run each): 1.84 times, interval 1.45–2.24, so it excludes 1. The
+  scripted demo pairs (9 tasks): 1.68 times, interval 0.93–3.76, so it
+  includes 1. With one run per task the interval covers task sampling,
+  not run-to-run variation; the docs say so.
+
+**Not taken, and why:**
+- **Who&When Pro as a third real corpus.** Its repository was not tried
+  today; like Who&When it ships failing traces without a passing twin.
+  A converter is the work, a later run's.
+- **Co-evolving rubrics** (ARCO). A model would score, which no number
+  or verdict here may rest on.
+- **Judge drift from rubric edits.** AgentDiff's judges are kept out of
+  every deterministic count already (`detection.judge`), and
+  `cohens_kappa` reports agreement corrected for base rates.
+
 ## 2026-10-26
 
 **How it was read.** Through search-engine extracts, since arXiv and its

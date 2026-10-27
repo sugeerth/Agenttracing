@@ -41,6 +41,7 @@ the run rather than being explained away.
 
 from __future__ import annotations
 
+import random
 from typing import Optional
 
 from .process import _digest, _norm, _signature, _tool_table, effect_of, is_error
@@ -777,6 +778,64 @@ def _cost_per_success(reports: list[dict], side: str) -> dict:
             "successes": successes, "runs": len(reports), "reason": reason}
 
 
+def cost_per_success_ratio(reports: list[dict], samples: Optional[int] = None,
+                           seed: Optional[int] = None) -> dict:
+    """B's cost per success over A's, with a paired bootstrap interval over tasks.
+
+    Both sides ran the same tasks, so tasks are resampled in pairs; each
+    resample recomputes both sides' total cost over their successes, so a
+    failed run's spend stays in its side's numerator. A resample in which
+    either side has no success has no ratio: those are counted
+    (``undefined``), never dropped silently, and the interval is over the
+    rest. The ratio says whether one side is dearer per solved task; the
+    interval says whether these tasks can tell. Unmeasurable — ``None``
+    with a reason — when either side's cost per success is.
+    """
+    from .statistics import BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE
+    samples = BOOTSTRAP_SAMPLES if samples is None else samples
+    seed = BOOTSTRAP_SEED if seed is None else seed
+    a, b = _cost_per_success(reports, "a"), _cost_per_success(reports, "b")
+    base = {"tasks": len(reports), "a": a["value_usd"], "b": b["value_usd"], "ratio": None,
+            "low": None, "high": None, "excludes_one": None, "samples": 0, "undefined": 0,
+            "confidence": CONFIDENCE, "reason": None}
+    if a["value_usd"] is None or b["value_usd"] is None:
+        return dict(base, reason=a["reason"] or b["reason"])
+    rows = [(float(r["a"]["totals"]["cost_usd"]), bool(r["a"]["outcome"]["success"]),
+             float(r["b"]["totals"]["cost_usd"]), bool(r["b"]["outcome"]["success"])) for r in reports]
+    rng = random.Random(seed)
+    ratios, undefined = [], 0
+    for _ in range(samples):
+        pick = [rows[rng.randrange(len(rows))] for _ in rows]
+        wins_a, wins_b = sum(r[1] for r in pick), sum(r[3] for r in pick)
+        if not wins_a or not wins_b:
+            undefined += 1
+            continue
+        ratios.append((sum(r[2] for r in pick) / wins_b) / (sum(r[0] for r in pick) / wins_a))
+    ratios.sort()
+    out = dict(base, ratio=round(b["value_usd"] / a["value_usd"], 4), samples=samples, undefined=undefined)
+    if not ratios:
+        return dict(out, reason="every resample left a side without a success")
+    tail = (1 - CONFIDENCE) / 2
+    low = ratios[max(0, int(tail * len(ratios)) - 1)]
+    high = ratios[min(len(ratios) - 1, int((1 - tail) * len(ratios)))]
+    return dict(out, low=round(low, 4), high=round(high, 4), excludes_one=low > 1 or high < 1)
+
+
+def ratio_text(r: dict, names: dict) -> str:
+    """One sentence on the cost-per-success ratio, from :func:`cost_per_success_ratio`."""
+    if r["ratio"] is None:
+        return f"no cost-per-success ratio: {r['reason']}"
+    if r["low"] is None:
+        return f"{names['b']} costs {r['ratio']:.2f}× {names['a']} per success; no interval: {r['reason']}"
+    verdict = ("the interval excludes 1, so on these tasks the gap is not resampling noise" if r["excludes_one"]
+               else "the interval includes 1, so these tasks cannot tell which is dearer per success")
+    undefined = (f"; {r['undefined']} of {r['samples']} resamples left a side without a success and are "
+                 "not in the interval" if r["undefined"] else "")
+    return (f"{names['b']} costs {r['ratio']:.2f}× {names['a']} per success "
+            f"({r['confidence']:.0%} interval {r['low']:.2f}–{r['high']:.2f} over {r['tasks']} paired tasks): "
+            f"{verdict}{undefined}")
+
+
 #: per-kind imperative templates for the aggregate opportunity rollup.
 _KIND_ACTIONS = {
     "prompt_cache": "Add a stable-prefix prompt cache",
@@ -880,10 +939,13 @@ def aggregate_efficiency(reports: list[dict]) -> dict:
                          f"{ops[0]['action'][1:]}")
         else:
             lines.append(f"{names[side]}: no optimization opportunity visible")
+    ratio = cost_per_success_ratio(reports)
+    lines.append(ratio_text(ratio, names))
     return {
         "tasks": len(reports),
         "agents": names,
         "per_agent": per_agent,
+        "cost_per_success_ratio": ratio,
         "reports_missing_efficiency": missing,
         "narrative": ". ".join(lines) + ".",
     }

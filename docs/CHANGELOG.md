@@ -5,6 +5,27 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Cost per success, with an interval
+
+`aggregate_efficiency` (the `batch` efficiency rollup) now carries
+`cost_per_success_ratio`: B's cost per success over A's, with a paired,
+seeded bootstrap interval over tasks (`efficiency.cost_per_success_ratio`).
+- Each resample recomputes both sides' total cost over their successes,
+  so a failed run's spend stays in its side's numerator.
+- A resample that leaves a side without a success has no ratio. These are
+  counted as `undefined` and said in the narrative, never dropped
+  silently.
+- The narrative says whether the interval excludes 1.
+
+Measured:
+- **The recorded live suite** (real billed cost, 6 tasks, one run each):
+  the dearer agent cost 1.84 times the other per success, interval
+  1.45–2.24.
+- **The scripted demo pairs** (9 tasks): 1.68 times, interval 0.93–3.76.
+  That includes 1, so those tasks cannot tell.
+
+Prompted by *Token Reduction Is Not Cost Reduction* (arXiv 2607.12161).
+
 ## Replay controls
 
 `agentdiff replay` (and `harness.replay.replay`) now runs control
