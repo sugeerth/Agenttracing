@@ -4,6 +4,50 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-10-28
+
+**How it was read.** Through search-engine extracts, since arXiv and its
+mirrors could not be reached.
+
+**Read:**
+- *τ-bench* (arXiv 2406.12045). Defines pass^k, the chance that all k
+  trials pass, with the unbiased estimate C(c,k)/C(n,k) per task.
+- *Beyond Pass@k* (arXiv 2608.14711). Coding benchmarks misapply the
+  pass@k estimator by counting unit tests as rollouts.
+- *Closing the Consistency Gap* (arXiv 2609.08832), *SWE Atlas* (arXiv
+  2605.08366; scores fall 2–3× from Pass@3 to Pass^3), *Beyond pass@1*
+  (arXiv 2603.29231). None gives an interval for pass^k.
+- *HarnessDev* again (one commit varies by about ±4.75 points),
+  *Rethinking the Evaluation of Harness Evolution* (arXiv 2607.12227),
+  *RH-Detect* (arXiv 2610.10947), *EvilGenie* (arXiv 2511.21654), *TRACE*
+  (arXiv 2601.20103). Extracts only.
+
+**Taken: a pass^k interval that holds its own estimate.** Reading
+AgentDiff's pass^k against τ-bench's definition, the value was right
+(the mean over tasks of C(c,k)/C(n,k)) but the interval was not. It was
+the pooled per-run Wilson interval raised to k, which assumes every task
+passes equally often. Half always passing, half never: pass^4 0.5,
+interval [0.02, 0.18].
+- Measured three replacements by simulated coverage of the true pass^k
+  (labelled synthetic; tasks' pass chances mixed or similar):
+  - a task bootstrap covered 0.91–1.00, but only 0.68 on small
+    high-pass suites, where 31% of its intervals had zero width;
+  - a task-then-run bootstrap over-covered on mixed tasks and dropped to
+    0.75 on similar ones;
+  - the envelope of the task bootstrap and the pooled interval covered
+    0.97–1.00 everywhere.
+- Built that envelope, with the estimate itself always inside (it is 0
+  below k successes, where a pooled rate raised to k is not).
+- Real data: 20 distinct self-evolve arms on disk (6 tasks, 2–3 runs).
+  The old interval excluded its own estimate in 2; the new one in none.
+
+**Not taken, and why:**
+- **Reward-hacking detectors** (RH-Detect, EvilGenie, TRACE). AgentDiff's
+  held-grader and test-edit checks (2026-10-17) cover the trace-visible
+  cases; the rest rely on a judging model.
+- **reliability@k with security** (Beyond Pass@k). It needs a security
+  scanner over the patches, which is outside the standard library.
+
 ## 2026-10-27
 
 **How it was read.** Through search-engine extracts, since arXiv and its

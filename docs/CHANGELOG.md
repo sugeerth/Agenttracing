@@ -5,6 +5,33 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## pass^k intervals that hold their own estimate
+
+`reliability`'s `pass_hat_k` interval was the pooled per-run Wilson
+interval raised to k. The curve is the mean over tasks of C(c,k)/C(n,k),
+and the mean of p^k is not the k-th power of the mean p. So whenever
+tasks differ in how often they pass, the interval sat below its own
+estimate: for half the tasks always passing and half never, pass^4 was
+0.5 against an interval of [0.02, 0.18].
+
+The interval is now the wider bound of three things:
+- a seeded bootstrap over tasks, each contributing its own C(c,k)/C(n,k);
+- the pooled interval, which sees run noise when every task scored alike;
+- the estimate itself.
+
+Measured on a labelled synthetic suite (each task's pass chance drawn
+from 0.05, 0.5 or 0.95), coverage of the true pass^k:
+
+| setup | old interval | new interval |
+|---|---|---|
+| 10 tasks × 4 runs, k=4 | 0.13 | 0.97 |
+| 20 tasks × 3 runs, k=3 | 0.13 | 1.00 |
+| small high-pass suites (6 × 2) | 0.96 | 0.98 |
+
+On small high-pass suites a task bootstrap alone fell to 0.68. On the 20
+distinct real self-evolve arms on disk, the old interval excluded its own
+estimate in 2 and the new one in none.
+
 ## Cost per success, with an interval
 
 `aggregate_efficiency` (the `batch` efficiency rollup) now carries
