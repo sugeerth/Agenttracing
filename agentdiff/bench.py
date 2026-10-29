@@ -45,6 +45,7 @@ from typing import Optional, Union
 from .report import compare
 from .semantic import normalize_for_containment
 from .align import before_answer, first_twinless, twinless_steps
+from .conformal import evaluate as _conformal_evaluate
 from .trace import HARNESS_TERMINATIONS, Trajectory, reads_as_failed
 
 MANIFEST_NAME = "MANIFEST.json"
@@ -105,7 +106,8 @@ def format_scorecard(result: dict) -> str:
         lines.append(
             f"  error bar       naive ±{clustered['naive_se']:.4f}, clustered by "
             f"cause ±{clustered['clustered_se']:.4f} ({clustered['clusters']} "
-            f"families; ×{clustered['ratio']}) — the clustered one is honest"
+            f"families, t on {clustered.get('df', clustered['clusters'] - 1):g} df; "
+            f"×{clustered['ratio']}) — the clustered one is honest"
             + (", and with this few families still a lower bound"
                if clustered["clusters"] < _FEW_CLUSTERS else ""))
     struct = result.get("structural_baselines") or {}
@@ -294,10 +296,9 @@ def _replay_sets(step_truth: list[dict]) -> list[dict]:
     """Conformal replay sets (agentdiff.conformal) over the step-truth scenarios, one per target in
     REPLAY_ALPHAS: k calibrated on one half, coverage and set size measured on the other, for the replay order
     and for plain step order."""
-    from .conformal import evaluate
     rows = [{"id": r["scenario"], "rank": r.get("replay_rank"), "index_rank": min(r["decisive_truth"]) + 1,
              "steps": r["steps"]} for r in step_truth if "steps" in r]
-    return [evaluate(rows, a) for a in REPLAY_ALPHAS] if rows else []
+    return [_conformal_evaluate(rows, a) for a in REPLAY_ALPHAS] if rows else []
 
 
 def structural_baselines(failing: Trajectory, passing: Trajectory) -> dict:
