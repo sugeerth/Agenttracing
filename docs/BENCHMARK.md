@@ -19,7 +19,11 @@ outcomes, so the evidence-class tie-break and the generator registry
 changed nothing that was already decided. The `overdetermined` family
 (v41) is flagged 10/10 in both conditions and 0/290 elsewhere. Error
 bars are clustered by cause family (×12.2 the naive bar at 2,200 pairs)
-because scenarios in one family share a template.
+because scenarios in one family share a template. Since 2026-10-28 the
+clustered interval uses the t critical value on families − 1 degrees of
+freedom (2.10 for 19 families) and is clipped to [0, 1]. With 19
+families it is still a lower bound on the uncertainty, and the scorecard
+says so: in simulation it held 0.94 of its nominal 95%.
 
 ## One-rule baselines (2026-10-22)
 

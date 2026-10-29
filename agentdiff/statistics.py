@@ -288,13 +288,47 @@ def paired_inference(pairs: list, labels: tuple = ("A", "B"),
     }
 
 
+def t_critical(df: int, coverage: float = CONFIDENCE) -> float:
+    """Two-sided Student t critical value on ``df`` degrees of freedom, by
+    bisection on the CDF (Simpson's rule over the density); stdlib only."""
+    if df < 1:
+        raise ValueError("t needs at least one degree of freedom")
+    target = 1 - (1 - coverage) / 2
+    c = math.exp(math.lgamma((df + 1) / 2) - math.lgamma(df / 2)) / math.sqrt(df * math.pi)
+
+    def pdf(x: float) -> float:
+        return c * (1 + x * x / df) ** (-(df + 1) / 2)
+
+    def cdf(x: float, steps: int = 2000) -> float:
+        h = x / steps
+        inner = sum((4 if i % 2 else 2) * pdf(i * h) for i in range(1, steps))
+        return 0.5 + (pdf(0.0) + pdf(x) + inner) * h / 3
+
+    lo, hi = 0.0, 1000.0
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if cdf(mid) < target else (lo, mid)
+    return (lo + hi) / 2
+
+
+#: below this many clusters the cluster-robust interval runs short of its
+#: nominal coverage even with the t critical value: Cameron and Miller's
+#: practitioner's guide puts "few" below 20 to 50, and in simulation it held
+#: 0.87 at 5 clusters, 0.92 at 10, 0.94 at 19 (labelled synthetic; docs/CHANGELOG.md)
+FEW_CLUSTERS = 20
+
+
 def clustered_se(values: list, clusters: list) -> dict:
     """Cluster-robust standard error of a mean.  ``values`` are per-unit
     observations (e.g. 1/0 correct), ``clusters`` the cluster key of each
     unit (e.g. the scenario family).  Reports the naive SE, the
     cluster-robust SE (the sandwich estimator for a mean, with the usual
     G/(G−1) small-sample factor) and their ratio — how much the naive
-    error bar understated the uncertainty."""
+    error bar understated the uncertainty.  The clustered interval uses
+    the t critical value on G−1 degrees of freedom, since the sandwich
+    rests on G clusters, not n units.  With one cluster there is nothing
+    to estimate the between-cluster spread from: the clustered figures are
+    None, not 0."""
     n = len(values)
     if n < 2 or len(clusters) != n:
         return {"n": n, "clusters": len(set(clusters)), "mean": None,
@@ -306,21 +340,29 @@ def clustered_se(values: list, clusters: list) -> dict:
     for v, c in zip(values, clusters):
         groups.setdefault(c, []).append(v - mean)
     g = len(groups)
+    # a mean cannot leave the range of its data: an accuracy's interval stops at 1
+    floor, ceiling = min(values), max(values)
+
+    def _within(lo: float, hi: float) -> list:
+        return [round(max(floor, lo), 4), round(min(ceiling, hi), 4)]
+    out = {"n": n, "clusters": g, "mean": round(mean, 4), "naive_se": round(naive, 6),
+           "ci95_naive": _within(mean - _Z * naive, mean + _Z * naive)}
+    if g < 2:
+        return dict(out, clustered_se=None, ratio=None, ci95_clustered=None, critical=None,
+                    note="one cluster: the spread between clusters cannot be estimated, so "
+                         "there is no clustered error bar; the naive one is shown")
     sandwich = sum(sum(resid) ** 2 for resid in groups.values()) / (n * n)
-    factor = g / (g - 1) if g > 1 else 1.0
-    clustered = math.sqrt(sandwich * factor)
-    return {
-        "n": n, "clusters": g, "mean": round(mean, 4),
-        "naive_se": round(naive, 6), "clustered_se": round(clustered, 6),
-        "ratio": round(clustered / naive, 3) if naive > 0 else None,
-        "ci95_naive": [round(mean - _Z * naive, 4), round(mean + _Z * naive, 4)],
-        "ci95_clustered": [round(mean - _Z * clustered, 4),
-                           round(mean + _Z * clustered, 4)],
-        "note": ("one cluster: clustered SE is undefined, naive shown"
-                 if g < 2 else
-                 "clusters share a source; the clustered interval is the "
-                 "honest one"),
-    }
+    clustered = math.sqrt(sandwich * g / (g - 1))
+    t = t_critical(g - 1)
+    note = ("clusters share a source; the clustered interval is the honest one"
+            if g >= FEW_CLUSTERS else
+            f"only {g} clusters: the clustered interval runs short of 95% this few "
+            "(in simulation 0.87 at 5 clusters, 0.94 at 19), so read it as a lower "
+            "bound on the uncertainty")
+    return dict(out, clustered_se=round(clustered, 6),
+                ratio=round(clustered / naive, 3) if naive > 0 else None,
+                ci95_clustered=_within(mean - t * clustered, mean + t * clustered),
+                critical=round(t, 4), note=note)
 
 
 @_sections.register("aggregate", "paired_inference", requires=("diagnosis_consolidated",))

@@ -5,6 +5,37 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Clustered error bars, honest with few clusters
+
+`statistics.clustered_se`, the bench's error bar clustered by cause
+family, had three flaws:
+- **One cluster** gave a clustered SE of 0, a ratio of 0 and a
+  zero-width "honest" interval, though its note said the naive bar was
+  shown. These are now None.
+- **The interval used z = 1.96.** It now uses the t critical value on
+  G − 1 degrees of freedom (`statistics.t_critical`, stdlib only,
+  matching the published table), as Miller's *Adding Error Bars to
+  Evals* implementation does.
+- **An accuracy's interval could pass 1.** Both intervals are now
+  clipped to the range of the data.
+
+Below `FEW_CLUSTERS` (20, the low end of Cameron and Miller's "few"),
+the note and the bench scorecard say the interval is still a lower
+bound.
+
+Measured on a labelled synthetic corpus, coverage of a nominal 95%
+interval, with each family's accuracy drawn from a bimodal mix as the
+bench's are:
+
+| clusters | z | t |
+|---|---|---|
+| 5 | 0.83 | 0.87 |
+| 10 | 0.90 | 0.92 |
+| 19 | 0.93 | 0.94 |
+
+On the 2,200-pair bench, the annotated interval goes from 0.713–1.044
+to 0.701–1.000.
+
 ## pass^k intervals that hold their own estimate
 
 `reliability`'s `pass_hat_k` interval was the pooled per-run Wilson

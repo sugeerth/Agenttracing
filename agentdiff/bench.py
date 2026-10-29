@@ -76,7 +76,7 @@ def floor_violations(result: dict) -> list[str]:
     return problems
 
 
-from .statistics import clustered_se as _clustered_se
+from .statistics import FEW_CLUSTERS as _FEW_CLUSTERS, clustered_se as _clustered_se
 
 
 def format_scorecard(result: dict) -> str:
@@ -104,7 +104,9 @@ def format_scorecard(result: dict) -> str:
         lines.append(
             f"  error bar       naive ±{clustered['naive_se']:.4f}, clustered by "
             f"cause ±{clustered['clustered_se']:.4f} ({clustered['clusters']} "
-            f"families; ×{clustered['ratio']}) — the clustered one is honest")
+            f"families; ×{clustered['ratio']}) — the clustered one is honest"
+            + (", and with this few families still a lower bound"
+               if clustered["clusters"] < _FEW_CLUSTERS else ""))
     struct = result.get("structural_baselines") or {}
     probe = result.get("leakage_probe") or {}
     margin = result.get("engine_minus_probe") or {}

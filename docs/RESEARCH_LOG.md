@@ -4,6 +4,45 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-10-29
+
+**How it was read.** The papers' pages through search-engine extracts.
+
+**Read:**
+- *Adding Error Bars to Evals: A Statistical Approach to Language Model
+  Evaluations* (Miller, arXiv 2411.00640). Clustered standard errors
+  when eval items come in related groups; the adjustment can be 3×. The
+  `errorbars` implementation uses the CR1 sandwich with t on G − 1
+  degrees of freedom.
+  https://arxiv.org/abs/2411.00640
+- *A Practitioner's Guide to Cluster-Robust Inference* (Cameron and
+  Miller, Journal of Human Resources, 2015). With few clusters,
+  cluster-robust tests over-reject and intervals are too narrow. "Few"
+  ranges from below 20 to below 50. The remedies are t on G − 1, bias
+  corrections, or a cluster bootstrap.
+
+**Taken: an honest clustered error bar** (the same audit as yesterday's
+pass^k, on the bench's other interval). `clustered_se` gave 0, not
+None, with one cluster; used z rather than t; and let an accuracy's
+interval pass 1.
+- Built: t on G − 1 (`statistics.t_critical`, stdlib only, checked
+  against the published table), None for one cluster, clipping to the
+  data's range, and a note under 20 clusters that the interval is still
+  a lower bound. The bench scorecard says it for its 19 families.
+- Measured (labelled synthetic, families' accuracies bimodal as in the
+  bench): coverage of a nominal 95% interval with z → t was 0.83 → 0.87
+  at 5 clusters, 0.90 → 0.92 at 10, and 0.93 → 0.94 at 19.
+- An honest correction: my first simulation scored coverage against the
+  mean of the drawn families, not the population mean, and read 1.00
+  everywhere. That was the wrong target for an interval over which
+  families were drawn, and it was redone.
+
+**Not taken, and why:**
+- **CR2 or CR3 bias corrections, or a wild cluster bootstrap** (the
+  guide's stronger remedies). They would close more of the remaining gap
+  (0.94 at 19), but this run changes one thing; t on G − 1 is the
+  convention the eval paper's implementation follows.
+
 ## 2026-10-28
 
 **How it was read.** Through search-engine extracts, since arXiv and its
