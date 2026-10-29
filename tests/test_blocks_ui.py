@@ -6498,13 +6498,13 @@ class LongTreeFoldTest(unittest.TestCase):
             self.assertEqual(page.locator(f"svg.d3c-tree g.d3c-tnode[data-kind='step'][data-side='{failed}'][data-step='{step}']").count(), 1, f"chain step {step}")
         dec = diag["decisive_step"]["step"]
         ringed = page.locator("svg.d3c-tree g.d3c-tnode[data-kind='step']").filter(has=page.locator(".d3c-ring"))
-        if isinstance(dec, int):
+        if isinstance(dec, int) and diag["decisive_step"].get("committed") is not False:
             self.assertEqual(ringed.count(), 1)
             self.assertEqual(ringed.first.get_attribute("data-step"), str(dec))
         else:
             # this pair's diagnosis is contested — two plausible mechanisms,
-            # neither leading — so there is no step to ring, and the tree
-            # must not invent one
+            # neither leading — so there is no step to ring (the step it names
+            # is only where the runs part), and the tree must not invent one
             self.assertIn("contested", diag["decisive_step"]["reason"])
             self.assertEqual(ringed.count(), 0)
         self.assertGreater(page.locator("svg.d3c-tree path.d3c-tlink.fault").count(), 0)
