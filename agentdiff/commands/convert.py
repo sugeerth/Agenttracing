@@ -14,7 +14,8 @@ import json
 import sys
 from pathlib import Path
 
-from ..adapters import detect_verl, from_agent_lightning, from_openai_messages, from_otel_genai, from_verl
+from ..adapters import (detect_verl, from_agent_lightning, from_openai_messages, from_otel_genai, from_otlp, from_verl,
+                        is_otlp)
 from ..registry import convert as registry_convert, dry_run, formats
 from ..claude_code import register_format as _register_claude_code
 _register_claude_code()
@@ -151,8 +152,7 @@ def run(args: argparse.Namespace) -> int:
         return 0
 
     try:
-        if args.format == "otel" and isinstance(data, dict) and isinstance(data.get("resourceSpans"), list):
-            from ..adapters import from_otlp
+        if args.format == "otel" and is_otlp(data):
             trajectory, warnings = from_otlp(data)
         elif args.format == "otel":
             if not isinstance(data, dict) or "spans" not in data:

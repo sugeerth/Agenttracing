@@ -3174,6 +3174,59 @@ class StoryChartsTest(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
                      "playwright + chromium required for browser tests")
+class ContestedRingTest(unittest.TestCase):
+    """A contested diagnosis names where the runs first part (committed: false), never a cause: no chart rings
+    that step as decisive. One stripped generated pair whose diagnosis is contested."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        from agentdiff.report import compare
+        from agentdiff.trace import Trajectory
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+        spec = importlib.util.spec_from_file_location("diag_gen_scale", ROOT / "demo/diagnosis_bench/generate_scale.py")
+        gen = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gen)
+        (out / "gen").mkdir()
+        (out / "pair").mkdir()
+        for sc in gen.generate(out / "gen", 45, strip=True)["scenarios"]:
+            f, p = (Trajectory.from_json(out / "gen" / sc[k]) for k in ("fail", "pass"))
+            dec = compare(f, p)["diagnosis"]["decisive_step"]
+            if dec.get("committed") is False and isinstance(dec.get("step"), int):
+                for k in ("fail", "pass"):
+                    (out / "pair" / sc[k]).write_bytes((out / "gen" / sc[k]).read_bytes())
+                break
+        subprocess.run([sys.executable, str(ROOT / "web" / "build_blocks.py")],
+                       cwd=str(ROOT), check=True, capture_output=True)
+        subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(out / "pair"), "-o", str(out / "out"),
+                        "--template", str(ROOT / "web" / "blocks.html")], cwd=str(ROOT), check=True, capture_output=True)
+        cls.report = out / "out" / "report.html"
+        cls._pw = sync_playwright().start()
+        cls.browser = cls._pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.browser.close()
+            cls._pw.stop()
+        except Exception:
+            pass
+        cls.tmp.cleanup()
+
+    def test_no_step_is_ringed_decisive(self):
+        page = self.browser.new_page(viewport={"width": 1280, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"file://{self.report}#view=story")
+        page.wait_for_selector("svg.d3c-story g.d3c-step")
+        self.assertEqual(page.locator("g.d3c-decisive").count(), 0)
+        self.assertEqual(errors, [])
+        page.close()
+
+
+@unittest.skipUnless(HAVE_PLAYWRIGHT and CHROMIUM,
+                     "playwright + chromium required for browser tests")
 class LongTrajectoryTest(unittest.TestCase):
     """Details on demand for long runs. A 306-step pair (the t05 demo with
     300 lookup steps spliced in before the answer) must render as a window

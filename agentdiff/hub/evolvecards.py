@@ -13,6 +13,8 @@ from __future__ import annotations
 import html
 from typing import List, Optional
 
+from ..selfevolve import power_text, resolution, test_of
+
 __all__ = ["evolve_card", "evals_card", "start_card", "CARDS_CSS"]
 
 CARDS_CSS = """
@@ -350,17 +352,12 @@ def signal_line(data: dict) -> str:
             + " · ".join(bits) + '</div>')
 
 
-def _share(x: float) -> str:
-    return "<0.01" if 0 < x < 0.005 else f"{x:.2f}"
-
-
 def resolution_line(data: dict) -> str:
     """Per tested change, the sign test's power against a change that wins three in four of the tasks it moves,
     and the tasks that would give it 80%: how much any verdict here could show (selfevolve.resolution)."""
-    from ..selfevolve import resolution
     bits, floor = [], None
     for g in data.get("lineage") or []:
-        t = (g.get("action") or {}).get("test") or {}
+        t = test_of(g)
         # a record from before the field: the same numbers, from the test's own counts
         r = t.get("resolution") or (resolution(t["tasks"], len(t.get("wins") or []) + len(t.get("losses") or []))
                                     if t.get("tasks") else None)
@@ -369,7 +366,7 @@ def resolution_line(data: dict) -> str:
         if not r.get("reachable"):
             floor = r
         need = f", ~{r['tasks_needed']} tasks for {r['target']:.0%}" if r.get("tasks_needed") else ""
-        bits.append(f'{e(g["generation"])} {e(_share(r["power"]))}{e(need)}')
+        bits.append(f'{e(g["generation"])} {e(power_text(r["power"]))}{e(need)}')
     if not bits:
         return ""
     note = (f' · with {floor["moved"][1]} tasks no outcome reaches {floor["alpha"]:g}' if floor else "")
@@ -429,8 +426,8 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, ado
     first, last = gens[0], gens[-1]
     p0, r0 = first["runs"] - first["failed"], first["runs"]
     p1, r1 = last["runs"] - last["failed"], last["runs"]
-    kept = sum(1 for g in gens if ((g.get("action") or {}).get("test") or {}).get("verdict") == "kept")
-    reverted = sum(1 for g in gens if ((g.get("action") or {}).get("test") or {}).get("verdict") == "reverted")
+    kept = sum(1 for g in gens if test_of(g).get("verdict") == "kept")
+    reverted = sum(1 for g in gens if test_of(g).get("verdict") == "reverted")
     born = sum(len((g.get("evals") or {}).get("born") or []) for g in gens)
     retired = sum(len((g.get("evals") or {}).get("retired") or []) for g in gens)
     if last["failed"] == 0:

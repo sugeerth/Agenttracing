@@ -33,17 +33,15 @@ def replay_order(diagnosis: dict, failing: Trajectory, passing: Trajectory) -> l
     twinless = twinless_steps(failing, passing)
     joint = sorted(dec.get("joint_candidates") or [], key=lambda c: -(c.get("score") or 0))
     account = sorted(e["step"] for e in diagnosis.get("causal_account") or [] if isinstance(e.get("step"), int))
-    out: list[int] = []
-    for i in ([dec.get("step")] + twinless[:1] + [c.get("step") for c in joint]
-              + account + twinless + list(range(n))):
-        if isinstance(i, int) and 0 <= i < n and i not in out:
-            out.append(i)
-    return out
+    ranked = ([dec.get("step")] + twinless[:1] + [c.get("step") for c in joint]
+              + account + twinless + list(range(n)))
+    return list(dict.fromkeys(i for i in ranked if isinstance(i, int) and 0 <= i < n))
 
 
 def rank_of(order: list[int], truth: Iterable[int]) -> Optional[int]:
     """1-based rank of the earliest-ranked true step, or None when no true step is in the order."""
-    ranks = [order.index(t) + 1 for t in truth if t in order]
+    position = {step: rank for rank, step in enumerate(order, 1)}
+    ranks = [position[t] for t in truth if t in position]
     return min(ranks) if ranks else None
 
 

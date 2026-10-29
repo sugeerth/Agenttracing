@@ -232,13 +232,11 @@ def build(repo: Path, dest: Path, *, want: int = 6, look: int = 200, test_cmd: O
                 why = "its tests already pass on the parent: nothing to do"
             elif checks > 1:
                 # once each was the first look; the rest must agree with it, run for run
-                odd = _disagrees(check, work, False, checks - 1, timeout)
-                if odd:
-                    why = f"a flaky grader: on the parent its tests {odd}"
-                else:
-                    odd = _disagrees(check, on_commit, True, checks - 1, timeout)
+                for tree, want, where in ((work, False, "parent"), (on_commit, True, "commit")):
+                    odd = _disagrees(check, tree, want, checks - 1, timeout)
                     if odd:
-                        why = f"a flaky grader: on the commit its tests {odd}"
+                        why = f"a flaky grader: on the {where} its tests {odd}"
+                        break
         if why:
             shutil.rmtree(work, ignore_errors=True)
             shutil.rmtree(hidden, ignore_errors=True)

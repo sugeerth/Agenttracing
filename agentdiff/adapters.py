@@ -380,6 +380,11 @@ def from_otel_genai(
     return trajectory, warnings
 
 
+def is_otlp(data) -> bool:
+    """Whether ``data`` is an OTLP/JSON document (a ``resourceSpans`` list at the top)."""
+    return isinstance(data, dict) and isinstance(data.get("resourceSpans"), list)
+
+
 def otlp_spans(doc: dict) -> list:
     """Every span of an OTLP/JSON document (``resourceSpans`` → ``scopeSpans`` → ``spans``), in file order."""
     return [span for rs in doc.get("resourceSpans") or [] for ss in rs.get("scopeSpans") or []

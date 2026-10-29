@@ -78,10 +78,12 @@ bytes.
 from __future__ import annotations
 
 import math
+import random
 from typing import Optional, Sequence
 
 from .stability import _cv, _levenshtein
-from .statistics import pass_at_k
+from ._stats import percentile_interval
+from .statistics import BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE, pass_at_k, wilson_interval
 from .trace import HARNESS_TERMINATIONS, Trajectory
 from . import sections as _sections
 
@@ -403,9 +405,6 @@ def split_harness_failures(
 def _task_interval(values: Sequence[float]) -> Optional[list]:
     """95% percentile bootstrap of the mean of per-task values, tasks resampled
     with replacement under the fixed seed; None for fewer than 2 tasks."""
-    import random
-    from ._stats import percentile_interval
-    from .statistics import BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE
     if len(values) < 2:
         return None
     rng = random.Random(BOOTSTRAP_SEED)
@@ -578,7 +577,6 @@ def _agent_reliability(name: str,
     # a task's own run-to-run noise, and when every task scored alike it has
     # no spread at all, which the pooled interval does.  The wider bound of
     # each is kept.
-    from .statistics import wilson_interval
     lo, hi = wilson_interval(successes_total, runs_used) if runs_used else (0.0, 1.0)
     for point in hat_curve_all:
         if point["value"] is None:

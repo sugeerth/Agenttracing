@@ -2241,7 +2241,9 @@
     (Array.isArray(diag.causal_account) ? diag.causal_account : []).forEach(function (entry) {
       if (entry && entry.step !== null && entry.step !== undefined) account[entry.step] = entry;
     });
-    var contested = diag.leading === null || diag.leading === undefined;
+    // the committed flag when the report has it; older reports carry only the leading hypothesis
+    var contested = dec.committed === false ||
+      (dec.committed !== true && (diag.leading === null || diag.leading === undefined));
     var named = dec.step !== undefined && dec.step !== null ? dec.step : null;
     // the order a person should replay the failing run's steps in: the
     // committed step, where the runs first part, then the contenders and

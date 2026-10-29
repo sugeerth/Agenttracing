@@ -38,6 +38,7 @@ is a rule over counts, written to the ledger with the counts it rests on.
 from __future__ import annotations
 
 import copy
+import inspect
 import json
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
@@ -294,6 +295,16 @@ def resolution(tasks: int, moved: int, *, alpha: float = RESOLUTION_ALPHA, win: 
             "moved": [moved, tasks], "power": round(power, 4), "target": target, "tasks_needed": needed}
 
 
+def power_text(power: float) -> str:
+    """A power to two places, or "<0.01" for one that would round to zero but is not."""
+    return "<0.01" if 0 < power < 0.005 else f"{power:.2f}"
+
+
+def test_of(generation: dict) -> dict:
+    """A ledger generation's sign test, or {} when it tested nothing."""
+    return (generation.get("action") or {}).get("test") or {}
+
+
 def resolution_text(res: dict) -> str:
     """One line on what the test could show, from :func:`resolution`."""
     moved, tasks = res["moved"]
@@ -307,7 +318,7 @@ def resolution_text(res: dict) -> str:
     need = (f"about {res['tasks_needed']} tasks would give {res['target']:.0%}" if res["tasks_needed"]
             else f"no number of tasks up to 400 gives {res['target']:.0%}")
     return (head + f"; against a change that wins {res['win']:.0%} of the tasks it moves, with {moved} of {tasks} "
-            f"moving as here, its power is {'<0.01' if 0 < res['power'] < 0.005 else format(res['power'], '.2f')} "
+            f"moving as here, its power is {power_text(res['power'])} "
             f"and {need}")
 
 
@@ -325,8 +336,7 @@ def holm(ps: Dict[str, float]) -> Dict[str, float]:
 def family(lineage: list) -> dict:
     """The evolution's tested changes taken as one family: how many were tested, and each one's sign test
     adjusted for all of them (:func:`holm`). Reported beside each verdict; it decides nothing."""
-    ps = {g["generation"]: ((g.get("action") or {}).get("test") or {})["p_value"] for g in lineage
-          if ((g.get("action") or {}).get("test") or {}).get("p_value") is not None}
+    ps = {g["generation"]: test_of(g)["p_value"] for g in lineage if test_of(g).get("p_value") is not None}
     return {"tests": len(ps), "adjusted": holm(ps)}
 
 
@@ -334,18 +344,10 @@ def family(lineage: list) -> dict:
 CONFIRM_P = 0.25
 
 
-def _takes_only(run_arm) -> bool:
-    import inspect
+def _takes(run_arm, name: str) -> bool:
+    """Whether ``run_arm`` accepts the keyword ``name`` (an older runner may not)."""
     try:
-        return "only" in inspect.signature(run_arm).parameters
-    except (TypeError, ValueError):
-        return False
-
-
-def _takes_rounds(run_arm) -> bool:
-    import inspect
-    try:
-        return "rounds" in inspect.signature(run_arm).parameters
+        return name in inspect.signature(run_arm).parameters
     except (TypeError, ValueError):
         return False
 
@@ -447,10 +449,10 @@ def decide(base: list, cand: list) -> dict:
     tasks = sorted(set(a) & set(b))
     wins, losses, broke = [], [], []
     for t in tasks:
-        ra, rb = a[t][0] / a[t][1], b[t][0] / b[t][1]
-        if rb > ra:
+        side = _moved(*a[t], *b[t])
+        if side > 0:
             wins.append(t)
-        elif rb < ra:
+        elif side < 0:
             losses.append(t)
         if a[t][0] == a[t][1] and b[t][0] == 0:
             broke.append(t)
@@ -497,6 +499,11 @@ def signal_text(sig: dict, version: int) -> str:
             f"{len(sig['always_failed'])} always failed (a change can only win them)")
 
 
+def _moved(passed_a: int, runs_a: int, passed_b: int, runs_b: int) -> int:
+    """+1 when the change's pass rate on a task is above the current harness's, -1 below, 0 level; exact."""
+    return (passed_b * runs_a > passed_a * runs_b) - (passed_b * runs_a < passed_a * runs_b)
+
+
 def could_keep(base: list, cand: list, left: int) -> bool:
     """Whether :func:`decide` could still keep the change once ``left`` more runs of every task have run
     under it, whatever those runs do. Exact, over counts: each task's pass count under the change can end
@@ -514,7 +521,7 @@ def could_keep(base: list, cand: list, left: int) -> bool:
         for end in range(pb, pb + left + 1):
             if pa == na and end == 0:
                 continue  # broken: always passed before, never with the change. Any such end reverts
-            reach.append((end * na > pa * n) - (end * na < pa * n))
+            reach.append(_moved(pa, na, end, n))
         if not reach:
             return False
         best += max(reach)
@@ -603,7 +610,7 @@ def _candidate_runs(run_arm, candidate: Harness, label: str, base: list, settle:
     the current harness ran, until the rounds left could no longer save the change."""
     per_task = _by_task(base)
     planned = max((n for _, n in per_task.values()), default=0)
-    if not (settle and planned > 1 and _takes_rounds(run_arm)):
+    if not (settle and planned > 1 and _takes(run_arm, "rounds")):
         return list(run_arm(candidate, label)), None
     runs = list(run_arm(candidate, label, rounds=(1, 1)))
     # a round is one run of every task by every agent: as many runs a task as agents
@@ -734,7 +741,7 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
             say(f"{label}: settled after {settled['after']} of {settled['of']} round(s), "
                 f"{settled['skipped']} run(s) not needed")
         if (confirm and verdict["verdict"] == "kept" and (verdict["p_value"] or 1) > CONFIRM_P
-                and _takes_only(run_arm)):
+                and _takes(run_arm, "only")):
             # one or two tasks moved: a lucky run could be all it is. Run the tasks that moved again, both arms
             moved = sorted(set(verdict["wins"]) | set(verdict["losses"]))
             first = {k: verdict[k] for k in ("verdict", "why", "passed", "p_value", "chance", "wins", "losses")}
@@ -793,7 +800,7 @@ def prune(run_arm: Callable[[Harness, str], list], result: dict,
     Returns ``result`` with the harness it leaves and, under ``prune``, every test made."""
     say = on_progress or (lambda s: None)
     kept = [g["action"]["remedy"] for g in result.get("lineage") or []
-            if ((g.get("action") or {}).get("test") or {}).get("verdict") == "kept"]
+            if test_of(g).get("verdict") == "kept"]
     out = dict(result)
     if not kept:
         out["prune"] = {"tested": [], "dropped": [], "says": "nothing was kept, so nothing to prune"}

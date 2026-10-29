@@ -44,8 +44,10 @@ from __future__ import annotations
 import random
 from typing import Optional
 
+from ._stats import percentile_interval
 from .process import _digest, _norm, _signature, _tool_table, effect_of, is_error
 from .tooldiff import TOOLISH_TYPES, parse_args
+from .statistics import BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE
 from .trace import Trajectory
 from . import sections as _sections
 
@@ -791,8 +793,6 @@ def cost_per_success_ratio(reports: list[dict], samples: Optional[int] = None,
     interval says whether these tasks can tell. Unmeasurable — ``None``
     with a reason — when either side's cost per success is.
     """
-    from ._stats import percentile_interval
-    from .statistics import BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE
     samples = BOOTSTRAP_SAMPLES if samples is None else samples
     seed = BOOTSTRAP_SEED if seed is None else seed
     a, b = _cost_per_success(reports, "a"), _cost_per_success(reports, "b")

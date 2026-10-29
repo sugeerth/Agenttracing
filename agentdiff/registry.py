@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from .adapters import from_openai_messages, from_otel_genai
+from .adapters import _span_attrs, from_openai_messages, from_otel_genai, from_otlp, is_otlp, otlp_spans
 from .logprobs import attach_telemetry, extract_logprobs
 from .trace import Trajectory
 
@@ -215,12 +215,9 @@ def _outcome_of(data: Any) -> Optional[dict]:
 def _detect_otel(data: Any) -> tuple[float, str]:
     if not isinstance(data, dict):
         return 0.0, "not a JSON object"
-    if isinstance(data.get("resourceSpans"), list):
-        from .adapters import otlp_spans
+    if is_otlp(data):
         flat = otlp_spans(data)
-        if any(isinstance(sp.get("attributes"), list) and any(str(a.get("key", "")).startswith("gen_ai.")
-                                                             for a in sp["attributes"] if isinstance(a, dict))
-               for sp in flat[:50]):
+        if any(any(str(k).startswith("gen_ai.") for k in _span_attrs(sp)) for sp in flat[:50]):
             return 0.95, "an OTLP/JSON document whose spans carry gen_ai.* attributes"
         return (0.35, "an OTLP/JSON document without gen_ai.* attributes") if flat else (0.0, "no spans")
     spans = data.get("spans")
@@ -230,13 +227,7 @@ def _detect_otel(data: Any) -> tuple[float, str]:
     for span in spans[:20]:
         if not isinstance(span, dict):
             continue
-        attrs = span.get("attributes")
-        keys: list[str] = []
-        if isinstance(attrs, dict):
-            keys = list(attrs)
-        elif isinstance(attrs, list):
-            keys = [str(a.get("key")) for a in attrs if isinstance(a, dict)]
-        if any(k.startswith("gen_ai.") for k in keys):
+        if any(str(k).startswith("gen_ai.") for k in _span_attrs(span)):
             genai += 1
     if genai:
         return (min(1.0, 0.6 + 0.4 * genai / min(len(spans), 20)),
@@ -245,8 +236,7 @@ def _detect_otel(data: Any) -> tuple[float, str]:
 
 
 def _convert_otel(data: Any) -> tuple[dict, list[str]]:
-    if isinstance(data, dict) and isinstance(data.get("resourceSpans"), list):
-        from .adapters import from_otlp
+    if is_otlp(data):
         return from_otlp(data)
     meta = _meta_of(data)
     return from_otel_genai(

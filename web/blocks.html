@@ -4932,6 +4932,8 @@ THIS SOFTWARE.
     var diag = report && report.diagnosis;
     var dec = diag && diag.decisive_step;
     if (!dec || typeof dec !== "object" || !isNum(dec.step)) return null;
+    // a contested diagnosis names where the runs part, not a cause: nothing is ringed decisive
+    if (dec.committed === false) return null;
     var side = diag.subject === "a" || diag.subject === "b" ? diag.subject : null;
     return { side: side, step: dec.step, window: dec.window || null,
              verification: dec.verification || "hypothesized", criterion: dec.criterion || "" };
@@ -17795,7 +17797,9 @@ THIS SOFTWARE.
     (Array.isArray(diag.causal_account) ? diag.causal_account : []).forEach(function (entry) {
       if (entry && entry.step !== null && entry.step !== undefined) account[entry.step] = entry;
     });
-    var contested = diag.leading === null || diag.leading === undefined;
+    // the committed flag when the report has it; older reports carry only the leading hypothesis
+    var contested = dec.committed === false ||
+      (dec.committed !== true && (diag.leading === null || diag.leading === undefined));
     var named = dec.step !== undefined && dec.step !== null ? dec.step : null;
     // the order a person should replay the failing run's steps in: the
     // committed step, where the runs first part, then the contenders and

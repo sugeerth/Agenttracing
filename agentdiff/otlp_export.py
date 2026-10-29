@@ -77,20 +77,20 @@ def to_otlp(traj: dict, *, content: bool = False, start_s: Optional[float] = Non
         op = OPERATIONS.get(kind, "execute_tool")
         name = str(step.get("name") or kind)
         dur = int(round(float(step.get("latency_s") or 0) * 1e9))
+        tokens = int(step.get("tokens") or 0)
         a: Dict[str, Any] = {"gen_ai.operation.name": op, "agentdiff.step.index": i, "agentdiff.step.type": kind,
-                             "agentdiff.step.name": name, "agentdiff.step.tokens": int(step.get("tokens") or 0)}
+                             "agentdiff.step.name": name, "agentdiff.step.tokens": tokens}
         if op == "chat":
             a["gen_ai.request.model"] = agent.get("model") or None
-            a["gen_ai.usage.output_tokens"] = int(step.get("tokens") or 0)
+            a["gen_ai.usage.output_tokens"] = tokens
+            if content:
+                a["gen_ai.prompt"], a["gen_ai.completion"] = _text(step.get("input")), _text(step.get("output"))
         else:
             a["gen_ai.tool.name"] = name
-        if content:
-            if op == "chat":
-                a["gen_ai.prompt"], a["gen_ai.completion"] = _text(step.get("input")), _text(step.get("output"))
-            else:
+            if content:
                 a["gen_ai.tool.call.arguments"] = _text(step.get("input"))
                 a["gen_ai.tool.call.result"] = _text(step.get("output"))
-        else:
+        if not content:
             a["agentdiff.input.chars"] = len(_text(step.get("input")))
             a["agentdiff.output.chars"] = len(_text(step.get("output")))
         span = {"traceId": trace_id, "spanId": _hex(f"span:{seed}:{i}", 16), "parentSpanId": root_id,
