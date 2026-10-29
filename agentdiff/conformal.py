@@ -20,6 +20,7 @@ import hashlib
 import math
 from typing import Iterable, Optional
 
+from .align import twinless_steps
 from .trace import Trajectory
 
 __all__ = ["replay_order", "conformal_k", "evaluate", "held_out"]
@@ -27,7 +28,6 @@ __all__ = ["replay_order", "conformal_k", "evaluate", "held_out"]
 
 def replay_order(diagnosis: dict, failing: Trajectory, passing: Trajectory) -> list[int]:
     """Every step index of the failing run, in the order to replay them."""
-    from .diagnosis import twinless_steps
     dec = diagnosis.get("decisive_step") or {}
     n = len(failing.steps)
     twinless = twinless_steps(failing, passing)

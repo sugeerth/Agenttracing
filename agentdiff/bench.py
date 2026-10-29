@@ -44,7 +44,8 @@ from typing import Optional, Union
 
 from .report import compare
 from .semantic import normalize_for_containment
-from .trace import HARNESS_TERMINATIONS, Trajectory
+from .align import before_answer, first_twinless, twinless_steps
+from .trace import HARNESS_TERMINATIONS, Trajectory, reads_as_failed
 
 MANIFEST_NAME = "MANIFEST.json"
 
@@ -244,7 +245,6 @@ def leakage_probe(failing: Trajectory, passing: Trajectory) -> dict:
     answer = (steps[answer_idx].output or steps[answer_idx].input or "").lower()
     expected = (getattr(failing.task, "expected", None) or "").strip().lower()
     term = failing.outcome.termination
-    pass_sigs = {(s.type, s.name, s.input) for s in passing.steps}
 
     def text(i):
         return f"{steps[i].input}\n{steps[i].output}".lower()
@@ -253,8 +253,7 @@ def leakage_probe(failing: Trajectory, passing: Trajectory) -> dict:
         return {"kind": "harness_termination", "step": None, "cue": "termination"}
     annotated = [i for i, st in enumerate(steps[:answer_idx])
                  if st.quality in ("weak", "bad") or st.note]
-    errors = [i for i, st in enumerate(steps[:answer_idx])
-              if st.error is True or (st.output or "").lower().startswith("error")]
+    errors = [i for i, st in enumerate(steps[:answer_idx]) if reads_as_failed(st)]
     if expected and expected in answer and not any(
             w in answer.split() for w in _NEGATORS):
         return {"kind": "grader_or_label", "step": None, "cue": "expected verbatim"}
@@ -278,8 +277,7 @@ def leakage_probe(failing: Trajectory, passing: Trajectory) -> dict:
     for i in range(answer_idx):
         if any(cue in text(i) for cue in _TEMPLATE_CUES):
             return {"kind": "wrong_fact_propagation", "step": i, "cue": "template word"}
-    novel = [i for i, st in enumerate(steps[:answer_idx])
-             if (st.type, st.name, st.input) not in pass_sigs]
+    novel = twinless_steps(failing, passing) if answer_idx else []
     return {"kind": "divergence", "step": novel[0] if novel else 0,
             "cue": "first step without a twin"}
 
@@ -307,12 +305,11 @@ def structural_baselines(failing: Trajectory, passing: Trajectory) -> dict:
     the last step before the answer (where the run gave up), the first step that errored, the first step
     without a twin in the passing run, and the first write. An attribution method is worth its margin over
     the best of them, not its score."""
-    from .diagnosis import first_twinless
-    steps = failing.steps[:-1] if len(failing.steps) > 1 else list(failing.steps)
+    steps = before_answer(failing)
     first = lambda pick: next((i for i, st in enumerate(steps) if pick(st)), None)  # noqa: E731
     return {
         "last_step": len(steps) - 1 if steps else None,
-        "first_error": first(lambda st: st.error is True or (st.output or "").lower().startswith("error")),
+        "first_error": first(reads_as_failed),
         "first_divergence": first_twinless(failing, passing),
         "first_write": first(lambda st: st.effect == "write"),
     }

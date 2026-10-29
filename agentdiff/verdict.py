@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Optional
 from . import sections as _sections
-from .diagnosis import CONTESTED_BASIS
+from .diagnosis import committed_step
 
 
 def _side_name(report: dict, side: str) -> str:
@@ -85,7 +85,7 @@ def verdict_card(report: dict) -> dict:
         elif lead is not None:
             mechanism = lead.get("statement") or ""
             basis = "the leading hypothesis"
-        elif decisive.get("basis") == CONTESTED_BASIS:
+        elif decisive.get("committed") is False:   # a contested diagnosis's structural fallback
             mechanism = "where the runs first part; which cause acted there is contested"
             basis = "the structural fallback of a contested diagnosis"
         else:
@@ -138,7 +138,7 @@ def verdict_card(report: dict) -> dict:
         actions = (reading.get(fix_side) or {}).get("take_forward") or []
         # the fix belongs at the decisive step when a next action exists
         # there; otherwise the first located one, else the first
-        decisive_step = decisive.get("step") if subject == fix_side else None
+        decisive_step = committed_step(diagnosis) if subject == fix_side else None
         first = (next((t for t in actions if t.get("at_step") == decisive_step), None)
                  if decisive_step is not None else None) \
             or next((t for t in actions if t.get("at_step") is not None), None) \
