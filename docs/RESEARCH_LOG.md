@@ -4,6 +4,72 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-10-29, third run: a second real corpus
+
+**How it was read.** Hugging Face and github.com pages were refused by
+the egress policy (403) and were not retried. Public repositories still
+clone over git, so three were cloned as data and none of their code was
+run.
+- **TRAIL** (patronus-ai/trail-benchmark, MIT): 148 span trees with
+  annotated error spans. Taken.
+- **MAST** (multi-agent-systems-failure-taxonomy/MAST): about 1,600
+  multi-agent traces with failure-mode labels per trace, not per step,
+  and no license file. Not taken: nothing in it scores a step, and it
+  cannot be redistributed.
+- **AgentDebug** (ulab-uiuc/AgentDebug): code for AgentErrorBench, with
+  no trajectories in the repository. Not taken.
+
+**Taken: TRAIL, scored as Who&When is.** The result is in
+docs/BENCHMARK.md. The finding that mattered:
+- The reading's pointer is a symptom finder. Every pointer was a tool
+  call, while 86% of annotated errors are on the LLM call before one.
+- That matches Who&When Pro's report that attributors substitute
+  visible symptoms for root causes.
+- `decided_by`, the step that issued the call, was designed after seeing
+  this on TRAIL. It was then checked on Who&When, which it had not been
+  fitted to: 9 → 16 of 184 there, against 0 → 43 of 143 on TRAIL.
+
+**Not taken, and why:**
+- **Making `decided_by` the reading's pointer.** On Who&When it is still
+  below the first-step floor. The reading names where a fault is
+  observable, which a person can check in the trace. Changing what
+  `explain` says needs a pairwise check on the bench too. Left for a
+  later run, with these numbers as its starting point.
+- **A replay order that puts the deciding step first.** The reading's
+  order lost to plain step order on TRAIL (k = 7 against 3 at 50%).
+  Reordering it is the next experiment, not a change made on the same
+  corpus it would be scored on.
+
+## 2026-10-29, second run
+
+**How it was read.** From what the first run of the day had already
+read: Cameron and Miller's guide names CR2 and the wild cluster
+bootstrap as the remedies with few clusters. CR2 with Bell–McCaffrey
+degrees of freedom is the form Imbens and Kolesár (2016) and
+Pustejovsky and Tipton (2018) recommend.
+
+**Taken: CR2 with Bell–McCaffrey df, and t for the paired interval.**
+The first run's "not taken" said these would close more of the gap.
+Measured, that is only partly true:
+- For a mean, CR2 equals CR1 when clusters are the same size. So at
+  equal sizes it closes nothing (0.937 at 19).
+- With unequal sizes it helps: from +0.3 points at the bench's sizes to
+  +7.5 points with skewed ones.
+- The bench's 19 families give 14.9 df.
+- The same audit found `paired_inference` on z with ten tasks. Coverage
+  went from 0.900 to 0.941 with t.
+
+**Not taken, and why:**
+- **The wild cluster bootstrap.** It was measured beside CR2 and was no
+  better in any row (table in CHANGELOG).
+- **A fix for zero-width paired intervals.** When every task differs by
+  the same amount, the interval has no width (4.6% of simulated ten-task
+  suites). The sign test carries the verdict there. Widening it would
+  need a different interval, such as a Newcombe-style one for paired
+  rates, which is a larger change than this run's.
+- **The cost-per-success percentile bootstrap** at six tasks likely
+  under-covers too. It needs its own simulation; left for a later run.
+
 ## 2026-10-29
 
 **How it was read.** The papers' pages through search-engine extracts.

@@ -35,6 +35,12 @@ discipline.
 
 ## Why the narration covenant is the way it is
 
+- **TRAIL** (Deshpande et al., 2025, arXiv 2505.08638; MIT): 148 GAIA and
+  SWE-bench agent runs as OpenInference span trees, with hand-annotated
+  error spans. AgentDiff's reading pointed at the symptom, the tool call,
+  where annotators marked the reasoning step behind it, and was 0/143
+  exact on the first error. Pointing at the step that issued the call
+  gave 43/143 (docs/BENCHMARK.md).
 - **Who&When Pro** (2607.09996): LLM failure attribution collapses from 94%
   to 50% accuracy as traces grow from under 3K to over 12K tokens, across
   all ten models tested, and systematically substitutes visible symptoms

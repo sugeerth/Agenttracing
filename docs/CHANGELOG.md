@@ -5,6 +5,102 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## External validation on TRAIL, and the step that decided it
+
+`demo/external/trail.py` converts TRAIL's 148 real GAIA and SWE-bench
+runs (OpenInference span trees, hand-annotated error spans, MIT) into
+SCHEMA traces. The labels stay in a sidecar. It scores the reading's
+pointer against the first annotated error, with the same floors as
+Who&When: 143 runs scored, and 5 skipped with the reason counted.
+- The shipped pointer was exact on 0/143. Annotators mark the reasoning
+  step (86% of errors are on LLM calls), and the reading points only at
+  tool calls, where a fault becomes observable.
+- `whowhen.decided_by` moves a pointer from a tool call back to the
+  reasoning step that issued it, and is scored beside the pointer, not
+  in its place. It gives 43/143 exact and 73/143 on some annotated
+  error, against floors of 1/143 (first step) and 12.2/143 (uniform).
+- On Who&When, where it was checked after being designed on TRAIL, it
+  moves 9 → 16 of 184. That is still below that corpus's first-step
+  floor (20).
+- `explain` is unchanged.
+
+## Worked examples, held to their own output
+
+`examples/` holds six scripts, each on data already in the repository
+and each naming where that data came from:
+- error bars;
+- replay sets;
+- cost per success (real recorded runs);
+- pass^k;
+- what the sign test can show;
+- replay with controls (scripted, no spend).
+
+`examples/README.md` quotes each script's output, and
+`tests/test_examples.py` reruns every script and fails when the output
+differs. So a change to a number in the library shows up as a stale
+example, not as a wrong doc.
+
+## CR2 clustered error bars, and t for the paired interval
+
+**The clustered bar is now CR2, with Bell–McCaffrey degrees of freedom.**
+CR1 with t on G − 1 is right when clusters are the same size. Unequal
+sizes leave fewer effective clusters than G. CR2 scales each cluster's
+residual sum by 1/sqrt(1 − n_g/n), and the Satterthwaite degrees of
+freedom (`df`, new in `clustered_by_cause`) say how many clusters the
+interval rests on. With equal sizes both reduce exactly to CR1 on
+G − 1. The arithmetic is closed-form and stdlib only.
+
+Measured on 2,000 simulated corpora per row, coverage of a nominal 95%
+interval. Families are bimodal as in the 2,200-pair bench, and the
+target is the population mean:
+
+| family sizes | clusters | CR1, t on G − 1 | CR2, t on BM df | wild bootstrap-t |
+|---|---|---|---|---|
+| equal (60) | 5 / 10 / 19 | 0.856 / 0.913 / 0.937 | the same | 0.850 / 0.900 / 0.931 |
+| the bench's (42–286) | 5 / 10 / 19 | 0.826 / 0.883 / 0.928 | 0.832 / 0.891 / 0.931 | 0.803 / 0.874 / 0.924 |
+| lognormal | 5 / 10 / 19 | 0.723 / 0.799 / 0.831 | 0.798 / 0.848 / 0.864 | 0.698 / 0.808 / 0.858 |
+
+- **The bench.** Its 19 families rest on 14.9 degrees of freedom, so the
+  2,200-pair bar goes from ±0.0845 to ±0.0859 and the interval from
+  0.701–1.000 to 0.695–1.000. The scorecard now prints the df.
+- **The wild cluster bootstrap** (Webb six-point weights, bootstrap-t)
+  was measured and not shipped: it did no better than CR2 in any row.
+- **CR2 does not close the gap at equal sizes** (0.94 at 19), since it
+  coincides with CR1 there. The few-clusters note stays.
+
+**The paired interval uses t on n − 1.** `paired_inference` (runs,
+fleet, planner) used z = 1.96 on suites that are often ten tasks. It now
+uses t, keeps the interval within [−1, 1], and reports `critical`.
+Simulated suites of ten single-run tasks held the true difference 0.900
+of the time with z and 0.941 with t; at 20 tasks, 0.935 → 0.946. In
+4.6% of those ten-task suites every task differed by the same amount,
+and the interval had zero width. The sign test, which decides the
+verdict, is unaffected.
+
+## Cleanup: one definition of each helper, and no ring on a contested step
+
+A review pass over the branch, with nothing measured moving: the bench
+JSON on the hand corpus and on both 2,200-pair corpora, the demo
+reports, the runs aggregate and the OTLP export are byte-identical
+before and after.
+- **One definition of each helper.** `align` holds `twinless_steps`,
+  `first_twinless` and `before_answer`, and `trace.reads_as_failed`
+  holds the failed-call test. Diagnosis, bench and conformal all use
+  them.
+  - `selfevolve` holds `power_text` and `test_of` for the hub cards.
+  - `adapters.is_otlp` serves registry and convert.
+  - One `_moved` comparison serves `decide` and `could_keep`.
+- **Readers that mean the cause go through `committed_step`:** verdict,
+  fleet, feedback, narrate, horizon, impact and toolprofile.
+- **The argument rule's hypothesis records the step it moved to**
+  (`argument_step`). It replaces the boolean `by_argument`, which this
+  branch added and nothing read.
+- **The story timeline no longer rings a contested step as decisive.**
+  A contested diagnosis names where the runs first part
+  (`committed: false`), and the trajectory map already left it
+  unringed. The d3 timeline drew a "decisive" ring there; now both
+  read the flag. A browser test renders a contested generated pair.
+
 ## Clustered error bars, honest with few clusters
 
 `statistics.clustered_se`, the bench's error bar clustered by cause

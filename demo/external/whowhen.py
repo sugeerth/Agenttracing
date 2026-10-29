@@ -103,6 +103,19 @@ def predict(reading: dict) -> tuple:
     return None, "no prediction"
 
 
+def decided_by(traj: Trajectory, step):
+    """The reasoning step that decided ``step``. When the reading points at a tool call, this is the nearest
+    earlier reason or plan step that issued it (across a run of consecutive tool calls). Otherwise it is the
+    step itself. The reading points where a fault becomes observable; human annotators usually label the step
+    that reasoned it into being. Scored beside the pointer as a second policy, never in its place."""
+    if step is None or traj.steps[step].type != "tool_call":
+        return step
+    j = step - 1
+    while j >= 0 and traj.steps[j].type == "tool_call":
+        j -= 1
+    return j if j >= 0 and traj.steps[j].type in ("reason", "plan") else step
+
+
 def reading_order(reading: dict, traj: Trajectory) -> list:
     """Every step, in the order the reading would replay them: the critical error, the observable findings by
     their earliest step, every finding's steps, the located next actions, the error steps, then the rest."""
@@ -174,11 +187,16 @@ def main(argv=None) -> int:
         row = {"trace": stem, "subset": subset, "steps": len(traj.steps),
                "truth": labels["mistake_step"], "truth_agent": labels["mistake_agent"],
                "predicted": pred, "predicted_agent": pred_agent, "why": why,
+               "decided_by": decided_by(traj, pred),
                "replay_rank": rank_of(reading_order(reading, traj), [labels["mistake_step"]])}
         rows.append(row)
         reasons[why] = reasons.get(why, 0) + 1
     (out / "labels.json").write_text(json.dumps(labels_all, indent=1), encoding="utf-8")
     result = score(rows)
+    decided = [r for r in rows if r["decided_by"] is not None]
+    result["decided_by"] = {"step_exact": sum(1 for r in decided if r["decided_by"] == r["truth"]),
+                            "step_within_1": sum(1 for r in decided if abs(r["decided_by"] - r["truth"]) <= 1),
+                            "note": "the reasoning step that issued the call the reading points at (decided_by)"}
     result["by_reason"] = reasons
     result["by_subset"] = {}
     for subset in sorted({r["subset"] for r in rows}):
@@ -197,6 +215,8 @@ def main(argv=None) -> int:
     print(f"  step exact  {result['step_exact']}/{result['logs']} ({result['step_exact_rate']})"
           f"   within ±1  {result['step_within_1']}/{result['logs']} ({result['step_within_1_rate']})")
     print(f"  agent exact {result['agent_exact']}/{result['logs']} ({result['agent_exact_rate']})")
+    print(f"  the reasoning step that decided it: step exact {result['decided_by']['step_exact']}/{result['logs']}, "
+          f"within ±1 {result['decided_by']['step_within_1']}/{result['logs']}")
     f = result["floors"]
     print(f"  floors: always-first-step {f['always_first_step']['hits']}/{result['logs']} "
           f"({f['always_first_step']['rate']}); uniform guess expected "

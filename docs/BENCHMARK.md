@@ -18,12 +18,17 @@ with the previous engine on the *same* corpora: identical kind and step
 outcomes, so the evidence-class tie-break and the generator registry
 changed nothing that was already decided. The `overdetermined` family
 (v41) is flagged 10/10 in both conditions and 0/290 elsewhere. Error
-bars are clustered by cause family (×12.2 the naive bar at 2,200 pairs)
-because scenarios in one family share a template. Since 2026-10-28 the
-clustered interval uses the t critical value on families − 1 degrees of
-freedom (2.10 for 19 families) and is clipped to [0, 1]. With 19
-families it is still a lower bound on the uncertainty, and the scorecard
-says so: in simulation it held 0.94 of its nominal 95%.
+bars are clustered by cause family (×12.3 the naive bar at 2,200 pairs)
+because scenarios in one family share a template. The clustered bar is
+the CR2 sandwich, with a t critical value on Bell–McCaffrey degrees of
+freedom, and it is clipped to [0, 1].
+- The 19 families run from 42 to 286 scenarios, so the interval rests on
+  14.9 degrees of freedom, not 18 (t = 2.13, not 2.10).
+- With equal family sizes the bar is exactly the CR1 sandwich on
+  families − 1 degrees of freedom.
+- With 19 families it is still a lower bound on the uncertainty, and the
+  scorecard says so: in simulation it held 0.93 of its nominal 95% at
+  the bench's family sizes.
 
 ## One-rule baselines (2026-10-22)
 
@@ -233,6 +238,59 @@ target was met on logs it never saw. The reading's order is no better
 than step order, which is the same negative result as the pointer table
 above, now as a set.
 
+**The reasoning step that decided it (2026-10-29).** This was designed on
+TRAIL (below) and checked here. Rescored the same day, the shipped
+pointer is exact on 9/184. Moving the pointer from a tool call back to
+the reasoning step that issued it (`whowhen.decided_by`) gives 16/184
+exact and 57/184 within ±1, against 46. That is still below the
+always-first-step floor (20/184), so the negative result above stands.
+
+## External validation: TRAIL (2026-10-29)
+
+TRAIL (Deshpande et al., 2025; MIT licensed) is 148 real agent runs on
+GAIA and SWE-bench, recorded as OpenInference span trees. Each run's
+errors are annotated by hand, with the span each error is on.
+`demo/external/trail.py` converts a clone of the public repository into
+SCHEMA traces:
+- the LLM and TOOL spans become steps in the order they ran;
+- a code agent's executed step, the log of a "Step N" span, becomes a
+  tool call after the LLM call that wrote the code;
+- an error on a container span lands on its first step.
+
+The labels stay in a sidecar. TRAIL publishes no pass/fail grade, so
+each run is recorded as failing because it carries an annotated error,
+and the output says so. 143 runs scored: one file is not valid JSON,
+and four have no error on a step. Runs average 25 steps. The target is
+the first annotated error.
+
+| policy | first error exact | within ±1 | on any annotated error |
+|---|---|---|---|
+| the reading's pointer, as shipped | 0/143 | 65/143 (0.45) | 10/143 (0.07) |
+| **the reasoning step that decided it** | **43/143 (0.30)** | 77/143 (0.54) | **73/143 (0.51)** |
+| floor: always the first step | 1/143 | — | 1/143 |
+| floor: uniform guess, expected | 12.2/143 (0.09) | — | 31.1/143 (0.22) |
+
+**Why the shipped pointer scores 0, and why that is not noise.**
+- The annotators put 718 of the 834 errors that land on a step (86%) on
+  an LLM call: the step that reasoned the fault into being.
+- The reading only ever points at a tool call, where a fault becomes
+  observable. All 143 of its pointers are tool calls. So exact agreement
+  was impossible by construction, and the pointer sat one or two steps
+  after the label (+1 on 43 runs, +2 on 34).
+- Pointing at the reasoning step that issued that call fixes the
+  mismatch, not a fit to these labels. The same move was then checked on
+  Who&When (above): 9 → 16 exact there.
+- It is scored beside the shipped pointer, not in its place: `explain`
+  still names the observable step.
+
+**Replay sets.** With the conformal procedure on 63 held-out runs, the
+reading's order needs more steps than plain step order: k = 7 against 3
+for 50%, and 18 against 9 for 80%. TRAIL's first errors come early,
+mostly at step 1 or 2, so step order is a strong floor here. On 63
+held-out runs, coverage fell just short twice: both orders reached 0.79
+at 80%, and step order 0.89 at 90%. The guarantee is marginal, and a
+held-out half this small moves by a few runs.
+
 ## History: how the benchmark was built
 
 The text below is the benchmark's history as it was written in the
@@ -335,7 +393,7 @@ Every scorecard accuracy now carries two error bars — naive, and
 clustered by cause family, because scenarios in one family share a
 template and are not independent draws; the clustered one is the honest
 one, and the ratio between them is printed — at 2,200 pairs it is
-**×12.2** (naive ±0.007, clustered ±0.085), because accuracy is bimodal
+**×12.3** (naive ±0.007, clustered ±0.086), because accuracy is bimodal
 by family and the naive bar pretends the families are independent. The same discipline runs
 through `runs` and `fleet`: two agents on the same tasks is a *paired*
 design, so they report a paired difference with its standard error and
