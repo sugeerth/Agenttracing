@@ -4756,10 +4756,16 @@ class DuelBlockTest(unittest.TestCase):
         context, page, errors = self.open()
         race = page.locator('.block[data-block="race"]')
         rng = race.locator("input[type=range]")
-        # a moment both are still working: before the shorter run's end
-        rng.evaluate("e => { e.value = 0.3; e.dispatchEvent(new Event('input')); }")
-        page.wait_for_timeout(300)
-        at = race.locator('[data-role="at"]').inner_text()
+        # a moment both are still working: the stand-in CLIs' timings are real, so it is found, not assumed
+        end = float(rng.get_attribute("max"))
+        at = ""
+        for frac in [i / 50 for i in range(1, 40)]:
+            rng.evaluate("(e, t) => { e.value = t; e.dispatchEvent(new Event('input')); }", end * frac)
+            page.wait_for_timeout(50)
+            at = race.locator('[data-role="at"]').inner_text()
+            if at.startswith("At ") and "done" not in at:
+                break
+        self.assertNotIn("done", at, "some moment has both agents still working")
         self.assertTrue(at.startswith("At "))
         for agent in self.duel["agents"]:
             self.assertIn(agent, at)
@@ -4805,7 +4811,7 @@ class DuelBlockTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             fakes = ROOT / "tests" / "fixtures" / "vendors"
             env = dict(os.environ, OPENAI_API_KEY="sk-test-0000000000", ANTHROPIC_API_KEY="sk-ant-test-0000000000",
-                       FAKE_VENDOR_SLOW="0.5")
+                       FAKE_VENDOR_SLOW="1.0")
             env.pop("FAKE_VENDOR_MODE", None)
             proc = subprocess.Popen([sys.executable, "-m", "agentdiff", "duel", "--task",
                                      str(ROOT / "demo" / "vendors" / "task.json"), "--quiet", "--live", "--port", "0",
@@ -4826,8 +4832,8 @@ class DuelBlockTest(unittest.TestCase):
                 page.on("pageerror", lambda e: errors.append(str(e)))
                 page.goto(url + "#view=batch")
                 states, marks = [], []
-                for _ in range(30):
-                    page.wait_for_timeout(400)
+                for _ in range(75):
+                    page.wait_for_timeout(200)
                     st = page.locator('.block[data-block="race"] [data-role="state"]')
                     if st.count():
                         states.append(st.first.inner_text().lower())
@@ -4836,7 +4842,10 @@ class DuelBlockTest(unittest.TestCase):
                         break
                 self.assertTrue(any("running" in s for s in states), states)
                 self.assertIn("finished", states[-1])
-                self.assertGreater(marks[-1], marks[0], "the lanes grew while the page was open")
+                # grew while open: some later look shows more marks than an earlier one (the finished trace may
+                # replace an in-progress mark, so the last count need not be the largest)
+                self.assertTrue(any(later > earlier for i, earlier in enumerate(marks) for later in marks[i + 1:]),
+                                f"the lanes grew while the page was open: {marks}")
                 # the last payload is marked done: the page stops listening and says so,
                 # rather than "reconnecting" once the server exits
                 page.wait_for_function("() => (document.querySelector('#live-badge') || {}).textContent"
@@ -4856,7 +4865,7 @@ class DuelBlockTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             fakes = ROOT / "tests" / "fixtures" / "vendors"
             env = dict(os.environ, OPENAI_API_KEY="sk-test-0000000000", ANTHROPIC_API_KEY="sk-ant-test-0000000000",
-                       FAKE_VENDOR_SLOW="0.5")
+                       FAKE_VENDOR_SLOW="1.0")
             env.pop("FAKE_VENDOR_MODE", None)
             proc = subprocess.Popen([sys.executable, "-m", "agentdiff", "duel", "--task",
                                      str(ROOT / "demo" / "vendors" / "task.json"), "--quiet", "--live", "--port", "0",
