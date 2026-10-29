@@ -48,6 +48,24 @@ def _arm():
 
 
 class PruneTest(unittest.TestCase):
+    def test_the_arm_without_a_change_differs_from_the_final_harness_by_that_change_only(self):
+        """The evolution started from a harness that already denied a tool (adopted or resumed): testing a
+        kept change again leaves that denial in place; only the change itself is taken out."""
+        arm, calls = _arm()
+        result = _kept(HELPS, LUCKY)
+        result["harness"]["deny_tools"] = ["WebFetch"]
+        out = prune(arm, result)
+        without = [t["without"] for t in out["prune"]["tested"]]
+        self.assertTrue(all(w["deny_tools"] == ["WebFetch"] for w in without))
+        self.assertEqual(without[0]["instructions"], [HELPS["value"]], "only the tested change is gone")
+        self.assertEqual(out["harness"]["deny_tools"], ["WebFetch"])
+
+    def test_the_description_and_story_follow_the_harness_left(self):
+        arm, _ = _arm()
+        out = prune(arm, dict(_kept(HELPS, LUCKY), describe="stale", narrative="It evolved."))
+        self.assertEqual(out["describe"], Harness.from_dict(out["harness"]).describe())
+        self.assertIn(f"{LUCKY['id']} no longer earned a place and was dropped", out["narrative"])
+
     def test_a_change_that_no_longer_wins_is_dropped_and_one_that_does_stays(self):
         arm, calls = _arm()
         out = prune(arm, _kept(HELPS, LUCKY))

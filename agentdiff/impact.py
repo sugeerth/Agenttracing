@@ -143,8 +143,8 @@ def _step_facts(report: dict, side: str, steps: list) -> list:
     diag = report.get("diagnosis") or {}
     decisive = None
     if diag.get("subject") == side:
-        d = (diag.get("decisive_step") or {}).get("step")
-        decisive = d if isinstance(d, int) else None
+        from .diagnosis import committed_step
+        decisive = committed_step(diag)
     attribution = report.get("attribution") or {}
     fault = set()
     if attribution.get("failed_agent") == side:

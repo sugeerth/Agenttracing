@@ -76,6 +76,9 @@ class GeneratedPairsTest(unittest.TestCase):
                 continue
             named += 1
             self.assertEqual(dec["basis"], CONTESTED_BASIS)
+            self.assertFalse(dec["committed"], "the fallback commits to no cause")
+            from agentdiff.diagnosis import committed_step
+            self.assertIsNone(committed_step(report["diagnosis"]))
             self.assertEqual(dec["verification"], "hypothesized")
             self.assertEqual(dec["window"], {"earliest": dec["step"], "point_of_no_return": dec["step"], "steps": 1})
             self.assertEqual(report["diagnosis"]["confidence"]["level"], "low", "the cause is still contested")

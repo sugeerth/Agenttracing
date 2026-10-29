@@ -791,6 +791,7 @@ def cost_per_success_ratio(reports: list[dict], samples: Optional[int] = None,
     interval says whether these tasks can tell. Unmeasurable — ``None``
     with a reason — when either side's cost per success is.
     """
+    from ._stats import percentile_interval
     from .statistics import BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE
     samples = BOOTSTRAP_SAMPLES if samples is None else samples
     seed = BOOTSTRAP_SEED if seed is None else seed
@@ -807,17 +808,16 @@ def cost_per_success_ratio(reports: list[dict], samples: Optional[int] = None,
     for _ in range(samples):
         pick = [rows[rng.randrange(len(rows))] for _ in rows]
         wins_a, wins_b = sum(r[1] for r in pick), sum(r[3] for r in pick)
-        if not wins_a or not wins_b:
+        cost_a = sum(r[0] for r in pick)
+        # no success, or (cached or unrecorded runs) no spend on A's side: no ratio to take
+        if not wins_a or not wins_b or cost_a <= 0:
             undefined += 1
             continue
-        ratios.append((sum(r[2] for r in pick) / wins_b) / (sum(r[0] for r in pick) / wins_a))
-    ratios.sort()
+        ratios.append((sum(r[2] for r in pick) / wins_b) / (cost_a / wins_a))
     out = dict(base, ratio=round(b["value_usd"] / a["value_usd"], 4), samples=samples, undefined=undefined)
     if not ratios:
-        return dict(out, reason="every resample left a side without a success")
-    tail = (1 - CONFIDENCE) / 2
-    low = ratios[max(0, int(tail * len(ratios)) - 1)]
-    high = ratios[min(len(ratios) - 1, int((1 - tail) * len(ratios)))]
+        return dict(out, reason="no resample had a success and a recorded cost on both sides")
+    low, high = percentile_interval(ratios, CONFIDENCE)
     return dict(out, low=round(low, 4), high=round(high, 4), excludes_one=low > 1 or high < 1)
 
 
@@ -829,8 +829,8 @@ def ratio_text(r: dict, names: dict) -> str:
         return f"{names['b']} costs {r['ratio']:.2f}× {names['a']} per success; no interval: {r['reason']}"
     verdict = ("the interval excludes 1, so on these tasks the gap is not resampling noise" if r["excludes_one"]
                else "the interval includes 1, so these tasks cannot tell which is dearer per success")
-    undefined = (f"; {r['undefined']} of {r['samples']} resamples left a side without a success and are "
-                 "not in the interval" if r["undefined"] else "")
+    undefined = (f"; {r['undefined']} of {r['samples']} resamples left a side without a success or a recorded "
+                 "cost and are not in the interval" if r["undefined"] else "")
     return (f"{names['b']} costs {r['ratio']:.2f}× {names['a']} per success "
             f"({r['confidence']:.0%} interval {r['low']:.2f}–{r['high']:.2f} over {r['tasks']} paired tasks): "
             f"{verdict}{undefined}")

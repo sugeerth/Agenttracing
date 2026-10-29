@@ -445,11 +445,12 @@ def run(args: argparse.Namespace) -> int:
         # every arm writes its own traces directory: stream each as it appears
         inner = arm
         streamers = []
+        sent_from: dict = {}     # traces directory -> what was posted from it: a settle round posts only its own
 
         def arm(harness, label, only=None, rounds=None):  # noqa: F811 — the same arm, streamed
             d = out / label / "traces"
             d.mkdir(parents=True, exist_ok=True)
-            s = TraceStreamer(d, args.hub, token, interval=0.5).start()
+            s = TraceStreamer(d, args.hub, token, interval=0.5, seen=sent_from.setdefault(str(d), {})).start()
             streamers.append(s)
             try:
                 return inner(harness, label, only=only, rounds=rounds)

@@ -1307,12 +1307,30 @@ _CORRECTION_HINTS = {
 }
 
 
-def first_twinless(failing: Trajectory, passing: Trajectory) -> Optional[int]:
-    """The first step before the failing run's answer with no twin (same type, name and input) anywhere in
-    the passing run — where the two runs first part, read from structure alone. None when every step has one."""
+def committed_step(diagnosis: dict) -> Optional[int]:
+    """The decisive step a leading cause commits to, or None. A contested diagnosis's step is only where the
+    runs part (a structural fallback), so it is not one. Reports from before the ``committed`` field count a
+    step as committed unless they say no hypothesis leads."""
+    dec = (diagnosis or {}).get("decisive_step") or {}
+    step = dec.get("step")
+    committed = dec.get("committed")
+    if committed is None:   # an older report: contested only when it says no hypothesis leads
+        committed = not ("leading" in (diagnosis or {}) and diagnosis["leading"] is None)
+    return step if isinstance(step, int) and committed else None
+
+
+def twinless_steps(failing: Trajectory, passing: Trajectory) -> list:
+    """The steps before the failing run's answer with no twin (same type, name and input) anywhere in the
+    passing run, in trace order: where the two runs differ, read from structure alone."""
     steps = failing.steps[:-1] if len(failing.steps) > 1 else list(failing.steps)
     twins = {(s.type, s.name, s.input) for s in passing.steps}
-    return next((i for i, st in enumerate(steps) if (st.type, st.name, st.input) not in twins), None)
+    return [i for i, st in enumerate(steps) if (st.type, st.name, st.input) not in twins]
+
+
+def first_twinless(failing: Trajectory, passing: Trajectory) -> Optional[int]:
+    """Where the two runs first part (:func:`twinless_steps`); None when every step has a twin."""
+    found = twinless_steps(failing, passing)
+    return found[0] if found else None
 
 
 #: what a contested diagnosis's step rests on: no hypothesis led, so the step is structure, not a verdict
@@ -1356,7 +1374,7 @@ def _decisive_step(mode: str, leading: Optional[dict], led: Ledger,
     step to replay first is not left blank.  Abstentions (a grader or a
     harness kill leading) never reach this branch.
     """
-    base = {"step": None, "criterion": DECISIVE_CRITERION, "basis": None,
+    base = {"step": None, "committed": False, "criterion": DECISIVE_CRITERION, "basis": None,
             "reason": None, "point_of_no_return": None, "window": None,
             "verification": None, "replay_recipe": None,
             "joint_candidates": [], "overdetermined": None}
@@ -1431,7 +1449,7 @@ def _decisive_step(mode: str, leading: Optional[dict], led: Ledger,
         "expects": "the outcome flips to success",
         "replays": "≥3 — agent policies are stochastic; one rollout proves nothing",
     }
-    return dict(base, step=step, basis=basis,
+    return dict(base, step=step, committed=True, basis=basis,
                 point_of_no_return=point_of_no_return,
                 window={"earliest": step, "point_of_no_return": point_of_no_return,
                         "steps": point_of_no_return - step + 1},

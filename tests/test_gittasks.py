@@ -181,6 +181,29 @@ class PassedIdsTest(unittest.TestCase):
 
 
 @unittest.skipIf(shutil.which("git") is None or os.name == "nt", "needs git, and the stand-in's shebang")
+class RunnerStreamsTest(unittest.TestCase):
+    def test_a_test_that_prints_mid_line_still_counts_as_passed(self):
+        """unittest writes 'name ... ' to stderr, flushes, runs the test, then writes 'ok'. A test printing to
+        stdout in between would have split that line in a merged stream, and the held-out check would have
+        failed a run whose every test passed."""
+        import json as _json
+        from agentdiff.gittasks import _RUNNER_SOURCE
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / "hidden").mkdir()
+            (tmp / "hidden" / "test_noisy.py").write_text(
+                "import unittest\n\nclass T(unittest.TestCase):\n    def test_a(self):\n"
+                "        print('x', end='', flush=True)\n", encoding="utf-8")
+            work = tmp / "work"
+            work.mkdir()
+            (tmp / "runner.py").write_text(_RUNNER_SOURCE, encoding="utf-8")
+            (tmp / "expect.json").write_text(_json.dumps(["test_noisy.T.test_a"]), encoding="utf-8")
+            done = subprocess.run([sys.executable, str(tmp / "runner.py"), str(tmp / "hidden"), str(tmp / "expect.json"),
+                                   "--", sys.executable, "-m", "unittest", "-v", "test_noisy"],
+                                  cwd=str(work), capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+
 class HubTest(unittest.TestCase):
     def test_the_evolve_page_starts_one_on_a_repository_and_refuses_a_folder_that_is_not_one(self):
         sys.path.insert(0, str(ROOT / "tests"))

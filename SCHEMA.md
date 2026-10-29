@@ -196,7 +196,7 @@ Every pairwise report carries, beyond the sections above:
   status, supports/contradicts by evidence id, `evidence_classes`
   {observable, annotation, stated}), `evidence[]` (each with
   `evidence_class`), `leading`, `margin`, `verdict`, `causal_account[]`,
-  `decisive_step` {step, criterion, basis (if contested: the first twinless
+  `decisive_step` {step, committed, criterion, basis (if contested: the first twinless
   step, a structural fallback), window, verification (hypothesized |
   replay-verified | replay-refuted | replay-mixed), replay_recipe, replay_order (steps
   to replay first), joint_candidates, overdetermined, replay {…, controls, control_flipped}}, `confidence` {level, n, basis, verified}.

@@ -40,6 +40,7 @@ from __future__ import annotations
 import copy
 import json
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -105,6 +106,21 @@ class Harness:
             h.deny_tools.append(remedy["value"])
         elif remedy["knob"] == "max_turns":
             h.max_turns = int(remedy["value"])
+        return h
+
+    def without_remedy(self, remedy: dict) -> "Harness":
+        """This harness with one change taken out, and only that one: everything else it carries stays, an
+        adopted or resumed starting point included."""
+        h = copy.deepcopy(self)
+        h.version += 1
+        if remedy["id"] in h.remedies:
+            h.remedies.remove(remedy["id"])
+        if remedy["knob"] == "instruction" and remedy["value"] in h.instructions:
+            h.instructions.remove(remedy["value"])
+        elif remedy["knob"] == "deny_tool" and remedy["value"] in h.deny_tools:
+            h.deny_tools.remove(remedy["value"])
+        elif remedy["knob"] == "max_turns" and h.max_turns == int(remedy["value"]):
+            h.max_turns = None
         return h
 
     def describe(self) -> str:
@@ -235,23 +251,31 @@ RESOLUTION_ALPHA = 0.05
 RESOLUTION_WIN = 0.75
 
 
-def _critical(n: int, alpha: float) -> Optional[int]:
-    """The fewest wins of ``n`` moved tasks whose sign test reaches ``alpha``, or None when none can."""
-    return next((k for k in range(n + 1) if n and sign_test(k, n - k) <= alpha), None)
+@lru_cache(maxsize=None)
+def _reaching(most: int, win: float, alpha: float) -> tuple:
+    """For each number of moved tasks n up to ``most``: the chance that the sign test over them reaches
+    ``alpha`` when each goes the change's way with chance ``win``. Each n's critical win count (the fewest wins
+    whose exact one-sided chance is at most ``alpha``) is found from that n's own binomial tail, once."""
+    from math import comb
+    out = [0.0]
+    for n in range(1, most + 1):
+        tail, k0 = 0, None
+        for k in range(n, -1, -1):          # grow the null tail from the top until it passes alpha
+            tail += comb(n, k)
+            if tail / 2 ** n > alpha:
+                break
+            k0 = k
+        out.append(0.0 if k0 is None else
+                   sum(comb(n, k) * win ** k * (1 - win) ** (n - k) for k in range(k0, n + 1)))
+    return tuple(out)
 
 
-def _power(tasks: int, move: float, win: float, alpha: float) -> float:
+def _power(tasks: int, move: float, win: float, alpha: float, most: int = 0) -> float:
     """Exact chance that the sign test reaches ``alpha`` over ``tasks`` tasks when each moves with chance
     ``move`` and a moved task goes the change's way with chance ``win``."""
     from math import comb
-    total = 0.0
-    for n in range(tasks + 1):
-        k0 = _critical(n, alpha)
-        if k0 is None:
-            continue
-        p_n = comb(tasks, n) * move ** n * (1 - move) ** (tasks - n)
-        total += p_n * sum(comb(n, k) * win ** k * (1 - win) ** (n - k) for k in range(k0, n + 1))
-    return total
+    reach = _reaching(max(tasks, most), win, alpha)
+    return sum(comb(tasks, n) * move ** n * (1 - move) ** (tasks - n) * reach[n] for n in range(tasks + 1))
 
 
 def resolution(tasks: int, moved: int, *, alpha: float = RESOLUTION_ALPHA, win: float = RESOLUTION_WIN,
@@ -263,8 +287,8 @@ def resolution(tasks: int, moved: int, *, alpha: float = RESOLUTION_ALPHA, win: 
     share, or None. Reported beside the verdict; it decides nothing."""
     best = sign_test(tasks, 0) if tasks else None
     move = moved / tasks if tasks else 0.0
-    power = _power(tasks, move, win, alpha) if tasks and move else 0.0
-    needed = (next((t for t in range(1, most + 1) if _power(t, move, win, alpha) >= target), None)
+    power = _power(tasks, move, win, alpha, most) if tasks and move else 0.0
+    needed = (next((t for t in range(1, most + 1) if _power(t, move, win, alpha, most) >= target), None)
               if move else None)
     return {"alpha": alpha, "win": win, "best_p": best, "reachable": best is not None and best <= alpha,
             "moved": [moved, tasks], "power": round(power, 4), "target": target, "tasks_needed": needed}
@@ -777,12 +801,9 @@ def prune(run_arm: Callable[[Harness, str], list], result: dict,
     final = Harness.from_dict(result["harness"])
     say(f"prune: testing each of the {len(kept)} kept change(s) again, newest first, against {final.describe()}")
     with_runs = list(run_arm(final, f"prune-h{final.version}"))
-    current, ref, tested, version = list(kept), final, [], final.version
+    ref, tested, version = final, [], final.version
     for remedy in reversed(kept):
-        rest = [r for r in current if r["id"] != remedy["id"]]
-        without = Harness()
-        for r in rest:
-            without = without.with_remedy(r)
+        without = ref.without_remedy(remedy)
         version += 1
         without.version = version
         runs = list(run_arm(without, f"prune-h{version}"))
@@ -793,9 +814,15 @@ def prune(run_arm: Callable[[Harness, str], list], result: dict,
             f"(passed {test['passed']['current'][0]}/{test['passed']['current'][1]} without it, "
             f"{test['passed']['changed'][0]}/{test['passed']['changed'][1]} with it; {test['chance']})")
         if not stays:
-            current, ref, with_runs = rest, without, runs
+            ref, with_runs = without, runs
     dropped = [t["remedy"]["id"] for t in tested if not t["stays"]]
     out["harness"] = asdict(ref)
+    # the run's own description and story follow the harness it now leaves
+    out["describe"] = ref.describe()
+    if dropped:
+        out["narrative"] = (out.get("narrative") or "") + (
+            f" Tested again at the end, {', '.join(dropped)} no longer earned a place and was dropped: "
+            f"the harness left is {ref.describe()}.")
     out["prune"] = {"tested": tested, "dropped": dropped, "before": asdict(final),
                     "says": (f"{len(dropped)} of {len(kept)} kept change(s) no longer earned their place"
                              if dropped else f"every one of the {len(kept)} kept change(s) still earns its place")}

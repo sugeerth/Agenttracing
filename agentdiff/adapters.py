@@ -212,8 +212,12 @@ def from_otel_genai(
     Returns ``(trajectory_dict, warnings)``; the dict is pre-validated.
     """
     warnings: list[str] = []
-    ordered = sorted(spans, key=lambda s: (_span_time(s, "start"),
-                                           s.get("name", "")))
+    # a span AgentDiff exported carries its step's index: that order is exact even
+    # when steps share a start time (a trace with no recorded latencies)
+    def _order(s: dict) -> tuple:
+        index = str(_span_attrs(s).get("agentdiff.step.index", ""))   # OTLP/JSON carries ints as strings
+        return (_span_time(s, "start"), int(index) if index.isdigit() else -1, s.get("name", ""))
+    ordered = sorted(spans, key=_order)
     steps: list[dict] = []
     total_in = total_out = 0
 

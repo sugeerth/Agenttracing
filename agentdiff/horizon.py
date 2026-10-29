@@ -317,7 +317,8 @@ def horizon_pair(report: dict, a: Trajectory, b: Trajectory) -> dict:
     reading = report.get("reading") or {}
     diag = report.get("diagnosis") or {}
     # a contested diagnosis names only where the runs part, never a decisive step
-    dec = (diag.get("decisive_step") or {}) if diag.get("leading") is not None else {}
+    from .diagnosis import committed_step
+    dec = {"step": committed_step(diag)}
     subject = diag.get("subject")
     fault = {"a": set(), "b": set()}
     for side in ("a", "b"):

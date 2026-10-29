@@ -404,16 +404,15 @@ def _task_interval(values: Sequence[float]) -> Optional[list]:
     """95% percentile bootstrap of the mean of per-task values, tasks resampled
     with replacement under the fixed seed; None for fewer than 2 tasks."""
     import random
+    from ._stats import percentile_interval
     from .statistics import BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE
     if len(values) < 2:
         return None
     rng = random.Random(BOOTSTRAP_SEED)
     n = len(values)
-    means = sorted(sum(values[rng.randrange(n)] for _ in range(n)) / n
-                   for _ in range(BOOTSTRAP_SAMPLES))
-    tail = (1 - CONFIDENCE) / 2
-    return [round(means[max(0, int(tail * BOOTSTRAP_SAMPLES) - 1)], 4),
-            round(means[min(BOOTSTRAP_SAMPLES - 1, int((1 - tail) * BOOTSTRAP_SAMPLES))], 4)]
+    means = [sum(values[rng.randrange(n)] for _ in range(n)) / n for _ in range(BOOTSTRAP_SAMPLES)]
+    lo, hi = percentile_interval(means, CONFIDENCE)
+    return [round(lo, 4), round(hi, 4)]
 
 
 def _mean(values: Sequence[float]) -> float:
@@ -582,10 +581,10 @@ def _agent_reliability(name: str,
     from .statistics import wilson_interval
     lo, hi = wilson_interval(successes_total, runs_used) if runs_used else (0.0, 1.0)
     for point in hat_curve_all:
-        over_tasks = _task_interval(hat_by_k[point["k"]])
         if point["value"] is None:
             point["ci95"] = None
             continue
+        over_tasks = _task_interval(hat_by_k[point["k"]])
         # the estimate itself is kept inside too: C(c,k)/C(n,k) is 0 below k
         # successes, where a pooled rate raised to k is not
         bounds = [lo ** point["k"], hi ** point["k"], point["value"]] + (over_tasks or [])

@@ -72,7 +72,8 @@ def profile_run(report: dict, side: str) -> dict:
     attribution = report.get("attribution") or {}
     fault = set(i for i in (attribution.get("chain") or []) if isinstance(i, int)) if attribution.get("failed_agent") == side else set()
     diag = report.get("diagnosis") or {}
-    decisive = ((diag.get("decisive_step") or {}).get("step")) if diag.get("subject") == side else None
+    from .diagnosis import committed_step
+    decisive = committed_step(diag) if diag.get("subject") == side else None
     tools: dict = {}
     last_by_tool: dict = {}   # tool → (input key, run length, run start index): a retry loop may think or write between calls
     for i, s in enumerate(steps):

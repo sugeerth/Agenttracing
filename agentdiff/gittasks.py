@@ -70,11 +70,14 @@ import sys
 
 hidden, expect, cmd = sys.argv[1], sys.argv[2], sys.argv[4:]
 shutil.copytree(hidden, ".", dirs_exist_ok=True)
-done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+# the two streams apart: unittest reports on stderr, pytest on stdout, and a test that prints mid-line would
+# split a "name ... ok" line if they were merged
+done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 sys.stdout.write(done.stdout)
+sys.stdout.write(done.stderr)
 if done.returncode or expect == "-":
     sys.exit(done.returncode)
-missing = sorted(set(json.load(open(expect))) - passed_ids(done.stdout))
+missing = sorted(set(json.load(open(expect))) - passed_ids(done.stdout) - passed_ids(done.stderr))
 if missing:
     print(f"held-out tests that passed on the commit did not pass here ({len(missing)}): "
           + ", ".join(missing[:5]) + (" ..." if len(missing) > 5 else ""))

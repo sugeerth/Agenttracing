@@ -100,6 +100,21 @@ class RoundTripTest(unittest.TestCase):
         self.assertEqual([s["name"] for s in traj["steps"]][-2:], ["m", "grep"])
 
 
+class SameStartTest(unittest.TestCase):
+    def test_steps_with_no_recorded_latency_come_back_in_order(self):
+        """Every span starts at the same nanosecond: the exported step index, not the span name, orders them."""
+        traj = {"schema_version": 1, "trace_id": "z", "agent": {"name": "x"}, "task": {"id": "t", "prompt": "p"},
+                "outcome": {"success": True, "answer": "a"}, "totals": {},
+                "steps": [{"index": 0, "type": "tool_call", "name": "search_web", "input": "q", "output": "r",
+                           "tokens": 1, "latency_s": 0},
+                          {"index": 1, "type": "reason", "name": "reason", "input": "think", "output": "",
+                           "tokens": 1, "latency_s": 0},
+                          {"index": 2, "type": "answer", "name": "final", "input": "a", "output": "a",
+                           "tokens": 1, "latency_s": 0}]}
+        back, _ = from_otlp(to_otlp(traj, content=True))
+        self.assertEqual([s["type"] for s in back["steps"]], ["tool_call", "reason", "answer"])
+
+
 class CommandTest(unittest.TestCase):
     def test_convert_writes_otlp_and_reads_it_back(self):
         with tempfile.TemporaryDirectory() as tmp:

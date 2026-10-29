@@ -50,6 +50,14 @@ class RatioTest(unittest.TestCase):
         self.assertGreater(r["undefined"], 0)
         self.assertIn("left a side without a success", ratio_text(r, {"a": "A", "b": "B"}))
 
+    def test_runs_with_no_recorded_cost_do_not_divide_by_zero(self):
+        """Some of A's successful runs cost nothing (cached or unrecorded): a resample drawing only those has no
+        ratio, and is counted rather than crashing the batch report."""
+        reports = [_report(0.0, True, 1.0, True)] * 3 + [_report(1.0, True, 1.0, True)]
+        r = cost_per_success_ratio(reports)
+        self.assertGreater(r["undefined"], 0)
+        self.assertIsNotNone(r["low"])
+
     def test_unmeasurable_with_the_reason(self):
         r = cost_per_success_ratio([_report(0.0, True, 1.0, True)])
         self.assertIsNone(r["ratio"])

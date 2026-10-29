@@ -27,15 +27,14 @@ __all__ = ["replay_order", "conformal_k", "evaluate", "held_out"]
 
 def replay_order(diagnosis: dict, failing: Trajectory, passing: Trajectory) -> list[int]:
     """Every step index of the failing run, in the order to replay them."""
-    from .diagnosis import first_twinless
+    from .diagnosis import twinless_steps
     dec = diagnosis.get("decisive_step") or {}
     n = len(failing.steps)
-    twins = {(s.type, s.name, s.input) for s in passing.steps}
-    twinless = [i for i, s in enumerate(failing.steps[:-1]) if (s.type, s.name, s.input) not in twins]
+    twinless = twinless_steps(failing, passing)
     joint = sorted(dec.get("joint_candidates") or [], key=lambda c: -(c.get("score") or 0))
     account = sorted(e["step"] for e in diagnosis.get("causal_account") or [] if isinstance(e.get("step"), int))
     out: list[int] = []
-    for i in ([dec.get("step"), first_twinless(failing, passing)] + [c.get("step") for c in joint]
+    for i in ([dec.get("step")] + twinless[:1] + [c.get("step") for c in joint]
               + account + twinless + list(range(n))):
         if isinstance(i, int) and 0 <= i < n and i not in out:
             out.append(i)
