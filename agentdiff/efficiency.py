@@ -41,13 +41,14 @@ the run rather than being explained away.
 
 from __future__ import annotations
 
+import math
 import random
 from typing import Optional
 
 from ._stats import percentile_interval
 from .process import _digest, _norm, _signature, _tool_table, effect_of, is_error
 from .tooldiff import TOOLISH_TYPES, parse_args
-from .statistics import BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE
+from .statistics import BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE, t_critical
 from .trace import Trajectory
 from . import sections as _sections
 
@@ -782,43 +783,79 @@ def _cost_per_success(reports: list[dict], side: str) -> dict:
 
 def cost_per_success_ratio(reports: list[dict], samples: Optional[int] = None,
                            seed: Optional[int] = None) -> dict:
-    """B's cost per success over A's, with a paired bootstrap interval over tasks.
+    """B's cost per success over A's, with a 95% interval over tasks.
 
-    Both sides ran the same tasks, so tasks are resampled in pairs; each
-    resample recomputes both sides' total cost over their successes, so a
-    failed run's spend stays in its side's numerator. A resample in which
-    either side has no success has no ratio: those are counted
-    (``undefined``), never dropped silently, and the interval is over the
-    rest. The ratio says whether one side is dearer per solved task; the
-    interval says whether these tasks can tell. Unmeasurable — ``None``
-    with a reason — when either side's cost per success is.
+    Each side's cost per success is its total cost (a failed run's spend
+    included) over its successes. The interval is a jackknife over tasks on
+    the log of the ratio, with t on tasks − 1 degrees of freedom. Six or ten
+    tasks is a common suite, and a percentile bootstrap that few runs
+    short: on real runs of one agent dealt to two names at random, it
+    excluded 1 about one time in nine.
+
+    When dropping some task leaves a side without a success or a recorded
+    cost, the jackknife has no estimate there. The interval is then a
+    seeded paired bootstrap over tasks (``method`` says which). Its
+    resamples without a ratio are counted (``undefined``), never dropped
+    silently. Unmeasurable — ``None`` with a reason — when either side's
+    cost per success is.
     """
     samples = BOOTSTRAP_SAMPLES if samples is None else samples
     seed = BOOTSTRAP_SEED if seed is None else seed
     a, b = _cost_per_success(reports, "a"), _cost_per_success(reports, "b")
     base = {"tasks": len(reports), "a": a["value_usd"], "b": b["value_usd"], "ratio": None,
-            "low": None, "high": None, "excludes_one": None, "samples": 0, "undefined": 0,
+            "low": None, "high": None, "excludes_one": None, "method": None, "samples": 0, "undefined": 0,
             "confidence": CONFIDENCE, "reason": None}
     if a["value_usd"] is None or b["value_usd"] is None:
         return dict(base, reason=a["reason"] or b["reason"])
     rows = [(float(r["a"]["totals"]["cost_usd"]), bool(r["a"]["outcome"]["success"]),
              float(r["b"]["totals"]["cost_usd"]), bool(r["b"]["outcome"]["success"])) for r in reports]
+    out = dict(base, ratio=round(b["value_usd"] / a["value_usd"], 4))
+    interval = _jackknife_ratio(rows)
+    if interval is not None:
+        low, high = interval
+        return dict(out, low=round(low, 4), high=round(high, 4), excludes_one=low > 1 or high < 1,
+                    method="jackknife over tasks on the log ratio, t on tasks − 1")
     rng = random.Random(seed)
     ratios, undefined = [], 0
     for _ in range(samples):
         pick = [rows[rng.randrange(len(rows))] for _ in rows]
-        wins_a, wins_b = sum(r[1] for r in pick), sum(r[3] for r in pick)
-        cost_a = sum(r[0] for r in pick)
-        # no success, or (cached or unrecorded runs) no spend on A's side: no ratio to take
-        if not wins_a or not wins_b or cost_a <= 0:
+        ratio = _ratio_of(pick)
+        if ratio is None:
             undefined += 1
-            continue
-        ratios.append((sum(r[2] for r in pick) / wins_b) / (cost_a / wins_a))
-    out = dict(base, ratio=round(b["value_usd"] / a["value_usd"], 4), samples=samples, undefined=undefined)
+        else:
+            ratios.append(ratio)
+    out = dict(out, samples=samples, undefined=undefined, method="paired percentile bootstrap over tasks")
     if not ratios:
         return dict(out, reason="no resample had a success and a recorded cost on both sides")
     low, high = percentile_interval(ratios, CONFIDENCE)
     return dict(out, low=round(low, 4), high=round(high, 4), excludes_one=low > 1 or high < 1)
+
+
+def _ratio_of(rows: list) -> Optional[float]:
+    """B's cost per success over A's over these (cost_a, ok_a, cost_b, ok_b) rows; None without a success or a
+    recorded cost on a side (a cached or unrecorded run costs 0)."""
+    cost_a, wins_a = sum(r[0] for r in rows), sum(r[1] for r in rows)
+    cost_b, wins_b = sum(r[2] for r in rows), sum(r[3] for r in rows)
+    if not wins_a or not wins_b or cost_a <= 0 or cost_b <= 0:
+        return None
+    return (cost_b / wins_b) / (cost_a / wins_a)
+
+
+def _jackknife_ratio(rows: list) -> Optional[tuple]:
+    """The leave-one-task-out jackknife interval of the ratio, on its log with t on n − 1; None with fewer than
+    three tasks or when some leave-one-out has no ratio."""
+    n = len(rows)
+    full = _ratio_of(rows)
+    if n < 3 or full is None:
+        return None
+    loo = [_ratio_of(rows[:i] + rows[i + 1:]) for i in range(n)]
+    if any(r is None for r in loo):
+        return None
+    logs = [math.log(r) for r in loo]
+    mean = sum(logs) / n
+    se = math.sqrt((n - 1) / n * sum((v - mean) ** 2 for v in logs))
+    t = t_critical(n - 1)
+    return math.exp(math.log(full) - t * se), math.exp(math.log(full) + t * se)
 
 
 def ratio_text(r: dict, names: dict) -> str:
@@ -830,7 +867,7 @@ def ratio_text(r: dict, names: dict) -> str:
     verdict = ("the interval excludes 1, so on these tasks the gap is not resampling noise" if r["excludes_one"]
                else "the interval includes 1, so these tasks cannot tell which is dearer per success")
     undefined = (f"; {r['undefined']} of {r['samples']} resamples left a side without a success or a recorded "
-                 "cost and are not in the interval" if r["undefined"] else "")
+                 "cost and are not in the interval" if r.get("undefined") else "")
     return (f"{names['b']} costs {r['ratio']:.2f}× {names['a']} per success "
             f"({r['confidence']:.0%} interval {r['low']:.2f}–{r['high']:.2f} over {r['tasks']} paired tasks): "
             f"{verdict}{undefined}")

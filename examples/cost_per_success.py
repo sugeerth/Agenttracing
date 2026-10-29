@@ -18,6 +18,5 @@ reports = [compare(Trajectory.from_json(pa), Trajectory.from_json(pb)) for _, (p
 
 r = cost_per_success_ratio(reports)
 print(f"{r['tasks']} tasks: A ${r['a']:.4f} per success, B ${r['b']:.4f} per success")
-print(f"B / A = {r['ratio']:.2f}, 95% interval [{r['low']:.2f}, {r['high']:.2f}] over {r['samples']} paired resamples"
-      f" of the tasks ({r['undefined']} left a side without a success)")
+print(f"B / A = {r['ratio']:.2f}, 95% interval [{r['low']:.2f}, {r['high']:.2f}] ({r['method']})")
 print(ratio_text(r, {"a": "A", "b": "B"}))

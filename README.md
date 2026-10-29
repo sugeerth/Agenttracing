@@ -196,5 +196,5 @@ pairs.jsonl` writes them for a whole batch; every item is labelled a hypothesis 
 A ranked program distilled from the interpretability and agent-evaluation
 literature — counterfactual decisive steps, evidence classes over stated
 reasoning, overdetermination, pass^k, leaky benchmarks, paired designs — each
-item's status in [`docs/RESEARCH_INSIGHTS.md`](docs/RESEARCH_INSIGHTS.md); six of them run as worked examples, with their output, in [`examples/`](examples/README.md). With an open-weights model the
+item's status in [`docs/RESEARCH_INSIGHTS.md`](docs/RESEARCH_INSIGHTS.md); seven of them run as worked examples, with their output, in [`examples/`](examples/README.md). With an open-weights model the
 harness also records per-step logprob intervals and Neuronpedia SAE features, cited as evidence that never moves a score. MIT licensed ([`LICENSE`](LICENSE)).

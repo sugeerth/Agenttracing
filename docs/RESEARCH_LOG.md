@@ -4,6 +4,35 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-10-29, fourth run: an A/A test on real runs
+
+**What was spent.** The agent CLI is signed in through the host's
+endpoint. A one-word probe cost $0.040, and the 24 suite runs cost
+$0.062, so $0.10 in all, against a $2 limit.
+
+**Taken: an A/A test, and the fix it called for.** The same agent ran as
+both sides. It is the one real experiment whose right answer is known
+in advance: no difference.
+- The pass-rate machinery got that right.
+- The cost-per-success interval did not. It claimed B was cheaper.
+- Redealing the real runs at random measured its false-alarm rate at
+  11%, against a nominal 5%.
+- A jackknife-t interval on the log ratio measured 3.2% on the same
+  deals, and still separates the real two-model suite. Synthetic
+  coverage at 6, 10 and 20 tasks agrees (CHANGELOG).
+
+**Not taken, and why:**
+- **Using every run of a task in the cost ratio.** The runs aggregate
+  builds one comparison per task from its first runs, so the second run
+  of each task does not reach the ratio. The ratio says "over 6 paired
+  tasks", so the denominator is honest, but half the runs go unused.
+  Pooling runs per task changes what every efficiency figure in `runs`
+  is over, which is a larger change than this run's.
+- **More runs or a second model.** Two runs per task is below the
+  5-run mark the runs advisory names. Either would cost more. It is the
+  obvious next spend, now that a trustworthy interval exists to read it
+  with.
+
 ## 2026-10-29, third run: a second real corpus
 
 **How it was read.** Hugging Face and github.com pages were refused by

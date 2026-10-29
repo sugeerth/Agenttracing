@@ -5,6 +5,38 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## An A/A test on real runs, and a cost interval that passes it
+
+One agent ran as both "A" and "B" on the six-task suite, twice each: 24
+real runs, $0.062 in all (`demo/vendors/aa-suite`, model name withheld).
+Nothing in the data can tell the two sides apart.
+- **The pass-rate comparison passed.** pass^k is identical on both
+  sides, and the paired test is not distinguishable.
+- **The cost-per-success ratio did not.** Its paired percentile
+  bootstrap over six tasks said B was cheaper: 0.886–0.980, "not
+  resampling noise". The null was redrawn from the same runs: each
+  task's four runs, dealt to A and B at random, 400 times. That interval
+  excluded 1 in 11% of deals, against a nominal 5%.
+- **The interval is now a jackknife over tasks on the log ratio, with t
+  on tasks − 1.**
+  - It gives 0.870–1.003 on the A/A data, and 3.2% on the redealt nulls.
+  - The recorded two-model suite stays clearly apart: 1.84×, 1.33–2.55,
+    against 1.45–2.24 before.
+  - The bootstrap remains as a labelled fallback (`method`) when
+    dropping a task leaves a side without a success or a recorded cost.
+
+Synthetic coverage of a known ratio, from 400 simulated suites per row,
+with tasks differing in price and 15% run noise:
+
+| tasks | percentile bootstrap | jackknife-t |
+|---|---|---|
+| 6 | 0.825 | 0.993 |
+| 10 | 0.885 | 0.980 |
+| 20 | 0.912 | 0.953 |
+
+At 6 tasks the jackknife-t is conservative. From 10 tasks on, it is
+about as wide as the bootstrap.
+
 ## External validation on TRAIL, and the step that decided it
 
 `demo/external/trail.py` converts TRAIL's 148 real GAIA and SWE-bench

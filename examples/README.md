@@ -35,13 +35,13 @@ the guarantee is marginal and holds for failures like these; on unlike traces, m
 
 ## Cost per success, with an interval
 
-Real recorded runs: two agents on six tasks, billed at real cost. B's cost per success over A's, with a paired bootstrap over tasks.
+Real recorded runs: two agents on six tasks, billed at real cost. B's cost per success over A's, with a jackknife interval over tasks.
 
 ```
 $ python3 examples/cost_per_success.py
 6 tasks: A $0.0495 per success, B $0.0912 per success
-B / A = 1.84, 95% interval [1.45, 2.24] over 2000 paired resamples of the tasks (0 left a side without a success)
-B costs 1.84× A per success (95% interval 1.45–2.24 over 6 paired tasks): the interval excludes 1, so on these tasks the gap is not resampling noise
+B / A = 1.84, 95% interval [1.33, 2.55] (jackknife over tasks on the log ratio, t on tasks − 1)
+B costs 1.84× A per success (95% interval 1.33–2.55 over 6 paired tasks): the interval excludes 1, so on these tasks the gap is not resampling noise
 ```
 
 ## pass^k: passing every one of k tries
@@ -77,4 +77,15 @@ the recorded run failed: True; replaying step 0, the tool call
   agent that reads the tool: corrected replays passed 3/3, controls passed 0/3 -> replay-verified
   agent that knows the answer anyway: corrected replays passed 3/3, controls passed 3/3 -> replay-mixed
 verified needs at least half the corrected replays to pass, and half the replays more than the controls
+```
+
+## Two names for one agent (an A/A test)
+
+Real recorded runs: one agent ran as both A and B, six tasks, twice each, for $0.06 in all. Nothing here should tell them apart. Redealing each task's four runs at random checks that the cost interval's false alarms stay near 5%. Before this interval, the old bootstrap excluded 1 on this very data, and in 11% of the random deals.
+
+```
+$ python3 examples/aa_test.py
+pass rate, paired over 6 tasks: A minus B = +0.00: not distinguishable: only 6 paired task(s) (needs at least 10)
+cost per success, B / A = 0.934, interval [0.870, 1.003]: includes 1
+redrawn nulls: the cost interval excluded 1 in 13 of 400 random deals (3.2%; nominal 5%)
 ```

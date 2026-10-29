@@ -89,5 +89,39 @@ class RecordedRunsTest(unittest.TestCase):
         self.assertIn("per success (95% interval", agg["narrative"])
 
 
+class AATest(unittest.TestCase):
+    """Real recorded runs of one agent under two names (demo/vendors/aa-suite): the interval must not claim a
+    difference, and on the runs dealt to the two names at random it excludes 1 near the nominal 5%. The
+    percentile bootstrap it replaced excluded 1 on these runs, and in 11% of the deals."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.runs = {}
+        for path in sorted(glob.glob(str(ROOT / "demo/vendors/aa-suite/traces/*.json"))):
+            task, name, _ = os.path.basename(path)[:-5].split("__")
+            t = Trajectory.from_json(path)
+            cls.runs.setdefault(task, {}).setdefault(name, []).append((t.totals.cost_usd, t.outcome.success))
+
+    def test_one_agent_under_two_names_is_not_told_apart(self):
+        self.assertEqual(len(self.runs), 6)
+        reports = [_report(*v["A"][0], *v["B"][0]) for _, v in sorted(self.runs.items())]
+        r = cost_per_success_ratio(reports)
+        self.assertFalse(r["excludes_one"], r)
+        self.assertIn("jackknife", r["method"])
+
+    def test_random_deals_of_the_same_runs_exclude_one_near_five_percent(self):
+        import random
+        rng = random.Random(1)
+        excluded = 0
+        for _ in range(400):
+            dealt = []
+            for _, v in sorted(self.runs.items()):
+                pool = v["A"] + v["B"]
+                rng.shuffle(pool)
+                dealt.append(_report(*pool[0], *pool[2]))
+            excluded += bool(cost_per_success_ratio(dealt)["excludes_one"])
+        self.assertLessEqual(excluded / 400, 0.06)
+
+
 if __name__ == "__main__":
     unittest.main()
