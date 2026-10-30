@@ -4,6 +4,53 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-10-30
+
+**How it was read.** Through search-engine extracts. huggingface.co and
+arxiv.org did not resolve in this session and were not retried.
+
+**Read:**
+- *EvoHarnessBench: Can Your Agents Keep Pace with an Evolving Harness?*
+  (arXiv 2609.04280).
+  - It measures harness-induced forgetting as backward transfer: a
+    cohort's result under the harness that introduced it, against later
+    cumulative harnesses.
+  - It reports −5.3% for tools, −4.0% for skills, and −34.7% in one
+    deployment setting.
+  - A public critique notes that it states no seeds or repeat counts, and
+    no null distribution for the backward transfer.
+- *SEAGym* (arXiv 2606.17546). Frozen snapshots per update, with
+  held-out tests, replay of old tasks to detect regression, and cost
+  records. Useful snapshots can collapse later.
+- *On Randomness in Agentic Evals* (arXiv 2602.07150). A single run's
+  pass@1 moves 2.2–6.0 points with the run chosen. It recommends
+  multiple runs per task and power analysis, which `resolution`,
+  pass^k and the A/A suite already cover.
+- *Stochasticity in Agentic Evaluations* (arXiv 2512.06710). It splits
+  variance by ICC; `runs` already reports ICC(1).
+- Attribution benchmarks that are new here: AgentRx (2602.02475),
+  MP-Bench, AgentProcessBench, and CatchBench (2608.22808).
+  None ships data reachable here beyond TRAIL, scored yesterday.
+
+**Taken: forgetting across an evolution, with its null.** AgentDiff's
+`decide` already refuses a break between two harnesses, but nothing
+looked across the lineage. The measure is EvoHarnessBench's idea read
+per task. It has an exact test per task, and a flag for a fall under an
+unchanged harness, the control the critique asks for.
+- On the four real evolutions on disk: nothing forgotten, and two tasks
+  weakened (2/2 → 1/2, p 0.5).
+- One of the two falls is under a harness that never changed.
+
+**Not taken, and why:**
+- **Reverting on forgetting.** With two runs a side, a forgotten task's
+  best chance is 1/6. A rule acting on that would revert on noise. It
+  is reported, so a person can re-run that task.
+- **Replaying old tasks under every new harness** (SEAGym's replay).
+  The evolution already re-runs every task each generation, so the
+  states are there. A separate replay arm would only add spend.
+- **ICC and multi-run recommendations** (the two randomness papers).
+  These are already covered.
+
 ## 2026-10-29, fourth run: an A/A test on real runs
 
 **What was spent.** The agent CLI is signed in through the host's

@@ -333,6 +333,63 @@ def holm(ps: Dict[str, float]) -> Dict[str, float]:
     return out
 
 
+def decline_p(before: Sequence[int], after: Sequence[int]) -> float:
+    """The exact one-sided chance (Fisher) that a task passing ``before`` = [passed, runs] would pass as few as
+    ``after`` = [passed, runs] or fewer by luck alone, if its pass chance had not changed."""
+    from math import comb
+    (a, n1), (b, n2) = before, after
+    total, runs = a + b, n1 + n2
+    return sum(comb(n2, k) * comb(n1, total - k) for k in range(0, b + 1)
+               if 0 <= total - k <= n1) / comb(runs, total)
+
+
+def forgetting(lineage: list) -> dict:
+    """Tasks the evolution once solved and no longer does. EvoHarnessBench calls this harness-induced
+    forgetting. ``decide`` reverts a change that breaks a task between the two harnesses it compares
+    (always passed before, never after). A drift across several kept changes passes that check at every
+    step: always to some under one change, then some to never under the next.
+
+    The harness states are taken in order: each generation's own runs, and after a kept change, the
+    changed arm's runs. A task is *solved* in a state where it passed every run. It is *forgotten* when it
+    was solved in some earlier state and passes no run in the last one, and *weakened* when it passes some.
+    Each carries ``p``, the exact one-sided chance of a fall at least that large with an unchanged pass
+    chance (:func:`decline_p`). It also says whether the harness changed between the two states: a fall
+    under the same harness is the runs' own noise. Reported beside the verdicts; it decides nothing."""
+    states = []
+    for g in lineage:
+        if g.get("per_task") is not None:
+            states.append((g["generation"], g["harness"]["version"], g["per_task"]))
+        test = test_of(g)
+        if test.get("verdict") == "kept" and (test.get("per_task") or {}).get("changed") is not None:
+            states.append((g["generation"] + " (kept)", g["harness"]["version"] + 1, test["per_task"]["changed"]))
+    if len(states) < 2:
+        return {"states": len(states), "solved": 0, "forgotten": [], "weakened": [],
+                "says": "fewer than two harness states with per-task results: nothing to compare"}
+    final_at, final_version, final = states[-1]
+    solved, forgotten, weakened = 0, [], []
+    for task, now in sorted(final.items()):
+        then = next(((at, v, c[task]) for at, v, c in states[:-1]
+                     if task in c and c[task][1] and c[task][0] == c[task][1]), None)
+        if then is None or not now[1]:
+            continue
+        solved += 1
+        if now[0] == now[1]:
+            continue
+        row = {"task": task, "solved_at": then[0], "then": list(then[2]), "now": list(now),
+               "harness_changed": then[1] != final_version, "p": round(decline_p(then[2], now), 4)}
+        (forgotten if now[0] == 0 else weakened).append(row)
+    lost = forgotten + weakened
+    says = (f"of {solved} task(s) solved under an earlier harness state, none passes less often under the last"
+            if not lost else
+            f"of {solved} task(s) solved under an earlier harness state, {len(forgotten)} pass no run under the "
+            f"last and {len(weakened)} pass only some; "
+            + "; ".join(f"{r['task']} {r['then'][0]}/{r['then'][1]} at {r['solved_at']} → {r['now'][0]}/{r['now'][1]}"
+                        f" (p {r['p']:.3g}{'' if r['harness_changed'] else ', same harness: run noise'})"
+                        for r in lost))
+    return {"states": len(states), "final": final_at, "solved": solved, "forgotten": forgotten,
+            "weakened": weakened, "says": says}
+
+
 def family(lineage: list) -> dict:
     """The evolution's tested changes taken as one family: how many were tested, and each one's sign test
     adjusted for all of them (:func:`holm`). Reported beside each verdict; it decides nothing."""
@@ -477,7 +534,8 @@ def decide(base: list, cand: list) -> dict:
             "p_value": p, "chance": chance_text(p),
             "resolution": resolution(len(tasks), len(wins) + len(losses)),
             "passed": {"current": [passed_a, n_a], "changed": [passed_b, n_b]},
-            "median_tokens": {"current": tok_a, "changed": tok_b}}
+            "median_tokens": {"current": tok_a, "changed": tok_b},
+            "per_task": {"current": {t: list(a[t]) for t in sorted(a)}, "changed": {t: list(b[t]) for t in sorted(b)}}}
 
 
 def task_signal(runs: list) -> dict:
@@ -681,7 +739,8 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
                 e["reason"] += f"; harness v{harness.version} prevents it"
         record = {"generation": label, "harness": asdict(harness), "runs": len(graded), "failed": len(failed),
                   "evals": {k: egen.get(k) for k in ("arrived", "forward", "retired", "born", "reborn", "verdicts")},
-                  "signal": task_signal(graded)}
+                  "signal": task_signal(graded),
+                  "per_task": {t: list(v) for t, v in sorted(_by_task(graded).items())}}
         if failed:
             say(f"{label}: {signal_text(record['signal'], harness.version)}")
         if not graded:
@@ -855,7 +914,8 @@ def _result(state: dict, harness: Harness, stop: str, evals_out: dict, target: s
         evals["narrative"] = evals_narrative(state["eval_lineage"], target)
     out = {"kind": "self-evolve", "target": target, "harness": asdict(harness), "describe": harness.describe(),
            "stop": stop, "lineage": lineage, "evals": evals,
-           "narrative": _narrative(lineage, harness, stop), "ledger": state, "family": family(lineage)}
+           "narrative": _narrative(lineage, harness, stop), "ledger": state, "family": family(lineage),
+           "forgetting": forgetting(lineage)}
     if running:
         out["running"] = True
     return out

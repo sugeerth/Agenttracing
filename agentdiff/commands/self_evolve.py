@@ -120,6 +120,10 @@ def _markdown(result: dict) -> str:
             "A change is kept when it wins more tasks than it loses (pass rate per task, same tasks, same runs) "
             "and no task goes from always passing to always failing. Every number above is a count of graded runs.",
             ""]
+    if (result.get("forgetting") or {}).get("states", 0) >= 2:
+        out += ["## Forgetting across the evolution", "",
+                f"Tasks solved under an earlier harness state and passed less often under the last: "
+                f"{result['forgetting']['says']}. This is reported beside the verdicts and decides nothing.", ""]
     return "\n".join(out)
 
 
@@ -514,6 +518,8 @@ def run(args: argparse.Namespace) -> int:
     write_ledger(ledger_path, result["ledger"])
     _write_result(out, result)
     progress.end("done", result["stop"])
+    if (result.get("forgetting") or {}).get("states", 0) >= 2:
+        print(f"\nforgetting across the evolution: {result['forgetting']['says']}")
     print(f"\n{result['narrative']}\n\nwrote {out / 'self-evolve.json'}, {out / 'SELF_EVOLVE.md'}, "
           f"{out / 'harness.json'}; the next call continues from {ledger_path}")
     keep = _latest_passing_arm(out, result)

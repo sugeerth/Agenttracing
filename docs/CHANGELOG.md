@@ -5,6 +5,27 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Forgetting across an evolution
+
+`selfevolve.forgetting` finds the tasks an evolution once solved and a
+later harness no longer passes. `decide` reverts a change that breaks a
+task, but only between the two harnesses it compares, so a drift over
+two kept changes passed it twice: always → some, then some → never. A
+scripted test drives exactly that drift through `decide`.
+- A task solved under an earlier harness state that passes no run under
+  the last is *forgotten*; one that passes some is *weakened*.
+- Each carries an exact one-sided Fisher chance, and whether the harness
+  changed in between.
+- Generations and tests now record per-task counts (`per_task`), so the
+  lineage can be read this way.
+- It is printed at the end, written to `SELF_EVOLVE.md` and
+  `self-evolve.json`, and decides nothing.
+
+Measured on the four real evolutions on disk, rebuilt from their run
+directories: nothing forgotten, and two tasks weakened from 2/2 to 1/2
+(p 0.5). One of those was under a harness that never changed, which is
+the null this measure needs beside it.
+
 ## An A/A test on real runs, and a cost interval that passes it
 
 One agent ran as both "A" and "B" on the six-task suite, twice each: 24

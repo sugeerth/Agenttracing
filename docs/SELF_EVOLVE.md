@@ -233,6 +233,32 @@ Evolve has the same as a third way in, "On your repository's history".
     task, 8 were on mixed tasks, 6 won a task that always failed, and 4
     lost one that always passed. The six-task demo run had no mixed task,
     which is why it learned nothing.
+- **Forgetting across the evolution.** `decide` reverts a change that
+  breaks a task, but only between the two harnesses it compares. A drift
+  over several kept changes passes that check at every step. Under one
+  change, a task can go from always passing to passing some runs. Under
+  the next, it can go from some to never.
+  - `selfevolve.forgetting` (`forgetting` in `self-evolve.json`, printed
+    at the end, and a section in `SELF_EVOLVE.md`) looks across the
+    whole lineage. A task is *forgotten* when it was solved, passing
+    every run, under an earlier harness state and passes no run under
+    the last. It is *weakened* when it passes only some.
+  - Each such task carries the exact one-sided chance of a fall that
+    large with an unchanged pass chance (Fisher), and whether the
+    harness changed in between. A fall under an unchanged harness is the
+    runs' own noise.
+  - Each generation now records its per-task counts (`per_task`), and
+    each test records both arms' (`per_task.current`, `.changed`), so
+    the lineage can be read this way. It decides nothing.
+  - This is EvoHarnessBench's harness-induced forgetting (backward
+    transfer), read per task with a test and a same-harness control.
+  - **Recorded:** the four real evolutions on disk, re-read from their
+    run directories. Nothing was forgotten. Two tasks were weakened,
+    each 2/2 → 1/2 (p 0.5). One was in the evolution that kept two
+    changes. The other was in a three-generation run whose harness never
+    changed: a fall like that is what two runs a task produce by chance.
+    A forgotten task with two runs either side has p = 1/6 at best, so
+    it is a lead to re-run, not a finding.
 - **Every kept change, tested again.** A change is kept on one paired
   test, and a later change can make it redundant, so nothing kept is
   ever questioned again. `--prune` puts each one through the same test
