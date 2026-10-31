@@ -55,6 +55,7 @@ from typing import Optional
 from .horizon import BOUNDARY_INTENTS
 from ._stats import percentile
 from ._text import join_names, secs, side_name
+from .diagnosis import committed_step
 from . import sections as _sections
 
 TOOLISH = ("tool_call", "search", "retrieve", "read")
@@ -143,8 +144,7 @@ def _step_facts(report: dict, side: str, steps: list) -> list:
     diag = report.get("diagnosis") or {}
     decisive = None
     if diag.get("subject") == side:
-        d = (diag.get("decisive_step") or {}).get("step")
-        decisive = d if isinstance(d, int) else None
+        decisive = committed_step(diag)
     attribution = report.get("attribution") or {}
     fault = set()
     if attribution.get("failed_agent") == side:

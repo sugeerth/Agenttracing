@@ -41,10 +41,14 @@ the run rather than being explained away.
 
 from __future__ import annotations
 
+import math
+import random
 from typing import Optional
 
+from ._stats import percentile_interval
 from .process import _digest, _norm, _signature, _tool_table, effect_of, is_error
 from .tooldiff import TOOLISH_TYPES, parse_args
+from .statistics import BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE, t_critical
 from .trace import Trajectory
 from . import sections as _sections
 
@@ -777,6 +781,141 @@ def _cost_per_success(reports: list[dict], side: str) -> dict:
             "successes": successes, "runs": len(reports), "reason": reason}
 
 
+def cost_per_success_ratio(reports: list[dict], samples: Optional[int] = None,
+                           seed: Optional[int] = None) -> dict:
+    """B's cost per success over A's, with a 95% interval over tasks.
+
+    Each side's cost per success is its total cost (a failed run's spend
+    included) over its successes. The interval is a jackknife over tasks on
+    the log of the ratio, with t on tasks − 1 degrees of freedom. Six or ten
+    tasks is a common suite, and a percentile bootstrap that few runs
+    short: on real runs of one agent dealt to two names at random, it
+    excluded 1 about one time in nine.
+
+    When dropping some task leaves a side without a success or a recorded
+    cost, the jackknife has no estimate there. The interval is then a
+    seeded paired bootstrap over tasks (``method`` says which). Its
+    resamples without a ratio are counted (``undefined``), never dropped
+    silently. Unmeasurable — ``None`` with a reason — when either side's
+    cost per success is.
+    """
+    samples = BOOTSTRAP_SAMPLES if samples is None else samples
+    seed = BOOTSTRAP_SEED if seed is None else seed
+    a, b = _cost_per_success(reports, "a"), _cost_per_success(reports, "b")
+    base = {"tasks": len(reports), "a": a["value_usd"], "b": b["value_usd"], "ratio": None,
+            "low": None, "high": None, "excludes_one": None, "method": None, "samples": 0, "undefined": 0,
+            "confidence": CONFIDENCE, "reason": None}
+    if a["value_usd"] is None or b["value_usd"] is None:
+        return dict(base, reason=a["reason"] or b["reason"])
+    rows = [(float(r["a"]["totals"]["cost_usd"]), bool(r["a"]["outcome"]["success"]),
+             float(r["b"]["totals"]["cost_usd"]), bool(r["b"]["outcome"]["success"])) for r in reports]
+    out = dict(base, ratio=round(b["value_usd"] / a["value_usd"], 4))
+    interval = _jackknife_ratio(rows)
+    if interval is not None:
+        low, high = interval
+        return dict(out, low=round(low, 4), high=round(high, 4), excludes_one=low > 1 or high < 1,
+                    method="jackknife over tasks on the log ratio, t on tasks − 1")
+    rng = random.Random(seed)
+    ratios, undefined = [], 0
+    for _ in range(samples):
+        pick = [rows[rng.randrange(len(rows))] for _ in rows]
+        ratio = _ratio_of(pick)
+        if ratio is None:
+            undefined += 1
+        else:
+            ratios.append(ratio)
+    out = dict(out, samples=samples, undefined=undefined, method="paired percentile bootstrap over tasks")
+    if not ratios:
+        return dict(out, reason="no resample had a success and a recorded cost on both sides")
+    low, high = percentile_interval(ratios, CONFIDENCE)
+    return dict(out, low=round(low, 4), high=round(high, 4), excludes_one=low > 1 or high < 1)
+
+
+def _ratio_of(rows: list) -> Optional[float]:
+    """B's cost per success over A's over these (cost_a, ok_a, cost_b, ok_b) rows; None without a success or a
+    recorded cost on a side (a cached or unrecorded run costs 0)."""
+    cost_a, wins_a = sum(r[0] for r in rows), sum(r[1] for r in rows)
+    cost_b, wins_b = sum(r[2] for r in rows), sum(r[3] for r in rows)
+    if not wins_a or not wins_b or cost_a <= 0 or cost_b <= 0:
+        return None
+    return (cost_b / wins_b) / (cost_a / wins_a)
+
+
+def _jackknife_ratio(rows: list) -> Optional[tuple]:
+    """The leave-one-task-out jackknife interval of the ratio, on its log with t on n − 1; None with fewer than
+    three tasks or when some leave-one-out has no ratio."""
+    n = len(rows)
+    full = _ratio_of(rows)
+    if n < 3 or full is None:
+        return None
+    loo = [_ratio_of(rows[:i] + rows[i + 1:]) for i in range(n)]
+    if any(r is None for r in loo):
+        return None
+    logs = [math.log(r) for r in loo]
+    mean = sum(logs) / n
+    se = math.sqrt((n - 1) / n * sum((v - mean) ** 2 for v in logs))
+    t = t_critical(n - 1)
+    return math.exp(math.log(full) - t * se), math.exp(math.log(full) + t * se)
+
+
+def cost_per_success_over_runs(runs_by_task: dict) -> dict:
+    """B's cost per success over A's from every run of every task, not one run of each.
+
+    ``runs_by_task`` is ``{task: {"a": [trajectory, ...], "b": [...]}}``. Each task contributes one row: its
+    runs' total cost and successes on each side. A task's runs share its difficulty, so they are not
+    independent. The interval is the same jackknife over tasks as :func:`cost_per_success_ratio`, so it
+    leaves out a whole task at a time and treats the task as the cluster. The batch figure (one compared
+    pair per task) and this one answer the same question, and this one wastes no run. Unmeasurable, with a
+    reason, as there."""
+    def side(trajs):
+        return (sum(float(t.totals.cost_usd or 0.0) for t in trajs), sum(1 for t in trajs if t.outcome.success is True))
+    rows, runs = [], {"a": 0, "b": 0}
+    for task in sorted(runs_by_task):
+        a, b = runs_by_task[task]["a"], runs_by_task[task]["b"]
+        runs["a"] += len(a)
+        runs["b"] += len(b)
+        rows.append(side(a) + side(b))
+    base = {"tasks": len(rows), "runs": runs, "a": None, "b": None, "ratio": None, "low": None, "high": None,
+            "excludes_one": None, "method": None, "confidence": CONFIDENCE, "reason": None}
+    cost_a, wins_a = sum(r[0] for r in rows), sum(r[1] for r in rows)
+    cost_b, wins_b = sum(r[2] for r in rows), sum(r[3] for r in rows)
+    for cost, wins in ((cost_a, wins_a), (cost_b, wins_b)):
+        if cost <= 0:
+            return dict(base, reason="cost_usd is 0 on every run of a side — not recorded, and unrecorded ≠ free")
+        if not wins:
+            return dict(base, reason="a side has no successful run — the ratio has a zero denominator")
+    out = dict(base, a=round(cost_a / wins_a, 6), b=round(cost_b / wins_b, 6),
+               ratio=round((cost_b / wins_b) / (cost_a / wins_a), 4))
+    interval = _jackknife_ratio(rows)
+    if interval is None:
+        return dict(out, reason="dropping some task leaves a side without a success or a recorded cost, or there "
+                                "are fewer than three tasks: no interval")
+    low, high = interval
+    return dict(out, low=round(low, 4), high=round(high, 4), excludes_one=low > 1 or high < 1,
+                method="jackknife over tasks (each task's runs pooled) on the log ratio, t on tasks − 1")
+
+
+@_sections.register("aggregate", "cost_per_success_runs", after=("paired_inference",))
+def _cost_over_runs_section(agg: dict, ctx: "_sections.AggregateContext"):
+    return cost_per_success_over_runs(ctx.runs_by_task)
+
+
+def ratio_text(r: dict, names: dict) -> str:
+    """One sentence on the cost-per-success ratio, from :func:`cost_per_success_ratio`."""
+    if r["ratio"] is None:
+        return f"no cost-per-success ratio: {r['reason']}"
+    if r["low"] is None:
+        return f"{names['b']} costs {r['ratio']:.2f}× {names['a']} per success; no interval: {r['reason']}"
+    verdict = ("the interval excludes 1: two agents that cost the same would show a gap this large on these tasks "
+               "about 1 time in 20 or less" if r["excludes_one"]
+               else "the interval includes 1, so these tasks cannot tell which is dearer per success")
+    undefined = (f"; {r['undefined']} of {r['samples']} resamples left a side without a success or a recorded "
+                 "cost and are not in the interval" if r.get("undefined") else "")
+    return (f"{names['b']} costs {r['ratio']:.2f}× {names['a']} per success "
+            f"({r['confidence']:.0%} interval {r['low']:.2f}–{r['high']:.2f} over {r['tasks']} paired tasks): "
+            f"{verdict}{undefined}")
+
+
 #: per-kind imperative templates for the aggregate opportunity rollup.
 _KIND_ACTIONS = {
     "prompt_cache": "Add a stable-prefix prompt cache",
@@ -880,10 +1019,13 @@ def aggregate_efficiency(reports: list[dict]) -> dict:
                          f"{ops[0]['action'][1:]}")
         else:
             lines.append(f"{names[side]}: no optimization opportunity visible")
+    ratio = cost_per_success_ratio(reports)
+    lines.append(ratio_text(ratio, names))
     return {
         "tasks": len(reports),
         "agents": names,
         "per_agent": per_agent,
+        "cost_per_success_ratio": ratio,
         "reports_missing_efficiency": missing,
         "narrative": ". ".join(lines) + ".",
     }

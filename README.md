@@ -8,7 +8,7 @@ any model or agent, compare, replay the decisive step to verify it,
 narrate through a provider that may never alter a number.
 
 Pure Python 3.10+, no dependencies, deterministic. The analysis engine
-contains no network code; only the harness talks to a model.
+contains no network code; only the harness talks to a model. Try it in your browser, nothing uploaded: [sugeerth.github.io/agentdiff/try](https://sugeerth.github.io/agentdiff/try/) (built by `web/build_site.py`).
 
 ## Quick start
 
@@ -56,7 +56,7 @@ agentdiff duel --task demo/vendors/task.json -o duel/   # Codex CLI vs Claude Co
 
 # 3. Replay: a decisive step is a hypothesis until re-execution flips the outcome
 agentdiff replay out/report_t01.json --provider atlas=openai:gpt-4o --replays 3
-#   -> replay-verified / replay-refuted / replay-mixed, written into the report;
+#   -> replay-verified / replay-refuted / replay-mixed against as many uncorrected control replays, written into the report;
 #      the map's ring goes solid, the card's CONF line says so
 
 # 4. Why: narrate through any provider, checked number by number
@@ -73,7 +73,7 @@ agentdiff loop --tasks tasks.json --provider atlas=openai:gpt-4o \
 ## Bring your own traces
 
 - **Record as it happens**: `agentdiff.record.Recorder` writes a SCHEMA trace.
-- **Convert what you have**: `agentdiff convert --format otel|openai file -o traces/` (`--dry-run` says what it would recover and what it would estimate).
+- **Convert what you have**: `agentdiff convert --format otel|openai file -o traces/` (`--dry-run` says what it would recover and what it would estimate); `--to otel` writes any trace as OTLP/JSON GenAI spans for an OpenTelemetry backend (`docs/FRAMEWORKS.md` §4b).
 - **Run an existing agent through the harness**: `agentdiff run --agent …`.
 
 ## What it does
@@ -125,7 +125,7 @@ a fooled grader fools every metric here ([docs/COEVOLVE.md](docs/COEVOLVE.md)).
 | Who&When, 184 public failing logs, single-trace reading | external | — | 8/184 exact, 46/184 within ±1; floor 20/184 | — |
 
 The probe is a deliberately dumb surface-cue detector scored on every corpus;
-the engine's margin over it, not its score, is the claim. The
+the engine's margin over it, not its score, is the claim. Against one-rule baselines (2026-10-22, `docs/BENCHMARK.md`), the exact decisive step beats "the first step without a twin" by +0.31 handcrafted and +0.16 on 2,200 generated pairs, but not once annotations are stripped (1344 vs 1350 of 1852): a negative result. Naming where the runs part when the diagnosis is contested (2026-10-23) lifts that to 1554, and tracing a same-tool call with other arguments to the decision that read its result (2026-10-24) to 1752 (+0.22). Replay sets add how many steps to replay to cover the decisive one at 90%, 95% and 99%, held out. The
 last row is a **negative result**, reported as such: without a passing
 twin the pairwise diagnoser cannot run, and the single-trace reading
 does not beat the always-first-step floor on those prose-only logs.
@@ -196,5 +196,5 @@ pairs.jsonl` writes them for a whole batch; every item is labelled a hypothesis 
 A ranked program distilled from the interpretability and agent-evaluation
 literature — counterfactual decisive steps, evidence classes over stated
 reasoning, overdetermination, pass^k, leaky benchmarks, paired designs — each
-item's status in [`docs/RESEARCH_INSIGHTS.md`](docs/RESEARCH_INSIGHTS.md). With an open-weights model the
+item's status in [`docs/RESEARCH_INSIGHTS.md`](docs/RESEARCH_INSIGHTS.md); seven of them run as worked examples, with their output, in [`examples/`](examples/README.md). With an open-weights model the
 harness also records per-step logprob intervals and Neuronpedia SAE features, cited as evidence that never moves a score. MIT licensed ([`LICENSE`](LICENSE)).

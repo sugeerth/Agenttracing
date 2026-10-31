@@ -26,8 +26,9 @@ Scoring rules, applied without mercy:
   Causes with **no** agent step to correct (a grader mislabel, a harness
   kill) are scored as abstention: predicting ``None`` there is a correct
   answer, and naming a step is a ``spurious_step`` miss.  A contested
-  diagnosis predicts no step, which on a step-truth scenario counts as a
-  miss, not a pass.
+  diagnosis names only its structural fallback (the first step with no
+  twin in the passing run), scored like any other step; where it has
+  none it predicts no step, a miss on a step-truth scenario.
 - Accuracies are always reported with their denominators, and every miss
   is listed with what actually led, so the number cannot silently exclude
   the failures.
@@ -39,11 +40,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 from .report import compare
 from .semantic import normalize_for_containment
-from .trace import HARNESS_TERMINATIONS, Trajectory
+from .align import before_answer, first_twinless, twinless_steps
+from .conformal import evaluate as _conformal_evaluate
+from .trace import HARNESS_TERMINATIONS, Trajectory, reads_as_failed
 
 MANIFEST_NAME = "MANIFEST.json"
 
@@ -75,7 +78,7 @@ def floor_violations(result: dict) -> list[str]:
     return problems
 
 
-from .statistics import clustered_se as _clustered_se
+from .statistics import FEW_CLUSTERS as _FEW_CLUSTERS, clustered_se as _clustered_se
 
 
 def format_scorecard(result: dict) -> str:
@@ -103,7 +106,11 @@ def format_scorecard(result: dict) -> str:
         lines.append(
             f"  error bar       naive ±{clustered['naive_se']:.4f}, clustered by "
             f"cause ±{clustered['clustered_se']:.4f} ({clustered['clusters']} "
-            f"families; ×{clustered['ratio']}) — the clustered one is honest")
+            f"families, t on {clustered.get('df', clustered['clusters'] - 1):g} df; "
+            f"×{clustered['ratio']}) — the clustered one is honest"
+            + (", and with this few families still a lower bound"
+               if clustered["clusters"] < _FEW_CLUSTERS else ""))
+    struct = result.get("structural_baselines") or {}
     probe = result.get("leakage_probe") or {}
     margin = result.get("engine_minus_probe") or {}
     if probe.get("kind", {}).get("total"):
@@ -115,6 +122,23 @@ def format_scorecard(result: dict) -> str:
             if probe['step']['total'] else
             f"  leakage probe   kind {probe['kind']['correct']}/{probe['kind']['total']}"
             f" — engine margin kind {margin.get('kind'):+.4f}")
+    if struct.get("best"):
+        rules = struct["rules"]
+        lines.append(
+            "  one-rule steps  " + ", ".join(
+                f"{r.replace('_', ' ')} {rules[r]['exact']}/{rules[r]['total']}" for r in rules)
+            + f" — engine margin over the best ({struct['best'].replace('_', ' ')}) "
+            f"{struct['engine_margin']:+.4f}")
+    sets = [x for x in result.get("replay_sets") or [] if (x.get("replay_order") or {}).get("coverage") is not None]
+    if sets:
+        def _one(x: dict, key: str) -> str:
+            o = x[key]
+            return (f"k={o['k']} covers {o['coverage']:.2f} ({o['mean_set']} steps)" if o.get("coverage") is not None
+                    else "no finite k")
+        lines.append(
+            f"  replay sets     held out (n={sets[0]['replay_order']['test']}, runs of {sets[0]['mean_steps']} steps): "
+            + "; ".join(f"{x['target']:.0%} target, replay order {_one(x, 'replay_order')}, "
+                        f"step order {_one(x, 'step_order')}" for x in sets))
     if result.get("invalid_pairs"):
         lines.append(f"  INVALID PAIRS   {len(result['invalid_pairs'])} excluded — "
                      "clean twin fails its own grader: "
@@ -223,7 +247,6 @@ def leakage_probe(failing: Trajectory, passing: Trajectory) -> dict:
     answer = (steps[answer_idx].output or steps[answer_idx].input or "").lower()
     expected = (getattr(failing.task, "expected", None) or "").strip().lower()
     term = failing.outcome.termination
-    pass_sigs = {(s.type, s.name, s.input) for s in passing.steps}
 
     def text(i):
         return f"{steps[i].input}\n{steps[i].output}".lower()
@@ -232,8 +255,7 @@ def leakage_probe(failing: Trajectory, passing: Trajectory) -> dict:
         return {"kind": "harness_termination", "step": None, "cue": "termination"}
     annotated = [i for i, st in enumerate(steps[:answer_idx])
                  if st.quality in ("weak", "bad") or st.note]
-    errors = [i for i, st in enumerate(steps[:answer_idx])
-              if st.error is True or (st.output or "").lower().startswith("error")]
+    errors = [i for i, st in enumerate(steps[:answer_idx]) if reads_as_failed(st)]
     if expected and expected in answer and not any(
             w in answer.split() for w in _NEGATORS):
         return {"kind": "grader_or_label", "step": None, "cue": "expected verbatim"}
@@ -257,10 +279,41 @@ def leakage_probe(failing: Trajectory, passing: Trajectory) -> dict:
     for i in range(answer_idx):
         if any(cue in text(i) for cue in _TEMPLATE_CUES):
             return {"kind": "wrong_fact_propagation", "step": i, "cue": "template word"}
-    novel = [i for i, st in enumerate(steps[:answer_idx])
-             if (st.type, st.name, st.input) not in pass_sigs]
+    novel = twinless_steps(failing, passing) if answer_idx else []
     return {"kind": "divergence", "step": novel[0] if novel else 0,
             "cue": "first step without a twin"}
+
+
+#: one-rule guesses at the decisive step, each a structural fact of the failing run and nothing more
+STRUCTURAL = ("last_step", "first_error", "first_divergence", "first_write")
+
+
+#: the coverage targets replay sets are calibrated for
+REPLAY_ALPHAS = (0.1, 0.05, 0.01)
+
+
+def _replay_sets(step_truth: list[dict]) -> list[dict]:
+    """Conformal replay sets (agentdiff.conformal) over the step-truth scenarios, one per target in
+    REPLAY_ALPHAS: k calibrated on one half, coverage and set size measured on the other, for the replay order
+    and for plain step order."""
+    rows = [{"id": r["scenario"], "rank": r.get("replay_rank"), "index_rank": min(r["decisive_truth"]) + 1,
+             "steps": r["steps"]} for r in step_truth if "steps" in r]
+    return [_conformal_evaluate(rows, a) for a in REPLAY_ALPHAS] if rows else []
+
+
+def structural_baselines(failing: Trajectory, passing: Trajectory) -> dict:
+    """What each one-rule baseline names as the decisive step, or None where its rule finds nothing:
+    the last step before the answer (where the run gave up), the first step that errored, the first step
+    without a twin in the passing run, and the first write. An attribution method is worth its margin over
+    the best of them, not its score."""
+    steps = before_answer(failing)
+    first = lambda pick: next((i for i, st in enumerate(steps) if pick(st)), None)  # noqa: E731
+    return {
+        "last_step": len(steps) - 1 if steps else None,
+        "first_error": first(reads_as_failed),
+        "first_divergence": first_twinless(failing, passing),
+        "first_write": first(lambda st: st.effect == "write"),
+    }
 
 
 def _normalise(text: str) -> str:
@@ -289,6 +342,15 @@ def pair_validity(scenario: dict, failing: Trajectory, passing: Trajectory) -> d
             "artifact": artifact, "artifact_reachable": reachable}
 
 
+def _structural_rollup(hits: dict, total: int, engine: Optional[float]) -> dict:
+    """Each one-rule baseline's exact decisive-step hits, the best of them, and the engine's margin over it."""
+    rules = {rule: {"exact": n, "total": total, "accuracy": round(n / total, 4) if total else None}
+             for rule, n in hits.items()}
+    best = max(STRUCTURAL, key=lambda r: (hits[r], -STRUCTURAL.index(r))) if total else None
+    return {"rules": rules, "best": best,
+            "engine_margin": (round(engine - hits[best] / total, 4) if best and engine is not None else None)}
+
+
 def run_benchmark(traces_dir: Union[str, Path]) -> dict:
     """Run the diagnoser over every manifest pair and score it.
 
@@ -311,6 +373,7 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
     invalid_pairs: list[dict] = []
     unreachable: list[dict] = []
     probe_hits = {"kind": 0, "step": 0, "kind_total": 0, "step_total": 0}
+    structural_hits = {rule: 0 for rule in STRUCTURAL}
     for scenario in scenarios:
         failing = Trajectory.from_json(root / scenario["fail"])
         passing = Trajectory.from_json(root / scenario["pass"])
@@ -337,6 +400,8 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
         if probe_truth_steps:
             probe_hits["step_total"] += 1
             probe_hits["step"] += 1 if probe["step"] in probe_truth_steps else 0
+            for rule, guess in structural_baselines(failing, passing).items():
+                structural_hits[rule] += 1 if guess in probe_truth_steps else 0
 
         lead, labels = _leading_labels(diagnosis)
         secondary = set(scenario.get("secondary", []))
@@ -421,6 +486,10 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
             "overdetermined_flagged": bool(
                 (diagnosis.get("decisive_step") or {}).get("overdetermined")),
         }
+        if truth_steps:
+            from .conformal import rank_of, replay_order
+            entry["replay_rank"] = rank_of(replay_order(diagnosis, failing, passing), truth_steps)
+            entry["steps"] = len(failing.steps)
         results.append(entry)
 
         bucket = by_cause.setdefault(
@@ -510,6 +579,9 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
                     "engine's score it reproduces is the share the benchmark may "
                     "be leaking; the headline is the margin, not the score",
         },
+        "replay_sets": _replay_sets(step_truth),
+        "structural_baselines": _structural_rollup(structural_hits, probe_hits["step_total"],
+                                                   exact / len(step_truth) if step_truth else None),
         "engine_minus_probe": {
             "kind": (round(correct_total / total - probe_hits["kind"] / probe_hits["kind_total"], 4)
                      if total and probe_hits["kind_total"] else None),

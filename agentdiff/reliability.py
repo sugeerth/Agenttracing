@@ -78,10 +78,12 @@ bytes.
 from __future__ import annotations
 
 import math
+import random
 from typing import Optional, Sequence
 
 from .stability import _cv, _levenshtein
-from .statistics import pass_at_k
+from ._stats import percentile_interval
+from .statistics import BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE, pass_at_k, wilson_interval
 from .trace import HARNESS_TERMINATIONS, Trajectory
 from . import sections as _sections
 
@@ -400,6 +402,18 @@ def split_harness_failures(
 # per-agent assembly
 # --------------------------------------------------------------------------
 
+def _task_interval(values: Sequence[float]) -> Optional[list]:
+    """95% percentile bootstrap of the mean of per-task values, tasks resampled
+    with replacement under the fixed seed; None for fewer than 2 tasks."""
+    if len(values) < 2:
+        return None
+    rng = random.Random(BOOTSTRAP_SEED)
+    n = len(values)
+    means = [sum(values[rng.randrange(n)] for _ in range(n)) / n for _ in range(BOOTSTRAP_SAMPLES)]
+    lo, hi = percentile_interval(means, CONFIDENCE)
+    return [round(lo, 4), round(hi, 4)]
+
+
 def _mean(values: Sequence[float]) -> float:
     return sum(values) / len(values)
 
@@ -554,23 +568,34 @@ def _agent_reliability(name: str,
         "no task has an eligible run after excluding harness failures"
     )
 
-    # a plug-in interval per k: the 95% Wilson interval of the pooled
-    # per-run rate raised to the k-th power.  Stated as plug-in because it
-    # treats runs as exchangeable across tasks; the curve's own value stays
-    # the tau-bench mean over tasks
-    from .statistics import wilson_interval
+    # an interval per k, the envelope of two that each fail where the other
+    # holds.  Resampling the tasks (seeded) and averaging each one's own
+    # C(c,k)/C(n,k) follows tasks that differ in how often they pass: the mean
+    # of p^k is not the k-th power of the mean p, so the pooled per-run rate
+    # raised to k sits below the curve whenever they differ (all-or-nothing
+    # tasks: 0.5 against [0.02, 0.18] at k=4).  But resampling tasks cannot see
+    # a task's own run-to-run noise, and when every task scored alike it has
+    # no spread at all, which the pooled interval does.  The wider bound of
+    # each is kept.
     lo, hi = wilson_interval(successes_total, runs_used) if runs_used else (0.0, 1.0)
     for point in hat_curve_all:
         if point["value"] is None:
             point["ci95"] = None
-        else:
-            point["ci95"] = [round(lo ** point["k"], 4), round(hi ** point["k"], 4)]
+            continue
+        over_tasks = _task_interval(hat_by_k[point["k"]])
+        # the estimate itself is kept inside too: C(c,k)/C(n,k) is 0 below k
+        # successes, where a pooled rate raised to k is not
+        bounds = [lo ** point["k"], hi ** point["k"], point["value"]] + (over_tasks or [])
+        point["ci95"] = [round(min(bounds), 4), round(max(bounds), 4)]
     pass_hat_block = {
         "curve": hat_curve_all,
         "max_k": max_k,
-        "ci95_basis": ("plug-in: the 95% Wilson interval of the pooled per-run "
-                       "success rate, raised to k; treats runs as exchangeable "
-                       "across tasks"),
+        "ci95_basis": ("the wider bound of two 95% intervals: tasks resampled "
+                       "with replacement (seeded), each contributing its own "
+                       "C(c,k)/C(n,k), which follows tasks that differ; and the "
+                       "Wilson interval of the pooled per-run rate raised to k, "
+                       "which sees run noise when tasks scored alike; the estimate "
+                       "itself always inside"),
         "value_at_max_k": hat_curve_all[-1]["value"] if hat_curve_all else None,
         "tasks": len(scored_tasks),
         "runs": runs_used,

@@ -38,8 +38,10 @@ is a rule over counts, written to the ledger with the counts it rests on.
 from __future__ import annotations
 
 import copy
+import inspect
 import json
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -47,7 +49,7 @@ from .evolving import _narrative as evals_narrative, evolve as evolve_evals
 from .forge import RunView, _score, _unique_keys, candidates, describe, parse_rule, rule_id, spec
 from .trace import Trajectory
 
-__all__ = ["CONFIRM_P", "GUIDES", "project_knowledge", "DEMO_TASKS", "DEMO_HARD", "DEMOS", "EXPLORE", "Harness", "explore_remedy", "sign_test", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "LEDGER_KIND", "ESSENTIAL_TOOLS",
+__all__ = ["CONFIRM_P", "GUIDES", "project_knowledge", "DEMO_TASKS", "DEMO_HARD", "DEMOS", "EXPLORE", "Harness", "explore_remedy", "sign_test", "REMEDIES", "remedy_for", "remedy_text", "decide", "self_evolve", "prune", "could_keep", "task_signal", "holm", "family", "resolution", "resolution_text", "LEDGER_KIND", "ESSENTIAL_TOOLS",
            "load_ledger", "write_ledger", "visible_check"]
 
 LEDGER_KIND = "self-evolving"
@@ -105,6 +107,21 @@ class Harness:
             h.deny_tools.append(remedy["value"])
         elif remedy["knob"] == "max_turns":
             h.max_turns = int(remedy["value"])
+        return h
+
+    def without_remedy(self, remedy: dict) -> "Harness":
+        """This harness with one change taken out, and only that one: everything else it carries stays, an
+        adopted or resumed starting point included."""
+        h = copy.deepcopy(self)
+        h.version += 1
+        if remedy["id"] in h.remedies:
+            h.remedies.remove(remedy["id"])
+        if remedy["knob"] == "instruction" and remedy["value"] in h.instructions:
+            h.instructions.remove(remedy["value"])
+        elif remedy["knob"] == "deny_tool" and remedy["value"] in h.deny_tools:
+            h.deny_tools.remove(remedy["value"])
+        elif remedy["knob"] == "max_turns" and h.max_turns == int(remedy["value"]):
+            h.max_turns = None
         return h
 
     def describe(self) -> str:
@@ -229,14 +246,165 @@ def sign_test(wins: int, losses: int) -> Optional[float]:
     return sum(comb(n, k) for k in range(wins, n + 1)) / 2 ** n
 
 
+#: the conventional level a sign test is read against when stating its resolution; it decides nothing here
+RESOLUTION_ALPHA = 0.05
+#: the change the resolution is stated against: one that wins three in four of the tasks it moves
+RESOLUTION_WIN = 0.75
+
+
+@lru_cache(maxsize=None)
+def _reaching(most: int, win: float, alpha: float) -> tuple:
+    """For each number of moved tasks n up to ``most``: the chance that the sign test over them reaches
+    ``alpha`` when each goes the change's way with chance ``win``. Each n's critical win count (the fewest wins
+    whose exact one-sided chance is at most ``alpha``) is found from that n's own binomial tail, once."""
+    from math import comb
+    out = [0.0]
+    for n in range(1, most + 1):
+        tail, k0 = 0, None
+        for k in range(n, -1, -1):          # grow the null tail from the top until it passes alpha
+            tail += comb(n, k)
+            if tail / 2 ** n > alpha:
+                break
+            k0 = k
+        out.append(0.0 if k0 is None else
+                   sum(comb(n, k) * win ** k * (1 - win) ** (n - k) for k in range(k0, n + 1)))
+    return tuple(out)
+
+
+def _power(tasks: int, move: float, win: float, alpha: float, most: int = 0) -> float:
+    """Exact chance that the sign test reaches ``alpha`` over ``tasks`` tasks when each moves with chance
+    ``move`` and a moved task goes the change's way with chance ``win``."""
+    from math import comb
+    reach = _reaching(max(tasks, most), win, alpha)
+    return sum(comb(tasks, n) * move ** n * (1 - move) ** (tasks - n) * reach[n] for n in range(tasks + 1))
+
+
+def resolution(tasks: int, moved: int, *, alpha: float = RESOLUTION_ALPHA, win: float = RESOLUTION_WIN,
+               target: float = 0.8, most: int = 400) -> dict:
+    """What the sign test over these tasks could ever show. ``best_p`` is its chance if every task moved the
+    change's way: above ``alpha`` the test cannot reach it whatever happens. ``power`` is the exact chance it
+    reaches ``alpha`` against a change that wins ``win`` of the tasks it moves, at this run's share of tasks
+    that moved; ``tasks_needed`` is the fewest tasks (up to ``most``) that would give ``target`` power at that
+    share, or None. Reported beside the verdict; it decides nothing."""
+    best = sign_test(tasks, 0) if tasks else None
+    move = moved / tasks if tasks else 0.0
+    power = _power(tasks, move, win, alpha, most) if tasks and move else 0.0
+    needed = (next((t for t in range(1, most + 1) if _power(t, move, win, alpha, most) >= target), None)
+              if move else None)
+    return {"alpha": alpha, "win": win, "best_p": best, "reachable": best is not None and best <= alpha,
+            "moved": [moved, tasks], "power": round(power, 4), "target": target, "tasks_needed": needed}
+
+
+def power_text(power: float) -> str:
+    """A power to two places, or "<0.01" for one that would round to zero but is not."""
+    return "<0.01" if 0 < power < 0.005 else f"{power:.2f}"
+
+
+def test_of(generation: dict) -> dict:
+    """A ledger generation's sign test, or {} when it tested nothing."""
+    return (generation.get("action") or {}).get("test") or {}
+
+
+def resolution_text(res: dict) -> str:
+    """One line on what the test could show, from :func:`resolution`."""
+    moved, tasks = res["moved"]
+    if not tasks:
+        return "no task was graded under both, so the test can show nothing"
+    head = (f"with {tasks} task(s) the best chance the sign test can reach is {res['best_p']:.3g}"
+            + (f", so it cannot reach {res['alpha']:g} however the tasks move" if not res["reachable"]
+               else f" (every task moving the change's way)"))
+    if not moved:
+        return head + "; no task moved, so its power against any change is unmeasured here"
+    need = (f"about {res['tasks_needed']} tasks would give {res['target']:.0%}" if res["tasks_needed"]
+            else f"no number of tasks up to 400 gives {res['target']:.0%}")
+    return (head + f"; against a change that wins {res['win']:.0%} of the tasks it moves, with {moved} of {tasks} "
+            f"moving as here, its power is {power_text(res['power'])} "
+            f"and {need}")
+
+
+def holm(ps: Dict[str, float]) -> Dict[str, float]:
+    """Holm's step-down adjustment of several p values taken together: each becomes the chance, across all of
+    them, that a change that did nothing does this well somewhere among the tests made."""
+    out: Dict[str, float] = {}
+    worst = 0.0
+    for i, (key, p) in enumerate(sorted(ps.items(), key=lambda kv: (kv[1], kv[0]))):
+        worst = max(worst, min(1.0, (len(ps) - i) * p))
+        out[key] = worst
+    return out
+
+
+def decline_p(before: Sequence[int], after: Sequence[int]) -> float:
+    """The exact one-sided chance (Fisher) that a task passing ``before`` = [passed, runs] would pass as few as
+    ``after`` = [passed, runs] or fewer by luck alone, if its pass chance had not changed."""
+    from math import comb
+    (a, n1), (b, n2) = before, after
+    total, runs = a + b, n1 + n2
+    return sum(comb(n2, k) * comb(n1, total - k) for k in range(0, b + 1)
+               if 0 <= total - k <= n1) / comb(runs, total)
+
+
+def forgetting(lineage: list) -> dict:
+    """Tasks the evolution once solved and no longer does. EvoHarnessBench calls this harness-induced
+    forgetting. ``decide`` reverts a change that breaks a task between the two harnesses it compares
+    (always passed before, never after). A drift across several kept changes passes that check at every
+    step: always to some under one change, then some to never under the next.
+
+    The harness states are taken in order: each generation's own runs, and after a kept change, the
+    changed arm's runs. A task is *solved* in a state where it passed every run. It is *forgotten* when it
+    was solved in some earlier state and passes no run in the last one, and *weakened* when it passes some.
+    Each carries ``p``, the exact one-sided chance of a fall at least that large with an unchanged pass
+    chance (:func:`decline_p`). It also says whether the harness changed between the two states: a fall
+    under the same harness is the runs' own noise. Reported beside the verdicts; it decides nothing."""
+    states = []
+    for g in lineage:
+        if g.get("per_task") is not None:
+            states.append((g["generation"], g["harness"]["version"], g["per_task"]))
+        test = test_of(g)
+        if test.get("verdict") == "kept" and (test.get("per_task") or {}).get("changed") is not None:
+            states.append((g["generation"] + " (kept)", g["harness"]["version"] + 1, test["per_task"]["changed"]))
+    if len(states) < 2:
+        return {"states": len(states), "solved": 0, "forgotten": [], "weakened": [],
+                "says": "fewer than two harness states with per-task results: nothing to compare"}
+    final_at, final_version, final = states[-1]
+    solved, forgotten, weakened = 0, [], []
+    for task, now in sorted(final.items()):
+        then = next(((at, v, c[task]) for at, v, c in states[:-1]
+                     if task in c and c[task][1] and c[task][0] == c[task][1]), None)
+        if then is None or not now[1]:
+            continue
+        solved += 1
+        if now[0] == now[1]:
+            continue
+        row = {"task": task, "solved_at": then[0], "then": list(then[2]), "now": list(now),
+               "harness_changed": then[1] != final_version, "p": round(decline_p(then[2], now), 4)}
+        (forgotten if now[0] == 0 else weakened).append(row)
+    lost = forgotten + weakened
+    says = (f"of {solved} task(s) solved under an earlier harness state, none passes less often under the last"
+            if not lost else
+            f"of {solved} task(s) solved under an earlier harness state, {len(forgotten)} pass no run under the "
+            f"last and {len(weakened)} pass only some; "
+            + "; ".join(f"{r['task']} {r['then'][0]}/{r['then'][1]} at {r['solved_at']} → {r['now'][0]}/{r['now'][1]}"
+                        f" (p {r['p']:.3g}{'' if r['harness_changed'] else ', same harness: run noise'})"
+                        for r in lost))
+    return {"states": len(states), "final": final_at, "solved": solved, "forgotten": forgotten,
+            "weakened": weakened, "says": says}
+
+
+def family(lineage: list) -> dict:
+    """The evolution's tested changes taken as one family: how many were tested, and each one's sign test
+    adjusted for all of them (:func:`holm`). Reported beside each verdict; it decides nothing."""
+    ps = {g["generation"]: test_of(g)["p_value"] for g in lineage if test_of(g).get("p_value") is not None}
+    return {"tests": len(ps), "adjusted": holm(ps)}
+
+
 #: a kept change whose sign test is weaker than this is confirmed before it stays (``self_evolve(confirm=True)``)
 CONFIRM_P = 0.25
 
 
-def _takes_only(run_arm) -> bool:
-    import inspect
+def _takes(run_arm, name: str) -> bool:
+    """Whether ``run_arm`` accepts the keyword ``name`` (an older runner may not)."""
     try:
-        return "only" in inspect.signature(run_arm).parameters
+        return name in inspect.signature(run_arm).parameters
     except (TypeError, ValueError):
         return False
 
@@ -338,10 +506,10 @@ def decide(base: list, cand: list) -> dict:
     tasks = sorted(set(a) & set(b))
     wins, losses, broke = [], [], []
     for t in tasks:
-        ra, rb = a[t][0] / a[t][1], b[t][0] / b[t][1]
-        if rb > ra:
+        side = _moved(*a[t], *b[t])
+        if side > 0:
             wins.append(t)
-        elif rb < ra:
+        elif side < 0:
             losses.append(t)
         if a[t][0] == a[t][1] and b[t][0] == 0:
             broke.append(t)
@@ -364,9 +532,58 @@ def decide(base: list, cand: list) -> dict:
     p = sign_test(len(wins), len(losses))
     return {"verdict": verdict, "why": why, "tasks": len(tasks), "wins": wins, "losses": losses, "broke": broke,
             "p_value": p, "chance": chance_text(p),
+            "resolution": resolution(len(tasks), len(wins) + len(losses)),
             "passed": {"current": [passed_a, n_a], "changed": [passed_b, n_b]},
-            "median_tokens": {"current": tok_a, "changed": tok_b}}
+            "median_tokens": {"current": tok_a, "changed": tok_b},
+            "per_task": {"current": {t: list(a[t]) for t in sorted(a)}, "changed": {t: list(b[t]) for t in sorted(b)}}}
 
+
+def task_signal(runs: list) -> dict:
+    """Which tasks of an arm can tell a change apart. A task that passed some runs and failed others is where a
+    change can be seen to win or lose. One that always passed can only be broken, and one that always failed can
+    only be won, by a change that makes the difference every run. A paired test's evidence comes mostly from
+    the first kind."""
+    out: Dict[str, List[str]] = {"mixed": [], "always_passed": [], "always_failed": []}
+    for task, (passed, n) in sorted(_by_task(runs).items()):
+        out["mixed" if 0 < passed < n else "always_passed" if passed == n else "always_failed"].append(task)
+    return out
+
+
+def signal_text(sig: dict, version: int) -> str:
+    """One line: how many of the tasks can tell a change apart under the harness that ran them."""
+    n = sum(len(v) for v in sig.values())
+    return (f"of {n} task(s), {len(sig['mixed'])} passed some runs and failed others under v{version}; "
+            f"{len(sig['always_passed'])} always passed (a change can only break them) and "
+            f"{len(sig['always_failed'])} always failed (a change can only win them)")
+
+
+def _moved(passed_a: int, runs_a: int, passed_b: int, runs_b: int) -> int:
+    """+1 when the change's pass rate on a task is above the current harness's, -1 below, 0 level; exact."""
+    return (passed_b * runs_a > passed_a * runs_b) - (passed_b * runs_a < passed_a * runs_b)
+
+
+def could_keep(base: list, cand: list, left: int) -> bool:
+    """Whether :func:`decide` could still keep the change once ``left`` more runs of every task have run
+    under it, whatever those runs do. Exact, over counts: each task's pass count under the change can end
+    anywhere from what it has now to that plus ``left``; the change can still be kept only if some choice
+    of those ends breaks no task and wins more tasks than it loses."""
+    a, b = _by_task(base), _by_task(cand)
+    best = 0
+    for t, (pa, na) in a.items():
+        pb, nb = b.get(t, (0, 0))
+        n = nb + left
+        if not n:
+            continue  # never run under the change: decide() leaves it out
+        # each end the task can reach, with the side of the current harness it lands on (+1 won, -1 lost)
+        reach = []
+        for end in range(pb, pb + left + 1):
+            if pa == na and end == 0:
+                continue  # broken: always passed before, never with the change. Any such end reverts
+            reach.append(_moved(pa, na, end, n))
+        if not reach:
+            return False
+        best += max(reach)
+    return best > 0
 
 # ------------------------------------------------------------ the action
 def _views(runs: list) -> Tuple[list, dict]:
@@ -446,11 +663,31 @@ def _fresh(target: str) -> dict:
             "generations": [], "tried": {}, "evals": None, "eval_lineage": []}
 
 
+def _candidate_runs(run_arm, candidate: Harness, label: str, base: list, settle: bool) -> Tuple[list, Optional[dict]]:
+    """The changed harness's runs: the whole arm at once, or with ``settle`` round by round, as many rounds as
+    the current harness ran, until the rounds left could no longer save the change."""
+    per_task = _by_task(base)
+    planned = max((n for _, n in per_task.values()), default=0)
+    if not (settle and planned > 1 and _takes(run_arm, "rounds")):
+        return list(run_arm(candidate, label)), None
+    runs = list(run_arm(candidate, label, rounds=(1, 1)))
+    # a round is one run of every task by every agent: as many runs a task as agents
+    each = max((n for _, n in _by_task(runs).values()), default=0) or 1
+    rounds = max(1, planned // each)
+    for k in range(1, rounds + 1):
+        if k > 1:
+            runs += list(run_arm(candidate, label, rounds=(k, 1)))
+        if k < rounds and not could_keep(base, runs, (rounds - k) * each):
+            return runs, {"after": k, "of": rounds, "skipped": (rounds - k) * each * len(per_task)}
+    return runs, None
+
+
 def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3, target: str = "failure",
                 ledger: Optional[dict] = None, patience: int = 2, check: str = "",
                 refuse_knobs: tuple = (), on_progress: Optional[Callable[[str], None]] = None,
                 on_generation: Optional[Callable[[dict], None]] = None, explore: bool = False,
-                confirm: bool = False, explore_first: Sequence[Tuple[str, str, str]] = ()) -> dict:
+                confirm: bool = False, explore_first: Sequence[Tuple[str, str, str]] = (),
+                settle: bool = False) -> dict:
     """Go round ``generations`` times. ``run_arm(harness, label)`` runs the
     agents under ``harness`` and returns their trajectories (each graded by
     its task's check); it is called once per arm. Returns the lineage, the
@@ -461,8 +698,14 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
     tries the next instruction of :data:`EXPLORE` instead of stopping.
     With ``confirm``, a change the counts would keep but whose sign test is
     weaker than :data:`CONFIRM_P` is run again, both arms, on the tasks it
-    moved, and decided on all the runs together: it stays only if it still
-    wins. ``run_arm`` must then take ``only=`` (the task ids to run)."""
+    moved: it stays only if those fresh runs alone show it winning again.
+    ``run_arm`` must then take ``only=`` (the task ids to run).
+    With ``settle``, the changed harness runs one round at a time (run 1 of
+    every task, then run 2, ...) and stops as soon as :func:`could_keep`
+    says no outcome of the rounds left could make it kept: a reverted arm's
+    runs are thrown away, so the ones it skips were waste, and the verdict is
+    the one the full arm would have reached. ``run_arm`` must then take
+    ``rounds=(first, count)``."""
     say = on_progress or (lambda s: None)
     state = json.loads(json.dumps(ledger)) if ledger else _fresh(target)
     if state.get("kind") != LEDGER_KIND:
@@ -495,7 +738,11 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
                 # the loop closed: the change this eval was born from is why it went quiet
                 e["reason"] += f"; harness v{harness.version} prevents it"
         record = {"generation": label, "harness": asdict(harness), "runs": len(graded), "failed": len(failed),
-                  "evals": {k: egen.get(k) for k in ("arrived", "forward", "retired", "born", "reborn", "verdicts")}}
+                  "evals": {k: egen.get(k) for k in ("arrived", "forward", "retired", "born", "reborn", "verdicts")},
+                  "signal": task_signal(graded),
+                  "per_task": {t: list(v) for t, v in sorted(_by_task(graded).items())}}
+        if failed:
+            say(f"{label}: {signal_text(record['signal'], harness.version)}")
         if not graded:
             record["action"] = None
             state["generations"].append(record)
@@ -544,10 +791,16 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
                 f"{chosen['eval'] or chosen['rule']}; testing: {remedy_text(remedy)}")
 
         # 4. test it, paired: same tasks, same number of runs
-        cand_runs = list(run_arm(candidate, f"{label}-h{candidate.version}"))
+        cand_runs, settled = _candidate_runs(run_arm, candidate, f"{label}-h{candidate.version}", trajs, settle)
         verdict = decide(trajs, cand_runs)
+        if settled:
+            verdict["settled"] = settled
+            verdict["why"] += (f"; settled after {settled['after']} of {settled['of']} round(s): no outcome of the "
+                               f"{settled['skipped']} run(s) left could have made it kept, so they were not run")
+            say(f"{label}: settled after {settled['after']} of {settled['of']} round(s), "
+                f"{settled['skipped']} run(s) not needed")
         if (confirm and verdict["verdict"] == "kept" and (verdict["p_value"] or 1) > CONFIRM_P
-                and _takes_only(run_arm)):
+                and _takes(run_arm, "only")):
             # one or two tasks moved: a lucky run could be all it is. Run the tasks that moved again, both arms
             moved = sorted(set(verdict["wins"]) | set(verdict["losses"]))
             first = {k: verdict[k] for k in ("verdict", "why", "passed", "p_value", "chance", "wins", "losses")}
@@ -576,6 +829,8 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
         say(f"{label}: {verdict['verdict']}: {verdict['why']} "
             f"(passed {verdict['passed']['current'][0]}/{verdict['passed']['current'][1]} → "
             f"{verdict['passed']['changed'][0]}/{verdict['passed']['changed'][1]}; {verdict['chance']})")
+        if verdict.get("resolution"):
+            say(f"{label}: what the test could show: {resolution_text(verdict['resolution'])}")
         if verdict["verdict"] == "kept":
             harness = candidate
             carried = cand_runs     # 5. the evals meet what the harness produced
@@ -595,6 +850,55 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
     return _result(state, harness, stop, evals_out, target)
 
 
+def prune(run_arm: Callable[[Harness, str], list], result: dict,
+          on_progress: Optional[Callable[[str], None]] = None) -> dict:
+    """Each change the evolution kept, tested again against the harness it ended with: newest first, the harness
+    without it runs against the harness with it, and the change stays only if :func:`decide` would keep it now,
+    by the same rule that kept it. A change kept on one task that moved, or made redundant by a later one, no
+    longer wins and is dropped; the smaller harness is then what the next change is tested against.
+    Returns ``result`` with the harness it leaves and, under ``prune``, every test made."""
+    say = on_progress or (lambda s: None)
+    kept = [g["action"]["remedy"] for g in result.get("lineage") or []
+            if test_of(g).get("verdict") == "kept"]
+    out = dict(result)
+    if not kept:
+        out["prune"] = {"tested": [], "dropped": [], "says": "nothing was kept, so nothing to prune"}
+        return out
+    final = Harness.from_dict(result["harness"])
+    say(f"prune: testing each of the {len(kept)} kept change(s) again, newest first, against {final.describe()}")
+    with_runs = list(run_arm(final, f"prune-h{final.version}"))
+    ref, tested, version = final, [], final.version
+    for remedy in reversed(kept):
+        without = ref.without_remedy(remedy)
+        version += 1
+        without.version = version
+        runs = list(run_arm(without, f"prune-h{version}"))
+        test = decide(runs, with_runs)  # the change is the "changed" arm: what removing it would lose
+        stays = test["verdict"] == "kept"
+        tested.append({"remedy": remedy, "stays": stays, "test": test, "without": asdict(without)})
+        say(f"prune: {remedy['id']} {'stays' if stays else 'is dropped'}: with it {test['why']} "
+            f"(passed {test['passed']['current'][0]}/{test['passed']['current'][1]} without it, "
+            f"{test['passed']['changed'][0]}/{test['passed']['changed'][1]} with it; {test['chance']})")
+        if not stays:
+            ref, with_runs = without, runs
+    dropped = [t["remedy"]["id"] for t in tested if not t["stays"]]
+    out["harness"] = asdict(ref)
+    # the run's own description and story follow the harness it now leaves
+    out["describe"] = ref.describe()
+    if dropped:
+        out["narrative"] = (out.get("narrative") or "") + (
+            f" Tested again at the end, {', '.join(dropped)} no longer earned a place and was dropped: "
+            f"the harness left is {ref.describe()}.")
+    out["prune"] = {"tested": tested, "dropped": dropped, "before": asdict(final),
+                    "says": (f"{len(dropped)} of {len(kept)} kept change(s) no longer earned their place"
+                             if dropped else f"every one of the {len(kept)} kept change(s) still earns its place")}
+    if out.get("ledger"):
+        # a dropped change is not tried again: it was, and it no longer earned its place
+        tried = dict(out["ledger"].get("tried") or {}, **{d: "pruned" for d in dropped})
+        out["ledger"] = dict(out["ledger"], harness=asdict(ref), tried=tried)
+    return out
+
+
 def _result(state: dict, harness: Harness, stop: str, evals_out: dict, target: str, *, running: bool = False) -> dict:
     """What a run of :func:`self_evolve` says: the lineage so far, the harness, the evals, the ledger."""
     lineage = state["generations"]
@@ -610,7 +914,8 @@ def _result(state: dict, harness: Harness, stop: str, evals_out: dict, target: s
         evals["narrative"] = evals_narrative(state["eval_lineage"], target)
     out = {"kind": "self-evolve", "target": target, "harness": asdict(harness), "describe": harness.describe(),
            "stop": stop, "lineage": lineage, "evals": evals,
-           "narrative": _narrative(lineage, harness, stop), "ledger": state}
+           "narrative": _narrative(lineage, harness, stop), "ledger": state, "family": family(lineage),
+           "forgetting": forgetting(lineage)}
     if running:
         out["running"] = True
     return out

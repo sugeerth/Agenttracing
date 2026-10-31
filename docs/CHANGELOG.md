@@ -5,6 +5,564 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## A web version: try it in the browser
+
+`web/build_site.py OUT` builds the static web version published at
+https://sugeerth.github.io/agentdiff/try/.
+- **It runs the engine in the visitor's browser.** It uses Pyodide,
+  CPython compiled to WebAssembly, so a trace is never uploaded. A
+  visitor picks a demo pair or the recorded pair, or drops in two traces
+  in any format `convert` detects. The page shows the verdict card, a
+  facts table, the full report and a JSON download.
+- **The engine is the package, zipped.** It leaves out what a browser
+  cannot or need not run: the harness and its network code, the hub, the
+  CLI commands and the vendor drivers.
+- **The build refuses** to write a file that names a model.
+- **The report page has a no-cookies switch.** A hosted copy of it carries
+  `<meta name="agentdiff:no-cookies">`, and the page then keeps to
+  localStorage and memory, so a site that promises zero cookies keeps
+  its promise.
+- **Accessibility, from the site's axe audit:**
+  - the top bar is a `<header>` and the page's content a `<main>`;
+  - the A-versus-B figures are a labelled group, not a list without items;
+  - B's figures as text use a darker shade of B's hue (5.3:1, was 4.2:1).
+  - Still open in the report page: contrast in a few labels, a heading
+    skip, and charts whose focusable steps sit inside an image role. So
+    there is no standalone hosted report yet; the playground shows each
+    pair's.
+
+`tests/test_build_site.py` imports the zip alone, in a clean interpreter
+with the repository off the path, and gets the package's own diagnosis.
+The playground was driven end to end in Chromium against the same
+Pyodide release: a demo pair, the recorded pair, an OpenTelemetry
+upload, an unrecognised file, and zero cookies after comparing. The
+site's own audit (`site_eval`) passes it 21/21 in light, dark and
+mobile.
+
+## Cost per success over every run, the task as the cluster
+
+`runs` compared one representative run per side per task (the medoid
+pair), so its cost-per-success ratio left the other runs out.
+`efficiency.cost_per_success_over_runs` (`aggregate.cost_per_success_runs`,
+printed by `runs`) pools every run of each task. Each task is one row, its
+runs' total cost and successes on each side, and the jackknife leaves out
+a whole task at a time. A task's runs share its difficulty, so the task,
+not the run, is the independent unit.
+
+Measured:
+- **The A/A suite, real runs.** Pooling both runs of each task halves
+  the interval: 0.926–0.996 against 0.870–1.003.
+- **Redealt nulls.** Over 2,000 redeals of those runs, the pooled
+  interval excluded 1 in 6.1% of deals with two runs a side, and in 5.1%
+  with one.
+  - The real labelling excludes 1, because B's runs happened to be
+    cheaper on five of the six tasks. It is one of the draws a 95%
+    interval lets through.
+  - The ratio's sentence no longer calls an interval that excludes 1
+    "not resampling noise". It now says such a gap shows up about 1 time
+    in 20 or less between agents that cost the same.
+- **Synthetic** (1,000 suites a row; tasks differing in price, 15% run
+  noise): coverage 0.95–0.99 at 6, 10 and 20 tasks. Three runs a task
+  halves the width against one: 0.96 against 2.27 at 6 tasks, and 0.40
+  against 0.72 at 20.
+
+## Forgetting across an evolution
+
+`selfevolve.forgetting` finds the tasks an evolution once solved and a
+later harness no longer passes. `decide` reverts a change that breaks a
+task, but only between the two harnesses it compares, so a drift over
+two kept changes passed it twice: always → some, then some → never. A
+scripted test drives exactly that drift through `decide`.
+- A task solved under an earlier harness state that passes no run under
+  the last is *forgotten*; one that passes some is *weakened*.
+- Each carries an exact one-sided Fisher chance, and whether the harness
+  changed in between.
+- Generations and tests now record per-task counts (`per_task`), so the
+  lineage can be read this way.
+- It is printed at the end, written to `SELF_EVOLVE.md` and
+  `self-evolve.json`, and decides nothing.
+
+Measured on the four real evolutions on disk, rebuilt from their run
+directories: nothing forgotten, and two tasks weakened from 2/2 to 1/2
+(p 0.5). One of those was under a harness that never changed, which is
+the null this measure needs beside it.
+
+## An A/A test on real runs, and a cost interval that passes it
+
+One agent ran as both "A" and "B" on the six-task suite, twice each: 24
+real runs, $0.062 in all (`demo/vendors/aa-suite`, model name withheld).
+Nothing in the data can tell the two sides apart.
+- **The pass-rate comparison passed.** pass^k is identical on both
+  sides, and the paired test is not distinguishable.
+- **The cost-per-success ratio did not.** Its paired percentile
+  bootstrap over six tasks said B was cheaper: 0.886–0.980, "not
+  resampling noise". The null was redrawn from the same runs: each
+  task's four runs, dealt to A and B at random, 400 times. That interval
+  excluded 1 in 11% of deals, against a nominal 5%.
+- **The interval is now a jackknife over tasks on the log ratio, with t
+  on tasks − 1.**
+  - It gives 0.870–1.003 on the A/A data, and 3.2% on the redealt nulls.
+  - The recorded two-model suite stays clearly apart: 1.84×, 1.33–2.55,
+    against 1.45–2.24 before.
+  - The bootstrap remains as a labelled fallback (`method`) when
+    dropping a task leaves a side without a success or a recorded cost.
+
+Synthetic coverage of a known ratio, from 400 simulated suites per row,
+with tasks differing in price and 15% run noise:
+
+| tasks | percentile bootstrap | jackknife-t |
+|---|---|---|
+| 6 | 0.825 | 0.993 |
+| 10 | 0.885 | 0.980 |
+| 20 | 0.912 | 0.953 |
+
+At 6 tasks the jackknife-t is conservative. From 10 tasks on, it is
+about as wide as the bootstrap.
+
+## External validation on TRAIL, and the step that decided it
+
+`demo/external/trail.py` converts TRAIL's 148 real GAIA and SWE-bench
+runs (OpenInference span trees, hand-annotated error spans, MIT) into
+SCHEMA traces. The labels stay in a sidecar. It scores the reading's
+pointer against the first annotated error, with the same floors as
+Who&When: 143 runs scored, and 5 skipped with the reason counted.
+- The shipped pointer was exact on 0/143. Annotators mark the reasoning
+  step (86% of errors are on LLM calls), and the reading points only at
+  tool calls, where a fault becomes observable.
+- `whowhen.decided_by` moves a pointer from a tool call back to the
+  reasoning step that issued it, and is scored beside the pointer, not
+  in its place. It gives 43/143 exact and 73/143 on some annotated
+  error, against floors of 1/143 (first step) and 12.2/143 (uniform).
+- On Who&When, where it was checked after being designed on TRAIL, it
+  moves 9 → 16 of 184. That is still below that corpus's first-step
+  floor (20).
+- `explain` is unchanged.
+
+## Worked examples, held to their own output
+
+`examples/` holds six scripts, each on data already in the repository
+and each naming where that data came from:
+- error bars;
+- replay sets;
+- cost per success (real recorded runs);
+- pass^k;
+- what the sign test can show;
+- replay with controls (scripted, no spend).
+
+`examples/README.md` quotes each script's output, and
+`tests/test_examples.py` reruns every script and fails when the output
+differs. So a change to a number in the library shows up as a stale
+example, not as a wrong doc.
+
+## CR2 clustered error bars, and t for the paired interval
+
+**The clustered bar is now CR2, with Bell–McCaffrey degrees of freedom.**
+CR1 with t on G − 1 is right when clusters are the same size. Unequal
+sizes leave fewer effective clusters than G. CR2 scales each cluster's
+residual sum by 1/sqrt(1 − n_g/n), and the Satterthwaite degrees of
+freedom (`df`, new in `clustered_by_cause`) say how many clusters the
+interval rests on. With equal sizes both reduce exactly to CR1 on
+G − 1. The arithmetic is closed-form and stdlib only.
+
+Measured on 2,000 simulated corpora per row, coverage of a nominal 95%
+interval. Families are bimodal as in the 2,200-pair bench, and the
+target is the population mean:
+
+| family sizes | clusters | CR1, t on G − 1 | CR2, t on BM df | wild bootstrap-t |
+|---|---|---|---|---|
+| equal (60) | 5 / 10 / 19 | 0.856 / 0.913 / 0.937 | the same | 0.850 / 0.900 / 0.931 |
+| the bench's (42–286) | 5 / 10 / 19 | 0.826 / 0.883 / 0.928 | 0.832 / 0.891 / 0.931 | 0.803 / 0.874 / 0.924 |
+| lognormal | 5 / 10 / 19 | 0.723 / 0.799 / 0.831 | 0.798 / 0.848 / 0.864 | 0.698 / 0.808 / 0.858 |
+
+- **The bench.** Its 19 families rest on 14.9 degrees of freedom, so the
+  2,200-pair bar goes from ±0.0845 to ±0.0859 and the interval from
+  0.701–1.000 to 0.695–1.000. The scorecard now prints the df.
+- **The wild cluster bootstrap** (Webb six-point weights, bootstrap-t)
+  was measured and not shipped: it did no better than CR2 in any row.
+- **CR2 does not close the gap at equal sizes** (0.94 at 19), since it
+  coincides with CR1 there. The few-clusters note stays.
+
+**The paired interval uses t on n − 1.** `paired_inference` (runs,
+fleet, planner) used z = 1.96 on suites that are often ten tasks. It now
+uses t, keeps the interval within [−1, 1], and reports `critical`.
+Simulated suites of ten single-run tasks held the true difference 0.900
+of the time with z and 0.941 with t; at 20 tasks, 0.935 → 0.946. In
+4.6% of those ten-task suites every task differed by the same amount,
+and the interval had zero width. The sign test, which decides the
+verdict, is unaffected.
+
+## Cleanup: one definition of each helper, and no ring on a contested step
+
+A review pass over the branch, with nothing measured moving: the bench
+JSON on the hand corpus and on both 2,200-pair corpora, the demo
+reports, the runs aggregate and the OTLP export are byte-identical
+before and after.
+- **One definition of each helper.** `align` holds `twinless_steps`,
+  `first_twinless` and `before_answer`, and `trace.reads_as_failed`
+  holds the failed-call test. Diagnosis, bench and conformal all use
+  them.
+  - `selfevolve` holds `power_text` and `test_of` for the hub cards.
+  - `adapters.is_otlp` serves registry and convert.
+  - One `_moved` comparison serves `decide` and `could_keep`.
+- **Readers that mean the cause go through `committed_step`:** verdict,
+  fleet, feedback, narrate, horizon, impact and toolprofile.
+- **The argument rule's hypothesis records the step it moved to**
+  (`argument_step`). It replaces the boolean `by_argument`, which this
+  branch added and nothing read.
+- **The story timeline no longer rings a contested step as decisive.**
+  A contested diagnosis names where the runs first part
+  (`committed: false`), and the trajectory map already left it
+  unringed. The d3 timeline drew a "decisive" ring there; now both
+  read the flag. A browser test renders a contested generated pair.
+
+## Clustered error bars, honest with few clusters
+
+`statistics.clustered_se`, the bench's error bar clustered by cause
+family, had three flaws:
+- **One cluster** gave a clustered SE of 0, a ratio of 0 and a
+  zero-width "honest" interval, though its note said the naive bar was
+  shown. These are now None.
+- **The interval used z = 1.96.** It now uses the t critical value on
+  G − 1 degrees of freedom (`statistics.t_critical`, stdlib only,
+  matching the published table), as Miller's *Adding Error Bars to
+  Evals* implementation does.
+- **An accuracy's interval could pass 1.** Both intervals are now
+  clipped to the range of the data.
+
+Below `FEW_CLUSTERS` (20, the low end of Cameron and Miller's "few"),
+the note and the bench scorecard say the interval is still a lower
+bound.
+
+Measured on a labelled synthetic corpus, coverage of a nominal 95%
+interval, with each family's accuracy drawn from a bimodal mix as the
+bench's are:
+
+| clusters | z | t |
+|---|---|---|
+| 5 | 0.83 | 0.87 |
+| 10 | 0.90 | 0.92 |
+| 19 | 0.93 | 0.94 |
+
+On the 2,200-pair bench, the annotated interval goes from 0.713–1.044
+to 0.701–1.000.
+
+## pass^k intervals that hold their own estimate
+
+`reliability`'s `pass_hat_k` interval was the pooled per-run Wilson
+interval raised to k. The curve is the mean over tasks of C(c,k)/C(n,k),
+and the mean of p^k is not the k-th power of the mean p. So whenever
+tasks differ in how often they pass, the interval sat below its own
+estimate: for half the tasks always passing and half never, pass^4 was
+0.5 against an interval of [0.02, 0.18].
+
+The interval is now the wider bound of three things:
+- a seeded bootstrap over tasks, each contributing its own C(c,k)/C(n,k);
+- the pooled interval, which sees run noise when every task scored alike;
+- the estimate itself.
+
+Measured on a labelled synthetic suite (each task's pass chance drawn
+from 0.05, 0.5 or 0.95), coverage of the true pass^k:
+
+| setup | old interval | new interval |
+|---|---|---|
+| 10 tasks × 4 runs, k=4 | 0.13 | 0.97 |
+| 20 tasks × 3 runs, k=3 | 0.13 | 1.00 |
+| small high-pass suites (6 × 2) | 0.96 | 0.98 |
+
+On small high-pass suites a task bootstrap alone fell to 0.68. On the 20
+distinct real self-evolve arms on disk, the old interval excluded its own
+estimate in 2 and the new one in none.
+
+## Cost per success, with an interval
+
+`aggregate_efficiency` (the `batch` efficiency rollup) now carries
+`cost_per_success_ratio`: B's cost per success over A's, with a paired,
+seeded bootstrap interval over tasks (`efficiency.cost_per_success_ratio`).
+- Each resample recomputes both sides' total cost over their successes,
+  so a failed run's spend stays in its side's numerator.
+- A resample that leaves a side without a success has no ratio. These are
+  counted as `undefined` and said in the narrative, never dropped
+  silently.
+- The narrative says whether the interval excludes 1.
+
+Measured:
+- **The recorded live suite** (real billed cost, 6 tasks, one run each):
+  the dearer agent cost 1.84 times the other per success, interval
+  1.45–2.24.
+- **The scripted demo pairs** (9 tasks): 1.68 times, interval 0.93–3.76.
+  That includes 1, so those tasks cannot tell.
+
+Prompted by *Token Reduction Is Not Cost Reduction* (arXiv 2607.12161).
+
+## Replay controls
+
+`agentdiff replay` (and `harness.replay.replay`) now runs control
+replays: the same prefix replayed with nothing changed, as many as the
+corrected replays by default (`--controls N`, 0 for none). The result
+carries `controls`, `control_flipped` and `control_flip_rate`, and the
+card's confidence line says "3/3 replays flipped the outcome; 0/3
+without the correction".
+
+A step is `replay-verified` only when the correction flips at least half
+its replays **and** beats the controls by half the replays
+(`harness.replay.replay_verdict`). A failed run replayed from its prefix
+does not always fail again, and an outcome reached without the
+correction is not credited to it. With `--controls 0` the old rule
+applies and the note says the verdict is uncontrolled.
+
+Measured exactly, on a labelled synthetic model where the failure
+reproduces 68% of the time (the rate *Repair or Resample?* reports for
+unguided re-runs):
+- **A correction that changes nothing** is "verified" 0.242 of the time
+  with 3 replays and no controls, and 0.091 with 3 controls (0.191 →
+  0.042 at 5 each).
+- **When the failure always reproduces,** the rule is unchanged.
+
+## What a self-evolve verdict's test could show
+
+Each self-evolve verdict carries `resolution` (`selfevolve.resolution`).
+It has three parts, all exact:
+- the sign test's best possible chance, every task moving the change's
+  way;
+- its power against a change that wins 3 in 4 of the tasks it moves, at
+  the share that moved;
+- the tasks that would give 80% power.
+
+The run says it, and the evolution card shows it per tested change,
+computed from the test's own counts for records from before the field.
+It decides nothing. On the 10 changes tested in the recorded real
+evolutions (6 tasks each), power was at most 0.025, and 80% would take
+53 to 161 tasks.
+
+Prompted by *Identical Runs, Different Results* (arXiv 2609.33812).
+
+## Replay sets
+
+`agentdiff.conformal` ranks every step of a failing run in the order to
+replay them: the committed step, where the runs part, the contested
+candidates, the causal account, the other twinless steps, the rest.
+Each diagnosis carries the first five as `decisive_step.replay_order`.
+`agentdiff bench` calibrates split-conformal k on half of the
+step-truth scenarios and prints the held-out coverage and set size at
+90%, 95% and 99%, beside the same procedure on plain step order
+(`replay_sets` in the result). The trajectory map numbers the replay
+order (1–5) on the failing run's steps, beside the existing rings; a
+contested diagnosis keeps its order and still rings no decisive step.
+
+On 902 held-out generated pairs (5.8 steps), the 99% target needs k=3
+(annotated) or k=4 (stripped) against k=7 for step order. Calibrated
+on one corpus and applied to another, it falls short (0.987 at 99%), so
+the docs say to calibrate on traces like the ones being diagnosed.
+
+`demo/external/whowhen.py` reports the same sets on the 184 human-
+labelled Who&When logs: coverage meets each target on the held-out half
+(0.92 at 90%), and the reading's order needs the same k as step order.
+That is a negative result for the order, reported as such.
+
+## Same tool, other arguments
+
+The divergence hypothesis moves its root back to a tool call that the
+aligner matched to the other run's call of the same tool when the
+arguments and the result both differ, the call did not fail, and the
+result's own words reappear in what the run reasoned, planned or
+answered (`diagnosis._argument_divergence`). The decisive step's basis
+then says so. On stripped traces the exact decisive step goes from 1554
+to 1752 of 1852; the annotated and handcrafted corpora are unchanged in
+every outcome.
+
+## A contested diagnosis names where the runs part
+
+When no hypothesis leads, `decisive_step` used to name no step. It now
+names the first step before the answer with no twin in the passing run
+(`diagnosis.first_twinless`). Its `basis` is `CONTESTED_BASIS`, a
+structural fallback with no cause claimed. The reason still says the
+diagnosis is contested and lists the joint candidates. The verdict
+card's cause line says which cause acted there is contested. The
+page's map still rings no decisive step on a contested diagnosis; its
+note names where the runs part as a fallback to replay first, not a
+cause, and the horizon view marks no decisive span. Abstentions (a
+grader or a harness kill leading) are unchanged.
+
+Measured (`docs/BENCHMARK.md`, "Contested fallback"):
+- **Handcrafted:** 16/16, unchanged.
+- **2,200 generated, annotated:** 1643 → 1800 of 1852.
+- **2,200 generated, stripped:** 1344 → 1554, now +0.11 over the best
+  one-rule baseline instead of −0.003.
+- **Abstention:** 326/348 in both conditions, unchanged.
+
+The generator's contested cases all have the first divergence as their
+true step, so this gain is measured on a generator that may favour the
+rule.
+
+## The diagnoser against one-rule baselines
+
+`agentdiff bench` now also scores four one-rule guesses at the decisive
+step: the last step before the answer, the first error, the first step
+without a twin in the passing run, and the first write
+(`bench.structural_baselines`). It prints the engine's margin over the
+best of them.
+
+Measured, with today's generator (19 families):
+- **Handcrafted 20:** +0.31 over the best rule (16/16 against "first
+  divergence" 11/16).
+- **2,200 generated, annotated:** +0.16 (1643 against 1350 of 1852).
+- **2,200 generated, stripped of annotations:** −0.003 (1344 against
+  1350). A negative result, in the README and `docs/BENCHMARK.md`: on
+  unannotated traces the engine's exact step is no better than that one
+  rule, though it also names the cause and abstains where the rule
+  cannot.
+
+Prompted by *Structural Baselines Matter for Agent Failure Detection and
+Attribution* (arXiv 2610.16661).
+
+## Self-evolve: one test among several
+
+A run tests a change every generation, so each verdict's sign test is
+now also reported Holm-adjusted for every change the run tested
+(`selfevolve.family`, `family` in `self-evolve.json`). The card shows
+the adjusted chance beside a kept change's own odds. It is reported,
+never used to decide.
+
+Measured on the recorded real evolutions on disk: the 4 kept changes
+each had a 1-in-2 sign test on its own. In the python-slugify run, which
+tested 3 changes, every adjusted chance is 1, so none of them would pass
+a family-wise correction.
+
+Prompted by 2026 agent-evaluation papers that correct paired agent
+comparisons for multiplicity with Holm–Bonferroni and Benjamini–Hochberg
+(`docs/RESEARCH_LOG.md`).
+
+## OpenTelemetry both ways
+
+`agentdiff convert --to otel` writes any trace as OTLP/JSON after the
+GenAI conventions (`agentdiff/otlp_export.py`). The run is an
+`invoke_agent` span; each step is an `execute_tool`, `retrieve`,
+`search` or `chat` span beneath it.
+- **Conventions:** the attributes use the conventions' names, and a
+  failed step or run gets an error status. Content is opt-in
+  (`--content`).
+- **Extras:** what the conventions do not name rides under
+  `agentdiff.*`.
+- **Import:** `convert` now reads a standard OTLP/JSON document
+  (`resourceSpans`) as well. An AgentDiff export comes back step for
+  step, its text exact. Spans from other tools are read as before.
+
+Measured on every SCHEMA trace under `demo/` (1,141 traces, 35,009
+steps): exported with content and read back, every step's type, name,
+tokens, latency, error and text, and every trace's id, outcome, totals
+and prompt, came back the same.
+
+Prompted by the OpenTelemetry GenAI agent-span conventions
+(`docs/RESEARCH_LOG.md`).
+
+## Self-evolve: which tasks can tell a change apart
+
+Each generation now records and says which of its tasks passed some
+runs and failed others under the harness it ran (`signal` in the
+lineage). Those are where a change can be seen to win or lose. The card
+counts them per generation. A task that always passed can only be
+broken, and one that always failed can only be won. Tasks are never
+dropped for it, since an always-passing task is where a break shows.
+
+Measured over the 9 generations of recorded real evolutions on disk:
+- **Task kinds:** 24% of tasks were mixed, 61% always passed and 15%
+  always failed.
+- **Moves:** of the 18 times a tested change moved a task, 8 were on
+  mixed tasks, 6 won a task that always failed, and 4 lost one that
+  always passed.
+
+Prompted by 2026 work on efficient agent benchmarking, which finds that
+the signal sits in tasks with intermediate pass rates
+(`docs/RESEARCH_LOG.md`).
+
+## Self-evolve: every kept change, tested again (--prune)
+
+A change was kept on one paired test and never questioned again, even
+when a later change made it redundant. `--prune` (`selfevolve.prune`)
+tests each kept change again when the evolution ends, newest first:
+- the harness it ended with runs against that harness without the
+  change;
+- the change stays only if `decide()` would keep it now;
+- a dropped change is not tried again, and the smaller harness is what
+  the next change is tested against.
+
+It runs before `--holdout`. `--generations 0 --prune` prunes a finished
+run, and the card says what each re-test found.
+
+Measured on the recorded python-slugify evolution, with 36 real runs
+($0.73):
+- **The edge-case instruction stays:** 6/12 → 9/12, winning 3 tasks and
+  losing none.
+- **"Read `AGENTS.md`" is dropped:** 9/12 with and without it, one task
+  won and one lost.
+
+Prompted by 2026 work showing that self-evolving agents accumulate
+instructions and that harness gains shrink on held-out tasks
+(`docs/RESEARCH_LOG.md`).
+
+## Tasks from history: a grader the work cannot talk round
+
+A `--from-git` task's grader now holds each run to the held-out tests
+that passed on the commit, by name. Before, an agent's `conftest.py`, a
+runner setting, or code that patches the test framework could skip or
+deselect the held-out tests, and a check that exited 0 counted as a pass.
+- `run_check.py` reads which tests passed (pytest `-rA`, unittest `-v`)
+  and fails a run that is missing any of them, naming them.
+- The default commands now print those names.
+- Each task records how many tests it is held to (`held_to`).
+
+Measured:
+- **Recorded:** re-grading all 176 recorded python-slugify runs changed
+  no verdict. 4 of them edited `tox.ini` or `pyproject.toml`, to register
+  a test file of their own, which the held grader allows.
+- **Tested:** work that makes every test skip itself passes unheld and
+  fails held.
+
+Prompted by 2026 work on agents gaming their graders
+(`docs/RESEARCH_LOG.md`).
+
+## Tasks from history: a grader must agree with itself
+
+`--from-git` now runs each task's held-out tests 3 times on the parent
+and 3 times on the commit (`--grader-checks N`), each on a fresh copy.
+It keeps a task only if they fail on the parent every time and pass on
+the commit every time. A flaky grader would pass or fail the agent's runs
+by chance, so it is left out, and the report says what it did. It costs
+test runs, never agent runs.
+- **Arithmetic:** a grader failing 3 runs in 10 gets through one check
+  70% of the time and three checks 34%.
+- **Measured on python-slugify:** the same 6 tasks at 1 check and at 5,
+  since none of its graders is flaky. The build took 14 s and 46 s.
+
+Prompted by 2026 work on mining tasks from repository history, which
+re-runs tests to filter flaky ones (`docs/RESEARCH_LOG.md`).
+
+## Self-evolve stops a change that can no longer be kept
+
+The changed harness now runs a round at a time (run 1 of every task,
+then run 2) and stops once no outcome of the rounds left could make the
+change kept (`selfevolve.could_keep`, `self_evolve(settle=True)`, on by
+default; `--no-settle` turns it off).
+- **Exact over counts.** It bounds each task's final pass count and
+  asks the paired rule itself, so it can't change a verdict. A test
+  checks it against `decide()` on every completion of 400 random cases.
+- **Only a lost cause stops.** A kept change's runs become the next
+  generation's, so they always run in full.
+- **On the card and the chart:** a settled verdict says "settled after
+  1 of 2 rounds" and how many runs it did not need.
+
+Measured:
+- **Synthetic** (pass rates from the recorded python-slugify arms): it
+  skips 17–35% of a harmful change's runs (2 to 5 runs a task), about 5%
+  of a do-nothing change's, and none of the verdicts change in 2,700
+  draws.
+- **Recorded:** over the 8 real changes on disk it would have saved
+  nothing. They were neutral or helpful.
+
+Prompted by 2026 work on when a partial evaluation already supports the
+full run's decision (`docs/RESEARCH_LOG.md`). Those studies estimate it
+with an error target; here the rule is exact.
+
 ## Exploration starts from what the project keeps
 
 When no eval names a change, the harness now first tries what the

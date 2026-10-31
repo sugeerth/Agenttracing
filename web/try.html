@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Try AgentDiff in your browser</title>
+<meta name="description" content="Compare two AI agent runs in your browser: AgentDiff names the step where one went wrong. Pick a demo pair or drop in your own traces; nothing is uploaded.">
+<link rel="canonical" href="https://sugeerth.github.io/agentdiff/try/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://sugeerth.github.io/agentdiff/try/">
+<meta property="og:site_name" content="Sugeerth Murugesan">
+<meta property="og:title" content="Try AgentDiff in your browser">
+<meta property="og:description" content="Compare two AI agent runs in your browser and find the step where one went wrong. Nothing is uploaded.">
+<meta property="og:image" content="https://sugeerth.github.io/images/og/agentdiff.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="AgentDiff — git diff for AI agents — sugeerth.github.io">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://sugeerth.github.io/images/og/agentdiff.jpg">
+<meta name="twitter:title" content="Try AgentDiff in your browser">
+<meta name="twitter:description" content="Compare two AI agent runs in your browser and find the step where one went wrong. Nothing is uploaded.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>±</text></svg>">
+<style>
+:root{--bg:#fbfaf7;--surface:#ffffff;--ink:#1d1d1b;--soft:#5d5d58;--line:#e3e2dc;--chip:#efeee9;--accent:#0f5f55;--on-accent:#ffffff;--good:#1e7a46;--bad:#b3261e;--radius:10px}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#171716;--surface:#1f1f1d;--ink:#ecebe6;--soft:#a3a29c;--line:#33322f;--chip:#2a2927;--accent:#5fc2b2;--on-accent:#0d1f1c;--good:#5cc98a;--bad:#ff8a80}}
+:root[data-theme="dark"]{--bg:#171716;--surface:#1f1f1d;--ink:#ecebe6;--soft:#a3a29c;--line:#33322f;--chip:#2a2927;--accent:#5fc2b2;--on-accent:#0d1f1c;--good:#5cc98a;--bad:#ff8a80}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:var(--accent)}
+.wrap{max-width:62rem;margin:0 auto;padding:0 16px}
+header{padding:28px 0 8px}
+.crumbs{font-size:14px;color:var(--soft);margin:0 0 10px}
+h1{font-size:clamp(26px,4.5vw,36px);line-height:1.15;margin:0 0 10px;letter-spacing:-.01em}
+.standfirst{color:var(--soft);max-width:46rem;margin:0}
+h2{font-size:18px;margin:0 0 10px}
+.status{display:flex;align-items:center;gap:10px;margin:18px 0;padding:10px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);font-size:14px}
+.status .dot{width:9px;height:9px;border-radius:50%;background:var(--soft);flex:none}
+.status[data-state="ready"] .dot{background:var(--good)}
+.status[data-state="busy"] .dot{background:var(--accent);animation:pulse 1s infinite alternate}
+.status[data-state="error"] .dot{background:var(--bad)}
+@keyframes pulse{to{opacity:.3}}
+@media (prefers-reduced-motion: reduce){.status[data-state="busy"] .dot{animation:none}}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(18rem,1fr));gap:14px}
+.card{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:16px}
+label{display:block;font-size:14px;color:var(--soft);margin:0 0 6px}
+select,input[type=file]{width:100%;font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px}
+.row{margin:0 0 12px}
+button{font:inherit;font-size:15px;font-weight:600;padding:8px 18px;border-radius:999px;border:1px solid var(--accent);background:var(--accent);color:var(--on-accent);cursor:pointer}
+button.ghost{background:transparent;color:var(--accent)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.hint{font-size:13px;color:var(--soft);margin:8px 0 0}
+#result{margin:22px 0 40px}
+#result[hidden]{display:none}
+.lines{list-style:none;margin:0;padding:0}
+.lines li{display:grid;grid-template-columns:7.5rem 1fr;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
+.lines li:first-child{border-top:0}
+.lines b{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--soft);font-weight:600}
+@media (max-width:520px){.lines li{grid-template-columns:1fr;gap:2px}}
+.facts{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+.facts th,.facts td{text-align:left;padding:6px 8px;border-top:1px solid var(--line)}
+.facts thead th{border-top:0;color:var(--soft);font-weight:600}
+.tablewrap{overflow-x:auto}
+.ok{color:var(--good);font-weight:600}.no{color:var(--bad);font-weight:600}
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+.frame{width:100%;height:80vh;min-height:520px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.note{font-size:13px;color:var(--soft)}
+.warn{font-size:13px;color:var(--bad);margin:6px 0 0}
+footer{border-top:1px solid var(--line);padding:16px 0 32px;font-size:14px;color:var(--soft)}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <p class="crumbs"><a href="/">sugeerth.github.io</a> / <a href="../">agentdiff</a> / try</p>
+    <h1>Try AgentDiff in your browser</h1>
+    <p class="standfirst">Two agents ran the same task, and one went wrong. Pick a pair of runs, or drop in two traces of your own, and AgentDiff names the step where they parted, with the evidence for it. The engine runs here, in your browser, as Python compiled to WebAssembly. Nothing you choose is uploaded.</p>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="status" id="status" data-state="busy" role="status" aria-live="polite"><span class="dot"></span><span id="status-text">Loading the engine (Python in WebAssembly, about 12 MB the first time)…</span></div>
+
+  <div class="grid">
+    <section class="card" aria-labelledby="h-demo">
+      <h2 id="h-demo">A pair from the demo</h2>
+      <div class="row">
+        <label for="pair">Pair</label>
+        <select id="pair" disabled><option>Loading…</option></select>
+      </div>
+      <button id="run-demo" disabled>Compare</button>
+      <p class="hint" id="pair-note">The demo agents are simulated. The last pair is real: one agent under two names.</p>
+    </section>
+
+    <section class="card" aria-labelledby="h-own">
+      <h2 id="h-own">Your own two runs</h2>
+      <div class="row">
+        <label for="file-a">Run A</label>
+        <input type="file" id="file-a" accept=".json,.jsonl,application/json" disabled>
+      </div>
+      <div class="row">
+        <label for="file-b">Run B</label>
+        <input type="file" id="file-b" accept=".json,.jsonl,application/json" disabled>
+      </div>
+      <button id="run-own" disabled>Compare these</button>
+      <p class="hint">An AgentDiff trace, an OpenTelemetry (OTLP/JSON or GenAI spans) export, an OpenAI or Anthropic message list, or a Claude Code session (<code>.jsonl</code>). The format is detected and named.</p>
+    </section>
+  </div>
+
+  <section id="result" hidden aria-labelledby="h-result">
+    <h2 id="h-result">What AgentDiff found</h2>
+    <div class="card">
+      <ul class="lines" id="lines"></ul>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="tablewrap">
+        <table class="facts">
+          <thead><tr><th scope="col"></th><th scope="col">Agent</th><th scope="col">Outcome</th><th scope="col">Steps</th><th scope="col">Tokens</th><th scope="col">Cost</th><th scope="col">Read as</th></tr></thead>
+          <tbody id="facts"></tbody>
+        </table>
+      </div>
+      <div id="warnings"></div>
+    </div>
+    <div class="actions">
+      <button id="open-full" class="ghost">Open the full report in a new tab</button>
+      <button id="download" class="ghost">Download the report (JSON)</button>
+    </div>
+    <iframe id="frame" class="frame" title="The full AgentDiff report"></iframe>
+    <p class="note">The full report is the same page <code>agentdiff compare</code> writes: every step of both runs, the decisive step, why, and what to carry forward.</p>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    AgentDiff is open source (MIT): <a href="https://github.com/sugeerth/Agenttracing">code on GitHub</a>, or <a href="../">the project page</a>. No model decides any number here: every verdict is a rule over the traces' own counts.
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/pyodide@0.29.5/pyodide.js"></script>
+<script>
+(function () {
+  "use strict";
+  var PYODIDE = "https://cdn.jsdelivr.net/npm/pyodide@0.29.5/";
+  var $ = function (id) { return document.getElementById(id); };
+  var py = null, samples = null, reportUrl = null, reportJson = null;
+
+  var SETUP = [
+    "import sys, json",
+    "sys.path.insert(0, '/lib/agentdiff-web')",
+    "from agentdiff.trace import Trajectory",
+    "from agentdiff.report import compare, render_html",
+    "from agentdiff import registry",
+    "from agentdiff.claude_code import register_format as _cc",
+    "from agentdiff.adapters import register_formats as _rl",
+    "_cc(); _rl()",
+    "def _load(text):",
+    "    try:",
+    "        data = json.loads(text)",
+    "    except ValueError:",
+    "        data = [json.loads(line) for line in text.splitlines() if line.strip()]",
+    "    got = registry.convert(data)",
+    "    traj = got['trajectory']",
+    "    traj = traj if isinstance(traj, Trajectory) else Trajectory.from_dict(traj)",
+    "    return traj, got['format'], got['confidence'], list(got.get('warnings') or [])",
+    "def _side(t, fmt, conf, warnings):",
+    "    tot = t.totals",
+    "    return {'agent': t.agent.name, 'success': t.outcome.success, 'steps': len(t.steps),",
+    "            'tokens': (tot.input_tokens or 0) + (tot.output_tokens or 0), 'cost': tot.cost_usd,",
+    "            'format': fmt, 'confidence': conf, 'warnings': warnings[:5]}",
+    "def agentdiff_run(a_text, b_text):",
+    "    a, fa, ca, wa = _load(a_text)",
+    "    b, fb, cb, wb = _load(b_text)",
+    "    rep = compare(a, b)",
+    "    render_html([rep], {}, '/tmp/blocks.html', '/tmp/report.html')",
+    "    card = (rep.get('verdict_card') or {}).get('lines') or []",
+    "    out = {'card': [{'key': l.get('key'), 'text': l.get('text')} for l in card],",
+    "           'a': _side(a, fa, ca, wa), 'b': _side(b, fb, cb, wb)}",
+    "    return json.dumps(out), json.dumps(rep, indent=1)"
+  ].join("\n");
+
+  function status(text, state) {
+    $("status-text").textContent = text;
+    $("status").setAttribute("data-state", state || "busy");
+  }
+  function setEnabled(on) {
+    ["pair", "run-demo", "file-a", "file-b"].forEach(function (id) { $(id).disabled = !on; });
+    $("run-own").disabled = !on || !($("file-a").files.length && $("file-b").files.length);
+  }
+  function tick() { return new Promise(function (r) { setTimeout(r, 30); }); }
+
+  async function boot() {
+    try {
+      if (typeof loadPyodide !== "function") throw new Error("the WebAssembly runtime could not be loaded from cdn.jsdelivr.net");
+      py = await loadPyodide({ indexURL: PYODIDE });
+      status("Loading AgentDiff…");
+      var got = await Promise.all([
+        fetch("engine.zip").then(function (r) { if (!r.ok) throw new Error("engine.zip: " + r.status); return r.arrayBuffer(); }),
+        fetch("blocks.html").then(function (r) { if (!r.ok) throw new Error("blocks.html: " + r.status); return r.arrayBuffer(); }),
+        fetch("samples.json").then(function (r) { if (!r.ok) throw new Error("samples.json: " + r.status); return r.json(); })
+      ]);
+      py.unpackArchive(got[0], "zip", { extractDir: "/lib/agentdiff-web" });
+      py.FS.writeFile("/tmp/blocks.html", new Uint8Array(got[1]));
+      py.runPython(SETUP);
+      samples = got[2];
+      var sel = $("pair");
+      sel.innerHTML = "";
+      samples.pairs.forEach(function (p, i) {
+        var o = document.createElement("option");
+        o.value = String(i);
+        o.textContent = p.label;
+        sel.appendChild(o);
+      });
+      status("Ready. Everything runs in this tab.", "ready");
+      setEnabled(true);
+    } catch (err) {
+      status("The engine could not start: " + (err && err.message ? err.message : err), "error");
+    }
+  }
+
+  async function compareTexts(aText, bText, label) {
+    setEnabled(false);
+    status("Comparing " + label + "…");
+    await tick();
+    try {
+      var fn = py.globals.get("agentdiff_run");
+      var res = fn(aText, bText);
+      var pair = res.toJs();
+      res.destroy(); fn.destroy();
+      show(JSON.parse(pair[0]), pair[1]);
+      status("Done: " + label + ". Compared in this tab; nothing was sent anywhere.", "ready");
+    } catch (err) {
+      var msg = String(err && err.message ? err.message : err);
+      var last = msg.trim().split("\n").filter(Boolean).pop() || msg;
+      last = last.replace(/\s*Pass --format explicitly.*$/, " Convert it to one of these first, or open an issue.");
+      status("Could not compare these: " + last, "error");
+    } finally {
+      setEnabled(true);
+    }
+  }
+
+  function cell(tr, text, cls) {
+    var td = document.createElement("td");
+    td.textContent = text;
+    if (cls) td.className = cls;
+    tr.appendChild(td);
+  }
+
+  function show(out, json) {
+    var ul = $("lines");
+    ul.innerHTML = "";
+    out.card.forEach(function (l) {
+      var li = document.createElement("li");
+      var b = document.createElement("b");
+      b.textContent = l.key || "";
+      var span = document.createElement("span");
+      span.textContent = l.text || "";
+      li.appendChild(b); li.appendChild(span);
+      ul.appendChild(li);
+    });
+    var tb = $("facts");
+    tb.innerHTML = "";
+    var warn = $("warnings");
+    warn.innerHTML = "";
+    [["A", out.a], ["B", out.b]].forEach(function (pair) {
+      var s = pair[1], tr = document.createElement("tr");
+      var th = document.createElement("th");
+      th.scope = "row"; th.textContent = pair[0]; tr.appendChild(th);
+      cell(tr, s.agent);
+      cell(tr, s.success === true ? "passed" : s.success === false ? "failed" : "ungraded",
+           s.success === true ? "ok" : s.success === false ? "no" : "");
+      cell(tr, String(s.steps));
+      cell(tr, s.tokens ? s.tokens.toLocaleString() : "—");
+      cell(tr, s.cost ? "$" + Number(s.cost).toFixed(4) : "not recorded");
+      cell(tr, s.format + (s.confidence < 1 ? " (" + Math.round(s.confidence * 100) + "%)" : ""));
+      tb.appendChild(tr);
+      s.warnings.forEach(function (w) {
+        var p = document.createElement("p");
+        p.className = "warn";
+        p.textContent = pair[0] + ": " + w;
+        warn.appendChild(p);
+      });
+    });
+    var html = py.FS.readFile("/tmp/report.html");
+    if (reportUrl) URL.revokeObjectURL(reportUrl);
+    reportUrl = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+    reportJson = json;
+    $("frame").src = reportUrl;
+    $("result").hidden = false;
+    $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  $("run-demo").addEventListener("click", async function () {
+    var p = samples.pairs[Number($("pair").value)];
+    try {
+      var texts = await Promise.all([p.a, p.b].map(function (name) {
+        return fetch("samples/" + encodeURIComponent(name)).then(function (r) { return r.text(); });
+      }));
+      await compareTexts(texts[0], texts[1], p.label);
+    } catch (err) {
+      status("Could not load that pair: " + err, "error");
+    }
+  });
+  ["file-a", "file-b"].forEach(function (id) {
+    $(id).addEventListener("change", function () {
+      $("run-own").disabled = !($("file-a").files.length && $("file-b").files.length);
+    });
+  });
+  $("run-own").addEventListener("click", async function () {
+    var fa = $("file-a").files[0], fb = $("file-b").files[0];
+    var texts = await Promise.all([fa.text(), fb.text()]);
+    await compareTexts(texts[0], texts[1], fa.name + " and " + fb.name);
+  });
+  $("open-full").addEventListener("click", function () { if (reportUrl) window.open(reportUrl, "_blank", "noopener"); });
+  $("download").addEventListener("click", function () {
+    if (!reportJson) return;
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([reportJson], { type: "application/json" }));
+    a.download = "agentdiff-report.json";
+    document.body.appendChild(a); a.click(); a.remove();
+  });
+
+  boot();
+})();
+</script>
+</body>
+</html>

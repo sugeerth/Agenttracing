@@ -580,3 +580,10 @@ class Trajectory:
             "budget": self.budget,
             "token_accounting": self.token_accounting,
         }
+
+
+def reads_as_failed(step) -> bool:
+    """A step that says it failed: flagged as an error, or output that opens with "error". Narrower than
+    :func:`agentdiff.process.is_error` on purpose: the benchmark's one-rule baseline and the engine's argument
+    rule read the same plain signal."""
+    return step.error is True or (step.output or "").lower().startswith("error")

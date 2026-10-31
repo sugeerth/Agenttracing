@@ -304,9 +304,11 @@ class DemoTest(unittest.TestCase):
         # put it — and when the diagnosis is contested (this pair has two
         # plausible mechanisms: the stall and the short count it produced),
         # every contender still lands inside a cluster the reader can open
+        from agentdiff.diagnosis import committed_step
         step = self.report["diagnosis"]["decisive_step"]
         subj = self.report["diagnosis"]["subject"]
-        dec = step["step"]
+        # a contested diagnosis's step is only where the runs part: never marked decisive
+        dec = committed_step(self.report["diagnosis"])
         if isinstance(dec, int):
             holder = next(c for c in imp[subj]["clusters"] if c["from"] <= dec <= c["to"])
             self.assertTrue(holder["reasons"]["decisive"])
