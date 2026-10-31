@@ -5,6 +5,33 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Cost per success over every run, the task as the cluster
+
+`runs` compared one representative run per side per task (the medoid
+pair), so its cost-per-success ratio left the other runs out.
+`efficiency.cost_per_success_over_runs` (`aggregate.cost_per_success_runs`,
+printed by `runs`) pools every run of each task. Each task is one row, its
+runs' total cost and successes on each side, and the jackknife leaves out
+a whole task at a time. A task's runs share its difficulty, so the task,
+not the run, is the independent unit.
+
+Measured:
+- **The A/A suite, real runs.** Pooling both runs of each task halves
+  the interval: 0.926–0.996 against 0.870–1.003.
+- **Redealt nulls.** Over 2,000 redeals of those runs, the pooled
+  interval excluded 1 in 6.1% of deals with two runs a side, and in 5.1%
+  with one.
+  - The real labelling excludes 1, because B's runs happened to be
+    cheaper on five of the six tasks. It is one of the draws a 95%
+    interval lets through.
+  - The ratio's sentence no longer calls an interval that excludes 1
+    "not resampling noise". It now says such a gap shows up about 1 time
+    in 20 or less between agents that cost the same.
+- **Synthetic** (1,000 suites a row; tasks differing in price, 15% run
+  noise): coverage 0.95–0.99 at 6, 10 and 20 tasks. Three runs a task
+  halves the width against one: 0.96 against 2.27 at 6 tasks, and 0.40
+  against 0.72 at 20.
+
 ## Forgetting across an evolution
 
 `selfevolve.forgetting` finds the tasks an evolution once solved and a

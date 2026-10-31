@@ -12,8 +12,9 @@ import os
 import random
 
 import _here
-from agentdiff.efficiency import cost_per_success_ratio
+from agentdiff.efficiency import cost_per_success_over_runs, cost_per_success_ratio
 from agentdiff.statistics import paired_inference
+from agentdiff.trace import Trajectory
 
 runs = {}
 for path in sorted(glob.glob(str(_here.ROOT / "demo/vendors/aa-suite/traces/*.json"))):
@@ -45,3 +46,22 @@ for _ in range(deals):
     excluded += bool(cost_per_success_ratio(dealt)["excludes_one"])
 print(f"redrawn nulls: the cost interval excluded 1 in {excluded} of {deals} random deals ({excluded / deals:.1%}; "
       "nominal 5%)")
+
+# every run of every task, the task as the cluster: twice the runs, about half the width
+trajs = {}
+for path in sorted(glob.glob(str(_here.ROOT / "demo/vendors/aa-suite/traces/*.json"))):
+    task, name, _ = os.path.basename(path)[:-5].split("__")
+    trajs.setdefault(task, {"a": [], "b": []})["a" if name == "A" else "b"].append(Trajectory.from_json(path))
+pooled = cost_per_success_over_runs(trajs)
+print(f"over every run: B / A = {pooled['ratio']:.3f}, interval [{pooled['low']:.3f}, {pooled['high']:.3f}]: "
+      f"{'excludes' if pooled['excludes_one'] else 'includes'} 1")
+excluded = 0
+for _ in range(deals):
+    dealt = {}
+    for task, v in sorted(trajs.items()):
+        pool = v["a"] + v["b"]
+        rng.shuffle(pool)
+        dealt[task] = {"a": pool[:2], "b": pool[2:]}
+    excluded += bool(cost_per_success_over_runs(dealt)["excludes_one"])
+print(f"redrawn nulls over every run: excluded 1 in {excluded} of {deals} ({excluded / deals:.1%}; nominal 5%), "
+      "so the real labelling above is one of the draws a 95% interval lets through")

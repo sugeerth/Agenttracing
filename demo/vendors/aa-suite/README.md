@@ -27,6 +27,15 @@ difference on this data is wrong, and the data checks for that.
     interval excluded 1 in 11% of deals, against a nominal 5%.
   - The jackknife interval that replaced it says 0.870–1.003 here, and
     excludes 1 in 3.2% of the deals.
+- **Over every run** (`cost_per_success_runs`, both runs of each task
+  pooled, the task as the cluster): B / A = 0.960, with interval
+  0.926–0.996, which is half as wide.
+  - That excludes 1. Over 2,000 redeals of these runs, though, the
+    pooled interval excluded 1 in 6.1% of them.
+  - So the real labelling is one of the draws a 95% interval lets
+    through: B's runs happened to be cheaper on five of the six tasks.
+  - This is what "95%" means, and why the sentence the ratio prints now
+    says "about 1 time in 20 or less" rather than "not noise".
 
 `examples/aa_test.py` reruns all of it, and `tests/test_cost_ratio.py`
 holds it.

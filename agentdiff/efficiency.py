@@ -858,13 +858,56 @@ def _jackknife_ratio(rows: list) -> Optional[tuple]:
     return math.exp(math.log(full) - t * se), math.exp(math.log(full) + t * se)
 
 
+def cost_per_success_over_runs(runs_by_task: dict) -> dict:
+    """B's cost per success over A's from every run of every task, not one run of each.
+
+    ``runs_by_task`` is ``{task: {"a": [trajectory, ...], "b": [...]}}``. Each task contributes one row: its
+    runs' total cost and successes on each side. A task's runs share its difficulty, so they are not
+    independent. The interval is the same jackknife over tasks as :func:`cost_per_success_ratio`, so it
+    leaves out a whole task at a time and treats the task as the cluster. The batch figure (one compared
+    pair per task) and this one answer the same question, and this one wastes no run. Unmeasurable, with a
+    reason, as there."""
+    def side(trajs):
+        return (sum(float(t.totals.cost_usd or 0.0) for t in trajs), sum(1 for t in trajs if t.outcome.success is True))
+    rows, runs = [], {"a": 0, "b": 0}
+    for task in sorted(runs_by_task):
+        a, b = runs_by_task[task]["a"], runs_by_task[task]["b"]
+        runs["a"] += len(a)
+        runs["b"] += len(b)
+        rows.append(side(a) + side(b))
+    base = {"tasks": len(rows), "runs": runs, "a": None, "b": None, "ratio": None, "low": None, "high": None,
+            "excludes_one": None, "method": None, "confidence": CONFIDENCE, "reason": None}
+    cost_a, wins_a = sum(r[0] for r in rows), sum(r[1] for r in rows)
+    cost_b, wins_b = sum(r[2] for r in rows), sum(r[3] for r in rows)
+    for cost, wins in ((cost_a, wins_a), (cost_b, wins_b)):
+        if cost <= 0:
+            return dict(base, reason="cost_usd is 0 on every run of a side — not recorded, and unrecorded ≠ free")
+        if not wins:
+            return dict(base, reason="a side has no successful run — the ratio has a zero denominator")
+    out = dict(base, a=round(cost_a / wins_a, 6), b=round(cost_b / wins_b, 6),
+               ratio=round((cost_b / wins_b) / (cost_a / wins_a), 4))
+    interval = _jackknife_ratio(rows)
+    if interval is None:
+        return dict(out, reason="dropping some task leaves a side without a success or a recorded cost, or there "
+                                "are fewer than three tasks: no interval")
+    low, high = interval
+    return dict(out, low=round(low, 4), high=round(high, 4), excludes_one=low > 1 or high < 1,
+                method="jackknife over tasks (each task's runs pooled) on the log ratio, t on tasks − 1")
+
+
+@_sections.register("aggregate", "cost_per_success_runs", after=("paired_inference",))
+def _cost_over_runs_section(agg: dict, ctx: "_sections.AggregateContext"):
+    return cost_per_success_over_runs(ctx.runs_by_task)
+
+
 def ratio_text(r: dict, names: dict) -> str:
     """One sentence on the cost-per-success ratio, from :func:`cost_per_success_ratio`."""
     if r["ratio"] is None:
         return f"no cost-per-success ratio: {r['reason']}"
     if r["low"] is None:
         return f"{names['b']} costs {r['ratio']:.2f}× {names['a']} per success; no interval: {r['reason']}"
-    verdict = ("the interval excludes 1, so on these tasks the gap is not resampling noise" if r["excludes_one"]
+    verdict = ("the interval excludes 1: two agents that cost the same would show a gap this large on these tasks "
+               "about 1 time in 20 or less" if r["excludes_one"]
                else "the interval includes 1, so these tasks cannot tell which is dearer per success")
     undefined = (f"; {r['undefined']} of {r['samples']} resamples left a side without a success or a recorded "
                  "cost and are not in the interval" if r.get("undefined") else "")

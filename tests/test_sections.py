@@ -35,7 +35,8 @@ PAIR_ORDER = ["success_analysis", "uncertainty", "semantic", "counterfactual", "
               "tools_profile", "verdict_card", "feedback", "rl", "budget", "fetches", "data"]
 #: the order suite.analyse_runs attached its sections by hand before the registry
 AGGREGATE_ORDER = ["equality", "routing", "stability", "reliability", "task_signal", "diagnosis_consolidated",
-                   "paired_inference", "triage", "scorecard", "rl", "budget", "fetches", "data"]
+                   "paired_inference", "cost_per_success_runs", "triage", "scorecard", "rl", "budget", "fetches",
+                   "data"]
 
 
 class RegistryTest(unittest.TestCase):

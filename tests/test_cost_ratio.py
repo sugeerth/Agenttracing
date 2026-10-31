@@ -13,7 +13,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from agentdiff.efficiency import aggregate_efficiency, cost_per_success_ratio, ratio_text  # noqa: E402
+from agentdiff.efficiency import (aggregate_efficiency, cost_per_success_over_runs, cost_per_success_ratio,  # noqa: E402
+                                  ratio_text)
 from agentdiff.report import compare  # noqa: E402
 from agentdiff.trace import Trajectory  # noqa: E402
 
@@ -121,6 +122,51 @@ class AATest(unittest.TestCase):
                 dealt.append(_report(*pool[0], *pool[2]))
             excluded += bool(cost_per_success_ratio(dealt)["excludes_one"])
         self.assertLessEqual(excluded / 400, 0.06)
+
+
+class OverRunsTest(unittest.TestCase):
+    """Every run of every task (efficiency.cost_per_success_over_runs), the task as the jackknife's cluster."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.trajs = {}
+        for path in sorted(glob.glob(str(ROOT / "demo/vendors/aa-suite/traces/*.json"))):
+            task, name, _ = os.path.basename(path)[:-5].split("__")
+            cls.trajs.setdefault(task, {"a": [], "b": []})["a" if name == "A" else "b"].append(Trajectory.from_json(path))
+
+    def test_every_run_counts_and_the_interval_narrows(self):
+        pooled = cost_per_success_over_runs(self.trajs)
+        self.assertEqual((pooled["tasks"], pooled["runs"]), (6, {"a": 12, "b": 12}))
+        one = cost_per_success_ratio([_report(v["a"][0].totals.cost_usd, v["a"][0].outcome.success,
+                                              v["b"][0].totals.cost_usd, v["b"][0].outcome.success)
+                                      for _, v in sorted(self.trajs.items())])
+        self.assertLess(pooled["high"] - pooled["low"], one["high"] - one["low"])
+
+    def test_redealt_nulls_exclude_one_near_five_percent(self):
+        import random
+        rng = random.Random(3)
+        excluded = 0
+        for _ in range(400):
+            dealt = {}
+            for task, v in sorted(self.trajs.items()):
+                pool = v["a"] + v["b"]
+                rng.shuffle(pool)
+                dealt[task] = {"a": pool[:2], "b": pool[2:]}
+            excluded += bool(cost_per_success_over_runs(dealt)["excludes_one"])
+        self.assertLessEqual(excluded / 400, 0.08)
+
+    def test_unrecorded_cost_and_no_success_say_why(self):
+        free = {t: {"a": [Trajectory.from_dict(dict(x.to_dict(), totals={"cost_usd": 0.0})) for x in v["a"]],
+                    "b": v["b"]} for t, v in self.trajs.items()}
+        self.assertIn("not recorded", cost_per_success_over_runs(free)["reason"])
+
+    def test_runs_reports_it(self):
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            out = subprocess.run([sys.executable, "-m", "agentdiff", "runs", str(ROOT / "demo/vendors/aa-suite/traces"),
+                                  "-o", tmp], cwd=str(ROOT), capture_output=True, text=True, timeout=600)
+        self.assertIn("Cost per success over every run (12 A, 12 B, 6 tasks)", out.stdout)
 
 
 if __name__ == "__main__":

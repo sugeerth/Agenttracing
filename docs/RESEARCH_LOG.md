@@ -4,6 +4,58 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-10-31
+
+**How it was read.** Through search-engine extracts, as yesterday.
+
+**Read:**
+- *Engineering Reliable Coding Agents* (arXiv 2608.13867). It treats
+  cost-weighted success as an outcome that needs a paired bootstrap of
+  the whole metric, with correlation-aware errors for clustered items.
+- Indeed Engineering, *Bootstrap Confidence Intervals for LLM
+  Evaluation*. N inputs, each with k correlated runs, compared across
+  bootstrap variants. A cluster bootstrap resamples whole inputs.
+- *When Agents Disagree With Themselves* (arXiv 2602.11619). 10 runs a
+  task: 2.0–4.2 distinct action sequences per 10 runs, with most
+  divergence at the first search step. Tasks that stayed consistent
+  through step 2 were right more often (85.8% against 71.7%), which is a
+  correlation.
+- arXiv 2603.25764 (SWE-bench consistency). Early agreement alone does
+  not set behavioural variance.
+- arXiv 2605.28840. Tools and their order repeat across runs, while
+  arguments vary.
+- *Resolution Diagnostics for Paired LLM Evaluation* (arXiv 2605.30315).
+  Many paired rankings are not resolved at a standard power target. That
+  is `selfevolve.resolution`'s point, already built.
+- OpenTelemetry GenAI conventions. They moved to their own repository,
+  and agent invocation now splits into client and internal spans, with
+  `invoke_workflow` added. They are still in Development.
+
+**Taken: the cost ratio over every run, the task as the cluster.** This
+was an earlier run's "not taken". Two of today's sources say runs of one
+input are a cluster and should be resampled together, and the
+jackknife over tasks already does that once a task's runs are pooled
+into its row.
+- On the real A/A suite, the interval halves.
+- On 2,000 redeals of the same runs, it excluded 1 in 6.1% of them.
+- The redeals also showed the real labelling excluding 1 by chance. So
+  the ratio's sentence now says what a 95% interval says, and no longer
+  that a gap "is not noise".
+
+**Not taken, and why:**
+- **Early divergence as a predictor of failure** (2602.11619). AgentDiff
+  already reports trajectory consistency and divergence
+  reproducibility. The paper's link to accuracy is a correlation over
+  one benchmark. The A/A suite's 2 runs a task are too few to measure
+  where runs part.
+- **The OTel agent-span split.** It was checked on a hand-made pair: a
+  client `invoke_agent` span wrapping an internal one, with a model call
+  and a tool call inside. It converts, but each of the two spans becomes
+  its own step, so one invocation reads as two. Collapsing the pair is a
+  small, clear fix. It should be made against a trace a real
+  instrumented agent wrote, which none at hand is, so it is left for a
+  later run with this as its test case.
+
 ## 2026-10-30
 
 **How it was read.** Through search-engine extracts. huggingface.co and
