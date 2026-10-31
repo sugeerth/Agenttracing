@@ -7,10 +7,9 @@ numbers are the schema/report versions the sections were introduced in.
 
 ## A web version: try it in the browser
 
-`web/build_site.py OUT` builds a static web version, published at
-https://sugeerth.github.io/agentdiff/try/ and
-https://sugeerth.github.io/agentdiff/demo/.
-- **`try/` runs the engine in the visitor's browser.** It uses Pyodide,
+`web/build_site.py OUT` builds the static web version published at
+https://sugeerth.github.io/agentdiff/try/.
+- **It runs the engine in the visitor's browser.** It uses Pyodide,
   CPython compiled to WebAssembly, so a trace is never uploaded. A
   visitor picks a demo pair or the recorded pair, or drops in two traces
   in any format `convert` detects. The page shows the verdict card, a
@@ -18,14 +17,27 @@ https://sugeerth.github.io/agentdiff/demo/.
 - **The engine is the package, zipped.** It leaves out what a browser
   cannot or need not run: the harness and its network code, the hub, the
   CLI commands and the vendor drivers.
-- **`demo/` is the batch report over the demo traces, prebuilt.**
 - **The build refuses** to write a file that names a model.
+- **The report page has a no-cookies switch.** A hosted copy of it carries
+  `<meta name="agentdiff:no-cookies">`, and the page then keeps to
+  localStorage and memory, so a site that promises zero cookies keeps
+  its promise.
+- **Accessibility, from the site's axe audit:**
+  - the top bar is a `<header>` and the page's content a `<main>`;
+  - the A-versus-B figures are a labelled group, not a list without items;
+  - B's figures as text use a darker shade of B's hue (5.3:1, was 4.2:1).
+  - Still open in the report page: contrast in a few labels, a heading
+    skip, and charts whose focusable steps sit inside an image role. So
+    there is no standalone hosted report yet; the playground shows each
+    pair's.
 
 `tests/test_build_site.py` imports the zip alone, in a clean interpreter
 with the repository off the path, and gets the package's own diagnosis.
 The playground was driven end to end in Chromium against the same
 Pyodide release: a demo pair, the recorded pair, an OpenTelemetry
-upload and an unrecognised file.
+upload, an unrecognised file, and zero cookies after comparing. The
+site's own audit (`site_eval`) passes it 21/21 in light, dark and
+mobile.
 
 ## Cost per success over every run, the task as the cluster
 

@@ -20,6 +20,7 @@
   --rule-2: #cfcfc8;
   --a: #2f6f9f;
   --b: #b5651d;
+  --b-ink: #9e5714;
   --good: #3f7d3f;
   --bad: #b03030;
   --warn: #b5891d;
@@ -43,6 +44,7 @@
     --rule-2: #3d414a;
     --a: #6fb0e0;
     --b: #e2a45f;
+    --b-ink: #e2a45f;
     --good: #6fbf6f;
     --bad: #e07070;
     --warn: #d8b45a;
@@ -61,6 +63,7 @@
   --rule-2: #3d414a;
   --a: #6fb0e0;
   --b: #e2a45f;
+  --b-ink: #e2a45f;
   --good: #6fbf6f;
   --bad: #e07070;
   --warn: #d8b45a;
@@ -694,7 +697,7 @@ body[data-view="trace"] .stack-label .pip { display: none; }
 </style>
 </head>
 <body>
-<div class="topbar">
+<header class="topbar">
   <div class="brand"><strong>AgentDiff</strong><span>blocks</span></div>
   <select class="picker" id="task-picker" aria-label="Task"></select>
   <div class="spacer"></div>
@@ -717,7 +720,7 @@ body[data-view="trace"] .stack-label .pip { display: none; }
   <button class="btn" id="btn-drawer">Blocks</button>
   <button class="btn ghost" id="btn-help" title="Keyboard help (?)" aria-label="Keyboard help">?</button>
   <button class="btn" id="btn-you">You</button>
-</div>
+</header>
 
 <!-- The lane. One block, the whole content width: the trace is the point of
      the page, not one card in one of four columns. Populated by the core
@@ -729,6 +732,7 @@ body[data-view="trace"] .stack-label .pip { display: none; }
 <!-- The task strip: every task in the batch as one chip — who solved it,
      where the decisive step sits — so the whole batch is one glance and
      switching tasks is one click. -->
+<main id="content">
 <nav class="task-strip" id="task-strip" aria-label="Tasks" hidden></nav>
 <h1 class="page-title" id="page-title" hidden></h1>
 <div class="lead-lane" id="lead-lane" hidden></div>
@@ -746,6 +750,7 @@ body[data-view="trace"] .stack-label .pip { display: none; }
 <nav class="reading" id="reading" aria-label="Reading order"></nav>
 
 <div class="stacks" id="stacks"></div>
+</main>
 
 <div class="scrim" id="scrim"></div>
 
@@ -831,6 +836,11 @@ THIS SOFTWARE.
   var NS = "agentdiff";
   var VERSION = 1;
   var COOKIE = "agentdiff_vid";
+  //: a hosted copy whose site sets no cookies says so with <meta name="agentdiff:no-cookies">;
+  //: the store then keeps to localStorage and memory, and the You panel names what it used
+  var NO_COOKIES = (function () {
+    try { return !!document.querySelector('meta[name="agentdiff:no-cookies"]'); } catch (err) { return false; }
+  })();
   var YEAR = 60 * 60 * 24 * 365;
   var HALF_LIFE_DAYS = 14;
   //: blocks past this position in a stack open collapsed by default.
@@ -960,6 +970,7 @@ THIS SOFTWARE.
   }
 
   function readCookie(name) {
+    if (NO_COOKIES) return null;
     try {
       var parts = String(document.cookie || "").split(";");
       for (var i = 0; i < parts.length; i++) {
@@ -973,6 +984,7 @@ THIS SOFTWARE.
   }
 
   function writeCookie(name, value, maxAge) {
+    if (NO_COOKIES) return false;
     try {
       document.cookie = name + "=" + encodeURIComponent(value) +
         ";path=/;max-age=" + maxAge + ";SameSite=Lax";
@@ -3973,7 +3985,7 @@ THIS SOFTWARE.
       ".bd-stats .bars{height:10px;display:grid;grid-template-rows:4px 4px;gap:2px}",
       ".bd-stats .bars i{display:block;height:4px;border-radius:2px}",
       ".bd-stats .bars i.a{background:var(--a)}.bd-stats .bars i.b{background:var(--b)}",
-      ".bd-stats .nums{white-space:nowrap}.bd-stats .nums .a{color:var(--a)}.bd-stats .nums .b{color:var(--b)}",
+      ".bd-stats .nums{white-space:nowrap}.bd-stats .nums .a{color:var(--a)}.bd-stats .nums .b{color:var(--b-ink, var(--b))}",
       ".bd-stats .one{grid-column:1 / -1;font-family:var(--sans);color:var(--ink-2)}",
       ".bd-stats .one b{font-weight:600;color:var(--ink)}",
       ".bd-outcome{font-family:var(--mono);font-size:var(--fs-s)}",
@@ -4074,7 +4086,7 @@ THIS SOFTWARE.
       lede.appendChild(H("span", { class: "bd-axis" }, [dbgBtn]));
       var chartHost = H("div", { class: "bd-chart" });
       var left = H("div", null, [lede, chartHost]);
-      var stats = H("div", { class: "bd-stats", role: "list", "aria-label": "A versus B" });
+      var stats = H("div", { class: "bd-stats", role: "group", "aria-label": "A versus B" });
       [
         stat(ctx, "steps", md.steps && md.steps.a, md.steps && md.steps.b, function (v) { return String(v); }),
         stat(ctx, "tool calls", md.tool_calls && md.tool_calls.a, md.tool_calls && md.tool_calls.b, function (v) { return String(v); }),

@@ -1,5 +1,5 @@
-"""The web version (web/build_site.py): the playground's engine zip runs on its own, the samples and the demo
-report are there, and no model identifier is written. Pyodide itself is not in this test; the zip is imported by
+"""The web version (web/build_site.py): the playground's engine zip runs on its own, the samples are there, the
+hosted report sets no cookies, and no model identifier is written. Pyodide itself is not in this test; the zip is imported by
 CPython from the zip alone, which is the same import a browser makes."""
 
 from __future__ import annotations
@@ -29,14 +29,16 @@ class BuildSiteTest(unittest.TestCase):
         cls.tmp.cleanup()
 
     def test_the_files_are_there(self):
-        for name in ("demo/index.html", "try/index.html", "try/engine.zip", "try/blocks.html", "try/samples.json"):
+        for name in ("try/index.html", "try/engine.zip", "try/blocks.html", "try/samples.json"):
             self.assertTrue((self.site / name).is_file(), name)
         manifest = json.loads((self.site / "try/samples.json").read_text())
         for pair in manifest["pairs"]:
             self.assertIn(pair["data"], ("synthetic", "recorded"))
             for side in ("a", "b"):
                 self.assertTrue((self.site / "try/samples" / pair[side]).is_file())
-        self.assertIn("window.AGENTDIFF_DATA", (self.site / "try/blocks.html").read_text(encoding="utf-8"))
+        template = (self.site / "try/blocks.html").read_text(encoding="utf-8")
+        self.assertIn("window.AGENTDIFF_DATA", template)
+        self.assertIn('<meta name="agentdiff:no-cookies"', template.split("</head>")[0], "the hosted report sets none")
 
     def test_the_engine_zip_leaves_out_what_a_browser_cannot_run(self):
         names = zipfile.ZipFile(self.site / "try/engine.zip").namelist()

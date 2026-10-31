@@ -1,11 +1,9 @@
-"""Build the static web version of AgentDiff: a prebuilt demo report and an in-browser playground.
+"""Build the static web version of AgentDiff: a playground that runs the engine in the browser.
 
     python3 web/build_site.py OUT
 
 writes, under ``OUT/agentdiff/``:
 
-- ``demo/index.html``: the batch report over ``demo/traces`` (synthetic demo runs), the same page
-  ``agentdiff batch`` writes. It opens instantly and needs no engine.
 - ``try/index.html``: the playground (``web/try.html``). Pyodide, CPython compiled to WebAssembly, runs the
   engine in the visitor's browser, so a trace is never uploaded anywhere.
 - ``try/engine.zip``: the package, without what cannot or need not run in a browser (the harness and its
@@ -24,9 +22,7 @@ import io
 import json
 import re
 import shutil
-import subprocess
 import sys
-import tempfile
 import zipfile
 from pathlib import Path
 
@@ -89,25 +85,26 @@ def samples() -> tuple:
     return {"pairs": pairs}, files
 
 
-def demo_report(tmp: Path) -> bytes:
-    out = tmp / "batch"
-    subprocess.run([sys.executable, "-m", "agentdiff", "batch", str(ROOT / "demo" / "traces"), "-o", str(out),
-                    "--template", str(ROOT / "web" / "blocks.html")], cwd=str(ROOT), check=True, capture_output=True)
-    return (out / "report.html").read_bytes()
+#: a hosted copy of the report sets no cookies (the page keeps to localStorage and memory)
+NO_COOKIES = '<meta name="agentdiff:no-cookies" content="">'
+
+
+
+def hosted(page: bytes) -> bytes:
+    """A report page as a site serves it: no cookies."""
+    return page.decode("utf-8").replace("<head>", "<head>\n" + NO_COOKIES, 1).encode("utf-8")
 
 
 def build(out: Path) -> dict:
     """Write the site under ``out/agentdiff/``; returns {path: bytes written}."""
     site = out / "agentdiff"
     manifest, sample_files = samples()
-    with tempfile.TemporaryDirectory() as tmp:
-        written = {
-            "demo/index.html": demo_report(Path(tmp)),
-            "try/index.html": (ROOT / "web" / "try.html").read_bytes(),
-            "try/engine.zip": engine_zip(),
-            "try/blocks.html": (ROOT / "web" / "blocks.html").read_bytes(),
-            "try/samples.json": (json.dumps(manifest, indent=1) + "\n").encode("utf-8"),
-        }
+    written = {
+        "try/index.html": (ROOT / "web" / "try.html").read_bytes(),
+        "try/engine.zip": engine_zip(),
+        "try/blocks.html": hosted((ROOT / "web" / "blocks.html").read_bytes()),
+        "try/samples.json": (json.dumps(manifest, indent=1) + "\n").encode("utf-8"),
+    }
     for name, text in sample_files.items():
         written[f"try/samples/{name}"] = text.encode("utf-8")
     texts = {name: data for name, data in written.items() if not name.endswith(".zip")}

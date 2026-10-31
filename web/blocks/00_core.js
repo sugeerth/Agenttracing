@@ -16,6 +16,11 @@
   var NS = "agentdiff";
   var VERSION = 1;
   var COOKIE = "agentdiff_vid";
+  //: a hosted copy whose site sets no cookies says so with <meta name="agentdiff:no-cookies">;
+  //: the store then keeps to localStorage and memory, and the You panel names what it used
+  var NO_COOKIES = (function () {
+    try { return !!document.querySelector('meta[name="agentdiff:no-cookies"]'); } catch (err) { return false; }
+  })();
   var YEAR = 60 * 60 * 24 * 365;
   var HALF_LIFE_DAYS = 14;
   //: blocks past this position in a stack open collapsed by default.
@@ -145,6 +150,7 @@
   }
 
   function readCookie(name) {
+    if (NO_COOKIES) return null;
     try {
       var parts = String(document.cookie || "").split(";");
       for (var i = 0; i < parts.length; i++) {
@@ -158,6 +164,7 @@
   }
 
   function writeCookie(name, value, maxAge) {
+    if (NO_COOKIES) return false;
     try {
       document.cookie = name + "=" + encodeURIComponent(value) +
         ";path=/;max-age=" + maxAge + ";SameSite=Lax";
