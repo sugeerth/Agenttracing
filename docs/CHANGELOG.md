@@ -5,6 +5,30 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The web version is a repeatability dashboard
+
+https://sugeerth.github.io/agentdiff/try/ now answers how repeatable an
+agent is, not how two runs differ. From a suite of repeated runs,
+computed in the browser by `reliability` (and, with two agents,
+`paired_inference` and `cost_per_success_over_runs`), it shows:
+- **Headline tiles per agent:** pass^k at the largest k, with its
+  interval, beside pass@1 and pass@k; outcome consistency; and the
+  always-pass, flaky and always-fail split.
+- **The runs advisory** above every figure.
+- **pass^k against k**, with interval bands and a crosshair readout.
+- **The token spread** of each task's runs against its median.
+- **Every run, task by task**, as ✓ and ✗ cells.
+- **A table view.**
+
+`web/build_site.py` ships three labelled suites:
+- one real agent under two harness versions (the self-evolve example,
+  with its confirmation runs);
+- the real A/A suite;
+- the simulated runs corpus.
+
+Model names in the copies are withheld. The site's audit passes the page
+21/21 in light, dark and mobile.
+
 ## A web version: try it in the browser
 
 `web/build_site.py OUT` builds the static web version published at

@@ -1,5 +1,5 @@
-"""The web version (web/build_site.py): the playground's engine zip runs on its own, the samples are there, the
-hosted report sets no cookies, and no model identifier is written. Pyodide itself is not in this test; the zip is imported by
+"""The web version (web/build_site.py): the repeatability dashboard's engine zip runs on its own, the three suites
+are there and labelled, and no model identifier is written. Pyodide itself is not in this test; the zip is imported by
 CPython from the zip alone, which is the same import a browser makes."""
 
 from __future__ import annotations
@@ -29,16 +29,18 @@ class BuildSiteTest(unittest.TestCase):
         cls.tmp.cleanup()
 
     def test_the_files_are_there(self):
-        for name in ("try/index.html", "try/engine.zip", "try/blocks.html", "try/samples.json"):
+        for name in ("try/index.html", "try/engine.zip", "try/samples.json"):
             self.assertTrue((self.site / name).is_file(), name)
         manifest = json.loads((self.site / "try/samples.json").read_text())
-        for pair in manifest["pairs"]:
-            self.assertIn(pair["data"], ("synthetic", "recorded"))
-            for side in ("a", "b"):
-                self.assertTrue((self.site / "try/samples" / pair[side]).is_file())
-        template = (self.site / "try/blocks.html").read_text(encoding="utf-8")
-        self.assertIn("window.AGENTDIFF_DATA", template)
-        self.assertIn('<meta name="agentdiff:no-cookies"', template.split("</head>")[0], "the hosted report sets none")
+        self.assertEqual([d["id"] for d in manifest["datasets"]], ["harness", "aa", "sim"])
+        for d in manifest["datasets"]:
+            self.assertIn(d["data"], ("synthetic", "recorded"))
+            for name in d["files"]:
+                self.assertTrue((self.site / "try/samples" / d["id"] / name).is_file(), name)
+
+    def test_the_recorded_harness_suite_names_its_harness_not_its_model(self):
+        names = {json.loads(p.read_text())["agent"]["name"] for p in (self.site / "try/samples/harness").glob("*.json")}
+        self.assertEqual(names, {"harness v0", "harness v1"})
 
     def test_the_engine_zip_leaves_out_what_a_browser_cannot_run(self):
         names = zipfile.ZipFile(self.site / "try/engine.zip").namelist()
@@ -47,33 +49,31 @@ class BuildSiteTest(unittest.TestCase):
             self.assertFalse(any(n.startswith(left_out) for n in names), left_out)
 
     def test_the_engine_runs_from_the_zip_alone(self):
-        """A clean interpreter, the repository off the path: what the playground runs, on a demo pair and on a
-        trace in another format, rendered into the template."""
+        """A clean interpreter, the repository off the path: what the dashboard runs, on the recorded harness
+        suite, gives the numbers the package gives."""
         code = (
-            "import sys, json\n"
+            "import sys, json, glob\n"
             f"sys.path = [p for p in sys.path if not p.startswith({str(ROOT)!r})]\n"
             f"sys.path.insert(0, {str(self.site / 'try/engine.zip')!r})\n"
             "from agentdiff.trace import Trajectory\n"
-            "from agentdiff.report import compare, render_html\n"
             "from agentdiff import registry\n"
-            "from agentdiff.claude_code import register_format; register_format()\n"
-            "from agentdiff.adapters import register_formats; register_formats()\n"
+            "from agentdiff.reliability import reliability\n"
             "assert 'Agenttracing/agentdiff' not in registry.__file__, registry.__file__\n"
-            "load = lambda p: Trajectory.from_dict(registry.convert(json.load(open(p)))['trajectory'])\n"
-            f"s = {str(self.site / 'try/samples')!r}\n"
-            "rep = compare(load(s + '/t05_flight_duration__atlas-v2.json'), load(s + '/t05_flight_duration__bolt-v3.json'))\n"
-            f"render_html([rep], {{}}, {str(self.site / 'try/blocks.html')!r}, sys.argv[1])\n"
-            "print(json.dumps([rep['diagnosis']['subject'], rep['diagnosis']['decisive_step']['step']]))\n")
-        out = self.out / "rendered.html"
-        got = subprocess.run([sys.executable, "-I", "-c", code, str(out)], capture_output=True, text=True, timeout=600)
+            "data = {}\n"
+            f"for p in sorted(glob.glob({str(self.site / 'try/samples/harness')!r} + '/*.json')):\n"
+            "    t = Trajectory.from_dict(registry.convert(json.load(open(p)))['trajectory'])\n"
+            "    data.setdefault(t.task.id, {}).setdefault(t.agent.name, []).append(t)\n"
+            "r = reliability(data)['per_agent']\n"
+            "print(json.dumps({a: [v['runs_used'], v['pass_hat_k']['curve'][-1]['value']] for a, v in sorted(r.items())}))\n")
+        got = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, timeout=600)
         self.assertEqual(got.returncode, 0, got.stderr[-2000:])
-        self.assertEqual(json.loads(got.stdout), ["b", 1], "the same diagnosis the package gives")
-        self.assertGreater(out.stat().st_size, 1_000_000)
+        self.assertEqual(json.loads(got.stdout), {"harness v0": [21, 0.8667], "harness v1": [21, 1.0]})
 
     def test_the_playground_names_its_runtime_exactly(self):
         page = (self.site / "try/index.html").read_text(encoding="utf-8")
         self.assertIn("https://cdn.jsdelivr.net/npm/pyodide@0.29.5/pyodide.js", page)
         self.assertNotIn("innerHTML = l", page, "trace text is set as text, never as markup")
+        self.assertIn("How repeatable is your agent?", page)
 
 
 if __name__ == "__main__":

@@ -1,19 +1,21 @@
-"""Build the static web version of AgentDiff: a playground that runs the engine in the browser.
+"""Build the static web version of AgentDiff: a repeatability dashboard that runs the engine in the browser.
 
     python3 web/build_site.py OUT
 
 writes, under ``OUT/agentdiff/``:
 
-- ``try/index.html``: the playground (``web/try.html``). Pyodide, CPython compiled to WebAssembly, runs the
-  engine in the visitor's browser, so a trace is never uploaded anywhere.
+- ``try/index.html``: the dashboard (``web/try.html``). Pyodide, CPython compiled to WebAssembly, runs the
+  engine in the visitor's browser, so a run is never uploaded anywhere. From repeated runs it shows pass^k with
+  its interval, the flaky tasks, every run task by task, and the run-to-run spread.
 - ``try/engine.zip``: the package, without what cannot or need not run in a browser (the harness and its
   network code, the hub, the CLI commands, the page template, the vendor CLI drivers, the MCP server).
-- ``try/blocks.html``: the page template the report is rendered into.
-- ``try/samples/`` and ``try/samples.json``: the demo pairs (synthetic) and one recorded pair (real runs,
-  model name withheld), each labelled as such in the manifest.
+- ``try/samples/<suite>/`` and ``try/samples.json``: three suites of repeated runs, each labelled recorded or
+  synthetic in the manifest: one real agent under two harness versions (the recorded self-evolve example, its
+  confirmation runs included), one real agent under two names (``demo/vendors/aa-suite``), and two simulated
+  agents (``demo/runs``). Model names in the copies are replaced by "withheld".
 
 No model identifier may appear in a file this writes: it fails if one does, after removing the one docstring
-example the package carries. Standard library only.
+example the package carries and the model fields of the sample runs. Standard library only.
 """
 
 from __future__ import annotations
@@ -34,9 +36,7 @@ SKIP_FILES = {"vendors.py", "mcpserver.py"}
 SCRUB = {"record.py": ('model="claude-sonnet-5"', 'model="my-model"')}
 MODEL_NAME = re.compile(r"claude-(?:haiku|sonnet|opus|fable|[0-9])[\w.\-]*|gpt-[0-9][\w.\-]*|gemini-[\w.\-]+"
                         r"|\b(?:haiku|sonnet|opus)\b", re.I)
-#: the recorded pair: one agent under two names on a real task (demo/vendors/aa-suite)
-RECORDED = [("bugfix-pricing__A__r1.json", "bugfix-pricing__B__r1.json",
-             "bugfix-pricing: one agent under two names (real runs, model withheld)")]
+SELF_EVOLVE = ROOT / "demo" / "selfevolve" / "examples" / "haiku-hard-confirms"
 
 
 def engine_files() -> list:
@@ -65,34 +65,41 @@ def engine_zip() -> bytes:
     return buf.getvalue()
 
 
+def _withheld(text: str) -> str:
+    """A run with every model name replaced: the copy names no model."""
+    return MODEL_NAME.sub("withheld", text)
+
+
+def _harness_suite() -> list:
+    """The recorded self-evolve example as two agents, one per harness version: each generation's runs and its
+    confirmation runs, renamed so the file and agent names carry the harness, not the model."""
+    out = []
+    for version in ("0", "1"):
+        for folder in sorted(SELF_EVOLVE.glob(f"g0-h{version}*")):
+            for path in sorted((folder / "traces").glob("*.json")):
+                run = json.loads(path.read_text(encoding="utf-8"))
+                run["agent"] = {"name": f"harness v{version}", "model": "withheld", "version": f"v{version}"}
+                run["run_id"] = f"{folder.name}-{run.get('run_id') or path.stem.split('__')[-1]}"
+                name = f"{run['task']['id']}__v{version}__{folder.name}-{path.stem.split('__')[-1]}.json"
+                out.append((name, json.dumps(run, indent=1)))
+    return out
+
+
 def samples() -> tuple:
-    """(manifest, {file name: text}) for the demo pairs and the recorded pair."""
-    files, pairs = {}, []
-    by_task: dict = {}
-    for path in sorted((ROOT / "demo" / "traces").glob("*.json")):
-        by_task.setdefault(path.name.split("__")[0], []).append(path)
-    for task, paths in sorted(by_task.items()):
-        if len(paths) != 2:
-            continue
-        for p in paths:
-            files[p.name] = p.read_text(encoding="utf-8")
-        pairs.append({"label": f"{task}: two demo agents (synthetic)", "a": paths[0].name, "b": paths[1].name,
-                      "data": "synthetic"})
-    for a, b, label in RECORDED:
-        for name in (a, b):
-            files[name] = (ROOT / "demo" / "vendors" / "aa-suite" / "traces" / name).read_text(encoding="utf-8")
-        pairs.append({"label": label, "a": a, "b": b, "data": "recorded"})
-    return {"pairs": pairs}, files
-
-
-#: a hosted copy of the report sets no cookies (the page keeps to localStorage and memory)
-NO_COOKIES = '<meta name="agentdiff:no-cookies" content="">'
-
-
-
-def hosted(page: bytes) -> bytes:
-    """A report page as a site serves it: no cookies."""
-    return page.decode("utf-8").replace("<head>", "<head>\n" + NO_COOKIES, 1).encode("utf-8")
+    """(manifest, {path under samples/: text}) for the three suites."""
+    suites = [
+        ("harness", "One agent, two harness versions: 6 hard tasks, 3 to 6 runs each", "recorded", _harness_suite()),
+        ("aa", "One agent under two names: 6 tasks, 2 runs each", "recorded",
+         [(p.name, p.read_text(encoding="utf-8")) for p in sorted((ROOT / "demo/vendors/aa-suite/traces").glob("*.json"))]),
+        ("sim", "Two simulated agents: 8 tasks, 3 runs each", "synthetic",
+         [(p.name, p.read_text(encoding="utf-8")) for p in sorted((ROOT / "demo/runs/traces").glob("*.json"))]),
+    ]
+    files, datasets = {}, []
+    for sid, label, data, runs in suites:
+        for name, text in runs:
+            files[f"{sid}/{name}"] = _withheld(text)
+        datasets.append({"id": sid, "label": label, "data": data, "files": [name for name, _ in runs]})
+    return {"datasets": datasets}, files
 
 
 def build(out: Path) -> dict:
@@ -102,7 +109,6 @@ def build(out: Path) -> dict:
     written = {
         "try/index.html": (ROOT / "web" / "try.html").read_bytes(),
         "try/engine.zip": engine_zip(),
-        "try/blocks.html": hosted((ROOT / "web" / "blocks.html").read_bytes()),
         "try/samples.json": (json.dumps(manifest, indent=1) + "\n").encode("utf-8"),
     }
     for name, text in sample_files.items():
