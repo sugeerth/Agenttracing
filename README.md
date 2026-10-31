@@ -8,7 +8,7 @@ any model or agent, compare, replay the decisive step to verify it,
 narrate through a provider that may never alter a number.
 
 Pure Python 3.10+, no dependencies, deterministic. The analysis engine
-contains no network code; only the harness talks to a model.
+contains no network code; only the harness talks to a model. Try it in your browser, nothing uploaded: [sugeerth.github.io/agentdiff/try](https://sugeerth.github.io/agentdiff/try/) (built by `web/build_site.py`).
 
 ## Quick start
 

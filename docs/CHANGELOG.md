@@ -5,6 +5,28 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## A web version: try it in the browser
+
+`web/build_site.py OUT` builds a static web version, published at
+https://sugeerth.github.io/agentdiff/try/ and
+https://sugeerth.github.io/agentdiff/demo/.
+- **`try/` runs the engine in the visitor's browser.** It uses Pyodide,
+  CPython compiled to WebAssembly, so a trace is never uploaded. A
+  visitor picks a demo pair or the recorded pair, or drops in two traces
+  in any format `convert` detects. The page shows the verdict card, a
+  facts table, the full report and a JSON download.
+- **The engine is the package, zipped.** It leaves out what a browser
+  cannot or need not run: the harness and its network code, the hub, the
+  CLI commands and the vendor drivers.
+- **`demo/` is the batch report over the demo traces, prebuilt.**
+- **The build refuses** to write a file that names a model.
+
+`tests/test_build_site.py` imports the zip alone, in a clean interpreter
+with the repository off the path, and gets the package's own diagnosis.
+The playground was driven end to end in Chromium against the same
+Pyodide release: a demo pair, the recorded pair, an OpenTelemetry
+upload and an unrecognised file.
+
 ## Cost per success over every run, the task as the cluster
 
 `runs` compared one representative run per side per task (the medoid
