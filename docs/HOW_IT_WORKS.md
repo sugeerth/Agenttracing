@@ -104,6 +104,15 @@ paired inference with an exact sign test, output equality
 task family, with *clear* / *overlapping* / *insufficient*), and the
 scorecard (§6).
 
+A task that passed every run is reported as stable, but a few runs leave
+room for a lot. Each task in `reliability` carries an exact (Clopper–Pearson)
+95% interval for its pass rate (`success_rate_exact95`). A task with an
+unbroken record carries the failure rate it could still have
+(`unbroken.other_rate_at_most`): three straight passes leave 63%, six leave
+39%. `unbroken_records` sums this up per agent, with the straight passes it
+takes to rule out a failure rate of 10% (29), 5% (59) or 1% (299). These
+numbers say how much a run of passes proves. They decide nothing.
+
 ## 4. What the page draws, and how to read it
 
 The page is one file (`web/blocks.html`, built from `web/blocks/*.js`)

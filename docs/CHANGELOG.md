@@ -5,6 +5,31 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## What an unbroken record proves
+
+A task that passed every one of three runs was reported as consistently
+solved, as repeated-run evaluations usually label it. An exact bound says
+three straight passes leave room for a 63% failure rate.
+- `statistics.exact_interval`: the Clopper–Pearson interval, by bisection
+  on the exact binomial tails. A test enumerates the binomial distribution
+  and checks that it never runs short of 95% at any rate on a grid, for
+  2 to 30 runs.
+- `statistics.fail_rate_at_most(n)`: after n straight passes, the highest
+  failure rate not ruled out (one-sided, exact).
+- `statistics.runs_to_rule_out(f)`: the straight passes it takes: 29 for
+  10%, 59 for 5%, 299 for 1%.
+- `reliability`'s per-task rows carry `success_rate_exact95` and
+  `unbroken`, and each agent carries `unbroken_records`.
+- The dashboard shows the bound beside every "always" in the run grid,
+  the sentence in each agent's tile, and the interval in the table view.
+
+Measured on the recorded harness suite:
+- Harness v0's five always-pass tasks, at 3 runs each, could each still
+  fail up to 63% of the time.
+- Harness v1 passed `ranges` 6 of 6, after v0 passed it 4 of 6. Six
+  straight passes rule out only failure rates above 39%. So "v1 fixed
+  ranges" is likely, not established.
+
 ## The web version is a repeatability dashboard
 
 https://sugeerth.github.io/agentdiff/try/ now answers how repeatable an

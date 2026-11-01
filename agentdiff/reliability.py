@@ -83,7 +83,8 @@ from typing import Optional, Sequence
 
 from .stability import _cv, _levenshtein
 from ._stats import percentile_interval
-from .statistics import BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE, pass_at_k, wilson_interval
+from .statistics import (BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE, exact_interval, fail_rate_at_most, pass_at_k,
+                         runs_to_rule_out, wilson_interval)
 from .trace import HARNESS_TERMINATIONS, Trajectory
 from . import sections as _sections
 
@@ -414,6 +415,26 @@ def _task_interval(values: Sequence[float]) -> Optional[list]:
     return [round(lo, 4), round(hi, 4)]
 
 
+def unbroken_records(per_task: list) -> dict:
+    """What a task that passed (or failed) every run can still be. A suite reports such tasks as consistent;
+    with few runs each, the exact bound says how much inconsistency is still possible, and how many straight
+    passes would rule a given failure rate out. The worst case is the task with the fewest runs."""
+    passed = [r for r in per_task if r.get("runs") and r["successes"] == r["runs"]]
+    failed = [r for r in per_task if r.get("runs") and r["successes"] == 0]
+    fewest = min((r["runs"] for r in passed), default=None)
+    out = {"passed_every_run": len(passed), "failed_every_run": len(failed), "fewest_runs": fewest,
+           "fail_rate_at_most": fail_rate_at_most(fewest) if fewest else None,
+           "runs_to_rule_out": {"0.10": runs_to_rule_out(0.10), "0.05": runs_to_rule_out(0.05),
+                                "0.01": runs_to_rule_out(0.01)},
+           "basis": "one-sided exact 95% bound: after n straight passes, a failure rate f is ruled out once "
+                    "(1 - f)^n <= 0.05"}
+    out["says"] = (f"{len(passed)} task(s) passed every run; with {fewest} run(s), any of them could still fail up "
+                   f"to {out['fail_rate_at_most']:.0%} of the time. Ruling out a 10% failure rate takes "
+                   f"{out['runs_to_rule_out']['0.10']} straight passes, 5% takes {out['runs_to_rule_out']['0.05']}"
+                   if passed else "no task passed every run")
+    return out
+
+
 def _mean(values: Sequence[float]) -> float:
     return sum(values) / len(values)
 
@@ -535,6 +556,15 @@ def _agent_reliability(name: str,
             "runs_excluded": len(runs_by_task[tid]) - n,
             "successes": c,
             "success_rate": round(c / n, 4) if n else None,
+            # what these runs can and cannot rule out about this one task
+            "success_rate_exact95": exact_interval(c, n),
+            "unbroken": (None if not n or 0 < c < n else
+                         {"record": "passed every run" if c == n else "failed every run",
+                          "runs": n,
+                          "other_rate_at_most": fail_rate_at_most(n),
+                          "means": (f"it could still fail up to {fail_rate_at_most(n):.0%} of the time" if c == n
+                                    else f"it could still pass up to {fail_rate_at_most(n):.0%} of the time")
+                          + " (95%, one-sided, exact)"}),
             "pass_hat_k": hat_curve,
             "pass_at_k": cov_curve,
             "outcome_consistency": {
@@ -673,6 +703,7 @@ def _agent_reliability(name: str,
         "resource_consistency": resource_block,
         "icc": icc_block,
         "runs_advisory": advisory,
+        "unbroken_records": unbroken_records(per_task),
         "per_task": per_task,
     }
     result["narrative"] = _agent_narrative(result)

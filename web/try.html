@@ -66,6 +66,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .facts dd{margin:0;font-variant-numeric:tabular-nums;text-align:right}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0}
 .chip{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);font-variant-numeric:tabular-nums}
+.unbroken{font-size:12.5px;color:var(--ink-2);margin:10px 0 0;line-height:1.45}
 .chip .g{color:var(--good-ink);font-weight:700}.chip .w{color:var(--warn-ink);font-weight:700}.chip .r{color:var(--bad-ink);font-weight:700}
 .panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,34rem),1fr));gap:12px;margin:0 0 14px}
 .panel{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:14px 16px;min-width:0;position:relative}
@@ -96,6 +97,7 @@ table.runs td.sep{border-left:1px solid var(--line);padding-left:10px}
 .cell.na{background:transparent;border:1px dashed var(--axis);color:var(--muted)}
 .cell:focus-visible{outline:2px solid var(--ink);outline-offset:1px}
 .verdict{font-size:12.5px;white-space:nowrap}
+.bound{font-size:12px;color:var(--ink-2);white-space:nowrap}
 .verdict.g{color:var(--good-ink)}.verdict.w{color:var(--warn-ink)}.verdict.r{color:var(--bad-ink)}
 details.table{margin:0 0 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:10px 16px}
 details.table summary{cursor:pointer;font-weight:600}
@@ -157,7 +159,7 @@ footer{border-top:1px solid var(--line);padding:16px 0 32px;font-size:14px;color
     </div>
     <section class="panel" aria-labelledby="h-grid" style="margin:0 0 14px">
       <h2 id="h-grid">Every run, task by task</h2>
-      <p class="sub">✓ passed, ✗ failed, in run order. A task with both is flaky: the place to look first.</p>
+      <p class="sub">✓ passed, ✗ failed, in run order. A task with both is flaky: the place to look first. A task that passed every run still has a bound: how often it could fail, given how few runs there are.</p>
       <div class="gridwrap"><table class="runs" id="grid"></table></div>
       <div class="tip" id="grid-tip" hidden></div>
     </section>
@@ -226,8 +228,11 @@ footer{border-top:1px solid var(--line);padding:16px 0 32px;font-size:14px;color
     "        return json.dumps({'error': 'no run could be read', 'skipped': skipped})",
     "    rel = reliability(data)",
     "    keep = ('tasks', 'runs_total', 'runs_used', 'successes', 'mean_success_rate', 'max_k', 'pass_hat_k', 'pass_at_k',",
-    "            'outcome_consistency', 'trajectory_consistency', 'resource_consistency', 'icc', 'runs_advisory')",
+    "            'outcome_consistency', 'trajectory_consistency', 'resource_consistency', 'icc', 'runs_advisory', 'unbroken_records')",
     "    per_agent = {ag: {k: (rel['per_agent'].get(ag) or {}).get(k) for k in keep} for ag in agents}",
+    "    for ag in agents:",
+    "        rows = (rel['per_agent'].get(ag) or {}).get('per_task') or []",
+    "        per_agent[ag]['tasks_exact'] = {r['task']: {'ci': r.get('success_rate_exact95'), 'unbroken': r.get('unbroken')} for r in rows}",
     "    grid = []",
     "    for task in sorted(data):",
     "        grid.append({'task': task, 'agents': {ag: [_run(t) for t in sorted(data[task].get(ag, []), key=lambda t: str(t.run_id or t.trace_id))]",
@@ -378,7 +383,8 @@ footer{border-top:1px solid var(--line);padding:16px 0 32px;font-size:14px;color
           el("span", { class: "chip" }, [el("span", { class: "g", text: "✓" }), document.createTextNode(v.stable + " always pass")]),
           el("span", { class: "chip" }, [el("span", { class: "w", text: "⚠" }), document.createTextNode(v.flaky + " flaky")]),
           el("span", { class: "chip" }, [el("span", { class: "r", text: "✗" }), document.createTextNode(v.failing + " always fail")])
-        ])
+        ]),
+        a.unbroken_records && a.unbroken_records.passed_every_run ? el("p", { class: "unbroken", text: a.unbroken_records.says + "." }) : null
       ]);
       host.appendChild(tile);
     });
@@ -576,7 +582,12 @@ footer{border-top:1px solid var(--line);padding:16px 0 32px;font-size:14px;color
         var graded = runs.filter(function (r) { return r.ok === true || r.ok === false; });
         var ok = graded.filter(function (r) { return r.ok; }).length;
         var v = !graded.length ? ["", ""] : ok === graded.length ? ["g", "✓ always"] : ok === 0 ? ["r", "✗ never"] : ["w", "⚠ " + ok + " of " + graded.length];
-        tr.appendChild(el("td", {}, [el("span", { class: "verdict " + v[0], text: v[1] })]));
+        var exact = ((out.per_agent[ag].tasks_exact || {})[row.task]) || {};
+        var bound = exact.unbroken ? exact.unbroken.means : exact.ci ? "pass rate " + pct(exact.ci[0]) + "–" + pct(exact.ci[1]) + " (exact 95%)" : "";
+        var vspan = el("span", { class: "verdict " + v[0], text: v[1], title: bound });
+        var vcell = el("td", {}, [vspan]);
+        if (exact.unbroken) vcell.appendChild(el("span", { class: "bound", text: " · ≤" + pct(exact.unbroken.other_rate_at_most) + (ok ? " fail" : " pass") }));
+        tr.appendChild(vcell);
       });
       body.appendChild(tr);
     });
@@ -585,7 +596,7 @@ footer{border-top:1px solid var(--line);padding:16px 0 32px;font-size:14px;color
 
   function renderTable(out) {
     var t = $("table"); t.innerHTML = "";
-    t.appendChild(el("thead", {}, [el("tr", {}, ["task", "agent", "runs", "passed", "pass rate", "tokens (min–max)", "steps (min–max)"].map(function (h) { return el("th", { scope: "col", text: h }); }))]));
+    t.appendChild(el("thead", {}, [el("tr", {}, ["task", "agent", "runs", "passed", "pass rate", "exact 95% interval", "tokens (min–max)", "steps (min–max)"].map(function (h) { return el("th", { scope: "col", text: h }); }))]));
     var body = el("tbody");
     out.grid.forEach(function (row) {
       out.agents.forEach(function (ag) {
@@ -593,14 +604,15 @@ footer{border-top:1px solid var(--line);padding:16px 0 32px;font-size:14px;color
         if (!runs.length) return;
         var ok = runs.filter(function (r) { return r.ok; }).length;
         var tok = runs.map(function (r) { return r.tokens || 0; }), st = runs.map(function (r) { return r.steps; });
-        body.appendChild(el("tr", {}, [row.task, ag, String(runs.length), String(ok), pct(ok / runs.length),
+        var ex = ((out.per_agent[ag].tasks_exact || {})[row.task] || {}).ci;
+        body.appendChild(el("tr", {}, [row.task, ag, String(runs.length), String(ok), pct(ok / runs.length), ex ? pct(ex[0]) + "–" + pct(ex[1]) : "—",
           num(Math.min.apply(null, tok)) + "–" + num(Math.max.apply(null, tok)), Math.min.apply(null, st) + "–" + Math.max.apply(null, st)].map(function (c) { return el("td", { text: c }); })));
       });
     });
     out.agents.forEach(function (ag) {
       var a = out.per_agent[ag];
       (a.pass_hat_k && a.pass_hat_k.curve || []).forEach(function (p) {
-        body.appendChild(el("tr", {}, ["all tasks", ag, "pass^" + p.k, pct(p.value, 1), p.ci95 ? pct(p.ci95[0]) + "–" + pct(p.ci95[1]) : "—", "", ""].map(function (c) { return el("td", { text: c }); })));
+        body.appendChild(el("tr", {}, ["all tasks", ag, "pass^" + p.k, pct(p.value, 1), "", p.ci95 ? pct(p.ci95[0]) + "–" + pct(p.ci95[1]) : "—", "", ""].map(function (c) { return el("td", { text: c }); })));
       });
     });
     t.appendChild(body);

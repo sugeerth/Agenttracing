@@ -71,6 +71,46 @@ def pass_at_k(successes: int, runs: int, k: int) -> Optional[float]:
     return round(probability, 4)
 
 
+def exact_interval(successes: int, trials: int, coverage: float = CONFIDENCE) -> Optional[list]:
+    """The exact (Clopper–Pearson) interval for a pass rate: every rate under which ``successes`` of
+    ``trials`` is not in either tail beyond (1 − coverage)/2. Exact means it never runs short of its coverage
+    at any rate or any number of runs, which a normal approximation does at 0 or n of n, where repeated agent
+    runs usually land. None for no trials."""
+    if trials <= 0:
+        return None
+    half = (1 - coverage) / 2
+
+    def solve(f, rising: bool) -> float:
+        lo, hi = 0.0, 1.0
+        for _ in range(60):
+            mid = (lo + hi) / 2
+            if (f(mid) < half) == rising:
+                lo = mid
+            else:
+                hi = mid
+        return (lo + hi) / 2
+    lower = 0.0 if successes <= 0 else solve(lambda p: binomial_tail(successes, trials, p), True)
+    upper = 1.0 if successes >= trials else solve(lambda p: 1 - binomial_tail(successes + 1, trials, p), False)
+    return [round(lower, 4), round(upper, 4)]
+
+
+def fail_rate_at_most(runs: int, coverage: float = CONFIDENCE) -> Optional[float]:
+    """After ``runs`` passes in a row and no failure, the highest failure rate not ruled out at ``coverage``
+    (one-sided, exact): a rate f survives while (1 − f)^runs exceeds 1 − coverage. Three straight passes leave
+    0.63; it is the same for a pass rate after a run of failures."""
+    if runs <= 0:
+        return None
+    return round(1 - (1 - coverage) ** (1 / runs), 4)
+
+
+def runs_to_rule_out(rate: float, coverage: float = CONFIDENCE) -> Optional[int]:
+    """The straight passes it takes before a failure rate of ``rate`` is ruled out at ``coverage``
+    (one-sided, exact): 29 for 10%, 59 for 5%."""
+    if not 0 < rate < 1:
+        return None
+    return math.ceil(math.log(1 - coverage) / math.log(1 - rate) - 1e-12)
+
+
 def binomial_tail(k: int, n: int, p: float) -> float:
     """P(X >= k) for X ~ Binomial(n, p), exactly, via math.comb.
 

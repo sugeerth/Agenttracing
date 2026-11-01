@@ -4,6 +4,44 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-01
+
+**How it was read.** Through search-engine extracts, as before.
+
+**Read:**
+- *On the Reliability of Computer Use Agents* (arXiv 2604.17849). OSWorld
+  tasks run several times, each labelled consistently solved,
+  inconsistently solved or never solved. Settings are compared by McNemar
+  on the "consistently solved" flag, and by Wilcoxon signed-rank on
+  per-task success counts. pass^k is reported beside them.
+- *ReliabilityBench* (arXiv 2601.06112) and *Beyond pass@1* (arXiv
+  2603.29231). Consistency under repetition, and how it decays with task
+  length. Neither gives a run count or a bound for calling a task
+  consistent.
+
+**Taken: what an unbroken record proves.** Labelling a task consistent
+from three passes, as the computer-use paper does and as AgentDiff's own
+"always pass" chip did, hides that three passes leave room for a 63%
+failure rate.
+- Built: the exact per-task interval, the bound for an unbroken record,
+  and the runs it takes to rule out a failure rate. All are stdlib and
+  closed-form or bisection, and decide nothing.
+- They are shown in the repeatability dashboard.
+- On the recorded harness suite, the "fix" of `ranges`, from 4/6 to 6/6,
+  still allows a 39% failure rate.
+
+**Not taken, and why:**
+- **Wilcoxon signed-rank across settings** (the paper's second test).
+  `paired_inference` already pairs per-task rates with an exact sign
+  test. With 2 to 6 runs a task, the per-task differences take a handful
+  of tied values, and Wilcoxon's normal approximation is poor there. An
+  exact permutation version is possible, but the sign test's verdict
+  would rarely change on suites this size. Not worth a second test that
+  disagrees at the margin.
+- **McNemar on the "consistently solved" flag.** The flag is the thing
+  this run shows to be weak at three runs, and the sign test on rates
+  already uses every run.
+
 ## 2026-10-31
 
 **How it was read.** Through search-engine extracts, as yesterday.
