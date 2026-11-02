@@ -113,6 +113,13 @@ unbroken record carries the failure rate it could still have
 takes to rule out a failure rate of 10% (29), 5% (59) or 1% (299). These
 numbers say how much a run of passes proves. They decide nothing.
 
+`run_plan` turns that into runs still to make, per task, for a failure
+rate of 10%. A task with both outcomes is already shown inconsistent and
+needs no more runs to show it. A task with an unbroken record needs 29
+in all, so 26 more after 3. Given a per-task `budget`, a task whose 29 is
+above it is marked as one more runs can only break, never clear. It
+counts runs; it does not pick or stop them.
+
 ## 4. What the page draws, and how to read it
 
 The page is one file (`web/blocks.html`, built from `web/blocks/*.js`)

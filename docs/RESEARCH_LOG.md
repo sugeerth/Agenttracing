@@ -4,6 +4,47 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-02
+
+**How it was read.** Through search-engine extracts; only abstracts were
+reachable.
+
+**Read:**
+- *When More Runs Cannot Help: Fixed-Budget Stopping for Agent
+  Evaluation* (NeurIPS 2026). One categorical decision per run, runs
+  paired without overlap, and a Wilson interval on the disagreement rate
+  against a declared tolerance: below, above, or undetermined. In a
+  40-condition case study, two conditions met the criterion early, saving
+  233 pairs (4.0% of the workload).
+- *AdaStop* (arXiv 2306.10882). Sequential tests for comparing RL agents
+  over seeds, stopping once a difference is settled.
+- *Risk-Aware Adaptive Evaluation* (NeurIPS 2026), and *Knowing When to
+  Stop: Bayesian Optimal Stopping for LLM Evaluations* (arXiv 2608.14425).
+  Budgeted evaluation that spends runs where they change a decision.
+
+**Taken: the runs each task still needs, and where more runs cannot
+help.** The paper's point fits AgentDiff's repeatability focus: a run
+budget can make a question unanswerable before any run is made.
+AgentDiff's version uses the exact bounds from yesterday, not a Wilson
+interval on paired disagreements. Its outcome is binary per run, so a
+task that has both passed and failed is already shown inconsistent, with
+certainty.
+- Built: `reliability.run_plan`, carried by each agent, and a line on
+  the dashboard. It counts runs; it does not choose or stop them.
+- Measured: on every suite the dashboard ships, most tasks are open. It
+  takes 130 to 208 more runs per agent to rule out a 10% failure rate.
+  With a 16-run budget per task, no open task on any suite can be
+  cleared, so those runs could only find flakiness.
+
+**Not taken, and why:**
+- **The paper's Wilson test on disjoint pairs.** Pairing halves the
+  runs, and Wilson is approximate at 0 or n of n, where these tasks sit.
+  The exact one-sided bound needs neither.
+- **Sequential stopping between two agents** (AdaStop, Bayesian optimal
+  stopping). They stop when a difference looks settled, at an accepted
+  error rate or a prior. `paired_inference` and `could_keep` already
+  cover the two-agent and keep-or-revert cases without one.
+
 ## 2026-11-01
 
 **How it was read.** Through search-engine extracts, as before.

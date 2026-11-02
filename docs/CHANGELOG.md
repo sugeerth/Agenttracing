@@ -5,6 +5,32 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Runs still to make, per task
+
+`reliability` now carries `run_plan` for each agent: for every task, the
+runs still needed before its record says something at a 10% rate.
+- A task with both outcomes is `shown inconsistent`, with 0 more runs.
+  More runs sharpen its rate but cannot undo that.
+- A task with an unbroken record is `open` until it has 29 straight runs
+  (`runs_to_rule_out(0.10)`), then `ruled out`. One break makes it shown
+  inconsistent instead.
+- `run_plan(per_task, target, budget)` with a per-task budget marks each
+  open task that more runs cannot clear within it
+  (`can_clear_within_budget`, `cannot_clear_within_budget`).
+- The dashboard prints the plan in each agent's tile.
+- Tests check each kind of record, that a plan followed to the end is
+  wrong at most 5% of the time at the target rate (exact), and the
+  budget flag.
+
+Measured on the three suites the dashboard ships:
+- **Harness v0 (recorded):** 5 of 6 tasks open, 130 more runs; 1 already
+  shown inconsistent.
+- **Harness v1 (recorded):** all 6 open, 153 more runs.
+- **A/A suite (recorded):** each name, 6 open, 162 more runs.
+- **Simulated:** 208 and 182 more runs.
+- With a 16-run budget (the top of the 8–16 structured-task range), no open task on any
+  suite can be cleared. Within it, more runs can only find flakiness.
+
 ## What an unbroken record proves
 
 A task that passed every one of three runs was reported as consistently

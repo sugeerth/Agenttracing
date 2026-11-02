@@ -435,6 +435,57 @@ def unbroken_records(per_task: list) -> dict:
     return out
 
 
+#: the failure rate a run plan aims to rule out on every task that has not shown both outcomes
+PLAN_TARGET = 0.10
+
+
+def run_plan(per_task: list, target: float = PLAN_TARGET, budget: Optional[int] = None) -> dict:
+    """How many more runs each task needs before its record says something at ``target``, and where more runs
+    cannot help. A task that has both passed and failed is already shown to be inconsistent: more runs can
+    sharpen its rate but cannot undo that. A task that passed every run needs ``runs_to_rule_out(target)``
+    straight passes in all before a failure rate of ``target`` is ruled out (the same for a pass rate after
+    straight failures); one break and it is shown flaky instead. With a per-task ``budget`` of runs, a task
+    whose count is above the budget can only be broken by more runs, never cleared. Counts only; nothing here
+    picks a task to run or stops a run."""
+    need = runs_to_rule_out(target)
+    rows, more_total = [], 0
+    for r in per_task:
+        n, c = r.get("runs") or 0, r.get("successes") or 0
+        if not n:
+            continue
+        if 0 < c < n:
+            status, more = "shown inconsistent", 0
+        else:
+            more = max(0, need - n)
+            status = ("ruled out" if not more else "open") + (": passed every run" if c == n
+                                                              else ": failed every run")
+        row = {"task": r["task"], "runs": n, "status": status, "more_runs": more}
+        if budget is not None and more:
+            row["can_clear_within_budget"] = need <= budget
+        more_total += more
+        rows.append(row)
+    open_rows = [r for r in rows if r["more_runs"]]
+    out = {"target": target, "budget": budget, "runs_to_rule_out": need,
+           "tasks": len(rows),
+           "shown_inconsistent": sum(1 for r in rows if r["status"] == "shown inconsistent"),
+           "ruled_out": sum(1 for r in rows if r["status"].startswith("ruled out")),
+           "open": len(open_rows), "more_runs": more_total, "per_task": rows,
+           "basis": f"one-sided exact 95%: {need} straight passes rule out a {target:.0%} failure rate; "
+                    "a task with both outcomes is already inconsistent, whatever more runs show"}
+    if budget is not None:
+        out["cannot_clear_within_budget"] = sum(1 for r in open_rows if not r["can_clear_within_budget"])
+    out["says"] = (f"{len(open_rows)} task(s) have an unbroken record that does not yet rule out a {target:.0%} "
+                   f"rate: {more_total} more run(s) in all, if every one keeps the record"
+                   + (f". {out['shown_inconsistent']} task(s) are already shown inconsistent and need none to show it"
+                      if out["shown_inconsistent"] else "")
+                   if open_rows else
+                   f"every task is either shown inconsistent or has ruled out a {target:.0%} rate")
+    if budget is not None and out["cannot_clear_within_budget"]:
+        out["says"] += (f". With {budget} runs a task, {out['cannot_clear_within_budget']} of them cannot be "
+                        f"cleared at all: more runs could only break the record")
+    return out
+
+
 def _mean(values: Sequence[float]) -> float:
     return sum(values) / len(values)
 
@@ -704,6 +755,7 @@ def _agent_reliability(name: str,
         "icc": icc_block,
         "runs_advisory": advisory,
         "unbroken_records": unbroken_records(per_task),
+        "run_plan": run_plan(per_task),
         "per_task": per_task,
     }
     result["narrative"] = _agent_narrative(result)
